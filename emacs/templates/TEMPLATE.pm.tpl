@@ -23,18 +23,22 @@ BEGIN {
 use strict;
 use Carp;
 
+# Object Usage:
+#   my $obj = (>>>package_name<<<)->new()->initializer(...);
 sub new {
     # Does it get any more generic than this?  I thought not...
     my $this = shift;
     my $class = ref($this) || $this;
     my $self = {};
     bless $self, $class;
-    $self->initialize();
     return $self;
 }
 
 sub initialize {
     die "This should never be called.";
+
+    my ($self) = @_;
+    return $self;
 }
 
 __END__

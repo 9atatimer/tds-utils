@@ -7,3 +7,5 @@
  (local-set-key "\C-o" 'other-window)
 )
 
+(add-hook 'dired-mode-hook 'tds-dired-mode)
+

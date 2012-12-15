@@ -14,7 +14,6 @@
 ;; with a bootstrap.el that doesn't do much but dink with the
 ;; load-librar path.
 (require 'tds-bootstrap)
-
 (require 'diff-mode-) ;; diff-mode extension needs load before diff-mode
 (require 'diff-mode)
 
@@ -126,6 +125,12 @@
 (global-set-key "\C-w"  'backward-kill-word)         ;; just what I'm used to...
 (global-set-key "\C-x_"  'call-last-kbd-macro)        ;; C-( ... C-) then C-_'
 
+;;;(load-library "gtags")
+;;;(autoload 'gtags-mode "gtags" "" t)
+;;; (gtags-mode 1)
+;;;(global-set-key "\M-\." 'gtags-find-tag)
+;;;;;(global-set-key [?\M-\C-.] 'google-show-callers)     ;; show callers of function
+
 (global-unset-key "\C-x\C-z")                        ;; I never want to minimize
 
 ;; when I'm running on a mac, I want:
@@ -143,6 +148,5 @@
 	(setq mac-right-option-modifier 'left)  ;; do whatever the left one does (open apple == close apple)
 	(setq quacks-like-a-darwin 't)))
 
-(global-unset-key "\C-x\C-z")                        ;; I never want to minimize
 
 (server-start)

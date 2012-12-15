@@ -14,3 +14,7 @@ not too loudly.
       (concat "perl -wc "
               (file-name-sans-extension buffer-file-name)))
 )
+
+(add-to-list 'auto-mode-alist '("\\.pm$" . perl-mode))'
+
+(add-hook 'perl-mode-hook 'tds-perl-mode)

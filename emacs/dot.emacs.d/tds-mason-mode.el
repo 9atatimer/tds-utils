@@ -14,4 +14,8 @@
 
 )
 
+(add-to-list 'auto-mode-alist '("\\.tpl$"   . html-mode))
+(add-to-list 'auto-mode-alist '("\\.mc$"    . html-mode))
+(add-to-list 'auto-mode-alist '("\\.mhtml$" . html-mode))
 
+(add-hook 'html-mode-hook 'tds-htmlmason-mode)

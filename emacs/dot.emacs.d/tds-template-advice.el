@@ -5,18 +5,17 @@
 ;; by default, without any way to easily override that behavior.
 ;; I just overriding the split function to use the first dot, not the
 ;; last, and all seems to work well enough.
-;;
-;; Either link your ~/.templates directory to your template depot, or
-;; add it (and others) to the template-default-directories var.
+;; ALSO: I want to have templates for _test.<lang> files, so I also
+;; check for a '_test' prefix on the extension.
 
 (defadvice template-split-filename (around use-full-suffix-for-match freeze)
   "Split the file using the first dot, not the last, as the EXT delimiter"
   (or dir (setq dir (template-make-directory (file-name-directory file))
 		file (file-name-nondirectory file)))
-; Here's what the original template.el code had:
-;  (let* ((ext (string-match "\\.[^.]*\\'" file))
-; Here's what I want:
-  (let* ((ext (string-match "\\..*\\'" file))
+  ; Here's what the original template.el code had:
+  ;  (let* ((ext (string-match "\\.[^.]*\\'" file))
+  ; Here's what I want:
+  (let* ((ext (string-match "\\(_test\\)?\\..*\\'" file))
 	 (raw (substring file 0 ext))
 	 (num (string-match "[^0-9][0-9]+\\'" raw)))
     (if num

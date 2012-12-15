@@ -28,6 +28,7 @@ font-lock-instance-variable-face)))
  (setq c-basic-offset 2)
  (setq c-tab-always-indent t)
  (setq indent-tabs-mode nil)
+ (tool-bar-mode 0)                           ;; nuke sillier graphic toolbar
  (setq show-trailing-whitespace t)           ;; call out trailing whitespace..
  (set-face-attribute 'trailing-whitespace    ;; .. but not too loudly.
                      nil
@@ -57,4 +58,9 @@ font-lock-instance-variable-face)))
                     "/google3/bin/"))))
  )
 
+(add-hook 'c++-mode-hook 'tds-cplusplus-mode)
 
+(add-to-list 'auto-mode-alist '("\\.c$" . c++-mode))
+(add-to-list 'auto-mode-alist '("\\.h$" . c++-mode))
+
+(provide 'tds-cpp-mode)
