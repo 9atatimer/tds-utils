@@ -1,0 +1,9 @@
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Tex Edit Mode
+(defun tds-tex-mode()
+ "Setup tex editting mode they way I like it."
+ (interactive)
+ (require 'AUCTeX)  ;; just use auctex.  it be the bom.
+)
+
+
