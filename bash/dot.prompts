@@ -1,0 +1,21 @@
+#!/usr/bash -- not really, but helps emacs format it properly
+#export PS1="\t \u@\h:\w$ "
+#XTERM_SET_ICON_TITLE='\e]1;\u@\h\a'    # user@host
+#XTERM_SET_TITLE='\e]2;\w\a'            # cwd
+
+# \[ ... \] encloses non-printing commands which makes sure the prompt indenting
+# works properly with multi-line args and such.  If you have a problem with
+# things not wrapping properly, double-check your []'s
+ANSI_ATTR_BOLD='\[\e[1m\]'      # ansi control for bold text
+ANSI_ATTR_STAND='\[\e[7m\]'     # ansi control for standout (inverse) text
+ANSI_ATTR_GRAY='\[\e[1;30m\]'
+ANSI_ATTR_END='\[\e[m\]'
+export PS1="\[$XTERM_SET_TITLE\]$ANSI_ATTR_GRAY\t \h:\w$ANSI_ATTR_END\n\u$ "
+
+unset ANSI_ATTR_BOLD
+unset ANSI_ATTR_STAND
+unset ANSI_ATTR_GRAY
+unset ANSI_ATTR_END
+
+echo 'dot.prompts' >> ~/trace.log
+

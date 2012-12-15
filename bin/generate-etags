@@ -1,0 +1,21 @@
+#!/bin/bash
+# Generate a tags file, the first step in getting tags to work in emacs.
+
+# Remove the TAGS file 
+rm -f TAGS
+
+# Find the file extensions we're looking for and pass them to xargs.
+# Use the -0 option for xargs to handle files with spaces in their names.
+# xargs seems to work but gives warnings if the -O option isn't used.
+#
+# Then run etags with these options:
+#  --extra=+q         Add entries for classes. Not really pertinent now.
+#  --fields=+fksaiS   Specifies which fields are included in the tags file.
+#  --c++-kinds=+px    Language specific tags. Not really pertinent now.
+#  --append           Indicates whether tags generated from the specified
+#                     files  should be  appended  to  those  already present
+#                     in the tag file or should replace them. I nuke the file
+#                     before regenerating it so it probably is moot.
+#
+find . -name '*.cpp' -o -name '*.h' -o -name '*.c' -print0 \
+| xargs -0 /usr/bin/etags --append -

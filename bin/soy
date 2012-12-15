@@ -1,0 +1,3 @@
+#!/bin/bash
+java -jar ~/closure/SoyToJsSrcCompiler.jar --outputPathFormat $1.js $1.soy
+

@@ -1,0 +1,15 @@
+Howdy!
+
+What you're looking at here is the root of Todd's standard
+unix environment tree -- this has all the custommizations
+he's done to make any unix system he works on 'familiar'.
+
+There are a copy of top-level dirs:
+  share --> the platform independent content
+  common -> re-used, but platform-conditional, content
+  local --> the customizations for this specific unix environemnt
+  test ---> unit tests, basically, to ensure things are working.
+  bin ----> executable scripts (language depedented, but OS neutral)
+
+Cheers.
+-- Todd 2010-07-05
