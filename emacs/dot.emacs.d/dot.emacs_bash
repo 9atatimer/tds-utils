@@ -1,0 +1,3 @@
+# This bash file gets sourced when emacs uses the bash shell.
+PATH=~/bin:/srv/droid/android-ndk-r8b:/srv/droid/android-sdk-linux/platform-tools:/srv/droid/android-sdk-linux/tools:$PATH
+

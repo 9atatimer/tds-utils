@@ -4,21 +4,20 @@
 ;; Not everything is in this one file -- I've broken things
 ;; out into other .el files to avoid clutter.
 ;;
-;; First look for stuff in ~/emacs/test, then ~/emacs, then
-;; fall back to the standard paths.
+;; Setup the load path to first look for stuff in ~/.emacs.d/test,
+;; then fall back to the standard paths.
 (defun tds-prefix-load-path()
  "Add personal paths to front of load-path"
  (setq load-path
        (append
         (list
-         "~/emacs/test/"
-         "~/emacs/tds/"
-         "~/emacs/"
-         "~/emacs/elisp/"
-	 "/opt/local/share/scala-2.8/misc/scala-tool-support/emacs/")
+         "~/.emacs.d/test/")
         load-path)))
+
 (tds-prefix-load-path)
-(setenv "PATH" (concat "~/bin:/srv/droid/android-ndk-r8b:/srv/droid/android-sdk-linux/platform-tools:/srv/droid/android-sdk-linux/tools" (getenv "PATH"))) ;; use in (shell-command)
+
+(setenv "PATH"
+	(concat "~/bin:/srv/droid/android-ndk-r8b:/srv/droid/android-sdk-linux/platform-tools:/srv/droid/android-sdk-linux/tools" (getenv "PATH"))) ;; use in (shell-command)
 
 (require 'diff-mode-) ;; diff-mode extension needs load before diff-mode
 (require 'diff-mode)
@@ -63,7 +62,7 @@
 (template-initialize)
 (require 'tds-template-advice)        ;; tweak locating template by extension
 
-(load "~/emacs/elisp/nxml/nxml-mode-20041004/rng-auto.el")
+;(load "~/emacs/elisp/nxml/nxml-mode-20041004/rng-auto.el")
 
  ;;;;;;;;;;;;;;;;;;;
  ;; Behavior tweaks
@@ -99,7 +98,7 @@
  ;; of behavior? Makes you think...)
 (set-frame-width (selected-frame) 81)    ;; Makes 80-char lines look okay.
 (menu-bar-mode 0)                        ;; nuke silly text menubar (puh-leeeez)
-(tool-bar-mode 0)                        ;; nuke sillier graphic toolbar
+;(tool-bar-mode 0)                        ;; nuke sillier graphic toolbar
 (global-font-lock-mode t)                ;; font-lock all buffers that want it
 (show-paren-mode t)                      ;; display matching parenthesis
 (setq suggest-key-bindings t)            ;; tell me if command is already bound
