@@ -1,4 +1,4 @@
-;;; bootstrap.el --- 
+;;; tds-bootstrap.el --- 
 ;;
 ;; Copyright 2013 Todd Stumpf
 ;;
@@ -17,8 +17,22 @@
         (list
          "~/.emacs.d/test/")
         load-path)))
-
 (tds-prefix-load-path)
 
-(provide 'bootstrap)
+(defun tds-prefix-exec-path()
+  "Add personal paths to front of load-path"
+  (setq exec-path
+	(append
+	 (list
+	  "/opt/twitter/bin")
+	 exec-path)))
+(tds-prefix-exec-path)
+
+; tool-bar.el may not be loaded on text-only emacs instances.
+(unless (boundp 'tool-bar-mode)
+   (defun tool-bar-mode(a)
+     "A NOOP for compatibility if tool-bar.el isnt standard"
+     nil))
+
+(provide 'tds-bootstrap)
 ;;; bootstrap.el ends here

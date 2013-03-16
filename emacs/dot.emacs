@@ -1,23 +1,19 @@
 ;; Welcome to my .emacs file... let me show you around.
 ;;    -- Todd Stumpf (stumpf@google.com) Jan 11, 2006
 
+;; sometimes we have Emacs23, sometimes its older... 
+(unless (boundp 'user-emacs-directory)
+   (defvar user-emacs-directory "~/.emacs.d/"))
+
+(add-to-list 'load-path user-emacs-directory)
+(add-to-list 'load-path
+   (concat user-emacs-directory (convert-standard-filename "elisp/")))
+
 ;; Not everything is in this one file -- I've broken things
-;; out into other .el files to avoid clutter.
-;;
-;; Setup the load path to first look for stuff in ~/.emacs.d/test,
-;; then fall back to the standard paths.
-(defun tds-prefix-load-path()
- "Add personal paths to front of load-path"
- (setq load-path
-       (append
-        (list
-         "~/.emacs.d/test/")
-        load-path)))
-
-(tds-prefix-load-path)
-
-(setenv "PATH"
-	(concat "~/bin:/srv/droid/android-ndk-r8b:/srv/droid/android-sdk-linux/platform-tools:/srv/droid/android-sdk-linux/tools" (getenv "PATH"))) ;; use in (shell-command)
+;; out into other .el files to avoid clutter.  I kick off things
+;; with a bootstrap.el that doesn't do much but dink with the
+;; load-librar path.
+(require 'tds-bootstrap)
 
 (require 'diff-mode-) ;; diff-mode extension needs load before diff-mode
 (require 'diff-mode)
@@ -46,6 +42,7 @@
 (require 'tds-buffer-control);; buffer advice to protect me from myself
 (require 'tds-mail-mode)     ;; tweak mail to protect me from myself
 (require 'tds-ediff-mode)    ;; trim ediff behavior. keep it simple.
+(require 'tds-tags)          ;; keep tag systems up to date with my changes.
 (require 'tds-misc-utils)    ;; things I can't categorize...
 
 (require 'icomplete)                  ;; show dynamic completions in minibuffer
@@ -56,6 +53,7 @@
 (require 'php-mode)
 
 (require 'template)                   ;; let me use pre-defined code snippets
+
 ;;(setq template-default-directories  ;; add personal templates...
 ;; (append (list "~/emacs/templates") ;; .. or skip and ln -s ~/.templates
 ;; template-default-directories))     ;; to your template depot.
@@ -98,7 +96,7 @@
  ;; of behavior? Makes you think...)
 (set-frame-width (selected-frame) 81)    ;; Makes 80-char lines look okay.
 (menu-bar-mode 0)                        ;; nuke silly text menubar (puh-leeeez)
-;(tool-bar-mode 0)                        ;; nuke sillier graphic toolbar
+(tool-bar-mode 0)                        ;; nuke sillier graphic toolbar
 (global-font-lock-mode t)                ;; font-lock all buffers that want it
 (show-paren-mode t)                      ;; display matching parenthesis
 (setq suggest-key-bindings t)            ;; tell me if command is already bound
@@ -128,10 +126,6 @@
 (global-set-key "\C-w"  'backward-kill-word)         ;; just what I'm used to...
 (global-set-key "\C-x_"  'call-last-kbd-macro)        ;; C-( ... C-) then C-_'
 
-(autoload 'gtags-mode "gtags" "" t)
-(global-set-key "\M-\." 'gtags-find-tag)
-;;(global-set-key [?\M-\C-.] 'google-show-callers)     ;; show callers of function
-
 (global-unset-key "\C-x\C-z")                        ;; I never want to minimize
 
 ;; when I'm running on a mac, I want:
@@ -151,3 +145,4 @@
 
 (global-unset-key "\C-x\C-z")                        ;; I never want to minimize
 
+(server-start)
