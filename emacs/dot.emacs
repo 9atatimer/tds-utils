@@ -41,7 +41,7 @@
 (require 'tds-buffer-control);; buffer advice to protect me from myself
 (require 'tds-mail-mode)     ;; tweak mail to protect me from myself
 (require 'tds-ediff-mode)    ;; trim ediff behavior. keep it simple.
-(require 'tds-tags)          ;; keep tag systems up to date with my changes.
+;;(require 'tds-tags)          ;; keep tag systems up to date with my changes.
 (require 'tds-misc-utils)    ;; things I can't categorize...
 
 (require 'icomplete)                  ;; show dynamic completions in minibuffer
