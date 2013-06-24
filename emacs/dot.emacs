@@ -59,12 +59,16 @@
 (template-initialize)
 (require 'tds-template-advice)        ;; tweak locating template by extension
 
+; mac-only libraries
+(if (string-equal "darwin" system-type)
+    (progn
+        (require 'exec-path-from-shell)))
+
 ;(load "~/emacs/elisp/nxml/nxml-mode-20041004/rng-auto.el")
 
  ;;;;;;;;;;;;;;;;;;;
  ;; Behavior tweaks
 (setq font-lock-support-mode 'jit-lock-mode);; fontify in the background
-(setq auto-save-default nil)           ;; don't litter disk with foo~ files
 (setq find-file-existing-other-name t) ;; avoid multiple buffers aliasing file
 (setq next-line-add-newlines nil)      ;; don't append with repeated 'next-line'
 (setq inhibit-startup-message t)       ;; don't spam me with startup message
@@ -77,10 +81,16 @@
 
 ;;(resize-minibuffer-mode)             ;; let minibuffer grow to display options
 
-(setq backup-directory-alist             ;; backup files under ~/emacs/backups
-     (list '("." . "~/emacs/backups"))) ;; to make them easier to clean up
-(setq backup-by-copying-when-mismatch t) ;; if mv'ing to backup would change
-                                        ;; perms, just copy to backup
+(setq backup-by-copying                 t
+      delete-old-versions               t
+      kept-new-versions                 6
+      kept-old-versions                 2
+      version-control                   t)
+(add-to-list 'backup-directory-alist
+	     (cons ".*" "~/emacs/backups"))
+(setq auto-save-file-name-transforms
+	     '((".*" "~/emacs/autosaves" t)))
+
 
 (put 'narrow-to-page 'disabled nil)      ;; ...
 (put 'narrow-to-region 'disabled nil)    ;; things I never want to do that
@@ -111,6 +121,12 @@
 
 (ansi-color-for-comint-mode-on)          ;; display colors in shells
 
+
+(setq Buffer-menu-name-width	         ;; with uniquify (and rails filenames)
+      (+ Buffer-menu-name-width 10))     ;; you need little more room 
+(setq Buffer-menu-mode-width 7)	         ;; do you look at this col?  Me neither.
+(setq Buffer-menu-size-width 4)	         ;; do you look at this col?  Me neither.
+
  ;;;;;;;;;;;;;;;;;;;
  ;; Finally, binding things to keys...
 (global-set-key [f1]   'template-initialize-new)     ;; use .ext boilerplate
@@ -133,20 +149,31 @@
 
 (global-unset-key "\C-x\C-z")                        ;; I never want to minimize
 
+;; TODO: move this to a sub-file
+;; Handle ANSI escapes in compilation, as ruby/rails tries to be all
+;; colorful and such.  Clearly, its trying to hard, if you ask me.
+(require 'ansi-color)
+(defun colorize-compilation-buffer ()
+  (toggle-read-only)
+  (ansi-color-apply-on-region (point-min) (point-max))
+  (toggle-read-only))
+(add-hook 'compilation-filter-hook 'colorize-compilation-buffer)
+
 ;; when I'm running on a mac, I want:
 ;;   the command (apple) key to be a meta key
 ;;   the option/alt key to be a super key
 ;;   the control key to be, tada, control
 ;;   ... nothing bound to hyper.  poor hyper.
-
+;; plus
+;;   I want my shell PATH (not the sys def PATH)
 (if (string-equal "darwin" system-type)
     (progn
+        (exec-path-from-shell-initialize)	;; set PATH for compile and such
         (setq mac-command-modifier 'meta)
 	(setq mac-control-modifier 'control)
 	(setq mac-function-modifier 'none)  ;; only exists on laptop, so don't try and use it...
 	(setq mac-option-modifier 'super)
 	(setq mac-right-option-modifier 'left)  ;; do whatever the left one does (open apple == close apple)
 	(setq quacks-like-a-darwin 't)))
-
 
 (server-start)

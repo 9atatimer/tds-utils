@@ -1,3 +1,4 @@
-# This bash file gets sourced when emacs uses the bash shell.
+ # This bash file gets sourced when emacs uses the bash shell.
 PATH=~/bin:/opt/twitter/bin:$PATH
+PARSED_EMACS_BASH=true
 
