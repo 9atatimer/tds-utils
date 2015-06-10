@@ -4,7 +4,12 @@
 
 ; Add our personal elisp to the load-path so we can find it.
 (add-to-list 'load-path
-   (concat user-emacs-directory (convert-standard-filename "elisp/")))
+             (concat user-emacs-directory (convert-standard-filename "elisp/")))
+(add-to-list 'load-path
+             (concat user-emacs-directory (convert-standard-filename "elisp/jdee//lisp/")))
+;;(add-to-list 'load-path
+;;             (concat user-emacs-directory (convert-standard-filename "elisp/jdibug/")))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Snipped from default .emacs file for this particular redhat install
@@ -113,7 +118,7 @@
 
 (when (boundp 'Buffer-menu-name-width)
   (setq Buffer-menu-name-width	         ;; with uniquify (and rails filenames)
-      (+ Buffer-menu-name-width 10))     ;; you need little more room 
+      (+ Buffer-menu-name-width 10))     ;; you need little more room
   (setq Buffer-menu-size-width 4))       ;; do you look at this col?  Me neither.
 (setq Buffer-menu-mode-width 7)	         ;; do you look at this col?  Me neither.
 
@@ -178,9 +183,7 @@
 (when (>= emacs-major-version 24)
   (require 'package)
   (package-initialize)
+  
+  (add-to-list 'package-archives '("gnu" . "http://elpa.gnu.org/packages/") t)
   (add-to-list 'package-archives '("melpa" . "http://melpa.milkbox.net/packages/") t)
   (add-to-list 'package-archives '("marmalade" . "https://marmalade-repo.org/packages/") t))
-
-
-
-
