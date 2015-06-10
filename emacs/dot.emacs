@@ -1,21 +1,10 @@
-;; Welcome to my .emacs file... let me show you around.
-;;    -- Todd Stumpf (stumpf@google.com) Jan 11, 2006
-
-;; sometimes we have Emacs23, sometimes its older... 
+; If we run on something older than emacs 23, we'll want this:
 (unless (boundp 'user-emacs-directory)
-   (defvar user-emacs-directory "~/.emacs.d/"))
+  (defvar user-emacs-directory "~/.emacs.d/"))
 
-(add-to-list 'load-path user-emacs-directory)
+; Add our personal elisp to the load-path so we can find it.
 (add-to-list 'load-path
    (concat user-emacs-directory (convert-standard-filename "elisp/")))
-
-;; Not everything is in this one file -- I've broken things
-;; out into other .el files to avoid clutter.  I kick off things
-;; with a bootstrap.el that doesn't do much but dink with the
-;; load-librar path.
-(require 'tds-bootstrap)
-(require 'diff-mode-) ;; diff-mode extension needs load before diff-mode
-(require 'diff-mode)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Snipped from default .emacs file for this particular redhat install
@@ -48,8 +37,8 @@
 (require 'paren)                      ;; show (matched (nested (parens)))
 (require 'uniquify)                   ;; show path on similar buffer names
 
-(require 'css-mode)
-(require 'php-mode)
+;;(require 'css-mode)
+;;(require 'php-mode)
 
 (require 'template)                   ;; let me use pre-defined code snippets
 
@@ -78,6 +67,7 @@
 (setq transient-mark-mode t)           ;; deselect region when buffer changes
 (setq truncate-partial-width-windows t);; line-wrap even in vertical windows
 (setq uniquify-buffer-name-style 'post-forward-angle-brackets)
+(setq-default indent-tabs-mode nil)    ;; death to tabs!
 
 ;;(resize-minibuffer-mode)             ;; let minibuffer grow to display options
 
@@ -105,7 +95,7 @@
  ;; of behavior? Makes you think...)
 (set-frame-width (selected-frame) 81)    ;; Makes 80-char lines look okay.
 (menu-bar-mode 0)                        ;; nuke silly text menubar (puh-leeeez)
-(tool-bar-mode 0)                        ;; nuke sillier graphic toolbar
+(if (fboundp 'tool-bar-mode) (tool-bar-mode 0)) ;; nuke sillier graphic toolbar
 (global-font-lock-mode t)                ;; font-lock all buffers that want it
 (show-paren-mode t)                      ;; display matching parenthesis
 (setq suggest-key-bindings t)            ;; tell me if command is already bound
@@ -121,11 +111,12 @@
 
 (ansi-color-for-comint-mode-on)          ;; display colors in shells
 
-
-(setq Buffer-menu-name-width	         ;; with uniquify (and rails filenames)
+(when (boundp 'Buffer-menu-name-width)
+  (setq Buffer-menu-name-width	         ;; with uniquify (and rails filenames)
       (+ Buffer-menu-name-width 10))     ;; you need little more room 
+  (setq Buffer-menu-size-width 4))       ;; do you look at this col?  Me neither.
 (setq Buffer-menu-mode-width 7)	         ;; do you look at this col?  Me neither.
-(setq Buffer-menu-size-width 4)	         ;; do you look at this col?  Me neither.
+
 
  ;;;;;;;;;;;;;;;;;;;
  ;; Finally, binding things to keys...
@@ -177,3 +168,19 @@
 	(setq quacks-like-a-darwin 't)))
 
 (server-start)
+
+;; ELPA is way to handle emacs packages that was incorporated in v24
+;; It is a better way to handle modules, but will require some
+;; backporting.   http://www.emacswiki.org/emacs/ELPA
+;; Get to the package list via:
+;;   M-x package-list-packages
+;; Look at the mode help (C-h m)
+(when (>= emacs-major-version 24)
+  (require 'package)
+  (package-initialize)
+  (add-to-list 'package-archives '("melpa" . "http://melpa.milkbox.net/packages/") t)
+  (add-to-list 'package-archives '("marmalade" . "https://marmalade-repo.org/packages/") t))
+
+
+
+
