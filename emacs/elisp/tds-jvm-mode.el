@@ -6,7 +6,6 @@
  (setq indent-tabs-mode nil)
  (setq tab-width 2)
  (setq tab-width 2)
- (setq jde-debugger JDEbug)
  (menu-bar-mode 1)                        ;; re-enable not-so silly text menubar
  (tool-bar-mode 1)
  (setq c-basic-offset 2)
@@ -14,7 +13,8 @@
  (set-face-attribute 'trailing-whitespace nil             ;; .. but
                      :background tds-face-color-mild)
  ;; (require 'jdibug)
-  (load "jde")
+ (load "jde")
+ (setq jde-debugger '("JDEbug"))
 )
 
 (add-hook 'skala-mode-hook 'tds-jvm-mode)
