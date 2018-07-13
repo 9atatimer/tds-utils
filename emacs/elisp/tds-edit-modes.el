@@ -9,6 +9,7 @@
 (load-library "tds-jvm-mode.el")
 (load-library "tds-mason-mode.el")
 (load-library "tds-perl-mode.el")
+(load-library "tds-python-mode.el")
 (load-library "tds-shell-mode.el")
 (load-library "tds-yaml-mode.el")
 

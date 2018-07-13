@@ -47,3 +47,11 @@ tds-cplusplus-font-lock-rules )
  "Face to use for class instance variables ( count_, start_, etcetera)"
  :group 'font-lock-highlighting-faces)
 
+(add-hook 'after-init-hook (lambda()
+  (progn
+    (require 'highlight-chars)            ;; show unprintable chars
+    (add-hook 'font-lock-mode-hook 'hc-highlight-tabs)
+    (add-hook 'font-lock-mode-hook 'hc-highlight-trailing-whitespace)
+    (add-hook 'font-lock-mode-hook 'hc-highlight-other-chars)
+    (setq hc-other-chars '([:nonascii:]))
+    )))
