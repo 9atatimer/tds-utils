@@ -40,4 +40,8 @@ to the specified name LIBRARY (a la calling `load' instead of `load-library')."
        (locate-library library)
      (message "Couldn't find it."))))
 
+;; I can never remember multi-occur-yadda-yadda ... I just want to grep in all
+;; the existing buffers... make that an easiser mnemonic.
+(defalias 'grep-all 'multi-occur-in-matching-buffers)
+
 (provide 'tds-misc-utils)

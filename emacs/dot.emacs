@@ -6,10 +6,16 @@
 (add-to-list 'load-path
              (concat user-emacs-directory (convert-standard-filename "elisp/")))
 (add-to-list 'load-path
-             (concat user-emacs-directory (convert-standard-filename "elisp/jdee//lisp/")))
-;;(add-to-list 'load-path
-;;             (concat user-emacs-directory (convert-standard-filename "elisp/jdibug/")))
+             (concat user-emacs-directory (convert-standard-filename "elisp/jdee/lisp/")))
+(add-to-list 'load-path
+             (concat user-emacs-directory (convert-standard-filename "elisp/jdibug/")))
 
+
+;;(setq jde-check-version-flag nil)
+;;(define-obsolete-function-alias 'make-local-hook 'ignore "21.1")
+;;(unless (fboundp 'semantic-format-prototype-tag-java-mode)
+;;  (defalias 'semantic-format-prototype-tag-java-mode 'semantic-format-tag-prototype-java-mode))
+;;(require 'hippie-exp)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Snipped from default .emacs file for this particular redhat install
@@ -26,6 +32,23 @@
   'compound-text-with-extensions))        ;; coding for X clipboard
 ;; The above could be used for X vs text (ie 'emacs -nw') conditionals...
 
+;; ELPA is way to handle emacs packages that was incorporated in v24
+;; It is a better way to handle modules, but will require some
+;; backporting.   http://www.emacswiki.org/emacs/ELPA
+;; Get to the package list via:
+;;   M-x package-list-packages
+;; Look at the mode help (C-h m)
+(require 'package)
+(when (>= emacs-major-version 24)
+  (add-to-list 'package-archives
+             '("melpa-stable" . "https://stable.melpa.org/packages/") t)
+  (add-to-list 'package-archives
+             '("marmalade" . "https://marmalade-repo.org/packages/") t)
+  (add-to-list 'package-archives
+             '("gnu" . "http://elpa.gnu.org/packages/") t))
+
+(package-initialize)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Let the stumpf-ian customization begin
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -36,11 +59,15 @@
 (require 'tds-mail-mode)     ;; tweak mail to protect me from myself
 (require 'tds-ediff-mode)    ;; trim ediff behavior. keep it simple.
 ;;(require 'tds-tags)          ;; keep tag systems up to date with my changes.
+(require 'tds-pants)         ;; the build tool of choice for le Twitter
 (require 'tds-misc-utils)    ;; things I can't categorize...
 
 (require 'icomplete)                  ;; show dynamic completions in minibuffer
 (require 'paren)                      ;; show (matched (nested (parens)))
 (require 'uniquify)                   ;; show path on similar buffer names
+
+;; don't try to use elap packages here; those are only initialized
+;; after the init.el is proccessed. 
 
 ;;(require 'css-mode)
 ;;(require 'php-mode)
@@ -105,7 +132,10 @@
 (show-paren-mode t)                      ;; display matching parenthesis
 (setq suggest-key-bindings t)            ;; tell me if command is already bound
 (setq search-highlight t)                ;; highlights current search match
-(setq visible-bell t)                    ;; flash-screen instead of beeping
+(setq visible-bell nil)                  ;; flash-the mode line instead of beeping
+(setq ring-bell-function (lambda ()
+  (invert-face 'mode-line)
+  (run-with-timer 0.1 nil 'invert-face 'mode-line)))
 
 (setq display-time-interval (* 5 3))     ;; update every 5*3 (15) seconds
 (setq display-time-24hr-format t)        ;; use 24 hour (00:00 -> 23:59) format
@@ -134,8 +164,10 @@
 (global-set-key "\C-r"  'isearch-backward-regexp)    ;; regexp by default
 (global-set-key "\M-r"  'isearch-backward)           ;; substring search
 
-(global-set-key "\C-w"  'backward-kill-word)         ;; just what I'm used to...
-(global-set-key "\C-x_"  'call-last-kbd-macro)        ;; C-( ... C-) then C-_'
+(global-set-key "\C-w"  'backward-kill-word)           ;; just what I'm used to...
+(global-set-key "\C-x\C-b"  'buffer-menu-other-window)  ;; again, just me...
+(global-set-key "\C-x_"  'call-last-kbd-macro)         ;; C-( ... C-) then C-_'
+
 
 ;;;(load-library "gtags")
 ;;;(autoload 'gtags-mode "gtags" "" t)
@@ -174,16 +206,3 @@
 
 (server-start)
 
-;; ELPA is way to handle emacs packages that was incorporated in v24
-;; It is a better way to handle modules, but will require some
-;; backporting.   http://www.emacswiki.org/emacs/ELPA
-;; Get to the package list via:
-;;   M-x package-list-packages
-;; Look at the mode help (C-h m)
-(when (>= emacs-major-version 24)
-  (require 'package)
-  (package-initialize)
-  
-  (add-to-list 'package-archives '("gnu" . "http://elpa.gnu.org/packages/") t)
-  (add-to-list 'package-archives '("melpa" . "http://melpa.milkbox.net/packages/") t)
-  (add-to-list 'package-archives '("marmalade" . "https://marmalade-repo.org/packages/") t))

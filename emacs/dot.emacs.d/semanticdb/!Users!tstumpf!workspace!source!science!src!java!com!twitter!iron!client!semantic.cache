@@ -1,0 +1,780 @@
+;; Object client/
+;; SEMANTICDB Tags save file
+(semanticdb-project-database-file "client/"
+  :tables
+  (list
+    (semanticdb-table "IronClient.java"
+      :major-mode 'java-mode
+      :tags 
+        '( ("com.twitter.iron.client" package nil nil [1 33])
+            ("java.io.PrintStream" include nil nil [35 62])
+            ("java.util.Arrays" include nil nil [63 87])
+            ("java.util.Date" include nil nil [88 110])
+            ("java.util.List" include nil nil [111 133])
+            ("java.util.Map" include nil nil [134 155])
+            ("java.util.Set" include nil nil [156 177])
+            ("java.util.logging.Logger" include nil nil [178 210])
+            ("com.google.common.annotations.VisibleForTesting" include nil nil [212 267])
+            ("com.google.common.collect.Lists" include nil nil [268 307])
+            ("com.google.common.collect.Sets" include nil nil [308 346])
+            ("org.apache.commons.lang.StringUtils" include nil nil [348 391])
+            ("org.jboss.netty.handler.codec.http.HttpRequest" include nil nil [392 446])
+            ("org.jboss.netty.handler.codec.http.HttpResponse" include nil nil [447 502])
+            ("org.jboss.netty.handler.codec.http.HttpResponseStatus" include nil nil [503 564])
+            ("com.twitter.common.args.Arg" include nil nil [566 601])
+            ("com.twitter.common.args.CmdLine" include nil nil [602 641])
+            ("com.twitter.common.collections.Pair" include nil nil [642 685])
+            ("com.twitter.iron.common.Constants" include nil nil [686 727])
+            ("com.twitter.iron.common.Constants.RequestType" include nil nil [728 781])
+            ("com.twitter.iron.common.ExternalCmdExecutor" include nil nil [782 833])
+            ("com.twitter.iron.common.IronCmd" include nil nil [834 873])
+            ("com.twitter.iron.common.OutFileTransferCondition" include nil nil [874 930])
+            ("com.twitter.iron.common.Util" include nil nil [931 967])
+            ("com.twitter.iron.gen.BasedPatch" include nil nil [968 1007])
+            ("com.twitter.iron.gen.DumpThreadsOnNodesRequest" include nil nil [1008 1062])
+            ("com.twitter.iron.gen.FailedNodeOp" include nil nil [1063 1104])
+            ("com.twitter.iron.gen.GetTestOutputFromNodesRequest" include nil nil [1105 1163])
+            ("com.twitter.iron.gen.PatchAndTestCmdResponse" include nil nil [1164 1216])
+            ("com.twitter.iron.gen.PatchAndTestCmdsRequest" include nil nil [1217 1269])
+            ("com.twitter.iron.gen.PatchChunkRequestToBroker" include nil nil [1270 1324])
+            ("com.twitter.iron.gen.ResetNodesRequest" include nil nil [1325 1371])
+            ("com.twitter.iron.gen.StartSessionRequest" include nil nil [1372 1420])
+            ("com.twitter.iron.gen.StartSessionResponse" include nil nil [1421 1470])
+            ("com.twitter.iron.gen.TestOutputFromNodesResponse" include nil nil [1471 1527])
+            ("com.twitter.iron.net.NetUtils" include nil nil [1528 1565])
+            ("IronClient" type
+               (:superclasses "BaseClient"
+                :members 
+                  ( ("EMPTY_PATCH_NO_SHA" variable
+                       (:typemodifiers ("private" "static" "final")
+                        :type "BasedPatch")
+                        (reparse-symbol class_member_declaration) [4863 4953])
+                    ("POLLING_FREQUENCY_BEFORE_SHUTDOWN_MS" variable
+                       (:typemodifiers ("private" "static" "final")
+                        :type "int")
+                        (reparse-symbol class_member_declaration) [4956 5024])
+                    ("LOG" variable
+                       (:typemodifiers ("private" "static" "final")
+                        :type "Logger")
+                        (reparse-symbol class_member_declaration) [5028 5107])
+                    ("gitRepoName" variable
+                       (:typemodifiers ("private" "final")
+                        :type "String")
+                        (reparse-symbol class_member_declaration) [5111 5144])
+                    ("envVars" variable
+                       (:typemodifiers ("private" "final")
+                        :type "String")
+                        (reparse-symbol class_member_declaration) [5147 5176])
+                    ("outFilesTransfer" variable
+                       (:typemodifiers ("private" "final")
+                        :type "OutFileTransferCondition")
+                        (reparse-symbol class_member_declaration) [5179 5235])
+                    ("minNodesToReserve" variable
+                       (:typemodifiers ("private")
+                        :type "int")
+                        (reparse-symbol class_member_declaration) [5238 5268])
+                    ("maxNodesToReserve" variable
+                       (:typemodifiers ("private")
+                        :type "int")
+                        (reparse-symbol class_member_declaration) [5331 5361])
+                    ("cmdExec" variable
+                       (:typemodifiers ("private" "final")
+                        :type "ExternalCmdExecutor")
+                        (reparse-symbol class_member_declaration) [5414 5456])
+                    ("testCmdConfig" variable
+                       (:typemodifiers ("private" "final")
+                        :type "TestCommandConfig")
+                        (reparse-symbol class_member_declaration) [5459 5505])
+                    ("out" variable
+                       (:typemodifiers ("private" "final")
+                        :type "PrintStream")
+                        (reparse-symbol class_member_declaration) [5508 5538])
+                    ("err" variable
+                       (:typemodifiers ("private" "final")
+                        :type "PrintStream")
+                        (reparse-symbol class_member_declaration) [5541 5571])
+                    ("outputDir" variable
+                       (:typemodifiers ("private" "final")
+                        :type "String")
+                        (reparse-symbol class_member_declaration) [5574 5605])
+                    ("printRealTime" variable
+                       (:typemodifiers ("private" "final")
+                        :type "boolean")
+                        (reparse-symbol class_member_declaration) [5608 5644])
+                    ("redirectStderr" variable
+                       (:typemodifiers ("private" "final")
+                        :type "boolean")
+                        (reparse-symbol class_member_declaration) [5647 5684])
+                    ("gitPatchBaseSha" variable
+                       (:typemodifiers ("private")
+                        :type "String")
+                        (reparse-symbol class_member_declaration) [5687 5718])
+                    ("successfulTargetOutputLines" variable
+                       (:typemodifiers ("private" "final")
+                        :type "int")
+                        (reparse-symbol class_member_declaration) [5721 5767])
+                    ("buildId" variable
+                       (:typemodifiers ("private" "final")
+                        :type "String")
+                        (reparse-symbol class_member_declaration) [5770 5799])
+                    ("maxNumReservationRetryAttempts" variable
+                       (:typemodifiers ("private" "final")
+                        :type "int")
+                        (reparse-symbol class_member_declaration) [5802 5851])
+                    ("reservationRetryDelaySec" variable
+                       (:typemodifiers ("private" "final")
+                        :type "int")
+                        (reparse-symbol class_member_declaration) [5854 5897])
+                    ("addShardsDynamically" variable
+                       (:typemodifiers ("private")
+                        :type "boolean")
+                        (reparse-symbol class_member_declaration) [6032 6100])
+                    ("nodePollingFrequencyMs" variable
+                       (:typemodifiers ("private")
+                        :type "long")
+                        (reparse-symbol class_member_declaration) [6360 6403])
+                    ("testCmdPotentiallyHungThresholdMs" variable
+                       (:typemodifiers ("private")
+                        :type "long")
+                        (reparse-symbol class_member_declaration) [6406 6520])
+                    ("localCloneHeadSha" variable
+                       (:typemodifiers ("private" "final")
+                        :type "String")
+                        (reparse-symbol class_member_declaration) [6524 6563])
+                    ("localCloneOriginMasterSha" variable
+                       (:typemodifiers ("private" "final")
+                        :type "String")
+                        (reparse-symbol class_member_declaration) [6566 6613])
+                    ("gitNoUserChanges" variable
+                       (:typemodifiers ("private" "final")
+                        :type "boolean")
+                        (reparse-symbol class_member_declaration) [6616 6655])
+                    ("buildStats" variable
+                       (:typemodifiers ("private" "final")
+                        :type "BuildStats")
+                        (reparse-symbol class_member_declaration) [6658 6694])
+                    ("basedPatch" variable
+                       (:typemodifiers ("private")
+                        :type "BasedPatch")
+                        (reparse-symbol class_member_declaration) [6749 6779])
+                    ("workerMgr" variable
+                       (:typemodifiers ("private")
+                        :type "WorkerMgr")
+                        (reparse-symbol class_member_declaration) [6782 6810])
+                    ("sessionId" variable
+                       (:typemodifiers ("private")
+                        :type "String")
+                        (reparse-symbol class_member_declaration) [6814 6839])
+                    ("numSequentialFailedAttemptsToObtainPatch" variable
+                       (:typemodifiers ("private")
+                        :type "int")
+                        (reparse-symbol class_member_declaration) [6842 6895])
+                    ("pollingMonitor" variable
+                       (:typemodifiers ("private")
+                        :type "Object")
+                        (reparse-symbol class_member_declaration) [6898 6943])
+                    ("internalErrorException" variable
+                       (:typemodifiers ("private" "volatile")
+                        :type "Exception")
+                        (reparse-symbol class_member_declaration) [6947 6997])
+                    ("shutdownHook" variable
+                       (:typemodifiers ("private" "volatile")
+                        :type "ShutdownHook")
+                        (reparse-symbol class_member_declaration) [7000 7043])
+                    ("IronClient" function
+                       (:constructor-flag t
+                        :arguments 
+                          ( ("brokerAddrSupplr" variable (:type "BrokerAddrSupplier") (reparse-symbol formal_parameters) [9233 9268])
+                            ("" variable (:type "testCmdAndParams") (reparse-symbol formal_parameters) [9283 9299])
+                            ("gitRepoName" variable (:type "String") (reparse-symbol formal_parameters) [9307 9325])
+                            ("gitNoUserChanges" variable (:type "boolean") (reparse-symbol formal_parameters) [9327 9351])
+                            ("gitPatchBaseSha" variable (:type "String") (reparse-symbol formal_parameters) [9353 9375])
+                            ("envVars" variable (:type "String") (reparse-symbol formal_parameters) [9377 9391])
+                            ("outFilesTransfer" variable (:type "OutFileTransferCondition") (reparse-symbol formal_parameters) [9399 9440])
+                            ("maxNodesToReserve" variable (:type "int") (reparse-symbol formal_parameters) [9442 9463])
+                            ("cmdExec" variable (:type "ExternalCmdExecutor") (reparse-symbol formal_parameters) [9471 9498])
+                            ("testCmdConfig" variable (:type "TestCommandConfig") (reparse-symbol formal_parameters) [9500 9531])
+                            ("outputDir" variable (:type "String") (reparse-symbol formal_parameters) [9533 9549])
+                            ("out" variable (:type "PrintStream") (reparse-symbol formal_parameters) [9557 9572])
+                            ("err" variable (:type "PrintStream") (reparse-symbol formal_parameters) [9574 9589])
+                            ("printRealTime" variable (:type "boolean") (reparse-symbol formal_parameters) [9591 9612])
+                            ("redirectStderr" variable (:type "boolean") (reparse-symbol formal_parameters) [9614 9636])
+                            ("successfulTargetOutputLines" variable (:type "int") (reparse-symbol formal_parameters) [9644 9675])
+                            ("buildId" variable (:type "String") (reparse-symbol formal_parameters) [9677 9691])
+                            ("maxNumReservationRetryAttempts" variable (:type "int") (reparse-symbol formal_parameters) [9699 9733])
+                            ("reservationRetryDelaySec" variable (:type "int") (reparse-symbol formal_parameters) [9735 9763])
+                            ("maxRequestSize" variable (:type "int") (reparse-symbol formal_parameters) [9771 9789]))                          )
+                        (reparse-symbol class_member_declaration) [9222 11168])
+                    ("setParamsForTesting" function
+                       (:arguments 
+                          ( ("inNodePollingFrequencyMs" variable (:type "long") (reparse-symbol formal_parameters) [11278 11307])
+                            ("inAddShardsDynamically" variable (:type "boolean") (reparse-symbol formal_parameters) [11309 11339])
+                            ("inTestCmdPotentiallyHungThresholdMs" variable (:type "long") (reparse-symbol formal_parameters) [11347 11387]))                          
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [11253 11592])
+                    ("getBasedPatch" function (:constructor-flag t) (reparse-symbol class_member_declaration) [11628 11672])
+                    ("run" function
+                       (:throws ("ClientException")
+                        :type "int")
+                        (reparse-symbol class_member_declaration) [11816 13238])
+                    ("obtainSha" function
+                       (:typemodifiers ("private")
+                        :arguments 
+                          ( ("ref" variable (:type "String") (reparse-symbol formal_parameters) [13267 13277]))                          
+                        :type "String")
+                        (reparse-symbol class_member_declaration) [13242 13619])
+                    ("connectAndGetGitShas" function
+                       (:constructor-flag t
+                        :throws ("ClientException.RetryFromStart")
+                        :arguments 
+                          ( ("maxAttempts" variable (:type "int") (reparse-symbol formal_parameters) [14046 14061]))                          )
+                        (reparse-symbol class_member_declaration) [14025 16525])
+                    ("calculateAndSetBasedGitPatch" function
+                       (:throws ("ClientException.RetryFromStart")
+                        :typemodifiers ("synchronized")
+                        :arguments 
+                          ( ("nodesAndShas" variable (:type "StartSessionResponse") (reparse-symbol formal_parameters) [16769 16802]))                          
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [16722 18465])
+                    ("calculateMergeBaseSha" function
+                       (:throws ("Exception")
+                        :typemodifiers ("private")
+                        :arguments 
+                          ( ("nodesAndShas" variable (:type "StartSessionResponse") (reparse-symbol formal_parameters) [18506 18539]))                          
+                        :type "String")
+                        (reparse-symbol class_member_declaration) [18469 20494])
+                    ("createWorkerMgr" function
+                       (:arguments 
+                          ( ("nodesAndShas" variable (:type "StartSessionResponse") (reparse-symbol formal_parameters) [20540 20573]))                          
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [20519 21862])
+                    ("sendPatchAndStartTests" function
+                       (:throws ("ClientException.RetryFromStart")
+                        :typemodifiers ("private")
+                        :arguments 
+                          ( ("" variable (:type "nodeAddrs") (reparse-symbol formal_parameters) [21934 21943])
+                            ("patch" variable (:type "BasedPatch") (reparse-symbol formal_parameters) [21951 21967])
+                            ("" variable (:type "cmdsToRun") (reparse-symbol formal_parameters) [21988 21997]))                          
+                        :type "PatchAndTestCmdResponse")
+                        (reparse-symbol class_member_declaration) [21866 24792])
+                    ("sendPatchInChunks" function
+                       (:throws ("ClientException.RetryFromStart")
+                        :typemodifiers ("private")
+                        :arguments 
+                          ( ("" variable (:type "nodeAddrs") (reparse-symbol formal_parameters) [25368 25377])
+                            ("gitPatch" variable
+                               (:dereference 1
+                                :type "byte")
+                                (reparse-symbol formal_parameters) [25379 25394]))                          
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [25324 26512])
+                    ("runOnNodes" function
+                       (:throws ("ClientException.RetryFromStart")
+                        :arguments 
+                          ( ("installShutdownHook" variable (:type "boolean") (reparse-symbol formal_parameters) [26552 26579]))                          
+                        :type "int")
+                        (reparse-symbol class_member_declaration) [26537 27376])
+                    ("sendRequestForOutputAndGetResponse" function
+                       (:throws ("ClientException.RetryFromStart")
+                        :typemodifiers ("private")
+                        :arguments 
+                          ( ("reqSerialNo" variable (:type "int") (reparse-symbol formal_parameters) [27451 27466]))                          
+                        :type "TestOutputFromNodesResponse")
+                        (reparse-symbol class_member_declaration) [27380 28089])
+                    ("getBasedPatchForSha" function
+                       (:throws ("Exception")
+                        :typemodifiers ("private")
+                        :arguments 
+                          ( ("baseSha" variable (:type "String") (reparse-symbol formal_parameters) [28379 28393])
+                            ("" variable (:type "nodeAddrs") (reparse-symbol formal_parameters) [28408 28417]))                          
+                        :type "BasedPatch")
+                        (reparse-symbol class_member_declaration) [28340 28974])
+                    ("handleNextTask" function
+                       (:throws ("ClientException.RetryFromStart")
+                        :arguments 
+                          ( ("nextTask" variable (:type "WorkerMgr.NextTask") (reparse-symbol formal_parameters) [29019 29046]))                          
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [28999 29753])
+                    ("startCmdsOnNodes" function
+                       (:throws ("ClientException.RetryFromStart")
+                        :typemodifiers ("private")
+                        :arguments 
+                          ( ("" variable (:type "nodeAddrs") (reparse-symbol formal_parameters) [29800 29809])
+                            ("patch" variable (:type "BasedPatch") (reparse-symbol formal_parameters) [29811 29827])
+                            ("" variable (:type "cmds") (reparse-symbol formal_parameters) [29854 29858]))                          
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [29757 30280])
+                    ("resetNodes" function
+                       (:typemodifiers ("private")
+                        :arguments 
+                          ( ("" variable (:type "nodeAddrs") (reparse-symbol formal_parameters) [30321 30330]))                          
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [30284 30898])
+                    ("forceNodesToDumpThreads" function
+                       (:typemodifiers ("private")
+                        :arguments 
+                          ( ("" variable (:type "nodeAddrs") (reparse-symbol formal_parameters) [30952 30961]))                          
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [30902 31482])
+                    ("setClientRequestHeaders" function
+                       (:typemodifiers ("protected")
+                        :arguments 
+                          ( ("req" variable (:type "HttpRequest") (reparse-symbol formal_parameters) [31532 31547]))                          
+                        :type "HttpRequest")
+                        (reparse-symbol class_member_declaration) [31486 31670])
+                    ("setSessionId" function
+                       (:typemodifiers ("private")
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [31674 31876])
+                    ("newEmptyBasedPatch" function
+                       (:typemodifiers ("private" "static")
+                        :arguments 
+                          ( ("commitSha" variable (:type "String") (reparse-symbol formal_parameters) [31925 31941]))                          
+                        :type "BasedPatch")
+                        (reparse-symbol class_member_declaration) [31880 32013])
+                    ("newBasedPatch" function
+                       (:typemodifiers ("private" "static")
+                        :arguments 
+                          ( ("commitSha" variable (:type "String") (reparse-symbol formal_parameters) [32057 32073])
+                            ("patch" variable
+                               (:dereference 1
+                                :type "byte")
+                                (reparse-symbol formal_parameters) [32075 32087]))                          
+                        :type "BasedPatch")
+                        (reparse-symbol class_member_declaration) [32017 32250])
+                    ("sleepOnPollingMonitorMillis" function
+                       (:typemodifiers ("private")
+                        :arguments 
+                          ( ("millis" variable (:type "long") (reparse-symbol formal_parameters) [32295 32306]))                          
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [32254 32549])
+                    ("setNewPollingFrequencyAndStopCurrentWait" function
+                       (:typemodifiers ("private")
+                        :arguments 
+                          ( ("newPollingFrequencyMs" variable (:type "long") (reparse-symbol formal_parameters) [32607 32633]))                          
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [32553 32815])
+                    ("ShutdownHook" type
+                       (:typemodifiers ("private")
+                        :superclasses "Thread"
+                        :members 
+                          ( ("run" function
+                               (:typemodifiers ("public")
+                                :type "void")
+                                (reparse-symbol class_member_declaration) [32868 34451]))                          
+                        :type "class")
+                        (reparse-symbol class_member_declaration) [32819 34455]))                  
+                :type "class")
+                nil [2743 34457]))          
+      :file "IronClient.java"
+      :pointmax 34458
+      :fsize 34457
+      :lastmodtime '(21883 16401 0 0)
+      :unmatched-syntax '((GT 30950 . 30951) (IDENTIFIER 30939 . 30943) (LT 30943 . 30944) (GT 30319 . 30320) (IDENTIFIER 30308 . 30312) (LT 30312 . 30313) (RSHIFT 29851 . 29853) (LT 29844 . 29845) (IDENTIFIER 29835 . 29839) (LT 29839 . 29840) (GT 29798 . 29799) (IDENTIFIER 29787 . 29791) (LT 29791 . 29792) (GT 28406 . 28407) (IDENTIFIER 28395 . 28399) (LT 28399 . 28400) (GT 25366 . 25367) (IDENTIFIER 25355 . 25359) (LT 25359 . 25360) (RSHIFT 21985 . 21987) (LT 21978 . 21979) (IDENTIFIER 21969 . 21973) (LT 21973 . 21974) (GT 21932 . 21933) (IDENTIFIER 21921 . 21925) (LT 21925 . 21926) (GT 9281 . 9282) (IDENTIFIER 9270 . 9274) (LT 9274 . 9275) (SEMICOLON 6745 . 6746) (GT 6732 . 6733) (PRIVATE 6698 . 6705) (LT 6710 . 6711) (SEMICOLON 4858 . 4859) (PAREN_BLOCK 4854 . 4858) (EQ 4842 . 4843) (GT 4799 . 4800) (PRIVATE 4767 . 4774) (LT 4791 . 4792) (STRING_LITERAL 4682 . 4763) (EQ 4680 . 4681) (COMMA 4667 . 4668) (STRING_LITERAL 4625 . 4667) (IDENTIFIER 4618 . 4622) (EQ 4623 . 4624) (SEMICOLON 4604 . 4605) (PAREN_BLOCK 4599 . 4604) (EQ 4587 . 4588) (GT 4556 . 4557) (PRIVATE 4524 . 4531) (LT 4548 . 4549) (STRING_LITERAL 4487 . 4520) (EQ 4485 . 4486) (COMMA 4478 . 4479) (STRING_LITERAL 4448 . 4478) (IDENTIFIER 4441 . 4445) (EQ 4446 . 4447) (SEMICOLON 4427 . 4428) (PAREN_BLOCK 4421 . 4427) (EQ 4409 . 4410) (GT 4384 . 4385) (PRIVATE 4352 . 4359) (LT 4376 . 4377) (STRING_LITERAL 4304 . 4348) (EQ 4302 . 4303) (COMMA 4295 . 4296) (STRING_LITERAL 4271 . 4295) (IDENTIFIER 4264 . 4268) (EQ 4269 . 4270) (SEMICOLON 4250 . 4251) (PAREN_BLOCK 4196 . 4250) (EQ 4178 . 4179) (GT 4158 . 4159) (PRIVATE 4093 . 4100) (LT 4117 . 4118) (STRING_LITERAL 4055 . 4089) (EQ 4053 . 4054) (COMMA 4046 . 4047) (STRING_LITERAL 4027 . 4046) (IDENTIFIER 4020 . 4024) (EQ 4025 . 4026) (SEMICOLON 4006 . 4007) (PAREN_BLOCK 4003 . 4006) (EQ 3991 . 3992) (GT 3970 . 3971) (PRIVATE 3938 . 3945) (LT 3962 . 3963) (STRING_LITERAL 3883 . 3934) (EQ 3881 . 3882) (COMMA 3874 . 3875) (STRING_LITERAL 3854 . 3874) (IDENTIFIER 3847 . 3851) (EQ 3852 . 3853) (SEMICOLON 3833 . 3834) (PAREN_BLOCK 3827 . 3833) (EQ 3815 . 3816) (GT 3792 . 3793) (PRIVATE 3761 . 3768) (LT 3785 . 3786) (STRING_LITERAL 3721 . 3757) (EQ 3719 . 3720) (COMMA 3712 . 3713) (STRING_LITERAL 3690 . 3712) (IDENTIFIER 3683 . 3687) (EQ 3688 . 3689) (SEMICOLON 3669 . 3670) (PAREN_BLOCK 3666 . 3669) (EQ 3654 . 3655) (GT 3630 . 3631) (PRIVATE 3598 . 3605) (LT 3622 . 3623) (STRING_LITERAL 3513 . 3594) (EQ 3511 . 3512) (COMMA 3498 . 3499) (STRING_LITERAL 3475 . 3498) (IDENTIFIER 3468 . 3472) (EQ 3473 . 3474) (SEMICOLON 3454 . 3455) (PAREN_BLOCK 3444 . 3454) (EQ 3432 . 3433) (GT 3403 . 3404) (PRIVATE 3371 . 3378) (LT 3395 . 3396) (STRING_LITERAL 3323 . 3367) (EQ 3321 . 3322) (COMMA 3314 . 3315) (STRING_LITERAL 3286 . 3314) (IDENTIFIER 3279 . 3283) (EQ 3284 . 3285) (SEMICOLON 3102 . 3103) (PAREN_BLOCK 3094 . 3102) (EQ 3082 . 3083) (GT 3059 . 3060) (IDENTIFIER 2938 . 2946) (PRIVATE 3027 . 3034) (LT 3051 . 3052) (STRING_LITERAL 2985 . 3023) (EQ 2983 . 2984) (COMMA 2976 . 2977) (STRING_LITERAL 2954 . 2976) (IDENTIFIER 2947 . 2951) (EQ 2952 . 2953)))
+    (semanticdb-table "DynamicTargetScheduler.java"
+      :major-mode 'jde-mode
+      :tags 
+        '( ("com.twitter.iron.client" package nil nil [1 33])
+            ("java.util.List" include nil nil [35 57])
+            ("DynamicTargetScheduler" type
+               (:members 
+                  ( ("OLD_WHITELIST_WORKAROUND" variable
+                       (:typemodifiers ("private" "static" "final")
+                        :type "String")
+                        (reparse-symbol class_member_declaration) [256 377])
+                    ("scheduleOnShard" variable
+                       (:typemodifiers ("private" "final")
+                        :type "SchedulingOnShard")
+                        (reparse-symbol class_member_declaration) [435 483])
+                    ("DynamicTargetScheduler" function
+                       (:constructor-flag t
+                        :arguments 
+                          ( ("" variable (:type "cmdQueue") (reparse-symbol formal_parameters) [538 546])
+                            ("scheduleOnShard" variable (:type "SchedulingOnShard") (reparse-symbol formal_parameters) [548 581]))                          )
+                        (reparse-symbol class_member_declaration) [487 662])
+                    ("getNextTargetFromQueue" function
+                       (:arguments 
+                          ( ("previousCmd" variable (:type "TestCommandConfig.Cmd") (reparse-symbol formal_parameters) [711 744]))                          
+                        :type "TestCommandConfig.Cmd")
+                        (reparse-symbol class_member_declaration) [666 1040])
+                    ("findNextRelatedTargetInQueue" function
+                       (:typemodifiers ("private")
+                        :arguments 
+                          ( ("previousTarget" variable (:type "String") (reparse-symbol formal_parameters) [1103 1124]))                          
+                        :type "TestCommandConfig.Cmd")
+                        (reparse-symbol class_member_declaration) [1044 2593])
+                    ("findTargetWithLongestCommonPrefix" function
+                       (:typemodifiers ("private")
+                        :arguments 
+                          ( ("previousTarget" variable (:type "String") (reparse-symbol formal_parameters) [2643 2664]))                          
+                        :type "int")
+                        (reparse-symbol class_member_declaration) [2597 3217])
+                    ("prefixIsValid" function
+                       (:typemodifiers ("private")
+                        :arguments 
+                          ( ("prefix" variable (:type "String") (reparse-symbol formal_parameters) [3500 3513]))                          
+                        :type "boolean")
+                        (reparse-symbol class_member_declaration) [3470 3683])
+                    ("findFirstTargetWithPrefix" function
+                       (:typemodifiers ("private")
+                        :arguments 
+                          ( ("prefix" variable (:type "String") (reparse-symbol formal_parameters) [3725 3738]))                          
+                        :type "int")
+                        (reparse-symbol class_member_declaration) [3687 3897]))                  
+                :type "class")
+                nil [159 3899]))          
+      :file "DynamicTargetScheduler.java"
+      :pointmax 3900
+      :fsize 3899
+      :lastmodtime '(21842 51810 0 0)
+      :unmatched-syntax '((GT 536 . 537) (IDENTIFIER 510 . 514) (LT 514 . 515) (SEMICOLON 431 . 432) (GT 421 . 422) (PRIVATE 381 . 388) (LT 399 . 400)))
+    (semanticdb-table "WorkerMgr.java"
+      :major-mode 'jde-mode
+      :tags 
+        '( ("com.twitter.iron.client" package nil nil [1 33])
+            ("java.io.ByteArrayOutputStream" include nil nil [35 72])
+            ("java.io.IOException" include nil nil [73 100])
+            ("java.io.PrintStream" include nil nil [101 128])
+            ("java.io.UnsupportedEncodingException" include nil nil [129 173])
+            ("java.nio.ByteBuffer" include nil nil [174 201])
+            ("java.util.ArrayList" include nil nil [202 229])
+            ("java.util.Arrays" include nil nil [230 254])
+            ("java.util.Collections" include nil nil [255 284])
+            ("java.util.Comparator" include nil nil [285 313])
+            ("java.util.HashMap" include nil nil [314 339])
+            ("java.util.HashSet" include nil nil [340 365])
+            ("java.util.List" include nil nil [366 388])
+            ("java.util.Map" include nil nil [389 410])
+            ("java.util.Set" include nil nil [411 432])
+            ("java.util.logging.Logger" include nil nil [433 465])
+            ("org.apache.commons.lang.StringUtils" include nil nil [467 510])
+            ("com.twitter.common.collections.Pair" include nil nil [512 555])
+            ("com.twitter.iron.client.DynamicTargetScheduler.SchedulingOnShard" include nil nil [556 628])
+            ("com.twitter.iron.common.Constants" include nil nil [629 670])
+            ("com.twitter.iron.common.Util" include nil nil [671 707])
+            ("com.twitter.iron.gen.TestOutputFromNodesResponse" include nil nil [708 764])
+            ("WorkerMgr" type
+               (:members 
+                  ( ("RETRY_MARKER" variable
+                       (:typemodifiers ("private" "static" "final")
+                        :type "String")
+                        (reparse-symbol class_member_declaration) [1400 1472])
+                    ("MAX_WORKERS_BY_NAME" variable
+                       (:typemodifiers ("private" "static" "final")
+                        :type "int")
+                        (reparse-symbol class_member_declaration) [1476 1525])
+                    ("PRINT_ALL_LINES" variable
+                       (:typemodifiers ("private" "static" "final")
+                        :type "int")
+                        (reparse-symbol class_member_declaration) [1528 1574])
+                    ("EMPTY_LIST" variable
+                       (:typemodifiers ("private" "static" "final")
+                        :type "List")
+                        (reparse-symbol class_member_declaration) [1578 1641])
+                    ("LOG" variable
+                       (:typemodifiers ("private" "static" "final")
+                        :type "Logger")
+                        (reparse-symbol class_member_declaration) [1645 1723])
+                    ("dynamicCmdScheduler" variable
+                       (:typemodifiers ("private" "final")
+                        :type "DynamicTargetScheduler")
+                        (reparse-symbol class_member_declaration) [2022 2079])
+                    ("buildStats" variable
+                       (:typemodifiers ("private" "final")
+                        :type "BuildStats")
+                        (reparse-symbol class_member_declaration) [2082 2118])
+                    ("out" variable
+                       (:typemodifiers ("private" "final")
+                        :type "PrintStream")
+                        (reparse-symbol class_member_declaration) [2121 2151])
+                    ("err" variable
+                       (:typemodifiers ("private" "final")
+                        :type "PrintStream")
+                        (reparse-symbol class_member_declaration) [2154 2184])
+                    ("printRealTime" variable
+                       (:typemodifiers ("private" "final")
+                        :type "boolean")
+                        (reparse-symbol class_member_declaration) [2322 2358])
+                    ("successfulTargetOutputlines" variable
+                       (:typemodifiers ("private" "final")
+                        :type "int")
+                        (reparse-symbol class_member_declaration) [2361 2407])
+                    ("outputFileSaver" variable
+                       (:typemodifiers ("private" "final")
+                        :type "OutputFileSaver")
+                        (reparse-symbol class_member_declaration) [2523 2569])
+                    ("testCmdPotentiallyHungThresholdMs" variable
+                       (:typemodifiers ("private" "final")
+                        :type "long")
+                        (reparse-symbol class_member_declaration) [2572 2625])
+                    ("checkAndPrintHungCmdPeriodMs" variable
+                       (:typemodifiers ("private" "final")
+                        :type "int")
+                        (reparse-symbol class_member_declaration) [2628 2675])
+                    ("nodeAdder" variable
+                       (:typemodifiers ("private")
+                        :type "DynamicNodeAdder")
+                        (reparse-symbol class_member_declaration) [2679 2714])
+                    ("started" variable
+                       (:typemodifiers ("private")
+                        :type "boolean")
+                        (reparse-symbol class_member_declaration) [2717 2741])
+                    ("numPassedTargets" variable
+                       (:typemodifiers ("private")
+                        :type "int")
+                        (reparse-symbol class_member_declaration) [2744 2773])
+                    ("numFailedTargets" variable
+                       (:typemodifiers ("private")
+                        :type "int")
+                        (reparse-symbol class_member_declaration) [2776 2805])
+                    ("lastTimePotentiallyHungTargetsChecked" variable
+                       (:typemodifiers ("private")
+                        :type "long")
+                        (reparse-symbol class_member_declaration) [2808 2859])
+                    ("WorkerMgr" function
+                       (:constructor-flag t
+                        :arguments 
+                          ( ("" variable (:type "cmds") (reparse-symbol formal_parameters) [2901 2905])
+                            ("scheduleOnShard" variable (:type "SchedulingOnShard") (reparse-symbol formal_parameters) [2907 2940])
+                            ("" variable (:type "String") (reparse-symbol formal_parameters) [2952 2958])
+                            ("" variable (:type "nodeAddrToShardId") (reparse-symbol formal_parameters) [2969 2986])
+                            ("buildStats" variable (:type "BuildStats") (reparse-symbol formal_parameters) [2988 3009])
+                            ("out" variable (:type "PrintStream") (reparse-symbol formal_parameters) [3017 3032])
+                            ("err" variable (:type "PrintStream") (reparse-symbol formal_parameters) [3034 3049])
+                            ("printRealTime" variable (:type "boolean") (reparse-symbol formal_parameters) [3051 3072])
+                            ("outputDirName" variable (:type "String") (reparse-symbol formal_parameters) [3080 3100])
+                            ("successfulTargetOutputlines" variable (:type "int") (reparse-symbol formal_parameters) [3102 3133])
+                            ("testCmdPotentiallyHungThresholdMs" variable (:type "long") (reparse-symbol formal_parameters) [3141 3179]))                          )
+                        (reparse-symbol class_member_declaration) [2863 4155])
+                    ("addNodeAdder" function
+                       (:arguments 
+                          ( ("ironClient" variable (:type "IronClient") (reparse-symbol formal_parameters) [4177 4198])
+                            ("nodesToAdd" variable (:type "int") (reparse-symbol formal_parameters) [4200 4214])
+                            ("maxNodesToReserveInOneGo" variable (:type "int") (reparse-symbol formal_parameters) [4216 4244])
+                            ("ironClientNodePollingFrequencyMs" variable (:type "long") (reparse-symbol formal_parameters) [4252 4289]))                          
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [4159 4433])
+                    ("addNodes" function
+                       (:typemodifiers ("synchronized")
+                        :arguments 
+                          ( ("" variable (:type "String") (reparse-symbol formal_parameters) [4558 4564])
+                            ("" variable (:type "newNodeAddrToShardId") (reparse-symbol formal_parameters) [4575 4595]))                          
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [4527 4659])
+                    ("processUpdatesFromWorkers" function
+                       (:throws ("ClientException.RetryFromStart")
+                        :typemodifiers ("synchronized")
+                        :arguments 
+                          ( ("resp" variable (:type "TestOutputFromNodesResponse") (reparse-symbol formal_parameters) [4984 5016]))                          
+                        :type "NextTask")
+                        (reparse-symbol class_member_declaration) [4936 9250])
+                    ("createTaskToStartCmdsOnAllNodes" function
+                       (:typemodifiers ("private")
+                        :type "NextTask")
+                        (reparse-symbol class_member_declaration) [9254 9542])
+                    ("createNodesAndCmdsToStart" function
+                       (:constructor-flag t
+                        :arguments 
+                          ( ("" variable (:type "String") (reparse-symbol formal_parameters) [9630 9636])
+                            ("" variable (:type "nodeToShard") (reparse-symbol formal_parameters) [9647 9658]))                          )
+                        (reparse-symbol class_member_declaration) [9593 10378])
+                    ("printRunningWorkersAndTargets" function
+                       (:typemodifiers ("private")
+                        :arguments 
+                          ( ("outputBytes" variable (:type "int") (reparse-symbol formal_parameters) [10425 10440])
+                            ("numCurRunningWorkers" variable (:type "int") (reparse-symbol formal_parameters) [10442 10466]))                          
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [10382 11763])
+                    ("getRunningNodeAddrs" function (:constructor-flag t) (reparse-symbol class_member_declaration) [11858 11934])
+                    ("isDone" function
+                       (:typemodifiers ("synchronized")
+                        :type "boolean")
+                        (reparse-symbol class_member_declaration) [12001 12082])
+                    ("setDone" function
+                       (:typemodifiers ("synchronized")
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [12164 12223])
+                    ("recordTimingsForUnfinishedTargetsIfNeeded" function (:type "void") (reparse-symbol class_member_declaration) [12392 12643])
+                    ("getNodeAddrToShardId" function (:constructor-flag t) (reparse-symbol class_member_declaration) [12681 12739])
+                    ("printStillRunningWorkersOutput" function
+                       (:typemodifiers ("synchronized")
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [13152 13387])
+                    ("removeNodes" function
+                       (:throws ("ClientException.RetryFromStart")
+                        :typemodifiers ("synchronized")
+                        :arguments 
+                          ( ("" variable (:type "nodeAddrs") (reparse-symbol formal_parameters) [13631 13640]))                          
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [13588 14612])
+                    ("getUnfinishedCmds" function (:constructor-flag t) (reparse-symbol class_member_declaration) [14778 15002])
+                    ("getCmdQueueSize" function
+                       (:typemodifiers ("synchronized")
+                        :type "int")
+                        (reparse-symbol class_member_declaration) [15006 15074])
+                    ("checkForDeadNodes" function
+                       (:throws ("ClientException.RetryFromStart")
+                        :typemodifiers ("private")
+                        :arguments 
+                          ( ("" variable (:type "aliveNodeAddrs") (reparse-symbol formal_parameters) [15419 15433]))                          
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [15376 16737])
+                    ("getRunningNodeShards" function
+                       (:typemodifiers ("private")
+                        :type "String[]")
+                        (reparse-symbol class_member_declaration) [16741 17081])
+                    ("print" function
+                       (:typemodifiers ("private")
+                        :arguments 
+                          ( ("stdoutStr" variable (:type "String") (reparse-symbol formal_parameters) [17104 17120]))                          
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [17085 17170])
+                    ("print" function
+                       (:typemodifiers ("private")
+                        :arguments 
+                          ( ("stdoutBytes" variable
+                               (:dereference 1
+                                :type "byte")
+                                (reparse-symbol formal_parameters) [17193 17211])
+                            ("stderrBytes" variable
+                               (:dereference 1
+                                :type "byte")
+                                (reparse-symbol formal_parameters) [17213 17231]))                          
+                        :type "void")
+                        (reparse-symbol class_member_declaration) [17174 17421])
+                    ("baosToString" function
+                       (:typemodifiers ("private")
+                        :arguments 
+                          ( ("baos" variable (:type "ByteArrayOutputStream") (reparse-symbol formal_parameters) [17453 17479]))                          
+                        :type "String")
+                        (reparse-symbol class_member_declaration) [17425 17771])
+                    ("NextTask" type
+                       (:typemodifiers ("static" "final")
+                        :members 
+                          ( ("NextTask" function
+                               (:constructor-flag t
+                                :typemodifiers ("private")
+                                :arguments 
+                                  ( ("" variable (:type "newNodesToStartCmdsOn") (reparse-symbol formal_parameters) [18190 18211])
+                                    ("" variable (:type "cmdsOnNewNodes") (reparse-symbol formal_parameters) [18232 18246])
+                                    ("" variable (:type "usedNodesToStartCmdsOn") (reparse-symbol formal_parameters) [18269 18291])
+                                    ("" variable (:type "cmdsOnUsedNodes") (reparse-symbol formal_parameters) [18312 18327])
+                                    ("" variable (:type "nodesToCancel") (reparse-symbol formal_parameters) [18350 18363]))                                  )
+                                (reparse-symbol class_member_declaration) [18160 18621])
+                            ("getNewNodesToStartCmdsOn" function (:constructor-flag t) (reparse-symbol class_member_declaration) [18799 18869])
+                            ("getCmdsToStartOnNewNodes" function (:constructor-flag t) (reparse-symbol class_member_declaration) [19052 19115])
+                            ("getUsedNodesToStartCmdsOn" function (:constructor-flag t) (reparse-symbol class_member_declaration) [19328 19400])
+                            ("getCmdsToStartOnUsedNodes" function (:constructor-flag t) (reparse-symbol class_member_declaration) [19618 19682])
+                            ("getNodesToCancel" function (:constructor-flag t) (reparse-symbol class_member_declaration) [19701 19755]))                          
+                        :type "class")
+                        (reparse-symbol class_member_declaration) [17864 19759])
+                    ("Accumulator" type
+                       (:typemodifiers ("private")
+                        :members 
+                          ( ("shardNum" variable
+                               (:typemodifiers ("public" "final")
+                                :type "int")
+                                (reparse-symbol class_member_declaration) [19852 19878])
+                            ("workerId" variable
+                               (:typemodifiers ("public" "final")
+                                :type "String")
+                                (reparse-symbol class_member_declaration) [19883 19912])
+                            ("cmd" variable
+                               (:typemodifiers ("public" "final")
+                                :type "TestCommandConfig.Cmd")
+                                (reparse-symbol class_member_declaration) [19917 19956])
+                            ("concreteCmdAsString" variable
+                               (:typemodifiers ("public" "final")
+                                :type "String")
+                                (reparse-symbol class_member_declaration) [19961 20001])
+                            ("outBuilder" variable
+                               (:typemodifiers ("public")
+                                :type "ByteArrayOutputStream")
+                                (reparse-symbol class_member_declaration) [20006 20080])
+                            ("errBuilder" variable
+                               (:typemodifiers ("public")
+                                :type "ByteArrayOutputStream")
+                                (reparse-symbol class_member_declaration) [20085 20159])
+                            ("startTimeMs" variable
+                               (:typemodifiers ("public" "final")
+                                :type "long")
+                                (reparse-symbol class_member_declaration) [20164 20223])
+                            ("gitPatchFailed" variable
+                               (:typemodifiers ("private")
+                                :type "boolean")
+                                (reparse-symbol class_member_declaration) [20228 20259])
+                            ("bannerStartDisplayed" variable
+                               (:typemodifiers ("private")
+                                :type "boolean")
+                                (reparse-symbol class_member_declaration) [20264 20309])
+                            ("bannerEndDisplayed" variable
+                               (:typemodifiers ("private")
+                                :type "boolean")
+                                (reparse-symbol class_member_declaration) [20314 20357])
+                            ("exitStatus" variable
+                               (:typemodifiers ("private")
+                                :type "ExitStatus")
+                                (reparse-symbol class_member_declaration) [20362 20413])
+                            ("Accumulator" function
+                               (:constructor-flag t
+                                :arguments 
+                                  ( ("nodeAddr" variable (:type "String") (reparse-symbol formal_parameters) [20431 20446])
+                                    ("cmd" variable (:type "TestCommandConfig.Cmd") (reparse-symbol formal_parameters) [20448 20473])
+                                    ("concreteCmdAsString" variable (:type "String") (reparse-symbol formal_parameters) [20475 20501]))                                  )
+                                (reparse-symbol class_member_declaration) [20419 20697])
+                            ("appendOutput" function
+                               (:arguments 
+                                  ( ("stdoutBytes" variable
+                                       (:dereference 1
+                                        :type "byte")
+                                        (reparse-symbol formal_parameters) [20721 20739])
+                                    ("stderrBytes" variable
+                                       (:dereference 1
+                                        :type "byte")
+                                        (reparse-symbol formal_parameters) [20741 20759]))                                  
+                                :type "void")
+                                (reparse-symbol class_member_declaration) [20703 21086])
+                            ("setGitPatchFailed" function
+                               (:arguments 
+                                  ( ("gitPatchFailed" variable (:type "boolean") (reparse-symbol formal_parameters) [21115 21137]))                                  
+                                :type "void")
+                                (reparse-symbol class_member_declaration) [21092 21190])
+                            ("getGitPatchFailed" function (:type "boolean") (reparse-symbol class_member_declaration) [21196 21260])
+                            ("getExitStatus" function (:type "ExitStatus") (reparse-symbol class_member_declaration) [21266 21325])
+                            ("finished" function
+                               (:arguments 
+                                  ( ("exCode" variable (:type "int") (reparse-symbol formal_parameters) [21345 21355]))                                  
+                                :type "void")
+                                (reparse-symbol class_member_declaration) [21331 21438])
+                            ("getExecTimeSec" function (:type "int") (reparse-symbol class_member_declaration) [21444 21517])
+                            ("getExecTimeMs" function (:type "long") (reparse-symbol class_member_declaration) [21523 21606])
+                            ("workerIdAndStartTime" function
+                               (:arguments 
+                                  ( ("onStart" variable (:type "boolean") (reparse-symbol formal_parameters) [21640 21655]))                                  
+                                :type "String")
+                                (reparse-symbol class_member_declaration) [21612 21851])
+                            ("workerIdStartTimeAndExitStatus" function
+                               (:arguments 
+                                  ( ("onStart" variable (:type "boolean") (reparse-symbol formal_parameters) [21895 21910]))                                  
+                                :type "String")
+                                (reparse-symbol class_member_declaration) [21857 22164])
+                            ("resetAccumulatedOutput" function (:type "void") (reparse-symbol class_member_declaration) [22170 22303])
+                            ("workerBannerPrintStartIfNeeded" function (:type "void") (reparse-symbol class_member_declaration) [22309 22642])
+                            ("workerBannerPrintEndIfNeeded" function (:type "void") (reparse-symbol class_member_declaration) [22648 22999])
+                            ("flushOutput" function
+                               (:arguments 
+                                  ( ("passedTargetOutputLines" variable (:type "int") (reparse-symbol formal_parameters) [23022 23049]))                                  
+                                :type "void")
+                                (reparse-symbol class_member_declaration) [23005 24298]))                          
+                        :type "class")
+                        (reparse-symbol class_member_declaration) [19820 24302]))                  
+                :type "class")
+                nil [1161 24304]))          
+      :file "WorkerMgr.java"
+      :pointmax 24305
+      :fsize 24304
+      :lastmodtime '(21883 16401 0 0)
+      :unmatched-syntax nil))
+  :file "!Users!tstumpf!workspace!source!science!src!java!com!twitter!iron!client!semantic.cache"
+  :semantic-tag-version "2.0"
+  :semanticdb-version "2.2")

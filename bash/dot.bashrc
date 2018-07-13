@@ -1,4 +1,4 @@
-export PS1="\u@\h:\w$ "
+export PS1="\A \u@\h:\w$ "
 export PATH="~/bin:/Applications/Emacs.app/Contents/MacOS/bin:$PATH"
 export EDITOR=emacsclient
 export HADOOP_HOME=/opt/twitter/Cellar/hadoop/0.20.1/libexec
@@ -6,7 +6,7 @@ export HADOOP_HOME=/opt/twitter/Cellar/hadoop/0.20.1/libexec
 
 # from https://confluence.twitter.biz/display/MOBILE/Setting+up+your+environment
 # JAVA_HOME is typically /Library/Java/JavaVirtualMachines/jdk1.7.0_17.jdk/Contents/Home
-JAVA_HOME="`/usr/libexec/java_home -v '1.7*'`" 
+JAVA_HOME="`/usr/libexec/java_home -v '1.8*'`" 
 ANDROID_HOME="/Applications/Android Studio.app/sdk"
 GRADLE_OPTS="-Xms512m -Xmx1024m"
 PATH=$PATH:"$ANDROID_HOME/tools"
@@ -16,13 +16,25 @@ export JAVA_HOME ANDROID_HOME GRADLE_OPTS PATH
 launchctl setenv ANDROID_HOME "$ANDROID_HOME"
 launchctl setenv GRADLE_OPTS "$GRADLE_OPTS"
 
-_JAVA_OPTIONS="-Xmx2g"
-export _JAVA_OPTIONS
-launchctl setenv _JAVA_OPTIONS "$_JAVA_OPTIONS"
-
 # dottools: add distribution binary directories to PATH
 if [ -r "$HOME/.tools-cache/setup-dottools-path.sh" ]; then
   . "$HOME/.tools-cache/setup-dottools-path.sh"
 fi
 
 alias truegit=/usr/bin/git
+alias urldecode='python -c "import sys, urllib as ul; \
+    print ul.unquote_plus(sys.argv[1])"'
+alias prodtunnels='ssh -D 5000 -CN nest.smfc.twitter.com&; ssh -D 5001 -CN nest.atlc.twitter.com&;'
+zwget() { ID="`openssl rand -hex 8`"; echo; echo http://go/zipkin/$ID; echo; wget --header "X-B3-SpanId: $ID" --header "X-B3-TraceId: $ID" --header "X-B3-Flags: 1" "$@"; }
+
+ztwurl() { ID="`openssl rand -hex 8`"; echo; echo http://go/zipkin/$ID; echo; twurl -A "X-B3-SpanId: $ID" -A "X-B3-TraceId: $ID" -A "X-B3-Flags: 1" "$@"; }
+ztwurl2() { ID="`openssl rand -hex 8`"; echo; echo http://go/zipkin/$ID; echo; twurl2 -A "X-B3-SpanId: $ID" -A "X-B3-TraceId: $ID" -A "X-B3-Flags: 1" "$@"; }
+
+scp () {
+    if grep -q ':' <<< "$@"
+    then
+        /usr/bin/scp $@
+    else
+        echo "no remote destination" >&2
+    fi
+}
