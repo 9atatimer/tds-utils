@@ -1,7 +1,7 @@
 # Executed for each sub-shell -- declare, do not append.
 
 # Don't do this here -- it clogs the PATH
-#export PATH="~/bin:/Applications/Emacs.app/Contents/MacOS/bin:$PATH"
+#export PATH="$HOME/bin:/Applications/Emacs.app/Contents/MacOS/bin:$PATH"
 export EDITOR=emacsclient
 
 alias urldecode='python -c "import sys, urllib as ul; \
