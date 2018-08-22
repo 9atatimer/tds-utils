@@ -2,7 +2,7 @@
 (defadvice find-file (around confirm-non-existing-files activate)
  "When called interactively, open non-existing files only upon confirmation."
  (interactive "FSwitch to file: ")
- (if (or (not (called-interactively-p))
+ (if (or (not (called-interactively-p 'any))
          (file-exists-p (ad-get-arg 0))
          (y-or-n-p (format "`%s' does not exist, create? " (ad-get-arg 0))))
      ad-do-it))

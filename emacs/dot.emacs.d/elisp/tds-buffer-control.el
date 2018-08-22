@@ -2,7 +2,7 @@
 (defun tds-confirm-switch (ad-do-it)
   "When called interactively, switch to non-existing buffers only
   upon confirmation."
-  (if (or (not (called-interactively-p))
+  (if (or (not (called-interactively-p 'any))
 	  ;;
 	  ;; If the buffer exists, do like normal.
 	  ;;
