@@ -1,1 +1,0 @@
-../elisp.available/exec-path-from-shell.el

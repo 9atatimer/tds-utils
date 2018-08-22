@@ -1,1 +1,0 @@
-../elisp.available/git-wip.el
