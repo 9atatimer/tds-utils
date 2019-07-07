@@ -45,9 +45,7 @@
   (add-to-list 'package-archives
                '("melpa" . "https://melpa.org/packages/") t)
   (add-to-list 'package-archives
-             '("marmalade" . "https://marmalade-repo.org/packages/") t)
-  (add-to-list 'package-archives
-             '("gnu" . "http://elpa.gnu.org/packages/") t))
+               '("gnu" . "http://elpa.gnu.org/packages/") t))
 
 (package-initialize)
 
