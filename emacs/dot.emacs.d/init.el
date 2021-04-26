@@ -59,7 +59,7 @@
 (require 'tds-mail-mode)     ;; tweak mail to protect me from myself
 (require 'tds-ediff-mode)    ;; trim ediff behavior. keep it simple.
 ;;(require 'tds-tags)          ;; keep tag systems up to date with my changes.
-(require 'tds-pants)         ;; the build tool of choice for le Twitter
+;;(require 'tds-pants)         ;; the build tool of choice for le Twitter
 (require 'tds-misc-utils)    ;; things I can't categorize...
 
 (require 'icomplete)                  ;; show dynamic completions in minibuffer
@@ -205,18 +205,3 @@
 	(setq quacks-like-a-darwin 't)))
 
 (server-start)
-
-(custom-set-variables
- ;; custom-set-variables was added by Custom.
- ;; If you edit it by hand, you could mess it up, so be careful.
- ;; Your init file should contain only one such instance.
- ;; If there is more than one, they won't work right.
- '(package-selected-packages
-   (quote
-    (rbenv json-mode jinja2-mode terraform-mode yasnippet yaml-mode use-package sbt-mode s mustache-mode groovy-mode ggtags fold-this dash company auto-complete))))
-(custom-set-faces
- ;; custom-set-faces was added by Custom.
- ;; If you edit it by hand, you could mess it up, so be careful.
- ;; Your init file should contain only one such instance.
- ;; If there is more than one, they won't work right.
- )
