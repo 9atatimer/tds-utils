@@ -40,6 +40,7 @@
 ;; Look at the mode help (C-h m)
 (require 'package)
 (when (>= emacs-major-version 24)
+  (setq gnutls-algorithm-priority "NORMAL:-VERS-TLS1.3")
   (add-to-list 'package-archives
                '("melpa-stable" . "https://stable.melpa.org/packages/") t)
   (add-to-list 'package-archives
@@ -213,7 +214,7 @@
  ;; If there is more than one, they won't work right.
  '(package-selected-packages
    (quote
-    (rbenv json-mode jinja2-mode terraform-mode yasnippet yaml-mode use-package sbt-mode s mustache-mode groovy-mode ggtags fold-this dash company auto-complete))))
+    (graphviz-dot-mode graphql-mode csharp-mode rbenv json-mode jinja2-mode terraform-mode yasnippet yaml-mode use-package sbt-mode s mustache-mode groovy-mode ggtags fold-this dash company auto-complete))))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.

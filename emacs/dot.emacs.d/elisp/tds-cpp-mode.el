@@ -56,7 +56,7 @@ font-lock-instance-variable-face)))
                     "/google3/"
                     (file-name-sans-extension buffer-file-name)
                     "/google3/bin/"))))
- )
+)
 
 (add-hook 'c++-mode-hook 'tds-cplusplus-mode)
 
