@@ -4,7 +4,7 @@
 ;; You'll need to find 'git-wip' and 'git-wip.el' (last seen on github)
 ;; and 'diff-mode-.el' (last seen on emacswiki) for these tweaks
 ;; to work swimmingly.
-(require 'cl)
+(require 'cl-lib)
 (require 'vc)
 (load-library "cl-seq")
 (load-library "git-wip.el")  ;; if in git, autocommit to git WIP branch on save
