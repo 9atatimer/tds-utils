@@ -32,7 +32,7 @@
 
 (provide 'tds-pants)
 (eval-when-compile
-  (require 'cl))
+  (require 'cl-lib))
 
 (require 'pants)
 

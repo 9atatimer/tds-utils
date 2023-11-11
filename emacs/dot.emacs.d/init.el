@@ -73,13 +73,14 @@
 ;;(require 'css-mode)
 ;;(require 'php-mode)
 
-(require 'template)                   ;; let me use pre-defined code snippets
+;;;
+;;(require 'template)                   ;; let me use pre-defined code snippets
 
 ;;(setq template-default-directories  ;; add personal templates...
 ;; (append (list "~/emacs/templates") ;; .. or skip and ln -s ~/.templates
 ;; template-default-directories))     ;; to your template depot.
-(template-initialize)
-(require 'tds-template-advice)        ;; tweak locating template by extension
+;;(template-initialize)
+;;(require 'tds-template-advice)        ;; tweak locating template by extension
 
 ; mac-only libraries
 (if (string-equal "darwin" system-type)
@@ -147,11 +148,11 @@
 
 (ansi-color-for-comint-mode-on)          ;; display colors in shells
 
-(when (boundp 'Buffer-menu-name-width)
-  (setq Buffer-menu-name-width	         ;; with uniquify (and rails filenames)
-      (+ Buffer-menu-name-width 10))     ;; you need little more room
-  (setq Buffer-menu-size-width 4))       ;; do you look at this col?  Me neither.
-(setq Buffer-menu-mode-width 7)	         ;; do you look at this col?  Me neither.
+;; (when (boundp 'Buffer-menu-name-width)
+;;   (setq Buffer-menu-name-width	         ;; with uniquify (and rails filenames)
+;;       (+ Buffer-menu-name-width 10))     ;; you need little more room
+;;   (setq Buffer-menu-size-width 4))       ;; do you look at this col?  Me neither.
+;; (setq Buffer-menu-mode-width 7)	         ;; do you look at this col?  Me neither.
 
 
  ;;;;;;;;;;;;;;;;;;;

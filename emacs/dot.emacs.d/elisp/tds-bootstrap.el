@@ -8,7 +8,7 @@
 
 ;;; Code:
 (eval-when-compile
-  (require 'cl))
+  (require 'cl-lib))
 
 (defun tds-prefix-load-path()
  "Add personal paths to front of load-path"

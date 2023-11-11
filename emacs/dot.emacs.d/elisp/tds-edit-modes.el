@@ -5,7 +5,7 @@
 (load-library "tds-antlr-mode.el")
 (load-library "tds-cpp-mode.el")
 (load-library "tds-dired-mode.el")
-(load-library "tds-git-mode.el")
+;;(load-library "tds-git-mode.el")
 (load-library "tds-javascript-mode.el")
 (load-library "tds-jvm-mode.el")
 (load-library "tds-mason-mode.el")
