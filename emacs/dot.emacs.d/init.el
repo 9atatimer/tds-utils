@@ -93,5 +93,3 @@
               ("M-<tab>" . copilot-next-completion)
               ("S-<tab>" . copilot-accept-completion)
               ("C-<tab>" . copilot-panel-completion)))
-
-
