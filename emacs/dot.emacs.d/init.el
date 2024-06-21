@@ -2,6 +2,10 @@
 (unless (boundp 'user-emacs-directory)
   (setq user-emacs-directory "~/.emacs.d/"))
 
+;; Avoid the toolbar at the top to save screen real estate
+(when (fboundp 'tool-bar-mode)
+  (tool-bar-mode -1))
+
 ;; Add personal elisp directories to the load-path
 (let ((default-directory (concat user-emacs-directory (convert-standard-filename "elisp/"))))
   (add-to-list 'load-path default-directory)
@@ -85,13 +89,67 @@
 
 (server-start)
 
+(define-key minibuffer-local-map (kbd "C-w") 'backward-kill-word)
+(setq select-enable-clipboard t)
+(global-set-key (kbd "M-c") 'clipboard-kill-ring-save)  ;; apple-C to copy
+
 ;; Copilot setup
 (use-package copilot
   :ensure t
   :hook (prog-mode . copilot-mode)
+  :config (setq copilot-idle-delay 0.5)
   :bind (:map copilot-completion-map
-              ("M-<tab>" . copilot-next-completion)
+              ("s-<tab>" . copilot-next-completion)
               ("S-<tab>" . copilot-accept-completion)
               ("C-<tab>" . copilot-panel-completion)))
 
+;;;; sure, let's be rebels:
+(with-eval-after-load 'copilot
+  (setq copilot-version "1.22.0"))
+  ;;(setq copilot-version "1.36.0"))
+(copilot-reinstall-server)
+
+;; We keep the openai key in our local pass tool
+(use-package auth-source-pass
+  :ensure t
+  :config
+  (auth-source-pass-enable))
+
+;; Also use chatgpt-shell -- pulls the API key into chatgpt-shell-openapi-key
+(use-package chatgpt-shell
+  :ensure t
+  :custom ((chatgpt-shell-openapi-key
+            (lambda ()
+              (auth-source-pass-get 'secret "openapi-key")))))
+
+;;;;;;;;;;
+;; move this into its own file if it works
+;;;;;;;;;;
+
+(defun paste-and-ediff-clipboard-region ()
+  "Paste the clipboard content into a new buffer, compare with selected region using ediff, and prompt to accept changes."
+
+
+(global-set-key (kbd "C-M-v") 'paste-and-ediff-clipboard-region)
+(global-set-key (kbd "C-M-y") 'paste-and-ediff-clipboard-region)
+
+;;;;;;;;;;
+
+
+
+(custom-set-variables
+ ;; custom-set-variables was added by Custom.
+ ;; If you edit it by hand, you could mess it up, so be careful.
+ ;; Your init file should contain only one such instance.
+ ;; If there is more than one, they won't work right.
+ '(indent-tabs-mode nil)
+ '(package-selected-packages
+   '(web-mode chatgpt-shell js2-mode terraform-mode quelpa-use-package poly-ruby poly-rst poly-markdown mermaid-mode groovy-mode exec-path-from-shell dtrt-indent copilot bazel)))
+
+(custom-set-faces
+ ;; custom-set-faces was added by Custom.
+ ;; If you edit it by hand, you could mess it up, so be careful.
+ ;; Your init file should contain only one such instance.
+ ;; If there is more than one, they won't work right.
+ )
 
