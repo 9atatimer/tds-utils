@@ -23,14 +23,15 @@
   (set-selection-coding-system 'compound-text-with-extensions)) ; Extended compound-text coding for X clipboard
 
 ;; Package management setup for Emacs 24 and above
-(setq url-queue-timeout 30)   ;; don't wait forever for packages to download
 (when (>= emacs-major-version 24)
   (require 'package)
   (setq package-archives '(("melpa-stable" . "https://stable.melpa.org/packages/")
                            ("melpa" . "https://melpa.org/packages/")
                            ("gnu" . "https://elpa.gnu.org/packages/")
                            )
-        gnutls-algorithm-priority "NORMAL:-VERS-TLS1.3")
+        gnutls-algorithm-priority "NORMAL:-VERS-TLS1.3"
+        url-queue-timeout 30   ;; don't wait forever for packages to download
+        )
   (package-initialize))
 
 ;; Ensure use-package is installed
@@ -53,6 +54,11 @@
       '(tds-look-and-feel tds-kill-confirm tds-edit-modes tds-buffer-control
         tds-mail-mode tds-ediff-mode tds-misc-utils))
 
+(use-package dabbrev
+  :ensure nil  ; Ensure nil is used because dabbrev is part of Emacs, not an external package
+  :config
+  (setq dabbrev-case-replace nil))
+
 ;; Built-in enhancements
 (icomplete-mode 1) ; Dynamic completions in minibuffer
 (show-paren-mode 1) ; Highlight matching parentheses
@@ -73,7 +79,6 @@
       next-line-add-newlines nil
       inhibit-startup-message t
       tags-case-fold-search nil
-      dabbrev-case-replace nil
       require-final-newline t
       transient-mark-mode t
       truncate-partial-width-windows t
@@ -130,6 +135,8 @@
 ;; LSP Mode setup
 (use-package lsp-mode
   :ensure t
+  :init
+  (setq lsp-keymap-prefix "C-c l")  ; Change prefix for lsp-command-keymap (default is "s-l")
   :hook ((js-mode . lsp)
          (js2-mode . lsp)
          (typescript-mode . lsp)
@@ -137,11 +144,16 @@
          (vue-mode . lsp))
   :commands lsp
   :config
-  (setq lsp-prefer-flymake nil) ; Use flycheck instead of flymake
-  (setq lsp-enable-snippet nil) ; Disable snippets if not needed
-  (setq lsp-ui-doc-enable nil) ; Disable inline documentation if it gets in the way
-  (setq lsp-ui-sideline-enable nil)) ; Disable sideline if it gets in the way
-
+  (setq lsp-prefer-flymake nil)  ; Use flycheck instead of flymake
+  (setq lsp-enable-snippet nil)  ; Disable snippets
+  (setq lsp-ui-doc-enable nil)   ; Disable inline documentation
+  (setq lsp-ui-sideline-enable nil)  ; Disable sideline
+  (setq lsp-auto-guess-root t)   ; Automatically guess the project root
+  (setq lsp-log-io nil)          ; Disable log of communication between Emacs and language servers
+  (setq lsp-restart 'auto-restart)  ; Automatically restart LSP if it crashes
+  (setq lsp-enable-symbol-highlighting nil)  ; Disable symbol highlighting
+  (setq lsp-enable-on-type-formatting nil)   ; Disable formatting as you type
+  (setq lsp-signature-render-documentation nil))  ; Disable documentation in function signatures
 (use-package lsp-ui
   :ensure t
   :commands lsp-ui-mode
@@ -164,30 +176,40 @@
          (vue-mode . prettier-js-mode)))
 
 ;; Magit keybindings
+(use-package magit
+  :ensure t
+  :bind ("C-x g" . magit-status))
+
 (with-eval-after-load 'magit
   (define-key magit-status-mode-map (kbd "M-n") 'magit-section-forward)
   (define-key magit-status-mode-map (kbd "M-p") 'magit-section-backward))
+
+(defvar my-ediff-original-buffer nil
+  "Stores the original buffer for the paste-and-ediff function.")
+
+(defvar my-ediff-original-start nil
+  "Stores the start position of the region for the paste-and-ediff function.")
+
+(defvar my-ediff-original-end nil
+  "Stores the end position of the region for the paste-and-ediff function.")
 
 (defun paste-and-ediff-clipboard-region ()
   "Paste the clipboard content into a new buffer, compare with selected region using ediff, and prompt to accept changes."
   (interactive)
   (if (use-region-p)
-      (let ((clipboard-content (current-kill 0))
-            (region-content (buffer-substring-no-properties (region-beginning) (region-end)))
-            (clipboard-buffer (get-buffer-create "*clipboard*"))
-            (region-buffer (get-buffer-create "*region*"))
-            (original-buffer (current-buffer))
-            (original-start (region-beginning))
-            (original-end (region-end)))
-        (message "Clipboard buffer created: %s" clipboard-buffer)
+      (let* ((clipboard-content (current-kill 0))
+             (region-content (buffer-substring-no-properties (region-beginning) (region-end)))
+             (clipboard-buffer (get-buffer-create "*clipboard*"))
+             (region-buffer (get-buffer-create "*region*")))
+        (setq my-ediff-original-buffer (current-buffer)
+              my-ediff-original-start (region-beginning)
+              my-ediff-original-end (region-end))
         (with-current-buffer clipboard-buffer
           (erase-buffer)
-          (insert clipboard-content)
-          (message "Inserted clipboard content"))
+          (insert clipboard-content))
         (with-current-buffer region-buffer
           (erase-buffer)
-          (insert region-content)
-          (message "Inserted region content"))
+          (insert region-content))
         ;; Run Ediff and apply changes if needed
         (let ((ediff-window-setup-function 'ediff-setup-windows-plain)
               (ediff-ignore-similar-regions t)) ;; Ignore whitespace differences
@@ -196,22 +218,24 @@
                     (lambda ()
                       (message "Inside ediff hook")
                       (if (yes-or-no-p "Apply changes from clipboard to buffer?")
-                          (let ((final-content (with-current-buffer clipboard-buffer
+                          (let ((final-content (with-current-buffer "*clipboard*"
                                                  (buffer-substring-no-properties (point-min) (point-max)))))
-                            (with-current-buffer original-buffer
+                            (with-current-buffer my-ediff-original-buffer
                               (save-excursion
-                                (goto-char original-start)
-                                (delete-region original-start original-end)
+                                (goto-char my-ediff-original-start)
+                                (delete-region my-ediff-original-start my-ediff-original-end)
                                 (insert final-content))
                               (message "Changes applied from clipboard")))
                         (message "Changes not applied"))
                       ;; Cleanup temporary buffers
-                      (kill-buffer clipboard-buffer)
-                      (kill-buffer region-buffer)
+                      (when (get-buffer "*clipboard*")
+                        (kill-buffer "*clipboard*"))
+                      (when (get-buffer "*region*")
+                        (kill-buffer "*region*"))
                       ;; Return to the original buffer and position
-                      (switch-to-buffer original-buffer)
-                      (goto-char original-start))))))
-    (message "No region selected"))
+                      (switch-to-buffer my-ediff-original-buffer)
+                      (goto-char my-ediff-original-start)))))
+    (message "No region selected")))
 
 (global-set-key (kbd "C-M-v") 'paste-and-ediff-clipboard-region)
 (global-set-key (kbd "C-M-y") 'paste-and-ediff-clipboard-region)
