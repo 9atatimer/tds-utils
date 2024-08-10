@@ -59,6 +59,17 @@
   :config
   (setq dabbrev-case-replace nil))
 
+(defun copy-whole-buffer-to-clipboard ()
+  "Copy the entire buffer to the clipboard."
+  (interactive)
+  (kill-new (buffer-substring-no-properties (point-min) (point-max)))
+  (message "Buffer copied to clipboard"))
+
+(defun open-init-file ()
+  "Open the init.el file."
+  (interactive)
+  (find-file "~/.emacs.d/init.el"))
+
 ;; Built-in enhancements
 (icomplete-mode 1) ; Dynamic completions in minibuffer
 (show-paren-mode 1) ; Highlight matching parentheses
@@ -240,6 +251,60 @@
 (global-set-key (kbd "C-M-v") 'paste-and-ediff-clipboard-region)
 (global-set-key (kbd "C-M-y") 'paste-and-ediff-clipboard-region)
 
+
+;;
+;; Let's use cody!
+;;
+
+;; cody expects gpg-encryption support, and epa-file:
+(require 'epa-file)
+(epa-file-enable)
+(setq epa-file-cache-passphrase-for-symmetric-encryption nil)  ; Do not cache passphrase
+(setq epa-file-select-keys nil)  ; Ensure that Emacs prompts for a passphrase
+(setq epa-armor t)  ; Use ASCII armor for encryption (optional)
+(setq epa-pinentry-mode 'loopback)  ; Use Emacs for passphrase entry, rather than an external tool
+
+
+;; ;; Tell `use-package' where to find your clone of `cody.el'.
+;; (add-to-list 'load-path (expand-file-name "~/workplace/sourcegraph/emacs-cody"))
+
+;; ;; Cody currently expects a very specifi nodejs version:
+;; (setq cody-node-executable "/Users/stumpf/.nvm/versions/node/v20.4.0/bin/node")
+
+;; (require 'uuidgen)  ;; needed for cody
+;; (use-package cody
+;;   :commands (cody-login cody-restart cody-chat cody-mode)
+;;   :hook (prog-mode . cody-mode) ;; enable cody by default
+;;   ;; Some common key bindings.
+;;   :bind (:map cody-mode-map
+;;               ("C-?" . cody-request-completion)
+;;               ("<backtab>" . cody-completion-accept-key-dispatch)
+;;               ("C-<backtab>" . cody-completion-cycle-next-key-dispatch )
+;;               ("C-<tab>" . cody-completion-cycle-prev-key-dispatch )
+;;               ("S-C-?" . cody-chat)
+;;               ("S-C-g" . cody-quit-key-dispatch))
+;;   :init
+;;   (setq cody--sourcegraph-host "cody.sourcegraph.com") ; for clarity; this is the default. ;; seems to be used for retrieving the secret from gpg, not for connecting.
+;;   (setopt cody-workspace-root "~/workplace/newharbor/newharbor-app")
+;;   :config
+;;   (defalias 'cody-start 'cody-login))
+
+
+;; Two things I seem to be doing a lot of -- copy the whole file to a clipboard
+;; and editing my init.el
+(global-set-key (kbd "C-x C-y") 'copy-whole-buffer-to-clipboard)
+(global-set-key (kbd "C-c e i") 'open-init-file)
+
+
+
+
+
+
+
+;;
+;;  Misc emacs-UI controlled variables:
+;;
+
 (custom-set-variables
  ;; custom-set-variables was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
@@ -247,7 +312,7 @@
  ;; If there is more than one, they won't work right.
  '(indent-tabs-mode nil)
  '(package-selected-packages
-   '(eslint-fix lsp-mode magit web-mode chatgpt-shell js2-mode terraform-mode quelpa-use-package poly-ruby poly-rst poly-markdown mermaid-mode groovy-mode exec-path-from-shell dtrt-indent copilot bazel)))
+   '(uuidgen eslint-fix lsp-mode magit web-mode chatgpt-shell js2-mode terraform-mode quelpa-use-package poly-ruby poly-rst poly-markdown mermaid-mode groovy-mode exec-path-from-shell dtrt-indent copilot bazel)))
 
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
