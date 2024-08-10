@@ -22,6 +22,15 @@
   :ensure t
   :mode "\\.vue\\'"
   :config
+  (add-hook 'web-mode-hook
+            (lambda ()
+              (when (string-equal "vue" (file-name-extension buffer-file-name))
+                (flycheck-select-checker 'javascript-eslint)))))
+
+(use-package web-mode
+  :ensure t
+  :mode "\\.vue\\'"
+  :config
   (setq web-mode-content-types-alist '(("vue" . "\\.vue\\'"))))
 
 
@@ -35,9 +44,18 @@
   :ensure t
   :hook (web-mode . prettier-js-mode))
 
+
 (use-package flycheck
   :ensure t
-  :init (global-flycheck-mode))
+  :init (global-flycheck-mode)
+  :config
+  (setq-default flycheck-disabled-checkers '(javascript-jshint json-jsonlint))
+  (setq-default flycheck-temp-prefix ".flycheck")
+  (setq flycheck-eslintrc "~/workplace/newharbor/newharbor-app/newharbor/eslint.config.js")
+  ;; Ensure Flycheck uses the right ESLint config
+  (flycheck-add-mode 'javascript-eslint 'js2-mode)
+  (flycheck-add-mode 'javascript-eslint 'web-mode)
+  (flycheck-add-mode 'javascript-eslint 'vue-mode))
 
 (use-package lsp-mode
   :ensure t

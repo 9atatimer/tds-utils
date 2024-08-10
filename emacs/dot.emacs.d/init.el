@@ -49,6 +49,12 @@
   :config
   (exec-path-from-shell-initialize))
 
+;; Use direnv package to handle directory-specific configuration
+(use-package direnv
+  :ensure t
+  :config
+  (direnv-mode))
+
 ;; Personal customizations
 (mapc 'require
       '(tds-look-and-feel tds-kill-confirm tds-edit-modes tds-buffer-control
@@ -164,7 +170,9 @@
   (setq lsp-restart 'auto-restart)  ; Automatically restart LSP if it crashes
   (setq lsp-enable-symbol-highlighting nil)  ; Disable symbol highlighting
   (setq lsp-enable-on-type-formatting nil)   ; Disable formatting as you type
-  (setq lsp-signature-render-documentation nil))  ; Disable documentation in function signatures
+  (setq lsp-signature-render-documentation nil)  ; Disable documentation in function signatures
+  (setq lsp-eslint-enable nil))
+
 (use-package lsp-ui
   :ensure t
   :commands lsp-ui-mode
@@ -294,12 +302,6 @@
 ;; and editing my init.el
 (global-set-key (kbd "C-x C-y") 'copy-whole-buffer-to-clipboard)
 (global-set-key (kbd "C-c e i") 'open-init-file)
-
-
-
-
-
-
 
 ;;
 ;;  Misc emacs-UI controlled variables:
