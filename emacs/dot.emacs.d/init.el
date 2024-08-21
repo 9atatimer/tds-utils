@@ -186,6 +186,20 @@
   :ensure t
   :commands lsp-treemacs-errors-list)
 
+;;;;;;
+;;;;;;
+;; temporary hacks to try to get emacs to follow prettier standards
+;;;;;;
+;;;;;;
+;; Set global indentation to 2 spaces for JavaScript and Vue files
+(setq-default js-indent-level 2)
+(setq-default js2-basic-offset 2)
+(setq-default web-mode-code-indent-offset 2)
+(setq-default web-mode-markup-indent-offset 2)
+(setq-default web-mode-css-indent-offset 2)
+(setq-default vue-html-indent-level 2)
+
+
 ;; Prettier for code formatting
 (use-package prettier-js
   :ensure t
@@ -193,6 +207,10 @@
          (js-mode . prettier-js-mode)
          (web-mode . prettier-js-mode)
          (vue-mode . prettier-js-mode)))
+;; Disable auto-indentation in web-mode if it conflicts with Prettier
+(add-hook 'web-mode-hook
+          (lambda ()
+            (setq web-mode-enable-auto-indentation nil)))
 
 ;; Magit keybindings
 (use-package magit
@@ -201,7 +219,12 @@
 
 (with-eval-after-load 'magit
   (define-key magit-status-mode-map (kbd "M-n") 'magit-section-forward)
-  (define-key magit-status-mode-map (kbd "M-p") 'magit-section-backward))
+  (define-key magit-status-mode-map (kbd "M-p") 'magit-section-backward)
+
+  ;; Set default comment buffer height
+  (setq magit-commit-buffer-max-width nil)
+  (setq magit-commit-buffer-height 5)
+)
 
 (defvar my-ediff-original-buffer nil
   "Stores the original buffer for the paste-and-ediff function.")
