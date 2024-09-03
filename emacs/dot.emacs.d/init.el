@@ -42,6 +42,15 @@
 (eval-when-compile
   (require 'use-package))
 
+(require 'ansi-color)
+
+(defun colorize-compilation-buffer ()
+  (when (eq major-mode 'compilation-mode)
+    (ansi-color-apply-on-region (point-min) (point-max))))
+
+(add-hook 'compilation-filter-hook 'colorize-compilation-buffer)
+
+
 ;; Explicitly declare exec-path-from-shell as a dependency
 (use-package exec-path-from-shell
   :ensure t

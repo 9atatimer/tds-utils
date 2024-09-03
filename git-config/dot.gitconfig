@@ -15,4 +15,5 @@
 
 [alias]
     branch-dates = !git for-each-ref --sort=committerdate refs/heads/ --format='%(committerdate:iso8601) %(refname:short)'
+    diff-names = !git diff --name-only
 
