@@ -50,7 +50,6 @@
 
 (add-hook 'compilation-filter-hook 'colorize-compilation-buffer)
 
-
 ;; Explicitly declare exec-path-from-shell as a dependency
 (use-package exec-path-from-shell
   :ensure t
@@ -84,6 +83,56 @@
   "Open the init.el file."
   (interactive)
   (find-file "~/.emacs.d/init.el"))
+
+;; For the moment assume we're in a node project (which for NH is true) and look for package.json
+;; for our root directory.
+(add-hook 'compilation-mode-hook
+          (lambda ()
+            (setq default-directory (locate-dominating-file default-directory "package.json"))))
+
+
+;; configure explicitly the build-in project.el module:
+(global-set-key (kbd "C-c p f") 'project-find-file)       ;; Find a file in the project
+(global-set-key (kbd "C-c p d") 'project-dired)           ;; Open dired in the project root
+(global-set-key (kbd "C-c p s") 'project-shell)           ;; Open a shell in the project root
+(global-set-key (kbd "C-c p b") 'project-switch-to-buffer) ;; Switch to a project buffer
+(global-set-key (kbd "C-c p k") 'project-kill-buffers)    ;; Kill all project buffers
+(global-set-key (kbd "C-c p c") 'project-compile)
+
+(setq project-compilation-buffer-name-function
+      (lambda (project)
+        (format "*compilation: %s*" (project-root (project-current t)))))
+
+(setq compile-command "npm run test")  ;; Default compile command
+
+
+;;(use-package jest... ) removed
+;; the jest package doesn't integrate with the project compile command, so its
+;; functionality is useless to us.
+(require 'compile)
+
+(defconst vitest-error-regexp
+  (rx line-start
+      "    at "
+      (group-n 1 (+ (not (any ":"))))  ; file path
+      ":"
+      (group-n 2 (+ digit))            ; line number
+      ":"
+      (group-n 3 (+ digit))            ; column number
+      (or " " "\n"))
+  "Regular expression to match Vitest error messages.")
+
+(add-to-list 'compilation-error-regexp-alist-alist
+             `(vitest
+               ,vitest-error-regexp
+               1   ; file name
+               2   ; line number
+               3   ; column number
+               2   ; error type - using 2 for 'error'
+               nil  ; hyperlink
+               (1 compilation-error-face)))
+
+(add-to-list 'compilation-error-regexp-alist 'vitest)
 
 ;; Built-in enhancements
 (icomplete-mode 1) ; Dynamic completions in minibuffer
