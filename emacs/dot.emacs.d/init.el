@@ -121,24 +121,32 @@
       ":"
       (group-n 3 (+ digit))            ; column number
       (or " " "\n"))
-  "Regular expression to match Vitest error messages.")
+  "Regexp to match Vitest error messages.")
 
 ;; New regex for parenthesized file paths
 (defconst vitest-paren-error-regexp
   (rx line-start
       "    at "
-      (+ (not (any "(")))  ; function name (not captured)
+      (+ (not (any "(")))               ; function name (not captured)
       "("
-      (group-n 1 (+ (not (any ":"))))  ; file path
+      (group-n 1
+        (not (any "node:"))             ; Exclude lines containing "node:"
+        (+ (not (any ":"))))            ; file path
       ":"
-      (group-n 2 (+ digit))            ; line number
+      (group-n 2 (+ digit))             ; line number
       ":"
-      (group-n 3 (+ digit))            ; column number
+      (group-n 3 (+ digit))             ; column number
       ")"
       (or " " "\n"))
-  "Regular expression to match Vitest error messages with parenthesized file paths.")
+  "Regexp to match Vitest parenthesized file name error messages, skipping node.")
 
-;; Add both regexes to the alist
+;; There are error traces that show node: lines -- we don't want to step into
+;; the trace and look at minimized node code... so just skip those error lines
+(add-to-list 'compilation-error-regexp-alist-alist
+             '(skip-node-frame
+               "^[[:space:]]*at .*(node:[^:]*:[0-9]+:[0-9]+)"  ; Pattern for lines to skip
+               nil nil nil 0))
+
 (add-to-list 'compilation-error-regexp-alist-alist
              `(vitest
                ,vitest-error-regexp
@@ -159,7 +167,8 @@
                nil  ; hyperlink
                (1 compilation-error-face)))
 
-;; Activate both regexes
+;; Add regexes to pattern match, but make sure skip-patterns get added first.
+(add-to-list 'compilation-error-regexp-alist 'skip-node-frame)
 (add-to-list 'compilation-error-regexp-alist 'vitest)
 (add-to-list 'compilation-error-regexp-alist 'vitest-paren)
 
