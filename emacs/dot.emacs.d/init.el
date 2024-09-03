@@ -111,6 +111,7 @@
 ;; functionality is useless to us.
 (require 'compile)
 
+;; First regex (the one that's already working)
 (defconst vitest-error-regexp
   (rx line-start
       "    at "
@@ -122,6 +123,22 @@
       (or " " "\n"))
   "Regular expression to match Vitest error messages.")
 
+;; New regex for parenthesized file paths
+(defconst vitest-paren-error-regexp
+  (rx line-start
+      "    at "
+      (+ (not (any "(")))  ; function name (not captured)
+      "("
+      (group-n 1 (+ (not (any ":"))))  ; file path
+      ":"
+      (group-n 2 (+ digit))            ; line number
+      ":"
+      (group-n 3 (+ digit))            ; column number
+      ")"
+      (or " " "\n"))
+  "Regular expression to match Vitest error messages with parenthesized file paths.")
+
+;; Add both regexes to the alist
 (add-to-list 'compilation-error-regexp-alist-alist
              `(vitest
                ,vitest-error-regexp
@@ -132,7 +149,19 @@
                nil  ; hyperlink
                (1 compilation-error-face)))
 
+(add-to-list 'compilation-error-regexp-alist-alist
+             `(vitest-paren
+               ,vitest-paren-error-regexp
+               1   ; file name
+               2   ; line number
+               3   ; column number
+               2   ; error type - using 2 for 'error'
+               nil  ; hyperlink
+               (1 compilation-error-face)))
+
+;; Activate both regexes
 (add-to-list 'compilation-error-regexp-alist 'vitest)
+(add-to-list 'compilation-error-regexp-alist 'vitest-paren)
 
 ;; Built-in enhancements
 (icomplete-mode 1) ; Dynamic completions in minibuffer
