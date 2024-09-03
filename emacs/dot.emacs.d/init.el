@@ -144,7 +144,15 @@
 ;; the trace and look at minimized node code... so just skip those error lines
 (add-to-list 'compilation-error-regexp-alist-alist
              '(skip-node-frame
-               "^[[:space:]]*at .*(node:[^:]*:[0-9]+:[0-9]+)"  ; Pattern for lines to skip
+               "^[[:space:]]*at .*(node:[^:]*:[0-9]+:[0-9]+)"
+               nil nil nil 0))
+(add-to-list 'compilation-error-regexp-alist-alist
+             '(skip-node-modules
+               "^[[:space:]]*at .*\\((file:///[^:]*:[0-9]+:[0-9]+)\\|\\(node_modules/[^:]*:[0-9]+:[0-9]+\\)\\)"
+               nil nil nil 0))
+(add-to-list 'compilation-error-regexp-alist-alist
+             '(skip-unwanted-frames
+               "^[[:space:]]*at .*\\((index [0-9]+)\\)"
                nil nil nil 0))
 
 (add-to-list 'compilation-error-regexp-alist-alist
@@ -169,6 +177,8 @@
 
 ;; Add regexes to pattern match, but make sure skip-patterns get added first.
 (add-to-list 'compilation-error-regexp-alist 'skip-node-frame)
+(add-to-list 'compilation-error-regexp-alist 'skip-node-modules)
+(add-to-list 'compilation-error-regexp-alist 'skip-unwanted-frames)
 (add-to-list 'compilation-error-regexp-alist 'vitest)
 (add-to-list 'compilation-error-regexp-alist 'vitest-paren)
 
