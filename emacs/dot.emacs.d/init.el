@@ -209,6 +209,23 @@
       indent-tabs-mode nil
       split-width-threshold nil)
 
+;; buffer list behavior -- split the screen if it isn't, and if it is,
+;; use a different buffer than the current buffer for the buffer list
+(defun my-display-buffer-list (buffer alist)
+  (let ((window (or (get-buffer-window buffer)
+                    (if (one-window-p)
+                        (split-window-sensibly)
+                      (next-window)))))
+    (when window
+      (select-window window)
+      (switch-to-buffer buffer)
+      window)))
+
+(setq display-buffer-alist
+      '(("^\\*Buffer List\\*$"
+         (my-display-buffer-list)
+         (inhibit-same-window . t))))
+
 ;; Disable undesired operations
 (mapc (lambda (operation) (put operation 'disabled nil))
       '(narrow-to-page narrow-to-region downcase-region upcase-region eval-expression))
