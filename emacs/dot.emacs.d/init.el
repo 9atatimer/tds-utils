@@ -66,7 +66,8 @@
 ;; Personal customizations
 (mapc 'require
       '(tds-look-and-feel tds-kill-confirm tds-edit-modes tds-buffer-control
-        tds-mail-mode tds-ediff-mode tds-misc-utils))
+                          tds-mail-mode tds-ediff-mode tds-misc-utils
+                          tds-claude-code))
 
 (use-package dabbrev
   :ensure nil  ; Ensure nil is used because dabbrev is part of Emacs, not an external package
@@ -460,7 +461,7 @@
  ;; If there is more than one, they won't work right.
  '(indent-tabs-mode nil)
  '(package-selected-packages
-   '(uuidgen eslint-fix lsp-mode magit web-mode chatgpt-shell js2-mode terraform-mode quelpa-use-package poly-ruby poly-rst poly-markdown mermaid-mode groovy-mode exec-path-from-shell dtrt-indent copilot bazel)))
+   '(typescript-mode uuidgen eslint-fix lsp-mode magit web-mode chatgpt-shell js2-mode terraform-mode quelpa-use-package poly-ruby poly-rst poly-markdown mermaid-mode groovy-mode exec-path-from-shell dtrt-indent copilot bazel)))
 
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
