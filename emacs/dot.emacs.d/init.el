@@ -28,6 +28,7 @@
   (setq package-archives '(("melpa-stable" . "https://stable.melpa.org/packages/")
                            ("melpa" . "https://melpa.org/packages/")
                            ("gnu" . "https://elpa.gnu.org/packages/")
+                           ("nongnu" . "https://elpa.nongnu.org/nongnu/")
                            )
         gnutls-algorithm-priority "NORMAL:-VERS-TLS1.3"
         url-queue-timeout 30   ;; don't wait forever for packages to download
@@ -273,6 +274,11 @@
             (lambda ()
               (auth-source-pass-get 'secret "emacs-chatgpt-shell-key")))))
 
+(use-package flycheck
+  :ensure t
+  :config
+  (setq-default flycheck-eslint-use-flat-config t))
+
 ;; LSP Mode setup
 (use-package lsp-mode
   :ensure t
@@ -461,7 +467,9 @@
  ;; If there is more than one, they won't work right.
  '(indent-tabs-mode nil)
  '(package-selected-packages
-   '(typescript-mode uuidgen eslint-fix lsp-mode magit web-mode chatgpt-shell js2-mode terraform-mode quelpa-use-package poly-ruby poly-rst poly-markdown mermaid-mode groovy-mode exec-path-from-shell dtrt-indent copilot bazel)))
+   '(claude-code transient eat typescript-mode uuidgen eslint-fix lsp-mode magit web-mode chatgpt-shell js2-mode terraform-mode quelpa-use-package poly-ruby poly-rst poly-markdown mermaid-mode groovy-mode exec-path-from-shell dtrt-indent copilot bazel))
+ '(package-vc-selected-packages
+   '((claude-code :vc-backend Git :url "https://github.com/stevemolitor/claude-code.el"))))
 
 (custom-set-faces
  ;; custom-set-faces was added by Custom.

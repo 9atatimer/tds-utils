@@ -1,0 +1,33 @@
+#!/bin/bash
+# pasteclip - paste clipboard contents into a file
+
+# Initialize variables
+force=false
+
+# Parse options
+while getopts "f" opt; do
+  case $opt in
+    f) force=true ;;
+    *) echo "Usage: paste [-f] <path_to_file>"; exit 1 ;;
+  esac
+done
+
+# Shift to the path argument
+shift $((OPTIND-1))
+
+# Check if a path is provided
+if [ -z "$1" ]; then
+  echo "Usage: pasteclip [-f] <path_to_file>"
+  exit 1
+fi
+
+# Check if the file exists and the force flag is not set
+if [ -f "$1" ] && [ "$force" = false ]; then
+  echo "File already exists! Use -f to overwrite."
+  exit 1
+fi
+
+# Paste the clipboard contents to the file
+pbpaste > "$1"
+
+echo "Clipboard contents pasted to $1."

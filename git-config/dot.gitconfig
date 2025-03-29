@@ -2,7 +2,7 @@
 [user]
 # Please adapt and uncomment the following lines:
 	name = Todd Stumpf
-	email = todd@newharbor.co
+	email = tds@nineatatime.net
 [core]
 	excludesfile = /Users/stumpf/.gitignore_global
 [pull]
