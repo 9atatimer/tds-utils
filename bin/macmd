@@ -1,0 +1,3 @@
+#!/bin/bash
+# Simple proxy script for opening md in emacs, via emacsclient
+emacsclient --eval "(find-file \"$1\")"
