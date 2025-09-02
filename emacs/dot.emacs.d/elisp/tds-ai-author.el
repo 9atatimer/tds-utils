@@ -8,10 +8,11 @@
 (require 'gptel)
 
 ;; Constants for markers
+(defconst tds-prompt-latex-prefix "% AI")
 (defconst tds-prompt-begin-marker "[")
 (defconst tds-prompt-end-marker "]")
-(defconst tds-ai-begin-marker "% BEGIN_AI_RESPONSE")
-(defconst tds-ai-end-marker "% END_AI_RESPONSE")
+(defconst tds-ai-begin-marker "\\begin{airesponse}")  ;; now using \'s and {'s
+(defconst tds-ai-end-marker "\\end{airesponse}")  ;; Fixed typo (was airresponse)
 
 ;; Function to find bracketed text
 (defun tds-get-bracketed-text ()
@@ -40,12 +41,12 @@ Only finds response regions that follow immediately after POSITION."
     (skip-chars-forward "\t\r\n ")
     (let (start end)
       ;; Check if we're looking at the BEGIN marker
-      (if (looking-at tds-ai-begin-marker)
+      (if (looking-at (regexp-quote tds-ai-begin-marker))
           (progn
             (forward-line 1)
             (setq start (point))
             ;; Find the END marker
-            (when (re-search-forward tds-ai-end-marker nil t)
+            (when (re-search-forward (regexp-quote tds-ai-end-marker) nil t)
               (beginning-of-line)
               (setq end (point))
               ;; Return the positions
@@ -69,6 +70,9 @@ Only finds response regions that follow immediately after POSITION."
                   (end (cdr existing-response)))
               (delete-region start end)
               (goto-char start)
+              ;; Ensure response always has proper newline handling
+              (unless (string-suffix-p "\n" response)
+                (setq response (concat response "\n")))
               (insert response)
               (message "Updated existing response")))
         (progn
@@ -79,6 +83,7 @@ Only finds response regions that follow immediately after POSITION."
           (insert response)
           (insert "\n" tds-ai-end-marker "\n")
           (message "New response inserted"))))))
+
 ;; Handler function for gptel responses
 (defun tds-handle-gptel-response (response info)
   "Handle the response from gptel.
@@ -99,6 +104,14 @@ INFO is a plist containing additional information."
     (if (not bounds)
         (message "No bracketed prompt found")
       (message "Found bracketed text: %s to %s" (car bounds) (cdr bounds))
+      ;; Sanity check that it is prefixed with a latex comment
+      (save-excursion
+        (goto-char (car bounds))
+        (backward-char (length tds-prompt-latex-prefix))
+        (unless (looking-at (regexp-quote tds-prompt-latex-prefix))
+          (user-error "Bracketed text not properly prefixed with '%s'" tds-prompt-latex-prefix)))
+
+      ;; extract the prompt
       (let* ((start (car bounds))
              (end (cdr bounds))
              (prompt (buffer-substring-no-properties (1+ start) (1- end))))
