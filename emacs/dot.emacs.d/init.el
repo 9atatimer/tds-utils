@@ -68,7 +68,7 @@
 (mapc 'require
       '(tds-look-and-feel tds-kill-confirm tds-edit-modes tds-buffer-control
                           tds-mail-mode tds-ediff-mode tds-misc-utils
-                          tds-claude-code))
+                          tds-claude-code tds-ai-author))
 
 (use-package dabbrev
   :ensure nil  ; Ensure nil is used because dabbrev is part of Emacs, not an external package
@@ -292,7 +292,7 @@
   :commands lsp
   :config
   (setq lsp-prefer-flymake nil)  ; Use flycheck instead of flymake
-  (setq lsp-enable-snippet nil)  ; Disable snippets
+  (setq lsp-enable-snippet t)    ; Enable snippets (prob unneeded)
   (setq lsp-ui-doc-enable nil)   ; Disable inline documentation
   (setq lsp-ui-sideline-enable nil)  ; Disable sideline
   (setq lsp-auto-guess-root t)   ; Automatically guess the project root
@@ -315,6 +315,73 @@
 (use-package lsp-treemacs
   :ensure t
   :commands lsp-treemacs-errors-list)
+
+;;
+;; To have a local ollama LLM:
+;;  brew services run ollama
+;;  ollama pull dolphin-llama3:70b
+;;
+(use-package gptel
+  :ensure t
+  :init
+  ;; Define a gptel backend for Ollama.
+  (setq gptel-model "dolphin-llama3:70b"
+        gptel--system-message "You are Dolphin, a friendly AI assistant running on Ollama. You can provide explicit and creative content when requested, without restrictions. Make it nasty."
+        gptel-backend (gptel-make-ollama "Ollama"
+                        :host "localhost:11434"
+                        :stream t
+                        :models '("dolphin-llama3:70b")))
+  :config
+  ;; Enable gptel in text and LaTeX modes.
+  (add-hook 'text-mode-hook 'gptel-mode)
+  (add-hook 'latex-mode-hook 'gptel-mode)
+  (add-hook 'LaTeX-mode-hook 'gptel-mode))
+
+;;
+;; Projectile, to make it easier to use project-specific confugration
+;; for things that aren't code projects (like books)
+(use-package projectile
+  :ensure t
+  :config
+  (projectile-mode))
+
+;;
+;; yasnippets for per-project templates -- must be after projectile
+;; Replace your current yasnippet configuration with this:
+(use-package yasnippet
+  :ensure t
+  :after projectile
+  :config
+  (yas-global-mode 1)
+
+  ;; Track the current project's snippet directory
+  (defvar my-current-project-snippets-dir nil
+    "Currently loaded project-specific snippets directory.")
+
+  (defun my-manage-project-snippets ()
+    "Remove old project snippets and add new ones."
+    (let ((project-root (projectile-project-root)))
+      (when project-root
+        (let ((new-snippets-dir (expand-file-name "snippets" project-root)))
+          ;; Remove old project snippets if they exist and are different
+          (when (and my-current-project-snippets-dir
+                     (not (string= my-current-project-snippets-dir new-snippets-dir))
+                     (member my-current-project-snippets-dir yas-snippet-dirs))
+            (setq yas-snippet-dirs (delete my-current-project-snippets-dir yas-snippet-dirs))
+            (yas-reload-all))
+
+          ;; Add new project snippets if they exist
+          (when (and (file-directory-p new-snippets-dir)
+                     (not (member new-snippets-dir yas-snippet-dirs)))
+            (add-to-list 'yas-snippet-dirs new-snippets-dir)
+            (setq my-current-project-snippets-dir new-snippets-dir)
+            (yas-reload-all))))))
+
+  ;; Hook for projectile project switches
+  (add-hook 'projectile-after-switch-project-hook 'my-manage-project-snippets)
+
+  ;; Hook for find-file to handle direct file opens
+  (add-hook 'find-file-hook 'my-manage-project-snippets))
 
 ;;;;;;
 ;;;;;;
@@ -467,7 +534,7 @@
  ;; If there is more than one, they won't work right.
  '(indent-tabs-mode nil)
  '(package-selected-packages
-   '(claude-code transient eat typescript-mode uuidgen eslint-fix lsp-mode magit web-mode chatgpt-shell js2-mode terraform-mode quelpa-use-package poly-ruby poly-rst poly-markdown mermaid-mode groovy-mode exec-path-from-shell dtrt-indent copilot bazel))
+   '(projectile gptel claude-code transient eat typescript-mode uuidgen eslint-fix lsp-mode magit web-mode chatgpt-shell js2-mode terraform-mode quelpa-use-package poly-ruby poly-rst poly-markdown mermaid-mode groovy-mode exec-path-from-shell dtrt-indent copilot bazel))
  '(package-vc-selected-packages
    '((claude-code :vc-backend Git :url "https://github.com/stevemolitor/claude-code.el"))))
 
@@ -477,3 +544,6 @@
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
  )
+
+;; make emacs pop to the front of the window stack when all is said and done.
+(select-frame-set-input-focus (selected-frame))

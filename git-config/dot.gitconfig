@@ -5,6 +5,7 @@
 	email = tds@nineatatime.net
 [core]
 	excludesfile = /Users/stumpf/.gitignore_global
+	editor = emacsclient -c -a=''
 [pull]
 	ff = only
 [filter "lfs"]
