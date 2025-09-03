@@ -21,20 +21,17 @@
 (defconst tds-context-end-marker "]"
   "Ending marker for context blocks.")
 
-;; Constants for formatting
-(defconst tds-context-header "CONTEXT:\n"
-  "Header for the context section in the prompt.")
-
-(defconst tds-request-header "\nWRITING REQUEST:\n"
-  "Header for the request section in the prompt.")
-
-;; Debug functions
-(defun tds-debug-log-prompt (prompt)
-  "Log full prompt to a debug buffer."
-  (with-current-buffer (get-buffer-create "*AI Prompt Debug*")
-    (goto-char (point-max))
-    (insert "\n\n=== NEW PROMPT ===\n" prompt)
-    (display-buffer (current-buffer))))
+;; Template for prompts
+(defcustom tds-prompt-template
+  "From this CONTEXT for the scene:
+{{SETTING}}
+{{CHARACTER}}
+{{PLOT}}
+Fulfill this WRITING {{REQUEST}}
+{{PROMPT}}"
+  "Template for AI prompts. Use {{FIELD}} for expansion points."
+  :type 'string
+  :group 'tds-ai-author)
 
 ;; Helper functions
 (defun tds-extract-context-by-type (type)
@@ -63,60 +60,80 @@ Returns a formatted string or empty string if CONTEXTS is empty."
       ""
     (concat type ":\n"
             (mapconcat (lambda (ctx) (concat "* " ctx)) contexts "\n")
-            "\n\n")))
+            "\n")))
 
 (defun tds-collect-all-context ()
   "Collect all context from the current buffer.
-Returns a cons cell (context . request) where context is the formatted
-context string and request is any REQUEST context to prepend to prompts."
+Returns an alist with context type as key and formatted string as value."
   (message "Collecting all context...")
-  (let ((formatted-context "")
-        (request-context ""))
+  (let ((context-data '()))
+    ;; Process each context type
+    (dolist (type tds-context-types)
+      (let* ((contexts (tds-extract-context-by-type type))
+             (formatted (when contexts
+                         (tds-format-context-section type contexts))))
+        (when (and formatted (not (string-empty-p formatted)))
+          (push (cons type formatted) context-data))))
 
-    ;; Process each context type except REQUEST
-    (dolist (type (remove "REQUEST" tds-context-types))
-      (let ((contexts (tds-extract-context-by-type type)))
-        (when contexts
-          (setq formatted-context
-                (concat formatted-context
-                        (tds-format-context-section type contexts))))))
+    (message "Collected context for %d types" (length context-data))
+    context-data))
 
-    ;; Process REQUEST separately
-    (let ((requests (tds-extract-context-by-type "REQUEST")))
-      (when requests
-        (setq request-context (mapconcat #'identity requests "\n"))))
+(defun tds-validate-template (template)
+  "Validate that TEMPLATE placeholders are all recognized.
+Throws an error if any placeholder isn't in our known types list."
+  (message "Validating template...")
+  (let ((known-types (append '("CHARACTERS" "PROMPT") tds-context-types))
+        (invalid-placeholders '()))
+    ;; Find all {{PLACEHOLDER}} patterns
+    (with-temp-buffer
+      (insert template)
+      (goto-char (point-min))
+      (while (re-search-forward "{{\\([^}]+\\)}}" nil t)
+        (let ((placeholder (match-string 1)))
+          ;; Check if placeholder is known
+          (unless (member placeholder known-types)
+            (push placeholder invalid-placeholders)))))
 
-    (message "Collected %d chars of context and %d chars of request context"
-             (length formatted-context) (length request-context))
+    ;; Throw error if any placeholders are invalid
+    (when invalid-placeholders
+      (user-error "Template contains unrecognized placeholders: %s"
+                 (mapconcat #'identity invalid-placeholders ", ")))))
 
-    ;; Return as cons cell
-    (cons formatted-context request-context)))
+(defun tds-apply-template (template context-data prompt)
+  "Apply TEMPLATE using CONTEXT-DATA and PROMPT.
+Returns the filled template as a string."
+  (message "Applying template...")
+  ;; Validate template first
+  (tds-validate-template template)
 
-(defun tds-build-enhanced-prompt (original-prompt)
-  "Build enhanced prompt by adding context to ORIGINAL-PROMPT.
-Returns the enhanced prompt string."
-  (message "Building enhanced prompt...")
-  (let* ((context-data (tds-collect-all-context))
-         (context (car context-data))
-         (request (cdr context-data))
-         (enhanced-prompt ""))
+  (let ((result template))
+    ;; Replace CHARACTER with CHARACTERS for plural form compatibility
+    (let* ((character-content (or (cdr (assoc "CHARACTER" context-data)) "")))
+      (when (not (string-empty-p character-content))
+        (setq result (replace-regexp-in-string "{{CHARACTERS}}" character-content result))))
 
-    ;; Add context header if we have context
-    (when (not (string-empty-p context))
-      (setq enhanced-prompt (concat tds-context-header context)))
+    ;; Replace each context type placeholder
+    (dolist (type tds-context-types)
+      (let* ((placeholder (concat "{{" type "}}"))
+             (content (or (cdr (assoc type context-data)) "")))
+        (setq result (replace-regexp-in-string placeholder content result))))
 
-    ;; Add request header
-    (setq enhanced-prompt (concat enhanced-prompt tds-request-header))
+    ;; Replace prompt placeholder
+    (setq result (replace-regexp-in-string "{{PROMPT}}" prompt result))
 
-    ;; Add request context if any
-    (when (not (string-empty-p request))
-      (setq enhanced-prompt (concat enhanced-prompt request "\n\n")))
+    ;; Clean up empty sections
+    (setq result (replace-regexp-in-string "\n\n\n+" "\n\n" result))
 
-    ;; Add original prompt
-    (setq enhanced-prompt (concat enhanced-prompt original-prompt))
+    (message "Template applied, resulting in %d chars" (length result))
+    result))
 
-    (message "Enhanced prompt built (%d chars total)" (length enhanced-prompt))
-    enhanced-prompt))
+;; Debug function
+(defun tds-debug-log-prompt (prompt)
+  "Log full prompt to a debug buffer."
+  (with-current-buffer (get-buffer-create "*AI Prompt Debug*")
+    (goto-char (point-max))
+    (insert "\n\n=== NEW PROMPT ===\n" prompt)
+    (display-buffer (current-buffer))))
 
 ;; Functions for handling multiple versions
 (defun tds-parse-prompt-version (prompt)
@@ -146,7 +163,8 @@ INFO is a plist containing additional information."
          (insertion-point (plist-get data :insertion-point))
          (prompt (plist-get data :prompt))
          (current-version (plist-get data :current-version))
-         (total-versions (plist-get data :total-versions)))
+         (total-versions (plist-get data :total-versions))
+         (enhanced-prompt (plist-get data :enhanced-prompt)))
 
     (message "Received version %d of %d" current-version total-versions)
 
@@ -164,16 +182,28 @@ INFO is a plist containing additional information."
     (when (< current-version total-versions)
       (message "Generating version %d of %d..."
                (1+ current-version) total-versions)
-      (let* ((enhanced-prompt (tds-build-enhanced-prompt prompt))
-             (next-data (list :insertion-point insertion-point
-                             :prompt prompt
-                             :current-version (1+ current-version)
-                             :total-versions total-versions)))
-        (tds-debug-log-prompt enhanced-prompt)
+      ;; Use the stored enhanced prompt instead of regenerating
+      (let ((next-data (list :insertion-point insertion-point
+                            :prompt prompt
+                            :current-version (1+ current-version)
+                            :total-versions total-versions
+                            :enhanced-prompt enhanced-prompt)))
         (gptel-request
          enhanced-prompt
          :callback 'tds-handle-multi-version-response
          :context (list :data next-data))))))
+
+(defun tds-build-enhanced-prompt (original-prompt)
+  "Build enhanced prompt by adding context to ORIGINAL-PROMPT.
+Returns the enhanced prompt string."
+  (message "Building enhanced prompt...")
+  (let* ((context-data (tds-collect-all-context))
+         (enhanced-prompt (tds-apply-template tds-prompt-template
+                                             context-data
+                                             original-prompt)))
+
+    (message "Enhanced prompt built (%d chars total)" (length enhanced-prompt))
+    enhanced-prompt))
 
 ;; Main function
 (defun tds-process-ai-prompt-with-context ()
@@ -205,6 +235,7 @@ with 'N:' prefix."
              (version-data (tds-parse-prompt-version raw-prompt))
              (version-count (car version-data))
              (actual-prompt (cdr version-data))
+             ;; Generate enhanced prompt once for all versions
              (enhanced-prompt (tds-build-enhanced-prompt actual-prompt)))
 
         (message "Original prompt: %s"
@@ -216,15 +247,19 @@ with 'N:' prefix."
                      (length enhanced-prompt))
           (message "Enhanced prompt length: %d chars" (length enhanced-prompt)))
 
+        ;; Log the prompt for debugging
+        (tds-debug-log-prompt enhanced-prompt)
+
         ;; Handle based on whether versioning is requested
         (if version-count
             (progn
               (message "Generating %d versions..." version-count)
-              ;; Start with version 1
+              ;; Start with version 1, passing the enhanced prompt
               (let ((data (list :insertion-point end
                                :prompt actual-prompt
                                :current-version 1
-                               :total-versions version-count)))
+                               :total-versions version-count
+                               :enhanced-prompt enhanced-prompt)))
                 (gptel-request
                  enhanced-prompt
                  :callback 'tds-handle-multi-version-response
@@ -250,5 +285,22 @@ with 'N:' prefix."
     (forward-line -1)
     (end-of-line)))
 
-(provide 'tds-ai-author-context)
+;; Function to edit the prompt template
+(defun tds-edit-prompt-template ()
+  "Edit the prompt template in a buffer."
+  (interactive)
+  (let ((buffer (get-buffer-create "*AI Prompt Template*")))
+    (with-current-buffer buffer
+      (erase-buffer)
+      (insert ";; Edit your AI prompt template below.\n")
+      (insert ";; Available placeholders: {{SETTING}}, {{CHARACTERS}}, {{PLOT}}, {{REQUEST}}, {{PROMPT}}\n\n")
+      (insert "(setq tds-prompt-template \n\"")
+      (insert tds-prompt-template)
+      (insert "\")")
+      (lisp-interaction-mode)
+      (goto-char (point-max)))
+    (switch-to-buffer buffer)
+    (message "Edit the template and evaluate with C-j to update tds-prompt-template")))
+
+(provide 'tds-ai-author-context-template)
 ;;; tds-ai-author-context.el ends here
