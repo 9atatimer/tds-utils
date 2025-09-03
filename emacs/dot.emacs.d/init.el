@@ -68,7 +68,7 @@
 (mapc 'require
       '(tds-look-and-feel tds-kill-confirm tds-edit-modes tds-buffer-control
                           tds-mail-mode tds-ediff-mode tds-misc-utils
-                          tds-claude-code tds-ai-author))
+                          tds-claude-code tds-ai-author tds-ai-author-context))
 
 (use-package dabbrev
   :ensure nil  ; Ensure nil is used because dabbrev is part of Emacs, not an external package
