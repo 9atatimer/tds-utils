@@ -110,19 +110,19 @@ Returns the filled template as a string."
     ;; Replace CHARACTER with CHARACTERS for plural form compatibility
     (let* ((character-content (or (cdr (assoc "CHARACTER" context-data)) "")))
       (when (not (string-empty-p character-content))
-        (setq result (replace-regexp-in-string "{{CHARACTERS}}" character-content result))))
+        (setq result (replace-regexp-in-string "{{CHARACTERS}}" character-content result t))))
 
     ;; Replace each context type placeholder
     (dolist (type tds-context-types)
       (let* ((placeholder (concat "{{" type "}}"))
              (content (or (cdr (assoc type context-data)) "")))
-        (setq result (replace-regexp-in-string placeholder content result))))
+        (setq result (replace-regexp-in-string placeholder content result t))))
 
     ;; Replace prompt placeholder
-    (setq result (replace-regexp-in-string "{{PROMPT}}" prompt result))
+    (setq result (replace-regexp-in-string "{{PROMPT}}" prompt result t))
 
     ;; Clean up empty sections
-    (setq result (replace-regexp-in-string "\n\n\n+" "\n\n" result))
+    (setq result (replace-regexp-in-string "\n\n\n+" "\n\n" result t))
 
     (message "Template applied, resulting in %d chars" (length result))
     result))
