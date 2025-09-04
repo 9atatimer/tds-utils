@@ -146,14 +146,6 @@ without the version prefix."
             (match-string 2 prompt))
     (cons nil prompt)))
 
-(defun tds-insert-airesponse-after-point (point response)
-  "Insert a new airesponse block after POINT with RESPONSE content."
-  (save-excursion
-    (goto-char point)
-    (insert "\n\\begin{airesponse}\n"
-            response
-            "\n\\end{airesponse}\n")))
-
 (defun tds-insert-airesponse-in-buffer (buffer insertion-point response)
   "Insert response in BUFFER at INSERTION-POINT with RESPONSE content.
 Returns the new position after insertion or nil if buffer doesn't exist."
@@ -161,9 +153,12 @@ Returns the new position after insertion or nil if buffer doesn't exist."
     (with-current-buffer buffer
       (save-excursion
         (goto-char insertion-point)
-        (insert "\n\\begin{airesponse}\n" response "\n\\end{airesponse}\n")
-        (point)))))
-
+        (let* ((timestamp (format-time-string "%Y-%m-%d %H:%M:%S"))
+               (model-name (or gptel-model "unknown"))
+               (metadata-comment (format "%% Generated: %s, Model: %s" 
+                                        timestamp model-name)))
+          (insert "\n\\begin{airesponse}\n" response "\n" metadata-comment "\n\\end{airesponse}\n")
+          (point))))))
 ;; Multi-version handler
 (defun tds-handle-multi-version-response (response info)
   "Handle response for multi-version requests.
