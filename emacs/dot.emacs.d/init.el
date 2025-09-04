@@ -86,6 +86,11 @@
   (interactive)
   (find-file "~/.emacs.d/init.el"))
 
+(defun open-lisp-directory ()
+  "Open dired in the elisp directory."
+  (interactive)
+  (dired (concat user-emacs-directory "elisp/")))
+
 ;; For the moment assume we're in a node project (which for NH is true) and look for package.json
 ;; for our root directory.
 (add-hook 'compilation-mode-hook
@@ -522,6 +527,7 @@
 ;; and editing my init.el
 (global-set-key (kbd "C-x C-y") 'copy-whole-buffer-to-clipboard)
 (global-set-key (kbd "C-c e i") 'open-init-file)
+(global-set-key (kbd "C-c e l") 'open-lisp-directory)
 
 ;;
 ;;  Misc emacs-UI controlled variables:
