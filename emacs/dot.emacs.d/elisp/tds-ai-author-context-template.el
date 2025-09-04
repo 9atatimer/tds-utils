@@ -154,6 +154,16 @@ without the version prefix."
             response
             "\n\\end{airesponse}\n")))
 
+(defun tds-insert-airesponse-in-buffer (buffer insertion-point response)
+  "Insert response in BUFFER at INSERTION-POINT with RESPONSE content.
+Returns the new position after insertion or nil if buffer doesn't exist."
+  (when (and buffer (buffer-live-p buffer))
+    (with-current-buffer buffer
+      (save-excursion
+        (goto-char insertion-point)
+        (insert "\n\\begin{airesponse}\n" response "\n\\end{airesponse}\n")
+        (point)))))
+
 ;; Multi-version handler
 (defun tds-handle-multi-version-response (response info)
   "Handle response for multi-version requests.
@@ -161,37 +171,36 @@ RESPONSE is the text from the AI.
 INFO is a plist containing additional information."
   (let* ((data (plist-get (plist-get info :context) :data))
          (insertion-point (plist-get data :insertion-point))
+         (buffer (plist-get data :buffer))
          (prompt (plist-get data :prompt))
          (current-version (plist-get data :current-version))
          (total-versions (plist-get data :total-versions))
-         (enhanced-prompt (plist-get data :enhanced-prompt)))
+         (enhanced-prompt (plist-get data :enhanced-prompt))
+         (new-insertion-point nil))
 
     (message "Received version %d of %d" current-version total-versions)
 
-    ;; Insert this response as a new airesponse block
-    (tds-insert-airesponse-after-point insertion-point response)
+    ;; Use our helper function to insert the response
+    (setq new-insertion-point
+          (tds-insert-airesponse-in-buffer buffer insertion-point response))
 
-    ;; Update insertion point to be after this newly inserted block
-    (save-excursion
-      (goto-char insertion-point)
-      ;; Find the end of the airesponse we just inserted
-      (search-forward "\\end{airesponse}\n" nil t)
-      (setq insertion-point (point)))
-
-    ;; If we have more versions to generate, request the next one
-    (when (< current-version total-versions)
-      (message "Generating version %d of %d..."
-               (1+ current-version) total-versions)
-      ;; Use the stored enhanced prompt instead of regenerating
-      (let ((next-data (list :insertion-point insertion-point
-                            :prompt prompt
-                            :current-version (1+ current-version)
-                            :total-versions total-versions
-                            :enhanced-prompt enhanced-prompt)))
-        (gptel-request
-         enhanced-prompt
-         :callback 'tds-handle-multi-version-response
-         :context (list :data next-data))))))
+    ;; If insertion was successful, generate next version if needed
+    (if new-insertion-point
+        (when (< current-version total-versions)
+          (message "Generating version %d of %d..."
+                  (1+ current-version) total-versions)
+          ;; Use the stored enhanced prompt instead of regenerating
+          (let ((next-data (list :insertion-point new-insertion-point
+                                :buffer buffer
+                                :prompt prompt
+                                :current-version (1+ current-version)
+                                :total-versions total-versions
+                                :enhanced-prompt enhanced-prompt)))
+            (gptel-request
+             enhanced-prompt
+             :callback 'tds-handle-multi-version-response
+             :context (list :data next-data))))
+      (message "Buffer no longer exists. Cannot insert response for version %d." current-version))))
 
 (defun tds-build-enhanced-prompt (original-prompt)
   "Build enhanced prompt by adding context to ORIGINAL-PROMPT.
@@ -256,10 +265,11 @@ with 'N:' prefix."
               (message "Generating %d versions..." version-count)
               ;; Start with version 1, passing the enhanced prompt
               (let ((data (list :insertion-point end
-                               :prompt actual-prompt
-                               :current-version 1
-                               :total-versions version-count
-                               :enhanced-prompt enhanced-prompt)))
+                                :buffer (current-buffer)
+                                :prompt actual-prompt
+                                :current-version 1
+                                :total-versions version-count
+                                :enhanced-prompt enhanced-prompt)))
                 (gptel-request
                  enhanced-prompt
                  :callback 'tds-handle-multi-version-response
