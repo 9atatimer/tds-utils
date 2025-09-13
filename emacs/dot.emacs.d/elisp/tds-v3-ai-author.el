@@ -130,21 +130,6 @@ to generate (defaults to 1) and prompt is the prompt text."
       (tds-ai-debug "Parsed tag - count: %d, prompt: %s" count prompt)
       (cons count (string-trim prompt)))))
 
-;; Functions for managing airesponse blocks
-(defun tds-ai-author-insert-airesponse (point response &optional disabled)
-  "Insert RESPONSE as an airesponse block after POINT.
-If DISABLED is non-nil, add [off] parameter to disable it."
-  (tds-ai-debug "Inserting airesponse at %s (disabled: %s)" point disabled)
-  (save-excursion
-    (goto-char point)
-    (let ((insert-text (format "\n\n%s%s\n%s\n%s\n"
-                              tds-response-latex-prefix
-                              (if disabled tds-response-latex-off "")
-                              response
-                              tds-response-latex-suffix)))
-      (insert insert-text)
-      (tds-ai-debug "Inserted airesponse block of %d chars" (length insert-text)))))
-
 (defun tds-ai-author-find-existing-airesponses (start end)
   "Find all airesponse blocks in region between START and END.
 Returns a list of (begin . end) positions for each block."
@@ -193,40 +178,77 @@ Returns a list (begin . end) or nil if not found."
               (cons begin end))))))))
 
 ;; LLM interaction functions
-(defun tds-ai-author-invoke-gptel (prompt)
-  "Send PROMPT to gptel and get a response."
-  (tds-ai-debug "Sending prompt to LLM (%d chars)" (length prompt))
-  (message "Sending prompt to LLM...")
+(defun tds-ai-author-handle-gptel-response (response info)
+  "Handle the response from gptel.
+RESPONSE is the text from the AI.
+INFO is a plist containing additional information."
+  (let* ((context-data (plist-get info :context))
+         (insertion-point (plist-get context-data :insertion-point))
+         (prompt (plist-get context-data :prompt))
+         (count (plist-get context-data :count)))
+    (tds-ai-debug "Received response for prompt: %s"
+                  (substring prompt 0 (min 30 (length prompt))))
+    ;; Generate metadata comment
+    (let* ((timestamp (format-time-string "%Y-%m-%d %H:%M:%S"))
+           (model-name (or gptel-model tds-ai-author-gptel-model "unknown"))
+           (metadata-comment (format "%% Generated: %s, Model: %s"
+                                    timestamp model-name)))
+      (if (= count 1)
+          ;; Single response - insert with metadata
+          (save-excursion
+            (goto-char insertion-point)
+            (insert (format "\n\n%s\n%s\n%s\n%s\n"
+                           tds-response-latex-prefix
+                           response
+                           metadata-comment
+                           tds-response-latex-suffix))
+            (tds-ai-debug "Inserted single response with metadata")
+            (message "Generated AI response"))
+        ;; Multiple responses - split and insert
+        (tds-ai-author-handle-multi-version-response response info)))))
 
-  ;; Create buffer with prompt
-  (let ((gptel-buffer (get-buffer-create "*tds-ai-gptel*")))
-    (with-current-buffer gptel-buffer
-      (erase-buffer)
-      (insert prompt)
-      (gptel-mode)
+(defun tds-ai-author-handle-multi-version-response (response info)
+  "Handle multi-version response generation.
+RESPONSE is the text from the AI.
+INFO is a plist containing additional information."
+  (let* ((context-data (plist-get info :context))
+         (insertion-point (plist-get context-data :insertion-point))
+         (count (plist-get context-data :count))
+         (parts (tds-ai-author-split-response response count))
+         (timestamp (format-time-string "%Y-%m-%d %H:%M:%S"))
+         (model-name (or gptel-model tds-ai-author-gptel-model "unknown")))
 
-      ;; Configure gptel settings
-      (setq-local gptel-model tds-ai-author-gptel-model)
-      (setq-local gptel-temperature tds-ai-author-temperature)
+    (tds-ai-debug "Handling %d versions" count)
 
-      ;; Send request and wait for response
-      (let ((response-point (point-max)))
-        (goto-char (point-max))
-        (gptel-send nil response-point)
+    ;; Insert first response (enabled)
+    (save-excursion
+      (goto-char insertion-point)
+      (let ((first-part (car parts))
+            (metadata (format "%% Generated: %s, Model: %s [Version 1 of %d]"
+                            timestamp model-name count)))
+        (insert (format "\n\n%s\n%s\n%s\n%s\n"
+                       tds-response-latex-prefix
+                       first-part
+                       metadata
+                       tds-response-latex-suffix))
+        (tds-ai-debug "Inserted version 1 (enabled)"))
 
-        ;; Wait for response to complete
-        (while (and (not (get-text-property response-point 'gptel-response-done))
-                    (sit-for 0.1)))
+      ;; Insert remaining responses (disabled)
+      (let ((version-num 2))
+        (dolist (part (cdr parts))
+          (unless (string-empty-p (string-trim part))
+            (let ((metadata (format "%% Generated: %s, Model: %s [Version %d of %d]"
+                                  timestamp model-name version-num count)))
+              (insert (format "\n%s%s\n%s\n%s\n%s\n"
+                            tds-response-latex-prefix
+                            tds-response-latex-off
+                            part
+                            metadata
+                            tds-response-latex-suffix))
+              (tds-ai-debug "Inserted version %d (disabled)" version-num)
+              (setq version-num (1+ version-num))))))
 
-        ;; Extract response
-        (let ((response (string-trim (buffer-substring-no-properties
-                                     response-point (point-max)))))
-          (tds-ai--debug "Received response from LLM (%d chars)" (length response))
-          (message "Received response from LLM (%d chars)" (length response))
-
-          ;; Clean up
-          (kill-buffer gptel-buffer)
-          response)))))
+    (message "Generated %d AI response versions" count))))
 
 (defun tds-ai-author-split-response (response count)
   "Split RESPONSE into COUNT parts at paragraph boundaries."
@@ -275,47 +297,41 @@ Generates response(s) and inserts them after the tag."
       (tds-ai-debug "Context retrieved, assembling prompt")
       (let ((full-prompt (tds-ai-prompt-assemble context prompt-text)))
         (tds-ai-debug "Prompt assembled (%d chars), invoking LLM" (length full-prompt))
-        (let ((response (tds-ai-author-invoke-gptel full-prompt)))
 
-          ;; Clear any existing airesponse blocks
-          (save-excursion
-            (goto-char tag-point)
+        ;; Save debug prompt if configured
+        (when tds-ai-author-debug
+          (with-temp-file tds-ai-author-debug-file
+            (insert full-prompt))
+          (tds-ai-debug "Saved prompt to %s" tds-ai-author-debug-file))
+
+        ;; Find insertion point (end of current line with the AI tag)
+        (save-excursion
+          (goto-char tag-point)
+          (let ((insertion-point (line-end-position)))
+
+            ;; Clear any existing airesponse blocks between here and next tag
             (let ((next-tag-point (save-excursion
-                                    (if (re-search-forward tds-ai-tag-regex nil t)
-                                        (match-beginning 0)
-                                      (point-max)))))
+                                   (if (re-search-forward tds-ai-tag-regex nil t)
+                                       (match-beginning 0)
+                                     (point-max)))))
               (tds-ai-debug "Clearing existing responses between %s and %s"
-                                  tag-point next-tag-point)
-              (tds-ai-author-clear-airesponses tag-point next-tag-point)))
+                           insertion-point next-tag-point)
+              (tds-ai-author-clear-airesponses insertion-point next-tag-point))
 
-          ;; Insert response(s)
-          (if (= count 1)
-              (progn
-                ;; Single response
-                (tds-ai-debug "Inserting single response")
-                (tds-ai-author-insert-airesponse (line-end-position) response))
+            ;; Create context data for callback
+            (let ((callback-context (list :insertion-point insertion-point
+                                         :prompt prompt-text
+                                         :count count)))
 
-            ;; Multiple responses - split and insert first enabled, rest disabled
-            (tds-ai-debug "Splitting response for %d variants" count)
-            (let* ((parts (tds-ai-author-split-response response count))
-                   (first-part (car parts))
-                   (rest-parts (cdr parts)))
+              ;; Send request to gptel with callback
+              (tds-ai-debug "Sending request to gptel")
+              (gptel-request
+               full-prompt
+               :callback 'tds-ai-author-handle-gptel-response
+               :context callback-context)
 
-              ;; Insert first response (enabled)
-              (tds-ai-debug "Inserting first part enabled")
-              (tds-ai-author-insert-airesponse (line-end-position) first-part)
-
-              ;; Insert remaining responses (disabled)
-              (let ((disabled-count 0))
-                (dolist (part rest-parts)
-                  (unless (string-empty-p (string-trim part))
-                    (tds-ai-debug "Inserting part %d disabled" (+ 2 disabled-count))
-                    (tds-ai-author-insert-airesponse (line-end-position) part t)
-                    (setq disabled-count (1+ disabled-count))))
-                (tds-ai-debug "Inserted %d disabled parts" disabled-count))))
-
-          (message "Inserted %d airesponse block(s)"
-                   (if (> count 1) count 1)))))))
+              (message "Sent prompt to LLM (expecting %d response%s)..."
+                      count (if (> count 1) "s" "")))))))))
 
 ;; Interactive commands
 ;;;###autoload
