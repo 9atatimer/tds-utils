@@ -25,6 +25,9 @@
 (require 'tds-v3-ai-author-prompt)
 
 ;; Constants for AI prompt detection and parsing
+(defconst tds-ai-prompt-prefix "% AI"
+  "Required prefix for AI prompts in LaTeX comments.")
+
 (defconst tds-ai-prompt-regex "AI\\[[^]]*\\]"
   "Regular expression to match AI[] prompts.")
 
@@ -71,13 +74,28 @@ Higher values make output more random, lower values more deterministic."
   :type 'float
   :group 'tds-ai-author)
 
-(defcustom tds-ai-author-debug nil
+(defcustom tds-ai-author-prompt-max-length 4000
+  "Maximum prompt length before warning (in characters)."
+  :type 'integer
+  :group 'tds-ai-author)
+
+(defcustom tds-ai-author-prompt-danger-length 6000
+  "Prompt length that triggers stronger warning (in characters)."
+  :type 'integer
+  :group 'tds-ai-author)
+
+(defcustom tds-ai-author-debug t
   "Whether to show debug messages and save prompts to files."
   :type 'boolean
   :group 'tds-ai-author)
 
 (defcustom tds-ai-author-debug-file "/tmp/tds-ai-debug-prompt.txt"
   "File to save debug prompts to."
+  :type 'string
+  :group 'tds-ai-author)
+
+(defcustom tds-ai-author-debug-buffer "*AI Prompt Debug*"
+  "Buffer name for debug prompt display."
   :type 'string
   :group 'tds-ai-author)
 
@@ -88,21 +106,63 @@ FORMAT-STRING and ARGS are passed to `message'."
   (when tds-ai-author-debug
     (apply #'message (concat "[TDS-AI-DEBUG] " format-string) args)))
 
+;; Debug buffer function
+(defun tds-ai-debug-log-prompt (prompt prompt-point)
+  "Log PROMPT to debug buffer with context about PROMPT-POINT."
+  (when tds-ai-author-debug
+    (with-current-buffer (get-buffer-create tds-ai-author-debug-buffer)
+      (goto-char (point-max))
+      (insert (format "\n\n=== AI PROMPT at position %d ===\n" prompt-point))
+      (insert (format "Time: %s\n" (format-time-string "%Y-%m-%d %H:%M:%S")))
+      (insert (format "Model: %s\n" (or gptel-model tds-ai-author-gptel-model)))
+      (insert (format "Length: %d chars\n" (length prompt)))
+      (insert "--- PROMPT CONTENT ---\n")
+      (insert prompt)
+      (insert "\n--- END PROMPT ---\n"))
+    ;; Auto-display the debug buffer
+    (display-buffer tds-ai-author-debug-buffer)
+    (tds-ai-debug "Logged prompt to debug buffer")))
+
 ;; Helper functions for prompt detection and parsing
+(defun tds-ai-author-get-bracketed-text ()
+  "Find and return bracketed text near point.
+Returns a cons cell (start . end) of buffer positions or nil if not found."
+  (save-excursion
+    (let (start end)
+      ;; Go to beginning of bracket if not already there
+      (when (not (looking-at "\\["))
+        (search-backward "[" (line-beginning-position) t))
+      (when (looking-at "\\[")
+        (setq start (point))
+        ;; Find closing bracket
+        (when (search-forward "]" (line-end-position) t)
+          (setq end (point))
+          ;; Return the positions
+          (cons start end))))))
+
 (defun tds-ai-author-find-ai-prompt-at-point ()
   "Find AI[] prompt at or before point.
 Returns the AI prompt as a string or nil if not found."
   (tds-ai-debug "Searching for AI prompt at current point: %s" (point))
-  (save-excursion
-    (let ((line-start (line-beginning-position))
-          (line-end (line-end-position))
-          (prompt nil))
-      (goto-char line-start)
-      (tds-ai-debug "Searching line from %s to %s" line-start line-end)
-      (when (re-search-forward tds-ai-prompt-regex line-end t)
-        (setq prompt (match-string 0))
-        (tds-ai-debug "Found AI prompt: %s" prompt))
-      prompt)))
+  (let ((bounds (tds-ai-author-get-bracketed-text)))
+    (if (not bounds)
+        (progn
+          (tds-ai-debug "No bracketed text found")
+          nil)
+      (tds-ai-debug "Found bracketed text: %s to %s" (car bounds) (cdr bounds))
+      ;; Sanity check that it is prefixed with a latex comment
+      (save-excursion
+        (goto-char (car bounds))
+        (backward-char (length tds-ai-prompt-prefix))
+        (if (looking-at (regexp-quote tds-ai-prompt-prefix))
+            (let ((prompt (concat "AI" (buffer-substring-no-properties 
+                                       (car bounds) (cdr bounds)))))
+              (tds-ai-debug "Found properly prefixed AI prompt: %s" prompt)
+              prompt)
+          (progn
+            (tds-ai-debug "Bracketed text not properly prefixed with '%s'" 
+                         tds-ai-prompt-prefix)
+            nil))))))
 
 (defun tds-ai-author-find-all-ai-prompts (start end)
   "Find all AI[] prompts in region between START and END.
@@ -111,11 +171,20 @@ Returns a list of (position . prompt-string) for each prompt."
   (save-excursion
     (let ((prompts '()))
       (goto-char start)
-      (while (re-search-forward tds-ai-prompt-regex end t)
-        (let ((prompt-pos (match-beginning 0))
-              (prompt-string (match-string 0)))
-          (tds-ai-debug "Found AI prompt at %s: %s" prompt-pos prompt-string)
-          (push (cons prompt-pos prompt-string) prompts)))
+      ;; Search for lines starting with the prefix
+      (while (re-search-forward (concat "^" (regexp-quote tds-ai-prompt-prefix) "\\[") end t)
+        (let ((prompt-line-start (match-beginning 0)))
+          ;; Move to just after the prefix to find the brackets
+          (goto-char (+ prompt-line-start (length tds-ai-prompt-prefix)))
+          (let ((bounds (tds-ai-author-get-bracketed-text)))
+            (when bounds
+              ;; Construct the full AI[...] prompt
+              (let ((prompt-string (concat "AI" (buffer-substring-no-properties 
+                                                 (car bounds) (cdr bounds)))))
+                (tds-ai-debug "Found AI prompt at %s: %s" prompt-line-start prompt-string)
+                (push (cons prompt-line-start prompt-string) prompts))
+              ;; Move past this prompt to continue searching
+              (goto-char (cdr bounds))))))
       (tds-ai-debug "Found %d AI prompts total" (length prompts))
       (nreverse prompts))))
 
@@ -225,6 +294,9 @@ Returns a list (begin . end) or nil if not found."
               (tds-ai-debug "Found airesponse in backward search: %s to %s" begin end)
               (cons begin end))))))))
 
+;; TODO: Add tds-edit-ai-response function that integrates with paste-and-ediff-clipboard-region
+;; This would allow editing AI responses using external tools
+
 ;; LLM interaction functions
 (defun tds-ai-author-handle-gptel-response (response info)
   "Handle the response from gptel.
@@ -240,22 +312,22 @@ INFO is a plist containing additional information."
          (current-version (or (plist-get context-data :current-version) 1))
          (timestamp (format-time-string "%Y-%m-%d %H:%M:%S"))
          (model-name (or gptel-model tds-ai-author-gptel-model "unknown")))
-
+    
     (tds-ai-debug "Received response for version %d of %d" current-version count)
-
+    
     ;; Check if buffer still exists
     (if (not (buffer-live-p buffer))
         (progn
           (tds-ai-debug "Buffer no longer exists, aborting")
-          (message "Buffer closed, stopping generation at version %d of %d"
+          (message "Buffer closed, stopping generation at version %d of %d" 
                    current-version count))
-
+      
       ;; Insert this response
       (let ((new-insertion-point
              (with-current-buffer buffer
                (save-excursion
                  (goto-char insertion-point)
-
+                 
                  ;; For non-duplex single responses only, clear any existing response
                  (when (and (= count 1) (= current-version 1) (not is-duplex))
                    (let ((existing (tds-ai-author-find-immediate-response insertion-point)))
@@ -265,7 +337,7 @@ INFO is a plist containing additional information."
                        (delete-region (car existing) (cdr existing))
                        ;; After deletion, we're at the right spot
                        (goto-char insertion-point))))
-
+                 
                  (let* ((metadata (if (> count 1)
                                      (format "%% Generated: %s, Model: %s [Version %d of %d]"
                                             timestamp model-name current-version count)
@@ -278,11 +350,11 @@ INFO is a plist containing additional information."
                                   response
                                   metadata
                                   tds-response-latex-suffix))
-                   (tds-ai-debug "Inserted version %d %s"
-                                current-version
+                   (tds-ai-debug "Inserted version %d %s" 
+                                current-version 
                                 (if disabled "(disabled)" "(enabled)"))
                    (point))))))
-
+        
         ;; If more versions needed, fire next request
         (if (< current-version count)
             (progn
@@ -299,9 +371,9 @@ INFO is a plist containing additional information."
                  :callback 'tds-ai-author-handle-gptel-response
                  :context next-context))
               (message "Generating version %d of %d..." (1+ current-version) count))
-
+          
           ;; All versions complete
-          (message "Generated %d AI response version%s"
+          (message "Generated %d AI response version%s" 
                    count (if (> count 1) "s" "")))))))
 
 (defun tds-ai-author-split-response (response count)
@@ -347,24 +419,36 @@ Generates response(s) and inserts them after the prompt."
          (prompt-text (plist-get parsed :prompt))
          (is-duplex (plist-get parsed :is-duplex))
          (current-buffer-ref (current-buffer)))
-
+    
     (tds-ai-debug "Getting context for point %s" prompt-point)
     (let ((context (tds-ai-context-get-context prompt-point)))
       (tds-ai-debug "Context retrieved, assembling prompt")
       (let ((full-prompt (tds-ai-prompt-assemble context prompt-text)))
         (tds-ai-debug "Prompt assembled (%d chars), invoking LLM" (length full-prompt))
-
-        ;; Save debug prompt if configured
+        
+        ;; Check prompt length and warn if needed
+        (cond
+         ((> (length full-prompt) tds-ai-author-prompt-danger-length)
+          (message "WARNING: Prompt is very long (%d chars) - may exceed model limits!"
+                   (length full-prompt)))
+         ((> (length full-prompt) tds-ai-author-prompt-max-length)
+          (message "Warning: Prompt is long (%d chars) - consider reducing context"
+                   (length full-prompt))))
+        
+        ;; Log to debug buffer
+        (tds-ai-debug-log-prompt full-prompt prompt-point)
+        
+        ;; Save debug prompt to file if configured
         (when tds-ai-author-debug
           (with-temp-file tds-ai-author-debug-file
             (insert full-prompt))
           (tds-ai-debug "Saved prompt to %s" tds-ai-author-debug-file))
-
+        
         ;; Find insertion point (end of current line with the AI prompt)
         (save-excursion
           (goto-char prompt-point)
           (let ((insertion-point (line-end-position)))
-
+            
             ;; Create context data for callback with buffer reference and enhanced prompt
             (let ((callback-context (list :buffer current-buffer-ref
                                          :insertion-point insertion-point
@@ -373,14 +457,14 @@ Generates response(s) and inserts them after the prompt."
                                          :count count
                                          :is-duplex is-duplex
                                          :current-version 1)))
-
+              
               ;; Send first request to gptel with callback
               (tds-ai-debug "Sending request 1 of %d to gptel" count)
               (gptel-request
                full-prompt
                :callback 'tds-ai-author-handle-gptel-response
                :context callback-context)
-
+              
               (message "Generating version 1 of %d..." count))))))))
 
 ;; Interactive commands
@@ -393,7 +477,8 @@ Generates response(s) and inserts them after the prompt."
     (if (not prompt)
         (progn
           (tds-ai-debug "No AI prompt found at point")
-          (message "No AI[] prompt found at point"))
+          (message "No AI[] prompt found at point (must be prefixed with '%s')"
+                   tds-ai-prompt-prefix))
       (tds-ai-debug "Found prompt: %s, processing" prompt)
       (tds-ai-author-process-ai-prompt (point) prompt))))
 
@@ -406,7 +491,8 @@ Generates response(s) and inserts them after the prompt."
     (if (null prompts)
         (progn
           (tds-ai-debug "No AI prompts found in buffer")
-          (message "No AI[] prompts found in buffer"))
+          (message "No AI[] prompts found in buffer (must be prefixed with '%s')"
+                   tds-ai-prompt-prefix))
       (tds-ai-debug "Processing %d prompts" (length prompts))
       (dolist (prompt prompts)
         (tds-ai-debug "Processing prompt at %s: %s" (car prompt) (cdr prompt))
@@ -449,6 +535,20 @@ Generates response(s) and inserts them after the prompt."
               (delete-region param-start param-end)
               (tds-ai-debug "Enabled response")
               (message "Response enabled")))))))))
+
+;; TODO: Add tds-edit-prompt-template function for interactive template editing
+;; This would create a buffer for editing the prompt template used by tds-ai-prompt
+
+;; TODO: Add tds-insert-context-template function for quick context markup insertion
+;; This would help users quickly insert SET/ADD/DROP directives with proper formatting
+
+;;;###autoload
+(defun tds-ai-author-show-debug-buffer ()
+  "Display the AI prompt debug buffer."
+  (interactive)
+  (if (get-buffer tds-ai-author-debug-buffer)
+      (display-buffer tds-ai-author-debug-buffer)
+    (message "No debug buffer exists. Enable debug mode and process a prompt first.")))
 
 (provide 'tds-v3-ai-author)
 ;;; tds-v3-ai-author.el ends here

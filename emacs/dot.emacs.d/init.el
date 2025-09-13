@@ -65,14 +65,10 @@
   (direnv-mode))
 
 ;; Personal customizations
-;;(mapc 'require
-;;      '(tds-look-and-feel tds-kill-confirm tds-edit-modes tds-buffer-control
-;;                          tds-mail-mode tds-ediff-mode tds-misc-utils
-;;                          tds-claude-code tds-v3-ai-author))
 (mapc 'require
       '(tds-look-and-feel tds-kill-confirm tds-edit-modes tds-buffer-control
                           tds-mail-mode tds-ediff-mode tds-misc-utils
-                          tds-claude-code tds-ai-author tds-ai-author-context-template))
+                          tds-claude-code tds-v3-ai-author))
 
 (use-package dabbrev
   :ensure nil  ; Ensure nil is used because dabbrev is part of Emacs, not an external package
