@@ -3,7 +3,8 @@
 
 (use-package js2-mode
   :ensure t
-  :mode ("\\.js\\'" . js2-mode)
+  :mode (("\\.js\\'" . js2-mode)
+         ("\\.ts\\'" . js2-mode))
   :interpreter ("node" . js2-mode)
   :config
   (add-hook 'js2-mode-hook

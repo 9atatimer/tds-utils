@@ -65,6 +65,10 @@
   (direnv-mode))
 
 ;; Personal customizations
+;;(mapc 'require
+;;      '(tds-look-and-feel tds-kill-confirm tds-edit-modes tds-buffer-control
+;;                          tds-mail-mode tds-ediff-mode tds-misc-utils
+;;                          tds-claude-code tds-v3-ai-author))
 (mapc 'require
       '(tds-look-and-feel tds-kill-confirm tds-edit-modes tds-buffer-control
                           tds-mail-mode tds-ediff-mode tds-misc-utils
@@ -261,10 +265,20 @@
               ("C-<tab>" . copilot-panel-completion)))
 
 ;;;; sure, let's be rebels:
+;(with-eval-after-load 'copilot
+;  (setq copilot-version "1.22.0"))
+;  ;;(setq copilot-version "1.33.0")) ;; flaky as of 2024-06-21
+;(copilot-reinstall-server)
+
+;; Fix Copilot and EditorConfig conflict
 (with-eval-after-load 'copilot
-  (setq copilot-version "1.22.0"))
-  ;;(setq copilot-version "1.33.0")) ;; flaky as of 2024-06-21
-(copilot-reinstall-server)
+  (defun fix-copilot-editorconfig-conflict ()
+    "Fix conflict between Copilot and EditorConfig."
+    (when (fboundp 'editorconfig-set-indentation-lisp-mode)
+      (fset 'editorconfig-set-indentation-lisp-mode
+            (lambda (&rest _)
+              nil))))
+  (fix-copilot-editorconfig-conflict))
 
 ;; We keep the openai key in our local pass tool
 (use-package auth-source-pass
@@ -320,6 +334,11 @@
 (use-package lsp-treemacs
   :ensure t
   :commands lsp-treemacs-errors-list)
+
+(use-package typescript-ts-mode
+  :ensure t
+  :mode "\\.ts\\'"
+  :hook (typescript-ts-mode . lsp-deferred))
 
 ;;
 ;; To have a local ollama LLM:
