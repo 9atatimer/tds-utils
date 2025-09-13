@@ -28,8 +28,11 @@
 (defconst tds-ai-tag-regex "AI\\[[^]]*\\]"
   "Regular expression to match AI[] tags.")
 
-(defconst tds-ai-tag-with-number-regex "AI\\[\\([0-9]*\\):\\(.*\\)\\]"
-  "Regular expression to match AI[] tags with an optional count prefix.")
+(defconst tds-ai-tag-base-regex "AI\\[\\(.*\\)\\]"
+  "Regular expression to match AI[] tags and extract content.")
+
+(defconst tds-ai-version-prefix-regex "^\\([0-9]+\\):\\(.*\\)"
+  "Regular expression to match version prefix in tag content.")
 
 ;; Constants for LaTeX environments
 (defconst tds-response-latex-prefix "\\begin{airesponse}"
@@ -116,19 +119,41 @@ Returns a list of (position . tag-string) for each tag."
       (tds-ai-debug "Found %d AI tags total" (length tags))
       (nreverse tags))))
 
+(defun tds-ai-author-extract-tag-content (tag)
+  "Extract content from AI[...] tag.
+Returns the content between brackets or nil if not a valid AI tag."
+  (tds-ai-debug "Extracting content from tag: %s" tag)
+  (if (string-match tds-ai-tag-base-regex tag)
+      (let ((content (match-string 1 tag)))
+        (tds-ai-debug "Extracted tag content: %s" content)
+        content)
+    (progn
+      (tds-ai-debug "Not a valid AI tag format: %s" tag)
+      nil)))
+
+(defun tds-ai-author-parse-tag-content (content)
+  "Parse tag CONTENT for optional version prefix.
+Returns (count . prompt) where count is the number of responses
+to generate (defaults to 1) and prompt is the prompt text."
+  (tds-ai-debug "Parsing tag content: %s" content)
+  (if (string-match tds-ai-version-prefix-regex content)
+      (let* ((count (string-to-number (match-string 1 content)))
+             (prompt (string-trim (match-string 2 content))))
+        (tds-ai-debug "Found version prefix - count: %d, prompt: %s" count prompt)
+        (cons count prompt))
+    ;; No version prefix, entire content is the prompt
+    (let ((prompt (string-trim content)))
+      (tds-ai-debug "No version prefix - defaulting to count: 1, prompt: %s" prompt)
+      (cons 1 prompt))))
+
 (defun tds-ai-author-parse-ai-tag (tag)
   "Parse an AI[] tag string.
 Returns (count . prompt) where count is the number of responses
 to generate (defaults to 1) and prompt is the prompt text."
-  (tds-ai-debug "Parsing AI tag: %s" tag)
-  (when (string-match tds-ai-tag-with-number-regex tag)
-    (let* ((count-str (match-string 1 tag))
-           (prompt (match-string 2 tag))
-           (count (if (string-empty-p count-str)
-                     1
-                   (string-to-number count-str))))
-      (tds-ai-debug "Parsed tag - count: %d, prompt: %s" count prompt)
-      (cons count (string-trim prompt)))))
+  (let ((content (tds-ai-author-extract-tag-content tag)))
+    (if content
+        (tds-ai-author-parse-tag-content content)
+      nil)))
 
 (defun tds-ai-author-find-existing-airesponses (start end)
   "Find all airesponse blocks in region between START and END.
