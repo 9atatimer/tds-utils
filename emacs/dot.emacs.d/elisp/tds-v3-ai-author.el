@@ -8,8 +8,8 @@
 ;; - Handling file modifications (inserting/updating airesponse sections)
 ;; - Communicating with the LLM via gptel
 ;; - Coordinating the overall process flow
-;; - Managing AI[] tag detection and parsing
-;; - Constants related to AI tag format and detection
+;; - Managing AI[] prompt detection and parsing
+;; - Constants related to AI prompt format and detection
 ;;
 ;; OUT OF SCOPE:
 ;; - Context extraction from documents (handled by tds-v3-ai-author-context)
@@ -24,15 +24,15 @@
 (require 'tds-v3-ai-author-context)
 (require 'tds-v3-ai-author-prompt)
 
-;; Constants for AI tag detection and parsing
-(defconst tds-ai-tag-regex "AI\\[[^]]*\\]"
-  "Regular expression to match AI[] tags.")
+;; Constants for AI prompt detection and parsing
+(defconst tds-ai-prompt-regex "AI\\[[^]]*\\]"
+  "Regular expression to match AI[] prompts.")
 
-(defconst tds-ai-tag-base-regex "AI\\[\\(.*\\)\\]"
-  "Regular expression to match AI[] tags and extract content.")
+(defconst tds-ai-prompt-base-regex "AI\\[\\(.*\\)\\]"
+  "Regular expression to match AI[] prompts and extract content.")
 
 (defconst tds-ai-version-prefix-regex "^\\([0-9]+\\):\\(.*\\)"
-  "Regular expression to match version prefix in tag content.")
+  "Regular expression to match version prefix in prompt content.")
 
 ;; Constants for LaTeX environments
 (defconst tds-response-latex-prefix "\\begin{airesponse}"
@@ -88,73 +88,72 @@ FORMAT-STRING and ARGS are passed to `message'."
   (when tds-ai-author-debug
     (apply #'message (concat "[TDS-AI-DEBUG] " format-string) args)))
 
-;; Helper functions for tag detection and parsing
-(defun tds-ai-author-find-ai-tag-at-point ()
-  "Find AI[] tag at or before point.
-Returns the AI tag as a string or nil if not found."
-  (tds-ai-debug "Searching for AI tag at current point: %s" (point))
+;; Helper functions for prompt detection and parsing
+(defun tds-ai-author-find-ai-prompt-at-point ()
+  "Find AI[] prompt at or before point.
+Returns the AI prompt as a string or nil if not found."
+  (tds-ai-debug "Searching for AI prompt at current point: %s" (point))
   (save-excursion
     (let ((line-start (line-beginning-position))
           (line-end (line-end-position))
-          (tag nil))
+          (prompt nil))
       (goto-char line-start)
       (tds-ai-debug "Searching line from %s to %s" line-start line-end)
-      (when (re-search-forward tds-ai-tag-regex line-end t)
-        (setq tag (match-string 0))
-        (tds-ai-debug "Found AI tag: %s" tag))
-      tag)))
+      (when (re-search-forward tds-ai-prompt-regex line-end t)
+        (setq prompt (match-string 0))
+        (tds-ai-debug "Found AI prompt: %s" prompt))
+      prompt)))
 
-(defun tds-ai-author-find-all-ai-tags (start end)
-  "Find all AI[] tags in region between START and END.
-Returns a list of (position . tag-string) for each tag."
-  (tds-ai-debug "Finding all AI tags between %s and %s" start end)
+(defun tds-ai-author-find-all-ai-prompts (start end)
+  "Find all AI[] prompts in region between START and END.
+Returns a list of (position . prompt-string) for each prompt."
+  (tds-ai-debug "Finding all AI prompts between %s and %s" start end)
   (save-excursion
-    (let ((tags '()))
+    (let ((prompts '()))
       (goto-char start)
-      (while (re-search-forward tds-ai-tag-regex end t)
-        (let ((tag-pos (match-beginning 0))
-              (tag-string (match-string 0)))
-          (tds-ai-debug "Found AI tag at %s: %s" tag-pos tag-string)
-          (push (cons tag-pos tag-string) tags)))
-      (tds-ai-debug "Found %d AI tags total" (length tags))
-      (nreverse tags))))
+      (while (re-search-forward tds-ai-prompt-regex end t)
+        (let ((prompt-pos (match-beginning 0))
+              (prompt-string (match-string 0)))
+          (tds-ai-debug "Found AI prompt at %s: %s" prompt-pos prompt-string)
+          (push (cons prompt-pos prompt-string) prompts)))
+      (tds-ai-debug "Found %d AI prompts total" (length prompts))
+      (nreverse prompts))))
 
-(defun tds-ai-author-extract-tag-content (tag)
-  "Extract content from AI[...] tag.
-Returns the content between brackets or nil if not a valid AI tag."
-  (tds-ai-debug "Extracting content from tag: %s" tag)
-  (if (string-match tds-ai-tag-base-regex tag)
-      (let ((content (match-string 1 tag)))
-        (tds-ai-debug "Extracted tag content: %s" content)
+(defun tds-ai-author-extract-prompt-content (prompt)
+  "Extract content from AI[...] prompt.
+Returns the content between brackets or nil if not a valid AI prompt."
+  (tds-ai-debug "Extracting content from prompt: %s" prompt)
+  (if (string-match tds-ai-prompt-base-regex prompt)
+      (let ((content (match-string 1 prompt)))
+        (tds-ai-debug "Extracted prompt content: %s" content)
         content)
     (progn
-      (tds-ai-debug "Not a valid AI tag format: %s" tag)
+      (tds-ai-debug "Not a valid AI prompt format: %s" prompt)
       nil)))
 
-(defun tds-ai-author-parse-tag-content (content)
-  "Parse tag CONTENT for optional version prefix.
-Returns (count . prompt) where count is the number of responses
-to generate (defaults to 1) and prompt is the prompt text."
-  (tds-ai-debug "Parsing tag content: %s" content)
+(defun tds-ai-author-parse-prompt-content (content)
+  "Parse prompt CONTENT for optional version prefix.
+Returns plist with :count, :prompt, and :is-duplex keys."
+  (tds-ai-debug "Parsing prompt content: %s" content)
   (if (string-match tds-ai-version-prefix-regex content)
       (let* ((count (string-to-number (match-string 1 content)))
              (prompt (string-trim (match-string 2 content))))
-        (tds-ai-debug "Found version prefix - count: %d, prompt: %s" count prompt)
-        (cons count prompt))
+        (tds-ai-debug "Found explicit version prefix - count: %d, prompt: %s" count prompt)
+        (list :count count :prompt prompt :is-duplex t))
     ;; No version prefix, entire content is the prompt
     (let ((prompt (string-trim content)))
-      (tds-ai-debug "No version prefix - defaulting to count: 1, prompt: %s" prompt)
-      (cons 1 prompt))))
+      (tds-ai-debug "No version prefix - count: 1, prompt: %s, duplex: nil" prompt)
+      (list :count 1 :prompt prompt :is-duplex nil))))
 
-(defun tds-ai-author-parse-ai-tag (tag)
-  "Parse an AI[] tag string.
-Returns (count . prompt) where count is the number of responses
-to generate (defaults to 1) and prompt is the prompt text."
-  (let ((content (tds-ai-author-extract-tag-content tag)))
+(defun tds-ai-author-parse-ai-prompt (prompt)
+  "Parse an AI[] prompt string.
+Returns plist with :count, :prompt, and :is-duplex keys."
+  (let ((content (tds-ai-author-extract-prompt-content prompt)))
     (if content
-        (tds-ai-author-parse-tag-content content)
+        (tds-ai-author-parse-prompt-content content)
       nil)))
 
+;; Functions for managing airesponse blocks
 (defun tds-ai-author-find-existing-airesponses (start end)
   "Find all airesponse blocks in region between START and END.
 Returns a list of (begin . end) positions for each block."
@@ -171,6 +170,30 @@ Returns a list of (begin . end) positions for each block."
               (push (cons begin end-pos) blocks)))))
       (tds-ai-debug "Found %d airesponse blocks total" (length blocks))
       (nreverse blocks))))
+
+(defun tds-ai-author-find-immediate-response (position)
+  "Find airesponse block immediately following POSITION.
+Returns (begin . end) if found, nil otherwise.
+Only finds response that starts right after POSITION (allowing whitespace)."
+  (tds-ai-debug "Looking for immediate response after %s" position)
+  (save-excursion
+    (goto-char position)
+    ;; Skip whitespace but nothing else
+    (skip-chars-forward " \t\n\r")
+    ;; Check if we're looking at an airesponse start
+    (if (looking-at (regexp-quote tds-response-latex-prefix))
+        (let ((begin (match-beginning 0)))
+          ;; Find the matching end
+          (if (re-search-forward (regexp-quote tds-response-latex-suffix) nil t)
+              (let ((end (match-end 0)))
+                (tds-ai-debug "Found immediate response from %s to %s" begin end)
+                (cons begin end))
+            (progn
+              (tds-ai-debug "Found response start but no matching end")
+              nil)))
+      (progn
+        (tds-ai-debug "No immediate response found")
+        nil))))
 
 (defun tds-ai-author-clear-airesponses (start end)
   "Remove all airesponse blocks between START and END."
@@ -203,7 +226,6 @@ Returns a list (begin . end) or nil if not found."
               (cons begin end))))))))
 
 ;; LLM interaction functions
-;; LLM interaction functions
 (defun tds-ai-author-handle-gptel-response (response info)
   "Handle the response from gptel.
 RESPONSE is the text from the AI.
@@ -214,6 +236,7 @@ INFO is a plist containing additional information."
          (prompt (plist-get context-data :prompt))
          (enhanced-prompt (plist-get context-data :enhanced-prompt))
          (count (plist-get context-data :count))
+         (is-duplex (plist-get context-data :is-duplex))
          (current-version (or (plist-get context-data :current-version) 1))
          (timestamp (format-time-string "%Y-%m-%d %H:%M:%S"))
          (model-name (or gptel-model tds-ai-author-gptel-model "unknown")))
@@ -232,13 +255,24 @@ INFO is a plist containing additional information."
              (with-current-buffer buffer
                (save-excursion
                  (goto-char insertion-point)
+
+                 ;; For non-duplex single responses only, clear any existing response
+                 (when (and (= count 1) (= current-version 1) (not is-duplex))
+                   (let ((existing (tds-ai-author-find-immediate-response insertion-point)))
+                     (when existing
+                       (tds-ai-debug "Clearing existing single response from %s to %s"
+                                    (car existing) (cdr existing))
+                       (delete-region (car existing) (cdr existing))
+                       ;; After deletion, we're at the right spot
+                       (goto-char insertion-point))))
+
                  (let* ((metadata (if (> count 1)
                                      (format "%% Generated: %s, Model: %s [Version %d of %d]"
                                             timestamp model-name current-version count)
                                    (format "%% Generated: %s, Model: %s"
                                           timestamp model-name)))
                         (disabled (and (> count 1) (> current-version 1))))
-                   (insert (format "\n\n%s%s\n%s\n%s\n%s\n"
+                   (insert (format "\n%s%s\n%s\n%s\n%s\n"
                                   tds-response-latex-prefix
                                   (if disabled tds-response-latex-off "")
                                   response
@@ -258,6 +292,7 @@ INFO is a plist containing additional information."
                                        :prompt prompt
                                        :enhanced-prompt enhanced-prompt
                                        :count count
+                                       :is-duplex is-duplex
                                        :current-version (1+ current-version))))
                 (gptel-request
                  enhanced-prompt
@@ -303,17 +338,18 @@ INFO is a plist containing additional information."
       (nreverse parts))))
 
 ;; Main processing functions
-(defun tds-ai-author-process-ai-tag (tag-point tag-string)
-  "Process AI tag at TAG-POINT with content TAG-STRING.
-Generates response(s) and inserts them after the tag."
-  (tds-ai-debug "Processing AI tag at %s: %s" tag-point tag-string)
-  (let* ((parsed (tds-ai-author-parse-ai-tag tag-string))
-         (count (car parsed))
-         (prompt-text (cdr parsed))
+(defun tds-ai-author-process-ai-prompt (prompt-point prompt-string)
+  "Process AI prompt at PROMPT-POINT with content PROMPT-STRING.
+Generates response(s) and inserts them after the prompt."
+  (tds-ai-debug "Processing AI prompt at %s: %s" prompt-point prompt-string)
+  (let* ((parsed (tds-ai-author-parse-ai-prompt prompt-string))
+         (count (plist-get parsed :count))
+         (prompt-text (plist-get parsed :prompt))
+         (is-duplex (plist-get parsed :is-duplex))
          (current-buffer-ref (current-buffer)))
 
-    (tds-ai-debug "Getting context for point %s" tag-point)
-    (let ((context (tds-ai-context-get-context tag-point)))
+    (tds-ai-debug "Getting context for point %s" prompt-point)
+    (let ((context (tds-ai-context-get-context prompt-point)))
       (tds-ai-debug "Context retrieved, assembling prompt")
       (let ((full-prompt (tds-ai-prompt-assemble context prompt-text)))
         (tds-ai-debug "Prompt assembled (%d chars), invoking LLM" (length full-prompt))
@@ -324,19 +360,10 @@ Generates response(s) and inserts them after the tag."
             (insert full-prompt))
           (tds-ai-debug "Saved prompt to %s" tds-ai-author-debug-file))
 
-        ;; Find insertion point (end of current line with the AI tag)
+        ;; Find insertion point (end of current line with the AI prompt)
         (save-excursion
-          (goto-char tag-point)
+          (goto-char prompt-point)
           (let ((insertion-point (line-end-position)))
-
-            ;; Clear any existing airesponse blocks between here and next tag
-            (let ((next-tag-point (save-excursion
-                                   (if (re-search-forward tds-ai-tag-regex nil t)
-                                       (match-beginning 0)
-                                     (point-max)))))
-              (tds-ai-debug "Clearing existing responses between %s and %s"
-                           insertion-point next-tag-point)
-              (tds-ai-author-clear-airesponses insertion-point next-tag-point))
 
             ;; Create context data for callback with buffer reference and enhanced prompt
             (let ((callback-context (list :buffer current-buffer-ref
@@ -344,6 +371,7 @@ Generates response(s) and inserts them after the tag."
                                          :prompt prompt-text
                                          :enhanced-prompt full-prompt
                                          :count count
+                                         :is-duplex is-duplex
                                          :current-version 1)))
 
               ;; Send first request to gptel with callback
@@ -357,33 +385,33 @@ Generates response(s) and inserts them after the tag."
 
 ;; Interactive commands
 ;;;###autoload
-(defun tds-ai-author-process-tag-at-point ()
-  "Process AI tag at point, generate response, and insert it."
+(defun tds-ai-author-process-prompt-at-point ()
+  "Process AI prompt at point, generate response, and insert it."
   (interactive)
-  (tds-ai-debug "Invoked process-tag-at-point at %s" (point))
-  (let ((tag (tds-ai-author-find-ai-tag-at-point)))
-    (if (not tag)
+  (tds-ai-debug "Invoked process-prompt-at-point at %s" (point))
+  (let ((prompt (tds-ai-author-find-ai-prompt-at-point)))
+    (if (not prompt)
         (progn
-          (tds-ai-debug "No AI tag found at point")
-          (message "No AI[] tag found at point"))
-      (tds-ai-debug "Found tag: %s, processing" tag)
-      (tds-ai-author-process-ai-tag (point) tag))))
+          (tds-ai-debug "No AI prompt found at point")
+          (message "No AI[] prompt found at point"))
+      (tds-ai-debug "Found prompt: %s, processing" prompt)
+      (tds-ai-author-process-ai-prompt (point) prompt))))
 
 ;;;###autoload
-(defun tds-ai-author-process-all-tags ()
-  "Process all AI[] tags in the current buffer."
+(defun tds-ai-author-process-all-prompts ()
+  "Process all AI[] prompts in the current buffer."
   (interactive)
-  (tds-ai-debug "Invoked process-all-tags in buffer %s" (buffer-name))
-  (let ((tags (tds-ai-author-find-all-ai-tags (point-min) (point-max))))
-    (if (null tags)
+  (tds-ai-debug "Invoked process-all-prompts in buffer %s" (buffer-name))
+  (let ((prompts (tds-ai-author-find-all-ai-prompts (point-min) (point-max))))
+    (if (null prompts)
         (progn
-          (tds-ai-debug "No AI tags found in buffer")
-          (message "No AI[] tags found in buffer"))
-      (tds-ai-debug "Processing %d tags" (length tags))
-      (dolist (tag tags)
-        (tds-ai-debug "Processing tag at %s: %s" (car tag) (cdr tag))
-        (tds-ai-author-process-ai-tag (car tag) (cdr tag)))
-      (message "Processed %d AI[] tags" (length tags)))))
+          (tds-ai-debug "No AI prompts found in buffer")
+          (message "No AI[] prompts found in buffer"))
+      (tds-ai-debug "Processing %d prompts" (length prompts))
+      (dolist (prompt prompts)
+        (tds-ai-debug "Processing prompt at %s: %s" (car prompt) (cdr prompt))
+        (tds-ai-author-process-ai-prompt (car prompt) (cdr prompt)))
+      (message "Processed %d AI[] prompts" (length prompts)))))
 
 ;;;###autoload
 (defun tds-ai-author-toggle-airesponse-status ()
