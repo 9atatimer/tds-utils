@@ -304,110 +304,60 @@ RESPONSE is the text from the AI.
 INFO is a plist containing additional information."
   (let* ((context-data (plist-get info :context))
          (buffer (plist-get context-data :buffer))
-         (insertion-point (plist-get context-data :insertion-point))
-         (prompt (plist-get context-data :prompt))
-         (enhanced-prompt (plist-get context-data :enhanced-prompt))
+         (insertion-marker (plist-get context-data :insertion-marker))
+         (version (plist-get context-data :version))
          (count (plist-get context-data :count))
          (is-duplex (plist-get context-data :is-duplex))
-         (current-version (or (plist-get context-data :current-version) 1))
          (timestamp (format-time-string "%Y-%m-%d %H:%M:%S"))
          (model-name (or gptel-model tds-ai-author-gptel-model "unknown")))
     
-    (tds-ai-debug "Received response for version %d of %d" current-version count)
+    (tds-ai-debug "Received response for version %d of %d" version count)
     
-    ;; Check if buffer still exists
-    (if (not (buffer-live-p buffer))
+    ;; Check if buffer and marker still valid
+    (if (not (and (buffer-live-p buffer)
+                  (marker-buffer insertion-marker)))
         (progn
-          (tds-ai-debug "Buffer no longer exists, aborting")
-          (message "Buffer closed, stopping generation at version %d of %d" 
-                   current-version count))
+          (tds-ai-debug "Buffer or marker no longer valid, dropping response")
+          (message "Warning: Buffer or position deleted, dropping response %d of %d" 
+                   version count))
       
       ;; Insert this response
-      (let ((new-insertion-point
-             (with-current-buffer buffer
-               (save-excursion
-                 (goto-char insertion-point)
-                 
-                 ;; For non-duplex single responses only, clear any existing response
-                 (when (and (= count 1) (= current-version 1) (not is-duplex))
-                   (let ((existing (tds-ai-author-find-immediate-response insertion-point)))
-                     (when existing
-                       (tds-ai-debug "Clearing existing single response from %s to %s"
-                                    (car existing) (cdr existing))
-                       (delete-region (car existing) (cdr existing))
-                       ;; After deletion, we're at the right spot
-                       (goto-char insertion-point))))
-                 
-                 (let* ((metadata (if (> count 1)
-                                     (format "%% Generated: %s, Model: %s [Version %d of %d]"
-                                            timestamp model-name current-version count)
-                                   (format "%% Generated: %s, Model: %s"
-                                          timestamp model-name)))
-                        (disabled (and (> count 1) (> current-version 1))))
-                   (insert (format "\n%s%s\n%s\n%s\n%s\n"
-                                  tds-response-latex-prefix
-                                  (if disabled tds-response-latex-off "")
-                                  response
-                                  metadata
-                                  tds-response-latex-suffix))
-                   (tds-ai-debug "Inserted version %d %s" 
-                                current-version 
-                                (if disabled "(disabled)" "(enabled)"))
-                   (point))))))
-        
-        ;; If more versions needed, fire next request
-        (if (< current-version count)
-            (progn
-              (tds-ai-debug "Requesting version %d of %d" (1+ current-version) count)
-              (let ((next-context (list :buffer buffer
-                                       :insertion-point new-insertion-point
-                                       :prompt prompt
-                                       :enhanced-prompt enhanced-prompt
-                                       :count count
-                                       :is-duplex is-duplex
-                                       :current-version (1+ current-version))))
-                (gptel-request
-                 enhanced-prompt
-                 :callback 'tds-ai-author-handle-gptel-response
-                 :context next-context))
-              (message "Generating version %d of %d..." (1+ current-version) count))
+      (with-current-buffer buffer
+        (save-excursion
+          (goto-char (marker-position insertion-marker))
           
-          ;; All versions complete
-          (message "Generated %d AI response version%s" 
-                   count (if (> count 1) "s" "")))))))
-
-(defun tds-ai-author-split-response (response count)
-  "Split RESPONSE into COUNT parts at paragraph boundaries."
-  (tds-ai-debug "Splitting response into %d parts" count)
-  (if (<= count 1)
-      (progn
-        (tds-ai-debug "Count <= 1, returning single response")
-        (list response))
-    (let* ((paragraphs (split-string response "\n\n"))
-           (paragraphs-count (length paragraphs))
-           (parts-size (max 1 (/ paragraphs-count count)))
-           (parts '())
-           (current-part '())
-           (i 0))
-
-      (tds-ai-debug "Found %d paragraphs, targeting ~%d per part"
-                           paragraphs-count parts-size)
-
-      (dolist (para paragraphs)
-        (push para current-part)
-        (setq i (1+ i))
-        (when (or (= i paragraphs-count)
-                  (and (>= (length current-part) parts-size)
-                       (< (length parts) (1- count))))
-          (let ((part-text (string-join (nreverse current-part) "\n\n")))
-            (tds-ai-debug "Created part %d with %d paragraphs (%d chars)"
-                                (1+ (length parts)) (length current-part) (length part-text))
-            (push part-text parts))
-          (setq current-part '())
-          (setq i 0)))
-
-      (tds-ai-debug "Created %d parts total" (length parts))
-      (nreverse parts))))
+          ;; For non-duplex single responses only, clear any existing response
+          (when (and (= count 1) (not is-duplex))
+            (let ((existing (tds-ai-author-find-immediate-response 
+                           (marker-position insertion-marker))))
+              (when existing
+                (tds-ai-debug "Clearing existing single response from %s to %s"
+                             (car existing) (cdr existing))
+                (delete-region (car existing) (cdr existing))
+                ;; After deletion, marker is still at the right spot
+                (goto-char (marker-position insertion-marker)))))
+          
+          ;; Insert the response with metadata
+          (let* ((metadata (if (> count 1)
+                              (format "%% Generated: %s, Model: %s [Version %d of %d]"
+                                     timestamp model-name version count)
+                            (format "%% Generated: %s, Model: %s"
+                                   timestamp model-name))))
+            ;; All responses are [off] by default now
+            (insert (format "\n%s%s\n%s\n%s\n%s\n"
+                           tds-response-latex-prefix
+                           tds-response-latex-off
+                           response
+                           metadata
+                           tds-response-latex-suffix))
+            (tds-ai-debug "Inserted version %d (disabled)" version))))
+      
+      ;; Clean up the marker
+      (set-marker insertion-marker nil)
+      (tds-ai-debug "Marker cleaned up for version %d" version)
+      
+      ;; Message when this version is done
+      (message "Generated response %d of %d" version count))))
 
 ;; Main processing functions
 (defun tds-ai-author-process-ai-prompt (prompt-point prompt-string)
@@ -444,28 +394,46 @@ Generates response(s) and inserts them after the prompt."
             (insert full-prompt))
           (tds-ai-debug "Saved prompt to %s" tds-ai-author-debug-file))
         
-        ;; Find insertion point (end of current line with the AI prompt)
+        ;; Pre-allocate insertion points with markers for all versions
         (save-excursion
           (goto-char prompt-point)
-          (let ((insertion-point (line-end-position)))
+          (end-of-line)
+          
+          ;; For non-duplex single response, clear existing first
+          (when (and (= count 1) (not is-duplex))
+            (let ((existing (tds-ai-author-find-immediate-response (point))))
+              (when existing
+                (tds-ai-debug "Clearing existing response before inserting markers")
+                (delete-region (car existing) (cdr existing)))))
+          
+          ;; Create markers for each version
+          (let ((markers '()))
+            (dotimes (i count)
+              (insert "\n")  ; Insert newline for each version
+              (let ((marker (point-marker)))
+                (push marker markers)
+                (tds-ai-debug "Created marker %d at position %s" 
+                             (1+ i) (marker-position marker))))
             
-            ;; Create context data for callback with buffer reference and enhanced prompt
-            (let ((callback-context (list :buffer current-buffer-ref
-                                         :insertion-point insertion-point
-                                         :prompt prompt-text
-                                         :enhanced-prompt full-prompt
-                                         :count count
-                                         :is-duplex is-duplex
-                                         :current-version 1)))
-              
-              ;; Send first request to gptel with callback
-              (tds-ai-debug "Sending request 1 of %d to gptel" count)
-              (gptel-request
-               full-prompt
-               :callback 'tds-ai-author-handle-gptel-response
-               :context callback-context)
-              
-              (message "Generating version 1 of %d..." count))))))))
+            ;; Fire off all requests in parallel
+            (setq markers (nreverse markers))  ; Put in correct order
+            (dotimes (i count)
+              (let ((version-num (1+ i))
+                    (version-marker (nth i markers)))
+                (tds-ai-debug "Sending request %d of %d to gptel" version-num count)
+                
+                (let ((callback-context (list :buffer current-buffer-ref
+                                            :insertion-marker version-marker
+                                            :version version-num
+                                            :count count
+                                            :is-duplex is-duplex)))
+                  (gptel-request
+                   full-prompt
+                   :callback 'tds-ai-author-handle-gptel-response
+                   :context callback-context))))
+            
+            (message "Generating %d response%s in parallel..." 
+                    count (if (> count 1) "s" ""))))))))
 
 ;; Interactive commands
 ;;;###autoload
@@ -494,10 +462,12 @@ Generates response(s) and inserts them after the prompt."
           (message "No AI[] prompts found in buffer (must be prefixed with '%s')"
                    tds-ai-prompt-prefix))
       (tds-ai-debug "Processing %d prompts" (length prompts))
-      (dolist (prompt prompts)
-        (tds-ai-debug "Processing prompt at %s: %s" (car prompt) (cdr prompt))
-        (tds-ai-author-process-ai-prompt (car prompt) (cdr prompt)))
-      (message "Processed %d AI[] prompts" (length prompts)))))
+      (dolist (prompt-info prompts)
+        (let ((prompt-pos (car prompt-info))
+              (prompt-string (cdr prompt-info)))
+          (tds-ai-debug "Processing prompt at %s: %s" prompt-pos prompt-string)
+          (tds-ai-author-process-ai-prompt prompt-pos prompt-string)))
+      (message "Launched processing for %d AI[] prompts" (length prompts)))))
 
 ;;;###autoload
 (defun tds-ai-author-toggle-airesponse-status ()
