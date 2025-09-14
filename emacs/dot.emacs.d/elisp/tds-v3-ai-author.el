@@ -17,6 +17,41 @@
 ;; - Prompt assembly and formatting (handled by tds-v3-ai-author-prompt)
 ;; - Detailed knowledge of context tags or directive formats
 
+;; FIXME: Legacy tag collection is too greedy - collecting AI prompts as context
+;; 
+;; ISSUE: The legacy tag collector (tds-ai-context-collect-legacy-tags) matches
+;; any pattern of the form % KEY[...] and stores it as LEGACY:KEY context.
+;; This means AI prompts (% AI[...]) are being collected and sent back to the
+;; LLM as part of the context, causing contamination of responses.
+;;
+;; SYMPTOMS:
+;; - AI prompts from earlier in the document appear in LEGACY:AI context
+;; - Test prompts like "just say hello" affect all subsequent generations
+;; - The LLM sees its own prompts as context, creating feedback loops
+;;
+;; POTENTIAL FIXES:
+;; 1. Blacklist approach: Skip "AI" key when collecting legacy tags
+;;    - Simple: (unless (string= key "AI") ...) 
+;;    - But what about other keys we don't want?
+;;
+;; 2. Whitelist approach: Only collect known context keys
+;;    - Define allowed keys: CHARACTER, SETTING, PLOT, etc.
+;;    - Reject everything else
+;;    - More maintainable but less flexible
+;;
+;; 3. Different prefix: Use %% for context vs % for prompts
+;;    - Would break existing documents
+;;    - Cleaner separation of concerns
+;;
+;; 4. Warning system: Log unknown keys, don't include them
+;;    - Helps users debug their markup
+;;    - Prevents silent contamination
+;;
+;; TEMPORARY WORKAROUND: Users should avoid legacy format (% KEY[...]) 
+;; and use the new format (% VERB:STORE:KEY) which doesn't have this issue.
+;;
+;; TODO: Implement fix before this bites someone in production
+
 ;;; Code:
 
 (require 'cl-lib)
@@ -52,6 +87,9 @@
 
 (defconst tds-response-regex-pattern "\\\\begin{airesponse}\\(\\[\\([^]]*\\)\\]\\)?"
   "Regular expression to match the beginning of an airesponse block with optional parameter.")
+
+(defconst tds-response-placeholder-text "[Generating response...]"
+  "Placeholder text shown while waiting for LLM response.")
 
 ;; Debug and configuration options
 (defgroup tds-ai-author nil
@@ -155,12 +193,12 @@ Returns the AI prompt as a string or nil if not found."
         (goto-char (car bounds))
         (backward-char (length tds-ai-prompt-prefix))
         (if (looking-at (regexp-quote tds-ai-prompt-prefix))
-            (let ((prompt (concat "AI" (buffer-substring-no-properties 
+            (let ((prompt (concat "AI" (buffer-substring-no-properties
                                        (car bounds) (cdr bounds)))))
               (tds-ai-debug "Found properly prefixed AI prompt: %s" prompt)
               prompt)
           (progn
-            (tds-ai-debug "Bracketed text not properly prefixed with '%s'" 
+            (tds-ai-debug "Bracketed text not properly prefixed with '%s'"
                          tds-ai-prompt-prefix)
             nil))))))
 
@@ -179,7 +217,7 @@ Returns a list of (position . prompt-string) for each prompt."
           (let ((bounds (tds-ai-author-get-bracketed-text)))
             (when bounds
               ;; Construct the full AI[...] prompt
-              (let ((prompt-string (concat "AI" (buffer-substring-no-properties 
+              (let ((prompt-string (concat "AI" (buffer-substring-no-properties
                                                  (car bounds) (cdr bounds)))))
                 (tds-ai-debug "Found AI prompt at %s: %s" prompt-line-start prompt-string)
                 (push (cons prompt-line-start prompt-string) prompts))
@@ -298,6 +336,48 @@ Returns a list (begin . end) or nil if not found."
 ;; This would allow editing AI responses using external tools
 
 ;; LLM interaction functions
+(defun tds-ai-author-replace-placeholder-with-response (insertion-marker response version count dispatch-time)
+  "Replace placeholder at INSERTION-MARKER with RESPONSE.
+Returns t if successful, nil if marker invalid."
+  (if (not (marker-buffer insertion-marker))
+      (progn
+        (tds-ai-debug "Marker no longer valid, cannot replace placeholder")
+        nil)
+    (with-current-buffer (marker-buffer insertion-marker)
+      (save-excursion
+        (goto-char (marker-position insertion-marker))
+        ;; We should be looking at the placeholder airesponse block
+        ;; Find its bounds
+        (if (not (looking-at (regexp-quote tds-response-latex-prefix)))
+            (progn
+              (tds-ai-debug "Expected to find airesponse block at marker, but didn't")
+              nil)
+          ;; Find the end of this block
+          (let ((block-start (point)))
+            (if (not (re-search-forward (regexp-quote tds-response-latex-suffix) nil t))
+                (progn
+                  (tds-ai-debug "Could not find end of placeholder block")
+                  nil)
+              ;; Delete the placeholder block
+              (let ((block-end (point))
+                    (receipt-time (format-time-string "%Y-%m-%d %H:%M:%S"))
+                    (model-name (or gptel-model tds-ai-author-gptel-model "unknown")))
+                (delete-region block-start block-end)
+                ;; Insert the real response with bookending comments
+                (goto-char block-start)
+                (insert (format "%s%s\n%% Dispatched: %s, Model: %s [Version %d of %d]\n%s\n%% Received: %s\n%s"
+                               tds-response-latex-prefix
+                               tds-response-latex-off
+                               dispatch-time
+                               model-name
+                               version
+                               count
+                               response
+                               receipt-time
+                               tds-response-latex-suffix))
+                (tds-ai-debug "Replaced placeholder with actual response")
+                t))))))))
+
 (defun tds-ai-author-handle-gptel-response (response info)
   "Handle the response from gptel.
 RESPONSE is the text from the AI.
@@ -307,57 +387,26 @@ INFO is a plist containing additional information."
          (insertion-marker (plist-get context-data :insertion-marker))
          (version (plist-get context-data :version))
          (count (plist-get context-data :count))
-         (is-duplex (plist-get context-data :is-duplex))
-         (timestamp (format-time-string "%Y-%m-%d %H:%M:%S"))
-         (model-name (or gptel-model tds-ai-author-gptel-model "unknown")))
-    
+         (dispatch-time (plist-get context-data :dispatch-time)))
+
     (tds-ai-debug "Received response for version %d of %d" version count)
-    
-    ;; Check if buffer and marker still valid
-    (if (not (and (buffer-live-p buffer)
-                  (marker-buffer insertion-marker)))
+
+    ;; Check if buffer still valid
+    (if (not (buffer-live-p buffer))
         (progn
-          (tds-ai-debug "Buffer or marker no longer valid, dropping response")
-          (message "Warning: Buffer or position deleted, dropping response %d of %d" 
+          (tds-ai-debug "Buffer no longer valid, dropping response")
+          (message "Warning: Buffer deleted, dropping response %d of %d"
                    version count))
-      
-      ;; Insert this response
-      (with-current-buffer buffer
-        (save-excursion
-          (goto-char (marker-position insertion-marker))
-          
-          ;; For non-duplex single responses only, clear any existing response
-          (when (and (= count 1) (not is-duplex))
-            (let ((existing (tds-ai-author-find-immediate-response 
-                           (marker-position insertion-marker))))
-              (when existing
-                (tds-ai-debug "Clearing existing single response from %s to %s"
-                             (car existing) (cdr existing))
-                (delete-region (car existing) (cdr existing))
-                ;; After deletion, marker is still at the right spot
-                (goto-char (marker-position insertion-marker)))))
-          
-          ;; Insert the response with metadata
-          (let* ((metadata (if (> count 1)
-                              (format "%% Generated: %s, Model: %s [Version %d of %d]"
-                                     timestamp model-name version count)
-                            (format "%% Generated: %s, Model: %s"
-                                   timestamp model-name))))
-            ;; All responses are [off] by default now
-            (insert (format "\n%s%s\n%s\n%s\n%s\n"
-                           tds-response-latex-prefix
-                           tds-response-latex-off
-                           response
-                           metadata
-                           tds-response-latex-suffix))
-            (tds-ai-debug "Inserted version %d (disabled)" version))))
-      
+
+      ;; Replace placeholder with actual response
+      (if (tds-ai-author-replace-placeholder-with-response
+           insertion-marker response version count dispatch-time)
+          (message "Generated response %d of %d" version count)
+        (message "Warning: Could not insert response %d of %d" version count))
+
       ;; Clean up the marker
       (set-marker insertion-marker nil)
-      (tds-ai-debug "Marker cleaned up for version %d" version)
-      
-      ;; Message when this version is done
-      (message "Generated response %d of %d" version count))))
+      (tds-ai-debug "Marker cleaned up for version %d" version))))
 
 ;; Main processing functions
 (defun tds-ai-author-process-ai-prompt (prompt-point prompt-string)
@@ -368,14 +417,16 @@ Generates response(s) and inserts them after the prompt."
          (count (plist-get parsed :count))
          (prompt-text (plist-get parsed :prompt))
          (is-duplex (plist-get parsed :is-duplex))
-         (current-buffer-ref (current-buffer)))
-    
+         (current-buffer-ref (current-buffer))
+         (dispatch-time (format-time-string "%Y-%m-%d %H:%M:%S"))
+         (model-name (or gptel-model tds-ai-author-gptel-model "unknown")))
+
     (tds-ai-debug "Getting context for point %s" prompt-point)
     (let ((context (tds-ai-context-get-context prompt-point)))
       (tds-ai-debug "Context retrieved, assembling prompt")
       (let ((full-prompt (tds-ai-prompt-assemble context prompt-text)))
         (tds-ai-debug "Prompt assembled (%d chars), invoking LLM" (length full-prompt))
-        
+
         ;; Check prompt length and warn if needed
         (cond
          ((> (length full-prompt) tds-ai-author-prompt-danger-length)
@@ -384,55 +435,68 @@ Generates response(s) and inserts them after the prompt."
          ((> (length full-prompt) tds-ai-author-prompt-max-length)
           (message "Warning: Prompt is long (%d chars) - consider reducing context"
                    (length full-prompt))))
-        
+
         ;; Log to debug buffer
         (tds-ai-debug-log-prompt full-prompt prompt-point)
-        
+
         ;; Save debug prompt to file if configured
         (when tds-ai-author-debug
           (with-temp-file tds-ai-author-debug-file
             (insert full-prompt))
           (tds-ai-debug "Saved prompt to %s" tds-ai-author-debug-file))
-        
-        ;; Pre-allocate insertion points with markers for all versions
+
+        ;; Insert placeholder blocks and create markers
         (save-excursion
           (goto-char prompt-point)
           (end-of-line)
-          
+
           ;; For non-duplex single response, clear existing first
           (when (and (= count 1) (not is-duplex))
             (let ((existing (tds-ai-author-find-immediate-response (point))))
               (when existing
-                (tds-ai-debug "Clearing existing response before inserting markers")
+                (tds-ai-debug "Clearing existing response before inserting placeholder")
                 (delete-region (car existing) (cdr existing)))))
-          
-          ;; Create markers for each version
+
+          ;; Create placeholder blocks and markers for each version
           (let ((markers '()))
             (dotimes (i count)
-              (insert "\n")  ; Insert newline for each version
-              (let ((marker (point-marker)))
-                (push marker markers)
-                (tds-ai-debug "Created marker %d at position %s" 
-                             (1+ i) (marker-position marker))))
-            
+              (let ((version-num (1+ i)))
+                ;; Insert placeholder block
+                (insert (format "\n%s%s\n"
+                               tds-response-latex-prefix
+                               tds-response-latex-off))
+                (insert (format "%% Dispatched: %s, Model: %s [Version %d of %d]\n"
+                               dispatch-time model-name version-num count))
+                (insert tds-response-placeholder-text)
+                (insert (format "\n%s" tds-response-latex-suffix))
+
+                ;; Create marker pointing to start of this block
+                (save-excursion
+                  (re-search-backward (regexp-quote tds-response-latex-prefix) nil t)
+                  (let ((marker (point-marker)))
+                    (push marker markers)
+                    (tds-ai-debug "Created marker %d at position %s"
+                                 version-num (marker-position marker))))))
+
             ;; Fire off all requests in parallel
             (setq markers (nreverse markers))  ; Put in correct order
             (dotimes (i count)
               (let ((version-num (1+ i))
                     (version-marker (nth i markers)))
                 (tds-ai-debug "Sending request %d of %d to gptel" version-num count)
-                
+
                 (let ((callback-context (list :buffer current-buffer-ref
                                             :insertion-marker version-marker
                                             :version version-num
                                             :count count
+                                            :dispatch-time dispatch-time
                                             :is-duplex is-duplex)))
                   (gptel-request
                    full-prompt
                    :callback 'tds-ai-author-handle-gptel-response
                    :context callback-context))))
-            
-            (message "Generating %d response%s in parallel..." 
+
+            (message "Generating %d response%s in parallel..."
                     count (if (> count 1) "s" ""))))))))
 
 ;; Interactive commands
