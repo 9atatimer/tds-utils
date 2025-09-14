@@ -18,7 +18,7 @@
 ;; - Detailed knowledge of context tags or directive formats
 
 ;; FIXME: Legacy tag collection is too greedy - collecting AI prompts as context
-;; 
+;;
 ;; ISSUE: The legacy tag collector (tds-ai-context-collect-legacy-tags) matches
 ;; any pattern of the form % KEY[...] and stores it as LEGACY:KEY context.
 ;; This means AI prompts (% AI[...]) are being collected and sent back to the
@@ -31,7 +31,7 @@
 ;;
 ;; POTENTIAL FIXES:
 ;; 1. Blacklist approach: Skip "AI" key when collecting legacy tags
-;;    - Simple: (unless (string= key "AI") ...) 
+;;    - Simple: (unless (string= key "AI") ...)
 ;;    - But what about other keys we don't want?
 ;;
 ;; 2. Whitelist approach: Only collect known context keys
@@ -47,7 +47,7 @@
 ;;    - Helps users debug their markup
 ;;    - Prevents silent contamination
 ;;
-;; TEMPORARY WORKAROUND: Users should avoid legacy format (% KEY[...]) 
+;; TEMPORARY WORKAROUND: Users should avoid legacy format (% KEY[...])
 ;; and use the new format (% VERB:STORE:KEY) which doesn't have this issue.
 ;;
 ;; TODO: Implement fix before this bites someone in production
@@ -90,6 +90,10 @@
 
 (defconst tds-response-placeholder-text "[Generating response...]"
   "Placeholder text shown while waiting for LLM response.")
+
+;; Buffer-local variable to track outstanding requests for that buffer
+(defvar-local tds-ai-author-pending-requests 0
+  "Number of AI requests currently pending in this buffer.")
 
 ;; Debug and configuration options
 (defgroup tds-ai-author nil
@@ -391,18 +395,35 @@ INFO is a plist containing additional information."
 
     (tds-ai-debug "Received response for version %d of %d" version count)
 
+    ;; Update status to show we're processing
+    (with-current-buffer buffer
+      (gptel--update-status " Typing..." 'success))
+
     ;; Check if buffer still valid
     (if (not (buffer-live-p buffer))
         (progn
           (tds-ai-debug "Buffer no longer valid, dropping response")
           (message "Warning: Buffer deleted, dropping response %d of %d"
-                   version count))
+                   version count)
+          ;; Still need to decrement counter even if buffer is gone
+          (when (buffer-live-p buffer)
+            (with-current-buffer buffer
+              (cl-decf tds-ai-author-pending-requests))))
 
       ;; Replace placeholder with actual response
       (if (tds-ai-author-replace-placeholder-with-response
            insertion-marker response version count dispatch-time)
           (message "Generated response %d of %d" version count)
         (message "Warning: Could not insert response %d of %d" version count))
+
+      ;; Decrement pending requests and update status
+      (with-current-buffer buffer
+        (cl-decf tds-ai-author-pending-requests)
+        (tds-ai-debug "Pending requests: %d" tds-ai-author-pending-requests)
+
+        ;; Only go to Ready when all requests are done
+        (when (zerop tds-ai-author-pending-requests)
+          (gptel--update-status " Ready" 'success)))
 
       ;; Clean up the marker
       (set-marker insertion-marker nil)
@@ -476,7 +497,11 @@ Generates response(s) and inserts them after the prompt."
                   (let ((marker (point-marker)))
                     (push marker markers)
                     (tds-ai-debug "Created marker %d at position %s"
-                                 version-num (marker-position marker))))))
+                                  version-num (marker-position marker))))))
+
+            ;; Track pending requests
+            (setq tds-ai-author-pending-requests count)
+            (tds-ai-debug "Set pending requests to %d" count)
 
             ;; Fire off all requests in parallel
             (setq markers (nreverse markers))  ; Put in correct order
