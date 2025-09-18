@@ -64,6 +64,20 @@
   :config
   (direnv-mode))
 
+;; AI Author system
+(use-package tds-v3-ai-author
+  :load-path "~/.emacs.d/elisp"
+  :after (gptel)
+  :commands (tds-ai-author-mode
+             tds-ai-author-process-prompt-at-point
+             tds-ai-author-process-all-prompts)
+  :bind (:map tds-ai-author-mode-map
+         ("C-c a p" . tds-ai-author-process-prompt-at-point)
+         ("C-c a a" . tds-ai-author-process-all-prompts)
+         ("C-c a t" . tds-ai-author-toggle-airesponse-status)
+         ("C-c a d" . tds-ai-author-show-debug-buffer)
+         ("C-c a s" . gptel-system-prompt)))
+
 ;; Personal customizations
 (mapc 'require
       '(tds-look-and-feel tds-kill-confirm tds-edit-modes tds-buffer-control
@@ -505,13 +519,17 @@
 ;;
 
 ;; cody expects gpg-encryption support, and epa-file:
-(require 'epa-file)
-(epa-file-enable)
-(setq epa-file-cache-passphrase-for-symmetric-encryption nil)  ; Do not cache passphrase
-(setq epa-file-select-keys nil)  ; Ensure that Emacs prompts for a passphrase
-(setq epa-armor t)  ; Use ASCII armor for encryption (optional)
-(setq epa-pinentry-mode 'loopback)  ; Use Emacs for passphrase entry, rather than an external tool
-
+;; GPG encryption support for Cody and encrypted files
+(use-package epa-file
+  :ensure nil  ; Built into Emacs
+  :init
+  (unless (memq epa-file-handler file-name-handler-alist)
+    (epa-file-enable))
+  :config
+  (setq epa-file-cache-passphrase-for-symmetric-encryption nil  ; Don't cache passphrase
+        epa-file-select-keys nil                                 ; Prompt for passphrase
+        epa-armor t                                              ; ASCII armor for encryption
+        epa-pinentry-mode 'loopback))                           ; Use Emacs for passphrase entry
 
 ;; ;; Tell `use-package' where to find your clone of `cody.el'.
 ;; (add-to-list 'load-path (expand-file-name "~/workplace/sourcegraph/emacs-cody"))
@@ -555,9 +573,14 @@
  ;; If there is more than one, they won't work right.
  '(indent-tabs-mode nil)
  '(package-selected-packages
-   '(projectile gptel claude-code transient eat typescript-mode uuidgen eslint-fix lsp-mode magit web-mode chatgpt-shell js2-mode terraform-mode quelpa-use-package poly-ruby poly-rst poly-markdown mermaid-mode groovy-mode exec-path-from-shell dtrt-indent copilot bazel))
+   '(bazel chatgpt-shell claude-code copilot dtrt-indent eat eslint-fix
+           exec-path-from-shell gptel groovy-mode js-ts-defs js2-mode
+           lsp-mode magit mermaid-mode poly-markdown poly-rst
+           poly-ruby projectile quelpa-use-package terraform-mode
+           transient typescript-mode uuidgen web-mode))
  '(package-vc-selected-packages
-   '((claude-code :vc-backend Git :url "https://github.com/stevemolitor/claude-code.el"))))
+   '((claude-code :vc-backend Git :url
+                  "https://github.com/stevemolitor/claude-code.el"))))
 
 (custom-set-faces
  ;; custom-set-faces was added by Custom.

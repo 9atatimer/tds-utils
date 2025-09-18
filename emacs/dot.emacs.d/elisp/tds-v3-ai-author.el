@@ -91,10 +91,6 @@
 (defconst tds-response-placeholder-text "[Generating response...]"
   "Placeholder text shown while waiting for LLM response.")
 
-;; Buffer-local variable to track outstanding requests for that buffer
-(defvar-local tds-ai-author-pending-requests 0
-  "Number of AI requests currently pending in this buffer.")
-
 ;; Debug and configuration options
 (defgroup tds-ai-author nil
   "Customization group for TDS AI Author."
@@ -140,6 +136,69 @@ Higher values make output more random, lower values more deterministic."
   "Buffer name for debug prompt display."
   :type 'string
   :group 'tds-ai-author)
+
+;; Buffer-local variables
+(defvar-local tds-ai-author-pending-requests 0
+  "Number of AI requests currently pending in this buffer.")
+
+(defvar-local tds-ai-author--original-system-message nil
+  "Original gptel system message before enabling AI author mode.")
+
+;; Keymap for the minor mode
+(defvar tds-ai-author-mode-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c a p") 'tds-ai-author-process-prompt-at-point)
+    (define-key map (kbd "C-c a a") 'tds-ai-author-process-all-prompts)
+    (define-key map (kbd "C-c a t") 'tds-ai-author-toggle-airesponse-status)
+    (define-key map (kbd "C-c a d") 'tds-ai-author-show-debug-buffer)
+    (define-key map (kbd "C-c a s") 'gptel-system-prompt)  ; Edit system prompt
+    map)
+  "Keymap for TDS AI Author mode.")
+
+;; Minor mode definition
+;;;###autoload
+(define-minor-mode tds-ai-author-mode
+  "Minor mode for AI-assisted fiction writing.
+When enabled, provides commands for processing AI prompts and managing responses.
+
+\\{tds-ai-author-mode-map}"
+  :lighter " AI✍"
+  :keymap tds-ai-author-mode-map
+  :group 'tds-ai-author
+  (if tds-ai-author-mode
+      (tds-ai-author--enable-mode)
+    (tds-ai-author--disable-mode)))
+
+(defun tds-ai-author--enable-mode ()
+  "Setup tasks when enabling AI author mode."
+  ;; Save original system message
+  (setq tds-ai-author--original-system-message
+        (buffer-local-value 'gptel--system-message (current-buffer)))
+
+  ;; Set our prompt template as the system message
+  (setq-local gptel--system-message tds-ai-prompt-instructions)
+
+  ;; Ensure gptel-mode is on for status updates
+  (unless gptel-mode
+    (gptel-mode 1))
+
+  ;; Initialize counter
+  (setq tds-ai-author-pending-requests 0)
+
+  (message "AI Author mode enabled (C-c a for commands)"))
+
+(defun tds-ai-author--disable-mode ()
+  "Cleanup tasks when disabling AI author mode."
+  ;; Restore original system message if we saved one
+  (when tds-ai-author--original-system-message
+    (setq-local gptel--system-message tds-ai-author--original-system-message)
+    (setq tds-ai-author--original-system-message nil))
+
+  ;; Check for pending requests
+  (when (> tds-ai-author-pending-requests 0)
+    (message "Warning: %d AI requests still pending" tds-ai-author-pending-requests))
+
+  (message "AI Author mode disabled"))
 
 ;; Debug message function
 (defun tds-ai-debug (format-string &rest args)
@@ -445,7 +504,10 @@ Generates response(s) and inserts them after the prompt."
     (tds-ai-debug "Getting context for point %s" prompt-point)
     (let ((context (tds-ai-context-get-context prompt-point)))
       (tds-ai-debug "Context retrieved, assembling prompt")
-      (let ((full-prompt (tds-ai-prompt-assemble context prompt-text)))
+      ;; Get the active gptel system message to use as template
+      (let* ((template (or (buffer-local-value 'gptel--system-message (current-buffer))
+                          gptel--system-message))
+             (full-prompt (tds-ai-prompt-assemble context prompt-text template)))
         (tds-ai-debug "Prompt assembled (%d chars), invoking LLM" (length full-prompt))
 
         ;; Check prompt length and warn if needed
@@ -497,7 +559,7 @@ Generates response(s) and inserts them after the prompt."
                   (let ((marker (point-marker)))
                     (push marker markers)
                     (tds-ai-debug "Created marker %d at position %s"
-                                  version-num (marker-position marker))))))
+                                 version-num (marker-position marker))))))
 
             ;; Track pending requests
             (setq tds-ai-author-pending-requests count)
@@ -529,34 +591,42 @@ Generates response(s) and inserts them after the prompt."
 (defun tds-ai-author-process-prompt-at-point ()
   "Process AI prompt at point, generate response, and insert it."
   (interactive)
-  (tds-ai-debug "Invoked process-prompt-at-point at %s" (point))
-  (let ((prompt (tds-ai-author-find-ai-prompt-at-point)))
-    (if (not prompt)
-        (progn
-          (tds-ai-debug "No AI prompt found at point")
-          (message "No AI[] prompt found at point (must be prefixed with '%s')"
-                   tds-ai-prompt-prefix))
-      (tds-ai-debug "Found prompt: %s, processing" prompt)
-      (tds-ai-author-process-ai-prompt (point) prompt))))
+  (unless tds-ai-author-mode
+    (when (y-or-n-p "AI Author mode is not enabled. Enable it now? ")
+      (tds-ai-author-mode 1)))
+  (when tds-ai-author-mode
+    (tds-ai-debug "Invoked process-prompt-at-point at %s" (point))
+    (let ((prompt (tds-ai-author-find-ai-prompt-at-point)))
+      (if (not prompt)
+          (progn
+            (tds-ai-debug "No AI prompt found at point")
+            (message "No AI[] prompt found at point (must be prefixed with '%s')"
+                     tds-ai-prompt-prefix))
+        (tds-ai-debug "Found prompt: %s, processing" prompt)
+        (tds-ai-author-process-ai-prompt (point) prompt)))))
 
 ;;;###autoload
 (defun tds-ai-author-process-all-prompts ()
   "Process all AI[] prompts in the current buffer."
   (interactive)
-  (tds-ai-debug "Invoked process-all-prompts in buffer %s" (buffer-name))
-  (let ((prompts (tds-ai-author-find-all-ai-prompts (point-min) (point-max))))
-    (if (null prompts)
-        (progn
-          (tds-ai-debug "No AI prompts found in buffer")
-          (message "No AI[] prompts found in buffer (must be prefixed with '%s')"
-                   tds-ai-prompt-prefix))
-      (tds-ai-debug "Processing %d prompts" (length prompts))
-      (dolist (prompt-info prompts)
-        (let ((prompt-pos (car prompt-info))
-              (prompt-string (cdr prompt-info)))
-          (tds-ai-debug "Processing prompt at %s: %s" prompt-pos prompt-string)
-          (tds-ai-author-process-ai-prompt prompt-pos prompt-string)))
-      (message "Launched processing for %d AI[] prompts" (length prompts)))))
+  (unless tds-ai-author-mode
+    (when (y-or-n-p "AI Author mode is not enabled. Enable it now? ")
+      (tds-ai-author-mode 1)))
+  (when tds-ai-author-mode
+    (tds-ai-debug "Invoked process-all-prompts in buffer %s" (buffer-name))
+    (let ((prompts (tds-ai-author-find-all-ai-prompts (point-min) (point-max))))
+      (if (null prompts)
+          (progn
+            (tds-ai-debug "No AI prompts found in buffer")
+            (message "No AI[] prompts found in buffer (must be prefixed with '%s')"
+                     tds-ai-prompt-prefix))
+        (tds-ai-debug "Processing %d prompts" (length prompts))
+        (dolist (prompt-info prompts)
+          (let ((prompt-pos (car prompt-info))
+                (prompt-string (cdr prompt-info)))
+            (tds-ai-debug "Processing prompt at %s: %s" prompt-pos prompt-string)
+            (tds-ai-author-process-ai-prompt prompt-pos prompt-string)))
+        (message "Launched processing for %d AI[] prompts" (length prompts))))))
 
 ;;;###autoload
 (defun tds-ai-author-toggle-airesponse-status ()

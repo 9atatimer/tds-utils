@@ -3,30 +3,42 @@
 (load-library "tds-font-lock-fonts.el")  ;; defines standard font color mapping
 ;;;;
 ;; Tree-Sitter setup with auto-installation of grammars
-(use-package tree-sitter
-  :ensure t
-  :config
-  (global-tree-sitter-mode)
-  (add-hook 'tree-sitter-after-on-hook #'tree-sitter-hl-mode))
+;; (use-package tree-sitter
+;;   :ensure t
+;;   :config
+;;   (global-tree-sitter-mode)
+;;   (add-hook 'tree-sitter-after-on-hook #'tree-sitter-hl-mode))
 
-(use-package tree-sitter-langs
-  :ensure t
-  :after tree-sitter
-  :config
-  ;; Auto-install TypeScript and TSX grammars
-  (setq treesit-language-source-alist
-        '((typescript "https://github.com/tree-sitter/tree-sitter-typescript" "master" "typescript/src")
-          (tsx "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src")
-          (json "https://github.com/tree-sitter/tree-sitter-json" "master")
-          (html "https://github.com/tree-sitter/tree-sitter-html" "master")
-          (css "https://github.com/tree-sitter/tree-sitter-css" "master")
-          (javascript "https://github.com/tree-sitter/tree-sitter-javascript" "master")))
-  
-  ;; Install grammars if needed
-  (dolist (grammar '(typescript tsx javascript json html css))
-    (unless (treesit-language-available-p grammar)
-      (message "Installing grammar for %s" grammar)
-      (treesit-install-language-grammar grammar))))
+;; (use-package tree-sitter-langs
+;;   :ensure t
+;;   :after tree-sitter
+;;   :config
+;;   ;; Auto-install TypeScript and TSX grammars
+;;   (setq treesit-language-source-alist
+;;         '((typescript "https://github.com/tree-sitter/tree-sitter-typescript" "master" "typescript/src")
+;;           (tsx "https://github.com/tree-sitter/tree-sitter-typescript" "master" "tsx/src")
+;;           (json "https://github.com/tree-sitter/tree-sitter-json" "master")
+;;           (html "https://github.com/tree-sitter/tree-sitter-html" "master")
+;;           (css "https://github.com/tree-sitter/tree-sitter-css" "master")
+;;           (javascript "https://github.com/tree-sitter/tree-sitter-javascript" "master")))
+
+;;   ;; Install grammars if needed
+;;   (dolist (grammar '(typescript tsx javascript json html css))
+;;     (unless (treesit-language-available-p grammar)
+;;       (message "Installing grammar for %s" grammar)
+;;       (treesit-install-language-grammar grammar))))
+
+(setq treesit-language-source-alist
+      '((bash        "https://github.com/tree-sitter/tree-sitter-bash")
+        (c           "https://github.com/tree-sitter/tree-sitter-c")
+        (cpp         "https://github.com/tree-sitter/tree-sitter-cpp")
+        (css         "https://github.com/tree-sitter/tree-sitter-css")
+        (html        "https://github.com/tree-sitter/tree-sitter-html")
+        (javascript  "https://github.com/tree-sitter/tree-sitter-javascript")
+        (json        "https://github.com/tree-sitter/tree-sitter-json")
+        (python      "https://github.com/tree-sitter/tree-sitter-python")
+        (typescript  "https://github.com/tree-sitter/tree-sitter-typescript" "typescript/src")
+        (tsx         "https://github.com/tree-sitter/tree-sitter-typescript" "tsx/src")))
 
 ;; TypeScript and TSX modes with tree-sitter
 (use-package typescript-ts-mode
@@ -106,4 +118,31 @@
 (add-to-list 'auto-mode-alist '("\\.aurora$" . python-mode))
 (add-to-list 'auto-mode-alist '("\\.mesos$" . python-mode))
 (add-to-list 'auto-mode-alist '("\\.g4$" . antlr-mode))
+
+
+;; AI Author mode integration
+(defun tds-tex-maybe-enable-ai-author ()
+  "Enable AI Author mode for fiction/story templates."
+  (when (and (buffer-file-name)
+             (or (string-match-p "scene.*\\.tex" (buffer-file-name))
+                 (string-match-p "story.*\\.tex" (buffer-file-name))
+                 (string-match-p "fiction.*\\.tex" (buffer-file-name))))
+    (tds-ai-author-mode 1)))
+
+;; Add to the mode hook
+(add-hook 'tds-tex-mode-hook 'tds-tex-maybe-enable-ai-author)
+
+;; AI Author mode integration
+(defun tds-tex-maybe-enable-ai-author ()
+  "Enable AI Author mode for fiction/story templates."
+  (when (and (buffer-file-name)
+             (or (string-match-p "scene.*\\.tex" (buffer-file-name))
+                 (string-match-p "story.*\\.tex" (buffer-file-name))
+                 (string-match-p "fiction.*\\.tex" (buffer-file-name))))
+    (tds-ai-author-mode 1)))
+
+;; Add to the mode hook
+(add-hook 'tds-tex-mode-hook 'tds-tex-maybe-enable-ai-author)
+
+;;
 (provide 'tds-edit-modes)
