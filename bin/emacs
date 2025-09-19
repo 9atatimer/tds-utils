@@ -1,1 +1,1 @@
-open /Applications/Emacs.app
+open /Applications/Emacs.app --args "$@"

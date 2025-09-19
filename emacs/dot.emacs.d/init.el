@@ -1,3 +1,7 @@
+;; init.el -- Emacs configuration file
+;; Start with a banner
+(message "Starting Emacs... applying customizations")
+
 ;; Ensure user-emacs-directory is defined, for Emacs versions older than 23
 (unless (boundp 'user-emacs-directory)
   (setq user-emacs-directory "~/.emacs.d/"))
@@ -265,36 +269,36 @@
 (global-set-key (kbd "M-c") 'clipboard-kill-ring-save)  ;; apple-C to copy
 
 ;; Copilot setup
+(use-package cfrs     :ensure t) ;; deps Copilot expects at runtime
+(use-package posframe :ensure t) ;; deps Copilot expects at runtime
 (use-package copilot
   :ensure t
+  :after (cfrs posframe)
   :hook (prog-mode . copilot-mode)
   :config (setq copilot-idle-delay 0.5)
   :bind (:map copilot-completion-map
               ("s-<tab>" . copilot-next-completion)
               ("S-<tab>" . copilot-accept-completion)
               ("C-<tab>" . copilot-panel-completion)))
+(add-hook 'emacs-lisp-mode-hook   ;; Stop Copilot indent warnings in Emacs Lisp buffers
+          (lambda ()
+            (setq-local copilot-indent-offset-warning-disable t)))
 
-;;;; sure, let's be rebels:
-;(with-eval-after-load 'copilot
-;  (setq copilot-version "1.22.0"))
-;  ;;(setq copilot-version "1.33.0")) ;; flaky as of 2024-06-21
-;(copilot-reinstall-server)
-
-;; Fix Copilot and EditorConfig conflict
-(with-eval-after-load 'copilot
-  (defun fix-copilot-editorconfig-conflict ()
-    "Fix conflict between Copilot and EditorConfig."
-    (when (fboundp 'editorconfig-set-indentation-lisp-mode)
-      (fset 'editorconfig-set-indentation-lisp-mode
-            (lambda (&rest _)
-              nil))))
-  (fix-copilot-editorconfig-conflict))
+;; ;; Fix Copilot and EditorConfig conflict
+;; (with-eval-after-load 'copilot
+;;   (defun fix-copilot-editorconfig-conflict ()
+;;     "Fix conflict between Copilot and EditorConfig."
+;;     (when (fboundp 'editorconfig-set-indentation-lisp-mode)
+;;       (fset 'editorconfig-set-indentation-lisp-mode
+;;             (lambda (&rest _)
+;;               nil))))
+;;   (fix-copilot-editorconfig-conflict))
 
 ;; We keep the openai key in our local pass tool
-(use-package auth-source-pass
-  :ensure t
-  :config
-  (auth-source-pass-enable))
+;;(use-package auth-source-pass
+;;  :ensure t
+;;  :config
+;;  (auth-source-pass-enable))
 
 ;; Also use chatgpt-shell -- pulls the API key into chatgpt-shell-openai-key
 (use-package chatgpt-shell
@@ -448,14 +452,22 @@
   :ensure t
   :bind ("C-x g" . magit-status))
 
-(with-eval-after-load 'magit
-  (define-key magit-status-mode-map (kbd "M-n") 'magit-section-forward)
-  (define-key magit-status-mode-map (kbd "M-p") 'magit-section-backward)
+(use-package magit
+  :ensure t
+  :bind (("C-x g" . magit-status)
+         ("C-c g g" . magit-status)
+         ("C-c g l" . magit-log-buffer-file)
+         ("C-c g b" . magit-blame))
+  :config
+  ;; Enable WIP mode for automatic commits
+  (magit-wip-mode 1)
+  (setq magit-wip-after-save-local-mode-lighter ""  ; Hide mode line indicator
+        magit-wip-after-save-mode t                  ; Auto-commit after save
+        magit-save-repository-buffers 'dontask       ; Don't ask about saving
+        magit-no-message '("Turning on magit-auto-revert-mode...")) ; Quiet messages
 
-  ;; Set default comment buffer height
-  (setq magit-commit-buffer-max-width nil)
-  (setq magit-commit-buffer-height 5)
-)
+  ;; Performance improvements
+  (setq magit-refresh-status-buffer nil))
 
 (defvar my-ediff-original-buffer nil
   "Stores the original buffer for the paste-and-ediff function.")
@@ -572,12 +584,7 @@
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
  '(indent-tabs-mode nil)
- '(package-selected-packages
-   '(bazel chatgpt-shell claude-code copilot dtrt-indent eat eslint-fix
-           exec-path-from-shell gptel groovy-mode js-ts-defs js2-mode
-           lsp-mode magit mermaid-mode poly-markdown poly-rst
-           poly-ruby projectile quelpa-use-package terraform-mode
-           transient typescript-mode uuidgen web-mode))
+ '(package-selected-packages nil)
  '(package-vc-selected-packages
    '((claude-code :vc-backend Git :url
                   "https://github.com/stevemolitor/claude-code.el"))))
