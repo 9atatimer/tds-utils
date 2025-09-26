@@ -1,0 +1,16 @@
+# Grep shorthand
+alias rgrep='grep -r --exclude-dir=.git'
+
+# bazelisk before bazel
+alias bazil=bazelisk
+
+# tf before terraform
+alias tf=terraform
+
+## ec before emacsclient
+#alias ec='emacsclient -n'
+
+# ec before emacsclient with wildcard support
+
+# npx prettier before pretty
+alias pretty='npx prettier --write'

@@ -1,0 +1,5 @@
+#!/bin/sh
+# Ensure per-host log dir exists, then start screen with your rc.
+host="$(hostname -s 2>/dev/null || hostname)"
+mkdir -p "$HOME/screenlogs/$host"
+exec screen -c "$HOME/.screenrc" "$@"
