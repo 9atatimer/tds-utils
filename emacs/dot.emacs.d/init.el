@@ -246,10 +246,26 @@
       (switch-to-buffer buffer)
       window)))
 
-(setq display-buffer-alist
-      '(("^\\*Buffer List\\*$"
-         (my-display-buffer-list)
-         (inhibit-same-window . t))))
+;; Control what can pop open buffers in the active frame
+(add-to-list 'display-buffer-alist
+             '("^\\*Buffer List\\*$"
+               (my-display-buffer-list)
+               (inhibit-same-window . t)))
+
+(add-to-list 'display-buffer-alist
+             '("\\*Warnings\\*"
+               (display-buffer-no-window)
+               (allow-no-window . t)))
+
+(add-to-list 'display-buffer-alist
+             '("\\*[Cc]ompile-logs?\\*"
+               (display-buffer-no-window)
+               (allow-no-window . t)))
+
+(add-to-list 'display-buffer-alist
+             '("\\*compilation\\*"
+               (display-buffer-no-window)
+               (allow-no-window . t)))
 
 ;; Disable undesired operations
 (mapc (lambda (operation) (put operation 'disabled nil))
@@ -450,6 +466,7 @@
 ;; Magit keybindings
 (use-package magit
   :ensure t
+  :after transient
   :bind ("C-x g" . magit-status))
 
 (use-package magit

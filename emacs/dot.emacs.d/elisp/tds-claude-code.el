@@ -15,7 +15,12 @@
   "Function to use for launching Claude coder sessions.
 Should accept a directory argument.")
 
-(require 'claude-code)
+;;
+;; claude-code reportedly works best in vterm; load it before using claude
+(use-package claude-code
+  :ensure t
+  :config
+  (setq claude-code-terminal-type 'vterm))
 
 (defun tds-buffer-name-from-dir (dir)
   "Generate a buffer name from the basename of DIR."
