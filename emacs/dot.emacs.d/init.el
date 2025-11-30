@@ -467,15 +467,26 @@
 (use-package magit
   :ensure t
   :after transient
-  :bind ("C-x g" . magit-status))
-
-(use-package magit
-  :ensure t
-  :bind (("C-x g" . magit-status)
-         ("C-c g g" . magit-status)
+  :bind (("C-c g g" . magit-status)
          ("C-c g l" . magit-log-buffer-file)
-         ("C-c g b" . magit-blame))
+         ("C-c g b" . magit-blame)
+         ("C-c g d" . magit-diff-buffer-file)
+         ("C-c g D" . tds-magit-diff-buffer-file-main))
   :config
+  ;; Custom function to diff against main branch
+  (defun tds-magit-diff-buffer-file-main ()
+    "Diff current file against main branch."
+    (interactive)
+    (magit-diff-range "main" nil (list (magit-file-relative-name))))
+  ;; Toggle whitespace in diff mode
+  (with-eval-after-load 'magit-diff
+    (define-key magit-diff-mode-map (kbd "w") 
+                (lambda () 
+                  (interactive)
+                  (if (member "-w" magit-buffer-diff-args)
+                      (setq magit-buffer-diff-args (remove "-w" magit-buffer-diff-args))
+                    (setq magit-buffer-diff-args (cons "-w" magit-buffer-diff-args)))
+                  (magit-refresh-buffer))))
   ;; Enable WIP mode for automatic commits
   (magit-wip-mode 1)
   (setq magit-wip-after-save-local-mode-lighter ""  ; Hide mode line indicator
@@ -485,6 +496,8 @@
 
   ;; Performance improvements
   (setq magit-refresh-status-buffer nil))
+
+
 
 (defvar my-ediff-original-buffer nil
   "Stores the original buffer for the paste-and-ediff function.")

@@ -17,9 +17,12 @@ Should accept a directory argument.")
 
 ;;
 ;; claude-code reportedly works best in vterm; load it before using claude
+(use-package vterm
+  :ensure t)
+
 (use-package claude-code
   :ensure t
-  :config
+  :init
   (setq claude-code-terminal-type 'vterm))
 
 (defun tds-buffer-name-from-dir (dir)

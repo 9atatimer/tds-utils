@@ -69,3 +69,17 @@ function uv_env_prompt() {
 # Add the UV environment indicator to your RPROMPT
 # This assumes you're using Zsh with prompt substitution enabled
 RPROMPT='$(uv_env_prompt)'
+# The following lines have been added by Docker Desktop to enable Docker CLI completions.
+fpath=(/Users/stumpf/.docker/completions $fpath)
+autoload -Uz compinit
+compinit
+# End of Docker CLI completions
+
+# This sets up a Grubsta completion hook mechanism for the grubsta project.
+# When you move in and out of the project it will add or remove completions
+# into the system.
+source ~/workplace/lab54/grubsta/scripts/completions/grubsta-completions.zsh
+
+
+# Added by Antigravity
+export PATH="/Users/stumpf/.antigravity/antigravity/bin:$PATH"

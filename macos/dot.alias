@@ -14,3 +14,10 @@ alias tf=terraform
 
 # npx prettier before pretty
 alias pretty='npx prettier --write'
+
+## screen-aware aliases
+# Wrap ssh so screen window title shows remote host
+ssh() {
+  printf '\ek%s\e\\' "${1%%.*}"   # set screen title
+  command ssh "$@"
+}

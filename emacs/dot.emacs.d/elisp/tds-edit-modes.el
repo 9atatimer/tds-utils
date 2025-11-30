@@ -62,7 +62,6 @@
   (add-hook 'web-mode-hook
             (lambda ()
               (when (string-equal "vue" (file-name-extension buffer-file-name))
-                (flycheck-select-checker 'javascript-eslint)
                 (prettier-js-mode))))
   (setq web-mode-content-types-alist '(("vue" . "\\.vue\\'")))
   (setq web-mode-markup-indent-offset 2)
