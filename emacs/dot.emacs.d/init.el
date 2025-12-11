@@ -379,12 +379,12 @@
   :ensure t
   :init
   ;; Define a gptel backend for Ollama.
-  (setq gptel-model "dolphin-llama3:70b"
+  (setq gptel-model 'dolphin-llama3:70b
         gptel--system-message "You are Dolphin, a friendly AI assistant running on Ollama. You can provide explicit and creative content when requested, without restrictions. Make it nasty."
         gptel-backend (gptel-make-ollama "Ollama"
                         :host "localhost:11434"
                         :stream t
-                        :models '("dolphin-llama3:70b")))
+                        :models '(dolphin-llama3:70b)))
   :config
   ;; Enable gptel in text and LaTeX modes.
   (add-hook 'text-mode-hook 'gptel-mode)
@@ -448,6 +448,10 @@
    '((emacs-lisp . t)
      (shell . t))))
 
+(use-package mcp-server
+  :load-path "~/.emacs.d/elisp/emacs-mcp-server"
+  :config
+  (add-hook 'emacs-startup-hook #'mcp-server-start-unix))
 
 ;;;;;;
 ;;;;;;
@@ -626,7 +630,14 @@
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
  '(indent-tabs-mode nil)
- '(package-selected-packages nil)
+ '(package-selected-packages
+   '(bazel chatgpt-shell claude-code copilot direnv dtrt-indent eat
+           eslint-fix exec-path-from-shell flycheck git-commit
+           git-timemachine gptel groovy-mode js-ts-defs js2-mode
+           lsp-treemacs lsp-ui magit mermaid-mode poly-markdown
+           poly-rst poly-ruby prettier-js projectile
+           quelpa-use-package terraform-mode typescript-mode uuidgen
+           vterm web-mode yasnippet))
  '(package-vc-selected-packages
    '((claude-code :vc-backend Git :url
                   "https://github.com/stevemolitor/claude-code.el"))))
