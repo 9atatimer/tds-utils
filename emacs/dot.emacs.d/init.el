@@ -437,6 +437,18 @@
   ;; Hook for find-file to handle direct file opens
   (add-hook 'find-file-hook 'my-manage-project-snippets))
 
+;;
+;; My first dabbling into org-mode
+;;
+(use-package org
+  :ensure nil  ; built-in
+  :config
+  (org-babel-do-load-languages
+   'org-babel-load-languages
+   '((emacs-lisp . t)
+     (shell . t))))
+
+
 ;;;;;;
 ;;;;;;
 ;; temporary hacks to try to get emacs to follow prettier standards
