@@ -4,4 +4,12 @@ emacs/dot.emacs.d/network-security.data
 emacs/dot.emacs.d/elpa/archives
 emacs/dot.emacs.d/quelpa
 emacs/dot.emacs.d/.cache
+emacs/dot.emacs.d/.lsp-session-v1
+emacs/dot.emacs.d/chatgpt/
+emacs/dot.emacs.d/transient/
+emacs/dot.emacs.d/projects
+
 *DS_Store
+
+emacs/dot.emacs.d/elisp/emacs-mcp-server/
+.claude

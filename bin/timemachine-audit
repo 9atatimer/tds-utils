@@ -1,0 +1,177 @@
+#!/bin/zsh
+# timemachine-audit — show which ~/.* dirs are burning Time Machine space
+
+set -euo pipefail
+
+# --- Color helpers ---
+
+RED=$'\e[31m'
+YELLOW=$'\e[33m'
+GREEN=$'\e[32m'
+DIM=$'\e[2m'
+BOLD=$'\e[1m'
+RESET=$'\e[0m'
+
+# --- Action functions ---
+
+usage() {
+    cat <<EOF
+Usage: timemachine-audit [-n COUNT] [-t THRESHOLD_MB] [-s SUBDIRS] [-a] [-v] [-h]
+  -n COUNT          Top N dirs to show (default: 20)
+  -t THRESHOLD_MB   Only dirs >= this size in MB (default: 100)
+  -s SUBDIRS        Number of subdirs to show per dir (default: 5)
+  -a                Show all dotdirs regardless of -n
+  -v                Verbose: show excluded dirs too
+  -h                Show this help
+
+Examples:
+  timemachine-audit                  # defaults: top 20 dirs >= 100 MB, 5 subdirs each
+  timemachine-audit -t 50 -s 10      # lower threshold, more subdir detail
+  timemachine-audit -v               # include excluded dirs in listing
+EOF
+}
+
+get_tm_exclusion_file() {
+    # Snapshot the plist-level SkipPaths into a temp file for fast lookups.
+    local excl_file
+    excl_file=$(mktemp -t tm-audit)
+    defaults read /Library/Preferences/com.apple.TimeMachine SkipPaths 2>/dev/null \
+        | grep -oE '"/[^"]+"' \
+        | tr -d '"' > "$excl_file" 2>/dev/null || true
+    print -- "$excl_file"
+}
+
+is_excluded_in_plist() {
+    # Fast: grep the cached plist dump.
+    grep -qxF "$1" "$2" 2>/dev/null
+}
+
+is_excluded_by_tmutil() {
+    # Authoritative but slower: ask tmutil directly.
+    local result
+    result=$(tmutil isexcluded "$1" 2>/dev/null) || return 1
+    [[ "$result" == *"[Excluded]"* ]]
+}
+
+check_exclusion_status() {
+    # Returns 0 (excluded) or 1 (not excluded). Tries the fast path first.
+    local dir=$1 excl_file=$2
+    is_excluded_in_plist "$dir" "$excl_file" && return 0
+    is_excluded_by_tmutil "$dir" && return 0
+    return 1
+}
+
+scan_dotdirs() {
+    # Emit tab-separated "size\tpath" for every ~/.* directory, sorted desc.
+    du -sm "$HOME"/.*(/) 2>/dev/null | sort -rn
+}
+
+get_subdirs() {
+    # Emit tab-separated "size\tpath" for immediate children of a dir, sorted desc.
+    local dir=$1 depth=$2
+    du -sm "$dir"/*(/) 2>/dev/null | sort -rn | head -n "$depth"
+}
+
+# --- Flow functions ---
+
+run_audit() {
+    local top_n=$1 threshold=$2 show_all=$3 verbose=$4 subdir_depth=$5
+
+    local excl_file
+    excl_file=$(get_tm_exclusion_file)
+    trap "rm -f '$excl_file'" EXIT
+
+    print -- "timemachine-audit: scanning ~/.* dirs  (-h for help, -v for verbose)"
+    print -- "${DIM}threshold: ${threshold} MB  |  top dirs: ${top_n}  |  subdirs per dir: ${subdir_depth}${RESET}\n"
+
+    local -a included_dirs=()
+    local -a included_sizes=()
+    local count=0
+    local total_included_mb=0
+    local total_excluded_mb=0
+    local excluded_count=0
+    local fmt="%-8s  %-10s  %s\n"
+
+    printf "$fmt" "SIZE_MB" "TM_STATUS" "DIRECTORY"
+    print -- "--------------------------------------"
+
+    local tm_state
+    local line
+    for line in "${(@f)$(scan_dotdirs)}"; do
+        local size=${line%%$'\t'*}
+        local dir=${line#*$'\t'}
+
+        (( size < threshold )) && ! $show_all && continue
+
+        count=$((count + 1))
+        if ! $show_all && (( count > top_n )); then
+            break
+        fi
+
+        if check_exclusion_status "$dir" "$excl_file"; then
+            tm_state="excluded"
+            total_excluded_mb=$((total_excluded_mb + size))
+            excluded_count=$((excluded_count + 1))
+            $verbose || continue
+            printf "$fmt" "${DIM}${size}${RESET}" "${DIM}excluded${RESET}" "${DIM}${dir}${RESET}"
+        else
+            tm_state="INCLUDED"
+            included_dirs+=("$dir")
+            included_sizes+=("$size")
+            total_included_mb=$((total_included_mb + size))
+            printf "$fmt" "${RED}${size}${RESET}" "${BOLD}INCLUDED${RESET}" "$dir"
+        fi
+    done
+
+    # --- Epilogue: included-space breakdown ---
+
+    print "\n${BOLD}==========================================${RESET}"
+    print -- "${DIM}EXCLUDED: ${total_excluded_mb} MB across ${excluded_count} dirs${RESET}"
+    if (( $#included_dirs > 0 )); then
+        print -- "${RED}${BOLD}INCLUDED: ${total_included_mb} MB across ${#included_dirs} dirs${RESET}"
+    fi
+    print -- "${BOLD}==========================================${RESET}"
+
+    if (( $#included_dirs > 0 )); then
+        print ""
+        local i
+        for (( i=1; i <= $#included_dirs; i++ )); do
+            local edir=${included_dirs[$i]}
+            local esz=${included_sizes[$i]}
+            print -- "${RED}--- ${edir} (${esz} MB) ---${RESET}"
+            get_subdirs "$edir" "$subdir_depth" | while IFS=$'\t' read -r ssz sdir; do
+                printf "    ${YELLOW}%6s MB${RESET}  %s\n" "$ssz" "${sdir:t}"
+            done
+            print -- "  ${GREEN}sudo tmutil addexclusion '${edir}'${RESET}"
+            print ""
+        done
+    else
+        print "\nAll dotdirs above threshold are already excluded. Nice."
+    fi
+}
+
+# --- Main ---
+
+main() {
+    local top_n=20
+    local threshold=100
+    local show_all=false
+    local verbose=false
+    local subdir_depth=5
+
+    while getopts "n:t:s:avh" opt; do
+        case "$opt" in
+            n) top_n=$OPTARG ;;
+            t) threshold=$OPTARG ;;
+            s) subdir_depth=$OPTARG ;;
+            a) show_all=true ;;
+            v) verbose=true ;;
+            h) usage; exit 0 ;;
+            *) usage; exit 1 ;;
+        esac
+    done
+
+    run_audit "$top_n" "$threshold" "$show_all" "$verbose" "$subdir_depth"
+}
+
+main "$@"

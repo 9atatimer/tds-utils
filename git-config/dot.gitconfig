@@ -1,0 +1,27 @@
+# This is Git's per-user configuration file.
+[user]
+# Please adapt and uncomment the following lines:
+	name = Todd Stumpf
+	email = tds@nineatatime.net
+[core]
+	excludesfile = /Users/stumpf/.gitignore_global
+	editor = /Applications/Emacs.app/Contents/MacOS/bin/emacsclient -c -a=''
+[pull]
+	ff = only
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
+
+[alias]
+    branch-dates = !git for-each-ref --sort=committerdate refs/heads/ --format='%(committerdate:iso8601) %(refname:short)'
+    diff-names = !git diff --name-only
+    br = for-each-ref --sort=-committerdate refs/heads/ --format='%(if)%(HEAD)%(then)%(color:green) * %(else)   %(end)%(committerdate:format:%b %d) - %(refname:short)%(color:reset)'
+
+[credential "https://github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential
