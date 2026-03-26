@@ -21,3 +21,6 @@ ssh() {
   printf '\ek%s\e\\' "${1%%.*}"   # set screen title
   command ssh "$@"
 }
+
+# Tailscale doesn't get added to the path for some reason
+alias tailscale="/Applications/Tailscale.app/Contents/MacOS/Tailscale"

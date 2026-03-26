@@ -1,4 +1,3 @@
-export PATH="/opt/homebrew/opt/node@16/bin:$PATH"
 export PATH="/Users/stumpf/workplace/tds-utils/bin:$PATH"
 
 # NVM magic
@@ -80,6 +79,9 @@ compinit
 # into the system.
 source ~/workplace/lab54/grubsta/scripts/completions/grubsta-completions.zsh
 
+
+# Added by Antigravity
+export PATH="/Users/stumpf/.antigravity/antigravity/bin:$PATH"
 
 # Added by Antigravity
 export PATH="/Users/stumpf/.antigravity/antigravity/bin:$PATH"

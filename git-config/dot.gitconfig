@@ -19,3 +19,9 @@
     diff-names = !git diff --name-only
     br = for-each-ref --sort=-committerdate refs/heads/ --format='%(if)%(HEAD)%(then)%(color:green) * %(else)   %(end)%(committerdate:format:%b %d) - %(refname:short)%(color:reset)'
 
+[credential "https://github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential

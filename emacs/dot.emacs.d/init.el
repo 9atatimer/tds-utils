@@ -386,10 +386,10 @@
                         :stream t
                         :models '(dolphin-llama3:70b)))
   :config
-  ;; Enable gptel in text and LaTeX modes.
-  (add-hook 'text-mode-hook 'gptel-mode)
-  (add-hook 'latex-mode-hook 'gptel-mode)
-  (add-hook 'LaTeX-mode-hook 'gptel-mode))
+  ;; Enable gptel in LaTeX modes.
+;;   (add-hook 'text-mode-hook 'gptel-mode)
+   (add-hook 'latex-mode-hook 'gptel-mode)
+   (add-hook 'LaTeX-mode-hook 'gptel-mode))
 
 ;;
 ;; Projectile, to make it easier to use project-specific confugration
