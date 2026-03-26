@@ -12,3 +12,4 @@ emacs/dot.emacs.d/projects
 *DS_Store
 
 emacs/dot.emacs.d/elisp/emacs-mcp-server/
+.claude
