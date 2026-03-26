@@ -1,0 +1,60 @@
+#!/bin/bash
+# cline-ollama: Script to start/stop Ollama for Cline usage
+
+# Function to start Ollama
+start_ollama() {
+  echo "Starting Ollama..."
+  brew services run ollama
+  echo "Ollama started - listening on http://localhost:11434"
+}
+
+# Function to stop Ollama
+stop_ollama() {
+  echo "Stopping Ollama..."
+  brew services stop ollama
+  echo "Ollama stopped"
+}
+
+# Function to check Ollama status
+check_status() {
+  if pgrep -x "ollama" > /dev/null; then
+    echo "Ollama is running"
+    return 0
+  else
+    echo "Ollama is not running"
+    return 1
+  fi
+}
+
+# Main execution
+if [ $# -lt 1 ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+  echo "Usage: cline-ollama [start|stop|status]"
+  echo ""
+  echo "Commands:"
+  echo "  start   Start Ollama service (non-persistent)"
+  echo "  stop    Stop Ollama service"
+  echo "  status  Check if Ollama is running"
+  echo ""
+  echo "Options:"
+  echo "  -h, --help  Show this help message"
+  exit 1
+fi
+
+case "$1" in
+  start)
+    start_ollama
+    ;;
+  stop)
+    stop_ollama
+    ;;
+  status)
+    check_status
+    ;;
+  *)
+    echo "Unknown command: $1"
+    echo "Usage: cline-ollama [start|stop|status]"
+    exit 1
+    ;;
+esac
+
+exit 0

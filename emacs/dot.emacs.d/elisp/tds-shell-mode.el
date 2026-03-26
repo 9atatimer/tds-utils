@@ -13,5 +13,3 @@ Can be called directly, or added to the sh-mode-hook, as you will.
 (add-hook 'sh-mode-hook 'tds-setup-shell-mode)
 
 (provide 'tds-shell-mode)
-
-
