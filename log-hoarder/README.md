@@ -59,7 +59,7 @@ brew install tmux ansifilter
 In `macos/dot.zshenv`, set:
 
 ```sh
-export TDS_LOG_DIR="$HOME/logs/terminal"   # or a Dropbox path for archived/
+export TDS_LOG_DIR="$HOME/.local/share/log-hoarder"
 ```
 
 Then create the directories:
@@ -222,7 +222,7 @@ rm -rf "$TDS_LOG_DIR"
 In `macos/dot.zshenv`, remove or comment out:
 
 ```sh
-# export TDS_LOG_DIR=""
+# export TDS_LOG_DIR="$HOME/.local/share/log-hoarder"
 # export LLM_ENDPOINT=""
 # export LLM_MODEL=""
 ```
