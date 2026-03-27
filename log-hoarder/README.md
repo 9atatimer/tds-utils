@@ -222,7 +222,56 @@ rm -rf "$TDS_LOG_DIR"
 In `macos/dot.zshenv`, remove or comment out:
 
 ```sh
-# export TDS_LOG_DIR="$HOME/.local/share/log-hoarder"
+# export TDS_LOG_DIR="${TDS_LOG_DIR:-$HOME/.local/share/log-hoarder}"
 # export LLM_ENDPOINT=""
 # export LLM_MODEL=""
 ```
+
+---
+
+## Known gotchas
+
+### tmux hook format variables resolve to the wrong session during teardown
+
+When a terminal window is closed, the `pane-exited` hook may resolve
+`#{session_name}` to a *surviving* session rather than the dying one.
+The shepherd guards against this: it checks `session_alive` before archiving
+and defers to the orphan sweep for the actual cleanup.
+
+### `.zshenv` is sourced by every zsh process, including `tmux run-shell`
+
+`run-shell` spawns commands via `/bin/sh -c`, and if that command is
+`/bin/zsh script.sh`, zsh will source `~/.zshenv` before executing the
+script.  Any env var set unconditionally in `.zshenv` will clobber
+overrides.  Use `${VAR:-default}` for variables that should be overridable
+(e.g. for testing).
+
+### `local` inside a zsh loop re-declares on each iteration
+
+In zsh, `local var` inside a `for` loop body prints `var=<value>` to
+stdout on the second and subsequent iterations (re-declaration of an
+existing local).  Always declare loop-scoped locals *before* the loop.
+
+### `(( n++ ))` returns false when n starts at 0
+
+`(( 0++ ))` evaluates to 0 → exit code 1 → `set -e` kills the script.
+Guard with `(( n++ )) || true`.
+
+### `pipe-pane` file creation is asynchronous
+
+`tmux pipe-pane -o "cmd >> file"` opens the pipe server-side, but the
+output file is only created when the pane actually produces output.
+Automated tests that check for the file need a `send-keys` + sleep, or
+should verify the diag log / directory structure instead.
+
+---
+
+## Running tests
+
+```sh
+./test/smoketest_log_hoarder.sh
+```
+
+Tests use throwaway tmux sessions (prefixed `smoke-`) and a temp
+`TDS_LOG_DIR`.  They temporarily override `TDS_LOG_DIR` in the tmux
+global environment and restore it on exit.

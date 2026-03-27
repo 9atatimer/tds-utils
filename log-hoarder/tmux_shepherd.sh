@@ -124,15 +124,16 @@ sweep_orphans() {
     local act
     act=$(active_dir)
 
+    local session
     for sessiondir in "${act}"/*(N/); do
-        local session
         session=$(basename "${sessiondir}")
         if ! session_alive "${session}"; then
             diag_log "orphan session detected: ${session}"
+            local parts pane window
             for panedir in "${sessiondir}"/*/*(N/); do
-                local parts=("${(s:/:)panedir}")
-                local pane="${parts[-1]}"
-                local window="${parts[-2]}"
+                parts=("${(s:/:)panedir}")
+                pane="${parts[-1]}"
+                window="${parts[-2]}"
                 archive_pane_dir "${session}" "${window}" "${pane}"
             done
             rmdir -p "${sessiondir}" 2>/dev/null || true
