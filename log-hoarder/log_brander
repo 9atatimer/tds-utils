@@ -1,0 +1,128 @@
+#!/bin/zsh
+# log_brander — generate a human-readable slug for an archived pane log dir
+#
+# Usage: log_brander <panedir>
+#
+#   panedir: path to an archived pane directory containing HHMMSS.log file(s)
+#
+# On success: writes slug.txt into panedir and exits 0.
+# On failure: exits non-zero, no slug.txt written (shepherd will retry next cron run).
+#
+# Model configuration:
+#   Expects a local model endpoint. Set LLM_ENDPOINT and LLM_MODEL in your
+#   environment (dot.zshenv) when ready. Example:
+#     export LLM_ENDPOINT="http://localhost:11434/api/generate"   # ollama
+#     export LLM_MODEL="mistral"
+#
+# This script is intentionally a stub until a local model is available.
+# Do not wire up a paid API here — use the local endpoint only.
+
+set -euo pipefail
+
+# --- Diagnostics ---
+
+DIAG_HOOK="brander"
+DIAG_LOG=""
+
+diag_log() {
+    local msg="$1"
+    local logfile="${DIAG_LOG:-/tmp/log-hoarder.brander.log}"
+    print "$(date '+%Y-%m-%d %H:%M:%S') [${DIAG_HOOK}] ${msg}" >> "${logfile}"
+}
+
+resolve_diag_log() {
+    # TDS_LOG_DIR may not be set if brander is called in an odd context
+    DIAG_LOG="${${TDS_LOG_DIR:-$HOME}}/log-hoarder.${DIAG_HOOK}.log"
+}
+
+# --- Action functions ---
+
+usage() {
+    print "Usage: log_brander <panedir>" >&2
+    exit 1
+}
+
+check_config() {
+    if [[ -z "${LLM_ENDPOINT:-}" ]] || [[ -z "${LLM_MODEL:-}" ]]; then
+        diag_log "LLM_ENDPOINT or LLM_MODEL not set — skipping"
+        exit 0
+    fi
+}
+
+sample_logs() {
+    local panedir="$1"
+    # First and last 20 lines of each log, stripped to printable chars
+    for f in "${panedir}"/*.log(N); do
+        head -20 "${f}"
+        tail -20 "${f}"
+    done \
+    | tr -cd '[:print:]\n' \
+    | head -80
+}
+
+call_llm() {
+    local sample="$1"
+    local prompt="You are helping name a terminal session log file.
+Based on the following terminal output sample, produce a short, lowercase,
+hyphenated slug (3-5 words max) describing what the session was doing.
+Respond with ONLY the slug, no punctuation, no explanation.
+
+Sample:
+${sample}"
+
+    # TODO: implement for your local model of choice.
+    # Ollama example (uncomment and adjust when ready):
+    #
+    # curl -sf "${LLM_ENDPOINT}" \
+    #     -H "content-type: application/json" \
+    #     -d "{\"model\": \"${LLM_MODEL}\", \"prompt\": $(printf '%s' "${prompt}" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))'), \"stream\": false}" \
+    # | python3 -c 'import json,sys; print(json.load(sys.stdin)["response"].strip())'
+
+    diag_log "stub exit — no LLM implementation yet"
+    exit 0
+}
+
+write_slug() {
+    local panedir="$1" slug="$2"
+    print "${slug}" > "${panedir}/slug.txt"
+    diag_log "slug written: ${panedir}/slug.txt = ${slug}"
+}
+
+# --- Flow functions ---
+
+run_brander() {
+    local panedir="$1"
+
+    diag_log "branding: ${panedir}"
+    check_config
+
+    local sample
+    sample=$(sample_logs "${panedir}")
+    if [[ -z "${sample}" ]]; then
+        diag_log "no log content found — skipping"
+        exit 0
+    fi
+
+    local slug
+    slug=$(call_llm "${sample}")
+    if [[ -z "${slug}" ]]; then
+        diag_log "LLM returned empty slug — skipping"
+        exit 0
+    fi
+
+    write_slug "${panedir}" "${slug}"
+}
+
+# --- Main ---
+
+main() {
+    resolve_diag_log
+    diag_log "invoked (pid=$$)"
+
+    [[ $# -eq 1 ]] || usage
+    [[ -d "$1" ]] || { diag_log "not a directory: $1"; print "log_brander: not a directory: $1" >&2; exit 1; }
+
+    run_brander "$1"
+}
+
+main "$@"
