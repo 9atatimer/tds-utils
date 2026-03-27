@@ -13,3 +13,15 @@ There are a copy of top-level dirs:
 
 Cheers.
 -- Todd 2010-07-05
+
+
+---
+Brewfile Dependencies (macOS)
+
+  The following brew packages are expected on any macOS machine
+  running this environment:
+
+  tmux        --> terminal multiplexer; required for log-hoarder
+  ansifilter  --> strips ANSI escape codes from tmux pipe-pane log output
+
+  Install: brew install tmux ansifilter
