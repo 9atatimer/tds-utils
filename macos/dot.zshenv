@@ -3,7 +3,8 @@ export PATH=/Users/stumpf/.sg:$PATH
 
 # log-hoarder: terminal session log directory (XDG-conventional).
 # Unset or empty to disable logging (diag logs still go to $HOME).
-export TDS_LOG_DIR="$HOME/.local/share/log-hoarder"
+# Uses :- so it can be overridden (e.g. for testing).
+export TDS_LOG_DIR="${TDS_LOG_DIR:-$HOME/.local/share/log-hoarder}"
 . "$HOME/.cargo/env"
 
 # History settings need to be in .zshenv to take precedence

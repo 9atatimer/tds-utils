@@ -87,11 +87,17 @@ brand_pane_dir() {
 # --- Flow functions ---
 
 # Called from tmux hook: archive this pane's dir, then sweep for orphans.
+# Trust but verify: tmux format variables may resolve to the wrong session
+# during teardown, so confirm the session is actually dead before archiving.
 run_hook_mode() {
     local session="$1" window="$2" pane="$3"
 
     diag_log "hook invoked: session=${session} window=${window} pane=${pane}"
-    archive_pane_dir "${session}" "${window}" "${pane}"
+    if session_alive "${session}"; then
+        diag_log "session ${session} still alive — skipping direct archive, deferring to orphan sweep"
+    else
+        archive_pane_dir "${session}" "${window}" "${pane}"
+    fi
     sweep_orphans
     diag_log "hook complete"
 }
@@ -106,7 +112,7 @@ run_cron_mode() {
     for panedir in "${arch}"/*/*/*(N/); do
         if is_unbranded "${panedir}"; then
             brand_pane_dir "${panedir}"
-            (( count++ ))
+            (( count++ )) || true
         fi
     done
 
