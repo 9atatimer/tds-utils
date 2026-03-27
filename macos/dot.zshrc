@@ -85,3 +85,9 @@ export PATH="/Users/stumpf/.antigravity/antigravity/bin:$PATH"
 
 # Added by Antigravity
 export PATH="/Users/stumpf/.antigravity/antigravity/bin:$PATH"
+
+# log-hoarder: auto-launch tmux for each new terminal window.
+# Guards: interactive shell only, not already inside tmux.
+if [[ -o interactive ]] && [[ -z "$TMUX" ]]; then
+    exec tmux new-session
+fi

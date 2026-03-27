@@ -1,5 +1,10 @@
 
 export PATH=/Users/stumpf/.sg:$PATH
+
+# log-hoarder: set this to your terminal log directory.
+# Example: export TDS_LOG_DIR="$HOME/logs/terminal"
+# Leave unset to disable logging (a warning banner will appear in each session).
+export TDS_LOG_DIR=""
 . "$HOME/.cargo/env"
 
 # History settings need to be in .zshenv to take precedence
