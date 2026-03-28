@@ -1,18 +1,24 @@
 #!/bin/bash
 
-# Check if a path is provided
-if [ -z "$1" ]; then
-  echo "Usage: clip <path_to_file>"
-  exit 1
+# Define the system's clipboard command
+if [[ "$(uname)" == "Darwin" ]]; then
+    CLIP_CMD="pbcopy"
+elif command -v xclip >/dev/null 2>&1; then
+    CLIP_CMD="xclip -selection clipboard"
+else
+    echo "Error: No clipboard utility found (pbcopy or xclip)." >&2
+    exit 1
 fi
 
-# Check if the file exists
-if [ ! -f "$1" ]; then
-  echo "File not found!"
-  exit 1
+# If an argument is provided, check if it's a file and cat it
+if [ -n "$1" ]; then
+    if [ -f "$1" ]; then
+        cat "$1" | $CLIP_CMD
+    else
+        echo "File not found: $1" >&2
+        exit 1
+    fi
+# If no argument, read from stdin (for tmux piping)
+else
+    cat | $CLIP_CMD
 fi
-
-# Copy the file contents to the clipboard
-cat "$1" | pbcopy
-
-echo "File contents copied to clipboard."
