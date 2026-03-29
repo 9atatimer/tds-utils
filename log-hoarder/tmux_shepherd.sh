@@ -108,6 +108,8 @@ run_cron_mode() {
     arch=$(archived_dir)
     diag_log "cron sweep started: ${arch}"
 
+    sweep_orphans
+
     local count=0
     for panedir in "${arch}"/*/*/*(N/); do
         if is_unbranded "${panedir}"; then
