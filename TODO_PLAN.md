@@ -29,5 +29,6 @@ This file tracks the status of development tasks, lessons learned, and completed
 ## Completed Tasks
 
 - [x] Task 1: Secure log permissions in `log-hoarder` (restrict to owner read/write).
+- [x] Task 1.1: Fix `tmux.conf` durable double/triple click selection in `root` table.
 - [x] Task 2 (Design): Create `SEMANTIC-SEARCH.DESIGN.md` and scaffold Hexagonal architecture with `txtai` MVP.
 - [x] Task 2 (Scaffolding): Implement domain models, ports, `TxtaiAdapter`, indexer, and searcher.
