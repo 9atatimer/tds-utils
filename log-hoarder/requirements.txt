@@ -1,0 +1,4 @@
+txtai
+sentence-transformers
+# Optional: onnxruntime for faster inference
+# onnxruntime

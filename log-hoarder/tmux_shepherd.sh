@@ -17,6 +17,7 @@
 #   archived/SESSION/WINDOW/PANE/slug.txt        (written by log_brander)
 
 set -euo pipefail
+umask 077
 
 # --- Diagnostics ---
 # DIAG_HOOK is set in main once invocation mode is known.
@@ -159,6 +160,11 @@ main() {
         diag_log "TDS_LOG_DIR not set — aborting"
         warn_no_log_dir
         exit 1
+    fi
+
+    # Secure the log directory and its contents
+    if [[ -d "${TDS_LOG_DIR}" ]]; then
+        chmod -R 700 "${TDS_LOG_DIR}"
     fi
 
     if [[ $# -gt 0 ]]; then
