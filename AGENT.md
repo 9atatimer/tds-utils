@@ -5,7 +5,7 @@ It is very important you never do anything destructive to the git history.
 It is very important that you enumerate the skills in prompts/ -- but conservatively.
 You don't want to read them all in as they will flood your context.  When are you are
 about to perform a task that as a relevant markdown file in prompts/ you should ingest
-the whole file and follow the direcetions.  For example, if you are going to write
+the whole file and follow the directions.  For example, if you are going to write
 test code, you should review TESTING.md.  When dealing with GitHub, you should review
 the GITHUB.md markdown file.
 

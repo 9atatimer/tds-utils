@@ -1,20 +1,30 @@
 #!/usr/bin/env python3
 import os
 import glob
+from collections import deque
 from datetime import datetime
 from search.domain.models import LogEntry
 from search.app import get_search_index
 
 def get_log_sample(panedir):
-    """Same sampling logic as log_brander."""
+    """Return a short sample of log content for a pane directory.
+
+    Reads all ``*.log`` files in the given directory, takes the first
+    and last 20 lines from each file, filters out non-printable characters
+    (except newlines), and truncates the result to 500 characters.
+    """
     sample_text = []
     log_files = glob.glob(os.path.join(panedir, "*.log"))
     for log_file in log_files:
         with open(log_file, "r", errors="ignore") as f:
-            lines = f.readlines()
-            # Sample first and last 20 lines
-            sample_text.extend(lines[:20])
-            sample_text.extend(lines[-20:])
+            head = []
+            tail = deque(maxlen=20)
+            for i, line in enumerate(f):
+                if i < 20:
+                    head.append(line)
+                tail.append(line)
+            sample_text.extend(head)
+            sample_text.extend(tail)
     
     # Strip non-printable characters and truncate
     full_sample = "".join(sample_text)

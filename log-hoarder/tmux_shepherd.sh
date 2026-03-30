@@ -164,7 +164,7 @@ main() {
 
     # Secure the log directory and its contents
     if [[ -d "${TDS_LOG_DIR}" ]]; then
-        chmod -R 700 "${TDS_LOG_DIR}"
+        chmod -R u+rwX,go-rwx -- "${TDS_LOG_DIR}"
     fi
 
     if [[ $# -gt 0 ]]; then

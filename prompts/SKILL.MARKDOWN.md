@@ -8,7 +8,7 @@
 
 - **No smart quotes**: Use straight quotes (`"` and `'`), never curly (`"` `"` `'` `'`)
 - **No smart arrows**: Use `->` not `→`, use `<-` not `←`
-- **No em-dashes**: Use `--` not `—`
+- **No em-dashes**: Use `--` not `--`
 - **ASCII only in prose**: Avoid Unicode symbols that might render inconsistently
 
 ### Structure
@@ -33,7 +33,7 @@ related:
 
 - Frontmatter goes at the very top of the file
 - Use quotes around titles with special characters
-- Keep it minimal — only metadata that tools will read
+- Keep it minimal -- only metadata that tools will read
 
 ## Surgical Editing with markdown-editor MCP
 
@@ -51,9 +51,9 @@ related:
 
 ### Tool workflow
 
-1. **list_sections** — Get current section IDs and structure
-2. **get_section** — Fetch content of section you want to edit
-3. **update_section** — Replace section content (preserves subsections by default)
+1. **list_sections** -- Get current section IDs and structure
+2. **get_section** -- Fetch content of section you want to edit
+3. **update_section** -- Replace section content (preserves subsections by default)
 
 Section IDs regenerate after each edit, so re-run `list_sections` if you need to make another edit.
 
@@ -68,7 +68,7 @@ Section IDs regenerate after each edit, so re-run `list_sections` if you need to
 - `position` parameter is the section index (0-based), not line number
 - `heading` parameter is just the title text, not the full markdown heading
 - Tool auto-adjusts heading level to match context
-- Often creates duplicate/empty sections — verify with `list_sections` after
+- Often creates duplicate/empty sections -- verify with `list_sections` after
 
 ### delete_section behavior
 
@@ -115,7 +115,7 @@ The underlying AST library (`markdown-it-py`) parses code blocks as distinct `To
 
 ### Frontmatter support
 
-YAML frontmatter is not accessible via markdown-editor — it only operates on heading-based sections.
+YAML frontmatter is not accessible via markdown-editor -- it only operates on heading-based sections.
 
 **Enhancement idea**: Add `get_frontmatter` / `update_frontmatter` tools to read and modify YAML frontmatter directly.
 

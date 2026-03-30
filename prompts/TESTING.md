@@ -4,7 +4,7 @@ This document defines **universal testing principles** applicable across all lan
 frameworks, and projects. It is written for coding agents and must be followed exactly.
 
 For framework-specific standards, see:
-- [TESTING.NUXT.md](TESTING.NUXT.md) — Nuxt 4 / Vue 3 / Cypress
+- [TESTING.NUXT.md](TESTING.NUXT.md) -- Nuxt 4 / Vue 3 / Cypress
 
 ---
 
@@ -30,21 +30,21 @@ For framework-specific standards, see:
 
 - **Target:** Each unit test case completes in < 100ms
 - **Hard limit:** Any test taking > 1 second indicates a design flaw
-- **Hanging tests are critical failures** — worse than a failing test
+- **Hanging tests are critical failures** -- worse than a failing test
 
 #### Common Causes of Slow/Hanging Tests
-1. **Real I/O instead of fakes** — Network calls, file system, databases, subprocesses
-2. **Sleep statements** — Never use real sleeps in unit tests; use fake clocks or event coordination
-3. **Unbounded waits** — Waiting on events/promises without guaranteed resolution
-4. **Flaky or unimplemented tests left running** — See below
+1. **Real I/O instead of fakes** -- Network calls, file system, databases, subprocesses
+2. **Sleep statements** -- Never use real sleeps in unit tests; use fake clocks or event coordination
+3. **Unbounded waits** -- Waiting on events/promises without guaranteed resolution
+4. **Flaky or unimplemented tests left running** -- See below
 
 #### Skip Flaky Tests, Don't Run and Hope
-If a test is flaky, unimplemented, or might hang — **skip it entirely**. Do not run it and hope.
+If a test is flaky, unimplemented, or might hang -- **skip it entirely**. Do not run it and hope.
 
 Every test framework has two mechanisms: **skip** and **expected failure**. They are not interchangeable.
 
 - **Skip** means the test is NOT executed at all. The runner sees the skip marker and moves on immediately. Use skip for tests that might hang, test unimplemented features, or depend on unavailable resources.
-- **Expected failure** (xfail, .fails, etc.) means the test IS executed, but failure is tolerated. If the test hangs, expected failure does nothing to save you. Use ONLY for tests that fail fast and reliably — a known bug you haven't fixed yet.
+- **Expected failure** (xfail, .fails, etc.) means the test IS executed, but failure is tolerated. If the test hangs, expected failure does nothing to save you. Use ONLY for tests that fail fast and reliably -- a known bug you haven't fixed yet.
 
 ### 4. Guiding Philosophy
 **We want our tests to break when our code is broken, not when our code has changed; we want bug detection, not change detection.**
@@ -80,7 +80,7 @@ We strictly define three layers of testing. Do not blur the lines between them.
 ### Why Fakes
 - Fakes (in-memory implementations of real interfaces) enforce the contract at the type level
 - Fakes don't need `.return_value` chains or fragile mock wiring
-- Fakes catch interface drift — if the interface changes, the fake fails to compile/typecheck
+- Fakes catch interface drift -- if the interface changes, the fake fails to compile/typecheck
 - Fakes are reusable across tests without per-test configuration
 
 ### When Mocks Are Acceptable
@@ -92,7 +92,7 @@ We strictly define three layers of testing. Do not blur the lines between them.
 Every test must start with clean state:
 - Fakes created per-test (never shared mutable state between tests)
 - Temp directories auto-cleaned by the test framework
-- No global state mutation — if unavoidable, restore in teardown
+- No global state mutation -- if unavoidable, restore in teardown
 
 ---
 
@@ -137,7 +137,7 @@ Run only the failing test file, then the specific test case.
 If it passes in isolation but fails in suite, you have shared state.
 
 #### 2. Start with Minimal Test Case
-Fix the **simplest** failing test first — it often reveals patterns for fixing others.
+Fix the **simplest** failing test first -- it often reveals patterns for fixing others.
 - **Bad:** Trying to fix all failures at once
 - **Good:** Fix one test completely, understand the root cause, then apply to others
 
@@ -159,7 +159,7 @@ ALWAYS examine both sides:
 - Check for module-level mutable state or missing cleanup
 
 **Async Timing Issues**
-- Never use real sleeps — use fake clocks, events, or mock the sleep
+- Never use real sleeps -- use fake clocks, events, or mock the sleep
 - Ensure all async fakes resolve immediately
 - Check for unbounded waits without timeout
 

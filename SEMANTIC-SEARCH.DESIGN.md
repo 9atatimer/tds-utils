@@ -15,11 +15,11 @@ To allow swapping the storage backend (e.g., from `sqlite-vec` to `txtai`) witho
     *   `EmbeddingPort`: Abstract method for `get_embedding(text)`.
 
 ### 2. Infrastructure Layer (Adapters)
-*   **Adapters (Current - Phase 1)**:
-    *   `SqliteVecAdapter`: Implements `SearchIndexPort` using `sqlite3` and the `sqlite-vec` extension.
-    *   `OllamaAdapter`: Implements `EmbeddingPort` by calling the local Ollama API.
+*   **Adapters (Current - Phase 1 MVP)**:
+    *   `TxtaiAdapter`: A single adapter that implements both ports using the `txtai` framework (turnkey embeddings + metadata storage).
 *   **Adapters (Future - Phase 2)**:
-    *   `TxtaiAdapter`: A single adapter that could implement both ports using the `txtai` framework.
+    *   `SqliteVecAdapter`: Implements `SearchIndexPort` using `sqlite3` and the `sqlite-vec` extension for a lighter-weight alternative.
+    *   `OllamaAdapter`: Implements `EmbeddingPort` by calling the local Ollama API.
 
 ### 3. Application Layer (CLI Entry Points)
 *   **`log_indexer.py`**: Coordinates the flow: Read Log → Get Embedding (via Port) → Store (via Port).

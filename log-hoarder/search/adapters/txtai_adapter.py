@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 from txtai.embeddings import Embeddings
 from ..domain.models import LogEntry, SearchMatch
 from ..domain.ports import SearchIndexPort

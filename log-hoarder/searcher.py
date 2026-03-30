@@ -22,7 +22,7 @@ def run_search(query):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: log_search \"query text\"")
+        print(f'Usage: {sys.argv[0]} "query text"')
         sys.exit(1)
         
     query = " ".join(sys.argv[1:])

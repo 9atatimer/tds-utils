@@ -12,9 +12,9 @@ This file tracks the status of development tasks, lessons learned, and completed
 ## Open Tasks
 
 - [ ] Task 2: Validate `txtai` integration with real log data.
-- [ ] Task 2: Integrate `indexer.py` into `tmux_shepherd.sh` cron mode.
-- [ ] Task 2: Phase 2 - Implement `SqliteVecAdapter` for a lighter-weight alternative.
-- [ ] Task 3: Add `log_search` alias or bin link for easier CLI access.
+- [ ] Task 3: Integrate `indexer.py` into `tmux_shepherd.sh` cron mode.
+- [ ] Task 4: Phase 2 - Implement `SqliteVecAdapter` for a lighter-weight alternative.
+- [ ] Task 5: Add `log_search` alias or bin link for easier CLI access.
 
 ---
 
