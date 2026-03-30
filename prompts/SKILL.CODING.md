@@ -49,7 +49,7 @@ Avoid nested/inner functions due to their inherent testing difficulty.
 * Write tests **before** implementation
 * Tests define **observable behavior** (the contract), not internal structure (the implementation)
 * Tests must fail when behavior breaks, not when code is refactored
-* Placeholder or meaningless assertions (e.g., `assert false`) may be used only as short-lived scaffolding for red tests and must be replaced with real behavior assertions before code is considered done
+* No placeholder or meaningless assertions -- `assert false` is never acceptable under any circumstances
 * Test names and scenarios must clearly express intent
 * Flow functions should be easily testable using fakes and dependency injection
 
