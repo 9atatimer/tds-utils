@@ -4,14 +4,36 @@
 
 The goal is to enable semantic search over terminal session logs stored by `log-hoarder`. This allows a user to query their terminal history using natural language (e.g., "how did I fix that docker permission error?") and find the relevant session log.
 
+## Core Principle: Full Coverage, No Duplication
+
+A single terminal session may span multiple projects, repos, and tasks. Sampling or truncating log content is not acceptable -- **every byte of every log file must be covered by the semantic index**.
+
+However, the index must not become a second copy of the logs. The index stores only:
+
+*   **Embeddings** (vector representations of text chunks)
+*   **Metadata** (source file path, byte offset, chunk boundaries, timestamp)
+
+The original log files remain the **single source of truth** for content. Search results point back to the source file and location -- the user reads the log, not the index.
+
+## Indexing Strategy: Chunked Full-File Embedding
+
+Each log file is read in its entirety and split into fixed-size overlapping text chunks:
+
+*   **Chunk size**: ~512-1024 tokens (tuned to embedding model context window)
+*   **Overlap**: ~10-20% between adjacent chunks to avoid splitting thoughts at boundaries
+*   **Per chunk**: generate one embedding vector, store it with metadata (source path, byte offset, chunk index)
+*   **Non-printable filtering**: strip control characters before embedding, but preserve byte offsets into the original file so results map back accurately
+
+At search time, matching chunks return the source file path and byte offset, allowing the user to jump directly to the relevant section of the log.
+
 ## Architecture: Hexagonal (Ports & Adapters)
 
 To allow swapping the storage backend (e.g., from `sqlite-vec` to `txtai`) without touching business logic, we will separate the system into three layers.
 
 ### 1. Domain Layer (Core Logic)
-*   **Entities**: `LogEntry` (metadata, path, slug) and `Vector` (the embedding).
+*   **Entities**: `LogEntry` (metadata, path, slug), `LogChunk` (source path, byte offset, chunk index, text for embedding).
 *   **Ports (Interfaces)**:
-    *   `SearchIndexPort`: Abstract methods for `add_entry(entry, vector)` and `search(query_vector, limit)`.
+    *   `SearchIndexPort`: Abstract methods for `add_chunks(chunks, vectors)` and `search(query_vector, limit)`.
     *   `EmbeddingPort`: Abstract method for `get_embedding(text)`.
 
 ### 2. Infrastructure Layer (Adapters)
@@ -22,8 +44,8 @@ To allow swapping the storage backend (e.g., from `sqlite-vec` to `txtai`) witho
     *   `OllamaAdapter`: Implements `EmbeddingPort` by calling the local Ollama API.
 
 ### 3. Application Layer (CLI Entry Points)
-*   **`log_indexer.py`**: Coordinates the flow: Read Log → Get Embedding (via Port) → Store (via Port).
-*   **`log_search.py`**: Coordinates the flow: User Query → Get Embedding (via Port) → Retrieve Matches (via Port).
+*   **`log_indexer.py`**: Coordinates the flow: Read Full Log → Chunk → Get Embeddings (via Port) → Store Chunks (via Port).
+*   **`log_search.py`**: Coordinates the flow: User Query → Get Embedding (via Port) → Retrieve Matching Chunks (via Port) → Return source file path + byte offset.
 
 ---
 
@@ -52,6 +74,14 @@ Since `sqlite-vec` is a loadable extension, we will:
 1.  Check for its presence in the user's environment.
 2.  Default to a standard SQLite implementation for metadata, using the extension specifically for the `vec_f32` virtual tables.
 3.  If `txtai` is chosen later, `app.py` will simply instantiate the `TxtaiAdapter` instead of the SQLite/Ollama pair.
+
+## What the Index Must NOT Contain
+
+The index is a lookup structure, not a data store:
+
+*   **No raw log text** -- the index stores embeddings and metadata only
+*   **No truncated samples** -- partial content defeats the purpose of semantic search
+*   The index should be rebuildable from the log files at any time
 
 ## Integration with `log-hoarder`
 
