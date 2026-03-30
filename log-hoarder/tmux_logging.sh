@@ -7,6 +7,7 @@
 # Log path convention is shared with tmux_shepherd.sh — do not change independently.
 
 set -euo pipefail
+umask 077
 
 # --- Diagnostics ---
 

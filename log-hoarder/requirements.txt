@@ -1,0 +1,4 @@
+txtai>=6.0.0
+sentence-transformers>=2.2.2
+# Optional: onnxruntime for faster inference
+# onnxruntime
