@@ -61,5 +61,5 @@ class TxtaiAdapter(SearchIndexPort):
         return self.embeddings.exists(path)
 
     def save(self):
-        os.makedirs(self.index_path, exist_ok=True)
+        os.makedirs(self.index_path, mode=0o700, exist_ok=True)
         self.embeddings.save(self.index_path)

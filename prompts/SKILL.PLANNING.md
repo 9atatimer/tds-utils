@@ -10,7 +10,7 @@
 
 **The Three Pillars of Amnesia-Resistant Planning:**
 
-1. **RED → GREEN → COMMIT** — Never implement without a failing test first
+1. **RED -> GREEN -> COMMIT** — Never implement without a failing test first
 2. **Small Steps** — Each step = ONE test passing = ONE commit (not 7 features)
 3. **Learning Checkpoints** — Force documentation of discoveries every 2-3 commits
 
@@ -22,20 +22,20 @@
 
 ---
 
-## Anti-Patterns to AVOID ❌
+## Anti-Patterns to AVOID [NO]
 
 ### 1. Implementation-First Planning
 
 **BAD (Implementation-First):**
 ```markdown
 ### Step 1.2: Implement Action Execution Logic
-- [ ] START_AGENT → calls AgentClient.run()
-- [ ] RESUME_AGENT → calls AgentClient.resume()
-- [ ] TERMINATE_AGENT → calls AgentClient.terminate()
-- [ ] START_POLLING → calls CommentClient poll loop
-- [ ] DO_PROMOTION → calls promotion flow
-- [ ] PROMPT_HUMAN → displays banner, reads input
-- [ ] CLEANUP → releases locks, saves state
+- [ ] START_AGENT -> calls AgentClient.run()
+- [ ] RESUME_AGENT -> calls AgentClient.resume()
+- [ ] TERMINATE_AGENT -> calls AgentClient.terminate()
+- [ ] START_POLLING -> calls CommentClient poll loop
+- [ ] DO_PROMOTION -> calls promotion flow
+- [ ] PROMPT_HUMAN -> displays banner, reads input
+- [ ] CLEANUP -> releases locks, saves state
 
 **Commit Point:** feat(component): implement all action handlers
 ```
@@ -84,7 +84,7 @@
 
 ---
 
-## The BDD TODO_PLAN Template ✅
+## The BDD TODO_PLAN Template [OK]
 
 ### Structure Overview
 
@@ -101,14 +101,14 @@
 ## Implementation Philosophy
 
 **BDD/TDD Process:**
-1. Write skeleton tests FIRST (describe expected behavior)
-2. Tests initially fail with `expect(false).toBe(true)` or `assert False`
+1. Write skeleton tests FIRST (call the real API, assert on expected behavior)
+2. Tests fail because the code does not exist yet -- never use placeholder assertions like `assert False`
 3. Implement ONE test at a time
 4. Green before moving to next test
 5. Commit after EACH test passes (not after phase)
 
 **Commit Strategy:**
-- After EACH test goes from RED → GREEN
+- After EACH test goes from RED -> GREEN
 - Before and after learning checkpoint updates
 - After completing acceptance criteria
 
@@ -132,8 +132,7 @@
 
 ---
 
-## RESUMING AFTER COMPACT AMNESIA 🧠
-
+## RESUMING AFTER COMPACT AMNESIA 
 If you lose context mid-session:
 
 1. **Check last commit:** `git log -1 --oneline`
@@ -160,17 +159,17 @@ test(feature): add foo validation test (RED)
 
 ### Step [N.1]: Write [Feature] Tests (SKELETON)
 - [ ] Create `tests/unit/test_[feature].py`
-- [ ] Write `test_[behavior_1]()` with `assert False, "Not implemented"`
-- [ ] Write `test_[behavior_2]()` with `assert False, "Not implemented"`
-- [ ] Run tests: `[command]` — expect RED
+- [ ] Write `test_[behavior_1]()` calling real API with real assertions
+- [ ] Write `test_[behavior_2]()` calling real API with real assertions
+- [ ] Run tests: `[command]` -- expect RED (code not implemented yet)
 
 **Tests Written (list them explicitly):**
 - `test_[behavior_1]` - Validates [what]
 - `test_[behavior_2]` - Validates [what]
 
-**Acceptance:** Tests exist, all RED
+**Acceptance:** Tests exist, all RED (failing because code doesn't exist, not because of placeholders)
 
-**Commit Point:** `test(feature): add skeleton tests for [feature] (RED)`
+**Commit Point:** `test(feature): add tests for [feature] (RED)`
 
 ---
 
@@ -179,7 +178,7 @@ test(feature): add foo validation test (RED)
 - [ ] Make `test_[behavior_1]()` pass (GREEN)
 - [ ] Run: `[command]::test_[behavior_1]`
 
-**Acceptance:** Test goes from RED → GREEN, all others still pass
+**Acceptance:** Test goes from RED -> GREEN, all others still pass
 
 **Commit Point:** `feat(feature): implement [behavior_1] (GREEN)`
 
@@ -190,7 +189,7 @@ test(feature): add foo validation test (RED)
 - [ ] Make `test_[behavior_2]()` pass (GREEN)
 - [ ] Run: `[command]::test_[behavior_2]`
 
-**Acceptance:** Test goes from RED → GREEN, all others still pass
+**Acceptance:** Test goes from RED -> GREEN, all others still pass
 
 **Commit Point:** `feat(feature): implement [behavior_2] (GREEN)`
 
@@ -226,14 +225,13 @@ Next time I would:
 
 ---
 
-## Definition of Done ✨
-
+## Definition of Done 
 ### Feature Complete When:
 
 **Functional:**
 - [ ] All tests written FIRST (skeleton with RED)
 - [ ] All tests passing (GREEN)
-- [ ] No `assert False` or `expect(false).toBe(true)` remaining
+- [ ] No placeholder assertions remaining
 - [ ] Integration tests pass (if applicable)
 
 **Testing:**
@@ -296,7 +294,7 @@ Next time I would:
 
 ## Key Principles Explained
 
-### 1. RED → GREEN → COMMIT Cycle
+### 1. RED -> GREEN -> COMMIT Cycle
 
 **Always follow this sequence:**
 
@@ -333,11 +331,11 @@ Commit: feat(auth): implement all validation
 ```markdown
 - [ ] Write test_password_length (RED)
 - [ ] Implement password_length validator (GREEN)
-  → Commit: feat(auth): add password length validation (GREEN)
+  -> Commit: feat(auth): add password length validation (GREEN)
 
 - [ ] Write test_email_format (RED)
 - [ ] Implement email_format validator (GREEN)
-  → Commit: feat(auth): add email format validation (GREEN)
+  -> Commit: feat(auth): add email format validation (GREEN)
 ```
 
 ### 3. Learning Checkpoints Every 2-3 Commits
@@ -365,8 +363,7 @@ Commit: feat(auth): implement all validation
 **Include this section in EVERY TODO_PLAN:**
 
 ```markdown
-## RESUMING AFTER COMPACT AMNESIA 🧠
-
+## RESUMING AFTER COMPACT AMNESIA 
 If you lose context mid-session:
 
 1. **Check last commit:** `git log -1 --oneline`
@@ -441,8 +438,8 @@ Always include:
 ```markdown
 **BDD/TDD Process:**
 1. Create `tests/unit/test_[feature].py`
-2. Write test with `assert False, "Not implemented"`
-3. Run: `pytest tests/unit/test_[feature].py` (RED)
+2. Write test calling real API with real assertions on expected behavior
+3. Run: `pytest tests/unit/test_[feature].py` (RED -- code not implemented yet)
 4. Implement feature
 5. Run: `pytest tests/unit/test_[feature].py` (GREEN)
 6. Commit: `feat([module]): implement [feature] (GREEN)`
@@ -457,8 +454,8 @@ Always include:
 ```markdown
 **BDD/TDD Process:**
 1. Create `test/[feature].test.ts`
-2. Write test with `expect(false).toBe(true)`
-3. Run: `npm run test:unit -- [feature]` (RED)
+2. Write test calling real API with real assertions on expected behavior
+3. Run: `npm run test:unit -- [feature]` (RED -- code not implemented yet)
 4. Implement feature
 5. Run: `npm run test:unit -- [feature]` (GREEN)
 6. Commit: `feat([module]): implement [feature] (GREEN)`
@@ -518,25 +515,24 @@ docs(github): update TODO with polling strategy decisions
 Copy this for each phase:
 
 ```markdown
-## PHASE [N]: [Phase Name] 🎯
-
+## PHASE [N]: [Phase Name] 
 **Goal:** [One sentence outcome]
 
 **Estimated:** [X commits, Y hours]
 
 ### Step [N.1]: Write [Feature] Tests (SKELETON)
 - [ ] Create test file
-- [ ] Write `test_[behavior_1]()` (assert False)
-- [ ] Write `test_[behavior_2]()` (assert False)
-- [ ] Run tests: expect RED
+- [ ] Write `test_[behavior_1]()` calling real API with real assertions
+- [ ] Write `test_[behavior_2]()` calling real API with real assertions
+- [ ] Run tests: expect RED (code not implemented yet)
 
 **Tests Written:**
 - `test_[behavior_1]` - [What it validates]
 - `test_[behavior_2]` - [What it validates]
 
-**Acceptance:** All tests RED
+**Acceptance:** All tests RED (failing because code doesn't exist, not because of placeholders)
 
-**Commit Point:** `test([scope]): add skeleton tests for [feature] (RED)`
+**Commit Point:** `test([scope]): add tests for [feature] (RED)`
 
 ---
 
@@ -610,24 +606,24 @@ Use this checklist before creating TODO_PLAN:
 ### Good TODO_PLAN Metrics
 
 **Commit granularity:**
-- ✅ 1 commit per test passing (ideal)
-- ⚠️ 2-3 commits per feature (acceptable)
-- ❌ 1 commit per phase (too coarse)
+- [OK] 1 commit per test passing (ideal)
+- [WARN] 2-3 commits per feature (acceptable)
+- [NO] 1 commit per phase (too coarse)
 
 **Phase size:**
-- ✅ 2-5 steps per phase (ideal)
-- ⚠️ 6-8 steps per phase (acceptable)
-- ❌ 10+ steps per phase (too large, split it)
+- [OK] 2-5 steps per phase (ideal)
+- [WARN] 6-8 steps per phase (acceptable)
+- [NO] 10+ steps per phase (too large, split it)
 
 **Learning checkpoints:**
-- ✅ Every 2-3 commits (ideal)
-- ⚠️ Every phase (minimum)
-- ❌ Only at end (insufficient)
+- [OK] Every 2-3 commits (ideal)
+- [WARN] Every phase (minimum)
+- [NO] Only at end (insufficient)
 
 **Recovery time:**
-- ✅ Can resume in <5 min from last commit (ideal)
-- ⚠️ Can resume in <15 min (acceptable)
-- ❌ Must re-read all code (plan failed)
+- [OK] Can resume in <5 min from last commit (ideal)
+- [WARN] Can resume in <15 min (acceptable)
+- [NO] Must re-read all code (plan failed)
 
 ---
 
@@ -660,16 +656,15 @@ Use this checklist before creating TODO_PLAN:
 ### Good Phase (Small, Test-First)
 
 ```markdown
-## PHASE 3: Password Validation 🔒
-
+## PHASE 3: Password Validation 
 **Goal:** Validate password strength before account creation
 
 **Estimated:** 4 commits, 1 hour
 
 ### Step 3.1: Write Password Tests (SKELETON)
 - [ ] Create `tests/unit/test_password.py`
-- [ ] Write `test_password_min_length()` (assert False)
-- [ ] Write `test_password_has_number()` (assert False)
+- [ ] Write `test_password_min_length()` calling validate_length() with real assertions
+- [ ] Write `test_password_has_number()` calling validate_has_number() with real assertions
 
 **Tests Written:**
 - `test_password_min_length` - Rejects passwords <8 chars

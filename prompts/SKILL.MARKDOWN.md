@@ -8,7 +8,7 @@
 
 - **No smart quotes**: Use straight quotes (`"` and `'`), never curly (`"` `"` `'` `'`)
 - **No smart arrows**: Use `->` not `→`, use `<-` not `←`
-- **No em-dashes**: Use `--` not `--`
+- **No em-dashes**: Use double hyphen (`--`) instead of em dash (U+2014)
 - **ASCII only in prose**: Avoid Unicode symbols that might render inconsistently
 
 ### Structure

@@ -101,8 +101,8 @@ Every test must start with clean state:
 When creating or overhauling test suites, follow this proven sequence:
 
 ### Step 1: Start with Skeleton Tests
-Write empty test cases that describe all behaviors you want to test.
-Each test initially fails with a placeholder assertion.
+Write test cases that call the real (not-yet-implemented) API and assert on expected behavior.
+Tests fail because the code does not exist yet -- not because of placeholder assertions like `assert false`.
 This gives you a clear roadmap before writing any implementation.
 
 ### Step 2: Identify and Setup Fakes First

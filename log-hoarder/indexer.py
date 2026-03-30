@@ -9,9 +9,10 @@ from search.app import get_search_index
 def get_log_sample(panedir):
     """Return a short sample of log content for a pane directory.
 
-    Reads all ``*.log`` files in the given directory, takes the first
-    and last 20 lines from each file, filters out non-printable characters
-    (except newlines), and truncates the result to 500 characters.
+    TEMPORARY: This sampling approach will be replaced by full-file chunked
+    indexing (Task 2 in TODO_PLAN.md). The design requires every byte of
+    every log to be covered by embeddings -- this 500-char truncation is
+    scaffolding only.
     """
     sample_text = []
     log_files = glob.glob(os.path.join(panedir, "*.log"))
