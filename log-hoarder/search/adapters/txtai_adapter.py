@@ -23,8 +23,14 @@ class TxtaiAdapter(SearchIndexPort):
             self.embeddings.load(index_path)
 
     def add_entries(self, entries: List[LogEntry]):
-        # Map domain objects to txtai's dictionary format
-        # txtai expects a list of (id, data, tags) or just dictionaries
+        # Map domain objects to txtai's dictionary format.
+        # NOTE: content=True is required by txtai for metadata storage, but
+        # the "text" field is used ONLY for embedding generation -- txtai
+        # does not persist the raw text when content=True, only the embeddings
+        # and the metadata columns (path, timestamp, slug).
+        # TODO(Task 2): Replace this with chunked full-file indexing -- each
+        # log file will produce multiple chunks, each with its own embedding
+        # and byte-offset metadata.
         documents = [
             {
                 "id": entry.path,
