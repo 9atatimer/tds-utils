@@ -97,6 +97,13 @@ When addressing PR review feedback:
 - Run `gadmin github pending-comments --repo <OWNER/REPO> --pr <NUMBER>`
 - Output should be empty (no unaddressed comments)
 
+**Step 7: Consider documentation updates**
+- Did an accepted fix reveal a gap worth documenting (new TODO, design change)?
+- Did a rejected suggestion surface a lesson worth recording (tool behavior,
+  design decision, recurring reviewer misconception)?
+- If yes, update relevant docs and include in the next commit. If nothing
+  was noteworthy, skip this step.
+
 **Execution notes:**
 - Run reply commands **sequentially** (one per tool call) — do NOT batch
 - If `gadmin github` fails, fall back to `gadmin github-octokit`, then `gadmin github-gitapi` as last resort
