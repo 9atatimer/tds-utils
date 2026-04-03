@@ -20,6 +20,9 @@ See README.tds for the original description.
   design before producing code. Wait for approval.
 - **Ask clarifying questions** about placement, naming, conventions, and scope
   before starting work.
+- **Solve problems, don't work around them.** When a tool, command, or workflow
+  produces broken output, diagnose the root cause and fix it. Do not silently
+  switch to a different tool or manual approach to avoid the issue.
 
 ## Platform & Shell
 
