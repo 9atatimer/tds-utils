@@ -2,8 +2,8 @@ export PATH="/Users/stumpf/workplace/tds-utils/bin:$PATH"
 
 # NVM magic
 export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
 autoload -Uz compinit && compinit
 PROG=sg source /Users/stumpf/.sourcegraph/sg.zsh_autocomplete
 
@@ -17,7 +17,16 @@ if command -v pyenv 1>/dev/null 2>&1; then
 fi
 
 # direnv magic
-eval "$(direnv hook zsh)"   # If you use Zsh
+eval "$(direnv hook zsh)"
+
+# 1Password Integration
+# Setting the socket to the verified Website-installation path
+export SSH_AUTH_SOCK=~/Library/Group\ Containers/2BUA8C4S2C.com.1password/t/agent.sock
+
+# CLI completion and aliases
+if (( $+commands[op] )); then
+    source <(op completion zsh)
+fi
 
 # Define the base prompt
 prompt_base='%D{%H:%M:%S} %n@%m:%2~ %# '
@@ -42,52 +51,38 @@ if [ -f "$HOME/.alias" ]; then
     source "$HOME/.alias"
 fi
 
-
 . "$HOME/.local/bin/env"
 
 # Added by Windsurf
 export PATH="/Users/stumpf/.codeium/windsurf/bin:$PATH"
 
 # UV environment indicator of RHS of zsh prompt
+setopt prompt_subst
 
-setopt prompt_subst  # Enable prompt substitution for RPROMPT
-
-# Function to detect UV environment
 function uv_env_prompt() {
-  # Check if VIRTUAL_ENV is set
   if [[ -n "$VIRTUAL_ENV" ]]; then
-    # Check if it's a UV environment (in ~/.uv/env/)
     if [[ "$VIRTUAL_ENV" == *".uv/env/"* ]]; then
-      # Extract environment name
       local env_name=$(basename "$VIRTUAL_ENV")
       echo "%F{cyan}(uv:$env_name)%f"
     fi
   fi
 }
 
-# Add the UV environment indicator to your RPROMPT
-# This assumes you're using Zsh with prompt substitution enabled
 RPROMPT='$(uv_env_prompt)'
-# The following lines have been added by Docker Desktop to enable Docker CLI completions.
+
+# Docker CLI completions
 fpath=(/Users/stumpf/.docker/completions $fpath)
 autoload -Uz compinit
 compinit
-# End of Docker CLI completions
 
-# This sets up a Grubsta completion hook mechanism for the grubsta project.
-# When you move in and out of the project it will add or remove completions
-# into the system.
+# Grubsta completion
 source ~/workplace/lab54/grubsta/scripts/completions/grubsta-completions.zsh
 
-
-# Added by Antigravity
-export PATH="/Users/stumpf/.antigravity/antigravity/bin:$PATH"
-
-# Added by Antigravity
+# Path updates
 export PATH="/Users/stumpf/.antigravity/antigravity/bin:$PATH"
 
 # log-hoarder: auto-launch tmux for each new terminal window.
-# Guards: interactive shell only, not already inside tmux.
+# (1Password ENV is inherited by tmux because it is exported above)
 if [[ -o interactive ]] && [[ -z "$TMUX" ]]; then
     exec tmux new-session
 fi
