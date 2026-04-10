@@ -127,6 +127,29 @@ The index is a lookup structure, not a data store:
 *   **`tmux_shepherd.sh`**: Add a call to the indexer in `run_cron_mode`, after `brand_pane_dir`.
 *   **Configuration**: Use existing `LLM_ENDPOINT` and `LLM_MODEL` environment variables, adding new ones if needed (e.g., `EMBEDDING_MODEL`).
 
+## Open Issues
+
+### Compressed Log Storage (forward-looking)
+
+Logs can remain uncompressed for the MVP, but the design must not paint us into a
+corner — perpetual storage of raw terminal logs will need compression eventually.
+
+Implications to keep in mind during implementation:
+
+*   **Byte offsets in the index should reference uncompressed content.** This keeps the
+    index format stable regardless of whether the underlying file is compressed or not.
+*   **Log-reading code** (segmenter, chunker, search display) should go through a
+    single file-access abstraction so compression support can be added in one place later.
+*   **Indexer** will eventually need to handle both `.log` and `.log.zst`/`.log.gz`
+    files during any migration period.
+
+Design decisions to resolve before implementing compression:
+1. Compression format (gzip for ubiquity vs zstd for seekability and ratio)
+2. Per-file or per-session granularity
+3. Whether to support random access (e.g., zstd seekable format) or always decompress fully
+
+---
+
 ## Future Enhancements
 
 *   **Continuous Indexing**: Use a file watcher (like `fswatch`) to index logs as soon as they are archived.
