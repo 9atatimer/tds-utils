@@ -5,9 +5,10 @@
 # session log in $PAGER.
 #
 # Flow:
-#   1. fzf opens with the line buffer as the initial query.
-#   2. As you type, fzf calls log_search and displays ranked results.
-#   3. Select a result and it opens in $PAGER.
+#   1. fzf opens as a query prompt (type your search, press Enter).
+#   2. log_search runs once with the query (semantic search).
+#   3. fzf re-opens with ranked results for selection.
+#   4. Selected session's log files open in $PAGER.
 #
 # Prerequisites: fzf, log_search (in PATH via tds-utils/bin/)
 #
@@ -31,27 +32,47 @@ _log_search_widget() {
 
     local initial_query="${BUFFER}"
 
-    # Use fzf as both the query input and result selector.
-    # --disabled: fzf doesn't filter locally — log_search does the ranking.
-    # --bind change:reload: re-runs log_search as you type.
+    # Phase 1: Get the query.
+    # If the line buffer is empty, use fzf as a simple text prompt.
+    local query
+    if [[ -n "${initial_query}" ]]; then
+        query="${initial_query}"
+    else
+        query=$(
+            print "" |
+            fzf --disabled \
+                --prompt="log search: " \
+                --height=3 \
+                --reverse \
+                --print-query \
+            </dev/tty | head -1
+        )
+
+        if [[ -z "${query}" ]]; then
+            BUFFER=""
+            zle reset-prompt
+            return 0
+        fi
+    fi
+
+    BUFFER=""
+    zle reset-prompt
+
+    # Phase 2: Run the search and select a result.
     local selected
     selected=$(
-        log_search "${initial_query}" 2>/dev/null |
-        fzf --disabled \
-            --query="${initial_query}" \
-            --prompt="log search: " \
+        log_search "${query}" 2>/dev/null |
+        fzf --no-sort \
             --delimiter='\t' \
             --with-nth=1,3,4 \
+            --header="Results for: ${query}" \
             --preview='head -c 4000 {1}/*.log 2>/dev/null | head -80' \
             --preview-window=right:50%:wrap \
             --height=60% \
             --reverse \
-            --bind "change:reload:log_search {q} 2>/dev/null || true" \
         </dev/tty
     )
 
-    # Restore the prompt regardless of outcome.
-    BUFFER=""
     zle reset-prompt
 
     if [[ -z "${selected}" ]]; then
