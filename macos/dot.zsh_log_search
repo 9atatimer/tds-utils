@@ -1,0 +1,98 @@
+#!/bin/zsh
+# dot.zsh_log_search — ZLE widget for semantic search over terminal session logs
+#
+# Binds ctrl-x s to invoke log_search via fzf, then opens the selected
+# session log in $PAGER.
+#
+# Flow:
+#   1. If the line buffer has text, use it as the query. Otherwise prompt.
+#   2. Run log_search with the query (semantic search).
+#   3. Pipe ranked results through fzf for selection.
+#   4. Open the selected session's log files in $PAGER.
+#
+# Prerequisites: fzf, log_search (in PATH via tds-utils/bin/)
+#
+# Source this file from .zshrc:
+#   source ~/workplace/tds-utils/macos/dot.zsh_log_search
+
+# --- Widget ---
+
+_log_search_widget() {
+    # Guard: fzf required.
+    if ! command -v fzf >/dev/null 2>&1; then
+        zle -M "log_search: fzf not found — install with: brew install fzf"
+        return 1
+    fi
+
+    # Guard: log_search required.
+    if ! command -v log_search >/dev/null 2>&1; then
+        zle -M "log_search: log_search not found in PATH"
+        return 1
+    fi
+
+    local query="${BUFFER}"
+
+    # If the line buffer is empty, prompt for a query via /dev/tty.
+    if [[ -z "${query}" ]]; then
+        print -n "log search: " >/dev/tty
+        read -r query </dev/tty
+
+        if [[ -z "${query}" ]]; then
+            zle reset-prompt
+            return 0
+        fi
+    fi
+
+    # Clear the buffer so the query text doesn't linger.
+    BUFFER=""
+    zle reset-prompt
+
+    # Run semantic search, pipe through fzf for selection.
+    # log_search output: SESSION_PATH\tSCORE\tTIMESTAMP\tSLUG
+    zle -M "Searching..."
+    local selected
+    selected=$(
+        log_search "${query}" 2>/dev/null |
+        fzf --ansi \
+            --no-sort \
+            --delimiter='\t' \
+            --with-nth=1,3,4 \
+            --header="Results for: ${query}" \
+            --preview='head -c 4000 {1}/*.log 2>/dev/null | head -80' \
+            --preview-window=right:50%:wrap \
+            --height=60% \
+            --reverse \
+        </dev/tty
+    )
+
+    zle reset-prompt
+
+    if [[ -z "${selected}" ]]; then
+        return 0
+    fi
+
+    # Extract session path (first tab-delimited field).
+    local session_path
+    session_path=$(print "${selected}" | cut -f1)
+
+    if [[ ! -d "${session_path}" ]]; then
+        zle -M "log_search: session path not found: ${session_path}"
+        return 1
+    fi
+
+    # Open the log file(s) in $PAGER.
+    local -a log_files
+    log_files=("${session_path}"/*.log(N))
+
+    if (( ${#log_files} == 0 )); then
+        zle -M "log_search: no .log files in ${session_path}"
+        return 1
+    fi
+
+    ${PAGER:-less} "${log_files[@]}" </dev/tty
+    zle reset-prompt
+}
+
+# Register the widget and bind to ctrl-x s.
+zle -N _log_search_widget
+bindkey '^Xs' _log_search_widget
