@@ -31,7 +31,7 @@ main() {
     fi
     print "  PASS: result session path exists"
 
-    if ! grep -rql "ollama" "${session_path}"/*.log 2>/dev/null; then
+    if ! find "${session_path}" -type f -name '*.log' -exec grep -q "ollama" {} + 2>/dev/null; then
         print "  FAIL: result session does not actually contain 'ollama'"
         return 1
     fi

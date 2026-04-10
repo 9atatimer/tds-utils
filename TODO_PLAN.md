@@ -13,11 +13,11 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 ### Smoke Test & CLI (drives everything below — write tests first, then build until they pass)
 
-- [ ] Task S1: Create `log_search` CLI — the entry point for both the ZLE widget and the smoke test. Takes a query string, prints ranked results (session path, working dir, timestamp, preview). Lives in `bin/log_search` and delegates to the Python search pipeline.
-- [ ] Task S2: Create smoke test harness `test/smoketest_log_search/` — shell scripts following the grubsta pattern (`config.sh`, `run_all.sh`, numbered scenario scripts). Tests run against real `$TDS_LOG_DIR/archived/` data.
-- [ ] Task S3: Smoke test scenario — `01_index_archived_logs.sh` — run the indexer against real archived logs, assert exit 0 and index is non-empty. Setup for all subsequent tests.
-- [ ] Task S4: Smoke test scenario — `02_keyword_match.sh` — `log_search "ollama"` returns a result pointing to a session that contains "ollama" (sessions 2/1/0 and 3/0/0 both have ollama activity).
-- [ ] Task S5: Smoke test scenario — `03_semantic_match.sh` — `log_search "checking environment variables for a running service"` returns a result pointing to the launchctl/OLLAMA session (1/1/0) even though the query doesn't share exact keywords.
+- [x] Task S1: Create `log_search` CLI — the entry point for both the ZLE widget and the smoke test. Takes a query string, prints ranked results (session path, working dir, timestamp, preview). Lives in `bin/log_search` and delegates to the Python search pipeline.
+- [x] Task S2: Create smoke test harness `test/smoketest_log_search/` — shell scripts following the grubsta pattern (`config.sh`, `run_all.sh`, numbered scenario scripts). Tests run against real `$TDS_LOG_DIR/archived/` data.
+- [x] Task S3: Smoke test scenario — `01_index_archived_logs.sh` — run the indexer against real archived logs, assert exit 0 and index is non-empty. Setup for all subsequent tests.
+- [x] Task S4: Smoke test scenario — `02_keyword_match.sh` — `log_search "ollama"` returns a result pointing to a session that contains "ollama" (sessions 2/1/0 and 3/0/0 both have ollama activity).
+- [x] Task S5: Smoke test scenario — `03_semantic_match.sh` — `log_search "checking environment variables for a running service"` returns a result pointing to the launchctl/OLLAMA session (1/1/0) even though the query doesn't share exact keywords.
 - [ ] Task S6 (future): Smoke test scenario — project-scoped search. `log_search "git clone in 9atatimer"` returns session 2/2/0 (which has `cd workplace/9atatimer && git clone`). Requires working dir context in embeddings.
 - [ ] Task S7 (future): Smoke test scenario — cross-project filter. Same query scoped to a different project returns different/no results.
 - [ ] Task S8 (future): Smoke test scenario — search across compressed and uncompressed logs returns consistent results.

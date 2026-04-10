@@ -34,7 +34,7 @@ main() {
     fi
     print "  PASS: result session path exists"
 
-    if ! grep -rql "launchctl" "${session_path}"/*.log 2>/dev/null; then
+    if ! find "${session_path}" -type f -name '*.log' -exec grep -q -l "launchctl" {} + >/dev/null 2>&1; then
         print "  FAIL: result session does not contain 'launchctl' (expected the env-check session)"
         return 1
     fi

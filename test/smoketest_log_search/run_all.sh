@@ -1,14 +1,18 @@
 #!/bin/zsh
 # run_all.sh — orchestrate log_search smoke tests
 #
-# Runs against real archived logs in $TDS_LOG_DIR.
-# Skips gracefully if TDS_LOG_DIR is unset or has no archived sessions.
+# Runs against real archived logs from the configured log directory.
+# Skips gracefully if the archived log directory is missing or contains no .log files.
 #
 # Usage: ./test/smoketest_log_search/run_all.sh
 
 set -euo pipefail
 
 SCRIPT_DIR="${0:A:h}"
+
+# Create temp index dir before sourcing config.sh (which guards against empty SMOKE_INDEX_DIR).
+export SMOKE_INDEX_DIR=$(mktemp -d "${TMPDIR:-/tmp}/log-search-smoke.XXXXXX")
+
 source "${SCRIPT_DIR}/config.sh"
 
 # --- Test harness ---
@@ -57,10 +61,6 @@ preflight() {
         print "log_search not found at ${LOG_SEARCH}"
         exit 1
     fi
-
-    # Temp index for this test run.
-    SMOKE_INDEX_DIR=$(mktemp -d "${TMPDIR:-/tmp}/log-search-smoke.XXXXXX")
-    export SMOKE_INDEX_DIR
 }
 
 # --- Cleanup ---
