@@ -11,7 +11,7 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 ## Open Tasks
 
-- [ ] Task 2a: Implement `Span` and `Chunk` domain models in `search/domain/models.py`.
+- [x] Task 2a: Implement `Span` and `Chunk` domain models in `search/domain/models.py`.
 - [ ] Task 2b: Implement `Segmenter` — reads a log file, detects span boundaries (cd commands, tool switches, idle gaps), returns `Span` objects with byte offsets. Pure domain logic in `search/domain/segmenter.py`.
 - [ ] Task 2c: Implement `Chunker` — splits a span's text into embedding-sized `Chunk` objects with overlap. Pure domain logic in `search/domain/chunker.py`.
 - [ ] Task 2d: Update `SearchIndexPort` and `TxtaiAdapter` — store chunk embeddings keyed by `session:span:chunk` with byte-offset metadata. Add `EmbeddingPort` to `ports.py`.
