@@ -32,10 +32,11 @@ _log_search_widget() {
 
     local query="${BUFFER}"
 
-    # If the line buffer is empty, prompt for a query via /dev/tty.
+    # If the line buffer is empty, prompt for a query.
+    # Use vared which handles terminal I/O correctly within ZLE.
     if [[ -z "${query}" ]]; then
-        print -n "log search: " >/dev/tty
-        read -r query </dev/tty
+        query=""
+        vared -p "log search: " query </dev/tty >/dev/tty
 
         if [[ -z "${query}" ]]; then
             zle reset-prompt
