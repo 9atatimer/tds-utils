@@ -18,8 +18,9 @@ class TxtaiAdapter(SearchIndexPort):
             "content": True  # This enables the SQLite backend for metadata
         })
         
-        # Load index if it exists
-        if os.path.exists(os.path.join(index_path, "config")):
+        # Load index if it exists (txtai <8 used "config", >=8 uses "config.json")
+        if os.path.exists(os.path.join(index_path, "config")) or \
+           os.path.exists(os.path.join(index_path, "config.json")):
             self.embeddings.load(index_path)
 
     def add_entries(self, entries: List[LogEntry]):
@@ -47,11 +48,20 @@ class TxtaiAdapter(SearchIndexPort):
         results = self.embeddings.search(query, limit)
         matches = []
         for result in results:
-            # txtai search returns a dictionary when content=True
+            # txtai search with content=True returns dicts with id, text, score.
+            # Metadata columns (path, timestamp, slug) may or may not be present
+            # depending on txtai version. Fall back to id for path.
+            path = result.get("path", result.get("id", ""))
+            timestamp_str = result.get("timestamp")
+            timestamp = (
+                datetime.fromisoformat(timestamp_str)
+                if timestamp_str
+                else datetime.fromtimestamp(0)
+            )
             entry = LogEntry(
-                path=result["path"],
-                timestamp=datetime.fromisoformat(result["timestamp"]),
-                slug=result.get("slug")
+                path=path,
+                timestamp=timestamp,
+                slug=result.get("slug"),
             )
             matches.append(SearchMatch(entry=entry, score=result["score"]))
         return matches
