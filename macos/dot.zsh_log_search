@@ -5,10 +5,9 @@
 # session log in $PAGER.
 #
 # Flow:
-#   1. If the line buffer has text, use it as the query. Otherwise prompt.
-#   2. Run log_search with the query (semantic search).
-#   3. Pipe ranked results through fzf for selection.
-#   4. Open the selected session's log files in $PAGER.
+#   1. fzf opens with the line buffer as the initial query.
+#   2. As you type, fzf calls log_search and displays ranked results.
+#   3. Select a result and it opens in $PAGER.
 #
 # Prerequisites: fzf, log_search (in PATH via tds-utils/bin/)
 #
@@ -30,42 +29,29 @@ _log_search_widget() {
         return 1
     fi
 
-    local query="${BUFFER}"
+    local initial_query="${BUFFER}"
 
-    # If the line buffer is empty, prompt for a query.
-    # Use vared which handles terminal I/O correctly within ZLE.
-    if [[ -z "${query}" ]]; then
-        query=""
-        vared -p "log search: " query </dev/tty >/dev/tty
-
-        if [[ -z "${query}" ]]; then
-            zle reset-prompt
-            return 0
-        fi
-    fi
-
-    # Clear the buffer so the query text doesn't linger.
-    BUFFER=""
-    zle reset-prompt
-
-    # Run semantic search, pipe through fzf for selection.
-    # log_search output: SESSION_PATH\tSCORE\tTIMESTAMP\tSLUG
-    zle -M "Searching..."
+    # Use fzf as both the query input and result selector.
+    # --disabled: fzf doesn't filter locally — log_search does the ranking.
+    # --bind change:reload: re-runs log_search as you type.
     local selected
     selected=$(
-        log_search "${query}" 2>/dev/null |
-        fzf --ansi \
-            --no-sort \
+        log_search "${initial_query}" 2>/dev/null |
+        fzf --disabled \
+            --query="${initial_query}" \
+            --prompt="log search: " \
             --delimiter='\t' \
             --with-nth=1,3,4 \
-            --header="Results for: ${query}" \
             --preview='head -c 4000 {1}/*.log 2>/dev/null | head -80' \
             --preview-window=right:50%:wrap \
             --height=60% \
             --reverse \
+            --bind "change:reload:log_search {q} 2>/dev/null || true" \
         </dev/tty
     )
 
+    # Restore the prompt regardless of outcome.
+    BUFFER=""
     zle reset-prompt
 
     if [[ -z "${selected}" ]]; then
