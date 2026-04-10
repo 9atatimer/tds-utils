@@ -11,16 +11,32 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 ## Open Tasks
 
-- [x] Task 2a: Implement `Span` and `Chunk` domain models in `search/domain/models.py`.
-- [ ] Task 2b: Implement `Segmenter` — reads a log file, detects span boundaries (cd commands, tool switches, idle gaps), returns `Span` objects with byte offsets. Pure domain logic in `search/domain/segmenter.py`.
+### Smoke Test & CLI (drives everything below — write tests first, then build until they pass)
+
+- [x] Task S1: Create `log_search` CLI — the entry point for both the ZLE widget and the smoke test. Takes a query string, prints ranked results (session path, working dir, timestamp, preview). Lives in `bin/log_search` and delegates to the Python search pipeline.
+- [x] Task S2: Create smoke test harness `test/smoketest_log_search/` — shell scripts following the grubsta pattern (`config.sh`, `run_all.sh`, numbered scenario scripts). Tests run against real `$TDS_LOG_DIR/archived/` data.
+- [x] Task S3: Smoke test scenario — `01_index_archived_logs.sh` — run the indexer against real archived logs, assert exit 0 and index is non-empty. Setup for all subsequent tests.
+- [x] Task S4: Smoke test scenario — `02_keyword_match.sh` — `log_search "ollama"` returns a result pointing to a session that contains "ollama" (sessions 2/1/0 and 3/0/0 both have ollama activity).
+- [x] Task S5: Smoke test scenario — `03_semantic_match.sh` — `log_search "checking environment variables for a running service"` returns a result pointing to the launchctl/OLLAMA session (1/1/0) even though the query doesn't share exact keywords.
+- [ ] Task S6 (future): Smoke test scenario — project-scoped search. `log_search "git clone in 9atatimer"` returns session 2/2/0 (which has `cd workplace/9atatimer && git clone`). Requires working dir context in embeddings.
+- [ ] Task S7 (future): Smoke test scenario — cross-project filter. Same query scoped to a different project returns different/no results.
+- [ ] Task S8 (future): Smoke test scenario — search across compressed and uncompressed logs returns consistent results.
+
+### Shell Integration
+
+- [ ] Task Z1: Create ZLE widget for `ctrl-x s` — invokes `log_search`, pipes results through `fzf` for selection, displays matched log section in `$PAGER`. Add to `macos/dot.zshrc` or a sourced plugin file.
+
+### Pipeline (implementation work driven by smoke tests above)
+
+- [ ] Task 2b: Implement `Segmenter` — reads log text, detects span boundaries (prompt lines with cd, tool switches, idle gaps), returns `Span` objects with byte offsets. Pure domain logic in `search/domain/segmenter.py`. Should accept text, not file paths — keeps it pure for future compression abstraction.
 - [ ] Task 2c: Implement `Chunker` — splits a span's text into embedding-sized `Chunk` objects with overlap. Pure domain logic in `search/domain/chunker.py`.
 - [ ] Task 2d: Update `SearchIndexPort` and `TxtaiAdapter` — store chunk embeddings keyed by `session:span:chunk` with byte-offset metadata. Add `EmbeddingPort` to `ports.py`.
 - [ ] Task 2e: Update indexer — replace `get_log_sample` with full pipeline: read log → segment into spans → chunk each span → embed → store. Move `indexer.py` into `search/`.
 - [ ] Task 2f: Update searcher — query returns chunk hits, group by span, return ranked span references. Move `searcher.py` into `search/`.
-- [ ] Task 3: Validate span-based indexing and search with real log data.
+- [ ] Task 3: Wire `log_search` CLI to the searcher. Get smoke tests S4 and S5 passing.
 - [ ] Task 4: Integrate indexer into `tmux_shepherd.sh` cron mode.
 - [ ] Task 5: Phase 2 — Implement `SqliteVecAdapter` + `OllamaAdapter` for lighter-weight alternative.
-- [ ] Task 6: Add `log_search` alias or bin link for easier CLI access.
+- [ ] Task 6 (future): Compressed log storage — implement compression in archive pipeline, update file-access abstraction, get smoke test S8 passing.
 
 ---
 
@@ -31,6 +47,11 @@ This file tracks the status of development tasks, lessons learned, and completed
 - **Single Source of Truth (target state)**: The index will store only embeddings and metadata (session path, span ID, chunk index, byte offsets). The original log files are the sole content store. No raw text in the index, no sampling or truncation -- every byte of every log must be covered by embeddings. Note: the current MVP scaffolding still uses content sampling; Task 2a-2f replaces this with span-based chunked indexing.
 - **Full Coverage Required**: A single session may span multiple projects and tasks. Sampling head/tail lines is useless for semantic search -- the indexer must segment into spans and chunk the entire file.
 - **Spans vs Chunks**: Chunks are the unit of embedding (sized for the model's context window). Spans are the unit of retrieval (logically coherent stretches of activity). Search returns span references; chunks are an implementation detail of the index.
+- **Byte Offsets Reference Uncompressed Content**: All byte offsets in `Span` and `Chunk` models reference the uncompressed log stream. This keeps the index format stable regardless of whether the underlying file is compressed or not. Log-reading code should go through a single file-access abstraction so compression can be added in one place later.
+- **Frozen Dataclasses with Validation**: Using `@dataclass(frozen=True, slots=True)` with `__post_init__` validation catches invalid state at construction time. The `Chunk.from_span()` factory enforces that chunk byte ranges fall within their parent span — this is a domain invariant, not just a nice-to-have.
+- **Real Log Format**: Log lines follow the pattern `HH:MM:SS user@host:dir % command`. Prompt lines with `% cd` are the primary span boundary signal. Logs range from 3KB (short sessions) to 8.8MB (long benchmarking runs). The segmenter will need to handle heavy non-printable/control character noise from terminal output (tab completion artifacts, ANSI remnants post-ansifilter).
+- **Test Behavior, Not Implementation**: Domain models (dataclasses, validation, properties) are implementation details — testing them in isolation is change-detection, not bug-detection. Smoke tests should exercise the user-visible behavior: "I type a query, I get back the right session." Write that test first, then build until it passes. Unit tests for internal components only earn their keep if they test a behavioral contract that matters to the pipeline.
+- **Smoke Tests Hit Real Systems**: A smoke test runs the real tool against real data and checks real output. Hardcoded fixtures pretending to be real data are just unit tests with extra steps. Smoke tests for log search run against `$TDS_LOG_DIR/archived/` and skip gracefully when unavailable.
 
 ---
 
@@ -41,3 +62,4 @@ This file tracks the status of development tasks, lessons learned, and completed
 - [x] Task 2 (Design): Create `SEMANTIC-SEARCH.DESIGN.md` and scaffold Hexagonal architecture with `txtai` MVP.
 - [x] Task 2 (Scaffolding): Implement domain models, ports, `TxtaiAdapter`, indexer, and searcher.
 - [x] Task 2 (Design revision): Refine design with span/chunk model — spans as semantic segments, chunks as embedding units, search groups by span.
+- [x] Task 2a: Implement `Span` and `Chunk` domain models in `search/domain/models.py`. Added frozen dataclasses with validation, `Chunk.from_span()` factory, `index_key` property. 21 unit tests + 9 smoke tests against real session data. Also added `pyproject.toml` for log-hoarder and `__pycache__` to `.gitignore`. PR #10.

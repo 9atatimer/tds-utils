@@ -1,0 +1,52 @@
+#!/bin/zsh
+# log_index — index archived terminal session logs for semantic search
+#
+# Usage: log_index [--index-dir DIR] [--log-dir DIR]
+#
+# Options:
+#   --index-dir DIR   Override index storage location (default: $TDS_LOG_DIR/search_index)
+#   --log-dir DIR     Override archived log directory (default: $TDS_LOG_DIR/archived)
+
+set -euo pipefail
+
+REPO_DIR="${0:A:h:h}"
+LOG_HOARDER_DIR="${REPO_DIR}/log-hoarder"
+
+# --- Argument parsing ---
+
+parse_args() {
+    INDEX_DIR=""
+    LOG_DIR=""
+
+    while (( $# > 0 )); do
+        case "$1" in
+            --index-dir)
+                INDEX_DIR="$2"; shift 2 ;;
+            --log-dir)
+                LOG_DIR="$2"; shift 2 ;;
+            -h|--help)
+                head -7 "$0" | tail -5; exit 0 ;;
+            *)
+                print "Unknown option: $1" >&2; exit 1 ;;
+        esac
+    done
+}
+
+# --- Main ---
+
+main() {
+    parse_args "$@"
+
+    local env_args=()
+    if [[ -n "${INDEX_DIR}" ]]; then
+        env_args+=(LOG_SEARCH_INDEX_DIR="${INDEX_DIR}")
+    fi
+    if [[ -n "${LOG_DIR}" ]]; then
+        env_args+=(LOG_SEARCH_LOG_DIR="${LOG_DIR}")
+    fi
+
+    cd "${LOG_HOARDER_DIR}"
+    env "${env_args[@]}" python3 -m search.cli.index
+}
+
+main "$@"
