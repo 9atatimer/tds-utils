@@ -24,7 +24,7 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 ### Shell Integration
 
-- [ ] Task Z1: Create ZLE widget for `ctrl-x s` — invokes `log_search`, pipes results through `fzf` for selection, displays matched log section in `$PAGER`. Add to `macos/dot.zshrc` or a sourced plugin file.
+- [x] Task Z1: Create ZLE widget for `ctrl-x s` — invokes `log_search`, pipes results through `fzf` for selection, displays matched log section in `$PAGER`. Plugin file `macos/dot.zsh_log_search`, sourced from `dot.zshrc`. PR #12.
 
 ### Pipeline (implementation work driven by smoke tests above)
 

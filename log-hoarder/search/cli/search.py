@@ -21,7 +21,7 @@ def run_search(query: str) -> None:
     )
 
     index = TxtaiAdapter(index_path=index_path)
-    matches = index.search(query, limit=5)
+    matches = index.search(query, limit=10)
 
     if not matches:
         return
