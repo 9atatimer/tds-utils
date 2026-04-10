@@ -1,0 +1,54 @@
+#!/bin/zsh
+# log_search — semantic search over archived terminal session logs
+#
+# Usage: log_search [--index-dir DIR] "query text"
+#
+# Output format (one result per line, suitable for fzf):
+#   SESSION_PATH  SCORE  TIMESTAMP  PREVIEW
+#
+# Options:
+#   --index-dir DIR   Override index storage location (default: $TDS_LOG_DIR/search_index)
+
+set -euo pipefail
+
+REPO_DIR="${0:A:h:h}"
+LOG_HOARDER_DIR="${REPO_DIR}/log-hoarder"
+
+# --- Argument parsing ---
+
+parse_args() {
+    INDEX_DIR=""
+    QUERY=""
+
+    while (( $# > 0 )); do
+        case "$1" in
+            --index-dir)
+                INDEX_DIR="$2"; shift 2 ;;
+            -h|--help)
+                head -8 "$0" | tail -6; exit 0 ;;
+            *)
+                QUERY="$*"; break ;;
+        esac
+    done
+
+    if [[ -z "${QUERY}" ]]; then
+        print "Usage: log_search [--index-dir DIR] \"query text\"" >&2
+        exit 1
+    fi
+}
+
+# --- Main ---
+
+main() {
+    parse_args "$@"
+
+    local env_args=()
+    if [[ -n "${INDEX_DIR}" ]]; then
+        env_args+=(LOG_SEARCH_INDEX_DIR="${INDEX_DIR}")
+    fi
+
+    cd "${LOG_HOARDER_DIR}"
+    env "${env_args[@]}" python3 -m search.cli.search "${QUERY}"
+}
+
+main "$@"
