@@ -81,6 +81,11 @@ source ~/workplace/lab54/grubsta/scripts/completions/grubsta-completions.zsh
 # Path updates
 export PATH="/Users/stumpf/.antigravity/antigravity/bin:$PATH"
 
+# log-hoarder: semantic search widget (ctrl-x s)
+if [[ -f ~/workplace/tds-utils/macos/dot.zsh_log_search ]]; then
+    source ~/workplace/tds-utils/macos/dot.zsh_log_search
+fi
+
 # log-hoarder: auto-launch tmux for each new terminal window.
 # (1Password ENV is inherited by tmux because it is exported above)
 if [[ -o interactive ]] && [[ -z "$TMUX" ]]; then
