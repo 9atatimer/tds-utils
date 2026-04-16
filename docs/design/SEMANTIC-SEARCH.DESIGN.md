@@ -37,8 +37,9 @@ The segmenter is pure domain logic -- it takes text in and returns a list of spa
 Each span carries metadata:
 
 *   `session_path`: the pane directory
-*   `span_id`: ordinal within the session (0, 1, 2, ...)
-*   `byte_start`, `byte_end`: offsets into the source log file
+*   `log_file`: the specific `.log` file within the pane directory (a pane directory may contain multiple `.log` files from reuse across tmux sessions — each is a distinct log stream with its own byte-offset space)
+*   `span_id`: ordinal within the log file (0, 1, 2, ...)
+*   `byte_start`, `byte_end`: offsets into the specific `log_file` (not the pane directory as a whole)
 *   `working_dir`: the working directory at span start (if detectable)
 
 ### Chunking (within Spans)
@@ -48,17 +49,17 @@ Each span is split into fixed-size chunks for embedding:
 *   **Chunk size**: ~512-1024 tokens (tuned to embedding model context window)
 *   **Overlap**: ~10-20% between adjacent chunks to avoid splitting thoughts at boundaries
 *   **Boundary alignment**: chunks do not cross span boundaries -- a new span always starts a new chunk
-*   **Non-printable filtering**: strip control characters before embedding, but preserve byte offsets into the original file so results map back accurately
+*   **Text cleaning**: raw terminal logs contain control characters, ANSI escape remnants (even post-ansifilter), tab-completion artifacts, prompt decorations, and tool output noise. The chunker must clean text before embedding but preserve byte offsets into the original (uncleaned) file so results map back accurately. Cleaning stages: strip remaining ANSI/control sequences, collapse redundant whitespace, optionally extract command lines as a separate high-signal channel. The cleaning pipeline is a domain concern — it should be a composable step between "read raw bytes" and "send to embedding model," not buried inside an adapter
 
 Each chunk carries metadata:
 
-*   `session_path`, `span_id`: inherited from the parent span
+*   `session_path`, `log_file`, `span_id`: inherited from the parent span
 *   `chunk_index`: ordinal within the span (0, 1, 2, ...)
-*   `byte_start`, `byte_end`: offsets into the source log file
+*   `byte_start`, `byte_end`: offsets into the specific `log_file`
 
 ### Index Reference Format
 
-Every embedding in the index is keyed by `session:span:chunk` and carries enough metadata to locate the original bytes. Search queries return chunk hits; the application layer groups those hits by span and returns span references ranked by best chunk score.
+Every embedding in the index is keyed by `session:log_file:span:chunk` and carries enough metadata to locate the original bytes in the specific log file. Search queries return chunk hits; the application layer groups those hits by span and returns span references ranked by best chunk score.
 
 ## Architecture: Hexagonal (Ports & Adapters)
 
@@ -88,9 +89,29 @@ To allow swapping the storage backend without touching business logic, we separa
 ### 3. Application Layer (Orchestration + CLI)
 
 *   **Indexer flow**: Discover unindexed sessions → Read log → Segment into spans → Chunk each span → Embed chunks (via `EmbeddingPort`) → Store in index (via `SearchIndexPort`)
-*   **Search flow**: User query → Embed query → Retrieve matching chunks → Group by span → Return ranked span references (session path, span ID, byte range, score)
+*   **Search flow**: User query → Embed query → Retrieve matching chunks → Group by span → Return ranked span references (session path, log file, span ID, byte range, score) → Extract preview snippet from source log file
 
 For short spans, the entire span text can be used as RAG context. For long spans, the matching chunk(s) plus surrounding context within the span are returned.
+
+### Search Serving Model
+
+Loading the embedding model is expensive (hundreds of milliseconds to seconds). The search CLI must not pay this cost on every invocation. The search process should be long-lived — a daemon listening on a UNIX socket, a FIFO-based protocol, or similar — so that the fzf `change:reload` command talks to a warm model. The ZLE widget starts the daemon on first use if not already running, and the daemon shuts itself down after an idle timeout.
+
+Design decisions to resolve before implementing the daemon:
+1. IPC mechanism (UNIX socket vs FIFO vs stdin/stdout of a coprocess)
+2. Protocol format (newline-delimited JSON, tab-delimited text, or other)
+3. Lifecycle management (who starts it, idle timeout, crash recovery)
+
+### Output Contract: Search → Presentation
+
+The search process and the shell presentation layer (fzf, ZLE widget, `$PAGER`) communicate through a defined wire format. This is the integration boundary between Python and shell.
+
+Each result line must carry enough information for the shell layer to:
+1. **Display a scannable result line** in fzf — not raw archive paths, but human-readable context: slug (if branded), tail working-dir components, compact datetime, optionally the tmux window name
+2. **Show the matching region in the preview pane** — the byte range (or a pre-extracted snippet) of the chunk that caused the hit
+3. **Open the right file at the right position** when the user selects a result — the specific `.log` file and byte offset, not just the pane directory
+
+The exact wire format is TBD, but it must include at minimum: `log_file_path`, `byte_start`, `byte_end`, `score`, `timestamp`, `slug`, `working_dir`. The search process — not the shell layer — is responsible for extracting the preview snippet from the source log, since it already knows the byte offsets and has file-reading capability.
 
 ---
 
@@ -119,7 +140,7 @@ log-hoarder/
 The index is a lookup structure, not a data store:
 
 *   **No raw log text** -- the index stores embeddings and metadata only
-*   **No truncated samples** -- partial content defeats the purpose of semantic search
+*   **No sampling or truncation** -- every byte of every log file must be covered by embeddings. There is no "sample" concept in the indexing pipeline; the term and any code embodying it should be removed
 *   The index should be rebuildable from the log files at any time
 
 ## Integration with `log-hoarder`
