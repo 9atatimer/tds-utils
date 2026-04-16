@@ -1,3 +1,55 @@
+CHESTRATOR.SUPPLEMENTAL.md
++197 -0
+# Orchestrator Design -- Session Supplemental
+
+## Starting Prompt for Next Session
+
+```
+We are working on an AI coding agent orchestration system design.
+The design doc is at docs/design/ORCHESTRATOR.DESIGN.md -- read it first.
+Then read this file (docs/design/ORCHESTRATOR.SUPPLEMENTAL.md) for
+discussion context, decisions made, and open threads.
+
+Before doing anything, read prompts/SKILL.DESIGN.md and docs/design/TEMPLATE.md
+for the design doc conventions this repo uses.
+
+This is a design and architecture discussion. Do not write code. Do not write
+schemas. Be a peer architect. Be succinct. Offer constructive criticism.
+
+The user's instructions from CLAUDE.md apply: always propose before writing,
+ask clarifying questions, solve problems don't work around them.
+```
+
+---
+
+## Session Date
+
+2026-04-16
+
+---
+
+## What Happened This Session
+
+1. User presented a brain dump of an AI coding agent orchestration system
+2. We had a back-and-forth design discussion clarifying key decisions
+3. I drafted ORCHESTRATOR.DESIGN.md following the repo's template and skill conventions
+4. Git push was broken (proxy is read-only) -- user copied the file manually
+
+---
+
+## Key Decisions Made (with rationale from discussion)
+
+### k3s over kind
+
+- kind is designed for CI testing, not long-running workloads
+- k3s runs as a single binary, smaller footprint, closer to production K8s
+- k3s handles persistent volumes more naturally
+- KEDA works with k3s, minikube, and kind equally
+
+### Descriptive FSMs, not prescriptive
+
+- "FSMs all the way down" -- every lifecycle expressible as a state machine
+- But the FSMs are test contracts, not enforcement engines
 - No god-process validating transitions
 - "Be like water" -- implementation evolves freely, tests enforce behavior
 - The power of NATS subjects + JetStream consumers is that topology can evolve without rewriting a central state machine
