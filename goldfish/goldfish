@@ -93,9 +93,10 @@ class Progress:
         sys.stderr.flush()
 
     def msg(self, label: str) -> None:
-        if not self.tty:
-            return
-        sys.stderr.write(f"\r\033[K{label}\n")
+        # Always emit informational lines (helpful when stderr is a log file
+        # or test pipe). Only the progress bar is tty-gated.
+        prefix = "\r\033[K" if self.tty else ""
+        sys.stderr.write(f"{prefix}{label}\n")
         sys.stderr.flush()
 
     def done(self) -> None:
