@@ -16,15 +16,19 @@ from pathlib import Path
 
 from core import (
     AgentSession,
+    ClonesCache,
     GithubInfo,
     LocalInfo,
     GitDirtyState,
     enclosing_repo,
+    first_meaningful_line,
+    parse_clones_cache,
     parse_gh_repo_list,
     parse_git_porcelain,
     parse_lsof_cwd,
     parse_ps,
     parse_todo_plan,
+    serialize_clones_cache,
 )
 
 
@@ -113,6 +117,50 @@ def find_local_clones(roots: list[Path], *, max_depth: int = 6) -> dict[str, Pat
     return out
 
 
+# --- Clones cache (G3) -------------------------------------------------------
+
+CLONES_CACHE_TTL_SECONDS = 24 * 60 * 60
+
+
+def clones_cache_path() -> Path:
+    """Cache file path. Uses $XDG_CACHE_HOME if set, else ~/.cache/."""
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    return Path(base) / "goldfish" / "clones.json"
+
+
+def load_cached_clones() -> ClonesCache | None:
+    """Read the cache file. Returns None if missing or malformed."""
+    path = clones_cache_path()
+    if not path.exists():
+        return None
+    try:
+        return parse_clones_cache(path.read_text())
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def save_cached_clones(clones: dict[str, Path]) -> None:
+    """Atomically write the cache file. Errors are silently swallowed."""
+    from datetime import datetime, timezone
+    path = clones_cache_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(serialize_clones_cache(clones, saved_at=datetime.now(timezone.utc)))
+        tmp.replace(path)
+    except OSError:
+        pass
+
+
+def cached_clones_fresh(cache: ClonesCache, *, ttl_seconds: int = CLONES_CACHE_TTL_SECONDS) -> bool:
+    """True if the cache is younger than the TTL and every cached path still has .git/."""
+    from datetime import datetime, timezone
+    age = (datetime.now(timezone.utc) - cache.saved_at).total_seconds()
+    if age > ttl_seconds:
+        return False
+    return all((p / ".git").exists() for p in cache.clones.values())
+
+
 def _find_git_dirs(root: Path, max_depth: int) -> list[Path]:
     """Use `find` to locate .git directories under root, skipping hidden parents."""
     raw = _run([
@@ -198,6 +246,46 @@ def _parse_iso_safe(raw: str) -> datetime | None:
         return None
 
 
+# --- LLM next-task summarizer (G2) -------------------------------------------
+
+LLM_PROMPT = (
+    "Read the TODO_PLAN.md content on stdin. In one short sentence "
+    "(<= 100 chars), describe the single next concrete task. No preamble, "
+    "no quotes, no markdown, just the sentence."
+)
+
+
+def summarize_with_llm(todo_text: str, *, timeout: float = 30.0) -> str | None:
+    """Summarize a TODO_PLAN via claude or ollama. Returns None if both fail.
+
+    Tries `claude -p` first, then `ollama run llama3.2` as a fallback. Both
+    accept the file content on stdin.
+    """
+    if not todo_text.strip():
+        return None
+    for cmd in _llm_candidates():
+        try:
+            result = subprocess.run(
+                cmd, input=todo_text, capture_output=True, text=True,
+                timeout=timeout, check=False,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            continue
+        if result.returncode == 0 and result.stdout.strip():
+            return first_meaningful_line(result.stdout)
+    return None
+
+
+def _llm_candidates() -> list[list[str]]:
+    out: list[list[str]] = []
+    if have("claude"):
+        out.append(["claude", "-p", LLM_PROMPT])
+    if have("ollama"):
+        model = os.environ.get("GOLDFISH_OLLAMA_MODEL", "llama3.2")
+        out.append(["ollama", "run", model, LLM_PROMPT])
+    return out
+
+
 def fetch_remote_todo_plan(name_with_owner: str) -> str | None:
     """Fetch TODO_PLAN.md from GitHub via gh api. Returns text or None."""
     if not have("gh"):
@@ -221,6 +309,36 @@ def running_agents(known: set[str], local_clones: dict[str, Path]) -> list[Agent
     repo_paths = set(local_clones.values())
     sessions: list[AgentSession] = []
     for pid, name in candidates:
+        cwd = _proc_cwd(pid)
+        if cwd is None:
+            continue
+        repo = enclosing_repo(cwd, repo_paths)
+        if repo is not None:
+            sessions.append(AgentSession(pid=pid, name=name, repo_path=repo))
+    return sessions
+
+
+def all_processes_in_clones(local_clones: dict[str, Path]) -> list[AgentSession]:
+    """Find every running process whose cwd is inside a tracked repo (G6 verbose).
+
+    No name whitelist applied; for catching agents launched through a wrapper
+    (e.g. `python3 launcher.py` re-execing claude) that the agent whitelist
+    would miss.
+    """
+    ps_out = _run(["ps", "-axo", "pid=,comm="], timeout=5.0)
+    if not ps_out:
+        return []
+    repo_paths = set(local_clones.values())
+    sessions: list[AgentSession] = []
+    for line in ps_out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(None, 1)
+        if len(parts) != 2 or not parts[0].isdigit():
+            continue
+        pid = int(parts[0])
+        name = parts[1].rsplit("/", 1)[-1]
         cwd = _proc_cwd(pid)
         if cwd is None:
             continue

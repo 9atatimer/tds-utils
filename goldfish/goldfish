@@ -20,15 +20,28 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from core import GithubInfo, RepoRow, format_table, sort_rows  # noqa: E402
+from core import (  # noqa: E402
+    GithubInfo,
+    RepoRow,
+    apply_org_filter,
+    format_processes,
+    format_table,
+    rows_to_json,
+    sort_rows,
+)
 from shell import (  # noqa: E402
+    all_processes_in_clones,
+    cached_clones_fresh,
     fetch_remote_todo_plan,
     find_local_clones,
     gh_list_repos,
     gh_open_pr_counts,
     have,
     inspect_local,
+    load_cached_clones,
     running_agents,
+    save_cached_clones,
+    summarize_with_llm,
 )
 from core import parse_todo_plan  # noqa: E402
 
@@ -64,7 +77,12 @@ def resolve_orgs(config: dict) -> list[str]:
 # --- Progress bar ------------------------------------------------------------
 
 class Progress:
-    """Single-line stderr progress display. No-op when stderr isn't a tty."""
+    """Single-line stderr progress display.
+
+    Informational messages (`msg`) always emit so logs/CI/test-pipes capture
+    them. Only the animated progress bar (`step`) is tty-gated, since its
+    \\r-overwriting carriage returns look ugly in non-tty output.
+    """
 
     def __init__(self) -> None:
         self.tty = sys.stderr.isatty()
@@ -80,9 +98,10 @@ class Progress:
         sys.stderr.flush()
 
     def msg(self, label: str) -> None:
-        if not self.tty:
-            return
-        sys.stderr.write(f"\r\033[K{label}\n")
+        # Always emit informational lines (helpful when stderr is a log file
+        # or test pipe). Only the progress bar is tty-gated.
+        prefix = "\r\033[K" if self.tty else ""
+        sys.stderr.write(f"{prefix}{label}\n")
         sys.stderr.flush()
 
     def done(self) -> None:
@@ -94,8 +113,14 @@ class Progress:
 
 # --- Flow functions ----------------------------------------------------------
 
-def gather(config: dict, *, fetch_remote_todos: bool) -> list[RepoRow]:
-    """Run all probes and assemble RepoRows."""
+def gather(
+    config: dict,
+    *,
+    fetch_remote_todos: bool,
+    refresh_clones: bool = False,
+    llm: bool = False,
+) -> tuple[list[RepoRow], dict[str, Path]]:
+    """Run all probes and assemble RepoRows. Returns (rows, clones)."""
     progress = Progress()
     orgs = resolve_orgs(config)
     roots = resolve_roots(config)
@@ -103,10 +128,22 @@ def gather(config: dict, *, fetch_remote_todos: bool) -> list[RepoRow]:
 
     progress.msg(f"goldfish — orgs={orgs or '(none)'} roots={[str(r) for r in roots]}")
 
+    cached = None if refresh_clones else load_cached_clones()
+    use_cache = cached is not None and cached_clones_fresh(cached)
+    if use_cache:
+        progress.msg(f"goldfish — using cached clones ({len(cached.clones)} entries; --refresh to rescan)")
+
+    def _clones() -> dict[str, Path]:
+        if use_cache:
+            return dict(cached.clones)
+        found = find_local_clones(roots)
+        save_cached_clones(found)
+        return found
+
     with ThreadPoolExecutor(max_workers=4) as ex:
         f_gh_repos = ex.submit(gh_list_repos, orgs)
         f_gh_prs = ex.submit(gh_open_pr_counts, orgs)
-        f_clones = ex.submit(find_local_clones, roots)
+        f_clones = ex.submit(_clones)
         gh_repos = f_gh_repos.result()
         pr_counts = f_gh_prs.result()
         clones = f_clones.result()
@@ -129,12 +166,12 @@ def gather(config: dict, *, fetch_remote_todos: bool) -> list[RepoRow]:
     total = len(todo)
     if total == 0:
         progress.done()
-        return []
+        return [], clones
 
     with ThreadPoolExecutor(max_workers=8) as ex:
         futures = {
             ex.submit(_build_row, name, gh, pr_counts, clones, agents,
-                      fetch_remote_todos): name
+                      fetch_remote_todos, llm): name
             for name, gh in todo
         }
         done = 0
@@ -145,7 +182,7 @@ def gather(config: dict, *, fetch_remote_todos: bool) -> list[RepoRow]:
             if row is not None:
                 rows.append(row)
     progress.done()
-    return rows
+    return rows, clones
 
 
 def _build_row(
@@ -155,6 +192,7 @@ def _build_row(
     clones: dict[str, Path],
     agents: list,
     fetch_remote_todos: bool,
+    llm: bool,
 ) -> RepoRow | None:
     github_info = None
     if gh is not None:
@@ -165,14 +203,33 @@ def _build_row(
         )
     workdir = clones.get(name)
     local = inspect_local(workdir) if workdir else None
+    todo_text: str | None = None
+    if local is not None and workdir is not None:
+        todo_path = workdir / "TODO_PLAN.md"
+        if todo_path.exists():
+            try:
+                todo_text = todo_path.read_text()
+            except (OSError, UnicodeDecodeError):
+                todo_text = None
     if local is None and fetch_remote_todos and gh is not None:
         text = fetch_remote_todo_plan(name)
         if text:
             from core import LocalInfo
+            todo_text = text
             local = LocalInfo(
                 path=Path(""), is_dirty=False, ahead=0, behind=0,
                 branch="", last_commit_at=None,
                 next_task=parse_todo_plan(text),
+            )
+    if llm and todo_text and local is not None:
+        summary = summarize_with_llm(todo_text)
+        if summary:
+            from core import LocalInfo
+            local = LocalInfo(
+                path=local.path, is_dirty=local.is_dirty, ahead=local.ahead,
+                behind=local.behind, branch=local.branch,
+                last_commit_at=local.last_commit_at,
+                next_task=summary,
             )
     repo_agents = tuple(a for a in agents if workdir is not None and a.repo_path == workdir)
     return RepoRow(name=name, github=github_info, local=local, agents=repo_agents)
@@ -191,6 +248,30 @@ def run(argv: list[str]) -> int:
         "--max-width", type=int, default=_terminal_width(),
         help="Max line width for the rendered table.",
     )
+    parser.add_argument(
+        "--json", action="store_true",
+        help="Emit a JSON array instead of a rendered table.",
+    )
+    parser.add_argument(
+        "--include-org", action="append", default=[], metavar="ORG",
+        help="Only show repos owned by this org. Repeatable.",
+    )
+    parser.add_argument(
+        "--exclude-org", action="append", default=[], metavar="ORG",
+        help="Hide repos owned by this org. Repeatable. Wins over --include-org.",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true",
+        help="Also list every process whose cwd is in a tracked repo.",
+    )
+    parser.add_argument(
+        "--refresh", action="store_true",
+        help="Rescan disk for clones instead of using the cache.",
+    )
+    parser.add_argument(
+        "--llm", action="store_true",
+        help="Summarize each TODO_PLAN.md via `claude` (or `ollama`) for the NEXT column.",
+    )
     args = parser.parse_args(argv)
 
     if not have("gh"):
@@ -199,12 +280,33 @@ def run(argv: list[str]) -> int:
         )
 
     config = load_config()
-    rows = gather(config, fetch_remote_todos=args.fetch_remote_todos)
+    rows, clones = gather(
+        config,
+        fetch_remote_todos=args.fetch_remote_todos,
+        refresh_clones=args.refresh,
+        llm=args.llm,
+    )
+    rows = apply_org_filter(
+        rows,
+        include=tuple(args.include_org),
+        exclude=tuple(args.exclude_org),
+    )
     rows = sort_rows(rows)
     if not rows:
-        print("(no repos found — check config.json or `gh auth status`)")
+        if args.json:
+            print("[]")
+        else:
+            print("(no repos found — check config.json or `gh auth status`)")
         return 0
-    print(format_table(rows, max_width=args.max_width))
+    if args.json:
+        print(rows_to_json(rows))
+    else:
+        print(format_table(rows, max_width=args.max_width))
+        if args.verbose:
+            section = format_processes(all_processes_in_clones(clones))
+            if section:
+                print()
+                print(section)
     return 0
 
 
