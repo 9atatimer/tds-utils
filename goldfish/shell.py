@@ -11,7 +11,7 @@ import os
 import platform
 import shutil
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from core import (
@@ -170,7 +170,12 @@ def inspect_local(workdir: Path) -> LocalInfo:
     ).strip()
     last_dt = _parse_iso_safe(last)
     todo_path = workdir / "TODO_PLAN.md"
-    next_task = parse_todo_plan(todo_path.read_text()) if todo_path.exists() else None
+    next_task = None
+    if todo_path.exists():
+        try:
+            next_task = parse_todo_plan(todo_path.read_text())
+        except (OSError, UnicodeDecodeError):
+            next_task = None
     return LocalInfo(
         path=workdir,
         is_dirty=state.is_dirty,

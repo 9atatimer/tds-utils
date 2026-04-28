@@ -8,8 +8,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 
-import pytest
-
 from core import (
     AgentSession,
     GithubInfo,
