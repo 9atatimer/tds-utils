@@ -36,7 +36,6 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 ### log-hoarder / tmux UX
 
-- [ ] Task L1: **Bring joy to the human via the tmux status bar and outer terminal title** — replace defaults like `0:claude.exe` and `Terminal — tmux new-session — 121x35` with session, cwd, and command context.
 - [ ] Task L2: **Adopt meaningful session names** — default numeric (`18`, `19`, `20`…) make `tmux ls` and the new title-string both worse than they need to be.
 - [ ] Task L3: **Handle session-rename → log-path drift** — `tmux_logging.sh` bakes `#S` at pipe-pane time, so renaming a live session splits its logs across old and new dirs.
 
@@ -105,4 +104,5 @@ This file tracks the status of development tasks, lessons learned, and completed
 - [x] Task 2 (Scaffolding): Implement domain models, ports, `TxtaiAdapter`, indexer, and searcher.
 - [x] Task 2 (Design revision): Refine design with span/chunk model — spans as semantic segments, chunks as embedding units, search groups by span.
 - [x] Task 2a: Implement `Span` and `Chunk` domain models in `search/domain/models.py`. Added frozen dataclasses with validation, `Chunk.from_span()` factory, `index_key` property. 21 unit tests + 9 smoke tests against real session data. Also added `pyproject.toml` for log-hoarder and `__pycache__` to `.gitignore`. PR #10.
+- [x] Task L1: Bring joy to the human via the tmux status bar and outer terminal title — `tmux[<session>] <i>/<n> -- <pwd>/<cmd>` in the macOS title bar; `<idx>:<pwd>/<cmd><flag>` in the per-window status-bar labels. PR #19.
 - [x] Task G1: Build `goldfish/` v1 -- at-a-glance recent-work report across GitHub repos and local clones. Hexagonal split: pure `core.py` (parsers, formatters, sort) with 33 unit tests, plus `shell.py` adapters wrapping `gh`/`git`/`ps`/`lsof`/`find`. Entry script fans probes across a `ThreadPoolExecutor` and renders a stderr progress bar. Hardcoded MVP config in `goldfish/config.json` (orgs allow-list, agent process whitelist, on-disk roots). PR #15.
