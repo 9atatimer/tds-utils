@@ -203,6 +203,24 @@ def sort_rows(rows: Iterable[RepoRow], *, now: datetime | None = None) -> list[R
     return sorted(rows, key=key, reverse=True)
 
 
+# --- Verbose process listing (G6) --------------------------------------------
+
+def format_processes(sessions: Iterable[AgentSession]) -> str:
+    """Render processes-in-tracked-repos as a per-repo block. Empty input -> ''."""
+    sessions = list(sessions)
+    if not sessions:
+        return ""
+    by_repo: dict[Path, list[AgentSession]] = {}
+    for s in sessions:
+        by_repo.setdefault(s.repo_path, []).append(s)
+    lines = ["PROCESSES IN TRACKED REPOS"]
+    for repo in sorted(by_repo):
+        lines.append(f"  {repo}")
+        for s in sorted(by_repo[repo], key=lambda x: x.pid):
+            lines.append(f"    {s.pid:>7}  {s.name}")
+    return "\n".join(lines)
+
+
 # --- Org filter (G7) ---------------------------------------------------------
 
 def apply_org_filter(

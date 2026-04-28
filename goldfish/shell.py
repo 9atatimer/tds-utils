@@ -230,6 +230,36 @@ def running_agents(known: set[str], local_clones: dict[str, Path]) -> list[Agent
     return sessions
 
 
+def all_processes_in_clones(local_clones: dict[str, Path]) -> list[AgentSession]:
+    """Find every running process whose cwd is inside a tracked repo (G6 verbose).
+
+    No name whitelist applied; for catching agents launched through a wrapper
+    (e.g. `python3 launcher.py` re-execing claude) that the agent whitelist
+    would miss.
+    """
+    ps_out = _run(["ps", "-axo", "pid=,comm="], timeout=5.0)
+    if not ps_out:
+        return []
+    repo_paths = set(local_clones.values())
+    sessions: list[AgentSession] = []
+    for line in ps_out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(None, 1)
+        if len(parts) != 2 or not parts[0].isdigit():
+            continue
+        pid = int(parts[0])
+        name = parts[1].rsplit("/", 1)[-1]
+        cwd = _proc_cwd(pid)
+        if cwd is None:
+            continue
+        repo = enclosing_repo(cwd, repo_paths)
+        if repo is not None:
+            sessions.append(AgentSession(pid=pid, name=name, repo_path=repo))
+    return sessions
+
+
 def _proc_cwd(pid: int) -> Path | None:
     """Return process cwd. Linux uses /proc, macOS/BSD uses lsof."""
     if platform.system() == "Linux":

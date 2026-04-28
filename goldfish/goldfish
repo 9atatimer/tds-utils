@@ -24,11 +24,13 @@ from core import (  # noqa: E402
     GithubInfo,
     RepoRow,
     apply_org_filter,
+    format_processes,
     format_table,
     rows_to_json,
     sort_rows,
 )
 from shell import (  # noqa: E402
+    all_processes_in_clones,
     fetch_remote_todo_plan,
     find_local_clones,
     gh_list_repos,
@@ -101,8 +103,8 @@ class Progress:
 
 # --- Flow functions ----------------------------------------------------------
 
-def gather(config: dict, *, fetch_remote_todos: bool) -> list[RepoRow]:
-    """Run all probes and assemble RepoRows."""
+def gather(config: dict, *, fetch_remote_todos: bool) -> tuple[list[RepoRow], dict[str, Path]]:
+    """Run all probes and assemble RepoRows. Returns (rows, clones)."""
     progress = Progress()
     orgs = resolve_orgs(config)
     roots = resolve_roots(config)
@@ -136,7 +138,7 @@ def gather(config: dict, *, fetch_remote_todos: bool) -> list[RepoRow]:
     total = len(todo)
     if total == 0:
         progress.done()
-        return []
+        return [], clones
 
     with ThreadPoolExecutor(max_workers=8) as ex:
         futures = {
@@ -152,7 +154,7 @@ def gather(config: dict, *, fetch_remote_todos: bool) -> list[RepoRow]:
             if row is not None:
                 rows.append(row)
     progress.done()
-    return rows
+    return rows, clones
 
 
 def _build_row(
@@ -210,6 +212,10 @@ def run(argv: list[str]) -> int:
         "--exclude-org", action="append", default=[], metavar="ORG",
         help="Hide repos owned by this org. Repeatable. Wins over --include-org.",
     )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true",
+        help="Also list every process whose cwd is in a tracked repo.",
+    )
     args = parser.parse_args(argv)
 
     if not have("gh"):
@@ -218,7 +224,7 @@ def run(argv: list[str]) -> int:
         )
 
     config = load_config()
-    rows = gather(config, fetch_remote_todos=args.fetch_remote_todos)
+    rows, clones = gather(config, fetch_remote_todos=args.fetch_remote_todos)
     rows = apply_org_filter(
         rows,
         include=tuple(args.include_org),
@@ -235,6 +241,11 @@ def run(argv: list[str]) -> int:
         print(rows_to_json(rows))
     else:
         print(format_table(rows, max_width=args.max_width))
+        if args.verbose:
+            section = format_processes(all_processes_in_clones(clones))
+            if section:
+                print()
+                print(section)
     return 0
 
 

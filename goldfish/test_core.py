@@ -15,6 +15,7 @@ from core import (
     RepoRow,
     apply_org_filter,
     enclosing_repo,
+    format_processes,
     format_table,
     latest_activity,
     parse_git_porcelain,
@@ -321,6 +322,35 @@ def test_format_table_agents_listed() -> None:
     table = format_table(rows)
     line = [l for l in table.splitlines() if "todd/foo" in l][0]
     assert "claude" in line and "codex" in line
+
+
+# --- format_processes (G6) ---------------------------------------------------
+
+def test_format_processes_empty_list_returns_empty_string() -> None:
+    """Given no sessions, returns empty string (no header)."""
+    assert format_processes([]) == ""
+
+
+def test_format_processes_groups_by_repo() -> None:
+    """Given sessions across two repos, output groups them under each repo path."""
+    sessions = [
+        AgentSession(pid=1, name="claude", repo_path=Path("/r/a")),
+        AgentSession(pid=2, name="vim", repo_path=Path("/r/b")),
+        AgentSession(pid=3, name="bash", repo_path=Path("/r/a")),
+    ]
+    out = format_processes(sessions)
+    assert "/r/a" in out and "/r/b" in out
+    a_block_start = out.index("/r/a")
+    b_block_start = out.index("/r/b")
+    a_block = out[a_block_start:b_block_start] if a_block_start < b_block_start else out[a_block_start:]
+    assert "claude" in a_block and "bash" in a_block
+
+
+def test_format_processes_includes_pid_and_name() -> None:
+    """Given a session, both pid and name appear in the output."""
+    sessions = [AgentSession(pid=4242, name="codex", repo_path=Path("/r/x"))]
+    out = format_processes(sessions)
+    assert "4242" in out and "codex" in out
 
 
 # --- apply_org_filter (G7) ---------------------------------------------------
