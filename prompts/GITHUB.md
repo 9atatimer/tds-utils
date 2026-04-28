@@ -2,13 +2,13 @@
 
 This document contains instructions for AI coding agents on how to interact with the GitHub repository.
 
-<!-- Update these when forking the template -->
+<!-- Localized for 9atatimer/tds-utils. -->
 
 ## Repository Details
 
--   **Owner:** <!-- your-org -->
--   **Repository:** <!-- your-repo -->
--   **Default Branch:** main
+-   **Owner:** 9atatimer
+-   **Repository:** tds-utils
+-   **Default Branch:** master
 
 ## Push & PR Flow
 
@@ -18,14 +18,14 @@ To avoid charging Copilot review cycles to the organization, use this two-stage 
 
 **Stage 1: Draft PR to Fork (for AI code review)**
 1. Push branch to `origin` (your fork)
-2. Create a **Draft PR** targeting `origin/main`
+2. Create a **Draft PR** targeting `origin/master`
 3. Use `[WIP]` prefix in title: `[WIP] feat: add new feature`
 4. Copilot reviews happen here — charged to your personal account
 5. Address all Copilot feedback
 
 **Stage 2: Final PR to Upstream (for human review and merge)**
 1. Once Copilot review is complete, create a new PR from the same branch
-2. Target `upstream/main`
+2. Target `upstream/master`
 3. Remove `[WIP]` prefix — this is the production PR
 4. Human reviews and merges
 5. Close the Stage 1 draft PR
@@ -34,9 +34,9 @@ To avoid charging Copilot review cycles to the organization, use this two-stage 
 
 ## Branch Safety (CRITICAL)
 
-- **NEVER WORK ON THE `main` BRANCH**
+- **NEVER WORK ON THE `master` BRANCH**
 - **ALWAYS CHECK CURRENT BRANCH FIRST**: Before any git operations, run `git branch --show-current`
-- **IF YOU ARE ON MAIN**: STOP IMMEDIATELY. Warn the human. Do NOT proceed.
+- **IF YOU ARE ON MASTER**: STOP IMMEDIATELY. Warn the human. Do NOT proceed.
 - **REQUIRED WORKFLOW**: All changes must be made on a feature branch, then merged via Pull Request
 
 ## Branch Naming Convention
@@ -48,7 +48,7 @@ All branches created by AI agents MUST use a prefix:
 
 ## Development Workflow
 
-1. **Branch Creation:** Create a feature branch from `main`
+1. **Branch Creation:** Create a feature branch from `master`
 2. **Implementation:** Make changes locally
 3. **Validation:** Run linter, type checker, tests
 4. **Stage & Commit:** Stage verified changes, commit with descriptive message
