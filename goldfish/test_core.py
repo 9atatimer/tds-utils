@@ -13,14 +13,20 @@ from core import (
     GithubInfo,
     LocalInfo,
     RepoRow,
+    apply_org_filter,
     enclosing_repo,
+    first_meaningful_line,
+    format_processes,
     format_table,
     latest_activity,
+    parse_clones_cache,
     parse_git_porcelain,
     parse_gh_repo_list,
     parse_lsof_cwd,
     parse_ps,
     parse_todo_plan,
+    rows_to_json,
+    serialize_clones_cache,
     sort_rows,
 )
 
@@ -319,6 +325,172 @@ def test_format_table_agents_listed() -> None:
     table = format_table(rows)
     line = [l for l in table.splitlines() if "todd/foo" in l][0]
     assert "claude" in line and "codex" in line
+
+
+# --- first_meaningful_line (G2) ----------------------------------------------
+
+def test_first_meaningful_line_returns_first_nonempty() -> None:
+    """Given output with leading blank lines, returns the first non-empty line."""
+    raw = "\n\n  \nactual content here\nignored\n"
+    assert first_meaningful_line(raw) == "actual content here"
+
+
+def test_first_meaningful_line_strips_quotes_and_bullets() -> None:
+    """Given LLM-style output with quotes / bullets, those are stripped."""
+    assert first_meaningful_line('"Wire up retry on 429"') == "Wire up retry on 429"
+    assert first_meaningful_line("- Wire up retry") == "Wire up retry"
+    assert first_meaningful_line("* Wire up retry") == "Wire up retry"
+
+
+def test_first_meaningful_line_empty_input_returns_none() -> None:
+    """Given empty/whitespace input, returns None."""
+    assert first_meaningful_line("") is None
+    assert first_meaningful_line("   \n\n") is None
+
+
+def test_first_meaningful_line_truncates_long_output() -> None:
+    """Given a long line, output is bounded so it fits the table column."""
+    long = "x" * 500
+    assert len(first_meaningful_line(long)) <= 200
+
+
+# --- clones cache (G3) -------------------------------------------------------
+
+def test_serialize_clones_cache_round_trips() -> None:
+    """Given a clones map, serialize then parse returns the same map."""
+    clones = {"a/x": Path("/r/a/x"), "b/y": Path("/r/b/y")}
+    text = serialize_clones_cache(clones, saved_at=_utc(2026, 4, 28))
+    cache = parse_clones_cache(text)
+    assert cache.clones == clones
+    assert cache.saved_at == _utc(2026, 4, 28)
+
+
+def test_parse_clones_cache_handles_unknown_version_gracefully() -> None:
+    """Given a future-version cache file, returns None instead of raising."""
+    bad = '{"version": 99, "clones": {"a/x": "/r/a/x"}}'
+    assert parse_clones_cache(bad) is None
+
+
+def test_parse_clones_cache_handles_garbage() -> None:
+    """Given non-JSON input, returns None instead of raising."""
+    assert parse_clones_cache("not json at all") is None
+
+
+def test_parse_clones_cache_empty_clones_map() -> None:
+    """Given a valid cache with no clones, returns an empty map."""
+    text = serialize_clones_cache({}, saved_at=_utc(2026, 4, 1))
+    cache = parse_clones_cache(text)
+    assert cache.clones == {}
+
+
+# --- format_processes (G6) ---------------------------------------------------
+
+def test_format_processes_empty_list_returns_empty_string() -> None:
+    """Given no sessions, returns empty string (no header)."""
+    assert format_processes([]) == ""
+
+
+def test_format_processes_groups_by_repo() -> None:
+    """Given sessions across two repos, output groups them under each repo path."""
+    sessions = [
+        AgentSession(pid=1, name="claude", repo_path=Path("/r/a")),
+        AgentSession(pid=2, name="vim", repo_path=Path("/r/b")),
+        AgentSession(pid=3, name="bash", repo_path=Path("/r/a")),
+    ]
+    out = format_processes(sessions)
+    assert "/r/a" in out and "/r/b" in out
+    a_block_start = out.index("/r/a")
+    b_block_start = out.index("/r/b")
+    a_block = out[a_block_start:b_block_start] if a_block_start < b_block_start else out[a_block_start:]
+    assert "claude" in a_block and "bash" in a_block
+
+
+def test_format_processes_includes_pid_and_name() -> None:
+    """Given a session, both pid and name appear in the output."""
+    sessions = [AgentSession(pid=4242, name="codex", repo_path=Path("/r/x"))]
+    out = format_processes(sessions)
+    assert "4242" in out and "codex" in out
+
+
+# --- apply_org_filter (G7) ---------------------------------------------------
+
+def _row(name: str) -> RepoRow:
+    return RepoRow(name=name, github=None, local=None, agents=())
+
+
+def test_apply_org_filter_no_filters_passes_everything() -> None:
+    """Given no include/exclude, every row survives."""
+    rows = [_row("a/x"), _row("b/y")]
+    out = apply_org_filter(rows, include=(), exclude=())
+    assert [r.name for r in out] == ["a/x", "b/y"]
+
+
+def test_apply_org_filter_include_keeps_only_listed_orgs() -> None:
+    """Given include=('a',), rows whose owner is 'a' survive; others drop."""
+    rows = [_row("a/x"), _row("b/y"), _row("a/z")]
+    out = apply_org_filter(rows, include=("a",), exclude=())
+    assert sorted(r.name for r in out) == ["a/x", "a/z"]
+
+
+def test_apply_org_filter_exclude_drops_listed_orgs() -> None:
+    """Given exclude=('b',), rows whose owner is 'b' drop; others survive."""
+    rows = [_row("a/x"), _row("b/y"), _row("c/z")]
+    out = apply_org_filter(rows, include=(), exclude=("b",))
+    assert sorted(r.name for r in out) == ["a/x", "c/z"]
+
+
+def test_apply_org_filter_exclude_wins_over_include() -> None:
+    """Given a/x in both include and exclude, exclude wins."""
+    rows = [_row("a/x"), _row("a/y")]
+    out = apply_org_filter(rows, include=("a",), exclude=("a",))
+    assert out == []
+
+
+def test_apply_org_filter_handles_unowned_names() -> None:
+    """Given a row with no owner/ prefix (malformed), include filter rejects it."""
+    rows = [_row("noowner")]
+    out = apply_org_filter(rows, include=("a",), exclude=())
+    assert out == []
+
+
+# --- rows_to_json (G5) -------------------------------------------------------
+
+def test_rows_to_json_emits_valid_json() -> None:
+    """Given any rows, output parses as JSON."""
+    import json
+    rows = [_row("a/x")]
+    parsed = json.loads(rows_to_json(rows))
+    assert isinstance(parsed, list) and parsed[0]["name"] == "a/x"
+
+
+def test_rows_to_json_serializes_all_fields() -> None:
+    """Given a fully-populated row, JSON contains every column."""
+    import json
+    row = RepoRow(
+        name="a/x",
+        github=GithubInfo(name="a/x", pushed_at=_utc(2026, 4, 1), open_pr_count=2),
+        local=LocalInfo(
+            path=Path("/x"), is_dirty=True, ahead=3, behind=1,
+            branch="main", last_commit_at=_utc(2026, 4, 20),
+            next_task="do the thing",
+        ),
+        agents=(AgentSession(pid=1, name="claude", repo_path=Path("/x")),),
+    )
+    parsed = json.loads(rows_to_json([row]))
+    entry = parsed[0]
+    assert entry["github"]["open_pr_count"] == 2
+    assert entry["local"]["is_dirty"] is True
+    assert entry["local"]["next_task"] == "do the thing"
+    assert entry["agents"][0]["name"] == "claude"
+
+
+def test_rows_to_json_handles_missing_github_and_local() -> None:
+    """Given a row with no github or local info, those fields are null."""
+    import json
+    parsed = json.loads(rows_to_json([_row("a/x")]))
+    assert parsed[0]["github"] is None
+    assert parsed[0]["local"] is None
+    assert parsed[0]["agents"] == []
 
 
 def test_format_table_next_task_truncated() -> None:
