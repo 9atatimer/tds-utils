@@ -13,6 +13,7 @@ from core import (
     GithubInfo,
     LocalInfo,
     RepoRow,
+    apply_org_filter,
     enclosing_repo,
     format_table,
     latest_activity,
@@ -21,6 +22,7 @@ from core import (
     parse_lsof_cwd,
     parse_ps,
     parse_todo_plan,
+    rows_to_json,
     sort_rows,
 )
 
@@ -319,6 +321,87 @@ def test_format_table_agents_listed() -> None:
     table = format_table(rows)
     line = [l for l in table.splitlines() if "todd/foo" in l][0]
     assert "claude" in line and "codex" in line
+
+
+# --- apply_org_filter (G7) ---------------------------------------------------
+
+def _row(name: str) -> RepoRow:
+    return RepoRow(name=name, github=None, local=None, agents=())
+
+
+def test_apply_org_filter_no_filters_passes_everything() -> None:
+    """Given no include/exclude, every row survives."""
+    rows = [_row("a/x"), _row("b/y")]
+    out = apply_org_filter(rows, include=(), exclude=())
+    assert [r.name for r in out] == ["a/x", "b/y"]
+
+
+def test_apply_org_filter_include_keeps_only_listed_orgs() -> None:
+    """Given include=('a',), rows whose owner is 'a' survive; others drop."""
+    rows = [_row("a/x"), _row("b/y"), _row("a/z")]
+    out = apply_org_filter(rows, include=("a",), exclude=())
+    assert sorted(r.name for r in out) == ["a/x", "a/z"]
+
+
+def test_apply_org_filter_exclude_drops_listed_orgs() -> None:
+    """Given exclude=('b',), rows whose owner is 'b' drop; others survive."""
+    rows = [_row("a/x"), _row("b/y"), _row("c/z")]
+    out = apply_org_filter(rows, include=(), exclude=("b",))
+    assert sorted(r.name for r in out) == ["a/x", "c/z"]
+
+
+def test_apply_org_filter_exclude_wins_over_include() -> None:
+    """Given a/x in both include and exclude, exclude wins."""
+    rows = [_row("a/x"), _row("a/y")]
+    out = apply_org_filter(rows, include=("a",), exclude=("a",))
+    assert out == []
+
+
+def test_apply_org_filter_handles_unowned_names() -> None:
+    """Given a row with no owner/ prefix (malformed), include filter rejects it."""
+    rows = [_row("noowner")]
+    out = apply_org_filter(rows, include=("a",), exclude=())
+    assert out == []
+
+
+# --- rows_to_json (G5) -------------------------------------------------------
+
+def test_rows_to_json_emits_valid_json() -> None:
+    """Given any rows, output parses as JSON."""
+    import json
+    rows = [_row("a/x")]
+    parsed = json.loads(rows_to_json(rows))
+    assert isinstance(parsed, list) and parsed[0]["name"] == "a/x"
+
+
+def test_rows_to_json_serializes_all_fields() -> None:
+    """Given a fully-populated row, JSON contains every column."""
+    import json
+    row = RepoRow(
+        name="a/x",
+        github=GithubInfo(name="a/x", pushed_at=_utc(2026, 4, 1), open_pr_count=2),
+        local=LocalInfo(
+            path=Path("/x"), is_dirty=True, ahead=3, behind=1,
+            branch="main", last_commit_at=_utc(2026, 4, 20),
+            next_task="do the thing",
+        ),
+        agents=(AgentSession(pid=1, name="claude", repo_path=Path("/x")),),
+    )
+    parsed = json.loads(rows_to_json([row]))
+    entry = parsed[0]
+    assert entry["github"]["open_pr_count"] == 2
+    assert entry["local"]["is_dirty"] is True
+    assert entry["local"]["next_task"] == "do the thing"
+    assert entry["agents"][0]["name"] == "claude"
+
+
+def test_rows_to_json_handles_missing_github_and_local() -> None:
+    """Given a row with no github or local info, those fields are null."""
+    import json
+    parsed = json.loads(rows_to_json([_row("a/x")]))
+    assert parsed[0]["github"] is None
+    assert parsed[0]["local"] is None
+    assert parsed[0]["agents"] == []
 
 
 def test_format_table_next_task_truncated() -> None:

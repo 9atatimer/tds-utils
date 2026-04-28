@@ -20,7 +20,14 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from core import GithubInfo, RepoRow, format_table, sort_rows  # noqa: E402
+from core import (  # noqa: E402
+    GithubInfo,
+    RepoRow,
+    apply_org_filter,
+    format_table,
+    rows_to_json,
+    sort_rows,
+)
 from shell import (  # noqa: E402
     fetch_remote_todo_plan,
     find_local_clones,
@@ -191,6 +198,18 @@ def run(argv: list[str]) -> int:
         "--max-width", type=int, default=_terminal_width(),
         help="Max line width for the rendered table.",
     )
+    parser.add_argument(
+        "--json", action="store_true",
+        help="Emit a JSON array instead of a rendered table.",
+    )
+    parser.add_argument(
+        "--include-org", action="append", default=[], metavar="ORG",
+        help="Only show repos owned by this org. Repeatable.",
+    )
+    parser.add_argument(
+        "--exclude-org", action="append", default=[], metavar="ORG",
+        help="Hide repos owned by this org. Repeatable. Wins over --include-org.",
+    )
     args = parser.parse_args(argv)
 
     if not have("gh"):
@@ -200,11 +219,22 @@ def run(argv: list[str]) -> int:
 
     config = load_config()
     rows = gather(config, fetch_remote_todos=args.fetch_remote_todos)
+    rows = apply_org_filter(
+        rows,
+        include=tuple(args.include_org),
+        exclude=tuple(args.exclude_org),
+    )
     rows = sort_rows(rows)
     if not rows:
-        print("(no repos found — check config.json or `gh auth status`)")
+        if args.json:
+            print("[]")
+        else:
+            print("(no repos found — check config.json or `gh auth status`)")
         return 0
-    print(format_table(rows, max_width=args.max_width))
+    if args.json:
+        print(rows_to_json(rows))
+    else:
+        print(format_table(rows, max_width=args.max_width))
     return 0
 
 

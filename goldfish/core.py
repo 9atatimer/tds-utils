@@ -203,6 +203,71 @@ def sort_rows(rows: Iterable[RepoRow], *, now: datetime | None = None) -> list[R
     return sorted(rows, key=key, reverse=True)
 
 
+# --- Org filter (G7) ---------------------------------------------------------
+
+def apply_org_filter(
+    rows: Iterable[RepoRow],
+    *,
+    include: tuple[str, ...],
+    exclude: tuple[str, ...],
+) -> list[RepoRow]:
+    """Filter rows by owner. include='' means no allow-list; exclude wins ties."""
+    excluded = set(exclude)
+    included = set(include)
+    out: list[RepoRow] = []
+    for row in rows:
+        owner = row.name.split("/", 1)[0] if "/" in row.name else ""
+        if owner in excluded:
+            continue
+        if included and owner not in included:
+            continue
+        out.append(row)
+    return out
+
+
+# --- JSON serialization (G5) -------------------------------------------------
+
+def rows_to_json(rows: Iterable[RepoRow]) -> str:
+    """Render rows as a JSON array. Stable shape for piping into other tools."""
+    return json.dumps([_row_to_jsonable(r) for r in rows], indent=2, sort_keys=True)
+
+
+def _row_to_jsonable(r: RepoRow) -> dict:
+    return {
+        "name": r.name,
+        "github": _github_to_jsonable(r.github),
+        "local": _local_to_jsonable(r.local),
+        "agents": [
+            {"pid": a.pid, "name": a.name, "repo_path": str(a.repo_path)}
+            for a in r.agents
+        ],
+    }
+
+
+def _github_to_jsonable(g: GithubInfo | None) -> dict | None:
+    if g is None:
+        return None
+    return {
+        "name": g.name,
+        "pushed_at": g.pushed_at.isoformat() if g.pushed_at else None,
+        "open_pr_count": g.open_pr_count,
+    }
+
+
+def _local_to_jsonable(l: LocalInfo | None) -> dict | None:
+    if l is None:
+        return None
+    return {
+        "path": str(l.path),
+        "is_dirty": l.is_dirty,
+        "ahead": l.ahead,
+        "behind": l.behind,
+        "branch": l.branch,
+        "last_commit_at": l.last_commit_at.isoformat() if l.last_commit_at else None,
+        "next_task": l.next_task,
+    }
+
+
 # --- Formatter ---------------------------------------------------------------
 
 _HEADERS = ("REPO", "PRS", "DIRTY", "AHEAD", "BRANCH", "AGENTS", "NEXT")
