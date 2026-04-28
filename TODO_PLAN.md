@@ -34,6 +34,12 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 - [x] Task Z1: Create ZLE widget for `ctrl-x s` — invokes `log_search`, pipes results through `fzf` for selection, displays matched log section in `$PAGER`. Plugin file `macos/dot.zsh_log_search`, sourced from `dot.zshrc`. PR #12.
 
+### log-hoarder / tmux UX
+
+- [ ] Task L1: **Bring joy to the human via the tmux status bar and outer terminal title** — replace defaults like `0:claude.exe` and `Terminal — tmux new-session — 121x35` with session, cwd, and command context.
+- [ ] Task L2: **Adopt meaningful session names** — default numeric (`18`, `19`, `20`…) make `tmux ls` and the new title-string both worse than they need to be.
+- [ ] Task L3: **Handle session-rename → log-path drift** — `tmux_logging.sh` bakes `#S` at pipe-pane time, so renaming a live session splits its logs across old and new dirs.
+
 ### goldfish (post-MVP follow-ups)
 
 - [ ] Task G2: **LLM-summarized "next task" column.** Currently goldfish prints
