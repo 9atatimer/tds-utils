@@ -18,17 +18,16 @@ To avoid charging Copilot review cycles to the organization, use this two-stage 
 
 **Stage 1: Draft PR to Fork (for AI code review)**
 1. Push branch to `origin` (your fork)
-2. Create a **Draft PR** targeting `origin/master`
-3. Use `[WIP]` prefix in title: `[WIP] feat: add new feature`
+2. Create a **Draft PR** targeting `origin/master` — the draft state itself is the WIP signal; do not put `[WIP]` in the title
+3. Title is a clean conventional-commit summary, same as you'd use on the final PR
 4. Copilot reviews happen here — charged to your personal account
 5. Address all Copilot feedback
 
 **Stage 2: Final PR to Upstream (for human review and merge)**
 1. Once Copilot review is complete, create a new PR from the same branch
 2. Target `upstream/master`
-3. Remove `[WIP]` prefix — this is the production PR
-4. Human reviews and merges
-5. Close the Stage 1 draft PR
+3. Human reviews and merges
+4. Close the Stage 1 draft PR
 
 **Why this matters:** Copilot Pro+ charges are billed to the repository owner. By doing AI review on your fork first, you control the costs.
 
