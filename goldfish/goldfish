@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""goldfish — at-a-glance report of recent work across all your github repos.
+
+Lists every repo (cloud + local) sorted by most recent activity, with columns
+for open PRs, dirty working tree, unpushed commits, running AI agents (claude,
+gemini, etc.), and the next unchecked task in TODO_PLAN.md.
+
+Configuration lives in `config.json` in the same directory as this script.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+
+# Allow running directly from goldfish/.
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+
+from core import GithubInfo, RepoRow, format_table, sort_rows  # noqa: E402
+from shell import (  # noqa: E402
+    fetch_remote_todo_plan,
+    find_local_clones,
+    gh_list_repos,
+    gh_open_pr_counts,
+    have,
+    inspect_local,
+    running_agents,
+)
+from core import parse_todo_plan  # noqa: E402
+
+
+# --- Action functions --------------------------------------------------------
+
+def load_config() -> dict:
+    """Load config.json next to this script."""
+    return json.loads((HERE / "config.json").read_text())
+
+
+def resolve_roots(config: dict) -> list[Path]:
+    """Use configured roots, else fall back to $HOME."""
+    roots = [Path(p).expanduser() for p in config.get("roots", []) if p]
+    if roots:
+        return roots
+    home = os.environ.get("HOME")
+    return [Path(home)] if home else []
+
+
+def resolve_orgs(config: dict) -> list[str]:
+    """Use configured orgs, else the gh-authenticated user."""
+    configured = [o for o in config.get("orgs", []) if o]
+    if configured:
+        return configured
+    if not have("gh"):
+        return []
+    from shell import _run
+    user = _run(["gh", "api", "user", "--jq", ".login"], timeout=10.0).strip()
+    return [user] if user else []
+
+
+# --- Progress bar ------------------------------------------------------------
+
+class Progress:
+    """Single-line stderr progress display. No-op when stderr isn't a tty."""
+
+    def __init__(self) -> None:
+        self.tty = sys.stderr.isatty()
+
+    def step(self, label: str, done: int, total: int) -> None:
+        if not self.tty:
+            return
+        bar_w = 20
+        frac = done / total if total else 1.0
+        filled = int(bar_w * frac)
+        bar = "█" * filled + "░" * (bar_w - filled)
+        sys.stderr.write(f"\r\033[K{label} [{bar}] {done}/{total}")
+        sys.stderr.flush()
+
+    def msg(self, label: str) -> None:
+        if not self.tty:
+            return
+        sys.stderr.write(f"\r\033[K{label}\n")
+        sys.stderr.flush()
+
+    def done(self) -> None:
+        if not self.tty:
+            return
+        sys.stderr.write("\r\033[K")
+        sys.stderr.flush()
+
+
+# --- Flow functions ----------------------------------------------------------
+
+def gather(config: dict, *, fetch_remote_todos: bool) -> list[RepoRow]:
+    """Run all probes and assemble RepoRows."""
+    progress = Progress()
+    orgs = resolve_orgs(config)
+    roots = resolve_roots(config)
+    agents_known = set(config.get("agents", []))
+
+    progress.msg(f"goldfish — orgs={orgs or '(none)'} roots={[str(r) for r in roots]}")
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        f_gh_repos = ex.submit(gh_list_repos, orgs)
+        f_gh_prs = ex.submit(gh_open_pr_counts, orgs)
+        f_clones = ex.submit(find_local_clones, roots)
+        gh_repos = f_gh_repos.result()
+        pr_counts = f_gh_prs.result()
+        clones = f_clones.result()
+
+    progress.msg(
+        f"goldfish — github={len(gh_repos)} repos, "
+        f"prs={sum(pr_counts.values())} open, clones={len(clones)} on disk"
+    )
+
+    agents = running_agents(agents_known, clones)
+    progress.msg(f"goldfish — agents running in tracked repos: {len(agents)}")
+
+    by_name: dict[str, GithubInfo] = {g.name: g for g in gh_repos}
+    all_names = set(by_name) | set(clones)
+
+    rows: list[RepoRow] = []
+    todo: list[tuple[str, GithubInfo | None]] = [
+        (name, by_name.get(name)) for name in sorted(all_names)
+    ]
+    total = len(todo)
+    if total == 0:
+        progress.done()
+        return []
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures = {
+            ex.submit(_build_row, name, gh, pr_counts, clones, agents,
+                      fetch_remote_todos): name
+            for name, gh in todo
+        }
+        done = 0
+        for fut in as_completed(futures):
+            done += 1
+            progress.step("goldfish — gathering", done, total)
+            row = fut.result()
+            if row is not None:
+                rows.append(row)
+    progress.done()
+    return rows
+
+
+def _build_row(
+    name: str,
+    gh: GithubInfo | None,
+    pr_counts: dict[str, int],
+    clones: dict[str, Path],
+    agents: list,
+    fetch_remote_todos: bool,
+) -> RepoRow | None:
+    github_info = None
+    if gh is not None:
+        github_info = GithubInfo(
+            name=gh.name,
+            pushed_at=gh.pushed_at,
+            open_pr_count=pr_counts.get(name, 0),
+        )
+    workdir = clones.get(name)
+    local = inspect_local(workdir) if workdir else None
+    if local is None and fetch_remote_todos and gh is not None:
+        text = fetch_remote_todo_plan(name)
+        if text:
+            from core import LocalInfo
+            local = LocalInfo(
+                path=Path(""), is_dirty=False, ahead=0, behind=0,
+                branch="", last_commit_at=None,
+                next_task=parse_todo_plan(text),
+            )
+    repo_agents = tuple(a for a in agents if workdir is not None and a.repo_path == workdir)
+    return RepoRow(name=name, github=github_info, local=local, agents=repo_agents)
+
+
+def run(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="goldfish",
+        description="At-a-glance report of recent work across your github repos.",
+    )
+    parser.add_argument(
+        "--fetch-remote-todos", action="store_true",
+        help="If a repo has no local clone, fetch TODO_PLAN.md from GitHub.",
+    )
+    parser.add_argument(
+        "--max-width", type=int, default=_terminal_width(),
+        help="Max line width for the rendered table.",
+    )
+    args = parser.parse_args(argv)
+
+    if not have("gh"):
+        sys.stderr.write(
+            "goldfish: warning — `gh` is not on $PATH; GitHub side will be empty.\n"
+        )
+
+    config = load_config()
+    rows = gather(config, fetch_remote_todos=args.fetch_remote_todos)
+    rows = sort_rows(rows)
+    if not rows:
+        print("(no repos found — check config.json or `gh auth status`)")
+        return 0
+    print(format_table(rows, max_width=args.max_width))
+    return 0
+
+
+def _terminal_width() -> int:
+    try:
+        return os.get_terminal_size().columns
+    except OSError:
+        return 200
+
+
+# --- Main --------------------------------------------------------------------
+
+def main() -> None:
+    sys.exit(run(sys.argv[1:]))
+
+
+if __name__ == "__main__":
+    main()
