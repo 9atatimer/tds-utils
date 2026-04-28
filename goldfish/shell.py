@@ -16,15 +16,18 @@ from pathlib import Path
 
 from core import (
     AgentSession,
+    ClonesCache,
     GithubInfo,
     LocalInfo,
     GitDirtyState,
     enclosing_repo,
+    parse_clones_cache,
     parse_gh_repo_list,
     parse_git_porcelain,
     parse_lsof_cwd,
     parse_ps,
     parse_todo_plan,
+    serialize_clones_cache,
 )
 
 
@@ -111,6 +114,50 @@ def find_local_clones(roots: list[Path], *, max_depth: int = 6) -> dict[str, Pat
             if name and name not in out:
                 out[name] = workdir
     return out
+
+
+# --- Clones cache (G3) -------------------------------------------------------
+
+CLONES_CACHE_TTL_SECONDS = 24 * 60 * 60
+
+
+def clones_cache_path() -> Path:
+    """Cache file path. Uses $XDG_CACHE_HOME if set, else ~/.cache/."""
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    return Path(base) / "goldfish" / "clones.json"
+
+
+def load_cached_clones() -> ClonesCache | None:
+    """Read the cache file. Returns None if missing or malformed."""
+    path = clones_cache_path()
+    if not path.exists():
+        return None
+    try:
+        return parse_clones_cache(path.read_text())
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def save_cached_clones(clones: dict[str, Path]) -> None:
+    """Atomically write the cache file. Errors are silently swallowed."""
+    from datetime import datetime, timezone
+    path = clones_cache_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(serialize_clones_cache(clones, saved_at=datetime.now(timezone.utc)))
+        tmp.replace(path)
+    except OSError:
+        pass
+
+
+def cached_clones_fresh(cache: ClonesCache, *, ttl_seconds: int = CLONES_CACHE_TTL_SECONDS) -> bool:
+    """True if the cache is younger than the TTL and every cached path still has .git/."""
+    from datetime import datetime, timezone
+    age = (datetime.now(timezone.utc) - cache.saved_at).total_seconds()
+    if age > ttl_seconds:
+        return False
+    return all((p / ".git").exists() for p in cache.clones.values())
 
 
 def _find_git_dirs(root: Path, max_depth: int) -> list[Path]:

@@ -18,12 +18,14 @@ from core import (
     format_processes,
     format_table,
     latest_activity,
+    parse_clones_cache,
     parse_git_porcelain,
     parse_gh_repo_list,
     parse_lsof_cwd,
     parse_ps,
     parse_todo_plan,
     rows_to_json,
+    serialize_clones_cache,
     sort_rows,
 )
 
@@ -322,6 +324,35 @@ def test_format_table_agents_listed() -> None:
     table = format_table(rows)
     line = [l for l in table.splitlines() if "todd/foo" in l][0]
     assert "claude" in line and "codex" in line
+
+
+# --- clones cache (G3) -------------------------------------------------------
+
+def test_serialize_clones_cache_round_trips() -> None:
+    """Given a clones map, serialize then parse returns the same map."""
+    clones = {"a/x": Path("/r/a/x"), "b/y": Path("/r/b/y")}
+    text = serialize_clones_cache(clones, saved_at=_utc(2026, 4, 28))
+    cache = parse_clones_cache(text)
+    assert cache.clones == clones
+    assert cache.saved_at == _utc(2026, 4, 28)
+
+
+def test_parse_clones_cache_handles_unknown_version_gracefully() -> None:
+    """Given a future-version cache file, returns None instead of raising."""
+    bad = '{"version": 99, "clones": {"a/x": "/r/a/x"}}'
+    assert parse_clones_cache(bad) is None
+
+
+def test_parse_clones_cache_handles_garbage() -> None:
+    """Given non-JSON input, returns None instead of raising."""
+    assert parse_clones_cache("not json at all") is None
+
+
+def test_parse_clones_cache_empty_clones_map() -> None:
+    """Given a valid cache with no clones, returns an empty map."""
+    text = serialize_clones_cache({}, saved_at=_utc(2026, 4, 1))
+    cache = parse_clones_cache(text)
+    assert cache.clones == {}
 
 
 # --- format_processes (G6) ---------------------------------------------------

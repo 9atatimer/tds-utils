@@ -31,13 +31,16 @@ from core import (  # noqa: E402
 )
 from shell import (  # noqa: E402
     all_processes_in_clones,
+    cached_clones_fresh,
     fetch_remote_todo_plan,
     find_local_clones,
     gh_list_repos,
     gh_open_pr_counts,
     have,
     inspect_local,
+    load_cached_clones,
     running_agents,
+    save_cached_clones,
 )
 from core import parse_todo_plan  # noqa: E402
 
@@ -103,7 +106,7 @@ class Progress:
 
 # --- Flow functions ----------------------------------------------------------
 
-def gather(config: dict, *, fetch_remote_todos: bool) -> tuple[list[RepoRow], dict[str, Path]]:
+def gather(config: dict, *, fetch_remote_todos: bool, refresh_clones: bool = False) -> tuple[list[RepoRow], dict[str, Path]]:
     """Run all probes and assemble RepoRows. Returns (rows, clones)."""
     progress = Progress()
     orgs = resolve_orgs(config)
@@ -112,10 +115,22 @@ def gather(config: dict, *, fetch_remote_todos: bool) -> tuple[list[RepoRow], di
 
     progress.msg(f"goldfish — orgs={orgs or '(none)'} roots={[str(r) for r in roots]}")
 
+    cached = None if refresh_clones else load_cached_clones()
+    use_cache = cached is not None and cached_clones_fresh(cached)
+    if use_cache:
+        progress.msg(f"goldfish — using cached clones ({len(cached.clones)} entries; --refresh to rescan)")
+
+    def _clones() -> dict[str, Path]:
+        if use_cache:
+            return dict(cached.clones)
+        found = find_local_clones(roots)
+        save_cached_clones(found)
+        return found
+
     with ThreadPoolExecutor(max_workers=4) as ex:
         f_gh_repos = ex.submit(gh_list_repos, orgs)
         f_gh_prs = ex.submit(gh_open_pr_counts, orgs)
-        f_clones = ex.submit(find_local_clones, roots)
+        f_clones = ex.submit(_clones)
         gh_repos = f_gh_repos.result()
         pr_counts = f_gh_prs.result()
         clones = f_clones.result()
@@ -216,6 +231,10 @@ def run(argv: list[str]) -> int:
         "-v", "--verbose", action="store_true",
         help="Also list every process whose cwd is in a tracked repo.",
     )
+    parser.add_argument(
+        "--refresh", action="store_true",
+        help="Rescan disk for clones instead of using the cache.",
+    )
     args = parser.parse_args(argv)
 
     if not have("gh"):
@@ -224,7 +243,11 @@ def run(argv: list[str]) -> int:
         )
 
     config = load_config()
-    rows, clones = gather(config, fetch_remote_todos=args.fetch_remote_todos)
+    rows, clones = gather(
+        config,
+        fetch_remote_todos=args.fetch_remote_todos,
+        refresh_clones=args.refresh,
+    )
     rows = apply_org_filter(
         rows,
         include=tuple(args.include_org),

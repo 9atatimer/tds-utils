@@ -203,6 +203,51 @@ def sort_rows(rows: Iterable[RepoRow], *, now: datetime | None = None) -> list[R
     return sorted(rows, key=key, reverse=True)
 
 
+# --- Clones cache (G3) -------------------------------------------------------
+
+CLONES_CACHE_VERSION = 1
+
+
+@dataclass(frozen=True, slots=True)
+class ClonesCache:
+    saved_at: datetime
+    clones: dict[str, Path]
+
+
+def serialize_clones_cache(clones: dict[str, Path], *, saved_at: datetime) -> str:
+    """Render the clones map as JSON for `$XDG_CACHE_HOME/goldfish/clones.json`."""
+    return json.dumps({
+        "version": CLONES_CACHE_VERSION,
+        "saved_at": saved_at.isoformat(),
+        "clones": {name: str(path) for name, path in sorted(clones.items())},
+    }, indent=2)
+
+
+def parse_clones_cache(text: str) -> ClonesCache | None:
+    """Parse a clones cache file. Returns None if malformed or wrong version."""
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    if data.get("version") != CLONES_CACHE_VERSION:
+        return None
+    raw_saved = data.get("saved_at")
+    raw_clones = data.get("clones")
+    if not isinstance(raw_saved, str) or not isinstance(raw_clones, dict):
+        return None
+    try:
+        saved = _parse_iso(raw_saved)
+    except ValueError:
+        return None
+    clones: dict[str, Path] = {}
+    for name, path in raw_clones.items():
+        if isinstance(name, str) and isinstance(path, str):
+            clones[name] = Path(path)
+    return ClonesCache(saved_at=saved, clones=clones)
+
+
 # --- Verbose process listing (G6) --------------------------------------------
 
 def format_processes(sessions: Iterable[AgentSession]) -> str:
