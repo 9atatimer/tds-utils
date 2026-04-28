@@ -77,7 +77,12 @@ def resolve_orgs(config: dict) -> list[str]:
 # --- Progress bar ------------------------------------------------------------
 
 class Progress:
-    """Single-line stderr progress display. No-op when stderr isn't a tty."""
+    """Single-line stderr progress display.
+
+    Informational messages (`msg`) always emit so logs/CI/test-pipes capture
+    them. Only the animated progress bar (`step`) is tty-gated, since its
+    \\r-overwriting carriage returns look ugly in non-tty output.
+    """
 
     def __init__(self) -> None:
         self.tty = sys.stderr.isatty()

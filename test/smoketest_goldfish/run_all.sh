@@ -10,17 +10,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if ! command -v git >/dev/null 2>&1; then
-    echo "skip: git not on PATH"
-    exit 0
-fi
-
-export SMOKE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/goldfish-smoke.XXXXXX")"
-trap 'rm -rf "${SMOKE_TMP}"' EXIT
-
-source "${SCRIPT_DIR}/config.sh"
-
-# --- Test harness ---
+# --- Test harness (definitions; control flow lives in main) ------------------
 
 TESTS_RUN=0
 TESTS_PASSED=0
@@ -45,7 +35,22 @@ run_test() {
     fi
 }
 
+# --- Main --------------------------------------------------------------------
+
 main() {
+    if ! command -v git >/dev/null 2>&1; then
+        echo "skip: git not on PATH"
+        return 0
+    fi
+
+    export SMOKE_TMP
+    SMOKE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/goldfish-smoke.XXXXXX")"
+    trap 'rm -rf "${SMOKE_TMP}"' EXIT
+
+    # shellcheck source=./config.sh
+    source "${SCRIPT_DIR}/config.sh"
+    init_smoke_env
+
     printf "goldfish smoke tests (tmp=%s)\n" "${SMOKE_TMP}"
     for script in "${SCRIPT_DIR}"/[0-9][0-9]_*.sh; do
         [[ -f "${script}" ]] || continue

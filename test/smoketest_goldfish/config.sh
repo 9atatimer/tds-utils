@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# config.sh — shared environment for goldfish smoke tests
+# config.sh — shared environment + helpers for goldfish smoke tests
 #
-# Sourced by run_all.sh (which sets up SMOKE_TMP and SMOKE_CONFIG) and by
-# every scenario script. SMOKE_TMP is an isolated tmp tree; SMOKE_CONFIG is
-# a goldfish config.json pointing at $SMOKE_TMP/clones as the only root.
+# Defines `init_smoke_env` (called once by run_all.sh after SMOKE_TMP is
+# allocated) plus `run_goldfish` and `make_fake_clone` (called by every
+# scenario). Sourcing this file is side-effect-free; init_smoke_env is the
+# single mutator and writes ${SMOKE_CONFIG} based on ${SMOKE_TMP}.
 
 set -euo pipefail
 
@@ -11,30 +12,31 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 GOLDFISH="${REPO_DIR}/goldfish/goldfish"
 
-if [[ -z "${SMOKE_TMP:-}" ]]; then
-    echo "error: SMOKE_TMP must be set by run_all.sh before sourcing config.sh" >&2
-    exit 1
-fi
+# --- Init --------------------------------------------------------------------
 
-export SMOKE_CLONES="${SMOKE_TMP}/clones"
-export SMOKE_CACHE="${SMOKE_TMP}/cache"
-export SMOKE_CONFIG="${SMOKE_TMP}/config.json"
+init_smoke_env() {
+    if [[ -z "${SMOKE_TMP:-}" ]]; then
+        echo "error: SMOKE_TMP must be set before init_smoke_env" >&2
+        return 1
+    fi
+    export SMOKE_CLONES="${SMOKE_TMP}/clones"
+    export SMOKE_CACHE="${SMOKE_TMP}/cache"
+    export SMOKE_CONFIG="${SMOKE_TMP}/config.json"
 
-# Build a goldfish config pointing only at our tmp clones dir.
-cat > "${SMOKE_CONFIG}" <<EOF
+    cat > "${SMOKE_CONFIG}" <<EOF
 {
     "orgs": [],
     "agents": ["claude", "gemini", "opencode", "codex"],
     "roots": ["${SMOKE_CLONES}"]
 }
 EOF
+}
+
+# --- Action helpers ----------------------------------------------------------
 
 # Run goldfish with the smoke config swapped in. Each scenario calls
 # `run_goldfish [args...]` to invoke against the isolated environment.
 run_goldfish() {
-    # goldfish reads config from goldfish/config.json next to the script;
-    # to override hermetically without touching the real file, copy
-    # goldfish/ into SMOKE_TMP, drop our config in, and run from there.
     if [[ ! -d "${SMOKE_TMP}/goldfish" ]]; then
         cp -r "${REPO_DIR}/goldfish" "${SMOKE_TMP}/goldfish"
         cp "${SMOKE_CONFIG}" "${SMOKE_TMP}/goldfish/config.json"
@@ -59,7 +61,7 @@ make_fake_clone() {
         git remote add origin "git@github.com:${nameowner}.git"
         echo "x" > a.txt
         git add a.txt
-        git commit -qm "first" 2>/dev/null || true
+        git commit -qm "first"
         if [[ -n "${todo}" ]]; then
             printf '%s\n' "${todo}" > TODO_PLAN.md
         fi
@@ -69,4 +71,4 @@ make_fake_clone() {
     echo "${dir}"
 }
 
-export -f run_goldfish make_fake_clone
+export -f run_goldfish make_fake_clone init_smoke_env
