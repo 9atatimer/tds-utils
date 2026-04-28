@@ -12,6 +12,7 @@ emacs/dot.emacs.d/projects
 *DS_Store
 __pycache__/
 *.pyc
+.pytest_cache/
 
 emacs/dot.emacs.d/elisp/emacs-mcp-server/
 .claude

@@ -1,0 +1,13 @@
+{
+    "_comment": "Hardcoded MVP config. orgs is the allow-list passed to `gh repo list`. agents is the process-name whitelist. roots is where we look for local clones; if empty, $HOME is scanned.",
+    "orgs": [],
+    "agents": [
+        "claude",
+        "gemini",
+        "opencode",
+        "codex",
+        "aider",
+        "cursor-agent"
+    ],
+    "roots": []
+}
