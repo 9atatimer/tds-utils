@@ -34,6 +34,32 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 - [x] Task Z1: Create ZLE widget for `ctrl-x s` — invokes `log_search`, pipes results through `fzf` for selection, displays matched log section in `$PAGER`. Plugin file `macos/dot.zsh_log_search`, sourced from `dot.zshrc`. PR #12.
 
+### goldfish (post-MVP follow-ups)
+
+- [ ] Task G2: **LLM-summarized "next task" column.** Currently goldfish prints
+  the first unchecked `- [ ]` line from `TODO_PLAN.md`. Replace with a `--llm`
+  flag that pipes the full file through `claude -p` (or `ollama run …` as
+  fallback) for a one-line summary. Run inside the existing `ThreadPoolExecutor`
+  so it doesn't block table render.
+- [ ] Task G3: **Cache clone discovery.** `find $HOME -maxdepth 6 -type d -name
+  .git` is the dominant probe cost on a populated home dir. Cache the
+  remote→path map to `$XDG_CACHE_HOME/goldfish/clones.json`; `--refresh` flag
+  to rescan. Only build this once we measure it actually being slow on real data.
+- [ ] Task G4: **macOS smoke test.** Dev sandbox was Linux-only; the macOS
+  cwd-detection path (`lsof -p <pid> -d cwd -Fn`) is unproven. Run goldfish on
+  a real macOS box, fix anything that breaks, add a `test/smoketest_goldfish/`
+  scenario for whichever bits can be exercised hermetically.
+- [ ] Task G5: **`--json` output mode** for piping into other tools.
+- [ ] Task G6: **Verbose process mode (`-v`).** List every running process
+  whose cwd is in a tracked repo, not just the whitelisted agents in
+  `goldfish/config.json`. Useful for catching agents invoked through a wrapper
+  (see lesson on `/proc/<pid>/comm`).
+- [ ] Task G7: **Org allow/deny via flags.** `--include-org`/`--exclude-org`
+  in addition to `goldfish/config.json` so quick one-off scoping doesn't need
+  a config edit.
+- [ ] Task G8: **`bin/goldfish` symlink.** Optional, once the `goldfish/`
+  layout settles. Currently invoked as `goldfish/goldfish`.
+
 ### Pipeline (implementation work driven by smoke tests above)
 
 - [ ] Task 2b: Implement `Segmenter` — reads log text, detects span boundaries (prompt lines with cd, tool switches, idle gaps), returns `Span` objects with byte offsets. Pure domain logic in `search/domain/segmenter.py`. Should accept text, not file paths — keeps it pure for future compression abstraction.
@@ -60,6 +86,8 @@ This file tracks the status of development tasks, lessons learned, and completed
 - **Real Log Format**: Log lines follow the pattern `HH:MM:SS user@host:dir % command`. Prompt lines with `% cd` are the primary span boundary signal. Logs range from 3KB (short sessions) to 8.8MB (long benchmarking runs). The segmenter will need to handle heavy non-printable/control character noise from terminal output (tab completion artifacts, ANSI remnants post-ansifilter).
 - **Test Behavior, Not Implementation**: Domain models (dataclasses, validation, properties) are implementation details — testing them in isolation is change-detection, not bug-detection. Smoke tests should exercise the user-visible behavior: "I type a query, I get back the right session." Write that test first, then build until it passes. Unit tests for internal components only earn their keep if they test a behavioral contract that matters to the pipeline.
 - **Smoke Tests Hit Real Systems**: A smoke test runs the real tool against real data and checks real output. Hardcoded fixtures pretending to be real data are just unit tests with extra steps. Smoke tests for log search run against `$TDS_LOG_DIR/archived/` and skip gracefully when unavailable.
+- **`git status --porcelain=v1 -b` lies about fresh repos**: A repo with no commits prints `## No commits yet on <branch>`, not `## <branch>`. A naive `^##\s+(\S+)` branch regex captures `No`. Special-case the `No commits yet on ` prefix or every freshly-init'd repo gets mis-labeled. (Discovered while building goldfish.)
+- **`/proc/<pid>/comm` is the binary basename, not `argv[0]`**: When the kernel does `execve`, it sets `comm` from the path of the executable, not what `argv[0]` says it is. Faking a renamed process for a test (e.g. a stand-in `claude`) requires `prctl(PR_SET_NAME, b"claude")` -- `os.execvp('bash', ['claude', ...])` doesn't work. Real-world flip side: an agent invoked through a wrapper script (e.g. `python3 launcher.py` that re-execs the real binary) presents `comm=python3` and slips past any name-based whitelist. Keep agent whitelists permissive, or match on cwd + open-fds instead of `comm`.
 
 ---
 
@@ -71,3 +99,4 @@ This file tracks the status of development tasks, lessons learned, and completed
 - [x] Task 2 (Scaffolding): Implement domain models, ports, `TxtaiAdapter`, indexer, and searcher.
 - [x] Task 2 (Design revision): Refine design with span/chunk model — spans as semantic segments, chunks as embedding units, search groups by span.
 - [x] Task 2a: Implement `Span` and `Chunk` domain models in `search/domain/models.py`. Added frozen dataclasses with validation, `Chunk.from_span()` factory, `index_key` property. 21 unit tests + 9 smoke tests against real session data. Also added `pyproject.toml` for log-hoarder and `__pycache__` to `.gitignore`. PR #10.
+- [x] Task G1: Build `goldfish/` v1 -- at-a-glance recent-work report across GitHub repos and local clones. Hexagonal split: pure `core.py` (parsers, formatters, sort) with 33 unit tests, plus `shell.py` adapters wrapping `gh`/`git`/`ps`/`lsof`/`find`. Entry script fans probes across a `ThreadPoolExecutor` and renders a stderr progress bar. Hardcoded MVP config in `goldfish/config.json` (orgs allow-list, agent process whitelist, on-disk roots). PR #15.
