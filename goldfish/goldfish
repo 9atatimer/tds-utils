@@ -41,6 +41,7 @@ from shell import (  # noqa: E402
     load_cached_clones,
     running_agents,
     save_cached_clones,
+    summarize_with_llm,
 )
 from core import parse_todo_plan  # noqa: E402
 
@@ -106,7 +107,13 @@ class Progress:
 
 # --- Flow functions ----------------------------------------------------------
 
-def gather(config: dict, *, fetch_remote_todos: bool, refresh_clones: bool = False) -> tuple[list[RepoRow], dict[str, Path]]:
+def gather(
+    config: dict,
+    *,
+    fetch_remote_todos: bool,
+    refresh_clones: bool = False,
+    llm: bool = False,
+) -> tuple[list[RepoRow], dict[str, Path]]:
     """Run all probes and assemble RepoRows. Returns (rows, clones)."""
     progress = Progress()
     orgs = resolve_orgs(config)
@@ -158,7 +165,7 @@ def gather(config: dict, *, fetch_remote_todos: bool, refresh_clones: bool = Fal
     with ThreadPoolExecutor(max_workers=8) as ex:
         futures = {
             ex.submit(_build_row, name, gh, pr_counts, clones, agents,
-                      fetch_remote_todos): name
+                      fetch_remote_todos, llm): name
             for name, gh in todo
         }
         done = 0
@@ -179,6 +186,7 @@ def _build_row(
     clones: dict[str, Path],
     agents: list,
     fetch_remote_todos: bool,
+    llm: bool,
 ) -> RepoRow | None:
     github_info = None
     if gh is not None:
@@ -189,14 +197,33 @@ def _build_row(
         )
     workdir = clones.get(name)
     local = inspect_local(workdir) if workdir else None
+    todo_text: str | None = None
+    if local is not None and workdir is not None:
+        todo_path = workdir / "TODO_PLAN.md"
+        if todo_path.exists():
+            try:
+                todo_text = todo_path.read_text()
+            except (OSError, UnicodeDecodeError):
+                todo_text = None
     if local is None and fetch_remote_todos and gh is not None:
         text = fetch_remote_todo_plan(name)
         if text:
             from core import LocalInfo
+            todo_text = text
             local = LocalInfo(
                 path=Path(""), is_dirty=False, ahead=0, behind=0,
                 branch="", last_commit_at=None,
                 next_task=parse_todo_plan(text),
+            )
+    if llm and todo_text and local is not None:
+        summary = summarize_with_llm(todo_text)
+        if summary:
+            from core import LocalInfo
+            local = LocalInfo(
+                path=local.path, is_dirty=local.is_dirty, ahead=local.ahead,
+                behind=local.behind, branch=local.branch,
+                last_commit_at=local.last_commit_at,
+                next_task=summary,
             )
     repo_agents = tuple(a for a in agents if workdir is not None and a.repo_path == workdir)
     return RepoRow(name=name, github=github_info, local=local, agents=repo_agents)
@@ -235,6 +262,10 @@ def run(argv: list[str]) -> int:
         "--refresh", action="store_true",
         help="Rescan disk for clones instead of using the cache.",
     )
+    parser.add_argument(
+        "--llm", action="store_true",
+        help="Summarize each TODO_PLAN.md via `claude` (or `ollama`) for the NEXT column.",
+    )
     args = parser.parse_args(argv)
 
     if not have("gh"):
@@ -247,6 +278,7 @@ def run(argv: list[str]) -> int:
         config,
         fetch_remote_todos=args.fetch_remote_todos,
         refresh_clones=args.refresh,
+        llm=args.llm,
     )
     rows = apply_org_filter(
         rows,

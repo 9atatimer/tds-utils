@@ -15,6 +15,7 @@ from core import (
     RepoRow,
     apply_org_filter,
     enclosing_repo,
+    first_meaningful_line,
     format_processes,
     format_table,
     latest_activity,
@@ -324,6 +325,33 @@ def test_format_table_agents_listed() -> None:
     table = format_table(rows)
     line = [l for l in table.splitlines() if "todd/foo" in l][0]
     assert "claude" in line and "codex" in line
+
+
+# --- first_meaningful_line (G2) ----------------------------------------------
+
+def test_first_meaningful_line_returns_first_nonempty() -> None:
+    """Given output with leading blank lines, returns the first non-empty line."""
+    raw = "\n\n  \nactual content here\nignored\n"
+    assert first_meaningful_line(raw) == "actual content here"
+
+
+def test_first_meaningful_line_strips_quotes_and_bullets() -> None:
+    """Given LLM-style output with quotes / bullets, those are stripped."""
+    assert first_meaningful_line('"Wire up retry on 429"') == "Wire up retry on 429"
+    assert first_meaningful_line("- Wire up retry") == "Wire up retry"
+    assert first_meaningful_line("* Wire up retry") == "Wire up retry"
+
+
+def test_first_meaningful_line_empty_input_returns_none() -> None:
+    """Given empty/whitespace input, returns None."""
+    assert first_meaningful_line("") is None
+    assert first_meaningful_line("   \n\n") is None
+
+
+def test_first_meaningful_line_truncates_long_output() -> None:
+    """Given a long line, output is bounded so it fits the table column."""
+    long = "x" * 500
+    assert len(first_meaningful_line(long)) <= 200
 
 
 # --- clones cache (G3) -------------------------------------------------------

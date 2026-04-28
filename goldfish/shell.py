@@ -21,6 +21,7 @@ from core import (
     LocalInfo,
     GitDirtyState,
     enclosing_repo,
+    first_meaningful_line,
     parse_clones_cache,
     parse_gh_repo_list,
     parse_git_porcelain,
@@ -243,6 +244,46 @@ def _parse_iso_safe(raw: str) -> datetime | None:
         return datetime.fromisoformat(raw)
     except ValueError:
         return None
+
+
+# --- LLM next-task summarizer (G2) -------------------------------------------
+
+LLM_PROMPT = (
+    "Read the TODO_PLAN.md content on stdin. In one short sentence "
+    "(<= 100 chars), describe the single next concrete task. No preamble, "
+    "no quotes, no markdown, just the sentence."
+)
+
+
+def summarize_with_llm(todo_text: str, *, timeout: float = 30.0) -> str | None:
+    """Summarize a TODO_PLAN via claude or ollama. Returns None if both fail.
+
+    Tries `claude -p` first, then `ollama run llama3.2` as a fallback. Both
+    accept the file content on stdin.
+    """
+    if not todo_text.strip():
+        return None
+    for cmd in _llm_candidates():
+        try:
+            result = subprocess.run(
+                cmd, input=todo_text, capture_output=True, text=True,
+                timeout=timeout, check=False,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            continue
+        if result.returncode == 0 and result.stdout.strip():
+            return first_meaningful_line(result.stdout)
+    return None
+
+
+def _llm_candidates() -> list[list[str]]:
+    out: list[list[str]] = []
+    if have("claude"):
+        out.append(["claude", "-p", LLM_PROMPT])
+    if have("ollama"):
+        model = os.environ.get("GOLDFISH_OLLAMA_MODEL", "llama3.2")
+        out.append(["ollama", "run", model, LLM_PROMPT])
+    return out
 
 
 def fetch_remote_todo_plan(name_with_owner: str) -> str | None:

@@ -203,6 +203,32 @@ def sort_rows(rows: Iterable[RepoRow], *, now: datetime | None = None) -> list[R
     return sorted(rows, key=key, reverse=True)
 
 
+# --- LLM output cleanup (G2) -------------------------------------------------
+
+LLM_LINE_MAX = 200
+
+
+def first_meaningful_line(raw: str) -> str | None:
+    """Return the first non-empty line, stripped of leading bullets/quotes.
+
+    Bounded to LLM_LINE_MAX chars so a chatty model can't blow up the table.
+    """
+    for line in raw.splitlines():
+        cleaned = line.strip()
+        if not cleaned:
+            continue
+        for prefix in ("- ", "* ", "• "):
+            if cleaned.startswith(prefix):
+                cleaned = cleaned[len(prefix):]
+                break
+        if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in ('"', "'"):
+            cleaned = cleaned[1:-1]
+        if len(cleaned) > LLM_LINE_MAX:
+            cleaned = cleaned[:LLM_LINE_MAX]
+        return cleaned or None
+    return None
+
+
 # --- Clones cache (G3) -------------------------------------------------------
 
 CLONES_CACHE_VERSION = 1
