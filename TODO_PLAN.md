@@ -11,6 +11,10 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 ## Open Tasks
 
+### Terminal UX
+
+- [ ] Task T1: **Improve brand theme matching** — currently it does a literal case-insensitive match. If "Solarized Dark" is a theme, `brand solarized` fails. Add a fuzzy or substring match for theme names.
+
 ### UX / Interaction Quality (high-friction issues with the current proof-of-concept)
 
 - [ ] Task U0: **Purge sampling terminology and code.** The `get_log_sample()` function in `search/cli/index.py`, the `sample_logs()` function in `log_brander`, `content_sample` field on `LogEntry`, and the `"text"` construction in `TxtaiAdapter.add_entries()` all embody a "sample a few lines to represent a session" approach that is fundamentally wrong for semantic search and confusing to maintain. Remove or rename: `content_sample` → remove from `LogEntry` (chunked pipeline replaces it), `get_log_sample()` → delete (Tasks 2b-2e replace it), `sample_logs()` in `log_brander` → rename to `extract_branding_context()` (brander legitimately needs a summary, but should not call it a "sample"). Clean up any references in comments and docstrings.
@@ -93,10 +97,15 @@ This file tracks the status of development tasks, lessons learned, and completed
 - **Smoke Tests Hit Real Systems**: A smoke test runs the real tool against real data and checks real output. Hardcoded fixtures pretending to be real data are just unit tests with extra steps. Smoke tests for log search run against `$TDS_LOG_DIR/archived/` and skip gracefully when unavailable.
 - **`git status --porcelain=v1 -b` lies about fresh repos**: A repo with no commits prints `## No commits yet on <branch>`, not `## <branch>`. A naive `^##\s+(\S+)` branch regex captures `No`. Special-case the `No commits yet on ` prefix or every freshly-init'd repo gets mis-labeled. (Discovered while building goldfish.)
 - **`/proc/<pid>/comm` is the binary basename, not `argv[0]`**: When the kernel does `execve`, it sets `comm` from the path of the executable, not what `argv[0]` says it is. Faking a renamed process for a test (e.g. a stand-in `claude`) requires `prctl(PR_SET_NAME, b"claude")` -- `os.execvp('bash', ['claude', ...])` doesn't work. Real-world flip side: an agent invoked through a wrapper script (e.g. `python3 launcher.py` that re-execs the real binary) presents `comm=python3` and slips past any name-based whitelist. Keep agent whitelists permissive, or match on cwd + open-fds instead of `comm`.
+- **Terminal Branding via AppleScript/tmux**: Programmatically changing macOS Terminal themes requires `osascript` to talk to Terminal.app profiles. Combining this with `tmux set-option @brand` allows for a "dual-layer" branding where the theme is global to the tab but the title bar dynamically updates as you switch tmux windows. Conditional tmux formatting (`#{?@brand...}`) can then be used to hide the CWD prefix only when a brand is active.
 
 ---
 
 ## Completed Tasks
+
+### Terminal UX
+
+- [x] Task T0: **Implement 'brand' command** — single CLI to set Terminal theme (via AppleScript) and window/tmux title. Supports theme detection as first argument and stable session-level branding via tmux variables. PR #20.
 
 - [x] Task 1: Secure log permissions in `log-hoarder` (restrict to owner read/write).
 - [x] Task 1.1: Fix `tmux.conf` durable double/triple click selection in `root` table.
