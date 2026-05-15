@@ -1,0 +1,86 @@
+#!/bin/zsh
+# brand — set Terminal theme and/or window title
+#
+# Usage: brand [Theme] [Title...]
+#
+# If the first argument matches a macOS Terminal profile (case-insensitive),
+# it sets the current tab to that theme. Any remaining arguments set the
+# window title (or tmux window name).
+
+set -euo pipefail
+
+# --- Action functions ---
+
+get_terminal_themes() {
+    osascript -e 'tell application "Terminal" to name of every settings set' | tr ',' '\n' | sed 's/^ *//;s/ *$//'
+}
+
+set_terminal_theme() {
+    local theme="$1"
+    # Use AppleScript to set the theme. We use a case-insensitive match by
+    # finding the exact name first.
+    local exact_theme
+    exact_theme=$(osascript -e "tell application \"Terminal\"
+        set themeNames to name of every settings set
+        repeat with t in themeNames
+            if t as string is equal to \"$theme\" then
+                return t as string
+            end if
+        end repeat
+    end tell" 2>/dev/null)
+
+    if [[ -n "$exact_theme" ]]; then
+        osascript -e "tell application \"Terminal\" to set current settings of selected tab of front window to settings set \"$exact_theme\""
+        return 0
+    else
+        return 1
+    fi
+}
+
+set_title() {
+    local title="$1"
+    if [[ -n "${TMUX:-}" ]]; then
+        # Set a session-wide brand variable that our tmux.conf template uses
+        tmux set-option -q @brand "$title"
+    else
+        # Standard xterm escape sequence for window title
+        printf "\e]0;%s\a" "$title"
+    fi
+}
+
+# --- Flow functions ---
+
+run_brand() {
+    if [[ $# -eq 0 ]]; then
+        echo "Usage: brand [Theme] [Title...]"
+        echo "Available themes:"
+        get_terminal_themes | sed 's/^/  /'
+        return 0
+    fi
+
+    local first_arg="$1"
+    local has_theme=false
+
+    # Try to set the theme with the first argument
+    if set_terminal_theme "$first_arg"; then
+        has_theme=true
+        shift
+    fi
+
+    # Any remaining arguments form the title
+    if [[ $# -gt 0 ]]; then
+        set_title "$*"
+    elif [[ "$has_theme" == "false" ]]; then
+        # If it wasn't a theme and there are no other args, 
+        # treat the first arg as a title only.
+        set_title "$first_arg"
+    fi
+}
+
+# --- Main ---
+
+main() {
+    run_brand "$@"
+}
+
+main "$@"
