@@ -314,6 +314,21 @@ def apply_org_filter(
     return out
 
 
+# --- Actionability filter ----------------------------------------------------
+
+def is_actionable(row: RepoRow) -> bool:
+    """True if the row has any open PR, dirty tree, unpushed commits, agent, or NEXT task."""
+    if row.github is not None and row.github.open_pr_count > 0:
+        return True
+    if row.local is not None and (
+        row.local.is_dirty or row.local.ahead > 0 or row.local.next_task
+    ):
+        return True
+    if row.agents:
+        return True
+    return False
+
+
 # --- JSON serialization (G5) -------------------------------------------------
 
 def rows_to_json(rows: Iterable[RepoRow]) -> str:
