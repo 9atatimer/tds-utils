@@ -55,17 +55,6 @@ Pre-existing issues in the gadmin GitHub tools, surfaced by Copilot review on PR
 - [ ] Task L2: **Adopt meaningful session names** — default numeric (`18`, `19`, `20`…) make `tmux ls` and the new title-string both worse than they need to be.
 - [ ] Task L3: **Handle session-rename → log-path drift** — `tmux_logging.sh` bakes `#S` at pipe-pane time, so renaming a live session splits its logs across old and new dirs.
 
-### goldfish (post-MVP follow-ups)
-
-- [ ] Task G4: **macOS smoke test.** Linux smoke suite shipped in PR #18 (6/6
-  green); the macOS cwd-detection path (`lsof -p <pid> -d cwd -Fn`) is still
-  unproven. Run goldfish on a real macOS box, fix anything that breaks, and
-  add a `test/smoketest_goldfish/` scenario for the bits that can be
-  exercised hermetically (agent detection with `prctl` is Linux-only, so
-  that test has to stay platform-gated).
-- [ ] Task G8: **`bin/goldfish` symlink.** Optional, once the `goldfish/`
-  layout settles. Currently invoked as `goldfish/goldfish`.
-
 ### Pipeline (implementation work driven by smoke tests above)
 
 - [ ] Task 2b: Implement `Segmenter` — reads log text, detects span boundaries (prompt lines with cd, tool switches, idle gaps), returns `Span` objects with byte offsets. Pure domain logic in `search/domain/segmenter.py`. Should accept text, not file paths — keeps it pure for future compression abstraction.
@@ -123,3 +112,4 @@ Pre-existing issues in the gadmin GitHub tools, surfaced by Copilot review on PR
   - **G6** `-v` / `--verbose`: lists every process whose cwd is inside a tracked repo (not just the agent whitelist), grouped by repo. Catches wrapper-launched agents.
   - **G7** `--include-org` / `--exclude-org`: repeatable filter flags, exclude wins over include.
   - **G4 (Linux scaffolding)**: hermetic `test/smoketest_goldfish/` bash suite, 6 scenarios, all green on Linux. macOS verification (`lsof` path) remains open as the G4 entry above.
+- [x] Tasks G4 (macOS half) + G8: Verified goldfish on macOS (6/6 smoketests green, real-run JSON output sane). Added `bin/goldfish` symlink and `gf` alias in `macos/dot.alias`.
