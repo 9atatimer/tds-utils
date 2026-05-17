@@ -13,6 +13,7 @@ from core import (
     GithubInfo,
     LocalInfo,
     RepoRow,
+    apply_blacklist,
     apply_org_filter,
     enclosing_repo,
     first_meaningful_line,
@@ -20,6 +21,7 @@ from core import (
     format_table,
     is_actionable,
     latest_activity,
+    parse_blacklist,
     parse_clones_cache,
     parse_git_porcelain,
     parse_gh_repo_list,
@@ -27,6 +29,7 @@ from core import (
     parse_ps,
     parse_todo_plan,
     rows_to_json,
+    serialize_blacklist,
     serialize_clones_cache,
     sort_rows,
 )
@@ -578,6 +581,88 @@ def test_is_actionable_empty_row_is_idle() -> None:
     """Given a row with no github, no local, no agents, it is idle."""
     row = RepoRow(name="a/x", github=None, local=None, agents=())
     assert is_actionable(row) is False
+
+
+# --- blacklist parse/serialize -----------------------------------------------
+
+def test_serialize_blacklist_round_trips() -> None:
+    """Given a set of names, serialize then parse returns the same set."""
+    names = frozenset({"a/x", "b/y"})
+    text = serialize_blacklist(names)
+    assert parse_blacklist(text) == names
+
+
+def test_parse_blacklist_empty_file_returns_empty_set() -> None:
+    """Given an empty/missing payload, parse returns an empty frozenset."""
+    text = serialize_blacklist(frozenset())
+    assert parse_blacklist(text) == frozenset()
+
+
+def test_parse_blacklist_handles_garbage() -> None:
+    """Given non-JSON input, returns empty frozenset (no crash)."""
+    assert parse_blacklist("not json") == frozenset()
+    assert parse_blacklist("") == frozenset()
+
+
+def test_parse_blacklist_handles_unknown_version() -> None:
+    """Given a future-version file, returns empty frozenset."""
+    assert parse_blacklist('{"version": 99, "names": ["a/x"]}') == frozenset()
+
+
+def test_parse_blacklist_ignores_non_string_entries() -> None:
+    """Given a names array with non-string entries, those are dropped."""
+    text = '{"version": 1, "names": ["a/x", 42, null, "b/y"]}'
+    assert parse_blacklist(text) == frozenset({"a/x", "b/y"})
+
+
+# --- apply_blacklist ---------------------------------------------------------
+
+def test_apply_blacklist_drops_blacklisted_rows() -> None:
+    """Given a blacklist, rows whose name is in it are removed."""
+    rows = [_row("a/x"), _row("b/y"), _row("c/z")]
+    out = apply_blacklist(rows, blacklist=frozenset({"b/y"}))
+    assert [r.name for r in out] == ["a/x", "c/z"]
+
+
+def test_apply_blacklist_empty_set_passes_everything() -> None:
+    """Given an empty blacklist, no rows are dropped."""
+    rows = [_row("a/x"), _row("b/y")]
+    assert apply_blacklist(rows, blacklist=frozenset()) == rows
+
+
+def test_apply_blacklist_unknown_names_have_no_effect() -> None:
+    """Given a blacklist with names not in the rows, nothing changes."""
+    rows = [_row("a/x")]
+    assert apply_blacklist(rows, blacklist=frozenset({"nothere/repo"})) == rows
+
+
+# --- format_table BL column --------------------------------------------------
+
+def test_format_table_no_bl_column_by_default() -> None:
+    """Given no blacklisted set, BL column is absent (back-compat)."""
+    rows = [_row("a/x")]
+    header = format_table(rows).splitlines()[0]
+    assert "BL" not in header.split()
+
+
+def test_format_table_bl_column_when_blacklisted_provided() -> None:
+    """Given a blacklisted set, BL column appears in the header."""
+    rows = [_row("a/x"), _row("b/y")]
+    header = format_table(rows, blacklisted=frozenset({"b/y"})).splitlines()[0]
+    assert "BL" in header.split()
+
+
+def test_format_table_bl_marker_only_for_blacklisted_row() -> None:
+    """Given two rows where one is blacklisted, only that row's BL column is marked."""
+    rows = [_row("a/x"), _row("b/y")]
+    table = format_table(rows, blacklisted=frozenset({"b/y"}))
+    lines = table.splitlines()
+    a_line = next(l for l in lines if "a/x" in l)
+    b_line = next(l for l in lines if "b/y" in l)
+    a_cells = [c.strip() for c in a_line.split("  ") if c.strip()]
+    b_cells = [c.strip() for c in b_line.split("  ") if c.strip()]
+    assert b_cells.count("*") == 1
+    assert a_cells.count("*") == 0
 
 
 def test_format_table_next_task_truncated() -> None:
