@@ -57,27 +57,12 @@ Pre-existing issues in the gadmin GitHub tools, surfaced by Copilot review on PR
 
 ### goldfish (post-MVP follow-ups)
 
-- [ ] Task G2: **LLM-summarized "next task" column.** Currently goldfish prints
-  the first unchecked `- [ ]` line from `TODO_PLAN.md`. Replace with a `--llm`
-  flag that pipes the full file through `claude -p` (or `ollama run …` as
-  fallback) for a one-line summary. Run inside the existing `ThreadPoolExecutor`
-  so it doesn't block table render.
-- [ ] Task G3: **Cache clone discovery.** `find $HOME -maxdepth 6 -type d -name
-  .git` is the dominant probe cost on a populated home dir. Cache the
-  remote→path map to `$XDG_CACHE_HOME/goldfish/clones.json`; `--refresh` flag
-  to rescan. Only build this once we measure it actually being slow on real data.
-- [ ] Task G4: **macOS smoke test.** Dev sandbox was Linux-only; the macOS
-  cwd-detection path (`lsof -p <pid> -d cwd -Fn`) is unproven. Run goldfish on
-  a real macOS box, fix anything that breaks, add a `test/smoketest_goldfish/`
-  scenario for whichever bits can be exercised hermetically.
-- [ ] Task G5: **`--json` output mode** for piping into other tools.
-- [ ] Task G6: **Verbose process mode (`-v`).** List every running process
-  whose cwd is in a tracked repo, not just the whitelisted agents in
-  `goldfish/config.json`. Useful for catching agents invoked through a wrapper
-  (see lesson on `/proc/<pid>/comm`).
-- [ ] Task G7: **Org allow/deny via flags.** `--include-org`/`--exclude-org`
-  in addition to `goldfish/config.json` so quick one-off scoping doesn't need
-  a config edit.
+- [ ] Task G4: **macOS smoke test.** Linux smoke suite shipped in PR #18 (6/6
+  green); the macOS cwd-detection path (`lsof -p <pid> -d cwd -Fn`) is still
+  unproven. Run goldfish on a real macOS box, fix anything that breaks, and
+  add a `test/smoketest_goldfish/` scenario for the bits that can be
+  exercised hermetically (agent detection with `prctl` is Linux-only, so
+  that test has to stay platform-gated).
 - [ ] Task G8: **`bin/goldfish` symlink.** Optional, once the `goldfish/`
   layout settles. Currently invoked as `goldfish/goldfish`.
 
@@ -127,3 +112,10 @@ Pre-existing issues in the gadmin GitHub tools, surfaced by Copilot review on PR
 - [x] Task 2a: Implement `Span` and `Chunk` domain models in `search/domain/models.py`. Added frozen dataclasses with validation, `Chunk.from_span()` factory, `index_key` property. 21 unit tests + 9 smoke tests against real session data. Also added `pyproject.toml` for log-hoarder and `__pycache__` to `.gitignore`. PR #10.
 - [x] Task L1: Bring joy to the human via the tmux status bar and outer terminal title — `tmux[<session>] <i>/<n> -- <pwd>/<cmd>` in the macOS title bar; `<idx>:<pwd>/<cmd><flag>` in the per-window status-bar labels. PR #19.
 - [x] Task G1: Build `goldfish/` v1 -- at-a-glance recent-work report across GitHub repos and local clones. Hexagonal split: pure `core.py` (parsers, formatters, sort) with 33 unit tests, plus `shell.py` adapters wrapping `gh`/`git`/`ps`/`lsof`/`find`. Entry script fans probes across a `ThreadPoolExecutor` and renders a stderr progress bar. Hardcoded MVP config in `goldfish/config.json` (orgs allow-list, agent process whitelist, on-disk roots). PR #15.
+- [x] Tasks G2/G3/G5/G6/G7 + Linux half of G4: goldfish post-MVP follow-ups. PR #18.
+  - **G2** `--llm`: summarize each TODO_PLAN.md via `claude -p` (or `ollama run $GOLDFISH_OLLAMA_MODEL`) inside the per-row threadpool. Pure `first_meaningful_line` trims chatty output to <=200 chars.
+  - **G3** clone-discovery cache: `$XDG_CACHE_HOME/goldfish/clones.json` (versioned, 24h TTL, validates each cached path still has `.git/`). `--refresh` forces rescan.
+  - **G5** `--json`: stable JSON-array output with all columns, datetimes ISO-encoded, missing github/local as `null`.
+  - **G6** `-v` / `--verbose`: lists every process whose cwd is inside a tracked repo (not just the agent whitelist), grouped by repo. Catches wrapper-launched agents.
+  - **G7** `--include-org` / `--exclude-org`: repeatable filter flags, exclude wins over include.
+  - **G4 (Linux scaffolding)**: hermetic `test/smoketest_goldfish/` bash suite, 6 scenarios, all green on Linux. macOS verification (`lsof` path) remains open as the G4 entry above.
