@@ -932,6 +932,10 @@ async function cmdIssueView(options) {
   }
 
   if (options['wait-tx']) {
+    if (options['wait-tx'] === true) {
+      logError('issue view --wait-tx requires a tx id (e.g. --wait-tx <id>)');
+      process.exit(1);
+    }
     await maybeWaitTx(owner, repo, num, options['wait-tx'], options);
   }
 }
@@ -1069,8 +1073,13 @@ async function cmdIssueUnblock(options) {
     usage();
   }
   if (options.by) {
+    const by = parseInt(options.by, 10);
+    if (!Number.isFinite(by) || by <= 0) {
+      logError(`--by requires a positive issue number, got: ${options.by}`);
+      process.exit(1);
+    }
     const tx = await emitCommand(owner, repo, num, [
-      { kind: 'remove-label', value: `blocked-by:#${parseInt(options.by, 10)}` },
+      { kind: 'remove-label', value: `blocked-by:#${by}` },
     ]);
     console.log(tx);
     await maybeWaitTx(owner, repo, num, tx, options);
@@ -1119,7 +1128,6 @@ async function cmdIssueNext(options) {
   const { owner, repo } = requireRepo(options.repo);
   const subsystem = options.subsystem;
   const params = new URLSearchParams({ state: 'open', per_page: '100' });
-  const labelFilters = ['P0,P1,P2'.split(',')]; // not directly usable; we filter client-side instead
   const items = await githubApiPaginate(
     `/repos/${owner}/${repo}/issues?${params.toString()}`
   );

@@ -8,9 +8,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./config.sh
 source "${SCRIPT_DIR}/config.sh"
 
-require_node
+# --- Flow --------------------------------------------------------------------
 
-run_node --input-type=module -e "
+main() {
+    require_node
+
+    run_node --input-type=module -e "
 import { applyOpsToState } from '${GADMIN_AGGREGATOR}';
 
 function freshState(extra = {}) {
@@ -38,6 +41,15 @@ function check(name, cond, detail) {
   check('priority replace.has-P0', s.labels.has('P0'));
   check('priority replace.no-P2', !s.labels.has('P2'));
   check('priority replace.keeps-other', s.labels.has('subsystem:gadmin'));
+}
+
+// invalid priority value is rejected and does not mutate state
+{
+  const s = freshState({ labels: ['P2'] });
+  const r = applyOpsToState(s, [{ kind: 'priority', value: 'not-a-priority' }], 'a');
+  check('priority invalid.reject-truthy', typeof r.reject === 'string', r);
+  check('priority invalid.no-bad-label', !s.labels.has('not-a-priority'));
+  check('priority invalid.keeps-P2', s.labels.has('P2'));
 }
 
 // claim adds claimed-by:<agent>
@@ -113,3 +125,6 @@ if (fails) {
 }
 console.log('aggregator apply tests ok');
 "
+}
+
+main "$@"

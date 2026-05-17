@@ -13,15 +13,17 @@ REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 export GADMIN_ADMIN_DIR="${REPO_DIR}/gadmin/admin"
 export GADMIN_GRAMMAR="${GADMIN_ADMIN_DIR}/issue-grammar.mjs"
-export GADMIN_CLIENT="${GADMIN_ADMIN_DIR}/issue-client.mjs"
 export GADMIN_AGGREGATOR="${GADMIN_ADMIN_DIR}/issue-aggregator.mjs"
 
 # --- Action helpers ----------------------------------------------------------
 
+# run_all.sh treats rc=77 as SKIP (autotools convention). Anything else
+# non-zero is FAIL. require_node returning 1 here would be reported as
+# FAIL even when node is genuinely unavailable, so we use 77.
 require_node() {
     if ! command -v node >/dev/null 2>&1; then
         echo "skip: node not on PATH" >&2
-        return 1
+        return 77
     fi
 }
 

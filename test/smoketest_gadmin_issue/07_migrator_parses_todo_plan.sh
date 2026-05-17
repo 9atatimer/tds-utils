@@ -9,11 +9,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./config.sh
 source "${SCRIPT_DIR}/config.sh"
 
-require_node
+# --- Flow --------------------------------------------------------------------
 
-MIGRATE_MODULE="${GADMIN_ADMIN_DIR}/migrate-todo-plan.mjs"
+main() {
+    require_node
 
-run_node --input-type=module -e "
+    local MIGRATE_MODULE="${GADMIN_ADMIN_DIR}/migrate-todo-plan.mjs"
+
+    run_node --input-type=module -e "
 import { parseOpenTasks } from '${MIGRATE_MODULE}';
 
 const md = [
@@ -65,3 +68,6 @@ if (fails) {
 }
 console.log('migrator parser tests ok');
 "
+}
+
+main "$@"

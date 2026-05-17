@@ -104,6 +104,15 @@ export function applyAutogen(original, autogenContent) {
     const after = original.slice(end);
     return `${before}\n${autogenContent}\n${after}`;
   }
+  // Refuse to operate on a half-marked file: inserting a fresh block would
+  // either duplicate sentinels or leave an orphan, both of which silently
+  // corrupt the plan. Bail with a clear error so the human can fix the file.
+  if ((start >= 0) !== (end >= 0) || (start >= 0 && end < start)) {
+    throw new Error(
+      'TODO_PLAN.md has an unbalanced gadmin:autogen sentinel pair ' +
+        `(start=${start}, end=${end}). Restore both markers or remove both, then retry.`
+    );
+  }
   // Insert after the first level-1 heading if present, otherwise at top.
   const block = `${SENTINEL_START}\n${autogenContent}\n${SENTINEL_END}\n\n`;
   const lines = original.split('\n');

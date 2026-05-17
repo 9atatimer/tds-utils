@@ -52,9 +52,15 @@ export const OP_KINDS = new Set([
 const FLAG_OPS = new Set(['claim', 'release', 'reopen']);
 
 /**
- * Generate a sortable transaction id. Time-prefixed so lexical sort
- * approximates chronological order — enough for tiebreaking on the wire
- * while the aggregator authoritatively orders by GitHub comment created_at.
+ * Generate a sortable transaction id. NOT a standards UUIDv7 — this is a
+ * custom `<base36-ms-since-epoch>-<12-hex>` string built from a v4 UUID's
+ * random half. The time prefix makes lexical sort approximate chronological
+ * order, which is enough for client-side ordering hints; the aggregator
+ * authoritatively orders by GitHub comment created_at.
+ *
+ * If a true UUIDv7 is later needed (e.g. for interop), replace this with
+ * the standards form and bump the on-the-wire `tx=` token format. Existing
+ * tx ids stored in tx_log remain valid since the column is opaque text.
  */
 export function newTxId() {
   const t = Date.now().toString(36).padStart(9, '0');
@@ -84,9 +90,12 @@ function parsePreamble(line) {
  *   { tx, agent, assumeVersion?, ops: [{ kind, value? }, ...] }
  * or null if this is not a /gadmin command comment.
  *
- * Anything past a recognised edit-body fenced block is body content; other
- * unknown lines outside fences cause a parse failure (returns null) so the
- * aggregator can flag malformed commands rather than partially apply them.
+ * Lines inside an `edit-body: |` fenced block (indented by at least one
+ * whitespace, plus blank lines) are absorbed as body content. The first
+ * non-indented non-blank line after the block terminates it and is parsed
+ * as the next op. Unknown op kinds, malformed preambles, and value/flag
+ * mismatches all cause a parse failure (returns null) so the aggregator
+ * can flag malformed commands rather than partially apply them.
  */
 export function parseCommand(body) {
   if (typeof body !== 'string') return null;

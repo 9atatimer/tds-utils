@@ -7,11 +7,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./config.sh
 source "${SCRIPT_DIR}/config.sh"
 
-require_node
+# --- Flow --------------------------------------------------------------------
 
-DB_PATH="${SMOKE_TMP}/snap-$$.db"
+main() {
+    require_node
 
-run_node --input-type=module --no-warnings -e "
+    local DB_PATH="${SMOKE_TMP}/snap-$$.db"
+
+    run_node --input-type=module --no-warnings -e "
 import { openDb, upsertIssue, logTx } from '${GADMIN_AGGREGATOR}';
 
 const db = openDb('${DB_PATH}');
@@ -55,3 +58,6 @@ if (!JSON.parse(row2.labels).includes('P0')) { console.error('label update faile
 
 console.log('aggregator sqlite snapshot ok');
 "
+}
+
+main "$@"

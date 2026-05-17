@@ -924,6 +924,10 @@ async function cmdIssueView(options) {
   }
 
   if (options['wait-tx']) {
+    if (options['wait-tx'] === true) {
+      logError('issue view --wait-tx requires a tx id (e.g. --wait-tx <id>)');
+      process.exit(1);
+    }
     await maybeWaitTx(octokit, owner, repo, num, options['wait-tx'], options);
   }
 }
@@ -1066,8 +1070,13 @@ async function cmdIssueUnblock(options) {
   }
   const octokit = getOctokit();
   if (options.by) {
+    const by = parseInt(options.by, 10);
+    if (!Number.isFinite(by) || by <= 0) {
+      logError(`--by requires a positive issue number, got: ${options.by}`);
+      process.exit(1);
+    }
     const tx = await emitCommand(octokit, owner, repo, num, [
-      { kind: 'remove-label', value: `blocked-by:#${parseInt(options.by, 10)}` },
+      { kind: 'remove-label', value: `blocked-by:#${by}` },
     ]);
     console.log(tx);
     await maybeWaitTx(octokit, owner, repo, num, tx, options);

@@ -16,8 +16,10 @@
  *   6. sleep --interval seconds (default 15)
  *
  * Auth: $GITHUB_TOKEN (falls back to `gh auth token`).
- * Snapshot: $GADMIN_DB (default ~/.gadmin/issues.db).
- * NATS:     $NATS_URL  (default nats://127.0.0.1:4222; empty = disabled).
+ * Snapshot: --db PATH or $GADMIN_DB (default ~/.gadmin/issues.db).
+ * NATS:     --nats-url URL or $NATS_URL (default nats://127.0.0.1:4222;
+ *           empty string or "none" disables publishing).
+ * CLI flags override the corresponding environment variables.
  *
  * This file is deliberately conservative: polling (not webhook forward),
  * core ops only, no JetStream. Webhook ingress and JetStream are listed
@@ -47,14 +49,30 @@ function logError(msg) { console.error(`${LOG_PREFIX} ${msg}`); }
 // ---- args ------------------------------------------------------------------
 
 function parseArgs(argv) {
-  const opts = { repo: null, db: null, interval: 15, natsUrl: null, once: false };
+  // CLI flags override environment defaults.
+  const opts = {
+    repo: null,
+    db: process.env.GADMIN_DB || null,
+    interval: 15,
+    natsUrl: process.env.NATS_URL ?? null,
+    once: false,
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = argv[i + 1];
     switch (a) {
       case '--repo':     opts.repo = next; i++; break;
       case '--db':       opts.db = next; i++; break;
-      case '--interval': opts.interval = parseInt(next, 10); i++; break;
+      case '--interval': {
+        const n = parseInt(next, 10);
+        if (!Number.isFinite(n) || n <= 0) {
+          logError(`--interval requires a positive integer, got: ${next}`);
+          process.exit(1);
+        }
+        opts.interval = n;
+        i++;
+        break;
+      }
       case '--nats-url': opts.natsUrl = next; i++; break;
       case '--once':     opts.once = true; break;
       case '--help':
@@ -248,6 +266,9 @@ function applyOpsToState(state, ops, agent) {
   for (const op of ops) {
     switch (op.kind) {
       case 'priority':
+        if (!PRIORITY_RE.test(op.value || '')) {
+          return { reject: `invalid-priority:${op.value}` };
+        }
         for (const l of [...state.labels]) {
           if (PRIORITY_RE.test(l)) state.labels.delete(l);
         }
@@ -433,14 +454,25 @@ async function processComment(ctx, comment) {
 
 async function pollOnce(ctx) {
   const { owner, repo, db } = ctx;
-  const cursor = getMeta(db, 'cursor');
+  // Cursor is (created_at, comment_id) — GH `created_at` is second-granularity,
+  // so we need a tiebreaker for comments in the same second as the cursor.
+  const cursorTs = getMeta(db, 'cursor');
+  const cursorId = parseInt(getMeta(db, 'cursor_comment_id') || '0', 10) || 0;
   let endpoint = `/repos/${owner}/${repo}/issues/comments?sort=created&direction=asc&per_page=100`;
-  if (cursor) endpoint += `&since=${encodeURIComponent(cursor)}`;
+  if (cursorTs) endpoint += `&since=${encodeURIComponent(cursorTs)}`;
   const comments = await ghPaginate(endpoint);
 
-  // Filter out comments we've already seen (since=<iso> is inclusive).
-  const seen = cursor || '';
-  const fresh = comments.filter((c) => (c.created_at || '') > seen);
+  // `since=<iso>` is inclusive at second precision. Accept a comment as fresh
+  // if its created_at is strictly past the cursor timestamp, OR same-second
+  // but with a higher comment id. Idempotency on tx_log catches anything we
+  // happen to re-see.
+  const fresh = comments.filter((c) => {
+    const ts = c.created_at || '';
+    if (!cursorTs) return true;
+    if (ts > cursorTs) return true;
+    if (ts === cursorTs && (c.id || 0) > cursorId) return true;
+    return false;
+  });
 
   // Skip receipts and aggregator's own /gadmin-applied comments to avoid feedback.
   for (const c of fresh) {
@@ -450,10 +482,12 @@ async function pollOnce(ctx) {
   }
 
   if (fresh.length) {
-    const newest = fresh[fresh.length - 1].created_at;
-    setMeta(db, 'cursor', newest);
-  } else if (!cursor) {
+    const newest = fresh[fresh.length - 1];
+    setMeta(db, 'cursor', newest.created_at);
+    setMeta(db, 'cursor_comment_id', String(newest.id || 0));
+  } else if (!cursorTs) {
     setMeta(db, 'cursor', new Date().toISOString());
+    setMeta(db, 'cursor_comment_id', '0');
   }
 }
 

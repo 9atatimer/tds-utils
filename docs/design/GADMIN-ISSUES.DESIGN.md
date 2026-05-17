@@ -48,7 +48,8 @@ request-reply transport.
    `github-octokit.mjs` (Octokit) implement the full `cmdIssue*` surface;
    the bash dispatcher selects between them via `GADMIN_BACKEND` env var
    (`gitapi` | `octokit`, default `gitapi`), mirroring the existing
-   PR-comment path.
+   PR-comment path. *(Status: planned — bash dispatcher currently
+   hardcodes the gitapi peer. See Implementation Status / GI5.)*
 9. **Scratchpad preservation.** `sync-plan` rewrites only the bytes between
    the `<!-- gadmin:autogen:start -->` and `<!-- gadmin:autogen:end -->`
    sentinels in `TODO_PLAN.md`. Everything else is byte-identical.
@@ -133,7 +134,7 @@ edit-body: |
 
 | Field | Purpose |
 |---|---|
-| `tx` | UUIDv7 generated client-side (time-sortable) |
+| `tx` | Time-sortable opaque id generated client-side. Today: custom `<base36-ms>-<12-hex>` (see `newTxId` in `issue-grammar.mjs`). May be promoted to a standards UUIDv7 later; the column is opaque text either way. |
 | `agent` | Free-form identity (e.g. `claude-session-NNN`, `todd-laptop`) |
 | `assume-version` | Optional CAS: aggregator rejects if `issues.last_applied_tx` no longer matches |
 
@@ -163,7 +164,9 @@ Only the aggregator writes these; clients only request them via commands.
 
 Sources: `gadmin/admin/github-gitapi.mjs` (raw `fetch`),
 `gadmin/admin/github-octokit.mjs` (Octokit). Both implement the same
-`cmdIssue*` surface. The bash dispatcher selects via `GADMIN_BACKEND`:
+`cmdIssue*` surface. The bash dispatcher will select via `GADMIN_BACKEND`
+(planned — currently hardcodes the gitapi peer; see Implementation
+Status):
 
 ```
 GADMIN_BACKEND=gitapi   gadmin github issue list   # default
@@ -324,7 +327,7 @@ tx_log
 +-- issue            INTEGER       FK loose ref to issues.number
 +-- agent            TEXT
 +-- comment_id       INTEGER       source GH comment id
-+-- status           TEXT          'applied' | 'rejected'
++-- status           TEXT          'ok' | 'rejected' (matches receipt status=)
 +-- reason           TEXT          nullable
 +-- applied_at       TEXT          ISO-8601
 
@@ -365,7 +368,7 @@ meta
 | Read path | NATS req-rep with GH fallback | Sub-50ms reads on the laptop; ephemeral agents still work |
 | Ingress | `gh webhook forward` primary, poll fallback | Low apply latency without a public endpoint |
 | `--wait-tx` mechanism | NATS req-rep primary, GH poll fallback | Sub-second on the laptop; identical contract from cloud agents |
-| Tx id format | UUIDv7 | Time-sortable; reduces index churn in `tx_log` |
+| Tx id format | Custom time-prefixed string (UUIDv7-shaped) | Time-sortable; reduces index churn in `tx_log`. Future swap to a standards UUIDv7 is a drop-in change since the wire/storage type is opaque text |
 | Backend peer routing | `GADMIN_BACKEND` env var | Mirrors the PR-comment path; both peers maintained at surface parity |
 | Mode | Aggregated-only | One mental model; no in-band fallback to race the aggregator |
 

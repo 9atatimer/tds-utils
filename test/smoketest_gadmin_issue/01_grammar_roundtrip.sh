@@ -7,9 +7,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./config.sh
 source "${SCRIPT_DIR}/config.sh"
 
-require_node
+# --- Flow --------------------------------------------------------------------
 
-run_node --input-type=module -e "
+main() {
+    require_node
+
+    run_node --input-type=module -e "
 import { parseCommand, formatCommand, newTxId } from '${GADMIN_GRAMMAR}';
 
 const samples = [
@@ -46,3 +49,6 @@ if (failures) {
 }
 console.log('grammar round-trip ok (' + samples.length + ' cases)');
 "
+}
+
+main "$@"

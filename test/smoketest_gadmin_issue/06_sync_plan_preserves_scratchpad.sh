@@ -8,12 +8,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./config.sh
 source "${SCRIPT_DIR}/config.sh"
 
-require_node
+# --- Flow --------------------------------------------------------------------
 
-PLAN_PATH="${SMOKE_TMP}/TODO_PLAN.md"
-PLAN_SYNC_MODULE="${GADMIN_ADMIN_DIR}/issue-plan-sync.mjs"
+main() {
+    require_node
 
-cat > "${PLAN_PATH}" <<'EOF'
+    local PLAN_PATH="${SMOKE_TMP}/TODO_PLAN.md"
+    local PLAN_SYNC_MODULE="${GADMIN_ADMIN_DIR}/issue-plan-sync.mjs"
+
+    cat > "${PLAN_PATH}" <<'EOF'
 # TODO_PLAN.md
 
 <!-- gadmin:autogen:start -->
@@ -108,3 +111,6 @@ if (!inserted.includes('some existing scratchpad text')) {
 
 console.log('sync-plan preserves scratchpad ok');
 "
+}
+
+main "$@"
