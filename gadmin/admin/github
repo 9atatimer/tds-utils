@@ -1,0 +1,846 @@
+#!/usr/bin/env bash
+# scripts/admin/github
+# GitHub integration helpers for AI agents and developers
+#
+# Usage: gadmin github <command> [options]
+#
+# Commands:
+#   pr-comments --pr <number>   List PR review comments in token-efficient format
+#
+# This script wraps `gh` CLI to provide consistent, minimal-output commands
+# suitable for AI agent consumption.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib.sh"
+
+# Verify gh CLI is available
+if ! command -v gh >/dev/null 2>&1; then
+  admin_log_error "gh CLI is required but not installed"
+  admin_log_error "Install with: brew install gh"
+  exit 1
+fi
+
+# Verify gh is authenticated
+if ! gh auth status >/dev/null 2>&1; then
+  admin_log_error "gh CLI is not authenticated"
+  admin_log_error "Run: gh auth login"
+  exit 1
+fi
+
+function usage() {
+  cat <<'EOF'
+Usage: gadmin github <command> [options]
+
+Commands:
+  pr-comments    List PR review comments in token-efficient format
+  pending-comments --pr <number>  List unaddressed PR comments (no robot emoji reply)
+  reply          Reply to a comment with standardized emoji annotation
+  actions        Retrieve GitHub Actions workflow run outputs
+  crsilo         Provision isolated code review workspace (CR silo)
+
+Options for pr-comments / pending-comments:
+  --pr <number>         PR number (required)
+  --repo <owner/repo>   Repository (required, e.g., MyOrg/myrepo or MyFork/myrepo)
+  --unannotated         Only show comments without robot emoji replies
+  --detailed            Show full comment bodies instead of previews (for pr-comments only)
+  --ignore-branch       Skip branch validation check (use when intentionally checking different branch)
+
+Options for reply:
+  --id <comment_id>     Comment ID to reply to
+  --type <accept|reject> Type of reply (adds 🤖👀✅ or 🤖👀❌)
+  --msg <message>       Reply message body
+  --repo <owner/repo>   Repository (required)
+
+Options for actions:
+  list-runs              List recent workflow runs
+    --repo <owner/repo>  Repository (required)
+    --workflow <name>    Filter by workflow name (optional)
+    --branch <name>      Filter by branch (optional)
+    --status <status>    Filter by status (optional)
+    --limit <n>          Limit results (default: 10)
+
+  get-job                Get specific job output from a run
+    --repo <owner/repo>  Repository (required)
+    --run <id>           Workflow run ID (required)
+    --job <name>         Job name or ID (required)
+
+  get-logs               Get all logs from a workflow run
+    --repo <owner/repo>  Repository (required)
+    --run <id>           Workflow run ID (required)
+    --job <name>         Filter to specific job (optional)
+
+Options for crsilo:
+  --repo <owner/repo>   Repository to clone (required, e.g., MyFork/myrepo)
+  --branch <name>       Branch to checkout (required)
+  --dest <path>         Destination directory for workspace (required)
+
+Examples:
+  gadmin github pr-comments --repo MyOrg/myrepo --pr 603
+  gadmin github pending-comments --repo MyFork/myrepo --pr 89
+  gadmin github reply --repo MyFork/myrepo --id 12345 --type accept --msg "Fixed typo"
+  gadmin github actions list-runs --repo MyOrg/myrepo --workflow "Security Scan" --limit 5
+  gadmin github actions get-job --repo MyOrg/myrepo --run 19762881348 --job "Trivy Scan"
+  gadmin github actions get-logs --repo MyOrg/myrepo --run 19762881348
+  gadmin github crsilo --repo MyFork/myrepo --branch feat/auth --dest /tmp/review-workspace
+EOF
+  exit 0
+}
+
+function extract_repo_and_pr_from_url() {
+  local input="$1"
+  # Check if input looks like a GitHub PR URL
+  # https://github.com/owner/repo/pull/123
+  if [[ "$input" =~ ^https?://github\.com/([^/]+)/([^/]+)/pull/([0-9]+) ]]; then
+    echo "${BASH_REMATCH[1]}/${BASH_REMATCH[2]} ${BASH_REMATCH[3]}"
+  else
+    echo ""
+  fi
+}
+
+function validate_pr_matches_branch() {
+  local repo="$1"
+  local pr_number="$2"
+  
+  # Get current git branch
+  local current_branch
+  current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+  
+  if [[ -z "$current_branch" ]]; then
+    # Not in a git repo or can't determine branch - skip check
+    return 0
+  fi
+  
+  # Fetch PR details to get head branch
+  local pr_branch
+  pr_branch=$(gh api "repos/$repo/pulls/$pr_number" --jq '.head.ref' 2>/dev/null)
+  
+  if [[ -z "$pr_branch" ]]; then
+    admin_log_warn "Could not fetch PR #$pr_number from $repo - PR may not exist"
+    return 1
+  fi
+  
+  # Compare branches
+  if [[ "$current_branch" != "$pr_branch" ]]; then
+    admin_log_warn "⚠️  Branch mismatch detected!"
+    admin_log_warn "   Current branch: $current_branch"
+    admin_log_warn "   PR #$pr_number branch: $pr_branch"
+    admin_log_warn "   You may be looking at the wrong PR or repo."
+    echo "" >&2
+    return 1
+  fi
+  
+  return 0
+}
+
+function cmd_pr_comments() {
+  local pr_number=""
+  local repo=""
+  local ignore_branch=false
+  local unannotated_only=false
+  local detailed=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --pr)
+        pr_number="$2"
+        shift 2
+        ;;
+      --repo)
+        repo="$2"
+        shift 2
+        ;;
+      --unannotated)
+        unannotated_only=true
+        shift
+        ;;
+      --ignore-branch)
+        ignore_branch=true
+        shift
+        ;;
+      --detailed)
+        detailed=true
+        shift
+        ;;
+      --help|-h)
+        usage
+        ;;
+      *)
+        admin_log_error "Unknown option: $1"
+        usage
+        ;;
+    esac
+  done
+
+  if [[ -z "$repo" ]]; then
+    admin_log_error "Missing required option: --repo <owner/repo>"
+    usage
+  fi
+
+  if [[ -z "$pr_number" ]]; then
+    admin_log_error "Missing required option: --pr <number>"
+    usage
+  fi
+
+  local resolved_repo=""
+  local resolved_pr_number=""
+  read -r resolved_repo resolved_pr_number <<< "$(resolve_repo_and_pr "$pr_number" "$repo")"
+
+  if [[ -z "$resolved_pr_number" ]]; then
+    admin_log_error "Invalid PR number or URL"
+    usage
+  fi
+  if [[ -z "$resolved_repo" ]]; then
+    admin_log_error "Missing required option: --repo <owner/repo> (or provide full PR URL)"
+    usage
+  fi
+
+  # Validate PR branch matches current git branch (unless --ignore-branch)
+  if [[ "$ignore_branch" != "true" ]]; then
+    if ! validate_pr_matches_branch "$resolved_repo" "$resolved_pr_number"; then
+      exit 1
+    fi
+  fi
+
+
+  # Fetch comments with minimal fields using jq (--paginate for PRs with many comments)
+  local comments
+  comments=$(gh api "repos/$resolved_repo/pulls/$resolved_pr_number/comments" --paginate \
+    --jq '.[] | {id, path, user: .user.login, body_preview: .body[0:100]}')
+
+  if [[ -z "$comments" ]]; then
+    echo "No review comments found on PR #$resolved_pr_number"
+    return 0
+  fi
+
+  if [[ "$unannotated_only" == "true" ]]; then
+    # Delegate to pending logic but output in table format
+    cmd_pending_comments_internal "$resolved_repo" "$resolved_pr_number"
+  elif [[ "$detailed" == "true" ]]; then
+    # Show detailed comments with full body (token-efficient format)
+    local detailed_comments
+    detailed_comments=$(gh api "repos/$resolved_repo/pulls/$resolved_pr_number/comments" --paginate \
+      --jq '.[] | {id, path, user: .user.login, body, line: (.line // .original_line)}')
+
+    echo "$detailed_comments" | jq -r '"\(.id)|\(.user)|\(.path)|\(.line // "N/A")|\(.body)"' | \
+    while IFS='|' read -r id user path line body; do
+      echo "----------------------------------------------------------------"
+      echo "ID: $id  |  User: $user  |  File: $path  |  Line: $line"
+      echo "----------------------------------------------------------------"
+      echo "$body"
+      echo ""
+    done
+  else
+    # Show all comments in table format
+    printf "%-12s %-10s %-40s %s\n" "ID" "USER" "FILE" "PREVIEW"
+    printf "%s\n" "$(printf '%.0s-' {1..110})"
+
+    echo "$comments" | jq -r '"\(.id)|\(.user)|\(.path)|\(.body_preview)"' | \
+    while IFS='|' read -r id user path preview; do
+      # Truncate path if too long
+      if [[ ${#path} -gt 38 ]]; then
+        path="...${path: -35}"
+      fi
+      # Clean preview of newlines
+      preview=$(echo "$preview" | tr '\n' ' ' | head -c 50)
+      printf "%-12s %-10s %-40s %s\n" "$id" "$user" "$path" "$preview"
+    done
+  fi
+}
+
+function cmd_pending_comments() {
+  local pr_number=""
+  local repo=""
+  local ignore_branch=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --pr)
+        pr_number="$2"
+        shift 2
+        ;;
+      --repo)
+        repo="$2"
+        shift 2
+        ;;
+      --ignore-branch)
+        ignore_branch=true
+        shift
+        ;;
+      --help|-h)
+        usage
+        ;;
+      *)
+        admin_log_error "Unknown option: $1"
+        usage
+        ;;
+    esac
+  done
+
+  if [[ -z "$repo" ]]; then
+    admin_log_error "Missing required option: --repo <owner/repo>"
+    usage
+  fi
+
+  if [[ -z "$pr_number" ]]; then
+    admin_log_error "Missing required option: --pr <number>"
+    usage
+  fi
+
+  local resolved_repo=""
+  local resolved_pr_number=""
+  read -r resolved_repo resolved_pr_number <<< "$(resolve_repo_and_pr "$pr_number" "$repo")"
+
+  # Validate PR branch matches current git branch (unless --ignore-branch)
+  if [[ "$ignore_branch" != "true" ]]; then
+    if ! validate_pr_matches_branch "$resolved_repo" "$resolved_pr_number"; then
+      exit 1
+    fi
+  fi
+
+  cmd_pending_comments_internal "$resolved_repo" "$resolved_pr_number"
+}
+
+function cmd_pending_comments_internal() {
+  local repo="$1"
+  local pr_number="$2"
+
+  # Fetch all comments
+  local json
+  json=$(gh api "repos/$repo/pulls/$pr_number/comments" --paginate)
+
+  # Use node for complex threading logic (robustness)
+  # Logic: Group by thread, check if any reply in thread has robot emoji
+  node -e '
+    const comments = JSON.parse(process.argv[1]);
+    const threads = {};
+    const rootComments = [];
+
+    // Group comments
+    comments.forEach(c => {
+      if (c.in_reply_to_id) {
+        if (!threads[c.in_reply_to_id]) threads[c.in_reply_to_id] = [];
+        threads[c.in_reply_to_id].push(c);
+      } else {
+        rootComments.push(c);
+      }
+    });
+
+    const pending = [];
+
+    rootComments.forEach(root => {
+      const replies = threads[root.id] || [];
+      // Check if ANY reply has the robot emoji
+      const hasAnnotation = replies.some(r => 
+        r.body.includes("🤖") || r.body.includes(":robot:")
+      );
+      
+      if (!hasAnnotation) {
+        pending.push({
+          id: root.id,
+          user: root.user.login,
+          path: root.path,
+          body: root.body,
+          line: root.line || root.original_line
+        });
+      }
+    });
+
+    if (pending.length === 0) {
+      process.exit(0);
+    }
+
+    console.log(JSON.stringify(pending));
+  ' "$json" | jq -r '.[] | "----------------------------------------------------------------\nID: \(.id)  |  User: \(.user)  |  File: \(.path)\n----------------------------------------------------------------\n\(.body)\n"'
+}
+
+function resolve_repo_and_pr() {
+  local pr_input="$1"
+  local repo_input="$2"
+  
+  local extracted
+  extracted=$(extract_repo_and_pr_from_url "$pr_input")
+  
+  if [[ -n "$extracted" ]]; then
+    if [[ -n "$repo_input" ]]; then
+      admin_log_warn "Ignoring --repo flag; using repository from PR URL"
+    fi
+    echo "$extracted"
+  else
+    echo "$repo_input $pr_input"
+  fi
+}
+
+function cmd_reply() {
+  local comment_id=""
+  local type=""
+  local msg=""
+  local repo=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --id)
+        comment_id="$2"
+        shift 2
+        ;;
+      --type)
+        type="$2"
+        shift 2
+        ;;
+      --msg)
+        msg="$2"
+        shift 2
+        ;;
+      --repo)
+        repo="$2"
+        shift 2
+        ;;
+      --help|-h)
+        usage
+        ;;
+      *)
+        admin_log_error "Unknown option: $1"
+        usage
+        ;;
+    esac
+  done
+
+  if [[ -z "$repo" ]]; then
+    admin_log_error "Missing required option: --repo <owner/repo>"
+    usage
+  fi
+
+  if [[ -z "$comment_id" || -z "$type" || -z "$msg" ]]; then
+    admin_log_error "Missing required options. Need --id, --type, and --msg"
+    usage
+  fi
+
+  local prefix=""
+  if [[ "$type" == "accept" ]]; then
+    prefix="🤖👀✅"
+  elif [[ "$type" == "reject" ]]; then
+    prefix="🤖👀❌"
+  else
+    admin_log_error "Invalid type: $type. Must be accept or reject"
+    exit 1
+  fi
+
+  local full_body="$prefix $msg"
+  
+  echo "Replying to $comment_id..."
+  
+  # 1. Fetch comment details to get PR URL
+  local comment_json
+  comment_json=$(gh api "repos/$repo/pulls/comments/$comment_id")
+  
+  # Extract PR number from pull_request_url
+  # URL format: https://api.github.com/repos/Owner/Repo/pulls/123
+  local pr_url
+  pr_url=$(echo "$comment_json" | jq -r '.pull_request_url')
+  local pr_number
+  pr_number=$(basename "$pr_url")
+  
+  if [[ -z "$pr_number" || "$pr_number" == "null" ]]; then
+      admin_log_error "Could not determine PR number for comment $comment_id"
+      exit 1
+  fi
+
+  # 2. Post reply using correct endpoint
+  # POST /repos/{owner}/{repo}/pulls/{pull_number}/comments
+  # Payload: { body, in_reply_to }
+  
+  # Construct JSON payload safely
+  local payload
+  payload=$(jq -n \
+                  --arg body "$full_body" \
+                  --argjson reply_to "$comment_id" \
+                  '{body: $body, in_reply_to: $reply_to}')
+
+  gh api "repos/$repo/pulls/$pr_number/comments" --input - <<< "$payload" >/dev/null
+  echo "✅ Reply posted."
+}
+
+function strip_ansi_codes() {
+  # Remove ANSI escape sequences for clean output
+  sed 's/\x1b\[[0-9;]*[a-zA-Z]//g' | sed 's/\x1b(B//g' | sed 's/\x0d//g'
+}
+
+function cmd_actions() {
+  if [[ $# -eq 0 ]]; then
+    admin_log_error "Missing actions subcommand"
+    usage
+  fi
+
+  local subcommand="$1"
+  shift
+
+  case "$subcommand" in
+    list-runs)
+      cmd_actions_list_runs "$@"
+      ;;
+    get-job)
+      cmd_actions_get_job "$@"
+      ;;
+    get-logs)
+      cmd_actions_get_logs "$@"
+      ;;
+    --help|-h)
+      usage
+      ;;
+    *)
+      admin_log_error "Unknown actions subcommand: $subcommand"
+      usage
+      ;;
+  esac
+}
+
+function cmd_actions_list_runs() {
+  local repo=""
+  local workflow=""
+  local branch=""
+  local status=""
+  local limit=10
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo)
+        repo="$2"
+        shift 2
+        ;;
+      --workflow)
+        workflow="$2"
+        shift 2
+        ;;
+      --branch)
+        branch="$2"
+        shift 2
+        ;;
+      --status)
+        status="$2"
+        shift 2
+        ;;
+      --limit)
+        limit="$2"
+        shift 2
+        ;;
+      --help|-h)
+        usage
+        ;;
+      *)
+        admin_log_error "Unknown option: $1"
+        usage
+        ;;
+    esac
+  done
+
+  if [[ -z "$repo" ]]; then
+    admin_log_error "Missing required option: --repo <owner/repo>"
+    usage
+  fi
+
+  # Build API query parameters
+  local query="per_page=$limit"
+  [[ -n "$branch" ]] && query="$query&branch=$branch"
+  [[ -n "$status" ]] && query="$query&status=$status"
+
+  # Fetch workflow runs
+  local runs_json
+  if [[ -n "$workflow" ]]; then
+    # Get workflow ID first
+    local workflow_id
+    workflow_id=$(gh api "repos/$repo/actions/workflows" --jq ".workflows[] | select(.name == \"$workflow\" or (.path | type == \"string\" and contains(\"$workflow\"))) | .id" | head -1)
+    
+    if [[ -z "$workflow_id" ]]; then
+      admin_log_error "Workflow not found: $workflow"
+      exit 1
+    fi
+    
+    runs_json=$(gh api "repos/$repo/actions/workflows/$workflow_id/runs?$query")
+  else
+    runs_json=$(gh api "repos/$repo/actions/runs?$query")
+  fi
+
+  # Check if any runs found
+  local run_count
+  run_count=$(echo "$runs_json" | jq '.workflow_runs | length')
+  
+  if [[ "$run_count" -eq 0 ]]; then
+    echo "No workflow runs found"
+    return 0
+  fi
+
+  # Display results in table format
+  printf "%-12s %-30s %-20s %-12s %-12s %s\n" "RUN ID" "WORKFLOW" "BRANCH" "STATUS" "CONCLUSION" "CREATED"
+  printf "%s\n" "$(printf '%.0s-' {1..120})"
+
+  echo "$runs_json" | jq -r '.workflow_runs[] | "\(.id)|\(.name)|\(.head_branch)|\(.status)|\(.conclusion // "N/A")|\(.created_at)"' | \
+  while IFS='|' read -r id name branch status conclusion created; do
+    # Truncate long names
+    if [[ ${#name} -gt 28 ]]; then
+      name="${name:0:25}..."
+    fi
+    if [[ ${#branch} -gt 18 ]]; then
+      branch="${branch:0:15}..."
+    fi
+    # Format date
+    created=$(echo "$created" | cut -d'T' -f1)
+    
+    printf "%-12s %-30s %-20s %-12s %-12s %s\n" "$id" "$name" "$branch" "$status" "$conclusion" "$created"
+  done
+}
+
+function cmd_actions_get_job() {
+  local repo=""
+  local run_id=""
+  local job_name=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo)
+        repo="$2"
+        shift 2
+        ;;
+      --run)
+        run_id="$2"
+        shift 2
+        ;;
+      --job)
+        job_name="$2"
+        shift 2
+        ;;
+      --help|-h)
+        usage
+        ;;
+      *)
+        admin_log_error "Unknown option: $1"
+        usage
+        ;;
+    esac
+  done
+
+  if [[ -z "$repo" ]]; then
+    admin_log_error "Missing required option: --repo <owner/repo>"
+    usage
+  fi
+
+  if [[ -z "$run_id" ]]; then
+    admin_log_error "Missing required option: --run <id>"
+    usage
+  fi
+
+  if [[ -z "$job_name" ]]; then
+    admin_log_error "Missing required option: --job <name>"
+    usage
+  fi
+
+  # Fetch jobs for the run
+  local jobs_json
+  jobs_json=$(gh api "repos/$repo/actions/runs/$run_id/jobs" --paginate)
+
+  # Find matching job (by name or ID)
+  local job_id
+  if [[ "$job_name" =~ ^[0-9]+$ ]]; then
+    # Job name is numeric, treat as ID
+    job_id="$job_name"
+  else
+    # Search by name (case-insensitive partial match)
+    job_id=$(echo "$jobs_json" | jq -r ".jobs[] | select(.name | ascii_downcase | contains(\"${job_name,,}\")) | .id" | head -1)
+  fi
+
+  if [[ -z "$job_id" ]]; then
+    admin_log_error "Job not found: $job_name"
+    echo "Available jobs in run $run_id:" >&2
+    echo "$jobs_json" | jq -r '.jobs[] | "  - \(.name) (ID: \(.id))"' >&2
+    exit 1
+  fi
+
+  # Get job details for context
+  local job_info
+  job_info=$(echo "$jobs_json" | jq -r ".jobs[] | select(.id == $job_id) | \"Job: \(.name)\nStatus: \(.status)\nConclusion: \(.conclusion // \"N/A\")\nStarted: \(.started_at)\nCompleted: \(.completed_at // \"N/A\")\"")
+  
+  echo "$job_info"
+  echo "$(printf '%.0s=' {1..80})"
+  echo ""
+
+  # Fetch and display job logs
+  gh api "repos/$repo/actions/jobs/$job_id/logs" | strip_ansi_codes
+}
+
+function cmd_actions_get_logs() {
+  local repo=""
+  local run_id=""
+  local job_filter=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo)
+        repo="$2"
+        shift 2
+        ;;
+      --run)
+        run_id="$2"
+        shift 2
+        ;;
+      --job)
+        job_filter="$2"
+        shift 2
+        ;;
+      --help|-h)
+        usage
+        ;;
+      *)
+        admin_log_error "Unknown option: $1"
+        usage
+        ;;
+    esac
+  done
+
+  if [[ -z "$repo" ]]; then
+    admin_log_error "Missing required option: --repo <owner/repo>"
+    usage
+  fi
+
+  if [[ -z "$run_id" ]]; then
+    admin_log_error "Missing required option: --run <id>"
+    usage
+  fi
+
+  # Fetch jobs for the run
+  local jobs_json
+  jobs_json=$(gh api "repos/$repo/actions/runs/$run_id/jobs" --paginate)
+
+  # If job filter specified, find matching job
+  if [[ -n "$job_filter" ]]; then
+    local job_id
+    if [[ "$job_filter" =~ ^[0-9]+$ ]]; then
+      job_id="$job_filter"
+    else
+      job_id=$(echo "$jobs_json" | jq -r ".jobs[] | select(.name | ascii_downcase | contains(\"${job_filter,,}\")) | .id" | head -1)
+    fi
+
+    if [[ -z "$job_id" ]]; then
+      admin_log_error "Job not found: $job_filter"
+      exit 1
+    fi
+
+    # Get single job logs
+    cmd_actions_get_job --repo "$repo" --run "$run_id" --job "$job_id"
+  else
+    # Get all job logs
+    echo "$jobs_json" | jq -r '.jobs[] | .id' | while read -r job_id; do
+      local job_name
+      job_name=$(echo "$jobs_json" | jq -r ".jobs[] | select(.id == $job_id) | .name")
+      
+      echo ""
+      echo "$(printf '%.0s=' {1..80})"
+      echo "Job: $job_name (ID: $job_id)"
+      echo "$(printf '%.0s=' {1..80})"
+      echo ""
+      
+      gh api "repos/$repo/actions/jobs/$job_id/logs" | strip_ansi_codes
+      echo ""
+    done
+  fi
+}
+
+function cmd_crsilo() {
+  local repo=""
+  local branch=""
+  local dest=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --repo)
+        repo="$2"
+        shift 2
+        ;;
+      --branch)
+        branch="$2"
+        shift 2
+        ;;
+      --dest)
+        dest="$2"
+        shift 2
+        ;;
+      --help|-h)
+        usage
+        ;;
+      *)
+        admin_log_error "Unknown option: $1"
+        usage
+        ;;
+    esac
+  done
+
+  # Validate required arguments
+  if [[ -z "$repo" ]]; then
+    admin_log_error "Missing required option: --repo <owner/repo>"
+    usage
+  fi
+
+  if [[ -z "$branch" ]]; then
+    admin_log_error "Missing required option: --branch <name>"
+    usage
+  fi
+
+  if [[ -z "$dest" ]]; then
+    admin_log_error "Missing required option: --dest <path>"
+    usage
+  fi
+
+  # Validate branch exists before cloning
+  admin_log_info "Validating branch $branch in $repo..."
+  if ! gh api "repos/$repo/branches/$branch" >/dev/null 2>&1; then
+    admin_log_error "Branch '$branch' not found in repository $repo"
+    exit 1
+  fi
+
+  # Clone repository with shallow clone flags
+  admin_log_info "Provisioning CR silo at $dest..."
+  if ! gh repo clone "$repo" "$dest" -- --branch "$branch" --depth=1 --single-branch 2>&1; then
+    admin_log_error "Failed to clone repository"
+    exit 1
+  fi
+
+  admin_log_info "✓ CR silo provisioned successfully at $dest"
+  admin_log_info "  Repository: $repo"
+  admin_log_info "  Branch: $branch"
+  admin_log_info "  Depth: 1 (shallow clone)"
+}
+
+function main() {
+  if [[ $# -eq 0 ]]; then
+    usage
+  fi
+
+  local command="$1"
+  shift
+
+  case "$command" in
+    pr-comments)
+      cmd_pr_comments "$@"
+      ;;
+    pending-comments)
+      cmd_pending_comments "$@"
+      ;;
+    reply)
+      cmd_reply "$@"
+      ;;
+    actions)
+      cmd_actions "$@"
+      ;;
+    crsilo)
+      cmd_crsilo "$@"
+      ;;
+    --help|-h)
+      usage
+      ;;
+    *)
+      admin_log_error "Unknown command: $command"
+      usage
+      ;;
+  esac
+}
+
+main "$@"
