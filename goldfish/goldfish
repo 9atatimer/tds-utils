@@ -23,6 +23,7 @@ sys.path.insert(0, str(HERE))
 from core import (  # noqa: E402
     GithubInfo,
     RepoRow,
+    apply_blacklist,
     apply_org_filter,
     format_processes,
     format_table,
@@ -32,6 +33,7 @@ from core import (  # noqa: E402
 )
 from shell import (  # noqa: E402
     all_processes_in_clones,
+    blacklist_path,
     cached_clones_fresh,
     fetch_remote_todo_plan,
     find_local_clones,
@@ -39,8 +41,10 @@ from shell import (  # noqa: E402
     gh_open_pr_counts,
     have,
     inspect_local,
+    load_blacklist,
     load_cached_clones,
     running_agents,
+    save_blacklist,
     save_cached_clones,
     summarize_with_llm,
 )
@@ -236,6 +240,82 @@ def _build_row(
     return RepoRow(name=name, github=github_info, local=local, agents=repo_agents)
 
 
+def run_manage_blacklist(args: argparse.Namespace) -> int:
+    """Interactive line-based picker: toggle blacklist entries, save, exit."""
+    config = load_config()
+    rows, _ = gather(
+        config,
+        fetch_remote_todos=False,
+        refresh_clones=args.refresh,
+        llm=False,
+    )
+    rows = apply_org_filter(
+        rows,
+        include=tuple(args.include_org),
+        exclude=tuple(args.exclude_org),
+    )
+    rows = sort_rows(rows)
+    all_names = [r.name for r in rows]
+    if not all_names:
+        print("(no repos found to manage)", file=sys.stderr)
+        return 0
+
+    selected = set(load_blacklist())
+    selected_at_start = frozenset(selected)
+    print(f"goldfish — manage blacklist ({blacklist_path()})")
+    print("Type number(s) or name(s) to toggle (comma/space separated).")
+    print("Commands: 'a' list all, 'b' list blacklisted, 's' save+quit, 'q' quit.")
+    while True:
+        print()
+        print(f"Blacklisted: {len(selected)} of {len(all_names)}")
+        for i, name in enumerate(all_names, start=1):
+            mark = "x" if name in selected else " "
+            print(f"  {i:>3}. [{mark}] {name}")
+        try:
+            raw = input("> ").strip()
+        except EOFError:
+            raw = "q"
+        if not raw:
+            continue
+        if raw == "q":
+            if selected != selected_at_start:
+                print("(discarding changes; use 's' to save)")
+            return 0
+        if raw == "s":
+            save_blacklist(frozenset(selected))
+            print(f"saved {len(selected)} entries to {blacklist_path()}")
+            return 0
+        if raw == "a":
+            continue
+        if raw == "b":
+            print("Currently blacklisted:")
+            for name in sorted(selected):
+                print(f"  {name}")
+            continue
+        _toggle_tokens(raw, all_names, selected)
+
+
+def _toggle_tokens(raw: str, all_names: list[str], selected: set[str]) -> None:
+    """Parse a user input line and toggle each referenced name in `selected`."""
+    tokens = [t for t in raw.replace(",", " ").split() if t]
+    by_index = {str(i): n for i, n in enumerate(all_names, start=1)}
+    by_name = set(all_names)
+    for tok in tokens:
+        if tok in by_index:
+            name = by_index[tok]
+        elif tok in by_name:
+            name = tok
+        else:
+            print(f"  ? unknown: {tok}", file=sys.stderr)
+            continue
+        if name in selected:
+            selected.remove(name)
+            print(f"  - {name}")
+        else:
+            selected.add(name)
+            print(f"  + {name}")
+
+
 def run(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="goldfish",
@@ -278,7 +358,19 @@ def run(argv: list[str]) -> int:
         "--llm", action="store_true",
         help="Summarize each TODO_PLAN.md via `claude` (or `ollama`) for the NEXT column.",
     )
+    parser.add_argument(
+        "--no-blacklist", action="store_true",
+        help="Show blacklisted repos too (marked in the BL column). "
+             "Without this, blacklisted repos are hidden in all views.",
+    )
+    parser.add_argument(
+        "--manage-blacklist", action="store_true",
+        help="Interactively toggle which repos are blacklisted, then exit.",
+    )
     args = parser.parse_args(argv)
+
+    if args.manage_blacklist:
+        return run_manage_blacklist(args)
 
     if not have("gh"):
         sys.stderr.write(
@@ -297,12 +389,21 @@ def run(argv: list[str]) -> int:
         include=tuple(args.include_org),
         exclude=tuple(args.exclude_org),
     )
+
+    blacklist = load_blacklist()
+    bl_hidden = 0
+    if not args.no_blacklist:
+        before = len(rows)
+        rows = apply_blacklist(rows, blacklist=blacklist)
+        bl_hidden = before - len(rows)
+
     rows = sort_rows(rows)
     if not rows:
         if args.json:
             print("[]")
         else:
             print("(no repos found — check config.json or `gh auth status`)")
+            _print_blacklist_hint(bl_hidden, args.no_blacklist)
         return 0
     if args.json:
         print(rows_to_json(rows))
@@ -312,15 +413,32 @@ def run(argv: list[str]) -> int:
             visible = [r for r in rows if is_actionable(r)]
             hidden = len(rows) - len(visible)
             rows = visible
-        print(format_table(rows, max_width=args.max_width))
+        bl_for_table = blacklist if args.no_blacklist else frozenset()
+        print(format_table(rows, max_width=args.max_width, blacklisted=bl_for_table))
         if hidden > 0:
             print(f"({hidden} idle rows hidden — pass --no-filter to see all)")
+        _print_blacklist_hint(bl_hidden, args.no_blacklist)
         if args.verbose:
-            section = format_processes(all_processes_in_clones(clones))
+            blacklisted_paths = {
+                clones[name] for name in blacklist if name in clones
+            } if not args.no_blacklist else set()
+            visible_clones = {
+                n: p for n, p in clones.items() if p not in blacklisted_paths
+            }
+            section = format_processes(all_processes_in_clones(visible_clones))
             if section:
                 print()
                 print(section)
     return 0
+
+
+def _print_blacklist_hint(hidden: int, no_blacklist: bool) -> None:
+    if no_blacklist or hidden <= 0:
+        return
+    print(
+        f"({hidden} blacklisted hidden — pass --no-blacklist to see "
+        f"or --manage-blacklist to edit)"
+    )
 
 
 def _terminal_width() -> int:

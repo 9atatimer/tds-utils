@@ -23,12 +23,14 @@ from core import (
     GitDirtyState,
     enclosing_repo,
     first_meaningful_line,
+    parse_blacklist,
     parse_clones_cache,
     parse_gh_repo_list,
     parse_git_porcelain,
     parse_lsof_cwd,
     parse_ps,
     parse_todo_plan,
+    serialize_blacklist,
     serialize_clones_cache,
 )
 
@@ -160,6 +162,37 @@ def cached_clones_fresh(cache: ClonesCache, *, ttl_seconds: int = CLONES_CACHE_T
     if age > ttl_seconds:
         return False
     return all((p / ".git").exists() for p in cache.clones.values())
+
+
+# --- Blacklist persistence ---------------------------------------------------
+
+def blacklist_path() -> Path:
+    """Blacklist file path. Uses $XDG_CONFIG_HOME if set, else ~/.config/."""
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+    return Path(base) / "goldfish" / "blacklist.json"
+
+
+def load_blacklist() -> frozenset[str]:
+    """Read the blacklist file. Returns empty frozenset if missing or malformed."""
+    path = blacklist_path()
+    if not path.exists():
+        return frozenset()
+    try:
+        return parse_blacklist(path.read_text())
+    except (OSError, UnicodeDecodeError):
+        return frozenset()
+
+
+def save_blacklist(names: frozenset[str]) -> None:
+    """Atomically write the blacklist file. Errors are silently swallowed."""
+    path = blacklist_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(serialize_blacklist(names))
+        tmp.replace(path)
+    except OSError:
+        pass
 
 
 def _find_git_dirs(root: Path, max_depth: int) -> list[Path]:
