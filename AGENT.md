@@ -1,13 +1,17 @@
-# CLAUDE.md — tds-utils
+# AGENT.md — tds-utils
 
 It is very important you never do anything destructive to the git history.
 
-It is very important that you enumerate the skills in prompts/ -- but conservatively.
-You don't want to read them all in as they will flood your context.  When are you are
-about to perform a task that as a relevant markdown file in prompts/ you should ingest
-the whole file and follow the directions.  For example, if you are going to write
-test code, you should review TESTING.md.  When dealing with GitHub, you should review
-the GITHUB.md markdown file.
+It is very important that you enumerate the skills in prompts/ — but
+conservatively. Don't read them all in; they'll flood your context.
+
+Ingest the whole relevant file (and follow it) at the moment a task
+starts that maps to one:
+- Writing or reviewing tests → TESTING.md.
+- About to push code, create or review a PR, reply to PR feedback, or
+  subscribe to PR activity → GITHUB.md. The trigger is the push/review
+  boundary, not just opening a PR — every interaction with the remote
+  counts.
 
 ## What This Project Is
 
