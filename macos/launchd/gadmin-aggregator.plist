@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  gadmin-aggregator.plist — laptop-pinned single-writer for the Issues
+  subsystem. Install:
+      cp gadmin-aggregator.plist ~/Library/LaunchAgents/com.tds.gadmin.aggregator.plist
+      launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.tds.gadmin.aggregator.plist
+      launchctl enable gui/$UID/com.tds.gadmin.aggregator
+      launchctl kickstart -k gui/$UID/com.tds.gadmin.aggregator
+
+  Edit the EnvironmentVariables and ProgramArguments below to point at the
+  correct repo, your tds-utils checkout, and node binary.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tds.gadmin.aggregator</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/node</string>
+    <string>/Users/CHANGE_ME/workplace/tds-utils/gadmin/admin/issue-aggregator.mjs</string>
+    <string>--repo</string>
+    <string>9atatimer/tds-utils</string>
+    <string>--interval</string>
+    <string>15</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <key>NATS_URL</key>
+    <string>nats://127.0.0.1:4222</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/gadmin-aggregator.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/tmp/gadmin-aggregator.err.log</string>
+
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+</dict>
+</plist>
