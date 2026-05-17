@@ -18,6 +18,7 @@ from core import (
     first_meaningful_line,
     format_processes,
     format_table,
+    is_actionable,
     latest_activity,
     parse_clones_cache,
     parse_git_porcelain,
@@ -491,6 +492,92 @@ def test_rows_to_json_handles_missing_github_and_local() -> None:
     assert parsed[0]["github"] is None
     assert parsed[0]["local"] is None
     assert parsed[0]["agents"] == []
+
+
+# --- is_actionable -----------------------------------------------------------
+
+def _clean_local(**overrides) -> LocalInfo:
+    """Build a clean (no signals) LocalInfo for actionability tests."""
+    defaults = dict(
+        path=Path("/x"), is_dirty=False, ahead=0, behind=0,
+        branch="main", last_commit_at=None, next_task=None,
+    )
+    defaults.update(overrides)
+    return LocalInfo(**defaults)
+
+
+def test_is_actionable_open_pr_counts_as_actionable() -> None:
+    """Given a row with open PRs, it is actionable."""
+    row = RepoRow(
+        name="a/x",
+        github=GithubInfo(name="a/x", pushed_at=None, open_pr_count=1),
+        local=_clean_local(),
+        agents=(),
+    )
+    assert is_actionable(row) is True
+
+
+def test_is_actionable_dirty_tree_counts_as_actionable() -> None:
+    """Given a dirty working tree, the row is actionable."""
+    row = RepoRow(
+        name="a/x", github=None,
+        local=_clean_local(is_dirty=True), agents=(),
+    )
+    assert is_actionable(row) is True
+
+
+def test_is_actionable_ahead_counts_as_actionable() -> None:
+    """Given unpushed commits (ahead > 0), the row is actionable."""
+    row = RepoRow(
+        name="a/x", github=None,
+        local=_clean_local(ahead=2), agents=(),
+    )
+    assert is_actionable(row) is True
+
+
+def test_is_actionable_running_agent_counts_as_actionable() -> None:
+    """Given a running agent, the row is actionable."""
+    row = RepoRow(
+        name="a/x", github=None, local=_clean_local(),
+        agents=(AgentSession(pid=1, name="claude", repo_path=Path("/x")),),
+    )
+    assert is_actionable(row) is True
+
+
+def test_is_actionable_next_task_counts_as_actionable() -> None:
+    """Given a NEXT task in the local row, it is actionable."""
+    row = RepoRow(
+        name="a/x", github=None,
+        local=_clean_local(next_task="do the thing"), agents=(),
+    )
+    assert is_actionable(row) is True
+
+
+def test_is_actionable_clean_clone_with_zero_prs_is_idle() -> None:
+    """Given a clean clone, no PRs, no agents, no task — the row is idle."""
+    row = RepoRow(
+        name="a/x",
+        github=GithubInfo(name="a/x", pushed_at=None, open_pr_count=0),
+        local=_clean_local(),
+        agents=(),
+    )
+    assert is_actionable(row) is False
+
+
+def test_is_actionable_orphan_github_row_is_idle() -> None:
+    """Given a cloud-only row with no PRs and no other signals, it is idle."""
+    row = RepoRow(
+        name="a/x",
+        github=GithubInfo(name="a/x", pushed_at=None, open_pr_count=0),
+        local=None, agents=(),
+    )
+    assert is_actionable(row) is False
+
+
+def test_is_actionable_empty_row_is_idle() -> None:
+    """Given a row with no github, no local, no agents, it is idle."""
+    row = RepoRow(name="a/x", github=None, local=None, agents=())
+    assert is_actionable(row) is False
 
 
 def test_format_table_next_task_truncated() -> None:

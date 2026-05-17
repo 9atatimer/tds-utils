@@ -26,6 +26,7 @@ from core import (  # noqa: E402
     apply_org_filter,
     format_processes,
     format_table,
+    is_actionable,
     rows_to_json,
     sort_rows,
 )
@@ -261,6 +262,11 @@ def run(argv: list[str]) -> int:
         help="Hide repos owned by this org. Repeatable. Wins over --include-org.",
     )
     parser.add_argument(
+        "--filter", action=argparse.BooleanOptionalAction, default=True,
+        help="Hide idle rows (no PRs, clean tree, no agents, no NEXT task). "
+             "Pass --no-filter to show every repo.",
+    )
+    parser.add_argument(
         "-v", "--verbose", action="store_true",
         help="Also list every process whose cwd is in a tracked repo.",
     )
@@ -301,7 +307,14 @@ def run(argv: list[str]) -> int:
     if args.json:
         print(rows_to_json(rows))
     else:
+        hidden = 0
+        if args.filter:
+            visible = [r for r in rows if is_actionable(r)]
+            hidden = len(rows) - len(visible)
+            rows = visible
         print(format_table(rows, max_width=args.max_width))
+        if hidden > 0:
+            print(f"({hidden} idle rows hidden — pass --no-filter to see all)")
         if args.verbose:
             section = format_processes(all_processes_in_clones(clones))
             if section:
