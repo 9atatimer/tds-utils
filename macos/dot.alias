@@ -26,3 +26,6 @@ ssh() {
 alias tailscale="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 
 alias bit-tunnel="ssh -L 5678:127.0.0.1:5678 stumpf@100.125.95.68"
+
+# goldfish — recent-work report across repos
+alias gf=goldfish
