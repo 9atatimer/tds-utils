@@ -40,10 +40,12 @@ To avoid charging Copilot review cycles to the organization, use this two-stage 
 
 ## Branch Naming Convention
 
-All branches created by AI agents MUST use a prefix:
-- `tstumpf/feat/description` — New features
-- `tstumpf/fix/description` — Bug fixes
-- `tstumpf/refactor/description` — Refactoring
+All branches created on this repo MUST use an owner prefix:
+- Human-driven branches: `tstumpf/feat/description`, `tstumpf/fix/description`,
+  `tstumpf/refactor/description`, `tstumpf/docs/description`.
+- Agent-driven branches: `claude/feat/description`, `claude/fix/...`,
+  `claude/docs/...`. (The agent prefix is set by the harness; humans should
+  not push to `claude/...` branches.)
 
 ## Development Workflow
 
@@ -56,57 +58,120 @@ All branches created by AI agents MUST use a prefix:
 
 ## GitHub Tool Usage
 
-**Prescribed Tool:** `gadmin github`
-**Fallback Tool:** `gh` CLI
+Three families of verbs, in **token-frugal preference order**:
 
-Use `gadmin github` commands over direct `gh` CLI usage where possible. The `gadmin` wrappers are optimized for token efficiency and context management. The `gh` CLI is available as a fallback when `gadmin` does not cover a specific need.
+1. **`gadmin` (this repo's `bin/gadmin`)** — preferred for reads (comments,
+   CI logs) and writes (replies). Output is filtered to the fields you
+   triage on, so it stays small in context. Three sub-tiers, fall back in
+   order:
+     - `gadmin github` — bash, requires `gh` CLI on `$PATH`.
+     - `gadmin github-octokit` — node + `octokit` npm package + `$GITHUB_TOKEN`.
+     - `gadmin github-gitapi` — node, native `fetch()` + `$GITHUB_TOKEN`,
+       zero deps.
+2. **GitHub MCP tools (`mcp__github__*`)** — use when `gadmin` lacks a verb
+   you need. Responses are typed and complete but include large echoed
+   payloads (e.g. every reply confirms by echoing the parent comment's
+   `diff_hunk`), so they cost ~5–10× more tokens than `gadmin` for the same
+   operation. Avoid them for hot loops over many comments.
+3. **`gh` CLI** — last-resort fallback when neither `gadmin` nor MCP cover
+   the operation.
 
-**Three implementation tiers** (for sandbox compatibility):
-- `gadmin github` — bash, requires `gh` CLI (preferred)
-- `gadmin github-octokit` — node, requires `octokit` npm package + `GITHUB_TOKEN`
-- `gadmin github-gitapi` — node, uses native `fetch()` + `GITHUB_TOKEN` (zero deps)
+**GitHub Actions logs:** `gadmin github actions list-runs` to find runs,
+`gadmin github actions get-job --run <ID> --job <NAME>` to retrieve job
+output. ANSI codes are stripped automatically.
 
-**GitHub Actions:** Use `gadmin github actions list-runs` to find workflow runs, `gadmin github actions get-job --run <ID> --job <NAME>` to retrieve job outputs. Output is automatically stripped of ANSI codes for token efficiency.
+**One-line rule:** when an event has already delivered the comment body via
+the subscription stream, **do not re-fetch it.** The webhook payload is the
+source of truth for that thread — reply directly from the comment ID.
+
+## PR Activity Subscription (push model)
+
+You can subscribe a session to a PR's webhook stream via the
+`mcp__github__subscribe_pr_activity` tool. Once subscribed:
+
+- New comments, reviews, CI status changes, merge, and close events arrive
+  in the conversation as `<github-webhook-activity>` blocks.
+- The subscription is auto-removed when the PR merges or closes.
+- Subscription is idempotent — calling it twice is harmless.
+
+**When to subscribe:**
+
+- Immediately after opening a PR, if the human asks you to watch / babysit
+  / autofix / monitor / respond to it.
+- Skip if the human hasn't asked for active engagement (a one-shot PR
+  doesn't need a subscription).
+
+**Event taxonomy and triage policy:**
+
+| Event | What to do |
+|-------|------------|
+| Review overview (`pullrequestreview`, often with N inline comments queued behind it) | Fetch the full review_comments list **once** via `gadmin` and triage the whole batch. Do not reply per inline event. |
+| Single inline `pull_request_review_comment` (no review overview, e.g. a human reply) | Triage and act on that one thread. |
+| `check_run` failure | Get the failing job's log via `gadmin github actions get-job`; classify (flake / config / real bug); fix or report. |
+| `merged` / `closed` | Acknowledge and stop watching; you're auto-unsubscribed. |
+| **Echo of your own reply** (author is you, body matches what you just posted) | **Skip.** Every reply you post comes back as a webhook event ~1s later. Recognise and discard. |
+
+**Auto-action threshold (apply on every event):**
+
+- If the change is **small and unambiguous**, make it, push, reply with the
+  SHA. No need to ask first.
+- If the change is **ambiguous or architecturally significant**, ask the
+  human before acting. Use `AskUserQuestion` so the question is in-band.
+- If **no action is needed** (echo, informational, noise), skip and say so
+  briefly.
 
 ## Automated Review Response
 
-When addressing PR review feedback:
+This is the procedure for handling a batch of review feedback — whether it
+arrived via subscription or you fetched it cold with `gadmin
+pending-comments`.
 
-**Step 1: Fetch comments**
-- Use `gadmin github pending-comments --repo <OWNER/REPO> --pr <NUMBER>` to list unaddressed comments
-- Fallback: `gadmin github pr-comments --repo <OWNER/REPO> --pr <NUMBER>` for all comments
-- **IMPORTANT:** The `--repo` flag is required.
+**Step 1: Fetch all comments (once).**
+- `gadmin github pending-comments --repo <OWNER/REPO> --pr <NUMBER>` for
+  unaddressed comments.
+- Fallback: `gadmin github pr-comments --repo <OWNER/REPO> --pr <NUMBER>`
+  for everything.
+- `--repo` is required.
 
-**Step 2: Triage — review ALL comments before making changes**
-- Read through every comment to understand the full scope
-- Decide which you agree with and which you disagree with
+**Step 2: Triage ALL comments before making changes.** Read every comment,
+classify each as one of:
+- **Agree** — will fix.
+- **Disagree** — will reject with a reason.
+- **Ambiguous / architecturally significant** — ask the human first via
+  `AskUserQuestion`. Don't guess.
 
-**Step 3: Reject comments you disagree with**
-- Reply immediately with: `gadmin github reply --repo <OWNER/REPO> --id <ID> --type reject --msg "Reason for disagreement"`
+**Step 3: Reject the ones you disagree with** immediately, with reason:
+`gadmin github reply --repo <OWNER/REPO> --id <ID> --type reject --msg "Reason for disagreement"`
 
-**Step 4: Fix issues you agree with**
-- Implement the changes locally
-- Commit the fixes (note the SHA)
-- **CRITICAL: Push the commit to make it available remotely**
+**Step 4: Implement the agreed fixes locally, commit, and PUSH.** All
+fixes go in one commit (or one per logical group), never amend a pushed
+commit. Note the resulting SHA.
 
-**Step 5: Accept fixed comments with the commit SHA**
-- Reply with: `gadmin github reply --repo <OWNER/REPO> --id <ID> --type accept --msg "Agreed, fixed in <sha>"`
+**Step 5: Accept each fixed comment with the SHA:**
+`gadmin github reply --repo <OWNER/REPO> --id <ID> --type accept --msg "Agreed, fixed in <sha>"`
 
-**Step 6: Verify all comments addressed**
-- Run `gadmin github pending-comments --repo <OWNER/REPO> --pr <NUMBER>`
-- Output should be empty (no unaddressed comments)
+**Step 6: Verify nothing is unaddressed:**
+`gadmin github pending-comments --repo <OWNER/REPO> --pr <NUMBER>` — should
+return empty.
 
-**Step 7: Consider documentation updates**
-- Did an accepted fix reveal a gap worth documenting (new TODO, design change)?
-- Did a rejected suggestion surface a lesson worth recording (tool behavior,
-  design decision, recurring reviewer misconception)?
-- If yes, update relevant docs and include in the next commit. If nothing
-  was noteworthy, skip this step.
+**Step 7: Consider documentation follow-ups.** Did an accepted fix reveal a
+gap worth a new TODO or a Lessons-Learned entry? Did a rejected suggestion
+surface a recurring misconception worth recording? If yes, update the
+relevant doc; if not, skip.
+
+**Reply conventions** (independent of which tool posts them):
+
+- Accept replies say: `Agreed, fixed in <sha> — <one-line summary of fix>`.
+- Reject replies say: `<concrete reason>` — never just "disagree."
+- Replies are posted **sequentially**, one tool call per reply. Do not
+  batch.
 
 **Execution notes:**
-- Run reply commands **sequentially** (one per tool call) — do NOT batch
-- If `gadmin github` fails, fall back to `gadmin github-octokit`, then `gadmin github-gitapi` as last resort
-- If you cannot annotate, ask the human for help
+
+- If `gadmin github` fails, fall back to `gadmin github-octokit`, then
+  `gadmin github-gitapi`, then MCP, then raw `gh` — in that order.
+- If you can't annotate at all, ask the human for help rather than
+  silently dropping comments.
 
 ## Commit Messages
 
