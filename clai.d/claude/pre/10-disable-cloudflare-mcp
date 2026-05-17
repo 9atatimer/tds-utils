@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# 10-disable-cloudflare-mcp — clai pre-hook for claude
+#
+# Ensures ~/.claude.json has a project entry for $CLAI_CWD whose
+# disabledMcpServers contains every name listed in the sibling .conf file.
+# Idempotent. Never removes existing entries; only adds missing ones.
+#
+# Skips silently if ~/.claude.json is absent or jq is not installed.
+
+set -euo pipefail
+
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+CONF="${HOOK_DIR}/10-disable-cloudflare-mcp.conf"
+CLAUDE_JSON="${HOME}/.claude.json"
+
+read_conf() {
+    [[ -r "${CONF}" ]] || return 0
+    sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "${CONF}"
+}
+
+main() {
+    local -a servers=()
+    readarray -t servers < <(read_conf)
+    [[ ${#servers[@]} -gt 0 ]] || exit 0
+    [[ -f "${CLAUDE_JSON}" ]] || exit 0
+    command -v jq >/dev/null 2>&1 || {
+        echo "clai/disable-cloudflare-mcp: jq not found; skipping." >&2
+        exit 0
+    }
+
+    local cwd
+    cwd="$(cd "${CLAI_CWD:-${PWD}}" && pwd -P)"
+
+    local servers_json
+    servers_json="$(printf '%s\n' "${servers[@]}" | jq -R . | jq -s .)"
+
+    local tmp
+    tmp="$(mktemp "${CLAUDE_JSON}.XXXXXX")"
+    trap 'rm -f "${tmp}"' EXIT
+
+    jq --arg cwd "${cwd}" --argjson add "${servers_json}" '
+        .projects = (.projects // {}) |
+        .projects[$cwd] = (.projects[$cwd] // {}) |
+        .projects[$cwd].disabledMcpServers = (
+            (.projects[$cwd].disabledMcpServers // []) as $cur |
+            $cur + ($add - $cur)
+        )
+    ' "${CLAUDE_JSON}" > "${tmp}"
+
+    jq empty "${tmp}" >/dev/null
+    mv -f "${tmp}" "${CLAUDE_JSON}"
+    trap - EXIT
+}
+
+main "$@"

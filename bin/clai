@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# clai — CLI AI launcher with overlay hooks
+#
+# Usage: clai <agent> [args...]
+#
+# Walks $PWD upward to $HOME inclusive, collecting executable hooks from
+# clai.d/<agent>/{pre,post}/ at every level. Hooks merge by basename
+# (closer-to-PWD shadows outer) and run in alphabetical order. Zero-byte
+# files null out an outer hook of the same name.
+#
+# Pre-hook non-zero exit aborts the agent launch and propagates the code.
+# Post-hooks always run on agent exit; their failures are logged, not fatal.
+# clai's exit code is the agent's (or the failing pre-hook's).
+#
+# Hooks see in env: CLAI_AGENT, CLAI_CWD, CLAI_ARGS, CLAI_STAGE, CLAI_EXIT.
+
+set -euo pipefail
+
+# --- Action functions --------------------------------------------------------
+
+# canon_dir <path> — print the canonical (symlinks resolved) absolute dir.
+canon_dir() {
+    ( cd "$1" 2>/dev/null && pwd -P ) || printf '%s' "$1"
+}
+
+# walk_levels <agent> — print each existing clai.d/<agent> directory along the
+# walk from $HOME (outermost) down to $PWD (innermost). When $PWD is not under
+# $HOME, only $HOME's clai.d (if any) is emitted.
+walk_levels() {
+    local agent="$1"
+    local home_real cur_real
+    home_real="$(canon_dir "${HOME}")"
+    cur_real="$(canon_dir "${PWD}")"
+
+    case "${cur_real}/" in
+        "${home_real}/"*) ;;
+        *)
+            local d="${home_real}/clai.d/${agent}"
+            [[ -d "${d}" ]] && printf '%s\n' "${d}"
+            return 0
+            ;;
+    esac
+
+    local -a levels=()
+    local p="${cur_real}"
+    while :; do
+        levels+=("${p}")
+        [[ "${p}" == "${home_real}" ]] && break
+        local parent
+        parent="$(dirname "${p}")"
+        [[ "${parent}" == "${p}" ]] && break
+        p="${parent}"
+    done
+
+    local i
+    for (( i = ${#levels[@]} - 1 ; i >= 0 ; i-- )); do
+        local d="${levels[i]}/clai.d/${agent}"
+        [[ -d "${d}" ]] && printf '%s\n' "${d}"
+    done
+}
+
+# collect_hooks <agent> <stage> — print the absolute path of each hook to run,
+# in alphabetical order by basename, after override-by-filename merge.
+collect_hooks() {
+    local agent="$1"
+    local stage="$2"
+    local -A best=()
+    local -a levels=()
+    readarray -t levels < <(walk_levels "${agent}")
+
+    local lvl
+    for lvl in "${levels[@]}"; do
+        local stage_dir="${lvl}/${stage}"
+        [[ -d "${stage_dir}" ]] || continue
+        local f
+        for f in "${stage_dir}"/*; do
+            [[ -e "${f}" ]] || continue
+            local bn
+            bn="$(basename "${f}")"
+            best["${bn}"]="${f}"
+        done
+    done
+
+    [[ ${#best[@]} -eq 0 ]] && return 0
+    local bn
+    while IFS= read -r bn; do
+        local f="${best[${bn}]}"
+        [[ -s "${f}" ]] || continue
+        [[ -x "${f}" ]] || continue
+        printf '%s\n' "${f}"
+    done < <(printf '%s\n' "${!best[@]}" | LC_ALL=C sort)
+}
+
+# --- Flow --------------------------------------------------------------------
+
+run_hooks() {
+    local stage="$1"
+    local agent="$2"
+    local -a hooks=()
+    readarray -t hooks < <(collect_hooks "${agent}" "${stage}")
+    local hook rc
+    for hook in "${hooks[@]}"; do
+        [[ -n "${hook}" ]] || continue
+        rc=0
+        CLAI_STAGE="${stage}" "${hook}" || rc=$?
+        if (( rc != 0 )); then
+            if [[ "${stage}" == "pre" ]]; then
+                echo "clai: pre-hook ${hook} exited ${rc}; aborting." >&2
+                exit "${rc}"
+            else
+                echo "clai: post-hook ${hook} exited ${rc} (continuing)." >&2
+            fi
+        fi
+    done
+}
+
+launch_agent() {
+    local agent="$1"; shift
+    local -a agent_args=("$@")
+
+    export CLAI_AGENT="${agent}"
+    export CLAI_CWD="${PWD}"
+    local quoted="" a
+    for a in "${agent_args[@]+"${agent_args[@]}"}"; do
+        quoted+="$(printf '%q ' "${a}")"
+    done
+    export CLAI_ARGS="${quoted% }"
+
+    run_hooks pre "${agent}"
+
+    local rc=0
+    "${agent}" "${agent_args[@]+"${agent_args[@]}"}" || rc=$?
+    export CLAI_EXIT="${rc}"
+    run_hooks post "${agent}"
+    exit "${rc}"
+}
+
+# --- Main --------------------------------------------------------------------
+
+usage() {
+    cat <<'EOF'
+clai — CLI AI launcher with overlay hooks
+Usage: clai <agent> [args...]
+EOF
+}
+
+main() {
+    if [[ $# -lt 1 ]]; then
+        usage >&2
+        exit 2
+    fi
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+    esac
+    local agent="$1"; shift
+    launch_agent "${agent}" "$@"
+}
+
+main "$@"
