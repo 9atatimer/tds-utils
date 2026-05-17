@@ -20,11 +20,14 @@ import { execSync } from 'child_process';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { resolve as resolvePath } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import {
   formatCommand,
   parseApplied,
   newTxId,
 } from './issue-grammar.mjs';
+import { syncPlanFile } from './issue-plan-sync.mjs';
 
 // Resolve `octokit` from (a) this script's location, then (b) the consuming
 // project's CWD. This script lives in tds-utils (outside any node_modules
@@ -81,7 +84,8 @@ Commands:
   actions        Retrieve GitHub Actions workflow run outputs
   issue <sub>    Issue CRUD + workflow primitives. Subcommands:
                    list, view, create, edit, comment, close, reopen,
-                   priority, block, unblock, claim, release, next
+                   priority, block, unblock, claim, release, next,
+                   sync-plan
 
 Options for pr-comments / pending-comments:
   --pr <number>         PR number (required)
@@ -1146,6 +1150,37 @@ async function cmdIssueNext(options) {
   }
 }
 
+function findTodoPlan(startDir) {
+  let dir = resolve(startDir);
+  while (true) {
+    const candidate = join(dir, 'TODO_PLAN.md');
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+async function cmdIssueSyncPlan(options) {
+  const { owner, repo } = requireRepo(options.repo);
+  const planPath = options.path || findTodoPlan(process.cwd());
+  if (!planPath) {
+    logError('Could not find TODO_PLAN.md (pass --path)');
+    process.exit(1);
+  }
+  const octokit = getOctokit();
+  const items = await octokit.paginate(octokit.rest.issues.listForRepo, {
+    owner, repo, state: 'open', per_page: 100,
+  });
+  const issues = items.filter(isIssue);
+  const changed = syncPlanFile(planPath, issues);
+  if (changed) {
+    logInfo(`updated ${planPath} (${issues.length} open issue(s))`);
+  } else {
+    logInfo(`no changes to ${planPath}`);
+  }
+}
+
 async function dispatchIssue(subcommand, options) {
   if (!subcommand) {
     logError('Missing issue subcommand');
@@ -1165,6 +1200,7 @@ async function dispatchIssue(subcommand, options) {
     case 'claim':      return cmdIssueClaim(options);
     case 'release':    return cmdIssueRelease(options);
     case 'next':       return cmdIssueNext(options);
+    case 'sync-plan':  return cmdIssueSyncPlan(options);
     case '--help':
     case '-h':
       usage();

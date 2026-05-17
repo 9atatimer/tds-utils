@@ -41,7 +41,8 @@ Commands:
   crsilo         Provision isolated code review workspace (CR silo)
   issue <sub>    Issue CRUD + workflow primitives (delegates to gitapi peer)
                    Subcommands: list, view, create, edit, comment, close,
-                   reopen, priority, block, unblock, claim, release, next
+                   reopen, priority, block, unblock, claim, release, next,
+                   sync-plan
 
 Options for pr-comments / pending-comments:
   --pr <number>         PR number (required)
