@@ -314,6 +314,44 @@ def apply_org_filter(
     return out
 
 
+# --- Blacklist ---------------------------------------------------------------
+
+BLACKLIST_VERSION = 1
+
+
+def serialize_blacklist(names: Iterable[str]) -> str:
+    """Render the blacklist as JSON for the user's config file."""
+    return json.dumps({
+        "version": BLACKLIST_VERSION,
+        "names": sorted(set(names)),
+    }, indent=2)
+
+
+def parse_blacklist(text: str) -> frozenset[str]:
+    """Parse a blacklist file. Returns an empty frozenset on any problem."""
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return frozenset()
+    if not isinstance(data, dict) or data.get("version") != BLACKLIST_VERSION:
+        return frozenset()
+    raw = data.get("names")
+    if not isinstance(raw, list):
+        return frozenset()
+    return frozenset(n for n in raw if isinstance(n, str))
+
+
+def apply_blacklist(
+    rows: Iterable[RepoRow],
+    *,
+    blacklist: frozenset[str],
+) -> list[RepoRow]:
+    """Drop rows whose name appears in the blacklist."""
+    if not blacklist:
+        return list(rows)
+    return [r for r in rows if r.name not in blacklist]
+
+
 # --- Actionability filter ----------------------------------------------------
 
 def is_actionable(row: RepoRow) -> bool:
@@ -375,18 +413,30 @@ def _local_to_jsonable(l: LocalInfo | None) -> dict | None:
 # --- Formatter ---------------------------------------------------------------
 
 _HEADERS = ("REPO", "PRS", "DIRTY", "AHEAD", "BRANCH", "AGENTS", "NEXT")
+_HEADERS_WITH_BL = ("REPO", "PRS", "DIRTY", "AHEAD", "BRANCH", "AGENTS", "BL", "NEXT")
 
 
-def format_table(rows: Iterable[RepoRow], *, max_width: int = 200) -> str:
-    """Render rows as a fixed-column ASCII table. Truncates to max_width per line."""
-    rendered = [_HEADERS]
+def format_table(
+    rows: Iterable[RepoRow],
+    *,
+    max_width: int = 200,
+    blacklisted: frozenset[str] = frozenset(),
+) -> str:
+    """Render rows as a fixed-column ASCII table. Truncates to max_width per line.
+
+    When `blacklisted` is non-empty, a BL column is inserted before NEXT marking
+    rows whose name is in the set with `*`.
+    """
+    show_bl = bool(blacklisted)
+    headers = _HEADERS_WITH_BL if show_bl else _HEADERS
+    rendered = [headers]
     for r in rows:
-        rendered.append(_format_row(r))
+        rendered.append(_format_row(r, blacklisted=blacklisted, show_bl=show_bl))
 
     widths = [max(len(c) for c in col) for col in zip(*rendered)]
     widths = list(widths)
 
-    next_col = _HEADERS.index("NEXT")
+    next_col = headers.index("NEXT")
     fixed = sum(widths[:next_col]) + 2 * next_col
     widths[next_col] = max(4, max_width - fixed - 2)
 
@@ -400,7 +450,12 @@ def format_table(rows: Iterable[RepoRow], *, max_width: int = 200) -> str:
     return "\n".join(lines)
 
 
-def _format_row(r: RepoRow) -> tuple[str, ...]:
+def _format_row(
+    r: RepoRow,
+    *,
+    blacklisted: frozenset[str] = frozenset(),
+    show_bl: bool = False,
+) -> tuple[str, ...]:
     prs = str(r.github.open_pr_count) if r.github else "—"
     if r.local:
         dirty = "*" if r.local.is_dirty else "."
@@ -413,6 +468,9 @@ def _format_row(r: RepoRow) -> tuple[str, ...]:
         branch = "—"
         next_task = "—"
     agents = ",".join(sorted({a.name for a in r.agents})) or "—"
+    if show_bl:
+        bl = "*" if r.name in blacklisted else "."
+        return (r.name, prs, dirty, ahead, branch, agents, bl, next_task)
     return (r.name, prs, dirty, ahead, branch, agents, next_task)
 
 
