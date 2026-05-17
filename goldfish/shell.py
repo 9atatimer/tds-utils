@@ -11,6 +11,7 @@ import os
 import platform
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
@@ -300,6 +301,17 @@ def fetch_remote_todo_plan(name_with_owner: str) -> str | None:
 
 # --- Process adapter ---------------------------------------------------------
 
+_CWD_MAX_WORKERS = 16
+
+
+def _resolve_cwds(pids: list[int]) -> dict[int, Path | None]:
+    """Resolve cwd for many PIDs concurrently. Each `_proc_cwd` has its own timeout."""
+    if not pids:
+        return {}
+    with ThreadPoolExecutor(max_workers=_CWD_MAX_WORKERS) as ex:
+        return dict(zip(pids, ex.map(_proc_cwd, pids)))
+
+
 def running_agents(known: set[str], local_clones: dict[str, Path]) -> list[AgentSession]:
     """Find running processes whose name matches `known` and whose cwd is in a clone."""
     ps_out = _run(["ps", "-axo", "pid=,comm="], timeout=5.0)
@@ -307,9 +319,10 @@ def running_agents(known: set[str], local_clones: dict[str, Path]) -> list[Agent
         return []
     candidates = parse_ps(ps_out, known=known)
     repo_paths = set(local_clones.values())
+    cwds = _resolve_cwds([pid for pid, _ in candidates])
     sessions: list[AgentSession] = []
     for pid, name in candidates:
-        cwd = _proc_cwd(pid)
+        cwd = cwds.get(pid)
         if cwd is None:
             continue
         repo = enclosing_repo(cwd, repo_paths)
@@ -329,7 +342,7 @@ def all_processes_in_clones(local_clones: dict[str, Path]) -> list[AgentSession]
     if not ps_out:
         return []
     repo_paths = set(local_clones.values())
-    sessions: list[AgentSession] = []
+    procs: list[tuple[int, str]] = []
     for line in ps_out.splitlines():
         line = line.strip()
         if not line:
@@ -339,7 +352,11 @@ def all_processes_in_clones(local_clones: dict[str, Path]) -> list[AgentSession]
             continue
         pid = int(parts[0])
         name = parts[1].rsplit("/", 1)[-1]
-        cwd = _proc_cwd(pid)
+        procs.append((pid, name))
+    cwds = _resolve_cwds([pid for pid, _ in procs])
+    sessions: list[AgentSession] = []
+    for pid, name in procs:
+        cwd = cwds.get(pid)
         if cwd is None:
             continue
         repo = enclosing_repo(cwd, repo_paths)
