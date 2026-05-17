@@ -183,8 +183,8 @@ def load_blacklist() -> frozenset[str]:
         return frozenset()
 
 
-def save_blacklist(names: frozenset[str]) -> None:
-    """Atomically write the blacklist file. Errors are silently swallowed."""
+def save_blacklist(names: frozenset[str]) -> bool:
+    """Atomically write the blacklist file. Returns True on success, False on OS error."""
     path = blacklist_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -192,7 +192,8 @@ def save_blacklist(names: frozenset[str]) -> None:
         tmp.write_text(serialize_blacklist(names))
         tmp.replace(path)
     except OSError:
-        pass
+        return False
+    return True
 
 
 def _find_git_dirs(root: Path, max_depth: int) -> list[Path]:

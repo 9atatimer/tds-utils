@@ -282,9 +282,14 @@ def run_manage_blacklist(args: argparse.Namespace) -> int:
                 print("(discarding changes; use 's' to save)")
             return 0
         if raw == "s":
-            save_blacklist(frozenset(selected))
-            print(f"saved {len(selected)} entries to {blacklist_path()}")
-            return 0
+            if save_blacklist(frozenset(selected)):
+                print(f"saved {len(selected)} entries to {blacklist_path()}")
+                return 0
+            print(
+                f"goldfish: failed to write {blacklist_path()}; changes NOT saved",
+                file=sys.stderr,
+            )
+            return 1
         if raw == "a":
             continue
         if raw == "b":
