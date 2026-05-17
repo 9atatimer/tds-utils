@@ -78,6 +78,10 @@ Pre-existing issues in the gadmin GitHub tools, surfaced by Copilot review on PR
 - [ ] Task 5: Phase 2 — Implement `SqliteVecAdapter` + `OllamaAdapter` for lighter-weight alternative.
 - [ ] Task 6 (future): Compressed log storage — implement compression in archive pipeline, update file-access abstraction, get smoke test S8 passing.
 
+### Security / Credentials
+
+- [ ] Task SEC1: **Rotate the GitHub Packages PAT in `~/.npmrc` and switch to a non-plaintext source.** Current state: a read-only PAT sits cleartext in `~/.npmrc` (`//npm.pkg.github.com/:_authToken=ghp_...`) and was emitted twice into a Claude transcript during a Mini Shai-Hulud audit (CVE-2026-45321, 2026-05-11). Replace with shell wrappers around `npm`/`pnpm`/`yarn`/`npx` that hydrate `${GITHUB_PACKAGES_TOKEN}` at call time. Preferred source: `gh auth token` (gh's own creds live in macOS keychain). Fallback: `security find-generic-password -s github-packages-pat -a 9atatimer -w`. The `.npmrc` line becomes `${GITHUB_PACKAGES_TOKEN}` so no secret on disk. Wrappers land in `bash/dot.bashrc.d/` (or `macos/` if zsh-only). Read-only scope limits blast radius but the token is functionally burned; rotate at revoke time.
+
 ---
 
 ## Lessons Learned
