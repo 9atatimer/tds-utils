@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# designomatic-exec — wrap designomatic with 1Password credential injection
+#
+# Usage: designomatic-exec [designomatic-args...]
+#
+# Auto-rewraps designomatic under `op run --env-file=...` so provider API
+# keys come from 1Password vault items, never plaintext on disk.
+#
+# Env-file search precedence (first readable wins):
+#   1. $DESIGNOMATIC_ENV_FILE         (explicit override)
+#   2. ./.designomatic/keys.env       (repo-local)
+#   3. ~/.config/designomatic.env     (per-user, primary)
+#   4. ~/.designomatic/keys.env       (per-user, alt)
+#
+# Env-file format (no secrets in the file itself, only op:// references):
+#   ANTHROPIC_API_KEY=op://Vault/Item/credential
+#   OPENAI_API_KEY=op://Vault/Item/credential
+#   GEMINI_API_KEY=op://Vault/Item/credential
+#
+# Sentry: sets DESIGNOMATIC_BOOTSTRAPPED=1 in the child env so a re-exec
+# from inside `op run` won't try to rewrap again.
+#
+# Escape hatch: DESIGNOMATIC_NO_AUTO_OP=1 bypasses op entirely and execs
+# designomatic directly with whatever's already in the environment. Useful
+# in CI where keys arrive via the runner's secret injection.
+
+set -euo pipefail
+
+# --- Action functions --------------------------------------------------------
+
+# find_env_file — print path of first readable env-file candidate, or fail.
+find_env_file() {
+    local candidates=(
+        "${DESIGNOMATIC_ENV_FILE:-}"
+        "./.designomatic/keys.env"
+        "${HOME}/.config/designomatic.env"
+        "${HOME}/.designomatic/keys.env"
+    )
+    local f
+    for f in "${candidates[@]}"; do
+        if [ -n "$f" ] && [ -r "$f" ]; then
+            printf '%s\n' "$f"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# require_cmd <cmd> [install-hint] — die if <cmd> not on PATH.
+require_cmd() {
+    local cmd="$1"
+    local hint="${2:-}"
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        printf 'designomatic-exec: %s not found on PATH.\n' "$cmd" >&2
+        if [ -n "$hint" ]; then
+            printf '%s\n' "$hint" >&2
+        fi
+        exit 127
+    fi
+}
+
+# --- Flow functions ----------------------------------------------------------
+
+# run_direct — exec designomatic with current env (no op wrapping).
+run_direct() {
+    exec designomatic "$@"
+}
+
+# run_under_op <env-file> [args...] — re-exec designomatic under op run.
+run_under_op() {
+    local env_file="$1"
+    shift
+    require_cmd op "Install with: brew install 1password-cli"
+    exec env DESIGNOMATIC_BOOTSTRAPPED=1 \
+        op run --env-file="$env_file" -- designomatic "$@"
+}
+
+# --- Main --------------------------------------------------------------------
+
+main() {
+    require_cmd designomatic "Install with: uv tool install <wheel-url-or-path>"
+
+    # Sentry: already rewrapped under op, just exec.
+    if [ "${DESIGNOMATIC_BOOTSTRAPPED:-}" = "1" ]; then
+        run_direct "$@"
+    fi
+
+    # Escape hatch: caller wants to bypass op entirely.
+    if [ "${DESIGNOMATIC_NO_AUTO_OP:-}" = "1" ]; then
+        run_direct "$@"
+    fi
+
+    # Env-file found: rewrap under op.
+    local env_file
+    if env_file=$(find_env_file); then
+        run_under_op "$env_file" "$@"
+    fi
+
+    # No env-file: exec direct and let designomatic's own startup banner
+    # handle missing/incomplete env vars.
+    run_direct "$@"
+}
+
+main "$@"
