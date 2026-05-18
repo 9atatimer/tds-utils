@@ -1,6 +1,6 @@
 # GADMIN-ISSUES.DESIGN.md
 
-> **Status:** APPROVED
+> **Status:** DRAFT
 > **Date:** 2026-05-17
 > **Authors:** Todd Stumpf
 > **Depends on:** [AGENT-NOTIFICATIONS.DESIGN.md](./AGENT-NOTIFICATIONS.DESIGN.md) (shares the local NATS bus)
