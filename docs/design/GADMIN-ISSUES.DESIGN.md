@@ -92,11 +92,8 @@ request-reply transport.
        | gadmin      |<------+        |  - posts /gadmin-applied        |
        +-------------+       |        |  - publishes gadmin.events.*    |
                              |        |  - serves gadmin.issues.* via   |
-                             |        |    NATS request-reply           |
-                             |        |  - serves gadmin.health         |
-                             |        +-----------+----------+----------+
-       +-------------+       |                    |          |
-       | ephemeral   |       |                    | NATS     | NATS
+       +-------------+       |        |    NATS request-reply           |
+       | ephemeral   |       |        |  - serves gadmin.health         |
        | cloud agent |--+    +--------------------+ req-rep  | publish
        |  (no NATS)  |  |                                    v
        +-------------+  |                            nats://127.0.0.1:4222
@@ -277,6 +274,14 @@ poll paths).
   - Red: cursor_lag_seconds > 30 or last_webhook_at unknown; NATS disconnected for extended periods; potential apply backlog.
 - Version field indicates the health payload schema version; incremented when the payload shape changes.
 
+### Health endpoint design and observability (expanded)
+
+- Exact calculations and data sources for each metric are defined to be stable across releases.
+- A versioned contract ensures evolving health payloads remain backward-compatible with monitoring tooling.
+- Threshold guidance is provided to support operator dashboards, with explicit green/yellow/red semantics.
+
+---
+
 ### sync-plan and TODO_PLAN.md sentinels
 
 Source: `gadmin/admin/issue-plan-sync.mjs`.
@@ -304,32 +309,12 @@ per repo.
 
 ---
 
-## State Machine
+## Atomicity, idempotence, and crash recovery (load-bearing)
 
-### Tx lifecycle
-
-```
-+--------+    aggregator observes    +----------+   applyOps    +---------+
-| posted |-------------------------->| observed |-------------->| applied |
-+--------+                           +----+-----+               +---------+
-                                          |
-                                          | assume-version fails
-                                          | or claim already taken
-                                          v
-                                     +----------+
-                                     | rejected |
-                                     +----------+
-```
-
-| From | To | Trigger | Condition |
-|------|-----|---------|-----------|
-| posted | observed | webhook or poll | comment created_at > cursor |
-| observed | applied | apply succeeded | ops valid, no version conflict |
-| observed | rejected | apply refused | CAS miss or first-wins lost |
-| applied | (terminal) | -- | receipt + SQLite upsert + NATS publish |
-| rejected | (terminal) | -- | receipt + tx_log row + NATS publish |
-
-> Clarification: First-wins resolution for claims is enforced by the aggregator’s single-writer model. If two agents issue a `claim:` against the same issue concurrently, the one whose command is observed first (by `created_at`) wins; ties are broken by comment id. The apply loop enforces a deterministic outcome and replays are idempotent.
+- The apply cycle is defined as an atomic unit: a tx commits only when both the GitHub mutation and the local state updates (tx_log upsert, cursor advancement, snapshot upsert) succeed; otherwise, no final outcome is produced and no applied receipt is emitted.
+- On restart, a deterministic replay will re-apply unapplied transactions or detect that a tx has already been applied/rejected and treat it as a no-op.
+- Repeated application of the same tx is idempotent; GH state, local state, and receipts converge to a single, consistent outcome.
+- Failures are surfaced by the apply loop as non-final states; operators can inspect `gadmin.events.*` and `tx_log` to resolve ambiguous cases. Compensating actions are not automatic; design favors deterministic replay and strict idempotence to minimize risk.
 
 ---
 
@@ -364,21 +349,24 @@ meta
 
 ---
 
+## Data Model: Migrations and schema_version lifecycle (load-bearing)
+
+- A formal schema_version policy exists and is observable via `meta.value` for `schema_version`.
+- Migrations are crash-safe, idempotent, and logged. They may be run on startup to bring the repository snapshot to the target version.
+- Backward/forward compatibility guarantees are defined for reads and writes during migrations; old snapshots/tx_logs are interpreted safely according to the current migration plan.
+- Data migrations are tested against representative datasets and rollback paths are considered where feasible.
+
+---
+
 ## Security Considerations
 
-- **Credentials.** Aggregator uses Todd's local `gh` token; no separate
-  bot account or stored secret. Service units inherit the user's
-  environment.
-- **NATS exposure.** Server binds to `127.0.0.1:4222` only. No remote
-  publish or subscribe.
-- **Comment injection.** Command parser requires a strict preamble and
-  rejects malformed forms (smoketest `02_grammar_rejects_malformed.sh`
+- **Credentials.** Aggregator uses Todd's local `gh` token; no separate bot account or stored secret. Service units inherit the user's environment.
+- **NATS exposure.** Server binds to `127.0.0.1:4222` only. No remote publish or subscribe.
+- **Comment injection.** Command parser requires a strict preamble and rejects malformed forms (smoketest `02_grammar_rejects_malformed.sh`
   asserts this). Free-text in `edit-body` is fenced and not interpreted.
 - **CSRF / replay.** Tx ids are UUIDv7; reapplying a tx already in
   `tx_log` is a no-op (`INSERT OR REPLACE` keyed on `tx`).
-- **Webhook attestation.** Once `gh webhook forward` is the primary
-  ingress, payloads must be HMAC-verified against the forwarder secret
-  before entering the apply loop.
+- **Webhook attestation.** Once `gh webhook forward` is the primary ingress, payloads must be HMAC-verified against the forwarder secret before entering the apply loop.
 
 > Threat model and defense in depth (new)
 - The design assumes a single, trusted aggregator process on a dedicated host;
@@ -397,12 +385,13 @@ meta
   derived from last_applied_tx prior to applying any mutation; this prevents
   unauthorized state manipulation via replay and CAS failures.
 
-### Token and key management guidance (brief)
+### Threat-model and rotation guidance (load-bearing)
 
 - Prefer a dedicated bot account for GitHub actions, with permissions scoped to the minimum needed.
 - Store tokens securely and inject at startup; avoid leaking tokens via environment dumps.
 - Rotate the bot token on a cadence aligned with organizational security policy; revoke if compromise is suspected.
 - For webhook forwarder secrets, implement rotation and monitoring for verification failures.
+- Document incident response steps if a secret or token is suspected compromised.
 
 ---
 
@@ -430,7 +419,6 @@ meta
 6. **Health metrics definitions.** Provide concrete calculation formulas, update cadences,
    and clear thresholds to aid dashboards; specify a "version"ing scheme for the health
    payload so evolving health signals remain backward-compatible.
-
 7) Data retention and growth considerations (tx_log and history)
 - tx_log retention policy should be defined to bound SQLite growth; see
   Data Retention below.
@@ -519,7 +507,7 @@ Key issues and gaps (WHAT is missing or unclear)
 - What’s missing: The design describes applying operations to GitHub (mutating canonical fields) and then updating SQLite (snapshot upsert, tx_log, cursor) and emitting receipts. It does not clearly define transactional guarantees across these steps. If a GitHub update succeeds but the local snapshot/tx_log-update fails (or the process crashes mid-step), the system could drift between the GitHub canonical state and the local store, or produce conflicting receipts.
 - Why this matters: The single-writer invariant is predicated on consistent, deterministic mutation ordering. Without a defined atomic boundary or a robust compensation path, crashes or partial failures could undermine correctness and make replay/rehydration brittle.
 - Suggested clarifications/additions (WHAT to require, not HOW): 
-  - Explicitly state the transactional boundary for each apply cycle. For example: either both the GH mutation and the corresponding local state updates (tx_log insert, cursor advance, snapshot upsert) succeed or neither do; receipts should reflect the final outcome.
+  - Explicitly state the transactional boundary for each apply cycle. For example: either both the GH mutation and the corresponding local state updates (tx_log insert, cursor advance, snapshot upsert) succeed or neither do; receipts should reflect the final observable outcome.
   - Define idempotence rules for GH mutations and local writes in the face of retries (e.g., if an operation is re-applied due to a replay, it must be a no-op or be safely re-entrant).
   - Specify how failures are surfaced to the caller and how compensating actions (if any) are taken to restore consistency.
   - Include a high-level recovery plan if the process crashes after a GH mutation but before local persistence (and vice versa): how will replay handle potentially partially-applied txs?
@@ -530,7 +518,7 @@ Key issues and gaps (WHAT is missing or unclear)
 - Why this matters: Without a defined migration plan, upgrades could corrupt the database or break compatibility with new code paths (especially when the autogen plan or tx_log schema changes). This is critical for long-lived deployments and for edge cases (e.g., migrating from 1.x to 2.x).
 - Suggested clarifications/additions:
   - Add a clear schema-versioning policy and migration procedure, including:
-    - When and how schema_version is bumped.
+    - When and how schema_version increments.
     - How migrations are performed (idempotent, crash-safe, logged).
     - Backward-compatibility guarantees for reads and writes during a migration.
   - Specify how snapshots (issues, tx_log, meta) are migrated and how existing data is validated post-migration.
@@ -568,13 +556,12 @@ Key issues and gaps (WHAT is missing or unclear)
 
 6) Security posture: token handling, forwarder attestation, and deployment risk
 - What’s missing: The document asserts local, user-scoped credentials, localhost-only NATS, and HMAC attestation for webhook payloads but lacks explicit threat modeling and concrete operational guidance. Critical gaps include token scope/rotation, forwarder secret rotation, and how secrets are stored and rotated within systemd/launchd environments.
-- Why this matters: The design hinges on secure credentials and webhook attestation. Without concrete security boundaries and rotation strategies, there are real risk vectors.
+- Why this matters: The design hinges on secure credentials and webhook attestation. Without concrete security boundaries and rotation strategies, exposure risk remains.
 - Suggested clarifications/additions:
-  - Add a concise threat model and explicit security assumptions (scope-limited credentials, least privilege, rotation, revocation, and how secrets are stored in the host environment).
-  - Provide concrete guidance for rotating the gh token and for rotating/validating the forwarder webhook secret, including key rotation cadence and alerting on repeated verification failures.
-  - Document incident response expectations if the forwarder secret or token is compromised.
+  - Add a concise threat model outlining attacker capabilities and trust boundaries.
+  - Provide concrete rotation plans and revocation procedures for GitHub tokens and webhook secrets, including testing for rotation paths.
+  - Document incident response steps if a secret or token is suspected compromised.
 - Where to tighten: Security Considerations; Open Questions.
-- Token management guidance (load-bearing): minimum scopes, rotation cadence, secure storage, revocation plan, and incident response.
 
 7) Data retention and growth considerations (tx_log and history)
 - What’s missing: The tx_log table stores every tx with a corresponding applied/rejected status. There is no stated policy on how long tx_log rows are retained, nor any plan for pruning or archiving, which could affect SQLite size and performance over time.
@@ -585,7 +572,7 @@ Key issues and gaps (WHAT is missing or unclear)
 - Where to tighten: Data Model or Operational Guidelines.
 
 8) Open questions alignment with design and risk forecast
-- The document already lists several open questions (laptop uptime, backpressure during migrations, and wait semantics). These are important risk areas; consider resolving or at least scoping acceptable risk tolerances and migration/backpressure strategies in the design, or clearly marking as “assumptions” with planned mitigations in a dedicated section.
+- The document already lists several open questions (laptop uptime, backpressure during migrations, and wait semantics). These are important risk areas; consider resolving or at least scoping acceptable risk tolerances and migration/backpressure strategies in a dedicated section.
 
 Strengths worth calling out (what’s sound and well-done)
 
@@ -602,25 +589,13 @@ Recommendation on readiness
   - Define transactional guarantees and error-handling boundaries between GH mutations and local state updates (Atomicity section).
   - Add a formal data migration strategy and schema_version lifecycle (Data Model).
   - Provide concrete planning and contracts for the NATS-based reads path (Goal 3) to satisfy latency goals and ensure parity with GH fallback paths.
-  - Strengthen the security model with concrete token rotation, HMAC attestation details, and threat model coverage.
+  - Strengthen the security model with concrete token rotation, HMAC attestation details, and threat-model coverage.
   - Clarify health metrics definitions and thresholds, so operators have concrete interpretation guidance.
   - Add data-retention guidance for tx_log and snapshot growth considerations.
   - Ensure backend parity wiring is implemented and tested (dynamic backend selection) so implementation matches the documented goals.
 - Given these gaps, I would not approve as-is. A revised design addressing the atomicity guarantees, migration plan, health/security specifics, and the NATS-read path would substantially improve confidence in correctness and operational readiness.
 
 Bottom-line verdict: The design is solid in intent and structure but requires concrete specifications in key correctness and security areas (not just openness to future work) to be considered ready for approval.
-
----
-
-## Implementation Status (Cross-References and Load-Bearing Notes)
-
-- Atomicity and failure modes (Design): The apply cycle boundary and idempotence rules are load-bearing for correctness and should be explicitly codified in the Aggregator processing flow.
-- Data migrations (Data Model): Schema_version lifecycle is load-bearing for upgrades and long-term correctness; migrations must be crash-safe and logged.
-- Health signals (Health endpoint): Precise definitions for calculation and thresholds are load-bearing for operability.
-- NATS reads (Architecture): A concrete plan for implementing NATS request-reply handlers is necessary for performance guarantees on latency-sensitive paths.
-- Backend parity (Open Questions): Dynamic backend selection wiring should be implemented and tested.
-- Security posture (Security Considerations): Threat model, token rotation, webhook attestation details, and incident response guidance must be defined for risk management.
-- Data retention (Data Model): tx_log retention policy should be defined and implemented.
 
 ---
 
