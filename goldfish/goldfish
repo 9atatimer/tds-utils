@@ -259,8 +259,7 @@ def run_manage_blacklist(args: argparse.Namespace) -> int:
         include=tuple(args.include_org),
         exclude=tuple(args.exclude_org),
     )
-    rows = sort_rows(rows)
-    all_names = [r.name for r in rows]
+    all_names = sorted((r.name for r in rows), key=str.casefold)
     if not all_names:
         print("(no repos found to manage)", file=sys.stderr)
         return 0
