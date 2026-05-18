@@ -453,6 +453,11 @@
   :config
   (add-hook 'emacs-startup-hook #'mcp-server-start-unix))
 
+(use-package eltainer
+  :load-path "~/workplace/9atatimer/eldocker"
+  :commands (eltainer docker k8s)
+  :bind ("C-c d" . eltainer))
+
 ;;;;;;
 ;;;;;;
 ;; temporary hacks to try to get emacs to follow prettier standards
