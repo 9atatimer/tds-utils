@@ -43,6 +43,7 @@ from shell import (  # noqa: E402
     inspect_local,
     load_blacklist,
     load_cached_clones,
+    pick_blacklist_via_fzf,
     running_agents,
     save_blacklist,
     save_cached_clones,
@@ -241,7 +242,11 @@ def _build_row(
 
 
 def run_manage_blacklist(args: argparse.Namespace) -> int:
-    """Interactive line-based picker: toggle blacklist entries, save, exit."""
+    """Toggle blacklist entries interactively, then save and exit.
+
+    Prefers an fzf-driven checkbox picker; falls back to a numbered-list loop
+    when fzf is not on PATH.
+    """
     config = load_config()
     rows, _ = gather(
         config,
@@ -254,13 +259,53 @@ def run_manage_blacklist(args: argparse.Namespace) -> int:
         include=tuple(args.include_org),
         exclude=tuple(args.exclude_org),
     )
-    rows = sort_rows(rows)
-    all_names = [r.name for r in rows]
+    all_names = sorted((r.name for r in rows), key=str.casefold)
     if not all_names:
         print("(no repos found to manage)", file=sys.stderr)
         return 0
 
-    selected = set(load_blacklist())
+    current = load_blacklist()
+    if have("fzf"):
+        return _run_manage_blacklist_fzf(all_names, current)
+    print(
+        "goldfish: fzf not found on PATH; using numbered-list fallback "
+        "(brew install fzf for the TUI).",
+        file=sys.stderr,
+    )
+    return _run_manage_blacklist_legacy(all_names, current)
+
+
+def _run_manage_blacklist_fzf(
+    all_names: list[str],
+    current: frozenset[str],
+) -> int:
+    """fzf-driven picker. Saves on Enter; no-op on Esc."""
+    new_selection = pick_blacklist_via_fzf(all_names, current)
+    if new_selection is None:
+        print("(cancelled; no changes saved)", file=sys.stderr)
+        return 0
+    if new_selection == current:
+        print("(no changes)", file=sys.stderr)
+        return 0
+    if save_blacklist(new_selection):
+        print(
+            f"saved {len(new_selection)} entries to {blacklist_path()}",
+            file=sys.stderr,
+        )
+        return 0
+    print(
+        f"goldfish: failed to write {blacklist_path()}; changes NOT saved",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def _run_manage_blacklist_legacy(
+    all_names: list[str],
+    current: frozenset[str],
+) -> int:
+    """Numbered-list picker used when fzf is unavailable."""
+    selected = set(current)
     selected_at_start = frozenset(selected)
     print(f"goldfish — manage blacklist ({blacklist_path()})")
     print("Type number(s) or name(s) to toggle (comma/space separated).")
