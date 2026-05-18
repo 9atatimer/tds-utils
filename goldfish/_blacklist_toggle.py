@@ -36,8 +36,11 @@ def main(argv: list[str]) -> int:
         else:
             out.append(line)
     tmp = state_path.with_suffix(state_path.suffix + ".tmp")
-    tmp.write_text("\n".join(out))
-    tmp.replace(state_path)
+    try:
+        tmp.write_text("\n".join(out))
+        tmp.replace(state_path)
+    except OSError:
+        return 1
     return 0
 
 
