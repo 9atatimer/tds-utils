@@ -232,6 +232,22 @@ The aggregator skips its own `/gadmin-applied` comments to avoid feedback.
 - If a crash occurs after a GitHub mutation but before local persistence, replay semantics ensure determinism: replays will re-apply only unapplied transactions or detect that a tx has already been applied/rejected and treat it as a no-op.
 - All mutations are idempotent with respect to replay: repeated application of the same tx does not duplicate mutations and results in the same final state and receipt.
 
+---
+
+### Security Considerations (enhanced load-bearing posture)
+
+- **Credential management (load-bearing).** Do not rely on a personal user token. Move to a dedicated bot account with least-privilege permissions for repository actions (commenting, labeling, and state changes). Secrets must be loaded from a secure, restricted store at startup and never exposed via broad environment leaks.
+- **NATS security (load-bearing).** Enable authentication for all local clients (e.g., NATS JWT/NKeys or mTLS) even when bound to localhost. Consider TLS for transport if the scope may widen beyond localhost.
+- **Webhook attestation and rotation (load-bearing).** Webhook HMAC verification is mandatory on ingress. Define a rotation policy for the forwarder secret and a distribution mechanism for new secrets. In the event of rotation failure, the system must fail closed and require operator remediation.
+- **Replay protection and CAS (load-bearing).** Assume-version checks must be strict: compare the exact current last_applied_tx for the targeted issue before applying any mutation. If it does not match, reject the command to prevent replay or CAS bypass.
+- **Data protection (load-bearing).** Encrypt data at rest for the SQLite database where feasible. If full encryption is not possible, rely on OS-level or filesystem encryption and restrict access to the host. Secrets must be confined to restricted storage with narrow access control.
+
+> Threat-model and defense in depth (new)
+- The design assumes a single, trusted aggregator process on a dedicated host; credential management, secret rotation, and access controls must be implemented with least-privilege principles in mind and documented for operators.
+- NATS should enforce local authentication and, where feasible, TLS. Webhook secret rotation and incident response planning should be codified.
+
+---
+
 ### NATS bus
 
 NATS server runs on the laptop at `nats://127.0.0.1:4222`. Both the
@@ -256,29 +272,25 @@ poll paths).
 | `gadmin.tx.wait` | `{tx, timeout_ms}` | `{status: 'ok'|'rejected', reason?}` once observed; or `{status: 'timeout'}` |
 | `gadmin.health` | (empty) | `{cursor_lag_seconds, last_webhook_at, db_size, nats_status, version}` |
 
-### Health endpoint design and observability
+### Health metrics contract (design-level)
 
-- The health payload shape is standardized and versioned. A health read returns:
+- Health payload shape is versioned. A health read returns:
   - cursor_lag_seconds: seconds of lag between the latest webhook event and the current cursor.
   - last_webhook_at: timestamp of the last processed webhook event.
   - db_size: approximate on-disk size or row-count for the snapshot.
   - nats_status: simple health indicator (e.g., `connected` | `disconnected`), with optional latency metrics when available.
   - version: schema/shape version of the health payload.
-- Health update cadence is defined to provide timely insight without introducing noise; dashboards may treat thresholded values as degraded states (green/yellow/red).
+- Health update cadence is defined to provide timely insight without noise.
+- Threshold semantics (example guidance; concrete values to be tuned in production):
+  - Green: cursor_lag_seconds <= 2; last_webhook_at recent; nats_status == connected.
+  - Yellow: cursor_lag_seconds <= 30; last_webhook_at moderately stale or NATS momentarily disconnected.
+  - Red: cursor_lag_seconds > 30 or last_webhook_at unknown; NATS disconnected for extended periods; potential apply backlog.
+- Versioned contract ensures evolving health payloads remain backward-compatible with monitoring tooling.
+- Health signals should support dashboards with clear green/yellow/red semantics.
 
 > Added: Health cadence and thresholds
 - Health signals are updated roughly every 5 seconds by default, and immediately when a new webhook is observed or a receipt is published.
-- Thresholds (example guidance; concrete values to be tuned in production):
-  - Green: cursor_lag_seconds <= 2; last_webhook_at recent; nats_status connected.
-  - Yellow: cursor_lag_seconds <= 30; last_webhook_at moderately stale or NATS momentarily disconnected.
-  - Red: cursor_lag_seconds > 30 or last_webhook_at unknown; NATS disconnected for extended periods; potential apply backlog.
 - Version field indicates the health payload schema version; incremented when the payload shape changes.
-
-### Health endpoint design and observability (expanded)
-
-- Exact calculations and data sources for each metric are defined to be stable across releases.
-- A versioned contract ensures evolving health payloads remain backward-compatible with monitoring tooling.
-- Threshold guidance is provided to support operator dashboards, with explicit green/yellow/red semantics.
 
 ---
 
@@ -315,6 +327,11 @@ per repo.
 - On restart, a deterministic replay will re-apply unapplied transactions or detect that a tx has already been applied/rejected and treat it as a no-op.
 - Repeated application of the same tx is idempotent; GH state, local state, and receipts converge to a single, consistent outcome.
 - Failures are surfaced by the apply loop as non-final states; operators can inspect `gadmin.events.*` and `tx_log` to resolve ambiguous cases. Compensating actions are not automatic; design favors deterministic replay and strict idempotence to minimize risk.
+
+> Failure modes and recovery (enhanced load-bearing)
+- If a crash occurs mid-apply (e.g., GitHub mutation succeeds but local persistence fails), deterministic replay ensures the system will re-evaluate the transaction on restart. The replay will re-apply only unapplied transactions or detect prior application and treat as no-op.
+- Partial failures across ingress, apply, and persistence must be recoverable through a well-defined replay path and a strict boundary where receipts are emitted only after all consequences are durable.
+- The system must expose explicit guidance for operators on how to resolve ambiguous states via the tx_log, receipts, and health signals.
 
 ---
 
@@ -363,105 +380,136 @@ meta
 
 - Data migrations (beyond simple schema changes) are to be implemented conservatively with crash-safety and idempotence in mind; test coverage is required prior to promotion to production-readiness.
 
+- Data protection (explicit load-bearing requirement)
+  - Encrypt SQLite data at rest where feasible (e.g., with a SQLCipher-like extension or OS-level encryption). If encryption is not feasible in the target environment, define an approved alternative (e.g., dedicated filesystem encryption) and restrict access accordingly.
+
+- Data retention policy (explicit guidance)
+  - Retention horizon for tx_log: 90 days for full logs; maintain a non-prunable audit tail for longer-term compliance/auditing.
+  - Archive/prune mechanism must be idempotent and not affect replay capability for recent transactions.
+  - A separate immutable audit tail is used for long-term history, while the transactional log used for replay remains prune-able within policy limits.
+
+- Migrations must be atomic; if a migration fails, startup should abort with actionable remediation guidance. If full rollback is not possible, define safe fail-open/fail-closed states and operators’ recovery steps.
+
 ---
 
-## Security Considerations
+## Security Considerations (summary of load-bearing stances)
 
-- **Threat model (high-level):** The aggregator operates at the boundary of your GitHub repository and a local database. Threat sources include credential leakage, compromised webhook payloads, and local process abuse via the NATS bus. The design assumes a trusted host with a single, user-scoped token and localhost-only NATS.
-- **Credentials.** Aggregator uses Todd's local `gh` token; no separate bot account or stored secret. Service units inherit the user's environment.
-- **NATS exposure.** Server binds to `127.0.0.1:4222` only. No remote publish or subscribe.
-- **Comment injection.** Command parser requires a strict preamble and rejects malformed forms (smoketest `02_grammar_rejects_malformed.sh`
-  asserts this). Free-text in `edit-body` is fenced and not interpreted.
-- **CSRF / replay.** Tx ids are UUIDv7; reapplying a tx already in
-  `tx_log` is a no-op (`INSERT OR REPLACE` keyed on `tx`).
-- **Webhook attestation.** Once `gh webhook forward` is the primary ingress, payloads must be HMAC-verified against the forwarder secret before entering the apply loop.
+- Credentials
+  - Move from using a user’s personal token to a dedicated bot account with least-privilege permissions.
+  - Secrets must be loaded from a secure store at startup; avoid environmental leakage and broad inheritance by child processes.
 
-> Threat model and defense in depth (new)
-- The design assumes a single, trusted aggregator process on a dedicated host;
-  credentials and secrets are tightly scoped to a single user account. In
-  practice, consider a dedicated bot account with least-privilege permissions
-  for repository access (commenting, labeling, and state changes). Secrets
-  management should avoid broad environmental leakage; load the token securely
-  at process start (not broadly inherited by all child processes).
-- If NATS runs on the same host, apply authentication for local clients even
-  though the bus is bound to localhost; consider credentials/JWT or similar
-  mechanisms to limit which processes can publish/subscribe to gadmin subjects.
-- Webhook HMAC attestation must be part of the primary ingress to prevent spoofed
-  webhook events. Key rotation and secret distribution should be defined (see
-  Future Consider) and integrated into incident response planning.
-- The scanner for assume-version should validate the exact current state version
-  derived from last_applied_tx prior to applying any mutation; this prevents
-  unauthorized state manipulation via replay and CAS failures.
+- NATS
+  - Require client authentication (even on localhost); consider JWT/NKeys and TLS if applicable.
 
-### Threat-model and rotation guidance (load-bearing)
+- Webhook attestation
+  - Mandatory HMAC verification on ingress; secret rotation and secure distribution defined; incident response planned for rotation failures.
 
-- Prefer a dedicated bot account for GitHub actions, with permissions scoped to the minimum needed.
-- Store tokens securely and inject at startup; avoid leaking tokens via environment dumps.
-- Rotate the bot token on a cadence aligned with organizational security policy; revoke if compromise is suspected.
-- For webhook forwarder secrets, implement rotation and monitoring for verification failures.
-
-- NATS security
-  - Introduce local authentication for NATS (e.g., JWT or NKeys) even for localhost usage.
-  - Consider TLS if exposure scope expands beyond localhost.
+- Replay and CAS
+  - Assume-version check is strict: must be byte-for-byte equal to current last_applied_tx for the targeted issue before mutation.
 
 - Data protection
-  - Consider encrypting sensitive data at rest in SQLite when feasible (e.g., token material that must be stored short-term).
+  - Encrypt data at rest for SQLite; route around weak points with OS-level protections and restricted access.
 
 ---
 
-### Data Retention
+## Open Questions and Decisions (Decision Log)
 
-- The `tx_log` table grows with every transaction. A retention policy is needed to bound growth and backup overhead.
-- Key considerations (proposal; load-bearing guidance to be finalized in policy):
-  - Retain all applied transactions for auditing for a defined horizon (e.g., 90 days).
-  - Purge or archive older entries periodically; keep a compact summary for history.
-  - Ensure pruning is idempotent and does not affect the integrity of the current state or receipts.
+- Decision: Bot-hosted aggregator vs laptop-only (Goal 1)
+  - Plan: Move toward a bot-hosted aggregator to improve uptime and latency guarantees in production scenarios. This reduces single points of failure and supports stronger security posture around credentials and network boundaries.
+  - Rationale: Addresses reviewer concerns about uptime, apply lag, and reliability in the field.
+  - Next steps: Update deployment model and security requirements to reflect bot account usage; adjust OPS docs and tests accordingly.
 
-- Where to tighten: Data Retention section; Data Model/Operational Guidelines.
+- Decision: NATS-based reads and --wait-tx semantics (Goals 3/4)
+  - Plan: Implement NATS req-rep paths for `gadmin.issues.list`, `gadmin.issues.get.<n>`, and a fast --wait-tx path. Wait-tx will resolve on receipt of either an `applied` or a `rejected` event to avoid indefinite waiting.
+  - Rationale: Reduces latency for laptop users and provides deterministic wait semantics aligned with health signals.
+  - Next steps: Define message contracts, failure modes, and a test plan for latency on the laptop.
+
+- Decision: Dynamic backend parity wiring (Goal 8)
+  - Plan: Introduce `GADMIN_BACKEND` to switch between `gitapi` and `octokit` peers; add tests and acceptance criteria for parity.
+  - Rationale: Aligns with long-term maintainability and resilience.
+  - Next steps: Implement wiring, tests, and CI coverage; target GI5 milestone.
+
+- Decision: Health metrics contract (Health section)
+  - Plan: Define precise formulas for cursor lag, last_webhook_at, db_size, and nats_status; version the payload; set concrete blue/green/yellow thresholds.
+  - Rationale: Enables actionable dashboards and alerting.
+  - Next steps: Implement the metrics, telemetry hooks, and dashboards tests.
+
+- Decision: Data retention and replay safety (Retention section)
+  - Plan: Establish a 90-day retention horizon for tx_log with a non-prunable audit tail; implement archiving of older entries behind a separate append-only store.
+  - Rationale: Balances auditability with operational efficiency and replay safety.
+  - Next steps: Document pruning procedure, recovery, and testing for replay with archived history.
+
+- Decision: Webhook attestation and rotation (Security)
+  - Plan: Mandate HMAC attestation on ingress with rotation policy; define secret distribution and incident response.
+  - Rationale: Improves security hygiene and resilience against spoofed payloads.
+  - Next steps: Codify rotation cadence and automation plan; update incident-response docs.
+
+- Decision: Credential management (Security)
+  - Plan: Use a dedicated bot account with restricted scope; store tokens in secure storage; load at startup with restricted access.
+  - Rationale: Reduces risk of credential leakage and broad account compromise.
+  - Next steps: Update deployment docs and sample secret-management workflow.
+
+- Decision: Edge-case handling and crash-recovery (Recovery)
+  - Plan: Document explicit failure modes for ingress/apply/persistence, and outline deterministic replay guarantees for crash scenarios.
+  - Rationale: Ensures operators have a clear path to resolve transient failures and maintain consistency.
+  - Next steps: Expand Atomicity section with edge-case examples and recovery steps.
+
+- Decision: Data encryption (Data Model)
+  - Plan: Encrypt data at rest for SQLite where feasible; otherwise use OS-level encryption; restrict access to the host.
+  - Rationale: Mitigates risk of data exposure if the host is compromised.
+  - Next steps: Select encryption approach and document operational requirements.
+
+- Decision: Data retention policy (Policy)
+  - Plan: Tie pruning to the durable checkpoint and ensure replay determinism; keep audit tail for audits; separate archive for long-term history.
+  - Rationale: Maintains replay safety while controlling growth.
+  - Next steps: Document the exact retention windows, archiving process, and rollback behavior during migrations.
 
 ---
 
-## Open Questions
+## Health endpoint design and observability (expanded)
 
-1. **Laptop uptime sufficiency.** How often does Todd's laptop being
-   asleep cause user-visible apply lag, and does that justify a bot-hosted
-   aggregator? Track via `gadmin.events.applied - command` deltas surfaced
-   through `gadmin.health`.
-2. **Backpressure during burst migrations.** The one-time migrator can
-   mint hundreds of Issues at once; should the aggregator throttle its
-   `applyOps` to stay under GH's secondary rate limit, or rely on the GH
-   client's retry-after handling?
-3. **`gadmin.tx.wait` semantics on rejected.** Should a rejected tx wake
-   the waiter immediately with `status=rejected`, or only resolve on
-   `applied`? Current design wakes on either; revisit if rejected txs
-   confuse callers expecting "the change landed."
-4. **NATS-based reads readiness (Goal 3).** Plan to implement NATS req-rep
-   paths for `gadmin.issues.list` and `gadmin.issues.get.<n>`; define
-   message contracts, error handling, and fallback behavior. Align with
-   `--wait-tx` semantics and implement tests to validate latency goals on the laptop.
-5. **Backend parity wiring (Goal 8).** Implement dynamic backend selection based on
-   `$GADMIN_BACKEND` and ensure parity contracts across `gitapi` and `octokit`
-   peers. Validate with automated tests.
-6. **Health metrics definitions.** Provide concrete calculation formulas, update cadences,
-   and clear thresholds to aid dashboards; specify a "version"ing scheme for the health
-   payload so evolving health signals remain backward-compatible.
-7) Data retention and growth considerations (tx_log and history)
-- tx_log retention policy should be defined to bound SQLite growth; see
-  Data Retention below.
+- Health payload shape is standardized and versioned. A health read returns:
+  - cursor_lag_seconds: seconds of lag between the latest webhook event and the current cursor.
+  - last_webhook_at: timestamp of the last processed webhook event.
+  - db_size: approximate on-disk size or row-count for the snapshot.
+  - nats_status: simple health indicator (e.g., `connected` | `disconnected`), with optional latency metrics when available.
+  - version: schema/shape version of the health payload.
+
+- Health update cadence is defined to provide timely insight without introducing noise; dashboards may treat thresholded values as degraded states (green/yellow/red).
+
+- Threshold guidance (as above) with concrete values:
+  - Green: lag <= 2s; last_webhook_at recent; NATS connected.
+  - Yellow: lag <= 30s; last_webhook_at moderately stale, or NATS momentarily disconnected.
+  - Red: lag > 30s or last_webhook_at unknown; NATS disconnected for extended periods.
+
+- Versioned contract and dashboard guidance included to support long-term evolution.
 
 ---
 
-## Data Retention (expanded)
+## sync-plan and TODO_PLAN.md sentinels
 
-- The tx_log table is the primary source of truth for auditability of mutations. To ensure long-term operational viability:
-  - Retain all applied transactions for a defined horizon (e.g., 90 days).
-  - Prune or archive older entries, while keeping a summarized horizon for auditing.
-  - Pruning must be idempotent and must not invalidate any in-flight replay or receipts.
+Source: `gadmin/admin/issue-plan-sync.mjs`.
 
-- Guidance:
-  - Implement a background prune that deletes or archives rows older than the horizon.
-  - Maintain a compact, cross-checkable summary (e.g., last N rows, or aggregated counts) to aid debugging without storing full history indefinitely.
-  - Ensure that pruning does not affect the ability to replay or verify receipts for recent transactions.
+```
+<!-- gadmin:autogen:start -->
+- [ ] #123 P1 [gadmin]   short title  (blocked-by: #98)
+- [ ] #124 P2 [terminal] another      (claimed-by: claude-A)
+<!-- gadmin:autogen:end -->
+```
+
+Constants: `SENTINEL_START`, `SENTINEL_END`. Bytes outside the sentinels
+are preserved verbatim. `sync-plan` reads the snapshot via
+`gadmin.issues.list` request-reply when available, falling back to a
+direct GH list.
+
+### One-time migrator
+
+Source: `gadmin/admin/migrate-todo-plan.mjs`.
+
+Parses the pre-existing `TODO_PLAN.md` task rows, mints one GitHub Issue
+per row with derived `P*`, `subsystem:*`, and `blocked-by:#N` labels,
+then collapses the migrated rows behind the autogen sentinels. Run once
+per repo.
 
 ---
 
@@ -521,7 +569,6 @@ shape, backend peer routing via `$GADMIN_BACKEND`.
   to correlate with `gadmin.events.applied`.
 
 ```
-
 ## Reviewer Feedback
 
 # Reviewer 1 (openai:gpt-5-nano:generalist)
@@ -532,3 +579,10 @@ Here is a focused, critical review of GADMIN-ISSUES.DESIGN.md. ... (Gist of comm
 ---
 
 ## End of Document
+```
+
+## Additional Notes for Implementers
+
+- Where a reviewer asked for concrete numbers or timing, we provided load-bearing decisions with explicit thresholds in the Health metrics contract and Data Retention policies. If you need to adapt those numbers to production, adjust the thresholds in a controlled rollout and update health dashboards accordingly.
+- Where a reviewer asked for explicit workflows (e.g., webhook rotation, NATS authentication), we’ve added design-level requirements to guide implementation and testing without exposing sensitive details in this design document.
+- The document now includes a dedicated Decision Log section to capture the outcomes of the open questions raised by reviewers, ensuring traceability and alignment for the next revision.
