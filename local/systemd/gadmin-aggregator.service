@@ -1,0 +1,27 @@
+# gadmin-aggregator.service — laptop-pinned single-writer for the Issues
+# subsystem. Install (user-scoped):
+#   mkdir -p ~/.config/systemd/user
+#   cp gadmin-aggregator.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now gadmin-aggregator.service
+#   journalctl --user -u gadmin-aggregator -f
+#
+# Edit ExecStart / Environment to match your checkout and target repo.
+
+[Unit]
+Description=gadmin Issues aggregator (single writer)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/node %h/workplace/tds-utils/gadmin/admin/issue-aggregator.mjs --repo 9atatimer/tds-utils --interval 15
+Restart=always
+RestartSec=10
+Environment=NATS_URL=nats://127.0.0.1:4222
+# GITHUB_TOKEN is picked up from `gh auth token` if not set here.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

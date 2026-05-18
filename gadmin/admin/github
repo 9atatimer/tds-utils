@@ -39,6 +39,10 @@ Commands:
   reply          Reply to a comment with standardized emoji annotation
   actions        Retrieve GitHub Actions workflow run outputs
   crsilo         Provision isolated code review workspace (CR silo)
+  issue <sub>    Issue CRUD + workflow primitives (delegates to gitapi peer)
+                   Subcommands: list, view, create, edit, comment, close,
+                   reopen, priority, block, unblock, claim, release, next,
+                   sync-plan
 
 Options for pr-comments / pending-comments:
   --pr <number>         PR number (required)
@@ -809,6 +813,18 @@ function cmd_crsilo() {
   admin_log_info "  Depth: 1 (shallow clone)"
 }
 
+function cmd_issue() {
+  # Bridge gh CLI auth to the GITHUB_TOKEN expected by the gitapi peer
+  # so callers don't need to export it themselves. Only set if unset; never
+  # overwrite a token the user passed in.
+  if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+    if GITHUB_TOKEN="$(gh auth token 2>/dev/null)" && [[ -n "$GITHUB_TOKEN" ]]; then
+      export GITHUB_TOKEN
+    fi
+  fi
+  exec node "$SCRIPT_DIR/github-gitapi.mjs" issue "$@"
+}
+
 function main() {
   if [[ $# -eq 0 ]]; then
     usage
@@ -832,6 +848,9 @@ function main() {
       ;;
     crsilo)
       cmd_crsilo "$@"
+      ;;
+    issue)
+      cmd_issue "$@"
       ;;
     --help|-h)
       usage

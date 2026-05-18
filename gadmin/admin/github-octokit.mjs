@@ -20,6 +20,14 @@ import { execSync } from 'child_process';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { resolve as resolvePath } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import {
+  formatCommand,
+  parseApplied,
+  newTxId,
+} from './issue-grammar.mjs';
+import { syncPlanFile } from './issue-plan-sync.mjs';
 
 // Resolve `octokit` from (a) this script's location, then (b) the consuming
 // project's CWD. This script lives in tds-utils (outside any node_modules
@@ -74,6 +82,10 @@ Commands:
   pending-comments --pr <number>  List unaddressed PR comments (no robot emoji reply)
   reply          Reply to a comment with standardized emoji annotation
   actions        Retrieve GitHub Actions workflow run outputs
+  issue <sub>    Issue CRUD + workflow primitives. Subcommands:
+                   list, view, create, edit, comment, close, reopen,
+                   priority, block, unblock, claim, release, next,
+                   sync-plan
 
 Options for pr-comments / pending-comments:
   --pr <number>         PR number (required)
@@ -763,6 +775,452 @@ async function cmdActionsGetLogs(options) {
 }
 
 // ============================================================================
+// Issue primitives (Phase A): list/view direct, mutations via /gadmin
+// command comments. Mirrors github-gitapi.mjs surface; uses Octokit transport.
+// ============================================================================
+
+function getAgentId() {
+  return process.env.GADMIN_AGENT || `octokit-${process.pid}`;
+}
+
+function isIssue(item) {
+  return !item.pull_request;
+}
+
+function requireRepo(repoInput) {
+  if (!repoInput) {
+    logError('Missing required option: --repo <owner/repo>');
+    usage();
+  }
+  const { owner, repo } = parseRepo(repoInput);
+  if (!owner || !repo) {
+    logError(`Invalid --repo: "${repoInput}"`);
+    process.exit(1);
+  }
+  return { owner, repo };
+}
+
+async function postIssueComment(octokit, owner, repo, issueNumber, body) {
+  const { data } = await octokit.rest.issues.createComment({
+    owner, repo, issue_number: issueNumber, body,
+  });
+  return data;
+}
+
+async function emitCommand(octokit, owner, repo, issueNumber, ops, { assumeVersion } = {}) {
+  const cmd = {
+    tx: newTxId(),
+    agent: getAgentId(),
+    assumeVersion,
+    ops,
+  };
+  await postIssueComment(octokit, owner, repo, issueNumber, formatCommand(cmd));
+  return cmd.tx;
+}
+
+async function pollAppliedReceipt(octokit, owner, repo, issueNumber, tx, { timeoutMs = 30000, intervalMs = 3000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const comments = await octokit.paginate(octokit.rest.issues.listComments, {
+      owner, repo, issue_number: issueNumber, per_page: 100,
+    });
+    for (const c of comments) {
+      const applied = parseApplied(c.body || '');
+      if (applied && applied.tx === tx) {
+        return { status: applied.status, reason: applied.reason };
+      }
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return null;
+}
+
+async function maybeWaitTx(octokit, owner, repo, issueNumber, tx, options) {
+  if (!options['wait-tx'] && options['wait-tx'] !== '') return;
+  const timeoutMs = parseInt(options.timeout || '30', 10) * 1000;
+  logInfo(`waiting for /gadmin-applied tx=${tx} (timeout ${timeoutMs / 1000}s)`);
+  const result = await pollAppliedReceipt(octokit, owner, repo, issueNumber, tx, { timeoutMs });
+  if (!result) {
+    logWarn(`timed out waiting for tx=${tx}; aggregator may catch up later`);
+    return;
+  }
+  if (result.status === 'ok') {
+    logInfo(`tx=${tx} applied`);
+  } else {
+    logWarn(`tx=${tx} ${result.status}${result.reason ? ': ' + result.reason : ''}`);
+  }
+}
+
+function asLabelList(opt) {
+  if (!opt) return [];
+  if (Array.isArray(opt)) return opt;
+  return String(opt).split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+async function cmdIssueList(options) {
+  const { owner, repo } = requireRepo(options.repo);
+  const state = options.state || 'open';
+  const labels = asLabelList(options.label);
+  const assignee = options.assignee;
+  const octokit = getOctokit();
+
+  const params = { owner, repo, state, per_page: 100 };
+  if (labels.length) params.labels = labels.join(',');
+  if (assignee) params.assignee = assignee;
+  const items = await octokit.paginate(octokit.rest.issues.listForRepo, params);
+  const issues = items.filter(isIssue);
+  if (issues.length === 0) {
+    console.log('No issues match');
+    return;
+  }
+  console.log(
+    `${'NUM'.padEnd(6)} ${'STATE'.padEnd(7)} ${'PRIORITY'.padEnd(9)} ${'LABELS'.padEnd(38)} TITLE`
+  );
+  console.log('-'.repeat(110));
+  for (const it of issues) {
+    const num = `#${it.number}`.padEnd(6);
+    const st = it.state.padEnd(7);
+    const labelNames = (it.labels || []).map((l) => l.name || l);
+    const priority = (labelNames.find((n) => /^P[0-9]$/.test(n)) || '-').padEnd(9);
+    const otherLabels = labelNames
+      .filter((n) => !/^P[0-9]$/.test(n))
+      .join(',');
+    const shownLabels = (otherLabels.length > 36 ? otherLabels.slice(0, 33) + '...' : otherLabels).padEnd(38);
+    console.log(`${num} ${st} ${priority} ${shownLabels} ${it.title}`);
+  }
+}
+
+async function cmdIssueView(options) {
+  const { owner, repo } = requireRepo(options.repo);
+  const num = parseInt(options.number || options.n, 10);
+  if (!num) {
+    logError('Missing required option: --number <n>');
+    usage();
+  }
+  const octokit = getOctokit();
+  const { data: it } = await octokit.rest.issues.get({ owner, repo, issue_number: num });
+  console.log(`#${it.number}  ${it.state.toUpperCase()}  ${it.title}`);
+  const labelNames = (it.labels || []).map((l) => l.name || l);
+  if (labelNames.length) console.log(`labels: ${labelNames.join(', ')}`);
+  const assignees = (it.assignees || []).map((a) => a.login);
+  if (assignees.length) console.log(`assignees: ${assignees.join(', ')}`);
+  console.log(`url: ${it.html_url}`);
+  console.log('-'.repeat(72));
+  console.log(it.body || '(no body)');
+
+  if (options['with-comments']) {
+    const comments = await octokit.paginate(octokit.rest.issues.listComments, {
+      owner, repo, issue_number: num, per_page: 100,
+    });
+    if (comments.length) {
+      console.log('-'.repeat(72));
+      console.log(`${comments.length} comment(s):`);
+      for (const c of comments) {
+        console.log('-'.repeat(40));
+        console.log(`${c.user.login}  ${c.created_at}`);
+        console.log(c.body);
+      }
+    }
+  }
+
+  if (options['wait-tx']) {
+    if (options['wait-tx'] === true) {
+      logError('issue view --wait-tx requires a tx id (e.g. --wait-tx <id>)');
+      process.exit(1);
+    }
+    await maybeWaitTx(octokit, owner, repo, num, options['wait-tx'], options);
+  }
+}
+
+async function cmdIssueCreate(options) {
+  const { owner, repo } = requireRepo(options.repo);
+  if (!options.title) {
+    logError('Missing required option: --title <text>');
+    usage();
+  }
+  const labels = asLabelList(options.label);
+  const body = options.body || '';
+  const octokit = getOctokit();
+  const { data: created } = await octokit.rest.issues.create({
+    owner, repo, title: options.title, body, labels,
+  });
+  console.log(`#${created.number}`);
+  if (process.env.GADMIN_VERBOSE) {
+    console.log(created.html_url);
+  }
+}
+
+async function cmdIssueEdit(options) {
+  const { owner, repo } = requireRepo(options.repo);
+  const num = parseInt(options.number || options.n, 10);
+  if (!num) {
+    logError('Missing required option: --number <n>');
+    usage();
+  }
+  const ops = [];
+  if (options.title) ops.push({ kind: 'edit-title', value: options.title });
+  if (options.body) ops.push({ kind: 'edit-body', value: options.body });
+  for (const l of asLabelList(options['add-label'])) {
+    ops.push({ kind: 'add-label', value: l });
+  }
+  for (const l of asLabelList(options['remove-label'])) {
+    ops.push({ kind: 'remove-label', value: l });
+  }
+  if (ops.length === 0) {
+    logError('Nothing to edit. Pass --title, --body, --add-label, or --remove-label.');
+    process.exit(1);
+  }
+  const octokit = getOctokit();
+  const tx = await emitCommand(octokit, owner, repo, num, ops, {
+    assumeVersion: options['assume-tx'],
+  });
+  console.log(tx);
+  await maybeWaitTx(octokit, owner, repo, num, tx, options);
+}
+
+async function cmdIssueComment(options) {
+  const { owner, repo } = requireRepo(options.repo);
+  const num = parseInt(options.number || options.n, 10);
+  if (!num) {
+    logError('Missing required option: --number <n>');
+    usage();
+  }
+  if (!options.body) {
+    logError('Missing required option: --body <text>');
+    usage();
+  }
+  const octokit = getOctokit();
+  await postIssueComment(octokit, owner, repo, num, options.body);
+  console.log('comment posted');
+}
+
+async function cmdIssueClose(options) {
+  const { owner, repo } = requireRepo(options.repo);
+  const num = parseInt(options.number || options.n, 10);
+  if (!num) {
+    logError('Missing required option: --number <n>');
+    usage();
+  }
+  const reason = options.reason || 'completed';
+  const octokit = getOctokit();
+  const tx = await emitCommand(octokit, owner, repo, num, [
+    { kind: 'close', value: reason },
+  ]);
+  console.log(tx);
+  await maybeWaitTx(octokit, owner, repo, num, tx, options);
+}
+
+async function cmdIssueReopen(options) {
+  const { owner, repo } = requireRepo(options.repo);
+  const num = parseInt(options.number || options.n, 10);
+  if (!num) {
+    logError('Missing required option: --number <n>');
+    usage();
+  }
+  const octokit = getOctokit();
+  const tx = await emitCommand(octokit, owner, repo, num, [{ kind: 'reopen' }]);
+  console.log(tx);
+  await maybeWaitTx(octokit, owner, repo, num, tx, options);
+}
+
+const VALID_PRIORITIES = new Set(['P0', 'P1', 'P2']);
+
+async function cmdIssuePriority(options) {
+  const { owner, repo } = requireRepo(options.repo);
+  const num = parseInt(options.number || options.n, 10);
+  if (!num) {
+    logError('Missing required option: --number <n>');
+    usage();
+  }
+  const p = options.priority;
+  if (!VALID_PRIORITIES.has(p)) {
+    logError(`Invalid --priority: "${p}". Must be P0, P1, or P2.`);
+    process.exit(1);
+  }
+  const octokit = getOctokit();
+  const tx = await emitCommand(octokit, owner, repo, num, [
+    { kind: 'priority', value: p },
+  ]);
+  console.log(tx);
+  await maybeWaitTx(octokit, owner, repo, num, tx, options);
+}
+
+async function cmdIssueBlock(options) {
+  const { owner, repo } = requireRepo(options.repo);
+  const num = parseInt(options.number || options.n, 10);
+  const by = parseInt(options.by, 10);
+  if (!num || !by) {
+    logError('Need --number <n> and --by <m>');
+    process.exit(1);
+  }
+  const octokit = getOctokit();
+  const tx = await emitCommand(octokit, owner, repo, num, [
+    { kind: 'add-label', value: `blocked-by:#${by}` },
+  ]);
+  console.log(tx);
+  await maybeWaitTx(octokit, owner, repo, num, tx, options);
+}
+
+async function cmdIssueUnblock(options) {
+  const { owner, repo } = requireRepo(options.repo);
+  const num = parseInt(options.number || options.n, 10);
+  if (!num) {
+    logError('Missing required option: --number <n>');
+    usage();
+  }
+  const octokit = getOctokit();
+  if (options.by) {
+    const by = parseInt(options.by, 10);
+    if (!Number.isFinite(by) || by <= 0) {
+      logError(`--by requires a positive issue number, got: ${options.by}`);
+      process.exit(1);
+    }
+    const tx = await emitCommand(octokit, owner, repo, num, [
+      { kind: 'remove-label', value: `blocked-by:#${by}` },
+    ]);
+    console.log(tx);
+    await maybeWaitTx(octokit, owner, repo, num, tx, options);
+    return;
+  }
+  const { data: it } = await octokit.rest.issues.get({ owner, repo, issue_number: num });
+  const targets = (it.labels || [])
+    .map((l) => l.name || l)
+    .filter((n) => n.startsWith('blocked-by:'));
+  if (targets.length === 0) {
+    logInfo('no blocked-by:* labels on issue');
+    return;
+  }
+  const ops = targets.map((t) => ({ kind: 'remove-label', value: t }));
+  const tx = await emitCommand(octokit, owner, repo, num, ops);
+  console.log(tx);
+  await maybeWaitTx(octokit, owner, repo, num, tx, options);
+}
+
+async function cmdIssueClaim(options) {
+  const { owner, repo } = requireRepo(options.repo);
+  const num = parseInt(options.number || options.n, 10);
+  if (!num) {
+    logError('Missing required option: --number <n>');
+    usage();
+  }
+  const octokit = getOctokit();
+  const tx = await emitCommand(octokit, owner, repo, num, [{ kind: 'claim' }]);
+  console.log(tx);
+  await maybeWaitTx(octokit, owner, repo, num, tx, options);
+}
+
+async function cmdIssueRelease(options) {
+  const { owner, repo } = requireRepo(options.repo);
+  const num = parseInt(options.number || options.n, 10);
+  if (!num) {
+    logError('Missing required option: --number <n>');
+    usage();
+  }
+  const octokit = getOctokit();
+  const tx = await emitCommand(octokit, owner, repo, num, [{ kind: 'release' }]);
+  console.log(tx);
+  await maybeWaitTx(octokit, owner, repo, num, tx, options);
+}
+
+async function cmdIssueNext(options) {
+  const { owner, repo } = requireRepo(options.repo);
+  const subsystem = options.subsystem;
+  const octokit = getOctokit();
+  const items = await octokit.paginate(octokit.rest.issues.listForRepo, {
+    owner, repo, state: 'open', per_page: 100,
+  });
+  const issues = items.filter(isIssue);
+  const candidates = issues
+    .map((it) => ({
+      it,
+      labels: (it.labels || []).map((l) => l.name || l),
+    }))
+    .filter(({ labels }) => {
+      if (labels.some((n) => n.startsWith('blocked-by:'))) return false;
+      if (labels.some((n) => n.startsWith('claimed-by:'))) return false;
+      if (subsystem && !labels.includes(`subsystem:${subsystem}`)) return false;
+      return true;
+    })
+    .map(({ it, labels }) => ({
+      it,
+      labels,
+      priority: labels.find((n) => /^P[0-9]$/.test(n)) || 'P9',
+    }))
+    .sort((a, b) => a.priority.localeCompare(b.priority) || a.it.number - b.it.number);
+
+  if (candidates.length === 0) {
+    console.log('no ready issues');
+    return;
+  }
+  const top = candidates[0].it;
+  console.log(`#${top.number}  ${top.title}`);
+  if (process.env.GADMIN_VERBOSE) {
+    console.log(top.html_url);
+  }
+}
+
+function findTodoPlan(startDir) {
+  let dir = resolve(startDir);
+  while (true) {
+    const candidate = join(dir, 'TODO_PLAN.md');
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+}
+
+async function cmdIssueSyncPlan(options) {
+  const { owner, repo } = requireRepo(options.repo);
+  const planPath = options.path || findTodoPlan(process.cwd());
+  if (!planPath) {
+    logError('Could not find TODO_PLAN.md (pass --path)');
+    process.exit(1);
+  }
+  const octokit = getOctokit();
+  const items = await octokit.paginate(octokit.rest.issues.listForRepo, {
+    owner, repo, state: 'open', per_page: 100,
+  });
+  const issues = items.filter(isIssue);
+  const changed = syncPlanFile(planPath, issues);
+  if (changed) {
+    logInfo(`updated ${planPath} (${issues.length} open issue(s))`);
+  } else {
+    logInfo(`no changes to ${planPath}`);
+  }
+}
+
+async function dispatchIssue(subcommand, options) {
+  if (!subcommand) {
+    logError('Missing issue subcommand');
+    usage();
+  }
+  switch (subcommand) {
+    case 'list':       return cmdIssueList(options);
+    case 'view':       return cmdIssueView(options);
+    case 'create':     return cmdIssueCreate(options);
+    case 'edit':       return cmdIssueEdit(options);
+    case 'comment':    return cmdIssueComment(options);
+    case 'close':      return cmdIssueClose(options);
+    case 'reopen':     return cmdIssueReopen(options);
+    case 'priority':   return cmdIssuePriority(options);
+    case 'block':      return cmdIssueBlock(options);
+    case 'unblock':    return cmdIssueUnblock(options);
+    case 'claim':      return cmdIssueClaim(options);
+    case 'release':    return cmdIssueRelease(options);
+    case 'next':       return cmdIssueNext(options);
+    case 'sync-plan':  return cmdIssueSyncPlan(options);
+    case '--help':
+    case '-h':
+      usage();
+      break;
+    default:
+      logError(`Unknown issue subcommand: ${subcommand}`);
+      usage();
+  }
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 async function main() {
@@ -787,6 +1245,9 @@ async function main() {
         break;
       case 'actions':
         await cmdActions(parsed.subcommand, parsed.options);
+        break;
+      case 'issue':
+        await dispatchIssue(parsed.subcommand, parsed.options);
         break;
       case '--help':
       case '-h':
