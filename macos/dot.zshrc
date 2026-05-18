@@ -1,5 +1,8 @@
 export PATH="/Users/stumpf/workplace/tds-utils/bin:$PATH"
 
+# Go-installed tools (go install puts binaries in ~/go/bin)
+export PATH="$HOME/go/bin:$PATH"
+
 # NVM magic
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
