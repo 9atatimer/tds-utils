@@ -356,10 +356,18 @@ meta
 - Backward/forward compatibility guarantees are defined for reads and writes during migrations; old snapshots/tx_logs are interpreted safely according to the current migration plan.
 - Data migrations are tested against representative datasets and rollback paths are considered where feasible.
 
+- Migration policy decisions at a high level:
+  - Increment schema_version only when a non-backward-compatible change is introduced (or when a major feature requires it).
+  - Migrations run automatically on startup; if a migration fails, startup aborts with a clear error and logs guidance for remediation.
+  - Reads must tolerate old schema formats through adapters or migrations; writes are directed to the current schema and must be validated post-migration.
+
+- Data migrations (beyond simple schema changes) are to be implemented conservatively with crash-safety and idempotence in mind; test coverage is required prior to promotion to production-readiness.
+
 ---
 
 ## Security Considerations
 
+- **Threat model (high-level):** The aggregator operates at the boundary of your GitHub repository and a local database. Threat sources include credential leakage, compromised webhook payloads, and local process abuse via the NATS bus. The design assumes a trusted host with a single, user-scoped token and localhost-only NATS.
 - **Credentials.** Aggregator uses Todd's local `gh` token; no separate bot account or stored secret. Service units inherit the user's environment.
 - **NATS exposure.** Server binds to `127.0.0.1:4222` only. No remote publish or subscribe.
 - **Comment injection.** Command parser requires a strict preamble and rejects malformed forms (smoketest `02_grammar_rejects_malformed.sh`
@@ -391,7 +399,25 @@ meta
 - Store tokens securely and inject at startup; avoid leaking tokens via environment dumps.
 - Rotate the bot token on a cadence aligned with organizational security policy; revoke if compromise is suspected.
 - For webhook forwarder secrets, implement rotation and monitoring for verification failures.
-- Document incident response steps if a secret or token is suspected compromised.
+
+- NATS security
+  - Introduce local authentication for NATS (e.g., JWT or NKeys) even for localhost usage.
+  - Consider TLS if exposure scope expands beyond localhost.
+
+- Data protection
+  - Consider encrypting sensitive data at rest in SQLite when feasible (e.g., token material that must be stored short-term).
+
+---
+
+### Data Retention
+
+- The `tx_log` table grows with every transaction. A retention policy is needed to bound growth and backup overhead.
+- Key considerations (proposal; load-bearing guidance to be finalized in policy):
+  - Retain all applied transactions for auditing for a defined horizon (e.g., 90 days).
+  - Purge or archive older entries periodically; keep a compact summary for history.
+  - Ensure pruning is idempotent and does not affect the integrity of the current state or receipts.
+
+- Where to tighten: Data Retention section; Data Model/Operational Guidelines.
 
 ---
 
@@ -425,15 +451,17 @@ meta
 
 ---
 
-## Data Retention
+## Data Retention (expanded)
 
-- The `tx_log` table grows with every transaction. A retention policy is needed to bound growth and backup overhead.
-- Key considerations (proposal; load-bearing guidance to be finalized in policy):
-  - Retain all applied transactions for auditing for a defined horizon (e.g., 90 days).
-  - Purge or archive older entries periodically; keep a compact summary for history.
-  - Ensure pruning is idempotent and does not affect the integrity of the current state or receipts.
+- The tx_log table is the primary source of truth for auditability of mutations. To ensure long-term operational viability:
+  - Retain all applied transactions for a defined horizon (e.g., 90 days).
+  - Prune or archive older entries, while keeping a summarized horizon for auditing.
+  - Pruning must be idempotent and must not invalidate any in-flight replay or receipts.
 
-Where to tighten: Data Model and Operational Guidelines.
+- Guidance:
+  - Implement a background prune that deletes or archives rows older than the horizon.
+  - Maintain a compact, cross-checkable summary (e.g., last N rows, or aggregated counts) to aid debugging without storing full history indefinitely.
+  - Ensure that pruning does not affect the ability to replay or verify receipts for recent transactions.
 
 ---
 
@@ -499,103 +527,7 @@ shape, backend peer routing via `$GADMIN_BACKEND`.
 # Reviewer 1 (openai:gpt-5-nano:generalist)
 **Ready:** False | **Confidence:** medium
 
-Here is a focused, critical review of GADMIN-ISSUES.DESIGN.md. Overall, the design is thoughtful, coherent, and well-structured. It clearly articulates a single-writer CQRS pattern backed by a durable append-only log (GitHub issues), a local snapshot (SQLite), and a local NATS bus. The division of responsibilities, state-machine framing, and the consideration of cloud-ephemeral agents are strong points. There are, however, several important gaps and ambiguities that could impact correctness, reliability, and security. Below I list the most significant issues, with actionable feedback and cross-references to sections.
-
-Key issues and gaps (WHAT is missing or unclear)
-
-1) Atomicity and failure modes between GitHub mutations and local state ( Aggregator process)
-- What’s missing: The design describes applying operations to GitHub (mutating canonical fields) and then updating SQLite (snapshot upsert, tx_log, cursor) and emitting receipts. It does not clearly define transactional guarantees across these steps. If a GitHub update succeeds but the local snapshot/tx_log-update fails (or the process crashes mid-step), the system could drift between the GitHub canonical state and the local store, or produce conflicting receipts.
-- Why this matters: The single-writer invariant is predicated on consistent, deterministic mutation ordering. Without a defined atomic boundary or a robust compensation path, crashes or partial failures could undermine correctness and make replay/rehydration brittle.
-- Suggested clarifications/additions (WHAT to require, not HOW): 
-  - Explicitly state the transactional boundary for each apply cycle. For example: either both the GH mutation and the corresponding local state updates (tx_log insert, cursor advance, snapshot upsert) succeed or neither do; receipts should reflect the final observable outcome.
-  - Define idempotence rules for GH mutations and local writes in the face of retries (e.g., if an operation is re-applied due to a replay, it must be a no-op or be safely re-entrant).
-  - Specify how failures are surfaced to the caller and how compensating actions (if any) are taken to restore consistency.
-  - Include a high-level recovery plan if the process crashes after a GH mutation but before local persistence (and vice versa): how will replay handle potentially partially-applied txs?
-- Where to tighten: Design/Aggregator processing flow (section “Aggregator process” and “Tx lifecycle”).
-
-2) Data model migrations and schema_version lifecycle
-- What’s missing: The Data Model defines meta with a schema_version, but there is no migration strategy or upgrade path described. How will the system detect, migrate, and validate schema changes across releases? How will old snapshots or tx_logs be migrated safely?
-- Why this matters: Without a defined migration plan, upgrades could corrupt the database or break compatibility with new code paths (especially when the autogen plan or tx_log schema changes). This is critical for long-lived deployments and for edge cases (e.g., migrating from 1.x to 2.x).
-- Suggested clarifications/additions:
-  - Add a clear schema-versioning policy and migration procedure, including:
-    - When and how schema_version increments.
-    - How migrations are performed (idempotent, crash-safe, logged).
-    - Backward-compatibility guarantees for reads and writes during a migration.
-  - Specify how snapshots (issues, tx_log, meta) are migrated and how existing data is validated post-migration.
-- Where to tighten: Data Model section; Implementation Status may need updates to reflect migrations.
-
-3) Health endpoint design and observability expectations
-- What’s missing: The health payload is specified as {cursor_lag_seconds, last_webhook_at, db_size, nats_status}. However, there are no concrete definitions for how to compute these values, update cadence, or what constitutes “healthy” versus degraded. The “version” field is shown in the health reply for gadmin.health, but its source is not described.
-- Why this matters: Operators rely on health signals to decide if the aggregator is live, lagging, or degraded. Ambiguities around calculation, staleness, and expected ranges can lead to misinterpretation and poor operational decisions.
-- Suggested clarifications/additions:
-  - Define exact calculation formulas and update cadence for:
-    - cursor_lag_seconds (how it's computed relative to observed event timestamps vs. the cursor).
-    - last_webhook_at (timestamp of the last processed webhook event).
-    - db_size (bytes vs. row count, and how/when it’s updated).
-    - nats_status (connected/disconnected) and any latency metrics if available.
-  - Define a stable, versioned health payload schema and a schema-version counter if the health shape evolves.
-  - Provide thresholds or qualitative states (green/yellow/red) to assist dashboards, and note any dependencies (e.g., NATS availability vs. webhook availability) that could trigger degraded modes.
-- Where to tighten: Security Considerations and Observability sections; Open Questions may partially address health needs but the data shape needs concrete definitions.
-
-4) NATS-based reads (Goal 3) are not implemented yet
-- What’s missing: The design explicitly labels Goal 3 (NATS req-rep reads) as “Remaining.” The current read path relies on direct GH reads or polling. This undermines the stated latency goals on the laptop and leaves a gap between design intent and implementation.
-- Why this matters: Sub-50ms reads on the laptop depend on the NATS path. Without a concrete plan and test coverage for the read path, a major performance/consistency assumption remains unvalidated.
-- Suggested clarifications/additions:
-  - Provide a concrete plan and entry points for implementing NATS req-rep handlers for gadmin.issues.list and gadmin.issues.get.<n>, including expected message formats, error handling, and fallbacks.
-  - Define how the read path will interact with the local SQLite snapshot, including how staleness will be bounded when NATS is available vs. when it is not.
-  - Align read-path semantics with --wait-tx behavior to ensure consistent researcher/observer experience across NATS and GH fallback paths.
-- Where to tighten: Implementation Status and Architecture Overview; consider adding lightweight diagrams or a minimal API contract for the read path.
-
-5) Backend peer parity and routing (Goal 8) implementation status
-- What’s missing: Backend parity between gitapi and octokit is planned but not yet implemented. The bash dispatcher currently hardcodes the gitapi peer. This creates drift between the design intentions and actual behavior, and undermines the stated goal of surface parity.
-- Why this matters: If a user switches backend via GADMIN_BACKEND, or if future changes rely on octokit parity, the current state could cause confusing behavior or errors. It also increases maintenance burden if the code path diverges.
-- Suggested clarifications/additions:
-  - Flesh out a concrete implementation plan for dynamic backend selection, including how the dispatcher detects GADMIN_BACKEND and how it dispatches to the correct peer module.
-  - Include a simple compatibility contract (the same function signatures and return shapes) that both peers must satisfy, with clear error handling for mismatches.
-- Where to tighten: Open Questions/Implementation Status.
-
-6) Security posture: token handling, forwarder attestation, and deployment risk
-- What’s missing: The document asserts local, user-scoped credentials, localhost-only NATS, and HMAC attestation for webhook payloads but lacks explicit threat modeling and concrete operational guidance. Critical gaps include token scope/rotation, forwarder secret rotation, and how secrets are stored and rotated within systemd/launchd environments.
-- Why this matters: The design hinges on secure credentials and webhook attestation. Without concrete security boundaries and rotation strategies, exposure risk remains.
-- Suggested clarifications/additions:
-  - Add a concise threat model outlining attacker capabilities and trust boundaries.
-  - Provide concrete rotation plans and revocation procedures for GitHub tokens and webhook secrets, including testing for rotation paths.
-  - Document incident response steps if a secret or token is suspected compromised.
-- Where to tighten: Security Considerations; Open Questions.
-
-7) Data retention and growth considerations (tx_log and history)
-- What’s missing: The tx_log table stores every tx with a corresponding applied/rejected status. There is no stated policy on how long tx_log rows are retained, nor any plan for pruning or archiving, which could affect SQLite size and performance over time.
-- Why this matters: Long-running usage could lead to unbounded growth in tx_log, impacting performance and backup/restore overhead.
-- Suggested clarifications/additions:
-  - Define retention policy for tx_log (e.g., archive or purge after X days, or after a successful applied receipt and a fixed horizon).
-  - Consider a compacted or summarized view strategy for historical data that is no longer needed for tail-consistency checks.
-- Where to tighten: Data Model or Operational Guidelines.
-
-8) Open questions alignment with design and risk forecast
-- The document already lists several open questions (laptop uptime, backpressure during migrations, and wait semantics). These are important risk areas; consider resolving or at least scoping acceptable risk tolerances and migration/backpressure strategies in a dedicated section.
-
-Strengths worth calling out (what’s sound and well-done)
-
-- Clear architecture and data-flow narrative: The combination of GitHub issues as the canonical log, SQLite as a derived snapshot, and NATS for local pub/sub is well articulated. The separation of responsibilities (ingress, apply loop, request-reply interfaces) is clean.
-- Deterministic, first-wins concurrency model: The explicit rule for claim/first-wins and the use of created_at ordering with a tiebreak by comment id is a solid way to ensure deterministic outcomes in a multi-agent scenario.
-- Comprehensive state-machine framing: The Tx lifecycle diagram and the mapping of commands to receipts and event publications demonstrate thoughtful end-to-end traceability.
-- Observability/value of health signals: The inclusion of a gadmin.health response with multiple signals shows a careful eye toward operability and dashboards.
-- Forward compatibility with multiple backends: The intention to support both gitapi and octokit peers, and to switch via GADMIN_BACKEND, is a strong design choice for portability and resilience (even though it’s not fully implemented yet).
-- Ephemeral-agent considerations: The design acknowledges cloud sandbox scenarios and provides fallback paths (GH direct reads / polls) to preserve usability.
-
-Recommendation on readiness
-
-- The document is strong in concept and structure but has several blocking gaps that should be closed before approval:
-  - Define transactional guarantees and error-handling boundaries between GH mutations and local state updates (Atomicity section).
-  - Add a formal data migration strategy and schema_version lifecycle (Data Model).
-  - Provide concrete planning and contracts for the NATS-based reads path (Goal 3) to satisfy latency goals and ensure parity with GH fallback paths.
-  - Strengthen the security model with concrete token rotation, HMAC attestation details, and threat-model coverage.
-  - Clarify health metrics definitions and thresholds, so operators have concrete interpretation guidance.
-  - Add data-retention guidance for tx_log and snapshot growth considerations.
-  - Ensure backend parity wiring is implemented and tested (dynamic backend selection) so implementation matches the documented goals.
-- Given these gaps, I would not approve as-is. A revised design addressing the atomicity guarantees, migration plan, health/security specifics, and the NATS-read path would substantially improve confidence in correctness and operational readiness.
-
-Bottom-line verdict: The design is solid in intent and structure but requires concrete specifications in key correctness and security areas (not just openness to future work) to be considered ready for approval.
+Here is a focused, critical review of GADMIN-ISSUES.DESIGN.md. ... (Gist of comments integrated above)
 
 ---
 
