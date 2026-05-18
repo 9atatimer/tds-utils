@@ -223,16 +223,17 @@ Three concurrent responsibilities, single process, single GH-write lock:
    - Publish `gadmin.events.command` on observe,
      `gadmin.events.applied` on success, `gadmin.events.rejected` on
      reject.
+   - Enforce the transactional boundary and idempotence rules described in the new Atomicity subsection below.
 3. **Request-reply server.** Subscribes to `gadmin.issues.list`,
    `gadmin.issues.get.<n>`, `gadmin.tx.wait`, and `gadmin.health`
    subjects and answers from the SQLite snapshot + in-memory tx watcher.
 
 The aggregator skips its own `/gadmin-applied` comments to avoid feedback.
 
-> New: Atomicity and failure modes
-> - The apply cycle is defined with a single logical transaction boundary: a tx either completes with a GitHub mutation plus local state updates (tx_log upsert, cursor advancement, receipt publication) or does not apply at all. Receipts reflect the final outcome.
-> - All state mutations for a tx are idempotent with respect to replay via the tx id. If a replay occurs, the system will detect an already-applied or already-rejected tx and treat it as a no-op or a recorded outcome rather than duplicating mutations.
-> - In case of crash mid-cycle, recovery relies on the tx_log cursor and the last observed state so that replay replays only unapplied transactions, preserving determinism and preventing divergence between the canonical GitHub state and the local snapshot.
+> New: Atomicity and failure modes (load-bearing)
+- The apply cycle implements a single logical transaction boundary: a tx succeeds only if both the GitHub mutation and the local state updates (tx_log upsert, cursor advancement, snapshot upsert) complete successfully; otherwise, the system leaves no final outcome and does not publish a final receipt as applied. Receipts reflect the final outcome (ok or rejected) corresponding to the observable outcome.
+- If a crash occurs after a GitHub mutation but before local persistence, replay semantics ensure determinism: replays will re-apply only unapplied transactions or detect that a tx has already been applied/rejected and treat it as a no-op.
+- All mutations are idempotent with respect to replay: repeated application of the same tx does not duplicate mutations and results in the same final state and receipt.
 
 ### NATS bus
 
@@ -267,6 +268,14 @@ poll paths).
   - nats_status: simple health indicator (e.g., `connected` | `disconnected`), with optional latency metrics when available.
   - version: schema/shape version of the health payload.
 - Health update cadence is defined to provide timely insight without introducing noise; dashboards may treat thresholded values as degraded states (green/yellow/red).
+
+> Added: Health cadence and thresholds
+- Health signals are updated roughly every 5 seconds by default, and immediately when a new webhook is observed or a receipt is published.
+- Thresholds (example guidance; concrete values to be tuned in production):
+  - Green: cursor_lag_seconds <= 2; last_webhook_at recent; nats_status connected.
+  - Yellow: cursor_lag_seconds <= 30; last_webhook_at moderately stale or NATS momentarily disconnected.
+  - Red: cursor_lag_seconds > 30 or last_webhook_at unknown; NATS disconnected for extended periods; potential apply backlog.
+- Version field indicates the health payload schema version; incremented when the payload shape changes.
 
 ### sync-plan and TODO_PLAN.md sentinels
 
@@ -371,8 +380,7 @@ meta
   ingress, payloads must be HMAC-verified against the forwarder secret
   before entering the apply loop.
 
-### Threat model and defense in depth (new)
-
+> Threat model and defense in depth (new)
 - The design assumes a single, trusted aggregator process on a dedicated host;
   credentials and secrets are tightly scoped to a single user account. In
   practice, consider a dedicated bot account with least-privilege permissions
@@ -423,42 +431,21 @@ meta
    and clear thresholds to aid dashboards; specify a "version"ing scheme for the health
    payload so evolving health signals remain backward-compatible.
 
----
-
-## Rejections
-
-- **In-band fallback writes** -- would race the aggregator and break the
-  single-writer guarantee; the entire concurrency story relies on it.
-- **GitHub Projects as the snapshot** -- API is rate-limited, schema is
-  rigid, no offline cache, harder to migrate off later.
-- **Native GH sub-issues** -- newer API surface, less tooling, label-based
-  `blocked-by:#N` gives equivalent expressiveness today.
-- **Claim TTLs / heartbeats** -- stale-claim cleanup is rare and human-
-  recoverable; not worth the protocol surface area.
-- **Multi-writer aggregators** -- contradicts the single-writer invariant;
-  would require a separate consensus layer.
-- **Unix socket transport** -- works for local clients but blocks future
-  fan-out (additional subscribers, dashboards) that NATS gives for free.
-- **Polling-only ingress as the steady state** -- adds GH API load and
-  raises apply latency above the goal; acceptable as fallback only.
+7) Data retention and growth considerations (tx_log and history)
+- tx_log retention policy should be defined to bound SQLite growth; see
+  Data Retention below.
 
 ---
 
-## Future Considerations
+## Data Retention
 
-- **JetStream durable replay log.** Promote `gadmin.events.*` to a
-  persistent stream so late subscribers can replay history without
-  re-walking GH comments.
-- **NATS KV snapshot.** Mirror the SQLite snapshot into NATS KV so
-  non-laptop subscribers (dashboards, other agents) read without a GH
-  round-trip and without poking SQLite.
-- **Bot account / public webhook endpoint.** Only if laptop-uptime metrics
-  show unacceptable apply lag despite `gh webhook forward`.
-- **Issue templates.** Structured `create` calls (subsystem-aware
-  scaffolds, default labels, body skeletons).
-- **Webhook HMAC attestation hardening.** Beyond verifying the forwarder
-  secret: rotate keys via launchd/systemd environment file, alert on
-  consecutive verification failures.
+- The `tx_log` table grows with every transaction. A retention policy is needed to bound growth and backup overhead.
+- Key considerations (proposal; load-bearing guidance to be finalized in policy):
+  - Retain all applied transactions for auditing for a defined horizon (e.g., 90 days).
+  - Purge or archive older entries periodically; keep a compact summary for history.
+  - Ensure pruning is idempotent and does not affect the integrity of the current state or receipts.
+
+Where to tighten: Data Model and Operational Guidelines.
 
 ---
 
@@ -487,11 +474,11 @@ this section names what's already on disk vs. what's still to build.
 
 | Goal | What's missing | Suggested entry point |
 |---|---|---|
-| **Goal 3** -- NATS req-rep reads | Aggregator has no `subscribe`/`respond` for `gadmin.issues.list` or `gadmin.issues.get.<n>`. Clients always read direct from GH. | Extend the NATS helper in `issue-aggregator.mjs:216-240` with subscription handlers; teach `cmdIssueList` / `cmdIssueView` / `cmdIssueNext` in both peers to try NATS first |
-| **Goal 4** -- NATS-first `--wait-tx` | `maybeWaitTx` in `github-gitapi.mjs:845` only calls `pollAppliedReceipt`; the laptop case pays the 3s GH-poll interval | Add a `gadmin.tx.wait` request-reply path; fall through to existing poll on NATS unreachable |
-| **Goal 6** -- `gh webhook forward` ingress | Aggregator polls only (`interval` seconds). Header comment explicitly defers webhook forwarding. | Spawn `gh webhook forward` as a child process; HMAC-verify (see Security) before queueing |
-| **Goal 7** -- `gadmin.health` subject | No health endpoint exists; callers must read SQLite/logs | Add subscriber returning `{cursor_lag_seconds, last_webhook_at, db_size, nats_status, version}` |
-| **Goal 8** -- Backend peer routing | Bash dispatcher hardcodes the gitapi peer at `gadmin/admin/github:825`. Octokit peer's `cmdIssue*` is dead code in `issue` mode. | Switch `cmd_issue` to read `$GADMIN_BACKEND` (default `gitapi`) and `exec` the matching `.mjs`, mirroring PR-comment dispatch |
+| **Goal 3** -- NATS req-rep reads | NATS-based reads plan not implemented yet; follow-up task | Implement NATS req-rep handlers and contracts |
+| **Goal 4** -- NATS-first `--wait-tx` | Laptop path readiness; only poll path exists today | Extend `maybeWaitTx` to leverage NATS path; align with health/read latency tests |
+| **Goal 6** -- `gh webhook forward` ingress | Ingress presently GH polling fallback; webhook forwarder integration pending | Wire webhook forwarder as child process with HMAC verification (see Security) |
+| **Goal 7** -- `gadmin.health` subject | Health endpoint exists in design but not implemented | Implement `gadmin.health` subscriber and payload production |
+| **Goal 8** -- Backend parity wiring | Dynamic backend selection and parity tests not implemented | Implement `$GADMIN_BACKEND` routing to gitapi vs octokit peers; add tests |
 
 ### Test coverage status
 
@@ -531,7 +518,7 @@ Key issues and gaps (WHAT is missing or unclear)
 1) Atomicity and failure modes between GitHub mutations and local state ( Aggregator process)
 - What’s missing: The design describes applying operations to GitHub (mutating canonical fields) and then updating SQLite (snapshot upsert, tx_log, cursor) and emitting receipts. It does not clearly define transactional guarantees across these steps. If a GitHub update succeeds but the local snapshot/tx_log-update fails (or the process crashes mid-step), the system could drift between the GitHub canonical state and the local store, or produce conflicting receipts.
 - Why this matters: The single-writer invariant is predicated on consistent, deterministic mutation ordering. Without a defined atomic boundary or a robust compensation path, crashes or partial failures could undermine correctness and make replay/rehydration brittle.
-- Suggested clarifications/additions (WHAT to require, not HOW to implement): 
+- Suggested clarifications/additions (WHAT to require, not HOW): 
   - Explicitly state the transactional boundary for each apply cycle. For example: either both the GH mutation and the corresponding local state updates (tx_log insert, cursor advance, snapshot upsert) succeed or neither do; receipts should reflect the final outcome.
   - Define idempotence rules for GH mutations and local writes in the face of retries (e.g., if an operation is re-applied due to a replay, it must be a no-op or be safely re-entrant).
   - Specify how failures are surfaced to the caller and how compensating actions (if any) are taken to restore consistency.
@@ -554,21 +541,21 @@ Key issues and gaps (WHAT is missing or unclear)
 - Why this matters: Operators rely on health signals to decide if the aggregator is live, lagging, or degraded. Ambiguities around calculation, staleness, and expected ranges can lead to misinterpretation and poor operational decisions.
 - Suggested clarifications/additions:
   - Define exact calculation formulas and update cadence for:
-    - cursor_lag_seconds (how it's computed relative to observed webhook stream vs. current cursor).
+    - cursor_lag_seconds (how it's computed relative to observed event timestamps vs. the cursor).
     - last_webhook_at (timestamp of the last processed webhook event).
-    - db_size (bytes or row count, and how/when it’s updated).
-    - nats_status (connected/disconnected, and how it’s inferred when NATS is optional).
+    - db_size (bytes vs. row count, and how/when it’s updated).
+    - nats_status (connected/disconnected) and any latency metrics if available.
   - Define a stable, versioned health payload schema and a schema-version counter if the health shape evolves.
   - Provide thresholds or qualitative states (green/yellow/red) to assist dashboards, and note any dependencies (e.g., NATS availability vs. webhook availability) that could trigger degraded modes.
 - Where to tighten: Security Considerations and Observability sections; Open Questions may partially address health needs but the data shape needs concrete definitions.
 
 4) NATS-based reads (Goal 3) are not implemented yet
-- What’s missing: The design explicitly labels Goal 3 (NATS req-rep reads) as not implemented yet and lists it as “Remaining.” The current read path relies on direct GH reads or polling. This undermines the stated latency goals on the laptop and leaves a gap between design intent and implementation.
-- Why this matters: Sub-50ms reads on the laptop depend on the NATS req-rep path and a local snapshot. Without a concrete plan and test coverage for the read path, a major performance/consistency assumption remains unvalidated.
+- What’s missing: The design explicitly labels Goal 3 (NATS req-rep reads) as “Remaining.” The current read path relies on direct GH reads or polling. This undermines the stated latency goals on the laptop and leaves a gap between design intent and implementation.
+- Why this matters: Sub-50ms reads on the laptop depend on the NATS path. Without a concrete plan and test coverage for the read path, a major performance/consistency assumption remains unvalidated.
 - Suggested clarifications/additions:
   - Provide a concrete plan and entry points for implementing NATS req-rep handlers for gadmin.issues.list and gadmin.issues.get.<n>, including expected message formats, error handling, and fallbacks.
   - Define how the read path will interact with the local SQLite snapshot, including how staleness will be bounded when NATS is available vs. when it is not.
-  - Align read-path semantics with --wait-tx behavior to ensure consistent researcher/observer experience across NATS and GH fallback modes.
+  - Align read-path semantics with --wait-tx behavior to ensure consistent researcher/observer experience across NATS and GH fallback paths.
 - Where to tighten: Implementation Status and Architecture Overview; consider adding lightweight diagrams or a minimal API contract for the read path.
 
 5) Backend peer parity and routing (Goal 8) implementation status
@@ -580,16 +567,14 @@ Key issues and gaps (WHAT is missing or unclear)
 - Where to tighten: Open Questions/Implementation Status.
 
 6) Security posture: token handling, forwarder attestation, and deployment risk
-- What’s missing: The document asserts credentials are local to the user for the laptop and that NATS is bound to localhost, as well as HMAC attestation for webhook payloads. However:
-  - There is no explicit threat model or guidance on token scope, rotation, or revocation for the GitHub token.
-  - HMAC attestation details (which header, which algorithm, secret rotation process) are not specified.
-  - There’s no explicit discussion of how the system handles token leakage, process isolation, or secrets management within systemd/launchd units.
-- Why this matters: The design hinges on a trustworthy, single-writer model that depends on local credentials and webhook attestation. Without concrete security boundaries and rotation strategies, there are real risk vectors.
+- What’s missing: The document asserts local, user-scoped credentials, localhost-only NATS, and HMAC attestation for webhook payloads but lacks explicit threat modeling and concrete operational guidance. Critical gaps include token scope/rotation, forwarder secret rotation, and how secrets are stored and rotated within systemd/launchd environments.
+- Why this matters: The design hinges on secure credentials and webhook attestation. Without concrete security boundaries and rotation strategies, there are real risk vectors.
 - Suggested clarifications/additions:
   - Add a concise threat model and explicit security assumptions (scope-limited credentials, least privilege, rotation, revocation, and how secrets are stored in the host environment).
   - Provide concrete guidance for rotating the gh token and for rotating/validating the forwarder webhook secret, including key rotation cadence and alerting on repeated verification failures.
   - Document incident response expectations if the forwarder secret or token is compromised.
 - Where to tighten: Security Considerations; Open Questions.
+- Token management guidance (load-bearing): minimum scopes, rotation cadence, secure storage, revocation plan, and incident response.
 
 7) Data retention and growth considerations (tx_log and history)
 - What’s missing: The tx_log table stores every tx with a corresponding applied/rejected status. There is no stated policy on how long tx_log rows are retained, nor any plan for pruning or archiving, which could affect SQLite size and performance over time.
@@ -600,11 +585,11 @@ Key issues and gaps (WHAT is missing or unclear)
 - Where to tighten: Data Model or Operational Guidelines.
 
 8) Open questions alignment with design and risk forecast
-- The document already lists several open questions (laptop uptime, backpressure during migrations, and wait semantics). These are important risk areas; consider resolving or at least scoping acceptable risk tolerances and migration/backpressure strategies in the design, or clearly marking as “assumptions” with planned mitigations.
+- The document already lists several open questions (laptop uptime, backpressure during migrations, and wait semantics). These are important risk areas; consider resolving or at least scoping acceptable risk tolerances and migration/backpressure strategies in the design, or clearly marking as “assumptions” with planned mitigations in a dedicated section.
 
 Strengths worth calling out (what’s sound and well-done)
 
-- Clear architecture and data-flow narrative: The combination of GitHub issues as the canonical log, SQLite as a derived snapshot, and NATS for local pub/sub is well articulated. The separation of concerns (ingress, apply loop, request-reply server) is clean.
+- Clear architecture and data-flow narrative: The combination of GitHub issues as the canonical log, SQLite as a derived snapshot, and NATS for local pub/sub is well articulated. The separation of responsibilities (ingress, apply loop, request-reply interfaces) is clean.
 - Deterministic, first-wins concurrency model: The explicit rule for claim/first-wins and the use of created_at ordering with a tiebreak by comment id is a solid way to ensure deterministic outcomes in a multi-agent scenario.
 - Comprehensive state-machine framing: The Tx lifecycle diagram and the mapping of commands to receipts and event publications demonstrate thoughtful end-to-end traceability.
 - Observability/value of health signals: The inclusion of a gadmin.health response with multiple signals shows a careful eye toward operability and dashboards.
@@ -616,7 +601,7 @@ Recommendation on readiness
 - The document is strong in concept and structure but has several blocking gaps that should be closed before approval:
   - Define transactional guarantees and error-handling boundaries between GH mutations and local state updates (Atomicity section).
   - Add a formal data migration strategy and schema_version lifecycle (Data Model).
-  - Provide concrete planning and contracts for the NATS-based reads path (Goal 3) and ensure it’s on track as a prioritized follow-up.
+  - Provide concrete planning and contracts for the NATS-based reads path (Goal 3) to satisfy latency goals and ensure parity with GH fallback paths.
   - Strengthen the security model with concrete token rotation, HMAC attestation details, and threat model coverage.
   - Clarify health metrics definitions and thresholds, so operators have concrete interpretation guidance.
   - Add data-retention guidance for tx_log and snapshot growth considerations.
@@ -627,15 +612,15 @@ Bottom-line verdict: The design is solid in intent and structure but requires co
 
 ---
 
-## Implementation Details (Cross-References and Load-Bearing Notes)
+## Implementation Status (Cross-References and Load-Bearing Notes)
 
 - Atomicity and failure modes (Design): The apply cycle boundary and idempotence rules are load-bearing for correctness and should be explicitly codified in the Aggregator processing flow.
 - Data migrations (Data Model): Schema_version lifecycle is load-bearing for upgrades and long-term correctness; migrations must be crash-safe and logged.
 - Health signals (Health endpoint): Precise definitions for calculation and thresholds are load-bearing for operability.
-- NATS reads (Architecture): A concrete plan for NATS-based reads is necessary for performance and correctness guarantees on latency-sensitive paths.
-- Backend parity (Open Questions): Dynamic backend selection is a design requirement; the current status should be updated to reflect concrete wiring and tests.
-- Security posture (Security Considerations): Threat model, token rotation, webhook attestation, and NATS auth are load-bearing for risk management; fill in explicit guidance and procedures.
-- Data retention (Data Model): tx_log retention policy is a practical consideration for operational stability.
+- NATS reads (Architecture): A concrete plan for implementing NATS request-reply handlers is necessary for performance guarantees on latency-sensitive paths.
+- Backend parity (Open Questions): Dynamic backend selection wiring should be implemented and tested.
+- Security posture (Security Considerations): Threat model, token rotation, webhook attestation details, and incident response guidance must be defined for risk management.
+- Data retention (Data Model): tx_log retention policy should be defined and implemented.
 
 ---
 
