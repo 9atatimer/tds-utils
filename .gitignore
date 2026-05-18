@@ -15,7 +15,6 @@ __pycache__/
 .pytest_cache/
 
 emacs/dot.emacs.d/elisp/emacs-mcp-server/
-emacs/dot.emacs.d/elisp/eldocker/
 .claude
 memory/
 tmp/
