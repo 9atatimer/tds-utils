@@ -352,6 +352,48 @@ def apply_blacklist(
     return [r for r in rows if r.name not in blacklist]
 
 
+# --- Marker state (fzf-driven blacklist picker) ------------------------------
+
+_MARKER_ON = "[x] "
+_MARKER_OFF = "[ ] "
+
+
+def format_marker_state(
+    names: Iterable[str],
+    *,
+    selected: Iterable[str],
+) -> str:
+    """Render `names` as marker-prefixed lines, preserving input order.
+
+    Selected names get '[x] '; the rest get '[ ] '. Feeds the fzf picker.
+    """
+    sel = set(selected)
+    return "\n".join(
+        (_MARKER_ON if n in sel else _MARKER_OFF) + n for n in names
+    )
+
+
+def parse_marker_state(text: str) -> frozenset[str]:
+    """Recover the set of checked names from a marker-state string.
+
+    Only lines starting with '[x] ' contribute. Anything else is dropped.
+    """
+    return frozenset(
+        line[len(_MARKER_ON):]
+        for line in text.splitlines()
+        if line.startswith(_MARKER_ON)
+    )
+
+
+def toggle_marker_line(line: str) -> str:
+    """Flip the marker prefix on a single line. No-op on unrecognized lines."""
+    if line.startswith(_MARKER_ON):
+        return _MARKER_OFF + line[len(_MARKER_ON):]
+    if line.startswith(_MARKER_OFF):
+        return _MARKER_ON + line[len(_MARKER_OFF):]
+    return line
+
+
 # --- Actionability filter ----------------------------------------------------
 
 def is_actionable(row: RepoRow) -> bool:

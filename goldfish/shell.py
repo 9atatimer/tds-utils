@@ -9,8 +9,10 @@ from __future__ import annotations
 import json
 import os
 import platform
+import shlex
 import shutil
 import subprocess
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -23,11 +25,13 @@ from core import (
     GitDirtyState,
     enclosing_repo,
     first_meaningful_line,
+    format_marker_state,
     parse_blacklist,
     parse_clones_cache,
     parse_gh_repo_list,
     parse_git_porcelain,
     parse_lsof_cwd,
+    parse_marker_state,
     parse_ps,
     parse_todo_plan,
     serialize_blacklist,
@@ -194,6 +198,63 @@ def save_blacklist(names: frozenset[str]) -> bool:
     except OSError:
         return False
     return True
+
+
+def pick_blacklist_via_fzf(
+    all_names: list[str],
+    current: frozenset[str],
+) -> frozenset[str] | None:
+    """Interactive checkbox picker via fzf.
+
+    Renders `all_names` with '[x]'/'[ ]' markers reflecting `current`, then runs
+    fzf with a space-toggle binding. Returns the new selection on Enter; None
+    on Esc / interrupt / fzf-not-found.
+    """
+    here = Path(__file__).resolve().parent
+    toggle_helper = here / "_blacklist_toggle.py"
+    state_fd, state_name = tempfile.mkstemp(
+        prefix="goldfish-blacklist-", suffix=".state"
+    )
+    state_path = Path(state_name)
+    try:
+        with os.fdopen(state_fd, "w") as f:
+            f.write(format_marker_state(all_names, selected=current))
+        toggle_cmd = (
+            f"python3 {shlex.quote(str(toggle_helper))} "
+            f"{shlex.quote(str(state_path))} {{}}"
+        )
+        reload_cmd = f"cat {shlex.quote(str(state_path))}"
+        header = (
+            f"Space toggle  -  Enter save  -  Esc cancel    "
+            f"({len(current)}/{len(all_names)} blacklisted at start)"
+        )
+        cmd = [
+            "fzf",
+            "--no-sort",
+            "--reverse",
+            "--cycle",
+            "--no-multi",
+            "--header", header,
+            "--bind", f"space:execute-silent({toggle_cmd})+reload({reload_cmd})",
+        ]
+        try:
+            with state_path.open("rb") as stdin:
+                proc = subprocess.run(
+                    cmd,
+                    stdin=stdin,
+                    stdout=subprocess.DEVNULL,
+                    check=False,
+                )
+        except FileNotFoundError:
+            return None
+        if proc.returncode != 0:
+            return None
+        return parse_marker_state(state_path.read_text())
+    finally:
+        try:
+            state_path.unlink()
+        except OSError:
+            pass
 
 
 def _find_git_dirs(root: Path, max_depth: int) -> list[Path]:

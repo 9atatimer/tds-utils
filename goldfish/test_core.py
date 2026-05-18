@@ -17,6 +17,7 @@ from core import (
     apply_org_filter,
     enclosing_repo,
     first_meaningful_line,
+    format_marker_state,
     format_processes,
     format_table,
     is_actionable,
@@ -26,12 +27,14 @@ from core import (
     parse_git_porcelain,
     parse_gh_repo_list,
     parse_lsof_cwd,
+    parse_marker_state,
     parse_ps,
     parse_todo_plan,
     rows_to_json,
     serialize_blacklist,
     serialize_clones_cache,
     sort_rows,
+    toggle_marker_line,
 )
 
 
@@ -663,6 +666,73 @@ def test_format_table_bl_marker_only_for_blacklisted_row() -> None:
     b_cells = [c.strip() for c in b_line.split("  ") if c.strip()]
     assert b_cells.count("*") == 1
     assert a_cells.count("*") == 0
+
+
+# --- marker state (fzf TUI helpers) -----------------------------------------
+
+def test_format_marker_state_marks_selected_and_unselected() -> None:
+    """Given names and a selected subset, each line carries the right marker."""
+    out = format_marker_state(["a/x", "b/y", "c/z"], selected={"b/y"})
+    assert out.splitlines() == ["[ ] a/x", "[x] b/y", "[ ] c/z"]
+
+
+def test_format_marker_state_preserves_input_order() -> None:
+    """Given names in a specific order, that order is preserved (fzf is --no-sort)."""
+    out = format_marker_state(["z/z", "a/a", "m/m"], selected=frozenset())
+    assert [line[4:] for line in out.splitlines()] == ["z/z", "a/a", "m/m"]
+
+
+def test_format_marker_state_empty_names_returns_empty_string() -> None:
+    """Given no names, returns the empty string."""
+    assert format_marker_state([], selected={"a/x"}) == ""
+
+
+def test_parse_marker_state_extracts_only_checked_names() -> None:
+    """Given a multi-line state, returns the set of names prefixed with '[x] '."""
+    text = "[x] a/x\n[ ] b/y\n[x] c/z\n"
+    assert parse_marker_state(text) == frozenset({"a/x", "c/z"})
+
+
+def test_parse_marker_state_ignores_unchecked_and_blank_lines() -> None:
+    """Given '[ ] ' lines and blank lines, only '[x] ' lines contribute."""
+    text = "\n[ ] a/x\n\n[x] b/y\n"
+    assert parse_marker_state(text) == frozenset({"b/y"})
+
+
+def test_parse_marker_state_ignores_malformed_lines() -> None:
+    """Given lines without a recognized prefix, they are silently dropped."""
+    text = "garbage\n[x] a/x\nrandom [x] mid\n[X] b/y\n"
+    assert parse_marker_state(text) == frozenset({"a/x"})
+
+
+def test_format_then_parse_round_trips() -> None:
+    """Given a selection, format then parse recovers the same selection."""
+    names = ["a/x", "b/y", "c/z", "d/w"]
+    selected = frozenset({"a/x", "c/z"})
+    text = format_marker_state(names, selected=selected)
+    assert parse_marker_state(text) == selected
+
+
+def test_toggle_marker_line_flips_checked_to_unchecked() -> None:
+    """Given a '[x] ' line, toggle returns the '[ ] ' form."""
+    assert toggle_marker_line("[x] a/x") == "[ ] a/x"
+
+
+def test_toggle_marker_line_flips_unchecked_to_checked() -> None:
+    """Given a '[ ] ' line, toggle returns the '[x] ' form."""
+    assert toggle_marker_line("[ ] a/x") == "[x] a/x"
+
+
+def test_toggle_marker_line_is_noop_on_unrecognized() -> None:
+    """Given a line without a recognized marker, toggle returns it unchanged."""
+    assert toggle_marker_line("garbage") == "garbage"
+    assert toggle_marker_line("") == ""
+    assert toggle_marker_line("[?] foo") == "[?] foo"
+
+
+def test_toggle_marker_line_preserves_trailing_content() -> None:
+    """Given a line with content after the name, that content is preserved."""
+    assert toggle_marker_line("[x] a/x  ") == "[ ] a/x  "
 
 
 def test_format_table_next_task_truncated() -> None:
