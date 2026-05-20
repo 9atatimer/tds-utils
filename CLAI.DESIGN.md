@@ -10,11 +10,19 @@ projects" — but the hook framework is general.
 ## Invocation
 
 ```
-clai <agent> [args...]
+clai <agent> [args...]    # launch <agent> with its pre/post hooks
+clai --list-agents        # list agents that have hooks configured
+clai --help               # show usage
 ```
 
 Runs all pre-hooks for `<agent>`, then `exec`s `<agent> [args...]`. Post-hooks
 fire after the agent exits.
+
+`--list-agents` (`-l`) walks `$PWD` → `$HOME` and prints, sorted and
+de-duplicated, the name of every agent that has a `clai.d/<agent>/` directory
+on that walk — i.e. the agents you have hooks configured for. Names go to
+stdout (pipeable); a "none found" note goes to stderr. `--help` (`-h`) prints
+usage.
 
 ## Hook discovery — overlay walk
 
@@ -66,7 +74,7 @@ clai.d/                               # default hooks shipped with tds-utils
   claude/
     pre/
       10-disable-cloudflare-mcp       # default hook for the original use case
-test/clai/                            # smoke tests
+test/smoketest_clai/                   # smoke tests
 ```
 
 User installation (per the repo's dot.* convention): `~/clai.d/` is symlinked
