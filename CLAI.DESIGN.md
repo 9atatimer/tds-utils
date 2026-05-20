@@ -18,13 +18,13 @@ clai --help               # show usage
 Runs all pre-hooks for `<agent>`, then `exec`s `<agent> [args...]`. Post-hooks
 fire after the agent exits.
 
-`--list-agents` (`-l`) walks `$PWD` → `$HOME` and prints, sorted and
+`--list-agents` (`-l`) walks `$PWD` -> `$HOME` and prints, sorted and
 de-duplicated, the name of every agent that has a `clai.d/<agent>/` directory
-on that walk — i.e. the agents you have hooks configured for. Names go to
+on that walk -- i.e. the agents you have hooks configured for. Names go to
 stdout (pipeable); a "none found" note goes to stderr. `--help` (`-h`) prints
 usage.
 
-## Hook discovery — overlay walk
+## Hook discovery -- overlay walk
 
 Walk from `$PWD` upward to `$HOME` **inclusive**. At each directory level, if
 `clai.d/<agent>/<stage>/` exists, its contents contribute to the hook set for
