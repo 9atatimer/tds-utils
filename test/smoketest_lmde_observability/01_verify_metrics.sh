@@ -13,8 +13,10 @@ log() {
 }
 
 send_metric() {
+    # Use Python for portable epoch nanoseconds
     local timestamp
-    timestamp=$(date +%s%N)
+    timestamp=$(python3 -c 'import time; print(int(time.time() * 1000000000))')
+    
     log "Sending metric ${METRIC_NAME}=${METRIC_VALUE} to ${OTEL_ENDPOINT}..."
     
     # OTLP HTTP JSON payload
@@ -57,8 +59,8 @@ verify_metric() {
     kubectl port-forward -n "${NAMESPACE}" "${prom_pod}" 9090:9090 > /dev/null 2>&1 &
     local pf_pid=$!
     
-    # Cleanup on exit
-    trap "kill ${pf_pid}" EXIT
+    # Resilient cleanup on exit
+    trap "kill ${pf_pid} 2>/dev/null || true" EXIT
     
     # Wait for port-forward
     sleep 2

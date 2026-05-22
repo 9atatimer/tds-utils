@@ -13,11 +13,20 @@ log() {
 }
 
 ensure_registry() {
+    # Extract pinned registry image from images.txt
+    local pinned_registry
+    pinned_registry=$(grep "docker.io/library/registry:2@" "${IMAGES_FILE}" | head -n 1)
+    
+    if [[ -z "${pinned_registry}" ]]; then
+        log "WARNING: Pinned registry image not found in ${IMAGES_FILE}. Falling back to floating tag."
+        pinned_registry="registry:2"
+    fi
+
     if docker ps --filter "name=${REGISTRY_NAME}" --format '{{.Names}}' | grep -q "^${REGISTRY_NAME}$"; then
         log "Registry container ${REGISTRY_NAME} is already running."
     else
-        log "Starting local registry container on port ${REGISTRY_PORT}..."
-        docker run -d --restart=always -p "127.0.0.1:${REGISTRY_PORT}:5000" --name "${REGISTRY_NAME}" registry:2
+        log "Starting local registry container on port ${REGISTRY_PORT} using ${pinned_registry}..."
+        docker run -d --restart=always -p "127.0.0.1:${REGISTRY_PORT}:5000" --name "${REGISTRY_NAME}" "${pinned_registry}"
     fi
 }
 
@@ -29,16 +38,15 @@ sync_images() {
         [[ -z "${line}" ]] && continue
 
         local upstream_full="${line}"
-        # Extract image name without digest for tagging
-        local image_name_tag="${upstream_full%%@*}"
-        # Extract base name (e.g., grafana/grafana)
-        local base_name="${image_name_tag##*/}"
-        # Handle cases with multiple slashes (e.g., quay.io/prometheus/node-exporter)
-        local repo_path="${image_name_tag#*./}" # strip registry
-        repo_path="${image_name_tag#*/}" # strip registry or first part
+        # Extract image name with tag but WITHOUT digest for local tagging
+        # e.g., docker.io/grafana/grafana:12.3.1@sha256:hash -> grafana/grafana:12.3.1
+        local image_with_tag="${upstream_full%%@*}"
         
-        # Simpler approach: use the part after the first slash as the local name
-        local local_tag="${LOCAL_REGISTRY}/${base_name}"
+        # Extract the base name (including tag) to use in local registry
+        # e.g., docker.io/grafana/grafana:12.3.1 -> grafana:12.3.1
+        local base_name_with_tag="${image_with_tag##*/}"
+        
+        local local_tag="${LOCAL_REGISTRY}/${base_name_with_tag}"
         
         log "Pulling ${upstream_full}..."
         docker pull "${upstream_full}"
