@@ -88,9 +88,9 @@ Commit: `test(lmde): smoke-test the Grafana vhost`
 ## Notes / Discoveries
 
 - `specs/grafana/values.yaml` already used the local registry
-  (`image.registry: localhost:5001`) and a `ClusterIP` service, so no
-  change was needed there for ingress. It carries unrelated uncommitted
-  dashboard-sidecar edits and was deliberately left uncommitted.
+  (`image.registry: localhost:5001`) and a `ClusterIP` service, so the
+  ingress work needed no change there. Its dashboard-sidecar edits are
+  committed alongside the dashboards feature.
 - The istio bootstrap was entirely uncommitted, so purging it produced
   no deletion diff; only the previous agent's non-istio `setup.sh`
   additions (networking-lib sourcing, `deploy_dashboards`) survived into
