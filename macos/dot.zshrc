@@ -84,10 +84,10 @@ source ~/workplace/lab54/grubsta/scripts/completions/grubsta-completions.zsh
 # Path updates
 export PATH="/Users/stumpf/.antigravity/antigravity/bin:$PATH"
 
-# Normalize PATH: collapse duplicate entries, and ensure ~/.local/bin (the
-# uv-installed tools — clai, designomatic, crmagic) precedes tds-utils/bin so
-# the installed Python clai (with OpenTelemetry) wins over the legacy
-# bin/clai script. Must stay after every PATH mutation above.
+# Normalize PATH: collapse duplicate entries, and put ~/.local/bin (the
+# uv-installed tools — clai, designomatic, crmagic) ahead of tds-utils/bin
+# so the uv-installed tools take precedence. Must stay after every PATH
+# mutation above.
 typeset -U path
 path=("$HOME/.local/bin" $path)
 
