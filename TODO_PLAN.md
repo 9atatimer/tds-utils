@@ -33,6 +33,12 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 - [ ] Task GI4: **`gadmin.health` request-reply subject** returning `{cursor_lag_seconds, last_webhook_at, db_size, nats_status, version}`. No health endpoint exists today; callers must read SQLite/logs to diagnose. Add the subscriber to the aggregator and a `gadmin github issue doctor` client command in both peers. Goal 7.
 - [ ] Task GI5: **Backend peer routing via `$GADMIN_BACKEND`.** Bash dispatcher hardcodes the gitapi peer at `gadmin/admin/github:825`, so the octokit peer's `cmdIssue*` is dead code in `issue` mode despite being at surface parity. Switch `cmd_issue` to read `$GADMIN_BACKEND` (default `gitapi`) and `exec` the matching `.mjs`, mirroring the existing PR-comment dispatch path. Goal 8.
 
+### LMDE (Local Managed Developer Environment)
+
+- [ ] Task LMDE1: **Implement Local Registry sync script.** Create `lmde/components/registry/sync.sh` and `images.txt` to mirror vetted, digest-pinned images to `localhost:5001`.
+- [ ] Task LMDE2: **Bootstrap Observability Stack.** Create `lmde/components/observability/setup.sh` and `kind-config.yaml` to deploy OTel, Prometheus, and Grafana with host-path persistence.
+- [ ] Task LMDE3: **Observability Smoke Tests.** Create `test/smoketest_lmde_observability/` to verify the end-to-end telemetry pipeline (OTLP -> Prometheus -> Grafana).
+
 ### Terminal UX
 
 - [ ] Task T1: **Improve brand theme matching** — currently it does a literal case-insensitive match. If "Solarized Dark" is a theme, `brand solarized` fails. Add a fuzzy or substring match for theme names.
@@ -85,7 +91,11 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 
 ## Lessons Learned
 
-- **Securing Log Permissions**: Use `umask 077` at the start of logging and management scripts to ensure new directories and files are restricted to the owner. Perform a recursive `chmod -R u+rwX,go-rwx` on the log directory in management scripts like `tmux_shepherd.sh` to fix existing permissions without making non-executable files executable.
+- **Architecture over Utilities**: Distinguishing between architectural components (LMDE) and personal configurations/utilities simplifies the platform contract and ensures projects can assume a stable foundation.
+- **Supply-Chain Security via Local Mirroring**: Local mirroring with SHA256 digest pinning is a robust way to ensure environment stability and security on a developer laptop, making it resistant to upstream registry outages or poisoning.
+- **Host-Path Persistence in kind**: Using host-path mapping for `kind` nodes is the most pragmatic way to ensure data persistence (like Prometheus metrics) survives cluster recreations and host reboots.
+- **Securing Log Permissions**:
+ Use `umask 077` at the start of logging and management scripts to ensure new directories and files are restricted to the owner. Perform a recursive `chmod -R u+rwX,go-rwx` on the log directory in management scripts like `tmux_shepherd.sh` to fix existing permissions without making non-executable files executable.
 - **Hexagonal Architecture**: Decoupling the search index interface (`SearchIndexPort`) from the implementation (`TxtaiAdapter`) allows for an easy swap from a "heavy" framework like `txtai` to a lighter one like `sqlite-vec` later, while keeping the core logic intact.
 - **Single Source of Truth (target state)**: The index will store only embeddings and metadata (session path, span ID, chunk index, byte offsets). The original log files are the sole content store. No raw text in the index, no sampling or truncation -- every byte of every log must be covered by embeddings. Note: the current MVP scaffolding still uses content sampling; Task 2a-2f replaces this with span-based chunked indexing.
 - **Full Coverage Required**: A single session may span multiple projects and tasks. Sampling head/tail lines is useless for semantic search -- the indexer must segment into spans and chunk the entire file.
@@ -123,3 +133,7 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
   - **G7** `--include-org` / `--exclude-org`: repeatable filter flags, exclude wins over include.
   - **G4 (Linux scaffolding)**: hermetic `test/smoketest_goldfish/` bash suite, 6 scenarios, all green on Linux. macOS verification (`lsof` path) remains open as the G4 entry above.
 - [x] Tasks G4 (macOS half) + G8: Verified goldfish on macOS (6/6 smoketests green, real-run JSON output sane). Added `bin/goldfish` symlink and `gf` alias in `macos/dot.alias`.
+
+### LMDE (Local Managed Developer Environment)
+
+- [x] Task LMDE0: **Formalize LMDE concept and design Observability stack.** Created `lmde/LMDE.md` contract and drafted `docs/design/LMDE-OBSERVABILITY.DESIGN.md`. PR #pending.
