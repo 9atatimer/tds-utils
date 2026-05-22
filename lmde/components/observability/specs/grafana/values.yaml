@@ -6,6 +6,15 @@ persistence:
   enabled: true
   type: pvc
   size: 2Gi
+sidecar:
+  dashboards:
+    enabled: true
+    label: grafana_dashboard
+    searchNamespace: ALL
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
 resources:
   limits:
     cpu: 200m
