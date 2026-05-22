@@ -35,8 +35,12 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 
 ### LMDE (Local Managed Developer Environment)
 
-- [ ] Task LMDE7: **Event ingestion via Loki.** Stand up single-binary Loki as the OTLP event store, add a `logs` pipeline to the otel-collector, add a Grafana Loki datasource, and wire it into `setup.sh`. First revise `docs/design/LMDE-OBSERVABILITY.DESIGN.md` to refine the "Log Aggregation" Non-Goal (structured OTLP events in scope; raw terminal logs stay `log-hoarder`'s) and note Tempo as the deferred traces leg. Inert until clai sets `OTEL_LOGS_EXPORTER=otlp` (ai-tools).
-- [ ] Task LMDE8: **Stack-health Grafana dashboard.** Add a Grafana dashboard monitoring the obs stack itself -- CPU, memory, storage, restarts/errors per component (prometheus, grafana, otel-collector, loki, ingress-nginx). Dashboard JSON + ConfigMap; no new infra; can land before LMDE7.
+- [ ] Task LMDE7: **Events: design reconcile.** Revise `docs/design/LMDE-OBSERVABILITY.DESIGN.md` -- refine the "Log Aggregation" Non-Goal (structured OTLP events in scope; raw terminal logs stay `log-hoarder`'s), add the Loki events architecture, note Tempo as the deferred traces leg.
+- [ ] Task LMDE8: **Events: Loki component.** Pin the Loki image(s) in `images.txt`; add a single-binary `grafana/loki` component under `specs/loki/` with HostPath persistence.
+- [ ] Task LMDE9: **Events: collector logs pipeline.** Add a `logs` pipeline to the otel-collector config, exporting OTLP logs to Loki's OTLP endpoint.
+- [ ] Task LMDE10: **Events: Grafana datasource + bootstrap + verify.** Add the Grafana Loki datasource, install Loki in `setup.sh`, and smoke-test an OTLP event end to end.
+  - Note: the events pipeline stays inert until clai sets `OTEL_LOGS_EXPORTER=otlp` (in `ai-tools`, not this repo) -- coordinate before declaring LMDE10 done.
+- [ ] Task LMDE11: **Stack-health Grafana dashboard.** Add a Grafana dashboard monitoring the obs stack itself -- CPU, memory, storage, restarts/errors per component (prometheus, grafana, otel-collector, loki, ingress-nginx). Dashboard JSON + ConfigMap; no new infra; can land before LMDE7-10.
 
 ### Terminal UX
 
