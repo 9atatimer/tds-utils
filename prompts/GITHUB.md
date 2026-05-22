@@ -12,24 +12,19 @@ This document contains instructions for AI coding agents on how to interact with
 
 ## Push & PR Flow
 
-### Two-Stage PR Workflow
+### Single PR Workflow (Iterative Review)
 
-To avoid charging Copilot review cycles to the organization, use this two-stage approach:
+Because the `9atatimer` organization has Copilot review enabled, all AI review cycles happen within a single PR. Do not create multiple PRs or close/re-open PRs.
 
-**Stage 1: Draft PR to Fork (for AI code review)**
-1. Push branch to `origin` (your fork)
-2. Create a **Draft PR** targeting `origin/master` — the draft state itself is the WIP signal; do not put `[WIP]` in the title
-3. Title is a clean conventional-commit summary, same as you'd use on the final PR
-4. Copilot reviews happen here — charged to your personal account
-5. Address all Copilot feedback
-
-**Stage 2: Final PR to Upstream (for human review and merge)**
-1. Once Copilot review is complete, create a new PR from the same branch
-2. Target `upstream/master`
-3. Human reviews and merges
-4. Close the Stage 1 draft PR
-
-**Why this matters:** Copilot Pro+ charges are billed to the repository owner. By doing AI review on your fork first, you control the costs.
+1. **Push:** Push your branch to `origin`.
+2. **Draft PR:** Create a **Draft PR** targeting `master` — the draft state itself is the WIP signal; do not put `[WIP]` in the title.
+3. **Title:** Use a clean conventional-commit summary (e.g., `feat(lmde): formalize architecture`).
+4. **Iterative AI Review:** Copilot will automatically review the draft. This is an **iterative** process:
+   - Address Copilot feedback.
+   - Push your changes.
+   - Wait for Copilot to review the new changes.
+   - Repeat until Copilot is satisfied.
+5. **Human Review:** Once the AI review cycles are settled, the human will take over for final review and merging. Do NOT attempt to create a second "final" PR.
 
 ## Branch Safety (CRITICAL)
 
