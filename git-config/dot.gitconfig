@@ -27,3 +27,8 @@
 	helper = !/opt/homebrew/bin/gh auth git-credential
 [init]
 	defaultBranch = main
+[naatm "mirror"]
+	enabled = true
+	bucket = naatm-git-mirror-stumpf
+	profile = naatm-dr
+	endpoint = https://f355ce2de8e98188390332bfc1f8c24c.r2.cloudflarestorage.com
