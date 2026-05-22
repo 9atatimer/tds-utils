@@ -1,0 +1,32 @@
+server:
+  image:
+    repository: localhost:5001/prometheus
+    tag: v3.3.1
+  persistentVolume:
+    enabled: true
+    mountPath: /mnt/data
+    size: 10Gi
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+alertmanager:
+  enabled: false
+pushgateway:
+  enabled: true
+  image:
+    registry: localhost:5001
+    repository: pushgateway
+    tag: v1.11.2
+kube-state-metrics:
+  enabled: true
+  image:
+    registry: localhost:5001
+    repository: kube-state-metrics
+    tag: v2.18.0
+prometheus-node-exporter:
+  enabled: true
+  image:
+    registry: localhost:5001
+    repository: node-exporter
+    tag: v1.11.1

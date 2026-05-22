@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-collector
+  namespace: observability
+  labels:
+    app: otel-collector
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: otel-collector
+  template:
+    metadata:
+      labels:
+        app: otel-collector
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8889"
+    spec:
+      containers:
+      - name: otel-collector
+        image: localhost:5001/opentelemetry-collector-contrib:0.96.0
+        command:
+        - "/otelcol-contrib"
+        - "--config=/etc/otelcol/config.yaml"
+        resources:
+          limits:
+            cpu: 200m
+            memory: 512Mi
+        ports:
+        - containerPort: 4317 # OTLP gRPC
+          hostPort: 4317
+        - containerPort: 4318 # OTLP HTTP
+          hostPort: 4318
+        - containerPort: 8889 # Prometheus exporter
+        volumeMounts:
+        - name: otel-collector-config-vol
+          mountPath: /etc/otelcol
+      volumes:
+      - name: otel-collector-config-vol
+        configMap:
+          name: otel-collector-conf
+          items:
+          - key: otel-collector-config
+            path: config.yaml
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: otel-collector
+  namespace: observability
+  labels:
+    app: otel-collector
+spec:
+  type: ClusterIP
+  selector:
+    app: otel-collector
+  ports:
+  - name: otlp-grpc
+    port: 4317
+    targetPort: 4317
+  - name: otlp-http
+    port: 4318
+    targetPort: 4318
+  - name: prometheus
+    port: 8889
+    targetPort: 8889
