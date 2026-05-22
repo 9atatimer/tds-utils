@@ -87,6 +87,11 @@ register_cluster_vhost() {
         return 1
     fi
 
+    if ! command -v curl >/dev/null 2>&1; then
+        log_info "WARNING: curl not found; skipping vhost registration for *.${alias}.localhost"
+        return 0
+    fi
+
     if ! caddy_is_running; then
         log_info "WARNING: Caddy admin API unreachable at ${CADDY_ADMIN_URL};" \
                  "skipping vhost registration for *.${alias}.localhost"

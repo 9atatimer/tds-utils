@@ -37,6 +37,21 @@ require_commands() {
     [[ "${missing}" -eq 0 ]] || exit 1
 }
 
+assert_kind_context() {
+    local ctx
+    ctx=$(kubectl config current-context 2>/dev/null || true)
+    if [[ -z "${ctx}" ]]; then
+        echo "ERROR: no current kubectl context set; point kubectl at the target kind cluster." >&2
+        exit 1
+    fi
+    if [[ "${ctx}" != kind-* ]]; then
+        echo "ERROR: current kubectl context '${ctx}' is not a kind cluster." >&2
+        echo "       Refusing to apply cluster-wide ingress-nginx resources to a non-kind context." >&2
+        exit 1
+    fi
+    log "Target kubectl context: ${ctx}"
+}
+
 assert_manifest_present() {
     if [[ ! -f "${MANIFEST}" ]]; then
         echo "ERROR: ingress-nginx manifest not found at ${MANIFEST}" >&2
@@ -64,6 +79,7 @@ wait_for_controller() {
 
 main() {
     require_commands kubectl
+    assert_kind_context
     assert_manifest_present
     apply_manifest
     wait_for_controller

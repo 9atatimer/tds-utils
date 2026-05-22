@@ -12,11 +12,8 @@ REGISTRY_NAME="kind-registry"
 
 # Shared Networking
 NET_LIB="${SCRIPT_DIR}/../networking/lib.sh"
-
-if [[ -f "${NET_LIB}" ]]; then
-    # shellcheck disable=SC1090
-    source "${NET_LIB}"
-fi
+# shellcheck disable=SC1090
+source "${NET_LIB}"
 
 # Ingress (see lmde/components/networking/)
 INGRESS_SETUP="${SCRIPT_DIR}/../networking/ingress-nginx/setup.sh"
