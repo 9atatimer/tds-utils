@@ -69,7 +69,8 @@ verify_metric() {
     local result
     for i in {1..30}; do
         log "Querying Prometheus (attempt ${i}/30)..."
-        result=$(curl -sf "http://localhost:9090/api/v1/query?query=${METRIC_NAME}" | jq -r '.data.result[0].value[1] // empty')
+        # Allow curl to fail and capture the output
+        result=$(curl -sf "http://localhost:9090/api/v1/query?query=${METRIC_NAME}" 2>/dev/null | jq -r '.data.result[0].value[1] // empty' || echo "")
         if [[ "${result}" == "${METRIC_VALUE}" ]]; then
             log "SUCCESS: Found metric ${METRIC_NAME} with value ${METRIC_VALUE}"
             return 0
