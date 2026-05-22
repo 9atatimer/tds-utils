@@ -1,6 +1,6 @@
 # WIP: Tech Radar Skill
 
-> **Status:** WIP — design conversation in progress, no implementation yet
+> **Status:** WIP -- design conversation in progress, no implementation yet
 > **Date:** 2026-05-18
 > **Authors:** Todd + Claude (Opus 4.7)
 > **Depends on:** [CLAUDE.md](../../CLAUDE.md), existing `prompts/SKILL.*.md` files
@@ -35,8 +35,8 @@ heavyweight process (ADRs, decision history) would be overkill.
 
 Todd corrected:
 
-> This isn't a "utility repo" — this is my soul in digital form. tds-utils is
-> the kernel of my development environment. Check the dates — it's decades
+> This isn't a "utility repo" -- this is my soul in digital form. tds-utils is
+> the kernel of my development environment. Check the dates -- it's decades
 > old. It applies to my whole approach to development software.
 
 **Implication:** invest accordingly. Document not just *what* but *why*, and
@@ -47,7 +47,7 @@ ceremony for a personal repo" reflex is wrong here.
 
 The radar concept actually splits cleanly across two domains:
 
-1. **LMDE** ("Local MDE" — Todd's coinage). The local dev environment as a
+1. **LMDE** ("Local MDE" -- Todd's coinage). The local dev environment as a
    coherent system: shells, editor, multiplexer, CLI tooling, local services,
    AI/agent stack, credentials. tds-utils *is* the LMDE in concrete form.
 2. **Per-project tech stacks.** Language, web framework, DB, deploy target,
@@ -67,7 +67,7 @@ Todd's framing:
 > you can't reach it, it might as well not exist.
 
 **Implication:** the radar pattern must be introduced into every project that
-should follow it — via CLAUDE.md hooks pointing to a local SKILL.TECH_RADAR.md.
+should follow it -- via CLAUDE.md hooks pointing to a local SKILL.TECH_RADAR.md.
 Hence the radar *pattern itself* belongs in `template-tools` (so every
 scaffolded project inherits it). tds-utils gets its own home-grown radar
 because tds-utils *is* the dev environment, not a developed product.
@@ -86,21 +86,21 @@ deliberately *not* used. Inspired by the ThoughtWorks Tech Radar
 Key properties:
 - One living document, edited in place
 - Answers "what are we using right now, and what should I reach for?"
-- Decays if not maintained — needs a clear update discipline
+- Decays if not maintained -- needs a clear update discipline
 
 ### ADR (Architecture Decision Record)
 
 A small, immutable markdown file capturing *why* a single decision was made at
 a point in time. Canonical format:
 
-- **Title** — e.g. "ADR-007: Use SQLite for log-hoarder index"
-- **Status** — Proposed / Accepted / Superseded by ADR-NNN
-- **Context** — what problem forced the decision
-- **Decision** — what we picked
-- **Consequences** — what we gain, what we give up
+- **Title** -- e.g. "ADR-007: Use SQLite for log-hoarder index"
+- **Status** -- Proposed / Accepted / Superseded by ADR-NNN
+- **Context** -- what problem forced the decision
+- **Decision** -- what we picked
+- **Consequences** -- what we gain, what we give up
 
 Lives in-repo (commonly `decisions/NNNN-<slug>.md`), append-only, never edited
-after acceptance — superseded by a new ADR if the decision changes.
+after acceptance -- superseded by a new ADR if the decision changes.
 
 **Radar vs ADRs:** complementary. Radar tells you *what's current*; ADRs tell
 you *why we moved from A to B in March*. For tds-utils, both arguably justified
@@ -109,14 +109,14 @@ in the radar capture 80% of ADR value.
 
 ### LMDE
 
-"Local MDE" — Todd's coinage for his local development environment as a
+"Local MDE" -- Todd's coinage for his local development environment as a
 coherent, opinionated system. tds-utils embodies the LMDE (dotfiles, shells,
 editor, CLI tooling, local services).
 
 Distinguishes:
-- **LMDE choices** — shell, editor, multiplexer, local services. Durable,
+- **LMDE choices** -- shell, editor, multiplexer, local services. Durable,
   cross-cutting, owned by tds-utils.
-- **Project-stack choices** — web framework, DB, deploy target. Scoped,
+- **Project-stack choices** -- web framework, DB, deploy target. Scoped,
   template-able, owned by template-tools.
 
 ---
@@ -140,7 +140,7 @@ Distinguishes:
                        | references / philosophy
                        v
 +-----------------------------------------------------+
-| template-tools (does NOT yet exist — aspirational)  |
+| template-tools (does NOT yet exist -- aspirational)  |
 |                                                     |
 |   <template>/prompts/SKILL.TECH_RADAR.md            |
 |     - Pattern definition + per-project stack        |
@@ -194,38 +194,38 @@ reference).
 file in the same change. Otherwise it rots. This is the most important rule
 in the file.]
 
-## Philosophy (do not duplicate — link out)
+## Philosophy (do not duplicate -- link out)
 - Architecture: CLAUDE.md "Code Architecture" + SKILL.DESIGN.md
 - Testing: TESTING.md
 - Shell style: CLAUDE.md "Shell Script Structure" + STYLE.BASH.md
 - Cross-platform discipline: CLAUDE.md "Platform & Shell"
 
-## Adopt — what we use right now
+## Adopt -- what we use right now
 Per-domain sections. Candidate domains (based on actual repo contents):
   - Shells (zsh on macOS, bash on Linux)
-  - Languages for tooling (Go, Python, zsh/bash, elisp, TypeScript — when each)
+  - Languages for tooling (Go, Python, zsh/bash, elisp, TypeScript -- when each)
   - Editor (Emacs)
   - Multiplexer (tmux)
-  - Search / nav (fzf, find — verify ripgrep usage)
+  - Search / nav (fzf, find -- verify ripgrep usage)
   - Git tooling (git, gh, custom aliases in git-aliases/)
   - AI / agent stack (Claude Code, MCP, ollama via cline-ollama, clai)
   - Credentials (1Password CLI via designomatic-exec wrapper)
   - Local services (dnsmasq, Caddy, ollama, loopback aliases)
-  - Package management (brew on mac, apt/dnf on Linux — verify)
+  - Package management (brew on mac, apt/dnf on Linux -- verify)
 
 Each entry format:
   - **What:** one line
   - **Why:** one line
-  - **Considered / rejected:** one line (or "—" if none)
+  - **Considered / rejected:** one line (or "--" if none)
 
-## Hold — deliberately not using
+## Hold -- deliberately not using
 Short list, each with a sentence of why:
   - bash on macOS (use zsh)
   - Docker for local dev (run services directly)
   - VS Code / Cursor as primary editor (use Emacs + Claude Code)
   - GNU coreutils as default on macOS (BSD-first per CLAUDE.md)
   - npm-installed CLIs as primary distribution (prefer brew / system)
-  - [more — to be filled with Todd]
+  - [more -- to be filled with Todd]
 
 ## Open questions / on the radar
 Things being evaluated but not decided. Useful so future-me knows "this is
@@ -256,20 +256,20 @@ Without this hook the radar is invisible to future-Claude and rots immediately.
 
 How do we populate the initial Adopt / Hold sections?
 
-- **Option A — Claude infers + Todd corrects.** Claude drafts from repo state
+- **Option A -- Claude infers + Todd corrects.** Claude drafts from repo state
   (bin/, macos/, emacs/, git config, project memories), Todd fixes the *why*s
   in review. Faster; risk that Claude puts words in Todd's mouth on rationale.
-- **Option B — Interview-driven.** Claude drafts a skeleton, then asks per
+- **Option B -- Interview-driven.** Claude drafts a skeleton, then asks per
   section ("why zsh over fish?", "why Emacs over Neovim?"). Slower; captures
   more of what only exists in Todd's head.
-- **Option C — Skeleton only, Todd fills in.** Claude produces empty section
+- **Option C -- Skeleton only, Todd fills in.** Claude produces empty section
   structure with prompts; Todd writes the content over time. Lowest risk of
   putting words in Todd's mouth; slowest to become useful.
 
 ### 2. Decisions log: inline or separate `decisions/` directory
 
 - **Inline in the radar** (low ceremony, fine for v1).
-- **Separate `decisions/NNNN-*.md` directory** (true ADRs — immutable,
+- **Separate `decisions/NNNN-*.md` directory** (true ADRs -- immutable,
   supersedeable, full history). More ceremony but matches "soul in digital
   form" weight.
 
@@ -280,7 +280,7 @@ himself wanting to revisit *changes* in stance rather than just current state.
 
 Confirm the proposed line above, or refine it.
 
-### 4. Order of work — confirm
+### 4. Order of work -- confirm
 
 Agreed sequence:
 
@@ -289,16 +289,16 @@ Agreed sequence:
 3. Refine through use
 4. Extrapolate pattern to `template-tools` (separate repo, doesn't exist yet)
 
-### 5. Cross-cutting philosophy — where do *decisions* about it live?
+### 5. Cross-cutting philosophy -- where do *decisions* about it live?
 
 The radar links *out* to existing philosophy docs (CLAUDE.md, SKILL.CODING.md,
 SKILL.DESIGN.md). But if Todd wants ADRs for the *philosophy itself* ("why
 hexagonal", "why TDD-after-design", "why BSD-first on macOS"), where do those
 live? Three options Claude raised, none chosen:
 
-- In tds-utils (already canonical home for philosophy docs) — recommended
+- In tds-utils (already canonical home for philosophy docs) -- recommended
 - Separate philosophy/principles repo, referenced by tds-utils and template-tools
-- Duplicated where relevant (rejected — drifts)
+- Duplicated where relevant (rejected -- drifts)
 
 This is a v2 question; not blocking the LMDE radar.
 
@@ -308,10 +308,10 @@ This is a v2 question; not blocking the LMDE radar.
 
 In `/Users/stumpf/.claude/projects/-Users-stumpf-workplace-tds-utils/memory/`:
 
-- `project_tds_utils_nature.md` — tds-utils is the decades-old kernel, not a
+- `project_tds_utils_nature.md` -- tds-utils is the decades-old kernel, not a
   utility repo. Justifies heavier docs/process than small-repo heuristics
   would suggest.
-- `project_lmde_term.md` — LMDE = "Local MDE", Todd's coinage. Distinguishes
+- `project_lmde_term.md` -- LMDE = "Local MDE", Todd's coinage. Distinguishes
   global dev environment from per-project stacks.
 - Both linked from `MEMORY.md` index.
 
@@ -333,9 +333,9 @@ In `/Users/stumpf/.claude/projects/-Users-stumpf-workplace-tds-utils/memory/`:
 
 1. Read the **Reframes** section to re-anchor on *why* this is bigger than a
    simple utility doc.
-2. Skim the **Architectural decision** ASCII diagram for the tds-utils ↔
+2. Skim the **Architectural decision** ASCII diagram for the tds-utils <->
    template-tools split.
-3. Decide the five **Open decisions** above (or at least #1, #2, #3 — those
+3. Decide the five **Open decisions** above (or at least #1, #2, #3 -- those
    block the first draft).
 4. Ask Claude to draft `prompts/SKILL.TECH_RADAR.md` per the proposed
    structure, using the chosen backfill approach.

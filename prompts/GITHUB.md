@@ -17,7 +17,7 @@ This document contains instructions for AI coding agents on how to interact with
 Because the `9atatimer` organization has Copilot review enabled, all AI review cycles happen within a single PR. Do not create multiple PRs or close/re-open PRs.
 
 1. **Push:** Push your branch to `origin`.
-2. **Draft PR:** Create a **Draft PR** targeting `master` — the draft state itself is the WIP signal; do not put `[WIP]` in the title.
+2. **Draft PR:** Create a **Draft PR** targeting `master` -- the draft state itself is the WIP signal; do not put `[WIP]` in the title.
 3. **Title:** Use a clean conventional-commit summary (e.g., `feat(lmde): formalize architecture`).
 4. **Iterative AI Review:** Copilot will automatically review the draft. This is an **iterative** process:
    - Address Copilot feedback.
@@ -55,20 +55,20 @@ All branches created on this repo MUST use an owner prefix:
 
 Three families of verbs, in **token-frugal preference order**:
 
-1. **`gadmin` (this repo's `bin/gadmin`)** — preferred for reads (comments,
+1. **`gadmin` (this repo's `bin/gadmin`)** -- preferred for reads (comments,
    CI logs) and writes (replies). Output is filtered to the fields you
    triage on, so it stays small in context. Three sub-tiers, fall back in
    order:
-     - `gadmin github` — bash, requires `gh` CLI on `$PATH`.
-     - `gadmin github-octokit` — node + `octokit` npm package + `$GITHUB_TOKEN`.
-     - `gadmin github-gitapi` — node, native `fetch()` + `$GITHUB_TOKEN`,
+     - `gadmin github` -- bash, requires `gh` CLI on `$PATH`.
+     - `gadmin github-octokit` -- node + `octokit` npm package + `$GITHUB_TOKEN`.
+     - `gadmin github-gitapi` -- node, native `fetch()` + `$GITHUB_TOKEN`,
        zero deps.
-2. **GitHub MCP tools (`mcp__github__*`)** — use when `gadmin` lacks a verb
+2. **GitHub MCP tools (`mcp__github__*`)** -- use when `gadmin` lacks a verb
    you need. Responses are typed and complete but include large echoed
    payloads (e.g. every reply confirms by echoing the parent comment's
    `diff_hunk`), so they cost ~5–10× more tokens than `gadmin` for the same
    operation. Avoid them for hot loops over many comments.
-3. **`gh` CLI** — last-resort fallback when neither `gadmin` nor MCP cover
+3. **`gh` CLI** -- last-resort fallback when neither `gadmin` nor MCP cover
    the operation.
 
 **GitHub Actions logs:** `gadmin github actions list-runs` to find runs,
@@ -77,7 +77,7 @@ output. ANSI codes are stripped automatically.
 
 **One-line rule:** when an event has already delivered the comment body via
 the subscription stream, **do not re-fetch it.** The webhook payload is the
-source of truth for that thread — reply directly from the comment ID.
+source of truth for that thread -- reply directly from the comment ID.
 
 ## PR Activity Subscription (push model)
 
@@ -87,7 +87,7 @@ You can subscribe a session to a PR's webhook stream via the
 - New comments, reviews, CI status changes, merge, and close events arrive
   in the conversation as `<github-webhook-activity>` blocks.
 - The subscription is auto-removed when the PR merges or closes.
-- Subscription is idempotent — calling it twice is harmless.
+- Subscription is idempotent -- calling it twice is harmless.
 
 **When to subscribe:**
 
@@ -117,7 +117,7 @@ You can subscribe a session to a PR's webhook stream via the
 
 ## Automated Review Response
 
-This is the procedure for handling a batch of review feedback — whether it
+This is the procedure for handling a batch of review feedback -- whether it
 arrived via subscription or you fetched it cold with `gadmin
 pending-comments`.
 
@@ -130,9 +130,9 @@ pending-comments`.
 
 **Step 2: Triage ALL comments before making changes.** Read every comment,
 classify each as one of:
-- **Agree** — will fix.
-- **Disagree** — will reject with a reason.
-- **Ambiguous / architecturally significant** — ask the human first via
+- **Agree** -- will fix.
+- **Disagree** -- will reject with a reason.
+- **Ambiguous / architecturally significant** -- ask the human first via
   `AskUserQuestion`. Don't guess.
 
 **Step 3: Reject the ones you disagree with** immediately, with reason:
@@ -146,7 +146,7 @@ commit. Note the resulting SHA.
 `gadmin github reply --repo <OWNER/REPO> --id <ID> --type accept --msg "Agreed, fixed in <sha>"`
 
 **Step 6: Verify nothing is unaddressed:**
-`gadmin github pending-comments --repo <OWNER/REPO> --pr <NUMBER>` — should
+`gadmin github pending-comments --repo <OWNER/REPO> --pr <NUMBER>` -- should
 return empty.
 
 **Step 7: Consider documentation follow-ups.** Did an accepted fix reveal a
@@ -156,15 +156,15 @@ relevant doc; if not, skip.
 
 **Reply conventions** (independent of which tool posts them):
 
-- Accept replies say: `Agreed, fixed in <sha> — <one-line summary of fix>`.
-- Reject replies say: `<concrete reason>` — never just "disagree."
+- Accept replies say: `Agreed, fixed in <sha> -- <one-line summary of fix>`.
+- Reject replies say: `<concrete reason>` -- never just "disagree."
 - Replies are posted **sequentially**, one tool call per reply. Do not
   batch.
 
 **Execution notes:**
 
 - If `gadmin github` fails, fall back to `gadmin github-octokit`, then
-  `gadmin github-gitapi`, then MCP, then raw `gh` — in that order.
+  `gadmin github-gitapi`, then MCP, then raw `gh` -- in that order.
 - If you can't annotate at all, ask the human for help rather than
   silently dropping comments.
 
