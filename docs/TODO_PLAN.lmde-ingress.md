@@ -1,6 +1,6 @@
 # LMDE Ingress (ingress-nginx) Implementation TODO Plan
 
-> **Status:** In Progress
+> **Status:** Implemented -- pending human bootstrap
 > **Created:** 2026-05-22
 > **Design:** [LMDE-OBSERVABILITY.DESIGN.md](design/LMDE-OBSERVABILITY.DESIGN.md)
 > **Branch:** `claude/feat/lmde-ingress-nginx`
@@ -17,10 +17,11 @@ pattern in the `networking/` component.
 ## Implementation Notes
 
 - This is infrastructure-as-code: the artifacts are shell + YAML, not
-  unit-testable code. Static verification is `bash -n` on every script.
-  The live acceptance gate is the smoke test, run against a real cluster.
+  unit-testable code. Static verification is `bash -n` (and `shellcheck`)
+  on every script. The live acceptance gate is the smoke test, run
+  against a real cluster.
 - `(RED)`/`(GREEN)` commit markers do not apply here; commit per phase.
-- The implementing agent does NOT run the live bootstrap (cluster
+- The implementing agent did NOT run the live bootstrap (cluster
   create/delete, helm, Caddy mutation). A human runs and verifies it --
   see the Human Bootstrap Checklist below.
 
@@ -38,52 +39,65 @@ pattern in the `networking/` component.
 ### P0 -- Purge istio  [DONE]
 
 istio artifacts deleted; `setup.sh` istio calls removed.
-Commit: `chore(lmde): drop istio bootstrap from observability setup`
+Commit: `feat(observability): source networking lib and deploy dashboards in setup`
+(the istio code was uncommitted, so its removal produced no diff).
 
-### P1 -- Registry: pin ingress-nginx images
+### P1 -- Registry: pin ingress-nginx images  [DONE]
 
-Add the controller + `kube-webhook-certgen` images (digest-pinned) to
-`images.txt`.
+Controller + `kube-webhook-certgen` images digest-pinned in `images.txt`.
 Commit: `feat(registry): pin ingress-nginx controller images`
 
-### P2 -- kind config: open the ingress door
+### P2 -- kind config: open the ingress door  [DONE]
 
-`kind-config.yaml.tpl`: drop the `3000` mapping, add `80 <-> 127.0.0.1:32100`,
-add the `ingress-ready=true` node label.
+`kind-config.yaml.tpl`: dropped the `3000` mapping, added
+`80 <-> 127.0.0.1:32100`, added the `ingress-ready=true` node label.
 Commit: `feat(lmde): open the ingress-nginx host port in kind config`
 
-### P3 -- networking component: ingress-nginx + Caddy helper
+### P3 -- networking component: ingress-nginx + Caddy helper  [DONE]
 
-Vendor the kind ingress-nginx manifest (images retagged to the local
-registry); `ingress-nginx/setup.sh` applies it and waits for Ready;
-`lib.sh` gains `register_cluster_vhost <alias> <port>` (wildcard route);
+Vendored kind ingress-nginx manifest (images retagged to the local
+registry); `ingress-nginx/setup.sh`; `lib.sh` `register_cluster_vhost`;
 `networking/README.md`.
 Commits: `feat(networking): add ingress-nginx install component`,
 `feat(networking): add register_cluster_vhost Caddy helper`
 
-### P4 -- observability: route Grafana
+### P4 -- observability: route Grafana  [DONE]
 
-`values.yaml`: Grafana Service is `ClusterIP`; `specs/grafana/ingress.yaml`
-routes `grafana.lmde.localhost`; `setup.sh` installs the controller after
-the cluster and registers the route after Grafana is up.
+`specs/grafana/ingress.yaml` routes `grafana.lmde.localhost`; `setup.sh`
+installs the controller after the cluster and registers the route after
+Grafana is up.
 Commits: `feat(observability): add Grafana ingress route`,
 `feat(observability): wire ingress-nginx into the bootstrap`
 
-### P5 -- verify
+### P5 -- verify  [DONE]
 
-`test/smoketest_lmde_observability/02_verify_grafana_vhost.sh`: curl
-`grafana.lmde.localhost`, assert Grafana responds; skip if the stack is down.
+`test/smoketest_lmde_observability/02_verify_grafana_vhost.sh`.
 Commit: `test(lmde): smoke-test the Grafana vhost`
 
 ---
 
 ## Definition of Done
 
-- [ ] All scripts pass `bash -n`.
-- [ ] Every phase committed on `claude/feat/lmde-ingress-nginx`.
-- [ ] No istio references remain outside the design doc's Rejections.
+- [x] All scripts pass `bash -n` and `shellcheck -S warning`.
+- [x] Every phase committed on `claude/feat/lmde-ingress-nginx`.
+- [x] No istio references remain in shipped code or config (the design
+      doc Rejections and this plan record the removal).
 - [ ] HUMAN GATE: `setup.sh` runs clean; `grafana.lmde.localhost` serves
       the Grafana login page; the smoke test passes.
+
+## Notes / Discoveries
+
+- `specs/grafana/values.yaml` already used the local registry
+  (`image.registry: localhost:5001`) and a `ClusterIP` service, so no
+  change was needed there for ingress. It carries unrelated uncommitted
+  dashboard-sidecar edits and was deliberately left uncommitted.
+- The istio bootstrap was entirely uncommitted, so purging it produced
+  no deletion diff; only the previous agent's non-istio `setup.sh`
+  additions (networking-lib sourcing, `deploy_dashboards`) survived into
+  a commit.
+- `register_cluster_vhost` assumes the Caddy server is named `srv0`
+  (Caddy's default). If the host Caddy uses a different server name,
+  the route lands on a new conflicting `srv0` -- verify during bootstrap.
 
 ## Human Bootstrap Checklist (morning)
 
