@@ -1,0 +1,24 @@
+# ingress.yaml -- Routes grafana.lmde.localhost to the Grafana Service.
+# Request path: Caddy (*.lmde.localhost) -> ingress-nginx -> this Ingress.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana
+  namespace: observability
+  annotations:
+    # Caddy terminates TLS; the Caddy -> ingress-nginx hop is plain HTTP,
+    # so the controller must not redirect http -> https itself.
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: grafana.lmde.localhost
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana
+            port:
+              number: 80
