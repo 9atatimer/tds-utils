@@ -10,6 +10,14 @@ DATA_DIR="${HOME}/.local/share/tds-utils/observability/data"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REGISTRY_NAME="kind-registry"
 
+# Shared Networking
+NET_LIB="${SCRIPT_DIR}/../networking/lib.sh"
+
+if [[ -f "${NET_LIB}" ]]; then
+    # shellcheck disable=SC1090
+    source "${NET_LIB}"
+fi
+
 # Chart Versions
 PROMETHEUS_CHART_VERSION="27.5.0"
 GRAFANA_CHART_VERSION="8.10.1"
@@ -110,6 +118,14 @@ deploy_otel_collector() {
     kubectl apply -f "${SCRIPT_DIR}/specs/otel-collector/deployment.yaml"
 }
 
+deploy_dashboards() {
+    log "Deploying Grafana Dashboards..."
+    local dashboard_dir="${SCRIPT_DIR}/specs/grafana/dashboards"
+    if [[ -d "${dashboard_dir}" ]]; then
+        find "${dashboard_dir}" -name "*.yaml" -exec kubectl apply -f {} \;
+    fi
+}
+
 # --- Main ---
 
 main() {
@@ -119,6 +135,8 @@ main() {
     setup_namespaces
     install_helm_charts
     deploy_otel_collector
+    deploy_dashboards
+
     log "Observability stack bootstrap complete."
 }
 
