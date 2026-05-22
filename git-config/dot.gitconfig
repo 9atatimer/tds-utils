@@ -32,3 +32,8 @@
 	bucket = naatm-git-mirror-stumpf
 	profile = naatm-dr
 	endpoint = https://f355ce2de8e98188390332bfc1f8c24c.r2.cloudflarestorage.com
+	opid = lsbm3mkzzjxyya4t62jw7zftoa
+[naatm "terraform"]
+	opid = otdfvqqckyjreye7bjsrgh4gye
+	state-bucket = naatm-terraform-state
+	state-region = us-east-1
