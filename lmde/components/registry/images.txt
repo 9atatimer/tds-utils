@@ -1,0 +1,10 @@
+# LMDE Observability Images
+# Format: <upstream_image>@<sha256_digest>
+
+docker.io/grafana/grafana:12.3.1@sha256:2175aaa91c96733d86d31cf270d5310b278654b03f5718c59de12a865380a31f
+docker.io/otel/opentelemetry-collector-contrib:0.96.0@sha256:7ef2a2ff46b9e432321fdd63df104bfeedaf7b4e276950f42c634d0f23521fc4
+registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.18.0@sha256:1545919b72e3ae035454fc054131e8d0f14b42ef6fc5b2ad5c751cafa6b2130e
+quay.io/prometheus/node-exporter:v1.11.1@sha256:0f422f62c15f154af8d8572b23d623aebfb10cec73a5c654d18f911f3f9df241
+quay.io/prometheus/pushgateway:v1.11.2@sha256:49ed9fdf3780fbc68627ca2cd331661cc0a87f852477e14bbe9ec26a98f4abb8
+quay.io/prometheus/prometheus:v3.3.1@sha256:c0b857aead0d5793aa566adb8f49a9983d6f6031652098759d521a330cfa050f
+docker.io/library/registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373

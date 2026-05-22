@@ -35,9 +35,9 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 
 ### LMDE (Local Managed Developer Environment)
 
-- [ ] Task LMDE1: **Implement Local Registry sync script.** Create `lmde/components/registry/sync.sh` and `images.txt` to mirror vetted, digest-pinned images to `localhost:5001`.
-- [ ] Task LMDE2: **Bootstrap Observability Stack.** Create `lmde/components/observability/setup.sh` and `kind-config.yaml` to deploy OTel, Prometheus, and Grafana with host-path persistence.
-- [ ] Task LMDE3: **Observability Smoke Tests.** Create `test/smoketest_lmde_observability/` to verify the end-to-end telemetry pipeline (OTLP -> Prometheus -> Grafana).
+- [x] Task LMDE1: **Implement Local Registry sync script.** Create `lmde/components/registry/sync.sh` and `images.txt` to mirror vetted, digest-pinned images to `localhost:5001`.
+- [x] Task LMDE2: **Bootstrap Observability Stack.** Create `lmde/components/observability/setup.sh` and `kind-config.yaml` to deploy OTel, Prometheus, and Grafana with host-path persistence.
+- [x] Task LMDE3: **Observability Smoke Tests.** Create `test/smoketest_lmde_observability/` to verify the end-to-end telemetry pipeline (OTLP -> Prometheus -> Grafana).
 - [ ] Task LMDE4: **Implement LMDE Tech Radar.** Create `prompts/SKILL.TECH_RADAR.md` based on the design doc, add the `CLAUDE.md` ingest hook, and perform the initial backfill of "Adopted" and "Hold" tech.
 
 ### Terminal UX
