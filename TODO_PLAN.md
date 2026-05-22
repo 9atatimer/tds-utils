@@ -38,6 +38,7 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 - [ ] Task LMDE1: **Implement Local Registry sync script.** Create `lmde/components/registry/sync.sh` and `images.txt` to mirror vetted, digest-pinned images to `localhost:5001`.
 - [ ] Task LMDE2: **Bootstrap Observability Stack.** Create `lmde/components/observability/setup.sh` and `kind-config.yaml` to deploy OTel, Prometheus, and Grafana with host-path persistence.
 - [ ] Task LMDE3: **Observability Smoke Tests.** Create `test/smoketest_lmde_observability/` to verify the end-to-end telemetry pipeline (OTLP -> Prometheus -> Grafana).
+- [ ] Task LMDE4: **Implement LMDE Tech Radar.** Create `prompts/SKILL.TECH_RADAR.md` based on the design doc, add the `CLAUDE.md` ingest hook, and perform the initial backfill of "Adopted" and "Hold" tech.
 
 ### Terminal UX
 
@@ -91,7 +92,9 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 
 ## Lessons Learned
 
-- **Architecture over Utilities**: Distinguishing between architectural components (LMDE) and personal configurations/utilities simplifies the platform contract and ensures projects can assume a stable foundation.
+- **tds-utils is a Kernel, not a Utility Repo**: This repository represents the "soul in digital form" of the developer environment. It justifies a higher degree of architectural ceremony (ADRs, Tech Radar, Formal Design Docs) than a simple collection of scripts would, as it provides the foundation for all other work.
+- **Architecture over Utilities**:
+ Distinguishing between architectural components (LMDE) and personal configurations/utilities simplifies the platform contract and ensures projects can assume a stable foundation.
 - **Supply-Chain Security via Local Mirroring**: Local mirroring with SHA256 digest pinning is a robust way to ensure environment stability and security on a developer laptop, making it resistant to upstream registry outages or poisoning.
 - **Host-Path Persistence in kind**: Using host-path mapping for `kind` nodes is the most pragmatic way to ensure data persistence (like Prometheus metrics) survives cluster recreations and host reboots.
 - **Securing Log Permissions**:
@@ -136,4 +139,5 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 
 ### LMDE (Local Managed Developer Environment)
 
-- [x] Task LMDE0: **Formalize LMDE concept and design Observability stack.** Created `lmde/LMDE.md` contract and drafted `docs/design/LMDE-OBSERVABILITY.DESIGN.md`. PR #pending.
+- [x] Task LMDE0: **Formalize LMDE concept and design Observability stack.** Created `lmde/LMDE.md` contract and drafted `docs/design/LMDE-OBSERVABILITY.DESIGN.md`. PR #44.
+- [x] Task LMDE0.1: **Tech Radar Design.** Drafted `docs/design/WIP.TECH_RADAR.DESIGN.md` capturing the LMDE ↔ Project-stack split.
