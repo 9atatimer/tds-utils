@@ -8,3 +8,7 @@ quay.io/prometheus/node-exporter:v1.11.1@sha256:0f422f62c15f154af8d8572b23d623ae
 quay.io/prometheus/pushgateway:v1.11.2@sha256:49ed9fdf3780fbc68627ca2cd331661cc0a87f852477e14bbe9ec26a98f4abb8
 quay.io/prometheus/prometheus:v3.3.1@sha256:c0b857aead0d5793aa566adb8f49a9983d6f6031652098759d521a330cfa050f
 docker.io/library/registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
+
+# ingress-nginx 1.15.1 (kind provider) -- host ingress for cluster vhosts
+registry.k8s.io/ingress-nginx/controller:v1.15.1@sha256:594ceea76b01c592858f803f9ff4d2cb40542cae2060410b2c95f75907d659e1
+registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.6.9@sha256:01038e7de14b78d702d2849c3aad72fd25903c4765af63cf16aa3398f5d5f2dd

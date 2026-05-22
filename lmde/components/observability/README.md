@@ -7,7 +7,8 @@ Provides a local, persistent observability stack for agents and services. Other 
 ## Architecture
 
 - **Infrastructure**: Running on a dedicated `kind` cluster named `lmde-observability`.
-- **Ingress**: The OTel collector is exposed to the host via `kind` `extraPortMappings` on `localhost`.
+- **Telemetry ingest**: The OTel collector is exposed to the host on `localhost:4317`/`4318` via `kind` `extraPortMappings`.
+- **Host access**: Grafana is reached at `grafana.lmde.localhost` through Caddy and an in-cluster `ingress-nginx` controller -- see [networking/](../networking/README.md).
 - **Persistence**: Prometheus uses local path provisioning for persistent metric storage across cluster restarts.
 
 ## Components
@@ -22,8 +23,9 @@ Provides a local, persistent observability stack for agents and services. Other 
 3. **Grafana**:
    - Data Source: Prometheus.
    - Default Dashboards: Agent Performance, Token Usage, Success Rates.
+   - Reached at `grafana.lmde.localhost` (ingress-nginx route + Caddy vhost).
 
 ## Setup Logic
 
-- `setup.sh`: Orchestrates `kind cluster create`, Helm installs, and port-forward configurations.
-- `specs/`: Kubernetes manifests (ConfigMaps, Deployments).
+- `setup.sh`: Orchestrates `kind cluster create`, the `ingress-nginx` install, Helm installs, and Grafana vhost registration.
+- `specs/`: Kubernetes manifests (ConfigMaps, Deployments, the Grafana `Ingress`).

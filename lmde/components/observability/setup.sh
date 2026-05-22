@@ -10,6 +10,16 @@ DATA_DIR="${HOME}/.local/share/tds-utils/observability/data"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REGISTRY_NAME="kind-registry"
 
+# Shared Networking
+NET_LIB="${SCRIPT_DIR}/../networking/lib.sh"
+# shellcheck disable=SC1090
+source "${NET_LIB}"
+
+# Ingress (see lmde/components/networking/)
+INGRESS_SETUP="${SCRIPT_DIR}/../networking/ingress-nginx/setup.sh"
+CLUSTER_ALIAS="lmde"
+INGRESS_PORT="32100"
+
 # Chart Versions
 PROMETHEUS_CHART_VERSION="27.5.0"
 GRAFANA_CHART_VERSION="8.10.1"
@@ -110,15 +120,48 @@ deploy_otel_collector() {
     kubectl apply -f "${SCRIPT_DIR}/specs/otel-collector/deployment.yaml"
 }
 
+deploy_dashboards() {
+    log "Deploying Grafana Dashboards..."
+    local dashboard_dir="${SCRIPT_DIR}/specs/grafana/dashboards"
+    if [[ -d "${dashboard_dir}" ]]; then
+        find "${dashboard_dir}" -name "*.yaml" -exec kubectl apply -f {} \;
+    fi
+}
+
+install_ingress_controller() {
+    if [[ ! -f "${INGRESS_SETUP}" ]]; then
+        log "ERROR: ingress-nginx setup script not found at ${INGRESS_SETUP}"
+        exit 1
+    fi
+    log "Installing ingress-nginx controller..."
+    bash "${INGRESS_SETUP}"
+}
+
+deploy_ingress_routes() {
+    log "Applying Grafana ingress route..."
+    kubectl apply -f "${SCRIPT_DIR}/specs/grafana/ingress.yaml"
+
+    if command -v register_cluster_vhost >/dev/null 2>&1; then
+        register_cluster_vhost "${CLUSTER_ALIAS}" "${INGRESS_PORT}" \
+            || log "WARNING: vhost registration did not complete; check Caddy."
+    else
+        log "WARNING: networking lib not sourced; skipping vhost registration."
+    fi
+}
+
 # --- Main ---
 
 main() {
     ensure_directories
     ensure_registry
     ensure_kind_cluster
+    install_ingress_controller
     setup_namespaces
     install_helm_charts
     deploy_otel_collector
+    deploy_dashboards
+    deploy_ingress_routes
+
     log "Observability stack bootstrap complete."
 }
 
