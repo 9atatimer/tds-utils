@@ -7,8 +7,6 @@ conservatively. Don't read them all in; they'll flood your context.
 
 Ingest the whole relevant file (and follow it) at the moment a task
 starts that maps to one:
-- Designing or evaluating LMDE tech (a new CLI tool, language, local
-  service, or AI tooling change) → SKILL.TECH_RADAR.md.
 - Writing or reviewing tests → TESTING.md.
 - About to push code, create or review a PR, reply to PR feedback, or
   subscribe to PR activity → GITHUB.md. The trigger is the push/review
