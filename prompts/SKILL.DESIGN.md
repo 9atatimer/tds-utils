@@ -150,7 +150,7 @@ When asked to improve an existing doc:
 A design doc's value is realized when it drives implementation:
 
 1. **Before coding:** Read the design doc. If anything is unclear, improve the doc first
-2. **During planning:** Use `SKILL.PLANNING.md` to create a TODO_PLAN from the design doc
+2. **During planning:** Use `SKILL.PLANNING.md` to break the design into phases, recorded in the repo's single `TODO_PLAN.md` (per `SKILL.TODO_PLAN.md`)
 3. **During coding:** Use `SKILL.CODING.md` to implement against the design doc
 4. **After implementation:** Update the design doc status to IMPLEMENTED; note any deviations
 
@@ -160,7 +160,7 @@ A design doc's value is realized when it drives implementation:
 docs/design/DESIGN.feature.md    (what to build and why)
          |
          v
-docs/TODO_PLAN.feature.md        (how to build it, step by step)
+TODO_PLAN.md                     (how to build it -- the repo-root singleton)
          |
          v
 Implementation                    (the code)

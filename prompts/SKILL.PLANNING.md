@@ -1,4 +1,13 @@
-# SKILL: Implementation Planning & TODO_PLAN Creation
+# SKILL: Implementation Planning
+
+> **THIS SKILL PRODUCES PLAN *CONTENT*, NOT A FILE.** The phased plan you
+> build here is recorded as a section inside the repository's single,
+> root-level `TODO_PLAN.md` -- never a separate or per-feature file.
+> `SKILL.TODO_PLAN.md` is authoritative on that file: its singleton rule,
+> location, structure, and lightweight one-line-task format. This skill
+> covers only the *methodology* of breaking work into testable, committable
+> phases. Where the template below reads like a standalone document, treat
+> it as the shape of your *thinking*, not a file to create.
 
 > **Purpose:** Create resilient, BDD-driven implementation plans that fight compact amnesia
 > **When to use:** Before starting any multi-phase feature implementation
@@ -85,6 +94,13 @@
 ---
 
 ## The BDD TODO_PLAN Template [OK]
+
+> **NOTE -- this is a *section* template, not a file template.** The
+> structure below describes the *content* of a plan as it lives inside the
+> repo's single root `TODO_PLAN.md`. The `# Title` / `> Status:` /
+> `> Branch:` front-matter shown is illustrative of what a plan should
+> capture -- it is **not** the header of a new standalone file. The plan is
+> a section within `TODO_PLAN.md`; see `SKILL.TODO_PLAN.md`.
 
 ### Structure Overview
 
