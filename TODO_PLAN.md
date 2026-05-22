@@ -35,10 +35,8 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 
 ### LMDE (Local Managed Developer Environment)
 
-- [x] Task LMDE1: **Implement Local Registry sync script.** Create `lmde/components/registry/sync.sh` and `images.txt` to mirror vetted, digest-pinned images to `localhost:5001`.
-- [x] Task LMDE2: **Bootstrap Observability Stack.** Create `lmde/components/observability/setup.sh` and `kind-config.yaml` to deploy OTel, Prometheus, and Grafana with host-path persistence.
-- [x] Task LMDE3: **Observability Smoke Tests.** Create `test/smoketest_lmde_observability/` to verify the end-to-end telemetry pipeline (OTLP -> Prometheus -> Grafana).
-- [x] Task LMDE4: **Implement LMDE Tech Radar.** Create `prompts/SKILL.TECH_RADAR.md` based on the design doc, add the `CLAUDE.md` ingest hook, and perform the initial backfill of "Adopted" and "Hold" tech.
+- [ ] Task LMDE7: **Event ingestion via Loki.** Stand up single-binary Loki as the OTLP event store, add a `logs` pipeline to the otel-collector, add a Grafana Loki datasource, and wire it into `setup.sh`. First revise `docs/design/LMDE-OBSERVABILITY.DESIGN.md` to refine the "Log Aggregation" Non-Goal (structured OTLP events in scope; raw terminal logs stay `log-hoarder`'s) and note Tempo as the deferred traces leg. Inert until clai sets `OTEL_LOGS_EXPORTER=otlp` (ai-tools).
+- [ ] Task LMDE8: **Stack-health Grafana dashboard.** Add a Grafana dashboard monitoring the obs stack itself -- CPU, memory, storage, restarts/errors per component (prometheus, grafana, otel-collector, loki, ingress-nginx). Dashboard JSON + ConfigMap; no new infra; can land before LMDE7.
 
 ### Terminal UX
 
@@ -141,3 +139,9 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 
 - [x] Task LMDE0: **Formalize LMDE concept and design Observability stack.** Created `lmde/LMDE.md` contract and drafted `docs/design/LMDE-OBSERVABILITY.DESIGN.md`. PR #44.
 - [x] Task LMDE0.1: **Tech Radar Design.** Drafted `docs/design/WIP.TECH_RADAR.DESIGN.md` capturing the LMDE <-> Project-stack split.
+- [x] Task LMDE1: **Implement Local Registry sync script.** Created `lmde/components/registry/sync.sh` and `images.txt` to mirror vetted, digest-pinned images to `localhost:5001`.
+- [x] Task LMDE2: **Bootstrap Observability Stack.** Created `lmde/components/observability/setup.sh` and `kind-config.yaml` to deploy OTel, Prometheus, and Grafana with host-path persistence.
+- [x] Task LMDE3: **Observability Smoke Tests.** Created `test/smoketest_lmde_observability/` to verify the end-to-end telemetry pipeline (OTLP -> Prometheus -> Grafana).
+- [x] Task LMDE4: **Implement LMDE Tech Radar.** Created `prompts/SKILL.TECH_RADAR.md` based on the design doc, added the `CLAUDE.md` ingest hook, and backfilled "Adopted" and "Hold" tech.
+- [x] Task LMDE5: **ingress-nginx host ingress for cluster vhosts.** Replaced the rejected istio approach -- added `lmde/components/networking/` (the Caddy `register_cluster_vhost` helper and a vendored ingress-nginx kind manifest), the `*.{cluster}.localhost` vhost scheme, and Grafana reachable at `grafana.lmde.localhost`. PR #49.
+- [x] Task LMDE6: **Remove the legacy bash clai launcher.** `bin/clai` (bash) is superseded by the Python `clai` tool (uv-installed); removed it, its `test/smoketest_clai/` suite, and `CLAI.DESIGN.md`. PR #50.

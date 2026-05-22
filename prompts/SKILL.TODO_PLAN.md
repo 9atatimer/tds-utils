@@ -1,5 +1,12 @@
 # Skill: TODO_PLAN.md Maintenance
 
+> **SINGLETON -- READ THIS FIRST.** A repository has exactly **one**
+> `TODO_PLAN.md`, and it lives at the **repo root**. Never create
+> `TODO_PLAN.<feature>.md`, never place a plan file under `docs/`, never
+> split the plan across files. One repo, one plan. Completed work moves
+> into this file's "Completed" section; superseded plans are not kept as
+> files -- git history holds the past.
+
 This skill defines how to maintain the project's `TODO_PLAN.md` file at the
 repository root. This is the single source of truth for what needs doing, what
 has been done, and what we learned along the way.
