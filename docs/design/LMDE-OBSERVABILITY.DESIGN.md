@@ -38,7 +38,7 @@ The LMDE Observability Stack provides a local, permanent, and secure destination
 | Host Laptop                                                     |
 |                                                                 |
 |  +--------------+       +------------------------------------+  |
-|  | Coding Agent |------>| OTel Collector (NodePorts:4317/18) |  |
+|  | Coding Agent |------>| OTel Collector (Host Ports:4317/18)|  |
 |  +--------------+       +---------------+--------------------+  |
 |                                         |                       |
 |                                         v                       |
@@ -73,6 +73,7 @@ Ensures that the environment is hermetic and resistant to upstream poisoning or 
 Provides the isolation boundary and resource management.
 
 #### Configuration (`kind-config.yaml`)
+
 - **Nodes**: 1 control-plane node.
 - **Port Mappings**:
   - `3000` -> `3000` (Grafana UI)
@@ -86,6 +87,7 @@ Provides the isolation boundary and resource management.
 The core data processing and visualization stack.
 
 #### Deployment Strategy
+
 - **Helm**: Use `prometheus-community` and `grafana` charts, but template them to use local registry images.
 - **Persistence**: Configure charts to use a `HostPath` PersistentVolume pointing to `/mnt/data`.
 - **Quotas**: A `ResourceQuota` in the `observability` namespace limits CPU to 1.0 and Memory to 2Gi.
