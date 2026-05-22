@@ -20,7 +20,7 @@ send_metric() {
     log "Sending metric ${METRIC_NAME}=${METRIC_VALUE} to ${OTEL_ENDPOINT}..."
     
     # OTLP HTTP JSON payload
-    curl -s -X POST "${OTEL_ENDPOINT}" \
+    curl -sf -X POST "${OTEL_ENDPOINT}" \
         -H "Content-Type: application/json" \
         -d "{
           \"resourceMetrics\": [
@@ -69,7 +69,7 @@ verify_metric() {
     local result
     for i in {1..30}; do
         log "Querying Prometheus (attempt ${i}/30)..."
-        result=$(curl -s "http://localhost:9090/api/v1/query?query=${METRIC_NAME}" | jq -r '.data.result[0].value[1] // empty')
+        result=$(curl -sf "http://localhost:9090/api/v1/query?query=${METRIC_NAME}" | jq -r '.data.result[0].value[1] // empty')
         if [[ "${result}" == "${METRIC_VALUE}" ]]; then
             log "SUCCESS: Found metric ${METRIC_NAME} with value ${METRIC_VALUE}"
             return 0

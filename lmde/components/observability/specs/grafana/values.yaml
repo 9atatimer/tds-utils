@@ -10,7 +10,6 @@ resources:
   limits:
     cpu: 200m
     memory: 512Mi
-adminPassword: "admin"
 datasources:
   datasources.yaml:
     apiVersion: 1

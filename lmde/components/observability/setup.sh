@@ -42,19 +42,19 @@ ensure_kind_cluster() {
         
         kind create cluster --name "${CLUSTER_NAME}" --config "${config_tmp}"
         rm "${config_tmp}"
+    fi
 
-        log "Configuring node registry mirrors..."
-        local REGISTRY_DIR="/etc/containerd/certs.d/localhost:5001"
-        for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
-            docker exec "${node}" mkdir -p "${REGISTRY_DIR}"
-            docker exec -i "${node}" bash -c "cat > ${REGISTRY_DIR}/hosts.toml" <<EOF
+    log "Configuring node registry mirrors..."
+    local REGISTRY_DIR="/etc/containerd/certs.d/localhost:5001"
+    for node in $(kind get nodes --name "${CLUSTER_NAME}"); do
+        docker exec "${node}" mkdir -p "${REGISTRY_DIR}"
+        docker exec -i "${node}" bash -c "cat > ${REGISTRY_DIR}/hosts.toml" <<EOF
 server = "http://kind-registry:5000"
 
 [host."http://kind-registry:5000"]
   capabilities = ["pull", "resolve"]
 EOF
-        done
-    fi
+    done
 
     # Ensure registry is on the kind network
     if docker network inspect kind >/dev/null 2>&1; then
