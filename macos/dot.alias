@@ -29,3 +29,13 @@ alias bit-tunnel="ssh -L 5678:127.0.0.1:5678 stumpf@100.125.95.68"
 
 # goldfish — recent-work report across repos
 alias gf=goldfish
+
+# Route AI coding agents through clai (overlay hooks + OpenTelemetry env).
+# Interactive shells only — scripts that call these binaries directly are
+# unaffected. clai launches the real agent via subprocess, which does not
+# inherit these aliases, so there is no recursion. For a raw run, bypass
+# with `command <agent>` or `\<agent>`.
+alias claude='clai claude'
+alias gemini='clai gemini'
+alias codex='clai codex'
+alias opencode='clai opencode'
