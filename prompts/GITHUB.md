@@ -79,22 +79,43 @@ output. ANSI codes are stripped automatically.
 the subscription stream, **do not re-fetch it.** The webhook payload is the
 source of truth for that thread -- reply directly from the comment ID.
 
-## PR Activity Subscription (push model)
+## Review-watch loop (default after opening a PR)
 
-You can subscribe a session to a PR's webhook stream via the
-`mcp__github__subscribe_pr_activity` tool. Once subscribed:
+When you open a PR with `gh pr create`, **start the review-watch loop
+by default** -- don't wait for the human to ask. This implements the
+"Iterative Review" cycle above: address Copilot feedback, push, wait
+for re-review, repeat until quiescent. Applies to both human-driven
+(`tstumpf/*`) and agent-driven (`claude/*`) PRs.
 
-- New comments, reviews, CI status changes, merge, and close events arrive
-  in the conversation as `<github-webhook-activity>` blocks.
-- The subscription is auto-removed when the PR merges or closes.
-- Subscription is idempotent -- calling it twice is harmless.
+Two transports, preferring push:
 
-**When to subscribe:**
+1. **Subscription (push) -- if the GitHub MCP server is loaded.** Call
+   `mcp__github__subscribe_pr_activity` with the PR number. Events
+   arrive as `<github-webhook-activity>` blocks. Auto-removes on
+   merge/close. Idempotent.
+2. **Polling (`ScheduleWakeup`) -- when MCP isn't loaded.** Dynamic
+   self-pacing. First wake ~10 min after PR open (past typical
+   AI-review latency); back off to 20-30 min on consecutive empties.
+   Each wake runs `gadmin github pending-comments --repo <OWNER/REPO>
+   --pr <N>` and triages. Pass the loop's continuation prompt verbatim
+   to `ScheduleWakeup` so the next wake re-enters this flow.
 
-- Immediately after opening a PR, if the human asks you to watch / babysit
-  / autofix / monitor / respond to it.
-- Skip if the human hasn't asked for active engagement (a one-shot PR
-  doesn't need a subscription).
+**Termination conditions** (any one fires -> stop the loop; in MCP
+mode also unsubscribe; in poll mode omit the next `ScheduleWakeup`):
+
+- PR merged or closed.
+- 12 consecutive empty polls (~1 hour quiescent).
+- Architecturally ambiguous comment -> `AskUserQuestion` and stop.
+  Don't guess at design calls.
+- **Quality drop**: when remaining unaddressed comments are nitpicks
+  (style trivia, "consider renaming X to Y" with no concrete reason,
+  alternative phrasings of working code), push back -- reject with a
+  one-line reason per the threshold below. If Copilot re-asserts the
+  same nit on the next pass, post one summary reply ("remaining
+  suggestions are stylistic; not addressing in this PR") and stop.
+  Don't loop on bikeshedding.
+- Human says "stop the loop" / "stop watching" / similar -> stop.
+  Don't argue.
 
 **Event taxonomy and triage policy:**
 
@@ -103,17 +124,21 @@ You can subscribe a session to a PR's webhook stream via the
 | Review overview (`pullrequestreview`, often with N inline comments queued behind it) | Fetch the full review_comments list **once** via `gadmin` and triage the whole batch. Do not reply per inline event. |
 | Single inline `pull_request_review_comment` (no review overview, e.g. a human reply) | Triage and act on that one thread. |
 | `check_run` failure | Get the failing job's log via `gadmin github actions get-job`; classify (flake / config / real bug); fix or report. |
-| `merged` / `closed` | Acknowledge and stop watching; you're auto-unsubscribed. |
+| `merged` / `closed` | Acknowledge and stop watching; you're auto-unsubscribed (MCP) or omit next wakeup (poll). |
 | **Echo of your own reply** (author is you, body matches what you just posted) | **Skip.** Every reply you post comes back as a webhook event ~1s later. Recognise and discard. |
 
 **Auto-action threshold (apply on every event):**
 
-- If the change is **small and unambiguous**, make it, push, reply with the
-  SHA. No need to ask first.
-- If the change is **ambiguous or architecturally significant**, ask the
-  human before acting. Use `AskUserQuestion` so the question is in-band.
-- If **no action is needed** (echo, informational, noise), skip and say so
-  briefly.
+- If the change is **small and unambiguous**, make it, push, reply with
+  the SHA. No need to ask first.
+- If the change is **ambiguous or architecturally significant**, ask
+  the human before acting. Use `AskUserQuestion` so the question is
+  in-band.
+- If you **disagree** with a comment, reject it with a one-line
+  concrete reason. Never just "disagree." Don't be a yes-man to
+  Copilot -- reviewer pushback is the point of the loop.
+- If **no action is needed** (echo, informational, noise), skip and
+  say so briefly.
 
 ## Automated Review Response
 
