@@ -96,15 +96,34 @@ Two transports, preferring push:
 2. **Polling (`ScheduleWakeup`) -- when MCP isn't loaded.** Dynamic
    self-pacing. First wake ~10 min after PR open (past typical
    AI-review latency); back off to 20-30 min on consecutive empties.
-   Each wake runs `gadmin github pending-comments --repo <OWNER/REPO>
-   --pr <N>` and triages. Pass the loop's continuation prompt verbatim
-   to `ScheduleWakeup` so the next wake re-enters this flow.
+   Pass the loop's continuation prompt verbatim to `ScheduleWakeup`
+   so the next wake re-enters this flow.
+
+   **On wake, do these in order:**
+   1. **Switch to the PR's head branch** (`git switch <branch>`).
+      Otherwise `gadmin` may abort with a branch-mismatch warning and
+      hide real pending comments. The user can be on any branch
+      between turns; the loop is responsible for landing on the
+      right one before any `gadmin` call.
+   2. Check top-level reviews with `gh pr view <NUMBER> --json reviews`
+      to catch **overview-only reviews** (`state=COMMENTED` body with
+      no inline comments). `gadmin pending-comments` only surfaces
+      inline comments, so overview-only reviews are invisible to it.
+      - Overview **with** inline comments -> proceed to step 3.
+      - Overview **only** (no inline) -> ack briefly and continue;
+        don't reply per overview event.
+      - No new review since last poll -> empty poll, increment the
+        empty-poll counter, schedule the next wake.
+   3. Fetch unaddressed inline comments with
+      `gadmin github pending-comments --repo <OWNER/REPO> --pr <NUMBER>`
+      and triage per the auto-action threshold below.
 
 **Termination conditions** (any one fires -> stop the loop; in MCP
 mode also unsubscribe; in poll mode omit the next `ScheduleWakeup`):
 
 - PR merged or closed.
-- 12 consecutive empty polls (~1 hour quiescent).
+- 3 consecutive empty polls (~1 hour quiescent at the documented
+  10-then-20-30min cadence).
 - Architecturally ambiguous comment -> `AskUserQuestion` and stop.
   Don't guess at design calls.
 - **Quality drop**: when remaining unaddressed comments are nitpicks
