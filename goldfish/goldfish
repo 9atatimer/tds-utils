@@ -306,6 +306,10 @@ def run_zoom(query: str, args: argparse.Namespace) -> int:
                 open_tasks = tuple(parse_todo_plan_all(todo_path.read_text()))
             except (OSError, UnicodeDecodeError):
                 open_tasks = ()
+    elif args.fetch_remote_todos:
+        text = fetch_remote_todo_plan(name)
+        if text:
+            open_tasks = tuple(parse_todo_plan_all(text))
 
     data = ZoomData(
         name=name,

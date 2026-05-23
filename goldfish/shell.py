@@ -385,7 +385,7 @@ def _llm_candidates() -> list[list[str]]:
 
 
 def git_recent_commits(workdir: Path, *, n: int = 8) -> list[CommitSummary]:
-    """Return the last `n` commits as (short_sha, subject) pairs. Empty on error."""
+    """Return the last `n` commits as CommitSummary records. Empty list on error."""
     raw = _run(
         ["git", "log", f"-{n}", "--format=%h%x09%s"],
         cwd=str(workdir),

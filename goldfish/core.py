@@ -497,18 +497,23 @@ def resolve_repo_name(query: str, *, known: Iterable[str]) -> list[str]:
     """Resolve a user-typed repo query against known `owner/name` keys.
 
     1. Exact match wins outright -- if the query is in `known`, return just it.
-    2. Otherwise, treat the query as a basename and match case-insensitively
+    2. If the query contains `/`, treat it as a full `owner/name` and match
+       case-insensitively against each key.
+    3. Otherwise, treat the query as a basename and match case-insensitively
        against the segment after the last `/` in each key.
-    3. Returns matches sorted; empty list = no match; len > 1 = ambiguous.
+    4. Returns matches sorted; empty list = no match; len > 1 = ambiguous.
     """
     known_set = set(known)
     if query in known_set:
         return [query]
     needle = query.lower()
-    matches = [
-        name for name in known_set
-        if name.rsplit("/", 1)[-1].lower() == needle
-    ]
+    if "/" in query:
+        matches = [name for name in known_set if name.lower() == needle]
+    else:
+        matches = [
+            name for name in known_set
+            if name.rsplit("/", 1)[-1].lower() == needle
+        ]
     return sorted(matches)
 
 

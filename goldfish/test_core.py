@@ -821,6 +821,14 @@ def test_resolve_repo_name_case_insensitive_basename() -> None:
     assert resolve_repo_name("tds-utils", known=known) == ["9atatimer/TDS-Utils"]
 
 
+def test_resolve_repo_name_case_insensitive_owner_name() -> None:
+    """Given an explicit owner/name with different casing, still matches."""
+    known = {"9atatimer/tds-utils"}
+    assert resolve_repo_name("9atatimer/TDS-Utils", known=known) == [
+        "9atatimer/tds-utils",
+    ]
+
+
 # --- format_zoom (G9) --------------------------------------------------------
 
 def _zoom(
@@ -892,9 +900,8 @@ def test_format_zoom_renders_local_branch_and_dirty_state() -> None:
     )))
     assert "tstumpf/feat/foo" in out
     assert "/Users/x/workplace/tds-utils" in out
-    # dirty and ahead=2 should both be visible somewhere
     assert "dirty" in out.lower()
-    assert "2" in out  # ahead count
+    assert "2 / 0" in out  # specific ahead/behind line, not any digit
 
 
 def test_format_zoom_shows_none_markers_for_missing_data() -> None:
