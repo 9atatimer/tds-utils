@@ -94,21 +94,18 @@ Two transports, preferring push:
    arrive as `<github-webhook-activity>` blocks. Auto-removes on
    merge/close. Idempotent.
 2. **Polling (`ScheduleWakeup`) -- when MCP isn't loaded.** Dynamic
-   self-pacing with a **cache-aware tight cadence**. The Anthropic
-   prompt cache has a 5-min TTL; wakes ≤270s stay warm and cost
-   almost nothing per iteration, so don't pad delays for the sake
-   of feeling polite to the API.
+   self-pacing. Per the global 240s-max rule in `~/.claude/CLAUDE.md`,
+   all wakes here are ≤4 min (the global rule wins; no longer wakes
+   without human approval).
    - **First wake after PR open:** ~3 min (180s) -- Copilot needs a
      beat to start; polling before that is wasted.
    - **First wake after a push:** ~2 min (120s).
    - **Empty polls while waiting:** every 2 min (120s).
 
    Copilot's observed response window is ~4-6 min, so a 2-min cadence
-   catches it within ~2 min worst case, average ~3. Don't choose
-   delays in the 300-1200s range -- that's the worst-of-both (cache
-   miss without amortising the wait). Pass the loop's continuation
-   prompt verbatim to `ScheduleWakeup` so the next wake re-enters
-   this flow.
+   catches it within ~2 min worst case, average ~3. Pass the loop's
+   continuation prompt verbatim to `ScheduleWakeup` so the next wake
+   re-enters this flow.
 
    **On wake, do these in order:**
    1. **Switch to the PR's head branch** (`git switch <branch>`).
