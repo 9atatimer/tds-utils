@@ -50,3 +50,9 @@ Any project running within this environment can assume the existence and availab
 - **Individual Tooling**: `fzf`, `jq`, `sed` are utilities, not architectural components.
 - **Personal Configs**: Emacs `init.el`, `dot.bashrc`, and themes are personal preferences, not platform dependencies.
 - **Project-Specific Services**: Databases or services that only one project needs.
+- **Per-Project Browser Automation**: Chrome for Testing (used by some
+  projects to give an agent driveable Chrome control without touching
+  the user's main browser) is intentionally **per-project**, not LMDE.
+  Each project installs its own under `~/.cache/<project>-cft/` with its
+  own version, profile, and extension loadout. See
+  `@nine-at-a-time-media/prompts` `SKILL.CHROME_MCP.md` for the pattern.
