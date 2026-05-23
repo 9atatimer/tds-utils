@@ -23,11 +23,14 @@ sys.path.insert(0, str(HERE))
 from core import (  # noqa: E402
     GithubInfo,
     RepoRow,
+    ZoomData,
     apply_blacklist,
     apply_org_filter,
     format_processes,
     format_table,
+    format_zoom,
     is_actionable,
+    resolve_repo_name,
     rows_to_json,
     sort_rows,
 )
@@ -39,6 +42,9 @@ from shell import (  # noqa: E402
     find_local_clones,
     gh_list_repos,
     gh_open_pr_counts,
+    gh_prs_for_repo,
+    gh_pushed_at,
+    git_recent_commits,
     have,
     inspect_local,
     load_blacklist,
@@ -49,7 +55,7 @@ from shell import (  # noqa: E402
     save_cached_clones,
     summarize_with_llm,
 )
-from core import parse_todo_plan  # noqa: E402
+from core import parse_todo_plan, parse_todo_plan_all  # noqa: E402
 
 
 # --- Action functions --------------------------------------------------------
@@ -241,6 +247,83 @@ def _build_row(
     return RepoRow(name=name, github=github_info, local=local, agents=repo_agents)
 
 
+def run_zoom(query: str, args: argparse.Namespace) -> int:
+    """Render a one-repo activity summary instead of the cross-repo table."""
+    config = load_config()
+    cached = None if args.refresh else load_cached_clones()
+    use_cache = cached is not None and cached_clones_fresh(cached)
+    if use_cache:
+        clones = dict(cached.clones)
+    else:
+        clones = find_local_clones(resolve_roots(config))
+        save_cached_clones(clones)
+
+    candidates = set(clones)
+    if "/" in query:
+        candidates.add(query)
+    matches = resolve_repo_name(query, known=candidates)
+
+    if not matches:
+        print(
+            f"goldfish: no repo matching '{query}'. "
+            f"Pass owner/name to zoom an uncloned repo, or --refresh to rescan.",
+            file=sys.stderr,
+        )
+        return 1
+    if len(matches) > 1:
+        print(
+            f"goldfish: '{query}' is ambiguous; matches: {', '.join(matches)}",
+            file=sys.stderr,
+        )
+        return 1
+    name = matches[0]
+    workdir = clones.get(name)
+
+    agents_known = set(config.get("agents", []))
+
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        f_pushed = ex.submit(gh_pushed_at, name)
+        f_prs = ex.submit(gh_prs_for_repo, name)
+        f_commits = ex.submit(git_recent_commits, workdir) if workdir else None
+        f_local = ex.submit(inspect_local, workdir) if workdir else None
+        f_agents = (
+            ex.submit(running_agents, agents_known, {name: workdir})
+            if workdir else None
+        )
+        pushed_at = f_pushed.result()
+        prs = f_prs.result()
+        commits = tuple(f_commits.result()) if f_commits else ()
+        local = f_local.result() if f_local else None
+        agents = tuple(f_agents.result()) if f_agents else ()
+
+    github = GithubInfo(name=name, pushed_at=pushed_at, open_pr_count=len(prs))
+
+    open_tasks: tuple[str, ...] = ()
+    if workdir:
+        todo_path = workdir / "TODO_PLAN.md"
+        if todo_path.exists():
+            try:
+                open_tasks = tuple(parse_todo_plan_all(todo_path.read_text()))
+            except (OSError, UnicodeDecodeError):
+                open_tasks = ()
+    elif args.fetch_remote_todos:
+        text = fetch_remote_todo_plan(name)
+        if text:
+            open_tasks = tuple(parse_todo_plan_all(text))
+
+    data = ZoomData(
+        name=name,
+        github=github,
+        local=local,
+        recent_commits=commits,
+        open_prs=tuple(prs),
+        agents=agents,
+        open_tasks=open_tasks,
+    )
+    print(format_zoom(data))
+    return 0
+
+
 def run_manage_blacklist(args: argparse.Namespace) -> int:
     """Toggle blacklist entries interactively, then save and exit.
 
@@ -372,6 +455,11 @@ def run(argv: list[str]) -> int:
         description="At-a-glance report of recent work across your github repos.",
     )
     parser.add_argument(
+        "repo", nargs="?", default=None,
+        help="Optional repo name or owner/name. When set, render a single-repo "
+             "activity summary instead of the cross-repo table.",
+    )
+    parser.add_argument(
         "--fetch-remote-todos", action="store_true",
         help="If a repo has no local clone, fetch TODO_PLAN.md from GitHub.",
     )
@@ -421,6 +509,9 @@ def run(argv: list[str]) -> int:
 
     if args.manage_blacklist:
         return run_manage_blacklist(args)
+
+    if args.repo is not None:
+        return run_zoom(args.repo, args)
 
     if not have("gh"):
         sys.stderr.write(

@@ -20,9 +20,11 @@ from pathlib import Path
 from core import (
     AgentSession,
     ClonesCache,
+    CommitSummary,
     GithubInfo,
     LocalInfo,
     GitDirtyState,
+    PRSummary,
     enclosing_repo,
     first_meaningful_line,
     format_marker_state,
@@ -379,6 +381,72 @@ def _llm_candidates() -> list[list[str]]:
     if have("ollama"):
         model = os.environ.get("GOLDFISH_OLLAMA_MODEL", "llama3.2")
         out.append(["ollama", "run", model, LLM_PROMPT])
+    return out
+
+
+def git_recent_commits(workdir: Path, *, n: int = 8) -> list[CommitSummary]:
+    """Return the last `n` commits as CommitSummary records. Empty list on error."""
+    raw = _run(
+        ["git", "log", f"-{n}", "--format=%h%x09%s"],
+        cwd=str(workdir),
+        timeout=5.0,
+    )
+    out: list[CommitSummary] = []
+    for line in raw.splitlines():
+        if "\t" not in line:
+            continue
+        sha, subject = line.split("\t", 1)
+        out.append(CommitSummary(sha=sha, subject=subject))
+    return out
+
+
+def gh_pushed_at(name_with_owner: str) -> datetime | None:
+    """Fetch the repo's pushedAt timestamp via `gh repo view`."""
+    if not have("gh"):
+        return None
+    raw = _run(
+        ["gh", "repo", "view", name_with_owner, "--json", "pushedAt"],
+        timeout=10.0,
+    )
+    if not raw.strip():
+        return None
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    pushed = data.get("pushedAt")
+    if not isinstance(pushed, str):
+        return None
+    return _parse_iso_safe(pushed)
+
+
+def gh_prs_for_repo(name_with_owner: str) -> list[PRSummary]:
+    """List open PRs for one repo via `gh pr list`. Empty list on any failure."""
+    if not have("gh"):
+        return []
+    raw = _run([
+        "gh", "pr", "list",
+        "-R", name_with_owner,
+        "--state", "open",
+        "--json", "number,title,author,isDraft",
+        "--limit", "50",
+    ], timeout=15.0)
+    if not raw.strip():
+        return []
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    out: list[PRSummary] = []
+    for entry in data:
+        number = entry.get("number")
+        title = entry.get("title") or ""
+        author = (entry.get("author") or {}).get("login") or "?"
+        is_draft = bool(entry.get("isDraft"))
+        if isinstance(number, int):
+            out.append(PRSummary(
+                number=number, title=title, author=author, is_draft=is_draft,
+            ))
     return out
 
 
