@@ -94,10 +94,21 @@ Two transports, preferring push:
    arrive as `<github-webhook-activity>` blocks. Auto-removes on
    merge/close. Idempotent.
 2. **Polling (`ScheduleWakeup`) -- when MCP isn't loaded.** Dynamic
-   self-pacing. First wake ~10 min after PR open (past typical
-   AI-review latency); back off to 20-30 min on consecutive empties.
-   Pass the loop's continuation prompt verbatim to `ScheduleWakeup`
-   so the next wake re-enters this flow.
+   self-pacing with a **cache-aware tight cadence**. The Anthropic
+   prompt cache has a 5-min TTL; wakes ≤270s stay warm and cost
+   almost nothing per iteration, so don't pad delays for the sake
+   of feeling polite to the API.
+   - **First wake after PR open:** ~3 min (180s) -- Copilot needs a
+     beat to start; polling before that is wasted.
+   - **First wake after a push:** ~2 min (120s).
+   - **Empty polls while waiting:** every 2 min (120s).
+
+   Copilot's observed response window is ~4-6 min, so a 2-min cadence
+   catches it within ~2 min worst case, average ~3. Don't choose
+   delays in the 300-1200s range -- that's the worst-of-both (cache
+   miss without amortising the wait). Pass the loop's continuation
+   prompt verbatim to `ScheduleWakeup` so the next wake re-enters
+   this flow.
 
    **On wake, do these in order:**
    1. **Switch to the PR's head branch** (`git switch <branch>`).
@@ -122,8 +133,9 @@ Two transports, preferring push:
 mode also unsubscribe; in poll mode omit the next `ScheduleWakeup`):
 
 - PR merged or closed.
-- 3 consecutive empty polls (~1 hour quiescent at the documented
-  10-then-20-30min cadence).
+- 3 consecutive empty polls (~6 min quiescent at the documented
+  2-min cadence). Stop fast -- Copilot rarely returns late once
+  the response window has passed.
 - Architecturally ambiguous comment -> `AskUserQuestion` and stop.
   Don't guess at design calls.
 - **Quality drop**: when remaining unaddressed comments are nitpicks
