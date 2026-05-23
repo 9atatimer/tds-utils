@@ -49,6 +49,31 @@ class RepoRow:
 
 
 @dataclass(frozen=True, slots=True)
+class CommitSummary:
+    sha: str
+    subject: str
+
+
+@dataclass(frozen=True, slots=True)
+class PRSummary:
+    number: int
+    title: str
+    author: str
+    is_draft: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ZoomData:
+    name: str
+    github: GithubInfo | None
+    local: LocalInfo | None
+    recent_commits: tuple[CommitSummary, ...] = field(default_factory=tuple)
+    open_prs: tuple[PRSummary, ...] = field(default_factory=tuple)
+    agents: tuple[AgentSession, ...] = field(default_factory=tuple)
+    open_tasks: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
 class GitDirtyState:
     branch: str
     is_dirty: bool
@@ -73,6 +98,20 @@ def parse_todo_plan(text: str) -> str | None:
             continue
         return task
     return None
+
+
+def parse_todo_plan_all(text: str) -> list[str]:
+    """Return every unchecked task in source order, skipping struck-through ones."""
+    out: list[str] = []
+    for raw in text.splitlines():
+        m = _TODO_LINE.match(raw)
+        if not m:
+            continue
+        task = m.group(1).strip()
+        if _STRUCK.match(task):
+            continue
+        out.append(task)
+    return out
 
 
 def parse_gh_repo_list(raw: str) -> list[GithubInfo]:
@@ -450,6 +489,92 @@ def _local_to_jsonable(l: LocalInfo | None) -> dict | None:
         "last_commit_at": l.last_commit_at.isoformat() if l.last_commit_at else None,
         "next_task": l.next_task,
     }
+
+
+# --- Zoom (G9): single-repo activity summary --------------------------------
+
+def resolve_repo_name(query: str, *, known: Iterable[str]) -> list[str]:
+    """Resolve a user-typed repo query against known `owner/name` keys.
+
+    1. Exact match wins outright -- if the query is in `known`, return just it.
+    2. Otherwise, treat the query as a basename and match case-insensitively
+       against the segment after the last `/` in each key.
+    3. Returns matches sorted; empty list = no match; len > 1 = ambiguous.
+    """
+    known_set = set(known)
+    if query in known_set:
+        return [query]
+    needle = query.lower()
+    matches = [
+        name for name in known_set
+        if name.rsplit("/", 1)[-1].lower() == needle
+    ]
+    return sorted(matches)
+
+
+def _fmt_dt(dt: datetime | None) -> str:
+    if dt is None:
+        return "—"
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def format_zoom(data: ZoomData) -> str:
+    """Render a single-repo activity summary as a vertical text block."""
+    lines: list[str] = [data.name, "=" * len(data.name), ""]
+
+    lines.append("GitHub:")
+    if data.github is None:
+        lines.append("  (no GitHub data)")
+    else:
+        lines.append(f"  pushed:    {_fmt_dt(data.github.pushed_at)}")
+        lines.append(f"  open PRs:  {data.github.open_pr_count}")
+    lines.append("")
+
+    if data.local is None:
+        lines.append("Local: (not cloned)")
+    else:
+        lines.append(f"Local: {data.local.path}")
+        lines.append(f"  branch:       {data.local.branch or '—'}")
+        lines.append(f"  dirty:        {'yes' if data.local.is_dirty else 'no'}")
+        lines.append(
+            f"  ahead/behind: {data.local.ahead} / {data.local.behind}"
+        )
+        lines.append(f"  last commit:  {_fmt_dt(data.local.last_commit_at)}")
+    lines.append("")
+
+    lines.append("Recent commits:")
+    if not data.recent_commits:
+        lines.append("  (none)")
+    else:
+        for c in data.recent_commits:
+            lines.append(f"  {c.sha:<8}  {c.subject}")
+    lines.append("")
+
+    lines.append("Open PRs:")
+    if not data.open_prs:
+        lines.append("  (none)")
+    else:
+        for pr in data.open_prs:
+            marker = " (draft)" if pr.is_draft else ""
+            lines.append(f"  #{pr.number}{marker}  {pr.title}  -- @{pr.author}")
+    lines.append("")
+
+    lines.append("Agents:")
+    if not data.agents:
+        lines.append("  (none)")
+    else:
+        for a in sorted(data.agents, key=lambda x: x.pid):
+            lines.append(f"  {a.pid:>7}  {a.name}")
+    lines.append("")
+
+    lines.append(f"Open tasks (TODO_PLAN.md, {len(data.open_tasks)}):")
+    if not data.open_tasks:
+        lines.append("  (none)")
+    else:
+        for t in data.open_tasks:
+            lines.append(f"  - {t}")
+
+    return "\n".join(lines)
 
 
 # --- Formatter ---------------------------------------------------------------
