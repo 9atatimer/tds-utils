@@ -44,6 +44,18 @@ These technologies are the foundational components of the Local Managed Develope
 ### Development Platforms
 - **kind**: Kubernetes in Docker for local cluster orchestration. Standardized boundary for complex services (like Observability).
 
+### Per-Project Patterns (Recommended, not LMDE contract)
+Tooling patterns adopted for use *within* projects rather than as LMDE
+platform components. Each project installs its own; this section
+documents the recommended approach so it isn't reinvented per repo.
+
+- **Chrome for Testing (via `chrome-devtools-mcp`)**: Stand-alone
+  Chromium binary for giving an agent driveable control of a browser
+  without enabling remote debugging on the user's main Chrome.
+  Per-project install under `~/.cache/<project>-cft/`. See
+  `@nine-at-a-time-media/prompts` `SKILL.CHROME_MCP.md` for the wiring
+  pattern. First adopted in `ai-gm` Phase 0.5.
+
 ---
 
 ## Trial -- Testing in Limited Scope
@@ -66,5 +78,12 @@ These technologies are the foundational components of the Local Managed Develope
 ---
 
 ## Decisions Log
+- **2026-05-23**: Adopted Chrome for Testing (via `chrome-devtools-mcp`)
+  as the per-project pattern for agent-driven browser control. Rationale:
+  Chrome 142+ silently disabled `--load-extension` for branded Chrome
+  under `--enable-automation`; CfT is exempt. Pattern lives in
+  `@nine-at-a-time-media/prompts` `SKILL.CHROME_MCP.md`; not LMDE
+  contract because each project gets its own profile, version, and
+  extension loadout.
 - **2026-05-21**: Formalized LMDE architecture and Observability stack.
 - **2026-05-18**: Initial Tech Radar design conversation (see `docs/design/WIP.TECH_RADAR.DESIGN.md`).
