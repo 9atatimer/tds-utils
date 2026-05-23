@@ -10,9 +10,12 @@ from pathlib import Path
 
 from core import (
     AgentSession,
+    CommitSummary,
     GithubInfo,
     LocalInfo,
+    PRSummary,
     RepoRow,
+    ZoomData,
     apply_blacklist,
     apply_org_filter,
     enclosing_repo,
@@ -20,6 +23,7 @@ from core import (
     format_marker_state,
     format_processes,
     format_table,
+    format_zoom,
     is_actionable,
     latest_activity,
     parse_blacklist,
@@ -30,6 +34,8 @@ from core import (
     parse_marker_state,
     parse_ps,
     parse_todo_plan,
+    parse_todo_plan_all,
+    resolve_repo_name,
     rows_to_json,
     serialize_blacklist,
     serialize_clones_cache,
@@ -750,3 +756,160 @@ def test_format_table_next_task_truncated() -> None:
     table = format_table(rows, max_width=120)
     for line in table.splitlines():
         assert len(line) <= 120
+
+
+# --- parse_todo_plan_all (G9) ------------------------------------------------
+
+def test_parse_todo_plan_all_returns_every_unchecked_in_order() -> None:
+    """Given mixed checked/unchecked items, returns all unchecked in source order."""
+    text = (
+        "- [x] one (done)\n"
+        "- [ ] alpha\n"
+        "- [x] two (done)\n"
+        "- [ ] beta\n"
+        "- [ ] gamma\n"
+    )
+    assert parse_todo_plan_all(text) == ["alpha", "beta", "gamma"]
+
+
+def test_parse_todo_plan_all_skips_struck_through() -> None:
+    """Given struck-through unchecked items, they are excluded."""
+    text = "- [ ] ~~old~~ replaced\n- [ ] real one\n"
+    assert parse_todo_plan_all(text) == ["real one"]
+
+
+def test_parse_todo_plan_all_no_open_returns_empty() -> None:
+    """Given no open tasks, returns an empty list (not None)."""
+    assert parse_todo_plan_all("- [x] done\n- [x] also done\n") == []
+
+
+def test_parse_todo_plan_all_empty_string_returns_empty() -> None:
+    """Given empty input, returns an empty list."""
+    assert parse_todo_plan_all("") == []
+
+
+# --- resolve_repo_name (G9) --------------------------------------------------
+
+def test_resolve_repo_name_exact_owner_name_match() -> None:
+    """Given an exact 'owner/name' query, returns it when present."""
+    known = {"9atatimer/tds-utils", "9atatimer/foo", "other/bar"}
+    assert resolve_repo_name("9atatimer/tds-utils", known=known) == ["9atatimer/tds-utils"]
+
+
+def test_resolve_repo_name_basename_match_unique() -> None:
+    """Given a basename query matching exactly one repo, returns that repo."""
+    known = {"9atatimer/tds-utils", "9atatimer/foo", "other/bar"}
+    assert resolve_repo_name("tds-utils", known=known) == ["9atatimer/tds-utils"]
+
+
+def test_resolve_repo_name_basename_match_ambiguous() -> None:
+    """Given a basename owned by two orgs, returns both matches sorted."""
+    known = {"alpha/tds-utils", "beta/tds-utils", "alpha/foo"}
+    assert resolve_repo_name("tds-utils", known=known) == [
+        "alpha/tds-utils", "beta/tds-utils",
+    ]
+
+
+def test_resolve_repo_name_no_match_returns_empty() -> None:
+    """Given a query that matches nothing, returns an empty list."""
+    assert resolve_repo_name("nosuch", known={"a/x", "b/y"}) == []
+
+
+def test_resolve_repo_name_case_insensitive_basename() -> None:
+    """Given a query that differs only in case, still matches."""
+    known = {"9atatimer/TDS-Utils"}
+    assert resolve_repo_name("tds-utils", known=known) == ["9atatimer/TDS-Utils"]
+
+
+def test_resolve_repo_name_case_insensitive_owner_name() -> None:
+    """Given an explicit owner/name with different casing, still matches."""
+    known = {"9atatimer/tds-utils"}
+    assert resolve_repo_name("9atatimer/TDS-Utils", known=known) == [
+        "9atatimer/tds-utils",
+    ]
+
+
+# --- format_zoom (G9) --------------------------------------------------------
+
+def _zoom(
+    *,
+    name: str = "9atatimer/tds-utils",
+    github: GithubInfo | None = None,
+    local: LocalInfo | None = None,
+    recent_commits: tuple[CommitSummary, ...] = (),
+    open_prs: tuple[PRSummary, ...] = (),
+    agents: tuple[AgentSession, ...] = (),
+    open_tasks: tuple[str, ...] = (),
+) -> ZoomData:
+    return ZoomData(
+        name=name,
+        github=github,
+        local=local,
+        recent_commits=recent_commits,
+        open_prs=open_prs,
+        agents=agents,
+        open_tasks=open_tasks,
+    )
+
+
+def test_format_zoom_includes_repo_name_header() -> None:
+    """Given any ZoomData, the first non-blank line names the repo."""
+    out = format_zoom(_zoom())
+    first = next(line for line in out.splitlines() if line.strip())
+    assert "9atatimer/tds-utils" in first
+
+
+def test_format_zoom_renders_recent_commits() -> None:
+    """Given recent commits, each appears with its short sha and subject."""
+    out = format_zoom(_zoom(recent_commits=(
+        CommitSummary(sha="84578fd", subject="chore(todo-plan): one"),
+        CommitSummary(sha="d1d549e", subject="chore(clai): two"),
+    )))
+    assert "84578fd" in out
+    assert "chore(todo-plan): one" in out
+    assert "d1d549e" in out
+
+
+def test_format_zoom_renders_open_prs_with_state() -> None:
+    """Given open PRs, each appears with number, title, author, and draft state."""
+    out = format_zoom(_zoom(open_prs=(
+        PRSummary(number=52, title="feat: thing", author="tstumpf", is_draft=True),
+        PRSummary(number=53, title="fix: bug", author="other", is_draft=False),
+    )))
+    assert "#52" in out
+    assert "feat: thing" in out
+    assert "draft" in out.lower()
+    assert "#53" in out
+
+
+def test_format_zoom_renders_all_open_tasks_not_just_first() -> None:
+    """Given multiple open tasks, every task is listed (not truncated to one)."""
+    tasks = tuple(f"task {i}" for i in range(5))
+    out = format_zoom(_zoom(open_tasks=tasks))
+    for t in tasks:
+        assert t in out
+
+
+def test_format_zoom_renders_local_branch_and_dirty_state() -> None:
+    """Given a LocalInfo with dirty=True, the output reflects that."""
+    out = format_zoom(_zoom(local=LocalInfo(
+        path=Path("/Users/x/workplace/tds-utils"),
+        is_dirty=True, ahead=2, behind=0,
+        branch="tstumpf/feat/foo",
+        last_commit_at=None, next_task=None,
+    )))
+    assert "tstumpf/feat/foo" in out
+    assert "/Users/x/workplace/tds-utils" in out
+    assert "dirty" in out.lower()
+    assert "2 / 0" in out  # specific ahead/behind line, not any digit
+
+
+def test_format_zoom_shows_none_markers_for_missing_data() -> None:
+    """Given ZoomData with empty sections, those sections render a none/empty marker."""
+    out = format_zoom(_zoom())
+    # We don't assert a specific marker string -- just that no section blows up
+    # and the output is non-empty and includes recognisable section headers.
+    lower = out.lower()
+    assert "recent commits" in lower or "commits" in lower
+    assert "open prs" in lower or "prs" in lower
+    assert "tasks" in lower

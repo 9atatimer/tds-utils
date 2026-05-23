@@ -41,6 +41,8 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 - [ ] Task LMDE10: **Events: Grafana datasource + bootstrap + verify.** Add the Grafana Loki datasource, install Loki in `setup.sh`, and smoke-test an OTLP event end to end.
   - Note: the events pipeline stays inert until clai sets `OTEL_LOGS_EXPORTER=otlp` (in `ai-tools`, not this repo) -- coordinate before declaring LMDE10 done.
 - [ ] Task LMDE11: **Stack-health Grafana dashboard.** Add a Grafana dashboard monitoring the obs stack itself -- CPU, memory, storage, restarts/errors per component (prometheus, grafana, otel-collector, loki, ingress-nginx). Dashboard JSON + ConfigMap; no new infra; can land before LMDE7-10.
+- [ ] Task LMDE12: **NATS-in-kind: design.** Draft `docs/design/LMDE-BACKPLANE.DESIGN.md` -- move the LMDE backplane (starting with NATS, then audit each other Adopted component against the residency rule in `lmde/LMDE.md`) into the kind cluster behind LMDE5's ingress-nginx + `*.lmde.localhost`, so kind-sandboxed coding agents reach the same bus as Mac-local agents. Decide: NATS server in-cluster vs. exposing host NATS via ingress; auth model (anonymous loopback today vs. per-agent creds); how `gadmin` and other clients resolve the bus address from inside vs. outside the cluster; which components actually need to move (Caddy/dnsmasq/registry sit at the edge or feed kind and may stay out). Update the `lmde/LMDE.md` Contract once the design lands.
+- [ ] Task LMDE13: **NATS-in-kind: implement.** Add `lmde/components/nats/` (kind manifest + `setup.sh`), pin the image digest in `lmde/components/registry/images.txt`, register `nats.lmde.localhost` via the LMDE5 ingress helper, and add a `test/smoketest_lmde_nats/` smoke that pub/subs from both the host and an in-cluster pod. Depends on LMDE12.
 
 ### Terminal UX
 
@@ -138,6 +140,7 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
   - **G7** `--include-org` / `--exclude-org`: repeatable filter flags, exclude wins over include.
   - **G4 (Linux scaffolding)**: hermetic `test/smoketest_goldfish/` bash suite, 6 scenarios, all green on Linux. macOS verification (`lsof` path) remains open as the G4 entry above.
 - [x] Tasks G4 (macOS half) + G8: Verified goldfish on macOS (6/6 smoketests green, real-run JSON output sane). Added `bin/goldfish` symlink and `gf` alias in `macos/dot.alias`.
+- [x] Task G9: **Repo-zoom mode (`gf <repo>`).** Added a positional repo-name arg that renders a one-repo vertical summary instead of the cross-repo table -- recent commits, open PR list with draft state, agents in cwd, full open-task list from TODO_PLAN.md, dirty/ahead state. Basename resolution against the clones cache (`gf tds-utils` finds `9atatimer/tds-utils`); pass `owner/name` to zoom an uncloned repo. New `ZoomData`/`CommitSummary`/`PRSummary` core types with 12 unit tests + `test/smoketest_goldfish/07_repo_zoom.sh`.
 
 ### LMDE (Local Managed Developer Environment)
 

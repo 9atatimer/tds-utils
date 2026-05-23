@@ -39,6 +39,16 @@ Any project running within this environment can assume the existence and availab
 
 ---
 
+## Residency: in-kind vs. on the host
+
+Not every Adopted component lives inside kind. The rule:
+
+- **Components reachable by kind-sandboxed coding agents must run inside (or be exposed into) the kind cluster.** Mac-local agents can hit either side; sandboxed agents only see what the cluster surfaces, so anything they consume needs an in-cluster path.
+- Components that only serve the host edge or *feed* kind itself (Caddy, dnsmasq, the local registry) can stay outside.
+- When a component's audience widens to include sandboxed agents, plan its move into the cluster.
+
+---
+
 ## Directory Structure
 
 - `lmde/LMDE.md`: This document (the contract).
