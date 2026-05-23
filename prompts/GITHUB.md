@@ -108,20 +108,26 @@ Two transports, preferring push:
    re-enters this flow.
 
    **On wake, do these in order:**
-   1. **Switch to the PR's head branch** (`git switch <branch>`).
+   1. **Switch to the PR's head branch** (`git switch <BRANCH>`).
       Otherwise `gadmin` may abort with a branch-mismatch warning and
       hide real pending comments. The user can be on any branch
       between turns; the loop is responsible for landing on the
       right one before any `gadmin` call.
-   2. Check top-level reviews with `gh pr view <NUMBER> --json reviews`
-      to catch **overview-only reviews** (`state=COMMENTED` body with
-      no inline comments). `gadmin pending-comments` only surfaces
-      inline comments, so overview-only reviews are invisible to it.
-      - Overview **with** inline comments -> proceed to step 3.
-      - Overview **only** (no inline) -> ack briefly and continue;
-        don't reply per overview event.
-      - No new review since last poll -> empty poll, increment the
-        empty-poll counter, schedule the next wake.
+   2. **Check the PR state and any new reviews** with
+      `gh pr view <NUMBER> --json state,mergedAt,reviews` in one
+      call.
+      - `state` is `MERGED` or `CLOSED` -> terminate the loop
+        immediately, skip the rest of the steps below.
+      - Otherwise inspect `reviews` for new entries since the last
+        poll to catch **overview-only reviews** (`state=COMMENTED`
+        body with no inline comments). `gadmin github pending-comments`
+        only surfaces inline comments, so overview-only reviews are
+        invisible to it.
+        - Overview **with** inline comments -> proceed to step 3.
+        - Overview **only** (no inline) -> ack briefly and continue;
+          don't reply per overview event.
+        - No new review since last poll -> empty poll, increment the
+          empty-poll counter, schedule the next wake.
    3. Fetch unaddressed inline comments with
       `gadmin github pending-comments --repo <OWNER/REPO> --pr <NUMBER>`
       and triage per the auto-action threshold below.
