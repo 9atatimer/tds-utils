@@ -40,16 +40,21 @@ These technologies are the foundational components of the Local Managed Develope
 - **Ollama**: Local LLM inference server.
 - **remollama**: Remote orchestration and proxying for Ollama.
 - **OpenTelemetry (OTel)**: Standardized destination for agent metrics and traces.
-- **Chrome for Testing (via `chrome-devtools-mcp`)**: Stand-alone Chrome
-  for giving an agent driveable control of a browser without enabling
-  remote debugging on the user's main Chrome. Per-project install under
-  `~/.cache/<project>-cft/`; **not** part of the LMDE contract — each
-  project installs its own. See `@nine-at-a-time-media/prompts`
-  `SKILL.CHROME_MCP.md` for the wiring pattern. First adopted in `ai-gm`
-  Phase 0.5.
 
 ### Development Platforms
 - **kind**: Kubernetes in Docker for local cluster orchestration. Standardized boundary for complex services (like Observability).
+
+### Per-Project Patterns (Recommended, not LMDE contract)
+Tooling patterns adopted for use *within* projects rather than as LMDE
+platform components. Each project installs its own; this section
+documents the recommended approach so it isn't reinvented per repo.
+
+- **Chrome for Testing (via `chrome-devtools-mcp`)**: Stand-alone
+  Chromium binary for giving an agent driveable control of a browser
+  without enabling remote debugging on the user's main Chrome.
+  Per-project install under `~/.cache/<project>-cft/`. See
+  `@nine-at-a-time-media/prompts` `SKILL.CHROME_MCP.md` for the wiring
+  pattern. First adopted in `ai-gm` Phase 0.5.
 
 ---
 
