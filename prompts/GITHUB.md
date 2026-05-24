@@ -113,25 +113,31 @@ Two transports, preferring push:
       hide real pending comments. The user can be on any branch
       between turns; the loop is responsible for landing on the
       right one before any `gadmin` call.
-   2. **Check the PR state and any new reviews** with
+   2. **Check PR state and reviews** with
       `gh pr view <NUMBER> --json state,mergedAt,reviews` in one
       call.
-      - `state` is `MERGED` or `CLOSED` -> terminate the loop
-        immediately, skip the rest of the steps below.
-      - Otherwise inspect `reviews` for new entries since the last
-        poll to catch **overview-only reviews** (`state=COMMENTED`
-        body with no inline comments). `gadmin github pending-comments`
-        only surfaces inline comments, so overview-only reviews are
-        invisible to it.
-        - Overview **with** inline comments -> proceed to step 3.
-        - Overview **only** (no inline) -> log internally and
-          continue the loop; do not post a GitHub reply (overviews
-          don't require one).
-        - No new review since last poll -> empty poll, increment the
-          empty-poll counter, schedule the next wake.
-   3. Fetch unaddressed inline comments with
-      `gadmin github pending-comments --repo <OWNER/REPO> --pr <NUMBER>`
-      and triage per the auto-action threshold below.
+      - If `state` is `MERGED` or `CLOSED` -> terminate the loop
+        immediately; skip everything below.
+      - Otherwise, note any new reviews since the last poll --
+        especially overview-only ones (`state=COMMENTED` body with
+        no inline comments). `gadmin github pending-comments` only
+        surfaces inline comments, so overview-only reviews are
+        invisible to it and have to be tracked from this step.
+   3. **Always run `gadmin github pending-comments --repo <OWNER/REPO>
+      --pr <NUMBER>`** to fetch unaddressed inline comments. Do not
+      short-circuit this step based on step 2 -- standalone inline
+      comments (e.g., human replies that aren't part of any
+      `pullrequestreview`) only show up here.
+   4. **Triage and decide what kind of poll this was:**
+      - Pending inline non-empty -> apply the auto-action threshold
+        below; after a productive push, run
+        `gh pr edit <NUMBER> --add-reviewer @copilot` to trigger
+        the next round; reset the empty-poll counter.
+      - Pending inline empty + new overview-only review in step 2
+        -> log the overview, reset the empty-poll counter (something
+        happened, just nothing to act on), schedule next wake.
+      - Pending inline empty + no new review since last poll ->
+        empty poll, increment the counter, schedule next wake.
 
 **Termination conditions** (any one fires -> stop the loop; in MCP
 mode ignore any subsequent `<github-webhook-activity>` events even
