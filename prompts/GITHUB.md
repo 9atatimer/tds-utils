@@ -95,7 +95,7 @@ Two transports, preferring push:
    merge/close. Idempotent.
 2. **Polling (`ScheduleWakeup`) -- when MCP isn't loaded.** Dynamic
    self-pacing. Per the global 240s-max rule in `~/.claude/CLAUDE.md`,
-   all wakes here are ≤4 min (the global rule wins; no longer wakes
+   all wakes here are <= 4 min (the global rule wins; no longer wakes
    without human approval).
    - **First wake after PR open:** ~3 min (180s) -- Copilot needs a
      beat to start; polling before that is wasted.
@@ -124,8 +124,9 @@ Two transports, preferring push:
         only surfaces inline comments, so overview-only reviews are
         invisible to it.
         - Overview **with** inline comments -> proceed to step 3.
-        - Overview **only** (no inline) -> ack briefly and continue;
-          don't reply per overview event.
+        - Overview **only** (no inline) -> log internally and
+          continue the loop; do not post a GitHub reply (overviews
+          don't require one).
         - No new review since last poll -> empty poll, increment the
           empty-poll counter, schedule the next wake.
    3. Fetch unaddressed inline comments with
@@ -133,7 +134,11 @@ Two transports, preferring push:
       and triage per the auto-action threshold below.
 
 **Termination conditions** (any one fires -> stop the loop; in MCP
-mode also unsubscribe; in poll mode omit the next `ScheduleWakeup`):
+mode ignore any subsequent `<github-webhook-activity>` events even
+if the subscription remains live -- the MCP server auto-removes the
+subscription on merge/close, but for the other exit conditions
+there's no documented explicit unsubscribe; in poll mode omit the
+next `ScheduleWakeup`):
 
 - PR merged or closed.
 - 3 consecutive empty polls (~6 min quiescent at the documented
