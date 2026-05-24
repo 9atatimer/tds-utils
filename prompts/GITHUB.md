@@ -123,11 +123,14 @@ Two transports, preferring push:
         no inline comments). `gadmin github pending-comments` only
         surfaces inline comments, so overview-only reviews are
         invisible to it and have to be tracked from this step.
-   3. **Always run `gadmin github pending-comments --repo <OWNER/REPO>
-      --pr <NUMBER>`** to fetch unaddressed inline comments. Do not
-      short-circuit this step based on step 2 -- standalone inline
+   3. **Always fetch unaddressed inline comments** -- do not
+      short-circuit based on step 2, because standalone inline
       comments (e.g., human replies that aren't part of any
-      `pullrequestreview`) only show up here.
+      `pullrequestreview`) only show up here:
+
+      ```
+      gadmin github pending-comments --repo <OWNER/REPO> --pr <NUMBER>
+      ```
    4. **Triage and decide what kind of poll this was:**
       - Pending inline non-empty -> apply the auto-action threshold
         below; after a productive push, run
