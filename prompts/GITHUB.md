@@ -174,6 +174,21 @@ mode also unsubscribe; in poll mode omit the next `ScheduleWakeup`):
 - If **no action is needed** (echo, informational, noise), skip and
   say so briefly.
 
+**After each productive push, re-request Copilot review** with
+`gh pr edit <NUMBER> --add-reviewer @copilot`. GitHub's CLI special-cases
+`@copilot` (shipped 2026-03) to trigger the Copilot review bot; the
+regular `requested_reviewers` REST API rejects it as "not a collaborator."
+Without this step Copilot does **not** auto-re-review on `synchronize`
+events and the loop polls fallow.
+
+- Skip when no fix was pushed this round -- the next review would just
+  repeat the prior one.
+- `gh pr view --json reviewRequests` will often show empty after firing;
+  Copilot consumes the request near-instantly.
+- Works with user PATs (the standard `gh auth` flow); reportedly fails
+  with GitHub Actions bot tokens and some org custom apps. For an
+  agentic loop running under the user's own gh auth, it works.
+
 ## Automated Review Response
 
 This is the procedure for handling a batch of review feedback -- whether it
