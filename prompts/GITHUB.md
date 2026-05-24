@@ -103,9 +103,9 @@ Two transports, preferring push:
    - **Empty polls while waiting:** every 2 min (120s).
 
    Copilot's observed response window is ~4-6 min, so a 2-min cadence
-   catches it within ~2 min worst case, average ~3. Pass the loop's
-   continuation prompt verbatim to `ScheduleWakeup` so the next wake
-   re-enters this flow.
+   catches a posted review within 2 min worst case and ~1 min on
+   average. Pass the loop's continuation prompt verbatim to
+   `ScheduleWakeup` so the next wake re-enters this flow.
 
    **On wake, do these in order:**
    1. **Switch to the PR's head branch** (`git switch <BRANCH>`).
