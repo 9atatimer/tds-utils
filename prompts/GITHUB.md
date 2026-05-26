@@ -56,7 +56,7 @@ All branches created on this repo MUST use an owner prefix:
 Three families of verbs, in **token-frugal preference order**:
 
 1. **`gadmin`** -- ships in the `@nine-at-a-time-media/admin` npm package
-   (`naatm/template-tools` → `packages/naatm-admin`). Reachable on `$PATH`
+   (`naatm/template-tools` -> `packages/naatm-admin`). Reachable on `$PATH`
    via a global install (`npm install -g @nine-at-a-time-media/admin`)
    or per-project via `node_modules/.bin/gadmin` / `npx gadmin`.
    Preferred for reads (comments, CI logs) and writes (replies); output
