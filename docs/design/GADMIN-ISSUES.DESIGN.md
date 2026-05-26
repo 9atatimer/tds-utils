@@ -5,6 +5,20 @@
 > **Authors:** Todd Stumpf
 > **Depends on:** [AGENT-NOTIFICATIONS.DESIGN.md](./AGENT-NOTIFICATIONS.DESIGN.md) (shares the local NATS bus)
 > **Implementation:** partial -- skeleton on disk; see [Implementation Status](#implementation-status)
+>
+> **Code location update (2026-05-25):** The skeleton has moved out of
+> `tds-utils/gadmin/admin/` into the `@nine-at-a-time-media/admin` npm
+> package at `Nine-At-A-Time-Media/template-tools` ->
+> `packages/naatm-admin/admin/`. The source-path references throughout
+> this doc (e.g. `gadmin/admin/issue-aggregator.mjs`) resolve to the new
+> package directory; line numbers are preserved because the files moved
+> verbatim. The `test/smoketest_gadmin_issue/` smoketests also moved,
+> to `packages/naatm-admin/test/smoketest_gadmin_issue/` -- they are no
+> longer present in this repo. Deploy templates at
+> `macos/launchd/gadmin-aggregator.plist` and
+> `local/systemd/gadmin-aggregator.service` remain in this repo as WIP
+> and have stale internal paths that will be updated when the swarm work
+> resumes.
 
 ---
 
