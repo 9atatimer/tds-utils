@@ -55,14 +55,19 @@ All branches created on this repo MUST use an owner prefix:
 
 Three families of verbs, in **token-frugal preference order**:
 
-1. **`gadmin` (this repo's `bin/gadmin`)** -- preferred for reads (comments,
-   CI logs) and writes (replies). Output is filtered to the fields you
-   triage on, so it stays small in context. Three sub-tiers, fall back in
-   order:
+1. **`gadmin`** -- ships in the `@nine-at-a-time-media/admin` npm package
+   (sources at `Nine-At-A-Time-Media/template-tools` ->
+   `packages/naatm-admin`; published to the GitHub Packages registry
+   `https://npm.pkg.github.com`). Reachable on `$PATH`
+   via a global install (`npm install -g @nine-at-a-time-media/admin`)
+   or per-project via `node_modules/.bin/gadmin` / `npx gadmin`.
+   Preferred for reads (comments, CI logs) and writes (replies); output
+   is filtered to the fields you triage on, so it stays small in context.
+   Three sub-tiers, fall back in order:
      - `gadmin github` -- bash, requires `gh` CLI on `$PATH`.
      - `gadmin github-octokit` -- node + `octokit` npm package + `$GITHUB_TOKEN`.
      - `gadmin github-gitapi` -- node, native `fetch()` + `$GITHUB_TOKEN`,
-       zero deps.
+       zero deps (the sandbox-friendly tier).
 2. **GitHub MCP tools (`mcp__github__*`)** -- use when `gadmin` lacks a verb
    you need. Responses are typed and complete but include large echoed
    payloads (e.g. every reply confirms by echoing the parent comment's
