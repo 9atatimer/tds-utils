@@ -27,6 +27,8 @@ data:
         endpoint: "0.0.0.0:8889"
         resource_to_telemetry_conversion:
           enabled: true
+      file/blackhole:
+        path: /dev/null
 
     service:
       pipelines:
@@ -34,3 +36,9 @@ data:
           receivers: [otlp]
           processors: [batch]
           exporters: [prometheus]
+        traces:
+          receivers: [otlp]
+          exporters: [file/blackhole]
+        logs:
+          receivers: [otlp]
+          exporters: [file/blackhole]
