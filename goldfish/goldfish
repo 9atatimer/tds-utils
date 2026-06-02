@@ -74,12 +74,12 @@ def resolve_roots(config: dict) -> list[Path]:
     return [Path(home)] if home else []
 
 
-def resolve_orgs(config: dict) -> list[str]:
+def resolve_orgs(config: dict, no_gh: bool = False) -> list[str]:
     """Use configured orgs, else the gh-authenticated user."""
     configured = [o for o in config.get("orgs", []) if o]
     if configured:
         return configured
-    if not have("gh"):
+    if no_gh or not have("gh"):
         return []
     from shell import _run
     user = _run(["gh", "api", "user", "--jq", ".login"], timeout=10.0).strip()
@@ -131,10 +131,11 @@ def gather(
     fetch_remote_todos: bool,
     refresh_clones: bool = False,
     llm: bool = False,
+    no_gh: bool = False,
 ) -> tuple[list[RepoRow], dict[str, Path]]:
     """Run all probes and assemble RepoRows. Returns (rows, clones)."""
     progress = Progress()
-    orgs = resolve_orgs(config)
+    orgs = resolve_orgs(config, no_gh=no_gh)
     roots = resolve_roots(config)
     agents_known = set(config.get("agents", []))
 
@@ -502,6 +503,10 @@ def run(argv: list[str]) -> int:
              "Without this, blacklisted repos are hidden in all views.",
     )
     parser.add_argument(
+        "--no-gh", action="store_true",
+        help="Disable fall-through to the real GitHub user/orgs.",
+    )
+    parser.add_argument(
         "--manage-blacklist", action="store_true",
         help="Interactively toggle which repos are blacklisted, then exit.",
     )
@@ -524,6 +529,7 @@ def run(argv: list[str]) -> int:
         fetch_remote_todos=args.fetch_remote_todos,
         refresh_clones=args.refresh,
         llm=args.llm,
+        no_gh=args.no_gh,
     )
     rows = apply_org_filter(
         rows,

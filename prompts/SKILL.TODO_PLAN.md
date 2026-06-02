@@ -27,7 +27,7 @@ It is not a design doc (those live in `docs/design/`). It is not a changelog
 ## File Structure
 
 ```markdown
-# {Project Name} — TODO Plan
+# {Project Name} -- TODO Plan
 
 > **Status:** Active | Complete
 > **Created:** YYYY-MM-DD
@@ -35,23 +35,28 @@ It is not a design doc (those live in `docs/design/`). It is not a changelog
 > **Design:** link to design doc (if applicable)
 
 ## How to Use This File
+
 - Rules for agents (branch workflow, commit conventions, blockers)
 - Mandatory standards (links to SKILL.CODING.md, STYLE.*.md, TESTING.md)
 - Key reference documents table
 
 ## What We've Accomplished
-- Detailed summary of completed work — enough to orient a cold-start agent
-- Not just checkboxes — describe what exists and how it works
+
+- Detailed summary of completed work -- enough to orient a cold-start agent
+- Not just checkboxes -- describe what exists and how it works
 
 ## Active Work: {Feature Name}
+
 - Full phase breakdowns with task checklists inline
 - Acceptance criteria per phase
 - Commit points
 
 ## Lessons Learned
+
 - Numbered entries with enough context to be useful months later
 
 ## Blockers
+
 - Anything blocking progress, with date and unblock action
 ```
 
@@ -65,7 +70,7 @@ Put the actual task details directly in `TODO_PLAN.md`. Do not create thin
 indexes that point to separate plan files. An agent should never have to chase
 links to find out what to do next.
 
-Design docs stay in `docs/design/` — link to them for context. But the **task
+Design docs stay in `docs/design/` -- link to them for context. But the **task
 breakdown** belongs in `TODO_PLAN.md`.
 
 ### Adding Work
@@ -73,17 +78,20 @@ breakdown** belongs in `TODO_PLAN.md`.
 - When a design doc produces a phased plan, transfer the tasks into the
   **Active Work** section. Reference the design doc for context, don't
   duplicate the design rationale.
+
 - Group tasks by phase with clear dependency ordering.
 - Include acceptance criteria and commit points per phase.
-- Keep task descriptions short — one line. If it needs explanation, add a
+- Keep task descriptions short -- one line. If it needs explanation, add a
   brief note below the checkbox.
 
 ### Updating Progress
 
-- Mark tasks `[x]` as you complete them. Do not batch — mark each task done as
+- Mark tasks `[x]` as you complete them. Do not batch -- mark each task done as
   soon as it is done.
+
 - If a task turns out to be unnecessary, strike it with `~~` and add a brief
   reason: `~~Task description~~ (superseded by X)`
+
 - If you discover new work mid-implementation, add it to the Active section
   immediately. Do not wait until the end.
 
@@ -91,7 +99,8 @@ breakdown** belongs in `TODO_PLAN.md`.
 
 - When all tasks in a feature/area are done, move the summary from Active Work
   into **What We've Accomplished**.
-- Write enough detail that a cold-start agent can understand what exists —
+
+- Write enough detail that a cold-start agent can understand what exists --
   not just "Phase 1 done" but what was actually built, what files were created,
   what patterns were established.
 
@@ -103,20 +112,24 @@ This is the most important section. Record lessons when:
 - A tool or API didn't behave as documented
 - A debugging session took longer than expected and the root cause was
   non-obvious
-- An approach was tried, rejected, and replaced — capture *why* so the next
+
+- An approach was tried, rejected, and replaced -- capture *why* so the next
   agent doesn't repeat the experiment
+
 - Something worked unexpectedly well and should be repeated
 
 **Format:**
 
 ```markdown
 ### {N}. {Short title}
+
 {What happened and what to do differently. 2-4 sentences max.}
 ```
 
 A good lesson learned saves someone 30+ minutes in a future conversation.
 
 **Do not record:**
+
 - Obvious things ("tests should pass before merging")
 - Things already documented in style guides or CLAUDE.md
 - Implementation details that belong in code comments
@@ -125,7 +138,9 @@ A good lesson learned saves someone 30+ minutes in a future conversation.
 
 - Keep the file focused. One active feature at a time is ideal. If multiple
   features are active, give each its own `## Active Work` section.
+
 - Review and prune `TODO_PLAN.md` at the start of any major new work session.
   Remove stale items, update anything that has drifted.
-- Do not drop `PLAN.md` files — the project uses `TODO_PLAN.md` exclusively.
+
+- Do not drop `PLAN.md` files -- the project uses `TODO_PLAN.md` exclusively.
   `PLAN.md` is in `.gitignore`.
