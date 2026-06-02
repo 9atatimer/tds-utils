@@ -7,7 +7,7 @@
 ### Characters
 
 - **No smart quotes**: Use straight quotes (`"` and `'`), never curly (`"` `"` `'` `'`)
-- **No smart arrows**: Use `->` not `→`, use `<-` not `←`
+- **No smart arrows**: Use `->` not `->`, use `<-` not `<-`
 - **No em-dashes**: Use double hyphen (`--`) instead of em dash (U+2014)
 - **ASCII only in prose**: Avoid Unicode symbols that might render inconsistently
 
@@ -27,6 +27,7 @@ title: "Document Title"
 status: draft
 date: 2025-12-22
 related:
+
   - path/to/other/doc.md
 ---
 ```
