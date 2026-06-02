@@ -150,6 +150,7 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 ### LMDE (Local Managed Developer Environment)
 
 - [x] Task LMDE12: **NATS-in-kind: design.** Drafted `docs/design/LMDE-BACKPLANE.DESIGN.md`. Moves the message bus into the cluster with Caddy as the TLS edge and host bind-mounts for persistence. Incorporates Claude's design review feedback. PR #62.
+- [x] Task LMDE13: **S3 Sync Monitor.** macOS menubar app (`bin/lmde-sync-monitor`) that uses `goldfish --check-s3` to alert when workplace repos are out of sync with their S3 mirrors. Includes `launchd` integration and custom status icons. PR #63.
 
 ### Goldfish
 

@@ -299,8 +299,8 @@ def _name_with_owner(remote: str) -> str | None:
     return None
 
 
-def inspect_local(workdir: Path) -> LocalInfo:
-    """Inspect a working tree: dirty, ahead/behind, last commit, next task."""
+def inspect_local(workdir: Path, *, check_s3: bool = False) -> LocalInfo:
+    """Inspect a working tree: dirty, ahead/behind, last commit, next task, s3 sync."""
     porcelain = _run(
         ["git", "status", "--porcelain=v1", "-b"],
         cwd=str(workdir),
@@ -315,6 +315,7 @@ def inspect_local(workdir: Path) -> LocalInfo:
         timeout=5.0,
     ).strip()
     last_dt = _parse_iso_safe(last)
+    
     todo_path = workdir / "TODO_PLAN.md"
     next_task = None
     if todo_path.exists():
@@ -322,6 +323,13 @@ def inspect_local(workdir: Path) -> LocalInfo:
             next_task = parse_todo_plan(todo_path.read_text())
         except (OSError, UnicodeDecodeError):
             next_task = None
+
+    s3_out_of_sync = None
+    if check_s3 and state.branch:
+        s3_url = _git_remote_s3_url(workdir)
+        if s3_url:
+            s3_out_of_sync = _git_s3_out_of_sync(workdir, s3_url, state.branch)
+
     return LocalInfo(
         path=workdir,
         is_dirty=state.is_dirty,
@@ -330,7 +338,46 @@ def inspect_local(workdir: Path) -> LocalInfo:
         branch=state.branch,
         last_commit_at=last_dt,
         next_task=next_task,
+        s3_out_of_sync=s3_out_of_sync,
     )
+
+
+def _git_remote_s3_url(workdir: Path) -> str | None:
+    """Return the s3:// push URL for origin, if enrolled."""
+    remotes = _run(
+        ["git", "remote", "-v"],
+        cwd=str(workdir),
+        timeout=5.0,
+    )
+    for line in remotes.splitlines():
+        if "origin" in line and "s3://" in line and "(push)" in line:
+            parts = line.split()
+            if len(parts) >= 2:
+                return parts[1]
+    return None
+
+
+def _git_s3_out_of_sync(workdir: Path, s3_url: str, branch: str) -> bool:
+    """True if local HEAD SHA doesn't match S3 remote HEAD SHA."""
+    local_sha = _run(
+        ["git", "rev-parse", branch],
+        cwd=str(workdir),
+        timeout=5.0,
+    ).strip()
+    if not local_sha:
+        return False
+        
+    remote_out = _run(
+        ["git", "ls-remote", s3_url, branch],
+        cwd=str(workdir),
+        timeout=10.0,
+    ).strip()
+    if not remote_out:
+        # If remote doesn't have the branch yet, it's out of sync if we have commits.
+        return True
+        
+    remote_sha = remote_out.split()[0]
+    return local_sha != remote_sha
 
 
 def _parse_iso_safe(raw: str) -> datetime | None:

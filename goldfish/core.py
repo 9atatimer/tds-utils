@@ -31,6 +31,7 @@ class LocalInfo:
     branch: str
     last_commit_at: datetime | None
     next_task: str | None
+    s3_out_of_sync: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -488,6 +489,7 @@ def _local_to_jsonable(l: LocalInfo | None) -> dict | None:
         "branch": l.branch,
         "last_commit_at": l.last_commit_at.isoformat() if l.last_commit_at else None,
         "next_task": l.next_task,
+        "s3_out_of_sync": l.s3_out_of_sync,
     }
 
 

@@ -132,6 +132,7 @@ def gather(
     refresh_clones: bool = False,
     llm: bool = False,
     no_gh: bool = False,
+    check_s3: bool = False,
 ) -> tuple[list[RepoRow], dict[str, Path]]:
     """Run all probes and assemble RepoRows. Returns (rows, clones)."""
     progress = Progress()
@@ -184,7 +185,7 @@ def gather(
     with ThreadPoolExecutor(max_workers=8) as ex:
         futures = {
             ex.submit(_build_row, name, gh, pr_counts, clones, agents,
-                      fetch_remote_todos, llm): name
+                      fetch_remote_todos, llm, check_s3=check_s3): name
             for name, gh in todo
         }
         done = 0
@@ -206,6 +207,8 @@ def _build_row(
     agents: list,
     fetch_remote_todos: bool,
     llm: bool,
+    *,
+    check_s3: bool = False,
 ) -> RepoRow | None:
     github_info = None
     if gh is not None:
@@ -215,7 +218,7 @@ def _build_row(
             open_pr_count=pr_counts.get(name, 0),
         )
     workdir = clones.get(name)
-    local = inspect_local(workdir) if workdir else None
+    local = inspect_local(workdir, check_s3=check_s3) if workdir else None
     todo_text: str | None = None
     if local is not None and workdir is not None:
         todo_path = workdir / "TODO_PLAN.md"
@@ -494,6 +497,10 @@ def run(argv: list[str]) -> int:
         help="Rescan disk for clones instead of using the cache.",
     )
     parser.add_argument(
+        "--check-s3", action="store_true",
+        help="Check if local repos are in sync with S3 mirrors (requires network).",
+    )
+    parser.add_argument(
         "--llm", action="store_true",
         help="Summarize each TODO_PLAN.md via `claude` (or `ollama`) for the NEXT column.",
     )
@@ -530,6 +537,7 @@ def run(argv: list[str]) -> int:
         refresh_clones=args.refresh,
         llm=args.llm,
         no_gh=args.no_gh,
+        check_s3=args.check_s3,
     )
     rows = apply_org_filter(
         rows,

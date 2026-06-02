@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# launch-sync-monitor — wrapper for launchd to run the sync monitor with uv
+
+set -euo pipefail
+
+# Get the absolute path to the directory containing this script
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BIN_PATH="${REPO_ROOT}/bin/lmde-sync-monitor"
+
+# Ensure common paths are in PATH for uv
+export PATH="/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:${PATH}"
+
+if ! command -v uv &> /dev/null; then
+    echo "Error: uv not found. Please install uv (brew install uv)."
+    exit 1
+fi
+
+# Run with uv to handle dependencies on the fly
+exec uv run --with rumps --with pyobjc-framework-Cocoa "${BIN_PATH}"
