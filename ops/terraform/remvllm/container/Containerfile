@@ -7,9 +7,10 @@ FROM vllm/vllm-openai:latest
 
 # Tunnel access + bucket transfer tooling.
 #   openssh-server : sshd for the SSH tunnel
+#   iproute2       : provides `ss`, used by the watchdog to count SSH sessions
 #   rclone         : R2/S3 weight transfer (zero-config endpoints)
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssh-server rclone curl \
+    && apt-get install -y --no-install-recommends openssh-server iproute2 rclone curl \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /var/run/sshd /models
 

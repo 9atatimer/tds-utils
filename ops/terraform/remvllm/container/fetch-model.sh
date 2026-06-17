@@ -17,8 +17,21 @@ MODEL_DIR="/models/current"
 # --- Action functions --------------------------------------------------------
 
 bucket_has_weights() {
-    # rclone lsf returns the listing; non-empty => cache hit.
-    [[ -n "$(rclone lsf "${MODEL_BUCKET_URI}" 2>/dev/null)" ]]
+    # Probe the bucket and distinguish three cases:
+    #   reachable + non-empty -> cache HIT  (return 0)
+    #   reachable + empty     -> cache MISS (return 1 -> HF fallback)
+    #   unreachable / misconfigured -> FATAL (exit 1)
+    # The fatal case is the point: if we silently treated an unreachable bucket
+    # as a miss, we'd re-download from HF and break the "HF only once" guarantee.
+    local listing
+    if listing="$(rclone lsf "${MODEL_BUCKET_URI}" 2>/tmp/rclone-lsf.err)"; then
+        [[ -n "${listing}" ]]
+    else
+        echo "fatal: weight bucket ${MODEL_BUCKET_URI} is unreachable/misconfigured" >&2
+        echo "       (refusing to fall back to Hugging Face; fix bucket access and retry)" >&2
+        cat /tmp/rclone-lsf.err >&2 || true
+        exit 1
+    fi
 }
 
 pull_from_bucket() {

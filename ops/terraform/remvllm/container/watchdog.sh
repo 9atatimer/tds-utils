@@ -10,7 +10,14 @@ WATCHDOG_TIMEOUT="${WATCHDOG_TIMEOUT:-600}"
 POLL_INTERVAL=30
 
 active_ssh_sessions() {
-    # Count established inbound SSH connections (excludes the listener).
+    # Count established inbound SSH connections (excludes the listener). Always
+    # emit an integer. `ss` ships via iproute2 in the appliance image; if it is
+    # somehow missing we report 0 rather than an empty string (which would make
+    # the numeric comparison in main() fail under set -e).
+    if ! command -v ss >/dev/null 2>&1; then
+        echo 0
+        return 0
+    fi
     ss -tn state established '( sport = :22 )' 2>/dev/null | grep -c ':22 ' || true
 }
 

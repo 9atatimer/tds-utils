@@ -38,5 +38,6 @@ tunnel_open() {
         -L "${local_port}:localhost:${remote_port}" \
         "root@${host}"
     # `ssh -f` backgrounds itself; find the listener pid for our local port.
-    pgrep -f "ssh.*-L ${local_port}:localhost:${remote_port}" | head -n1
+    # `-n` selects the newest match, so a stale prior tunnel can't be recorded.
+    pgrep -n -f "ssh.*-L ${local_port}:localhost:${remote_port}"
 }

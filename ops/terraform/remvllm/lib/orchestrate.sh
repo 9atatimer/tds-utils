@@ -145,8 +145,22 @@ orchestrate_destroy() {
     tunnel_kill "$(state_read "${base}" tunnel_pid)"
     if state_has_instance "${base}"; then
         secrets_preflight
+        # terraform destroy still requires every declared variable to have a
+        # value. Reconstruct the create-time inputs from state + config/secrets
+        # so destroy doesn't abort with "No value for required variable".
+        local gpu count spot recipe
+        gpu="$(state_read "${base}" gpu_type)"
+        count="$(state_read "${base}" gpu_count)"
+        spot="$(state_read "${base}" spot)"
+        recipe="$(state_read "${base}" recipe)"
         terraform -chdir="${tf_dir}" destroy -input=false -auto-approve \
-            -var "provider_token=$(secrets_provider_token)" >/dev/null
+            -var "provider_token=$(secrets_provider_token)" \
+            -var "ssh_public_key=$(secrets_provider_ssh_pubkey)" \
+            -var "container_image=${REMVLLM_IMAGE:-ghcr.io/9atatimer/remvllm-appliance:latest}" \
+            -var "gpu_type=${gpu}" \
+            -var "gpu_count=${count}" \
+            -var "spot=${spot}" \
+            -var "instance_name=remvllm-${recipe}" >/dev/null
     fi
     state_clear "${base}"
     echo "destroyed."
