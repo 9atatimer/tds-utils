@@ -277,6 +277,18 @@ state.json
    key.
 3. **vLLM cold-load time** -- large MoE load + KV warmup can exceed the SSH-probe
    window; health-poll budget may need raising.
+4. **Appliance config + secret delivery (KNOWN GAP, deferred).** The container
+   needs runtime config (`MODEL_ID`, `QUANT`, `TENSOR_PARALLEL_SIZE`,
+   `SERVED_NAME`, `MAX_MODEL_LEN`, bucket URI) and secrets (HF token, bucket
+   credentials), but `bootstrap.sh` currently passes only `SSH_PUBLIC_KEY` -- so
+   the appliance will not start as wired today. The provisioning path is still
+   untested scaffolding, so this is deferred rather than built. Preferred fix
+   when we implement it: the orchestrator SSHes in post-provision and runs
+   `podman run` with env + secrets at that moment, keeping secrets OUT of
+   Terraform state and cloud-init/user_data (consistent with the Security
+   Considerations section). Baking secrets into `user_data` is rejected for the
+   at-rest leak. Until then, `remvllm run` provisions a node but the appliance is
+   non-functional. (Raised in PR #64 review.)
 
 ## Rejections
 
