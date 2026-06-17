@@ -1,0 +1,24 @@
+# Containerfile — the remvllm appliance: fetch-model + vLLM + sshd + watchdog.
+#
+# Identical image everywhere it runs. Build & push:
+#   podman build -t ghcr.io/9atatimer/remvllm-appliance:latest container/
+#   podman push   ghcr.io/9atatimer/remvllm-appliance:latest
+FROM vllm/vllm-openai:latest
+
+# Tunnel access + bucket transfer tooling.
+#   openssh-server : sshd for the SSH tunnel
+#   rclone         : R2/S3 weight transfer (zero-config endpoints)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssh-server rclone curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /var/run/sshd /models
+
+COPY entrypoint.sh  /usr/local/bin/entrypoint.sh
+COPY fetch-model.sh /usr/local/bin/fetch-model.sh
+COPY watchdog.sh    /usr/local/bin/watchdog.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh \
+             /usr/local/bin/fetch-model.sh \
+             /usr/local/bin/watchdog.sh
+
+EXPOSE 22 8000
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

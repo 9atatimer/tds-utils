@@ -1,0 +1,7 @@
+# Per-hostname runtime state and machine-specific config — never committed.
+state/
+remvllm.local.conf
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
