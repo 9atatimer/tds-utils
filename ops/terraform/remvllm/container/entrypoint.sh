@@ -31,6 +31,13 @@ quant_args() {
 }
 
 serve_vllm() {
+    # Fail fast on an unsupported quant rather than silently launching vLLM
+    # unquantized (which would OOM the GPUs). Validated here in the main shell
+    # so the exit propagates -- quant_args runs inside $(...) where it would not.
+    case "${QUANT:-int4}" in
+        int4|fp8) ;;
+        *) echo "fatal: unsupported QUANT='${QUANT:-}' (expected int4 or fp8)" >&2; exit 1 ;;
+    esac
     local model_dir
     model_dir="$(/usr/local/bin/fetch-model.sh | tail -n1)"
     # vLLM binds to localhost; the SSH tunnel is the only access path.

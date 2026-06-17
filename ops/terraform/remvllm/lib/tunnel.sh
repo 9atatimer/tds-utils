@@ -39,5 +39,7 @@ tunnel_open() {
         "root@${host}"
     # `ssh -f` backgrounds itself; find the listener pid for our local port.
     # `-n` selects the newest match, so a stale prior tunnel can't be recorded.
-    pgrep -n -f "ssh.*-L ${local_port}:localhost:${remote_port}"
+    # `|| true`: pgrep exits non-zero when there's no match, which would abort
+    # the caller's `remvllm run` under set -e; an empty pid is handled there.
+    pgrep -n -f "ssh.*-L ${local_port}:localhost:${remote_port}" || true
 }
