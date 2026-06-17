@@ -8,8 +8,8 @@
 #
 # Usage:
 #   remvllm run <recipe> [--gpu a100|h100|h200|b200|auto] [--quant int4|fp8]
-#                        [--ttl <min>] [--no-spot] [-v]
-#   remvllm sizes [--quant int4|fp8] [--on-demand]   # cost matrix + auto pick
+#                        [--max-gpus N] [--ttl <min>] [--no-spot] [-v]
+#   remvllm sizes [--quant int4|fp8] [--max-gpus N] [--on-demand]  # cost matrix
 #   remvllm status
 #   remvllm stop                                     # close tunnel, keep node
 #   remvllm destroy                                  # terraform destroy now
@@ -77,6 +77,7 @@ cmd_sizes() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --quant) quant="$2"; shift 2 ;;
+            --max-gpus) REMVLLM_MAX_GPUS="$2"; shift 2 ;;
             --on-demand) pricing="ondemand"; shift ;;
             *) shift ;;
         esac
@@ -89,9 +90,10 @@ cmd_run() {
     local gpu="${REMVLLM_GPU_TYPE}" quant="${REMVLLM_QUANT}"
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --gpu)     gpu="$2"; shift 2 ;;
-            --quant)   quant="$2"; shift 2 ;;
-            --ttl)     REMVLLM_TTL_MINUTES="$2"; shift 2 ;;
+            --gpu)      gpu="$2"; shift 2 ;;
+            --quant)    quant="$2"; shift 2 ;;
+            --max-gpus) REMVLLM_MAX_GPUS="$2"; shift 2 ;;
+            --ttl)      REMVLLM_TTL_MINUTES="$2"; shift 2 ;;
             --no-spot) REMVLLM_SPOT=false; shift ;;
             -v|--verbose) set -x; shift ;;
             *) echo "error: unknown flag '$1'" >&2; return 1 ;;

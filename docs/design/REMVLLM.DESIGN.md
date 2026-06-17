@@ -109,23 +109,39 @@ It is data-driven from tunable tables (prices are spot $/hr estimates, Spheron,
 | int4 (AWQ) | ~430 GB |
 | fp8 | ~860 GB |
 
+**Target platform: a 4-GPU single node.** `REMVLLM_MAX_GPUS` (default **4**) caps
+the configuration. Four GPUs on one node sit on NVLink (no cross-node fabric),
+serve MoE inference better than 8, and — critically — are routinely schedulable
+on spot, where 8-GPU boxes are scarce and preemption-prone. Designing to 4 keeps
+us out of that corner. `--max-gpus 8` overrides for the rare fp8 run.
+
 Algorithm:
 
 1. `count = smallest valid tensor-parallel size in {1,2,4,8} such that
-   count * vram_per_gpu >= required_vram`. (TP is constrained to powers of two so
-   it divides GLM-5's attention-head count.)
-2. If no valid TP fits, that (quant, gpu) combo is **rejected**.
+   count * vram_per_gpu >= required_vram AND count <= REMVLLM_MAX_GPUS`. (TP is
+   constrained to powers of two so it divides GLM-5's attention-head count.)
+2. If nothing fits within the cap, the combo is **rejected** — distinguishing
+   "needs more than the cap (raise `--max-gpus`)" from "won't fit in VRAM at all".
 3. `cost = count * spot_price`.
 4. `auto` mode evaluates every GPU type and returns the minimum-cost fit.
 
-Worked results from the tables above:
+Worked results under the default 4-GPU cap:
 
-| Quant | Cheapest pick | Count | TP | Est. spot $/hr |
-|-------|---------------|-------|----|----------------|
-| **int4** (default) | **a100** | 8 | 8 | **~5.28** |
-| fp8 | h200 | 8 | 8 | ~14.16 |
+| Quant | Cheapest pick | Count | TP | Est. spot $/hr | Notes |
+|-------|---------------|-------|----|----------------|-------|
+| **int4** (default) | **h200** | 4 | 4 | **~7.08** | a100/h100 excluded — would need 8 |
+| fp8 | _none at cap 4_ | — | — | — | needs ~860 GB (8 GPUs); `--max-gpus 8` → 8×h200 ~14.16 |
 
-`--gpu a100 --quant fp8` is correctly refused (8×80 GB = 640 GB < 860 GB).
+Consequences of the 4-GPU target for GLM-5.2 (744B):
+
+- **A100 drops out.** At 80 GB/GPU, int4 needs 8×A100 — over the cap. The old
+  cheapest pick (8×A100, ~$5.28/hr) is only reachable with `--max-gpus 8`.
+- **int4 is the de-facto only quant.** fp8 (~860 GB) cannot fit 4 GPUs of any
+  tier; it is opt-in via `--max-gpus 8`, not part of the default menu.
+- **~$1.80/hr premium** over 8×A100, bought back as availability and single-node
+  performance — the explicit anti-corner trade.
+
+`--gpu a100 --quant fp8` is still refused outright (8×80 GB = 640 GB < 860 GB).
 
 ### Model Cache (`lib/modelcache.sh` + `container/fetch-model.sh`)
 
@@ -242,7 +258,8 @@ state.json
 |----------|--------|-----------|
 | Engine | vLLM | Documented GLM-5 recipe; native OpenAI API; TP + expert parallel for MoE |
 | Default quant | int4 (AWQ) | Cheapest fit; 1–3% coding regression accepted for price |
-| Default GPU | auto → cheapest | Penny-pinching is the explicit requirement |
+| Default GPU | auto → cheapest within cap | Penny-pinching, bounded by the platform ceiling |
+| GPU ceiling | 4 (single node) | NVLink, schedulable on spot; avoids betting on scarce 8-GPU boxes |
 | Spot | on by default | Cheapest per hour; preemption acceptable |
 | Weight cache | R2 default | Zero egress beats S3 on repeated multi-hundred-GB pulls |
 | HF policy | populate-once | Bucket hit on every node after the first cold start |
