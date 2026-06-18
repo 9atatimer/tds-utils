@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# install-git-hook-templates — wire up the clone-time security audit globally.
+# install-git-hook-templates -- wire up the clone-time security audit globally.
 #
 # Points git at this repo's in-tree hook template so every future `git clone`
 # runs clone-audit against the new worktree (see docs/clone-audit.md for the
-# mechanism — git has no post-clone hook, so we ride post-checkout).
+# mechanism -- git has no post-clone hook, so we ride post-checkout).
 #
 # It computes ABSOLUTE paths for the running machine (init.templateDir does NOT
 # tilde-expand, so a `~/...` value would silently install nothing) and sets
@@ -11,11 +11,11 @@
 # not on PATH (e.g. IDE/GUI/script-initiated clones).
 #
 # Two mechanisms:
-#   templateDir  (default) — init.templateDir → git-hooks/template. Git copies
+#   templateDir  (default) -- init.templateDir -> git-hooks/template. Git copies
 #                the template into each repo's .git/ at clone/init time. Does
 #                not touch already-cloned repos; never overrides a repo's own
 #                hooks.
-#   hooksPath              — core.hooksPath → git-hooks/template/hooks. One
+#   hooksPath              -- core.hooksPath -> git-hooks/template/hooks. One
 #                central hooks dir for ALL repos (incl. existing ones), but it
 #                OVERRIDES any repo's own .git/hooks. Use with care.
 #
@@ -40,7 +40,9 @@ DRY_RUN=false
 # --- Action functions ---
 
 say() { printf '%s\n' "$*"; }
-run() { if ${DRY_RUN}; then printf '  [dry-run] %s\n' "$*"; else eval "$*"; fi; }
+# Execute a command, or just print it under --dry-run. Args are passed through
+# directly (no eval) so values with spaces stay intact.
+run() { if ${DRY_RUN}; then printf '  [dry-run] %s\n' "$*"; else "$@"; fi; }
 
 verify_prereqs() {
     [ -x "${HOOKS_DIR}/post-checkout" ] || {
@@ -57,7 +59,7 @@ set_git_config() {
     if [ -n "${current}" ] && [ "${current}" != "${value}" ]; then
         say "note: git config --global ${key} was '${current}'; overwriting."
     fi
-    run "git config --global '${key}' '${value}'"
+    run git config --global "${key}" "${value}"
     ${DRY_RUN} || say "set git config --global ${key} = ${value}"
 }
 
@@ -69,13 +71,13 @@ install_common_config() {
 }
 
 install_template_dir() {
-    say "Mechanism: init.templateDir → ${TEMPLATE_DIR}"
+    say "Mechanism: init.templateDir -> ${TEMPLATE_DIR}"
     set_git_config "init.templateDir" "${TEMPLATE_DIR}"
     install_common_config
 }
 
 install_hooks_path() {
-    say "Mechanism: core.hooksPath → ${HOOKS_DIR}"
+    say "Mechanism: core.hooksPath -> ${HOOKS_DIR}"
     say "WARNING: this overrides per-repo .git/hooks for ALL repositories."
     set_git_config "core.hooksPath" "${HOOKS_DIR}"
     install_common_config

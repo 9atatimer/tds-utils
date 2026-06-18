@@ -1,120 +1,236 @@
-# clone-audit — clone-time security audit
+# clone-audit -- runbook
 
-Automatically audit a repository for **coding-agent poisoning** and
-**auto-execution hazards** right after `git clone`, *before* you run any tooling
-inside it (open it with an AI agent, `npm install`, `cd` into it under direnv,
-open it in an editor).
+Operational guide for the clone-time security audit: setup, daily use, what to
+do when a finding fires, disabling, and troubleshooting.
 
-## Threat model
+Code:
 
-The dangerous gap is between *clone* and *the first thing you do in the repo*.
-Cloning itself executes no repo-controlled code, but a hostile repo can
-boobytrap what your tools do next:
+- `bin/clone-audit` -- the scanner (read-only; never executes repo content).
+- `git-hooks/template/hooks/post-checkout` -- the on-clone trigger.
+- `bin/install-git-hook-templates` -- the installer.
+- `test/smoketest_clone_audit.sh` -- the test suite.
 
-- **Coding-agent poisoning** — hidden or malicious instructions in the files an
-  AI agent auto-ingests (`CLAUDE.md`, `.cursorrules`, `AGENTS.md`, …): invisible
-  / bidi-override / Unicode-tag characters, or plain prompt-injection phrasing
-  that tells the agent to exfiltrate secrets or run commands.
-- **Auto-execution vectors** — `.claude/` hooks/commands/permissions, MCP
-  server launch commands, npm lifecycle scripts, direnv `.envrc`, VS Code /
-  devcontainer / JetBrains auto-run, `.gitattributes` filter drivers, and
-  `curl … | sh` one-liners.
+---
 
-This is a **tripwire, not a sandbox**: it catches *known* vectors and warns. A
-novel vector can slip past — the real backstop is behavioral (don't run
-`claude` / `npm` with blanket auto-approval in a fresh untrusted repo).
+## What it does (30-second version)
 
-## Why a `post-checkout` hook (git has no post-clone hook)
+After every `git clone`, a `post-checkout` hook runs `clone-audit` against the
+new working tree and prints any findings, before you run tooling inside it
+(open it with an AI agent, `npm install`, `cd` under direnv, open in an editor).
+It catches coding-agent poisoning (hidden/injected instructions in `CLAUDE.md`,
+`.cursorrules`, etc.) and auto-execution vectors (npm lifecycle scripts,
+`.claude` hooks, MCP launch commands, direnv, editor auto-run, `curl|sh`). It
+only warns -- it never blocks or alters a clone. It is a tripwire, not a
+sandbox: it flags known vectors; the real backstop is not running agents with
+blanket auto-approval in a fresh untrusted repo.
 
-No hook fires on `git clone` by name. But two facts combine into an effective
-global hook-on-clone:
+Git has no post-clone hook; `post-checkout` fires after a clone's initial
+checkout, and git never copies a remote's `.git/hooks`, so a hostile repo can't
+ship a hook to suppress ours.
 
-1. **`post-checkout` fires after `git clone`'s initial checkout.** It gets
-   `$1`=prev-HEAD, `$2`=new-HEAD, `$3`=branch-flag, and cannot affect the
-   checkout — purely advisory. On a clone, `$1` is the **null OID** (all zeros,
-   40 hex for SHA-1 / 64 for SHA-256), which distinguishes it from an ordinary
-   `git checkout -b`.
-2. **`git config init.templateDir <dir>`** replaces git's default template;
-   `git clone` runs `git init` internally, copying the template's `hooks/` into
-   the new repo. So a `post-checkout` in a global template is installed into
-   every repo you clone, and fires on the clone.
+---
 
-**Security property (load-bearing):** git **never transfers `.git/hooks` from
-the remote.** A cloned repo's hooks come *solely* from our template — a hostile
-repo cannot ship its own `post-checkout` to preempt ours. `core.hooksPath` is
-likewise not transferred. A repo's `.gitattributes` filter is an audit
-*target*, not a suppression vector (it runs only if you have `filter.<name>`
-defined locally).
+## Quick reference
 
-## Components
+| Action | Command |
+|--------|---------|
+| Install (this machine) | `bin/install-git-hook-templates` |
+| Audit a repo by hand | `clone-audit path/to/repo` |
+| Audit current dir | `clone-audit` |
+| Run the tests | `./test/smoketest_clone_audit.sh` |
+| Disable globally | `git config --global audit.enabled false` |
+| Disable for one clone | `TDS_CLONE_AUDIT=0 git clone <url>` |
+| Re-enable | `git config --global audit.enabled true` |
 
-- `git-hooks/template/hooks/post-checkout` — clone-only trigger (`#!/bin/bash`,
-  bash 3.2 / BSD-safe). Detects a fresh clone (null OID + branch flag),
-  suppresses `git worktree add` (linked worktrees), honors opt-out, locates the
-  scanner robustly, and **always exits 0** — it never blocks or fails a clone.
-- `bin/clone-audit` — the read-only scanner. **Only reads files; never executes
-  repo content.** Exit `0` clean / `2` on findings.
-- `bin/install-git-hook-templates` — idempotent installer that wires the global
-  config with machine-correct absolute paths.
+Exit codes: `0` clean, `2` warnings found, `1` usage error.
 
-## Install
+---
+
+## First-time setup
+
+### macOS
+
+The canonical config is committed in `git-config/dot.gitconfig` (symlinked to
+`~/.gitconfig`), assuming the repo lives at
+`/Users/stumpf/workplace/tds-utils`. If that's where it is, you're already wired
+up -- skip to Verify. If the repo is elsewhere, run the installer:
 
 ```sh
-bin/install-git-hook-templates            # init.templateDir (recommended)
-bin/install-git-hook-templates -m hooksPath
-bin/install-git-hook-templates -n         # dry run
+bin/install-git-hook-templates
 ```
 
-On macOS the canonical paths are committed in `git-config/dot.gitconfig`
-(symlinked to `~/.gitconfig`). On Linux/LMDE the repo lives elsewhere, so run
-the installer — it computes the right absolute paths (`init.templateDir` does
-**not** tilde-expand, so a committed `~/...` would silently do nothing).
+### Linux / LMDE
 
-The installer also sets **`audit.scannerPath`** so the hook finds `clone-audit`
-even when `bin/` is not on `PATH` (IDE/GUI/script-initiated clones — the most
-likely place the audit would otherwise silently skip).
-
-## Findings
-
-| Tag              | Meaning |
-|------------------|---------|
-| `AGENT-FILE`     | Agent instruction file present (review surface). Informational. |
-| `HIDDEN-UNICODE` | Invisible / bidi / Unicode-tag characters. |
-| `INJECTION`      | Prompt-injection / hijack phrasing. |
-| `AGENT-EXEC`     | `.claude` hooks/commands/permissions, MCP launch commands. |
-| `AUTORUN`        | npm lifecycle, `.envrc`, devcontainer/VS Code/JetBrains, `.gitattributes` filters, `curl\|sh`. |
-| `SUBMODULE`      | Submodule URLs (informational). |
-| `SECRET`         | gitleaks hits (only if `gitleaks` is on `PATH`). |
-
-## Run by hand
+The repo lives at a different absolute path, and `init.templateDir` does NOT
+tilde-expand (a `~/...` value silently installs nothing). Run the installer --
+it computes the correct absolute paths for this machine:
 
 ```sh
-clone-audit path/to/repo     # exit 0 clean, 2 on findings
-clone-audit                  # current directory
+bin/install-git-hook-templates
 ```
 
-Use it for `--bare` / `--no-checkout` clones (the hook can't fire there) and
-for repos you cloned before installing.
+This sets three global git config keys:
 
-## Opt out
+- `init.templateDir` -> `<repo>/git-hooks/template`
+- `audit.scannerPath` -> `<repo>/bin/clone-audit`
+- `audit.enabled` -> `true`
+
+`audit.scannerPath` is what lets the hook find the scanner even when `bin/` is
+not on `PATH` (IDE/GUI/script-launched clones -- the case where the audit would
+otherwise silently skip).
+
+Preview without changing anything: `bin/install-git-hook-templates -n`.
+
+---
+
+## Verify it works
 
 ```sh
-git config --global audit.enabled false   # or per-invocation: TDS_CLONE_AUDIT=0
+git clone https://github.com/9atatimer/tds-utils /tmp/audit-check
+rm -rf /tmp/audit-check
 ```
 
-## Clone-variant behavior
+You should see `post-checkout: fresh clone detected` followed by an audit
+summary. If you don't, see Troubleshooting.
+
+---
+
+## What happens on every clone
+
+1. `git clone` lays down the worktree and runs `post-checkout`.
+2. The hook confirms it's a real clone (null previous-HEAD, not a worktree-add),
+   honors opt-out, locates the scanner, and runs it.
+3. `clone-audit` prints `[INFO]` lines (review surface) and `[WARN]` lines
+   (potential hazards), then a one-line summary. Findings set exit code 2; the
+   hook swallows that and exits 0 so the clone is never disrupted.
+
+Example:
+
+```
+clone-audit: scanning /path/to/repo
+  [INFO] AGENT-FILE    CLAUDE.md
+  [WARN] INJECTION     CLAUDE.md -- matched hijack phrasing
+clone-audit: WARNING: 1 warning(s) in /path/to/repo -- REVIEW before running tooling in this repo.
+```
+
+---
+
+## A finding fired -- now what
+
+Stop. Do not open the repo with an agent or run its install/build until you've
+reviewed the flagged files by hand (read them; don't execute them).
+
+| Tag | Means | Investigate | Decision |
+|-----|-------|-------------|----------|
+| `AGENT-FILE` | An agent-instruction file exists (informational). | Read it -- this is the surface poisoning hides in. | Not a warning by itself; context for the others. |
+| `HIDDEN-UNICODE` | Invisible/bidi/tag characters in a text file. | Open the file in an editor that reveals them (e.g. `cat -v`, or your editor's "show invisibles"). Legit files almost never need these. | Treat as hostile unless you can explain it. |
+| `INJECTION` | Hijack phrasing ("ignore previous instructions", "do not tell the user", exfiltration language). | Read the surrounding text. | Hostile if aimed at an agent; could be a false positive in security docs. |
+| `AGENT-EXEC` | `.claude` hooks/commands/permissions or an MCP server launch command. | Read the JSON: what command would run, with what args, on session start? | Hostile if it runs anything you didn't expect. |
+| `AUTORUN` | Runs on install/open: npm lifecycle, `.envrc`, devcontainer/VS Code/JetBrains, `.gitattributes` filter, `curl\|sh`. | Read the script/command it would execute. | Common in legit repos -- judge by what it actually runs. |
+| `SUBMODULE` | Submodule URLs (informational). | Note the URLs; only fetched with `--recurse-submodules`. | Usually fine. |
+| `SECRET` | gitleaks flagged possible secrets (only if `gitleaks` is installed). | Run `gitleaks detect --source <repo>` for detail. | Investigate before pushing anywhere. |
+
+If a repo is clearly hostile: delete the clone (`rm -rf`) -- the files are inert
+on disk until you act on them, so deletion is safe.
+
+Re-run the audit anytime: `clone-audit path/to/repo`.
+
+---
+
+## Disable / opt out
+
+- One clone: `TDS_CLONE_AUDIT=0 git clone <url>`
+- Globally (persistent): `git config --global audit.enabled false`
+- Re-enable: `git config --global audit.enabled true`
+
+---
+
+## Move the repo or update paths
+
+If you relocate the repo, the committed/absolute paths go stale. Re-run the
+installer from the new location to rewrite `init.templateDir` and
+`audit.scannerPath`:
+
+```sh
+cd /new/path/to/tds-utils
+bin/install-git-hook-templates
+```
+
+Editing the hook itself needs no reinstall -- `init.templateDir` is copied at
+clone time, so the next clone uses the current template.
+
+---
+
+## Uninstall
+
+```sh
+git config --global --unset init.templateDir
+git config --global --unset audit.scannerPath
+git config --global --unset audit.enabled
+# If you installed with -m hooksPath instead:
+git config --global --unset core.hooksPath
+```
+
+---
+
+## Troubleshooting
+
+The audit didn't run on a clone:
+
+- Bare / mirror clone (`--bare`, `--mirror`): no worktree, so `post-checkout`
+  never fires. Run `clone-audit` by hand.
+- `--no-checkout` / `-n`: the hook fires later, on your first checkout.
+- `init.templateDir` set with a `~/...` path: it doesn't expand -- re-run the
+  installer for an absolute path. Confirm: `git config --global init.templateDir`.
+
+`post-checkout: clone-audit not found ... skipping audit.`:
+
+- `audit.scannerPath` isn't set or points at a missing file. Fix:
+  `git config --global audit.scannerPath /abs/path/to/bin/clone-audit` (or
+  re-run the installer).
+
+False positive:
+
+- Read the flagged file; if it's genuinely benign (e.g. a security doc that
+  quotes injection phrasing), no action needed -- the audit reports, it doesn't
+  quarantine. If a pattern is chronically noisy, tune it in `bin/clone-audit`
+  and add/adjust a case in `test/smoketest_clone_audit.sh`.
+
+Slow on a huge monorepo:
+
+- The scanner prunes `node_modules`, `.git`, `vendor`, `dist`, `build`, etc.
+  (see `PRUNE_DIRS` in `bin/clone-audit`). Add directories there if needed.
+
+`required tool not found: perl` (or grep/find):
+
+- The scanner needs `bash`, `perl`, `grep`, `find`. `gitleaks` is optional.
+
+---
+
+## Reference
+
+### Findings tags
+
+`AGENT-FILE` and `SUBMODULE` are informational (`[INFO]`). `HIDDEN-UNICODE`,
+`INJECTION`, `AGENT-EXEC`, `AUTORUN`, and `SECRET` are warnings (`[WARN]`) and
+set exit code 2.
+
+### Clone-variant behavior
 
 | Variant | Hook behavior |
 |---------|---------------|
 | Normal clone | fires, audits |
 | `--depth` (shallow) | fires, audits |
 | `--no-checkout` / `-n` | fires later, on first checkout |
-| `--bare` / `--mirror` | no worktree → never fires (run `clone-audit` by hand) |
+| `--bare` / `--mirror` | no worktree, never fires (run `clone-audit` by hand) |
 | `git worktree add` | suppressed (linked worktree of your own repo) |
-| `git checkout -b` | not a clone (non-null prev-HEAD) → silent |
+| `git checkout -b` | not a clone (non-null prev-HEAD), silent |
 
-## Tests
+### Config keys
 
-```sh
-./test/smoketest_clone_audit.sh
-```
+| Key | Purpose |
+|-----|---------|
+| `init.templateDir` | Hook template copied into every clone/init. |
+| `audit.scannerPath` | Absolute path to `clone-audit` (PATH-independent lookup). |
+| `audit.enabled` | `false` disables the audit. |
+| `core.hooksPath` | Alternative install (`-m hooksPath`); central hooks dir for all repos. |

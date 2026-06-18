@@ -1,5 +1,5 @@
-#!/bin/bash
-# post-checkout — advisory clone-time security audit.
+#!/usr/bin/env bash
+# post-checkout - advisory clone-time security audit.
 #
 # Git has no post-clone hook, but `git clone` runs post-checkout after its
 # initial checkout. Installed via a global hook template (init.templateDir),
@@ -7,10 +7,11 @@
 # See docs/clone-audit.md for the full mechanism and threat model.
 #
 # Args (from git): $1 = prev HEAD, $2 = new HEAD, $3 = 1 if branch checkout.
-# It cannot affect the checkout outcome — purely advisory.
+# It cannot affect the checkout outcome -- purely advisory.
 #
-# Portability: #!/bin/bash + bash 3.2 / BSD-safe (this runs on whatever bash a
-# clone is launched under, including macOS system bash 3.2 from an IDE/GUI).
+# Portability: bash 3.2 / BSD-safe (this runs on whatever bash a clone is
+# launched under, including macOS system bash 3.2 from an IDE/GUI). Output is
+# ASCII-only to stay legible in non-UTF-8 locales / limited terminals.
 #
 # NOTE: `set -e` is intentionally omitted. This hook must NEVER disrupt a
 # clone/checkout; it always exits 0.
@@ -19,7 +20,7 @@ prev_head="${1:-}"
 branch_flag="${3:-}"
 
 # Act only on a fresh clone: a branch checkout (flag=1) whose previous HEAD is
-# the null OID — all zeros, non-empty (handles 40-zero SHA-1 and 64-zero
+# the null OID -- all zeros, non-empty (handles 40-zero SHA-1 and 64-zero
 # SHA-256). A real `git checkout -b` has a non-zero prev HEAD, so it's skipped.
 [ "${branch_flag}" = "1" ] || exit 0
 case "${prev_head}" in
@@ -38,7 +39,7 @@ commondir="$(git rev-parse --git-common-dir 2>/dev/null || true)"
 [ -n "${gitdir}" ] && [ "${gitdir}" != "${commondir}" ] && exit 0
 
 # Locate the scanner robustly (the bin dir may not be on PATH for IDE/GUI/
-# script-initiated clones): git config → PATH → hardcoded fallbacks.
+# script-initiated clones): git config -> PATH -> hardcoded fallbacks.
 scanner="$(git config --get audit.scannerPath 2>/dev/null || true)"
 if [ -z "${scanner}" ] || [ ! -x "${scanner}" ]; then
     scanner="$(command -v clone-audit 2>/dev/null || true)"
@@ -57,6 +58,6 @@ if [ -z "${scanner}" ] || [ ! -x "${scanner}" ]; then
 fi
 
 root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-printf '\npost-checkout: fresh clone detected — running clone-audit…\n'
+printf '\npost-checkout: fresh clone detected - running clone-audit...\n'
 "${scanner}" "${root}" || true
 exit 0
