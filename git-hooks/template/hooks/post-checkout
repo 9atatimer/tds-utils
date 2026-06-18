@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# post-checkout - advisory clone-time security audit.
+#
+# Git has no post-clone hook, but `git clone` runs post-checkout after its
+# initial checkout. Installed via a global hook template (init.templateDir),
+# this hook is copied into every cloned/init'd repo and fires once on clone.
+# See docs/clone-audit.md for the full mechanism and threat model.
+#
+# Args (from git): $1 = prev HEAD, $2 = new HEAD, $3 = 1 if branch checkout.
+# It cannot affect the checkout outcome -- purely advisory.
+#
+# Portability: bash 3.2 / BSD-safe (this runs on whatever bash a clone is
+# launched under, including macOS system bash 3.2 from an IDE/GUI). Output is
+# ASCII-only to stay legible in non-UTF-8 locales / limited terminals.
+#
+# NOTE: `set -e` is intentionally omitted. This hook must NEVER disrupt a
+# clone/checkout; it always exits 0.
+
+set -uo pipefail
+
+# --- Action functions ---
+
+# True only for a fresh clone: a branch checkout (flag=1) whose previous HEAD is
+# the null OID -- all zeros, non-empty (handles 40-zero SHA-1 and 64-zero
+# SHA-256). A real `git checkout -b` has a non-zero prev HEAD, so it's skipped.
+is_fresh_clone() {
+    local prev_head="$1" branch_flag="$2"
+    [ "${branch_flag}" = "1" ] || return 1
+    case "${prev_head}" in
+        '' | *[!0]* ) return 1 ;;
+    esac
+    return 0
+}
+
+# Opt-out via env var or git config.
+audit_disabled() {
+    [ "${TDS_CLONE_AUDIT:-1}" = "0" ] && return 0
+    [ "$(git config --bool audit.enabled 2>/dev/null)" = "false" ] && return 0
+    return 1
+}
+
+# `git worktree add` also fires with a null prev HEAD, but it targets your own
+# trusted repo. A linked worktree's git-dir differs from its common git-dir; a
+# fresh clone's are identical.
+is_secondary_worktree() {
+    local gitdir commondir
+    gitdir="$(git rev-parse --git-dir 2>/dev/null || true)"
+    commondir="$(git rev-parse --git-common-dir 2>/dev/null || true)"
+    [ -n "${gitdir}" ] && [ "${gitdir}" != "${commondir}" ]
+}
+
+# Resolve clone-audit robustly (the bin dir may not be on PATH for IDE/GUI/
+# script-initiated clones): git config -> PATH -> hardcoded fallbacks. Prints
+# the path on success; returns non-zero if not found.
+locate_scanner() {
+    local scanner cand
+    scanner="$(git config --get audit.scannerPath 2>/dev/null || true)"
+    if [ -z "${scanner}" ] || [ ! -x "${scanner}" ]; then
+        scanner="$(command -v clone-audit 2>/dev/null || true)"
+    fi
+    if [ -z "${scanner}" ] || [ ! -x "${scanner}" ]; then
+        for cand in \
+            "${HOME}/workplace/tds-utils/bin/clone-audit" \
+            "${HOME}/tds-utils/bin/clone-audit" \
+            "${HOME}/src/tds-utils/bin/clone-audit"; do
+            if [ -x "${cand}" ]; then scanner="${cand}"; break; fi
+        done
+    fi
+    [ -n "${scanner}" ] && [ -x "${scanner}" ] || return 1
+    printf '%s\n' "${scanner}"
+}
+
+# --- Flow functions ---
+
+run_clone_audit() {
+    local scanner root
+    if ! scanner="$(locate_scanner)"; then
+        echo "post-checkout: clone-audit not found (set git config audit.scannerPath); skipping audit." >&2
+        return 0
+    fi
+    root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+    printf '\npost-checkout: fresh clone detected - running clone-audit...\n'
+    "${scanner}" "${root}" || true
+}
+
+# --- Main (git passes prev-HEAD, new-HEAD, branch-flag positionally) ---
+
+main() {
+    is_fresh_clone "${1:-}" "${3:-}" || exit 0
+    audit_disabled          && exit 0
+    is_secondary_worktree   && exit 0
+    run_clone_audit
+    exit 0
+}
+
+main "$@"

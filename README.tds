@@ -25,3 +25,4 @@ Brewfile Dependencies (macOS)
   ansifilter  --> strips ANSI escape codes from tmux pipe-pane log output
 
   Install: brew install tmux ansifilter
+
