@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# post-checkout — run a security scan immediately after a fresh clone.
+#
+# Git has no "post-clone" hook, but `git clone` performs a checkout at the
+# end, which fires post-checkout. When installed via a global hook template
+# (init.templateDir) or core.hooksPath, this hook is present at clone time
+# and therefore runs once, right after the worktree is laid down — before
+# you open the repo with a coding agent.
+#
+# A fresh clone is distinguished from an ordinary `git checkout` because the
+# "previous HEAD" argument is the null SHA. We only scan in that case so
+# normal branch switching stays silent.
+#
+# Args (from git): $1 = old HEAD, $2 = new HEAD, $3 = 1 if branch checkout.
+#
+# NOTE: `set -e` is deliberately omitted — this hook must NEVER fail in a way
+# that disrupts the clone/checkout. It always exits 0.
+
+set -uo pipefail
+
+NULL_SHA="0000000000000000000000000000000000000000"
+
+old_head="${1:-}"
+flag="${3:-}"
+
+# Only act on a branch checkout (flag=1) whose previous HEAD is null: a clone.
+[[ "${flag}" == "1" ]]          || exit 0
+[[ "${old_head}" == "${NULL_SHA}" ]] || exit 0
+
+# Locate the worktree root without depending on git succeeding.
+root="${GIT_WORK_TREE:-}"
+[[ -n "${root}" ]] || root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+if command -v clone-scan >/dev/null 2>&1; then
+    printf '\npost-checkout: fresh clone detected — running clone-scan…\n'
+    clone-scan "${root}" || true
+else
+    printf 'post-checkout: clone-scan not on PATH; skipping security scan of %s\n' \
+        "${root}" >&2
+fi
+
+exit 0
