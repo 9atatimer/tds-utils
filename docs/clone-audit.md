@@ -85,13 +85,21 @@ Preview without changing anything: `bin/install-git-hook-templates -n`.
 
 ## Verify it works
 
+Clone a throwaway empty repo so you see the hook fire on a clean tree:
+
 ```sh
-git clone https://github.com/9atatimer/tds-utils /tmp/audit-check
-rm -rf /tmp/audit-check
+src="$(mktemp -d)"; git -C "$src" init -q && git -C "$src" commit -q --allow-empty -m init
+git clone "$src" /tmp/audit-check
+rm -rf "$src" /tmp/audit-check
 ```
 
-You should see `post-checkout: fresh clone detected` followed by an audit
-summary. If you don't, see Troubleshooting.
+You should see `post-checkout: fresh clone detected` followed by
+`clone-audit: OK: no issues found`. If you don't, see Troubleshooting.
+
+Note: auditing tds-utils itself reports findings -- from its own test
+fixtures, this runbook's examples, and the scanner's own regexes. That is
+expected; a pattern scanner matches the patterns it documents and tests. Don't
+use this repo as your "clean" smoke test.
 
 ---
 
