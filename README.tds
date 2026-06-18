@@ -25,3 +25,19 @@ Brewfile Dependencies (macOS)
   ansifilter  --> strips ANSI escape codes from tmux pipe-pane log output
 
   Install: brew install tmux ansifilter
+
+
+---
+Clone-time security audit (clone-audit)
+
+  Every `git clone` is automatically audited for coding-agent poisoning
+  and auto-execution hazards BEFORE you run any tooling in the new repo
+  (open it with an AI agent, `npm install`, `cd` under direnv, etc).
+
+  Set it up:   bin/install-git-hook-templates
+  Run by hand: clone-audit path/to/repo
+  Turn it off: git config --global audit.enabled false
+
+  Full human documentation -- threat model, how it works, what it
+  catches, install, and opt-out -- lives in docs/clone-audit.md.
+
