@@ -228,7 +228,7 @@ scan_curl_pipe() {
     local line
     while IFS= read -r line; do
         [ -n "${line}" ] && emit_warn "AUTORUN" "${line%%:*}" "pipes a download into a shell"
-    done < <(grep_audit '(curl|wget|fetch)[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh\b')
+    done < <(grep_audit '(curl|wget|fetch)[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh($|[^[:alnum:]])')
 }
 
 # Optional secret scan -- only if gitleaks is on PATH (graceful skip).

