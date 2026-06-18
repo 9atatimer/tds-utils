@@ -1,31 +1,28 @@
 #!/usr/bin/env bash
-# install-git-hook-templates — wire up the clone-time security scan globally.
+# install-git-hook-templates — wire up the clone-time security audit globally.
 #
-# Installs git-hooks/post-checkout as a GLOBAL hook so that every future
-# `git clone` runs clone-scan against the new worktree (see git-hooks/README.md
-# for why post-checkout is the mechanism — git has no post-clone hook).
+# Points git at this repo's in-tree hook template so every future `git clone`
+# runs clone-audit against the new worktree (see docs/clone-audit.md for the
+# mechanism — git has no post-clone hook, so we ride post-checkout).
 #
-# Two install mechanisms:
+# It computes ABSOLUTE paths for the running machine (init.templateDir does NOT
+# tilde-expand, so a `~/...` value would silently install nothing) and sets
+# audit.scannerPath so the hook finds clone-audit even when this repo's bin/ is
+# not on PATH (e.g. IDE/GUI/script-initiated clones).
 #
-#   templateDir  (default, recommended)
-#       Copies the hook into ~/.git-templates/hooks and points
-#       `git config --global init.templateDir` at it. Git copies the template
-#       into each repo's .git/ at clone/init time. Per-repo copy; does not
-#       touch repos cloned before you ran this; never overrides a repo that
-#       ships its own hooks.
-#
-#   hooksPath
-#       Installs the hook into ~/.config/git/hooks and sets
-#       `git config --global core.hooksPath`. A single central hooks dir used
-#       by ALL repos (incl. existing ones), trivially updated in one place —
-#       but it OVERRIDES any repo's own .git/hooks entirely. Use with care.
+# Two mechanisms:
+#   templateDir  (default) — init.templateDir → git-hooks/template. Git copies
+#                the template into each repo's .git/ at clone/init time. Does
+#                not touch already-cloned repos; never overrides a repo's own
+#                hooks.
+#   hooksPath              — core.hooksPath → git-hooks/template/hooks. One
+#                central hooks dir for ALL repos (incl. existing ones), but it
+#                OVERRIDES any repo's own .git/hooks. Use with care.
 #
 # Usage:   install-git-hook-templates [-m templateDir|hooksPath] [-n]
 #   -m   mechanism (default: templateDir)
 #   -n   dry run: print what would happen, change nothing
 #   -h   help
-#
-# Side effects: writes a hook file under $HOME and sets a global git config key.
 
 set -euo pipefail
 
@@ -33,40 +30,32 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "${SCRIPT_DIR}")"
-SRC_HOOK="${REPO_DIR}/git-hooks/post-checkout"
+TEMPLATE_DIR="${REPO_DIR}/git-hooks/template"
+HOOKS_DIR="${TEMPLATE_DIR}/hooks"
+SCANNER="${REPO_DIR}/bin/clone-audit"
 
 MECHANISM="templateDir"
 DRY_RUN=false
 
 # --- Action functions ---
 
-say()  { printf '%s\n' "$*"; }
-run()  { if ${DRY_RUN}; then printf '  [dry-run] %s\n' "$*"; else eval "$*"; fi; }
+say() { printf '%s\n' "$*"; }
+run() { if ${DRY_RUN}; then printf '  [dry-run] %s\n' "$*"; else eval "$*"; fi; }
 
 verify_prereqs() {
-    [[ -f "${SRC_HOOK}" ]] || {
-        say "error: hook source not found: ${SRC_HOOK}"; exit 1
+    [ -x "${HOOKS_DIR}/post-checkout" ] || {
+        say "error: hook not found/executable: ${HOOKS_DIR}/post-checkout"; exit 1
     }
-    if ! command -v clone-scan >/dev/null 2>&1; then
-        say "warning: 'clone-scan' is not on your PATH."
-        say "         The hook will install but silently skip until ${REPO_DIR}/bin is on PATH."
-    fi
-}
-
-install_hook_file() {
-    local dest_dir="$1" dest="$1/post-checkout"
-    run "mkdir -p '${dest_dir}'"
-    run "cp '${SRC_HOOK}' '${dest}'"
-    run "chmod +x '${dest}'"
-    ${DRY_RUN} || say "installed hook → ${dest}"
+    [ -x "${SCANNER}" ] || {
+        say "error: scanner not found/executable: ${SCANNER}"; exit 1
+    }
 }
 
 set_git_config() {
     local key="$1" value="$2" current
     current="$(git config --global --get "${key}" 2>/dev/null || true)"
-    if [[ -n "${current}" && "${current}" != "${value}" ]]; then
-        say "note: git config --global ${key} is currently '${current}'."
-        say "      overwriting with '${value}'."
+    if [ -n "${current}" ] && [ "${current}" != "${value}" ]; then
+        say "note: git config --global ${key} was '${current}'; overwriting."
     fi
     run "git config --global '${key}' '${value}'"
     ${DRY_RUN} || say "set git config --global ${key} = ${value}"
@@ -74,24 +63,29 @@ set_git_config() {
 
 # --- Flow functions ---
 
+install_common_config() {
+    set_git_config "audit.scannerPath" "${SCANNER}"
+    set_git_config "audit.enabled" "true"
+}
+
 install_template_dir() {
-    local tpl="${GIT_TEMPLATE_DIR:-${HOME}/.git-templates}"
-    say "Mechanism: init.templateDir → ${tpl}"
-    install_hook_file "${tpl}/hooks"
-    set_git_config "init.templateDir" "${tpl}"
-    say ""
-    say "Done. New clones will scan automatically. Verify with a throwaway clone:"
-    say "  git clone <some-repo> /tmp/scan-check && rm -rf /tmp/scan-check"
+    say "Mechanism: init.templateDir → ${TEMPLATE_DIR}"
+    set_git_config "init.templateDir" "${TEMPLATE_DIR}"
+    install_common_config
 }
 
 install_hooks_path() {
-    local hooks="${HOME}/.config/git/hooks"
-    say "Mechanism: core.hooksPath → ${hooks}"
+    say "Mechanism: core.hooksPath → ${HOOKS_DIR}"
     say "WARNING: this overrides per-repo .git/hooks for ALL repositories."
-    install_hook_file "${hooks}"
-    set_git_config "core.hooksPath" "${hooks}"
+    set_git_config "core.hooksPath" "${HOOKS_DIR}"
+    install_common_config
+}
+
+print_verify() {
     say ""
-    say "Done. All repos now use ${hooks}. New clones will scan automatically."
+    say "Done. Verify with a throwaway clone of any repo:"
+    say "  git clone <repo-url> /tmp/audit-check && rm -rf /tmp/audit-check"
+    say "Opt out anytime: git config --global audit.enabled false  (or TDS_CLONE_AUDIT=0)"
 }
 
 run_install() {
@@ -99,8 +93,9 @@ run_install() {
     case "${MECHANISM}" in
         templateDir) install_template_dir ;;
         hooksPath)   install_hooks_path ;;
-        *) say "error: unknown mechanism '${MECHANISM}' (use templateDir or hooksPath)"; exit 1 ;;
+        *) say "error: unknown mechanism '${MECHANISM}' (templateDir|hooksPath)"; exit 1 ;;
     esac
+    print_verify
 }
 
 usage() { sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }

@@ -1,0 +1,310 @@
+#!/usr/bin/env bash
+# clone-audit — static, read-only safety audit of a (freshly-cloned) repo.
+#
+# Purpose:
+#   Inspect a repository working tree for coding-agent poisoning and auto-
+#   execution hazards BEFORE you act inside it (open it with an AI agent,
+#   `npm install`, `cd` into it under direnv, open it in an editor). Designed
+#   to be invoked automatically from a global post-checkout hook on clone
+#   (see git-hooks/template/hooks/post-checkout), or run by hand anytime.
+#
+# Threat model:
+#   AGENT-FILE      Agent instruction files present (CLAUDE.md, .cursorrules,
+#                   AGENTS.md, MCP configs). Informational review surface.
+#   HIDDEN-UNICODE  Invisible / bidi-override (Trojan Source) / Unicode-tag
+#                   characters used to smuggle instructions past a reviewer.
+#   INJECTION       Prompt-injection phrasing aimed at hijacking an agent.
+#   AGENT-EXEC      Configs that make an agent/editor run a command on open
+#                   (.claude hooks/commands/permissions, MCP launch commands).
+#   AUTORUN         Code that runs on install/open — npm lifecycle scripts,
+#                   .envrc, devcontainer/VS Code/JetBrains auto-run,
+#                   .gitattributes filter drivers, curl|sh one-liners.
+#   SUBMODULE       Submodule URLs (informational; only fetched with
+#                   --recurse-submodules).
+#   SECRET          Hits from gitleaks, IF it is on PATH.
+#
+# SAFETY: only ever READS files. Never executes, sources, or evaluates
+#   anything from the audited repository.
+#
+# Usage:   clone-audit [-q] [PATH]      (PATH defaults to '.')
+# Exit:    0 = no warnings, 2 = warnings found, 1 = usage error.
+# Prereqs: bash, perl, grep, find. (gitleaks optional.)
+#
+# Portability: targets macOS system bash 3.2 / BSD userland — no
+#   readarray/mapfile, no `declare -A`, no `grep -P`, no `find -printf`.
+#   Loops read via process substitution (`< <(cmd)`) so finding counts
+#   survive in the current shell (a piped `while` would lose them).
+
+set -euo pipefail
+
+# --- Globals ---
+
+ROOT=""
+QUIET=false
+WARN_COUNT=0
+
+# Directories never worth descending into (vendored / VCS / build output).
+PRUNE_DIRS="node_modules .git .svn .hg vendor dist build .next .venv venv .tox"
+
+# --- Output helpers ---
+
+emit_info() {
+    # tag, file
+    ${QUIET} && return 0
+    printf '  [INFO] %-13s %s\n' "$1" "${2#"${ROOT}"/}"
+}
+
+emit_warn() {
+    # tag, file, detail
+    printf '  [WARN] %-13s %s%s\n' "$1" "${2#"${ROOT}"/}" \
+        "${3:+ — $3}"
+    WARN_COUNT=$((WARN_COUNT + 1))
+}
+
+# All regular files under ROOT, with PRUNE_DIRS pruned. One path per line.
+find_files() {
+    local expr=() d first=1
+    for d in ${PRUNE_DIRS}; do
+        if [ "${first}" -eq 1 ]; then expr+=(-name "${d}"); first=0
+        else expr+=(-o -name "${d}"); fi
+    done
+    find "${ROOT}" \( -type d \( "${expr[@]}" \) -prune \) -o -type f -print 2>/dev/null || true
+}
+
+# Recursive content grep that tolerates "no match" (exit 1) under set -e.
+grep_audit() {
+    local pattern="$1" excl=() d
+    for d in ${PRUNE_DIRS}; do excl+=(--exclude-dir="${d}"); done
+    grep -rIniE "${excl[@]}" -e "${pattern}" "${ROOT}" 2>/dev/null || true
+}
+
+# Regular files by name (pruned of .git). One path per line.
+find_named() {
+    find "${ROOT}" -type f -name "$1" -not -path '*/.git/*' 2>/dev/null || true
+}
+
+# --- Action functions (one vector each) ---
+
+# Enumerate known agent-instruction files. Presence is the surface, not proof.
+scan_agent_files() {
+    local f
+    while IFS= read -r f; do
+        [ -n "${f}" ] && emit_info "AGENT-FILE" "${f}"
+    done < <(find "${ROOT}" -type f \( \
+        -name 'CLAUDE.md'   -o -name 'AGENT.md'  -o -name 'AGENTS.md'    \
+        -o -name 'GEMINI.md' -o -name '.cursorrules' -o -name '.windsurfrules' \
+        -o -name '.clinerules' -o -name '.aider.conf.yml' -o -name '.roomodes' \
+        -o -name 'copilot-instructions.md' -o -name '*.mdc' \) \
+        -not -path '*/.git/*' 2>/dev/null || true)
+}
+
+# Invisible / bidi / Unicode-tag characters in text files.
+scan_hidden_unicode() {
+    local line file ln cp
+    while IFS= read -r line; do
+        [ -n "${line}" ] || continue
+        file="${line%%:*}"; line="${line#*:}"
+        ln="${line%%:*}";   cp="${line#*:}"
+        emit_warn "HIDDEN-UNICODE" "${file}" "line ${ln}: ${cp}"
+    done < <(find_files | perl -CSD -ne '
+        chomp(my $f = $_);
+        next if -B $f;
+        open my $fh, "<:encoding(UTF-8)", $f or next;
+        my $ln = 0;
+        while (my $line = <$fh>) {
+            $ln++;
+            $line =~ s/^\x{feff}// if $ln == 1;   # tolerate a leading BOM
+            while ($line =~ /([\x{200b}-\x{200f}\x{2028}-\x{202e}\x{2060}-\x{2064}\x{2066}-\x{206f}\x{feff}\x{e0000}-\x{e007f}])/g) {
+                printf "%s:%d:U+%04X\n", $f, $ln, ord($1);
+            }
+        }
+        close $fh;
+    ' 2>/dev/null || true)
+}
+
+# Prompt-injection / hijack phrasing.
+scan_injection() {
+    local pattern line
+    pattern='ignore (all |the )?(previous|prior|above) instructions'
+    pattern+='|disregard (all |the )?(previous|prior|above)'
+    pattern+='|do not (tell|inform|reveal to|mention to) the (user|human|developer)'
+    pattern+='|you are now (a |an |in |operating|being)'
+    pattern+='|new (instructions|directive)s?:'
+    pattern+='|(send|exfiltrat|upload|post|leak) .{0,40}(secret|token|credential|password|env var|\.ssh|api[_ -]?key)'
+    while IFS= read -r line; do
+        [ -n "${line}" ] && emit_warn "INJECTION" "${line%%:*}" "matched hijack phrasing"
+    done < <(grep_audit "${pattern}")
+}
+
+# .claude config that executes (hooks / custom commands / permission allowlists)
+# and MCP server launch commands.
+scan_claude() {
+    local f
+    while IFS= read -r f; do
+        [ -n "${f}" ] || continue
+        grep -qE '"hooks"[[:space:]]*:' "${f}" 2>/dev/null \
+            && emit_warn "AGENT-EXEC" "${f}" "declares agent hooks (runs on session)"
+        grep -qE '"(permissions|allow)"[[:space:]]*:' "${f}" 2>/dev/null \
+            && emit_warn "AGENT-EXEC" "${f}" "ships a permission allowlist"
+    done < <(find "${ROOT}" -type f -path '*/.claude/*' \( -name 'settings.json' \
+        -o -name 'settings.local.json' \) -not -path '*/.git/*' 2>/dev/null || true)
+
+    while IFS= read -r f; do
+        [ -n "${f}" ] && emit_warn "AGENT-EXEC" "${f}" "bundled custom slash commands"
+    done < <(find "${ROOT}" -type d -path '*/.claude/commands' -not -path '*/.git/*' 2>/dev/null || true)
+
+    while IFS= read -r f; do
+        [ -n "${f}" ] && emit_warn "AGENT-EXEC" "${f}" "agent hook script"
+    done < <(find "${ROOT}" -type f -path '*/.claude/hooks/*' -not -path '*/.git/*' 2>/dev/null || true)
+
+    while IFS= read -r f; do
+        [ -n "${f}" ] || continue
+        grep -qE '"command"[[:space:]]*:' "${f}" 2>/dev/null \
+            && emit_warn "AGENT-EXEC" "${f}" "MCP server launches a command"
+    done < <({ find_named '.mcp.json'; find_named 'mcp.json'; })
+}
+
+# npm lifecycle scripts that run automatically on install/pack.
+scan_npm() {
+    local f
+    while IFS= read -r f; do
+        [ -n "${f}" ] || continue
+        grep -qE '"(preinstall|install|postinstall|prepare|prepublish|prepublishOnly|prepack|postpack|preuninstall|postuninstall)"[[:space:]]*:' "${f}" 2>/dev/null \
+            && emit_warn "AUTORUN" "${f}" "npm lifecycle script"
+    done < <(find "${ROOT}" -type f -name 'package.json' -not -path '*/.git/*' \
+        -not -path '*/node_modules/*' 2>/dev/null || true)
+}
+
+# direnv: .envrc runs on cd into the directory (if allowed).
+scan_direnv() {
+    local f
+    while IFS= read -r f; do
+        [ -n "${f}" ] && emit_warn "AUTORUN" "${f}" "direnv runs this on cd"
+    done < <(find_named '.envrc')
+}
+
+# Editor auto-run: VS Code folderOpen tasks, devcontainer lifecycle, JetBrains.
+scan_editor() {
+    local f
+    while IFS= read -r f; do
+        [ -n "${f}" ] || continue
+        grep -qE 'folderOpen' "${f}" 2>/dev/null \
+            && emit_warn "AUTORUN" "${f}" "VS Code task runs on folder open"
+    done < <(find "${ROOT}" -type f -path '*/.vscode/*' -name 'tasks.json' \
+        -not -path '*/.git/*' 2>/dev/null || true)
+
+    while IFS= read -r f; do
+        [ -n "${f}" ] || continue
+        grep -qE '"(initializeCommand|onCreateCommand|updateContentCommand|postCreateCommand|postStartCommand|postAttachCommand)"' "${f}" 2>/dev/null \
+            && emit_warn "AUTORUN" "${f}" "devcontainer lifecycle command"
+    done < <(find_named 'devcontainer.json')
+
+    while IFS= read -r f; do
+        [ -n "${f}" ] && emit_warn "AUTORUN" "${f}" "JetBrains run configurations"
+    done < <(find "${ROOT}" -type d -path '*/.idea/runConfigurations' -not -path '*/.git/*' 2>/dev/null || true)
+}
+
+# .gitattributes filter/diff drivers (run only if the user has the matching
+# filter.<name> defined locally — audit target, not auto-exec).
+scan_gitattributes() {
+    local f
+    while IFS= read -r f; do
+        [ -n "${f}" ] || continue
+        grep -qE '(^|[[:space:]])(filter|diff)=' "${f}" 2>/dev/null \
+            && emit_warn "AUTORUN" "${f}" "declares a filter/diff driver"
+    done < <(find_named '.gitattributes')
+}
+
+# Submodules: informational — URLs are only fetched with --recurse-submodules.
+scan_gitmodules() {
+    local f
+    while IFS= read -r f; do
+        [ -n "${f}" ] && emit_info "SUBMODULE" "${f}"
+    done < <(find_named '.gitmodules')
+}
+
+# curl|sh / wget|bash one-liners anywhere in the tree.
+scan_curl_pipe() {
+    local line
+    while IFS= read -r line; do
+        [ -n "${line}" ] && emit_warn "AUTORUN" "${line%%:*}" "pipes a download into a shell"
+    done < <(grep_audit '(curl|wget|fetch)[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh\b')
+}
+
+# Optional secret scan — only if gitleaks is on PATH (graceful skip).
+scan_secrets() {
+    command -v gitleaks >/dev/null 2>&1 || return 0
+    if ! gitleaks detect --source "${ROOT}" --no-banner --redact >/dev/null 2>&1; then
+        emit_warn "SECRET" "${ROOT}" "gitleaks reported potential secrets — run 'gitleaks detect' for detail"
+    fi
+}
+
+# --- Flow ---
+
+run_audit() {
+    ${QUIET} || printf 'clone-audit: scanning %s\n' "${ROOT}"
+
+    # Each scanner is best-effort: "found nothing" is success. `|| true` keeps
+    # a no-match (the while loop's last status) from tripping set -e. Findings
+    # are tallied in WARN_COUNT, not in scanner return codes.
+    local s
+    for s in scan_agent_files scan_hidden_unicode scan_injection scan_claude \
+             scan_npm scan_direnv scan_editor scan_gitattributes \
+             scan_gitmodules scan_curl_pipe scan_secrets; do
+        "${s}" || true
+    done
+
+    if [ "${WARN_COUNT}" -gt 0 ]; then
+        printf 'clone-audit: ⚠  %d warning(s) in %s — REVIEW before running tooling in this repo.\n' \
+            "${WARN_COUNT}" "${ROOT}"
+        return 2
+    fi
+    ${QUIET} || printf 'clone-audit: ✓ no issues found (%s)\n' "${ROOT}"
+    return 0
+}
+
+usage() {
+    cat <<'EOF'
+Usage: clone-audit [-q] [PATH]
+
+Statically audits PATH (default '.') for coding-agent poisoning and auto-run
+hazards. Reads files only; never executes repo content.
+
+  -q   quiet: print only when warnings are found
+  -h   this help
+
+Exit: 0 clean, 2 warnings found, 1 usage error.
+EOF
+}
+
+# --- Main ---
+
+main() {
+    local opt tool
+    while getopts "qh" opt; do
+        case "${opt}" in
+            q) QUIET=true ;;
+            h) usage; exit 0 ;;
+            *) usage; exit 1 ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+
+    local target="${1:-.}"
+    if [ ! -d "${target}" ]; then
+        printf 'clone-audit: not a directory: %s\n' "${target}" >&2
+        exit 1
+    fi
+    ROOT="$(cd "${target}" && pwd)"
+
+    for tool in perl grep find; do
+        command -v "${tool}" >/dev/null 2>&1 || {
+            printf 'clone-audit: required tool not found: %s\n' "${tool}" >&2
+            exit 1
+        }
+    done
+
+    run_audit
+}
+
+main "$@"
