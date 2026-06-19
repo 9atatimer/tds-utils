@@ -73,8 +73,9 @@ It creates:
 - `~/.config/git/template`   -> `<repo>/git-hooks/template`
 - `~/.local/bin/clone-audit` -> `<repo>/bin/clone-audit`
 
-and sets the three config keys above only if not already present (so it won't
-rewrite the committed `dot.gitconfig`). `audit.scannerPath` lets the hook find
+and sets the three config keys above, skipping any key already equal to the
+desired value (so it won't rewrite the committed `dot.gitconfig` when it's
+already correct; a key set to a *different* value is overwritten, with a note). `audit.scannerPath` lets the hook find
 the scanner even when `bin/` isn't on `PATH` (IDE/GUI/script-launched clones --
 the case where the audit would otherwise silently skip).
 
