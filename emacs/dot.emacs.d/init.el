@@ -648,7 +648,7 @@
  ;; If there is more than one, they won't work right.
  '(indent-tabs-mode nil)
  '(org-agenda-files
-   '("~/org/job-hunt.org" "/Users/stumpf/org/todo.org"))
+   '("~/org/job-hunt.org" "~/org/todo.org"))
  '(package-selected-packages
    '(bazel chatgpt-shell claude-code copilot direnv dtrt-indent eat
            eslint-fix exec-path-from-shell flycheck git-commit
