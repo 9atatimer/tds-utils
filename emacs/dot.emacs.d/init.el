@@ -104,6 +104,11 @@
   (interactive)
   (find-file "~/.emacs.d/init.el"))
 
+(defun open-todo-file ()
+  "Open the org-mode todo.org file."
+  (interactive)
+  (find-file "~/org/todo.org"))
+
 (defun open-lisp-directory ()
   "Open dired in the elisp directory."
   (interactive)
@@ -440,6 +445,8 @@
 ;;
 ;; My first dabbling into org-mode
 ;;
+(setq org-directory "~/org")
+(setq org-default-notes-file (concat org-directory "/todo.org"))
 (use-package org
   :ensure nil  ; built-in
   :config
@@ -447,6 +454,9 @@
    'org-babel-load-languages
    '((emacs-lisp . t)
      (shell . t))))
+;; Auto-save all modified Org buffers after 60 seconds of idle time
+(run-with-idle-timer 60 t 'org-save-all-org-buffers)
+(global-set-key (kbd "C-c a t") 'org-agenda)
 
 (use-package mcp-server
   :load-path "~/.emacs.d/elisp/emacs-mcp-server"
@@ -454,7 +464,7 @@
   (add-hook 'emacs-startup-hook #'mcp-server-start-unix))
 
 (use-package eltainer
-  :load-path "~/workplace/9atatimer/eldocker"
+  :load-path "~/workplace/9atatimer/eltainer"
   :commands (eltainer docker k8s)
   :bind ("C-c d" . eltainer))
 
@@ -487,6 +497,7 @@
 ;; Magit keybindings
 (use-package magit
   :ensure t
+  :demand t
   :after transient
   :bind (("C-c g g" . magit-status)
          ("C-c g l" . magit-log-buffer-file)
@@ -624,6 +635,7 @@
 (global-set-key (kbd "C-x C-y") 'copy-whole-buffer-to-clipboard)
 (global-set-key (kbd "C-c e i") 'open-init-file)
 (global-set-key (kbd "C-c e l") 'open-lisp-directory)
+(global-set-key (kbd "C-c e t") 'open-todo-file)
 
 ;;
 ;;  Misc emacs-UI controlled variables:
@@ -635,6 +647,8 @@
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
  '(indent-tabs-mode nil)
+ '(org-agenda-files
+   '("~/org/job-hunt.org" "~/org/todo.org"))
  '(package-selected-packages
    '(bazel chatgpt-shell claude-code copilot direnv dtrt-indent eat
            eslint-fix exec-path-from-shell flycheck git-commit

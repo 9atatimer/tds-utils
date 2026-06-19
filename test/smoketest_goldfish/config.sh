@@ -42,7 +42,7 @@ run_goldfish() {
         cp "${SMOKE_CONFIG}" "${SMOKE_TMP}/goldfish/config.json"
     fi
     XDG_CACHE_HOME="${SMOKE_CACHE}" \
-        python3 "${SMOKE_TMP}/goldfish/goldfish" "$@"
+        python3 "${SMOKE_TMP}/goldfish/goldfish" --no-gh --no-filter "$@"
 }
 
 # Initialize a fake clone with a github remote inside SMOKE_CLONES.

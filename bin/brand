@@ -16,21 +16,27 @@ get_terminal_themes() {
 }
 
 set_terminal_theme() {
-    local theme="$1"
-    # Use AppleScript to set the theme. We use a case-insensitive match by
-    # finding the exact name first.
-    local exact_theme
-    exact_theme=$(osascript -e "tell application \"Terminal\"
-        set themeNames to name of every settings set
-        repeat with t in themeNames
-            if t as string is equal to \"$theme\" then
-                return t as string
-            end if
-        end repeat
-    end tell" 2>/dev/null)
+    local theme_query="${1:l}"
+    local themes
+    themes=$(get_terminal_themes)
 
-    if [[ -n "$exact_theme" ]]; then
-        osascript -e "tell application \"Terminal\" to set current settings of selected tab of front window to settings set \"$exact_theme\""
+    # Use zsh's filtering to find the best match
+    # 1. Exact match (case-insensitive)
+    local match
+    match=$(echo "$themes" | grep -Ei "^${theme_query}$" | head -n 1)
+    
+    # 2. Prefix match
+    if [[ -z "$match" ]]; then
+        match=$(echo "$themes" | grep -Ei "^${theme_query}" | head -n 1)
+    fi
+
+    # 3. Substring match
+    if [[ -z "$match" ]]; then
+        match=$(echo "$themes" | grep -Ei "${theme_query}" | head -n 1)
+    fi
+
+    if [[ -n "$match" ]]; then
+        osascript -e "tell application \"Terminal\" to set current settings of selected tab of front window to settings set \"$match\""
         return 0
     else
         return 1

@@ -22,10 +22,12 @@ Grafana dashboards are complex JSON objects. While they can be crafted in the UI
 The agent ensures every dashboard is a managed part of the LMDE.
 
 ### A. Create the Dashboard File
+
 The agent saves the JSON into:
 `lmde/components/observability/specs/grafana/dashboards/<dashboard-name>.json`
 
 ### B. Define the ConfigMap
+
 Grafana's sidecar automatically loads dashboards from Kubernetes ConfigMaps. The agent creates the manifest:
 `lmde/components/observability/specs/grafana/dashboards/<dashboard-name>.yaml`
 
@@ -41,6 +43,7 @@ metadata:
 data:
   <dashboard-name>.json: |
     # [PASTE JSON HERE]
+
 ```
 
 ## 3. Best Practices
@@ -56,6 +59,7 @@ data:
 | Coding Agents | `lmde/.../coding-agents.yaml` | In Progress |
 
 ### C. Register in setup.sh (if needed)
+
 Ensure the `setup.sh` script applies any new dashboard specs:
 ```bash
 kubectl apply -f "${SCRIPT_DIR}/specs/grafana/dashboards/"
