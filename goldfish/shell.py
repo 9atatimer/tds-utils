@@ -373,15 +373,20 @@ def _git_remote_s3_url(workdir: Path) -> str | None:
     return None
 
 
-def _git_s3_out_of_sync(workdir: Path, s3_url: str, branch: str) -> bool:
-    """True if local HEAD SHA doesn't match S3 remote HEAD SHA."""
+def _git_s3_out_of_sync(workdir: Path, s3_url: str, branch: str) -> bool | None:
+    """Compare local HEAD against the S3 mirror.
+
+    True if out of sync, False if in sync, None if the check could not be
+    completed -- so callers can tell "out of sync" apart from "unknown"
+    (LocalInfo.s3_out_of_sync is already Optional).
+    """
     local_sha = _run(
         ["git", "rev-parse", branch],
         cwd=str(workdir),
         timeout=5.0,
     ).strip()
     if not local_sha:
-        return False
+        return None
         
     remote_out, ok = _run_status(
         ["git", "ls-remote", s3_url, f"refs/heads/{branch}"],
@@ -390,8 +395,8 @@ def _git_s3_out_of_sync(workdir: Path, s3_url: str, branch: str) -> bool:
     )
     if not ok:
         # The mirror check itself failed (network / helper / auth error) --
-        # we can't tell, so don't raise a false out-of-sync alert.
-        return False
+        # we can't tell, so report "unknown" (None) rather than a false alert.
+        return None
     remote_out = remote_out.strip()
     if not remote_out:
         # ls-remote succeeded but the branch isn't on the mirror yet -> out of sync.
