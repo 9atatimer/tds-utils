@@ -10,6 +10,28 @@ This document contains instructions for AI coding agents on how to interact with
 -   **Repository:** tds-utils
 -   **Default Branch:** master
 
+## Remote topology
+
+**This repo is a _direct origin_:** `origin` is the canonical repo
+(`9atatimer/tds-utils`), there is no `upstream` remote, and PRs go from your
+branch to `master` on the same repo. The Push & PR Flow below assumes this.
+
+If a project is instead a **fork** (`origin` = your fork, `upstream` = the
+canonical repo), adjust every step accordingly:
+
+| Step | Direct origin (this repo) | Fork + upstream |
+|------|---------------------------|-----------------|
+| Branch base | `master` | `upstream/<default>` (sync first: `git fetch upstream`) |
+| Push target | `origin` | `origin` (your fork) -- you cannot push to `upstream` |
+| PR head / base | `<branch>` -> `master`, same repo | `<fork>:<branch>` -> `upstream:<default>` |
+| `--repo` for `gadmin` / `gh` / review-watch | `9atatimer/tds-utils` | the **upstream** slug (that's where the PR lives) |
+
+Forks also enable a cost-control split: AI (Copilot) review on a PR against your
+fork (Copilot Pro+ is billed to the repo owner, so reviewing on your fork keeps
+the cost on your account), then a final PR to `upstream` for human merge. See
+the upstream template (`naatm-prompts`) two-stage flow. Not used here -- this
+repo reviews and merges in a single PR on `origin`.
+
 ## Push & PR Flow
 
 ### Single PR Workflow (Iterative Review)
@@ -17,11 +39,16 @@ This document contains instructions for AI coding agents on how to interact with
 Because the `9atatimer` organization has Copilot review enabled, all AI review cycles happen within a single PR. Do not create multiple PRs or close/re-open PRs.
 
 1. **Push:** Push your branch to `origin`.
-2. **Draft PR:** Create a **Draft PR** targeting `master` -- the draft state itself is the WIP signal; do not put `[WIP]` in the title.
+2. **Open a PR** targeting `master`. **Do NOT open it as a draft** -- Copilot
+   does **not** review draft PRs, so a draft silently never gets reviewed and the
+   review-watch loop polls forever. Open it ready-for-review (or `gh pr ready
+   <NUMBER>` immediately). Do not put `[WIP]` in the title.
 3. **Title:** Use a clean conventional-commit summary (e.g., `feat(lmde): formalize architecture`).
-4. **Iterative AI Review:** Copilot will automatically review the draft. This is an **iterative** process:
+4. **Iterative AI Review:** Copilot reviews the open (non-draft) PR. After each
+   productive push, re-request it with `gh pr edit <NUMBER> --add-reviewer @copilot`
+   (Copilot does not auto-re-review on `synchronize`). This is an **iterative** process:
    - Address Copilot feedback.
-   - Push your changes.
+   - Push your changes; re-request `@copilot`.
    - Wait for Copilot to review the new changes.
    - Repeat until Copilot is satisfied.
 5. **Human Review:** Once the AI review cycles are settled, the human will take over for final review and merging. Do NOT attempt to create a second "final" PR.
