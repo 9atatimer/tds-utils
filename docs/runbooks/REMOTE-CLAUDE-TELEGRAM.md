@@ -164,7 +164,7 @@ Fix -- (re)install at user scope, then **restart the session** (plugin scope
 changes don't apply to a live session):
 ```sh
 claude plugin install telegram@claude-plugins-official --scope user
-# optional cleanup of the misscoped entry:
+# optional cleanup of the mis-scoped entry:
 claude plugin uninstall telegram@claude-plugins-official --scope local
 ```
 Channel state (`.env`, `access.json`) is separate from the plugin and
