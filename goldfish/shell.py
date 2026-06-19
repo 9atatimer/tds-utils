@@ -389,7 +389,7 @@ def _git_s3_out_of_sync(workdir: Path, s3_url: str, branch: str) -> bool | None:
     ).strip()
     if not local_sha:
         return None
-        
+
     remote_out, ok = _run_status(
         ["git", "ls-remote", s3_url, f"refs/heads/{branch}"],
         cwd=str(workdir),
@@ -403,7 +403,7 @@ def _git_s3_out_of_sync(workdir: Path, s3_url: str, branch: str) -> bool | None:
     if not remote_out:
         # ls-remote succeeded but the branch isn't on the mirror yet -> out of sync.
         return True
-        
+
     remote_sha = remote_out.split()[0]
     return local_sha != remote_sha
 
