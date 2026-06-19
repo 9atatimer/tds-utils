@@ -337,7 +337,9 @@ def inspect_local(workdir: Path, *, check_s3: bool = False) -> LocalInfo:
             next_task = None
 
     s3_out_of_sync = None
-    if check_s3 and state.branch:
+    # Skip the mirror check on detached HEAD: parse_git_porcelain reports
+    # branch="HEAD", which would query refs/heads/HEAD and false-alarm.
+    if check_s3 and state.branch and state.branch != "HEAD":
         s3_url = _git_remote_s3_url(workdir)
         if s3_url:
             s3_out_of_sync = _git_s3_out_of_sync(workdir, s3_url, state.branch)
