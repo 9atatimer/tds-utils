@@ -1,6 +1,6 @@
 # Remote / Hands-Free Claude Code over Telegram Runbook
 
-Drive Claude Code from your phone while away from the desk — text it from
+Drive Claude Code from your phone while away from the desk -- text it from
 anywhere, and (with two free phone tricks) talk to it and hear it back on a
 jog. This uses **Claude Code Channels** (Anthropic's first-party feature, in
 research preview), not a third-party app, and costs **$0** beyond your
@@ -15,7 +15,7 @@ machine. The agent, your repo, and every tool call run on **your Mac**, which
 must stay **awake, lid open, plugged in, on Wi-Fi** for the whole session.
 Your phone is a remote control, not a host. Close the session or let the Mac
 sleep and the bot goes silent. (`happy` / ElevenLabs and the various
-`*-voice` MCP servers have this exact same constraint — none of them give you
+`*-voice` MCP servers have this exact same constraint -- none of them give you
 cloud execution.)
 
 ## TL;DR -- daily use, once installed
@@ -42,21 +42,21 @@ you never re-pair. Only the *cwd* changes per session.
 
 | Leg | How | Cost |
 | --- | --- | --- |
-| Voice **IN** | Phone **keyboard dictation** mic → types text → send. The *phone* does the STT locally. | $0 |
+| Voice **IN** | Phone **keyboard dictation** mic -> types text -> send. The *phone* does the STT locally. | $0 |
 | Brain | `jog-claude` on the Mac, real tool calls in the cwd. | $0 |
 | Voice **OUT** | Notification-reader app (**ReadItToMe** / **Shouter**) reads incoming Telegram aloud through any Bluetooth buds. | $0 |
 
 Notes:
-- **Voice IN — use keyboard dictation, not Telegram voice notes.** Dictation
+- **Voice IN -- use keyboard dictation, not Telegram voice notes.** Dictation
   ships *text*; the Mac needs nothing. A Telegram *voice note* ships an `.oga`
   audio file (Bot API does **not** transcribe for bots), so the Mac would need
   a local Whisper (`uv tool install mlx-whisper`) to read it. Only bother with
   Whisper if press-and-hold feels better than the keyboard mic mid-stride.
 - **Voice OUT on Samsung:** the native "Read notifications aloud" is
-  **Galaxy-Buds-only** (Galaxy Wearable → Buds → Notifications; reads only
-  while screen locked). With cheap generic buds, use a reader app instead —
+  **Galaxy-Buds-only** (Galaxy Wearable -> Buds -> Notifications; reads only
+  while screen locked). With cheap generic buds, use a reader app instead --
   don't buy $250 Buds3 Pro to dodge a free app.
-- Voice OUT on iOS (for reference): Settings → Notifications → Announce
+- Voice OUT on iOS (for reference): Settings -> Notifications -> Announce
   Notifications + headphones.
 
 ## First-time install
@@ -74,7 +74,7 @@ console login), and **Bun** (`brew install bun`).
 **Install it at *user* scope, not project/local.** The interactive `/plugin`
 flow can pin the plugin to the repo you ran it in (`"scope": "local"` plus a
 `projectPath`). When that happens it goes **silently dead in every other
-repo** — `jog-claude` still appends `--channels` but the plugin isn't active
+repo** -- `jog-claude` still appends `--channels` but the plugin isn't active
 there, so no poller spawns and no error prints (see Failure signature 3). The
 CLI form forces global scope:
 ```sh
@@ -82,10 +82,10 @@ claude plugin install telegram@claude-plugins-official --scope user   # --scope 
 ```
 
 Bot + token (one-time):
-1. Telegram → `@BotFather` → `/newbot` → name → username ending in `bot` →
+1. Telegram -> `@BotFather` -> `/newbot` -> name -> username ending in `bot` ->
    copy the token (`123456789:AAH...`).
 2. Save the token. The configure command (`/telegram:configure <token>`)
-   just writes the file below — you can write it by hand instead:
+   just writes the file below -- you can write it by hand instead:
    ```
    ~/.claude/channels/telegram/.env
    TELEGRAM_BOT_TOKEN=123456789:AAH...
@@ -108,11 +108,11 @@ jog-claude
 **Always set `policy allowlist`.** Under the default `pairing` policy anyone
 can DM the bot and queue a pairing request. With `jog-claude-yolo`, the only
 thing authorized to run arbitrary commands on your Mac is whoever is on the
-allowlist — that list is your perimeter.
+allowlist -- that list is your perimeter.
 
 ## How to recognize you have the wrong setup
 
-**Failure signature 1 — `Failed to reconnect to plugin:telegram:telegram: -32000`**
+**Failure signature 1 -- `Failed to reconnect to plugin:telegram:telegram: -32000`**
 The channel MCP server started with **no token** and exited before the MCP
 handshake. Fix: write `~/.claude/channels/telegram/.env` (above) and relaunch
 with `--channels`. Confirm the server actually runs the token check:
@@ -122,7 +122,7 @@ CLAUDE_PLUGIN_ROOT=$P timeout 5 bun run --cwd $P --shell=bun --silent start
 # good token -> stays running; missing token -> "TELEGRAM_BOT_TOKEN required"
 ```
 
-**Failure signature 2 — bot is silent, no reply, no pairing code**
+**Failure signature 2 -- bot is silent, no reply, no pairing code**
 Two pollers are fighting for the single Telegram `getUpdates` slot (Telegram
 allows only one). Usually a **stale orphaned server** from a prior session
 (`ppid 1`) is squatting. Diagnose and fix:
@@ -137,16 +137,16 @@ kill <orphan-pid>                                   # the ppid 1 bun server.ts
 rm -f ~/.claude/plugins/cache/claude-plugins-official/telegram/*/.in_use/*   # stale lock
 ```
 Then relaunch a single `jog-claude`. **NEVER call `getUpdates` yourself while
-a session is running** — it steals the pairing message (or 409s) and breaks
+a session is running** -- it steals the pairing message (or 409s) and breaks
 pairing.
 
 **Golden rule: one Telegram session at a time.** Before starting `jog-claude`
 in a new repo, **exit the old session first**, or you recreate signature 2.
 
-**Failure signature 3 — worked in one repo, dead silent in another (wrong install scope)**
+**Failure signature 3 -- worked in one repo, dead silent in another (wrong install scope)**
 The plugin was installed at `local`/`project` scope, pinned to one repo's
 path. `jog-claude` from a *different* repo still passes `--channels`, but the
-plugin isn't active there, so the `bun server.ts` poller **never spawns** —
+plugin isn't active there, so the `bun server.ts` poller **never spawns** --
 no 409, no error, no pairing code, just silence. The tell is that
 `installed_plugins.json` shows `"scope": "local"` with a `projectPath`, and
 there is **no `bun server.ts` process running** at all (contrast signature 2,
@@ -160,7 +160,7 @@ python3 -c "import json; d=json.load(open('$HOME/.claude/plugins/installed_plugi
 # is the poller even running in this session?
 ps -Ao pid,ppid,command | grep -E '[s]erver\.ts'   # empty == nothing is polling
 ```
-Fix — (re)install at user scope, then **restart the session** (plugin scope
+Fix -- (re)install at user scope, then **restart the session** (plugin scope
 changes don't apply to a live session):
 ```sh
 claude plugin install telegram@claude-plugins-official --scope user
