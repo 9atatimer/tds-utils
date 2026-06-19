@@ -327,7 +327,7 @@ def inspect_local(workdir: Path, *, check_s3: bool = False) -> LocalInfo:
         timeout=5.0,
     ).strip()
     last_dt = _parse_iso_safe(last)
-    
+
     todo_path = workdir / "TODO_PLAN.md"
     next_task = None
     if todo_path.exists():

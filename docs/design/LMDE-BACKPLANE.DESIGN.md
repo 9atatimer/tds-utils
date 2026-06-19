@@ -1,4 +1,4 @@
-# LMDE-BACKPLANE — Unified Message Bus (NATS-in-kind)
+# LMDE-BACKPLANE -- Unified Message Bus (NATS-in-kind)
 
 > **Status:** DRAFT
 > **Created:** 2026-06-01
