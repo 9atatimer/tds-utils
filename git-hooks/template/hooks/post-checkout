@@ -62,8 +62,9 @@ locate_scanner() {
         scanner="$(command -v clone-audit 2>/dev/null || true)"
     fi
     if [ -z "${scanner}" ] || [ ! -x "${scanner}" ]; then
-        cand="${HOME}/.local/bin/clone-audit"
-        [ -x "${cand}" ] && scanner="${cand}"
+        # ${HOME:-} so an unset HOME can't abort the hook under `set -u`.
+        cand="${HOME:-}/.local/bin/clone-audit"
+        [ -n "${HOME:-}" ] && [ -x "${cand}" ] && scanner="${cand}"
     fi
     [ -n "${scanner}" ] && [ -x "${scanner}" ] || return 1
     printf '%s\n' "${scanner}"
