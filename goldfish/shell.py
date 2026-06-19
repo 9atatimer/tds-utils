@@ -43,8 +43,15 @@ from core import (
 
 # --- Process helpers ---------------------------------------------------------
 
-def _run(cmd: list[str], *, timeout: float = 10.0, cwd: str | None = None) -> str:
-    """Run a command and return stdout. Empty string on any failure."""
+def _run_status(
+    cmd: list[str], *, timeout: float = 10.0, cwd: str | None = None
+) -> tuple[str, bool]:
+    """Run a command; return (stdout, ok).
+
+    ok is False when the command can't run (missing binary, timeout, OSError)
+    or exits non-zero, letting callers tell a genuine empty result apart from a
+    failed invocation.
+    """
     try:
         result = subprocess.run(
             cmd,
@@ -55,8 +62,13 @@ def _run(cmd: list[str], *, timeout: float = 10.0, cwd: str | None = None) -> st
             check=False,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return ""
-    return result.stdout
+        return "", False
+    return result.stdout, result.returncode == 0
+
+
+def _run(cmd: list[str], *, timeout: float = 10.0, cwd: str | None = None) -> str:
+    """Run a command and return stdout. Empty string on any failure."""
+    return _run_status(cmd, timeout=timeout, cwd=cwd)[0]
 
 
 def have(cmd: str) -> bool:
@@ -371,13 +383,18 @@ def _git_s3_out_of_sync(workdir: Path, s3_url: str, branch: str) -> bool:
     if not local_sha:
         return False
         
-    remote_out = _run(
+    remote_out, ok = _run_status(
         ["git", "ls-remote", s3_url, f"refs/heads/{branch}"],
         cwd=str(workdir),
         timeout=10.0,
-    ).strip()
+    )
+    if not ok:
+        # The mirror check itself failed (network / helper / auth error) --
+        # we can't tell, so don't raise a false out-of-sync alert.
+        return False
+    remote_out = remote_out.strip()
     if not remote_out:
-        # If remote doesn't have the branch yet, it's out of sync if we have commits.
+        # ls-remote succeeded but the branch isn't on the mirror yet -> out of sync.
         return True
         
     remote_sha = remote_out.split()[0]
