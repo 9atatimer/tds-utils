@@ -350,10 +350,14 @@ def _git_remote_s3_url(workdir: Path) -> str | None:
         timeout=5.0,
     )
     for line in remotes.splitlines():
-        if "origin" in line and "s3://" in line and "(push)" in line:
-            parts = line.split()
-            if len(parts) >= 2:
-                return parts[1]
+        parts = line.split()
+        if (
+            len(parts) >= 3
+            and parts[0] == "origin"
+            and parts[1].startswith("s3://")
+            and parts[2] == "(push)"
+        ):
+            return parts[1]
     return None
 
 
@@ -368,7 +372,7 @@ def _git_s3_out_of_sync(workdir: Path, s3_url: str, branch: str) -> bool:
         return False
         
     remote_out = _run(
-        ["git", "ls-remote", s3_url, branch],
+        ["git", "ls-remote", s3_url, f"refs/heads/{branch}"],
         cwd=str(workdir),
         timeout=10.0,
     ).strip()

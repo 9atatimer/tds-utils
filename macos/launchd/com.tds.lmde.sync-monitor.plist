@@ -7,7 +7,9 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/CHANGE_ME/workplace/tds-utils/bin/launch-sync-monitor</string>
+    <string>/bin/zsh</string>
+    <string>-c</string>
+    <string>exec "$HOME/workplace/tds-utils/bin/launch-sync-monitor"</string>
   </array>
 
   <key>EnvironmentVariables</key>

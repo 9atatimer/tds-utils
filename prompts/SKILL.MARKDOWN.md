@@ -7,7 +7,7 @@
 ### Characters
 
 - **No smart quotes**: Use straight quotes (`"` and `'`), never curly (`"` `"` `'` `'`)
-- **No smart arrows**: Use `->` not `->`, use `<-` not `<-`
+- **No smart arrows**: Use `->` instead of right arrow (U+2192), use `<-` instead of left arrow (U+2190)
 - **No em-dashes**: Use double hyphen (`--`) instead of em dash (U+2014)
 - **ASCII only in prose**: Avoid Unicode symbols that might render inconsistently
 
