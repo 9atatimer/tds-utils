@@ -36,6 +36,11 @@ alias gf=goldfish
 # inherit these aliases, so there is no recursion. For a raw run, bypass
 # with `command <agent>` or `\<agent>`.
 alias claude='clai claude'
+# Remote-control Claude from your phone over Telegram (still via clai for telemetry).
+alias jog-claude='clai claude --channels plugin:telegram@claude-plugins-official'
+# The Muscles from Brussels: same, but skips permission prompts for unattended runs.
+# Only point this at repos you trust — it kicks the gatekeeper in the face.
+alias jog-claude-yolo='clai claude --channels plugin:telegram@claude-plugins-official --dangerously-skip-permissions'
 alias gemini='clai gemini'
 alias codex='clai codex'
 alias opencode='clai opencode'
