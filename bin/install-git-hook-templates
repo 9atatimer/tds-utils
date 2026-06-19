@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
 # install-git-hook-templates -- wire up the clone-time security audit globally.
 #
-# Points git at this repo's in-tree hook template so every future `git clone`
-# runs clone-audit against the new worktree (see docs/clone-audit.md for the
-# mechanism -- git has no post-clone hook, so we ride post-checkout).
+# Points git at a HOME-anchored hook template so every future `git clone` runs
+# clone-audit against the new worktree (see docs/clone-audit.md -- git has no
+# post-clone hook, so we ride post-checkout).
 #
-# It computes ABSOLUTE paths for the running machine (init.templateDir does NOT
-# tilde-expand, so a `~/...` value would silently install nothing) and sets
-# audit.scannerPath so the hook finds clone-audit even when this repo's bin/ is
-# not on PATH (e.g. IDE/GUI/script-initiated clones).
+# The git config wiring is repo-location-independent -- it names only ~ paths:
+#   init.templateDir  = ~/.config/git/template
+#   audit.scannerPath = ~/.local/bin/clone-audit   (hook reads it with --type=path)
+# and this installer symlinks those ~ paths to wherever THIS repo is checked
+# out. So the committed config is portable across machines (mac/LMDE) and
+# survives moving the repo -- just re-run this installer to repoint the links.
+# (init.templateDir DOES tilde-expand; the old "absolute paths required" note
+# was incorrect.)
 #
 # Two mechanisms:
-#   templateDir  (default) -- init.templateDir -> git-hooks/template. Git copies
-#                the template into each repo's .git/ at clone/init time. Does
-#                not touch already-cloned repos; never overrides a repo's own
-#                hooks.
-#   hooksPath              -- core.hooksPath -> git-hooks/template/hooks. One
+#   templateDir  (default) -- init.templateDir -> ~/.config/git/template. Git
+#                copies the template into each repo's .git/ at clone/init time.
+#                Does not touch existing clones; never overrides a repo's hooks.
+#   hooksPath              -- core.hooksPath -> ~/.config/git/template/hooks. One
 #                central hooks dir for ALL repos (incl. existing ones), but it
 #                OVERRIDES any repo's own .git/hooks. Use with care.
 #
@@ -30,9 +33,17 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "${SCRIPT_DIR}")"
-TEMPLATE_DIR="${REPO_DIR}/git-hooks/template"
+TEMPLATE_DIR="${REPO_DIR}/git-hooks/template"        # source (in-repo)
 HOOKS_DIR="${TEMPLATE_DIR}/hooks"
-SCANNER="${REPO_DIR}/bin/clone-audit"
+SCANNER="${REPO_DIR}/bin/clone-audit"                # source (in-repo)
+
+# Home-anchored link targets -- what the git config names. The symlinks created
+# below point them at the in-repo sources. Kept literally in sync with the
+# values committed in git-config/dot.gitconfig (do not introduce repo paths).
+TEMPLATE_LINK="${HOME}/.config/git/template"
+SCANNER_LINK="${HOME}/.local/bin/clone-audit"
+TEMPLATE_CFG='~/.config/git/template'                # literal ~; git expands it
+SCANNER_CFG='~/.local/bin/clone-audit'
 
 MECHANISM="templateDir"
 DRY_RUN=false
@@ -40,7 +51,7 @@ DRY_RUN=false
 # --- Action functions ---
 
 say() { printf '%s\n' "$*"; }
-# Execute a command, or just print it under --dry-run. Args are passed through
+# Execute a command, or just print it under --dry-run. Args pass through
 # directly (no eval) so values with spaces stay intact.
 run() { if ${DRY_RUN}; then printf '  [dry-run] %s\n' "$*"; else "$@"; fi; }
 
@@ -53,10 +64,26 @@ verify_prereqs() {
     }
 }
 
+# Symlink a home-anchored path ($2) to the in-repo source ($1). Parents are
+# created; an existing link/file at the target is replaced (ln -sfn).
+link_into_home() {
+    local src="$1" link="$2"
+    run mkdir -p "$(dirname "${link}")"
+    run ln -sfn "${src}" "${link}"
+    ${DRY_RUN} || say "linked ${link} -> ${src}"
+}
+
+# Set a global git config key, skipping the write when it already holds the
+# desired value -- avoids needlessly rewriting ~/.gitconfig (which is often a
+# symlink to this repo's committed dot.gitconfig).
 set_git_config() {
     local key="$1" value="$2" current
     current="$(git config --global --get "${key}" 2>/dev/null || true)"
-    if [ -n "${current}" ] && [ "${current}" != "${value}" ]; then
+    if [ "${current}" = "${value}" ]; then
+        say "ok: git config --global ${key} already = ${value}"
+        return 0
+    fi
+    if [ -n "${current}" ]; then
         say "note: git config --global ${key} was '${current}'; overwriting."
     fi
     run git config --global "${key}" "${value}"
@@ -65,21 +92,27 @@ set_git_config() {
 
 # --- Flow functions ---
 
+link_template() { link_into_home "${TEMPLATE_DIR}" "${TEMPLATE_LINK}"; }
+link_scanner()  { link_into_home "${SCANNER}" "${SCANNER_LINK}"; }
+
 install_common_config() {
-    set_git_config "audit.scannerPath" "${SCANNER}"
+    link_scanner
+    set_git_config "audit.scannerPath" "${SCANNER_CFG}"
     set_git_config "audit.enabled" "true"
 }
 
 install_template_dir() {
-    say "Mechanism: init.templateDir -> ${TEMPLATE_DIR}"
-    set_git_config "init.templateDir" "${TEMPLATE_DIR}"
+    say "Mechanism: init.templateDir -> ${TEMPLATE_CFG}  (-> ${TEMPLATE_DIR})"
+    link_template
+    set_git_config "init.templateDir" "${TEMPLATE_CFG}"
     install_common_config
 }
 
 install_hooks_path() {
-    say "Mechanism: core.hooksPath -> ${HOOKS_DIR}"
+    say "Mechanism: core.hooksPath -> ${TEMPLATE_CFG}/hooks  (-> ${HOOKS_DIR})"
     say "WARNING: this overrides per-repo .git/hooks for ALL repositories."
-    set_git_config "core.hooksPath" "${HOOKS_DIR}"
+    link_template
+    set_git_config "core.hooksPath" "${TEMPLATE_CFG}/hooks"
     install_common_config
 }
 
@@ -100,7 +133,7 @@ run_install() {
     print_verify
 }
 
-usage() { sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 # --- Main ---
 
