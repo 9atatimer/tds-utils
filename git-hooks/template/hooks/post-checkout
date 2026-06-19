@@ -50,21 +50,20 @@ is_secondary_worktree() {
 }
 
 # Resolve clone-audit robustly (the bin dir may not be on PATH for IDE/GUI/
-# script-initiated clones): git config -> PATH -> hardcoded fallbacks. Prints
-# the path on success; returns non-zero if not found.
+# script-initiated clones): git config -> PATH -> home-anchored fallbacks.
+# audit.scannerPath is read with --type=path so a '~/...' value expands (a raw
+# --get would not). No repo-location paths: resolution depends only on the
+# user's git config and home dir. Prints the path on success; non-zero if not
+# found.
 locate_scanner() {
     local scanner cand
-    scanner="$(git config --get audit.scannerPath 2>/dev/null || true)"
+    scanner="$(git config --type=path --get audit.scannerPath 2>/dev/null || true)"
     if [ -z "${scanner}" ] || [ ! -x "${scanner}" ]; then
         scanner="$(command -v clone-audit 2>/dev/null || true)"
     fi
     if [ -z "${scanner}" ] || [ ! -x "${scanner}" ]; then
-        for cand in \
-            "${HOME}/workplace/tds-utils/bin/clone-audit" \
-            "${HOME}/tds-utils/bin/clone-audit" \
-            "${HOME}/src/tds-utils/bin/clone-audit"; do
-            if [ -x "${cand}" ]; then scanner="${cand}"; break; fi
-        done
+        cand="${HOME}/.local/bin/clone-audit"
+        [ -x "${cand}" ] && scanner="${cand}"
     fi
     [ -n "${scanner}" ] && [ -x "${scanner}" ] || return 1
     printf '%s\n' "${scanner}"

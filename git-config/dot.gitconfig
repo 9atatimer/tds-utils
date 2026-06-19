@@ -27,12 +27,15 @@
 	helper = !/opt/homebrew/bin/gh auth git-credential
 [init]
 	defaultBranch = main
-	# Clone-time security audit (see docs/clone-audit.md). Absolute path:
-	# init.templateDir does NOT tilde-expand, so ~/ would silently install
-	# nothing. Linux/LMDE: re-point both keys via bin/install-git-hook-templates.
-	templateDir = /Users/stumpf/workplace/tds-utils/git-hooks/template
+	# Clone-time security audit (see docs/clone-audit.md). Home-anchored, NOT
+	# absolute: init.templateDir DOES tilde-expand (verified, git 2.x), and the
+	# hook reads audit.scannerPath with --type=path so ~ expands there too.
+	# bin/install-git-hook-templates symlinks these ~ paths to wherever this repo
+	# is checked out, so this config is portable across machines (mac/LMDE) and
+	# survives moving the repo (just re-run the installer to repoint the links).
+	templateDir = ~/.config/git/template
 [audit]
-	scannerPath = /Users/stumpf/workplace/tds-utils/bin/clone-audit
+	scannerPath = ~/.local/bin/clone-audit
 	enabled = true
 [naatm "mirror"]
 	enabled = true

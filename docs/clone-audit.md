@@ -48,36 +48,35 @@ Exit codes: `0` clean, `2` warnings found, `1` usage error.
 
 ## First-time setup
 
-### macOS
+The git config wiring is committed in `git-config/dot.gitconfig` (symlinked to
+`~/.gitconfig`) and is **home-anchored, not absolute** -- it names only `~`
+paths, so the same committed config is correct on every machine (macOS, LMDE)
+no matter where this repo is checked out:
 
-The canonical config is committed in `git-config/dot.gitconfig` (symlinked to
-`~/.gitconfig`), assuming the repo lives at
-`/Users/stumpf/workplace/tds-utils`. If that's where it is, you're already wired
-up -- skip to Verify. If the repo is elsewhere, run the installer:
+- `init.templateDir`  -> `~/.config/git/template`
+- `audit.scannerPath` -> `~/.local/bin/clone-audit`
+- `audit.enabled`     -> `true`
+
+(`init.templateDir` DOES tilde-expand; the hook reads `audit.scannerPath` with
+`git config --type=path` so `~` expands there too. The repo location is never
+named in config.)
+
+The one per-machine step is creating the two symlinks from those `~` paths to
+this repo. Run the installer once on each machine:
 
 ```sh
 bin/install-git-hook-templates
 ```
 
-### Linux / LMDE
+It creates:
 
-The repo lives at a different absolute path, and `init.templateDir` does NOT
-tilde-expand (a `~/...` value silently installs nothing). Run the installer --
-it computes the correct absolute paths for this machine:
+- `~/.config/git/template`   -> `<repo>/git-hooks/template`
+- `~/.local/bin/clone-audit` -> `<repo>/bin/clone-audit`
 
-```sh
-bin/install-git-hook-templates
-```
-
-This sets three global git config keys:
-
-- `init.templateDir` -> `<repo>/git-hooks/template`
-- `audit.scannerPath` -> `<repo>/bin/clone-audit`
-- `audit.enabled` -> `true`
-
-`audit.scannerPath` is what lets the hook find the scanner even when `bin/` is
-not on `PATH` (IDE/GUI/script-launched clones -- the case where the audit would
-otherwise silently skip).
+and sets the three config keys above only if not already present (so it won't
+rewrite the committed `dot.gitconfig`). `audit.scannerPath` lets the hook find
+the scanner even when `bin/` isn't on `PATH` (IDE/GUI/script-launched clones --
+the case where the audit would otherwise silently skip).
 
 Preview without changing anything: `bin/install-git-hook-templates -n`.
 
@@ -153,11 +152,11 @@ Re-run the audit anytime: `clone-audit path/to/repo`.
 
 ---
 
-## Move the repo or update paths
+## Move the repo
 
-If you relocate the repo, the committed/absolute paths go stale. Re-run the
-installer from the new location to rewrite `init.templateDir` and
-`audit.scannerPath`:
+The git config is repo-location-independent (it names only `~` paths), so it
+needs no change when you relocate the repo. Only the two symlinks point at the
+old location -- re-run the installer from the new location to repoint them:
 
 ```sh
 cd /new/path/to/tds-utils
@@ -188,14 +187,15 @@ The audit didn't run on a clone:
 - Bare / mirror clone (`--bare`, `--mirror`): no worktree, so `post-checkout`
   never fires. Run `clone-audit` by hand.
 - `--no-checkout` / `-n`: the hook fires later, on your first checkout.
-- `init.templateDir` set with a `~/...` path: it doesn't expand -- re-run the
-  installer for an absolute path. Confirm: `git config --global init.templateDir`.
+- The `~/.config/git/template` symlink is missing (repo moved, or the installer
+  was never run on this machine): the template isn't found and the audit skips.
+  Re-run `bin/install-git-hook-templates`. Confirm: `ls -l ~/.config/git/template`.
 
 `post-checkout: clone-audit not found ... skipping audit.`:
 
-- `audit.scannerPath` isn't set or points at a missing file. Fix:
-  `git config --global audit.scannerPath /abs/path/to/bin/clone-audit` (or
-  re-run the installer).
+- The `~/.local/bin/clone-audit` symlink is missing or `audit.scannerPath` is
+  unset. Fix: re-run `bin/install-git-hook-templates` (recreates the symlink).
+  Confirm: `ls -l ~/.local/bin/clone-audit`.
 
 False positive:
 
@@ -239,6 +239,6 @@ set exit code 2.
 | Key | Purpose |
 |-----|---------|
 | `init.templateDir` | Hook template copied into every clone/init. |
-| `audit.scannerPath` | Absolute path to `clone-audit` (PATH-independent lookup). |
+| `audit.scannerPath` | Home-anchored (`~/...`) path to `clone-audit`, read with `--type=path`; PATH-independent lookup. |
 | `audit.enabled` | `false` disables the audit. |
 | `core.hooksPath` | Alternative install (`-m hooksPath`); central hooks dir for all repos. |
