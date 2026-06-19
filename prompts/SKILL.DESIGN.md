@@ -20,6 +20,7 @@
 ### 1. Gather Context
 
 Before writing, understand:
+
 - **What problem are we solving?** (not what we're building)
 - **Who is the audience?** (AI agents implementing it + human reviewers)
 - **What already exists?** Check `docs/design/` for related docs
@@ -73,11 +74,13 @@ Follow `docs/design/STYLE-GUIDE.md` rigorously:
 Run through these checks:
 
 **Structure:**
+
 - [ ] Has all required sections (header, overview, goals, non-goals, design, key decisions, open questions, rejections)
 - [ ] Header has status, date, authors
 - [ ] Status uses standard vocabulary (DRAFT / REVIEW / APPROVED / IMPLEMENTED / SUPERSEDED)
 
 **Content quality:**
+
 - [ ] Overview is 2-3 sentences, explains the "why"
 - [ ] Goals are testable and measurable
 - [ ] Non-goals explicitly exclude likely scope creep
@@ -88,6 +91,7 @@ Run through these checks:
 - [ ] Rejections section captures alternatives that were considered and dismissed, each with a one-line reason
 
 **Style:**
+
 - [ ] No vague language ("gracefully", "efficiently", "properly")
 - [ ] No walls of text -- uses tables, lists, diagrams
 - [ ] ASCII-only in diagrams and prose (no smart quotes, no Unicode arrows)
@@ -95,6 +99,7 @@ Run through these checks:
 - [ ] Blank lines after headings and before lists
 
 **Completeness:**
+
 - [ ] Could an AI agent implement this without asking clarifying questions?
 - [ ] Could a new team member understand the "why" behind each decision?
 - [ ] Are error cases and edge cases documented?
@@ -107,15 +112,19 @@ When reviewing, organize feedback as:
 ## Design Doc Review: [Title]
 
 ### Blocking Issues
+
 - [Issues that must be fixed before implementation]
 
 ### Suggestions
+
 - [Improvements that would strengthen the doc]
 
 ### Questions
+
 - [Clarifications needed from the author]
 
 ### Strengths
+
 - [What the doc does well -- reinforce good patterns]
 ```
 

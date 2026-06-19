@@ -43,8 +43,15 @@ from core import (
 
 # --- Process helpers ---------------------------------------------------------
 
-def _run(cmd: list[str], *, timeout: float = 10.0, cwd: str | None = None) -> str:
-    """Run a command and return stdout. Empty string on any failure."""
+def _run_status(
+    cmd: list[str], *, timeout: float = 10.0, cwd: str | None = None
+) -> tuple[str, bool]:
+    """Run a command; return (stdout, ok).
+
+    ok is False when the command can't run (missing binary, timeout, OSError)
+    or exits non-zero, letting callers tell a genuine empty result apart from a
+    failed invocation.
+    """
     try:
         result = subprocess.run(
             cmd,
@@ -55,8 +62,13 @@ def _run(cmd: list[str], *, timeout: float = 10.0, cwd: str | None = None) -> st
             check=False,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return ""
-    return result.stdout
+        return "", False
+    return result.stdout, result.returncode == 0
+
+
+def _run(cmd: list[str], *, timeout: float = 10.0, cwd: str | None = None) -> str:
+    """Run a command and return stdout. Empty string on any failure."""
+    return _run_status(cmd, timeout=timeout, cwd=cwd)[0]
 
 
 def have(cmd: str) -> bool:
@@ -299,8 +311,8 @@ def _name_with_owner(remote: str) -> str | None:
     return None
 
 
-def inspect_local(workdir: Path) -> LocalInfo:
-    """Inspect a working tree: dirty, ahead/behind, last commit, next task."""
+def inspect_local(workdir: Path, *, check_s3: bool = False) -> LocalInfo:
+    """Inspect a working tree: dirty, ahead/behind, last commit, next task, s3 sync."""
     porcelain = _run(
         ["git", "status", "--porcelain=v1", "-b"],
         cwd=str(workdir),
@@ -315,6 +327,7 @@ def inspect_local(workdir: Path) -> LocalInfo:
         timeout=5.0,
     ).strip()
     last_dt = _parse_iso_safe(last)
+
     todo_path = workdir / "TODO_PLAN.md"
     next_task = None
     if todo_path.exists():
@@ -322,6 +335,15 @@ def inspect_local(workdir: Path) -> LocalInfo:
             next_task = parse_todo_plan(todo_path.read_text())
         except (OSError, UnicodeDecodeError):
             next_task = None
+
+    s3_out_of_sync = None
+    # Skip the mirror check on detached HEAD: parse_git_porcelain reports
+    # branch="HEAD", which would query refs/heads/HEAD and false-alarm.
+    if check_s3 and state.branch and state.branch != "HEAD":
+        s3_url = _git_remote_s3_url(workdir)
+        if s3_url:
+            s3_out_of_sync = _git_s3_out_of_sync(workdir, s3_url, state.branch)
+
     return LocalInfo(
         path=workdir,
         is_dirty=state.is_dirty,
@@ -330,7 +352,60 @@ def inspect_local(workdir: Path) -> LocalInfo:
         branch=state.branch,
         last_commit_at=last_dt,
         next_task=next_task,
+        s3_out_of_sync=s3_out_of_sync,
     )
+
+
+def _git_remote_s3_url(workdir: Path) -> str | None:
+    """Return the s3:// push URL for origin, if enrolled."""
+    remotes = _run(
+        ["git", "remote", "-v"],
+        cwd=str(workdir),
+        timeout=5.0,
+    )
+    for line in remotes.splitlines():
+        parts = line.split()
+        if (
+            len(parts) >= 3
+            and parts[0] == "origin"
+            and parts[1].startswith("s3://")
+            and parts[2] == "(push)"
+        ):
+            return parts[1]
+    return None
+
+
+def _git_s3_out_of_sync(workdir: Path, s3_url: str, branch: str) -> bool | None:
+    """Compare local HEAD against the S3 mirror.
+
+    True if out of sync, False if in sync, None if the check could not be
+    completed -- so callers can tell "out of sync" apart from "unknown"
+    (LocalInfo.s3_out_of_sync is already Optional).
+    """
+    local_sha = _run(
+        ["git", "rev-parse", branch],
+        cwd=str(workdir),
+        timeout=5.0,
+    ).strip()
+    if not local_sha:
+        return None
+
+    remote_out, ok = _run_status(
+        ["git", "ls-remote", s3_url, f"refs/heads/{branch}"],
+        cwd=str(workdir),
+        timeout=10.0,
+    )
+    if not ok:
+        # The mirror check itself failed (network / helper / auth error) --
+        # we can't tell, so report "unknown" (None) rather than a false alert.
+        return None
+    remote_out = remote_out.strip()
+    if not remote_out:
+        # ls-remote succeeded but the branch isn't on the mirror yet -> out of sync.
+        return True
+
+    remote_sha = remote_out.split()[0]
+    return local_sha != remote_sha
 
 
 def _parse_iso_safe(raw: str) -> datetime | None:

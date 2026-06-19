@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""
+lmde-sync-monitor — macOS menubar app to monitor S3 sync status.
+Uses goldfish as the backend engine.
+"""
+import json
+import subprocess
+import os
+import sys
+from pathlib import Path
+import rumps
+
+# Add goldfish to path so we can import load_config etc if needed, 
+# but we'll mostly just call the CLI for isolation.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+GOLDFISH_BIN = REPO_ROOT / "goldfish" / "goldfish"
+
+ASSETS_DIR = REPO_ROOT / "assets"
+ICON_SYNCED = str(ASSETS_DIR / "synced.png")
+ICON_UNSYNCED = str(ASSETS_DIR / "unsynced.png")
+
+class S3SyncMonitor(rumps.App):
+    def __init__(self):
+        super(S3SyncMonitor, self).__init__("S3", icon=ICON_SYNCED, template=True)
+        self.timer = rumps.Timer(self.check_sync, 900)  # Every 15 minutes
+        self.timer.start()
+        self.out_of_sync = {} # name -> path
+        
+    @rumps.clicked("Check Now")
+    def check_now(self, _):
+        self.check_sync(None)
+
+    def check_sync(self, _):
+        try:
+            # Run goldfish with --check-s3 and --json
+            cmd = [sys.executable, str(GOLDFISH_BIN), "--json", "--check-s3", "--include-org", "9atatimer"]
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            data = json.loads(result.stdout)
+            
+            self.out_of_sync = {}
+            for repo in data:
+                local = repo.get("local")
+                if local and local.get("s3_out_of_sync"):
+                    self.out_of_sync[repo["name"]] = local["path"]
+            
+            self.update_ui()
+        except Exception as e:
+            print(f"Error checking sync: {e}")
+            self.icon = None
+            self.title = "⚠️"
+
+    def update_ui(self):
+        self.menu.clear()
+        if self.out_of_sync:
+            self.icon = ICON_UNSYNCED
+            self.title = str(len(self.out_of_sync))
+            self.menu.add("Out of Sync Repos:")
+            for name in sorted(self.out_of_sync):
+                self.menu.add(rumps.MenuItem(name, callback=self.sync_repo))
+            self.menu.add(None)
+        else:
+            self.icon = ICON_SYNCED
+            self.title = None
+            self.menu.add("All repos synced")
+            self.menu.add(None)
+            
+        self.menu.add("Check Now")
+        self.menu.add("Quit")
+
+    def sync_repo(self, sender):
+        repo_name = sender.title
+        repo_path = self.out_of_sync.get(repo_name)
+        if not repo_path:
+            return
+            
+        rumps.notification("S3 Sync", f"Syncing {repo_name}...", "Pushing to origin (including S3 mirror)")
+        
+        try:
+            # Run git push in the repo
+            subprocess.run(["git", "push"], cwd=repo_path, check=True)
+            rumps.notification("S3 Sync", "Success", f"Synced {repo_name} to S3 mirror.")
+            # Trigger a re-check
+            self.check_sync(None)
+        except subprocess.CalledProcessError as e:
+            rumps.notification("S3 Sync", "Failed", f"Error syncing {repo_name}: {e}")
+
+
+if __name__ == "__main__":
+    S3SyncMonitor().run()

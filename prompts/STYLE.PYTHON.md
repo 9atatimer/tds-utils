@@ -6,11 +6,11 @@
 
 **BDD/TDD is THE way.** Every feature, every fix, every refactor starts with a failing test. No exceptions.
 
-1. **Tests first, always** — Write the test, watch it fail, make it pass, refactor
-2. **Readability is paramount** — Code is read far more than written
-3. **Explicit over implicit** — No magic, no surprises
-4. **Type everything** — Static analysis catches bugs before runtime
-5. **Automate formatting** — Never argue about style
+1. **Tests first, always** -- Write the test, watch it fail, make it pass, refactor
+2. **Readability is paramount** -- Code is read far more than written
+3. **Explicit over implicit** -- No magic, no surprises
+4. **Type everything** -- Static analysis catches bugs before runtime
+5. **Automate formatting** -- Never argue about style
 
 > **The Red-Green-Refactor cycle is not optional.** If you're writing code without a failing test driving that code, you're doing it wrong.
 
@@ -38,15 +38,17 @@ Annotate everything. Use modern syntax (PEP 585, PEP 604):
 
 ```python
 # Yes
+
 def get_user(user_id: int) -> User | None: ...
 items: list[str] = []
 
 # No (legacy)
+
 from typing import Optional, List
 def get_user(user_id: int) -> Optional[User]: ...
 ```
 
-Use `Protocol` over ABC. Use `Self` for fluent returns. **Never use `Any`** — prefer `TypeVar` or `Generic` if truly polymorphic.
+Use `Protocol` over ABC. Use `Self` for fluent returns. **Never use `Any`** -- prefer `TypeVar` or `Generic` if truly polymorphic.
 
 ## Functions
 
@@ -100,9 +102,11 @@ You do not write production code without a failing test demanding it. Period.
 
 ```python
 # FORBIDDEN
+
 await asyncio.sleep(0.1)  # NO!
 
 # Instead: FakeClock, Events, or mock the sleep
+
 fake_clock.advance(5.0)  # Instant
 await done_event.wait()  # Coordination
 mocker.patch("asyncio.sleep", return_value=None)

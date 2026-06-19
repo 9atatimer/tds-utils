@@ -36,8 +36,10 @@ Because the `9atatimer` organization has Copilot review enabled, all AI review c
 ## Branch Naming Convention
 
 All branches created on this repo MUST use an owner prefix:
+
 - Human-driven branches: `tstumpf/feat/description`, `tstumpf/fix/description`,
   `tstumpf/refactor/description`, `tstumpf/docs/description`.
+
 - Agent-driven branches: `claude/feat/description`, `claude/fix/...`,
   `claude/docs/...`. (The agent prefix is set by the harness; humans should
   not push to `claude/...` branches.)
@@ -64,15 +66,18 @@ Three families of verbs, in **token-frugal preference order**:
    Preferred for reads (comments, CI logs) and writes (replies); output
    is filtered to the fields you triage on, so it stays small in context.
    Three sub-tiers, fall back in order:
+
      - `gadmin github` -- bash, requires `gh` CLI on `$PATH`.
      - `gadmin github-octokit` -- node + `octokit` npm package + `$GITHUB_TOKEN`.
      - `gadmin github-gitapi` -- node, native `fetch()` + `$GITHUB_TOKEN`,
        zero deps (the sandbox-friendly tier).
+
 2. **GitHub MCP tools (`mcp__github__*`)** -- use when `gadmin` lacks a verb
    you need. Responses are typed and complete but include large echoed
    payloads (e.g. every reply confirms by echoing the parent comment's
-   `diff_hunk`), so they cost ~5–10× more tokens than `gadmin` for the same
+   `diff_hunk`), so they cost ~5--10x more tokens than `gadmin` for the same
    operation. Avoid them for hot loops over many comments.
+
 3. **`gh` CLI** -- last-resort fallback when neither `gadmin` nor MCP cover
    the operation.
 
@@ -98,12 +103,15 @@ Two transports, preferring push:
    `mcp__github__subscribe_pr_activity` with the PR number. Events
    arrive as `<github-webhook-activity>` blocks. Auto-removes on
    merge/close. Idempotent.
+
 2. **Polling (`ScheduleWakeup`) -- when MCP isn't loaded.** Dynamic
    self-pacing. Per the global 240s-max rule in `~/.claude/CLAUDE.md`,
    all wakes here are <= 4 min (the global rule wins; no longer wakes
    without human approval).
+
    - **First wake after PR open:** ~3 min (180s) -- Copilot needs a
      beat to start; polling before that is wasted.
+
    - **First wake after a push:** ~2 min (120s).
    - **Empty polls while waiting:** every 2 min (120s).
 
@@ -113,21 +121,26 @@ Two transports, preferring push:
    `ScheduleWakeup` so the next wake re-enters this flow.
 
    **On wake, do these in order:**
+
    1. **Switch to the PR's head branch** (`git switch <BRANCH>`).
       Otherwise `gadmin` may abort with a branch-mismatch warning and
       hide real pending comments. The user can be on any branch
       between turns; the loop is responsible for landing on the
       right one before any `gadmin` call.
+
    2. **Check PR state and reviews** with
       `gh pr view <NUMBER> --json state,mergedAt,reviews` in one
       call.
+
       - If `state` is `MERGED` or `CLOSED` -> terminate the loop
         immediately; skip everything below.
+
       - Otherwise, note any new reviews since the last poll --
         especially overview-only ones (`state=COMMENTED` body with
         no inline comments). `gadmin github pending-comments` only
         surfaces inline comments, so overview-only reviews are
         invisible to it and have to be tracked from this step.
+
    3. **Always fetch unaddressed inline comments** -- do not
       short-circuit based on step 2, because standalone inline
       comments (e.g., human replies that aren't part of any
@@ -136,14 +149,17 @@ Two transports, preferring push:
       ```
       gadmin github pending-comments --repo <OWNER/REPO> --pr <NUMBER>
       ```
+
    4. **Triage and decide what kind of poll this was:**
       - Pending inline non-empty -> apply the auto-action threshold
         below; after a productive push, run
         `gh pr edit <NUMBER> --add-reviewer @copilot` to trigger
         the next round; reset the empty-poll counter.
+
       - Pending inline empty + new overview-only review in step 2
         -> log the overview, reset the empty-poll counter (something
         happened, just nothing to act on), schedule next wake.
+
       - Pending inline empty + no new review since last poll ->
         empty poll, increment the counter, schedule next wake.
 
@@ -158,8 +174,10 @@ next `ScheduleWakeup`):
 - 3 consecutive empty polls (~6 min quiescent at the documented
   2-min cadence). Stop fast -- Copilot rarely returns late once
   the response window has passed.
+
 - Architecturally ambiguous comment -> `AskUserQuestion` and stop.
   Don't guess at design calls.
+
 - **Quality drop**: when remaining unaddressed comments are nitpicks
   (style trivia, "consider renaming X to Y" with no concrete reason,
   alternative phrasings of working code), push back -- reject with a
@@ -167,6 +185,7 @@ next `ScheduleWakeup`):
   same nit on the next pass, post one summary reply ("remaining
   suggestions are stylistic; not addressing in this PR") and stop.
   Don't loop on bikeshedding.
+
 - Human says "stop the loop" / "stop watching" / similar -> stop.
   Don't argue.
 
@@ -184,12 +203,15 @@ next `ScheduleWakeup`):
 
 - If the change is **small and unambiguous**, make it, push, reply with
   the SHA. No need to ask first.
+
 - If the change is **ambiguous or architecturally significant**, ask
   the human before acting. Use `AskUserQuestion` so the question is
   in-band.
+
 - If you **disagree** with a comment, reject it with a one-line
   concrete reason. Never just "disagree." Don't be a yes-man to
   Copilot -- reviewer pushback is the point of the loop.
+
 - If **no action is needed** (echo, informational, noise), skip and
   say so briefly.
 
@@ -202,8 +224,10 @@ events and the loop polls fallow.
 
 - Skip when no fix was pushed this round -- the next review would just
   repeat the prior one.
+
 - `gh pr view --json reviewRequests` will often show empty after firing;
   Copilot consumes the request near-instantly.
+
 - Works with user PATs (the standard `gh auth` flow); reportedly fails
   with GitHub Actions bot tokens and some org custom apps. For an
   agentic loop running under the user's own gh auth, it works.
@@ -215,14 +239,18 @@ arrived via subscription or you fetched it cold with `gadmin
 pending-comments`.
 
 **Step 1: Fetch all comments (once).**
+
 - `gadmin github pending-comments --repo <OWNER/REPO> --pr <NUMBER>` for
   unaddressed comments.
+
 - Fallback: `gadmin github pr-comments --repo <OWNER/REPO> --pr <NUMBER>`
   for everything.
+
 - `--repo` is required.
 
 **Step 2: Triage ALL comments before making changes.** Read every comment,
 classify each as one of:
+
 - **Agree** -- will fix.
 - **Disagree** -- will reject with a reason.
 - **Ambiguous / architecturally significant** -- ask the human first via
@@ -258,6 +286,7 @@ relevant doc; if not, skip.
 
 - If `gadmin github` fails, fall back to `gadmin github-octokit`, then
   `gadmin github-gitapi`, then MCP, then raw `gh` -- in that order.
+
 - If you can't annotate at all, ask the human for help rather than
   silently dropping comments.
 
