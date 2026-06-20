@@ -23,13 +23,16 @@ bucket_has_weights() {
     #   unreachable / misconfigured -> FATAL (exit 1)
     # The fatal case is the point: if we silently treated an unreachable bucket
     # as a miss, we'd re-download from HF and break the "HF only once" guarantee.
-    local listing
-    if listing="$(rclone lsf "${MODEL_BUCKET_URI}" 2>/tmp/rclone-lsf.err)"; then
+    local listing errfile
+    errfile="$(mktemp)"
+    if listing="$(rclone lsf "${MODEL_BUCKET_URI}" 2>"${errfile}")"; then
+        rm -f "${errfile}"
         [[ -n "${listing}" ]]
     else
         echo "fatal: weight bucket ${MODEL_BUCKET_URI} is unreachable/misconfigured" >&2
         echo "       (refusing to fall back to Hugging Face; fix bucket access and retry)" >&2
-        cat /tmp/rclone-lsf.err >&2 || true
+        cat "${errfile}" >&2 || true
+        rm -f "${errfile}"
         exit 1
     fi
 }
@@ -40,6 +43,11 @@ pull_from_bucket() {
 }
 
 download_from_hf() {
+    if [[ -z "${HF_TOKEN:-}" ]]; then
+        echo "fatal: HF_TOKEN is not set; cannot download ${MODEL_ID} from Hugging Face" >&2
+        echo "       (set HF_TOKEN, or pre-populate the weight bucket so this is a cache hit)" >&2
+        exit 1
+    fi
     echo "cache MISS: downloading ${MODEL_ID} from Hugging Face (one time only)"
     HF_HUB_ENABLE_HF_TRANSFER=1 \
         huggingface-cli download "${MODEL_ID}" --local-dir "${MODEL_DIR}" --token "${HF_TOKEN}"

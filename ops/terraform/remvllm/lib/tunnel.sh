@@ -3,7 +3,7 @@
 #
 # Forwards localhost:<local_port> -> remote vLLM <remote_port>. The remote binds
 # vLLM to localhost only, so the tunnel is the sole access path.
-# Prerequisites: ssh.
+# Prerequisites: ssh, curl (endpoint readiness probe), pgrep (tunnel pid discovery).
 # Side effects: spawns/kills a background ssh process; writes the pid to state.
 
 # --- Action functions --------------------------------------------------------
