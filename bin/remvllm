@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+# remvllm — Remote vLLM orchestrator (sister to remollama).
+#
+# Provisions a multi-GPU SPOT node, serves a large open-weight model (GLM-5.2 by
+# default) with vLLM, and exposes an OpenAI-compatible API at localhost via SSH
+# tunnel. Cheapest-first by design; weights are cached in a bucket so Hugging
+# Face is downloaded exactly once.
+#
+# Usage:
+#   remvllm run <recipe> [--gpu a100|h100|h200|b200|auto] [--quant int4|fp8]
+#                        [--max-gpus N] [--ttl <min>] [--no-spot] [-v]
+#   remvllm sizes [--quant int4|fp8] [--max-gpus N] [--on-demand]  # cost matrix
+#   remvllm status
+#   remvllm stop                                     # close tunnel, keep node
+#   remvllm destroy                                  # terraform destroy now
+#   remvllm cache <recipe>                           # warm the bucket from HF
+#   remvllm list-recipes
+#
+# Prerequisites: bash 5.2+, terraform, ssh, op (1Password), jq, curl, awk.
+set -euo pipefail
+
+# --- Shared libraries --------------------------------------------------------
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REMVLLM_OPS_DIR="${REMVLLM_OPS_DIR:-${REPO_DIR}/ops/terraform/remvllm}"
+export REMVLLM_OPS_DIR
+
+# shellcheck source=../ops/terraform/remvllm/lib/config.sh
+source "${REMVLLM_OPS_DIR}/lib/config.sh"
+# shellcheck source=../ops/terraform/remvllm/lib/sizing.sh
+source "${REMVLLM_OPS_DIR}/lib/sizing.sh"
+# shellcheck source=../ops/terraform/remvllm/lib/state.sh
+source "${REMVLLM_OPS_DIR}/lib/state.sh"
+# shellcheck source=../ops/terraform/remvllm/lib/modelcache.sh
+source "${REMVLLM_OPS_DIR}/lib/modelcache.sh"
+# shellcheck source=../ops/terraform/remvllm/lib/secrets.sh
+source "${REMVLLM_OPS_DIR}/lib/secrets.sh"
+# shellcheck source=../ops/terraform/remvllm/lib/tunnel.sh
+source "${REMVLLM_OPS_DIR}/lib/tunnel.sh"
+# shellcheck source=../ops/terraform/remvllm/lib/watchdog.sh
+source "${REMVLLM_OPS_DIR}/lib/watchdog.sh"
+# shellcheck source=../ops/terraform/remvllm/lib/orchestrate.sh
+source "${REMVLLM_OPS_DIR}/lib/orchestrate.sh"
+
+# --- Helper functions --------------------------------------------------------
+
+usage() { sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+
+recipe_dir()  { printf '%s/recipes/%s\n' "${REMVLLM_OPS_DIR}" "$1"; }
+recipe_conf() { printf '%s/recipe.conf\n' "$(recipe_dir "$1")"; }
+
+require_recipe() {
+    local recipe="$1"
+    if [[ ! -f "$(recipe_conf "${recipe}")" ]]; then
+        echo "error: unknown recipe '${recipe}'. Try: remvllm list-recipes" >&2
+        return 1
+    fi
+}
+
+# Materialize the SSH private key to a locked-down temp file for the session and
+# schedule its removal. ssh -i needs a file; we minimize exposure (0600, EXIT trap).
+provision_key_file() {
+    local dir keyfile
+    dir="$(mktemp -d)"
+    keyfile="${dir}/id"
+    ( umask 077; secrets_provider_ssh_key > "${keyfile}" )
+    # shellcheck disable=SC2064
+    trap "rm -rf '${dir}'" EXIT
+    printf '%s\n' "${keyfile}"
+}
+
+# --- Flow functions ----------------------------------------------------------
+
+cmd_sizes() {
+    local quant="${REMVLLM_QUANT}" pricing="spot"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --quant) quant="$2"; shift 2 ;;
+            --max-gpus) REMVLLM_MAX_GPUS="$2"; shift 2 ;;
+            --on-demand) pricing="ondemand"; shift ;;
+            *) shift ;;
+        esac
+    done
+    sizing_matrix "${quant}" "${pricing}"
+}
+
+cmd_run() {
+    local recipe="${1:-glm-5.2}"; shift || true
+    local gpu="${REMVLLM_GPU_TYPE}" quant="${REMVLLM_QUANT}"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --gpu)      gpu="$2"; shift 2 ;;
+            --quant)    quant="$2"; shift 2 ;;
+            --max-gpus) REMVLLM_MAX_GPUS="$2"; shift 2 ;;
+            --ttl)      REMVLLM_TTL_MINUTES="$2"; shift 2 ;;
+            --no-spot) REMVLLM_SPOT=false; shift ;;
+            -v|--verbose) set -x; shift ;;
+            *) echo "error: unknown flag '$1'" >&2; return 1 ;;
+        esac
+    done
+    require_recipe "${recipe}"
+    REMVLLM_QUANT="${quant}"
+
+    local plan
+    if ! plan="$(sizing_plan "${quant}" "${gpu}" \
+            "$([[ "${REMVLLM_SPOT}" == "true" ]] && echo spot || echo ondemand)")"; then
+        return 1
+    fi
+    export REMVLLM_PLAN="${plan}"
+    export REMVLLM_KEY_FILE; REMVLLM_KEY_FILE="$(provision_key_file)"
+
+    orchestrate_run "${recipe}"
+}
+
+cmd_status() {
+    local base="${REMVLLM_STATE_DIR:-${REMVLLM_OPS_DIR}/state}"
+    if ! state_has_instance "${base}"; then
+        echo "no remvllm node provisioned on this host."
+        return 0
+    fi
+    local file
+    file="$(state_file "${base}")"
+    jq -r '
+      "recipe:    \(.recipe)",
+      "node:      \(.gpu_count)x \(.gpu_type) (\(.quant), spot=\(.spot))",
+      "endpoint:  http://localhost:'"${REMVLLM_LOCAL_PORT}"'/v1",
+      "host:      \(.host):\(.ssh_port)",
+      "est cost:  $\(.est_cost_hr)/hr",
+      "ttl:       \(.ttl_expires_at)",
+      "status:    \(.status)"' "${file}"
+}
+
+cmd_cache() {
+    local recipe="${1:-glm-5.2}"
+    require_recipe "${recipe}"
+    # shellcheck disable=SC1090
+    source "$(recipe_conf "${recipe}")"
+    local uri
+    uri="$(modelcache_uri "${REMVLLM_BUCKET_URL}" "${RECIPE_MODEL_ID}" "${REMVLLM_QUANT}")"
+    echo "cache target for ${RECIPE_MODEL_ID} (${REMVLLM_QUANT}): ${uri}"
+    echo "warming the cache spins up a node to download from HF once; run:"
+    echo "  remvllm run ${recipe}    (first run populates the bucket automatically)"
+}
+
+cmd_list_recipes() {
+    local d
+    for d in "${REMVLLM_OPS_DIR}"/recipes/*/; do
+        [[ -f "${d}/recipe.conf" ]] && basename "${d}"
+    done
+}
+
+# --- Main --------------------------------------------------------------------
+
+main() {
+    if [[ $# -eq 0 || "$1" == "-h" || "$1" == "--help" ]]; then
+        usage; exit 0
+    fi
+    config_load "${REMVLLM_OPS_DIR}"
+
+    local cmd="$1"; shift
+    case "${cmd}" in
+        run)          cmd_run "$@" ;;
+        sizes)        cmd_sizes "$@" ;;
+        status)       cmd_status ;;
+        stop)         orchestrate_stop ;;
+        destroy)      orchestrate_destroy ;;
+        cache)        cmd_cache "$@" ;;
+        list-recipes) cmd_list_recipes ;;
+        *) echo "error: unknown command '${cmd}'" >&2; usage; exit 1 ;;
+    esac
+}
+
+main "$@"
