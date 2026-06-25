@@ -20,6 +20,31 @@ data:
         send_batch_size: 1000
         timeout: 10s
 
+    connectors:
+      # Derive Prometheus token-usage metrics from the gen_ai.* span attributes
+      # that opentelemetry-hooks emits for Antigravity (agy) and other agents.
+      # agy has no native OTel metrics (google-antigravity/antigravity-cli#366);
+      # the hook records token counts as span attributes, so we sum them here.
+      # traces_to_metrics is alpha as of collector-contrib 0.155.0.
+      # NOTE: a single `attributes` dimension is used on purpose -- adding more
+      # dimensions can multiply the summed value (contrib issue #48776).
+      sum:
+        spans:
+          gen_ai.client.token.usage.input:
+            source_attribute: gen_ai.usage.input_tokens
+            conditions:
+              - span.attributes["gen_ai.usage.input_tokens"] != nil
+            attributes:
+              - key: gen_ai.request.model
+                default_value: unknown
+          gen_ai.client.token.usage.output:
+            source_attribute: gen_ai.usage.output_tokens
+            conditions:
+              - span.attributes["gen_ai.usage.output_tokens"] != nil
+            attributes:
+              - key: gen_ai.request.model
+                default_value: unknown
+
     exporters:
       debug:
         verbosity: detailed
@@ -36,9 +61,18 @@ data:
           receivers: [otlp]
           processors: [batch]
           exporters: [prometheus]
+        # Token-usage metrics derived from agent gen_ai.* spans by the sum
+        # connector, then promoted to Prometheus alongside the OTLP metrics.
+        metrics/tokens:
+          receivers: [sum]
+          processors: [batch]
+          exporters: [prometheus]
+        # Traces are consumed by the sum connector (token derivation). Raw spans
+        # are not otherwise stored -- there is no trace backend in LMDE.
         traces:
           receivers: [otlp]
-          exporters: [file/blackhole]
+          processors: [batch]
+          exporters: [sum]
         logs:
           receivers: [otlp]
           exporters: [file/blackhole]
