@@ -250,6 +250,177 @@ data:
           ],
           "title": "Agent Execution Latency (p95)",
           "type": "timeseries"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 16
+          },
+          "id": 4,
+          "panels": [],
+          "title": "Airframe Session Correlation",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                }
+              },
+              "mappings": []
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 17
+          },
+          "id": 5,
+          "options": {
+            "displayLabels": [
+              "percent"
+            ],
+            "legend": {
+              "displayMode": "list",
+              "placement": "right",
+              "showLegend": true
+            },
+            "pieType": "donut",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "10.4.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "Prometheus"
+              },
+              "editorMode": "code",
+              "expr": "sum by (airframe_session_id) (clai_agent_executions_total{airframe_session_id=~\"$airframe_session_id\"})",
+              "instant": true,
+              "legendFormat": "{{airframe_session_id}}",
+              "range": false,
+              "refId": "A"
+            }
+          ],
+          "title": "Executions by Airframe Session",
+          "type": "piechart"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "Seconds",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "unit": "s"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 17
+          },
+          "id": 6,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "Prometheus"
+              },
+              "editorMode": "code",
+              "expr": "histogram_quantile(0.95, sum by (le, airframe_session_id) (rate(clai_agent_duration_seconds_bucket{airframe_session_id=~\"$airframe_session_id\"}[5m])))",
+              "legendFormat": "{{airframe_session_id}} (p95)",
+              "refId": "A"
+            }
+          ],
+          "title": "Latency by Airframe Session (p95)",
+          "type": "timeseries"
         }
       ],
       "refresh": "5s",
@@ -259,7 +430,31 @@ data:
         "clai"
       ],
       "templating": {
-        "list": []
+        "list": [
+          {
+            "current": {},
+            "datasource": {
+              "type": "prometheus",
+              "uid": "Prometheus"
+            },
+            "definition": "label_values(clai_agent_executions_total, airframe_session_id)",
+            "hide": 0,
+            "includeAll": true,
+            "label": "Airframe Session",
+            "multi": false,
+            "name": "airframe_session_id",
+            "options": [],
+            "query": {
+              "qryType": 1,
+              "query": "label_values(clai_agent_executions_total, airframe_session_id)",
+              "refId": "PrometheusVariableQueryEditor-VariableQuery"
+            },
+            "refresh": 2,
+            "regex": "",
+            "sort": 1,
+            "type": "query"
+          }
+        ]
       },
       "time": {
         "from": "now-1h",

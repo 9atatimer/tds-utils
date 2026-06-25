@@ -23,6 +23,7 @@ Provides a local, persistent observability stack for agents and services. Other 
 3. **Grafana**:
    - Data Source: Prometheus.
    - Default Dashboards: Agent Performance, Token Usage, Success Rates.
+   - The Coding Agents dashboard can be sliced by `airframe_session_id` (promoted from the OTel resource attribute `airframe.session_id`, alongside `airframe_connection_id` / `airframe_agent_kind`) to correlate agent metrics with the airframe session that spawned them.
    - Reached at `grafana.lmde.localhost` (ingress-nginx route + Caddy vhost).
 
 ## Setup Logic
