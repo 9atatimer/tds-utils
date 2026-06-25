@@ -31,6 +31,7 @@ alias bit-tunnel="ssh -L 5678:127.0.0.1:5678 stumpf@100.125.95.68"
 alias gf=goldfish
 
 # Route AI coding agents through clai (overlay hooks + OpenTelemetry env).
+# Covers Claude Code, Antigravity (agy), Codex, and OpenCode (plus deprecated Gemini CLI).
 # Interactive shells only — scripts that call these binaries directly are
 # unaffected. clai launches the real agent via subprocess, which does not
 # inherit these aliases, so there is no recursion. For a raw run, bypass
@@ -41,6 +42,7 @@ alias jog-claude='clai claude --channels plugin:telegram@claude-plugins-official
 # The Muscles from Brussels: same, but skips permission prompts for unattended runs.
 # Only point this at repos you trust — it kicks the gatekeeper in the face.
 alias jog-claude-yolo='clai claude --channels plugin:telegram@claude-plugins-official --dangerously-skip-permissions'
-alias gemini='clai gemini'
+alias gemini='clai gemini'  # deprecated; use agy (Antigravity)
+alias agy='clai agy'
 alias codex='clai codex'
 alias opencode='clai opencode'
