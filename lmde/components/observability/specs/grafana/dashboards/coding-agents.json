@@ -507,7 +507,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(gen_ai_client_token_usage_input_total{airframe_session_id=~\"$airframe_session_id\"}[5m]))",
+          "expr": "sum(rate({__name__=~\"gen_ai_client_token_usage_input(_total)?\", airframe_session_id=~\"$airframe_session_id\"}[5m]))",
           "legendFormat": "input",
           "refId": "A"
         },
@@ -517,7 +517,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(gen_ai_client_token_usage_output_total{airframe_session_id=~\"$airframe_session_id\"}[5m]))",
+          "expr": "sum(rate({__name__=~\"gen_ai_client_token_usage_output(_total)?\", airframe_session_id=~\"$airframe_session_id\"}[5m]))",
           "legendFormat": "output",
           "refId": "B"
         }
@@ -583,7 +583,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (gen_ai_request_model) (gen_ai_client_token_usage_output_total{airframe_session_id=~\"$airframe_session_id\"})",
+          "expr": "sum by (gen_ai_request_model) ({__name__=~\"gen_ai_client_token_usage_output(_total)?\", airframe_session_id=~\"$airframe_session_id\"})",
           "instant": true,
           "legendFormat": "{{gen_ai_request_model}}",
           "range": false,

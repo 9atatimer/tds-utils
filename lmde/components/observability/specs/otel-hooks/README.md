@@ -57,6 +57,7 @@ joins the rest of the `coding-agents` dashboard.
 - Whether the connector preserves the source spans' **resource attributes** onto
   the derived metric is undocumented; if `airframe_session_id` does not appear on
   the token metrics, a `transform`/`groupbyattrs` step may be needed.
-- The exact emitted Prometheus metric name (e.g. `_total` suffix) should be
-  confirmed against the running collector and the dashboard query adjusted if
-  needed.
+- The exact emitted Prometheus metric name (e.g. `_total` suffix) is not known
+  until the collector runs; the dashboard queries use a `__name__` regex that
+  matches `gen_ai_client_token_usage_*` with or without the `_total` suffix, so
+  no edit is needed either way.
