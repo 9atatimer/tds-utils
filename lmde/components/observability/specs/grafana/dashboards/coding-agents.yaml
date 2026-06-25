@@ -432,7 +432,12 @@ data:
       "templating": {
         "list": [
           {
-            "current": {},
+            "allValue": ".*",
+            "current": {
+              "selected": true,
+              "text": "All",
+              "value": "$__all"
+            },
             "datasource": {
               "type": "prometheus",
               "uid": "Prometheus"
