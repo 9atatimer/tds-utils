@@ -1,0 +1,8 @@
+{
+  "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+  "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+  "OTEL_SERVICE_NAME": "antigravity-cli",
+  "IDE_OTEL_IDE_NAME": "antigravity",
+  "IDE_OTEL_BATCH_ON_STOP": "true",
+  "IDE_OTEL_CAPTURE_TEXT": "false"
+}
