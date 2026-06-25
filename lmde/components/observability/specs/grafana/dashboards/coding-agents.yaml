@@ -454,7 +454,7 @@ data:
               "query": "label_values(clai_agent_executions_total, airframe_session_id)",
               "refId": "PrometheusVariableQueryEditor-VariableQuery"
             },
-            "refresh": 2,
+            "refresh": 1,
             "regex": "",
             "sort": 1,
             "type": "query"
