@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# 20-enable-ast-mcp — clai pre-hook for claude
+#
+# Ensures ~/.claude.json registers the ast-mcp server at the canonical
+# absolute path, and removes "ast-mcp" from every project's
+# disabledMcpServers list so it is truly enabled everywhere.
+# Idempotent. Never touches unrelated mcpServers or projects keys.
+#
+# Skips silently if ~/.claude.json is absent or jq is not installed.
+
+set -euo pipefail
+
+CLAUDE_JSON="${HOME}/.claude.json"
+AST_BIN="${HOME}/.local/bin/ast-mcp"
+
+main() {
+    [[ -f "${CLAUDE_JSON}" ]] || exit 0
+    command -v jq >/dev/null 2>&1 || {
+        echo "clai/enable-ast-mcp: jq not found; skipping." >&2
+        exit 0
+    }
+
+    local tmp
+    tmp="$(mktemp "${CLAUDE_JSON}.XXXXXX")"
+    trap 'rm -f "${tmp}"' EXIT
+
+    jq --arg cmd "${AST_BIN}" '
+        .mcpServers = (.mcpServers // {}) |
+        .mcpServers["ast-mcp"] = {command: $cmd, args: []} |
+        .projects = (.projects // {}) |
+        .projects |= map_values(
+            if (.disabledMcpServers? != null) then
+                .disabledMcpServers = (.disabledMcpServers - ["ast-mcp"])
+            else . end
+        )
+    ' "${CLAUDE_JSON}" > "${tmp}"
+
+    jq empty "${tmp}" >/dev/null
+    mv -f "${tmp}" "${CLAUDE_JSON}"
+    trap - EXIT
+}
+
+main "$@"

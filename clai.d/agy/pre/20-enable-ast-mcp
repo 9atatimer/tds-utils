@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# 20-enable-ast-mcp — clai pre-hook for agy (Antigravity CLI)
+#
+# Ensures ~/.gemini/config/mcp_config.json registers the ast-mcp server at the
+# canonical absolute path. agy reads its MCP servers from this shared codeium-
+# format file ({"mcpServers": {...}}); the antigravity/ and antigravity-ide/
+# variant dirs symlink their mcp_config.json to it, so editing it wires every
+# Antigravity surface. Idempotent. Never touches unrelated mcpServers.
+#
+# Skips silently if the config file is absent or jq is not installed.
+
+set -euo pipefail
+
+MCP_CONFIG="${HOME}/.gemini/config/mcp_config.json"
+AST_BIN="${HOME}/.local/bin/ast-mcp"
+
+main() {
+    [[ -f "${MCP_CONFIG}" ]] || exit 0
+    command -v jq >/dev/null 2>&1 || {
+        echo "clai/enable-ast-mcp: jq not found; skipping." >&2
+        exit 0
+    }
+
+    local tmp
+    tmp="$(mktemp "${MCP_CONFIG}.XXXXXX")"
+    trap 'rm -f "${tmp}"' EXIT
+
+    jq --arg cmd "${AST_BIN}" '
+        .mcpServers = (.mcpServers // {}) |
+        .mcpServers["ast-mcp"] = {command: $cmd, args: []}
+    ' "${MCP_CONFIG}" > "${tmp}"
+
+    jq empty "${tmp}" >/dev/null
+    mv -f "${tmp}" "${MCP_CONFIG}"
+    trap - EXIT
+}
+
+main "$@"
