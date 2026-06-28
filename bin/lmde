@@ -1,0 +1,249 @@
+#!/usr/bin/env bash
+# lmde -- LMDE component orchestrator (list / install / sync / status / doctor).
+
+set -euo pipefail
+
+# --- Constants ---
+
+LMDE_ROOT="$(cd "$(dirname "$0")/../lmde" && pwd)"
+COMPONENTS_DIR="${LMDE_ROOT}/components"
+
+# Install entrypoint candidates, in resolution order.
+ENTRYPOINT_CANDIDATES=("setup.sh" "sync.sh")
+
+# --- Logging ---
+
+log() {
+    echo "[$(date +'%Y-%m-%dT%H:%M:%S%z')] $*"
+}
+
+# --- Action functions ---
+
+# list_components -- print the discovered component names, one per line, sorted.
+list_components() {
+    local dir name
+    for dir in "${COMPONENTS_DIR}"/*/; do
+        [[ -d "${dir}" ]] || continue
+        name="$(basename "${dir}")"
+        echo "${name}"
+    done | sort
+}
+
+# component_dir <name> -- echo the absolute component directory path.
+component_dir() {
+    local name="$1"
+    echo "${COMPONENTS_DIR}/${name}"
+}
+
+# component_entrypoint <name> -- echo the absolute path of the component's
+# install entrypoint (first executable of setup.sh/sync.sh), or nothing if the
+# component is not installable.
+component_entrypoint() {
+    local name="$1"
+    local dir candidate path
+    dir="$(component_dir "${name}")"
+    for candidate in "${ENTRYPOINT_CANDIDATES[@]}"; do
+        path="${dir}/${candidate}"
+        if [[ -x "${path}" ]]; then
+            echo "${path}"
+            return 0
+        fi
+    done
+    return 0
+}
+
+# component_healthcheck <name> -- echo the absolute path of the component's
+# executable healthcheck.sh, or nothing if absent/not executable.
+component_healthcheck() {
+    local name="$1"
+    local path
+    path="$(component_dir "${name}")/healthcheck.sh"
+    if [[ -x "${path}" ]]; then
+        echo "${path}"
+    fi
+}
+
+# --- Flow functions ---
+
+# do_list -- show every component with its installable / healthcheck status.
+do_list() {
+    local name entry health installable hc
+    printf '%-20s %-14s %s\n' "COMPONENT" "INSTALLABLE" "HEALTHCHECK"
+    while read -r name; do
+        [[ -n "${name}" ]] || continue
+        entry="$(component_entrypoint "${name}")"
+        health="$(component_healthcheck "${name}")"
+        if [[ -n "${entry}" ]]; then
+            installable="yes ($(basename "${entry}"))"
+        else
+            installable="no"
+        fi
+        if [[ -n "${health}" ]]; then
+            hc="yes"
+        else
+            hc="no"
+        fi
+        printf '%-20s %-14s %s\n' "${name}" "${installable}" "${hc}"
+    done < <(list_components)
+}
+
+# install_component <name> -- run a single component's install entrypoint.
+# Idempotent insofar as the entrypoint itself is. Skips gracefully when the
+# component has no installable entrypoint.
+install_component() {
+    local name="$1"
+    local dir entry
+    dir="$(component_dir "${name}")"
+    if [[ ! -d "${dir}" ]]; then
+        log "ERROR: unknown component '${name}' (no directory at ${dir})"
+        return 1
+    fi
+    entry="$(component_entrypoint "${name}")"
+    if [[ -z "${entry}" ]]; then
+        log "SKIP: component '${name}' is not installable (no executable setup.sh/sync.sh)."
+        return 0
+    fi
+    log "Installing component '${name}' via $(basename "${entry}")..."
+    "${entry}"
+    log "Component '${name}' install complete."
+}
+
+# do_install <component>|--all -- install one named component, or every
+# installable component with --all. Refuses to run with no target.
+do_install() {
+    local target="${1:-}"
+    if [[ -z "${target}" ]]; then
+        log "ERROR: 'install'/'sync' requires a <component> or --all."
+        echo >&2
+        usage >&2
+        echo >&2
+        echo "Available components:" >&2
+        do_list >&2
+        return 2
+    fi
+    if [[ "${target}" == "--all" ]]; then
+        local name
+        while read -r name; do
+            [[ -n "${name}" ]] || continue
+            install_component "${name}"
+        done < <(list_components)
+        return 0
+    fi
+    install_component "${target}"
+}
+
+# run_healthcheck <name> -- run a component's healthcheck.sh and set two
+# globals in the CALLER's scope: HC_STATUS (OK / DEGRADED / "no healthcheck")
+# and HC_OUTPUT (captured output for verbose reporting). It deliberately does
+# NOT echo its result: callers must invoke it as a plain statement, never via
+# `$(...)`, because a command substitution would run it in a subshell and the
+# global assignments would never reach the parent. Never aborts the caller.
+run_healthcheck() {
+    local name="$1"
+    local health
+    HC_STATUS=""
+    HC_OUTPUT=""
+    health="$(component_healthcheck "${name}")"
+    if [[ -z "${health}" ]]; then
+        HC_STATUS="no healthcheck"
+        return 0
+    fi
+    if HC_OUTPUT="$("${health}" 2>&1)"; then
+        HC_STATUS="OK"
+    else
+        HC_STATUS="DEGRADED"
+    fi
+}
+
+# do_status -- concise aligned health table across components that have a
+# healthcheck. Exits non-zero if any component is DEGRADED.
+do_status() {
+    local name status any_degraded=0 HC_STATUS="" HC_OUTPUT=""
+    printf '%-20s %s\n' "COMPONENT" "STATUS"
+    while read -r name; do
+        [[ -n "${name}" ]] || continue
+        run_healthcheck "${name}"
+        status="${HC_STATUS}"
+        [[ "${status}" == "DEGRADED" ]] && any_degraded=1
+        printf '%-20s %s\n' "${name}" "${status}"
+    done < <(list_components)
+    return "${any_degraded}"
+}
+
+# do_doctor -- verbose health detail; runs ALL healthchecks, never aborting on
+# a failure, and prints each component's captured output. Exits non-zero if any
+# component reported DEGRADED.
+do_doctor() {
+    local name status any_degraded=0 HC_STATUS="" HC_OUTPUT=""
+    while read -r name; do
+        [[ -n "${name}" ]] || continue
+        run_healthcheck "${name}"
+        status="${HC_STATUS}"
+        [[ "${status}" == "DEGRADED" ]] && any_degraded=1
+        echo "=== ${name}: ${status} ==="
+        if [[ -n "${HC_OUTPUT}" ]]; then
+            printf '%s\n' "${HC_OUTPUT}"
+        fi
+        echo
+    done < <(list_components)
+    if [[ "${any_degraded}" -ne 0 ]]; then
+        log "doctor: one or more components are DEGRADED."
+    else
+        log "doctor: all components healthy."
+    fi
+    return "${any_degraded}"
+}
+
+# --- Usage ---
+
+usage() {
+    cat <<'EOF'
+Usage: lmde <command> [args]
+
+Commands:
+  list                    List discovered components (installable / healthcheck).
+  install <component>     Run a component's install entrypoint (idempotent).
+  install --all          Install every installable component.
+  sync [<component>]      Alias for install; reconcile to the pinned manifest.
+  sync --all             Sync every installable component.
+  status                  Concise health summary (non-zero if any DEGRADED).
+  doctor                  Verbose health detail; runs ALL healthchecks.
+
+Notes:
+  install/sync with no component (and no --all) only prints this help and the
+  component list -- it never installs everything implicitly.
+EOF
+}
+
+# --- Main ---
+
+main() {
+    local cmd="${1:-}"
+    [[ $# -gt 0 ]] && shift || true
+
+    case "${cmd}" in
+        list)
+            do_list
+            ;;
+        install|sync)
+            do_install "${1:-}"
+            ;;
+        status)
+            do_status
+            ;;
+        doctor)
+            do_doctor
+            ;;
+        -h|--help|help|"")
+            usage
+            ;;
+        *)
+            log "ERROR: unknown command '${cmd}'."
+            echo >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

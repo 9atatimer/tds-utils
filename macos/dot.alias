@@ -41,6 +41,7 @@ alias jog-claude='clai claude --channels plugin:telegram@claude-plugins-official
 # The Muscles from Brussels: same, but skips permission prompts for unattended runs.
 # Only point this at repos you trust — it kicks the gatekeeper in the face.
 alias jog-claude-yolo='clai claude --channels plugin:telegram@claude-plugins-official --dangerously-skip-permissions'
-alias gemini='clai gemini'
+# Antigravity CLI (agy) — Google retired the gemini CLI; agy replaced it.
+alias agy='clai agy'
 alias codex='clai codex'
 alias opencode='clai opencode'

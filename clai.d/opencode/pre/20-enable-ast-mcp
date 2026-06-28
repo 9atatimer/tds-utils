@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# 20-enable-ast-mcp — clai pre-hook for opencode
+#
+# Ensures ~/.config/opencode/opencode.json registers the ast-mcp server
+# under .mcp at the canonical absolute path, creating .mcp if absent.
+# Idempotent. Never touches unrelated mcp entries or settings keys.
+#
+# Skips silently if opencode.json is absent or jq is not installed.
+
+set -euo pipefail
+
+OPENCODE_JSON="${HOME}/.config/opencode/opencode.json"
+AST_BIN="/Users/stumpf/.local/bin/ast-mcp"
+
+main() {
+    [[ -f "${OPENCODE_JSON}" ]] || exit 0
+    command -v jq >/dev/null 2>&1 || {
+        echo "clai/enable-ast-mcp: jq not found; skipping." >&2
+        exit 0
+    }
+
+    local tmp
+    tmp="$(mktemp "${OPENCODE_JSON}.XXXXXX")"
+    trap 'rm -f "${tmp}"' EXIT
+
+    jq --arg cmd "${AST_BIN}" '
+        .mcp = (.mcp // {}) |
+        .mcp["ast-mcp"] = {type: "local", command: [$cmd], enabled: true}
+    ' "${OPENCODE_JSON}" > "${tmp}"
+
+    jq empty "${tmp}" >/dev/null
+    mv -f "${tmp}" "${OPENCODE_JSON}"
+    trap - EXIT
+}
+
+main "$@"

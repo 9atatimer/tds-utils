@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# 20-enable-ast-mcp — clai pre-hook for codex
+#
+# Ensures ~/.codex/config.toml has an [mcp_servers.ast-mcp] table pointing
+# at the canonical absolute path. Uses python3's stdlib tomllib to detect an
+# existing entry (idempotent); when absent, APPENDS a well-formed TOML block
+# (append-only — no external TOML writer dependency). Never touches other
+# mcp_servers tables or unrelated config.
+#
+# Skips silently if ~/.codex/config.toml is absent or python3 is not installed.
+
+set -euo pipefail
+
+CODEX_TOML="${HOME}/.codex/config.toml"
+AST_BIN="/Users/stumpf/.local/bin/ast-mcp"
+
+main() {
+    [[ -f "${CODEX_TOML}" ]] || exit 0
+    command -v python3 >/dev/null 2>&1 || {
+        echo "clai/enable-ast-mcp: python3 not found; skipping." >&2
+        exit 0
+    }
+
+    # Idempotency check via tomllib. Exit codes from the probe:
+    #   0 -> ast-mcp already present (nothing to do)
+    #   1 -> ast-mcp absent (append it)
+    #   2 -> tomllib missing or file unparseable (skip silently)
+    local rc=0
+    python3 - "${CODEX_TOML}" <<'PY' || rc=$?
+import sys
+try:
+    import tomllib
+except ModuleNotFoundError:
+    sys.exit(2)
+try:
+    with open(sys.argv[1], "rb") as f:
+        data = tomllib.load(f)
+except Exception:
+    sys.exit(2)
+servers = data.get("mcp_servers", {})
+sys.exit(0 if isinstance(servers, dict) and "ast-mcp" in servers else 1)
+PY
+    # Only proceed to append when the probe says the entry is genuinely absent.
+    [[ "${rc}" -eq 1 ]] || exit 0
+
+    # Append-only: add a well-formed block. Ensure a leading newline so we
+    # never glue onto the previous line.
+    {
+        printf '\n[mcp_servers.ast-mcp]\n'
+        printf 'command = "%s"\n' "${AST_BIN}"
+        printf 'args = []\n'
+    } >> "${CODEX_TOML}"
+}
+
+main "$@"
