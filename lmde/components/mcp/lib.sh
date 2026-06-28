@@ -24,6 +24,45 @@ log() {
 
 # --- Install ---
 
+# _download_and_install <tmp> <name> <version> <tag> <repo> <prefix> -- fetch the
+# pinned release tarball into <tmp> and npm-install it into <prefix>. Every
+# early-exit path lives here, so the caller can clean <tmp> up exactly once
+# (rather than leaning on a RETURN trap that would leak past the function).
+_download_and_install() {
+    local tmp="$1" name="$2" version="$3" tag="$4" repo="$5" prefix="$6"
+
+    log "Downloading ${name} ${version} tarball from ${repo} (${tag})..."
+    if ! gh release download "${tag}" --repo "${repo}" \
+            --pattern '*.tgz' --dir "${tmp}"; then
+        log "ERROR: gh release download failed for ${tag} in ${repo}." >&2
+        return 1
+    fi
+
+    # A release should carry exactly one tarball. If it carries several, picking
+    # one arbitrarily is nondeterministic, so fail loudly instead. bash globbing
+    # (nullglob) keeps this free of any find-flag dependency.
+    local matches=()
+    shopt -s nullglob
+    matches=( "${tmp}"/*.tgz )
+    shopt -u nullglob
+    if [[ "${#matches[@]}" -eq 0 ]]; then
+        log "ERROR: no .tgz artifact found in release ${tag}." >&2
+        return 1
+    fi
+    if [[ "${#matches[@]}" -gt 1 ]]; then
+        log "ERROR: release ${tag} has ${#matches[@]} .tgz artifacts; refusing to guess:" >&2
+        printf '%s\n' "${matches[@]}" >&2
+        return 1
+    fi
+
+    log "Installing ${name} ${version} into ${prefix}..."
+    mkdir -p "${prefix}"
+    if ! npm install -g --prefix "${prefix}" "${matches[0]}"; then
+        log "ERROR: npm install failed for ${matches[0]}." >&2
+        return 1
+    fi
+}
+
 # install_one_server <name> <version> <release_tag> <repo> <bin> -- ensure the
 # pinned tarball is installed into a versioned prefix and the stable symlink
 # points at it. Idempotent: a present versioned prefix is left untouched and
@@ -54,42 +93,14 @@ install_one_server() {
         return 1
     fi
 
-    local tmp
+    # Do the tmp-scoped fetch+install in a helper so cleanup is a single,
+    # one-shot rm -- no RETURN trap that would leak past (and clobber the
+    # caller's trap on) every subsequent function return.
+    local tmp rc=0
     tmp="$(mktemp -d "${TMPDIR:-/tmp}/mcp-${name}.XXXXXX")"
-    # shellcheck disable=SC2064
-    trap "rm -rf '${tmp}'" RETURN
-
-    log "Downloading ${name} ${version} tarball from ${repo} (${tag})..."
-    if ! gh release download "${tag}" --repo "${repo}" \
-            --pattern '*.tgz' --dir "${tmp}"; then
-        log "ERROR: gh release download failed for ${tag} in ${repo}." >&2
-        return 1
-    fi
-
-    # A release should carry exactly one tarball. If it carries several,
-    # picking one arbitrarily is nondeterministic, so fail loudly instead.
-    # Use bash globbing (nullglob) so there is no dependency on find flags.
-    local matches=()
-    shopt -s nullglob
-    matches=( "${tmp}"/*.tgz )
-    shopt -u nullglob
-    if [[ "${#matches[@]}" -eq 0 ]]; then
-        log "ERROR: no .tgz artifact found in release ${tag}." >&2
-        return 1
-    fi
-    if [[ "${#matches[@]}" -gt 1 ]]; then
-        log "ERROR: release ${tag} has ${#matches[@]} .tgz artifacts; refusing to guess:" >&2
-        printf '%s\n' "${matches[@]}" >&2
-        return 1
-    fi
-    local tarball="${matches[0]}"
-
-    log "Installing ${name} ${version} into ${prefix}..."
-    mkdir -p "${prefix}"
-    if ! npm install -g --prefix "${prefix}" "${tarball}"; then
-        log "ERROR: npm install failed for ${tarball}." >&2
-        return 1
-    fi
+    _download_and_install "${tmp}" "${name}" "${version}" "${tag}" "${repo}" "${prefix}" || rc=$?
+    rm -rf "${tmp}"
+    [[ "${rc}" -eq 0 ]] || return "${rc}"
 
     if [[ ! -x "${installed_bin}" ]]; then
         log "ERROR: expected binary ${installed_bin} not produced by install." >&2
@@ -177,21 +188,26 @@ register_claude_desktop() {
     node_bin_dir="$(dirname "${node_path}")"
     local env_path="${node_bin_dir}:/usr/local/bin:/usr/bin:/bin"
 
+    # Explicit cleanup on every error path keeps this free of a RETURN trap that
+    # would leak past the function and clobber the caller's trap.
     local tmp
     tmp="$(mktemp "${config}.XXXXXX")"
-    # shellcheck disable=SC2064
-    trap "rm -f '${tmp}'" RETURN
 
-    jq --arg name "${name}" --arg cmd "${cmd}" --arg path "${env_path}" '
+    if ! jq --arg name "${name}" --arg cmd "${cmd}" --arg path "${env_path}" '
         .mcpServers = (.mcpServers // {}) |
         .mcpServers[$name] = {
             "command": $cmd,
             "args": [],
             "env": { "PATH": $path }
         }
-    ' "${config}" > "${tmp}"
+    ' "${config}" > "${tmp}"; then
+        rm -f "${tmp}"
+        log "ERROR: jq failed to update ${config}; leaving original intact." >&2
+        return 1
+    fi
 
     if ! jq empty "${tmp}" >/dev/null 2>&1; then
+        rm -f "${tmp}"
         log "ERROR: produced invalid JSON for ${config}; leaving original intact." >&2
         return 1
     fi

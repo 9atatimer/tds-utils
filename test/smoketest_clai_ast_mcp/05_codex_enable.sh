@@ -42,10 +42,13 @@ PY
 main() {
     require_hook "${CODEX_HOOK}" || return 1
 
-    command -v python3 >/dev/null 2>&1 || {
-        echo "skip: python3 not on PATH (required by the codex hook)"
+    # The codex hook no-ops (and so this scenario has nothing to assert) unless
+    # python3 has stdlib tomllib, i.e. Python >= 3.11. Skip otherwise, matching
+    # the hook's documented behaviour.
+    if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import tomllib' 2>/dev/null; then
+        echo "skip: python3 with stdlib tomllib (>= 3.11) required by the codex hook"
         return 0
-    }
+    fi
 
     local home cfg
     home="$(new_home)"
