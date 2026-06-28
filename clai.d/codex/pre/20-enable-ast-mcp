@@ -16,7 +16,7 @@
 set -euo pipefail
 
 CODEX_TOML="${HOME}/.codex/config.toml"
-AST_BIN="/Users/stumpf/.local/bin/ast-mcp"
+AST_BIN="${HOME}/.local/bin/ast-mcp"
 
 main() {
     [[ -f "${CODEX_TOML}" ]] || exit 0

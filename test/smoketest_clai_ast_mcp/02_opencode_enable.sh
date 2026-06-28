@@ -27,7 +27,7 @@ main() {
     # (c) canonical local server entry: type/local, absolute command, enabled.
     assert_jq_eq "${cfg}" '.mcp["ast-mcp"].type' "local" \
         "ast-mcp type is local" || return 1
-    assert_jq_eq "${cfg}" '.mcp["ast-mcp"].command | @json' "[\"${AST_MCP_BIN}\"]" \
+    assert_jq_eq "${cfg}" '.mcp["ast-mcp"].command | @json' "[\"$(ast_mcp_bin "${home}")\"]" \
         "ast-mcp command is the canonical absolute path" || return 1
     assert_jq_eq "${cfg}" '.mcp["ast-mcp"].enabled' "true" \
         "ast-mcp is enabled" || return 1

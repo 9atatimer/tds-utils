@@ -57,7 +57,7 @@ main() {
 
     # First application.
     run_codex_hook "${home}" >/dev/null
-    assert_codex_toml "${cfg}" "${AST_MCP_BIN}" || return 1
+    assert_codex_toml "${cfg}" "$(ast_mcp_bin "${home}")" || return 1
     cp "${cfg}" "${home}/after1.toml"
 
     # The appended table appears exactly once.

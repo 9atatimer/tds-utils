@@ -25,7 +25,7 @@ main() {
     cp "${cfg}" "${home}/after1.json"
 
     # (c) .mcp created with the canonical ast-mcp local server entry.
-    assert_jq_eq "${cfg}" '.mcp["ast-mcp"].command | @json' "[\"${AST_MCP_BIN}\"]" \
+    assert_jq_eq "${cfg}" '.mcp["ast-mcp"].command | @json' "[\"$(ast_mcp_bin "${home}")\"]" \
         "ast-mcp command is the canonical absolute path" || return 1
     assert_jq_eq "${cfg}" '.mcp["ast-mcp"].type' "local" \
         "ast-mcp type is local" || return 1

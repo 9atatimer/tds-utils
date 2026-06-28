@@ -19,8 +19,11 @@ REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 : "${AGY_HOOK:=${REPO_DIR}/clai.d/agy/pre/20-enable-ast-mcp}"
 : "${CODEX_HOOK:=${REPO_DIR}/clai.d/codex/pre/20-enable-ast-mcp}"
 
-# Canonical, GUI-safe absolute invocation baked into every agent config.
-AST_MCP_BIN="/Users/stumpf/.local/bin/ast-mcp"
+# The hooks write ${HOME}/.local/bin/ast-mcp -- expanded against the HOME the
+# hook ran under, i.e. a per-user literal absolute path (GUI-safe). Scenarios
+# derive the expected command from their own fake HOME via this helper rather
+# than baking in a specific username.
+ast_mcp_bin() { printf '%s/.local/bin/ast-mcp' "$1"; }
 
 # --- Guards ------------------------------------------------------------------
 
@@ -182,7 +185,7 @@ assert_jq_eq() {
     fi
 }
 
-export -f require_jq require_hook new_home \
+export -f require_jq require_hook new_home ast_mcp_bin \
     write_claude_fixture write_opencode_fixture write_opencode_fixture_no_mcp \
     write_agy_fixture write_codex_fixture \
     run_hook run_claude_hook run_opencode_hook run_agy_hook run_codex_hook \

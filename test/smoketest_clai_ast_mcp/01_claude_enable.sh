@@ -26,7 +26,7 @@ main() {
     cp "${cfg}" "${home}/after1.json"
 
     # (c) ast-mcp registered with the canonical absolute command and empty args.
-    assert_jq_eq "${cfg}" '.mcpServers["ast-mcp"].command' "${AST_MCP_BIN}" \
+    assert_jq_eq "${cfg}" '.mcpServers["ast-mcp"].command' "$(ast_mcp_bin "${home}")" \
         "ast-mcp command is the canonical absolute path" || return 1
     assert_jq_eq "${cfg}" '.mcpServers["ast-mcp"].args | length' "0" \
         "ast-mcp args is empty" || return 1

@@ -5,7 +5,7 @@
 Guarantees that vetted, pinned [Model Context Protocol](https://modelcontextprotocol.io)
 servers are installed and reachable on the host, so coding agents can assume
 they exist. The contract: after `lmde sync mcp`, any agent can spawn
-`ast-mcp` at the canonical absolute path `/Users/stumpf/.local/bin/ast-mcp`
+`ast-mcp` at the canonical absolute path `${HOME}/.local/bin/ast-mcp`
 and complete an `initialize` handshake -- no per-agent install step required.
 
 ## Strategy
@@ -41,9 +41,12 @@ and complete an `initialize` handshake -- no per-agent install step required.
 
 - **Transport is stdio**, not network -- these servers open no ports; they are
   spawned as child processes and speak JSON-RPC over stdin/stdout.
-- **Canonical invocation** in every agent config is the absolute path with no
-  args: `command = "/Users/stumpf/.local/bin/ast-mcp"`, `args = []`. Absolute
-  so GUI-launched agents resolve it without relying on PATH.
+- **Canonical invocation** in every agent config is `${HOME}/.local/bin/ast-mcp`
+  with no args. The hooks (and `lib.sh`) expand `$HOME` at write time, so the
+  value stored in each config is a literal per-user absolute path (e.g.
+  `/Users/stumpf/.local/bin/ast-mcp` here, `/home/stumpf/...` on Linux) --
+  absolute so GUI-launched agents resolve it without relying on PATH, yet
+  correct for any account.
 - **node-PATH for Desktop**: the installed bin has a `#!/usr/bin/env node`
   shebang. clai-launched agents inherit the shell PATH (nvm node present), so a
   bare absolute command works. **Claude Desktop** is a GUI app without nvm node

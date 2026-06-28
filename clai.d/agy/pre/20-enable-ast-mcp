@@ -12,7 +12,7 @@
 set -euo pipefail
 
 MCP_CONFIG="${HOME}/.gemini/config/mcp_config.json"
-AST_BIN="/Users/stumpf/.local/bin/ast-mcp"
+AST_BIN="${HOME}/.local/bin/ast-mcp"
 
 main() {
     [[ -f "${MCP_CONFIG}" ]] || exit 0

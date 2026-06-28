@@ -11,7 +11,7 @@
 set -euo pipefail
 
 CLAUDE_JSON="${HOME}/.claude.json"
-AST_BIN="/Users/stumpf/.local/bin/ast-mcp"
+AST_BIN="${HOME}/.local/bin/ast-mcp"
 
 main() {
     [[ -f "${CLAUDE_JSON}" ]] || exit 0

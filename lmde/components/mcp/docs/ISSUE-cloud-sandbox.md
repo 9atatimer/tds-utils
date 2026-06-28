@@ -14,7 +14,7 @@ PATH-resolved binary and wires it into every **Mac-local** agent:
   server in **Claude Desktop**.
 - clai owns the wiring for the four clai agents (Claude Code, codex, opencode,
   agy), each pointed at the canonical absolute command
-  `/Users/stumpf/.local/bin/ast-mcp` at launch.
+  `${HOME}/.local/bin/ast-mcp` at launch.
 
 Every one of those consumers resolves the server through the **host filesystem
 and host PATH**. That is exactly what a **kind/Cowork-sandboxed agent cannot
@@ -33,7 +33,7 @@ Per the residency rule in [`lmde/LMDE.md`](../../../LMDE.md):
 `ast-mcp` is currently a host-edge component: a binary on `~/.local/bin` with a
 `#!/usr/bin/env node` shebang that depends on the host's nvm `node`. A
 kind/Cowork-sandboxed agent has neither that filesystem path nor that PATH, so
-the canonical `command = "/Users/stumpf/.local/bin/ast-mcp"` invocation is
+the canonical `command = "${HOME}/.local/bin/ast-mcp"` invocation is
 unreachable from inside the sandbox. As the server's audience widens to include
 sandboxed agents, LMDE's own rule says to plan its move into (or exposure into)
 the cluster.
