@@ -67,20 +67,22 @@ install_one_server() {
     fi
 
     # A release should carry exactly one tarball. If it carries several,
-    # picking one with `head` is nondeterministic, so fail loudly instead.
-    local tarballs count
-    tarballs="$(find "${tmp}" -maxdepth 1 -name '*.tgz' -print)"
-    count="$(printf '%s' "${tarballs}" | grep -c .)"
-    if [[ "${count}" -eq 0 ]]; then
+    # picking one arbitrarily is nondeterministic, so fail loudly instead.
+    # Use bash globbing (nullglob) so there is no dependency on find flags.
+    local matches=()
+    shopt -s nullglob
+    matches=( "${tmp}"/*.tgz )
+    shopt -u nullglob
+    if [[ "${#matches[@]}" -eq 0 ]]; then
         log "ERROR: no .tgz artifact found in release ${tag}." >&2
         return 1
     fi
-    if [[ "${count}" -gt 1 ]]; then
-        log "ERROR: release ${tag} has ${count} .tgz artifacts; refusing to guess:" >&2
-        printf '%s\n' "${tarballs}" >&2
+    if [[ "${#matches[@]}" -gt 1 ]]; then
+        log "ERROR: release ${tag} has ${#matches[@]} .tgz artifacts; refusing to guess:" >&2
+        printf '%s\n' "${matches[@]}" >&2
         return 1
     fi
-    local tarball="${tarballs}"
+    local tarball="${matches[0]}"
 
     log "Installing ${name} ${version} into ${prefix}..."
     mkdir -p "${prefix}"
@@ -132,12 +134,12 @@ healthcheck_server() {
     # handshake unwrapped when neither exists, rather than mis-reporting a
     # healthy server as dead because the pipeline failed on a missing command.
     timeout_bin="$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)"
-    if [[ -z "${timeout_bin}" ]]; then
+    if [[ -n "${timeout_bin}" ]]; then
+        response="$(printf '%s\n' "${request}" | "${timeout_bin}" 10 "${cmd}" 2>/dev/null)" || true
+    else
         log "healthcheck: no timeout/gtimeout found; running handshake unwrapped." >&2
+        response="$(printf '%s\n' "${request}" | "${cmd}" 2>/dev/null)" || true
     fi
-
-    response="$(printf '%s\n' "${request}" \
-        | ${timeout_bin:+"${timeout_bin}" 10} "${cmd}" 2>/dev/null)" || true
 
     local re='"name"[[:space:]]*:[[:space:]]*"'"${name}"'"'
     if [[ "${response}" =~ ${re} ]]; then
