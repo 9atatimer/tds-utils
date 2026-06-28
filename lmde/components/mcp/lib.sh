@@ -66,12 +66,21 @@ install_one_server() {
         return 1
     fi
 
-    local tarball
-    tarball="$(find "${tmp}" -maxdepth 1 -name '*.tgz' -print | head -n 1)"
-    if [[ -z "${tarball}" ]]; then
+    # A release should carry exactly one tarball. If it carries several,
+    # picking one with `head` is nondeterministic, so fail loudly instead.
+    local tarballs count
+    tarballs="$(find "${tmp}" -maxdepth 1 -name '*.tgz' -print)"
+    count="$(printf '%s' "${tarballs}" | grep -c .)"
+    if [[ "${count}" -eq 0 ]]; then
         log "ERROR: no .tgz artifact found in release ${tag}." >&2
         return 1
     fi
+    if [[ "${count}" -gt 1 ]]; then
+        log "ERROR: release ${tag} has ${count} .tgz artifacts; refusing to guess:" >&2
+        printf '%s\n' "${tarballs}" >&2
+        return 1
+    fi
+    local tarball="${tarballs}"
 
     log "Installing ${name} ${version} into ${prefix}..."
     mkdir -p "${prefix}"
@@ -101,10 +110,13 @@ link_server() {
     ln -sfn "${target}" "${link}"
 }
 
-# healthcheck_server <bin> -- run the MCP initialize handshake against the
-# stable symlink and return 0 if the response identifies the server.
+# healthcheck_server <name> <bin> -- run the MCP initialize handshake against
+# the stable symlink and return 0 if the response identifies the server by its
+# logical <name>. The match tolerates whitespace in the JSON, so a server that
+# pretty-prints `"name": "ast-mcp"` is not falsely reported as degraded.
 healthcheck_server() {
-    local bin="$1"
+    local name="$1"
+    local bin="$2"
     local cmd="${MCP_BIN_DIR}/${bin}"
 
     if [[ ! -e "${cmd}" ]]; then
@@ -127,18 +139,21 @@ healthcheck_server() {
     response="$(printf '%s\n' "${request}" \
         | ${timeout_bin:+"${timeout_bin}" 10} "${cmd}" 2>/dev/null)" || true
 
-    if [[ "${response}" == *'"name":"'"${bin}"'"'* ]]; then
+    local re='"name"[[:space:]]*:[[:space:]]*"'"${name}"'"'
+    if [[ "${response}" =~ ${re} ]]; then
         return 0
     fi
     return 1
 }
 
-# register_claude_desktop <bin> -- add/refresh .mcpServers["<bin>"] in the
-# Claude Desktop config with the canonical absolute command and a node-bearing
-# env.PATH (Desktop is a GUI app and lacks nvm node on PATH). Idempotent;
-# preserves all other keys via temp-file + validate + atomic mv.
+# register_claude_desktop <name> <bin> -- add/refresh .mcpServers["<name>"] in
+# the Claude Desktop config, keyed by the logical server <name> but invoking the
+# <bin> symlink, with a node-bearing env.PATH (Desktop is a GUI app and lacks
+# nvm node on PATH). Idempotent; preserves all other keys via temp-file +
+# validate + atomic mv.
 register_claude_desktop() {
-    local bin="$1"
+    local name="$1"
+    local bin="$2"
     local cmd="${MCP_BIN_DIR}/${bin}"
     local config="${CLAUDE_DESKTOP_CONFIG}"
 
@@ -165,7 +180,7 @@ register_claude_desktop() {
     # shellcheck disable=SC2064
     trap "rm -f '${tmp}'" RETURN
 
-    jq --arg name "${bin}" --arg cmd "${cmd}" --arg path "${env_path}" '
+    jq --arg name "${name}" --arg cmd "${cmd}" --arg path "${env_path}" '
         .mcpServers = (.mcpServers // {}) |
         .mcpServers[$name] = {
             "command": $cmd,
@@ -180,5 +195,5 @@ register_claude_desktop() {
     fi
 
     mv -f "${tmp}" "${config}"
-    log "Registered ${bin} in Claude Desktop config (env.PATH pinned to ${node_bin_dir})."
+    log "Registered ${name} in Claude Desktop config (env.PATH pinned to ${node_bin_dir})."
 }

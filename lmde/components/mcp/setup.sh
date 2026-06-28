@@ -2,8 +2,8 @@
 # setup.sh -- Installs the pinned LMDE MCP servers and registers Claude Desktop.
 #
 # LMDE owns INSTALL (download/install/symlink/healthcheck) and Claude DESKTOP
-# registration only. Wiring for the four clai agents (claude/gemini/codex/
-# opencode) is handled by clai pre-hooks at agent launch, NOT here.
+# registration only. Wiring for the four clai agents (claude/codex/opencode/
+# agy) is handled by clai pre-hooks at agent launch, NOT here.
 
 set -euo pipefail
 
@@ -33,14 +33,14 @@ install_servers() {
         install_one_server "${name}" "${version}" "${tag}" "${repo}" "${bin}"
 
         log "Health-checking ${name} via handshake..."
-        if ! healthcheck_server "${bin}"; then
+        if ! healthcheck_server "${name}" "${bin}"; then
             log "FATAL: ${name} failed the initialize handshake; aborting." >&2
             exit 1
         fi
         log "${name}: healthy."
 
         log "Registering ${name} in Claude Desktop..."
-        register_claude_desktop "${bin}"
+        register_claude_desktop "${name}" "${bin}"
     done < "${SERVERS_FILE}"
 }
 
@@ -51,7 +51,7 @@ print_closing_note() {
   NEXT STEPS
   ----------
   * Claude Desktop: RESTART the app to pick up the new MCP server entry.
-  * clai agents (claude code / gemini / codex / opencode): no action needed --
+  * clai agents (claude code / codex / opencode / agy): no action needed --
     they auto-wire ast-mcp on their NEXT launch via the clai pre-hooks.
 EOF
 }

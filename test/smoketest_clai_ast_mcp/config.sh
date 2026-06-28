@@ -12,10 +12,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
-# Hooks under test (clai pre-stage wiring for two of the four clai agents).
+# Hooks under test (clai pre-stage wiring for the four clai agents).
 # Overridable via the environment so the suite can be aimed at a staged copy.
 : "${CLAUDE_HOOK:=${REPO_DIR}/clai.d/claude/pre/20-enable-ast-mcp}"
 : "${OPENCODE_HOOK:=${REPO_DIR}/clai.d/opencode/pre/20-enable-ast-mcp}"
+: "${AGY_HOOK:=${REPO_DIR}/clai.d/agy/pre/20-enable-ast-mcp}"
+: "${CODEX_HOOK:=${REPO_DIR}/clai.d/codex/pre/20-enable-ast-mcp}"
 
 # Canonical, GUI-safe absolute invocation baked into every agent config.
 AST_MCP_BIN="/Users/stumpf/.local/bin/ast-mcp"
@@ -94,6 +96,34 @@ write_opencode_fixture_no_mcp() {
 JSON
 }
 
+# Write a ~/.gemini/config/mcp_config.json fixture (agy/Antigravity reads this
+# shared codeium-format file) with an unrelated mcp server.
+write_agy_fixture() {
+    local home="$1"
+    mkdir -p "${home}/.gemini/config"
+    cat > "${home}/.gemini/config/mcp_config.json" <<JSON
+{
+  "mcpServers": {
+    "emacs": { "command": "socat", "args": ["-", "UNIX-CONNECT:/tmp/emacs.sock"] }
+  }
+}
+JSON
+}
+
+# Write a ~/.codex/config.toml fixture with an unrelated top-level key and an
+# unrelated [mcp_servers.*] table (the codex hook appends to this file).
+write_codex_fixture() {
+    local home="$1"
+    mkdir -p "${home}/.codex"
+    cat > "${home}/.codex/config.toml" <<'TOML'
+model = "gpt-5-codex"
+
+[mcp_servers.node_repl]
+command = "node"
+args = ["--experimental-repl-await"]
+TOML
+}
+
 # --- Hook runners ------------------------------------------------------------
 
 # Run a clai pre-hook with a hermetic environment rooted at the fake HOME.
@@ -112,6 +142,8 @@ run_hook() {
 
 run_claude_hook()   { run_hook "$1" claude   "${CLAUDE_HOOK}"; }
 run_opencode_hook() { run_hook "$1" opencode "${OPENCODE_HOOK}"; }
+run_agy_hook()      { run_hook "$1" agy      "${AGY_HOOK}"; }
+run_codex_hook()    { run_hook "$1" codex    "${CODEX_HOOK}"; }
 
 # --- Assertions --------------------------------------------------------------
 
@@ -152,5 +184,6 @@ assert_jq_eq() {
 
 export -f require_jq require_hook new_home \
     write_claude_fixture write_opencode_fixture write_opencode_fixture_no_mcp \
-    run_hook run_claude_hook run_opencode_hook \
+    write_agy_fixture write_codex_fixture \
+    run_hook run_claude_hook run_opencode_hook run_agy_hook run_codex_hook \
     assert_identical assert_valid_json assert_jq_eq

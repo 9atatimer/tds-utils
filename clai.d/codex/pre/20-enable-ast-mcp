@@ -7,7 +7,11 @@
 # (append-only — no external TOML writer dependency). Never touches other
 # mcp_servers tables or unrelated config.
 #
-# Skips silently if ~/.codex/config.toml is absent or python3 is not installed.
+# Skips silently (exit 0, never aborting the agent launch) when any of these
+# hold: ~/.codex/config.toml is absent; python3 is not installed; python3 lacks
+# the stdlib `tomllib` module (Python < 3.11); or config.toml is unparseable.
+# In the last two cases the idempotency probe exits 2 and the hook leaves the
+# file untouched rather than risk a malformed append.
 
 set -euo pipefail
 

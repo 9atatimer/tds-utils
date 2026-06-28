@@ -6,7 +6,7 @@ Guarantees that vetted, pinned [Model Context Protocol](https://modelcontextprot
 servers are installed and reachable on the host, so coding agents can assume
 they exist. The contract: after `lmde sync mcp`, any agent can spawn
 `ast-mcp` at the canonical absolute path `/Users/stumpf/.local/bin/ast-mcp`
-and complete an `initialize` handshake — no per-agent install step required.
+and complete an `initialize` handshake -- no per-agent install step required.
 
 ## Strategy
 
@@ -22,24 +22,24 @@ and complete an `initialize` handshake — no per-agent install step required.
    - **LMDE installs** the binaries, manages the symlink, health-checks each
      server, and registers them in the **Claude Desktop** config (a GUI app
      that clai cannot hook).
-   - **clai hooks wire** the four clai-launched agents — Claude Code, Gemini,
-     codex, and opencode — at agent launch time. LMDE never touches those four
+   - **clai hooks wire** the four clai-launched agents -- Claude Code, codex,
+     opencode, and agy (Antigravity CLI) -- at agent launch time. LMDE never touches those four
      configs.
 
 ## Components
 
-- **`servers.txt`**: pinned manifest — one row per server
+- **`servers.txt`**: pinned manifest -- one row per server
   (`name version release_tag repo bin`).
-- **`lib.sh`**: sourced helpers — `install_one_server`, `healthcheck_server`,
+- **`lib.sh`**: sourced helpers -- `install_one_server`, `healthcheck_server`,
   `register_claude_desktop`.
-- **`setup.sh`**: orchestrator — installs each server, fails loudly if a
+- **`setup.sh`**: orchestrator -- installs each server, fails loudly if a
   handshake fails, then registers Claude Desktop.
 - **`healthcheck.sh`**: per-server liveness probe (symlink + handshake);
   exits non-zero if any server is degraded.
 
 ## Conventions
 
-- **Transport is stdio**, not network — these servers open no ports; they are
+- **Transport is stdio**, not network -- these servers open no ports; they are
   spawned as child processes and speak JSON-RPC over stdin/stdout.
 - **Canonical invocation** in every agent config is the absolute path with no
   args: `command = "/Users/stumpf/.local/bin/ast-mcp"`, `args = []`. Absolute
@@ -50,7 +50,8 @@ and complete an `initialize` handshake — no per-agent install step required.
   on PATH, so its config entry pins `env.PATH` to the node bin dir (resolved at
   install time via `dirname "$(command -v node)"`) plus the system dirs.
 - **Health check** is the MCP `initialize` handshake; a healthy response
-  contains `"name":"<bin>"`.
+  identifies the server by its logical name (`"name": "<name>"`), tolerant of
+  whitespace in the JSON.
 
 ## Upgrade
 

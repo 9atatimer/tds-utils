@@ -26,7 +26,7 @@ check_one() {
         echo "${name}: DEGRADED (missing symlink ${link})"
         return 1
     fi
-    if ! healthcheck_server "${bin}"; then
+    if ! healthcheck_server "${name}" "${bin}"; then
         echo "${name}: DEGRADED (initialize handshake failed)"
         return 1
     fi

@@ -1,6 +1,6 @@
 # ast-mcp: make the server available to cloud/kind-sandboxed agents (Cowork)
 
-> **STATUS: DRAFT** — not yet filed. **Target repo undecided**
+> **STATUS: DRAFT** -- not yet filed. **Target repo undecided**
 > (`9atatimer/ai-tools` vs `tds-utils`). Decide owner before opening.
 
 ## Summary
@@ -12,8 +12,8 @@ PATH-resolved binary and wires it into every **Mac-local** agent:
   into `~/.local/share/tds-utils/mcp/ast-mcp/0.1.0/`, symlink
   `~/.local/bin/ast-mcp`, health-check the JSON-RPC handshake, and register the
   server in **Claude Desktop**.
-- clai owns the wiring for the four clai agents (Claude Code, Gemini, codex,
-  opencode), each pointed at the canonical absolute command
+- clai owns the wiring for the four clai agents (Claude Code, codex, opencode,
+  agy), each pointed at the canonical absolute command
   `/Users/stumpf/.local/bin/ast-mcp` at launch.
 
 Every one of those consumers resolves the server through the **host filesystem
@@ -81,6 +81,6 @@ the cluster.
 
 ## References
 
-- `lmde/LMDE.md` — Residency: in-kind vs. on the host.
-- `lmde/components/mcp/` — host install/registration component (Phase 1).
+- `lmde/LMDE.md` -- Residency: in-kind vs. on the host.
+- `lmde/components/mcp/` -- host install/registration component (Phase 1).
 - Release: `ast-mcp-v0.1.0` in `9atatimer/ai-tools` (private; needs `gh` auth).
