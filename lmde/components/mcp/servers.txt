@@ -1,0 +1,15 @@
+# LMDE MCP Servers -- pinned manifest
+#
+# One server per line; columns are whitespace-delimited. Blank lines and
+# lines beginning with '#' are ignored. Bump a row and re-run `lmde sync mcp`
+# to install/upgrade.
+#
+# Columns:
+#   name         logical server name (also the agent-config key)
+#   version      pinned semantic version; selects the install prefix
+#   release_tag  GitHub release tag holding the npm tarball artifact
+#   repo         <owner>/<repo> the release lives in (may be private)
+#   bin          executable name -> $HOME/.local/bin/<bin> stable symlink
+#
+# name      version  release_tag        repo                  bin
+ast-mcp     0.1.0    ast-mcp-v0.1.0     9atatimer/ai-tools    ast-mcp

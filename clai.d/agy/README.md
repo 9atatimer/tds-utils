@@ -8,6 +8,8 @@ stages for every agent it launches; this overlay ships a `pre/` directory only
 (as does the existing `clai.d/claude` overlay), so create a `post/` directory
 here if and when you add post-hooks.
 
-No hooks are defined yet -- this directory exists so `clai agy` is recognised
-and so the `agy` alias in `macos/dot.alias` routes through clai for overlay
-hooks and OpenTelemetry env (including airframe session correlation).
+The `pre/20-enable-ast-mcp` hook registers the ast-mcp MCP server into agy's
+config (`~/.gemini/config/mcp_config.json`) at launch, pointing at the
+LMDE-installed binary. This directory also makes `clai agy` recognised and
+routes the `agy` alias in `macos/dot.alias` through clai for overlay hooks and
+OpenTelemetry env (including airframe session correlation).
