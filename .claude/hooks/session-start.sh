@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # SessionStart hook: install the latest PUBLISHED ast-mcp release into a
 # project-local dir so the project .mcp.json can launch it. No global install
 # (AGENT.md: prefer local dependencies) and no local build — always the
@@ -34,13 +34,23 @@
 # refresh; running this hook fresh every session -- and verifying the
 # artifact each time -- is the mitigation. Do not remove the verification
 # step, and do not add a caching layer in front of the fetch.
+# No -e: deliberately fail-open at the STEP level, not the script level.
+# fetch_tarball/install_verified return 1 on any failure and main() catches
+# that with `if ! fetch_tarball || ! install_verified`, logs why, cleans up,
+# and always exits 0 -- a broken release/network must never abort this hook
+# uncaught and block the agent session from starting. Under -e, a single
+# unguarded failing command (this script has several, e.g. bare `mkdir -p`)
+# would kill the script before that catch-and-report logic ever runs. If you
+# add new top-level (non-function-body) commands, keep them guarded the same
+# way -- don't add -e as a shortcut.
 set -uo pipefail
 
 # --- Action/flow functions ---
-# (note/REPO/INSTALL_DIR/TMP are used throughout; declared inside main() per
-# the function-based script convention -- CLAUDE.md forbids loose top-level
-# logic outside a main block. Everything below main() is a function
-# definition, not executed logic, so it's fine at top level.)
+# (REPO/INSTALL_DIR/TMP are set inside main() below, per the function-based
+# shell-script convention this hook's consumers use (AGENT.md in this repo;
+# CLAUDE.md in consumer repos like tds-utils) -- no loose top-level logic
+# outside a main block. Everything from here down to main() is a function
+# DEFINITION, not executed logic, so it's fine to sit at top level.)
 note() { echo "[ast-mcp hook] $*" >&2; }
 
 # sha256_of <file> -- portable sha256 (Linux sha256sum / macOS shasum).
