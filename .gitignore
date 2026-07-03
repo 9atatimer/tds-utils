@@ -15,7 +15,12 @@ __pycache__/
 .pytest_cache/
 
 emacs/dot.emacs.d/elisp/emacs-mcp-server/
-.claude
+# .claude/ project config (hooks, settings.json) is committed -- see
+# .claude/hooks/session-start.sh (ast-mcp provisioning). Only user-local
+# overrides and the ast-mcp install itself are ignored.
+.claude/settings.local.json
+.claude/*.local.json
+.ast-mcp/
 memory/
 tmp/
 .designomatic/
