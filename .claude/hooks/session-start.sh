@@ -9,28 +9,31 @@
 # egress), it logs and exits 0 so the session still starts (ast-mcp just won't
 # be available until access is configured).
 #
-# This is the CANONICAL copy of this script. Other repos COPY it as-is rather
-# than fetching it at session-start time from this repo: a hook that downloads
-# and executes another repo's script on every session, unpinned, is its own
-# supply-chain risk (whoever can push to this repo's default branch gets code
-# execution in every consumer, with no review gate on the consuming side) --
-# the same category of problem issue #72 rejected for the cached binary, just
-# relocated to the script layer. So propagation is a deliberate, reviewed copy
-# per consumer repo (see packages/ast-mcp/docs/RUNBOOK.md), not an automatic
-# fetch. A fix made here still has to be applied to each consumer's copy.
+# This is a VENDORED COPY of the canonical script, which lives at
+# .claude/hooks/session-start.sh in 9atatimer/ai-tools (packages/ast-mcp is
+# where ast-mcp is built and released -- see RELEASE.md and RUNBOOK.md there
+# for the full context this header summarizes). Fixes land in ai-tools first,
+# then get synced here as a deliberate, reviewed copy -- NOT fetched at
+# session-start time from that repo: a hook that downloads and executes
+# another repo's script on every session, unpinned, is its own supply-chain
+# risk (whoever can push to that repo's default branch gets code execution
+# here, with no review gate on this side) -- the same category of problem
+# ai-tools issue #72 rejected for the cached binary, just relocated to the
+# script layer. If you're editing this file, edit the canonical copy in
+# ai-tools first and re-sync, don't let this repo's copy drift ahead.
 #
 # Every release cut with the CURRENT release workflow
-# (.github/workflows/release-ast-mcp.yml) ships a paired `.sha256` checksum
-# asset -- releases cut before this PR do not (see the newest-first fallback
-# in fetch_tarball below, which skips those). This hook downloads both the
-# tarball and its checksum and verifies before installing. We deliberately
-# rejected the cached env-setup-script delivery model (see issue #72) because
-# a stale cached binary could keep serving a known-vulnerable build for up to
-# ~7 days (the environment snapshot's cache window) with no way to force an
-# early refresh; running this hook fresh every session — and verifying the
-# artifact each time — is the mitigation. Do not remove the verification step,
-# and do not add a caching
-# layer in front of the fetch.
+# (.github/workflows/release-ast-mcp.yml in ai-tools) ships a paired
+# `.sha256` checksum asset -- releases cut before that workflow existed do
+# not (see the newest-first fallback in fetch_tarball below, which skips
+# those). This hook downloads both the tarball and its checksum and verifies
+# before installing. ai-tools deliberately rejected the cached
+# env-setup-script delivery model (see issue #72 there) because a stale
+# cached binary could keep serving a known-vulnerable build for up to ~7 days
+# (the environment snapshot's cache window) with no way to force an early
+# refresh; running this hook fresh every session -- and verifying the
+# artifact each time -- is the mitigation. Do not remove the verification
+# step, and do not add a caching layer in front of the fetch.
 set -uo pipefail
 
 [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] || exit 0
@@ -182,9 +185,16 @@ install_verified() {
   # Check it explicitly so a bad install fails closed -- same policy as the
   # checksum check above -- rather than reporting success while leaving
   # .mcp.json pointed at a file that isn't there.
-  local entry="$INSTALL_DIR/node_modules/@nine-at-a-time-media/ast-mcp/dist/index.js"
-  if [ ! -f "$entry" ]; then
-    note "npm install reported success but $entry is missing — treating as failed install"
+  #
+  # Check the npm-installed BIN SHIM (node_modules/.bin/ast-mcp), not the
+  # package's internal dist/index.js -- the package.json "bin" field is the
+  # published, stable contract; the dist/ layout underneath it is an
+  # implementation detail that could change on a future ast-mcp release
+  # without the bin path changing. .mcp.json launches via this same bin
+  # shim, so this check verifies the exact thing that gets executed.
+  local entry="$INSTALL_DIR/node_modules/.bin/ast-mcp"
+  if [ ! -x "$entry" ]; then
+    note "npm install reported success but $entry is missing or not executable — treating as failed install"
     return 1
   fi
   note "installed published ast-mcp into $INSTALL_DIR (local, not global)"
@@ -197,8 +207,8 @@ if ! fetch_tarball || ! install_verified; then
   # resumed the same container rather than starting fresh), leaving it in
   # place would let Claude Code launch that old copy despite this session
   # being unable to confirm it's still the current, verified release --
-  # exactly the "stale binary nobody re-checked" failure mode issue #72
-  # rejected the cached env-setup-script model over. Remove it so a failed
+  # exactly the "stale binary nobody re-checked" failure mode ai-tools
+  # issue #72 rejected the cached env-setup-script model over. Remove it so a failed
   # verification actually means "unavailable," not "silently serve whatever
   # was here before."
   #
