@@ -36,12 +36,11 @@
 # step, and do not add a caching layer in front of the fetch.
 set -uo pipefail
 
-[ "${CLAUDE_CODE_REMOTE:-}" = "true" ] || exit 0
-
-REPO="9atatimer/ai-tools"
-INSTALL_DIR="${CLAUDE_PROJECT_DIR:-$PWD}/.ast-mcp"   # gitignored, project-local
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT                            # never leave artifacts in /tmp
+# --- Action/flow functions ---
+# (note/REPO/INSTALL_DIR/TMP are used throughout; declared inside main() per
+# the function-based script convention -- CLAUDE.md forbids loose top-level
+# logic outside a main block. Everything below main() is a function
+# definition, not executed logic, so it's fine at top level.)
 note() { echo "[ast-mcp hook] $*" >&2; }
 
 # sha256_of <file> -- portable sha256 (Linux sha256sum / macOS shasum).
@@ -200,27 +199,40 @@ install_verified() {
   note "installed published ast-mcp into $INSTALL_DIR (local, not global)"
 }
 
-if ! fetch_tarball || ! install_verified; then
-  note "could not fetch+verify the published release (need gh, or GH_AI_TOOLS_PAT with Contents:read, plus egress to api.github.com + *.githubusercontent.com + registry.npmjs.org). ast-mcp will be unavailable this session."
-  # .mcp.json unconditionally points at $INSTALL_DIR's entrypoint. If a
-  # PREVIOUS session's successful install is still sitting there (this session
-  # resumed the same container rather than starting fresh), leaving it in
-  # place would let Claude Code launch that old copy despite this session
-  # being unable to confirm it's still the current, verified release --
-  # exactly the "stale binary nobody re-checked" failure mode ai-tools
-  # issue #72 rejected the cached env-setup-script model over. Remove it so a failed
-  # verification actually means "unavailable," not "silently serve whatever
-  # was here before."
-  #
-  # Guard the rm -rf: INSTALL_DIR is built from an env var + $PWD, so refuse
-  # to touch anything that isn't unambiguously "some path ending in our own
-  # .ast-mcp directory" before deleting -- cheap insurance against ever
-  # widening this to a catastrophic delete if CLAUDE_PROJECT_DIR/PWD is ever
-  # empty or unexpected.
-  case "$INSTALL_DIR" in
-    /.ast-mcp|"") note "refusing to rm -rf suspicious INSTALL_DIR ($INSTALL_DIR)" ;;
-    */.ast-mcp) rm -rf "$INSTALL_DIR" ;;
-    *) note "refusing to rm -rf INSTALL_DIR, doesn't end in /.ast-mcp: $INSTALL_DIR" ;;
-  esac
-fi
-exit 0
+# --- Main ---
+
+main() {
+  [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] || exit 0
+
+  REPO="9atatimer/ai-tools"
+  INSTALL_DIR="${CLAUDE_PROJECT_DIR:-$PWD}/.ast-mcp"   # gitignored, project-local
+  TMP="$(mktemp -d)"
+  trap 'rm -rf "$TMP"' EXIT                            # never leave artifacts in /tmp
+
+  if ! fetch_tarball || ! install_verified; then
+    note "could not fetch+verify the published release (need gh, or GH_AI_TOOLS_PAT with Contents:read, plus egress to api.github.com + *.githubusercontent.com + registry.npmjs.org). ast-mcp will be unavailable this session."
+    # .mcp.json unconditionally points at $INSTALL_DIR's entrypoint. If a
+    # PREVIOUS session's successful install is still sitting there (this session
+    # resumed the same container rather than starting fresh), leaving it in
+    # place would let Claude Code launch that old copy despite this session
+    # being unable to confirm it's still the current, verified release --
+    # exactly the "stale binary nobody re-checked" failure mode ai-tools
+    # issue #72 rejected the cached env-setup-script model over. Remove it so a failed
+    # verification actually means "unavailable," not "silently serve whatever
+    # was here before."
+    #
+    # Guard the rm -rf: INSTALL_DIR is built from an env var + $PWD, so refuse
+    # to touch anything that isn't unambiguously "some path ending in our own
+    # .ast-mcp directory" before deleting -- cheap insurance against ever
+    # widening this to a catastrophic delete if CLAUDE_PROJECT_DIR/PWD is ever
+    # empty or unexpected.
+    case "$INSTALL_DIR" in
+      /.ast-mcp|"") note "refusing to rm -rf suspicious INSTALL_DIR ($INSTALL_DIR)" ;;
+      */.ast-mcp) rm -rf "$INSTALL_DIR" ;;
+      *) note "refusing to rm -rf INSTALL_DIR, doesn't end in /.ast-mcp: $INSTALL_DIR" ;;
+    esac
+  fi
+  exit 0
+}
+
+main "$@"
