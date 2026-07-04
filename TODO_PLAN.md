@@ -44,11 +44,10 @@ Done elsewhere (companion changes in sibling repos, same rollout):
 
 Remaining:
 
-- [ ] Task P1: **Fill `sandbox/pins.env`.** After the first clai release
-  with the provision verbs (clai-vNEXT) is cut in `9atatimer/ai-tools`,
-  set CLAI_VERSION/CLAI_SHA256 (session hook scripts ship inside the
-  wheel, so there is no separate hooks pin). Land via PR -- the pin bump
-  is the review gate. Until then the wrappers warn loudly and exit 0.
+- [x] Task P1: **Fill `sandbox/pins.env`.** Done 2026-07-04: clai-v0.5.0
+  released from the merged PR #89; CLAI_VERSION=0.5.0 and CLAI_SHA256
+  (wheel digest from the release API) landed via PR. Future bumps repeat
+  the same pin-bump-via-PR flow -- the pin bump is the review gate.
 - [ ] Task P2: **Manual per-provider wrapper installation.** Todd installs
   the `sandbox/` wrappers into each provider's hook surface (Codex
   environment setup/maintenance scripts, Claude web SessionStart hook
