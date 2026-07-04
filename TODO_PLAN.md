@@ -45,9 +45,10 @@ Done elsewhere (companion changes in sibling repos, same rollout):
 Remaining:
 
 - [x] Task P1: **Fill `sandbox/pins.env`.** Done 2026-07-04: clai-v0.5.0
-  released from the merged PR #89; CLAI_VERSION=0.5.0 and CLAI_SHA256
-  (wheel digest from the release API) landed via PR. Future bumps repeat
-  the same pin-bump-via-PR flow -- the pin bump is the review gate.
+  released from the merged 9atatimer/ai-tools#89; CLAI_VERSION=0.5.0 and
+  CLAI_SHA256 (wheel digest from the release API) landed via PR. Future
+  bumps repeat the same pin-bump-via-PR flow -- the pin bump is the
+  review gate.
 - [ ] Task P2: **Manual per-provider wrapper installation.** Todd installs
   the `sandbox/` wrappers into each provider's hook surface (Codex
   environment setup/maintenance scripts, Claude web SessionStart hook
