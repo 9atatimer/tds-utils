@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# 05-provision -- sync agent tooling (skills, MCP configs) before launch.
+#
+# Runs `clai provision --offline-ok` as a clai pre-hook (issue #84). Numbered
+# 05 so it sorts ahead of the MCP-editing hooks (10-*, 20-*). Fail-open: a
+# clai pre-hook that exits non-zero ABORTS the agent launch, so provisioning
+# problems are logged and swallowed -- a broken provision must never keep an
+# agent from starting. clai itself is fast (sub-second) when current.
+
+set -uo pipefail
+
+# --- Flow functions ---
+
+run_provision() {
+    if ! command -v clai >/dev/null 2>&1; then
+        echo "[clai.d/05-provision] clai not on PATH; skipping provisioning" >&2
+        return 0
+    fi
+    clai provision --offline-ok || echo "[clai.d/05-provision] clai provision failed (non-fatal)" >&2
+}
+
+# --- Main ---
+
+main() {
+    run_provision
+    exit 0
+}
+
+main "$@"
