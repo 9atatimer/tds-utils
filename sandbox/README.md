@@ -40,19 +40,22 @@ reviewed change -- the pin bump is the review gate (same supply-chain
 stance as the ast-mcp hook and ai-tools issue #72: a push to a source
 repo's default branch must never grant code execution in consumers).
 
-The pins currently read `UNSET` on purpose:
+The pins are live (first set to clai-v0.5.0, 2026-07-04). To bump them:
 
-- `CLAI_VERSION` / `CLAI_SHA256` are filled when the first clai release
-  with the provision verbs (clai-vNEXT) is cut in `9atatimer/ai-tools`.
+- Set `CLAI_VERSION` to the new release's version (tag
+  `clai-v${CLAI_VERSION}` in `9atatimer/ai-tools`) and `CLAI_SHA256` to
+  that release's wheel-asset sha256 (the release API reports it as the
+  asset's digest). Land the bump via PR -- that review IS the gate.
 - Session hook scripts ship inside the pinned clai wheel (installed by
   `clai hooks install`), so they roll out via the same `CLAI_VERSION`
   bump -- there is no separate hooks pin.
 
-Until then `provision.sh` fails LOUDLY-but-open: it logs the exact
-fill-in procedure and exits 0 so sessions still start during the rollout.
-Once set, checksum verification is fail-CLOSED per artifact (a mismatch
-refuses to install and removes the download) but always fail-OPEN for the
-session (every terminal state exits 0).
+If either pin is ever reset to `UNSET`, `provision.sh` fails
+LOUDLY-but-open: it logs the exact fill-in procedure and exits 0 so
+sessions still start. With pins set, checksum verification is
+fail-CLOSED per artifact (a mismatch refuses to install and removes the
+download) but always fail-OPEN for the session (every terminal state
+exits 0).
 
 Skills and the MCP manifest are inert data and deliberately NOT pinned --
 they float to the latest default branch of `template-tools`.
