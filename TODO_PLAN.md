@@ -11,6 +11,54 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 ## Open Tasks
 
+### Universal Agent Provisioning -- issue #84 (phase entry, 2026-07-04)
+
+Implementation of `docs/design/PROVISION.DESIGN.md`: every new agent
+session self-provisions skills, MCP configs, and hook scripts from the
+canonical sources (`template-tools` data floats; clai wheel + hook scripts
+are pinned and checksum-verified).
+
+Done in this repo (this phase):
+
+- [x] `sandbox/` wrapper tree: `provision.sh` shared core (bootstrap pinned
+  clai wheel via gh/PAT, verify sha256 fail-closed per artifact, install
+  via uv/pip, exec `clai provision`; fail-open at session level),
+  `pins.env` (the only moving part; pins UNSET until the releases exist),
+  per-provider wrappers (`codex/setup.sh`, `codex/maintenance.sh`,
+  `claude-web/session-start.sh`, `copilot/copilot-setup-steps.yml`,
+  `jules/setup.sh`), and `sandbox/README.md`.
+- [x] `.claude/hooks/session-start.sh`: clai-provision branch added ahead
+  of the remote-gated ast-mcp flow (`clai provision --offline-ok` when
+  clai is on PATH; non-fatal), header updated to mark it as a
+  tds-utils-local addition to the vendored copy.
+- [x] `clai.d/mcp.json`: this repo's manifest layer (`{"profiles":
+  ["base"]}`) for the canonical-manifest overlay walk.
+- [x] `docs/design/PROVISION.DESIGN.md` (the design this implements).
+
+Done elsewhere (companion changes in sibling repos, same rollout):
+
+- [x] `template-tools`: canonical `skills/<name>/SKILL.md` tree, canonical
+  `mcp/manifest.json`, and `hooks/` session hook scripts.
+- [x] `ai-tools`: clai `provision` / `refresh` / `hooks install` verbs
+  (reserved-verb carve-outs in `cli.py`).
+
+Remaining:
+
+- [ ] Task P1: **Fill `sandbox/pins.env`.** After the first clai release
+  with the provision verbs (clai-vNEXT) is cut in `9atatimer/ai-tools`,
+  set CLAI_VERSION/CLAI_SHA256 (session hook scripts ship inside the
+  wheel, so there is no separate hooks pin). Land via PR -- the pin bump
+  is the review gate. Until then the wrappers warn loudly and exit 0.
+- [ ] Task P2: **Manual per-provider wrapper installation.** Todd installs
+  the `sandbox/` wrappers into each provider's hook surface (Codex
+  environment setup/maintenance scripts, Claude web SessionStart hook
+  registration, `.github/workflows/copilot-setup-steps.yml` +
+  GH_AI_TOOLS_PAT secret, Jules environment setup script). Explicitly a
+  design non-goal to automate.
+- [ ] Task P3: **`prompts/` retirement.** After provision is live and the
+  migrated skills prove out, retire the flat `prompts/SKILL.*.md` channel.
+  Keep `prompts/` untouched until then.
+
 ### Offline Readiness & Local LLM Hardening
 
 - [ ] Task OR1: **goldfish: Improve LLM robustness and model fallback.** Implement automatic detection of available local Ollama models if `GOLDFISH_OLLAMA_MODEL` is unset. Fall back to `claude` if available and `ollama` is not. GH Issue #59.
@@ -142,6 +190,8 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 - **Goldfish Hermeticity**: Smoke tests using `config.json` with `"orgs": []` must explicitly disable the `gh api user` fall-through via a `--no-gh` flag to avoid polluting the test environment with real user data.
 - **TCP Ingress Logic**: `ingress-nginx` TCP snippets are raw pass-through; TLS termination must be handled by the host-side proxy (Caddy) or the backend (NATS), not blindly assumed at the ingress level. Decided to use Caddy as the unified LMDE host edge.
 - **eltainer is the successor to eldocker**: Migrating involves updating load-paths in Emacs and ensuring the fork and upstream are correctly configured. eltainer talks directly to the Docker daemon and Kubernetes API via Elisp.
+- **Pinned code vs floating data (provisioning split)**: Every EXECUTABLE artifact (clai wheel, session hook scripts) is version-pinned and sha256-verified before use -- fail-closed per artifact, and the pin bump in `sandbox/pins.env` is the review gate. Inert DATA (skills, MCP manifest) floats to the latest default branch so freshness is automatic. This extends the supply-chain stance from the ast-mcp hook / ai-tools issue #72: a push to a source repo's default branch must never grant code execution in consumers, but stale prompt data is a real cost worth avoiding.
+- **No OSS abstraction over provider sandbox hooks (surveyed 2026-07)**: Codex, Claude Code web, Copilot coding agent, and Jules each have incompatible pre-agent hook contracts, and no OSS project abstracts over provider-HOSTED sandbox setup (OpenSandbox, E2B, sandbox-agent et al. are self-hosted runtimes -- a different problem). Consequence: keep per-provider wrappers thin and manually installed, and concentrate all behavioral churn behind one pinned core (`sandbox/provision.sh` + `pins.env`).
 
 ---
 
