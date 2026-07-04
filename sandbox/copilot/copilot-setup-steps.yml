@@ -4,11 +4,11 @@
 # Provider hook contract (Copilot coding agent):
 #   GitHub runs the job named exactly `copilot-setup-steps` from
 #   .github/workflows/copilot-setup-steps.yml in the target repo before
-#   the Copilot agent begins work. The steps run inside the agent's
-#   Actions-style environment WITH the repo already checked out for the
-#   agent, so no actions/checkout step is needed here -- the single run
-#   step calls sandbox/provision.sh straight from the checkout. Network is
-#   ON during setup steps.
+#   the Copilot agent begins work. The job runs as a normal Actions job in
+#   an EMPTY runner workspace -- Copilot clones the repo for the agent only
+#   AFTER these steps complete (per GitHub's docs, whose examples all begin
+#   with actions/checkout) -- so this job performs its own checkout before
+#   calling sandbox/provision.sh. Network is ON during setup steps.
 #
 # Install location (manual, by the human -- design non-goal to automate):
 #   Copy this file to .github/workflows/copilot-setup-steps.yml in the
@@ -36,8 +36,12 @@ on:
 jobs:
   copilot-setup-steps:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
       - name: Provision agent tooling (pinned clai bootstrap + clai provision)
-        run: bash sandbox/provision.sh
+        run: bash sandbox/provision.sh --copy
         env:
           GH_AI_TOOLS_PAT: ${{ secrets.GH_AI_TOOLS_PAT }}

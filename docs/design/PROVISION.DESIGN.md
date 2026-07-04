@@ -127,10 +127,16 @@ clai refresh
       failed (with reason).
 
 clai hooks install [--agent <name> | --all] [--scope project|user]
-    Write hook registrations into each agent's config surface
-    (.claude/settings.json SessionStart; codex config.toml;
-    ~/.gemini config; opencode.json) and link the hook scripts into
-    each agent's expected path.
+    Register session hooks per agent, on the surface each agent
+    actually has (as implemented):
+      claude: SessionStart registration in .claude/settings.json plus
+        a managed hook script (embedded in the clai wheel).
+      codex / agy / opencode: no native session-hook surface exists,
+        so a clai.d/<agent>/pre/05-provision overlay hook is installed
+        instead -- it fires only when the agent is launched through
+        clai. Native registration (codex config.toml, ~/.gemini
+        config, opencode.json) is future work if those agents grow a
+        startup-hook surface.
 ```
 
 `provision` is the single engine; session-start wrappers and `refresh` are
@@ -145,7 +151,7 @@ functions.
 |----------|------|---------------|
 | Skills (`skills/<name>/SKILL.md`) | `template-tools` | Floats to latest on default branch (inert data) |
 | MCP manifest (`mcp/manifest.json`) | `template-tools` | Floats to latest (inert data; consumed only by clai's generator) |
-| Session hook scripts (`hooks/`) | `template-tools` | Pinned tag + checksum; provision updates them only when the pin moves |
+| Session hook scripts | Embedded in the clai wheel (`clai hooks install`); `template-tools/hooks/` is the source the embedded templates are synced from | Ship inside the pinned, checksum-verified clai wheel; roll out by bumping `CLAI_VERSION` (no separate hooks pin) |
 | clai wheel | `ai-tools` GitHub Release | Pinned version + `.sha256` in each sandbox wrapper |
 
 One repo (`template-tools`) is the provisioning pull for all data, so a
@@ -254,8 +260,8 @@ New top-level `sandbox/` in `tds-utils`:
 sandbox/
   provision.sh              shared core: bootstrap clai (pinned), run
                             `clai provision`
-  pins.env                  CLAI_VERSION, CLAI_SHA256, HOOKS_TAG,
-                            HOOKS_SHA256 -- the ONLY moving part
+  pins.env                  CLAI_VERSION, CLAI_SHA256 -- the ONLY moving
+                            part (hook scripts ship inside the wheel)
   codex/setup.sh            container create (network on): full bootstrap
   codex/maintenance.sh      cached resume (network may be off): provision
                             --offline-ok
@@ -354,9 +360,10 @@ reports against.
 
 ## Security Considerations
 
-- **No unpinned code execution** -- Hook scripts and the clai wheel are
-  fetched at a pinned tag/version and sha256-verified before install
-  (fail-closed per artifact). This preserves the stance documented in
+- **No unpinned code execution** -- The clai wheel is fetched at a pinned
+  version and sha256-verified before install (fail-closed per artifact);
+  hook scripts ship inside that verified wheel, so they inherit the same
+  gate. This preserves the stance documented in
   `session-start.sh` (ai-tools issue #72 lineage): a push to a source
   repo's default branch must not grant code execution in consumers; the
   pin bump is the review gate.
@@ -392,6 +399,8 @@ reports against.
 | Sandbox wrappers | Thin, manually installed, all pins in one `pins.env` | Providers have incompatible hook contracts and no OSS abstraction exists; low-velocity wrapper makes the pin bump the only rollout step |
 | Provision engine home | clai (`ai-tools`), new reserved verbs | clai is already the per-agent knowledge locus (launcher, telemetry, overlay walk) and is installed everywhere via LMDE |
 | Refresh semantics | `refresh` = `provision --report` | One engine, two entry points; report is the contract with the user |
+| Hook registration surface | claude: native SessionStart in `.claude/settings.json`; codex/agy/opencode: `clai.d/<agent>/pre/05-provision` overlay hook only | Provisioning recon found no native session-hook surface for codex/agy/opencode; the overlay hook covers clai-launched sessions today, native registration is future work if those agents grow one |
+| Hook script delivery | Embedded in the pinned clai wheel (`clai hooks install`), not fetched from `template-tools` at a separate pin | The wheel is already pinned + checksum-verified, giving hooks the same supply-chain gate with one fewer pin to manage |
 
 ---
 

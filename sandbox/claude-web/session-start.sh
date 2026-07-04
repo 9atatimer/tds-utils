@@ -15,9 +15,11 @@
 #   Register in <repo>/.claude/settings.json under hooks.SessionStart,
 #   e.g. "command": "$CLAUDE_PROJECT_DIR/sandbox/claude-web/session-start.sh".
 #   In tds-utils itself this path is already covered: the existing
-#   .claude/hooks/session-start.sh runs `clai provision --offline-ok` when
-#   clai is on PATH (issue #84 three-way branch); this wrapper is the
-#   standalone form for repos that want the full bootstrap.
+#   .claude/hooks/session-start.sh implements the issue #84 three-way
+#   branch -- `clai provision --offline-ok` when clai is on PATH, and the
+#   full pinned bootstrap via sandbox/provision.sh when
+#   CLAUDE_CODE_REMOTE=true and clai is absent. This wrapper is the
+#   standalone form for other repos that want the full bootstrap.
 #
 # Fail-open: provisioning problems never block the session from starting.
 set -uo pipefail

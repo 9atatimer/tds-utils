@@ -27,7 +27,10 @@ run_wrapper() {
     echo "[sandbox/jules/setup.sh] $core not found -- skipping provisioning (fail-open)" >&2
     exit 0
   fi
-  bash "$core" "$@" || echo "[sandbox/jules/setup.sh] provision.sh failed (non-fatal)" >&2
+  # --copy: Jules VMs are ephemeral -- skills etc. must be COPIES, not
+  # symlinks into ~/.cache/clai (design doc: "Ephemeral sandboxes:
+  # copies"). Jules does not set CLAUDE_CODE_REMOTE, so pass it explicitly.
+  bash "$core" --copy "$@" || echo "[sandbox/jules/setup.sh] provision.sh failed (non-fatal)" >&2
   exit 0
 }
 

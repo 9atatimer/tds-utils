@@ -27,7 +27,9 @@ run_wrapper() {
     echo "[sandbox/codex/maintenance.sh] $core not found -- skipping provisioning (fail-open)" >&2
     exit 0
   fi
-  bash "$core" --offline-ok "$@" || echo "[sandbox/codex/maintenance.sh] provision.sh failed (non-fatal)" >&2
+  # --copy: same reason as setup.sh -- ephemeral container, copies not
+  # symlinks; Codex does not set CLAUDE_CODE_REMOTE.
+  bash "$core" --offline-ok --copy "$@" || echo "[sandbox/codex/maintenance.sh] provision.sh failed (non-fatal)" >&2
   exit 0
 }
 

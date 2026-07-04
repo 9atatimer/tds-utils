@@ -47,7 +47,8 @@ sha256_of() {
 
 # load_pins -- source (and export) sandbox/pins.env, resolved as a sibling
 # of this script via BASH_SOURCE so wrappers can call it from anywhere.
-# Exported so clai provision inherits HOOKS_TAG/HOOKS_SHA256 etc.
+# Exported so clai provision inherits TEMPLATE_TOOLS_REPO/AI_TOOLS_REPO;
+# the CLAI_* pins are consumed by this script itself.
 load_pins() {
   local here
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)" || return 1
@@ -63,12 +64,18 @@ clai_healthy() {
   command -v clai >/dev/null 2>&1 && clai --version >/dev/null 2>&1
 }
 
-# pins_set -- all four executable-artifact pins carry real values.
+# installed_clai_version -- version string of the clai on PATH (last
+# whitespace-separated field of `clai --version`).
+installed_clai_version() {
+  clai --version 2>/dev/null | awk '{print $NF}'
+}
+
+# pins_set -- both executable-artifact pins carry real values. (Session
+# hook scripts ship INSIDE the pinned clai wheel via `clai hooks install`,
+# so CLAI_VERSION/CLAI_SHA256 are the only pins.)
 pins_set() {
   [ "${CLAI_VERSION:-UNSET}" != "UNSET" ] \
-    && [ "${CLAI_SHA256:-UNSET}" != "UNSET" ] \
-    && [ "${HOOKS_TAG:-UNSET}" != "UNSET" ] \
-    && [ "${HOOKS_SHA256:-UNSET}" != "UNSET" ]
+    && [ "${CLAI_SHA256:-UNSET}" != "UNSET" ]
 }
 
 # warn_pins_unset -- the loud-but-open path used during rollout, before the
@@ -77,8 +84,7 @@ warn_pins_unset() {
   note "sandbox/pins.env still has UNSET pins -- expected during the issue #84 rollout."
   note "To activate provisioning:"
   note "  1. Cut the first clai release with the provision verbs (clai-vNEXT) in ${AI_TOOLS_REPO:-9atatimer/ai-tools}, then set CLAI_VERSION and CLAI_SHA256 (sha256 of the released wheel) in sandbox/pins.env."
-  note "  2. Tag hooks-v1 in ${TEMPLATE_TOOLS_REPO:-nine-at-a-time-media/template-tools}, then set HOOKS_TAG and HOOKS_SHA256."
-  note "  3. Land the pin bump via PR -- the pin bump IS the review gate."
+  note "  2. Land the pin bump via PR -- the pin bump IS the review gate."
   note "Session continues WITHOUT provisioning (fail-open)."
 }
 
@@ -162,7 +168,9 @@ verify_wheel() {
 install_wheel() {
   local whl="$1"
   if command -v uv >/dev/null 2>&1; then
-    uv tool install "$whl" >/dev/null 2>&1 || { note "uv tool install failed"; return 1; }
+    # --force: reinstalling over an existing (stale or broken) tool
+    # environment must succeed -- this is the pin-bump upgrade path.
+    uv tool install --force "$whl" >/dev/null 2>&1 || { note "uv tool install failed"; return 1; }
   elif command -v python3 >/dev/null 2>&1; then
     python3 -m pip install --user "$whl" >/dev/null 2>&1 || { note "pip install --user failed"; return 1; }
   else
@@ -192,11 +200,15 @@ bootstrap_clai() {
 }
 
 # run_provision -- hand off to clai. Cleans up $TMP first: exec replaces
-# the process, so the EXIT trap would never fire.
+# the process, so the EXIT trap would never fire. Always passes --copy:
+# this script only ever runs inside ephemeral provider sandboxes (Codex,
+# Claude web, Copilot, Jules), where symlinks into the clai cache would
+# point at a directory the container discards; local laptops reach clai
+# provision via clai.d pre-hooks / SessionStart instead, never this script.
 run_provision() {
   [ -n "${TMP:-}" ] && rm -rf "$TMP"
   trap - EXIT
-  exec clai provision "$@"
+  exec clai provision --copy "$@"
 }
 
 provision_flow() {
@@ -205,21 +217,39 @@ provision_flow() {
     exit 0
   fi
 
-  # Already installed and healthy (laptop, warm sandbox resume): straight
-  # to the idempotent engine. Double-invocation is a fast no-op.
-  if clai_healthy; then
-    run_provision "$@"
-  fi
-
   if ! pins_set; then
+    # Pre-rollout: no pin to compare against, so a healthy clai (laptop)
+    # goes straight to the idempotent engine, unchanged.
+    if clai_healthy; then
+      run_provision "$@"
+    fi
     warn_pins_unset
     exit 0
+  fi
+
+  # True fast path (laptop, warm sandbox resume): only when the installed
+  # clai MATCHES the pin. Trusting any healthy clai here would let a warm
+  # container keep serving a stale binary forever after a pin bump -- the
+  # exact stale-cached-binary failure mode ai-tools issue #72 rejected;
+  # the pin bump must take effect on every networked session.
+  if clai_healthy && [ "$(installed_clai_version)" = "$CLAI_VERSION" ]; then
+    run_provision "$@"
+  fi
+  if clai_healthy; then
+    note "installed clai $(installed_clai_version) != pinned $CLAI_VERSION -- re-bootstrapping to the pin"
   fi
 
   TMP="$(mktemp -d)"
   trap 'rm -rf "$TMP"' EXIT
 
   if ! bootstrap_clai; then
+    if clai_healthy; then
+      # DEGRADED, not fatal: a healthy-but-stale clai still provisions this
+      # session (offline cached resume, Goal 4) -- with an honest warning
+      # that the pin bump has NOT taken effect yet.
+      note "WARNING: could not re-bootstrap to pinned clai $CLAI_VERSION; proceeding with STALE installed clai $(installed_clai_version) (honest degradation, Goal 4)"
+      run_provision "$@"
+    fi
     # BOOTSTRAP FAILED terminal state: log, exit 0, session starts without
     # provisioning (design doc State Machine).
     note "could not fetch+verify+install the pinned clai wheel (need gh, or GH_AI_TOOLS_PAT with Contents:read on $AI_TOOLS_REPO, plus egress to api.github.com and *.githubusercontent.com). Provisioning unavailable this session."

@@ -46,10 +46,9 @@ Remaining:
 
 - [ ] Task P1: **Fill `sandbox/pins.env`.** After the first clai release
   with the provision verbs (clai-vNEXT) is cut in `9atatimer/ai-tools`,
-  set CLAI_VERSION/CLAI_SHA256; after hooks-v1 is tagged in
-  `nine-at-a-time-media/template-tools`, set HOOKS_TAG/HOOKS_SHA256. Land
-  via PR -- the pin bump is the review gate. Until then the wrappers warn
-  loudly and exit 0.
+  set CLAI_VERSION/CLAI_SHA256 (session hook scripts ship inside the
+  wheel, so there is no separate hooks pin). Land via PR -- the pin bump
+  is the review gate. Until then the wrappers warn loudly and exit 0.
 - [ ] Task P2: **Manual per-provider wrapper installation.** Todd installs
   the `sandbox/` wrappers into each provider's hook surface (Codex
   environment setup/maintenance scripts, Claude web SessionStart hook
