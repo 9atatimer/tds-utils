@@ -29,7 +29,7 @@ run_wrapper() {
   fi
   # --copy: same reason as setup.sh -- ephemeral container, copies not
   # symlinks; Codex does not set CLAUDE_CODE_REMOTE.
-  bash "$core" --offline-ok --copy "$@" || echo "[sandbox/codex/maintenance.sh] provision.sh failed (non-fatal)" >&2
+  bash "$core" --offline-ok "$@" || echo "[sandbox/codex/maintenance.sh] provision.sh failed (non-fatal)" >&2
   exit 0
 }
 
