@@ -78,13 +78,13 @@ pins_set() {
     && [ "${CLAI_SHA256:-UNSET}" != "UNSET" ]
 }
 
-# warn_pins_unset -- the loud-but-open path used during rollout, before the
-# first provision-capable clai release exists. Says exactly what to do.
+# warn_pins_unset -- the loud-but-open path for UNSET pins. Says exactly
+# what to do to restore them.
 warn_pins_unset() {
-  note "sandbox/pins.env still has UNSET pins -- expected during the issue #84 rollout."
-  note "To activate provisioning:"
-  note "  1. Cut the first clai release with the provision verbs (clai-vNEXT) in ${AI_TOOLS_REPO:-9atatimer/ai-tools}, then set CLAI_VERSION and CLAI_SHA256 (sha256 of the released wheel) in sandbox/pins.env."
-  note "  2. Land the pin bump via PR -- the pin bump IS the review gate."
+  note "sandbox/pins.env has UNSET pins -- provisioning is disarmed."
+  note "To (re)activate provisioning:"
+  note "  1. Pick a clai release with the provision verbs (clai-v0.5.0 or later) in ${AI_TOOLS_REPO:-9atatimer/ai-tools}; set CLAI_VERSION to its version and CLAI_SHA256 to its wheel asset's sha256 (the release API reports it as the asset digest)."
+  note "  2. Land the pin values via PR -- the pin bump IS the review gate."
   note "Session continues WITHOUT provisioning (fail-open)."
 }
 
