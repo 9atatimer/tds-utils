@@ -3,11 +3,12 @@
 #
 # Runs `clai provision --offline-ok` as a clai pre-hook (issue #84). Numbered
 # 05 so it sorts ahead of the MCP-editing hooks (10-*, 20-*). Fail-open: a
-# clai pre-hook that exits non-zero ABORTS the agent launch, so provisioning
-# problems are logged and swallowed -- a broken provision must never keep an
-# agent from starting. clai itself is fast (sub-second) when current.
+# clai pre-hook that exits non-zero ABORTS the agent launch, so every
+# failure path below carries its own guard and main() always exits 0 --
+# under -e (kept for consistency with the sibling 10-*/20-* hooks) an
+# UNGUARDED command would block the launch, so keep new commands guarded.
 
-set -uo pipefail
+set -euo pipefail
 
 # --- Flow functions ---
 
