@@ -21,6 +21,10 @@
 # ai-tools issue #72 rejected for the cached binary, just relocated to the
 # script layer. If you're editing this file, edit the canonical copy in
 # ai-tools first and re-sync, don't let this repo's copy drift ahead.
+# One deliberate tds-utils-local addition on top of the vendored ast-mcp
+# logic: the clai-provision branch at the top of main() is part of the
+# issue #84 universal-provisioning rollout (see docs/design/PROVISION.DESIGN.md
+# and sandbox/ in this repo), not part of the canonical ai-tools copy.
 #
 # Every release cut with the CURRENT release workflow
 # (.github/workflows/release-ast-mcp.yml in ai-tools) ships a paired
@@ -212,6 +216,18 @@ install_verified() {
 # --- Main ---
 
 main() {
+  # clai provision (issue #84): when clai is already on PATH (laptop, or a
+  # sandbox whose setup script bootstrapped it), run the idempotent
+  # provisioning engine before anything else -- fast no-op when current,
+  # --offline-ok so no-network sessions degrade with a warning instead of
+  # noise. Non-fatal by design; then fall through to the existing
+  # remote-gated ast-mcp flow (locally the script exits at the gate below,
+  # as before).
+  if command -v clai >/dev/null 2>&1; then
+    note "clai found on PATH -- running clai provision (issue #84)"
+    clai provision --offline-ok || note "clai provision failed (non-fatal)"
+  fi
+
   [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] || exit 0
 
   REPO="9atatimer/ai-tools"

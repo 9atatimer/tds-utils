@@ -1,0 +1,43 @@
+# copilot-setup-steps.yml -- GitHub Copilot coding agent setup steps:
+# bootstrap pinned clai + `clai provision` before the agent starts.
+#
+# Provider hook contract (Copilot coding agent):
+#   GitHub runs the job named exactly `copilot-setup-steps` from
+#   .github/workflows/copilot-setup-steps.yml in the target repo before
+#   the Copilot agent begins work. The steps run inside the agent's
+#   Actions-style environment WITH the repo already checked out for the
+#   agent, so no actions/checkout step is needed here -- the single run
+#   step calls sandbox/provision.sh straight from the checkout. Network is
+#   ON during setup steps.
+#
+# Install location (manual, by the human -- design non-goal to automate):
+#   Copy this file to .github/workflows/copilot-setup-steps.yml in the
+#   target repo. The job name `copilot-setup-steps` is load-bearing; do
+#   not rename it.
+#
+# Secret requirement:
+#   GH_AI_TOOLS_PAT -- a fine-grained PAT with Contents:read on the
+#   private repos 9atatimer/ai-tools and
+#   nine-at-a-time-media/template-tools. Add it to the repo's Actions
+#   secrets (or the `copilot` environment's secrets) so the env: mapping
+#   below resolves. Without it the bootstrap fails loudly-but-open and the
+#   Copilot session starts unprovisioned. The default GITHUB_TOKEN is
+#   repo-scoped and cannot read the private source repos.
+#
+# Note: Copilot's MCP config is a repo SETTING (via `gh api`), not a file
+# this job can write -- explicitly a non-goal in PROVISION.DESIGN.md;
+# skills provisioning is what this buys today.
+
+name: "Copilot Setup Steps"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Provision agent tooling (pinned clai bootstrap + clai provision)
+        run: bash sandbox/provision.sh
+        env:
+          GH_AI_TOOLS_PAT: ${{ secrets.GH_AI_TOOLS_PAT }}
