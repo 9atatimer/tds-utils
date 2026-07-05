@@ -2,6 +2,14 @@
 
 It is very important you never do anything destructive to the git history.
 
+It is very important that you never use interrogative UI prompts — the
+question-picker / multiple-choice prompt widgets (e.g. `AskUserQuestion`
+and any equivalent). They do not render or behave correctly on mobile
+sessions. When you need to ask a question, ask it inline in the session as
+plain text and wait for the reply. This is a standing rule for every Claude
+client, and — because `CLAUDE.md` and `GEMINI.md` are symlinks to this
+file — for Gemini and any other agent that reads `AGENT.md` as well.
+
 It is very important that you enumerate the skills in prompts/ — but
 conservatively. Don't read them all in; they'll flood your context.
 
