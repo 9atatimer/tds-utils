@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "ast-mcp": {
-      "command": ".ast-mcp/node_modules/.bin/ast-mcp",
-      "args": []
+      "args": [],
+      "command": "${AST_MCP_BIN}"
     }
   }
 }
