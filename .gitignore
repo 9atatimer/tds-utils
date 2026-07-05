@@ -24,3 +24,10 @@ emacs/dot.emacs.d/elisp/emacs-mcp-server/
 memory/
 tmp/
 .designomatic/
+
+# Agent-universal dynamic skills and runtime caches provisioned by clai (docs/design/PROVISION.DESIGN.md).
+# Pinned hook configurations (.claude/hooks/session-start.sh, .claude/settings.json) remain committed.
+.agents/
+.claude/skills/
+.codex/
+
