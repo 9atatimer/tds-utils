@@ -7,11 +7,13 @@ export PATH=/Users/stumpf/.sg:$PATH
 export TDS_LOG_DIR="${TDS_LOG_DIR:-$HOME/.local/share/log-hoarder}"
 . "$HOME/.cargo/env"
 
-# ast-mcp: dynamically resolve AST_MCP_BIN path based on environment
-if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ]; then
-  export AST_MCP_BIN="${CLAUDE_PROJECT_DIR:-$PWD}/.ast-mcp/node_modules/.bin/ast-mcp"
-else
-  export AST_MCP_BIN="${HOME}/.local/bin/ast-mcp"
+# ast-mcp: dynamically resolve AST_MCP_BIN path based on environment if unset
+if [ -z "${AST_MCP_BIN:-}" ]; then
+  if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ]; then
+    export AST_MCP_BIN="${CLAUDE_PROJECT_DIR:-$PWD}/.ast-mcp/node_modules/.bin/ast-mcp"
+  else
+    export AST_MCP_BIN="${HOME}/.local/bin/ast-mcp"
+  fi
 fi
 
 
