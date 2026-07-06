@@ -163,6 +163,7 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 
 ## Lessons Learned
 
+- **Dynamic Agent Skills Caching**: Dynamic prompt/skill cache directories populated by the agent CLI at runtime (`.agents/`, `.claude/skills/`, `.codex/`) should be ignored by the repository's `.gitignore` to avoid polluting `git status`, while keeping the configuration files (`.claude/settings.json`) and session hooks (`.claude/hooks/session-start.sh`) checked in for native tool discovery.
 - **tds-utils is a Kernel, not a Utility Repo**: This repository represents the "soul in digital form" of the developer environment. It justifies a higher degree of architectural ceremony (ADRs, Tech Radar, Formal Design Docs) than a simple collection of scripts would, as it provides the foundation for all other work.
 - **Architecture over Utilities**:
  Distinguishing between architectural components (LMDE) and personal configurations/utilities simplifies the platform contract and ensures projects can assume a stable foundation.
@@ -196,6 +197,13 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 ---
 
 ## Completed Tasks
+
+### Cleanup & Maintenance (2026-07-04)
+
+- [x] **Repository Gitignore Cleanup**: Added ignores for dynamic agent runtime caches/skills (`.agents/`, `.claude/skills/`, `.codex/`) to `.gitignore`, referencing `docs/design/PROVISION.DESIGN.md`.
+- [x] **Issue Migration**: Successfully migrated 5 misfiled issues from `tds-utils` to `template-base` and `template-tools`.
+- [x] **ci-magic Audit**: Audited `ci-magic` post-Phase 1 code and opened issue `template-tools#59` to track deficits (dead dependencies, unused plumbing, stale comments, table UX).
+- [x] **ast-mcp Cache Audit**: Verified AST caching/rebuilding behavior on `ai-tools/main`.
 
 ### LMDE (Local Managed Developer Environment)
 
