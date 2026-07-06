@@ -182,9 +182,19 @@ Placement per environment:
   placement map is an open question (see below) -- if adopted, it must be
   version-pinned like any other executable.
 
-**Antigravity caveat:** agy's skill support is unverified; if it lacks
-native SKILL.md support, its emitter generates entries in agy's knowledge
-config from the same skill source (shim, not fork).
+**Antigravity note:** As of 2026-07, agy natively supports the Agent Skills
+open standard (SKILL.md with YAML frontmatter). This is confirmed by official
+Google sources -- the antigravity.google/docs/skills page and the "Getting
+started with Antigravity Skills" codelab (codelabs.developers.google.com) --
+and corroborated by Gemini CLI's own SKILL.md support, since the two Gemini
+agents share the format. No shim is required: agy discovers SKILL.md directly
+from a global scope (~/.gemini/config/skills/) and a workspace scope
+(<project-root>/.agents/skills/), so its emitter writes the same SKILL.md the
+other agents consume rather than a knowledge-config shim. Two caveats to verify
+against the target install: the exact global path varies across docs
+(~/.gemini/config/skills/ vs ~/.gemini/skills/), and the IDE has a known bug
+ignoring symlinked skills (vercel-labs/skills#633) -- so in ephemeral sandboxes
+emit copies, not symlinks. This resolves Open Question 2.
 
 ### Per-repo skill customization (decision)
 
@@ -410,8 +420,10 @@ reports against.
    maps skills into 27+ agents' directories. Adopting it removes our
    placement table but adds a pinned Node dependency to provision. Decide
    during implementation after testing its symlink behavior locally.
-2. **Antigravity skill support** -- Verify whether agy consumes SKILL.md
-   natively; if not, spec the knowledge-config shim.
+2. **Antigravity skill support** (RESOLVED 2026-07) -- agy consumes SKILL.md
+   natively from `~/.gemini/config/skills/` (global) and
+   `<project-root>/.agents/skills/` (workspace); no knowledge-config shim is
+   needed. See the Antigravity note under "Skill format and placement."
 3. **Skill-tree reconciliation** -- `tds-utils/prompts`, `ai-tools/prompts`,
    and `naatm-prompts/prompts` have all diverged (verified 2026-07-03:
    nearly every shared file differs; each side has files the other lacks).
