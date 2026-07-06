@@ -1,5 +1,12 @@
 # Executed for each sub-shell -- declare, do not append.
 
+# ast-mcp: dynamically resolve AST_MCP_BIN path based on environment
+if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ]; then
+  export AST_MCP_BIN="${CLAUDE_PROJECT_DIR:-$PWD}/.ast-mcp/node_modules/.bin/ast-mcp"
+else
+  export AST_MCP_BIN="${HOME}/.local/bin/ast-mcp"
+fi
+
 # Don't do this here -- it clogs the PATH
 #export PATH="$HOME/bin:/Applications/Emacs.app/Contents/MacOS/bin:$PATH"
 export EDITOR=emacsclient
