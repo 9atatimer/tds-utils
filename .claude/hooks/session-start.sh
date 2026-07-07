@@ -10,7 +10,7 @@
 # be available until access is configured).
 #
 # This is a VENDORED COPY of the canonical script, which lives at
-# .claude/hooks/session-start.sh in 9atatimer/ai-tools (packages/ast-mcp is
+# .claude/hooks/session-start.sh in nine-at-a-time-media/template-tools (packages/ast-mcp is
 # where ast-mcp is built and released -- see RELEASE.md and RUNBOOK.md there
 # for the full context this header summarizes). Fixes land in ai-tools first,
 # then get synced here as a deliberate, reviewed copy -- NOT fetched at
@@ -237,7 +237,7 @@ main() {
 
   [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] || exit 0
 
-  REPO="9atatimer/ai-tools"
+  REPO="nine-at-a-time-media/template-tools"
   INSTALL_DIR="${CLAUDE_PROJECT_DIR:-$PWD}/.ast-mcp"   # gitignored, project-local
   TMP="$(mktemp -d)"
   trap 'rm -rf "$TMP"' EXIT                            # never leave artifacts in /tmp

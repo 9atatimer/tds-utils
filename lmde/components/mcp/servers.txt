@@ -12,4 +12,4 @@
 #   bin          executable name -> $HOME/.local/bin/<bin> stable symlink
 #
 # name      version  release_tag        repo                  bin
-ast-mcp     0.2.1    ast-mcp-v0.2.1     9atatimer/ai-tools    ast-mcp
+ast-mcp     0.3.1    ast-mcp-v0.3.1     nine-at-a-time-media/template-tools    ast-mcp
