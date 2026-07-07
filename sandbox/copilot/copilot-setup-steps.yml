@@ -16,13 +16,15 @@
 #   not rename it.
 #
 # Secret requirement:
-#   GH_AI_TOOLS_PAT -- a fine-grained PAT with Contents:read on the
-#   private repos 9atatimer/ai-tools and
-#   nine-at-a-time-media/template-tools. Add it to the repo's Actions
-#   secrets (or the `copilot` environment's secrets) so the env: mapping
-#   below resolves. Without it the bootstrap fails loudly-but-open and the
-#   Copilot session starts unprovisioned. The default GITHUB_TOKEN is
-#   repo-scoped and cannot read the private source repos.
+#   GH_AI_TOOLS_PAT -- a fine-grained PAT with Contents:read on the private
+#   repo nine-at-a-time-media/template-tools. Post-#84 the clai wheel, the
+#   ast-mcp release, and the skills/manifest all live there, so a single
+#   owner-scoped token covers the whole bootstrap (no cross-owner PAT
+#   juggling). Add it to the repo's Actions secrets (or the `copilot`
+#   environment's secrets) so the env: mapping below resolves. Without it
+#   the bootstrap fails loudly-but-open and the Copilot session starts
+#   unprovisioned. The default GITHUB_TOKEN is repo-scoped and cannot read
+#   the private source repo.
 #
 # Note: Copilot's MCP config is a repo SETTING (via `gh api`), not a file
 # this job can write -- explicitly a non-goal in PROVISION.DESIGN.md;
