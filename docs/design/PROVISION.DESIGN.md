@@ -3,7 +3,7 @@
 > **Status:** DRAFT  
 > **Date:** 2026-07-03  
 > **Authors:** Claude (from issue #84 and design discussion with Todd)  
-> **Depends on:** [CLAI.DESIGN.md](https://github.com/9atatimer/ai-tools/blob/main/packages/clai/docs/CLAI.DESIGN.md), [issue #84](https://github.com/9atatimer/tds-utils/issues/84)
+> **Depends on:** [CLAI.DESIGN.md](https://github.com/nine-at-a-time-media/template-tools/blob/main/packages/clai/docs/CLAI.DESIGN.md), [issue #84](https://github.com/9atatimer/tds-utils/issues/84)
 
 ---
 
@@ -71,7 +71,7 @@ best-effort mid-session updates.
 |   mcp/manifest.json          |    |                                  |
 |   hooks/ (session hooks)     |    |  provider pre-agent hook         |
 +------------------------------+    |    -> sandbox/ wrapper (PINNED)  |
-| ai-tools releases (private)  |    |    -> bootstrap clai wheel       |
+| template-tools releases      |    |    -> bootstrap clai wheel       |
 |   clai-x.y.z wheel + .sha256 |    |       (verify sha256)            |
 +------------------------------+    |    -> clai provision             |
         |            |              +----------------------------------+
@@ -152,7 +152,7 @@ functions.
 | Skills (`skills/<name>/SKILL.md`) | `template-tools` | Floats to latest on default branch (inert data) |
 | MCP manifest (`mcp/manifest.json`) | `template-tools` | Floats to latest (inert data; consumed only by clai's generator) |
 | Session hook scripts | Embedded in the clai wheel (`clai hooks install`); `template-tools/hooks/` is the source the embedded templates are synced from | Ship inside the pinned, checksum-verified clai wheel; roll out by bumping `CLAI_VERSION` (no separate hooks pin) |
-| clai wheel | `ai-tools` GitHub Release | Pinned version + `.sha256` in each sandbox wrapper |
+| clai wheel | `template-tools` GitHub Release | Pinned version + `.sha256` in each sandbox wrapper |
 
 One repo (`template-tools`) is the provisioning pull for all data, so a
 provision run needs exactly one fetch plus (when pins move) one release
@@ -407,7 +407,7 @@ reports against.
 | Manifest layer location | `clai.d/mcp.json` at existing walk levels | Reuses clai's proven overlay walk and closest-wins semantics; no new config surface |
 | Repo skill customization | Parametric -> repo-local data file; behavioral -> project-scope shadow skill | Eliminates the manual-merge category that blocks automation; mirrors clai.d shadowing |
 | Sandbox wrappers | Thin, manually installed, all pins in one `pins.env` | Providers have incompatible hook contracts and no OSS abstraction exists; low-velocity wrapper makes the pin bump the only rollout step |
-| Provision engine home | clai (`ai-tools`), new reserved verbs | clai is already the per-agent knowledge locus (launcher, telemetry, overlay walk) and is installed everywhere via LMDE |
+| Provision engine home | clai (`template-tools`), new reserved verbs | clai is already the per-agent knowledge locus (launcher, telemetry, overlay walk) and is installed everywhere via LMDE |
 | Refresh semantics | `refresh` = `provision --report` | One engine, two entry points; report is the contract with the user |
 | Hook registration surface | claude: native SessionStart in `.claude/settings.json`; codex/agy/opencode: `clai.d/<agent>/pre/05-provision` overlay hook only | Provisioning recon found no native session-hook surface for codex/agy/opencode; the overlay hook covers clai-launched sessions today, native registration is future work if those agents grow one |
 | Hook script delivery | Embedded in the pinned clai wheel (`clai hooks install`), not fetched from `template-tools` at a separate pin | The wheel is already pinned + checksum-verified, giving hooks the same supply-chain gate with one fewer pin to manage |
@@ -481,7 +481,7 @@ reports against.
 
 ## Related Documents
 
-- [CLAI.DESIGN.md](https://github.com/9atatimer/ai-tools/blob/main/packages/clai/docs/CLAI.DESIGN.md) -- the launcher this design adds verbs to
+- [CLAI.DESIGN.md](https://github.com/nine-at-a-time-media/template-tools/blob/main/packages/clai/docs/CLAI.DESIGN.md) -- the launcher this design adds verbs to
 - [HOWTO.SYNC.md](https://github.com/nine-at-a-time-media/template-tools/blob/main/prompts/HOWTO.SYNC.md) -- the manual sync workflow this design retires
 - `.claude/hooks/session-start.sh` (this repo) -- the fetch/verify/fail-open precedent the wrappers generalize
 - [LMDE-OBSERVABILITY.DESIGN.md](./LMDE-OBSERVABILITY.DESIGN.md) -- collector that would receive provision telemetry (open question 6)

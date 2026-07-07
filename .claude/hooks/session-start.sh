@@ -9,25 +9,26 @@
 # egress), it logs and exits 0 so the session still starts (ast-mcp just won't
 # be available until access is configured).
 #
-# This is a VENDORED COPY of the canonical script, which lives at
-# .claude/hooks/session-start.sh in nine-at-a-time-media/template-tools (packages/ast-mcp is
-# where ast-mcp is built and released -- see RELEASE.md and RUNBOOK.md there
-# for the full context this header summarizes). Fixes land in ai-tools first,
-# then get synced here as a deliberate, reviewed copy -- NOT fetched at
+# This is a VENDORED COPY of the canonical ast-mcp install hook. ast-mcp is
+# built and released from nine-at-a-time-media/template-tools
+# (packages/ast-mcp -- see RELEASE.md and RUNBOOK.md there for the full
+# context this header summarizes), the home it moved to when ai-tools was
+# consolidated in (#84). Fixes land upstream in template-tools first, then
+# get synced here as a deliberate, reviewed copy -- NOT fetched at
 # session-start time from that repo: a hook that downloads and executes
 # another repo's script on every session, unpinned, is its own supply-chain
 # risk (whoever can push to that repo's default branch gets code execution
 # here, with no review gate on this side) -- the same category of problem
 # ai-tools issue #72 rejected for the cached binary, just relocated to the
-# script layer. If you're editing this file, edit the canonical copy in
-# ai-tools first and re-sync, don't let this repo's copy drift ahead.
+# script layer. If you're editing this file, edit the canonical copy
+# upstream first and re-sync, don't let this repo's copy drift ahead.
 # One deliberate tds-utils-local addition on top of the vendored ast-mcp
 # logic: the clai-provision branch at the top of main() is part of the
 # issue #84 universal-provisioning rollout (see docs/design/PROVISION.DESIGN.md
-# and sandbox/ in this repo), not part of the canonical ai-tools copy.
+# and sandbox/ in this repo), not part of the canonical upstream copy.
 #
 # Every release cut with the CURRENT release workflow
-# (.github/workflows/release-ast-mcp.yml in ai-tools) ships a paired
+# (.github/workflows/release-ast-mcp.yml in template-tools) ships a paired
 # `.sha256` checksum asset -- releases cut before that workflow existed do
 # not (see the newest-first fallback in fetch_tarball below, which skips
 # those). This hook downloads both the tarball and its checksum and verifies
