@@ -83,7 +83,7 @@ pins_set() {
 warn_pins_unset() {
   note "sandbox/pins.env has UNSET pins -- provisioning is disarmed."
   note "To (re)activate provisioning:"
-  note "  1. Pick a clai release with the provision verbs (clai-v0.5.0 or later) in ${AI_TOOLS_REPO:-9atatimer/ai-tools}; set CLAI_VERSION to its version and CLAI_SHA256 to its wheel asset's sha256 (the release API reports it as the asset digest)."
+  note "  1. Pick a clai release with the provision verbs (clai-v0.5.0 or later) in ${AI_TOOLS_REPO:-nine-at-a-time-media/template-tools}; set CLAI_VERSION to its version and CLAI_SHA256 to its wheel asset's sha256 (the release API reports it as the asset digest)."
   note "  2. Land the pin values via PR -- the pin bump IS the review gate."
   note "Session continues WITHOUT provisioning (fail-open)."
 }
