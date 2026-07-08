@@ -2,7 +2,7 @@
   "mcpServers": {
     "ast-mcp": {
       "args": [],
-      "command": "${AST_MCP_BIN}"
+      "command": "${CLAUDE_PROJECT_DIR:-.}/.ast-mcp/node_modules/.bin/ast-mcp"
     }
   }
 }
