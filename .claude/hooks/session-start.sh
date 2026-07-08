@@ -88,6 +88,14 @@ write_npmrc() {
 # missing, the token/registry is unusable, or the launched bin isn't present.
 install_ast_mcp() {
   command -v npm >/dev/null 2>&1 || { note "npm not on PATH -- cannot install ast-mcp"; return 1; }
+  # Refuse a symlinked or non-directory INSTALL_DIR before creating/writing into
+  # it: if .ast-mcp were pre-created as a symlink, mkdir -p would follow it and
+  # write_npmrc's token could land outside the workspace. Parallels the
+  # same-class guard inside write_npmrc.
+  if [ -L "$INSTALL_DIR" ] || { [ -e "$INSTALL_DIR" ] && [ ! -d "$INSTALL_DIR" ]; }; then
+    note "refusing to use $INSTALL_DIR: it exists and is a symlink or non-directory"
+    return 1
+  fi
   mkdir -p "$INSTALL_DIR" || return 1
   write_npmrc "$INSTALL_DIR" || return 1
 
