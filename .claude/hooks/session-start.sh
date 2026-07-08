@@ -104,12 +104,25 @@ install_ast_mcp() {
   npm install --prefix "$INSTALL_DIR" --userconfig "$INSTALL_DIR/.npmrc" \
       "@nine-at-a-time-media/ast-mcp@latest" >"$log" 2>&1 || rc=1
 
-  # Remove the token file immediately, whatever the outcome.
+  # Remove the token file immediately, whatever the outcome. If the removal
+  # itself fails (readonly FS, perms) the PAT would linger in the workspace --
+  # surface that LOUDLY rather than silently assume it's gone. (Not a hard
+  # failure: a genuinely unwritable $INSTALL_DIR would already have failed the
+  # npm install above and taken the failure path, whose main() cleanup rm -rf's
+  # the whole dir; refusing an otherwise-successful install over a cleanup
+  # hiccup would just discard a working ast-mcp.)
   rm -f "$INSTALL_DIR/.npmrc"
+  [ -e "$INSTALL_DIR/.npmrc" ] && note "WARNING: could not remove token file $INSTALL_DIR/.npmrc -- delete it manually; it must not persist in the workspace"
 
   if [ "$rc" -ne 0 ]; then
-    note "npm install of @nine-at-a-time-media/ast-mcp failed -- ast-mcp unavailable this session. npm output:"
-    sed 's/^/[ast-mcp hook]   /' "$log" >&2
+    note "npm install of @nine-at-a-time-media/ast-mcp failed -- ast-mcp unavailable this session."
+    # Guard the log print: if npm failed so early the >"$log" redirection never
+    # created the file (e.g. unwritable dir), an unguarded sed would emit a
+    # misleading "can't read" and bury the real reason.
+    if [ -f "$log" ]; then
+      note "npm output:"
+      sed 's/^/[ast-mcp hook]   /' "$log" >&2
+    fi
     rm -f "$log"
     return 1
   fi
