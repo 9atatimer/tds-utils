@@ -130,7 +130,7 @@ clai hooks install [--agent <name> | --all] [--scope project|user]
     Register session hooks per agent, on the surface each agent
     actually has (as implemented):
       claude: SessionStart registration in .claude/settings.json plus
-        a managed hook script (embedded in the clai wheel).
+        a managed hook script (embedded in the clai package).
       codex / agy / opencode: no native session-hook surface exists,
         so a clai.d/<agent>/pre/05-provision overlay hook is installed
         instead -- it fires only when the agent is launched through
@@ -151,11 +151,11 @@ functions.
 |----------|------|---------------|
 | Skills (`skills/<name>/SKILL.md`) | `template-tools` | Floats to latest on default branch (inert data) |
 | MCP manifest (`mcp/manifest.json`) | `template-tools` | Floats to latest (inert data; consumed only by clai's generator) |
-| Session hook scripts | Embedded in the clai wheel (`clai hooks install`); `template-tools/hooks/` is the source the embedded templates are synced from | Ship inside the pinned clai package; roll out by bumping `CLAI_VERSION` (no separate hooks pin) |
+| Session hook scripts | Embedded in the clai package (`clai hooks install`); `template-tools/hooks/` is the source the embedded templates are synced from | Ship inside the pinned clai package; roll out by bumping `CLAI_VERSION` (no separate hooks pin) |
 | clai | `@nine-at-a-time-media/clai` on **GitHub Packages** (npm) | Pinned version; npm registry integrity (see "Revised Decisions") |
 
-> **Revised 2026-07 (#98/#99/#101):** the clai wheel and ast-mcp are no
-> longer delivered as **GitHub Release assets fetched over `api.github.com`**
+> **Revised 2026-07 (#98/#99/#101):** clai (formerly a wheel) and ast-mcp are
+> no longer delivered as **GitHub Release assets fetched over `api.github.com`**
 > -- that path is blocked by the Claude web agent proxy. Both now ship via
 > **GitHub Packages** (`npm.pkg.github.com`), which is reachable. See the
 > "Revised Decisions" section for the transport, token, and verification
@@ -290,7 +290,7 @@ sandbox/
   provision.sh              shared core: bootstrap clai (pinned), run
                             `clai provision`
   pins.env                  CLAI_VERSION, CLAI_SHA256 -- the ONLY moving
-                            part (hook scripts ship inside the wheel)
+                            part (hook scripts ship inside the clai package)
   codex/setup.sh            container create (network on): full bootstrap
   codex/maintenance.sh      cached resume (network may be off): provision
                             --offline-ok
