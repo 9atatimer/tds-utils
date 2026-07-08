@@ -58,6 +58,22 @@ Remaining:
 - [ ] Task P3: **`prompts/` retirement.** After provision is live and the
   migrated skills prove out, retire the flat `prompts/SKILL.*.md` channel.
   Keep `prompts/` untouched until then.
+- [ ] Task P4: **ast-mcp startup race -- install at env-setup, not the
+  SessionStart hook.** GH Issue #99. Delivery is fixed (#98, GitHub Packages)
+  but the server doesn't connect on first session load: Claude Code attempts
+  the MCP connection concurrently with the SessionStart hook, and the hook's
+  `npm install` hasn't finished writing the binary yet -> first spawn ENOENTs,
+  no retry, server absent until a later reconnect. Move the ast-mcp install
+  into the environment SETUP step (runs before session init) so the binary
+  exists when MCP first connects; keep the SessionStart hook as an idempotent
+  refresh/fallback. Decide user-scope (`~/.claude.json`) vs project `.mcp.json`.
+- [ ] Task P5: **clai bootstrap via GitHub Packages.** GH Issue #101.
+  `sandbox/provision.sh` still fetches the clai wheel over the proxy-blocked
+  `api.github.com` release-asset path, so clai provisioning fails in every
+  Claude web session. clai is now published to GitHub Packages
+  (`@nine-at-a-time-media/clai`, an npm wrapper around its shiv `.pyz`); rework
+  `bootstrap_clai` to `npm install` it from Packages, mirroring the #98 ast-mcp
+  fix (classic `read:packages` token; ephemeral mode-600 `.npmrc`; fail-open).
 
 ### Offline Readiness & Local LLM Hardening
 
@@ -193,6 +209,11 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 - **eltainer is the successor to eldocker**: Migrating involves updating load-paths in Emacs and ensuring the fork and upstream are correctly configured. eltainer talks directly to the Docker daemon and Kubernetes API via Elisp.
 - **Pinned code vs floating data (provisioning split)**: Every EXECUTABLE artifact (clai wheel, session hook scripts) is version-pinned and sha256-verified before use -- fail-closed per artifact, and the pin bump in `sandbox/pins.env` is the review gate. Inert DATA (skills, MCP manifest) floats to the latest default branch so freshness is automatic. This extends the supply-chain stance from the ast-mcp hook / ai-tools issue #72: a push to a source repo's default branch must never grant code execution in consumers, but stale prompt data is a real cost worth avoiding.
 - **No OSS abstraction over provider sandbox hooks (surveyed 2026-07)**: Codex, Claude Code web, Copilot coding agent, and Jules each have incompatible pre-agent hook contracts, and no OSS project abstracts over provider-HOSTED sandbox setup (OpenSandbox, E2B, sandbox-agent et al. are self-hosted runtimes -- a different problem). Consequence: keep per-provider wrappers thin and manually installed, and concentrate all behavioral churn behind one pinned core (`sandbox/provision.sh` + `pins.env`).
+- **The Claude Code web proxy blocks raw GitHub release-asset egress (2026-07, #98/#99)**: In Claude web sandboxes the agent proxy returns a synthetic 403 for `api.github.com/.../releases` and a 404 for `github.com/.../releases/download/*` -- regardless of token. The whole "fetch the release `.tgz`/wheel + verify a paired `.sha256`" delivery model is therefore DEAD in Claude web. The reachable, sanctioned channels are: the GitHub MCP server, git-over-proxy, and -- critically -- the **GitHub Packages npm registry (`npm.pkg.github.com`)**. Delivery for the whole fleet moved onto GitHub Packages as a result.
+- **GitHub Packages npm reads require a CLASSIC `read:packages` token (2026-07, #98)**: Fine-grained PATs have NO Packages permission at all, so they 403 against `npm.pkg.github.com` ("token does not match expected scopes"). This reverses the design's original "fine-grained Contents:read PAT" assumption. `GH_AI_TOOLS_PAT` is now a classic `read:packages` token. (Delivery no longer needs repo Contents access -- the artifact comes from the registry, not a git checkout.)
+- **Ship Python tools as npm wrappers on GitHub Packages (2026-07, template-tools#73)**: clai/crmagic/designomatic each build a self-contained shiv `.pyz`; wrapping that pyz in a thin node package (bin -> pyz; `SHIV_ENTRY_POINT` for alias entries) lets the ENTIRE fleet -- ast-mcp, the Python CLIs, and the `naatm-*` packages -- install the same way: one `npm install` from GitHub Packages, one classic `read:packages` token. GitHub Packages has no PyPI feed, so this npm-wrapper is how Python artifacts ride the same rail.
+- **A SessionStart hook cannot be the install point for an MCP-server binary (2026-07, #99)**: Claude Code attempts `.mcp.json` server connections concurrently with SessionStart hooks. A hook that INSTALLS the server binary loses the race -- the binary isn't on disk when MCP first tries to spawn it (ENOENT, no auto-retry), so the server shows absent until a later reconnect. Corollary to the design's "config must be written before the agent launches": writing the config early is necessary but not sufficient; the binary it points at must ALSO exist before session init. MCP-server binaries must be installed in the environment SETUP step (pre-session); the SessionStart hook is a refresh/fallback, not the first-connect installer.
+- **`.mcp.json` `${VAR}` indirection only resolves vars present in the MCP-server PROCESS (2026-07, #98)**: The original `"command": "${AST_MCP_BIN}"` failed because `AST_MCP_BIN` is exported only by interactive shell dotfiles, which the MCP client process never sources -> it expanded empty and the server never launched. Claude Code sets `CLAUDE_PROJECT_DIR` in the spawned server's env and supports `${VAR:-default}`, so `"${CLAUDE_PROJECT_DIR:-.}/.ast-mcp/node_modules/.bin/ast-mcp"` is the correct project-relative form. Never point a committed MCP command at a var that only exists in interactive shells.
 
 ---
 

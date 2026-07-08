@@ -151,14 +151,23 @@ functions.
 |----------|------|---------------|
 | Skills (`skills/<name>/SKILL.md`) | `template-tools` | Floats to latest on default branch (inert data) |
 | MCP manifest (`mcp/manifest.json`) | `template-tools` | Floats to latest (inert data; consumed only by clai's generator) |
-| Session hook scripts | Embedded in the clai wheel (`clai hooks install`); `template-tools/hooks/` is the source the embedded templates are synced from | Ship inside the pinned, checksum-verified clai wheel; roll out by bumping `CLAI_VERSION` (no separate hooks pin) |
-| clai wheel | `template-tools` GitHub Release | Pinned version + `.sha256` in each sandbox wrapper |
+| Session hook scripts | Embedded in the clai wheel (`clai hooks install`); `template-tools/hooks/` is the source the embedded templates are synced from | Ship inside the pinned clai package; roll out by bumping `CLAI_VERSION` (no separate hooks pin) |
+| clai | `@nine-at-a-time-media/clai` on **GitHub Packages** (npm) | Pinned version; npm registry integrity (see "Revised Decisions") |
 
-One repo (`template-tools`) is the provisioning pull for all data, so a
-provision run needs exactly one fetch plus (when pins move) one release
-download. `template-tools` is private; access uses `gh` when present, else
-a `GH_AI_TOOLS_PAT`-class fine-grained PAT -- the exact fallback chain
-already proven in `.claude/hooks/session-start.sh` (the ast-mcp installer).
+> **Revised 2026-07 (#98/#99/#101):** the clai wheel and ast-mcp are no
+> longer delivered as **GitHub Release assets fetched over `api.github.com`**
+> -- that path is blocked by the Claude web agent proxy. Both now ship via
+> **GitHub Packages** (`npm.pkg.github.com`), which is reachable. See the
+> "Revised Decisions" section for the transport, token, and verification
+> changes this forces. The rows above are kept but read them through that lens.
+
+One repo (`template-tools`) is the provisioning pull for all inert data
+(skills, manifest), so a provision run needs one fetch for that. Executables
+(clai, ast-mcp) come from **GitHub Packages**, not a git checkout or release
+download. `template-tools` data access uses `gh` / git-over-proxy when
+present; **GitHub Packages reads require a classic `read:packages` token**
+(`GH_AI_TOOLS_PAT`) -- fine-grained PATs have no Packages permission (see
+"Revised Decisions").
 
 ### Skill format and placement (decision)
 
@@ -233,12 +242,22 @@ clai):
     "ghl":  ["ghl-sites", "ghl-crm"]
   },
   "servers": {
-    "ast-mcp":   { "command": "${AST_MCP_BIN}", "args": [] },
+    "ast-mcp":   { "command": "${CLAUDE_PROJECT_DIR:-.}/.ast-mcp/node_modules/.bin/ast-mcp", "args": [] },
     "ghl-sites": { "command": "npx", "args": ["-y", "@ghl/mcp-sites"],
                    "env": { "GHL_API_KEY": "${GHL_API_KEY}" } }
   }
 }
 ```
+
+> **Revised 2026-07 (#98):** the ast-mcp command was `"${AST_MCP_BIN}"`, but
+> that variable is exported only by interactive shell dotfiles, which the MCP
+> client process never sources -- so it expanded empty and the server never
+> launched. `${VAR}` indirection in a committed MCP command only works for
+> vars present in the spawned server's OWN process. Claude Code sets
+> `CLAUDE_PROJECT_DIR` there and supports `${VAR:-default}`, so the
+> project-relative form above is the correct one. Secrets (`${GHL_API_KEY}`)
+> are still fine -- they are resolved from the agent's launch environment,
+> which the server process inherits.
 
 Repo layer:
 
@@ -370,26 +389,33 @@ reports against.
 
 ## Security Considerations
 
-- **No unpinned code execution** -- The clai wheel is fetched at a pinned
-  version and sha256-verified before install (fail-closed per artifact);
-  hook scripts ship inside that verified wheel, so they inherit the same
-  gate. This preserves the stance documented in
-  `session-start.sh` (ai-tools issue #72 lineage): a push to a source
-  repo's default branch must not grant code execution in consumers; the
-  pin bump is the review gate.
+- **No unpinned code execution** -- Executables are pinned to a released
+  version and installed from a registry that verifies artifact integrity;
+  hook scripts ship inside the pinned clai package, so they inherit the same
+  gate. This preserves the stance documented in `session-start.sh` (ai-tools
+  issue #72 lineage): a push to a source repo's default branch must not grant
+  code execution in consumers; the version pin is the review gate.
+  **Revised 2026-07 (#98):** delivery moved from GitHub Release assets +
+  hand-fetched `.sha256` to **GitHub Packages** (npm), whose registry
+  integrity check verifies every downloaded tarball; the pin is now a package
+  version rather than a wheel sha. See "Revised Decisions."
 - **Skills float but are prompt surface** -- Skills are data, not code, but
   they steer agents. Mitigations: `template-tools` is private with
   protected main; provision only ever pulls from that one repo; the
   provision report names which skills changed since last run.
-- **Never curl-pipe-sh** -- Software lands only via package managers /
-  release artifacts with checksums (existing CLAUDE.md law, restated as a
-  provision invariant).
+- **Never curl-pipe-sh** -- Software lands only via package managers with
+  registry integrity (GitHub Packages npm), never a piped script (existing
+  CLAUDE.md law, restated as a provision invariant).
 - **Secrets** -- Manifest layers carry `${VAR}` references only; resolution
   happens in the agent's environment at launch. Provision never writes a
   secret value into a generated config.
-- **Token scoping** -- Sandbox access to the two private repos uses the
-  brokered token where the provider supplies one, else a dedicated
-  fine-grained PAT (Contents:read), mirroring the ast-mcp hook's chain.
+- **Token scoping** -- Inert-data access (`template-tools` skills/manifest via
+  git) uses the brokered token / git-over-proxy. Executable delivery from
+  **GitHub Packages requires a classic `read:packages` token** -- fine-grained
+  PATs have no Packages permission (**Revised 2026-07 (#98)**: this replaces
+  the original "fine-grained Contents:read PAT" here). `GH_AI_TOOLS_PAT` is
+  that classic `read:packages` token; keep its scope minimal (packages read
+  only).
 - **Guarded destructive ops** -- Any `rm -rf` of managed dirs must pattern-
   check the path (ast-mcp hook precedent) before deleting.
 
@@ -400,7 +426,9 @@ reports against.
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Skill format | Open SKILL.md standard (dir per skill, frontmatter) | Adopted by all target agents in 2026; native lazy-loading replaces hand-rolled dispatch; ecosystem tooling exists |
-| Code vs data update policy | Executables pinned + checksummed; skills/manifest float | Matches supply-chain stance already documented in session-start.sh; skills are inert and must be fresh to be useful |
+| Code vs data update policy | Executables pinned; skills/manifest float | Matches supply-chain stance already documented in session-start.sh; skills are inert and must be fresh to be useful. **Revised 2026-07:** "checksummed release asset" -> "pinned version on GitHub Packages, registry integrity" (see Revised Decisions) |
+| Artifact delivery transport | GitHub Packages npm (`npm.pkg.github.com`) | **Added 2026-07 (#98/#101):** the Claude web agent proxy blocks raw GitHub release-asset egress (`api.github.com`/`releases/download` both fail); GitHub Packages is reachable. Needs a classic `read:packages` token |
+| MCP-server binary install timing | Environment SETUP step, not the SessionStart hook | **Added 2026-07 (#99):** Claude Code connects `.mcp.json` servers concurrently with the SessionStart hook; a hook that installs the binary loses the race (ENOENT on first spawn, no retry). The binary must exist before session init; the hook is a refresh/fallback |
 | Update model | New sessions auto-fresh; running sessions frozen; manual `clai refresh` best-effort with report | Todd's explicit requirement; avoids surprise mid-session mutation |
 | MCP config source | One canonical manifest + profile subscription + repo/user overlay layers | Kills four-dialect hand-maintenance; per-repo server sets (GHL) via one `profiles` line |
 | Manifest format | JSON | `jq`-friendly for shell fallbacks; Python stdlib parseable; authored rarely, merged by machine |
@@ -410,7 +438,95 @@ reports against.
 | Provision engine home | clai (`template-tools`), new reserved verbs | clai is already the per-agent knowledge locus (launcher, telemetry, overlay walk) and is installed everywhere via LMDE |
 | Refresh semantics | `refresh` = `provision --report` | One engine, two entry points; report is the contract with the user |
 | Hook registration surface | claude: native SessionStart in `.claude/settings.json`; codex/agy/opencode: `clai.d/<agent>/pre/05-provision` overlay hook only | Provisioning recon found no native session-hook surface for codex/agy/opencode; the overlay hook covers clai-launched sessions today, native registration is future work if those agents grow one |
-| Hook script delivery | Embedded in the pinned clai wheel (`clai hooks install`), not fetched from `template-tools` at a separate pin | The wheel is already pinned + checksum-verified, giving hooks the same supply-chain gate with one fewer pin to manage |
+| Hook script delivery | Embedded in the pinned clai package (`clai hooks install`), not fetched from `template-tools` at a separate pin | The package is already pinned + integrity-checked, giving hooks the same supply-chain gate with one fewer pin to manage |
+
+---
+
+## Revised Decisions (2026-07, post #98 / #99 / #101)
+
+Implementing the sandbox delivery against real Claude Code web sandboxes
+surfaced facts that reverse several decisions above. The originals are kept
+for history; these supersede them.
+
+### RD1. Delivery transport: GitHub Releases -> GitHub Packages (npm)
+
+**Finding.** The Claude web agent proxy blocks raw GitHub release-asset
+egress: `GET api.github.com/.../releases` returns a synthetic 403 and
+`github.com/.../releases/download/*` returns 404 -- independent of token, and
+independent of session repo scope. The sanctioned, reachable channels are the
+GitHub MCP server, git-over-proxy, and the **GitHub Packages npm registry**
+(`npm.pkg.github.com`).
+
+**Decision.** All executables ship via GitHub Packages and install with
+`npm install`:
+
+- ast-mcp: `@nine-at-a-time-media/ast-mcp` (native node package).
+- clai / crmagic / designomatic: published as npm packages that wrap each
+  tool's self-contained shiv `.pyz` (`bin` -> the pyz; `SHIV_ENTRY_POINT`
+  selects alias entrypoints). GitHub Packages has no PyPI feed, so this is how
+  Python artifacts ride the same rail as everything else.
+- The `naatm-*` packages were already on GitHub Packages; the whole fleet now
+  uses one install mechanism.
+
+The "fetch the release `.tgz`/wheel over `api.github.com` + verify a paired
+`.sha256`" model (old `fetch_tarball` / `bootstrap_clai` / `pins.env`
+`CLAI_SHA256`) is retired for the sandbox path. clai's migration is tracked in
+#101; ast-mcp's shipped in #98.
+
+### RD2. Token model: fine-grained Contents:read -> classic `read:packages`
+
+**Finding.** GitHub Packages npm reads require the **classic** `read:packages`
+scope. Fine-grained PATs have no Packages permission at all and 403 with
+"token does not match expected scopes."
+
+**Decision.** `GH_AI_TOOLS_PAT` is a classic `read:packages` token, scoped as
+narrowly as that allows. Executable delivery no longer needs repo Contents
+access (the artifact comes from the registry, not a git checkout); inert-data
+pulls of `template-tools` continue to use git-over-proxy / the brokered token.
+
+### RD3. Verification: hand-fetched `.sha256` -> npm registry integrity + version pin
+
+**Finding.** With registry delivery, npm verifies every downloaded tarball
+against the registry-published integrity hash, and published versions on
+GitHub Packages are immutable.
+
+**Decision.** The supply-chain gate is the **pinned package version** (the
+review gate) plus npm's built-in integrity check. The `#72` stance is intact
+-- a default-branch push still does not grant execution in consumers, because
+consumers pin a released version -- it is just enforced by the registry rather
+than a wheel sha in `pins.env`.
+
+### RD4. MCP-server binary install: SessionStart hook -> environment setup
+
+**Finding.** Delivery being fixed was necessary but not sufficient. On a fresh
+web session the ast-mcp binary installs cleanly but the server does not
+connect: Claude Code attempts the `.mcp.json` connection **concurrently with**
+the SessionStart hook, and the hook's `npm install` has not finished writing
+the binary yet -> first spawn ENOENTs with no auto-retry -> the server is
+absent until a later reconnect (observed connecting late on return to the
+session). A SessionStart hook fundamentally cannot win this race for the
+binary it is itself installing.
+
+**Decision.** MCP-server binaries must be installed in the environment SETUP
+step (which runs before session init, so the binary exists when MCP first
+connects). The repo-committed `.mcp.json` + SessionStart hook remain, but the
+hook is an idempotent refresh/fallback, not the first-connect installer. This
+refines the "config must be written before the agent launches" premise:
+writing the config early is necessary but not sufficient; the binary it points
+at must also exist before session init. Scope choice (user `~/.claude.json` vs
+project `.mcp.json`) tracked in #99.
+
+### RD5. Committed MCP command: only reference vars in the server's own process
+
+**Finding.** `"command": "${AST_MCP_BIN}"` failed because `AST_MCP_BIN` is
+exported only by interactive shell dotfiles, which the MCP client process
+never sources -> empty expansion -> no launch.
+
+**Decision.** A committed MCP command may only reference variables present in
+the spawned server's own environment. Claude Code sets `CLAUDE_PROJECT_DIR`
+there and honors `${VAR:-default}`, so project-relative paths use
+`${CLAUDE_PROJECT_DIR:-.}/...`. Secret indirection (`${GHL_API_KEY}`) is
+unaffected -- those come from the agent's launch environment.
 
 ---
 
@@ -459,6 +575,14 @@ reports against.
 - **Cached env-setup-script delivery of binaries** -- A stale cached binary
   can serve a known-vulnerable build for the cache window with no force-
   refresh (ai-tools issue #72); fetch-fresh-and-verify each session instead.
+  **Partially revised 2026-07 (RD4/#99):** MCP-server binaries specifically
+  MUST be installed at environment-setup time, because MCP connect races the
+  SessionStart hook (a session-time install isn't on disk when the server is
+  first spawned). Freshness is preserved a different way: setup installs a
+  pinned, registry-verified version on container create, and the SessionStart
+  hook re-runs `npm install` as an idempotent refresh (applies on the next
+  connect). The rejection still holds for its original target -- an *unpinned,
+  never-refreshed* cached blob -- which this is not.
 - **Symlinks in ephemeral sandboxes** -- The clone the links point into is
   discarded with the container; copies are the only durable form there.
 
