@@ -82,20 +82,30 @@ install_ast_mcp() {
   # --prefix keeps the install project-local; --userconfig points npm at the
   # authed npmrc (scope registry + token). ast-mcp's own dependencies are
   # public (registry.npmjs.org); only the scoped package comes from Packages.
-  local rc=0
+  # Capture npm's combined output rather than discarding it: quiet on success
+  # (the log is thrown away), but on FAILURE the real reason (401/403/E404/
+  # network) is echoed to the session log so a broken sandbox is debuggable --
+  # not masked behind the generic note. (npm's own `--silent` is unusable here:
+  # loglevel=silent suppresses errors too, so it would hide the very output we
+  # need. npm redacts _authToken in its output, so the captured log is safe.)
+  local rc=0 log="$INSTALL_DIR/.npm-install.log"
   npm install --prefix "$INSTALL_DIR" --userconfig "$INSTALL_DIR/.npmrc" \
-      "@nine-at-a-time-media/ast-mcp@latest" >/dev/null 2>&1 || rc=1
+      "@nine-at-a-time-media/ast-mcp@latest" >"$log" 2>&1 || rc=1
 
   # Remove the token file immediately, whatever the outcome.
   rm -f "$INSTALL_DIR/.npmrc"
 
   if [ "$rc" -ne 0 ]; then
-    note "npm install of @nine-at-a-time-media/ast-mcp failed (missing read:packages token / registry unreachable / build error) -- ast-mcp unavailable this session"
+    note "npm install of @nine-at-a-time-media/ast-mcp failed -- ast-mcp unavailable this session. npm output:"
+    sed 's/^/[ast-mcp hook]   /' "$log" >&2
+    rm -f "$log"
     return 1
   fi
+  rm -f "$log"
 
-  # A "successful" npm install doesn't guarantee the entrypoint .mcp.json
-  # launches exists (malformed package, unexpected layout). Check the
+  # A "successful" npm install doesn't guarantee that the entrypoint which
+  # .mcp.json launches actually exists (malformed package, unexpected layout).
+  # Check the
   # npm-installed BIN SHIM (node_modules/.bin/ast-mcp) -- the package.json
   # "bin" field is the published, stable contract and the exact path .mcp.json
   # runs -- so a bad install fails closed rather than reporting success while
