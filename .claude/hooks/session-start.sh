@@ -60,12 +60,24 @@ write_npmrc() {
     return 1
   fi
   mkdir -p "$dir" || return 1
+  local npmrc="$dir/.npmrc"
+  # Refuse to write the token through a symlink or other non-regular file at
+  # the target: a stale symlink there could redirect the secret to an
+  # unexpected path. And remove any pre-existing REGULAR .npmrc first, because
+  # `>` truncates in place but does NOT change an existing file's mode -- the
+  # umask below only governs a NEWLY created file, so a leftover mode-0644
+  # .npmrc would keep 0644 and expose the token. Start fresh either way.
+  if [ -L "$npmrc" ] || { [ -e "$npmrc" ] && [ ! -f "$npmrc" ]; }; then
+    note "refusing to write .npmrc: $npmrc exists and is not a regular file (symlink or special)"
+    return 1
+  fi
+  rm -f "$npmrc" || return 1
   (
     umask 077
     {
       printf '@nine-at-a-time-media:registry=https://npm.pkg.github.com\n'
       printf '//npm.pkg.github.com/:_authToken=%s\n' "$token"
-    } > "$dir/.npmrc"
+    } > "$npmrc"
   ) || return 1
 }
 
