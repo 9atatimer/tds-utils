@@ -36,9 +36,10 @@ best-effort mid-session updates.
    session: cached state is used and a warning names exactly what is stale.
 5. **Cheap idempotence** -- A provision run that finds everything current
    exits 0 in under 2 seconds (one `git ls-remote`-class check, no clone).
-6. **Supply-chain discipline** -- Every *executable* artifact (clai wheel,
-   hook scripts) is version-pinned and checksum-verified before use. Only
-   inert data (skills, manifest) floats to latest.
+6. **Supply-chain discipline** -- Every *executable* artifact (clai, hook
+   scripts) is version-pinned and integrity-verified before use (npm
+   registry integrity for GitHub Packages, RD3). Only inert data (skills,
+   manifest) floats to latest.
 
 ---
 
@@ -289,12 +290,10 @@ Repo layer:
 > installs clai from **GitHub Packages**
 > (`npm install @nine-at-a-time-media/clai@${CLAI_VERSION}`), and `pins.env`
 > carries **only `CLAI_VERSION`** -- the `CLAI_SHA256` wheel-digest pin is
-> retired in favor of npm registry integrity (RD3). Read the tree and the
-> "low-velocity wrappers" note below through that lens: "fetch pinned wheel /
-> verify sha256" is now "npm-install the pinned version / npm verifies
-> registry integrity", and `claude-web/` also carries `setup.sh` -- the
-> pre-session ast-mcp installer (#99). See "Revised Decisions" (RD1-RD5) for
-> the full transport/token/verification changes.
+> retired in favor of npm registry integrity (RD3). The tree and the
+> "low-velocity wrappers" note below reflect this model; `claude-web/` also
+> carries `setup.sh`, the pre-session ast-mcp installer (#99). See "Revised
+> Decisions" (RD1-RD5) for the full transport/token/verification changes.
 
 New top-level `sandbox/` in `tds-utils`:
 
@@ -302,20 +301,22 @@ New top-level `sandbox/` in `tds-utils`:
 sandbox/
   provision.sh              shared core: bootstrap clai (pinned), run
                             `clai provision`
-  pins.env                  CLAI_VERSION, CLAI_SHA256 -- the ONLY moving
-                            part (hook scripts ship inside the clai package)
+  pins.env                  CLAI_VERSION -- the ONLY moving part (hook
+                            scripts ship inside the clai package)
   codex/setup.sh            container create (network on): full bootstrap
   codex/maintenance.sh      cached resume (network may be off): provision
                             --offline-ok
+  claude-web/setup.sh       env-setup (pre-session): install+register ast-mcp
   claude-web/session-start.sh
   copilot/copilot-setup-steps.yml
   jules/setup.sh
 ```
 
-- Wrappers are deliberately **low-velocity**: fetch pinned wheel, verify
-  sha256, install, exec `clai provision`. All behavioral churn lives inside
-  clai, behind the pin. Rolling out new provisioning behavior everywhere =
-  editing `pins.env` (one reviewed change), since every wrapper sources it.
+- Wrappers are deliberately **low-velocity**: npm-install the pinned clai
+  version from GitHub Packages (npm verifies registry integrity), exec
+  `clai provision`. All behavioral churn lives inside clai, behind the pin.
+  Rolling out new provisioning behavior everywhere = editing `pins.env` (one
+  reviewed change), since every wrapper sources it.
 - Wrappers tolerate no-egress-after-setup: all fetching happens in the
   setup phase; a maintenance/resume hook that cannot reach the network uses
   cached state and emits a warning naming what is stale (Goal 4).
@@ -373,7 +374,7 @@ Provision-run outcome states:
 | START | UPDATING | currency check finds drift | network available |
 | UPDATING | CURRENT | sync + generate complete | all writes atomic (tmpfile + rename) |
 | START | DEGRADED | fetch fails | cached skills/manifest exist |
-| START | BOOTSTRAP FAILED | clai wheel cannot be fetched/verified | cloud wrapper, no prior install |
+| START | BOOTSTRAP FAILED | pinned clai cannot be installed from GitHub Packages | cloud wrapper, no prior install |
 
 Every terminal state exits 0 from the session's point of view; only the
 report differs. A checksum-verification failure is fail-closed for the
