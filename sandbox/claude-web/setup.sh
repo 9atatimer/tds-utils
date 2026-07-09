@@ -143,10 +143,10 @@ if os.path.exists(cfg):
             text = f.read().strip()
         data = json.loads(text) if text else {}
     except (ValueError, OSError) as e:
-        sys.stderr.write("[setup.sh] refusing to rewrite %s: not valid JSON (%s)\n" % (cfg, e))
+        sys.stderr.write("[sandbox/claude-web/setup.sh] refusing to rewrite %s: not valid JSON (%s)\n" % (cfg, e))
         sys.exit(2)
     if not isinstance(data, dict):
-        sys.stderr.write("[setup.sh] refusing to rewrite %s: top level is not an object\n" % cfg)
+        sys.stderr.write("[sandbox/claude-web/setup.sh] refusing to rewrite %s: top level is not an object\n" % cfg)
         sys.exit(2)
 servers = data.get("mcpServers")
 if not isinstance(servers, dict):

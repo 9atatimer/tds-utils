@@ -530,7 +530,7 @@ the **fallback**; setup.sh best-effort pre-installs that project-local copy too
 when the checkout is reachable at setup time, so the committed entry resolves
 at first connect instead of shadowing the user-scope server with a
 not-yet-installed binary. The SessionStart hook is demoted to an idempotent
-refresh/fallback for project scope. Delivery/token/verification follow RD1–RD3
+refresh/fallback for project scope. Delivery/token/verification follow RD1-RD3
 (GitHub Packages, classic `read:packages`, npm integrity; ast-mcp floats to
 `@latest` as in #98). Remaining proof: ast-mcp *connected on first load*
 requires cutting a fresh web session after setup.sh is wired into the
