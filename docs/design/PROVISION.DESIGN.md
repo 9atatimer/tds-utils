@@ -280,6 +280,18 @@ Repo layer:
   `~/.config/opencode/opencode.json`. The four hand-written
   `clai.d/*/pre/20-enable-ast-mcp` hooks are the seed code for these
   emitters and are retired once the generator lands.
+- **Two emitter target classes (#95).** The four above are *file-target*
+  agents, written via the `ConfigStore` port. Copilot's coding agent is a
+  fifth, *repo-settings-API-target* agent: its MCP config lives in repo
+  settings, not a file. GitHub exposes
+  `GET /repos/{owner}/{repo}/copilot/cloud-agent/configuration` (read-only)
+  for the coding agent's `mcp_configuration` but **no write endpoint** -- the
+  server list is UI-only. So clai **cannot apply** it. `emit_copilot`
+  therefore renders the managed servers for manual entry and provision
+  surfaces them on a loud MANUAL-ACTION warning channel; it never silently
+  no-ops. Read-only pending a GitHub write endpoint (re-verify before adding
+  a write adapter). The writable `COPILOT_MCP_*` Agents secrets/variables
+  surface is out of manifest scope (the manifest carries no secret values).
 - Today's `10-disable-cloudflare-mcp` hook becomes a `"disable"` entry.
 
 ### Sandbox wrapper tree (decision)
