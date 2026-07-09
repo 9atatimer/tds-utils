@@ -117,8 +117,8 @@ main "$@"
 ## Agent Operating Rules
 
 - Keep answers succinct and terse. Specificity is a virtue. No expository
-  filler. One or two sentences unless an explanation is requested; if more
-  detail is wanted, it will be asked for.
+  filler. Stay on task. One or two sentences unless an explanation is
+  requested; if more detail is wanted, it will be asked for.
 - Do not volunteer generic/unprompted starting or onboarding advice; assume
   you are stepping into a problem already in progress. This does NOT relax
   the Workflow Rules above -- still propose before writing and ask clarifying
