@@ -26,26 +26,29 @@ find_checkouts() {
   printf '%s' "$hits" | grep . | sort -u
 }
 
+exec_setup() {
+  local target="$1"
+  log "exec $target/sandbox/claude-web/setup.sh"
+  # execfail: without it a failed exec exits 127, and this stage must exit 0.
+  shopt -s execfail
+  # PAT is exported onto this one verified command, never globally.
+  GH_AI_TOOLS_PAT="$PAT" exec bash "$target/sandbox/claude-web/setup.sh"
+  log "exec failed -- setup.sh did not run; the SessionStart hook provisions in-session."
+}
+
 run_shim() {
-  local hits count target
+  local hits count
   hits="$(find_checkouts)"
   count="$(printf '%s\n' "$hits" | grep -c . )"
 
-  if [ "$count" -eq 1 ]; then
-    target="$(printf '%s\n' "$hits" | head -n1)"
-    log "exec $target/sandbox/claude-web/setup.sh"
-    # PAT is exported onto this one verified command, never globally.
-    GH_AI_TOOLS_PAT="$PAT" exec bash "$target/sandbox/claude-web/setup.sh"
-  fi
-
-  if [ "$count" -eq 0 ]; then
-    log "no tds-utils checkout found -- the SessionStart hook provisions in-session."
-  else
-    log "REFUSING to guess among multiple checkouts:"
-    printf '%s\n' "$hits" | while IFS= read -r c; do
-      [ -n "$c" ] && log "  candidate: $c"
-    done
-  fi
+  case "$count" in
+    1) exec_setup "$(printf '%s\n' "$hits" | head -n1)" ;;
+    0) log "no tds-utils checkout found -- the SessionStart hook provisions in-session." ;;
+    *) log "REFUSING to guess among multiple checkouts:"
+       printf '%s\n' "$hits" | while IFS= read -r c; do
+         [ -n "$c" ] && log "  candidate: $c"
+       done ;;
+  esac
 }
 
 main() {
