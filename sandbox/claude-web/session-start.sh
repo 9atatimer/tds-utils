@@ -7,8 +7,8 @@
 #   synchronously BEFORE the agent loads .mcp.json and starts work, with
 #   CLAUDE_PROJECT_DIR set to the repo checkout and CLAUDE_CODE_REMOTE=true
 #   in cloud sandboxes. Network is available at session start; brokered
-#   GH_TOKEN does NOT work against api.github.com, so GH_AI_TOOLS_PAT must
-#   be configured as a sandbox secret (same requirement as the ast-mcp
+#   GH_TOKEN cannot read GitHub Packages, so a classic read:packages
+#   GH_AI_TOOLS_PAT must be configured as a sandbox secret (same as the ast-mcp
 #   hook).
 #
 # Install location (manual, by the human -- design non-goal to automate):
