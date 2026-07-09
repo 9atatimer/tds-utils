@@ -1,25 +1,43 @@
 #!/usr/bin/env bash
-# provision.sh -- shared core for every provider sandbox wrapper: bootstrap a
-# PINNED clai (fetch wheel, verify sha256, install), then exec
+# provision.sh -- shared core for every provider sandbox wrapper: install a
+# PINNED clai from GitHub Packages (npm.pkg.github.com), then exec
 # `clai provision` (docs/design/PROVISION.DESIGN.md, issue #84).
 #
 # Called by the thin per-provider wrappers in sandbox/*/ -- they add nothing
 # but provider-appropriate args (e.g. --offline-ok on cached resumes). All
 # args are passed through to `clai provision`.
 #
-# Supply-chain stance (same as .claude/hooks/session-start.sh, the ast-mcp
-# precedent this generalizes):
-#   - The clai wheel is fetched at the pinned release tag
-#     clai-v${CLAI_VERSION} and verified against CLAI_SHA256 from
-#     sandbox/pins.env BEFORE install. Checksum failure is fail-CLOSED for
-#     the artifact: refuse to install, remove the partial download.
-#   - Never curl-pipe-sh. Software lands only via verified release
-#     artifacts.
+# Delivery: `npm install @nine-at-a-time-media/clai@${CLAI_VERSION}` from
+# GitHub Packages -- the same registry (and mechanism) the ast-mcp
+# SessionStart hook uses post-#98. This REPLACED the previous "download the
+# clai wheel as a GitHub Release asset over the api.github.com REST API +
+# verify a paired .sha256" delivery: in Claude Code web sandboxes the agent
+# proxy blocks raw release-asset egress (both api.github.com/.../releases and
+# github.com/.../releases/download return synthetic errors regardless of
+# token), so a release-asset path CANNOT work there, while the GitHub Packages
+# npm registry IS reachable (RD1, issue #101).
+#
+# Supply-chain stance (RD3):
+#   - clai is installed at the PINNED version from sandbox/pins.env; npm
+#     verifies every downloaded tarball against the registry-published
+#     integrity hash, and a published version on GitHub Packages is
+#     immutable. The gate is thus the pinned VERSION (the review gate) plus
+#     npm's built-in integrity -- the hand-fetched CLAI_SHA256 wheel digest
+#     is retired. The ai-tools #72 stance is intact: a default-branch push
+#     still does not grant execution here, because this installs a pinned
+#     released version.
+#   - Never curl-pipe-sh. clai lands only via the registry.
 #   - Rolling out new behavior = bumping pins.env (the review gate); this
 #     script is deliberately low-velocity.
 #
+# Auth: GH_AI_TOOLS_PAT -- a CLASSIC PAT with read:packages (RD2). GitHub
+# Packages npm reads require the classic read:packages scope; fine-grained
+# PATs have no Packages permission, and the brokered GH_TOKEN injected in
+# Claude web sandboxes cannot read Packages either -- hence the dedicated
+# token name.
+#
 # Session stance: fail-OPEN. Every terminal state exits 0 (see the design
-# doc's State Machine) -- a broken release, missing token, missing pins, or
+# doc's State Machine) -- a broken publish, missing token, missing pins, or
 # dead network must never block an agent session from starting; it only
 # costs this session its provisioning, with a log line naming why and what
 # to do about it.
@@ -34,21 +52,43 @@ set -uo pipefail
 
 note() { echo "[sandbox/provision.sh] $*" >&2; }
 
-# sha256_of <file> -- portable sha256 (Linux sha256sum / macOS shasum).
-sha256_of() {
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$1" | awk '{print $1}'
-  elif command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "$1" | awk '{print $1}'
-  else
+# write_npmrc <dir> -- write an ephemeral, authed npmrc scoping
+# @nine-at-a-time-media to GitHub Packages. Token from GH_AI_TOOLS_PAT (a
+# classic read:packages PAT). Written mode 600 via umask; the caller removes
+# it right after the install so the token does not linger. Mirrors
+# .claude/hooks/session-start.sh's write_npmrc, including its hardening.
+write_npmrc() {
+  local dir="$1" token="${GH_AI_TOOLS_PAT:-}"
+  if [ -z "$token" ]; then
+    note "GH_AI_TOOLS_PAT unset -- need a classic read:packages PAT to install clai from GitHub Packages"
     return 1
   fi
+  mkdir -p "$dir" || return 1
+  local npmrc="$dir/.npmrc"
+  # Refuse to write the token through a symlink or other non-regular file: a
+  # stale symlink there could redirect the secret to an unexpected path. And
+  # remove any pre-existing REGULAR .npmrc first, because `>` truncates in
+  # place but does NOT change an existing file's mode -- the umask below only
+  # governs a NEWLY created file, so a leftover mode-0644 .npmrc would keep
+  # 0644 and expose the token. Start fresh either way.
+  if [ -L "$npmrc" ] || { [ -e "$npmrc" ] && [ ! -f "$npmrc" ]; }; then
+    note "refusing to write .npmrc: $npmrc exists and is not a regular file (symlink or special)"
+    return 1
+  fi
+  rm -f "$npmrc" || return 1
+  (
+    umask 077
+    {
+      printf '@nine-at-a-time-media:registry=https://npm.pkg.github.com\n'
+      printf '//npm.pkg.github.com/:_authToken=%s\n' "$token"
+    } > "$npmrc"
+  ) || return 1
 }
 
 # load_pins -- source (and export) sandbox/pins.env, resolved as a sibling
 # of this script via BASH_SOURCE so wrappers can call it from anywhere.
 # Exported so clai provision inherits TEMPLATE_TOOLS_REPO/AI_TOOLS_REPO;
-# the CLAI_* pins are consumed by this script itself.
+# CLAI_VERSION is consumed by this script itself.
 load_pins() {
   local here
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)" || return 1
@@ -70,144 +110,118 @@ installed_clai_version() {
   clai --version 2>/dev/null | awk '{print $NF}'
 }
 
-# pins_set -- both executable-artifact pins carry real values. (Session
-# hook scripts ship INSIDE the pinned clai wheel via `clai hooks install`,
-# so CLAI_VERSION/CLAI_SHA256 are the only pins.)
+# pins_set -- the version pin carries a real value. (Session hook scripts
+# ship INSIDE the pinned clai package via `clai hooks install`, so
+# CLAI_VERSION is the only pin.)
 pins_set() {
-  [ "${CLAI_VERSION:-UNSET}" != "UNSET" ] \
-    && [ "${CLAI_SHA256:-UNSET}" != "UNSET" ]
+  [ "${CLAI_VERSION:-UNSET}" != "UNSET" ]
 }
 
-# warn_pins_unset -- the loud-but-open path for UNSET pins. Says exactly
-# what to do to restore them.
+# warn_pins_unset -- the loud-but-open path for an UNSET pin. Says exactly
+# what to do to restore it.
 warn_pins_unset() {
-  note "sandbox/pins.env has UNSET pins -- provisioning is disarmed."
+  note "sandbox/pins.env has an UNSET CLAI_VERSION -- provisioning is disarmed."
   note "To (re)activate provisioning:"
-  note "  1. Pick a clai release with the provision verbs (clai-v0.5.0 or later) in ${AI_TOOLS_REPO:-nine-at-a-time-media/template-tools}; set CLAI_VERSION to its version and CLAI_SHA256 to its wheel asset's sha256 (the release API reports it as the asset digest)."
-  note "  2. Land the pin values via PR -- the pin bump IS the review gate."
+  note "  1. Pick a published @nine-at-a-time-media/clai version on GitHub Packages ('npm view @nine-at-a-time-media/clai version --registry=https://npm.pkg.github.com' with a classic read:packages token configured -- the explicit registry is required, else npm hits registry.npmjs.org and fails for this private package); set CLAI_VERSION to it."
+  note "  2. Land the pin value via PR -- the pin bump IS the review gate."
   note "Session continues WITHOUT provisioning (fail-open)."
 }
 
-# fetch_wheel -- download the clai wheel for the pinned release tag into
-# $TMP. Prefer gh if present; fall back to the REST API with
-# GH_AI_TOOLS_PAT (Contents:read on the private repo) -- the exact auth
-# chain proven in .claude/hooks/session-start.sh. The GH_TOKEN injected in
-# Claude Code web sandboxes is a brokered GitHub-App token that 401s
-# against api.github.com directly, hence the dedicated PAT name.
-fetch_wheel() {
-  local tag="clai-v${CLAI_VERSION}"
-  if command -v gh >/dev/null 2>&1; then
-    rm -f "$TMP"/*.whl 2>/dev/null
-    if gh release download "$tag" --repo "$AI_TOOLS_REPO" \
-         --pattern '*.whl' --dir "$TMP" 2>/dev/null \
-       && ls "$TMP"/*.whl >/dev/null 2>&1; then
-      note "downloaded $tag wheel via gh"
-      return 0
-    fi
-    rm -f "$TMP"/*.whl 2>/dev/null
-  fi
-  local token="${GH_AI_TOOLS_PAT:-}"
-  [ -n "$token" ] || return 1
-  command -v python3 >/dev/null 2>&1 || { note "python3 required to parse the release listing"; return 1; }
-  local api asset url name
-  api="$(curl -fsSL -H "Authorization: Bearer $token" \
-         "https://api.github.com/repos/$AI_TOOLS_REPO/releases/tags/$tag" 2>/dev/null)" || return 1
-  # First .whl asset: "<api asset url> <asset name>" on one line.
-  asset="$(printf '%s' "$api" | python3 -c '
-import json, sys
-rel = json.load(sys.stdin)
-for a in rel.get("assets", []):
-    if a.get("name", "").endswith(".whl"):
-        print(a["url"], a["name"])
-        break
-' 2>/dev/null)" || return 1
-  [ -n "$asset" ] || return 1
-  url="${asset%% *}"
-  name="${asset#* }"
-  curl -fsSL -H "Authorization: Bearer $token" -H "Accept: application/octet-stream" \
-       "$url" -o "$TMP/$name" 2>/dev/null \
-    && { note "downloaded $tag wheel via REST API"; return 0; }
-  rm -f "$TMP/$name" 2>/dev/null
-  return 1
-}
-
-# resolve_wheel -- print the path of exactly one downloaded wheel, or fail.
-# Installing via a glob when more than one landed could silently install a
-# DIFFERENT file than the one verified. Fail closed rather than guess
-# (same reasoning as resolve_tarball in the ast-mcp hook).
-resolve_wheel() {
-  local matches=() f
-  for f in "$TMP"/*.whl; do
-    [ -e "$f" ] && matches+=("$f")
-  done
-  case "${#matches[@]}" in
-    1) printf '%s\n' "${matches[0]}" ;;
-    0) note "no wheel downloaded"; return 1 ;;
-    *) note "expected exactly one wheel, found ${#matches[@]}; refusing to guess which to install"; return 1 ;;
-  esac
-}
-
-# verify_wheel <whl> -- refuse to install unless the wheel hashes to the
-# CLAI_SHA256 pin. A missing sha256 tool or a mismatch are both failure
-# (fail closed per artifact); the partial/bad download is removed so
-# nothing downstream can pick it up.
-verify_wheel() {
-  local whl="$1" actual
-  actual="$(sha256_of "$whl")" || { note "no sha256sum/shasum on PATH; cannot verify, refusing to install"; rm -f "$whl"; return 1; }
-  if [ "$actual" != "$CLAI_SHA256" ]; then
-    note "CHECKSUM MISMATCH: expected $CLAI_SHA256, got $actual -- refusing to install, removing artifact"
-    rm -f "$whl"
+# install_clai -- install the pinned @nine-at-a-time-media/clai from GitHub
+# Packages into $CLAI_PREFIX (local, not -g) and put its bin on PATH. The
+# clai npm package is a wrapper around clai's self-contained shiv .pyz (its
+# "bin" points at the pyz), so the install must land in a STABLE dir that
+# survives to `exec clai provision` -- hence $CLAI_PREFIX under $HOME, not a
+# throwaway mktemp. Fails closed (returns 1) when npm is missing, the
+# token/registry is unusable, or the launched bin isn't present afterward.
+install_clai() {
+  command -v npm >/dev/null 2>&1 || { note "npm not on PATH -- cannot install clai from GitHub Packages"; return 1; }
+  # Refuse a symlinked or non-directory CLAI_PREFIX before creating/writing
+  # into it: if it were pre-created as a symlink, mkdir -p would follow it and
+  # write_npmrc's token could land outside the intended path. Parallels the
+  # same-class guard inside write_npmrc.
+  if [ -L "$CLAI_PREFIX" ] || { [ -e "$CLAI_PREFIX" ] && [ ! -d "$CLAI_PREFIX" ]; }; then
+    note "refusing to use $CLAI_PREFIX: it exists and is a symlink or non-directory"
     return 1
   fi
-  note "checksum verified ($actual)"
-}
+  mkdir -p "$CLAI_PREFIX" || return 1
+  write_npmrc "$CLAI_PREFIX" || return 1
 
-# install_wheel <whl> -- uv tool install when uv is present (matches how
-# clai is installed on the laptop), else pip --user. Both land the `clai`
-# entry point in ~/.local/bin.
-install_wheel() {
-  local whl="$1"
-  if command -v uv >/dev/null 2>&1; then
-    # --force: reinstalling over an existing (stale or broken) tool
-    # environment must succeed -- this is the pin-bump upgrade path.
-    uv tool install --force "$whl" >/dev/null 2>&1 || { note "uv tool install failed"; return 1; }
-  elif command -v python3 >/dev/null 2>&1; then
-    python3 -m pip install --user "$whl" >/dev/null 2>&1 || { note "pip install --user failed"; return 1; }
-  else
-    note "neither uv nor python3 on PATH; cannot install clai"
+  # --prefix keeps the install local; --userconfig points npm at the authed
+  # npmrc (scope registry + token). clai's own deps (if any) are public;
+  # only the scoped package comes from Packages. Capture npm's combined
+  # output: quiet on success (log discarded), but on FAILURE the real reason
+  # (401/403/E404/network) is echoed to the session log so a broken sandbox
+  # is debuggable. (npm's own --silent is unusable here: loglevel=silent
+  # suppresses errors too. npm redacts _authToken in its output, so the
+  # captured log is safe.)
+  local rc=0 log="$CLAI_PREFIX/.npm-install.log"
+  npm install --prefix "$CLAI_PREFIX" --userconfig "$CLAI_PREFIX/.npmrc" \
+      "@nine-at-a-time-media/clai@${CLAI_VERSION}" >"$log" 2>&1 || rc=1
+
+  # Remove the token file immediately, whatever the outcome. If removal fails
+  # (readonly FS, perms, immutable flag) the PAT would linger on disk under the
+  # STABLE $CLAI_PREFIX -- unacceptable for a script that runs automatically
+  # with a secret present. Blank its contents best-effort so the token is not
+  # left readable, then FAIL the install (return 1): better to lose this
+  # session's provisioning (the caller stays fail-open) than to keep going
+  # while a credential lingers.
+  rm -f "$CLAI_PREFIX/.npmrc"
+  if [ -e "$CLAI_PREFIX/.npmrc" ]; then
+    : > "$CLAI_PREFIX/.npmrc" 2>/dev/null
+    rm -f "$log"
+    note "ERROR: could not remove token file $CLAI_PREFIX/.npmrc -- blanked its contents best-effort; delete it manually. Failing the install so provisioning does not continue with a lingering credential."
+    return 1
+  fi
+
+  if [ "$rc" -ne 0 ]; then
+    note "npm install of @nine-at-a-time-media/clai@${CLAI_VERSION} failed -- clai unavailable this session."
+    # Guard the log print: if npm failed so early the >"$log" redirection
+    # never created the file, an unguarded sed would emit a misleading
+    # "can't read" and bury the real reason.
+    if [ -f "$log" ]; then
+      note "npm output:"
+      sed 's|^|[sandbox/provision.sh]   |' "$log" >&2
+    fi
+    rm -f "$log"
+    return 1
+  fi
+  rm -f "$log"
+
+  # A "successful" npm install doesn't guarantee the entrypoint exists
+  # (malformed package, unexpected layout). Check the npm-installed BIN SHIM
+  # (node_modules/.bin/clai) -- the package.json "bin" field is the
+  # published, stable contract -- so a bad install fails closed.
+  local entry="$CLAI_PREFIX/node_modules/.bin/clai"
+  if [ ! -x "$entry" ]; then
+    note "npm install reported success but $entry is missing or not executable -- treating as failed install"
     return 1
   fi
   hash -r
-  # Fresh sandboxes often lack ~/.local/bin on PATH; both installers put
-  # the entry point there.
-  if ! command -v clai >/dev/null 2>&1 && [ -x "$HOME/.local/bin/clai" ]; then
-    export PATH="$HOME/.local/bin:$PATH"
-  fi
-  command -v clai >/dev/null 2>&1 || { note "install reported success but clai is not on PATH -- treating as failed install"; return 1; }
-  note "installed pinned clai $CLAI_VERSION"
+  # Fresh sandboxes won't have the local bin dir on PATH; prepend it so the
+  # exec below (and clai's own subprocess calls) resolve clai.
+  case ":$PATH:" in
+    *":$CLAI_PREFIX/node_modules/.bin:"*) ;;
+    *) export PATH="$CLAI_PREFIX/node_modules/.bin:$PATH" ;;
+  esac
+  command -v clai >/dev/null 2>&1 || { note "install landed $entry but clai is not resolving on PATH -- treating as failed install"; return 1; }
+  note "installed pinned clai ${CLAI_VERSION} from GitHub Packages into $CLAI_PREFIX (local, not global)"
 }
 
 # --- Flow functions ---
 
-# bootstrap_clai -- fetch + resolve + verify + install the SAME wheel path
-# throughout (no re-globbing between verify and install).
+# bootstrap_clai -- install the pinned clai from GitHub Packages.
 bootstrap_clai() {
-  local whl
-  fetch_wheel || return 1
-  whl="$(resolve_wheel)" || return 1
-  verify_wheel "$whl" || return 1
-  install_wheel "$whl" || return 1
+  install_clai || return 1
 }
 
-# run_provision -- hand off to clai. Cleans up $TMP first: exec replaces
-# the process, so the EXIT trap would never fire. Always passes --copy:
-# this script only ever runs inside ephemeral provider sandboxes (Codex,
-# Claude web, Copilot, Jules), where symlinks into the clai cache would
-# point at a directory the container discards; local laptops reach clai
-# provision via clai.d pre-hooks / SessionStart instead, never this script.
+# run_provision -- hand off to clai. Always passes --copy: this script only
+# ever runs inside ephemeral provider sandboxes (Codex, Claude web, Copilot,
+# Jules), where symlinks into the clai cache would point at a directory the
+# container discards; local laptops reach clai provision via clai.d
+# pre-hooks / SessionStart instead, never this script. exec replaces the
+# process, so nothing after it runs.
 run_provision() {
-  [ -n "${TMP:-}" ] && rm -rf "$TMP"
-  trap - EXIT
   exec clai provision --copy "$@"
 }
 
@@ -216,6 +230,11 @@ provision_flow() {
     note "cannot load sandbox/pins.env -- skipping provisioning (fail-open)"
     exit 0
   fi
+
+  # Stable, home-relative install prefix for the clai npm package (the shiv
+  # .pyz wrapper must survive to `exec clai provision`). Overridable for
+  # tests / non-standard homes.
+  CLAI_PREFIX="${CLAI_PREFIX:-$HOME/.clai}"
 
   if ! pins_set; then
     # Pre-rollout: no pin to compare against, so a healthy clai (laptop)
@@ -227,11 +246,11 @@ provision_flow() {
     exit 0
   fi
 
-  # True fast path (laptop, warm sandbox resume): only when the installed
-  # clai MATCHES the pin. Trusting any healthy clai here would let a warm
+  # True fast path (warm sandbox resume): only when the installed clai
+  # MATCHES the pin. Trusting any healthy clai here would let a warm
   # container keep serving a stale binary forever after a pin bump -- the
-  # exact stale-cached-binary failure mode ai-tools issue #72 rejected;
-  # the pin bump must take effect on every networked session.
+  # exact stale-cached-binary failure mode ai-tools issue #72 rejected; the
+  # pin bump must take effect on every networked session.
   if clai_healthy && [ "$(installed_clai_version)" = "$CLAI_VERSION" ]; then
     run_provision "$@"
   fi
@@ -239,20 +258,17 @@ provision_flow() {
     note "installed clai $(installed_clai_version) != pinned $CLAI_VERSION -- re-bootstrapping to the pin"
   fi
 
-  TMP="$(mktemp -d)"
-  trap 'rm -rf "$TMP"' EXIT
-
   if ! bootstrap_clai; then
     if clai_healthy; then
       # DEGRADED, not fatal: a healthy-but-stale clai still provisions this
       # session (offline cached resume, Goal 4) -- with an honest warning
       # that the pin bump has NOT taken effect yet.
-      note "WARNING: could not re-bootstrap to pinned clai $CLAI_VERSION; proceeding with STALE installed clai $(installed_clai_version) (honest degradation, Goal 4)"
+      note "WARNING: could not (re)install pinned clai $CLAI_VERSION from GitHub Packages; proceeding with STALE installed clai $(installed_clai_version) (honest degradation, Goal 4)"
       run_provision "$@"
     fi
     # BOOTSTRAP FAILED terminal state: log, exit 0, session starts without
     # provisioning (design doc State Machine).
-    note "could not fetch+verify+install the pinned clai wheel (need gh, or GH_AI_TOOLS_PAT with Contents:read on $AI_TOOLS_REPO, plus egress to api.github.com and *.githubusercontent.com). Provisioning unavailable this session."
+    note "could not install the pinned clai from GitHub Packages (need npm + GH_AI_TOOLS_PAT with read:packages + egress to npm.pkg.github.com). Provisioning unavailable this session."
     exit 0
   fi
 

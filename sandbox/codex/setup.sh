@@ -4,7 +4,7 @@
 # Provider hook contract (Codex cloud):
 #   Runs once at container CREATE time, in the repo checkout, with network
 #   ON. This is the only phase guaranteed egress, so the full bootstrap
-#   (fetch pinned wheel, verify, install) happens here. Secrets configured
+#   (npm-install the pinned clai from GitHub Packages, RD1) happens here. Secrets configured
 #   in the Codex environment (GH_AI_TOOLS_PAT) are available to setup
 #   scripts.
 #

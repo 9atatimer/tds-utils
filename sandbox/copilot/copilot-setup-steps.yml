@@ -16,11 +16,12 @@
 #   not rename it.
 #
 # Secret requirement:
-#   GH_AI_TOOLS_PAT -- a fine-grained PAT with Contents:read on the private
-#   repo nine-at-a-time-media/template-tools. Post-#84 the clai wheel, the
-#   ast-mcp release, and the skills/manifest all live there, so a single
-#   owner-scoped token covers the whole bootstrap (no cross-owner PAT
-#   juggling). Add it to the repo's Actions secrets (or the `copilot`
+#   GH_AI_TOOLS_PAT -- a CLASSIC read:packages PAT (GitHub Packages npm
+#   reads require the classic read:packages scope; fine-grained PATs have
+#   no Packages permission -- RD2). Post-#84 clai and ast-mcp install from
+#   GitHub Packages under nine-at-a-time-media and the skills/manifest live
+#   in that repo, so a single owner-scoped token covers the whole bootstrap
+#   (no cross-owner PAT juggling). Add it to the repo's Actions secrets (or the `copilot`
 #   environment's secrets) so the env: mapping below resolves. Without it
 #   the bootstrap fails loudly-but-open and the Copilot session starts
 #   unprovisioned. The default GITHUB_TOKEN is repo-scoped and cannot read
