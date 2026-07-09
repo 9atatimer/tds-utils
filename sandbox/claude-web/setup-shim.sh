@@ -1,7 +1,7 @@
 PAT='PASTE-CLASSIC-read:packages-PAT-HERE'
-# shellcheck shell=bash
 # Paste into the Claude web Environment "Setup script". PAT stays on line 1.
 # All logic lives in the repo's setup.sh, which this execs -- never re-paste.
+# No shebang (the PAT owns line 1), so lint with: shellcheck -s bash
 
 set -uo pipefail
 
