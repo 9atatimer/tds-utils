@@ -95,8 +95,17 @@ npm_install_at() {
   [ "$mode" = "global" ] && gflag=(-g)
   npm install "${gflag[@]}" --prefix "$prefix" --userconfig "$prefix/.npmrc" \
       "$spec" >"$log" 2>&1 || rc=1
+  # If removal fails, the PAT would linger on disk under $prefix (e.g. ~/.local
+  # or <repo>/.ast-mcp). Blank it best-effort and FAIL (return 1) rather than
+  # proceed with a lingering credential -- this runs automatically with a
+  # secret present; the caller stays fail-open at the session level.
   rm -f "$prefix/.npmrc"
-  [ -e "$prefix/.npmrc" ] && note "WARNING: could not remove token file $prefix/.npmrc -- delete it manually; it must not persist"
+  if [ -e "$prefix/.npmrc" ]; then
+    : > "$prefix/.npmrc" 2>/dev/null
+    rm -f "$log"
+    note "ERROR: could not remove token file $prefix/.npmrc -- blanked its contents best-effort; delete it manually. Failing the install so we do not continue with a lingering credential."
+    return 1
+  fi
   if [ "$rc" -ne 0 ]; then
     note "npm install of $spec into $prefix failed."
     if [ -f "$log" ]; then
