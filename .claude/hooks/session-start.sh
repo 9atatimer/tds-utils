@@ -4,6 +4,17 @@
 # (AGENT.md: prefer local dependencies) -- ast-mcp lands in a gitignored,
 # project-local .ast-mcp/ and the project .mcp.json launches it from there.
 #
+# Role after #99 (RD4): this hook is the idempotent REFRESH/FALLBACK for the
+# PROJECT-scope ast-mcp, NOT the first-connect installer. A SessionStart hook
+# cannot win the startup race against MCP connect for the binary it installs
+# (the client spawns .mcp.json servers concurrently with these hooks), so the
+# first-connect install now happens in the environment SETUP step
+# (sandbox/claude-web/setup.sh), which runs before session init and also
+# registers ast-mcp at USER scope (~/.claude.json -> ~/.local/bin/ast-mcp).
+# This hook still (re)installs the project-local copy so the committed
+# .mcp.json entry stays serviceable across resumes and on machines with no
+# env-setup step.
+#
 # Delivery: `npm install` from GitHub Packages (npm.pkg.github.com) -- the
 # same registry the rest of the @nine-at-a-time-media fleet installs from.
 # ast-mcp is built and released from nine-at-a-time-media/template-tools

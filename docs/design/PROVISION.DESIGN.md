@@ -36,9 +36,10 @@ best-effort mid-session updates.
    session: cached state is used and a warning names exactly what is stale.
 5. **Cheap idempotence** -- A provision run that finds everything current
    exits 0 in under 2 seconds (one `git ls-remote`-class check, no clone).
-6. **Supply-chain discipline** -- Every *executable* artifact (clai wheel,
-   hook scripts) is version-pinned and checksum-verified before use. Only
-   inert data (skills, manifest) floats to latest.
+6. **Supply-chain discipline** -- Every *executable* artifact (clai, hook
+   scripts) is version-pinned and integrity-verified before use (npm
+   registry integrity for GitHub Packages, RD3). Only inert data (skills,
+   manifest) floats to latest.
 
 ---
 
@@ -283,26 +284,39 @@ Repo layer:
 
 ### Sandbox wrapper tree (decision)
 
+> **Revised 2026-07 (#101, RD1/RD3):** the original wording in this section
+> ("bootstrap clai wheel, verify sha256"; `pins.env` = `CLAI_VERSION` +
+> `CLAI_SHA256`) is superseded and kept only for history. `provision.sh` now
+> installs clai from **GitHub Packages**
+> (`npm install @nine-at-a-time-media/clai@${CLAI_VERSION}`), and `pins.env`
+> carries **only `CLAI_VERSION`** -- the `CLAI_SHA256` wheel-digest pin is
+> retired in favor of npm registry integrity (RD3). The tree and the
+> "low-velocity wrappers" note below reflect this model; `claude-web/` also
+> carries `setup.sh`, the pre-session ast-mcp installer (#99). See "Revised
+> Decisions" (RD1-RD5) for the full transport/token/verification changes.
+
 New top-level `sandbox/` in `tds-utils`:
 
 ```
 sandbox/
   provision.sh              shared core: bootstrap clai (pinned), run
                             `clai provision`
-  pins.env                  CLAI_VERSION, CLAI_SHA256 -- the ONLY moving
-                            part (hook scripts ship inside the clai package)
+  pins.env                  CLAI_VERSION -- the ONLY moving part (hook
+                            scripts ship inside the clai package)
   codex/setup.sh            container create (network on): full bootstrap
   codex/maintenance.sh      cached resume (network may be off): provision
                             --offline-ok
+  claude-web/setup.sh       env-setup (pre-session): install+register ast-mcp
   claude-web/session-start.sh
   copilot/copilot-setup-steps.yml
   jules/setup.sh
 ```
 
-- Wrappers are deliberately **low-velocity**: fetch pinned wheel, verify
-  sha256, install, exec `clai provision`. All behavioral churn lives inside
-  clai, behind the pin. Rolling out new provisioning behavior everywhere =
-  editing `pins.env` (one reviewed change), since every wrapper sources it.
+- Wrappers are deliberately **low-velocity**: npm-install the pinned clai
+  version from GitHub Packages (npm verifies registry integrity), exec
+  `clai provision`. All behavioral churn lives inside clai, behind the pin.
+  Rolling out new provisioning behavior everywhere = editing `pins.env` (one
+  reviewed change), since every wrapper sources it.
 - Wrappers tolerate no-egress-after-setup: all fetching happens in the
   setup phase; a maintenance/resume hook that cannot reach the network uses
   cached state and emits a warning naming what is stale (Goal 4).
@@ -360,7 +374,7 @@ Provision-run outcome states:
 | START | UPDATING | currency check finds drift | network available |
 | UPDATING | CURRENT | sync + generate complete | all writes atomic (tmpfile + rename) |
 | START | DEGRADED | fetch fails | cached skills/manifest exist |
-| START | BOOTSTRAP FAILED | clai wheel cannot be fetched/verified | cloud wrapper, no prior install |
+| START | BOOTSTRAP FAILED | pinned clai cannot be installed from GitHub Packages | cloud wrapper, no prior install |
 
 Every terminal state exits 0 from the session's point of view; only the
 report differs. A checksum-verification failure is fail-closed for the
@@ -515,6 +529,27 @@ refines the "config must be written before the agent launches" premise:
 writing the config early is necessary but not sufficient; the binary it points
 at must also exist before session init. Scope choice (user `~/.claude.json` vs
 project `.mcp.json`) tracked in #99.
+
+**Resolved (#99): BOTH scopes, user-scope primary.** The env-setup installer
+is `sandbox/claude-web/setup.sh` (paste as the Claude web Environment "Setup
+script"). It installs `@nine-at-a-time-media/ast-mcp` at **user scope** via
+`npm install -g --prefix "$HOME/.local"`, which lands the executable at
+`~/.local/bin/ast-mcp` -- the *same* path clai's
+`clai.d/claude/pre/20-enable-ast-mcp` hook already registers -- and registers
+it in `~/.claude.json`. User scope is the primary, race-winning registration:
+present before session init, ubiquitous across repos, and it unifies the two
+existing registration mechanisms on one binary path (no stale-path conflict).
+The committed project `.mcp.json` (the #98 project-local `.ast-mcp`) is kept as
+the **fallback**; setup.sh best-effort pre-installs that project-local copy too
+when the checkout is reachable at setup time, so the committed entry resolves
+at first connect instead of shadowing the user-scope server with a
+not-yet-installed binary. The SessionStart hook is demoted to an idempotent
+refresh/fallback for project scope. Delivery/token/verification follow RD1-RD3
+(GitHub Packages, classic `read:packages`, npm integrity; ast-mcp floats to
+`@latest` as in #98). Remaining proof: ast-mcp *connected on first load*
+requires cutting a fresh web session after setup.sh is wired into the
+cloud-env config -- it cannot be fully confirmed from within the session that
+writes the fix.
 
 ### RD5. Committed MCP command: only reference vars in the server's own process
 

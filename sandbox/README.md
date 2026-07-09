@@ -1,18 +1,17 @@
 # sandbox/ -- provider sandbox provisioning wrappers
 
 Deliberately low-velocity wrappers that give every cloud-sandbox provider
-the same session-start behavior: bootstrap a PINNED clai (fetch wheel from
-the `9atatimer/ai-tools` release, verify sha256, install), then run the
+the same session-start behavior: install a PINNED clai from GitHub Packages
+(`npm install @nine-at-a-time-media/clai@${CLAI_VERSION}`), then run the
 idempotent `clai provision`. All behavioral churn lives inside clai,
-behind the pins. See `docs/design/PROVISION.DESIGN.md` (issue #84) for the
-full design; `.claude/hooks/session-start.sh` is the fetch/verify/fail-open
-precedent these generalize.
+behind the pin. See `docs/design/PROVISION.DESIGN.md` (issue #84) for the
+full design; `.claude/hooks/session-start.sh` is the npm-from-Packages /
+fail-open precedent these generalize.
 
 ## Layout
 
 - `provision.sh` -- shared core; everything else is a thin veneer over it
-- `pins.env` -- CLAI_VERSION, CLAI_SHA256; the ONLY moving part (see
-  rollout note below)
+- `pins.env` -- CLAI_VERSION; the ONLY moving part (see rollout note below)
 - `codex/`, `claude-web/`, `copilot/`, `jules/` -- per-provider wrappers
 
 ## Providers
@@ -21,7 +20,7 @@ precedent these generalize.
 |----------|---------------|---------------------------|---------------------|
 | Codex cloud (setup) | Setup script runs once at container create, in the repo checkout | Codex web -> Environments -> setup script: `bash sandbox/codex/setup.sh` | ON -- the only guaranteed-egress phase; full bootstrap happens here |
 | Codex cloud (resume) | Maintenance script runs on cached container resume | Codex web -> Environments -> maintenance script: `bash sandbox/codex/maintenance.sh` | MAYBE OFF -- runs `provision.sh --offline-ok`; cached state + staleness warning |
-| Claude Code web/remote | SessionStart hook, synchronous before .mcp.json load; `CLAUDE_PROJECT_DIR` set, `CLAUDE_CODE_REMOTE=true` | Register `sandbox/claude-web/session-start.sh` under `hooks.SessionStart` in `<repo>/.claude/settings.json` | ON at session start; brokered GH_TOKEN unusable against api.github.com -- needs `GH_AI_TOOLS_PAT` sandbox secret |
+| Claude Code web/remote | Env Setup step runs pre-session; SessionStart hook runs synchronously before .mcp.json load (`CLAUDE_PROJECT_DIR` set, `CLAUDE_CODE_REMOTE=true`) | Env Setup script: `bash sandbox/claude-web/setup.sh` (pre-session ast-mcp install+register, #99); and/or register `sandbox/claude-web/session-start.sh` under `hooks.SessionStart` in `<repo>/.claude/settings.json` (clai provision) | ON at session start; brokered GH_TOKEN cannot read GitHub Packages -- needs a classic `read:packages` `GH_AI_TOOLS_PAT` sandbox secret |
 | Copilot coding agent | Job named exactly `copilot-setup-steps` in `.github/workflows/copilot-setup-steps.yml`, run before the agent starts | Copy `sandbox/copilot/copilot-setup-steps.yml` to `.github/workflows/` in the target repo; add `GH_AI_TOOLS_PAT` secret | ON during setup steps; job workspace starts EMPTY (Copilot clones for the agent only after setup steps), so the workflow performs its own `actions/checkout` |
 | Jules | Per-repo environment setup script, runs in the VM before the agent | Jules repo configuration -> setup script: `bash sandbox/jules/setup.sh`; add `GH_AI_TOOLS_PAT` secret | ON at setup; no separate cached-resume hook surface |
 
@@ -40,22 +39,25 @@ reviewed change -- the pin bump is the review gate (same supply-chain
 stance as the ast-mcp hook and ai-tools issue #72: a push to a source
 repo's default branch must never grant code execution in consumers).
 
-The pins are live (first set to clai-v0.5.0, 2026-07-04). To bump them:
+The pin is live. To bump it:
 
-- Set `CLAI_VERSION` to the new release's version (tag
-  `clai-v${CLAI_VERSION}` in `9atatimer/ai-tools`) and `CLAI_SHA256` to
-  that release's wheel-asset sha256 (the release API reports it as the
-  asset's digest). Land the bump via PR -- that review IS the gate.
-- Session hook scripts ship inside the pinned clai wheel (installed by
+- Set `CLAI_VERSION` to a published `@nine-at-a-time-media/clai` version on
+  GitHub Packages (`npm view @nine-at-a-time-media/clai version
+  --registry=https://npm.pkg.github.com`, with a classic read:packages
+  token configured, reports the latest). Land the bump via PR -- that
+  review IS the gate. Delivery is npm from GitHub Packages (RD1); the old
+  `CLAI_SHA256` wheel-digest pin is retired in favor of npm registry
+  integrity + immutable published versions (RD3).
+- Session hook scripts ship inside the pinned clai package (installed by
   `clai hooks install`), so they roll out via the same `CLAI_VERSION`
   bump -- there is no separate hooks pin.
 
-If either pin is ever reset to `UNSET`, `provision.sh` fails
+If `CLAI_VERSION` is ever reset to `UNSET`, `provision.sh` fails
 LOUDLY-but-open: it logs the exact fill-in procedure and exits 0 so
-sessions still start. With pins set, checksum verification is
-fail-CLOSED per artifact (a mismatch refuses to install and removes the
-download) but always fail-OPEN for the session (every terminal state
-exits 0).
+sessions still start. Supply-chain integrity is npm's registry check
+(every downloaded tarball verified against the published integrity hash)
+plus the pinned, immutable version; the session is always fail-OPEN (every
+terminal state exits 0).
 
 Skills and the MCP manifest are inert data and deliberately NOT pinned --
 they float to the latest default branch of `template-tools`.
