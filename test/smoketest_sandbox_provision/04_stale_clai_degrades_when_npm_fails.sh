@@ -5,9 +5,8 @@
 # effect (Goal 4 -- honest degradation, not a hard failure).
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
-: "${SMOKE_TMP:=$(mktemp -d)}"
-
 main() {
+    : "${SMOKE_TMP:=$(mktemp -d)}"
     require_provision || return 1
     local dir rc
     dir="$(scenario_dir degraded)"

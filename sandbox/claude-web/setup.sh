@@ -185,12 +185,20 @@ PY
     [ -f "$cfg" ] || printf '{}\n' > "$cfg"
     local tmp
     tmp="$(mktemp "${cfg}.XXXXXX")" || return 1
+    # Type-guard every access: this is a best-effort fallback, so a
+    # malformed ~/.claude.json (mcpServers/projects/disabledMcpServers set to
+    # an unexpected type) must not make jq error out. Coerce non-object
+    # mcpServers/projects to {}, and only subtract from disabledMcpServers
+    # when it is actually an array on an object-typed project. (A valid-JSON
+    # but non-object top level still errors -> tmp stays empty -> the
+    # `jq empty` guard below fails -> return 1 without clobbering.) Mirrors
+    # the python3 path's defensiveness above.
     if jq --arg cmd "$bin" '
-        .mcpServers = (.mcpServers // {}) |
+        .mcpServers = (if (.mcpServers | type) == "object" then .mcpServers else {} end) |
         .mcpServers["ast-mcp"] = {command: $cmd, args: []} |
-        .projects = (.projects // {}) |
+        .projects = (if (.projects | type) == "object" then .projects else {} end) |
         .projects |= map_values(
-            if (.disabledMcpServers? != null) then
+            if (type == "object" and (.disabledMcpServers | type) == "array") then
                 .disabledMcpServers = (.disabledMcpServers - ["ast-mcp"])
             else . end
         )
