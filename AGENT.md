@@ -113,3 +113,40 @@ main "$@"
 - `set -euo pipefail` at the top.
 - Functions grouped and labeled with section comments (`# --- Section ---`).
 - Use `local` for all function-scoped variables.
+
+## Agent Operating Rules
+
+- Keep answers succinct and terse. Specificity is a virtue. No expository
+  filler. One or two sentences unless an explanation is requested; if more
+  detail is wanted, it will be asked for.
+- Do not volunteer generic/unprompted starting or onboarding advice; assume
+  you are stepping into a problem already in progress. This does NOT relax
+  the Workflow Rules above -- still propose before writing and ask clarifying
+  scope questions.
+- Always review the repo's CLAUDE.md/AGENT.md instructions.
+- In an ephemeral/sandboxed runtime the bash tool is a throwaway Docker
+  sandbox -- use it freely for self-computation there. Do NOT assume that
+  everywhere: on a real checkout (e.g. a laptop) bash affects the real disk
+  and network, so assume side effects unless you have confirmed you are in
+  the sandbox.
+- NEVER pull down and run a shell script (e.g. `curl ... | sh`). Install
+  software only through package managers that verify signed code.
+- NEVER set a recurring/self-rearming trigger chain. One wake-up timer at
+  most, then wait for the human. Never poll yourself -- it wastes quota.
+- NEVER use interrogative choice-menu prompts. If you need something, ask
+  directly for the missing value, with at most a one- or two-line suggestion.
+- NEVER force-push. Land changes only via a PR off a fresh branch; if the
+  designated branch is already merged, cut a new branch and open a new PR.
+
+## Pull Request Review (do this WITHOUT being told)
+
+- The moment ANY PR interaction starts -- opening, a review comment, CI, a
+  reply -- ingest `prompts/GITHUB.md` and triage strictly against it. This
+  is automatic; never wait to be told to check GITHUB.md.
+- When you AGREE with review feedback and push a fix commit to the branch,
+  you MUST kick off a Copilot re-review (`request_copilot_review` /
+  `gh pr edit --add-reviewer @copilot`) so the next round fires.
+- Reply to each comment and RESOLVE the thread as you address it; reject
+  ones you disagree with, on the thread, with a concrete reason.
+- Watch PRs via GitHub webhook EVENTS (the activity subscription), NEVER via
+  self-scheduled triggers or polling.
