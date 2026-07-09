@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Given a clai on PATH whose version MATCHES the pin, When provision.sh runs,
-# Then it hands off to `clai provision --copy` immediately and never invokes npm
+# Then it hands off to `clai provision --copy --report` immediately and never invokes npm
 # (the warm-resume fast path -- no re-install when already current).
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
@@ -16,7 +16,7 @@ main() {
     rc="$(run_provision "${dir}")"
 
     assert_eq "${rc}" "0" "fail-open exit code" || return 1
-    assert_provisioned "${dir}" "--copy" || return 1
+    assert_provisioned "${dir}" "--copy --report" || return 1
     assert_file_absent "${dir}/npm-called" "npm must NOT be invoked on the version-match fast path" || return 1
 }
 

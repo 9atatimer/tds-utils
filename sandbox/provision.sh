@@ -221,8 +221,15 @@ bootstrap_clai() {
 # container discards; local laptops reach clai provision via clai.d
 # pre-hooks / SessionStart instead, never this script. exec replaces the
 # process, so nothing after it runs.
+#
+# --report: without it `clai provision` is SILENT on every skip -- a
+# not_a_project checkout, an absent agent config, a straggler-blocked skill
+# dir all exit 0 with no output, so a sandbox that provisioned NOTHING looks
+# exactly like one that provisioned everything. These wrappers run unattended
+# and their only forensic trail is the session log, so always print the
+# grouped report. (Warnings already go to stderr regardless.)
 run_provision() {
-  exec clai provision --copy "$@"
+  exec clai provision --copy --report "$@"
 }
 
 provision_flow() {

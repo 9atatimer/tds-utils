@@ -18,7 +18,7 @@ main() {
 
     assert_eq "${rc}" "0" "fail-open exit code" || return 1
     assert_file_present "${dir}/prefix/node_modules/.bin/clai" "npm install should plant the pinned clai bin" || return 1
-    assert_provisioned "${dir}" "--copy" || return 1
+    assert_provisioned "${dir}" "--copy --report" || return 1
     assert_stderr_contains "${dir}" "!= pinned 2.0.0" "should log the stale-vs-pin mismatch" || return 1
     assert_stderr_contains "${dir}" "installed pinned clai 2.0.0 from GitHub Packages" "should log the successful re-install" || return 1
 }

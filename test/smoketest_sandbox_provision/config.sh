@@ -132,12 +132,19 @@ EOF
 # --- Runner ------------------------------------------------------------------
 
 # run_provision <dir> -- run the staged provision.sh with a hermetic
-# environment: fake PATH front (bin/), fake HOME, CLAI_PREFIX under the scenario
-# dir, a fake token so write_npmrc proceeds. Captures stderr to <dir>/stderr and
-# echoes the exit code. Never inherits the caller's real npm/clai.
+# environment: fake PATH (bin/ plus the system dirs provision.sh needs), fake
+# HOME, CLAI_PREFIX under the scenario dir, a fake token so write_npmrc
+# proceeds. Captures stderr to <dir>/stderr and echoes the exit code.
+#
+# PATH must NOT inherit the caller's: prepending to $PATH still leaves a real
+# `clai` (a laptop has one at ~/.local/bin) reachable, so every "clai is
+# absent" scenario silently became a "clai is present" scenario and ran the
+# REAL clai against the fake HOME. That is exactly how 03 and 05 failed on a
+# developer laptop while passing in a bare sandbox. Only the scenario's own
+# stubs and /usr/bin:/bin (awk, sed, rm, mkdir, bash) are visible.
 run_provision() {
     local dir="$1" rc=0
-    PATH="${dir}/bin:${PATH}" \
+    PATH="${dir}/bin:/usr/bin:/bin" \
     HOME="${dir}/home" \
     CLAI_PREFIX="${dir}/prefix" \
     GH_AI_TOOLS_PAT="faketoken-readpackages" \
