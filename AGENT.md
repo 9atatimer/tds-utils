@@ -133,8 +133,10 @@ main "$@"
   software only through package managers that verify signed code.
 - NEVER set a recurring/self-rearming trigger chain. One wake-up timer at
   most, then wait for the human. Never poll yourself -- it wastes quota.
-- NEVER use interrogative choice-menu prompts. If you need something, ask
-  directly for the missing value, with at most a one- or two-line suggestion.
+- NEVER use interrogative prompts. Not choice menus, not "shall I proceed?",
+  not "which do you prefer?". Decide, state the decision and its reason in one
+  line, and act. Only ask when the answer is a value you cannot obtain or
+  derive (a credential, a name, a URL) -- then ask for that value directly.
 - NEVER force-push. Land changes only via a PR off a fresh branch; if the
   designated branch is already merged, cut a new branch and open a new PR.
 
