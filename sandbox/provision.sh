@@ -159,11 +159,20 @@ install_clai() {
   npm install --prefix "$CLAI_PREFIX" --userconfig "$CLAI_PREFIX/.npmrc" \
       "@nine-at-a-time-media/clai@${CLAI_VERSION}" >"$log" 2>&1 || rc=1
 
-  # Remove the token file immediately, whatever the outcome. If removal itself
-  # fails (readonly FS, perms) the PAT would linger -- surface that LOUDLY
-  # rather than silently assume it's gone.
+  # Remove the token file immediately, whatever the outcome. If removal fails
+  # (readonly FS, perms, immutable flag) the PAT would linger on disk under the
+  # STABLE $CLAI_PREFIX -- unacceptable for a script that runs automatically
+  # with a secret present. Blank its contents best-effort so the token is not
+  # left readable, then FAIL the install (return 1): better to lose this
+  # session's provisioning (the caller stays fail-open) than to keep going
+  # while a credential lingers.
   rm -f "$CLAI_PREFIX/.npmrc"
-  [ -e "$CLAI_PREFIX/.npmrc" ] && note "WARNING: could not remove token file $CLAI_PREFIX/.npmrc -- delete it manually; it must not persist"
+  if [ -e "$CLAI_PREFIX/.npmrc" ]; then
+    : > "$CLAI_PREFIX/.npmrc" 2>/dev/null
+    rm -f "$log"
+    note "ERROR: could not remove token file $CLAI_PREFIX/.npmrc -- blanked its contents best-effort; delete it manually. Failing the install so provisioning does not continue with a lingering credential."
+    return 1
+  fi
 
   if [ "$rc" -ne 0 ]; then
     note "npm install of @nine-at-a-time-media/clai@${CLAI_VERSION} failed -- clai unavailable this session."

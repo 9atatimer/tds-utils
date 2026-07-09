@@ -283,6 +283,19 @@ Repo layer:
 
 ### Sandbox wrapper tree (decision)
 
+> **Revised 2026-07 (#101, RD1/RD3):** the original wording in this section
+> ("bootstrap clai wheel, verify sha256"; `pins.env` = `CLAI_VERSION` +
+> `CLAI_SHA256`) is superseded and kept only for history. `provision.sh` now
+> installs clai from **GitHub Packages**
+> (`npm install @nine-at-a-time-media/clai@${CLAI_VERSION}`), and `pins.env`
+> carries **only `CLAI_VERSION`** -- the `CLAI_SHA256` wheel-digest pin is
+> retired in favor of npm registry integrity (RD3). Read the tree and the
+> "low-velocity wrappers" note below through that lens: "fetch pinned wheel /
+> verify sha256" is now "npm-install the pinned version / npm verifies
+> registry integrity", and `claude-web/` also carries `setup.sh` -- the
+> pre-session ast-mcp installer (#99). See "Revised Decisions" (RD1-RD5) for
+> the full transport/token/verification changes.
+
 New top-level `sandbox/` in `tds-utils`:
 
 ```
