@@ -135,8 +135,10 @@ make_checkout() {
 #
 # PATH must NOT inherit the caller's: prepending leaves the developer's real
 # npm/node reachable, so a "stubbed npm" scenario silently becomes a "real npm"
-# scenario. Only the scenario's stubs and the system dirs setup.sh needs
-# (python3, grep, sort, rm, mkdir) are visible.
+# scenario. Only the scenario's stubs and the standard system directories
+# (/usr/bin:/bin) are visible -- deliberately not an enumeration of the
+# utilities setup.sh happens to call today, which would rot the moment it calls
+# one more.
 #
 # SETUP_SCAN_ROOTS defaults to EMPTY, not unset: the fallback scan must never
 # walk the developer's real /home/*/* during a test. Tests that exercise

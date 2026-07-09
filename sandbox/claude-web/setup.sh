@@ -125,9 +125,12 @@ init_log() {
   note "node=$(command -v node || echo MISSING) ($(node -v 2>/dev/null || echo n/a))  npm=$(command -v npm || echo MISSING)"
   note "GH_AI_TOOLS_PAT $([ -n "${GH_AI_TOOLS_PAT:-}" ] && echo SET || echo NOT-SET)"
   # Which GH_*/TOKEN-ish variables reach THIS stage at all. NAMES ONLY -- never
-  # values; this log is world-readable inside the sandbox. If the environment's
-  # variables are injected into the session but not into the setup script, this
-  # line is how we find out (it prints nothing) instead of guessing.
+  # values. init_log() hardens $LOG to mode 600, but that chmod is best-effort
+  # (a read-only or exotic $HOME makes it a no-op) and these lines also go to
+  # stderr, which the environment may capture anywhere. Never log a value.
+  # If the environment's variables are injected into the session but not into
+  # the setup script, this line is how we find out (it prints an empty list)
+  # instead of guessing.
   note "env var names visible here: [$(env | sed -n 's/^\(GH_[A-Za-z0-9_]*\|GITHUB_[A-Za-z0-9_]*\|CLAUDE_[A-Za-z0-9_]*\)=.*/\1/p' | sort | tr '\n' ' ')]"
   note "cwd contents: [$(ls -A . 2>/dev/null | head -12 | tr '\n' ' ')]"
   note "CLAUDE_PROJECT_DIR=[${CLAUDE_PROJECT_DIR:-<unset>}]  whoami=$(id -un 2>/dev/null)"
