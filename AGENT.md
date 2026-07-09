@@ -113,3 +113,22 @@ main "$@"
 - `set -euo pipefail` at the top.
 - Functions grouped and labeled with section comments (`# --- Section ---`).
 - Use `local` for all function-scoped variables.
+
+## Agent Operating Rules
+
+- Keep answers succinct and terse. Specificity is a virtue. No expository
+  filler. One or two sentences unless an explanation is requested; if more
+  detail is wanted, it will be asked for.
+- Do not give starting advice unless explicitly asked. Assume you are
+  stepping into a problem already in progress.
+- Always review the repo's CLAUDE.md/AGENT.md instructions.
+- The bash tool runs in a Docker sandbox: use it freely for self-computation;
+  it does not affect the real disk or world.
+- NEVER pull down and run a shell script (e.g. `curl ... | sh`). Install
+  software only through package managers that verify signed code.
+- NEVER set a recurring/self-rearming trigger chain. One wake-up timer at
+  most, then wait for the human. Never poll yourself -- it wastes quota.
+- NEVER use interrogative choice-menu prompts. If you need something, ask
+  directly for the missing value, with at most a one- or two-line suggestion.
+- NEVER force-push. Land changes only via a PR off a fresh branch; if the
+  designated branch is already merged, cut a new branch and open a new PR.
