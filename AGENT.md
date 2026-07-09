@@ -142,7 +142,7 @@ main "$@"
 
 - The moment ANY PR interaction starts -- opening, a review comment, CI, a
   reply -- ingest `prompts/GITHUB.md` and triage strictly against it. This
-  is automatic; never wait to be told to check GITHUB.md.
+  is automatic; never wait to be told to check `prompts/GITHUB.md`.
 - When you AGREE with review feedback and push a fix commit to the branch,
   you MUST kick off a Copilot re-review (`request_copilot_review` /
   `gh pr edit --add-reviewer @copilot`) so the next round fires.
