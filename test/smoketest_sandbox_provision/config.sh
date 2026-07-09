@@ -82,9 +82,13 @@ make_clai_stub() {
 # make_npm_install_stub <bindir> <install_version> <record> -- a fake npm that,
 # on `npm install --prefix DIR ...`, plants a clai stub of <install_version> at
 # DIR/node_modules/.bin/clai (mimicking a successful GitHub Packages install).
+# The stub content is pre-generated to a payload file here; the fake npm just
+# copies it at run time -- no base64 (its decode flag is GNU `-d` vs BSD `-D`,
+# a portability trap on macOS), and no nested-heredoc escaping.
 make_npm_install_stub() {
-    local bindir="$1" install_version="$2" record="$3" clai_b64
-    clai_b64="$(clai_stub_text "${install_version}" "${record}" | base64 | tr -d '\n')"
+    local bindir="$1" install_version="$2" record="$3"
+    clai_stub_text "${install_version}" "${record}" > "${bindir}/.clai-payload"
+    chmod +x "${bindir}/.clai-payload"
     cat > "${bindir}/npm" <<EOF
 #!/usr/bin/env bash
 prefix=""
@@ -93,7 +97,7 @@ while [ \$# -gt 0 ]; do
 done
 [ -n "\$prefix" ] || exit 1
 mkdir -p "\$prefix/node_modules/.bin"
-printf '%s' '${clai_b64}' | base64 -d > "\$prefix/node_modules/.bin/clai"
+cp "${bindir}/.clai-payload" "\$prefix/node_modules/.bin/clai"
 chmod +x "\$prefix/node_modules/.bin/clai"
 exit 0
 EOF
