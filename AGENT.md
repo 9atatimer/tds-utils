@@ -119,11 +119,16 @@ main "$@"
 - Keep answers succinct and terse. Specificity is a virtue. No expository
   filler. One or two sentences unless an explanation is requested; if more
   detail is wanted, it will be asked for.
-- Do not give starting advice unless explicitly asked. Assume you are
-  stepping into a problem already in progress.
+- Do not volunteer generic/unprompted starting or onboarding advice; assume
+  you are stepping into a problem already in progress. This does NOT relax
+  the Workflow Rules above -- still propose before writing and ask clarifying
+  scope questions.
 - Always review the repo's CLAUDE.md/AGENT.md instructions.
-- The bash tool runs in a Docker sandbox: use it freely for self-computation;
-  it does not affect the real disk or world.
+- In an ephemeral/sandboxed runtime the bash tool is a throwaway Docker
+  sandbox -- use it freely for self-computation there. Do NOT assume that
+  everywhere: on a real checkout (e.g. a laptop) bash affects the real disk
+  and network, so assume side effects unless you have confirmed you are in
+  the sandbox.
 - NEVER pull down and run a shell script (e.g. `curl ... | sh`). Install
   software only through package managers that verify signed code.
 - NEVER set a recurring/self-rearming trigger chain. One wake-up timer at
