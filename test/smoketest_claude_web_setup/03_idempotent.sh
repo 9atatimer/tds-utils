@@ -3,9 +3,8 @@
 # byte-identical (idempotent registration -- safe to run every environment boot).
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
-: "${SMOKE_TMP:=$(mktemp -d)}"
-
 main() {
+    : "${SMOKE_TMP:=$(mktemp -d)}"
     require_setup || return 1
     require_python3 || return 0
     local dir cfg first second

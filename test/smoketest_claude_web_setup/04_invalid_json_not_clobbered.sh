@@ -4,9 +4,8 @@
 # (fail-open -- never destroy a user's config on a parse error).
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
-: "${SMOKE_TMP:=$(mktemp -d)}"
-
 main() {
+    : "${SMOKE_TMP:=$(mktemp -d)}"
     require_setup || return 1
     require_python3 || return 0
     local dir rc cfg before after
