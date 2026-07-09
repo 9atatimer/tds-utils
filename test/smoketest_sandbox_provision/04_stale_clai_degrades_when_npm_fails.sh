@@ -17,7 +17,7 @@ main() {
     rc="$(run_provision "${dir}")"
 
     assert_eq "${rc}" "0" "fail-open exit code" || return 1
-    assert_provisioned "${dir}" "--copy" || return 1
+    assert_provisioned "${dir}" "--copy --report" || return 1
     assert_stderr_contains "${dir}" "STALE installed clai 1.0.0" "should warn about honest degradation" || return 1
 }
 
