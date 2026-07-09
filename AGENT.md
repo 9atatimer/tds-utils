@@ -132,3 +132,16 @@ main "$@"
   directly for the missing value, with at most a one- or two-line suggestion.
 - NEVER force-push. Land changes only via a PR off a fresh branch; if the
   designated branch is already merged, cut a new branch and open a new PR.
+
+## Pull Request Review (do this WITHOUT being told)
+
+- The moment ANY PR interaction starts -- opening, a review comment, CI, a
+  reply -- ingest `prompts/GITHUB.md` and triage strictly against it. This
+  is automatic; never wait to be told to check GITHUB.md.
+- When you AGREE with review feedback and push a fix commit to the branch,
+  you MUST kick off a Copilot re-review (`request_copilot_review` /
+  `gh pr edit --add-reviewer @copilot`) so the next round fires.
+- Reply to each comment and RESOLVE the thread as you address it; reject
+  ones you disagree with, on the thread, with a concrete reason.
+- Watch PRs via GitHub webhook EVENTS (the activity subscription), NEVER via
+  self-scheduled triggers or polling.
