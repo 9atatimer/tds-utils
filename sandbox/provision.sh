@@ -122,7 +122,7 @@ pins_set() {
 warn_pins_unset() {
   note "sandbox/pins.env has an UNSET CLAI_VERSION -- provisioning is disarmed."
   note "To (re)activate provisioning:"
-  note "  1. Pick a published @nine-at-a-time-media/clai version on GitHub Packages ('npm view @nine-at-a-time-media/clai version' with a classic read:packages token); set CLAI_VERSION to it."
+  note "  1. Pick a published @nine-at-a-time-media/clai version on GitHub Packages ('npm view @nine-at-a-time-media/clai version --registry=https://npm.pkg.github.com' with a classic read:packages token configured -- the explicit registry is required, else npm hits registry.npmjs.org and fails for this private package); set CLAI_VERSION to it."
   note "  2. Land the pin value via PR -- the pin bump IS the review gate."
   note "Session continues WITHOUT provisioning (fail-open)."
 }

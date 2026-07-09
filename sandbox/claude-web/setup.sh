@@ -127,10 +127,20 @@ install_ast_mcp_user() {
 # absolute bin path and clear "ast-mcp" from every project's
 # disabledMcpServers, so it is enabled everywhere. Idempotent. Preserves all
 # other keys. Creates ~/.claude.json if absent; refuses to clobber an existing
-# file that is not valid JSON (fail-open). Uses python3 (ubiquitous in web
-# sandboxes); falls back to jq.
+# file that is not valid JSON, and refuses to touch it at all when it is a
+# symlink or other non-regular file (fail-open). Uses python3 (ubiquitous in
+# web sandboxes); falls back to jq.
 register_user_scope() {
   local bin="$1" cfg="$HOME/.claude.json"
+  # Refuse to rewrite ~/.claude.json through a symlink or non-regular file
+  # (FIFO/device): this runs automatically with a token in the environment,
+  # and a symlink could redirect the write while a FIFO could block on open.
+  # Mirrors the .npmrc / install-dir hardening elsewhere in this script. An
+  # absent file is fine (we create it).
+  if [ -L "$cfg" ] || { [ -e "$cfg" ] && [ ! -f "$cfg" ]; }; then
+    note "refusing to register ast-mcp: $cfg exists and is not a regular file (symlink or special); leaving it untouched"
+    return 1
+  fi
   if command -v python3 >/dev/null 2>&1; then
     AST_BIN="$bin" CLAUDE_JSON="$cfg" python3 - <<'PY'
 import json, os, sys, tempfile
