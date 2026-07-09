@@ -17,7 +17,7 @@ main() {
     rc="$(run_provision "${dir}")"
 
     assert_eq "${rc}" "0" "fail-open exit code" || return 1
-    assert_provisioned "${dir}" "--copy" || return 1
+    assert_provisioned "${dir}" "--copy --report" || return 1
     assert_file_absent "${dir}/npm-called" "must NOT invoke npm when a healthy clai is present" || return 1
 }
 

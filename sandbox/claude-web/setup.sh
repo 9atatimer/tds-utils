@@ -19,19 +19,22 @@
 #   (or paste this file's body). It runs from the repo checkout with the
 #   environment secrets available (GH_AI_TOOLS_PAT).
 #
-# Registration scope (#99 decision: BOTH -- user scope primary, project
-# scope fallback):
-#   - USER scope (primary, race-winning, ubiquitous across repos): install
-#     @nine-at-a-time-media/ast-mcp to ~/.local via `npm install -g
-#     --prefix`, landing the executable at ~/.local/bin/ast-mcp -- the SAME
-#     path clai's clai.d/claude/pre/20-enable-ast-mcp hook already
-#     registers -- and register it in ~/.claude.json. Present before session
-#     init on every repo.
-#   - PROJECT scope (fallback): the committed <repo>/.mcp.json entry
-#     (project-local .ast-mcp, the #98 mechanism). Best-effort pre-installed
-#     here too when the checkout is reachable, so the committed entry
-#     resolves at first connect rather than shadowing the user-scope server
-#     with a not-yet-installed binary.
+# Registration scope (#99, revised): ONE binary path, registered twice.
+#   Install @nine-at-a-time-media/ast-mcp to ~/.local via `npm install -g
+#   --prefix`, landing the executable at ~/.local/bin/ast-mcp -- the SAME
+#   path clai's clai.d/*/pre/20-enable-ast-mcp hooks register and the SAME
+#   path the laptop's install-claude-user.sh writes -- then register it in
+#   ~/.claude.json (user scope). The committed <repo>/.mcp.json names the
+#   very same binary as "${HOME}/.local/bin/ast-mcp", which Claude Code
+#   expands in the spawned server's own environment (RD5).
+#
+#   Because both scopes now resolve to ONE executable, ast-mcp connects
+#   whichever scope wins: project scope shadows user scope by name when the
+#   committed .mcp.json entry is approved, and is skipped in favor of user
+#   scope when it is not (a fresh clone carries no approval). Previously the
+#   project entry pointed at a project-local .ast-mcp/ tree that had to be
+#   installed separately -- an extra install, an extra failure mode, and a
+#   "Conflicting scopes" diagnostic. That project-local install is gone.
 #
 # Delivery / auth: `npm install` from GitHub Packages (npm.pkg.github.com)
 # with a CLASSIC read:packages PAT (GH_AI_TOOLS_PAT) -- RD1/RD2. Raw release
@@ -76,14 +79,13 @@ write_npmrc() {
   ) || return 1
 }
 
-# npm_install_at <prefix> <global?> <spec> -- run one authed npm install into
-# <prefix>, writing/removing the token npmrc around it and surfacing npm's
-# output on failure. <global?> is "global" for `-g --prefix` (bins land in
-# <prefix>/bin) or "local" for a project-local install (bins land in
-# <prefix>/node_modules/.bin). Returns npm's success/failure; does NOT verify
-# the resulting bin (callers do, since the expected path differs by mode).
+# npm_install_at <prefix> <spec> -- run one authed GLOBAL npm install into
+# <prefix> (`-g --prefix`, so the bin lands in <prefix>/bin), writing and
+# removing the token npmrc around it and surfacing npm's output on failure.
+# Returns npm's success/failure; does NOT verify the resulting bin (the
+# caller does).
 npm_install_at() {
-  local prefix="$1" mode="$2" spec="$3" rc=0
+  local prefix="$1" spec="$2" rc=0
   command -v npm >/dev/null 2>&1 || { note "npm not on PATH -- cannot install $spec"; return 1; }
   if [ -L "$prefix" ] || { [ -e "$prefix" ] && [ ! -d "$prefix" ]; }; then
     note "refusing to use $prefix: it exists and is a symlink or non-directory"
@@ -91,9 +93,8 @@ npm_install_at() {
   fi
   mkdir -p "$prefix" || return 1
   write_npmrc "$prefix" || return 1
-  local log="$prefix/.npm-install.log" gflag=()
-  [ "$mode" = "global" ] && gflag=(-g)
-  npm install "${gflag[@]}" --prefix "$prefix" --userconfig "$prefix/.npmrc" \
+  local log="$prefix/.npm-install.log"
+  npm install -g --prefix "$prefix" --userconfig "$prefix/.npmrc" \
       "$spec" >"$log" 2>&1 || rc=1
   # If removal fails, the PAT would linger on disk under $prefix (e.g. ~/.local
   # or <repo>/.ast-mcp). Blank it best-effort and FAIL (return 1) rather than
@@ -123,7 +124,7 @@ npm_install_at() {
 # Echoes that bin path on success. Fails closed if the bin is absent after.
 install_ast_mcp_user() {
   local prefix="$HOME/.local" bin="$HOME/.local/bin/ast-mcp"
-  npm_install_at "$prefix" global "@nine-at-a-time-media/ast-mcp@latest" || return 1
+  npm_install_at "$prefix" "@nine-at-a-time-media/ast-mcp@latest" || return 1
   if [ ! -x "$bin" ]; then
     note "npm install reported success but $bin is missing or not executable -- treating as failed install"
     return 1
@@ -234,31 +235,6 @@ PY
   return 1
 }
 
-# resolve_project_dir -- the repo checkout to pre-install project-scope into:
-# CLAUDE_PROJECT_DIR if it carries a committed .mcp.json, else the cwd if it
-# does. Empty when no project .mcp.json is reachable (user scope then carries
-# first connect alone).
-resolve_project_dir() {
-  local d
-  for d in "${CLAUDE_PROJECT_DIR:-}" "$PWD"; do
-    [ -n "$d" ] && [ -f "$d/.mcp.json" ] && { printf '%s\n' "$d"; return 0; }
-  done
-  return 1
-}
-
-# install_ast_mcp_project <dir> -- PROJECT-scope fallback: install ast-mcp
-# into <dir>/.ast-mcp (project-local, matching the committed .mcp.json path)
-# so the committed entry resolves at first connect. Best-effort; fail-open.
-install_ast_mcp_project() {
-  local dir="$1" prefix="$1/.ast-mcp" bin="$1/.ast-mcp/node_modules/.bin/ast-mcp"
-  npm_install_at "$prefix" local "@nine-at-a-time-media/ast-mcp@latest" || return 1
-  if [ ! -x "$bin" ]; then
-    note "project-scope npm install reported success but $bin is missing -- skipping project pre-install"
-    return 1
-  fi
-  note "pre-installed ast-mcp at project scope ($bin) so the committed .mcp.json entry resolves at first connect"
-}
-
 # --- Flow functions ---
 
 # provision_via_clai -- delegate to the sibling provision.sh (clai + skills)
@@ -281,8 +257,10 @@ provision_via_clai() {
 }
 
 setup_flow() {
-  # 1) USER scope: the race-winning, cross-repo registration. This is the
-  #    core #99 fix -- do it first and independently of clai.
+  # 1) Install the ONE ast-mcp binary at ~/.local/bin/ast-mcp before session
+  #    init (the core #99 fix -- RD4), and register it at user scope. The
+  #    committed .mcp.json names this same path via ${HOME}, so both scopes
+  #    resolve here and no project-local install is needed.
   local user_bin=""
   if user_bin="$(install_ast_mcp_user)"; then
     register_user_scope "$user_bin" || note "ast-mcp installed at user scope but registration in ~/.claude.json failed (non-fatal)"
@@ -290,17 +268,7 @@ setup_flow() {
     note "user-scope ast-mcp install failed -- ast-mcp may connect late this environment (need npm + GH_AI_TOOLS_PAT with read:packages + egress to npm.pkg.github.com and registry.npmjs.org)."
   fi
 
-  # 2) PROJECT scope fallback: pre-install the project-local .ast-mcp the
-  #    committed .mcp.json points at, so it resolves at first connect instead
-  #    of shadowing the user-scope server with a not-yet-installed binary.
-  local project_dir=""
-  if project_dir="$(resolve_project_dir)"; then
-    install_ast_mcp_project "$project_dir" || note "project-scope pre-install skipped (user scope still carries first connect)"
-  else
-    note "no committed .mcp.json reachable at setup time -- user scope carries first connect; the SessionStart hook backfills project scope"
-  fi
-
-  # 3) Full provisioning (clai + skills) so the environment comes up fully
+  # 2) Full provisioning (clai + skills) so the environment comes up fully
   #    provisioned, no manual steps (#84).
   provision_via_clai "$@"
 

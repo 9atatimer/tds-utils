@@ -542,26 +542,46 @@ writing the config early is necessary but not sufficient; the binary it points
 at must also exist before session init. Scope choice (user `~/.claude.json` vs
 project `.mcp.json`) tracked in #99.
 
-**Resolved (#99): BOTH scopes, user-scope primary.** The env-setup installer
-is `sandbox/claude-web/setup.sh` (paste as the Claude web Environment "Setup
-script"). It installs `@nine-at-a-time-media/ast-mcp` at **user scope** via
-`npm install -g --prefix "$HOME/.local"`, which lands the executable at
-`~/.local/bin/ast-mcp` -- the *same* path clai's
-`clai.d/claude/pre/20-enable-ast-mcp` hook already registers -- and registers
-it in `~/.claude.json`. User scope is the primary, race-winning registration:
-present before session init, ubiquitous across repos, and it unifies the two
-existing registration mechanisms on one binary path (no stale-path conflict).
-The committed project `.mcp.json` (the #98 project-local `.ast-mcp`) is kept as
-the **fallback**; setup.sh best-effort pre-installs that project-local copy too
-when the checkout is reachable at setup time, so the committed entry resolves
-at first connect instead of shadowing the user-scope server with a
-not-yet-installed binary. The SessionStart hook is demoted to an idempotent
-refresh/fallback for project scope. Delivery/token/verification follow RD1-RD3
-(GitHub Packages, classic `read:packages`, npm integrity; ast-mcp floats to
-`@latest` as in #98). Remaining proof: ast-mcp *connected on first load*
-requires cutting a fresh web session after setup.sh is wired into the
-cloud-env config -- it cannot be fully confirmed from within the session that
-writes the fix.
+**Resolved (#99): ONE binary path, registered at both scopes.** The env-setup
+installer is `sandbox/claude-web/setup.sh` (paste as the Claude web
+Environment "Setup script"). It installs `@nine-at-a-time-media/ast-mcp` via
+`npm install -g --prefix "$HOME/.local"`, landing the executable at
+`~/.local/bin/ast-mcp` -- the *same* path the `clai.d/*/pre/20-enable-ast-mcp`
+hooks register and the *same* path the laptop's `install-claude-user.sh`
+writes -- and registers it in `~/.claude.json`. The committed project
+`.mcp.json` names that identical binary as `"${HOME}/.local/bin/ast-mcp"`,
+which Claude Code expands in the spawned server's own environment (RD5).
+
+Because both scopes resolve to one executable, **ast-mcp connects whichever
+scope wins.** This matters, because scope resolution is not what the original
+#99 write-up assumed. Measured against a live `claude mcp list`:
+
+- Project and user scope are matched **by name**; the highest-precedence
+  source supplies the *entire* entry (no field merging). Project scope
+  outranks user scope.
+- An **unapproved** project `.mcp.json` entry is *skipped*, and Claude falls
+  back to the user-scope server. A fresh clone carries no approval (the
+  approving `.claude/settings.local.json` is gitignored, and a checked-in
+  `enableAllProjectMcpServers` is ignored in an untrusted folder), so in a
+  cloud sandbox **user scope carries first connect**.
+- An **approved** project entry shadows user scope entirely. On a laptop,
+  where the human approved it once, the project entry is what runs.
+
+The earlier design -- project entry pointing at a project-local `.ast-mcp/`
+tree installed separately by setup.sh and the SessionStart hook -- therefore
+had two install sites for one server, two failure modes, and a permanent
+`[Conflicting scopes]` diagnostic (the two scopes named different endpoints).
+It also broke the laptop outright: nothing installs `.ast-mcp/` there (the
+hook is remote-gated and needs a token the laptop lacks), so the approved
+project entry shadowed a perfectly good user-scope binary with a path that did
+not exist. The project-local install is **removed**; the SessionStart hook is
+an idempotent user-scope refresh that never deletes the env-setup copy.
+
+Delivery/token/verification follow RD1-RD3 (GitHub Packages, classic
+`read:packages`, npm integrity; ast-mcp floats to `@latest` as in #98).
+Remaining proof: ast-mcp *connected on first load* requires cutting a fresh
+web session after setup.sh is wired into the cloud-env config -- it cannot be
+fully confirmed from within the session that writes the fix.
 
 ### RD5. Committed MCP command: only reference vars in the server's own process
 
@@ -574,6 +594,41 @@ the spawned server's own environment. Claude Code sets `CLAUDE_PROJECT_DIR`
 there and honors `${VAR:-default}`, so project-relative paths use
 `${CLAUDE_PROJECT_DIR:-.}/...`. Secret indirection (`${GHL_API_KEY}`) is
 unaffected -- those come from the agent's launch environment.
+
+**Enforced (2026-07, template-tools#144).** RD5 was recorded here but never
+propagated into the canonical `mcp/manifest.json`, which kept
+`"command": "${AST_MCP_BIN}"`. Since `clai provision` *regenerates*
+`.mcp.json` on every run, every run silently reverted the hand-corrected
+committed value back to the broken placeholder -- the design doc said one
+thing and the generator wrote another. Reproduced directly:
+
+```
+${AST_MCP_BIN}              -> Failed to connect
+                               [Warning] Missing environment variables: AST_MCP_BIN
+${HOME}/.local/bin/ast-mcp  -> Connected
+```
+
+The manifest now names `${HOME}/.local/bin/ast-mcp`. `$HOME` is the one
+variable **both** environments supply and every MCP client's child process
+has, and both installers already land the binary there.
+
+The remaining subtlety is that not every agent's client expands variables, so
+clai resolves placeholders **per target** (`clai.domain.placeholders`):
+
+| Target | Committed? | Client expands `${VAR}`? | clai emits |
+|---|---|---|---|
+| `<repo>/.mcp.json` (claude) | yes | yes | the placeholder, **literal** |
+| `~/.codex/config.toml` | no | no | a **resolved** absolute path |
+| `~/.gemini/config/mcp_config.json` (agy) | no | no | **resolved** |
+| `~/.config/opencode/opencode.json` | no | no | **resolved** |
+
+Resolving into the committed file would bake a machine-specific path into
+version control and churn the diff on every provision run; leaving it literal
+in the user-scope configs would never launch. Only an allowlist
+(`PROVISION_VARS`, currently `{HOME}`) is ever resolved, so `${GHL_API_KEY}`
+still reaches the agent as a placeholder and is never written into a config
+file -- and a reintroduced `${AST_MCP_BIN}` stays literal rather than being
+papered over, which is a regression test.
 
 ---
 
