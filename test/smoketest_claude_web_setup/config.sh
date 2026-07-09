@@ -95,16 +95,62 @@ write_claude_fixture() {
 JSON
 }
 
+# make_npm_dangling_stub <bindir> -- an npm that FAILS after leaving a broken
+# bin symlink behind, exactly as a real interrupted `npm install -g` does
+# (issue #113). setup.sh must remove it: the committed .mcp.json spawns that
+# path, so a dangling link is worse than nothing.
+make_npm_dangling_stub() {
+    local bindir="$1"
+    cat > "${bindir}/npm" <<'EOF'
+#!/usr/bin/env bash
+prefix=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --prefix) prefix="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[ -n "$prefix" ] || exit 1
+mkdir -p "$prefix/bin"
+ln -sf "../lib/node_modules/@nine-at-a-time-media/ast-mcp/dist/index.js" "$prefix/bin/ast-mcp"
+echo "npm ERR! stubbed failure after linking" >&2
+exit 1
+EOF
+    chmod +x "${bindir}/npm"
+}
+
+# make_checkout <dir> -- a fixture that satisfies setup.sh's three-marker
+# is_checkout(): sandbox/claude-web/setup.sh + sandbox/provision.sh + .mcp.json.
+make_checkout() {
+    local root="$1"
+    mkdir -p "${root}/sandbox/claude-web"
+    cp "${SETUP_SRC}" "${root}/sandbox/claude-web/setup.sh"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "${root}/sandbox/provision.sh"
+    printf '{ "mcpServers": {} }\n' > "${root}/.mcp.json"
+    printf '%s\n' "${root}"
+}
+
 # run_setup <dir> -- run the staged setup.sh hermetically. Honors optional
-# SETUP_CWD and SETUP_PROJECT_DIR overrides; defaults to an empty cwd and unset
-# CLAUDE_PROJECT_DIR (skips project pre-install + clai delegation). Echoes exit.
+# SETUP_CWD, SETUP_PROJECT_DIR and SETUP_SCAN_ROOTS overrides.
+#
+# PATH must NOT inherit the caller's: prepending leaves the developer's real
+# npm/node reachable, so a "stubbed npm" scenario silently becomes a "real npm"
+# scenario. Only the scenario's stubs and the standard system directories
+# (/usr/bin:/bin) are visible -- deliberately not an enumeration of the
+# utilities setup.sh happens to call today, which would rot the moment it calls
+# one more.
+#
+# SETUP_SCAN_ROOTS defaults to EMPTY, not unset: the fallback scan must never
+# walk the developer's real /home/*/* during a test. Tests that exercise
+# discovery set it explicitly.
 run_setup() {
     local dir="$1" rc=0 cwd="${SETUP_CWD:-$1/cwd}"
     ( cd "${cwd}" \
-      && PATH="${dir}/bin:${PATH}" \
+      && PATH="${dir}/bin:/usr/bin:/bin" \
          HOME="${dir}/home" \
          GH_AI_TOOLS_PAT="faketoken-readpackages" \
          CLAUDE_PROJECT_DIR="${SETUP_PROJECT_DIR:-}" \
+         SETUP_SCAN_ROOTS="${SETUP_SCAN_ROOTS-}" \
          bash "${dir}/setup.sh" >/dev/null 2>"${dir}/stderr" ) || rc=$?
     printf '%s\n' "${rc}"
 }
@@ -151,6 +197,7 @@ assert_stderr_contains() {
 }
 
 export -f require_setup require_python3 scenario_dir make_npm_stub \
-    make_npm_fail_stub write_claude_fixture run_setup \
+    make_npm_fail_stub make_npm_dangling_stub make_checkout \
+    write_claude_fixture run_setup \
     assert_eq assert_file_present assert_file_absent json_query \
     assert_json_eq assert_stderr_contains
