@@ -516,6 +516,27 @@ writing the config early is necessary but not sufficient; the binary it points
 at must also exist before session init. Scope choice (user `~/.claude.json` vs
 project `.mcp.json`) tracked in #99.
 
+**Resolved (#99): BOTH scopes, user-scope primary.** The env-setup installer
+is `sandbox/claude-web/setup.sh` (paste as the Claude web Environment "Setup
+script"). It installs `@nine-at-a-time-media/ast-mcp` at **user scope** via
+`npm install -g --prefix "$HOME/.local"`, which lands the executable at
+`~/.local/bin/ast-mcp` -- the *same* path clai's
+`clai.d/claude/pre/20-enable-ast-mcp` hook already registers -- and registers
+it in `~/.claude.json`. User scope is the primary, race-winning registration:
+present before session init, ubiquitous across repos, and it unifies the two
+existing registration mechanisms on one binary path (no stale-path conflict).
+The committed project `.mcp.json` (the #98 project-local `.ast-mcp`) is kept as
+the **fallback**; setup.sh best-effort pre-installs that project-local copy too
+when the checkout is reachable at setup time, so the committed entry resolves
+at first connect instead of shadowing the user-scope server with a
+not-yet-installed binary. The SessionStart hook is demoted to an idempotent
+refresh/fallback for project scope. Delivery/token/verification follow RD1–RD3
+(GitHub Packages, classic `read:packages`, npm integrity; ast-mcp floats to
+`@latest` as in #98). Remaining proof: ast-mcp *connected on first load*
+requires cutting a fresh web session after setup.sh is wired into the
+cloud-env config -- it cannot be fully confirmed from within the session that
+writes the fix.
+
 ### RD5. Committed MCP command: only reference vars in the server's own process
 
 **Finding.** `"command": "${AST_MCP_BIN}"` failed because `AST_MCP_BIN` is
