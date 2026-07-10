@@ -126,7 +126,7 @@ alive_cache_fresh() {
 # The guidance printed on a block. Verbatim tone per the contract.
 print_guidance() {
     echo "this branch has a merged or closed PR; branch names must not be reused." >&2
-    echo "Cut a fresh branch off master. Bypass this one commit with: git commit --no-verify." >&2
+    echo "Cut a fresh branch off your default branch. Bypass this one commit with: git commit --no-verify." >&2
 }
 
 # Run the checker and act on its verdict for the given branch.
@@ -150,21 +150,22 @@ run_guard() {
         mkdir -p "${cachedir}" 2>/dev/null || true
         atomic_write "${deadfile}" "${msg}
 this branch has a merged or closed PR; branch names must not be reused.
-Cut a fresh branch off master. Bypass this one commit with: git commit --no-verify." || true
+Cut a fresh branch off your default branch. Bypass this one commit with: git commit --no-verify." || true
         [ -n "${msg}" ] && echo "${msg}" >&2
         print_guidance
         exit 1
     fi
 
-    if [ "${rc}" -eq 2 ]; then
-        # Undetermined: fail-open. Do NOT cache alive, so the next commit retries.
-        echo "pre-commit: branch-guard could not verify PR state; allowing commit." >&2
+    if [ "${rc}" -eq 1 ]; then
+        # Alive (only OPEN or no PR): record a fresh alive marker and allow.
+        mkdir -p "${cachedir}" 2>/dev/null || true
+        atomic_write "${alivefile}" "$(date +%s)" || true
         exit 0
     fi
 
-    # rc 1 (alive): record a fresh alive marker (best-effort) and allow.
-    mkdir -p "${cachedir}" 2>/dev/null || true
-    atomic_write "${alivefile}" "$(date +%s)" || true
+    # rc 2 or any unexpected code: fail-open WITHOUT caching, so the next commit
+    # retries rather than trusting a stale "alive" verdict from an unknown state.
+    echo "pre-commit: branch-guard could not verify PR state; allowing commit." >&2
     exit 0
 }
 

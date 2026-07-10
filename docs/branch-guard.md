@@ -20,7 +20,7 @@ Code:
 Once a branch's pull request is **merged** or **closed**, that branch name is
 retired. Reusing it -- checking it back out and committing more work -- wastes
 effort (the history is settled), confuses reviewers, and pollutes the graph.
-The fix is to cut a fresh branch off `master` for new work.
+The fix is to cut a fresh branch off your default branch (e.g. `main`) for new work.
 
 The branch guard catches the mistake locally, at the two moments it matters:
 
@@ -125,8 +125,8 @@ guard hermetically testable with no network -- see
 4. Opt-out (`TDS_BRANCH_GUARD=0` or `branchguard.enabled` false) -> skip.
 5. Cache lookup (see below).
 6. Locate + run the checker. Terminal PR -> abort the commit (exit 1) with the
-   message and this guidance: cut a fresh branch off master, or bypass this one
-   commit with `git commit --no-verify`. Undetermined -> fail open. Alive ->
+   message and this guidance: cut a fresh branch off your default branch, or bypass
+   this one commit with `git commit --no-verify`. Undetermined -> fail open. Alive ->
    allow.
 
 **post-checkout** warns only. On an ordinary branch checkout of a retired
