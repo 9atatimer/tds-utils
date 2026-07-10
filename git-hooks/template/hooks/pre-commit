@@ -199,9 +199,9 @@ main() {
     key="$(encode_key "${branch}")"
     deadfile="${cachedir}/${key}.dead"
 
-    # Dead cache is permanent within a clone: block with no network.
+    # Dead cache is permanent within a clone: block with no network. The cached
+    # marker already embeds the guidance, so don't print it again.
     if check_dead_cache "${deadfile}" >&2; then
-        print_guidance
         exit 1
     fi
 
