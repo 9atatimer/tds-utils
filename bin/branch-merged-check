@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# branch-merged-check -- decide whether a branch has a TERMINAL GitHub PR.
+#
+# Purpose:
+#   Report whether BRANCH is backed by a MERGED or CLOSED pull request, so a
+#   git hook can BLOCK reuse of a retired branch name. This is the pure,
+#   testable core behind the pre-commit / post-checkout branch guard; the
+#   hooks locate and run it, it does the PR-state lookup and nothing else.
+#
+# Usage:   branch-merged-check [-q] BRANCH   (run with cwd inside the repo)
+#
+# Query seam (for hermetic tests):
+#   If env TDS_BRANCHGUARD_QUERY is set AND executable, it is run as
+#       "$TDS_BRANCHGUARD_QUERY" BRANCH
+#   and its stdout is read instead of calling gh. Otherwise gh is used.
+#   Either way the query emits zero or more lines, one PR per line:
+#       STATE NUMBER URL
+#   where STATE is one of OPEN MERGED CLOSED (uppercase). No PRs => empty
+#   output. A non-zero exit from the query means "could not determine".
+#
+# Exit codes (the contract the hook depends on):
+#   0  a terminal PR (MERGED or CLOSED) exists  => caller should BLOCK.
+#      Unless -q, prints one human line naming state, PR number, and URL.
+#   1  no terminal PR (only OPEN, or none)      => alive, allow. Prints nothing.
+#   2  could not determine (no gh / not authed / offline / query failed)
+#      => allow, fail-open. Unless -q, prints one short note to stderr.
+#   3  usage error.
+#
+# Prereqs: bash; gh (only for the default, non-seam path).
+#
+# SAFETY: never reads or executes any file from the repository. The only
+#   external process it runs is gh (or the injected query script).
+#
+# Portability: macOS system bash 3.2 / BSD userland and Linux. ASCII-only
+#   output, no mapfile/readarray, no `declare -A`, no GNU-only tool flags.
+#
+# NOTE: `set -e` is intentionally omitted -- a failing query is a normal,
+#   explicitly-handled outcome (exit 2), not a reason to abort.
+
+set -uo pipefail
+
+# --- Globals ---
+
+QUIET=false
+
+# --- Action functions ---
+
+# Run the injected query seam if present, else the default gh lookup. Emits
+# "STATE NUMBER URL" lines on stdout. Returns the query's own exit status so
+# the caller can distinguish "no PRs" (0, empty) from "undetermined" (non-0).
+query_prs() {
+    local branch="$1"
+    if [ -n "${TDS_BRANCHGUARD_QUERY:-}" ] && [ -x "${TDS_BRANCHGUARD_QUERY}" ]; then
+        "${TDS_BRANCHGUARD_QUERY}" "${branch}"
+        return $?
+    fi
+    query_gh "${branch}"
+}
+
+# Default lookup: ask gh for every PR whose head is BRANCH, in any state, and
+# reshape each into "STATE NUMBER URL" with the state uppercased. Any failure
+# (gh absent, unauthenticated, offline, bad exit) propagates as non-zero so
+# the caller treats it as undetermined.
+query_gh() {
+    local branch="$1"
+    command -v gh >/dev/null 2>&1 || return 1
+    gh pr list --head "${branch}" --state all \
+        --json state,number,url \
+        --jq '.[] | "\(.state | ascii_upcase) \(.number) \(.url)"' 2>/dev/null
+}
+
+# --- Flow functions ---
+
+# Scan the query output for a terminal PR, preferring MERGED over CLOSED.
+# Echoes the winning "STATE NUMBER URL" line and returns 0 if one is found;
+# returns 1 if only OPEN (or none) were present.
+pick_terminal() {
+    local lines="$1" line state closed_line=""
+    while IFS= read -r line; do
+        [ -n "${line}" ] || continue
+        state="${line%% *}"
+        case "${state}" in
+            MERGED) printf '%s\n' "${line}"; return 0 ;;
+            CLOSED) [ -n "${closed_line}" ] || closed_line="${line}" ;;
+        esac
+    done <<EOF
+${lines}
+EOF
+    if [ -n "${closed_line}" ]; then
+        printf '%s\n' "${closed_line}"
+        return 0
+    fi
+    return 1
+}
+
+# Format the one-line block message from a terminal "STATE NUMBER URL" line.
+report_block() {
+    local branch="$1" line="$2" state number url
+    state="${line%% *}"
+    line="${line#* }"
+    number="${line%% *}"
+    url="${line#* }"
+    printf "branch '%s' already has a %s PR #%s (%s)\n" \
+        "${branch}" "${state}" "${number}" "${url}"
+}
+
+# Orchestrate: query, classify, and map to the 0/1/2 exit contract.
+check_branch() {
+    local branch="$1" out rc terminal
+    out="$(query_prs "${branch}")"
+    rc=$?
+    if [ "${rc}" -ne 0 ]; then
+        ${QUIET} || echo "branch-merged-check: could not determine PR state for '${branch}' (gh unavailable/offline); allowing." >&2
+        return 2
+    fi
+    if terminal="$(pick_terminal "${out}")"; then
+        ${QUIET} || report_block "${branch}" "${terminal}"
+        return 0
+    fi
+    return 1
+}
+
+usage() {
+    cat <<'EOF'
+Usage: branch-merged-check [-q] BRANCH
+
+Reports whether BRANCH has a terminal GitHub PR (MERGED or CLOSED). Run with
+cwd inside the target repo.
+
+  -q   quiet: suppress the human/stderr notes; communicate via exit code only
+  -h   this help
+
+Exit: 0 terminal PR (block), 1 alive (allow), 2 undetermined (allow), 3 usage.
+EOF
+}
+
+# --- Main ---
+
+main() {
+    local opt
+    while getopts "qh" opt; do
+        case "${opt}" in
+            q) QUIET=true ;;
+            h) usage; exit 0 ;;
+            *) usage; exit 3 ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+
+    local branch="${1:-}"
+    if [ -z "${branch}" ]; then
+        usage >&2
+        exit 3
+    fi
+
+    check_branch "${branch}"
+}
+
+main "$@"
