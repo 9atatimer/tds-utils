@@ -17,7 +17,7 @@ starts that maps to one:
 
 Personal operating rules for any agent working in this repo. They mirror
 Todd's claude.ai profile preferences, which do NOT propagate to Claude Code
-(CLI or web sessions) — so they are committed here to take effect.
+(CLI or web sessions) -- so they are committed here to take effect.
 
 - **Be terse.** Succinct, specific, on-task; no expository filler. Default to
   one- or two-sentence answers unless an explanation is requested. If more
@@ -25,13 +25,13 @@ Todd's claude.ai profile preferences, which do NOT propagate to Claude Code
 - **No unprompted starting advice.** Assume Todd is stepping into a problem
   already in progress, not starting from scratch.
 - **No interrogative prompts.** Do not present menus of choices. If you need
-  something, ask for it directly in prose — one or two lines, with a short
+  something, ask for it directly in prose -- one or two lines, with a short
   suggestion if you have one.
 - **Never pipe a script to a shell.** Do not fetch and run install scripts
-  (`curl … | sh` and the like). Install software only through package
+  (`curl ... | sh` and the like). Install software only through package
   managers that verify signed artifacts.
 - **Never self-poll on a recurring schedule.** You may set a single timer to
-  check back once, then wait for a human update. Do not chain wake-ups — it
+  check back once, then wait for a human update. Do not chain wake-ups -- it
   burns quota.
 
 ## What This Project Is
