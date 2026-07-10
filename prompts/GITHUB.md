@@ -53,6 +53,16 @@ Because the `9atatimer` organization has Copilot review enabled, all AI review c
    - Repeat until Copilot is satisfied.
 5. **Human Review:** Once the AI review cycles are settled, the human will take over for final review and merging. Do NOT attempt to create a second "final" PR.
 
+## Pull Request Template
+
+This repo has a PR template at `.github/pull_request_template.md` -- the **only**
+template location here. When opening a PR, fill in that file's sections and do
+**not** search the other GitHub template paths
+(`.github/PULL_REQUEST_TEMPLATE/`, repo root, or `docs/`). There is exactly one,
+and this is it. The web UI pre-fills it on PR open; agents creating PRs through
+the API reproduce its headings: **Summary / Changes / Testing / Notes**.
+
+
 ## Branch Safety (CRITICAL)
 
 - **NEVER WORK ON THE `master` BRANCH**
