@@ -1,0 +1,203 @@
+#!/usr/bin/env bash
+# pre-commit - branch-reuse guard.
+#
+# Blocks a commit on a branch that already has a TERMINAL GitHub PR (MERGED or
+# CLOSED). Reusing such a branch name wastes work and pollutes history. This is
+# the primary, earliest gate; the post-checkout hook is only an advisory
+# heads-up. See docs/branch-guard.md for the full mechanism.
+#
+# No args, no stdin. Git runs it at the repo root before recording a commit.
+# Detection is delegated to `branch-merged-check` (the checker), located the
+# same way post-checkout locates clone-audit: git config -> PATH -> home
+# fallback. The checker's exit code is the contract: 0=terminal PR (block),
+# 1=alive (allow), 2=undetermined (fail-open, allow).
+#
+# Caching (under $git-dir/tds-branchguard): a per-branch `.dead` marker blocks
+# permanently within a clone with no network; a `.alive` marker holds an epoch
+# and is honored for branchguard.ttl seconds to skip repeat network checks.
+#
+# Portability: bash 3.2 / BSD-safe. Output is ASCII-only.
+#
+# NOTE: `set -e` is intentionally omitted. A hook must NEVER abort a git
+# operation by accident. The ONLY non-zero exit is a deliberate, confirmed
+# block; the checker's exit code is captured explicitly.
+
+set -uo pipefail
+
+# --- Action functions ---
+
+# Opt-out via env var or git config. Default is ENABLED (unset => on).
+guard_disabled() {
+    [ "${TDS_BRANCH_GUARD:-1}" = "0" ] && return 0
+    [ "$(git config --bool branchguard.enabled 2>/dev/null)" = "false" ] && return 0
+    return 1
+}
+
+# True when a merge/rebase/cherry-pick/bisect is in progress; we must not
+# interfere with those git-internal commits.
+operation_in_progress() {
+    local gitdir
+    gitdir="$(git rev-parse --git-dir 2>/dev/null || true)"
+    [ -n "${gitdir}" ] || return 1
+    [ -e "${gitdir}/MERGE_HEAD" ]        && return 0
+    [ -e "${gitdir}/CHERRY_PICK_HEAD" ]  && return 0
+    [ -e "${gitdir}/BISECT_LOG" ]        && return 0
+    [ -e "${gitdir}/rebase-merge" ]      && return 0
+    [ -e "${gitdir}/rebase-apply" ]      && return 0
+    return 1
+}
+
+# Trunk branches are never guarded.
+is_trunk() {
+    case "$1" in
+        master | main | develop | trunk ) return 0 ;;
+    esac
+    return 1
+}
+
+# Percent-encode a branch name for use as a cache filename: every '/' -> %2F.
+# (Branch names contain slashes; filenames cannot.) No external tools.
+encode_key() {
+    local name="$1" out=""
+    while [ -n "${name}" ]; do
+        case "${name}" in
+            */* ) out="${out}${name%%/*}%2F" ; name="${name#*/}" ;;
+            *   ) out="${out}${name}" ; name="" ;;
+        esac
+    done
+    printf '%s\n' "${out}"
+}
+
+# Resolve the checker robustly (bin dir may not be on PATH for IDE/GUI commits):
+# git config -> PATH -> home fallback. branchguard.checkerPath is read with
+# --type=path so a '~/...' value expands. Prints the path; non-zero if none.
+locate_checker() {
+    local checker cand
+    checker="$(git config --type=path --get branchguard.checkerPath 2>/dev/null || true)"
+    if [ -z "${checker}" ] || [ ! -x "${checker}" ]; then
+        checker="$(command -v branch-merged-check 2>/dev/null || true)"
+    fi
+    if [ -z "${checker}" ] || [ ! -x "${checker}" ]; then
+        cand="${HOME:-}/.local/bin/branch-merged-check"
+        [ -n "${HOME:-}" ] && [ -x "${cand}" ] && checker="${cand}"
+    fi
+    [ -n "${checker}" ] && [ -x "${checker}" ] || return 1
+    printf '%s\n' "${checker}"
+}
+
+# Atomically write content to a file: temp in the same dir, then mv. Prints
+# nothing; returns non-zero if the write fails (caller tolerates a read-only
+# git dir -- the cache is only an optimization).
+atomic_write() {
+    local dest="$1" content="$2" tmp
+    tmp="${dest}.tmp.$$"
+    printf '%s' "${content}" > "${tmp}" 2>/dev/null || return 1
+    mv -f "${tmp}" "${dest}" 2>/dev/null || { rm -f "${tmp}" 2>/dev/null; return 1; }
+    return 0
+}
+
+# --- Flow functions ---
+
+# Return 0 (block) if a fresh .dead marker exists, printing its contents.
+check_dead_cache() {
+    local deadfile="$1"
+    [ -f "${deadfile}" ] || return 1
+    cat "${deadfile}" 2>/dev/null
+    return 0
+}
+
+# Return 0 (allow, skip network) if a fresh .alive marker exists within ttl.
+alive_cache_fresh() {
+    local alivefile="$1" ttl stored now
+    [ -f "${alivefile}" ] || return 1
+    ttl="$(git config branchguard.ttl 2>/dev/null || true)"
+    case "${ttl}" in
+        '' | *[!0-9]* ) ttl=600 ;;
+    esac
+    stored="$(cat "${alivefile}" 2>/dev/null || true)"
+    case "${stored}" in
+        '' | *[!0-9]* ) return 1 ;;
+    esac
+    now="$(date +%s)"
+    [ $((now - stored)) -lt "${ttl}" ] && return 0
+    return 1
+}
+
+# The guidance printed on a block. Verbatim tone per the contract.
+print_guidance() {
+    echo "this branch has a merged or closed PR; branch names must not be reused." >&2
+    echo "Cut a fresh branch off master. Bypass this one commit with: git commit --no-verify." >&2
+}
+
+# Run the checker and act on its verdict for the given branch.
+run_guard() {
+    local branch="$1" cachedir="$2" key="$3"
+    local checker msg rc deadfile alivefile
+
+    if ! checker="$(locate_checker)"; then
+        echo "pre-commit: branch-merged-check not found (set git config branchguard.checkerPath); skipping branch guard." >&2
+        exit 0
+    fi
+
+    deadfile="${cachedir}/${key}.dead"
+    alivefile="${cachedir}/${key}.alive"
+
+    msg="$("${checker}" "${branch}" 2>/dev/null)"
+    rc=$?
+
+    if [ "${rc}" -eq 0 ]; then
+        # Terminal PR: block. Cache the verdict (best-effort), enforce regardless.
+        mkdir -p "${cachedir}" 2>/dev/null || true
+        atomic_write "${deadfile}" "${msg}
+this branch has a merged or closed PR; branch names must not be reused.
+Cut a fresh branch off master. Bypass this one commit with: git commit --no-verify." || true
+        [ -n "${msg}" ] && echo "${msg}" >&2
+        print_guidance
+        exit 1
+    fi
+
+    if [ "${rc}" -eq 2 ]; then
+        # Undetermined: fail-open. Do NOT cache alive, so the next commit retries.
+        echo "pre-commit: branch-guard could not verify PR state; allowing commit." >&2
+        exit 0
+    fi
+
+    # rc 1 (alive): record a fresh alive marker (best-effort) and allow.
+    mkdir -p "${cachedir}" 2>/dev/null || true
+    atomic_write "${alivefile}" "$(date +%s)" || true
+    exit 0
+}
+
+# --- Main ---
+
+main() {
+    local branch gitdir cachedir key deadfile
+
+    operation_in_progress && exit 0
+
+    branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+    [ -n "${branch}" ] || exit 0          # detached HEAD
+
+    is_trunk "${branch}"  && exit 0
+    guard_disabled        && exit 0
+
+    gitdir="$(git rev-parse --git-dir 2>/dev/null || true)"
+    [ -n "${gitdir}" ] || exit 0
+    cachedir="${gitdir}/tds-branchguard"
+    key="$(encode_key "${branch}")"
+    deadfile="${cachedir}/${key}.dead"
+
+    # Dead cache is permanent within a clone: block with no network.
+    if check_dead_cache "${deadfile}" >&2; then
+        print_guidance
+        exit 1
+    fi
+
+    # Fresh alive cache: skip the network check.
+    alive_cache_fresh "${cachedir}/${key}.alive" && exit 0
+
+    run_guard "${branch}" "${cachedir}" "${key}"
+    exit 0
+}
+
+main "$@"
