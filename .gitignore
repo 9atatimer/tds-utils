@@ -31,3 +31,7 @@ tmp/
 .claude/skills/
 .codex/
 
+
+# Local, private security-audit notes -- must never be pushed.
+/AUDIT-FINDINGS.local.md
+*.local.md
