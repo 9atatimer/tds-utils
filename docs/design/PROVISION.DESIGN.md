@@ -630,6 +630,42 @@ still reaches the agent as a placeholder and is never written into a config
 file -- and a reintroduced `${AST_MCP_BIN}` stays literal rather than being
 papered over, which is a regression test.
 
+### RD6. Central global CLAUDE.md: delivered by the setup stage, cloud-only, create-if-absent
+
+**Finding.** `claude.ai > Settings > General > Instructions` is NOT shared with
+Claude Code (neither CLI nor web/remote), so cross-cutting, repo-agnostic agent
+instructions never reach a session -- only per-repo `CLAUDE.md`/`AGENT.md` load.
+There is also no public/CLI API to read or sync that claude.ai field (the web
+app's save endpoint is internal, cookie-gated, unsupported).
+
+**Decision (tds-utils#127, landed template-tools#151).** Ship a repo-agnostic
+global `CLAUDE.md` as INERT DATA bundled inside `@nine-at-a-time-media/sandbox`
+(`assets/CLAUDE.global.md`, in `files[]`) -- the package version stays the
+single review gate, so no new pin and no second pre-session install. It rides
+the same setup stage that installs ast-mcp (RD4: the only phase both
+post-checkout and pre-session-init, so the file is on disk before Claude Code
+loads memory). Placement contract:
+
+- **Cloud only** (`CLAUDE_CODE_REMOTE` truthy or `HOME=/root`); a laptop/real
+  checkout is a no-op.
+- **Two targets, nothing else:** `/etc/claude-code/CLAUDE.md` (primary, system
+  scope, outside home) -> `/root/CLAUDE.md` (fallback). `~` is NEVER mutated;
+  `~/.claude` is off-limits.
+- **Create-if-absent, never overwrite;** refuse a symlink/special target;
+  atomic temp+`mv`, mode 644; fail-open (setup stage always `exit 0`).
+- Loads hierarchically with each repo's own `CLAUDE.md` (repo wins on
+  specificity), keeping global and repo instructions distinct.
+
+Rejected `~/.claude/CLAUDE.md` (mutating home) and treating `/etc/claude-code`
+as override-proof managed policy (wrong semantics -- repos must be able to
+supplement). Published `@nine-at-a-time-media/sandbox@0.2.0`.
+
+**Caveat (measured).** Claude Code ingests the placed file VERBATIM -- HTML
+comments are not stripped -- so any non-instruction content (e.g. a "generated,
+don't edit" header) costs tokens every session and reads as instruction-
+adjacent. Keep the placed file instruction-only; put provenance out of the file
+body. (See Future Considerations.)
+
 ---
 
 ## Open Questions
@@ -687,6 +723,13 @@ papered over, which is a regression test.
   never-refreshed* cached blob -- which this is not.
 - **Symlinks in ephemeral sandboxes** -- The clone the links point into is
   discarded with the container; copies are the only durable form there.
+- **Enforcing agent behavior by mutating global Claude Code settings (#127)** --
+  A `permissions.deny` on a tool (e.g. `AskUserQuestion`) in
+  `~/.claude/settings.json` would hard-block the behavior, but the owner
+  rejected the sandbox touching global settings at all (risk of breaking the
+  harness). The behavior is carried by the global `CLAUDE.md` instruction text
+  instead; the sandbox writes exactly one thing -- the global `CLAUDE.md` -- and
+  mutates nothing else global.
 
 ---
 
@@ -702,6 +745,10 @@ papered over, which is a regression test.
 - **Coordinator integration** -- clai's overlay-hook seam for TODO leasing
   (CLAI.DESIGN.md v2 notes) composes with, but is independent of, this
   design.
+- **Strip the managed-header comment from the placed global CLAUDE.md** -- it is
+  read verbatim every session (~25 tokens, instruction-adjacent; see RD6
+  caveat). Move provenance to a sibling marker or the package README so the
+  placed file is 100% instruction tokens. Tracked as a follow-up issue.
 
 ---
 
