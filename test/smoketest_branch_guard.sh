@@ -312,6 +312,20 @@ test_precommit_dead_cache_shortcircuits() {
     assert "guidance not duplicated on cached block" "[ \"${guidance_hits}\" = '1' ]"
 }
 
+test_precommit_unreadable_dead_marker() {
+    bold "Test: an empty/unreadable .dead marker still blocks WITH guidance"; printf '\n'
+    local dir; dir="$(new_guarded_repo pc-emptydead)"
+    git -C "${dir}" checkout -q -b feature
+    # Simulate a present-but-unreadable marker: an empty .dead file.
+    mkdir -p "${dir}/.git/tds-branchguard"
+    : > "${dir}/.git/tds-branchguard/feature.dead"
+    local q="${WORKROOT}/pc-emptydead-q"; make_query "${q}" open
+    attempt_commit "${dir}" "${q}"
+    assert "empty-marker commit blocked" "[ ${COMMIT_RC} -ne 0 ]"
+    assert "block still carries guidance" \
+        "grep -q 'branch names must not be reused' <<< \"\${COMMIT_OUT}\""
+}
+
 test_precommit_fail_open() {
     bold "Test: undetermined query fails open and writes no .alive marker"; printf '\n'
     local dir; dir="$(new_guarded_repo pc-failopen)"
@@ -371,6 +385,7 @@ main() {
     test_precommit_slash_branch_encoded
     test_precommit_percent_literal_no_collision
     test_precommit_dead_cache_shortcircuits
+    test_precommit_unreadable_dead_marker
     test_precommit_fail_open
     test_precommit_unexpected_rc
     test_precommit_bypass

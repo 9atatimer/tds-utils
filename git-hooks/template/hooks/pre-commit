@@ -109,11 +109,18 @@ atomic_write() {
 
 # --- Flow functions ---
 
-# Return 0 (block) if a fresh .dead marker exists, printing its contents.
+# Return 0 (block) if a fresh .dead marker exists, printing its contents to
+# stderr. If the marker is present but unreadable (permissions/corruption),
+# still block but fall back to the standard guidance so a block is never silent.
 check_dead_cache() {
-    local deadfile="$1"
+    local deadfile="$1" content
     [ -f "${deadfile}" ] || return 1
-    cat "${deadfile}" 2>/dev/null
+    content="$(cat "${deadfile}" 2>/dev/null)"
+    if [ -n "${content}" ]; then
+        printf '%s\n' "${content}" >&2
+    else
+        print_guidance
+    fi
     return 0
 }
 
@@ -201,7 +208,7 @@ main() {
 
     # Dead cache is permanent within a clone: block with no network. The cached
     # marker already embeds the guidance, so don't print it again.
-    if check_dead_cache "${deadfile}" >&2; then
+    if check_dead_cache "${deadfile}"; then
         exit 1
     fi
 
