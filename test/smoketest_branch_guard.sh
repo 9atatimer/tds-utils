@@ -306,6 +306,10 @@ test_precommit_dead_cache_shortcircuits() {
     attempt_commit "${dir}" "${qf}"
     assert "cached commit still blocked" "[ ${COMMIT_RC} -ne 0 ]"
     assert "HEAD still unchanged" "[ \"\$(head_of '${dir}')\" = '${before}' ]"
+    # The cached marker already embeds the guidance; it must not be printed twice.
+    local guidance_hits
+    guidance_hits="$(printf '%s\n' "${COMMIT_OUT}" | grep -c 'branch names must not be reused' || true)"
+    assert "guidance not duplicated on cached block" "[ \"${guidance_hits}\" = '1' ]"
 }
 
 test_precommit_fail_open() {
