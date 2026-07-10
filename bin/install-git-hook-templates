@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
-# install-git-hook-templates -- wire up the clone-time security audit globally.
+# install-git-hook-templates -- wire up the clone-time security audit AND the
+# branch-reuse guard globally.
 #
 # Points git at a HOME-anchored hook template so every future `git clone` runs
 # clone-audit against the new worktree (see docs/clone-audit.md -- git has no
-# post-clone hook, so we ride post-checkout).
+# post-clone hook, so we ride post-checkout). The same template ships the
+# pre-commit branch guard, which blocks commits to a branch whose GitHub PR is
+# already merged/closed (see docs/branch-guard.md); post-checkout also warns
+# when you check such a retired branch out.
 #
 # The git config wiring is repo-location-independent -- it names only ~ paths:
-#   init.templateDir  = ~/.config/git/template
-#   audit.scannerPath = ~/.local/bin/clone-audit   (hook reads it with --type=path)
+#   init.templateDir        = ~/.config/git/template
+#   audit.scannerPath       = ~/.local/bin/clone-audit         (hook reads it with --type=path)
+#   branchguard.checkerPath = ~/.local/bin/branch-merged-check (hook reads it with --type=path)
 # and this installer symlinks those ~ paths to wherever THIS repo is checked
 # out. So the committed config is portable across machines (mac/LMDE) and
 # survives moving the repo -- just re-run this installer to repoint the links.
@@ -36,14 +41,17 @@ REPO_DIR="$(dirname "${SCRIPT_DIR}")"
 TEMPLATE_DIR="${REPO_DIR}/git-hooks/template"        # source (in-repo)
 HOOKS_DIR="${TEMPLATE_DIR}/hooks"
 SCANNER="${REPO_DIR}/bin/clone-audit"                # source (in-repo)
+CHECKER="${REPO_DIR}/bin/branch-merged-check"        # source (in-repo)
 
 # Home-anchored link targets -- what the git config names. The symlinks created
 # below point them at the in-repo sources. Kept literally in sync with the
 # values committed in git-config/dot.gitconfig (do not introduce repo paths).
 TEMPLATE_LINK="${HOME}/.config/git/template"
 SCANNER_LINK="${HOME}/.local/bin/clone-audit"
+CHECKER_LINK="${HOME}/.local/bin/branch-merged-check"
 TEMPLATE_CFG='~/.config/git/template'                # literal ~; git expands it
 SCANNER_CFG='~/.local/bin/clone-audit'
+CHECKER_CFG='~/.local/bin/branch-merged-check'
 
 MECHANISM="templateDir"
 DRY_RUN=false
@@ -61,6 +69,12 @@ verify_prereqs() {
     }
     [ -x "${SCANNER}" ] || {
         say "error: scanner not found/executable: ${SCANNER}"; exit 1
+    }
+    [ -x "${HOOKS_DIR}/pre-commit" ] || {
+        say "error: hook not found/executable: ${HOOKS_DIR}/pre-commit"; exit 1
+    }
+    [ -x "${CHECKER}" ] || {
+        say "error: checker not found/executable: ${CHECKER}"; exit 1
     }
 }
 
@@ -94,11 +108,15 @@ set_git_config() {
 
 link_template() { link_into_home "${TEMPLATE_DIR}" "${TEMPLATE_LINK}"; }
 link_scanner()  { link_into_home "${SCANNER}" "${SCANNER_LINK}"; }
+link_checker()  { link_into_home "${CHECKER}" "${CHECKER_LINK}"; }
 
 install_common_config() {
     link_scanner
     set_git_config "audit.scannerPath" "${SCANNER_CFG}"
     set_git_config "audit.enabled" "true"
+    link_checker
+    set_git_config "branchguard.checkerPath" "${CHECKER_CFG}"
+    set_git_config "branchguard.enabled" "true"
 }
 
 install_template_dir() {
@@ -121,6 +139,7 @@ print_verify() {
     say "Done. Verify with a throwaway clone of any repo:"
     say "  git clone <repo-url> /tmp/audit-check && rm -rf /tmp/audit-check"
     say "Opt out anytime: git config --global audit.enabled false  (or TDS_CLONE_AUDIT=0)"
+    say "Branch guard opt-out: git config --global branchguard.enabled false  (or TDS_BRANCH_GUARD=0)"
 }
 
 run_install() {
@@ -133,7 +152,7 @@ run_install() {
     print_verify
 }
 
-usage() { sed -n '2,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 # --- Main ---
 
