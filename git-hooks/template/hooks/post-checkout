@@ -132,11 +132,11 @@ warn_if_retired_branch() {
     "${checker}" -q "${branch}" >/dev/null 2>&1
     rc=$?
     [ "${rc}" = "0" ] || return 0
-    printf '\n'
+    printf '\n' >&2
     printf '=====================================================================\n' >&2
     printf 'WARNING: branch %s is RETIRED (it has a merged or closed PR).\n' "${branch}" >&2
     printf 'Do not commit here -- branch names must not be reused.\n' >&2
-    printf 'Cut a fresh branch off master for new work.\n' >&2
+    printf 'Cut a fresh branch off your default branch for new work.\n' >&2
     printf '=====================================================================\n' >&2
     return 0
 }

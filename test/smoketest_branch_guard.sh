@@ -126,7 +126,7 @@ run_checker() {
         CHK_OUT="$(cd "${repo}" && TDS_BRANCHGUARD_QUERY="${query}" \
             "${CHECKER}" "${branch}" 2>&1)" || CHK_RC=$?
     else
-        CHK_OUT="$(cd "${repo}" && unset TDS_BRANCHGUARD_QUERY; \
+        CHK_OUT="$(cd "${repo}" && unset TDS_BRANCHGUARD_QUERY && \
             PATH="/usr/bin:/bin" "${CHECKER}" "${branch}" 2>&1)" || CHK_RC=$?
     fi
 }
@@ -300,6 +300,21 @@ test_precommit_fail_open() {
         "[ ! -f '${dir}/.git/tds-branchguard/alivetest.alive' ]"
 }
 
+test_precommit_unexpected_rc() {
+    bold "Test: unexpected checker rc fails open WITHOUT caching alive"; printf '\n'
+    local dir; dir="$(new_guarded_repo pc-unexprc)"
+    git -C "${dir}" checkout -q -b weirdrc
+    # Stub checker that returns an out-of-contract code (3). The hook must allow
+    # the commit but NOT write a stale .alive marker.
+    local stub="${WORKROOT}/stub-checker-3"
+    printf '#!/usr/bin/env bash\nexit 3\n' > "${stub}"; chmod +x "${stub}"
+    git -C "${dir}" config branchguard.checkerPath "${stub}"
+    attempt_commit "${dir}" "${WORKROOT}/unused-q"
+    assert "unexpected-rc commit succeeds" "[ ${COMMIT_RC} -eq 0 ]"
+    assert "no .alive marker cached" \
+        "[ ! -f '${dir}/.git/tds-branchguard/weirdrc.alive' ]"
+}
+
 test_precommit_bypass() {
     bold "Test: --no-verify bypasses the guard on a MERGED branch"; printf '\n'
     local dir; dir="$(new_guarded_repo pc-bypass)"
@@ -333,6 +348,7 @@ main() {
     test_precommit_slash_branch_encoded
     test_precommit_dead_cache_shortcircuits
     test_precommit_fail_open
+    test_precommit_unexpected_rc
     test_precommit_bypass
 
     printf '\n'
