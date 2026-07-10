@@ -141,8 +141,10 @@ by the hook's prev-HEAD / branch-flag logic.)
 
 The checker calls the network; the pre-commit hook caches verdicts under
 `<git-dir>/tds-branchguard/` to keep commits fast. The cache key is the branch
-name with every `/` percent-encoded as `%2F` (branch names contain slashes;
-filenames can't).
+name percent-encoded so it is filename-safe: every `%` is encoded to `%25`
+first, then every `/` to `%2F` (branch names contain slashes; filenames can't).
+Encoding `%` first keeps a literal `a%2Fb` (→ `a%252Fb`) from colliding with
+`a/b` (→ `a%2Fb`).
 
 - `<key>.dead` -- a **permanent** marker (within that clone) written the first
   time a branch is found terminal. While it exists the commit is blocked
