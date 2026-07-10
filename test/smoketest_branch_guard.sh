@@ -126,8 +126,12 @@ run_checker() {
         CHK_OUT="$(cd "${repo}" && TDS_BRANCHGUARD_QUERY="${query}" \
             "${CHECKER}" "${branch}" 2>&1)" || CHK_RC=$?
     else
+        # Reliably simulate "gh absent": invoke the checker via an explicit bash
+        # path (bypassing the shebang's PATH lookup) with PATH pointing at a
+        # nonexistent dir, so `command -v gh` fails regardless of where gh lives.
+        local bash_bin; bash_bin="$(command -v bash)"
         CHK_OUT="$(cd "${repo}" && unset TDS_BRANCHGUARD_QUERY && \
-            PATH="/usr/bin:/bin" "${CHECKER}" "${branch}" 2>&1)" || CHK_RC=$?
+            PATH="${WORKROOT}/no-such-bin" "${bash_bin}" "${CHECKER}" "${branch}" 2>&1)" || CHK_RC=$?
     fi
 }
 
@@ -274,6 +278,21 @@ test_precommit_slash_branch_encoded() {
         "[ -f '${dir}/.git/tds-branchguard/feature%2Ffoo.dead' ]"
 }
 
+test_precommit_percent_literal_no_collision() {
+    bold "Test: a literal '%2F' in a branch name does not collide with '/'"; printf '\n'
+    local dir; dir="$(new_guarded_repo pc-pct)"
+    # A branch literally named 'a%2Fb' must encode to 'a%252Fb' (percent first),
+    # never colliding with branch 'a/b' which encodes to 'a%2Fb'.
+    git -C "${dir}" checkout -q -b 'a%2Fb'
+    local q="${WORKROOT}/pc-pct-q"; make_query "${q}" merged
+    attempt_commit "${dir}" "${q}"
+    assert "literal-%2F commit fails" "[ ${COMMIT_RC} -ne 0 ]"
+    assert "cache key encodes '%' first" \
+        "[ -f '${dir}/.git/tds-branchguard/a%252Fb.dead' ]"
+    assert "no collision with the '/' encoding" \
+        "[ ! -f '${dir}/.git/tds-branchguard/a%2Fb.dead' ]"
+}
+
 test_precommit_dead_cache_shortcircuits() {
     bold "Test: .dead marker blocks next commit with no network"; printf '\n'
     local dir; dir="$(new_guarded_repo pc-cache)"
@@ -346,6 +365,7 @@ main() {
     test_precommit_env_optout
     test_precommit_config_optout
     test_precommit_slash_branch_encoded
+    test_precommit_percent_literal_no_collision
     test_precommit_dead_cache_shortcircuits
     test_precommit_fail_open
     test_precommit_unexpected_rc

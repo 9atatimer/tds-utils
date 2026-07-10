@@ -55,10 +55,21 @@ is_trunk() {
     return 1
 }
 
-# Percent-encode a branch name for use as a cache filename: every '/' -> %2F.
-# (Branch names contain slashes; filenames cannot.) No external tools.
+# Percent-encode a branch name for use as a cache filename. Encode '%' -> %25
+# FIRST, then '/' -> %2F, so a literal '%2F' in a branch name can never collide
+# with the encoded form of a '/' (both are valid in git ref names). No external
+# tools. (Branch names contain slashes; filenames cannot.)
 encode_key() {
-    local name="$1" out=""
+    local name="$1" out="" pct='%'
+    # Pass 1: '%' -> '%25'.
+    while [ -n "${name}" ]; do
+        case "${name}" in
+            *"${pct}"* ) out="${out}${name%%"${pct}"*}%25" ; name="${name#*"${pct}"}" ;;
+            *          ) out="${out}${name}" ; name="" ;;
+        esac
+    done
+    # Pass 2: '/' -> '%2F'.
+    name="${out}"; out=""
     while [ -n "${name}" ]; do
         case "${name}" in
             */* ) out="${out}${name%%/*}%2F" ; name="${name#*/}" ;;
