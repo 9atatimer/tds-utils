@@ -1,6 +1,10 @@
 # LMDE / clai Boundary -- Acquire vs Configure
 
-> **Status:** DRAFT  
+> **Status:** ADOPTED  
+> **Step 2 (fold into canonical docs):** implemented 2026-07-11 -- see
+> [LMDE.md](../../lmde/LMDE.md),
+> [CLAI.DESIGN.md](https://github.com/nine-at-a-time-media/template-tools/blob/main/packages/clai/docs/CLAI.DESIGN.md),
+> and [PROVISION.DESIGN.md](./PROVISION.DESIGN.md).  
 > **Date:** 2026-07-11  
 > **Authors:** Claude (from design discussion with Todd)  
 > **Depends on:** [PROVISION.DESIGN.md](./PROVISION.DESIGN.md),  
@@ -29,6 +33,8 @@ configuration is agent-aware. Fusing them in one tool has three costs:
 
 This design splits the two along a single axis and couples the halves as
 loosely as possible -- **by convention, not by handoff**.
+
+Step two (this fold) is complete; the canonical docs below now carry the split.
 
 ## The axis
 
@@ -65,18 +71,18 @@ from there. That shared path set is the entire contract.
    reachable GitHub Packages rail instead of the proxy-blocked git clone, so a
    fresh cloud sandbox provisions the same artifacts a laptop does. (Requires
    template-tools#145; see Dependencies.)
-5. **Velocity by default, pins by path** -- Acquire installs every artifact at
-   `latest` by default: no pin file to bump on a release, so shipping is one
+5. **Velocity by default, pins by path** -- Acquire installs the two packages
+   (`@nine-at-a-time-media/clai`, `@nine-at-a-time-media/ast-mcp`) at `latest`
+   by default: no pin file to bump on a package release, so shipping is one
    publish, not a publish plus a second on-disk edit. `lmde acquire --pins
-   <file>` reads versions from that pins file instead; with no `--pins`,
-   everything floats to `latest`. The pins file is a passed argument, never
-   ambient state to keep current.
+   <file>` reads versions from that pins file instead; with no `--pins`, both
+   packages float to `latest`. The pins file is a passed argument, never ambient
+   state to keep current. This velocity governs the clai/ast-mcp **package**
+   versions only -- skills and the catalog no longer float on their own; they
+   ride the resolved clai version (see the Supply-chain note under Acquire).
 
 ## Non-Goals
 
-- **Folding this into the LMDE and CLAI design docs.** That is step two, done
-  once the responsibilities have actually moved. This doc only clarifies the
-  shuffle; the canonical docs are updated afterward.
 - **Cloud telemetry / launcher parity (gap G1).** clai's environment injection
   happens at agent launch, and in the cloud the provider launches the agent
   directly with no clai wrapper. Making cloud telemetry work is a separate,
@@ -93,8 +99,8 @@ from there. That shared path set is the entire contract.
 
 | Concern | Today | -> Owner |
 |---|---|---|
-| Fetch skills (`SKILL.md` trees) | clai provision (git-clone) | **lmde** |
-| Fetch canonical MCP catalog (`mcp/manifest.json`) | clai provision (git-clone) | **lmde** |
+| Fetch skills (`SKILL.md` trees) | clai provision (git-clone) [removed #145] | neither -- rides inside the `@clai` npm package (installed by `lmde acquire`); clai materializes its bundled `clai/_data` offline |
+| Fetch canonical MCP catalog (`mcp/manifest.json`) | clai provision (git-clone) [removed #145] | neither -- rides inside the `@clai` npm package (installed by `lmde acquire`); clai materializes its bundled `clai/_data` offline |
 | Install MCP server binaries (`ast-mcp`, ...) | setup.sh / SessionStart hook | **lmde** |
 | Install clai itself | lmde (laptop) / provision.sh (cloud) | **lmde** |
 | Version pins + supply-chain integrity gate | `pins.env` + provision.sh | **lmde** |
@@ -105,7 +111,9 @@ from there. That shared path set is the entire contract.
 | ENV / OTel injection at launch | clai launcher | **clai** |
 
 Nothing straddles. The only item that changes shape rather than owner is the
-canonical MCP catalog (below).
+canonical MCP catalog (below). Under #145 there is no fetch of skills or the
+catalog at all -- both are inert data bundled in the clai wheel (`clai/_data`)
+and copied locally by clai at configure time.
 
 ---
 
@@ -119,8 +127,8 @@ Neither side passes the other a description of what it did.
 | Artifact | Convention path (code constant) | lmde does | clai does |
 |---|---|---|---|
 | MCP server binaries | `~/.local/bin/<server>` (e.g. `~/.local/bin/ast-mcp`) | installs the binary here | names this path in the emitted config |
-| Skills source tree | `~/.cache/clai/template-tools/skills/` (today's staging) | populates one dir per skill here | enumerates it, places/symlinks into each agent's skills dir |
-| Canonical MCP catalog | `~/.cache/clai/template-tools/mcp/manifest.json` | writes the fetched catalog file here | reads it as the base collation layer |
+| Skills source tree | `~/.cache/clai/template-tools/skills/` (today's staging) | n/a -- data ships inside the clai package | materializes its bundled `clai/_data` into this path (offline copy), then enumerates it, places/symlinks into each agent's skills dir |
+| Canonical MCP catalog | `~/.cache/clai/template-tools/mcp/manifest.json` | n/a -- data ships inside the clai package | materializes its bundled `clai/_data` into this path (offline copy), then reads it as the base collation layer |
 | clai | on `$PATH` | installs it | is the runtime |
 
 Two rules make the convention load-bearing:
@@ -134,6 +142,14 @@ Two rules make the convention load-bearing:
   an error. clai never stats an artifact to decide whether to proceed with a
   launch.
 
+**Exception under #145 (skills + catalog).** The two rules above still govern
+only `~/.local/bin/<server>` and clai-on-`$PATH` -- the pure lmde->clai
+handoffs. For the skills tree and the canonical MCP catalog the invariant is
+amended, not contradicted: lmde never touches them, and clai BOTH writes them
+(materializing its bundled `clai/_data` into the staging path, offline) AND
+reads them back. They no longer transit the lmde->clai boundary; they are a
+clai-internal staging detail that happens to reuse the same convention path.
+
 The `~/.local/bin/<server>` path is already load-bearing today -- the committed
 `.mcp.json`, `~/.claude.json`, the `clai.d/*/pre/20-enable-ast-mcp` hooks, and
 `install-claude-user.sh` all name `~/.local/bin/ast-mcp`. This design elevates
@@ -143,18 +159,18 @@ that de-facto path to a named part of the contract rather than a coincidence.
         ACQUIRE (lmde)                         CONFIGURE (clai)
   agent-agnostic, owns transport          agent-aware, owns collation
 +------------------------------+        +------------------------------+
-| fetch skills  ---------------+--> ~/.cache/clai/template-tools/skills/
-| fetch MCP catalog -----------+--> ~/.cache/clai/template-tools/mcp/manifest.json
-| install ast-mcp -------------+--> ~/.local/bin/ast-mcp    |         |
-| install clai ----------------+--> $PATH                   |         |
-| latest by default / --pins   |        |  reads -----------+         |
-| (integrity always on)        |        |  collates catalog <- repo clai.d
-+------------------------------+        |             <- user clai.d     |
-              |                         |  emits per-agent dialects     |
-     no call, no payload                |  places skills into agent dirs|
-     only the paths below               |  injects OTel env at launch   |
-              v                         |  + trailing oddities epilogue |
-   ~/.cache/clai/..., ~/.local/bin/       +------------------------------+
+| install @clai (npm) ---------+--> $PATH  (skills+catalog ride inside)
+| install @ast-mcp (npm) ------+--> ~/.local/bin/ast-mcp    |         |
+| latest by default / --pins   |        | materialize bundled clai/_data
+| integrity always on          |        |   -> ~/.cache/clai/template-tools/
++------------------------------+        |   (offline copy, atomic swap) |
+              |                         |  collates catalog <- repo clai.d
+     no call, no payload                |             <- user clai.d     |
+     only the paths below               |  emits per-agent dialects     |
+              v                         |  places skills into agent dirs|
+   ~/.local/bin/<server>, clai on $PATH |  injects OTel env at launch   |
+                                        |  + trailing oddities epilogue |
+                                        +------------------------------+
 ```
 
 ---
@@ -167,10 +183,13 @@ observability stack) are laptop-only and stay exactly as they are. The
 acquisition capability is **cloud-portable**: it is the subset of lmde a sandbox
 can and should run.
 
-- **Transport is uniform: GitHub Packages (npm).** Binaries already ship this
-  way post-#98/#101. Skills and the MCP catalog ship the same way once
-  template-tools#145 lands, so acquisition is one reachable rail in both
-  environments -- no git clone, so no cloud proxy block.
+- **Transport is uniform: GitHub Packages (npm).** `lmde acquire` installs two
+  npm packages from GitHub Packages: `@nine-at-a-time-media/clai@latest` and
+  `@nine-at-a-time-media/ast-mcp@latest`. That IS the entire agent-agnostic
+  transport / pins / supply-chain step. Skills and the canonical catalog need
+  NO separate fetch -- they ride inside `@clai` as `clai/_data`. `--pins <file>`
+  overrides `latest`; npm registry integrity is always on. One reachable rail
+  in both environments -- no git clone, so no cloud proxy block.
 - **Versioning: `latest` by default, pins by path.** Acquire installs every
   artifact at `latest` unless invoked as `lmde acquire --pins <file>`, which
   reads versions from that pins file. No `--pins` -> no pinning; the pins file is
@@ -185,6 +204,13 @@ can and should run.
   that gate when wanted. Mitigation meanwhile: `template-tools` is private with
   protected `main`, and integrity verification still blocks in-transit
   tampering.
+- **Accepted consequence: skills stop floating on a bare push.** Because skills
+  and the catalog are versioned inside the `@clai` release (`clai/_data`), a
+  skill edit no longer reaches consumers on a bare `template-tools` push -- it
+  ships only via a clai release plus a `CLAI_VERSION` bump in
+  `tds-utils/sandbox/pins.env`. That pin bump IS the wanted review gate: a skill
+  change now passes through the same explicit gate as a version bump, which is
+  the point, not a regression.
 - **Idempotent, honest degradation.** lmde already has `install / sync / status
   / doctor`; acquisition reuses that shape. A fetch that cannot reach the
   registry uses whatever is already installed and warns naming what is stale --
@@ -197,8 +223,17 @@ cloud-portable subset, distinct from the platform-component `lmde install` /
 
 ## Configure (clai)
 
-clai keeps everything agent-aware and loses everything about acquisition.
+clai keeps everything agent-aware and loses everything about acquisition. clai
+performs ZERO network and ZERO agent-launch in provision.
 
+- **Materialize bundled data (offline).** As its FIRST step clai copies its own
+  bundled `clai/_data` (skills tree + canonical MCP catalog) into
+  `~/.cache/clai/template-tools/` -- a local copy via tmpfile-plus-atomic-rename,
+  never a network fetch -- then collates / emits / places. The data is read as
+  packaged resources (`importlib.resources`), so an editable/source install
+  overrides the source via a `CLAI_DATA_DIR`-style hook rather than a hardcoded
+  checkout path. This is a copy, not a gate: provision proceeds regardless of
+  what is present downstream.
 - **Collate, don't fetch.** clai's inputs are the canonical MCP catalog (at its
   convention path), the repo layer (`<repo>/clai.d/`), and the user layer
   (`~/clai.d/`). It merges them closest-wins exactly as the overlay walk does
@@ -227,8 +262,9 @@ locations." `clai refresh` (= `provision --report`) is unchanged in spirit.
 The file today called `mcp/manifest.json` is renamed in prose to the **canonical
 MCP catalog** to avoid colliding with the rejected "install manifest/receipt."
 It is not a handoff between tools -- it is inert config *data* (profiles + server
-definitions) that lmde **acquires** like any other artifact and clai **reads**
-as the base layer under `repo` and `user` `clai.d`. Same file, unambiguous role.
+definitions) bundled inside the `@clai` package (`clai/_data`), materialized
+offline by clai and **read** as the base layer under `repo` and `user`
+`clai.d`. Same file, unambiguous role.
 
 ---
 
@@ -244,10 +280,10 @@ BEFORE
                                    +- git-clone of template-tools BLOCKED -> DEGRADED
 
 AFTER
-  env-setup  (setup.sh)          lmde acquire  -> skills, catalog, ast-mcp, clai
-                                   (all via GitHub Packages -- reachable)
-  session    (session-start.sh)  clai provision -> collate + emit + place
-                                   (reads convention paths -- offline, no clone)
+  env-setup  (setup.sh)          lmde acquire  -> @clai + @ast-mcp (npm)
+                                   (skills+catalog ride inside @clai -- reachable)
+  session    (session-start.sh)  clai provision -> materialize _data + collate
+                                   + emit + place (offline, no clone)
 ```
 
 - `sandbox/provision.sh`'s bootstrap-and-fetch dissolves: the install half moves
@@ -264,11 +300,12 @@ AFTER
 
 ## Dependencies
 
-- **template-tools#145 (skills + catalog as an npm package)** is a hard
-  prerequisite for cloud acquisition parity. Until it lands, `lmde acquire`
-  falls back to git-clone on the laptop (where it works) and the cloud stays on
-  today's degraded behavior. The split is still worth doing before #145 -- it
-  just doesn't unblock the cloud until #145 ships.
+- **template-tools#145 (skills + catalog bundled in the clai wheel)** has
+  LANDED. The mechanism -- skills and the catalog ride inside `@clai` as
+  `clai/_data`, `GitSourceFetcher` is deleted, and clai materializes the bundle
+  offline -- is implemented, so cloud acquisition parity holds: a fresh sandbox
+  provisions the same artifacts a laptop does, with no git-clone fallback on any
+  side.
 
 ---
 
@@ -283,9 +320,9 @@ AFTER
 | Staging location | Keep today's `~/.cache/clai/template-tools/` | No churn to the existing clone/symlink layout |
 | Receipt / install manifest | Rejected | clai needs none of what it offered (path is convention, version+currency are Acquire's); it only re-adds tight coupling -- see Rejections |
 | clai on missing artifact | Emit anyway; list dangling refs in a trailing epilogue | Collator, not gatekeeper; the epilogue is a zero-effort debug aid |
-| Versioning | `latest` by default; `--pins <file>` to pin | Kills the release double-edit; integrity always on; the pins file is a passed argument, not ambient state |
-| Transport | GitHub Packages for binaries **and** data (#145) | One reachable rail; kills the cloud git-clone block |
-| MCP catalog | Keep the file, rename in prose to "canonical MCP catalog" | It is an acquired config source, not a tool-to-tool handoff |
+| Versioning | `latest` by default; `--pins <file>` to pin | Kills the release double-edit; integrity always on; the pins file is a passed argument, not ambient state. clai/ast-mcp float to `latest`; skills are pinned to the resolved clai version, so a skill rollout is a clai release + `CLAI_VERSION` bump (accepted, the review gate) |
+| Transport | GitHub Packages npm; skills+catalog ride INSIDE the `@clai` package (`clai/_data`), not a separately-fetched artifact (#145) | One reachable rail; kills the cloud git-clone block |
+| MCP catalog | Bundled in `clai/_data`, materialized offline; renamed in prose to "canonical MCP catalog" | It is inert config data shipped in the clai wheel, not a tool-to-tool handoff |
 | lmde in the sandbox | Sandbox runs lmde's cloud-portable acquisition subset | "Rework the sandbox to utilize lmde" -- acquisition is the portable part |
 | ENV in cloud | Out of scope (launch-time only) | Orthogonal launcher-parity gap (G1) |
 
