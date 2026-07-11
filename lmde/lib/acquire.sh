@@ -271,6 +271,16 @@ acquire_run() {
     fi
     npmrc="${npmrc_dir}/.npmrc"
 
+    # Refuse to install through a symlinked or non-directory install prefix --
+    # npm --prefix would then write THROUGH the link, outside the intended tree.
+    # Fail-open: drop the token, skip installs, keep whatever is already there.
+    if [ -L "${ACQUIRE_PREFIX}" ] || { [ -e "${ACQUIRE_PREFIX}" ] && [ ! -d "${ACQUIRE_PREFIX}" ]; }; then
+        acquire_note "refusing to install: ${ACQUIRE_PREFIX} is a symlink or non-directory -- keeping whatever is already installed (fail-open)."
+        rm -f "${npmrc}" 2>/dev/null || true
+        rm -rf "${npmrc_dir}" 2>/dev/null || true
+        return 0
+    fi
+
     mkdir -p "${ACQUIRE_BIN_DIR}" "${ACQUIRE_STATE_DIR}" 2>/dev/null || true
 
     local shortname npm_name bin pin_var

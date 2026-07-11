@@ -9,8 +9,9 @@ migration (#145):
   (onto PATH) and @nine-at-a-time-media/ast-mcp (at ~/.local/bin/ast-mcp) from
   GitHub Packages, with skills + the MCP catalog riding INSIDE the clai wheel
   -- and the SessionStart hook then runs an OFFLINE, configure-only
-  `clai provision` (no clone, no install). Both packages are pinned through
-  ONE `--pins sandbox/pins.env` file (keys CLAI_VERSION + AST_MCP_VERSION).
+  `clai provision` (no clone, no install). Both packages are version-controlled
+  through ONE `--pins sandbox/pins.env` file (keys CLAI_VERSION + AST_MCP_VERSION
+  -- a real value pins, absent/UNSET/"latest" floats to registry latest).
 - BOOTSTRAP-and-FETCH (codex, copilot, jules -- not yet migrated): the shared
   `provision.sh` core installs a PINNED clai from GitHub Packages
   (`npm install @nine-at-a-time-media/clai@${CLAI_VERSION}`), then execs
