@@ -279,9 +279,16 @@ acquire_run() {
         acquire_one "${shortname}" "${npm_name}" "${bin}" "${pin_var}" "${pins_file}" "${npmrc}"
     done < <(acquire_pkg_table)
 
-    # The PAT must never linger on disk.
+    # The PAT must never linger on disk. Best-effort remove, then -- if the
+    # file somehow survives (rm failed) -- blank its contents so the token
+    # cannot persist, and warn loudly. This makes the "never linger" guarantee
+    # true rather than best-effort.
     rm -f "${npmrc}" 2>/dev/null || true
     rm -rf "${npmrc_dir}" 2>/dev/null || true
+    if [ -e "${npmrc}" ]; then
+        : > "${npmrc}" 2>/dev/null || true
+        acquire_note "warning: could not remove the ephemeral npmrc (${npmrc}); blanked it so the PAT is not left on disk"
+    fi
 
     # Installed-but-unresolved warning: acquire never edits a shell rc.
     case ":${PATH}:" in

@@ -139,7 +139,8 @@ assert_stderr_contains() {
 # invocation, and its argv matches.
 assert_record_argv() {
     local rec="$1" want="$2" msg="$3" count got
-    count="$(grep -c 'INVOKE|' "${rec}" 2>/dev/null || echo 0)"
+    count="$(grep -c 'INVOKE|' "${rec}" 2>/dev/null || true)"
+    count="${count:-0}"
     assert_eq "${count}" "1" "${msg} (want exactly one invocation)" || return 1
     got="$(sed -n 's/^INVOKE|argv=\(.*\)|pat=.*/\1/p' "${rec}" | head -n1)"
     assert_eq "${got}" "${want}" "${msg} (argv)" || return 1
