@@ -11,6 +11,30 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 ## Open Tasks
 
+### Leak Prevention and Stale Data Audit -- issue #131 (phase entry, 2026-07-11)
+
+Status: In Progress
+Design: [DESIGN.leak-prevention.md](file:///Users/stumpf/workplace/tds-utils.2/docs/design/DESIGN.leak-prevention.md)
+Branch: claude/fix/issue-131-bleed-hazard
+
+#### Phase 0: Stale Files Cleanup
+- [ ] Run `git rm --cached` on the stale emacs semanticdb cache file
+- [ ] Run `git rm --cached` on all 18 `emacs/dot.emacs.d/auto-save-list/.saves-*` files
+- [ ] Run `git rm --cached` on `local/.DS_Store`
+- [ ] Add `emacs/dot.emacs.d/semanticdb/` to `.gitignore`
+- [ ] Scrub legacy hostname from line 5 of `emacs/dot.emacs.d/elisp/tds-pants.el`
+- [ ] Scrub legacy hostname from line 5 of `emacs/dot.emacs.d/elisp/tds-bootstrap.el`
+- [ ] Soften phrasing in line 5 of `emacs/dot.emacs.d/elisp/tds-shell-mode.el`
+- [ ] Commit Phase 0 cleanup
+
+#### Phase 1: Prevention
+- [ ] Add `test_bleed_hazard` test cases (SKELETON/RED) to `test/smoketest_clone_audit.sh`
+- [ ] Run smoketest and verify that the new tests fail (RED)
+- [ ] Implement `scan_bleed_hazard` function in `bin/clone-audit`
+- [ ] Run smoketest and verify that the tests pass (GREEN)
+- [ ] Update `Findings tags` table in `docs/clone-audit.md`
+- [ ] Verify linter/checks pass
+
 ### Universal Agent Provisioning -- issue #84 (phase entry, 2026-07-04)
 
 Implementation of `docs/design/PROVISION.DESIGN.md`: every new agent
