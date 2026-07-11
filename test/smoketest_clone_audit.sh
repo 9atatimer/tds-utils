@@ -187,7 +187,7 @@ test_bleed_hazard() {
     printf 'stale save\n' > "${dir}/emacs/dot.emacs.d/auto-save-list/.saves-1234~"
     printf 'ds_store content\n' > "${dir}/local/.DS_Store"
     printf 'content\n' > "${dir}/.saves-123-tw-mbp15-tstumpf.local~"
-    printf 'Author: user@tw-192-0-2-100.office.example.invalid\n' > "${dir}/pants.el"
+    printf 'Author: user@tw-172-16-100-100.office.example.invalid\n' > "${dir}/pants.el"
     printf 'bind_address = "192.168.1.100"\n' > "${dir}/config.conf"
     
     run_audit "${dir}"

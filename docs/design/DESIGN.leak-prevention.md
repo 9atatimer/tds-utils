@@ -68,7 +68,7 @@ We add a new `scan_bleed_hazard` function in `bin/clone-audit` under a new threa
 The scanner performs three check phases:
 
 1. **Directory check**: Scans for directories named `semanticdb` or `auto-save-list` in the workspace.
-2. **File check**: Scans all tracked files for base names containing `.DS_Store` or `.cache` (if path includes `emacs/`).
+2. **File check**: Scans regular files under ROOT (pruning build/VCS dirs) for base names containing `.DS_Store` or `.cache` (if path includes `emacs/`).
 3. **Identifier/IP leak check**: Scans filenames and file contents for legacy hostnames or RFC1918 private IPs using standard regexes.
 
 #### Regex Patterns for Leak Check
