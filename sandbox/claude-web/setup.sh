@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
 # setup.sh -- Claude Code web ENVIRONMENT SETUP script: runs BEFORE session
-# init, installs ast-mcp so it is a CONNECTED MCP server on first load, then
-# fully provisions via clai (docs/design/PROVISION.DESIGN.md, issues #99/#84).
+# init and ACQUIRES the agent tooling so it is present when the session (and
+# the MCP client) first loads. It discovers the checkout and runs
+# `bin/lmde acquire` -- which installs @nine-at-a-time-media/clai (onto PATH)
+# and @nine-at-a-time-media/ast-mcp (at ~/.local/bin/ast-mcp) from GitHub
+# Packages, skills + catalog riding inside the clai wheel's _data. It does NOT
+# configure anything (no skill placement, no ~/.claude.json edit, no MCP
+# registration): configuration is clai's job and happens at session start via
+# `clai provision` (docs/design/PROVISION.DESIGN.md, issues #99/#84/#145).
 #
 # Why an env-setup script and not the SessionStart hook (RD4, #99): the MCP
 # client connects to the servers in .mcp.json / ~/.claude.json CONCURRENTLY
 # with the SessionStart hooks. A hook that installs the ast-mcp binary can
 # never win that race for the binary it is itself installing -- first spawn
 # ENOENTs, no auto-retry, and ast-mcp only connects on a later reconnect
-# (observed connecting late in #99). Installing here, in the environment
-# setup step that runs BEFORE session init, means the binary already exists
-# when MCP first connects. The SessionStart hook remains as an idempotent
+# (observed connecting late in #99). Acquiring here, in the environment setup
+# step that runs BEFORE session init, means the binary already exists when MCP
+# first connects. The SessionStart hook remains as an idempotent
 # refresh/fallback, not the first-connect installer.
 #
 # LIFECYCLE -- MEASURED, not assumed. Read before changing anything here.
@@ -33,25 +39,19 @@
 #   * Egress works: npm.pkg.github.com answers 401 unauthenticated and 200 with
 #     a classic read:packages PAT; registry.npmjs.org answers 200.
 #   * $HOME is continuous with the session ($HOME=/root, uid 0 in both), so a
-#     ~/.claude.json written here IS read by the session.
+#     ~/.local/bin/ast-mcp and clai installed here ARE on the session's PATH.
 #
-# WHY THIS STAGE AT ALL (RD4): the MCP client connects to the servers named in
-# .mcp.json CONCURRENTLY with the SessionStart hooks. A hook that installs the
-# ast-mcp binary can never win that race for the binary it is itself
-# installing; the server ENOENTs on first spawn and only appears on a later
-# retry (observed: a ~5 minute lag). Installing here means the binary exists
-# before the client ever looks.
-#
-# WHAT THIS SCRIPT DOES NOT DO -- and why:
-#   It does NOT run `clai provision`. clai fetches the canonical skills/ tree
-#   and mcp/manifest.json by GIT-CLONING nine-at-a-time-media/template-tools,
-#   and the web git proxy brokers ONLY the session's own repo -- so that clone
-#   is unreachable here no matter what token we hold. Running it would buy a
-#   warm clai binary at the cost of a second npm install (the SessionStart hook
-#   does the same work moments later) and the risk of a stalled clone hanging
-#   the environment BUILD. Skills provisioning stays with the hook until the
-#   data ships as an npm package (template-tools#145); then this script can own
-#   the whole job. See issues #116, #120.
+# WHAT THIS SCRIPT DOES: it runs `lmde acquire` (clai + ast-mcp + the bundled
+# skills/catalog that ride inside the clai wheel) BEFORE session init, all via
+# GitHub Packages (npm.pkg.github.com). Acquisition -- transport, pins, the
+# binary + wheel install -- is `lmde acquire`'s job; this script only
+# discovers the checkout and hands off. Configuration (emit dialects, place
+# skills, register ast-mcp at agent scope, epilogue) is NOT done here: it is
+# clai's job and runs at session start via `clai provision`. That split is why
+# the old in-line ast-mcp install + ~/.claude.json registration + provisioning
+# deferral are gone from this file -- the install moved into `lmde acquire`
+# and the registration into clai (its clai.d/claude/pre/20-enable-ast-mcp hook
+# performs it at session start).
 #
 # Install location (manual, by the human -- design non-goal to automate):
 #   Claude Code web -> Environment settings -> Setup script. Paste the SHIM in
@@ -61,38 +61,22 @@
 #
 #   The PAT must be a CLASSIC token carrying `read:packages` (RD2). Delivery is
 #   the GitHub Packages npm registry (RD1); `Contents:read` buys nothing here
-#   and raw release-asset egress is proxy-blocked regardless of token.
+#   and raw release-asset egress is proxy-blocked regardless of token. The PAT
+#   arrives as GH_AI_TOOLS_PAT in this stage's environment and is passed
+#   through, unchanged, to `lmde acquire`, which owns the authed npmrc; this
+#   script itself never writes an .npmrc.
 #
 # Diagnostics: setup-phase stderr is unreachable from inside the session, so
 # every line is ALSO written to ~/.ast-mcp-setup.log (mode 600 -- it must never
 # capture a credential; see #117). From a session that came up without ast-mcp:
 #   cat ~/.ast-mcp-setup.log
 #
-# Registration scope (#99, revised): ONE binary path, registered twice.
-#   Install @nine-at-a-time-media/ast-mcp to ~/.local via `npm install -g
-#   --prefix`, landing the executable at ~/.local/bin/ast-mcp -- the SAME
-#   path clai's clai.d/*/pre/20-enable-ast-mcp hooks register and the SAME
-#   path the laptop's install-claude-user.sh writes -- then register it in
-#   ~/.claude.json (user scope). The committed <repo>/.mcp.json names the
-#   very same binary as "${HOME}/.local/bin/ast-mcp", which Claude Code
-#   expands in the spawned server's own environment (RD5).
-#
-#   Because both scopes now resolve to ONE executable, ast-mcp connects
-#   whichever scope wins: project scope shadows user scope by name when the
-#   committed .mcp.json entry is approved, and is skipped in favor of user
-#   scope when it is not (a fresh clone carries no approval). Previously the
-#   project entry pointed at a project-local .ast-mcp/ tree that had to be
-#   installed separately -- an extra install, an extra failure mode, and a
-#   "Conflicting scopes" diagnostic. That project-local install is gone.
-#
-# Delivery / auth: `npm install` from GitHub Packages (npm.pkg.github.com)
-# with a CLASSIC read:packages PAT (GH_AI_TOOLS_PAT) -- RD1/RD2. Raw release
-# assets are proxy-blocked in Claude web; the Packages registry is reachable.
-# Integrity is npm's built-in registry check (RD3).
-#
-# Fail-open: every failure logs and exits 0. A broken install/network/token
+# Fail-open: every failure logs and exits 0. A broken acquire/network/token
 # must not block the environment or session from coming up -- it only costs
-# this environment its ast-mcp/provisioning until access is fixed.
+# this environment its tooling/provisioning until access is fixed. `lmde
+# acquire` is itself fail-open (it degrades to the already-installed binary and
+# still returns 0), so a non-zero from it is an unexpected hard error we still
+# absorb here.
 #
 # No -e: fail-open at the STEP level, not the script level, like the ast-mcp
 # hook and provision.sh. Keep new top-level commands guarded; do not add -e.
@@ -136,224 +120,9 @@ init_log() {
   note "CLAUDE_PROJECT_DIR=[${CLAUDE_PROJECT_DIR:-<unset>}]  whoami=$(id -un 2>/dev/null)"
 }
 
-# write_npmrc <dir> -- ephemeral, authed npmrc scoping @nine-at-a-time-media
-# to GitHub Packages (classic read:packages GH_AI_TOOLS_PAT). Mode 600 via
-# umask; the caller removes it right after install. Same hardened helper as
-# .claude/hooks/session-start.sh and sandbox/provision.sh.
-write_npmrc() {
-  local dir="$1" token="${GH_AI_TOOLS_PAT:-}"
-  if [ -z "$token" ]; then
-    note "GH_AI_TOOLS_PAT unset -- need a classic read:packages PAT to install ast-mcp from GitHub Packages"
-    return 1
-  fi
-  mkdir -p "$dir" || return 1
-  local npmrc="$dir/.npmrc"
-  if [ -L "$npmrc" ] || { [ -e "$npmrc" ] && [ ! -f "$npmrc" ]; }; then
-    note "refusing to write .npmrc: $npmrc exists and is not a regular file (symlink or special)"
-    return 1
-  fi
-  rm -f "$npmrc" || return 1
-  (
-    umask 077
-    {
-      printf '@nine-at-a-time-media:registry=https://npm.pkg.github.com\n'
-      printf '//npm.pkg.github.com/:_authToken=%s\n' "$token"
-    } > "$npmrc"
-  ) || return 1
-}
-
-# npm_install_at <prefix> <spec> -- run one authed GLOBAL npm install into
-# <prefix> (`-g --prefix`, so the bin lands in <prefix>/bin), writing and
-# removing the token npmrc around it and surfacing npm's output on failure.
-# Returns npm's success/failure; does NOT verify the resulting bin (the
-# caller does).
-npm_install_at() {
-  local prefix="$1" spec="$2" rc=0
-  command -v npm >/dev/null 2>&1 || { note "npm not on PATH -- cannot install $spec"; return 1; }
-  if [ -L "$prefix" ] || { [ -e "$prefix" ] && [ ! -d "$prefix" ]; }; then
-    note "refusing to use $prefix: it exists and is a symlink or non-directory"
-    return 1
-  fi
-  mkdir -p "$prefix" || return 1
-  write_npmrc "$prefix" || return 1
-  local log="$prefix/.npm-install.log"
-  npm install -g --prefix "$prefix" --userconfig "$prefix/.npmrc" \
-      "$spec" >"$log" 2>&1 || rc=1
-  # If removal fails, the PAT would linger on disk under $prefix (e.g. ~/.local
-  # or <repo>/.ast-mcp). Blank it best-effort and FAIL (return 1) rather than
-  # proceed with a lingering credential -- this runs automatically with a
-  # secret present; the caller stays fail-open at the session level.
-  rm -f "$prefix/.npmrc"
-  if [ -e "$prefix/.npmrc" ]; then
-    : > "$prefix/.npmrc" 2>/dev/null
-    rm -f "$log"
-    note "ERROR: could not remove token file $prefix/.npmrc -- blanked its contents best-effort; delete it manually. Failing the install so we do not continue with a lingering credential."
-    return 1
-  fi
-  if [ "$rc" -ne 0 ]; then
-    note "npm install of $spec into $prefix failed."
-    if [ -f "$log" ]; then
-      note "npm output:"
-      sed 's|^|[sandbox/claude-web/setup.sh]   |' "$log" >&2
-    fi
-    rm -f "$log"
-    return 1
-  fi
-  rm -f "$log"
-}
-
-# cleanup_dangling_bin -- issue #113. A partial `npm install -g` can leave
-# ~/.local/bin/ast-mcp as a symlink whose target was never written. The
-# committed .mcp.json spawns exactly that path, so a broken install is WORSE
-# than no install: the MCP client ENOENTs on a dangling link instead of the
-# entry simply being absent. Remove it -- but only when it is not a working
-# executable.
-#
-# Guards, because this runs unattended: the path is a fixed literal under
-# $HOME; the parent must really be $HOME/.local/bin (not a symlink pointing
-# elsewhere); a healthy binary is never touched; a directory is never removed.
-cleanup_dangling_bin() {
-  [ -n "${HOME:-}" ] || return 0
-  local bin="$HOME/.local/bin/ast-mcp" parent expect
-  parent="$(cd "$HOME/.local/bin" 2>/dev/null && pwd -P)" || return 0
-  expect="$(cd "$HOME/.local" 2>/dev/null && pwd -P)/bin" || return 0
-  if [ "$parent" != "$expect" ]; then
-    note "cleanup: \$HOME/.local/bin is not a plain directory under \$HOME/.local -- leaving $bin untouched"
-    return 0
-  fi
-  [ -x "$bin" ] && return 0                        # healthy executable: keep
-  { [ -L "$bin" ] || [ -e "$bin" ]; } || return 0  # nothing there at all
-  if [ -d "$bin" ]; then
-    note "cleanup: $bin is a directory -- refusing to remove it"
-    return 0
-  fi
-  rm -f "$bin" && note "cleanup: removed dangling $bin (#113) so .mcp.json cannot spawn a missing binary"
-}
-
-# install_ast_mcp_user -- USER-scope install: @nine-at-a-time-media/ast-mcp
-# into ~/.local (global npm), yielding the executable at ~/.local/bin/ast-mcp.
-# Echoes that bin path on success. Fails closed if the bin is absent after, and
-# never leaves a dangling bin behind on any failure path (#113).
-install_ast_mcp_user() {
-  local prefix="$HOME/.local" bin="$HOME/.local/bin/ast-mcp"
-  if ! npm_install_at "$prefix" "@nine-at-a-time-media/ast-mcp@latest"; then
-    cleanup_dangling_bin
-    return 1
-  fi
-  if [ ! -x "$bin" ]; then
-    note "npm install reported success but $bin is missing or not executable -- treating as failed install"
-    cleanup_dangling_bin
-    return 1
-  fi
-  note "installed @nine-at-a-time-media/ast-mcp at user scope ($bin)"
-  printf '%s\n' "$bin"
-}
-
-# register_user_scope <bin> -- register ast-mcp in ~/.claude.json at the given
-# absolute bin path and clear "ast-mcp" from every project's
-# disabledMcpServers, so it is enabled everywhere. Idempotent. Preserves all
-# other keys. Creates ~/.claude.json if absent; refuses to clobber an existing
-# file that is not valid JSON, and refuses to touch it at all when it is a
-# symlink or other non-regular file (fail-open). Uses python3 (ubiquitous in
-# web sandboxes); falls back to jq.
-register_user_scope() {
-  local bin="$1" cfg="$HOME/.claude.json"
-  # Refuse to rewrite ~/.claude.json through a symlink or non-regular file
-  # (FIFO/device): this runs automatically with a token in the environment,
-  # and a symlink could redirect the write while a FIFO could block on open.
-  # Mirrors the .npmrc / install-dir hardening elsewhere in this script. An
-  # absent file is fine (we create it).
-  if [ -L "$cfg" ] || { [ -e "$cfg" ] && [ ! -f "$cfg" ]; }; then
-    note "refusing to register ast-mcp: $cfg exists and is not a regular file (symlink or special); leaving it untouched"
-    return 1
-  fi
-  if command -v python3 >/dev/null 2>&1; then
-    AST_BIN="$bin" CLAUDE_JSON="$cfg" python3 - <<'PY'
-import json, os, sys, tempfile
-cfg = os.environ["CLAUDE_JSON"]
-binpath = os.environ["AST_BIN"]
-data = {}
-if os.path.exists(cfg):
-    try:
-        with open(cfg) as f:
-            text = f.read().strip()
-        data = json.loads(text) if text else {}
-    except (ValueError, OSError) as e:
-        sys.stderr.write("[sandbox/claude-web/setup.sh] refusing to rewrite %s: not valid JSON (%s)\n" % (cfg, e))
-        sys.exit(2)
-    if not isinstance(data, dict):
-        sys.stderr.write("[sandbox/claude-web/setup.sh] refusing to rewrite %s: top level is not an object\n" % cfg)
-        sys.exit(2)
-servers = data.get("mcpServers")
-if not isinstance(servers, dict):
-    servers = {}
-servers["ast-mcp"] = {"command": binpath, "args": []}
-data["mcpServers"] = servers
-projects = data.get("projects")
-if isinstance(projects, dict):
-    for proj in projects.values():
-        if isinstance(proj, dict) and isinstance(proj.get("disabledMcpServers"), list):
-            proj["disabledMcpServers"] = [s for s in proj["disabledMcpServers"] if s != "ast-mcp"]
-d = os.path.dirname(cfg) or "."
-fd, tmp = tempfile.mkstemp(prefix=".claude.json.", dir=d)
-try:
-    with os.fdopen(fd, "w") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
-    os.replace(tmp, cfg)
-except Exception:
-    try:
-        os.unlink(tmp)
-    except OSError:
-        pass
-    raise
-PY
-    local rc=$?
-    if [ "$rc" -eq 0 ]; then
-      note "registered ast-mcp at user scope in $cfg -> $bin"
-      return 0
-    fi
-    [ "$rc" -eq 2 ] && return 1   # refused to clobber; already logged
-    note "python3 failed to update $cfg"
-    return 1
-  fi
-  if command -v jq >/dev/null 2>&1; then
-    [ -f "$cfg" ] || printf '{}\n' > "$cfg"
-    local tmp
-    tmp="$(mktemp "${cfg}.XXXXXX")" || return 1
-    # Type-guard every access: this is a best-effort fallback, so a
-    # malformed ~/.claude.json (mcpServers/projects/disabledMcpServers set to
-    # an unexpected type) must not make jq error out. Coerce non-object
-    # mcpServers/projects to {}, and only subtract from disabledMcpServers
-    # when it is actually an array on an object-typed project. (A valid-JSON
-    # but non-object top level still errors -> tmp stays empty -> the
-    # `jq empty` guard below fails -> return 1 without clobbering.) Mirrors
-    # the python3 path's defensiveness above.
-    if jq --arg cmd "$bin" '
-        .mcpServers = (if (.mcpServers | type) == "object" then .mcpServers else {} end) |
-        .mcpServers["ast-mcp"] = {command: $cmd, args: []} |
-        .projects = (if (.projects | type) == "object" then .projects else {} end) |
-        .projects |= map_values(
-            if (type == "object" and (.disabledMcpServers | type) == "array") then
-                .disabledMcpServers = (.disabledMcpServers - ["ast-mcp"])
-            else . end
-        )
-      ' "$cfg" > "$tmp" 2>/dev/null && jq empty "$tmp" >/dev/null 2>&1; then
-      mv -f "$tmp" "$cfg"
-      note "registered ast-mcp at user scope in $cfg -> $bin (jq)"
-      return 0
-    fi
-    rm -f "$tmp"
-    note "jq failed to update $cfg"
-    return 1
-  fi
-  note "neither python3 nor jq on PATH -- cannot register ast-mcp in $cfg; the binary is installed but not registered at user scope"
-  return 1
-}
-
 # is_checkout <dir> -- true iff <dir> is a tds-utils checkout. THREE markers,
 # not one: an unrelated repo cloned side-by-side must never false-positive, and
-# running a different repo's provision.sh would be worse than doing nothing.
+# running a different repo's bin/lmde would be worse than doing nothing.
 is_checkout() {
   [ -n "${1:-}" ] \
     && [ -f "$1/sandbox/claude-web/setup.sh" ] \
@@ -414,7 +183,7 @@ discover_checkout() {
   count="$(printf '%s\n' "$hits" | grep -c . )"
   if [ "$count" -eq 1 ]; then printf '%s\n' "$hits"; return 0; fi
   if [ "$count" -gt 1 ]; then
-    note "discover_checkout: REFUSING to guess among multiple checkouts (running the wrong repo's provision.sh, or handing it a credential, is worse than doing nothing):"
+    note "discover_checkout: REFUSING to guess among multiple checkouts (running the wrong repo's bin/lmde, or handing it a credential, is worse than doing nothing):"
     printf '%s\n' "$hits" | while IFS= read -r r; do
       [ -n "$r" ] && note "  candidate: $r"
     done
@@ -425,40 +194,40 @@ discover_checkout() {
 
 # --- Flow functions ---
 
-# report_provisioning_deferral -- say plainly what this stage did NOT do, and
-# why, so nobody reads a quiet log as a healthy one. `clai provision` is NOT
-# run here: clai git-clones nine-at-a-time-media/template-tools for skills/ and
-# mcp/manifest.json, and the web git proxy brokers only the session's own repo,
-# so the clone cannot succeed at any stage of a web session. The SessionStart
-# hook owns provisioning until that data ships as an npm package.
-report_provisioning_deferral() {
-  local root rc=0
-  root="$(discover_checkout)" || rc=$?
-  case "$rc" in
-    0) note "checkout discovered at $root" ;;
-    2) note "checkout NOT selected: multiple candidates (listed above)" ;;
-    *) note "no tds-utils checkout discovered from here (expected on a bare environment; the SessionStart hook provisions in-session)" ;;
-  esac
-  note "DEFERRED: skills + per-agent MCP configs are NOT provisioned in this stage."
-  note "DEFERRED: reason -- clai fetches skills/ and mcp/manifest.json by cloning nine-at-a-time-media/template-tools, which the web git proxy does not broker (only this session's own repo is reachable). No token changes that."
-  note "DEFERRED: the SessionStart hook runs clai provision in-session. Once the data ships as an npm package (template-tools#145), this stage can own the whole job (#120)."
-}
-
+# setup_flow -- discover the checkout, then hand off to `lmde acquire`. All
+# acquisition machinery (npmrc, install prefixes, dangling-bin cleanup,
+# fail-closed-on-missing-bin) lives in `lmde acquire`; this stage only finds
+# the checkout, passes the PAT through in the environment, and stays fail-open.
 setup_flow() {
   init_log
 
-  # Install the ONE ast-mcp binary at ~/.local/bin/ast-mcp BEFORE session init
-  # (RD4, #99), and register it at user scope. The committed .mcp.json names
-  # this same path via ${HOME}, so project and user scope resolve to one
-  # executable and ast-mcp connects whichever scope the client picks.
-  local user_bin=""
-  if user_bin="$(install_ast_mcp_user)"; then
-    register_user_scope "$user_bin" || note "ast-mcp installed at user scope but registration in ~/.claude.json failed (non-fatal)"
-  else
-    note "user-scope ast-mcp install failed -- ast-mcp will connect late or not at all this environment (need npm + a classic read:packages GH_AI_TOOLS_PAT + egress to npm.pkg.github.com and registry.npmjs.org). Any dangling bin has been removed."
-  fi
+  local root rc=0
+  root="$(discover_checkout)" || rc=$?
+  case "$rc" in
+    0)
+      note "checkout discovered at $root"
+      ;;
+    2)
+      # Ambiguous: discover_checkout already named the candidates. Do NOT run
+      # lmde acquire from a guessed checkout (running the wrong repo's bin/lmde,
+      # or handing it the PAT, is worse than doing nothing).
+      note "multiple checkouts found -- NOT running lmde acquire (fail-open)."
+      exit 0
+      ;;
+    *)
+      note "no tds-utils checkout discovered from here -- cannot run lmde acquire (expected on a bare environment; the SessionStart hook still runs clai provision in-session if clai is present)."
+      exit 0
+      ;;
+  esac
 
-  report_provisioning_deferral
+  # Hand off acquisition. GH_AI_TOOLS_PAT stays in the environment for
+  # `lmde acquire`, which owns the authed npmrc; this script never writes one.
+  # --pins names sandbox/pins.env so BOTH clai and ast-mcp install at their
+  # reviewed pins (an UNSET key in that file floats to latest). `lmde acquire`
+  # is fail-open and returns 0 even when it degrades, so a non-zero here is an
+  # unexpected hard error -- absorb it and still exit 0.
+  bash "$root/bin/lmde" acquire --pins "$root/sandbox/pins.env" \
+    || note "lmde acquire failed (non-fatal)"
 
   # Env-setup must always succeed: every step above is fail-open.
   exit 0
@@ -467,8 +236,8 @@ setup_flow() {
 # --- Main ---
 
 main() {
-  # No flags. This stage installs and registers ast-mcp; nothing else takes
-  # arguments, and nothing is forwarded anywhere.
+  # No flags. This stage discovers the checkout and runs `lmde acquire`;
+  # nothing else takes arguments, and nothing is forwarded anywhere.
   setup_flow
 }
 

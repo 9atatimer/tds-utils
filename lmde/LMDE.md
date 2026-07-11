@@ -49,6 +49,41 @@ Not every Adopted component lives inside kind. The rule:
 
 ---
 
+## Artifact Acquisition (`lmde acquire`)
+
+Distinct from the Adopted platform components above (kind, NATS, Caddy,
+dnsmasq, the observability stack), which are laptop-only, `lmde` carries a
+**cloud-portable artifact-acquisition capability**. It is the subset of `lmde`
+a cloud sandbox can and should run; the platform components stay put.
+
+`lmde acquire` installs the agent fleet's two packages from GitHub Packages
+(`npm.pkg.github.com`):
+
+- `@nine-at-a-time-media/clai` -- the CLI AI launcher / collator.
+- `@nine-at-a-time-media/ast-mcp` -- the AST MCP server, landing at
+  `~/.local/bin/ast-mcp`.
+
+It owns transport, version pins, and supply-chain integrity for the fleet, and
+is agent-agnostic. `--pins <file>` pins exact versions; with no `--pins` (or a
+key set to UNSET/`latest`) a package floats -- acquire resolves the registry's
+latest published version and installs THAT concrete version (recording it, so a
+later run reinstalls on an upstream bump), never an `@latest` tag. npm
+**registry integrity is always on**. Auth is a
+classic `read:packages` PAT in `GH_AI_TOOLS_PAT`. Acquisition never runs a
+piped install script -- it is a signed-package rail only.
+
+Skills and the canonical MCP catalog are **NOT** separately acquired: they ride
+inside the `@clai` package as bundled data (`clai/_data`), and `clai`
+materializes them offline at configure time. Acquisition is therefore a
+git-clone-free rail, which is exactly what fixes the Claude-web proxy block
+(the proxy brokers only the session's own repo). `lmde acquire` does not mutate
+any shell rc; if `~/.local/bin` is not on `$PATH` it warns.
+
+See [../docs/design/LMDE-CLAI-BOUNDARY.DESIGN.md](../docs/design/LMDE-CLAI-BOUNDARY.DESIGN.md)
+(authoritative for the acquire/configure boundary).
+
+---
+
 ## Directory Structure
 
 - `lmde/LMDE.md`: This document (the contract).
@@ -60,6 +95,10 @@ Not every Adopted component lives inside kind. The rule:
 - **Individual Tooling**: `fzf`, `jq`, `sed` are utilities, not architectural components.
 - **Personal Configs**: Emacs `init.el`, `dot.bashrc`, and themes are personal preferences, not platform dependencies.
 - **Project-Specific Services**: Databases or services that only one project needs.
+- **`lmde acquire` as a platform component**: artifact acquisition is a
+  cloud-portable *capability* of `lmde`, not an Adopted platform component; it
+  installs agent-fleet packages, it is not a globally-managed service like
+  kind or NATS.
 - **Per-Project Browser Automation**: Chrome for Testing (used by some
   projects to give an agent driveable Chrome control without touching
   the user's main browser) is intentionally **per-project**, not LMDE.

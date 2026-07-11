@@ -11,6 +11,12 @@ COMPONENTS_DIR="${LMDE_ROOT}/components"
 # Install entrypoint candidates, in resolution order.
 ENTRYPOINT_CANDIDATES=("setup.sh" "sync.sh")
 
+# The `acquire` verb library (agent-agnostic npm-package supply-chain step).
+# Sourced here; strict mode above stays owned by this script. acquire is
+# fail-open, so its flow functions never abort under `set -e`.
+# shellcheck source=../lmde/lib/acquire.sh
+source "${LMDE_ROOT}/lib/acquire.sh"
+
 # --- Logging ---
 
 log() {
@@ -194,6 +200,48 @@ do_doctor() {
     return "${any_degraded}"
 }
 
+# do_acquire [--pins <file>] -- install the agent-agnostic clai + ast-mcp npm
+# packages from GitHub Packages via the sourced acquire library. First-class
+# verb, NOT a platform component: it never routes through do_install /
+# list_components. Fail-open: parse args, warn-and-float a missing pins file,
+# then hand off to acquire_run (which always returns 0). Only a genuine usage
+# error (bad flag) returns non-zero.
+do_acquire() {
+    local pins_file=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --pins)
+                if [[ $# -lt 2 ]]; then
+                    log "ERROR: --pins requires a <file> argument."
+                    usage >&2
+                    return 2
+                fi
+                pins_file="$2"
+                shift 2
+                ;;
+            -*)
+                log "ERROR: unknown flag '$1' for acquire."
+                usage >&2
+                return 2
+                ;;
+            *)
+                log "ERROR: unexpected argument '$1' for acquire."
+                usage >&2
+                return 2
+                ;;
+        esac
+    done
+
+    # A missing/unreadable --pins file is fail-open: warn and float everything
+    # to latest, do NOT abort. (An absent --pins flag floats too.)
+    if [[ -n "${pins_file}" && ! -f "${pins_file}" ]]; then
+        log "WARNING: --pins file '${pins_file}' not found or unreadable -- floating all packages to latest (fail-open)."
+        pins_file=""
+    fi
+
+    acquire_run "${pins_file}"
+}
+
 # --- Usage ---
 
 usage() {
@@ -208,10 +256,24 @@ Commands:
   sync --all             Sync every installable component.
   status                  Concise health summary (non-zero if any DEGRADED).
   doctor                  Verbose health detail; runs ALL healthchecks.
+  acquire [--pins <file>] Install the agent-agnostic clai + ast-mcp npm
+                          packages from GitHub Packages (latest by default;
+                          --pins pins named packages and floats the rest).
 
 Notes:
   install/sync with no component (and no --all) only prints this help and the
   component list -- it never installs everything implicitly.
+
+  acquire is a first-class verb, distinct from the platform install/sync
+  components: it installs @nine-at-a-time-media/clai (onto PATH) and
+  @nine-at-a-time-media/ast-mcp (at ~/.local/bin/ast-mcp) from GitHub Packages
+  (npm.pkg.github.com). Auth is GH_AI_TOOLS_PAT, a CLASSIC PAT with the
+  read:packages scope. Versions float to registry latest unless a --pins file
+  pins them (keys CLAI_VERSION / AST_MCP_VERSION; an absent or UNSET key
+  floats); sandbox/pins.env is itself a valid --pins file. acquire is
+  fail-open: an unreachable registry, a missing token, or a failed install
+  degrades to the already-installed binary with a warning and still exits 0.
+  It never edits a shell rc -- if ~/.local/bin is not on PATH it only warns.
 EOF
 }
 
@@ -227,6 +289,9 @@ main() {
             ;;
         install|sync)
             do_install "${1:-}"
+            ;;
+        acquire)
+            do_acquire "$@"
             ;;
         status)
             do_status
