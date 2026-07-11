@@ -114,6 +114,22 @@ write_acquire_npmrc() {
     ) || return 1
 }
 
+# purge_npmrc <npmrc> <npmrc_dir> -- remove the ephemeral authed npmrc and its
+# temp dir; if the token file survives a failed rm, blank its contents and warn
+# so the PAT can never linger on disk. EVERY acquire_run exit path routes its
+# cleanup through here, so the "PAT never lingers" guarantee holds uniformly
+# (not just on the happy path).
+purge_npmrc() {
+    local npmrc="$1" npmrc_dir="$2"
+    rm -f "${npmrc}" 2>/dev/null || true
+    rm -rf "${npmrc_dir}" 2>/dev/null || true
+    if [ -n "${npmrc}" ] && [ -e "${npmrc}" ]; then
+        : > "${npmrc}" 2>/dev/null || true
+        acquire_note "warning: could not remove the ephemeral npmrc (${npmrc}); blanked it so the PAT is not left on disk"
+    fi
+    return 0
+}
+
 # npm_view_latest <npm_name> <npmrc> -- echo the registry-latest version of
 # <npm_name>, or "" (and return 1) when the registry is unreachable/unauthorized.
 # The explicit --registry is required, else npm queries registry.npmjs.org and
@@ -266,7 +282,7 @@ acquire_run() {
     fi
     if ! write_acquire_npmrc "${npmrc_dir}"; then
         acquire_note "could not write an authed npmrc -- keeping whatever is already installed (fail-open)."
-        rm -rf "${npmrc_dir}" 2>/dev/null || true
+        purge_npmrc "${npmrc_dir}/.npmrc" "${npmrc_dir}"
         return 0
     fi
     npmrc="${npmrc_dir}/.npmrc"
@@ -276,8 +292,7 @@ acquire_run() {
     # Fail-open: drop the token, skip installs, keep whatever is already there.
     if [ -L "${ACQUIRE_PREFIX}" ] || { [ -e "${ACQUIRE_PREFIX}" ] && [ ! -d "${ACQUIRE_PREFIX}" ]; }; then
         acquire_note "refusing to install: ${ACQUIRE_PREFIX} is a symlink or non-directory -- keeping whatever is already installed (fail-open)."
-        rm -f "${npmrc}" 2>/dev/null || true
-        rm -rf "${npmrc_dir}" 2>/dev/null || true
+        purge_npmrc "${npmrc}" "${npmrc_dir}"
         return 0
     fi
 
@@ -289,16 +304,8 @@ acquire_run() {
         acquire_one "${shortname}" "${npm_name}" "${bin}" "${pin_var}" "${pins_file}" "${npmrc}"
     done < <(acquire_pkg_table)
 
-    # The PAT must never linger on disk. Best-effort remove, then -- if the
-    # file somehow survives (rm failed) -- blank its contents so the token
-    # cannot persist, and warn loudly. This makes the "never linger" guarantee
-    # true rather than best-effort.
-    rm -f "${npmrc}" 2>/dev/null || true
-    rm -rf "${npmrc_dir}" 2>/dev/null || true
-    if [ -e "${npmrc}" ]; then
-        : > "${npmrc}" 2>/dev/null || true
-        acquire_note "warning: could not remove the ephemeral npmrc (${npmrc}); blanked it so the PAT is not left on disk"
-    fi
+    # The PAT must never linger on disk (see purge_npmrc).
+    purge_npmrc "${npmrc}" "${npmrc_dir}"
 
     # Installed-but-unresolved warning: acquire never edits a shell rc.
     case ":${PATH}:" in
