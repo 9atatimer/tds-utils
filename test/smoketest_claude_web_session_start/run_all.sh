@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# run_all.sh -- orchestrate the claude-web setup.sh smoke tests
+# run_all.sh -- orchestrate the claude-web session-start.sh smoke tests
 #
-# Hermetic and network-free: every scenario stages a copy of setup.sh and runs
-# it with a recording bin/lmde stub in a fixture checkout and a fake $HOME. No
-# real lmde/npm, no network, no real $HOME.
+# Hermetic and network-free: every scenario stages a copy of session-start.sh
+# and runs it with a recording clai stub (or none) on a fake PATH and a fake
+# $HOME. No real clai, no network, no real $HOME.
 #
-# Usage: ./test/smoketest_claude_web_setup/run_all.sh
+# Usage: ./test/smoketest_claude_web_session_start/run_all.sh
 
 set -euo pipefail
 
@@ -34,13 +34,13 @@ run_test() {
 main() {
     # shellcheck source=./config.sh
     source "${SCRIPT_DIR}/config.sh"
-    require_setup || return 1
+    require_session || return 1
 
     export SMOKE_TMP
-    SMOKE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/claude-web-setup-smoke.XXXXXX")"
+    SMOKE_TMP="$(mktemp -d "${TMPDIR:-/tmp}/claude-web-session-smoke.XXXXXX")"
     trap 'rm -rf "${SMOKE_TMP}"' EXIT
 
-    printf "claude-web setup.sh smoke tests (tmp=%s)\n" "${SMOKE_TMP}"
+    printf "claude-web session-start.sh smoke tests (tmp=%s)\n" "${SMOKE_TMP}"
     for script in "${SCRIPT_DIR}"/[0-9][0-9]_*.sh; do
         [[ -f "${script}" ]] || continue
         run_test "${script}"

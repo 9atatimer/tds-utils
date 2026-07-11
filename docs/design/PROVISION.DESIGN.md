@@ -1,6 +1,13 @@
 # Universal Agent Provisioning (clai provision)
 
 > **Status:** DRAFT  
+> **Superseded/split 2026-07-11 (step two):** the acquire half of this unified
+> design moved to `lmde acquire`; the configure half narrowed to an offline
+> `clai provision`. See
+> [LMDE-CLAI-BOUNDARY.DESIGN.md](./LMDE-CLAI-BOUNDARY.DESIGN.md) (authoritative
+> for the boundary) and
+> [template-tools#145](https://github.com/nine-at-a-time-media/template-tools/issues/145)
+> (the bundling mechanism). Kept for history.  
 > **Date:** 2026-07-03  
 > **Authors:** Claude (from issue #84 and design discussion with Todd)  
 > **Depends on:** [CLAI.DESIGN.md](https://github.com/nine-at-a-time-media/template-tools/blob/main/packages/clai/docs/CLAI.DESIGN.md), [issue #84](https://github.com/9atatimer/tds-utils/issues/84)
@@ -17,6 +24,29 @@ the canonical source at start, for every agent (Claude Code, Codex,
 Antigravity/agy, OpenCode), in every environment (laptop, fresh cloud
 sandbox, cached/resumed sandbox), with a manual `clai refresh` verb for
 best-effort mid-session updates.
+
+> **Superseded / folded (step two, 2026-07-11).** This unified design has been
+> split on the acquire/configure axis; the reconciled model now lives in the
+> canonical docs. In brief:
+>
+> - **Acquisition** (install clai + ast-mcp, pins, supply-chain integrity) is
+>   now `lmde acquire`, installing two GitHub-Packages npm packages
+>   (`@nine-at-a-time-media/clai`, `@nine-at-a-time-media/ast-mcp`).
+> - **`clai provision` is configure-only and fully offline.** `GitSourceFetcher`
+>   is deleted; skills + catalog are bundled in the clai wheel (`clai/_data`)
+>   per template-tools#145 and materialized offline into
+>   `~/.cache/clai/template-tools/`.
+> - The currency machine keeps its shape but its identity flips from
+>   `remote_head` (git sha) to `local_stamp` (content digest of the bundled
+>   `_data`).
+> - Accepted consequence: skills stop floating on a bare `template-tools` push;
+>   a skill rollout is a clai release + `CLAI_VERSION` bump in
+>   `sandbox/pins.env` (the review gate).
+>
+> See [LMDE-CLAI-BOUNDARY.DESIGN.md](./LMDE-CLAI-BOUNDARY.DESIGN.md) (authoritative)
+> and [LMDE.md](../../lmde/LMDE.md). The rest of this document is kept for
+> history; where it describes a git-over-proxy data pull at provision time, that
+> is superseded by the offline-materialization model above.
 
 ---
 

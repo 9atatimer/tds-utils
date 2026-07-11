@@ -7,6 +7,17 @@
 # but provider-appropriate args (e.g. --offline-ok on cached resumes). All
 # args are passed through to `clai provision`.
 #
+# SUPERSEDED (Phase C, #145): this bootstrap-and-fetch (install pinned clai,
+# then exec clai provision) is superseded by the two-step `lmde acquire`
+# (install clai + ast-mcp from GitHub Packages, pre-session) + `clai provision`
+# (offline configure-only, at session start). claude-web already migrated:
+# its setup.sh runs `lmde acquire` and its session-start.sh runs a plain
+# `clai provision`, neither sourcing this file. This file is NOT deleted or
+# reduced yet because codex/jules/copilot (out of Phase C scope) still source
+# it as their shared core. Once every provider wrapper migrates, this collapses
+# to a thin shim -- roughly: `lmde acquire "$@"; exec clai provision --copy
+# --report "$@"` -- as a follow-up phase.
+#
 # Delivery: `npm install @nine-at-a-time-media/clai@${CLAI_VERSION}` from
 # GitHub Packages -- the same registry (and mechanism) the ast-mcp
 # SessionStart hook uses post-#98. This REPLACED the previous "download the

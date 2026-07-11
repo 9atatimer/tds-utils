@@ -170,27 +170,33 @@ install_ast_mcp() {
 # --- Main ---
 
 main() {
-  # clai provision (issue #84), three-way branch per PROVISION.DESIGN.md's
-  # "Session-start hook" section: clai on PATH (laptop, or a sandbox whose
-  # setup script bootstrapped it) -> idempotent provisioning engine, fast
-  # no-op when current, --offline-ok so no-network sessions degrade with a
-  # warning instead of noise; clai absent but remote sandbox -> pinned
-  # sandbox bootstrap via sandbox/provision.sh (fail-open/exit-0 by design,
-  # so the session still starts on failure); else -> no-op + note. All
-  # non-fatal by design; then fall through to the existing remote-gated
-  # ast-mcp flow (locally the script exits at the gate below, as before).
+  # clai provision (issue #84), post-Phase-C two-way branch per
+  # PROVISION.DESIGN.md's "Session-start hook" section: clai on PATH (laptop,
+  # or a sandbox whose env-setup ran `lmde acquire`) -> idempotent
+  # provisioning engine, fast no-op when current, --offline-ok so no-network
+  # sessions degrade with a warning instead of noise; else -> no-op + note.
+  #
+  # The old `elif CLAUDE_CODE_REMOTE=true -> sandbox/provision.sh bootstrap`
+  # branch is GONE: acquisition is now `lmde acquire`'s job (it runs in the
+  # provider's pre-session env-setup stage and places clai on PATH), so a
+  # clai-absent remote no longer clones/installs from here -- it simply has no
+  # clai to run, and says so. All non-fatal by design; then fall through to
+  # the existing remote-gated ast-mcp refresh (locally the script exits at the
+  # gate below, as before).
   if command -v clai >/dev/null 2>&1; then
     note "clai found on PATH -- running clai provision (issue #84)"
     clai provision --offline-ok || note "clai provision failed (non-fatal)"
-  elif [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] && [ -f "${CLAUDE_PROJECT_DIR:-$PWD}/sandbox/provision.sh" ]; then
-    note "clai not on PATH in remote sandbox -- running sandbox bootstrap (issue #84)"
-    bash "${CLAUDE_PROJECT_DIR:-$PWD}/sandbox/provision.sh" || note "sandbox bootstrap failed (non-fatal)"
   else
-    note "clai not on PATH and not a remote sandbox -- skipping provisioning"
+    note "clai not on PATH (lmde acquire did not run) -- skipping provisioning"
   fi
 
   [ "${CLAUDE_CODE_REMOTE:-}" = "true" ] || exit 0
 
+  # ~/.local/bin/ast-mcp is now PRIMARILY placed by `lmde acquire` in the
+  # pre-session env-setup stage; this remote-gated block stays as the
+  # idempotent refresh/fallback (it re-floats ast-mcp to latest and covers a
+  # sandbox whose env-setup did not run acquire). A failed refresh keeps
+  # whatever acquire already installed -- see the note in the failure path.
   INSTALL_DIR="$HOME/.local"                           # user scope, not the repo
   AST_BIN="$INSTALL_DIR/bin/ast-mcp"                   # what .mcp.json launches
 
