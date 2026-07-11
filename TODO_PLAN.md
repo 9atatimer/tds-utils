@@ -11,30 +11,6 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 ## Open Tasks
 
-### Leak Prevention and Stale Data Audit -- issue #131 (phase entry, 2026-07-11)
-
-Status: In Progress
-Design: [DESIGN.leak-prevention.md](file:///Users/stumpf/workplace/tds-utils.2/docs/design/DESIGN.leak-prevention.md)
-Branch: claude/fix/issue-131-bleed-hazard
-
-#### Phase 0: Stale Files Cleanup
-- [x] Run `git rm --cached` on the stale emacs semanticdb cache file
-- [x] Run `git rm --cached` on all 18 `emacs/dot.emacs.d/auto-save-list/.saves-*` files
-- [x] Run `git rm --cached` on `local/.DS_Store`
-- [x] Add `emacs/dot.emacs.d/semanticdb/` to `.gitignore`
-- [x] Scrub legacy hostname from line 5 of `emacs/dot.emacs.d/elisp/tds-pants.el`
-- [x] Scrub legacy hostname from line 5 of `emacs/dot.emacs.d/elisp/tds-bootstrap.el`
-- [x] Soften phrasing in line 5 of `emacs/dot.emacs.d/elisp/tds-shell-mode.el`
-- [x] Commit Phase 0 cleanup
-
-#### Phase 1: Prevention
-- [ ] Add `test_bleed_hazard` test cases (SKELETON/RED) to `test/smoketest_clone_audit.sh`
-- [ ] Run smoketest and verify that the new tests fail (RED)
-- [ ] Implement `scan_bleed_hazard` function in `bin/clone-audit`
-- [ ] Run smoketest and verify that the tests pass (GREEN)
-- [ ] Update `Findings tags` table in `docs/clone-audit.md`
-- [ ] Verify linter/checks pass
-
 ### Universal Agent Provisioning -- issue #84 (phase entry, 2026-07-04)
 
 Implementation of `docs/design/PROVISION.DESIGN.md`: every new agent
@@ -203,6 +179,7 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 
 ## Lessons Learned
 
+- **Untracking pre-existing files in .gitignore**: Files committed before a matching `.gitignore` rule was added remain tracked. They must be explicitly untracked via `git rm --cached` to stop tracking.
 - **Copilot coding-agent MCP config is read-only via the GitHub API** (#95): `GET /repos/{owner}/{repo}/copilot/cloud-agent/configuration` returns the coding agent's `mcp_configuration`, but there is **no write endpoint** -- the server list is UI-only (repo Settings -> Copilot -> Coding agent). So a `clai provision` "apply" for Copilot is unbuildable today; the one writable Copilot surface (`COPILOT_MCP_*` Agents secrets/variables) is orthogonal since the manifest carries no secret values. Lesson: probe an agent's *actual* config surface before designing an emitter; when it cannot be applied, be **vocal** (raise a MANUAL-ACTION warning) rather than silently no-op, and leave a clean seam for a future write adapter. `emit_copilot` implements this in clai (template-tools).
 - **Dynamic Agent Skills Caching**: Dynamic prompt/skill cache directories populated by the agent CLI at runtime (`.agents/`, `.claude/skills/`, `.codex/`) should be ignored by the repository's `.gitignore` to avoid polluting `git status`, while keeping the configuration files (`.claude/settings.json`) and session hooks (`.claude/hooks/session-start.sh`) checked in for native tool discovery.
 - **tds-utils is a Kernel, not a Utility Repo**: This repository represents the "soul in digital form" of the developer environment. It justifies a higher degree of architectural ceremony (ADRs, Tech Radar, Formal Design Docs) than a simple collection of scripts would, as it provides the foundation for all other work.
@@ -250,6 +227,13 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 ---
 
 ## Completed Tasks
+
+### Leak Prevention and Stale Data Audit -- issue #131 (2026-07-11)
+
+- [x] **Stale files cleanup**: Untracked legacy auto-save-list, semanticdb cache, and local `.DS_Store` files. Added `emacs/dot.emacs.d/semanticdb/` to `.gitignore`.
+- [x] **Header scrubbing**: Scrubbed legacy hostnames from the `Author:` headers of `tds-pants.el` and `tds-bootstrap.el`.
+- [x] **Soften phrasing**: Softened docstring phrasing in `tds-shell-mode.el`.
+- [x] **Automated detector**: Added the `BLEED-HAZARD` warning category to `bin/clone-audit` (and tests in `test/smoketest_clone_audit.sh`) to prevent future checkins of stale files, legacy hostnames, or private network IPs.
 
 ### Universal Provisioning -- Global CLAUDE.md (2026-07-10)
 
