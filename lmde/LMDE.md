@@ -59,13 +59,16 @@ a cloud sandbox can and should run; the platform components stay put.
 `lmde acquire` installs the agent fleet's two packages from GitHub Packages
 (`npm.pkg.github.com`):
 
-- `@nine-at-a-time-media/clai@latest` -- the CLI AI launcher / collator.
-- `@nine-at-a-time-media/ast-mcp@latest` -- the AST MCP server, landing at
+- `@nine-at-a-time-media/clai` -- the CLI AI launcher / collator.
+- `@nine-at-a-time-media/ast-mcp` -- the AST MCP server, landing at
   `~/.local/bin/ast-mcp`.
 
 It owns transport, version pins, and supply-chain integrity for the fleet, and
-is agent-agnostic. `--pins <file>` overrides `latest`; with no `--pins` both
-packages float to `latest`. npm **registry integrity is always on**. Auth is a
+is agent-agnostic. `--pins <file>` pins exact versions; with no `--pins` (or a
+key set to UNSET/`latest`) a package floats -- acquire resolves the registry's
+latest published version and installs THAT concrete version (recording it, so a
+later run reinstalls on an upstream bump), never an `@latest` tag. npm
+**registry integrity is always on**. Auth is a
 classic `read:packages` PAT in `GH_AI_TOOLS_PAT`. Acquisition never runs a
 piped install script -- it is a signed-package rail only.
 
