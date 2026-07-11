@@ -58,13 +58,19 @@ from there. That shared path set is the entire contract.
 3. **clai is a collator, never a gatekeeper** — clai combines sources and
    writes the effective per-agent config; it never verifies that a referenced
    artifact is present and never blocks a launch over a missing one. The agent
-   manages its own missing server.
+   manages its own missing server. It may note obviously-dangling references in
+   a trailing epilogue when they fall out for free (see Configure), but it
+   never blocks.
 4. **Cloud parity on acquisition** — Moving acquisition to lmde puts it on the
    reachable GitHub Packages rail instead of the proxy-blocked git clone, so a
    fresh cloud sandbox provisions the same artifacts a laptop does. (Requires
    template-tools#145; see Dependencies.)
-5. **One rollout gate** — Pins and integrity live in one place (lmde), so
-   bumping an artifact version is a single reviewed change.
+5. **Velocity by default, pins by path** — Acquire installs every artifact at
+   `latest` by default: no pin file to bump on a release, so shipping is one
+   publish, not a publish plus a second on-disk edit. `lmde acquire --pins
+   <file>` reads versions from that pins file instead; with no `--pins`,
+   everything floats to `latest`. The pins file is a passed argument, never
+   ambient state to keep current.
 
 ## Non-Goals
 
@@ -105,16 +111,16 @@ canonical MCP catalog (below).
 
 ## Contract-by-convention: the locations
 
-The boundary is a small, fixed set of paths. Each is a plain filesystem
-location with an environment-variable override and a stable default. lmde
-installs to them; clai reads from them. Neither side passes the other a
-description of what it did.
+The boundary is a small, fixed set of paths **hardcoded in both tools' code** —
+no env vars, no config surface, nothing dynamic. If a path ever changes, both
+sides change in the same commit. lmde installs to them; clai reads from them.
+Neither side passes the other a description of what it did.
 
-| Artifact | Convention path (env override) | lmde does | clai does |
+| Artifact | Convention path (code constant) | lmde does | clai does |
 |---|---|---|---|
 | MCP server binaries | `~/.local/bin/<server>` (e.g. `~/.local/bin/ast-mcp`) | installs the binary here | names this path in the emitted config |
-| Skills source tree | `$LMDE_SKILLS_DIR` (default `~/.local/share/lmde/skills/`) | populates one dir per skill here | enumerates it, places/symlinks into each agent's skills dir |
-| Canonical MCP catalog | `$LMDE_MCP_CATALOG` (default `~/.local/share/lmde/mcp/catalog.json`) | writes the fetched catalog file here | reads it as the base collation layer |
+| Skills source tree | `~/.cache/clai/template-tools/skills/` (today's staging) | populates one dir per skill here | enumerates it, places/symlinks into each agent's skills dir |
+| Canonical MCP catalog | `~/.cache/clai/template-tools/mcp/manifest.json` | writes the fetched catalog file here | reads it as the base collation layer |
 | clai | on `$PATH` | installs it | is the runtime |
 
 Two rules make the convention load-bearing:
@@ -137,17 +143,18 @@ that de-facto path to a named part of the contract rather than a coincidence.
         ACQUIRE (lmde)                         CONFIGURE (clai)
   agent-agnostic, owns transport          agent-aware, owns collation
 +------------------------------+        +------------------------------+
-| fetch skills  ───────────────┼──▶ ~/.local/share/lmde/skills/       |
-| fetch MCP catalog ───────────┼──▶ ~/.local/share/lmde/mcp/catalog.json
+| fetch skills  ───────────────┼──▶ ~/.cache/clai/template-tools/skills/
+| fetch MCP catalog ───────────┼──▶ ~/.cache/clai/template-tools/mcp/manifest.json
 | install ast-mcp ─────────────┼──▶ ~/.local/bin/ast-mcp    │         |
 | install clai ────────────────┼──▶ $PATH                   │         |
-| (pins, integrity, transport) |        │  reads ───────────┘         |
-+------------------------------+        │  collates catalog ← repo clai.d
-              │                         │           ← user clai.d       |
-     no call, no payload                │  emits per-agent dialects     |
-     only the paths below               │  places skills into agent dirs|
-              ▼                         │  injects OTel env at launch   |
-   ~/.local/share/lmde/, ~/.local/bin/  +------------------------------+
+| latest by default / --pins   |        │  reads ───────────┘         |
+| (integrity always on)        |        │  collates catalog ← repo clai.d
++------------------------------+        │             ← user clai.d     |
+              │                         │  emits per-agent dialects     |
+     no call, no payload                │  places skills into agent dirs|
+     only the paths below               │  injects OTel env at launch   |
+              ▼                         │  + trailing oddities epilogue |
+   ~/.cache/clai/…, ~/.local/bin/       +------------------------------+
 ```
 
 ---
@@ -164,18 +171,29 @@ can and should run.
   way post-#98/#101. Skills and the MCP catalog ship the same way once
   template-tools#145 lands, so acquisition is one reachable rail in both
   environments — no git clone, so no cloud proxy block.
-- **Pins and integrity move here.** `sandbox/pins.env` (or its successor)
-  becomes lmde's. The supply-chain gate — pinned version + npm registry
-  integrity — is entirely Acquire's; clai holds no pins.
+- **Versioning: `latest` by default, pins by path.** Acquire installs every
+  artifact at `latest` unless invoked as `lmde acquire --pins <file>`, which
+  reads versions from that pins file. No `--pins` → no pinning; the pins file is
+  a passed argument, never ambient state to keep current. npm **registry
+  integrity is always on** either way — every tarball is verified against the
+  registry hash — so `--pins` governs *which version*, never *whether it's
+  tamper-checked*. clai holds no pins at all.
+- **Supply-chain note (conscious tradeoff).** `latest`-by-default means a
+  publish to the private registry propagates to every consumer on the next
+  acquire, without the pinned-version review gate PROVISION.DESIGN.md's #72
+  stance relied on. Accepted for development velocity; `--pins <file>` restores
+  that gate when wanted. Mitigation meanwhile: `template-tools` is private with
+  protected `main`, and integrity verification still blocks in-transit
+  tampering.
 - **Idempotent, honest degradation.** lmde already has `install / sync / status
   / doctor`; acquisition reuses that shape. A fetch that cannot reach the
   registry uses whatever is already installed and warns naming what is stale —
   it never blocks the session (the fail-open stance from PROVISION.DESIGN.md's
   state machine, now owned by lmde).
 
-The exact surface — a new `lmde acquire` verb, or an `artifacts` component group
-selected on the existing `lmde install` — is an open question below; the
-responsibility is fixed regardless of the surface.
+The surface is a new **`lmde acquire`** verb — a clear name for the
+cloud-portable subset, distinct from the platform-component `lmde install` /
+`sync` verbs.
 
 ## Configure (clai)
 
@@ -194,6 +212,12 @@ clai keeps everything agent-aware and loses everything about acquisition.
   `repo=` / airframe resource attributes) is unchanged and stays launch-time.
 - **Never gate.** Per Goal 3: emit config that references convention paths
   whether or not the artifact is there yet. clai is a collator.
+- **Trailing oddities epilogue.** clai never probes for problems, but emitting
+  config already means touching every convention path it references; when one is
+  plainly absent, it collects the dangling reference and prints a short epilogue
+  at the end of the run. A zero-effort byproduct of work already done, not a
+  validation pass — no dangling refs, no epilogue. It aids debugging a
+  misconfigured box without making clai a gatekeeper.
 
 `clai provision` therefore narrows to "configure from the conventional
 locations." `clai refresh` (= `provision --report`) is unchanged in spirit.
@@ -254,9 +278,12 @@ AFTER
 |---|---|---|
 | Split axis | Agent-agnostic acquire (lmde) vs agent-aware configure (clai) | One test decides every responsibility; matches Todd's framing |
 | Coupling mechanism | Contract-by-convention (fixed paths) | Loose coupling; either side reimplementable; no runtime handoff to keep in sync |
+| Acquisition surface | `lmde acquire` verb | Cloud-portable subset, named distinct from platform `lmde install`/`sync` |
+| Locations contract | Hardcoded in both tools' code | Nothing dynamic; a path change is one lockstep commit |
+| Staging location | Keep today's `~/.cache/clai/template-tools/` | No churn to the existing clone/symlink layout |
 | Receipt / install manifest | Rejected | clai needs none of what it offered (path is convention, version+currency are Acquire's); it only re-adds tight coupling — see Rejections |
-| clai on missing artifact | Emit anyway, never gate | clai is a collator; the agent manages its own missing server |
-| Pins + integrity | Move wholly to lmde | Supply-chain policy is acquisition's; one rollout gate |
+| clai on missing artifact | Emit anyway; list dangling refs in a trailing epilogue | Collator, not gatekeeper; the epilogue is a zero-effort debug aid |
+| Versioning | `latest` by default; `--pins <file>` to pin | Kills the release double-edit; integrity always on; the pins file is a passed argument, not ambient state |
 | Transport | GitHub Packages for binaries **and** data (#145) | One reachable rail; kills the cloud git-clone block |
 | MCP catalog | Keep the file, rename in prose to "canonical MCP catalog" | It is an acquired config source, not a tool-to-tool handoff |
 | lmde in the sandbox | Sandbox runs lmde's cloud-portable acquisition subset | "Rework the sandbox to utilize lmde" — acquisition is the portable part |
@@ -264,26 +291,14 @@ AFTER
 
 ## Open Questions
 
-1. **lmde acquisition surface** — a new `lmde acquire` verb, or an `artifacts`
-   component group under the existing `lmde install`/`sync`? The latter reuses
-   the component orchestrator (`bin/lmde`) unchanged; the former is a clearer
-   name for the cloud-portable subset. Decide during implementation.
-2. **Locations-contract expression** — are the convention paths a handful of
-   documented env vars with defaults, or a tiny shared constants file both tools
-   read? Env vars keep the tools decoupled (no shared code); a constants file
-   removes drift risk between two hardcoded copies. Leaning env-vars-with-
-   defaults for the looser coupling.
-3. **Skills staging path** — keep today's `~/.cache/clai/template-tools/`, or
-   move to an lmde-owned `~/.local/share/lmde/skills/` now that lmde owns
-   acquisition? The latter matches the ownership move; the former avoids
-   touching the existing symlink map. (This doc proposes the lmde-owned path.)
-4. **clai when lmde never ran** — on a box with no lmde acquisition (a bare
-   checkout, a misconfigured sandbox), `clai provision` finds empty convention
-   paths and emits a config that references not-yet-present binaries. Per Goal 3
-   that is correct (never gate), but confirm the emitted-but-dangling config is
-   benign for every agent, not just Claude Code.
-5. **`pins.env` home** — does it physically move into `lmde/`, or stay in
-   `sandbox/` as lmde-owned data the sandbox and laptop both source?
+1. **Dangling-config benignness across agents** — an emitted config that names
+   an absent binary must be inert for codex / agy / opencode as it is for Claude
+   Code (Goal 3). The trailing oddities epilogue surfaces these in practice;
+   confirm none of the four agents errors on a named-but-missing server rather
+   than skipping it.
+2. **Pins-file scope** — `--pins <file>` pins every artifact the file names and
+   floats the rest to `latest`; confirm nothing needs pinning that the file
+   can't express (e.g. a transitive dep of a floated package).
 
 ## Rejections
 
