@@ -1,11 +1,11 @@
 # LMDE / clai Boundary -- Acquire vs Configure
 
-> **Status:** DRAFT
-> **Date:** 2026-07-11
-> **Authors:** Claude (from design discussion with Todd)
-> **Depends on:** [PROVISION.DESIGN.md](./PROVISION.DESIGN.md),
-> [LMDE.md](../../lmde/LMDE.md),
-> [CLAI.DESIGN.md](https://github.com/nine-at-a-time-media/template-tools/blob/main/packages/clai/docs/CLAI.DESIGN.md),
+> **Status:** DRAFT  
+> **Date:** 2026-07-11  
+> **Authors:** Claude (from design discussion with Todd)  
+> **Depends on:** [PROVISION.DESIGN.md](./PROVISION.DESIGN.md),  
+> [LMDE.md](../../lmde/LMDE.md),  
+> [CLAI.DESIGN.md](https://github.com/nine-at-a-time-media/template-tools/blob/main/packages/clai/docs/CLAI.DESIGN.md),  
 > [template-tools#145](https://github.com/nine-at-a-time-media/template-tools/issues/145)
 
 ---
@@ -99,7 +99,7 @@ from there. That shared path set is the entire contract.
 | Install clai itself | lmde (laptop) / provision.sh (cloud) | **lmde** |
 | Version pins + supply-chain integrity gate | `pins.env` + provision.sh | **lmde** |
 | Collate config layers (catalog <- repo <- user) | clai provision | **clai** |
-| Emit per-agent MCP dialects (`.mcp.json`, `~/.codex/config.toml`, `~/.gemini/.../mcp_config.json`, `opencode.json`) | clai provision | **clai** |
+| Emit per-agent MCP dialects (`.mcp.json`, `~/.codex/config.toml`, `~/.gemini/config/mcp_config.json`, `opencode.json`) | clai provision | **clai** |
 | Place / symlink skills into each agent's dir | clai provision | **clai** |
 | Register a server at agent scope (`~/.claude.json`) | setup.sh / hook | **clai** |
 | ENV / OTel injection at launch | clai launcher | **clai** |
