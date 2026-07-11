@@ -18,14 +18,14 @@ Design: [DESIGN.leak-prevention.md](file:///Users/stumpf/workplace/tds-utils.2/d
 Branch: claude/fix/issue-131-bleed-hazard
 
 #### Phase 0: Stale Files Cleanup
-- [ ] Run `git rm --cached` on the stale emacs semanticdb cache file
-- [ ] Run `git rm --cached` on all 18 `emacs/dot.emacs.d/auto-save-list/.saves-*` files
-- [ ] Run `git rm --cached` on `local/.DS_Store`
-- [ ] Add `emacs/dot.emacs.d/semanticdb/` to `.gitignore`
-- [ ] Scrub legacy hostname from line 5 of `emacs/dot.emacs.d/elisp/tds-pants.el`
-- [ ] Scrub legacy hostname from line 5 of `emacs/dot.emacs.d/elisp/tds-bootstrap.el`
-- [ ] Soften phrasing in line 5 of `emacs/dot.emacs.d/elisp/tds-shell-mode.el`
-- [ ] Commit Phase 0 cleanup
+- [x] Run `git rm --cached` on the stale emacs semanticdb cache file
+- [x] Run `git rm --cached` on all 18 `emacs/dot.emacs.d/auto-save-list/.saves-*` files
+- [x] Run `git rm --cached` on `local/.DS_Store`
+- [x] Add `emacs/dot.emacs.d/semanticdb/` to `.gitignore`
+- [x] Scrub legacy hostname from line 5 of `emacs/dot.emacs.d/elisp/tds-pants.el`
+- [x] Scrub legacy hostname from line 5 of `emacs/dot.emacs.d/elisp/tds-bootstrap.el`
+- [x] Soften phrasing in line 5 of `emacs/dot.emacs.d/elisp/tds-shell-mode.el`
+- [x] Commit Phase 0 cleanup
 
 #### Phase 1: Prevention
 - [ ] Add `test_bleed_hazard` test cases (SKELETON/RED) to `test/smoketest_clone_audit.sh`
