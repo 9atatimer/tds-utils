@@ -139,6 +139,7 @@ reviewed the flagged files by hand (read them; don't execute them).
 | `AUTORUN` | Runs on install/open: npm lifecycle, `.envrc`, devcontainer/VS Code/JetBrains, `.gitattributes` filter, `curl\|sh`. | Read the script/command it would execute. | Common in legit repos -- judge by what it actually runs. |
 | `SUBMODULE` | Submodule URLs (informational). | Note the URLs; only fetched with `--recurse-submodules`. | Usually fine. |
 | `SECRET` | gitleaks flagged possible secrets (only if `gitleaks` is installed). | Run `gitleaks detect --source <repo>` for detail. | Investigate before pushing anywhere. |
+| `BLEED-HAZARD` | Tracked stale directories/files (semanticdb, auto-save-list, .DS_Store, emacs .cache) or legacy hostnames/private IPs. | Inspect the file path and content. | Clean up HEAD/history; do not commit/push private network info. |
 
 If a repo is clearly hostile: delete the clone (`rm -rf`) -- the files are inert
 on disk until you act on them, so deletion is safe.
@@ -223,7 +224,7 @@ Slow on a huge monorepo:
 ### Findings tags
 
 `AGENT-FILE` and `SUBMODULE` are informational (`[INFO]`). `HIDDEN-UNICODE`,
-`INJECTION`, `AGENT-EXEC`, `AUTORUN`, and `SECRET` are warnings (`[WARN]`) and
+`INJECTION`, `AGENT-EXEC`, `AUTORUN`, `SECRET`, and `BLEED-HAZARD` are warnings (`[WARN]`) and
 set exit code 2.
 
 ### Clone-variant behavior
