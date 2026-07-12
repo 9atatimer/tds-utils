@@ -8,24 +8,36 @@
 # same in both environments (with the global CLAUDE.md being cloud-only by
 # design -- setup-core.sh skips it on a laptop).
 #
-# Run me from inside the target session:  bash probe-lmde.sh
+# Prerequisites: run from inside the target session (bash probe-lmde.sh); reads
+# only, never mutates. No -e: every check must run so the summary is complete.
+#
+# Usage:  bash probe-lmde.sh
 set -uo pipefail
+
+# --- shared libraries ---
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 . "${HERE}/lib.sh"
 
-BIN_DIR="${HOME}/.local/bin"
+# --- helper checks ---
 
 # L1 -- clai launcher is on PATH and runnable.
-if command -v clai >/dev/null 2>&1 && clai -V >/dev/null 2>&1; then
-  pass L1 "clai-on-path ($(clai -V 2>/dev/null | head -1))"
-else
-  fail L1 "clai-on-path" "clai not resolvable on PATH or 'clai -V' failed"
-fi
+check_clai_on_path() {
+  if command -v clai >/dev/null 2>&1 && clai -V >/dev/null 2>&1; then
+    pass L1 "clai-on-path ($(clai -V 2>/dev/null | head -1))"
+  else
+    fail L1 "clai-on-path" "clai not resolvable on PATH or 'clai -V' failed"
+  fi
+}
 
 # L2 -- ast-mcp binary present at the convention path and executable.
-astmcp="${BIN_DIR}/ast-mcp"
-if [ -e "${astmcp}" ] && [ -x "${astmcp}" ]; then
+check_ast_mcp_binary() {
+  local bin_dir="$1" astmcp real
+  astmcp="${bin_dir}/ast-mcp"
+  if [ ! -e "${astmcp}" ] || [ ! -x "${astmcp}" ]; then
+    fail L2 "ast-mcp-binary" "${astmcp} missing or not executable"
+    return 0
+  fi
   # resolve symlinks and confirm the target is a real executable file
   real="$(readlink -f "${astmcp}" 2>/dev/null || printf '%s' "${astmcp}")"
   if [ -f "${real}" ] && [ -x "${real}" ]; then
@@ -33,15 +45,18 @@ if [ -e "${astmcp}" ] && [ -x "${astmcp}" ]; then
   else
     fail L2 "ast-mcp-binary" "${astmcp} does not resolve to an executable file (${real})"
   fi
-else
-  fail L2 "ast-mcp-binary" "${astmcp} missing or not executable"
-fi
+}
 
 # L3 -- global CLAUDE.md (Claude Code's global instruction file). CLOUD-ONLY:
 # placed by naatm-sandbox at /etc/claude-code/CLAUDE.md (override
 # CLAUDE_GLOBAL_ETC_DIR, fallback $HOME/CLAUDE.md). On a laptop it is
 # deliberately NOT placed, so we skip.
-if is_cloud; then
+check_global_claude_md() {
+  local etc_dir primary fallback found cand
+  if ! is_cloud; then
+    skip L3 "global-claude-md" "laptop -- placed cloud-only by design"
+    return 0
+  fi
   etc_dir="${CLAUDE_GLOBAL_ETC_DIR:-/etc/claude-code}"
   primary="${etc_dir}/CLAUDE.md"
   fallback="${HOME}/CLAUDE.md"
@@ -56,15 +71,26 @@ if is_cloud; then
   else
     fail L3 "global-claude-md" "${found} exists but is missing the known marker"
   fi
-else
-  skip L3 "global-claude-md" "laptop -- placed cloud-only by design"
-fi
+}
 
 # L4 -- ~/.local/bin is on PATH. Acquire refuses to edit shell rc and only
 # warns; if it is missing, clai/ast-mcp would not resolve for the agent.
-case ":${PATH}:" in
-  *":${BIN_DIR}:"*) pass L4 "localbin-on-path (${BIN_DIR})" ;;
-  *) fail L4 "localbin-on-path" "${BIN_DIR} is not on PATH" ;;
-esac
+check_localbin_on_path() {
+  local bin_dir="$1"
+  case ":${PATH}:" in
+    *":${bin_dir}:"*) pass L4 "localbin-on-path (${bin_dir})" ;;
+    *) fail L4 "localbin-on-path" "${bin_dir} is not on PATH" ;;
+  esac
+}
 
-summarize probe-lmde
+# --- main ---
+main() {
+  local bin_dir="${HOME}/.local/bin"
+  check_clai_on_path
+  check_ast_mcp_binary "${bin_dir}"
+  check_global_claude_md
+  check_localbin_on_path "${bin_dir}"
+  summarize probe-lmde
+}
+
+main "$@"

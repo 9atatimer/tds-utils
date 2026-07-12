@@ -9,55 +9,69 @@
 # no `clai claude` wrapper (boundary Non-Goal G1) -- so those launch-time cells
 # are asserted only on a laptop and treated as expected-absent in the cloud.
 #
-# Run me from inside the target session:  bash probe-clai.sh
+# Prerequisites: run from inside the target session (bash probe-clai.sh); reads
+# only, never mutates. No -e: every check must run so the summary is complete.
+#
+# Usage:  bash probe-clai.sh
 set -uo pipefail
+
+# --- shared libraries ---
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 . "${HERE}/lib.sh"
 
-ROOT="$(repo_root)"
-HOME_BIN="${HOME}/.local/bin/ast-mcp"
+# --- helper checks ---
 
 # C1 -- ast-mcp is in the MCP server list the agent reads. clai emits the
 # project-scope claude config as <repo>/.mcp.json, keeping the ${HOME} literal
 # (placeholder allowlist is HOME-only, and claude expands it at read time).
-mcp_json="${ROOT}/.mcp.json"
-if ! have_jq; then
-  skip C1 "ast-mcp-in-mcp-list" "jq unavailable"
-elif [ ! -f "${mcp_json}" ]; then
-  fail C1 "ast-mcp-in-mcp-list" "no ${mcp_json}"
-else
+check_ast_mcp_in_mcp_list() {
+  local root="$1" mcp_json cmd
+  mcp_json="${root}/.mcp.json"
+  if ! have_jq; then
+    skip C1 "ast-mcp-in-mcp-list" "jq unavailable"
+    return 0
+  fi
+  if [ ! -f "${mcp_json}" ]; then
+    fail C1 "ast-mcp-in-mcp-list" "no ${mcp_json}"
+    return 0
+  fi
   cmd="$(jq -r '.mcpServers["ast-mcp"].command // empty' "${mcp_json}" 2>/dev/null)"
   case "${cmd}" in
     *'/.local/bin/ast-mcp') pass C1 "ast-mcp-in-mcp-list (${cmd})" ;;
     "") fail C1 "ast-mcp-in-mcp-list" "ast-mcp absent from ${mcp_json}" ;;
     *)  fail C1 "ast-mcp-in-mcp-list" "unexpected command '${cmd}' in ${mcp_json}" ;;
   esac
-fi
+}
 
 # C2 -- the cloudflare MCP servers are disabled for this project. LAPTOP-ONLY:
 # written to ~/.claude.json disabledMcpServers by the `clai claude` pre-hook
 # 10-disable-cloudflare-mcp. In the cloud the agent is not launched via clai,
 # so the hook never runs.
-if is_cloud; then
-  skip C2 "cloudflare-mcp-disabled" "cloud -- no clai launch wrapper (G1)"
-elif ! have_jq; then
-  skip C2 "cloudflare-mcp-disabled" "jq unavailable"
-else
+check_cloudflare_disabled() {
+  local root="$1" cc disabled
+  if is_cloud; then
+    skip C2 "cloudflare-mcp-disabled" "cloud -- no clai launch wrapper (G1)"
+    return 0
+  fi
+  if ! have_jq; then
+    skip C2 "cloudflare-mcp-disabled" "jq unavailable"
+    return 0
+  fi
   cc="${HOME}/.claude.json"
   if [ ! -f "${cc}" ]; then
     fail C2 "cloudflare-mcp-disabled" "no ${cc} (was this launched via 'clai claude'?)"
-  else
-    disabled="$(jq -r --arg p "${ROOT}" \
-      '(.projects[$p].disabledMcpServers // [])[]' "${cc}" 2>/dev/null)"
-    if printf '%s\n' "${disabled}" | grep -qx "cloudflare-graphql"; then
-      pass C2 "cloudflare-mcp-disabled (project ${ROOT})"
-    else
-      fail C2 "cloudflare-mcp-disabled" \
-        "cloudflare-graphql not in disabledMcpServers for ${ROOT}"
-    fi
+    return 0
   fi
-fi
+  disabled="$(jq -r --arg p "${root}" \
+    '(.projects[$p].disabledMcpServers // [])[]' "${cc}" 2>/dev/null)"
+  if printf '%s\n' "${disabled}" | grep -qx "cloudflare-graphql"; then
+    pass C2 "cloudflare-mcp-disabled (project ${root})"
+  else
+    fail C2 "cloudflare-mcp-disabled" \
+      "cloudflare-graphql not in disabledMcpServers for ${root}"
+  fi
+}
 
 # C3 -- clai injects the observability telemetry env into every agent it
 # launches. LAPTOP-ONLY: in the cloud the provider launches the agent directly
@@ -69,11 +83,16 @@ fi
 # Reading our own inherited env instead would be unreliable: Claude Code's Bash
 # tool does not mirror the parent claude process's OTEL_* vars into child
 # shells, so an in-session probe cannot see them that way.
-if is_cloud; then
-  pass C3 "telemetry-injection (cloud auto-pass -- no clai launcher, G1)"
-elif ! command -v clai >/dev/null 2>&1; then
-  fail C3 "telemetry-injection" "clai not on PATH"
-else
+check_telemetry_injection() {
+  local tenv
+  if is_cloud; then
+    pass C3 "telemetry-injection (cloud auto-pass -- no clai launcher, G1)"
+    return 0
+  fi
+  if ! command -v clai >/dev/null 2>&1; then
+    fail C3 "telemetry-injection" "clai not on PATH"
+    return 0
+  fi
   tenv="$(clai env 2>/dev/null || true)"
   if printf '%s\n' "${tenv}" | grep -q 'OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318' \
     && printf '%s\n' "${tenv}" | grep -qE 'OTEL_RESOURCE_ATTRIBUTES=.*repo='; then
@@ -82,16 +101,30 @@ else
     fail C3 "telemetry-injection" \
       "'clai env' did not expose OTLP endpoint + repo= resource attr"
   fi
-fi
+}
 
 # C4 -- skills are placed into the agent's skills dir. clai provision syncs
 # them into <repo>/.claude/skills (symlinks on a laptop, copies in cloud).
-skills_dir="${ROOT}/.claude/skills"
-if [ -d "${skills_dir}" ] && [ -n "$(ls -A "${skills_dir}" 2>/dev/null)" ]; then
-  n="$(ls -A "${skills_dir}" 2>/dev/null | wc -l | tr -d ' ')"
-  pass C4 "skills-placed (${skills_dir}, ${n} entries)"
-else
-  fail C4 "skills-placed" "${skills_dir} missing or empty"
-fi
+check_skills_placed() {
+  local root="$1" skills_dir n
+  skills_dir="${root}/.claude/skills"
+  if [ -d "${skills_dir}" ] && [ -n "$(ls -A "${skills_dir}" 2>/dev/null)" ]; then
+    n="$(ls -A "${skills_dir}" 2>/dev/null | wc -l | tr -d ' ')"
+    pass C4 "skills-placed (${skills_dir}, ${n} entries)"
+  else
+    fail C4 "skills-placed" "${skills_dir} missing or empty"
+  fi
+}
 
-summarize probe-clai
+# --- main ---
+main() {
+  local root
+  root="$(repo_root)"
+  check_ast_mcp_in_mcp_list "${root}"
+  check_cloudflare_disabled "${root}"
+  check_telemetry_injection
+  check_skills_placed "${root}"
+  summarize probe-clai
+}
+
+main "$@"
