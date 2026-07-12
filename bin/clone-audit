@@ -22,6 +22,9 @@
 #   SUBMODULE       Submodule URLs (informational; only fetched with
 #                   --recurse-submodules).
 #   SECRET          Hits from gitleaks, IF it is on PATH.
+#   BLEED-HAZARD    Tracked stale directories/files (semanticdb,
+#                   auto-save-list, .DS_Store, emacs .cache) or legacy
+#                   hostnames/private IPs.
 #
 # SAFETY: only ever READS files. Never executes, sources, or evaluates
 #   anything from the audited repository.
@@ -231,6 +234,59 @@ scan_curl_pipe() {
     done < <(grep_audit '(curl|wget|fetch)[^|]*\|[[:space:]]*(sudo[[:space:]]+)?(ba)?sh($|[^[:alnum:]])')
 }
 
+# Tracked stale directories, legacy hostnames, and private IPs.
+scan_bleed_hazard() {
+    local f dir pattern_filename pattern_content base rel_path
+    
+    # 1. Tracked stale directories (semanticdb/ and auto-save-list/)
+    while IFS= read -r dir; do
+        [ -n "${dir}" ] && emit_warn "BLEED-HAZARD" "${dir}" "tracked stale directory"
+    done < <(find "${ROOT}" -type d \( -name 'semanticdb' -o -name 'auto-save-list' \) -not -path '*/.git/*' -not -path '*/node_modules/*' 2>/dev/null || true)
+
+    # 2. Tracked files check
+    pattern_filename='[a-zA-Z0-9.-]+\.twttr\.net|[a-zA-Z0-9.-]+\.twitter\.com|tw-[a-zA-Z0-9-]+\.local|mbp-[a-zA-Z0-9-]+\.local'
+    pattern_filename+='|10\.[0-9]+\.[0-9]+\.[0-9]+'
+    pattern_filename+='|172\.(1[6-9]|2[0-9]|3[0-1])\.[0-9]+\.[0-9]+'
+    pattern_filename+='|192\.168\.[0-9]+\.[0-9]+'
+
+    while IFS= read -r f; do
+        [ -n "${f}" ] || continue
+        base="${f##*/}"
+
+        # DS_Store check
+        if [[ "${base}" == *DS_Store* ]]; then
+            emit_warn "BLEED-HAZARD" "${f}" "tracked DS_Store file"
+            continue
+        fi
+
+        # Emacs cache check
+        if [[ "${base}" == *.cache ]]; then
+            rel_path="${f#"${ROOT}/"}"
+            if [[ "/${rel_path}" == */emacs/* ]]; then
+                emit_warn "BLEED-HAZARD" "${f}" "tracked emacs cache file"
+                continue
+            fi
+        fi
+
+        # Legacy hostname / IP in filename check
+        if echo "${base}" | grep -qE "${pattern_filename}"; then
+            emit_warn "BLEED-HAZARD" "${f}" "filename contains legacy identifier or private IP"
+        fi
+    done < <(find_files)
+
+    # 3. File content check (legacy hostnames + RFC1918 IPs in contents)
+    pattern_content='[a-zA-Z0-9.-]+\.twttr\.net|[a-zA-Z0-9.-]+\.twitter\.com'
+    pattern_content+='|tw-[a-zA-Z0-9-]+\.local|mbp-[a-zA-Z0-9-]+\.local'
+    pattern_content+='|10\.[0-9]+\.[0-9]+\.[0-9]+'
+    pattern_content+='|172\.(1[6-9]|2[0-9]|3[0-1])\.[0-9]+\.[0-9]+'
+    pattern_content+='|192\.168\.[0-9]+\.[0-9]+'
+
+    local line
+    while IFS= read -r line; do
+        [ -n "${line}" ] && emit_warn "BLEED-HAZARD" "${line%%:*}" "contents contain legacy identifier or private IP"
+    done < <(grep_audit "${pattern_content}")
+}
+
 # Optional secret scan -- only if gitleaks is on PATH (graceful skip).
 scan_secrets() {
     command -v gitleaks >/dev/null 2>&1 || return 0
@@ -250,7 +306,7 @@ run_audit() {
     local s
     for s in scan_agent_files scan_hidden_unicode scan_injection scan_claude \
              scan_npm scan_direnv scan_editor scan_gitattributes \
-             scan_gitmodules scan_curl_pipe scan_secrets; do
+             scan_gitmodules scan_curl_pipe scan_secrets scan_bleed_hazard; do
         "${s}" || true
     done
 

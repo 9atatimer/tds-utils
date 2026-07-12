@@ -2,7 +2,7 @@
 ;;
 ;; Copyright 2013 Todd Stumpf
 ;;
-;; Author: tstumpf@tw-mbp13-tstumpf.local
+;; Author: Todd Stumpf
 ;; Version: $Id: bootstrap.el,v 0.0 2013/03/12 01:53:51 tstumpf Exp $
 ;; Keywords: 
 
