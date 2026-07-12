@@ -175,6 +175,29 @@ test_git_dir_not_scanned() {
     assert "no HIDDEN-UNICODE" "! grep -q 'HIDDEN-UNICODE' <<< \"\${SCAN_OUT}\""
 }
 
+test_bleed_hazard() {
+    bold "Test: stale files, legacy hostnames, and private IPs are flagged BLEED-HAZARD"; printf '\n'
+    local dir; dir="$(new_dir bleed)"
+    
+    mkdir -p "${dir}/emacs/dot.emacs.d/semanticdb"
+    mkdir -p "${dir}/emacs/dot.emacs.d/auto-save-list"
+    mkdir -p "${dir}/local"
+    
+    printf 'stale cache\n' > "${dir}/emacs/dot.emacs.d/semanticdb/semantic.cache"
+    printf 'stale save\n' > "${dir}/emacs/dot.emacs.d/auto-save-list/.saves-1234~"
+    printf 'ds_store content\n' > "${dir}/local/.DS_Store"
+    local h_part="tw-device-generic"
+    printf 'content\n' > "${dir}/.saves-123-${h_part}.local~"
+    local m_part="mbp-host-generic"
+    printf 'Author: user@%s.local\n' "${m_part}" > "${dir}/pants.el"
+    local ip_part="192.168.1"
+    printf 'bind_address = "%s.100"\n' "${ip_part}" > "${dir}/config.conf"
+    
+    run_audit "${dir}"
+    assert "exit 2"            "[ ${SCAN_RC} -eq 2 ]"
+    assert "flags BLEED-HAZARD" "grep -q 'BLEED-HAZARD' <<< \"\${SCAN_OUT}\""
+}
+
 # --- Hook tests (real git repos) ---
 
 # Run the hook inside a repo with our bin removed from PATH, forcing the
@@ -267,6 +290,7 @@ main() {
     test_gitattributes_filter
     test_idea_runconfigs
     test_git_dir_not_scanned
+    test_bleed_hazard
     test_hook_scans_on_clone
     test_hook_resolves_tilde_scannerpath
     test_hook_skips_ordinary_checkout

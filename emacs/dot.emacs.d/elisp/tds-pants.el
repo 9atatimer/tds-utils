@@ -2,7 +2,7 @@
 
 ;; Copyright 2018 Todd Stumpf
 ;;
-;; Author: tstumpf@tw-172-17-123-227.office.twttr.net
+;; Author: Todd Stumpf
 ;; Version: $Id: tds-pants.el,v 0.0 2018/03/14 20:52:58 tstumpf Exp $
 ;; Keywords: 
 ;; X-URL: not distributed yet
