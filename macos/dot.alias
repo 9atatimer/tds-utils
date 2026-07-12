@@ -44,5 +44,6 @@ alias jog-claude='clai claude --channels plugin:telegram@claude-plugins-official
 alias jog-claude-yolo='clai claude --channels plugin:telegram@claude-plugins-official --dangerously-skip-permissions'
 alias gemini='clai gemini'  # deprecated; use agy (Antigravity)
 alias agy='clai agy'
+alias agy-yolo='clai agy --dangerously-skip-permissions'
 alias codex='clai codex'
 alias opencode='clai opencode'
