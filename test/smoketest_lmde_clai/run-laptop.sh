@@ -30,12 +30,15 @@ require_clai() {
 # headless `clai claude` session and echo its combined output. Unsetting
 # CLAUDE_CODE_REMOTE forces the laptop column regardless of the caller's shell.
 launch_session() {
-  local root="$1" probe="$2" prompt
-  prompt="Run exactly this command with the Bash tool and print its stdout verbatim, with no commentary before or after: bash ${probe}"
+  local root="$1" probe="$2" qprobe prompt
+  # shell-escape the path so a checkout dir with spaces still runs cleanly
+  printf -v qprobe '%q' "${probe}"
+  prompt="Run exactly this command with the Bash tool and print its stdout verbatim, with no commentary before or after: bash ${qprobe}"
   echo "== launching: clai claude -p (cwd=${root}) ==" >&2
+  # --dangerously-skip-permissions alone bypasses all prompts (matches the repo's
+  # documented usage in macos/dot.alias); no separate --permission-mode needed.
   ( cd "${root}" && env -u CLAUDE_CODE_REMOTE clai claude -p "${prompt}" \
       --output-format text \
-      --permission-mode bypassPermissions \
       --dangerously-skip-permissions 2>&1 ) || true
 }
 

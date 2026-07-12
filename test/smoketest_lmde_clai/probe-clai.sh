@@ -37,10 +37,19 @@ check_ast_mcp_in_mcp_list() {
     return 0
   fi
   cmd="$(jq -r '.mcpServers["ast-mcp"].command // empty' "${mcp_json}" 2>/dev/null)"
+  # RD5: the claude project-scope .mcp.json must keep the ${HOME} placeholder
+  # LITERAL (claude expands it at read time). A resolved absolute path is a
+  # contract regression, so assert the literal form, not just a suffix match.
   case "${cmd}" in
-    *'/.local/bin/ast-mcp') pass C1 "ast-mcp-in-mcp-list (${cmd})" ;;
-    "") fail C1 "ast-mcp-in-mcp-list" "ast-mcp absent from ${mcp_json}" ;;
-    *)  fail C1 "ast-mcp-in-mcp-list" "unexpected command '${cmd}' in ${mcp_json}" ;;
+    '${HOME}/.local/bin/ast-mcp')
+      pass C1 "ast-mcp-in-mcp-list (${cmd})" ;;
+    "")
+      fail C1 "ast-mcp-in-mcp-list" "ast-mcp absent from ${mcp_json}" ;;
+    *'/.local/bin/ast-mcp')
+      fail C1 "ast-mcp-in-mcp-list" \
+        "command '${cmd}' resolved the \${HOME} placeholder -- RD5 requires the literal \${HOME}/.local/bin/ast-mcp in project scope" ;;
+    *)
+      fail C1 "ast-mcp-in-mcp-list" "unexpected command '${cmd}' in ${mcp_json}" ;;
   esac
 }
 

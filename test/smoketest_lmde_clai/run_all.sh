@@ -13,5 +13,12 @@
 #
 # Usage:  test/smoketest_lmde_clai/run_all.sh
 set -euo pipefail
+
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "${HERE}/run-laptop.sh" "$@"
+
+# --- main ---
+main() {
+  exec "${HERE}/run-laptop.sh" "$@"
+}
+
+main "$@"
