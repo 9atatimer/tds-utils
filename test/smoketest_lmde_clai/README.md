@@ -47,9 +47,11 @@ is skipped and C3 auto-passes there per project convention.
 
 ### Laptop
 
-    test/smoketest_lmde_clai/run-laptop.sh
+    test/smoketest_lmde_clai/run_all.sh
 
-This launches a real headless session through clai (`clai claude -p ...`) with
+`run_all.sh` is the canonical per-suite entrypoint (it just execs
+`run-laptop.sh`). It launches a real headless session through clai
+(`clai claude -p ...`) with
 cwd at this checkout, has it run the probes, and grades the `OVERALL` line.
 Going through `clai claude` is what makes the launch-time cells real: the
 SessionStart hook runs `clai provision` (populating `.claude/skills` and
