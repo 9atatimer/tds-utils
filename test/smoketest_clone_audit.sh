@@ -186,10 +186,10 @@ test_bleed_hazard() {
     printf 'stale cache\n' > "${dir}/emacs/dot.emacs.d/semanticdb/semantic.cache"
     printf 'stale save\n' > "${dir}/emacs/dot.emacs.d/auto-save-list/.saves-1234~"
     printf 'ds_store content\n' > "${dir}/local/.DS_Store"
-    local h_part="tw-mbp15-tstumpf"
+    local h_part="tw-device-generic"
     printf 'content\n' > "${dir}/.saves-123-${h_part}.local~"
-    local d_part="twttr"
-    printf 'Author: user@tw-172-16-100-100.office.%s.net\n' "${d_part}" > "${dir}/pants.el"
+    local m_part="mbp-host-generic"
+    printf 'Author: user@%s.local\n' "${m_part}" > "${dir}/pants.el"
     local ip_part="192.168.1"
     printf 'bind_address = "%s.100"\n' "${ip_part}" > "${dir}/config.conf"
     
