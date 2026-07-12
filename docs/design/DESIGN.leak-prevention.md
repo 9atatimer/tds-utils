@@ -73,7 +73,7 @@ The scanner performs three check phases:
 
 #### Regex Patterns for Leak Check
 
-- **Legacy Hostnames**: twttr\.net|twitter\.com|tw-[a-zA-Z0-9-]+\.local|mbp-[a-zA-Z0-9-]+\.local
+- **Legacy Hostnames**: [a-zA-Z0-9.-]+\.twttr\.net|[a-zA-Z0-9.-]+\.twitter\.com|tw-[a-zA-Z0-9-]+\.local|mbp-[a-zA-Z0-9-]+\.local
 - **RFC1918 Private IPs**:
   - 10\.[0-9]+\.[0-9]+\.[0-9]+
   - 172\.(1[6-9]|2[0-9]|3[0-1])\.[0-9]+\.[0-9]+
