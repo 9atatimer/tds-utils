@@ -68,6 +68,26 @@ There is no committed cloud driver -- a cloud session is spun up out of band
 and read the `OVERALL env=cloud failed=N` line. `run-probes.sh` auto-detects
 the cloud via `CLAUDE_CODE_REMOTE=true` and applies the cloud column above.
 
+## Reporting to a GitHub issue
+
+`run-probes.sh` prints to stdout, which is fine on a laptop but invisible when
+the probe runs in a headless cloud routine. `report-to-issue.sh` bridges that:
+it runs the probes and records the result on a single tracking issue (label
+`smoketest`), so the outcome is fetchable via `gh` from anywhere.
+
+- Each run appends a comment with the verdict, env, timestamp, and full output.
+- PASS (`failed=0`) -> the issue is CLOSED (closed == green).
+- FAIL -> the issue is reopened and labelled `smoketest-fail` (open == broken).
+
+Fetch the latest result (no browser/console needed):
+
+    N=$(gh issue list --repo 9atatimer/tds-utils --label smoketest --state all --limit 1 --json number --jq '.[0].number')
+    gh issue view "$N" --repo 9atatimer/tds-utils --json state,comments -q '.state, .comments[-1].body'
+
+`report-to-issue.sh --dry-run` runs the probes and prints the verdict without
+touching GitHub. The cloud routine calls `report-to-issue.sh` so its result
+lands on the tracking issue automatically.
+
 ## Notes / caveats
 
 - `run-probes.sh` is the in-target executor: it runs both probes and prints an
