@@ -58,7 +58,7 @@ check_ast_mcp_in_mcp_list() {
 # 10-disable-cloudflare-mcp. In the cloud the agent is not launched via clai,
 # so the hook never runs.
 check_cloudflare_disabled() {
-  local root="$1" cc disabled
+  local root="$1" cc conf expected disabled missing name count
   if is_cloud; then
     skip C2 "cloudflare-mcp-disabled" "cloud -- no clai launch wrapper (G1)"
     return 0
@@ -72,13 +72,26 @@ check_cloudflare_disabled() {
     fail C2 "cloudflare-mcp-disabled" "no ${cc} (was this launched via 'clai claude'?)"
     return 0
   fi
+  # Expected names are the hook's OWN allowlist -- assert every server it
+  # declares, not just one, so a partial regression is caught. Fall back to the
+  # known cloudflare set if the conf is unavailable (e.g. a different repo).
+  conf="${root}/clai.d/claude/pre/10-disable-cloudflare-mcp.conf"
+  expected="$(grep -vE '^[[:space:]]*(#|$)' "${conf}" 2>/dev/null | tr -d '[:blank:]')"
+  if [ -z "${expected}" ]; then
+    expected=$'cloudflare-graphql\ncloudflare-casb\ncloudflare-bindings\ncloudflare-audit'
+  fi
   disabled="$(jq -r --arg p "${root}" \
     '(.projects[$p].disabledMcpServers // [])[]' "${cc}" 2>/dev/null)"
-  if printf '%s\n' "${disabled}" | grep -qx "cloudflare-graphql"; then
-    pass C2 "cloudflare-mcp-disabled (project ${root})"
+  missing=""
+  while IFS= read -r name; do
+    [ -z "${name}" ] && continue
+    printf '%s\n' "${disabled}" | grep -qx "${name}" || missing="${missing} ${name}"
+  done <<< "${expected}"
+  if [ -z "${missing}" ]; then
+    count="$(printf '%s\n' "${expected}" | grep -c .)"
+    pass C2 "cloudflare-mcp-disabled (${count} servers disabled for ${root})"
   else
-    fail C2 "cloudflare-mcp-disabled" \
-      "cloudflare-graphql not in disabledMcpServers for ${root}"
+    fail C2 "cloudflare-mcp-disabled" "not disabled for ${root}:${missing}"
   fi
 }
 
