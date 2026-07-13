@@ -5,8 +5,11 @@
 #
 # Behaviour:
 #   - Runs run-probes.sh and reads the OVERALL line (env + failed count).
-#   - Ensures ONE tracking issue exists (label `smoketest`), then appends a
-#     comment with the verdict, env, timestamp, and full probe output.
+#   - Ensures a tracking issue exists (the most recent one labelled `smoketest`;
+#     creates one if none exists -- assumes the label is not manually
+#     duplicated), then appends a comment with the verdict, env, timestamp, and
+#     full probe output. The issue state is only changed once that comment posts,
+#     so a state change always has a corresponding recorded result.
 #   - PASS (failed=0): close the issue and drop the fail label (closed = green).
 #   - FAIL: reopen it and add the `smoketest-fail` label (open bug = broken).
 #   - Prints a final `OVERALL ... verdict=... issue=#N` line.
@@ -55,6 +58,13 @@ find_issue() {
     --json number --jq '.[0].number // empty' 2>/dev/null
 }
 
+# issue_description <issue-number> -- the static body for the tracking issue,
+# with the real issue number baked into the fetch command (no placeholder).
+issue_description() {
+  printf 'Tracking issue for the LMDE/CLAI behavioural smoketest (`%s`).\n\nEach run appends a comment with the full probe output. The issue is CLOSED when the latest run passes and OPEN (label `%s`) when it fails. Fetch the latest result from the most recent comment:\n\n    gh issue view %s --repo %s --json state,comments\n' \
+    "test/smoketest_lmde_clai" "${FAIL_LABEL}" "$1" "${REPO}"
+}
+
 # --- main ---
 main() {
   local dry="${1:-}" output failed env verdict ts body num
@@ -79,22 +89,33 @@ main() {
   ensure_labels
   num="$(find_issue)"
   if [ -z "${num}" ]; then
-    # First run: create with a static description; each run's result is a comment
-    # so "latest result = most recent comment" is uniform for fetching.
-    local desc
-    desc="$(printf 'Tracking issue for the LMDE/CLAI behavioural smoketest (%s).\n\nEach run appends a comment with the full probe output. The issue is CLOSED when the latest run passes and OPEN (label `%s`) when it fails. Fetch the latest result from the most recent comment:\n\n    gh issue view %s --json state,comments\n' \
-      "test/smoketest_lmde_clai" "${FAIL_LABEL}" "<this-issue>")"
+    # First run: create with a placeholder body, then rewrite it with the real
+    # issue number baked in (the number isn't known until after creation). Each
+    # run's result is a comment, so "latest result = most recent comment".
     num="$(gh issue create --repo "${REPO}" --title "${TITLE}" --label "${LABEL}" \
-      --body "${desc}" 2>/dev/null | sed -n 's#.*/issues/\([0-9][0-9]*\).*#\1#p')"
-    [ -n "${num}" ] && echo "created tracking issue #${num}"
+      --body "Bootstrapping LMDE/CLAI smoketest tracking issue..." 2>/dev/null \
+      | sed -n 's#.*/issues/\([0-9][0-9]*\).*#\1#p')"
+    if [ -n "${num}" ]; then
+      echo "created tracking issue #${num}"
+      gh issue edit "${num}" --repo "${REPO}" --body "$(issue_description "${num}")" >/dev/null 2>&1 || true
+    fi
   fi
   if [ -z "${num}" ]; then
     echo "ERROR: could not create or find the tracking issue"
     printf 'OVERALL env=%s failed=%s verdict=%s issue=none\n' "${env}" "${failed}" "${verdict}"
     return 1
   fi
-  gh issue comment "${num}" --repo "${REPO}" --body "${body}" >/dev/null 2>&1 \
-    && echo "commented result on issue #${num}"
+
+  # Record the result BEFORE touching issue state, and only change state if the
+  # comment posts -- so a state change always has a corresponding recorded run.
+  if gh issue comment "${num}" --repo "${REPO}" --body "${body}" >/dev/null 2>&1; then
+    echo "commented result on issue #${num}"
+  else
+    echo "WARNING: could not post result comment on #${num}; leaving issue state unchanged"
+    printf 'OVERALL env=%s failed=%s verdict=%s issue=#%s comment=failed\n' \
+      "${env}" "${failed}" "${verdict}" "${num}"
+    return 1
+  fi
 
   if [ "${verdict}" = "PASS" ]; then
     gh issue edit "${num}" --repo "${REPO}" --remove-label "${FAIL_LABEL}" >/dev/null 2>&1 || true
