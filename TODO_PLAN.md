@@ -224,10 +224,37 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 - **`claude.ai > Settings > General > Instructions` is not shared with Claude Code and has no API (2026-07, #127)**: That personal-instructions field lives only in the claude.ai web app -- the Anthropic Messages API and Claude Code never see it, and there is no public/CLI endpoint to read or sync it (the web app's save call is internal, cookie-gated, unsupported). Cross-cutting agent instructions must be delivered another way: hence the repo-agnostic global `CLAUDE.md` placed by the sandbox setup stage. The claude.ai box and the repo file stay manually denormalized; there is no clean sync.
 - **A test that drives cloud-detecting production code must strip the detector's inputs (2026-07, #127)**: `naatm-sandbox`'s smoketest calls `setup-core.sh`, whose new placement gates on `CLAUDE_CODE_REMOTE`/`HOME=/root`. Run inside a cloud sandbox, those ambient signals leak into every child invocation -- the "non-cloud no-op" case wrote the REAL `/etc/claude-code/CLAUDE.md`. Fix: `unset CLAUDE_CODE_REMOTE` at the top of the suite; each cloud case opts in explicitly with a scratch `CLAUDE_GLOBAL_ETC_DIR`. When a test exercises "am I in the cloud?" code, neutralize the detector or the test mutates the real host.
 - **No safety-timer for PR-watch when webhooks deliver (2026-07, #151)**: The activity subscription already delivers Copilot reviews and CI failures as events; the only thing a webhook never sends is the merge/close transition -- and that is a human action you don't poll for. Arming a ~1h "safety check-in" for a watched PR is wasted quota. Rely on the subscription; do not schedule a timer to babysit a PR that is already event-driven.
+- **Claude Code's Bash tool does not propagate `OTEL_*` to child shells (2026-07, smoketest_lmde_clai)**: clai injects the full OTel telemetry profile (`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_RESOURCE_ATTRIBUTES=repo=...`, etc.) into every agent it launches, but a bash probe spawned by that agent's Bash tool sees NONE of it -- only ambient `CLAUDE_CODE_ENABLE_TELEMETRY`, inherited from the outer session, survives. So a probe cannot confirm the injection by reading its own inherited env; it must observe the injection at the source with `clai env` (which execs `env` through clai's launcher). Cost a real investigation to tell "clai isn't injecting" apart from "the measurement channel drops it." Lesson: when a subprocess env looks empty, suspect the channel, not the producer -- verify the producer directly.
+- **A behavioral smoketest asserts observable end-state, not the tool that produced it (2026-07, smoketest_lmde_clai)**: laptop and cloud acquire the same world by different means -- `lmde acquire` on a laptop, `@nine-at-a-time-media/sandbox` in the cloud -- and the global CLAUDE.md is cloud-only (`setup-core.sh` skips it on a laptop). So the LMDE/CLAI smoketest branches on `CLAUDE_CODE_REMOTE` (L3 asserts the global CLAUDE.md in cloud / skips it on a laptop; cloudflare-disable and telemetry are laptop-only launch effects, auto-passed in cloud per boundary G1) and checks the convention paths regardless of which script placed them. One probe, two columns -- black-box keeps it version-agnostic too (passed against clai 0.5.5 on laptop and 0.6.0 in cloud, unchanged).
 
 ---
 
 ## Completed Tasks
+
+### LMDE/CLAI Behavioral Smoketest (2026-07-12)
+
+Black-box behavioral smoketest that confirms the LMDE/CLAI pairing behaves
+correctly in both target environments. Implements `docs/design/LMDE-CLAI-BOUNDARY.DESIGN.md`'s
+contract-by-convention as an observable check: it stands inside a real session
+and interrogates end-state, stubbing nothing.
+
+- [x] **`test/smoketest_lmde_clai/`**: `probe-lmde.sh` (L1-L4 -- clai on PATH,
+  ast-mcp binary at `~/.local/bin`, global CLAUDE.md + "specificity" marker
+  [cloud-only], `~/.local/bin` on PATH); `probe-clai.sh` (C1-C4 -- ast-mcp in
+  the emitted `.mcp.json`, cloudflare MCP disabled [laptop], telemetry injection
+  via `clai env`, skills placed in `.claude/skills`); `run-probes.sh` in-target
+  executor (emits `OVERALL env=<env> failed=<n>`); `run-laptop.sh` driver
+  (`clai claude -p` -> probes); `lib.sh` (PASS/FAIL/SKIP emit + cloud detection);
+  `README.md` with the laptop/cloud matrix and caveats.
+- [x] **Env-aware, black-box**: the global CLAUDE.md asserts in cloud / skips on
+  laptop; cloudflare-disable + telemetry are laptop-only launch effects (cloud
+  has no clai launcher, boundary G1). Same probe, two columns; version-agnostic.
+- [x] **Verified green both environments**: laptop via real `clai claude -p`
+  (clai 0.5.5) and cloud via a persisted claude.ai routine "LMDE/CLAI Smoketest"
+  against the Default env (clai 0.6.0). `OVERALL failed=0` both; `L3` confirmed
+  `/etc/claude-code/CLAUDE.md` carries the "specificity" marker in cloud.
+- [ ] Follow-up (post-merge): repoint the cloud routine's source branch from
+  `claude/lmde-clai-smoketest` to `master` once this lands.
 
 ### Leak Prevention and Stale Data Audit -- issue #131 (2026-07-11)
 

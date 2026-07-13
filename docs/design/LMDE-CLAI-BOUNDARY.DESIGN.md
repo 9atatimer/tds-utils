@@ -362,3 +362,11 @@ AFTER
   -- the launcher/collator whose provision verb narrows to configure-only.
 - `sandbox/claude-web/setup.sh`, `sandbox/provision.sh` -- the wrappers reflowed
   to acquire-then-configure.
+- [`test/smoketest_lmde_clai/`](../../test/smoketest_lmde_clai/) -- the black-box
+  behavioral smoketest for this boundary. It stands inside a real laptop
+  (`clai claude`) or cloud session and asserts the observable convention
+  locations the split promises -- clai + ast-mcp placed, the global CLAUDE.md
+  (cloud-only), the emitted MCP config naming `~/.local/bin/ast-mcp`, and clai's
+  launch-time telemetry injection -- without caring which tool placed them
+  (`lmde acquire` on a laptop, `@nine-at-a-time-media/sandbox` in the cloud).
+  Passes on-laptop and in-cloud.
