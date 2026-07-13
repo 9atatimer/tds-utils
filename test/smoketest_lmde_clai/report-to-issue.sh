@@ -67,7 +67,21 @@ issue_description() {
 
 # --- main ---
 main() {
-  local dry="${1:-}" output failed env verdict ts body num
+  local dry_run=0 output failed env verdict ts body num
+
+  # Strict argument parsing: reject unknown/extra args so a typo (e.g.
+  # `--dryrun`) can never silently fall through to real GitHub writes.
+  if [ "$#" -gt 1 ]; then
+    echo "report-to-issue.sh: unexpected extra arguments: ${*}" >&2
+    return 2
+  fi
+  case "${1:-}" in
+    "")        ;;                        # no args -> real run
+    --dry-run) dry_run=1 ;;
+    -h|--help) printf 'usage: report-to-issue.sh [--dry-run]\n'; return 0 ;;
+    *)         echo "report-to-issue.sh: unknown argument '$1' (use --dry-run or no args)" >&2
+               return 2 ;;
+  esac
 
   output="$(run_probes)"
   failed="$(parse_field "${output}" 's/^OVERALL .*failed=\([0-9][0-9]*\).*/\1/p')"
@@ -79,7 +93,7 @@ main() {
   body="$(printf '### %s -- env=%s -- %s\n\n```\n%s\n```\n' \
     "${verdict}" "${env}" "${ts}" "${output}")"
 
-  if [ "${dry}" = "--dry-run" ]; then
+  if [ "${dry_run}" -eq 1 ]; then
     printf 'DRY-RUN (no GitHub writes)\n%s\n---\nwould: %s tracking issue\n' \
       "${body}" "$([ "${verdict}" = PASS ] && echo 'comment + close' || echo 'comment + reopen + fail-label')"
     printf 'OVERALL env=%s failed=%s verdict=%s\n' "${env}" "${failed}" "${verdict}"
