@@ -96,7 +96,7 @@ main() {
   if [ "${dry_run}" -eq 1 ]; then
     printf 'DRY-RUN (no GitHub writes)\n%s\n---\nwould: %s tracking issue\n' \
       "${body}" "$([ "${verdict}" = PASS ] && echo 'comment + close' || echo 'comment + reopen + fail-label')"
-    printf 'OVERALL env=%s failed=%s verdict=%s\n' "${env}" "${failed}" "${verdict}"
+    printf 'OVERALL env=%s failed=%s verdict=%s issue=dry-run\n' "${env}" "${failed}" "${verdict}"
     return 0
   fi
 
