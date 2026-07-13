@@ -50,16 +50,18 @@ env_label() { if is_cloud; then printf 'cloud'; else printf 'laptop'; fi; }
 # outputs (.mcp.json, .claude/skills) and per-project ~/.claude.json entries
 # are all keyed off this path.
 repo_root() {
+  local root=""
   if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -d "${CLAUDE_PROJECT_DIR}" ]; then
-    printf '%s' "${CLAUDE_PROJECT_DIR}"
-    return 0
+    root="${CLAUDE_PROJECT_DIR}"
+  elif root="$(git rev-parse --show-toplevel 2>/dev/null)" && [ -n "${root}" ]; then
+    :
+  else
+    root="${PWD}"
   fi
-  local top
-  if top="$(git rev-parse --show-toplevel 2>/dev/null)" && [ -n "$top" ]; then
-    printf '%s' "$top"
-    return 0
-  fi
-  printf '%s' "$PWD"
+  # Return the PHYSICAL path (pwd -P). The clai hooks key ~/.claude.json
+  # project entries by `pwd -P` (see clai.d/claude/pre/10-disable-cloudflare-mcp),
+  # so a logical/symlinked path here would miss the entry and false-fail C2.
+  ( cd "${root}" 2>/dev/null && pwd -P ) || printf '%s' "${root}"
 }
 
 # have_jq -- jq is used for JSON assertions; probes SKIP (not FAIL) without it.

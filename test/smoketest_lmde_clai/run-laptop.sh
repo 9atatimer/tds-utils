@@ -21,9 +21,17 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- helpers ---
 
-# require_clai -- fail fast with an actionable message if clai is absent.
-require_clai() {
-  command -v clai >/dev/null 2>&1 || { echo "FAIL: clai not on PATH"; exit 2; }
+# require_tools -- fail fast with an actionable message if a prerequisite is
+# absent. The driver needs both clai (the launcher) and claude (the agent clai
+# execs); a missing claude otherwise surfaces only as a vague "no OVERALL line".
+require_tools() {
+  local missing=()
+  command -v clai   >/dev/null 2>&1 || missing+=("clai")
+  command -v claude >/dev/null 2>&1 || missing+=("claude")
+  if [ "${#missing[@]}" -gt 0 ]; then
+    echo "FAIL: required tool(s) not on PATH: ${missing[*]}"
+    exit 2
+  fi
 }
 
 # launch_session <repo-root> <probe-path> -- run the probe inside a real
@@ -63,7 +71,7 @@ grade() {
 # --- main ---
 main() {
   local root out
-  require_clai
+  require_tools
   root="$(git -C "${HERE}" rev-parse --show-toplevel)"
   out="$(launch_session "${root}" "${HERE}/run-probes.sh")"
   printf '%s\n' "${out}"

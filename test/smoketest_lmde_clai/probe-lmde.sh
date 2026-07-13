@@ -32,18 +32,20 @@ check_clai_on_path() {
 
 # L2 -- ast-mcp binary present at the convention path and executable.
 check_ast_mcp_binary() {
-  local bin_dir="$1" astmcp real
+  local bin_dir="$1" astmcp target
   astmcp="${bin_dir}/ast-mcp"
+  # -e and -x follow symlinks, so this already rejects a dangling/broken link
+  # or a non-executable target -- no need for the non-portable `readlink -f`
+  # (unavailable on stock BSD/macOS).
   if [ ! -e "${astmcp}" ] || [ ! -x "${astmcp}" ]; then
-    fail L2 "ast-mcp-binary" "${astmcp} missing or not executable"
+    fail L2 "ast-mcp-binary" "${astmcp} missing, dangling, or not executable"
     return 0
   fi
-  # resolve symlinks and confirm the target is a real executable file
-  real="$(readlink -f "${astmcp}" 2>/dev/null || printf '%s' "${astmcp}")"
-  if [ -f "${real}" ] && [ -x "${real}" ]; then
-    pass L2 "ast-mcp-binary (${astmcp} -> ${real})"
+  target="$(readlink "${astmcp}" 2>/dev/null || true)"  # single hop, portable, informational
+  if [ -n "${target}" ]; then
+    pass L2 "ast-mcp-binary (${astmcp} -> ${target})"
   else
-    fail L2 "ast-mcp-binary" "${astmcp} does not resolve to an executable file (${real})"
+    pass L2 "ast-mcp-binary (${astmcp})"
   fi
 }
 
