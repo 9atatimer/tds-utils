@@ -24,7 +24,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # L1 -- clai launcher is on PATH and runnable.
 check_clai_on_path() {
   if command -v clai >/dev/null 2>&1 && clai -V >/dev/null 2>&1; then
-    pass L1 "clai-on-path ($(clai -V 2>/dev/null | head -1))"
+    pass L1 "clai-on-path ($(clai -V 2>/dev/null | head -n 1))"
   else
     fail L1 "clai-on-path" "clai not resolvable on PATH or 'clai -V' failed"
   fi

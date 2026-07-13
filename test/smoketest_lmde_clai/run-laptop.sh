@@ -58,7 +58,7 @@ grade() {
     echo "SMOKE: no OVERALL line -- the session did not run the probes"
     return 3
   fi
-  failed="$(printf '%s\n' "${out}" | sed -n 's/^OVERALL .*failed=\([0-9][0-9]*\).*/\1/p' | tail -1)"
+  failed="$(printf '%s\n' "${out}" | sed -n 's/^OVERALL .*failed=\([0-9][0-9]*\).*/\1/p' | tail -n 1)"
   if [ "${failed:-1}" -eq 0 ]; then
     echo "SMOKE: PASS (laptop)"
     return 0
