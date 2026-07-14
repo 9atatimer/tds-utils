@@ -53,6 +53,13 @@ to reconcile this directory. It reads each spec, diffs against
 - **Apply (git -> live):** map by `live_id`/`name`; create missing, delete
   extras. See the fidelity gaps below before trusting a round-trip.
 
+**Do not edit the prompt body.** Everything after the front-matter `---` is a
+verbatim snapshot of the live Routine's deployed prompt. Do not normalize its
+whitespace, punctuation, or typos, and do not apply SKILL.MARKDOWN.md to it --
+those rules govern authored Markdown, not captured data. "Fixing" prompt-body
+text silently desyncs the spec from the running trigger. To change a prompt,
+edit the live Routine and re-export.
+
 ## Fidelity gaps (read before applying)
 
 The MCP **write** surface is narrower than the **read** surface. `create_trigger`
