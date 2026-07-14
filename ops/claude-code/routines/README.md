@@ -1,11 +1,11 @@
-# Claude Code Routines — git source of truth
+# Claude Code Routines -- git source of truth
 
 Canonical specs for the scheduled Claude Code **Routines** (persistent cron
 triggers) run against my repos. Git is the source of truth; the live triggers
 are reconciled *from* these files.
 
-Today all five are **global singletons** — one instance each, no per-repo or
-per-environment variants — so we file them under `scope: tds-utils-singleton`
+Today all five are **global singletons** -- one instance each, no per-repo or
+per-environment variants -- so we file them under `scope: tds-utils-singleton`
 until that stops being true.
 
 ## Files
@@ -40,17 +40,17 @@ sources: []            # repo URLs the session is started with
 
 ## Reconcile workflow
 
-There is **no standalone authenticated CLI** for Routines — the trigger API is
+There is **no standalone authenticated CLI** for Routines -- the trigger API is
 reachable only through the `Claude_Code_Remote` MCP tools, which live inside a
 Claude Code session. So "apply from the repo" means: open a session and tell it
 to reconcile this directory. It reads each spec, diffs against
 `list_triggers`, and converges with `create_trigger` / `update_trigger` /
 `delete_trigger`.
 
-- **Export (live → git):** read `list_triggers`; the full definition
+- **Export (live -> git):** read `list_triggers`; the full definition
   (cron, prompt, env, tools, model, sources, autofix, MCP) is in
   `job_config.ccr`. Write/refresh the spec files. Fully faithful.
-- **Apply (git → live):** map by `live_id`/`name`; create missing, delete
+- **Apply (git -> live):** map by `live_id`/`name`; create missing, delete
   extras. See the fidelity gaps below before trusting a round-trip.
 
 ## Fidelity gaps (read before applying)
@@ -65,12 +65,12 @@ notifications. It does **not** accept:
 - `autofix_on_pr_create`
 - `mcp_connections`
 
-Those five fields **cannot be set from the MCP** — they must be set in the web
+Those five fields **cannot be set from the MCP** -- they must be set in the web
 UI. Most affected: `daily-rulebook-backport` (sonnet-4-6 + autofix + Drive MCP)
 and `daily-public-relations-check` (sonnet-5).
 
 `update_trigger` is narrower still: it changes only **name, cron, enabled,
-run_once_at** — **not the prompt**. Editing a prompt = `delete_trigger` +
+run_once_at** -- **not the prompt**. Editing a prompt = `delete_trigger` +
 `create_trigger` (which re-incurs the gaps above).
 
 Net: git is a faithful **record** and a faithful applier for
