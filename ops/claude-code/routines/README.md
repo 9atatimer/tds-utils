@@ -36,6 +36,7 @@ allowed_tools: []      # tool allow-list
 autofix_on_pr_create:  # true | false
 mcp_connections: []    # connector names
 sources: []            # repo URLs the session is started with
+notifications:         # optional; push/email/slack channels. Omit when unset/off (the default for all five today)
 ```
 
 ## Reconcile workflow
