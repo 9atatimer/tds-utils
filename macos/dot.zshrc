@@ -27,7 +27,10 @@ eval "$(direnv hook zsh)"
 export SSH_AUTH_SOCK=~/Library/Group\ Containers/2BUA8C4S2C.com.1password/t/agent.sock
 
 # CLI completion and aliases
-if (( $+commands[op] )); then
+# Gate on interactive shells: invoking `op` in the ephemeral/non-interactive
+# shells GUI apps spawn triggers the macOS "op would like to access data from
+# other apps" dialog on every launch.
+if [[ -o interactive ]] && (( $+commands[op] )); then
     source <(op completion zsh)
 fi
 
