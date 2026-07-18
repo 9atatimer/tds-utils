@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# 30-statusline — clai pre-hook for claude
+#
+# Installs Todd's Claude Code status line on the laptop:
+#   1. Symlinks ~/.claude/statusline.sh -> the vendored source of truth
+#      (clai.d/claude/statusline.sh), so repo edits go live.
+#   2. jq-merges ONLY the statusLine block into ~/.claude/settings.json,
+#      pointing at that symlink. Never touches any other settings key.
+# Idempotent. A status line is interactive-terminal UI, so this is a
+# laptop-only configure step; a cloud sandbox has no statusline surface.
+#
+# Refuses to clobber an unmanaged ~/.claude/statusline.sh (a regular file
+# whose content differs from the vendored copy) — it warns and skips instead.
+# Skips the settings merge silently if jq is unavailable.
+
+set -euo pipefail
+
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+SRC="$(cd "${HOOK_DIR}/.." && pwd -P)/statusline.sh"
+DEST="${HOME}/.claude/statusline.sh"
+SETTINGS="${HOME}/.claude/settings.json"
+
+# --- Action functions ---
+
+install_symlink() {
+    # Already the correct symlink -> nothing to do.
+    if [[ -L "${DEST}" && "$(readlink "${DEST}")" == "${SRC}" ]]; then
+        return 0
+    fi
+    # A regular file that clai does not manage: replace it only when its
+    # content matches the vendored copy (the one-time migration from the
+    # old hand-placed file); otherwise leave the user's edits alone.
+    if [[ -e "${DEST}" && ! -L "${DEST}" ]]; then
+        if ! cmp -s "${DEST}" "${SRC}"; then
+            echo "clai/statusline: ${DEST} exists with unmanaged content; not overwriting." >&2
+            return 0
+        fi
+    fi
+    mkdir -p "$(dirname "${DEST}")"
+    ln -sfn "${SRC}" "${DEST}"
+}
+
+merge_settings() {
+    command -v jq >/dev/null 2>&1 || {
+        echo "clai/statusline: jq not found; skipping settings merge." >&2
+        return 0
+    }
+
+    local base='{}'
+    [[ -f "${SETTINGS}" ]] && base="$(cat "${SETTINGS}")"
+
+    local tmp
+    tmp="$(mktemp "${SETTINGS}.XXXXXX")"
+    trap 'rm -f "${tmp}"' EXIT
+
+    printf '%s' "${base}" | jq --arg cmd "${DEST}" '
+        .statusLine = {type: "command", command: $cmd}
+    ' > "${tmp}"
+
+    jq empty "${tmp}" >/dev/null
+    mkdir -p "$(dirname "${SETTINGS}")"
+    mv -f "${tmp}" "${SETTINGS}"
+    trap - EXIT
+}
+
+# --- Flow functions ---
+
+run_install() {
+    install_symlink
+    merge_settings
+}
+
+# --- Main ---
+
+main() {
+    run_install
+}
+
+main "$@"
