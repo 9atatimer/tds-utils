@@ -16,6 +16,6 @@ main() {
 
     assert_eq "${rc}" "0" "advisory check always exits 0 without a token" || return 1
     assert_stdout_empty "${dir}" "no advisory without a token to query the registry" || return 1
-    assert_stderr_contains "${dir}" "GH_AI_TOOLS_PAT unset" "stderr names the missing token" || return 1
+    assert_stderr_contains "${dir}" "GH_AI_TOOLS_PAT unset or empty" "stderr names the missing/empty token" || return 1
 }
 main "$@"

@@ -318,9 +318,10 @@ acquire_run() {
 
 # --- Check (advisory currency; report-only, NEVER installs, ALWAYS exits 0) ---
 #
-# `lmde acquire --check` reads the same checked-in pins acquire would honor and
-# asks GitHub Packages what the latest is, printing a short colored advisory for
-# anything behind. It is meant to ride alongside git commands, so it is purely
+# `lmde acquire --check` honors the same --pins file acquire would (the sandbox
+# passes sandbox/pins.env; with no --pins every package floats) and asks GitHub
+# Packages what the latest is, printing a short colored advisory for anything
+# behind. It is meant to ride alongside git commands, so it is purely
 # advisory: a package that is current prints nothing, an unreachable registry or
 # missing token prints a warning, and EVERY path returns 0 -- it must never fail
 # the command it accompanies. Under normal operation a checked-in pin and the
@@ -396,7 +397,7 @@ check_run() {
     local token="${GH_AI_TOOLS_PAT:-}"
 
     if [ -z "${token}" ]; then
-        acquire_note "GH_AI_TOOLS_PAT unset -- cannot query GitHub Packages; advisory update check skipped."
+        acquire_note "GH_AI_TOOLS_PAT unset or empty -- cannot query GitHub Packages; advisory update check skipped."
         return 0
     fi
     if ! command -v npm >/dev/null 2>&1; then
