@@ -315,3 +315,118 @@ acquire_run() {
 
     return 0
 }
+
+# --- Check (advisory currency; report-only, NEVER installs, ALWAYS exits 0) ---
+#
+# `lmde acquire --check` honors the same --pins file acquire would (the sandbox
+# passes sandbox/pins.env; with no --pins every package floats) and asks GitHub
+# Packages what the latest is, printing a short colored advisory for anything
+# behind. It is meant to ride alongside git commands, so it is purely
+# advisory: a package that is current prints nothing, an unreachable registry or
+# missing token prints a warning, and EVERY path returns 0 -- it must never fail
+# the command it accompanies. Under normal operation a checked-in pin and the
+# installed stamp are at-or-behind the registry latest -- pins.env holds
+# published versions and a stamp records a previously-resolved one -- so
+# "differs from latest" is a good-enough proxy for "behind" and no semver
+# comparator is needed. This is an expectation, not a hard guarantee: a pin set
+# ahead of latest (an unpublished or typo'd version) is a misconfiguration
+# acquire would fail to install, and --check would simply surface it as
+# differing rather than prove an ordering.
+
+# check_paint <enabled> <sgr> <text> -- echo <text> wrapped in the ANSI SGR
+# color <sgr> (e.g. 31 red, 33 amber) when <enabled> is "1", else bare. Pure.
+check_paint() {
+    local enabled="$1" sgr="$2" text="$3"
+    if [ "${enabled}" = "1" ]; then
+        printf '\033[1;%sm%s\033[0m' "${sgr}" "${text}"
+    else
+        printf '%s' "${text}"
+    fi
+}
+
+# check_one <shortname> <npm_name> <pin_var> <pins_file> <npmrc> <color> --
+# classify one package's currency and print ONE advisory line only when it is
+# behind. Current -> silent (stdout). Registry unreachable for this package ->
+# a stderr warning, nothing on stdout. A checked-in pin behind latest -> AMBER
+# (deliberate pin, newer available). A floating package whose installed stamp is
+# behind latest -> RED (something meant to track latest is silently stale).
+# ALWAYS returns 0. (The package table's `bin` column is unused here -- unlike
+# acquire_one, a report-only check never touches a binary -- so check_run reads
+# it into `_bin` and does not pass it.)
+check_one() {
+    local shortname="$1" npm_name="$2" pin_var="$3" pins_file="$4" npmrc="$5" color="$6"
+    local requested latest installed
+
+    requested="$(pins_lookup "${pins_file}" "${pin_var}")" || requested=""
+    latest="$(npm_view_latest "${npm_name}" "${npmrc}")" || latest=""
+
+    if [ -z "${latest}" ]; then
+        acquire_note "WARNING: ${shortname}: registry unreachable -- cannot check for updates"
+        return 0
+    fi
+
+    if [ -n "${requested}" ]; then
+        if [ "${requested}" != "${latest}" ]; then
+            check_paint "${color}" 33 \
+"[lmde] ${shortname}: pinned ${requested}, latest ${latest} -- newer version available; bump ${pin_var} in ${pins_file}"
+            printf '\n'
+        fi
+        return 0
+    fi
+
+    installed="$(installed_version "${shortname}")" || installed=""
+    if [ -n "${installed}" ] && [ "${installed}" != "${latest}" ]; then
+        check_paint "${color}" 31 \
+"[lmde] ${shortname}: floating, installed ${installed}, latest ${latest} -- STALE; re-run lmde acquire"
+        printf '\n'
+    fi
+    return 0
+}
+
+# check_run <pins_file> -- advisory currency check across the package table.
+# Needs the same authed npmrc as acquire to read the private registry; a missing
+# token or npm warns (stderr) and returns 0. Emits color only when stdout is a
+# real terminal and NO_COLOR is unset or empty (per the NO_COLOR spec: a
+# present, non-empty NO_COLOR disables color; NO_COLOR= does not). Builds one
+# ephemeral npmrc, checks every
+# package, purges the npmrc whatever the outcome, and ALWAYS returns 0.
+check_run() {
+    # Optional under set -u: a bare check_run must float (no pins), never crash
+    # on an unbound $1 -- consistent with this verb's fail-open contract.
+    local pins_file="${1:-}"
+    local token="${GH_AI_TOOLS_PAT:-}"
+
+    if [ -z "${token}" ]; then
+        acquire_note "GH_AI_TOOLS_PAT unset or empty -- cannot query GitHub Packages; advisory update check skipped."
+        return 0
+    fi
+    if ! command -v npm >/dev/null 2>&1; then
+        acquire_note "npm not on PATH -- advisory update check skipped."
+        return 0
+    fi
+
+    local color=""
+    if [ -z "${NO_COLOR:-}" ] && [ -t 1 ]; then color="1"; fi
+
+    local npmrc_dir="" npmrc=""
+    npmrc_dir="$(mktemp -d "${TMPDIR:-/tmp}/lmde-check.XXXXXX")" || npmrc_dir=""
+    if [ -z "${npmrc_dir}" ]; then
+        acquire_note "could not create a temp dir for the npmrc -- advisory update check skipped."
+        return 0
+    fi
+    if ! write_acquire_npmrc "${npmrc_dir}"; then
+        acquire_note "could not write an authed npmrc -- advisory update check skipped."
+        purge_npmrc "${npmrc_dir}/.npmrc" "${npmrc_dir}"
+        return 0
+    fi
+    npmrc="${npmrc_dir}/.npmrc"
+
+    local shortname npm_name _bin pin_var
+    while read -r shortname npm_name _bin pin_var; do
+        [ -n "${shortname}" ] || continue
+        check_one "${shortname}" "${npm_name}" "${pin_var}" "${pins_file}" "${npmrc}" "${color}"
+    done < <(acquire_pkg_table)
+
+    purge_npmrc "${npmrc}" "${npmrc_dir}"
+    return 0
+}

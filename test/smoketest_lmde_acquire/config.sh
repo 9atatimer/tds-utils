@@ -166,6 +166,21 @@ run_acquire() {
     printf '%s\n' "${rc}"
 }
 
+# run_check <dir> [args...] -- like run_acquire but for `acquire --check`:
+# captures the advisory report to <dir>/stdout (the drift lines) and warnings to
+# <dir>/stderr, then echoes the exit code. Same hermetic env as run_acquire.
+# stdout is a regular file here, so `[ -t 1 ]` is false and the report is plain
+# (uncolored) -- assertions can match literal text.
+run_check() {
+    local dir="$1"; shift || true
+    local rc=0
+    PATH="${dir}/bin:/usr/bin:/bin" \
+    HOME="${dir}/home" \
+    GH_AI_TOOLS_PAT="${TEST_PAT-faketoken-readpackages}" \
+        bash "${LMDE_BIN}" acquire --check "$@" >"${dir}/stdout" 2>"${dir}/stderr" || rc=$?
+    printf '%s\n' "${rc}"
+}
+
 # --- Assertions --------------------------------------------------------------
 
 assert_eq() {
@@ -246,8 +261,31 @@ assert_stderr_contains() {
     fi
 }
 
+# assert_stdout_contains <dir> <needle> <msg>
+assert_stdout_contains() {
+    local dir="$1" needle="$2" msg="$3"
+    if ! grep -qF "${needle}" "${dir}/stdout" 2>/dev/null; then
+        echo "FAIL: ${msg}"
+        echo "  expected stdout to contain: ${needle}"
+        echo "--- stdout ---"; cat "${dir}/stdout" 2>/dev/null
+        return 1
+    fi
+}
+
+# assert_stdout_empty <dir> <msg> -- the advisory report printed nothing (every
+# package current). A file of zero size, or absent, both count as empty.
+assert_stdout_empty() {
+    local dir="$1" msg="$2"
+    if [[ -s "${dir}/stdout" ]]; then
+        echo "FAIL: ${msg}"
+        echo "--- stdout (expected empty) ---"; cat "${dir}/stdout" 2>/dev/null
+        return 1
+    fi
+}
+
 export -f require_lmde scenario_dir \
     make_npm_stub make_npm_fail_stub make_npm_forbidden_install_stub \
-    seed_installed run_acquire \
+    seed_installed run_acquire run_check \
     assert_eq assert_file_present assert_file_absent assert_symlink_to \
-    assert_installed assert_not_installed assert_stderr_contains
+    assert_installed assert_not_installed assert_stderr_contains \
+    assert_stdout_contains assert_stdout_empty

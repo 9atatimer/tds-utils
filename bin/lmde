@@ -207,7 +207,7 @@ do_doctor() {
 # then hand off to acquire_run (which always returns 0). Only a genuine usage
 # error (bad flag) returns non-zero.
 do_acquire() {
-    local pins_file=""
+    local pins_file="" check=0
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --pins)
@@ -218,6 +218,10 @@ do_acquire() {
                 fi
                 pins_file="$2"
                 shift 2
+                ;;
+            --check)
+                check=1
+                shift
                 ;;
             -*)
                 log "ERROR: unknown flag '$1' for acquire."
@@ -237,6 +241,13 @@ do_acquire() {
     if [[ -n "${pins_file}" && ! -f "${pins_file}" ]]; then
         log "WARNING: --pins file '${pins_file}' not found or unreadable -- floating all packages to latest (fail-open)."
         pins_file=""
+    fi
+
+    # --check is advisory-only: report packages behind GitHub Packages latest
+    # and ALWAYS exit 0 (it rides alongside git commands and must not fail them).
+    if [[ "${check}" -eq 1 ]]; then
+        check_run "${pins_file}"
+        return 0
     fi
 
     acquire_run "${pins_file}"
@@ -259,6 +270,8 @@ Commands:
   acquire [--pins <file>] Install the agent-agnostic clai + ast-mcp npm
                           packages from GitHub Packages (latest by default;
                           --pins pins named packages and floats the rest).
+  acquire --check         Advisory-only: report any clai/ast-mcp behind the
+        [--pins <file>]   GitHub Packages latest and exit 0 (installs nothing).
 
 Notes:
   install/sync with no component (and no --all) only prints this help and the
@@ -274,6 +287,14 @@ Notes:
   fail-open: an unreachable registry, a missing token, or a failed install
   degrades to the already-installed binary with a warning and still exits 0.
   It never edits a shell rc -- if ~/.local/bin is not on PATH it only warns.
+
+  acquire --check is advisory-only: it installs nothing and ALWAYS exits 0, so
+  it can ride alongside git commands without ever failing them. A current
+  package prints nothing; a pin behind latest prints an amber line, a floating
+  package whose installed version is behind latest prints a red line, and an
+  unreachable registry / missing token prints a warning. Color is emitted only
+  when stdout is a terminal and NO_COLOR is unset or empty (a present, non-empty
+  NO_COLOR disables it, per the NO_COLOR convention).
 EOF
 }
 
