@@ -384,7 +384,9 @@ check_one() {
 # real terminal and NO_COLOR is unset. Builds one ephemeral npmrc, checks every
 # package, purges the npmrc whatever the outcome, and ALWAYS returns 0.
 check_run() {
-    local pins_file="$1"
+    # Optional under set -u: a bare check_run must float (no pins), never crash
+    # on an unbound $1 -- consistent with this verb's fail-open contract.
+    local pins_file="${1:-}"
     local token="${GH_AI_TOOLS_PAT:-}"
 
     if [ -z "${token}" ]; then
