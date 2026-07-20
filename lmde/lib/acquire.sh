@@ -385,7 +385,9 @@ check_one() {
 # check_run <pins_file> -- advisory currency check across the package table.
 # Needs the same authed npmrc as acquire to read the private registry; a missing
 # token or npm warns (stderr) and returns 0. Emits color only when stdout is a
-# real terminal and NO_COLOR is unset. Builds one ephemeral npmrc, checks every
+# real terminal and NO_COLOR is unset or empty (per the NO_COLOR spec: a
+# present, non-empty NO_COLOR disables color; NO_COLOR= does not). Builds one
+# ephemeral npmrc, checks every
 # package, purges the npmrc whatever the outcome, and ALWAYS returns 0.
 check_run() {
     # Optional under set -u: a bare check_run must float (no pins), never crash

@@ -293,7 +293,8 @@ Notes:
   package prints nothing; a pin behind latest prints an amber line, a floating
   package whose installed version is behind latest prints a red line, and an
   unreachable registry / missing token prints a warning. Color is emitted only
-  when stdout is a terminal and NO_COLOR is unset.
+  when stdout is a terminal and NO_COLOR is unset or empty (a present, non-empty
+  NO_COLOR disables it, per the NO_COLOR convention).
 EOF
 }
 

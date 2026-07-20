@@ -5,7 +5,7 @@
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
 main() {
-    : "${SMOKE_TMP:=$(mktemp -d)}"
+    : "${SMOKE_TMP:=$(mktemp -d "${TMPDIR:-/tmp}/lmde-acquire-smoke.XXXXXX")}"
     require_lmde || return 1
     local dir rc log pins
     dir="$(scenario_dir check_current)"
