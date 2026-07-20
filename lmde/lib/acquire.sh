@@ -339,15 +339,17 @@ check_paint() {
     fi
 }
 
-# check_one <shortname> <npm_name> <bin> <pin_var> <pins_file> <npmrc> <color> --
+# check_one <shortname> <npm_name> <pin_var> <pins_file> <npmrc> <color> --
 # classify one package's currency and print ONE advisory line only when it is
 # behind. Current -> silent (stdout). Registry unreachable for this package ->
 # a stderr warning, nothing on stdout. A checked-in pin behind latest -> AMBER
 # (deliberate pin, newer available). A floating package whose installed stamp is
 # behind latest -> RED (something meant to track latest is silently stale).
-# ALWAYS returns 0.
+# ALWAYS returns 0. (The package table's `bin` column is unused here -- unlike
+# acquire_one, a report-only check never touches a binary -- so check_run reads
+# it into `_bin` and does not pass it.)
 check_one() {
-    local shortname="$1" npm_name="$2" bin="$3" pin_var="$4" pins_file="$5" npmrc="$6" color="$7"
+    local shortname="$1" npm_name="$2" pin_var="$3" pins_file="$4" npmrc="$5" color="$6"
     local requested latest installed
 
     requested="$(pins_lookup "${pins_file}" "${pin_var}")" || requested=""
@@ -361,7 +363,7 @@ check_one() {
     if [ -n "${requested}" ]; then
         if [ "${requested}" != "${latest}" ]; then
             check_paint "${color}" 33 \
-"[lmde] ${shortname}: pinned ${requested}, latest ${latest} -- newer version available; bump the pin in sandbox/pins.env"
+"[lmde] ${shortname}: pinned ${requested}, latest ${latest} -- newer version available; bump ${pin_var} in ${pins_file}"
             printf '\n'
         fi
         return 0
@@ -410,10 +412,10 @@ check_run() {
     fi
     npmrc="${npmrc_dir}/.npmrc"
 
-    local shortname npm_name bin pin_var
-    while read -r shortname npm_name bin pin_var; do
+    local shortname npm_name _bin pin_var
+    while read -r shortname npm_name _bin pin_var; do
         [ -n "${shortname}" ] || continue
-        check_one "${shortname}" "${npm_name}" "${bin}" "${pin_var}" "${pins_file}" "${npmrc}" "${color}"
+        check_one "${shortname}" "${npm_name}" "${pin_var}" "${pins_file}" "${npmrc}" "${color}"
     done < <(acquire_pkg_table)
 
     purge_npmrc "${npmrc}" "${npmrc_dir}"

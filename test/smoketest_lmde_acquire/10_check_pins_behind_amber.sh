@@ -24,6 +24,10 @@ EOF
     assert_eq "${rc}" "0" "advisory check always exits 0 even when behind" || return 1
     assert_stdout_contains "${dir}" "clai: pinned 1.0.0, latest 2.0.0" "amber line names clai drift" || return 1
     assert_stdout_contains "${dir}" "ast-mcp: pinned 0.4.0, latest 0.5.0" "amber line names ast-mcp drift" || return 1
+    # The advisory must point at the ACTUAL --pins file (not a hard-coded path)
+    # and name the pin variable to bump.
+    assert_stdout_contains "${dir}" "bump CLAI_VERSION in ${pins}" "amber line names the real pins file + var for clai" || return 1
+    assert_stdout_contains "${dir}" "bump AST_MCP_VERSION in ${pins}" "amber line names the real pins file + var for ast-mcp" || return 1
     assert_file_absent "${log}" "--check must never install" || return 1
 }
 main "$@"
