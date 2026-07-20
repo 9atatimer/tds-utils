@@ -323,10 +323,14 @@ acquire_run() {
 # anything behind. It is meant to ride alongside git commands, so it is purely
 # advisory: a package that is current prints nothing, an unreachable registry or
 # missing token prints a warning, and EVERY path returns 0 -- it must never fail
-# the command it accompanies. Both a checked-in pin and the installed stamp are
-# always at-or-behind the registry latest (you cannot pin/resolve a version that
-# is not published), so "differs from latest" is a sound proxy for "behind" --
-# no semver comparator is needed.
+# the command it accompanies. Under normal operation a checked-in pin and the
+# installed stamp are at-or-behind the registry latest -- pins.env holds
+# published versions and a stamp records a previously-resolved one -- so
+# "differs from latest" is a good-enough proxy for "behind" and no semver
+# comparator is needed. This is an expectation, not a hard guarantee: a pin set
+# ahead of latest (an unpublished or typo'd version) is a misconfiguration
+# acquire would fail to install, and --check would simply surface it as
+# differing rather than prove an ordering.
 
 # check_paint <enabled> <sgr> <text> -- echo <text> wrapped in the ANSI SGR
 # color <sgr> (e.g. 31 red, 33 amber) when <enabled> is "1", else bare. Pure.
