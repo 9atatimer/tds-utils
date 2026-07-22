@@ -1,0 +1,248 @@
+#!/usr/bin/env bash
+# smoketest_lmde_prepush -- behavioral smoke test for the advisory lmde currency
+# check wired into git-hooks/pre-push (tds-utils#159).
+#
+# Hermetic: no network, no sleeps, no real lmde. A fake `lmde` on PATH records
+# each invocation to a sentinel file so we can assert whether the check "ran";
+# the throttle stamp is relocated via XDG_STATE_HOME into a temp dir. The hook
+# is run directly (bash git-hooks/pre-push) inside throwaway temp git repos.
+#
+# Usage: ./test/smoketest_lmde_prepush
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(dirname "${SCRIPT_DIR}")"
+PRE_PUSH="${REPO_DIR}/git-hooks/pre-push"
+
+# --- Test harness ---
+
+TESTS_RUN=0
+TESTS_PASSED=0
+TESTS_FAILED=0
+WORKROOT=""
+
+red()   { printf '\033[1;31m%s\033[0m' "$1"; }
+green() { printf '\033[1;32m%s\033[0m' "$1"; }
+bold()  { printf '\033[1m%s\033[0m'    "$1"; }
+
+assert() {
+    local label="$1" condition="$2"
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if eval "${condition}"; then
+        green "  PASS"; printf ' %s\n' "${label}"
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+    else
+        red "  FAIL"; printf ' %s\n' "${label}"
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+    fi
+}
+
+setup()   { WORKROOT="$(mktemp -d "${TMPDIR:-/tmp}/lmde-prepush-test.XXXXXX")"; }
+cleanup() { [ -n "${WORKROOT}" ] && [ -d "${WORKROOT}" ] && rm -rf "${WORKROOT}"; }
+trap cleanup EXIT
+
+# --- Fixtures ---
+
+# A fake `lmde` that appends its args to $LMDE_CALLS and exits 0 (mirrors the
+# real verb's always-exit-0 contract).
+make_fake_lmde() {
+    local bindir="$1"
+    mkdir -p "${bindir}"
+    cat > "${bindir}/lmde" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${LMDE_CALLS}"
+exit 0
+EOF
+    chmod +x "${bindir}/lmde"
+}
+
+# A fake `lmde` that exits NON-zero, to prove the hook never propagates it.
+make_failing_lmde() {
+    local bindir="$1"
+    mkdir -p "${bindir}"
+    cat > "${bindir}/lmde" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${LMDE_CALLS}"
+exit 7
+EOF
+    chmod +x "${bindir}/lmde"
+}
+
+# A real git repo with an initial commit and a sandbox/pins.env.
+new_repo() {
+    local dir="${WORKROOT}/$1"
+    mkdir -p "${dir}/sandbox"
+    git -C "${dir}" init -q
+    git -C "${dir}" config user.email t@t
+    git -C "${dir}" config user.name t
+    git -C "${dir}" config commit.gpgsign false
+    printf 'CLAI_VERSION="0.6.0"\n' > "${dir}/sandbox/pins.env"
+    printf 'x\n' > "${dir}/README.md"
+    git -C "${dir}" add -A
+    git -C "${dir}" commit -qm init
+    printf '%s' "${dir}"
+}
+
+# Run the pre-push hook in <repo> with a controlled PATH and state dir. Extra
+# args are env assignments passed to `env`. Sets HOOK_RC / LMDE_CALLS content.
+run_hook() {
+    local repo="$1" path="$2"; shift 2
+    local state="${WORKROOT}/state.$$.${RANDOM}"
+    LMDE_CALLS="${WORKROOT}/calls.$$.${RANDOM}"
+    : > "${LMDE_CALLS}"
+    HOOK_RC=0
+    ( cd "${repo}" && env "$@" \
+        PATH="${path}" \
+        XDG_STATE_HOME="${state}" \
+        LMDE_CALLS="${LMDE_CALLS}" \
+        bash "${PRE_PUSH}" origin no://url < /dev/null ) || HOOK_RC=$?
+    STATE_DIR="${state}"
+}
+
+# Count invocations recorded in a sentinel (one line per call). Robust for the
+# empty case: `wc -l` prints a plain 0, unlike `grep -c` which also exits 1.
+count_lines() { wc -l < "$1" 2>/dev/null | tr -d '[:space:]'; }
+calls_count() { count_lines "${LMDE_CALLS}"; }
+
+# --- Tests ---
+
+test_runs_check_when_present() {
+    bold "Test: lmde present + pins.env present => check runs, push allowed"; printf '\n'
+    local repo; repo="$(new_repo present)"
+    local bin="${WORKROOT}/bin-present"; make_fake_lmde "${bin}"
+    run_hook "${repo}" "${bin}:${PATH}"
+    assert "hook exits 0"                 "[ ${HOOK_RC} -eq 0 ]"
+    assert "lmde invoked exactly once"    "[ \"\$(calls_count)\" = '1' ]"
+    assert "invoked with --check --pins"  "grep -q -- '--check --pins .*sandbox/pins.env' '${LMDE_CALLS}'"
+    assert "stamp written"                "[ -f '${STATE_DIR}/tds-utils/acquire-check.stamp' ]"
+}
+
+test_missing_lmde_is_noop() {
+    bold "Test: lmde absent => hook still exits 0, no crash"; printf '\n'
+    local repo; repo="$(new_repo nolmde)"
+    # Guarantee lmde is absent regardless of the dev's real PATH: point PATH at
+    # an empty dir and invoke the hook via an absolute bash (mirrors the
+    # branch-guard test's no-gh technique). git errors are swallowed by the
+    # DONOTSUBMIT guard's command-substitution, and `command -v lmde` then
+    # fails, so the advisory is a clean no-op.
+    local empty="${WORKROOT}/empty-bin"; mkdir -p "${empty}"
+    local bash_bin; bash_bin="$(command -v bash)"
+    HOOK_RC=0
+    ( cd "${repo}" && PATH="${empty}" "${bash_bin}" "${PRE_PUSH}" origin no://url < /dev/null ) \
+        || HOOK_RC=$?
+    assert "hook exits 0 with lmde absent" "[ ${HOOK_RC} -eq 0 ]"
+}
+
+test_failing_lmde_never_blocks() {
+    bold "Test: lmde exits non-zero => push STILL allowed (advisory)"; printf '\n'
+    local repo; repo="$(new_repo failing)"
+    local bin="${WORKROOT}/bin-failing"; make_failing_lmde "${bin}"
+    run_hook "${repo}" "${bin}:${PATH}"
+    assert "hook exits 0 despite lmde rc=7" "[ ${HOOK_RC} -eq 0 ]"
+    assert "lmde was invoked"               "[ \"\$(calls_count)\" = '1' ]"
+}
+
+test_missing_pins_skips() {
+    bold "Test: no sandbox/pins.env => check skipped, push allowed"; printf '\n'
+    local repo; repo="$(new_repo nopins)"
+    rm -f "${repo}/sandbox/pins.env"
+    local bin="${WORKROOT}/bin-nopins"; make_fake_lmde "${bin}"
+    run_hook "${repo}" "${bin}:${PATH}"
+    assert "hook exits 0"        "[ ${HOOK_RC} -eq 0 ]"
+    assert "lmde not invoked"    "[ \"\$(calls_count)\" = '0' ]"
+}
+
+test_throttle_skips_within_window() {
+    bold "Test: a fresh stamp within the window skips the network call"; printf '\n'
+    local repo; repo="$(new_repo throttle)"
+    local bin="${WORKROOT}/bin-throttle"; make_fake_lmde "${bin}"
+    local state="${WORKROOT}/throttle-state"
+    mkdir -p "${state}/tds-utils"
+    date +%s > "${state}/tds-utils/acquire-check.stamp"   # "just ran"
+    LMDE_CALLS="${WORKROOT}/throttle-calls"; : > "${LMDE_CALLS}"
+    HOOK_RC=0
+    ( cd "${repo}" && env PATH="${bin}:${PATH}" \
+        XDG_STATE_HOME="${state}" LMDE_CALLS="${LMDE_CALLS}" \
+        bash "${PRE_PUSH}" origin no://url < /dev/null ) || HOOK_RC=$?
+    assert "hook exits 0"               "[ ${HOOK_RC} -eq 0 ]"
+    assert "throttled: lmde NOT invoked" "[ \"$(count_lines "${LMDE_CALLS}")\" = '0' ]"
+}
+
+test_stale_stamp_reruns() {
+    bold "Test: a stamp older than the window re-runs the check"; printf '\n'
+    local repo; repo="$(new_repo stale)"
+    local bin="${WORKROOT}/bin-stale"; make_fake_lmde "${bin}"
+    local state="${WORKROOT}/stale-state"
+    mkdir -p "${state}/tds-utils"
+    printf '1000000000\n' > "${state}/tds-utils/acquire-check.stamp"   # ~2001, ancient
+    LMDE_CALLS="${WORKROOT}/stale-calls"; : > "${LMDE_CALLS}"
+    HOOK_RC=0
+    ( cd "${repo}" && env PATH="${bin}:${PATH}" \
+        XDG_STATE_HOME="${state}" LMDE_CALLS="${LMDE_CALLS}" \
+        bash "${PRE_PUSH}" origin no://url < /dev/null ) || HOOK_RC=$?
+    assert "hook exits 0"           "[ ${HOOK_RC} -eq 0 ]"
+    assert "stale stamp re-runs check" "[ \"$(count_lines "${LMDE_CALLS}")\" = '1' ]"
+}
+
+test_garbage_stamp_reruns() {
+    bold "Test: a non-numeric stamp fails open and re-runs the check"; printf '\n'
+    local repo; repo="$(new_repo garbage)"
+    local bin="${WORKROOT}/bin-garbage"; make_fake_lmde "${bin}"
+    local state="${WORKROOT}/garbage-state"
+    mkdir -p "${state}/tds-utils"
+    printf 'not-a-number\n' > "${state}/tds-utils/acquire-check.stamp"
+    LMDE_CALLS="${WORKROOT}/garbage-calls"; : > "${LMDE_CALLS}"
+    HOOK_RC=0
+    ( cd "${repo}" && env PATH="${bin}:${PATH}" \
+        XDG_STATE_HOME="${state}" LMDE_CALLS="${LMDE_CALLS}" \
+        bash "${PRE_PUSH}" origin no://url < /dev/null ) || HOOK_RC=$?
+    assert "hook exits 0"              "[ ${HOOK_RC} -eq 0 ]"
+    assert "garbage stamp re-runs check" "[ \"$(count_lines "${LMDE_CALLS}")\" = '1' ]"
+}
+
+test_env_optout() {
+    bold "Test: TDS_ACQUIRE_CHECK=0 disables the advisory"; printf '\n'
+    local repo; repo="$(new_repo optout)"
+    local bin="${WORKROOT}/bin-optout"; make_fake_lmde "${bin}"
+    run_hook "${repo}" "${bin}:${PATH}" TDS_ACQUIRE_CHECK=0
+    assert "hook exits 0"        "[ ${HOOK_RC} -eq 0 ]"
+    assert "opt-out: lmde not invoked" "[ \"\$(calls_count)\" = '0' ]"
+}
+
+test_donotsubmit_still_fatal() {
+    bold "Test: DONOTSUBMIT guard still blocks the push (regression)"; printf '\n'
+    local repo; repo="$(new_repo dns)"
+    local bin="${WORKROOT}/bin-dns"; make_fake_lmde "${bin}"
+    printf 'DONOTSUBMIT\n' > "${repo}/flagged.txt"
+    git -C "${repo}" add -A
+    git -C "${repo}" commit -qm flagged
+    run_hook "${repo}" "${bin}:${PATH}"
+    assert "DONOTSUBMIT blocks push (rc!=0)" "[ ${HOOK_RC} -ne 0 ]"
+}
+
+# --- Main ---
+
+main() {
+    bold "=== lmde pre-push advisory smoke test ==="; printf '\n\n'
+    assert "pre-push hook is executable" "[ -x '${PRE_PUSH}' ]"
+
+    setup
+    test_runs_check_when_present
+    test_missing_lmde_is_noop
+    test_failing_lmde_never_blocks
+    test_missing_pins_skips
+    test_throttle_skips_within_window
+    test_stale_stamp_reruns
+    test_garbage_stamp_reruns
+    test_env_optout
+    test_donotsubmit_still_fatal
+
+    printf '\n'
+    bold "=== Results: ${TESTS_PASSED}/${TESTS_RUN} passed"
+    [ "${TESTS_FAILED}" -gt 0 ] && red ", ${TESTS_FAILED} failed"
+    printf ' ===\n'
+    [ "${TESTS_FAILED}" -eq 0 ]
+}
+
+main "$@"
