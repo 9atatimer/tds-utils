@@ -179,6 +179,7 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 
 ## Lessons Learned
 
+- **Interactive Shells Spawning under external processes (like IDEs or Agents)**: Invoking secure CLI tools (like 1Password `op`) during interactive shell startup (`~/.zshrc`) inside IDEs or coding agents causes the macOS security daemon to prompt for permission ("op would like to access data from other apps"). This happens because the shell's parent process is the IDE or coding agent rather than a verified terminal emulator. Skip `op` execution in these contexts by checking environment variables (`ANTIGRAVITY_AGENT`, `CLAI_AGENT`, `TERM_PROGRAM`), and cache generated completion code (like `op completion zsh`) in a version-controlled source file inside `tds-utils` (e.g. `macos/dot.op-completion`) symlinked to `~/.op-completion` to avoid executing the binary on standard shell launches.
 - **Keep test fixtures free of legacy identifiers**: When writing test cases for leak detectors, ensure that fixture data uses purely synthetic placeholders (e.g., `user@tw-192-0-2-100.office.example.invalid`) instead of real identifiers from the private audit findings, preventing legacy leaks from being reintroduced.
 - **Untracking pre-existing files in .gitignore**: Files committed before a matching `.gitignore` rule was added remain tracked. They must be explicitly untracked via `git rm --cached` to stop tracking.
 - **Copilot coding-agent MCP config is read-only via the GitHub API** (#95): `GET /repos/{owner}/{repo}/copilot/cloud-agent/configuration` returns the coding agent's `mcp_configuration`, but there is **no write endpoint** -- the server list is UI-only (repo Settings -> Copilot -> Coding agent). So a `clai provision` "apply" for Copilot is unbuildable today; the one writable Copilot surface (`COPILOT_MCP_*` Agents secrets/variables) is orthogonal since the manifest carries no secret values. Lesson: probe an agent's *actual* config surface before designing an emitter; when it cannot be applied, be **vocal** (raise a MANUAL-ACTION warning) rather than silently no-op, and leave a clean seam for a future write adapter. `emit_copilot` implements this in clai (template-tools).
@@ -230,6 +231,13 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 ---
 
 ## Completed Tasks
+
+### 1Password GUI Authorization Prompt Fix (2026-07-22)
+
+Resolved the recurring macOS "op would like to look at other apps data" prompts when starting coding agents and IDE environments.
+
+- [x] **Zsh completion optimization**: Modified `macos/dot.zshrc` to skip running `op completion zsh` inside coding agent shells (`ANTIGRAVITY_AGENT`, `CLAI_AGENT`) and IDE shells (`vscode`).
+- [x] **Cached completion file**: Generated the completion code once at `macos/dot.op-completion` under the `tds-utils` repository, and symlinked it to `~/.op-completion` to match the dotfile pattern, preventing slow shell startups and GUI authorization prompts.
 
 ### LMDE/CLAI Behavioral Smoketest (2026-07-12)
 
@@ -326,3 +334,9 @@ and interrogates end-state, stubbing nothing.
 - [x] Task LMDE4: **Implement LMDE Tech Radar.** Created `prompts/SKILL.TECH_RADAR.md` based on the design doc, added the `CLAUDE.md` ingest hook, and backfilled "Adopted" and "Hold" tech.
 - [x] Task LMDE5: **ingress-nginx host ingress for cluster vhosts.** Replaced the rejected istio approach -- added `lmde/components/networking/` (the Caddy `register_cluster_vhost` helper and a vendored ingress-nginx kind manifest), the `*.{cluster}.localhost` vhost scheme, and Grafana reachable at `grafana.lmde.localhost`. PR #49.
 - [x] Task LMDE6: **Remove the legacy bash clai launcher.** `bin/clai` (bash) is superseded by the Python `clai` tool (uv-installed); removed it, its `test/smoketest_clai/` suite, and `CLAI.DESIGN.md`. PR #50.
+
+---
+
+## Suggested Next Steps
+
+1. **Audit Git-Mirror Background Credentials**: Audit remaining background tasks or scripts that call the `git-mirror` credential process to ensure they fail gracefully or warn rather than block when run by coding agents in mirrored repositories.
