@@ -31,6 +31,8 @@ if [[ -o interactive ]] && (( $+commands[op] )); then
     if [[ -z "${ANTIGRAVITY_AGENT:-}" && -z "${CLAI_AGENT:-}" && "${TERM_PROGRAM:-}" != "vscode" ]]; then
         if [[ -f "${HOME}/.op-completion" ]]; then
             source "${HOME}/.op-completion"
+        elif [[ -f "${HOME}/workplace/tds-utils/macos/dot.op-completion" ]]; then
+            source "${HOME}/workplace/tds-utils/macos/dot.op-completion"
         fi
     fi
 fi
