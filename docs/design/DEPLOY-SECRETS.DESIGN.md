@@ -87,13 +87,15 @@ Three problems:
    Laptop (.envrc / direnv)            GitHub Actions
    +-------------------------+         +-----------------------------+
    | GADMIN_VAULT=<vault>    |         | GADMIN_VAULT (repo var)     |
-   | OP_SERVICE_ACCOUNT_TOKEN|         | secrets.GADMIN_OP_SA_TOKEN  |
+   | GADMIN_OP_SA_TOKEN=...   |         | secrets.GADMIN_OP_SA_TOKEN  |
    +-----------+-------------+         +--------------+--------------+
                |                                      |
                |            both export               |
                v                                      v
         +--------------------------------------------------------+
-        |  gadmin deploy  (op run --env-file, vault = GADMIN_VAULT)|
+        |  gadmin deploy                                          |
+        |    maps GADMIN_OP_SA_TOKEN -> OP_SERVICE_ACCOUNT_TOKEN, |
+        |    then op run --env-file, vault = GADMIN_VAULT         |
         +----------------------------+---------------------------+
                                      |
                     resolves op://$GADMIN_VAULT/<ENVVAR>/credential
@@ -114,12 +116,15 @@ Three problems:
 | Variable | Role | Laptop source | CI source |
 |----------|------|---------------|-----------|
 | `GADMIN_VAULT` | Names the 1Password vault holding this repo's deploy creds. | `.envrc` (direnv) | repo-level Actions **variable** (`vars.GADMIN_VAULT`), or a literal in the workflow |
-| `GADMIN_OP_SA_TOKEN` | The service-account token that opens `GADMIN_VAULT`, read-only. | `.envrc` (direnv), exported as `OP_SERVICE_ACCOUNT_TOKEN` | `secrets.GADMIN_OP_SA_TOKEN` (repo secret, falling through to org secret) |
+| `GADMIN_OP_SA_TOKEN` | The service-account token that opens `GADMIN_VAULT`, read-only. | `.envrc` (direnv) | `secrets.GADMIN_OP_SA_TOKEN` (repo secret, falling through to org secret) |
 
-At the point of use the token MUST be presented to `op` /
-`1password/load-secrets-action` as `OP_SERVICE_ACCOUNT_TOKEN` -- that name is
-fixed by the tooling. `GADMIN_OP_SA_TOKEN` is the name at rest; the mapping
-happens in one place (the workflow step, or `gadmin deploy`).
+`GADMIN_OP_SA_TOKEN` is the name at rest **everywhere** -- laptop `.envrc` and
+CI both export exactly that. `op` and `1password/load-secrets-action` require
+the token under the fixed name `OP_SERVICE_ACCOUNT_TOKEN`, so the
+`GADMIN_OP_SA_TOKEN -> OP_SERVICE_ACCOUNT_TOKEN` mapping is done in exactly one
+place: inside `gadmin deploy`, immediately before it invokes `op`. No caller --
+laptop or workflow -- sets `OP_SERVICE_ACCOUNT_TOKEN` itself, so the at-rest
+name stays the single source of truth (Goal 2).
 
 ### The op:// naming convention
 
@@ -157,9 +162,11 @@ laptop and in CI:
 ```
 gadmin deploy -- <deploy-command> [args...]
 
-  1. Require GADMIN_VAULT and OP_SERVICE_ACCOUNT_TOKEN in env; fail loud if unset.
-  2. Build the op:// manifest for the ENV names the repo declares it needs.
-  3. exec: op run --env-file <manifest> -- <deploy-command>
+  1. Require GADMIN_VAULT and GADMIN_OP_SA_TOKEN in env; fail loud if unset.
+  2. Map internally: OP_SERVICE_ACCOUNT_TOKEN=$GADMIN_OP_SA_TOKEN (the only
+     place this fixed tooling name is set; not exported back to the caller).
+  3. Build the op:// manifest for the ENV names the repo declares it needs.
+  4. exec: op run --env-file <manifest> -- <deploy-command>
 ```
 
 Because both contexts set the same two variables, the invocation is byte-for-byte
@@ -174,7 +181,7 @@ file's location.
       - name: Deploy
         env:
           GADMIN_VAULT: ${{ vars.GADMIN_VAULT }}
-          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.GADMIN_OP_SA_TOKEN }}
+          GADMIN_OP_SA_TOKEN: ${{ secrets.GADMIN_OP_SA_TOKEN }}
         run: gadmin deploy -- npm run deploy:cf
 ```
 
@@ -210,7 +217,7 @@ org secret of the same name when no repo secret is defined. No hardcoded
 |----------|--------|-----------|
 | Vault named by env, not baked into templates | `GADMIN_VAULT` | Makes one template serve every repo; the only per-repo knob. |
 | Token secret name at rest | `GADMIN_OP_SA_TOKEN` | Binds the token to gadmin's deploy scope; avoids colliding with a personal/other `OP_SERVICE_ACCOUNT_TOKEN` in the same shell. |
-| Present token as `OP_SERVICE_ACCOUNT_TOKEN` at use | Map at point of use | That name is hard-required by `op` and the 1Password action; mapping once keeps the at-rest name meaningful. |
+| Where the `GADMIN_OP_SA_TOKEN -> OP_SERVICE_ACCOUNT_TOKEN` mapping happens | Inside `gadmin deploy` only | The tooling name is hard-required by `op`; confining the map to `gadmin deploy` keeps `GADMIN_OP_SA_TOKEN` the single at-rest name across laptop and CI (callers never set `OP_SERVICE_ACCOUNT_TOKEN`). |
 | Drop the `\|\|` fallback chain | Rely on GH repo->org secret resolution | GitHub already does repo-then-org fallback for a same-named secret; the explicit chain hid which token fired. |
 | Item title == ENV var, field == `credential` | Mechanical `op://` refs | Deploy declares ENV names; references compute without per-repo authoring. |
 | One vault per repo, SA scoped to it | Isolation | Bounds blast radius; one template still works because only `GADMIN_VAULT` changes. |
@@ -271,6 +278,4 @@ org secret of the same name when no repo secret is defined. No hardcoded
 ## Related Documents
 
 - `docs/design/DESIGN.leak-prevention.md` -- secret-handling stance this aligns with.
-- `template-base/.github/workflows/` -- where the reference deploy workflow example lands.
-</content>
-</invoke>
+- `Nine-At-A-Time-Media/template-base` repo, `.github/workflows/` -- where the reference deploy workflow example lands (a different repo, not a path in tds-utils).
