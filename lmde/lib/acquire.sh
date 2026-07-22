@@ -260,7 +260,9 @@ acquire_one() {
 # one authed npmrc under a private mktemp dir, reconciles every package in the
 # table, removes the npmrc whatever the outcome, and ALWAYS returns 0.
 acquire_run() {
-    local pins_file="$1"
+    # Optional under set -u, mirroring check_run: always invoked with an arg
+    # today, but hardened so a bare acquire_run floats instead of crashing.
+    local pins_file="${1:-}"
     local token="${GH_AI_TOOLS_PAT:-}"
 
     if [ -z "${token}" ]; then

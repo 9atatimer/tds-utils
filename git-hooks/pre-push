@@ -1,4 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# pre-push -- block DONOTSUBMIT commits (fatal), then run the lmde currency
+# check as an advisory nudge (never fatal).
+
+# --- DONOTSUBMIT guard (fatal) ---
 
 # If the following text is found anywhere in the source for HEAD, we will prevent pushing
 dont_push_flag="DONOTSUBMIT"
@@ -11,4 +15,86 @@ then
     echo "Found $flag_found, first occurence was in $commit, not pushing"
     exit 1
 fi
+
+# --- lmde currency check (advisory only -- NEVER blocks the push) ---
+#
+# `lmde acquire --check` compares the checked-in pins against GitHub Packages
+# latest and prints an amber/red nudge for anything behind. It always exits 0
+# and fail-opens on a missing token / offline registry, but we still guard
+# every step here so a stray failure (lmde absent, unwritable state dir, ...)
+# can never fail a push. Pre-push is a nudge, not a gate.
+#
+# Throttled: after a run we stamp the epoch under the state dir and skip the
+# ~2 network round-trips if another push ran the check within the window, so a
+# burst of pushes only checks once.
+#
+# Env knobs (mainly for tests / power users):
+#   TDS_ACQUIRE_CHECK=0               -- disable the advisory entirely.
+#   TDS_ACQUIRE_CHECK_INTERVAL_HOURS  -- throttle window in hours (default 24).
+#   XDG_STATE_HOME                    -- relocates the throttle stamp.
+
+advisory_stamp_path() {
+    local state_dir="${XDG_STATE_HOME:-${HOME}/.local/state}/tds-utils"
+    printf '%s/acquire-check.stamp' "${state_dir}"
+}
+
+# throttled_recently <stamp> <window_seconds> -- true if the stamp holds a valid
+# epoch newer than window_seconds ago. A missing/empty/garbage stamp is "not
+# recent" (fail-open toward running the check).
+throttled_recently() {
+    local stamp="$1" window="$2" last now
+    [ -f "${stamp}" ] || return 1
+    last="$(cat "${stamp}" 2>/dev/null)"
+    case "${last}" in
+        ''|*[!0-9]*) return 1 ;;   # empty or non-numeric -> run the check
+    esac
+    now="$(date +%s 2>/dev/null)" || return 1
+    # A future stamp (clock rollback or a hand-edited file) is invalid -- fail
+    # open and run the check rather than suppress it until wall clock catches up.
+    [ "${last}" -le "${now}" ] || return 1
+    [ $(( now - last )) -lt "${window}" ]
+}
+
+record_advisory_stamp() {
+    local stamp="$1" now
+    now="$(date +%s 2>/dev/null)" || return 0
+    mkdir -p "$(dirname "${stamp}")" 2>/dev/null || return 0
+    printf '%s\n' "${now}" > "${stamp}" 2>/dev/null || return 0
+}
+
+run_advisory_currency_check() {
+    [ "${TDS_ACQUIRE_CHECK:-1}" != "0" ] || return 0
+    command -v lmde >/dev/null 2>&1 || return 0
+
+    local repo_root pins
+    repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || return 0
+    pins="${repo_root}/sandbox/pins.env"
+    [ -f "${pins}" ] || return 0
+
+    local hours="${TDS_ACQUIRE_CHECK_INTERVAL_HOURS:-24}"
+    case "${hours}" in
+        ''|*[!0-9]*) hours=24 ;;
+    esac
+    # Force base-10: bash reads a leading-zero value (e.g. "08") as octal, so a
+    # valid-looking interval would throw an arithmetic error.
+    local window=$(( 10#${hours} * 3600 ))
+
+    local stamp
+    stamp="$(advisory_stamp_path)"
+    if [ "${window}" -gt 0 ] && throttled_recently "${stamp}" "${window}"; then
+        return 0
+    fi
+
+    # Advisory only -- the check always exits 0 by contract (fail-open on
+    # offline/no-token). A NON-zero exit therefore means lmde genuinely crashed;
+    # in that case do NOT stamp, so the next push retries instead of suppressing
+    # the nudge for a full window. Either way the failure is swallowed here so a
+    # push is never blocked.
+    if lmde acquire --check --pins "${pins}"; then
+        record_advisory_stamp "${stamp}"
+    fi
+}
+
+run_advisory_currency_check || true
+
 exit 0
