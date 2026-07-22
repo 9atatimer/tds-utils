@@ -75,7 +75,9 @@ run_advisory_currency_check() {
     case "${hours}" in
         ''|*[!0-9]*) hours=24 ;;
     esac
-    local window=$(( hours * 3600 ))
+    # Force base-10: bash reads a leading-zero value (e.g. "08") as octal, so a
+    # valid-looking interval would throw an arithmetic error.
+    local window=$(( 10#${hours} * 3600 ))
 
     local stamp
     stamp="$(advisory_stamp_path)"

@@ -223,6 +223,25 @@ test_future_stamp_reruns() {
     assert "future stamp re-runs check" "[ \"$(count_lines "${LMDE_CALLS}")\" = '1' ]"
 }
 
+test_leading_zero_interval() {
+    bold "Test: a leading-zero interval (08) parses base-10, throttle works"; printf '\n'
+    local repo; repo="$(new_repo octal)"
+    local bin="${WORKROOT}/bin-octal"; make_fake_lmde "${bin}"
+    local state="${WORKROOT}/octal-state"
+    mkdir -p "${state}/tds-utils"
+    date +%s > "${state}/tds-utils/acquire-check.stamp"   # "just ran"
+    LMDE_CALLS="${WORKROOT}/octal-calls"; : > "${LMDE_CALLS}"
+    HOOK_RC=0
+    # If "08" were parsed as octal the arithmetic would error to an empty window
+    # and the check would RUN; a valid 8h window instead throttles the fresh stamp.
+    ( cd "${repo}" && env PATH="${bin}:${PATH}" \
+        XDG_STATE_HOME="${state}" LMDE_CALLS="${LMDE_CALLS}" \
+        TDS_ACQUIRE_CHECK_INTERVAL_HOURS=08 \
+        bash "${PRE_PUSH}" origin no://url < /dev/null ) || HOOK_RC=$?
+    assert "hook exits 0"                  "[ ${HOOK_RC} -eq 0 ]"
+    assert "08h window throttles fresh stamp" "[ \"$(count_lines "${LMDE_CALLS}")\" = '0' ]"
+}
+
 test_env_optout() {
     bold "Test: TDS_ACQUIRE_CHECK=0 disables the advisory"; printf '\n'
     local repo; repo="$(new_repo optout)"
@@ -258,6 +277,7 @@ main() {
     test_stale_stamp_reruns
     test_garbage_stamp_reruns
     test_future_stamp_reruns
+    test_leading_zero_interval
     test_env_optout
     test_donotsubmit_still_fatal
 
