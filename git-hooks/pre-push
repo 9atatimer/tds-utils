@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # pre-push -- block DONOTSUBMIT commits (fatal), then run the lmde currency
 # check as an advisory nudge (never fatal).
 
@@ -80,9 +80,14 @@ run_advisory_currency_check() {
         return 0
     fi
 
-    # Advisory only -- always exits 0, but belt-and-suspenders the guard anyway.
-    lmde acquire --check --pins "${pins}" || true
-    record_advisory_stamp "${stamp}"
+    # Advisory only -- the check always exits 0 by contract (fail-open on
+    # offline/no-token). A NON-zero exit therefore means lmde genuinely crashed;
+    # in that case do NOT stamp, so the next push retries instead of suppressing
+    # the nudge for a full window. Either way the failure is swallowed here so a
+    # push is never blocked.
+    if lmde acquire --check --pins "${pins}"; then
+        record_advisory_stamp "${stamp}"
+    fi
 }
 
 run_advisory_currency_check || true

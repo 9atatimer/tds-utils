@@ -141,6 +141,10 @@ test_failing_lmde_never_blocks() {
     run_hook "${repo}" "${bin}:${PATH}"
     assert "hook exits 0 despite lmde rc=7" "[ ${HOOK_RC} -eq 0 ]"
     assert "lmde was invoked"               "[ \"\$(calls_count)\" = '1' ]"
+    # A crashed check must NOT stamp, so the next push retries rather than being
+    # suppressed for a full window.
+    assert "no stamp written on failure" \
+        "[ ! -f '${STATE_DIR}/tds-utils/acquire-check.stamp' ]"
 }
 
 test_missing_pins_skips() {
