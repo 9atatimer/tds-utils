@@ -185,9 +185,13 @@ file's location.
         run: gadmin deploy -- npm run deploy:cf
 ```
 
-No `||` fallback: `secrets.GADMIN_OP_SA_TOKEN` transparently resolves to the
-org secret of the same name when no repo secret is defined. No hardcoded
-`op://` path: `gadmin deploy` builds it from `GADMIN_VAULT`.
+No `||` fallback: `secrets.GADMIN_OP_SA_TOKEN` resolves to an org secret of the
+same name when no repo secret is defined -- **provided** that org secret exists
+and its visibility policy grants this repo access; otherwise the reference is
+empty and the deploy must fail closed (see Security Considerations), not fall
+back to an ambient credential. The point is that no `||` expression is needed,
+not that an org secret is automatically present. No hardcoded `op://` path:
+`gadmin deploy` builds it from `GADMIN_VAULT`.
 
 ---
 
@@ -198,9 +202,14 @@ org secret of the same name when no repo secret is defined. No hardcoded
   vault. Blast radius on token compromise is one repo's deploy creds.
 - **No cross-purpose reuse.** The deploy token is distinct from the ci.magic
   review token; a leak of one does not expose the other's vault.
-- **Fork PRs get nothing.** Secrets are not exposed to workflows triggered from
-  forks; a deploy that cannot resolve its token must fail closed, not fall back
-  to an ambient credential.
+- **Fork PRs get nothing -- but only under `pull_request`.** A `pull_request`
+  workflow triggered from a fork runs without repo/org secrets, so a deploy
+  there cannot resolve its token and must fail closed rather than fall back to
+  an ambient credential. This does NOT hold for `pull_request_target`, which
+  runs in the base-repo context WITH secrets against fork-authored code -- an
+  exfiltration vector. Deploy jobs MUST NOT use `pull_request_target`; gate
+  deploys on `push`/`workflow_dispatch`/`release` (or a manual environment
+  approval), never on a fork-influenced trigger.
 - **No secret in the repo.** `op://` references are committed; resolved values
   never are. `GADMIN_VAULT` is a vault *name*, not a secret, but is still a
   sensitive identifier -- keep concrete vault names in the private repo, not in
