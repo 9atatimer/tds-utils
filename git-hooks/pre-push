@@ -49,6 +49,9 @@ throttled_recently() {
         ''|*[!0-9]*) return 1 ;;   # empty or non-numeric -> run the check
     esac
     now="$(date +%s 2>/dev/null)" || return 1
+    # A future stamp (clock rollback or a hand-edited file) is invalid -- fail
+    # open and run the check rather than suppress it until wall clock catches up.
+    [ "${last}" -le "${now}" ] || return 1
     [ $(( now - last )) -lt "${window}" ]
 }
 

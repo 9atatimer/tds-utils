@@ -205,6 +205,24 @@ test_garbage_stamp_reruns() {
     assert "garbage stamp re-runs check" "[ \"$(count_lines "${LMDE_CALLS}")\" = '1' ]"
 }
 
+test_future_stamp_reruns() {
+    bold "Test: a future-dated stamp fails open and re-runs the check"; printf '\n'
+    local repo; repo="$(new_repo future)"
+    local bin="${WORKROOT}/bin-future"; make_fake_lmde "${bin}"
+    local state="${WORKROOT}/future-state"
+    mkdir -p "${state}/tds-utils"
+    # now + ~1 year: a clock rollback / hand-edit must NOT suppress the check.
+    printf '%s\n' "$(( $(date +%s) + 31536000 ))" \
+        > "${state}/tds-utils/acquire-check.stamp"
+    LMDE_CALLS="${WORKROOT}/future-calls"; : > "${LMDE_CALLS}"
+    HOOK_RC=0
+    ( cd "${repo}" && env PATH="${bin}:${PATH}" \
+        XDG_STATE_HOME="${state}" LMDE_CALLS="${LMDE_CALLS}" \
+        bash "${PRE_PUSH}" origin no://url < /dev/null ) || HOOK_RC=$?
+    assert "hook exits 0"              "[ ${HOOK_RC} -eq 0 ]"
+    assert "future stamp re-runs check" "[ \"$(count_lines "${LMDE_CALLS}")\" = '1' ]"
+}
+
 test_env_optout() {
     bold "Test: TDS_ACQUIRE_CHECK=0 disables the advisory"; printf '\n'
     local repo; repo="$(new_repo optout)"
@@ -239,6 +257,7 @@ main() {
     test_throttle_skips_within_window
     test_stale_stamp_reruns
     test_garbage_stamp_reruns
+    test_future_stamp_reruns
     test_env_optout
     test_donotsubmit_still_fatal
 
