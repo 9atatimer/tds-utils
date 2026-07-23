@@ -27,11 +27,16 @@ eval "$(direnv hook zsh)"
 export SSH_AUTH_SOCK=~/Library/Group\ Containers/2BUA8C4S2C.com.1password/t/agent.sock
 
 # CLI completion and aliases
-# Gate on interactive shells: invoking `op` in the ephemeral/non-interactive
-# shells GUI apps spawn triggers the macOS "op would like to access data from
-# other apps" dialog on every launch.
+# To regenerate the cached completion file after upgrading the 'op' CLI, run:
+#   op completion zsh > ~/workplace/tds-utils/macos/dot.op-completion
 if [[ -o interactive ]] && (( $+commands[op] )); then
-    source <(op completion zsh)
+    if [[ -z "${ANTIGRAVITY_AGENT:-}" && -z "${CLAI_AGENT:-}" && "${TERM_PROGRAM:-}" != "vscode" ]]; then
+        if [[ -f "${HOME}/.op-completion" ]]; then
+            source "${HOME}/.op-completion"
+        elif [[ -f "${HOME}/workplace/tds-utils/macos/dot.op-completion" ]]; then
+            source "${HOME}/workplace/tds-utils/macos/dot.op-completion"
+        fi
+    fi
 fi
 
 # Define the base prompt
