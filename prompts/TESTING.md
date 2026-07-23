@@ -5,7 +5,7 @@ frameworks, and projects. It is written for coding agents and must be followed e
 
 For framework-specific standards, see:
 
-- [TESTING.NUXT.md](TESTING.NUXT.md) -- Nuxt 4 / Vue 3 / Cypress
+- [TESTING.NUXT.md](TESTING.NUXT.md) -- Nuxt 4 / Vue 3 / Playwright
 
 ---
 
