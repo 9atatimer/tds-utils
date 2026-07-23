@@ -1,0 +1,44 @@
+#!/usr/bin/env python3
+"""orgmarks -- groom a Chrome bookmark export around task intent.
+
+Launcher shim: puts the bookmark-organizer package on sys.path and hands off
+to orgmarks.app.cli. If the runtime dependencies are not importable from the
+ambient interpreter, re-exec once through `uv run` inside the project so the
+managed venv (created by `uv sync`) is used. The implementation lives in
+tds-utils/bookmark-organizer/src/orgmarks.
+"""
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+# bin/orgmarks -> repo root -> bookmark-organizer
+HERE = Path(__file__).resolve().parent
+PROJECT = HERE.parent / "bookmark-organizer"
+SRC = PROJECT / "src"
+sys.path.insert(0, str(SRC))
+
+
+def _reexec_through_uv() -> None:
+    """Re-run this shim under `uv run` so the project venv is active."""
+    if os.environ.get("_ORGMARKS_UV_REEXEC"):
+        raise SystemExit(
+            "orgmarks: dependencies missing and `uv run` did not provide them; "
+            "run `uv sync` in bookmark-organizer/."
+        )
+    os.environ["_ORGMARKS_UV_REEXEC"] = "1"
+    os.execvp(
+        "uv",
+        ["uv", "run", "--frozen", "--project", str(PROJECT), "python", __file__, *sys.argv[1:]],
+    )
+
+
+try:
+    from orgmarks.app.cli import main
+except ModuleNotFoundError:
+    _reexec_through_uv()
+    raise  # unreachable; execvp replaces the process
+
+if __name__ == "__main__":
+    main()
