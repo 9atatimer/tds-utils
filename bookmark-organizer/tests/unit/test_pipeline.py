@@ -160,6 +160,21 @@ def test_zero_confidence_never_counts_as_success() -> None:
     assert result.plan.learned_rules == ()
 
 
+def test_already_rooted_llm_folder_is_not_double_prefixed() -> None:
+    """Given a classifier that returns a rooted path, When run, Then no double bar."""
+    bm = _bm("https://sub.example.com/x", "bookmarks_bar/Loose")
+    row = ClassifyResult(
+        url=bm.url,
+        folder=FolderPath.from_string("bookmarks_bar/work/dev"),
+        ref=FolderPath.from_string("technical/dev"),
+        confidence=0.95,
+    )
+    tax = _tax(with_llm=True)
+    result = run(_tree([bm]), tax, FakeClassifier({bm.url: row}), mode="plan")
+    llm_move = next(m for m in result.plan.moves if m.via == "llm")
+    assert llm_move.folder == FolderPath.from_string("bookmarks_bar/work/dev")
+
+
 def test_pipeline_is_lossless_and_reference_exhaustive() -> None:
     """Given a mix, When run, Then every url appears in tree and Reference."""
     rule = Rule(

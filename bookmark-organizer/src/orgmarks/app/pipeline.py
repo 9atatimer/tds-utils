@@ -18,6 +18,7 @@ import structlog
 from orgmarks.app.report import format_report
 from orgmarks.domain.errors import InfrastructureError
 from orgmarks.domain.model import (
+    ROOT_NAMES,
     Assignment,
     Bookmark,
     BookmarkTree,
@@ -52,6 +53,14 @@ class PipelineResult:
 
 
 def _root_under_bar(path: FolderPath) -> FolderPath:
+    """Root an intent-relative path under the bar, idempotently.
+
+    A well-behaved classifier returns intent-relative paths (``work/dev``);
+    guard against one that returns an already-rooted path so we never produce
+    ``bookmarks_bar/bookmarks_bar/...``.
+    """
+    if path.parts and path.parts[0] in ROOT_NAMES:
+        return path
     return FolderPath((_BAR, *path.parts))
 
 

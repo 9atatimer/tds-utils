@@ -158,6 +158,33 @@ def test_pinned_subtree_is_exempt_from_shape() -> None:
     assert pinned_deep.url in {b.url for b in daily.bookmarks}
 
 
+def test_pinned_subtree_is_copied_verbatim_including_empty_folders() -> None:
+    """Given a pin with an empty subfolder, When organized, Then it survives."""
+    tax = _tax(pins=(FolderPath.from_string("bookmarks_bar/Daily"),))
+    daily_bm = _bm("https://example.com/daily", "bookmarks_bar/Daily")
+    # Input tree really contains the Daily folder, with an empty subfolder.
+    daily = Folder(
+        name="Daily",
+        subfolders=(Folder(name="Empty", add_date=42),),
+        bookmarks=(daily_bm,),
+    )
+    bar = Folder(name="bookmarks_bar", subfolders=(daily,))
+    tree = BookmarkTree(roots=(("bookmarks_bar", bar),))
+    assignments = [
+        _assign(daily_bm, "bookmarks_bar/Daily", "technical/daily", via="pin")
+    ]
+    organized = build_organized_tree(tree, tax, assignments)
+    out_daily = next(
+        f for f in organized.root("bookmarks_bar").subfolders if f.name == "Daily"
+    )
+    # The empty folder and its metadata are preserved verbatim.
+    empty = next(f for f in out_daily.subfolders if f.name == "Empty")
+    assert empty.add_date == 42
+    assert empty.bookmarks == ()
+    # The pinned bookmark appears once in the intent tree (not duplicated).
+    assert [b.url for b in out_daily.bookmarks] == ["https://example.com/daily"]
+
+
 def test_build_plan_records_moves_and_creates() -> None:
     """Given assignments, When planned, Then moves and folder creates appear."""
     tax = _tax()

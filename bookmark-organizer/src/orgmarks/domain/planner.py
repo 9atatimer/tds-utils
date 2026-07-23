@@ -40,11 +40,16 @@ from orgmarks.domain.taxonomy import Taxonomy
 
 @dataclass(slots=True)
 class _Node:
-    """Mutable builder node keyed by child name, order-preserving."""
+    """Mutable builder node keyed by child name, order-preserving.
+
+    ``verbatim`` holds already-frozen subtrees (pinned folders copied straight
+    from the input tree) that are appended after the built children untouched.
+    """
 
     name: str
     children: dict[str, _Node] = field(default_factory=dict)
     bookmarks: list[Bookmark] = field(default_factory=list)
+    verbatim: list[Folder] = field(default_factory=list)
 
     def child(self, name: str) -> _Node:
         node = self.children.get(name)
@@ -65,11 +70,31 @@ def _is_pinned(path: FolderPath, pins: Sequence[FolderPath]) -> bool:
     return any(path.is_under(pin) for pin in pins)
 
 
+def _find_folder(tree: BookmarkTree, path: FolderPath) -> Folder | None:
+    """Locate the folder at an absolute ``path`` in ``tree``, or None."""
+    parts = path.parts
+    if not parts:
+        return None
+    for name, folder in tree.roots:
+        if name != parts[0]:
+            continue
+        current = folder
+        for segment in parts[1:]:
+            match = next(
+                (sub for sub in current.subfolders if sub.name == segment), None
+            )
+            if match is None:
+                return None
+            current = match
+        return current
+    return None
+
+
 def _freeze(node: _Node, path: FolderPath, taxonomy: Taxonomy) -> Folder:
     subfolders = tuple(
         _freeze(child, path.child(child.name), taxonomy)
         for child in node.children.values()
-    )
+    ) + tuple(node.verbatim)
     folder = Folder(
         name=node.name, subfolders=subfolders, bookmarks=tuple(node.bookmarks)
     )
@@ -111,11 +136,33 @@ def build_organized_tree(
     for intent in taxonomy.intent_names():
         bar.child(intent)
 
+    # Pinned subtrees are copied verbatim from the input tree (structure,
+    # empty folders, and metadata untouched). Only pins at depth >= 2 (a
+    # subfolder under a root) and actually present in the input are covered;
+    # bookmarks under a covered pin are placed by this copy, not by the flat
+    # assignment loop below.
+    covered_pins: list[FolderPath] = []
+    for pin in taxonomy.pins:
+        if pin.depth < 2:
+            continue
+        subtree = _find_folder(tree, pin)
+        if subtree is None:
+            continue
+        parent = root_node(pin.parts[0])
+        for segment in pin.parts[1:-1]:
+            parent = parent.child(segment)
+        parent.verbatim.append(subtree)
+        covered_pins.append(pin)
+
     # Intent placement (absolute paths; first segment is the root).
     for assignment in assignments:
         parts = assignment.folder.parts
         if not parts:
             continue
+        if assignment.via == "pin" and _is_pinned(
+            assignment.bookmark.source_path, covered_pins
+        ):
+            continue  # already placed by the verbatim pin copy
         _insert(root_node(parts[0]), parts[1:], assignment.bookmark)
 
     # Reference index: a copy of every bookmark under reference_root.
