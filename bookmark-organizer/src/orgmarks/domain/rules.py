@@ -13,8 +13,13 @@ from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import urlsplit
 
-from orgmarks.domain.model import ROOT_NAMES, Bookmark, FolderPath, Rule, RuleMatch
+from orgmarks.domain.model import Bookmark, FolderPath, Rule, RuleMatch
 from orgmarks.domain.taxonomy import Taxonomy
+
+# Intents live under the Bookmarks Bar; only this root is stripped before the
+# intent-path check. A folder named like an intent under "other"/"synced" is
+# coincidental, not an intent home, so it stays residue.
+_BAR_ROOT = "bookmarks_bar"
 
 RuleVia = Literal["pin", "rule", "stay"]
 
@@ -60,12 +65,13 @@ def _under_pin(bookmark: Bookmark, taxonomy: Taxonomy) -> bool:
 
 
 def intent_relative(path: FolderPath) -> FolderPath:
-    """Drop a leading Chrome root (bookmarks_bar/other/synced) if present.
+    """Drop a leading ``bookmarks_bar`` root if present.
 
-    Source paths are root-prefixed; intent paths in the taxonomy are not. The
-    churn minimizer compares the bar-relative path.
+    Source paths are root-prefixed; intent paths in the taxonomy are not. Only
+    the bar root is stripped: intents are bar-scoped, so an intent-shaped path
+    under ``other``/``synced`` is not an intent home and must not stay put.
     """
-    if path.depth >= 1 and path.parts[0] in ROOT_NAMES:
+    if path.depth >= 1 and path.parts[0] == _BAR_ROOT:
         return FolderPath(path.parts[1:])
     return path
 

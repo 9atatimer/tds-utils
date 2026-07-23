@@ -89,6 +89,20 @@ def test_stay_put_when_already_in_intent_path() -> None:
     assert outcome.folder == FolderPath.from_string("work/dev")
 
 
+def test_stay_put_only_applies_to_bar_scoped_intent_paths() -> None:
+    """Given an intent-shaped path under 'other', When assigned, Then residue."""
+    tax = _tax()
+    # 'other/work/thing' is NOT a bar-scoped intent home; must not stay put.
+    bm = _bm("https://example.com/a", "other/work/thing")
+    assert assign_by_rules(bm, tax) is None
+    # The same shape under the bar does stay put.
+    bar_bm = _bm("https://example.com/a", "bookmarks_bar/work/thing")
+    outcome = assign_by_rules(bar_bm, tax)
+    assert outcome is not None
+    assert outcome.via == "stay"
+    assert outcome.folder == FolderPath.from_string("work/thing")
+
+
 def test_restructure_disables_stay_put() -> None:
     """Given restructure, When a bookmark is in an intent path, Then residue."""
     tax = _tax()
