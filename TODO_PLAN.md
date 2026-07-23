@@ -179,7 +179,9 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 
 ## Active Work: orgmarks (bookmark organizer)
 
-> **Status:** Planning (awaiting approval before Phase 0)
+> **Status:** Implemented -- all 10 phases landed on
+> `claude/orgmarks-v1-kauhw7`; 81 unit tests green, mypy --strict + ruff clean.
+> PR pending.
 > **Created:** 2026-07-23
 > **Design:** [docs/design/BOOKMARK-ORGANIZER.DESIGN.md](docs/design/BOOKMARK-ORGANIZER.DESIGN.md) (APPROVED, PR #164)
 > **Branch:** claude/orgmarks-v1-kauhw7
@@ -428,11 +430,44 @@ none is a single-impl-forever port.
 - Open Questions #1-#3 are settled by the prompt (intents; bar-is-tree with
   named pins; claude-cli default); #4 archival deferred as above.
 
-### orgmarks Learning Checkpoints
+### orgmarks -- what landed + deviations
 
-```
-[fill after each phase]
-```
+Package `bookmark-organizer/` (hexagonal: domain pure, ports, adapters, app)
++ `bin/orgmarks` shim (bootstraps through `uv run`). All phases done:
+Netscape round-trip, Chrome JSON loader, normalizer, taxonomy parse/write,
+rule engine, planner + shape + Reference index, pipeline, report, CLI,
+claude-cli adapter. Invariants are executable tests: losslessness, per-folder
+uniqueness (pins exempt), hub/leaf shape, Reference exhaustiveness,
+hypothesis-checked determinism/idempotency.
+
+Decisions where the doc was silent (simplest option, noted):
+
+- **Absolute placement paths.** `Assignment.folder` is root-prefixed
+  (`bookmarks_bar/work/dev`); the pipeline roots intent paths under the bar,
+  pins keep their source path. Cleanest way to mix intent + pin placement in
+  one planner.
+- **Bar-relative intent match.** `is_intent_path` is pure (first segment is an
+  intent); the rule engine strips a leading Chrome root before the stay-put
+  check, since real source paths are root-prefixed. Without this, stay-put
+  never fired.
+- **Reference default bucket.** Bookmarks with no `ref` (pins, rule hits with
+  no ref, low-confidence) file under `uncategorized/` in the Reference index,
+  keeping exhaustiveness without inventing categories.
+- **`--from-profile FILE`.** Takes a path to a Chrome `Bookmarks` JSON file
+  rather than discovering the profile by name (no OS-specific profile
+  discovery; stays in scope and testable).
+- **`--restructure`** flag is wired through the rule engine (disables stay-put)
+  but the LLM restructure-proposal path is thin behind the same Classifier
+  port; full restructure UX is a fast-follow.
+
+### orgmarks lessons
+
+1. **uv `package = false` + `pythonpath=["src"]`** is the clean way to run a
+   src-layout app under uv without a build backend; `bin/` shim re-execs
+   through `uv run` so it works before an editable install.
+2. **ruamel round-trip needs `# type: ignore`-free handling**: type the
+   loaded value as `object` and narrow with `isinstance(x, dict)` instead of
+   `dict(x)` casts, which mypy --strict rejects on `object`.
 
 ---
 

@@ -17,7 +17,7 @@ from pydantic import ValidationError
 
 from orgmarks.adapters.netscape import emit_netscape, parse_netscape
 from orgmarks.adapters.taxonomy_yaml import load_taxonomy, write_learned_rules
-from orgmarks.app.pipeline import PipelineResult, run
+from orgmarks.app.pipeline import Mode, PipelineResult, run
 from orgmarks.domain.model import BookmarkTree
 from orgmarks.domain.taxonomy import Taxonomy
 from orgmarks.ports.classifier import Classifier
@@ -68,7 +68,7 @@ def _resolve_date(raw: str | None) -> str:
 
 def _execute(
     *,
-    mode: str,
+    mode: Mode,
     input_file: Path | None,
     from_profile: Path | None,
     taxonomy_path: Path,
@@ -77,7 +77,7 @@ def _execute(
     taxonomy = _load_taxonomy_or_exit(taxonomy_path)
     tree = _load_tree_or_exit(input_file, from_profile)
     classifier = _make_classifier(taxonomy)
-    return run(tree, taxonomy, classifier, mode=mode, restructure=restructure)  # type: ignore[arg-type]
+    return run(tree, taxonomy, classifier, mode=mode, restructure=restructure)
 
 
 _input_option = click.option(
