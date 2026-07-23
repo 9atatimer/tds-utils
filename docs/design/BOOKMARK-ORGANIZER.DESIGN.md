@@ -186,6 +186,7 @@ this is the churn minimizer.
 | Responsibility | Details |
 |---|---|
 | Classify residue | Batches of <= 50 bookmarks (title, URL, current folder path) plus the intents/hints and the current folder skeleton. Returns per-bookmark: `folder` (intent home), `ref` (reference category), `confidence`, optional `proposed_new_folder`. |
+| Emergent-area detection | When residue bookmarks cluster on a concept with no intent home, the batch response's `proposed_new_folder` entries are aggregated by the Planner and surfaced in the report as "new area: <name>, N bookmarks". A new *subfolder* under an existing intent is created on `apply`; a new *top-level* intent is only ever proposed -- adding it to `intents` in taxonomy.yml is a human edit. |
 | Restructure proposal (`--restructure`) | Sends the full folder skeleton with per-folder counts (not every bookmark) and asks for a revised skeleton: renames, merges, splits, new intent areas. Output is a plan, never applied without `apply`. |
 | Learn-back | Every assignment at or above `confidence_threshold` is generalized (by domain, or domain+path prefix when the domain is split across folders) and appended to `rules` with `source: learned`. Next run, the rule engine handles it and the LLM is not called. |
 
@@ -226,7 +227,7 @@ properties differ from the intent tree on purpose:
 | Churn policy | minimize; moves only when confident | none -- rebuilt from scratch every run |
 | Coverage | every bookmark has one home (or `_triage`) | exhaustive: every bookmark, including pinned and triaged ones |
 | Depth | skinny (hub/leaf invariants) | deeper taxonomy allowed; same hub/leaf ordering rules |
-| Authority | user-curated, tool-assisted | derived data -- the tool owns it entirely |
+| Authority | human-owned, tool-maintained: bmorg files, prunes, and proposes new areas; top-level intents change only by human edit | tool-owned entirely: a deliberately systematic, stable taxonomy (card-catalog boring beats clever) |
 
 Rebuild is deterministic: `ref` categories come from rules (human and
 learned) exactly like intent homes; the LLM assigns a `ref` category only
