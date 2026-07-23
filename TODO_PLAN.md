@@ -234,7 +234,7 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 
 ### 1Password GUI Authorization Prompt Fix (2026-07-22)
 
-Resolved the recurring macOS "op would like to look at other apps data" prompts when starting coding agents and IDE environments.
+Resolved the recurring macOS "op" would like to access data from other apps prompts when starting coding agents and IDE environments.
 
 - [x] **Zsh completion optimization**: Modified `macos/dot.zshrc` to skip running `op completion zsh` inside coding agent shells (`ANTIGRAVITY_AGENT`, `CLAI_AGENT`) and IDE shells (`vscode`).
 - [x] **Cached completion file**: Generated the completion code once at `macos/dot.op-completion` under the `tds-utils` repository, and symlinked it to `~/.op-completion` to match the dotfile pattern, preventing slow shell startups and GUI authorization prompts.
