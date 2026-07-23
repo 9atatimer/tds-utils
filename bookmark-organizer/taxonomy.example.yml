@@ -1,0 +1,55 @@
+# orgmarks taxonomy -- example with placeholder URLs only.
+#
+# Copy this into your PRIVATE bookmarks repo (it grows to contain real URLs
+# and interests -- never commit the real one to a public repo). orgmarks reads
+# the hints below and appends `source: learned` rules over time.
+
+version: 1
+
+# Top-level intent folders, in display order. `hint` is passed to the LLM.
+intents:
+  - name: work
+    hint: "employment, clients, infra, dev tooling"
+  - name: fun
+  - name: self-education
+    hint: "courses, papers, tutorials I am working through"
+  - name: writing
+    hint: "drafts, references, style guides"
+
+# Subtrees orgmarks must not touch (frozen; excluded from dedupe and moves).
+pins:
+  - path: "bookmarks_bar/Daily"
+
+# Deterministic rules, evaluated top-to-bottom, first match wins.
+# Human rules always sort before learned rules.
+rules:
+  - match:
+      domain: "example.com"
+      url_prefix: "/dev"
+    folder: "work/dev"
+    ref: "technical/dev"
+    source: human
+  - match:
+      domain: "news.example.com"
+    folder: "fun/news"
+    ref: "culture/tech-news"
+    source: learned
+
+# The generated card catalog: a copy of every bookmark, filed by concept.
+reference:
+  root: "other/Reference"
+  seeds:
+    - technical
+    - culture
+    - finance
+
+# LLM provider selection. Absent block => rules-only run (residue -> _triage).
+llm:
+  provider: claude-cli
+  confidence_threshold: 0.7
+
+# Skinny-tree shape: direct links allowed atop a hub folder.
+shape:
+  max_umbrella_links: 3
+
+triage_folder: "_triage"

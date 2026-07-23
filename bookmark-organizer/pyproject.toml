@@ -33,6 +33,11 @@ python_version = "3.11"
 files = ["src", "tests"]
 mypy_path = "src"
 
+# ruamel.yaml and factory_boy ship no type information.
+[[tool.mypy.overrides]]
+module = ["ruamel.*", "factory.*"]
+ignore_missing_imports = true
+
 [tool.ruff]
 line-length = 88
 target-version = "py311"
