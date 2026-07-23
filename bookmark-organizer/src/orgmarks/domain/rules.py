@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import urlsplit
 
-from orgmarks.domain.model import Bookmark, FolderPath, Rule, RuleMatch
+from orgmarks.domain.model import ROOT_NAMES, Bookmark, FolderPath, Rule, RuleMatch
 from orgmarks.domain.taxonomy import Taxonomy
 
 RuleVia = Literal["pin", "rule", "stay"]
@@ -59,6 +59,17 @@ def _under_pin(bookmark: Bookmark, taxonomy: Taxonomy) -> bool:
     return any(bookmark.source_path.is_under(pin) for pin in taxonomy.pins)
 
 
+def intent_relative(path: FolderPath) -> FolderPath:
+    """Drop a leading Chrome root (bookmarks_bar/other/synced) if present.
+
+    Source paths are root-prefixed; intent paths in the taxonomy are not. The
+    churn minimizer compares the bar-relative path.
+    """
+    if path.depth >= 1 and path.parts[0] in ROOT_NAMES:
+        return FolderPath(path.parts[1:])
+    return path
+
+
 def _first_rule(bookmark: Bookmark, taxonomy: Taxonomy) -> Rule | None:
     for rule in taxonomy.rules:
         if _match(bookmark, rule.match):
@@ -77,7 +88,8 @@ def assign_by_rules(
     if rule is not None:
         return RuleOutcome(folder=rule.folder, ref=rule.ref, via="rule")
 
-    if not restructure and taxonomy.is_intent_path(bookmark.source_path):
-        return RuleOutcome(folder=bookmark.source_path, ref=None, via="stay")
+    relative = intent_relative(bookmark.source_path)
+    if not restructure and taxonomy.is_intent_path(relative):
+        return RuleOutcome(folder=relative, ref=None, via="stay")
 
     return None
