@@ -122,6 +122,44 @@ def test_unreachable_classifier_degrades_to_rules_only() -> None:
     assert "rules-only" in result.report
 
 
+def test_hostless_confident_result_places_without_learned_rule() -> None:
+    """Given a confident file:// result, When run, Then no rule is learned."""
+    bm = _bm("file:///home/user/notes.html", "bookmarks_bar/Loose")
+    row = ClassifyResult(
+        url=bm.url,
+        folder=FolderPath.from_string("work/dev"),
+        ref=FolderPath.from_string("technical/dev"),
+        confidence=0.95,
+    )
+    tax = _tax(with_llm=True)
+    result = run(_tree([bm]), tax, FakeClassifier({bm.url: row}), mode="plan")
+    assert next(m for m in result.plan.moves if m.via == "llm")
+    assert result.plan.learned_rules == ()
+
+
+def test_zero_confidence_never_counts_as_success() -> None:
+    """Given threshold 0.0, When a 0.0 result arrives, Then it is triaged."""
+    bm = _bm("https://sub.example.com/x", "bookmarks_bar/Loose")
+    row = ClassifyResult(
+        url=bm.url,
+        folder=FolderPath.from_string("work/dev"),
+        ref=FolderPath.from_string("technical/dev"),
+        confidence=0.0,
+    )
+    tax = Taxonomy(
+        version=1,
+        intents=(Intent(name="work"),),
+        pins=(),
+        rules=(),
+        reference_root=FolderPath.from_string("other/Reference"),
+        llm=LlmConfig(provider="fake", confidence_threshold=0.0),
+        triage_folder="_triage",
+    )
+    result = run(_tree([bm]), tax, FakeClassifier({bm.url: row}), mode="plan")
+    assert result.plan.moves[0].via == "triage"
+    assert result.plan.learned_rules == ()
+
+
 def test_pipeline_is_lossless_and_reference_exhaustive() -> None:
     """Given a mix, When run, Then every url appears in tree and Reference."""
     rule = Rule(

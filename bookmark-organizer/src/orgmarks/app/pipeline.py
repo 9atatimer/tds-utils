@@ -88,8 +88,15 @@ def _llm_assignment(bookmark: Bookmark, result: ClassifyResult) -> Assignment:
     )
 
 
-def _generalize(bookmark: Bookmark, result: ClassifyResult) -> Rule:
+def _generalize(bookmark: Bookmark, result: ClassifyResult) -> Rule | None:
+    """Generalize an LLM assignment into a learned rule, or None if hostless.
+
+    A URL with no hostname (e.g. ``file://``) would yield an empty ``domain``
+    that matches every other hostless bookmark, so no rule is learned for it.
+    """
     host = urlsplit(bookmark.url).hostname or ""
+    if not host:
+        return None
     return Rule(
         match=RuleMatch(domain=host),
         folder=result.folder,
@@ -210,9 +217,13 @@ def run(
             for bookmark, result in zip(residue, results, strict=True):
                 if result.proposed_new_folder:
                     new_areas[result.proposed_new_folder] += 1
-                if result.confidence >= threshold:
+                # A confidence of 0.0 is the adapter's triage sentinel and is
+                # never a successful classification, even if threshold is 0.0.
+                if result.confidence > 0.0 and result.confidence >= threshold:
                     assignments.append(_llm_assignment(bookmark, result))
-                    learned.append(_generalize(bookmark, result))
+                    rule = _generalize(bookmark, result)
+                    if rule is not None:
+                        learned.append(rule)
                 else:
                     assignments.append(
                         _triage_assignment(bookmark, taxonomy, ref=result.ref)

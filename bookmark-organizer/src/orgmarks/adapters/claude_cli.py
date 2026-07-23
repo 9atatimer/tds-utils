@@ -130,19 +130,27 @@ def _slice_array(text: str) -> str | None:
 def _row_to_result(bookmark: Bookmark, row: object) -> ClassifyResult:
     if not isinstance(row, dict):
         return _triage_result(bookmark)
+    folder_raw = row.get("folder")
+    ref_raw = row.get("ref")
+    # A JSON null (or non-string) folder/ref must not become the literal
+    # segment "None"; fall back to triage instead.
+    if not isinstance(folder_raw, str) or not folder_raw.strip():
+        return _triage_result(bookmark)
+    if not isinstance(ref_raw, str) or not ref_raw.strip():
+        return _triage_result(bookmark)
     try:
-        folder = FolderPath.from_string(str(row["folder"]))
-        ref = FolderPath.from_string(str(row["ref"]))
         confidence = float(row["confidence"])
     except (KeyError, TypeError, ValueError):
         return _triage_result(bookmark)
     proposed = row.get("proposed_new_folder")
     return ClassifyResult(
         url=bookmark.url,
-        folder=folder,
-        ref=ref,
+        folder=FolderPath.from_string(folder_raw),
+        ref=FolderPath.from_string(ref_raw),
         confidence=confidence,
-        proposed_new_folder=str(proposed) if proposed else None,
+        proposed_new_folder=proposed
+        if isinstance(proposed, str) and proposed
+        else None,
     )
 
 

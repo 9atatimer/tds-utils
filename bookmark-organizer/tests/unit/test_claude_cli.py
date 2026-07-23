@@ -70,6 +70,18 @@ def test_malformed_twice_falls_back_to_triage() -> None:
     assert out[0].confidence == 0.0
 
 
+def test_null_folder_falls_back_to_triage() -> None:
+    """Given a JSON null folder, When classified, Then it triages (not "None")."""
+    url = "https://example.com/a"
+    response = json.dumps(
+        [{"url": url, "folder": None, "ref": "technical/dev", "confidence": 0.9}]
+    )
+    clf = ClaudeCliClassifier(runner=lambda _p: response)
+    out = clf.classify([_bm(url)], intents=(), skeleton="")
+    assert out[0].confidence == 0.0
+    assert "None" not in out[0].folder.parts
+
+
 def test_missing_binary_raises_infrastructure_error() -> None:
     """Given a runner that raises, When classified, Then it surfaces as infra."""
 
