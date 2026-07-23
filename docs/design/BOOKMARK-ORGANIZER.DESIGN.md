@@ -21,8 +21,9 @@ taxonomy file that the tool itself grows over time.
 ## Goals
 
 1. **Round trip** -- Export from Chrome, run one command, import the result
-   back; zero bookmarks lost or duplicated (verified by URL-set equality
-   between input and output).
+   back; zero bookmarks lost, none duplicated within a folder (verified by
+   URL-set equality between input and output-minus-Reference; the generated
+   Reference copies are the only additions).
 2. **Intent-first organization** -- Every bookmark lands in an
    intent-rooted folder (e.g. `work/dev`, `writing/reference`), or in a
    single `_triage` folder when confidence is below threshold. No bookmark
@@ -36,7 +37,12 @@ taxonomy file that the tool itself grows over time.
 5. **Restructure on demand** -- A `--restructure` mode lets the LLM propose a
    reworked folder tree (new interest areas, collapsed dead branches),
    presented as a reviewable plan before anything is written.
-6. **Dry-run by default** -- `plan` mode prints the full move/create/merge
+6. **Exhaustive reference index** -- A single generated `Reference` subtree
+   files a copy of *every* bookmark into a categorical taxonomy
+   (`technical/security/ddos/...`). Invariant: URL-set(Reference) equals
+   URL-set(entire collection). The intent tree is for working (90% of
+   lookups); the card catalog is for remembering (10%).
+7. **Dry-run by default** -- `plan` mode prints the full move/create/merge
    report; `apply` mode is an explicit second step.
 
 ---
@@ -136,11 +142,19 @@ pins:                         # subtrees bmorg must not touch
   - path: "bookmarks_bar/Daily"
 rules:                        # deterministic, first match wins
   - match: { domain: "github.com", url_prefix: "/9atatimer" }
-    folder: "work/dev"
+    folder: "work/dev"        # intent home
+    ref: "technical/dev/github"   # reference-index category (optional)
     source: human
   - match: { domain: "news.ycombinator.com" }
     folder: "fun/hn"
+    ref: "culture/tech-news"
     source: learned           # appended by bmorg from an LLM assignment
+reference:
+  root: "other/Reference"     # where the generated card catalog lives
+  seeds:                      # optional top-of-taxonomy hints
+    - technical
+    - culture
+    - finance
 llm:
   provider: claude-cli        # or openai-compat endpoint name, or ollama
   confidence_threshold: 0.7   # below this -> _triage
@@ -171,7 +185,7 @@ this is the churn minimizer.
 
 | Responsibility | Details |
 |---|---|
-| Classify residue | Batches of <= 50 bookmarks (title, URL, current folder path) plus the intents/hints and the current folder skeleton. Returns per-bookmark: `folder`, `confidence`, optional `proposed_new_folder`. |
+| Classify residue | Batches of <= 50 bookmarks (title, URL, current folder path) plus the intents/hints and the current folder skeleton. Returns per-bookmark: `folder` (intent home), `ref` (reference category), `confidence`, optional `proposed_new_folder`. |
 | Restructure proposal (`--restructure`) | Sends the full folder skeleton with per-folder counts (not every bookmark) and asks for a revised skeleton: renames, merges, splits, new intent areas. Output is a plan, never applied without `apply`. |
 | Learn-back | Every assignment at or above `confidence_threshold` is generalized (by domain, or domain+path prefix when the domain is split across folders) and appended to `rules` with `source: learned`. Next run, the rule engine handles it and the LLM is not called. |
 
@@ -199,6 +213,26 @@ Enforced mechanically by the Planner on every emit -- the LLM proposes
 | Umbrella links | A hub may hold at most `max_umbrella_links` (default 3) direct links, and only root-of-concept URLs (path depth <= 1, domain matching the folder's concept -- e.g. `github.com` atop the GitHub hub). |
 | Big-buttons first | Within a hub: umbrella links first, then subfolders. **Nothing after the folders.** Chrome round-trips manual order, so this survives import. |
 | Singleton wrapping | A non-umbrella link stranded in a hub is wrapped into its own single-element subfolder rather than left dangling. Single-link leaves are valid by design. |
+
+#### Reference index (the card catalog)
+
+A generated subtree at `reference.root` holding a copy of every bookmark,
+organized by concept (`technical/security/ddos/...`), not by task. Its
+properties differ from the intent tree on purpose:
+
+| Property | Intent tree | Reference index |
+|---|---|---|
+| Navigated by | muscle memory (90% of lookups) | browsing/recall (10%) |
+| Churn policy | minimize; moves only when confident | none -- rebuilt from scratch every run |
+| Coverage | every bookmark has one home (or `_triage`) | exhaustive: every bookmark, including pinned and triaged ones |
+| Depth | skinny (hub/leaf invariants) | deeper taxonomy allowed; same hub/leaf ordering rules |
+| Authority | user-curated, tool-assisted | derived data -- the tool owns it entirely |
+
+Rebuild is deterministic: `ref` categories come from rules (human and
+learned) exactly like intent homes; the LLM assigns a `ref` category only
+for bookmarks no rule covers, and high-confidence assignments are learned
+back into the same rule entry. Because the index is derived, a bad rebuild
+costs nothing -- rerun and it regenerates.
 
 ### Emitter (BookmarkSink port)
 
@@ -271,7 +305,8 @@ BookmarkTree
 
 Assignment
 +-- bookmark       Bookmark
-+-- folder         FolderPath
++-- folder         FolderPath   # intent home
++-- ref            FolderPath   # reference-index category (always set)
 +-- confidence     float        # 1.0 for rule hits
 +-- via            "pin" | "rule" | "stay" | "llm" | "triage"
 
@@ -328,7 +363,8 @@ does not. Build small, reuse formats.
 | LLM learning loop | High-confidence LLM assignments appended to taxonomy.yml as `source: learned` rules | Each run makes the next one more deterministic; the LLM converges toward handling only genuinely novel material. |
 | Churn control | In-place bookmarks with valid intent paths stay put unless `--restructure` | Muscle memory is part of the UX; full re-shuffles are opt-in. |
 | Tree shape | Hub/leaf invariant (umbrella links, then folders, nothing after) enforced by the Planner | Shape is mechanical, so it must be deterministic code, not LLM judgment; skinny hubs are the user's stated navigation model. |
-| Duplicate policy | Per-folder dedupe only; cross-folder copies preserved | The same URL under two folders is a deliberate thought-breadcrumb (28 of 29 dup copies in the reference export are cross-folder). |
+| Duplicate policy | Per-folder dedupe only; cross-folder copies preserved | The same URL under two folders is a deliberate thought-breadcrumb (28 of 29 dup copies in the reference export are cross-folder); it is also the mechanism that lets every bookmark appear in both its intent home and the reference index. |
+| Task/reference duality | Intent tree primary + one generated exhaustive `Reference` subtree | No mode declaration at filing or hunting time: the pile stays the pile; when in recall mode, the card catalog is one known place and guaranteed complete. Derived data, so it is rebuilt fearlessly each run. |
 | LLM vendor seam | `Classifier` port; provider/model in taxonomy.yml | Radar Trial ring has three viable providers today; vendor names stay out of the core. |
 | Language / stack | Python 3.11+, uv, Click, Pydantic, pytest, mypy strict | Radar Adopt ring across the board; tree manipulation and YAML round-tripping are Python-comfortable. |
 | Location | `bookmark-organizer/` top-level dir in tds-utils, launcher shim in `bin/bmorg` | Follows the log-hoarder precedent for multi-file tools; bin/ stays the entry-point surface. |
@@ -369,6 +405,9 @@ public doc; the file itself belongs in tds-internal if archived):
 
 ## Rejections
 
+- **Dual top-level roots (ops/ vs ref/ as peer modes)** -- forces a mode
+  declaration on every filing and every hunt; instead the intent tree stays
+  primary and reference is one exhaustive generated subtree.
 - **Chrome extension form factor** -- store review, permissions surface, and
   no filesystem/YAML access; the batch CLI fits the export/import workflow.
 - **Writing Chrome's `Bookmarks` JSON in place** -- eliminates the import
