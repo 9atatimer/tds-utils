@@ -27,6 +27,8 @@ eval "$(direnv hook zsh)"
 export SSH_AUTH_SOCK=~/Library/Group\ Containers/2BUA8C4S2C.com.1password/t/agent.sock
 
 # CLI completion and aliases
+# To regenerate the cached completion file after upgrading the 'op' CLI, run:
+#   op completion zsh > ~/workplace/tds-utils/macos/dot.op-completion
 if [[ -o interactive ]] && (( $+commands[op] )); then
     if [[ -z "${ANTIGRAVITY_AGENT:-}" && -z "${CLAI_AGENT:-}" && "${TERM_PROGRAM:-}" != "vscode" ]]; then
         if [[ -f "${HOME}/.op-completion" ]]; then
