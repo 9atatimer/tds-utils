@@ -188,6 +188,24 @@ def test_pinned_subtree_is_copied_verbatim_including_empty_folders() -> None:
     assert [b.url for b in out_daily.bookmarks] == ["https://example.com/daily"]
 
 
+def test_bar_pin_is_ordered_before_triage() -> None:
+    """Given a bar-level pin + triage, When organized, Then _triage stays last."""
+    tax = _tax(pins=(FolderPath.from_string("bookmarks_bar/Daily"),))
+    daily_bm = _bm("https://example.com/daily", "bookmarks_bar/Daily")
+    triaged = _bm("https://example.com/t", "bookmarks_bar/Loose")
+    daily = Folder(name="Daily", bookmarks=(daily_bm,))
+    bar = Folder(name="bookmarks_bar", subfolders=(daily,))
+    tree = BookmarkTree(roots=(("bookmarks_bar", bar),))
+    assignments = [
+        _assign(daily_bm, "bookmarks_bar/Daily", "technical/daily", via="pin"),
+        _assign(triaged, "bookmarks_bar/_triage", "technical/misc", via="triage"),
+    ]
+    organized = build_organized_tree(tree, tax, assignments)
+    names = [f.name for f in organized.root("bookmarks_bar").subfolders]
+    assert names[-1] == "_triage"
+    assert names.index("Daily") < names.index("_triage")
+
+
 def test_non_pin_assignment_under_pin_raises_domain_error() -> None:
     """Given a non-pin assignment under a pin, When organized, Then it raises."""
     tax = _tax(pins=(FolderPath.from_string("bookmarks_bar/Daily"),))

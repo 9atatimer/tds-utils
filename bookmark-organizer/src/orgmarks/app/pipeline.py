@@ -289,7 +289,14 @@ def run(
 
     assignments = _reroute_pin_collisions(assignments, taxonomy)
     learned_rules = _dedupe_rules(learned)
-    plan = build_plan(norm.tree, taxonomy, assignments, norm.dedupes, learned_rules)
     organized = build_organized_tree(norm.tree, taxonomy, assignments)
+    plan = build_plan(
+        norm.tree,
+        taxonomy,
+        assignments,
+        norm.dedupes,
+        learned_rules,
+        organized=organized,
+    )
     report = _compose_report(plan, norm, new_areas, degraded=degraded)
     return PipelineResult(plan=plan, organized=organized, report=report)

@@ -43,14 +43,15 @@ from orgmarks.domain.taxonomy import Taxonomy
 class _Node:
     """Mutable builder node keyed by child name, order-preserving.
 
-    ``verbatim`` holds already-frozen subtrees (pinned folders copied straight
-    from the input tree) that are appended after the built children untouched.
+    ``frozen`` holds an already-frozen subtree (a pinned folder copied straight
+    from the input tree). When set, the node is emitted verbatim and takes part
+    in sibling ordering like any other child.
     """
 
     name: str
     children: dict[str, _Node] = field(default_factory=dict)
     bookmarks: list[Bookmark] = field(default_factory=list)
-    verbatim: list[Folder] = field(default_factory=list)
+    frozen: Folder | None = None
 
     def child(self, name: str) -> _Node:
         node = self.children.get(name)
@@ -92,10 +93,12 @@ def _find_folder(tree: BookmarkTree, path: FolderPath) -> Folder | None:
 
 
 def _freeze(node: _Node, path: FolderPath, taxonomy: Taxonomy) -> Folder:
+    if node.frozen is not None:
+        return node.frozen  # pinned subtree, copied verbatim (shape-exempt)
     subfolders = tuple(
         _freeze(child, path.child(child.name), taxonomy)
         for child in node.children.values()
-    ) + tuple(node.verbatim)
+    )
     folder = Folder(
         name=node.name, subfolders=subfolders, bookmarks=tuple(node.bookmarks)
     )
@@ -141,7 +144,8 @@ def build_organized_tree(
     # empty folders, and metadata untouched). Only pins at depth >= 2 (a
     # subfolder under a root) and actually present in the input are covered;
     # bookmarks under a covered pin are placed by this copy, not by the flat
-    # assignment loop below.
+    # assignment loop below. The copy is attached as a named child so it takes
+    # part in sibling ordering (a bar-level pin stays before _triage).
     covered_pins: list[FolderPath] = []
     for pin in taxonomy.pins:
         if pin.depth < 2:
@@ -152,7 +156,7 @@ def build_organized_tree(
         parent = root_node(pin.parts[0])
         for segment in pin.parts[1:-1]:
             parent = parent.child(segment)
-        parent.verbatim.append(subtree)
+        parent.children[pin.name] = _Node(name=pin.name, frozen=subtree)
         covered_pins.append(pin)
 
     # Intent placement (absolute paths; first segment is the root).
@@ -209,9 +213,16 @@ def build_plan(
     assignments: Sequence[Assignment],
     dedupes: Sequence[DedupeGroup] = (),
     learned_rules: Sequence[Rule] = (),
+    *,
+    organized: BookmarkTree | None = None,
 ) -> Plan:
-    """Assemble the Plan: moves, dedupes, folder creates, and learned rules."""
-    organized = build_organized_tree(tree, taxonomy, assignments)
+    """Assemble the Plan: moves, dedupes, folder creates, and learned rules.
+
+    ``organized`` may be passed in to avoid rebuilding the tree when the caller
+    has already computed it.
+    """
+    if organized is None:
+        organized = build_organized_tree(tree, taxonomy, assignments)
     before = _folder_paths(tree)
     after = _folder_paths(organized)
     creates: tuple[FolderOp, ...] = tuple(
