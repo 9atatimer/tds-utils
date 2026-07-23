@@ -325,19 +325,29 @@ does not. Build small, reuse formats.
 1. **Intent list** -- work / fun / self-education / writing came from the
    prompt; is that the real top level, and is `work` one bucket or split by
    employer/project?
-2. **Bookmarks bar policy** -- Treat `bookmarks_bar` as fully pinned (curated
-   by hand, bmorg never touches it) or organize it too? Default leans fully
-   pinned.
+2. **Bookmarks bar policy** -- The reference export roots the *entire*
+   organized tree under `Bookmarks Bar` (Other bookmarks holds only loose
+   strays), so "pin the whole bar" would exempt everything. Revised default:
+   the bar is the organized tree; `pins` name specific bar subfolders to
+   freeze. Confirm.
 3. **Provider default** -- `claude-cli` assumed as default; confirm the Max
    plan is the intended payment path vs a metered key or local Ollama.
-4. **Collection size** -- Hundreds vs thousands of bookmarks changes batch
-   count and whether a restructure proposal fits in one context window.
-5. **taxonomy.yml home** -- tds-internal is the obvious private home; confirm,
+4. **taxonomy.yml home** -- tds-internal is the obvious private home; confirm,
    and whether the organized-output HTML should also be archived there as a
    dated backup.
-6. **Sample export** -- The 2026-07-23 export in `~/Downloads` is on the local
-   machine, not visible to this session; a (sanitized or full) copy committed
-   to tds-internal would let parser tests run against real data.
+
+### Reference input profile (2026-07-23 export)
+
+Aggregate stats from the current real export (contents stay out of this
+public doc; the file itself belongs in tds-internal if archived):
+
+| Metric | Value | Design consequence |
+|---|---|---|
+| Bookmarks | 658 | Full tree (titles+URLs) fits one LLM context; `--restructure` is single-shot, no map-reduce needed. |
+| Folders / max depth | 113 / 5 | Skeleton-with-counts prompt is small; depth cap not needed in v1. |
+| Loose at roots | ~50 (22 in Other, 30 bar top-level) | Typical residue size per run: one or two LLM batches. |
+| Exact-URL duplicates | 29 extra copies across 27 URLs | Dedupe stage earns its keep on day one. |
+| Structure style | Topic folders already intent-adjacent | Migration is mostly rename/regroup, not from-scratch; churn minimizer matters. |
 
 ---
 
