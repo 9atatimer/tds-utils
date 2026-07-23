@@ -99,6 +99,28 @@ def test_unparseable_profile_input_exits_two(tmp_path: Path) -> None:
     assert result.exit_code == 2
 
 
+def test_apply_rejects_non_iso_date(tmp_path: Path) -> None:
+    """Given a --date with path separators, When apply runs, Then it errors."""
+    tax, html = _write(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "apply",
+            "--input",
+            str(html),
+            "--taxonomy",
+            str(tax),
+            "--output-dir",
+            str(tmp_path),
+            "--date",
+            "../../evil",
+        ],
+    )
+    assert result.exit_code == 2
+    assert not list(tmp_path.glob("bookmarks-organized-*.html"))
+
+
 def test_requires_exactly_one_source(tmp_path: Path) -> None:
     """Given neither input flag, When plan runs, Then it is a usage error."""
     tax, _ = _write(tmp_path)

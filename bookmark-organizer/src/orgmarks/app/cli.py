@@ -61,8 +61,18 @@ def _make_classifier(taxonomy: Taxonomy) -> Classifier | None:
 
 
 def _resolve_date(raw: str | None) -> str:
+    """Return a validated ISO date (YYYY-MM-DD) for the output filename.
+
+    The value is normalized through ``date.fromisoformat`` so it can never
+    smuggle path separators or ``..`` into the generated filename.
+    """
     if raw:
-        return raw
+        try:
+            return datetime.date.fromisoformat(raw).isoformat()
+        except ValueError as err:
+            raise click.BadParameter(
+                "must be an ISO date (YYYY-MM-DD)", param_hint="'--date'"
+            ) from err
     return datetime.date.today().isoformat()
 
 
