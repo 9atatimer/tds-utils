@@ -24,12 +24,14 @@ taxonomy file that the tool itself grows over time.
    back; zero bookmarks lost and none duplicated within a folder. Two
    separate checks: **losslessness** (every input URL appears in
    output-minus-Reference; the generated Reference copies are the only
-   additions) and **per-folder uniqueness** (no folder contains the same
-   URL twice).
-2. **Intent-first organization** -- Every bookmark lands in an
-   intent-rooted folder (e.g. `work/dev`, `writing/reference`), or in a
-   single `_triage` folder when confidence is below threshold. No bookmark
-   remains "unfiled" outside `_triage`.
+   additions) and **per-folder uniqueness** (no folder outside a pinned
+   subtree contains the same URL twice; pins pass through verbatim,
+   dupes and all).
+2. **Intent-first organization** -- Every bookmark outside a pinned subtree
+   lands in an intent-rooted folder (e.g. `work/dev`, `writing/reference`),
+   or in a single `_triage` folder when confidence is below threshold.
+   No bookmark remains "unfiled" outside `_triage`; pinned bookmarks stay
+   exactly where the human put them.
 3. **Hint-driven, not oracle-driven** -- A YAML taxonomy file seeds the
    structure; the tool must produce a usable tree from an empty hints file
    and a better one from a curated one.
@@ -329,7 +331,7 @@ Plan
   trusted with this data; the Ollama provider exists for anything that must
   stay local. The plan report never truncates -- what was sent is auditable.
 - **`taxonomy.yml` leaks interests and repo names.** It must live in a
-  private repo (tds-internal-class), never in tds-utils. orgmarks's code and
+  private repo (tds-internal), never in tds-utils. orgmarks's code and
   this doc stay URL-free.
 - **No secrets in the tool.** Provider credentials come from the provider's
   own config (claude-cli auth, env var for endpoints); never stored in
