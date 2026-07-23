@@ -113,7 +113,7 @@ implementations or a vendor boundary.
 
 | Responsibility | Details |
 |---|---|
-| Dedupe | Exact-URL duplicates collapse to one node; the survivor keeps the oldest `add_date` and the "best" title (longest non-URL-shaped). Duplicates are listed in the plan report. |
+| Dedupe (per-folder scope) | Exact-URL duplicates *within one folder* collapse to one node; the survivor keeps the oldest `add_date` and the "best" title (longest non-URL-shaped). The same URL in different folders is a deliberate breadcrumb -- preserved, listed in the report as info only. |
 | URL canonicalization (compare-only) | Strip `utm_*`/`fbclid`-class tracking params and trailing slashes *for comparison*; the stored URL is never rewritten. |
 | Empty-folder pruning | Folders left empty after moves are dropped (reported). |
 
@@ -144,6 +144,8 @@ rules:                        # deterministic, first match wins
 llm:
   provider: claude-cli        # or openai-compat endpoint name, or ollama
   confidence_threshold: 0.7   # below this -> _triage
+shape:
+  max_umbrella_links: 3       # direct links allowed atop a hub folder
 triage_folder: "_triage"
 ```
 
@@ -185,6 +187,18 @@ Builds the output tree: pinned subtrees verbatim, then intent folders in
 declared order, `_triage` last. Produces a `Plan` -- the list of moves,
 folder creates/renames/deletes, dedupe collapses, and learned-rule appends --
 which is both the dry-run report and the apply worklist.
+
+#### Tree shape invariants (skinny tree)
+
+Enforced mechanically by the Planner on every emit -- the LLM proposes
+*where* a bookmark belongs, never the shape:
+
+| Invariant | Rule |
+|---|---|
+| Hub or leaf | Every folder is a **hub** (subfolders present) or a **leaf** (links only). No third kind. |
+| Umbrella links | A hub may hold at most `max_umbrella_links` (default 3) direct links, and only root-of-concept URLs (path depth <= 1, domain matching the folder's concept -- e.g. `github.com` atop the GitHub hub). |
+| Big-buttons first | Within a hub: umbrella links first, then subfolders. **Nothing after the folders.** Chrome round-trips manual order, so this survives import. |
+| Singleton wrapping | A non-umbrella link stranded in a hub is wrapped into its own single-element subfolder rather than left dangling. Single-link leaves are valid by design. |
 
 ### Emitter (BookmarkSink port)
 
@@ -313,6 +327,8 @@ does not. Build small, reuse formats.
 | Classification order | Deterministic rules first, LLM only for residue | Cheap, fast, repeatable; LLM cost/latency scales with the *new* bookmarks, not the collection. |
 | LLM learning loop | High-confidence LLM assignments appended to taxonomy.yml as `source: learned` rules | Each run makes the next one more deterministic; the LLM converges toward handling only genuinely novel material. |
 | Churn control | In-place bookmarks with valid intent paths stay put unless `--restructure` | Muscle memory is part of the UX; full re-shuffles are opt-in. |
+| Tree shape | Hub/leaf invariant (umbrella links, then folders, nothing after) enforced by the Planner | Shape is mechanical, so it must be deterministic code, not LLM judgment; skinny hubs are the user's stated navigation model. |
+| Duplicate policy | Per-folder dedupe only; cross-folder copies preserved | The same URL under two folders is a deliberate thought-breadcrumb (28 of 29 dup copies in the reference export are cross-folder). |
 | LLM vendor seam | `Classifier` port; provider/model in taxonomy.yml | Radar Trial ring has three viable providers today; vendor names stay out of the core. |
 | Language / stack | Python 3.11+, uv, Click, Pydantic, pytest, mypy strict | Radar Adopt ring across the board; tree manipulation and YAML round-tripping are Python-comfortable. |
 | Location | `bookmark-organizer/` top-level dir in tds-utils, launcher shim in `bin/bmorg` | Follows the log-hoarder precedent for multi-file tools; bin/ stays the entry-point surface. |
@@ -346,7 +362,7 @@ public doc; the file itself belongs in tds-internal if archived):
 | Bookmarks | 658 | Full tree (titles+URLs) fits one LLM context; `--restructure` is single-shot, no map-reduce needed. |
 | Folders / max depth | 113 / 5 | Skeleton-with-counts prompt is small; depth cap not needed in v1. |
 | Loose at roots | ~50 (22 in Other, 30 bar top-level) | Typical residue size per run: one or two LLM batches. |
-| Exact-URL duplicates | 29 extra copies across 27 URLs | Dedupe stage earns its keep on day one. |
+| Exact-URL duplicates | 29 extra copies across 27 URLs; only 1 within a single folder | Validates per-folder dedupe scope: 28 of 29 are cross-folder breadcrumbs to keep. |
 | Structure style | Topic folders already intent-adjacent | Migration is mostly rename/regroup, not from-scratch; churn minimizer matters. |
 
 ---
