@@ -110,7 +110,12 @@ _taxonomy_option = click.option(
     help="Path to taxonomy.yml.",
 )
 _restructure_option = click.option(
-    "--restructure", is_flag=True, help="Let the LLM propose a reworked tree."
+    "--restructure",
+    is_flag=True,
+    help=(
+        "Re-file bookmarks already sitting in a valid intent path instead of "
+        "leaving them put (disables the stay-put churn minimizer)."
+    ),
 )
 
 

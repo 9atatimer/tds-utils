@@ -31,7 +31,10 @@ orgmarks apply --input FILE      --taxonomy taxonomy.yml [--output-dir DIR]
 - `--from-profile` -- a path to a Chrome `Bookmarks` JSON file (read-only; the
   profile is never written).
 - `--taxonomy` -- your taxonomy.yml (see `taxonomy.example.yml`).
-- `--restructure` -- let the LLM propose a reworked folder tree.
+- `--restructure` -- re-file bookmarks already sitting in a valid intent path
+  instead of leaving them put (disables the stay-put churn minimizer). The
+  fuller LLM restructure-proposal workflow from the design is a planned
+  follow-up and is not yet implemented.
 
 `plan` is read-only and prints the move/create/merge report. `apply` writes
 `bookmarks-organized-<date>.html` and appends any `source: learned` rules back
