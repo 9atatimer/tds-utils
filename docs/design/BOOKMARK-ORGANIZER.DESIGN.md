@@ -1,4 +1,4 @@
-# Bookmark Organizer (bmorg)
+# Bookmark Organizer (orgmarks)
 
 > **Status:** REVIEW
 > **Date:** 2026-07-23
@@ -10,7 +10,7 @@
 ## Overview
 
 Chrome bookmarks accumulate faster than they get filed, and the folder tree
-drifts away from how work actually happens. `bmorg` is a local CLI that takes
+drifts away from how work actually happens. `orgmarks` is a local CLI that takes
 a Chrome bookmark export, reorganizes it around task intent (work, fun,
 self-education, writing) using deterministic rules first and an LLM second,
 and emits a cleaned tree for re-import -- guided by a human-editable YAML
@@ -52,7 +52,7 @@ taxonomy file that the tool itself grows over time.
 ## Non-Goals
 
 - **Not a bookmark manager.** No database, no tags, no search UI. Chrome
-  remains the system of record; bmorg is a batch groomer.
+  remains the system of record; orgmarks is a batch groomer.
 - **Not a browser extension.** No Chrome permissions, no store listing, no
   background process.
 - **Not a sync service.** One machine's export in, one file out. Chrome Sync
@@ -140,7 +140,7 @@ intents:                      # top-level folders, in display order
   - name: self-education
     hint: "courses, papers, tutorials I am working through"
   - name: writing
-pins:                         # subtrees bmorg must not touch
+pins:                         # subtrees orgmarks must not touch
   - path: "bookmarks_bar/Daily"
 rules:                        # deterministic, first match wins
   - match: { domain: "github.com", url_prefix: "/9atatimer" }
@@ -150,7 +150,7 @@ rules:                        # deterministic, first match wins
   - match: { domain: "news.ycombinator.com" }
     folder: "fun/hn"
     ref: "culture/tech-news"
-    source: learned           # appended by bmorg from an LLM assignment
+    source: learned           # appended by orgmarks from an LLM assignment
 reference:
   root: "other/Reference"     # where the generated card catalog lives
   seeds:                      # optional top-of-taxonomy hints
@@ -229,7 +229,7 @@ properties differ from the intent tree on purpose:
 | Churn policy | minimize; moves only when confident | none -- rebuilt from scratch every run |
 | Coverage | every bookmark has one home (or `_triage`) | exhaustive: every bookmark, including pinned and triaged ones |
 | Depth | skinny (hub/leaf invariants) | deeper taxonomy allowed; same hub/leaf ordering rules |
-| Authority | human-owned, tool-maintained: bmorg files, prunes, and proposes new areas; top-level intents change only by human edit | tool-owned entirely: a deliberately systematic, stable taxonomy (card-catalog boring beats clever) |
+| Authority | human-owned, tool-maintained: orgmarks files, prunes, and proposes new areas; top-level intents change only by human edit | tool-owned entirely: a deliberately systematic, stable taxonomy (card-catalog boring beats clever) |
 
 Rebuild is deterministic: `ref` categories come from rules (human and
 learned) exactly like intent homes; the LLM assigns a `ref` category only
@@ -253,8 +253,8 @@ is rejected for v1 (see Rejections).
 ### CLI
 
 ```
-bmorg plan  [--input FILE | --from-profile [NAME]] [--taxonomy FILE] [--restructure]
-bmorg apply [same flags]
+orgmarks plan  [--input FILE | --from-profile [NAME]] [--taxonomy FILE] [--restructure]
+orgmarks apply [same flags]
 
 plan:  read-only everywhere; prints the Plan.
 apply: writes the output HTML and appends learned rules to taxonomy.yml.
@@ -329,7 +329,7 @@ Plan
   trusted with this data; the Ollama provider exists for anything that must
   stay local. The plan report never truncates -- what was sent is auditable.
 - **`taxonomy.yml` leaks interests and repo names.** It must live in a
-  private repo (tds-internal-class), never in tds-utils. bmorg's code and
+  private repo (tds-internal-class), never in tds-utils. orgmarks's code and
   this doc stay URL-free.
 - **No secrets in the tool.** Provider credentials come from the provider's
   own config (claude-cli auth, env var for endpoints); never stored in
@@ -359,7 +359,7 @@ does not. Build small, reuse formats.
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| System of record | Chrome itself; bmorg is a batch filter | User workflow is export -> groom -> import; anything that owns the data adds a migration and a second UI. |
+| System of record | Chrome itself; orgmarks is a batch filter | User workflow is export -> groom -> import; anything that owns the data adds a migration and a second UI. |
 | Interchange format | Netscape HTML in and out; Chrome JSON read-only in | HTML is the only format Chrome will import; JSON read skips the export step when convenient. |
 | Organizing principle | Intent-first tree (`intent/topic`), from `intents` in taxonomy.yml | User is task-oriented: "work with site X under intent Y"; site-first trees rot because intent is the retrieval key. |
 | Classification order | Deterministic rules first, LLM only for residue | Cheap, fast, repeatable; LLM cost/latency scales with the *new* bookmarks, not the collection. |
@@ -370,7 +370,7 @@ does not. Build small, reuse formats.
 | Task/reference duality | Intent tree primary + one generated exhaustive `Reference` subtree | No mode declaration at filing or hunting time: the pile stays the pile; when in recall mode, the card catalog is one known place and guaranteed complete. Derived data, so it is rebuilt fearlessly each run. |
 | LLM vendor seam | `Classifier` port; provider/model in taxonomy.yml | Radar Trial ring has three viable providers today; vendor names stay out of the core. |
 | Language / stack | Python 3.11+, uv, Click, Pydantic, pytest, mypy strict | Radar Adopt ring across the board; tree manipulation and YAML round-tripping are Python-comfortable. |
-| Location | `bookmark-organizer/` top-level dir in tds-utils, launcher shim in `bin/bmorg` | Follows the log-hoarder precedent for multi-file tools; bin/ stays the entry-point surface. |
+| Location | `bookmark-organizer/` top-level dir in tds-utils, launcher shim in `bin/orgmarks` | Follows the log-hoarder precedent for multi-file tools; bin/ stays the entry-point surface. |
 | Safety model | `plan` (default, read-only) vs `apply`; URL-set equality check before emitting | A grooming tool that can silently drop bookmarks is worse than no tool. |
 
 ---
