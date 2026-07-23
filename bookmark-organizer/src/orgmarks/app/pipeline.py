@@ -28,7 +28,11 @@ from orgmarks.domain.model import (
     Rule,
     RuleMatch,
 )
-from orgmarks.domain.normalizer import NormalizeResult, normalize
+from orgmarks.domain.normalizer import (
+    NormalizeResult,
+    canonicalize_for_compare,
+    normalize,
+)
 from orgmarks.domain.planner import build_organized_tree, build_plan
 from orgmarks.domain.rules import RuleOutcome, assign_by_rules
 from orgmarks.domain.taxonomy import Taxonomy
@@ -184,6 +188,51 @@ def _compose_report(
     return "\n".join(parts)
 
 
+def _classifiable(tree: BookmarkTree, taxonomy: Taxonomy) -> list[Bookmark]:
+    """Bookmarks to file, treating the Reference index as derived input.
+
+    The generated Reference subtree is rebuilt every run, so a bookmark that
+    already appears outside Reference must not be re-ingested from its Reference
+    copy (that would double-file it on a second run over prior output).
+    Reference-only URLs are kept so nothing is lost.
+    """
+    ref_root = taxonomy.reference_root
+    outside = {
+        canonicalize_for_compare(bm.url)
+        for bm in tree.iter_bookmarks()
+        if not bm.source_path.is_under(ref_root)
+    }
+    result: list[Bookmark] = []
+    for bookmark in tree.iter_bookmarks():
+        in_reference = bookmark.source_path.is_under(ref_root)
+        if in_reference and canonicalize_for_compare(bookmark.url) in outside:
+            continue  # derived copy of a bookmark that lives elsewhere
+        result.append(bookmark)
+    return result
+
+
+def _reroute_pin_collisions(
+    assignments: Sequence[Assignment], taxonomy: Taxonomy
+) -> list[Assignment]:
+    """Send any non-pin assignment that targets a pinned subtree to triage.
+
+    Pinned subtrees are frozen; a rule or LLM result must never file into one
+    (that would duplicate a pinned folder). Such an assignment is triaged.
+    """
+    rerouted: list[Assignment] = []
+    for assignment in assignments:
+        collides = assignment.via != "pin" and any(
+            assignment.folder.is_under(pin) for pin in taxonomy.pins
+        )
+        if collides:
+            rerouted.append(
+                _triage_assignment(assignment.bookmark, taxonomy, ref=assignment.ref)
+            )
+        else:
+            rerouted.append(assignment)
+    return rerouted
+
+
 def run(
     tree: BookmarkTree,
     taxonomy: Taxonomy,
@@ -197,7 +246,7 @@ def run(
 
     assignments: list[Assignment] = []
     residue: list[Bookmark] = []
-    for bookmark in norm.tree.iter_bookmarks():
+    for bookmark in _classifiable(norm.tree, taxonomy):
         outcome = assign_by_rules(bookmark, taxonomy, restructure=restructure)
         if outcome is None:
             residue.append(bookmark)
@@ -238,6 +287,7 @@ def run(
                         _triage_assignment(bookmark, taxonomy, ref=result.ref)
                     )
 
+    assignments = _reroute_pin_collisions(assignments, taxonomy)
     learned_rules = _dedupe_rules(learned)
     plan = build_plan(norm.tree, taxonomy, assignments, norm.dedupes, learned_rules)
     organized = build_organized_tree(norm.tree, taxonomy, assignments)

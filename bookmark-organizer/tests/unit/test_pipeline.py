@@ -175,6 +175,52 @@ def test_already_rooted_llm_folder_is_not_double_prefixed() -> None:
     assert llm_move.folder == FolderPath.from_string("bookmarks_bar/work/dev")
 
 
+def test_reference_copies_are_not_re_ingested() -> None:
+    """Given prior output with a Reference copy, When run, Then no double-file."""
+    rule = Rule(
+        match=RuleMatch(domain="example.com"),
+        folder=FolderPath.from_string("work/dev"),
+        ref=FolderPath.from_string("technical/dev"),
+    )
+    tax = _tax(with_llm=False, rules=(rule,))
+    intent_copy = _bm("https://example.com/a", "bookmarks_bar/work/dev")
+    reference_copy = _bm("https://example.com/a", "other/Reference/technical/dev")
+    tree = BookmarkTree(
+        roots=(
+            (
+                "bookmarks_bar",
+                Folder(name="bookmarks_bar", bookmarks=(intent_copy,)),
+            ),
+            ("other", Folder(name="other", bookmarks=(reference_copy,))),
+        )
+    )
+    result = run(tree, tax, None, mode="plan")
+    # The URL is filed once (its Reference copy was treated as derived).
+    assert len(result.plan.moves) == 1
+    outside = _all_urls(result.organized, tax.reference_root)
+    assert outside == {"https://example.com/a"}
+
+
+def test_assignment_colliding_with_pin_is_triaged() -> None:
+    """Given a rule targeting a pinned path, When run, Then it is triaged."""
+    rule = Rule(
+        match=RuleMatch(domain="example.com"),
+        folder=FolderPath.from_string("Daily/sub"),
+        ref=FolderPath.from_string("technical/dev"),
+    )
+    tax = Taxonomy(
+        version=1,
+        intents=(Intent(name="work"),),
+        pins=(FolderPath.from_string("bookmarks_bar/Daily"),),
+        rules=(rule,),
+        reference_root=FolderPath.from_string("other/Reference"),
+        triage_folder="_triage",
+    )
+    bm = _bm("https://example.com/x", "bookmarks_bar/Loose")
+    result = run(_tree([bm]), tax, None, mode="plan")
+    assert result.plan.moves[0].via == "triage"
+
+
 def test_pipeline_is_lossless_and_reference_exhaustive() -> None:
     """Given a mix, When run, Then every url appears in tree and Reference."""
     rule = Rule(

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
+
+from orgmarks.domain.errors import DomainError
 from orgmarks.domain.model import (
     Assignment,
     Bookmark,
@@ -183,6 +186,15 @@ def test_pinned_subtree_is_copied_verbatim_including_empty_folders() -> None:
     assert empty.bookmarks == ()
     # The pinned bookmark appears once in the intent tree (not duplicated).
     assert [b.url for b in out_daily.bookmarks] == ["https://example.com/daily"]
+
+
+def test_non_pin_assignment_under_pin_raises_domain_error() -> None:
+    """Given a non-pin assignment under a pin, When organized, Then it raises."""
+    tax = _tax(pins=(FolderPath.from_string("bookmarks_bar/Daily"),))
+    bm = _bm("https://example.com/x", "bookmarks_bar/Loose")
+    bad = _assign(bm, "bookmarks_bar/Daily/sub", "technical/dev", via="rule")
+    with pytest.raises(DomainError):
+        build_organized_tree(_source_tree([bm]), tax, [bad])
 
 
 def test_build_plan_records_moves_and_creates() -> None:

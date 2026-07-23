@@ -21,6 +21,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+from orgmarks.domain.errors import DomainError
 from orgmarks.domain.model import (
     Assignment,
     Bookmark,
@@ -159,10 +160,15 @@ def build_organized_tree(
         parts = assignment.folder.parts
         if not parts:
             continue
-        if assignment.via == "pin" and _is_pinned(
-            assignment.bookmark.source_path, covered_pins
-        ):
-            continue  # already placed by the verbatim pin copy
+        if assignment.via == "pin":
+            if _is_pinned(assignment.bookmark.source_path, covered_pins):
+                continue  # already placed by the verbatim pin copy
+        elif _is_pinned(assignment.folder, taxonomy.pins):
+            # A non-pin assignment must never file into a frozen pinned subtree
+            # (the pipeline reroutes these to triage before we get here).
+            raise DomainError(
+                f"non-pin assignment targets pinned subtree: {assignment.folder}"
+            )
         _insert(root_node(parts[0]), parts[1:], assignment.bookmark)
 
     # Reference index: a copy of every bookmark under reference_root.
