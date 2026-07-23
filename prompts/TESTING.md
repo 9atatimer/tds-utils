@@ -3,10 +3,6 @@
 This document defines **universal testing principles** applicable across all languages,
 frameworks, and projects. It is written for coding agents and must be followed exactly.
 
-For framework-specific standards, see:
-
-- [TESTING.NUXT.md](TESTING.NUXT.md) -- Nuxt 4 / Vue 3 / Cypress
-
 ---
 
 # 1. Goals and Principles
