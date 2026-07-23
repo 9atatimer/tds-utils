@@ -21,9 +21,11 @@ taxonomy file that the tool itself grows over time.
 ## Goals
 
 1. **Round trip** -- Export from Chrome, run one command, import the result
-   back; zero bookmarks lost, none duplicated within a folder (verified by
-   URL-set equality between input and output-minus-Reference; the generated
-   Reference copies are the only additions).
+   back; zero bookmarks lost and none duplicated within a folder. Two
+   separate checks: **losslessness** (every input URL appears in
+   output-minus-Reference; the generated Reference copies are the only
+   additions) and **per-folder uniqueness** (no folder contains the same
+   URL twice).
 2. **Intent-first organization** -- Every bookmark lands in an
    intent-rooted folder (e.g. `work/dev`, `writing/reference`), or in a
    single `_triage` folder when confidence is below threshold. No bookmark
@@ -165,7 +167,7 @@ triage_folder: "_triage"
 
 | Field | Contract |
 |---|---|
-| `intents` | Ordered; these become the top-level folders under `Other bookmarks`. `hint` text is passed verbatim to the LLM. |
+| `intents` | Ordered; these become the top-level folders of the organized tree, which roots at `Bookmarks Bar` (revised default -- confirmation tracked in Open Questions #2). `hint` text is passed verbatim to the LLM. |
 | `pins` | Subtrees copied through untouched; their bookmarks are excluded from classification and dedupe-moves. |
 | `rules` | Evaluated top-to-bottom, first match wins. `match` supports `domain`, `url_prefix` (path prefix), `title_regex`. Human rules sort before learned rules. |
 | `llm` | Provider selection and threshold. Absent block = rules-only run (LLM stage skipped, residue goes to `_triage`). |
