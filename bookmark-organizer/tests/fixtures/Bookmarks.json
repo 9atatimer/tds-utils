@@ -1,0 +1,73 @@
+{
+  "checksum": "0000000000000000000000000000dead",
+  "roots": {
+    "bookmark_bar": {
+      "type": "folder",
+      "name": "Bookmarks bar",
+      "date_added": "13244473600000000",
+      "guid": "00000000-0000-4000-8000-000000000001",
+      "children": [
+        {
+          "type": "url",
+          "name": "Top Link",
+          "url": "https://example.com/top",
+          "date_added": "13244473601000000",
+          "guid": "00000000-0000-4000-8000-000000000002"
+        },
+        {
+          "type": "folder",
+          "name": "Dev",
+          "date_added": "13244473602000000",
+          "guid": "00000000-0000-4000-8000-000000000003",
+          "children": [
+            {
+              "type": "url",
+              "name": "Dev One",
+              "url": "https://example.com/dev/1",
+              "date_added": "13244473603000000",
+              "guid": "00000000-0000-4000-8000-000000000004"
+            },
+            {
+              "type": "folder",
+              "name": "Tools",
+              "date_added": "13244473604000000",
+              "guid": "00000000-0000-4000-8000-000000000005",
+              "children": [
+                {
+                  "type": "url",
+                  "name": "Tool X",
+                  "url": "https://example.com/dev/tools/x",
+                  "date_added": "13244473605000000",
+                  "guid": "00000000-0000-4000-8000-000000000006"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "other": {
+      "type": "folder",
+      "name": "Other bookmarks",
+      "date_added": "13244473610000000",
+      "guid": "00000000-0000-4000-8000-000000000007",
+      "children": [
+        {
+          "type": "url",
+          "name": "Loose",
+          "url": "https://example.com/loose",
+          "date_added": "13244473611000000",
+          "guid": "00000000-0000-4000-8000-000000000008"
+        }
+      ]
+    },
+    "synced": {
+      "type": "folder",
+      "name": "Mobile bookmarks",
+      "date_added": "13244473620000000",
+      "guid": "00000000-0000-4000-8000-000000000009",
+      "children": []
+    }
+  },
+  "version": 1
+}

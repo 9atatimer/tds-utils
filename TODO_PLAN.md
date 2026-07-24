@@ -177,6 +177,300 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 
 ---
 
+## Active Work: orgmarks (bookmark organizer)
+
+> **Status:** Implemented -- all 10 phases landed on
+> `claude/orgmarks-v1-kauhw7`; 81 unit tests green, mypy --strict + ruff clean.
+> PR pending.
+> **Created:** 2026-07-23
+> **Design:** [docs/design/BOOKMARK-ORGANIZER.DESIGN.md](docs/design/BOOKMARK-ORGANIZER.DESIGN.md) (APPROVED, PR #164)
+> **Branch:** claude/orgmarks-v1-kauhw7
+> **Stack:** Python 3.11+, uv, Click, Pydantic, structlog, ruamel.yaml; pytest, mypy strict, Ruff (tech-radar Adopt ring)
+
+Local CLI that grooms a Chrome bookmark export around task intent: rules
+first, LLM second, exhaustive Reference index, round-trip lossless. Code in
+`bookmark-organizer/`; launcher shim `bin/orgmarks`. Real `taxonomy.yml`
+lives in tds-internal; only `taxonomy.example.yml` (placeholder URLs) ships
+here.
+
+### Process rules (this feature)
+
+- **RED -> GREEN -> COMMIT**, one behavior per commit. Tests first, every phase.
+- **No network / no LLM in unit tests.** The `Classifier` port is faked;
+  fixtures are synthetic Netscape HTML / Chrome JSON we author -- never a
+  real export.
+- **Invariants are executable checks**, not prose: losslessness, per-folder
+  uniqueness (pins exempt), hub/leaf shape, Reference exhaustiveness,
+  idempotency (second run identical).
+- **Scope guard:** no dead-link checking, no Chrome profile writes, no
+  browser automation, no bookmark DB. Doc silent -> simplest option, noted
+  here.
+- Standards: coding, style-python, testing + testing-python, markdown skills.
+
+### Package layout (hexagonal; deps inward: adapters -> ports -> domain)
+
+```
+bookmark-organizer/
+  pyproject.toml
+  taxonomy.example.yml           # placeholder URLs only
+  src/orgmarks/
+    domain/    model.py normalizer.py rules.py taxonomy.py planner.py shape.py errors.py
+    ports/     source.py sink.py classifier.py          # Protocols, one per axis of change
+    adapters/  netscape.py chrome_json.py taxonomy_yaml.py claude_cli.py fake_classifier.py
+    app/       pipeline.py report.py cli.py             # composition root + Click
+  tests/       unit/  fixtures/
+```
+
+Domain is pure: no vendor SDK, no `os.environ`, no model id, no HTTP. The
+three ports each already have >=2 impls or a vendor boundary (per doc), so
+none is a single-impl-forever port.
+
+### RESUMING AFTER COMPACT AMNESIA
+
+1. `git log --oneline -5` -- last `(RED)`/`(GREEN)` tells you the state.
+2. Find that step below; the next unchecked box is the next move.
+3. `cd bookmark-organizer && uv run pytest` -- what is RED?
+4. Read the latest Learning Checkpoint for decisions in flight.
+5. Continue from the next RED test.
+
+### Testing philosophy (this feature)
+
+- Unit tests under `bookmark-organizer/tests/unit/`, default fast (<250ms),
+  no `sleep`, no real I/O, no network. Fakes over mocks (`fake_classifier`).
+- Fixtures are synthetic and authored under `tests/fixtures/`.
+- `factory_boy` for bookmark/tree factories; `hypothesis` for the invariant
+  properties (losslessness, idempotency, per-folder uniqueness).
+- Run: `cd bookmark-organizer && uv run pytest`; gate:
+  `uv run ruff check . && uv run mypy .`.
+
+---
+
+#### PHASE 0: Scaffold + domain model
+
+**Goal:** A typed, immutable in-memory bookmark tree and green toolchain.
+
+- [ ] 0.1 `pyproject.toml` (deps + ruff/mypy-strict/pytest config, mirrors
+  goldfish/log-hoarder); `uv sync` clean.
+- [ ] 0.2 Write `tests/unit/test_model.py`: `FolderPath` join/parent/parts,
+  frozen `Bookmark`, `Folder`, `BookmarkTree` roots (bookmarks_bar/other/synced),
+  `Assignment`, `Rule`, `Plan` construct and are immutable. RED.
+  **Commit:** `test(orgmarks): domain model tests (RED)`
+- [ ] 0.3 Implement `domain/model.py` (frozen slotted dataclasses) + `errors.py`
+  (`OrgmarksError` -> `DomainError`/`InfrastructureError`). GREEN.
+  **Commit:** `feat(orgmarks): domain model (GREEN)`
+- [ ] 0.4 `bin/orgmarks` shim (resolve `bookmark-organizer/src`, invoke
+  `orgmarks.app.cli:main`); `--help` smoke stays deferred to Phase 7.
+  **Commit:** `feat(orgmarks): bin/orgmarks launcher shim`
+- [ ] 0.5 Learning checkpoint.
+
+#### PHASE 1: Netscape HTML round-trip (BookmarkSource + BookmarkSink)
+
+**Goal:** Parse a Netscape export to `BookmarkTree` and emit it back losslessly.
+
+- [ ] 1.1 Author synthetic fixtures: `tests/fixtures/simple.html` (nested
+  `<DL><DT>`, `ADD_DATE`, folders) + a nested/edge-case one. No real URLs.
+- [ ] 1.2 `test_netscape.py`: parse -> tree structure/titles/add_date/paths;
+  emit -> re-parse yields identical tree; **losslessness invariant**
+  (URL-set in == URL-set out). RED.
+  **Commit:** `test(orgmarks): netscape parse/emit round-trip (RED)`
+- [ ] 1.3 Implement `adapters/netscape.py` parse (`ports/source.py`). GREEN.
+  **Commit:** `feat(orgmarks): netscape HTML parser (GREEN)`
+- [ ] 1.4 Implement `adapters/netscape.py` emit (`ports/sink.py`),
+  big-buttons-first order preserved. GREEN.
+  **Commit:** `feat(orgmarks): netscape HTML emitter (GREEN)`
+- [ ] 1.5 Learning checkpoint.
+
+#### PHASE 2: Chrome Bookmarks JSON loader
+
+**Goal:** Read-only `--from-profile` input, GUID + dateAdded preserved.
+
+- [ ] 2.1 Synthetic `tests/fixtures/Bookmarks.json` (roots, guids, date_added
+  in Chrome's microsecond epoch). Placeholder URLs.
+- [ ] 2.2 `test_chrome_json.py`: load -> `BookmarkTree` equal in shape to the
+  Netscape path; GUID/add_date carried; read-only (never writes profile). RED.
+  **Commit:** `test(orgmarks): chrome json loader (RED)`
+- [ ] 2.3 Implement `adapters/chrome_json.py` (another `BookmarkSource`). GREEN.
+  **Commit:** `feat(orgmarks): chrome bookmarks JSON loader (GREEN)`
+- [ ] 2.4 Learning checkpoint.
+
+#### PHASE 3: Normalizer
+
+**Goal:** Per-folder dedupe, compare-only canonicalization, empty-folder prune.
+
+- [ ] 3.1 `test_normalizer.py`: exact-URL dupes **within one folder** collapse
+  (survivor keeps oldest add_date + longest non-URL-shaped title); same URL in
+  **different** folders preserved; `utm_*`/`fbclid`/trailing-slash canonicalize
+  **for compare only** (stored URL never rewritten); empty folders pruned.
+  **Per-folder uniqueness invariant** (pins exempt). RED.
+  **Commit:** `test(orgmarks): normalizer dedupe/canonicalize/prune (RED)`
+- [ ] 3.2 Implement `domain/normalizer.py` canonicalize-for-compare. GREEN.
+  **Commit:** `feat(orgmarks): compare-only URL canonicalization (GREEN)`
+- [ ] 3.3 Implement per-folder dedupe (survivor rules). GREEN.
+  **Commit:** `feat(orgmarks): per-folder dedupe (GREEN)`
+- [ ] 3.4 Implement empty-folder prune. GREEN.
+  **Commit:** `feat(orgmarks): empty-folder prune (GREEN)`
+- [ ] 3.5 Learning checkpoint.
+
+#### PHASE 4: taxonomy.yml parse/validate
+
+**Goal:** Pydantic boundary -> frozen `Taxonomy`; ship `taxonomy.example.yml`.
+
+- [ ] 4.1 Write `taxonomy.example.yml`: intents work/fun/self-education/writing,
+  a pin, human+learned rules, reference root+seeds, `llm.provider: claude-cli`,
+  `confidence_threshold: 0.7`, shape/triage. **Placeholder URLs only.**
+- [ ] 4.2 `test_taxonomy_yaml.py`: valid file -> frozen `Taxonomy`; bad schema
+  -> Pydantic error (feeds CLI exit 2); absent `llm` block -> rules-only marker;
+  human rules sort before learned. RED.
+  **Commit:** `test(orgmarks): taxonomy parse/validate (RED)`
+- [ ] 4.3 Implement `adapters/taxonomy_yaml.py` (Pydantic models) + frozen
+  `domain/taxonomy.py` value object. GREEN.
+  **Commit:** `feat(orgmarks): taxonomy.yml loader + Taxonomy value object (GREEN)`
+- [ ] 4.4 Learning checkpoint.
+
+#### PHASE 5: Rule Engine
+
+**Goal:** `(Bookmark, Taxonomy) -> FolderPath | None`: pins, rules, stay-put.
+
+- [ ] 5.1 `test_rules.py`: pins short-circuit (excluded from classify/dedupe);
+  `domain`/`url_prefix`/`title_regex` match, first-match-wins, human-before-
+  learned; bookmark already in a valid intent path stays put (churn minimizer)
+  unless `--restructure`; unmatched -> residue (None). RED.
+  **Commit:** `test(orgmarks): rule engine (RED)`
+- [ ] 5.2 Implement pin handling. GREEN.
+  **Commit:** `feat(orgmarks): pin pass-through (GREEN)`
+- [ ] 5.3 Implement rule matching (first-match, ordering). GREEN.
+  **Commit:** `feat(orgmarks): rule matching (GREEN)`
+- [ ] 5.4 Implement stay-put churn minimizer + restructure override. GREEN.
+  **Commit:** `feat(orgmarks): stay-put churn minimizer (GREEN)`
+- [ ] 5.5 Learning checkpoint.
+
+#### PHASE 6: Planner (tree build, shape invariants, Reference index)
+
+**Goal:** Deterministic `Plan`; skinny-tree shape + exhaustive Reference; idempotent.
+
+- [ ] 6.1 `test_shape.py`: hub-or-leaf (no third kind); `<= max_umbrella_links`
+  root-of-concept direct links; umbrella-links-then-folders, nothing after;
+  singleton wrapping. RED.
+  **Commit:** `test(orgmarks): skinny-tree shape invariants (RED)`
+- [ ] 6.2 Implement `domain/shape.py` invariant enforcement. GREEN.
+  **Commit:** `feat(orgmarks): skinny-tree shape enforcement (GREEN)`
+- [ ] 6.3 `test_planner.py`: intent tree in declared order, `_triage` last,
+  pins verbatim; **Reference exhaustiveness** (URL-set(Reference) ==
+  URL-set(whole collection), incl. pinned + triaged); `Plan` lists
+  moves/dedupes/folder_ops/learned_rules. RED.
+  **Commit:** `test(orgmarks): planner + reference index (RED)`
+- [ ] 6.4 Implement intent-tree build + `_triage`. GREEN.
+  **Commit:** `feat(orgmarks): intent-tree planner (GREEN)`
+- [ ] 6.5 Implement Reference index rebuild (rules-derived, exhaustive). GREEN.
+  **Commit:** `feat(orgmarks): exhaustive reference index (GREEN)`
+- [ ] 6.6 `test_idempotency.py` (hypothesis): plan(plan(tree)) == plan(tree);
+  learned rules make run 2 need no residue. RED -> GREEN.
+  **Commit:** `feat(orgmarks): idempotency invariant (GREEN)`
+- [ ] 6.7 Learning checkpoint.
+
+#### PHASE 7: CLI plan/apply + report
+
+**Goal:** `orgmarks plan|apply`; dry-run default; apply writes HTML + taxonomy.
+
+- [ ] 7.1 `test_report.py`: report lists N moved/deduped/triaged, folders
+  created/removed, learned rules; never truncates URLs. RED -> GREEN.
+  **Commit:** `feat(orgmarks): plan report (GREEN)`
+- [ ] 7.2 `test_cli.py` (CliRunner): `plan` read-only prints Plan; `apply`
+  writes `bookmarks-organized-<date>.html` + appends learned rules
+  (ruamel round-trip, comments preserved); exit 2 on unparseable input /
+  invalid taxonomy; LLM-unreachable degrades to rules-only, exit 0. RED.
+  **Commit:** `test(orgmarks): CLI plan/apply (RED)`
+- [ ] 7.3 Implement `app/cli.py` (Click) + `app/report.py` + taxonomy
+  write-back in `taxonomy_yaml.py`. GREEN.
+  **Commit:** `feat(orgmarks): CLI plan/apply + taxonomy write-back (GREEN)`
+- [ ] 7.4 Learning checkpoint.
+
+#### PHASE 8: Classifier port + fake + full pipeline wiring
+
+**Goal:** End-to-end LOAD..EMIT with a fake Classifier; degrade-to-rules.
+
+- [ ] 8.1 Define `ports/classifier.py` (Protocol: batch <=50 ->
+  folder/ref/confidence/proposed_new_folder) + `adapters/fake_classifier.py`
+  (deterministic, table-driven). 
+- [ ] 8.2 `test_pipeline.py`: full run with fake classifier -> emitted tree;
+  below-threshold -> `_triage`; learn-back appends `source: learned`;
+  emergent-area proposals aggregated in report; provider-absent skips CLASSIFY
+  (residue -> `_triage`). RED.
+  **Commit:** `test(orgmarks): pipeline wiring w/ fake classifier (RED)`
+- [ ] 8.3 Implement `app/pipeline.py` state machine + composition root. GREEN.
+  **Commit:** `feat(orgmarks): pipeline LOAD..EMIT (GREEN)`
+- [ ] 8.4 Implement learn-back + threshold + emergent-area aggregation. GREEN.
+  **Commit:** `feat(orgmarks): learn-back + triage threshold (GREEN)`
+- [ ] 8.5 Learning checkpoint.
+
+#### PHASE 9: claude-cli Classifier adapter
+
+**Goal:** Real default provider behind the port; malformed batch -> retry -> triage.
+
+- [ ] 9.1 `test_claude_cli.py`: subprocess faked (no network) -> parses
+  JSON-schema batch response; malformed response retried once then that batch
+  -> `_triage` (never crashes); provider unreachable -> `InfrastructureError`
+  caught by pipeline as degrade-to-rules. RED.
+  **Commit:** `test(orgmarks): claude-cli classifier adapter (RED)`
+- [ ] 9.2 Implement `adapters/claude_cli.py` (subprocess, schema-validated,
+  retry-once). GREEN.
+  **Commit:** `feat(orgmarks): claude-cli classifier adapter (GREEN)`
+- [ ] 9.3 README (`bookmark-organizer/README.md`): workflow, import caveat,
+  provider config, `--restructure` note.
+  **Commit:** `docs(orgmarks): README + import caveat`
+- [ ] 9.4 Final checkpoint; push; open PR to master (GITHUB.md loop).
+
+### Deferred / simplest-option decisions (doc-silent)
+
+- `--restructure` (Goal 5) is a v1 flag but the LLM restructure *proposal*
+  path is thin behind the same Classifier port; full restructure UX can be a
+  fast-follow if it balloons -- flagged, not built blind.
+- Output HTML archived to tds-internal (Open Q #4): out of scope for the tool;
+  a user/Routine concern.
+- Open Questions #1-#3 are settled by the prompt (intents; bar-is-tree with
+  named pins; claude-cli default); #4 archival deferred as above.
+
+### orgmarks -- what landed + deviations
+
+Package `bookmark-organizer/` (hexagonal: domain pure, ports, adapters, app)
++ `bin/orgmarks` shim (bootstraps through `uv run`). All phases done:
+Netscape round-trip, Chrome JSON loader, normalizer, taxonomy parse/write,
+rule engine, planner + shape + Reference index, pipeline, report, CLI,
+claude-cli adapter. Invariants are executable tests: losslessness, per-folder
+uniqueness (pins exempt), hub/leaf shape, Reference exhaustiveness,
+hypothesis-checked determinism/idempotency.
+
+Decisions where the doc was silent (simplest option, noted):
+
+- **Absolute placement paths.** `Assignment.folder` is root-prefixed
+  (`bookmarks_bar/work/dev`); the pipeline roots intent paths under the bar,
+  pins keep their source path. Cleanest way to mix intent + pin placement in
+  one planner.
+- **Bar-relative intent match.** `is_intent_path` is pure (first segment is an
+  intent); the rule engine strips a leading Chrome root before the stay-put
+  check, since real source paths are root-prefixed. Without this, stay-put
+  never fired.
+- **Reference default bucket.** Bookmarks with no `ref` (pins, rule hits with
+  no ref, low-confidence) file under `uncategorized/` in the Reference index,
+  keeping exhaustiveness without inventing categories.
+- **`--from-profile FILE`.** Takes a path to a Chrome `Bookmarks` JSON file
+  rather than discovering the profile by name (no OS-specific profile
+  discovery; stays in scope and testable).
+- **`--restructure`** flag is wired through the rule engine (disables stay-put)
+  but the LLM restructure-proposal path is thin behind the same Classifier
+  port; full restructure UX is a fast-follow.
+
+### orgmarks lessons
+
+1. **uv `package = false` + `pythonpath=["src"]`** is the clean way to run a
+   src-layout app under uv without a build backend; `bin/` shim re-execs
+   through `uv run` so it works before an editable install.
+2. **ruamel round-trip needs `# type: ignore`-free handling**: type the
+   loaded value as `object` and narrow with `isinstance(x, dict)` instead of
+   `dict(x)` casts, which mypy --strict rejects on `object`.
+
+---
+
 ## Lessons Learned
 
 - **Interactive Shells Spawning under external processes (like IDEs or Agents)**: Invoking secure CLI tools (like 1Password `op`) during interactive shell startup (`~/.zshrc`) inside IDEs or coding agents causes the macOS security daemon to prompt for permission ("op would like to access data from other apps"). This happens because the shell's parent process is the IDE or coding agent rather than a verified terminal emulator. Skip `op` execution in these contexts by checking environment variables (`ANTIGRAVITY_AGENT`, `CLAI_AGENT`, `TERM_PROGRAM`), and cache generated completion code (like `op completion zsh`) in a version-controlled source file inside `tds-utils` (e.g. `macos/dot.op-completion`) symlinked to `~/.op-completion` to avoid executing the binary on standard shell launches.
