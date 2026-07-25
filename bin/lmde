@@ -267,10 +267,10 @@ Commands:
   sync --all             Sync every installable component.
   status                  Concise health summary (non-zero if any DEGRADED).
   doctor                  Verbose health detail; runs ALL healthchecks.
-  acquire [--pins <file>] Install the agent-agnostic clai + ast-mcp npm
-                          packages from GitHub Packages (latest by default;
+  acquire [--pins <file>] Install the agent-agnostic clai + ast-mcp + git-mirror
+                          npm packages from GitHub Packages (latest by default;
                           --pins pins named packages and floats the rest).
-  acquire --check         Advisory-only: report any clai/ast-mcp behind the
+  acquire --check         Advisory-only: report any clai/ast-mcp/git-mirror behind the
         [--pins <file>]   GitHub Packages latest and exit 0 (installs nothing).
 
 Notes:

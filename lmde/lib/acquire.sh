@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # acquire.sh -- library for the `lmde acquire` verb: install the agent-agnostic
-# clai + ast-mcp npm packages from GitHub Packages (npm.pkg.github.com), latest
+# clai + ast-mcp + git-mirror npm packages from GitHub Packages (npm.pkg.github.com), latest
 # by default with an optional --pins override, FAIL-OPEN at every step.
 #
 # Usage:       Sourced by bin/lmde (not executable on its own). Strict mode
@@ -32,6 +32,7 @@ acquire_pkg_table() {
     cat <<'EOF'
 clai @nine-at-a-time-media/clai clai CLAI_VERSION
 ast-mcp @nine-at-a-time-media/ast-mcp ast-mcp AST_MCP_VERSION
+git-mirror @nine-at-a-time-media/git-mirror git-mirror GIT_MIRROR_VERSION
 EOF
 }
 
