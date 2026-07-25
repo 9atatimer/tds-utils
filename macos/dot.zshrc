@@ -1,30 +1,15 @@
-export PATH="/Users/stumpf/workplace/tds-utils/bin:$PATH"
+# Environment paths migrated to dot.zshenv
 
-# Go-installed tools (go install puts binaries in ~/go/bin)
-export PATH="$HOME/go/bin:$PATH"
-
-# NVM magic
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
 autoload -Uz compinit && compinit
 PROG=sg source /Users/stumpf/.sourcegraph/sg.zsh_autocomplete
 
-# pyenv magic
-if command -v pyenv 1>/dev/null 2>&1; then
-    export PYENV_ROOT="$HOME/.pyenv"
-    eval "$(pyenv init -)"
-    if [ -d "${PYENV_ROOT}/plugins/pyenv-virtualenv" ]; then
-        eval "$(pyenv virtualenv-init -)"
-    fi
-fi
+# pyenv init migrated to dot.zshenv
 
 # direnv magic
 eval "$(direnv hook zsh)"
 
-# 1Password Integration
-# Setting the socket to the verified Website-installation path
-export SSH_AUTH_SOCK=~/Library/Group\ Containers/2BUA8C4S2C.com.1password/t/agent.sock
+# 1Password Integration migrated to dot.zshenv
 
 # CLI completion and aliases
 # To regenerate the cached completion file after upgrading the 'op' CLI, run:
@@ -62,10 +47,7 @@ if [ -f "$HOME/.alias" ]; then
     source "$HOME/.alias"
 fi
 
-. "$HOME/.local/bin/env"
-
-# Added by Windsurf
-export PATH="/Users/stumpf/.codeium/windsurf/bin:$PATH"
+# .local/bin/env and windsurf paths migrated to dot.zshenv
 
 # UV environment indicator of RHS of zsh prompt
 setopt prompt_subst
@@ -89,15 +71,7 @@ compinit
 # Grubsta completion
 source ~/workplace/lab54/grubsta/scripts/completions/grubsta-completions.zsh
 
-# Path updates
-export PATH="/Users/stumpf/.antigravity/antigravity/bin:$PATH"
-
-# Normalize PATH: collapse duplicate entries, and put ~/.local/bin (the
-# uv-installed tools — clai, designomatic, crmagic) ahead of tds-utils/bin
-# so the uv-installed tools take precedence. Must stay after every PATH
-# mutation above.
-typeset -U path
-path=("$HOME/.local/bin" $path)
+# Path deduplication and additions migrated to dot.zshenv
 
 # log-hoarder: semantic search widget (ctrl-x s)
 if [[ -f ~/workplace/tds-utils/macos/dot.zsh_log_search ]]; then

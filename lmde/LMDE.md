@@ -105,3 +105,11 @@ See [../docs/design/LMDE-CLAI-BOUNDARY.DESIGN.md](../docs/design/LMDE-CLAI-BOUND
   Each project installs its own under `~/.cache/<project>-cft/` with its
   own version, profile, and extension loadout. See
   `@nine-at-a-time-media/prompts` `SKILL.CHROME_MCP.md` for the pattern.
+
+## Shell Environment (Coding Agents)
+
+A fundamental divide exists between traditional CLI tools (like `gemini-cli`) and modern, GUI-integrated coding agents (like Antigravity or IDE extensions). When a GUI application spawns a background agent or executes a terminal command (e.g., `zsh -c "git push"`), it typically launches a **non-interactive, non-login shell**. According to `zsh` startup rules, **only `~/.zshenv` is sourced** -- `.zprofile` and `.zshrc` are completely bypassed.
+
+To ensure LMDE agents inherit the exact same fully-hydrated toolchain as interactive terminals, **all pure environment configurations must be migrated into `.zshenv`**.
+- **`.zshenv`**: Must contain all `export PATH=...` statements, `brew shellenv`, and non-interactive variables (e.g., `NVM_DIR`).
+- **`.zprofile` / `.zshrc`**: Must be strictly reserved for interactive tools (aliases, prompts, auto-completions). No critical environment variables should be trapped here.
