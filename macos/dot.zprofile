@@ -20,6 +20,15 @@ fi
 # Homebrew's info pages. `man` needs nothing -- manpath(1) derives its search
 # path from PATH -- and brew's own environment eval likewise emits no MANPATH
 # when MANPATH is unset, so setting one here would be a deviation, not a fix.
+#
+# Guarded against re-entry: .zshrc execs tmux, and tmux's shell is both login
+# and interactive, so this file runs again for every terminal window. brew's
+# own eval prepends unconditionally and therefore grows INFOPATH without bound;
+# PATH is immune because tds_path_apply re-seats rather than prepends, and this
+# is the one variable that would otherwise still stack.
 if [[ -n "${HOMEBREW_PREFIX:-}" ]]; then
-    export INFOPATH="$HOMEBREW_PREFIX/share/info:${INFOPATH:-}"
+    case ":${INFOPATH:-}:" in
+        *":$HOMEBREW_PREFIX/share/info:"*) ;;
+        *) export INFOPATH="$HOMEBREW_PREFIX/share/info:${INFOPATH:-}" ;;
+    esac
 fi

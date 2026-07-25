@@ -69,22 +69,36 @@ fi
 
 # Resolve the bin directory of nvm's default node WITHOUT starting nvm.
 # Sourcing nvm's loader costs ~456ms, which every agent-spawned shell would pay;
-# the answer is one file read away. $NVM_DIR/alias/default holds either a bare
-# version ("24.18.0", no leading "v") or the name of another alias ("lts/*"),
-# so follow a few hops. `read` is a builtin and the redirect is not a subshell,
-# so this forks nothing. Anything that does not land on a real directory
-# (system, an unresolved lts/*, an empty or missing file) yields nothing at
-# all -- no bogus PATH entry, no output. Result in $REPLY.
+# the answer is one file read away. `read` is a builtin and the redirect is not
+# a subshell, so this forks nothing. Result in $REPLY; anything that does not
+# land on a real directory yields nothing at all -- no bogus PATH entry, no
+# output.
+#
+# $NVM_DIR/alias/default holds either a version or the name of another alias,
+# so follow a few hops. nvm is INCONSISTENT about the "v" prefix between those
+# two forms, which is the trap here:
+#     alias/default     -> "24.18.0"      bare, when set by `nvm alias default`
+#     alias/lts/*       -> "lts/krypton"  another alias name
+#     alias/lts/krypton -> "v24.18.0"     v-prefixed, written by nvm itself
+# Directory names are always v-prefixed. So strip any leading "v" before adding
+# one back, or the common `nvm alias default 'lts/*'` setup resolves correctly
+# and is then thrown away against a nonexistent "vv24.18.0".
+#
+# `read` is deliberately NOT guarded with `|| return 0`: zsh's read reports
+# failure on EOF-before-delimiter, so an alias file with no trailing newline
+# fails the read while still populating $version correctly. The emptiness check
+# on the next line is the real guard.
 tds_nvm_default_bin() {
     emulate -L zsh
-    local root="${NVM_DIR:-$HOME/.nvm}" name=default version hop
+    local root="${NVM_DIR:-$HOME/.nvm}" name=default version hop dir
     REPLY=""
     for hop in 1 2 3 4; do
         [[ -r "$root/alias/$name" ]] || return 0
-        read -r version < "$root/alias/$name" || return 0
+        read -r version < "$root/alias/$name"
         [[ -n "$version" ]] || return 0
-        if [[ -d "$root/versions/node/v$version/bin" ]]; then
-            REPLY="$root/versions/node/v$version/bin"
+        dir="$root/versions/node/v${version#v}/bin"
+        if [[ -d "$dir" ]]; then
+            REPLY="$dir"
             return 0
         fi
         name="$version"

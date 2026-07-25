@@ -77,11 +77,16 @@ assert_ok() {
 
 # Run a command under a watchdog so a misbehaving shell can never hang the
 # suite. TESTING.md: a hanging test is worse than a failing one.
+# The watchdog's stdout MUST be redirected away from the caller's. These calls
+# are almost all inside $( ), and a command substitution does not return until
+# every process holding the pipe has closed it -- so an inherited pipe would
+# make each measurement block for the full timeout no matter how fast the shell
+# under test actually was, turning a 30-second suite into a 6-minute one.
 run_guarded() {
     local secs="$1"; shift
     local pid killer rc=0
     "$@" & pid=$!
-    ( sleep "${secs}"; kill -9 "${pid}" 2>/dev/null ) & killer=$!
+    ( sleep "${secs}"; kill -9 "${pid}" 2>/dev/null ) >/dev/null 2>&1 & killer=$!
     wait "${pid}" || rc=$?
     kill -9 "${killer}" 2>/dev/null || true
     wait "${killer}" 2>/dev/null || true
@@ -250,6 +255,56 @@ check_noninteractive_startup_is_fast() {
     fi
 }
 
+# .zshenv resolves nvm's default node bin statically, without paying the ~456ms
+# cost of nvm's loader. That resolver is invisible to the parity checks above:
+# it degrades by dropping the entry, and Homebrew's node then backfills `node`
+# and `npm`, so both shell shapes stay equal and equally wrong. Meanwhile the
+# binary that actually vanishes -- `claude`, an npm global scoped to one node
+# version -- is not a tool any other check probes. So exercise the resolver
+# directly, against the alias shapes nvm really writes.
+#
+# Cases are driven through a synthetic NVM_DIR: real tree layout, no real nvm.
+check_nvm_default_resolution() {
+    local fake="${STAGE}/fakenvm" ver="v24.18.0"
+    local label alias_content expect on_path
+    mkdir -p "${fake}/alias/lts" "${fake}/versions/node/${ver}/bin"
+    printf 'lts/krypton\n' > "${fake}/alias/lts/*"
+    printf '%s\n' "${ver}"  > "${fake}/alias/lts/krypton"
+
+    # label | contents of alias/default | expect the bin dir on PATH?
+    while IFS='|' read -r label alias_content expect; do
+        [ -n "${label}" ] || continue
+        printf '%b' "${alias_content}" > "${fake}/alias/default"
+        on_path="$(staged_zsh -c \
+            "print -rl -- \$path | grep -c '^${fake}/versions/node/${ver}/bin\$' || true" \
+            NVM_DIR="${fake}")"
+        TESTS_RUN=$((TESTS_RUN + 1))
+        if [ "${on_path:-0}" = "${expect}" ]; then
+            pass "nvm default resolves: ${label}"
+        else
+            fail "nvm default resolves: ${label}"
+            printf '       expected on PATH: %s, got: %s\n' "${expect}" "${on_path:-0}"
+        fi
+    done <<'CASES'
+bare version (24.18.0)|24.18.0\n|1
+v-prefixed version (v24.18.0)|v24.18.0\n|1
+lts alias chain (lts/* -> lts/krypton -> v24.18.0)|lts/*\n|1
+alias file with no trailing newline|24.18.0|1
+uninstalled version degrades to nothing|9.9.9\n|0
+"system" degrades to nothing|system\n|0
+empty alias file degrades to nothing||0
+CASES
+
+    # A missing alias file, and a wholly absent NVM_DIR, must both be silent
+    # no-ops rather than injecting a nonexistent directory.
+    rm -f "${fake}/alias/default"
+    assert_eq "nvm default resolves: missing alias file adds no PATH entry" \
+        "0" "$(staged_zsh -c "print -rl -- \$path | grep -c '${fake}' || true" NVM_DIR="${fake}")"
+    assert_eq "nvm default resolves: absent NVM_DIR adds no PATH entry" \
+        "0" "$(staged_zsh -c "print -rl -- \$path | grep -c '${STAGE}/nosuchnvm' || true" \
+                NVM_DIR="${STAGE}/nosuchnvm")"
+}
+
 # path_helper re-introduces entries .zshenv already added; the dedup must run
 # after it, in .zprofile, not only in .zshenv.
 check_login_path_has_no_duplicates() {
@@ -273,6 +328,7 @@ run_all() {
     check_noninteractive_shell_sees_tools
     check_ssh_auth_sock_preserved
     check_zshenv_has_no_heavy_init
+    check_nvm_default_resolution
     check_noninteractive_startup_is_fast
     check_login_path_has_no_duplicates
 
