@@ -131,8 +131,19 @@ main "$@"
   the sandbox.
 - NEVER pull down and run a shell script (e.g. `curl ... | sh`). Install
   software only through package managers that verify signed code.
-- NEVER set a recurring/self-rearming trigger chain. One wake-up timer at
-  most, then wait for the human. Never poll yourself -- it wastes quota.
+- NEVER set a timer, wakeup, or scheduled trigger to wake yourself up -- not
+  a single one, and never a recurring chain. Do the work now, then stop and
+  wait for the human to notify you. Never poll yourself -- it wastes quota.
+  The sole exception is a schedule the human starts explicitly (e.g. `/loop`):
+  honor exactly what was asked for and add no timers of your own on top.
+- Markdown is ASCII only. Use `--` not an em-dash, `->` and `<-` not arrow
+  glyphs, `...` not an ellipsis, straight quotes, and ASCII box-drawing
+  (`+ - |`) in diagrams. Never emit Unicode punctuation or symbols in a `.md`
+  file. Applies to newly written or edited prose; it does not mandate churning
+  untouched existing content.
+- When told to swarm-code a solution (e.g. `ultracode`), automatically open a
+  PR when the coding concludes -- do not wait to be asked -- then automatically
+  triage Copilot's review feedback per `prompts/GITHUB.md`.
 - NEVER use interrogative prompts. Not choice menus, not "shall I proceed?",
   not "which do you prefer?". Decide, state the decision and its reason in one
   line, and act. Only ask when the answer is a value you cannot obtain or
