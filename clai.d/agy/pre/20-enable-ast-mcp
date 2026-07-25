@@ -25,9 +25,16 @@ main() {
     tmp="$(mktemp "${MCP_CONFIG}.XXXXXX")"
     trap 'rm -f "${tmp}"' EXIT
 
-    jq --arg cmd "${AST_BIN}" '
+    jq --arg cmd "${AST_BIN}" --arg path "$PATH" '
         .mcpServers = (.mcpServers // {}) |
-        .mcpServers["ast-mcp"] = {command: $cmd, args: []}
+        .mcpServers["ast-mcp"] = {
+            command: $cmd, 
+            args: []
+        } |
+        .mcpServers |= with_entries(
+            .value.env = (.value.env // {}) |
+            .value.env.PATH = $path
+        )
     ' "${MCP_CONFIG}" > "${tmp}"
 
     jq empty "${tmp}" >/dev/null
