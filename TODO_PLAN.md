@@ -16,12 +16,12 @@ This file tracks the status of development tasks, lessons learned, and completed
 - **Accomplishments**: 
   - Created `tds-utils/clai.d/agy/pre-invocation.sh` hook for Antigravity 2.0 to ensure `clai provision` runs on startup and triggers overlay hooks.
   - Modified `tds-utils/clai.d/agy/pre/20-enable-ast-mcp` to globally inject the dynamically captured `PATH` into the `env` blocks of *all* MCP servers (including `ast-mcp` and `emacs`) inside `~/.gemini/config/mcp_config.json`.
-  - Migrated the `emacs` server configuration to use `/usr/bin/env` rather than a hardcoded absolute path to reliably resolve `socat` on macOS without relying on the sparse `launchd` parent process `PATH`.
 - **Lessons learned**: 
   - macOS App Sandbox hides arbitrary user directories like `~/.emacs.d/` entirely (returns `ENOENT`) rather than just `EPERM`. Any socket file must reside in a mutually shared container (like `~/.gemini/`).
-  - Go's `os/exec` command resolving (used by the Antigravity MCP client) performs the executable `PATH` lookup in the *parent* process environment before applying custom `env` overrides for the child process. Using `env` as the target executable bypasses this completely by moving the target binary lookup into the child's execution context.
+  - Go's `os/exec` command resolving (used by the Antigravity MCP client) performs the executable `PATH` lookup in the *parent* process environment before applying custom `env` overrides for the child process. Therefore, injecting the `PATH` into the `env` block is not enough if the target executable is a bare command; it either requires an absolute path or must be invoked via `/usr/bin/env`.
 - **Suggested next steps**: 
   - The user needs to update their Emacs `mcp-server` configuration to drop its UNIX socket in `~/.gemini/emacs-mcp-server.sock` rather than `~/.emacs.d/`, which will allow the sandboxed Antigravity client to connect successfully.
+  - The user also needs to manually configure their `emacs` server block in `mcp_config.json` to use `env socat` rather than bare `socat`, due to the Go execution constraints.
 
 ### Universal Agent Provisioning -- issue #84 (phase entry, 2026-07-04)
 
