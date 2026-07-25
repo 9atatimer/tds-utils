@@ -1,28 +1,97 @@
-# Environment paths migrated to dot.zshenv
+# .zshrc -- interactive shells only. Everything here is either slow, chatty,
+# or meaningless without a terminal: runtime-manager shell functions,
+# completion, history, prompt, tmux. Anything an agent-spawned `zsh -c` needs
+# belongs in .zshenv instead -- see the contract at the top of that file.
 
+# --- Runtime managers (these mutate PATH; keep them above tds_path_apply) ---
+
+# nvm: .zshenv already put the default node toolchain on PATH statically, by
+# reading $NVM_DIR/alias/default. Sourcing the script here is what makes `nvm`
+# itself -- `nvm use`, `nvm install`, `nvm ls` -- exist as a shell function.
+# It costs ~450ms, which is why only real terminals pay it.
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
-autoload -Uz compinit && compinit
-PROG=sg source /Users/stumpf/.sourcegraph/sg.zsh_autocomplete
 
-# pyenv init migrated to dot.zshenv
+# pyenv: .zshenv already put $PYENV_ROOT/shims on PATH statically. This adds
+# the `pyenv` shell function (pyenv shell, pyenv activate, rehash).
+if (( $+commands[pyenv] )); then
+    eval "$(pyenv init -)"
+    if [[ -d "$PYENV_ROOT/plugins/pyenv-virtualenv" ]]; then
+        eval "$(pyenv virtualenv-init -)"
+    fi
+fi
 
 # direnv magic
-eval "$(direnv hook zsh)"
+if (( $+commands[direnv] )); then
+    eval "$(direnv hook zsh)"
+fi
 
-# 1Password Integration migrated to dot.zshenv
+# Restore the canonical ordering. Both managers above prepend their own
+# entries; tds_path_apply is idempotent, so this simply puts everything back
+# in rank. The ordering itself lives in .zshenv and is never restated here.
+if (( $+functions[tds_path_apply] )); then
+    tds_path_apply
+fi
 
-# CLI completion and aliases
+# --- History ---
+# This has to live HERE, not in .zshenv: /etc/zshrc hard-sets HISTFILE,
+# HISTSIZE and SAVEHIST, and it runs after ~/.zshenv but before ~/.zshrc, so
+# anything set in .zshenv is overwritten before the user ever sees it.
+HISTSIZE=999999999
+SAVEHIST=999999999
+HISTFILE="$HOME/.zsh_history"
+setopt HIST_IGNORE_ALL_DUPS
+setopt HIST_IGNORE_SPACE
+setopt HIST_REDUCE_BLANKS
+# Don't want this:
+#setopt SHARE_HISTORY
+# Trying this:
+setopt INC_APPEND_HISTORY_TIME
+setopt INC_APPEND_HISTORY
+setopt EXTENDED_HISTORY
+setopt HIST_SAVE_NO_DUPS
+
+# --- Completion ---
+# Every fpath contribution first, then exactly ONE compinit, then anything
+# that calls compdef. The Homebrew site-functions directory used to arrive via
+# brew's environment eval and its fpath line; now that .zshenv sets the
+# Homebrew variables statically, it has to be added explicitly or every
+# Homebrew-shipped completion silently disappears.
+if [[ -n "${HOMEBREW_PREFIX:-}" && -d "$HOMEBREW_PREFIX/share/zsh/site-functions" ]]; then
+    fpath=( "$HOMEBREW_PREFIX/share/zsh/site-functions" $fpath )
+fi
+if [[ -d "$HOME/.docker/completions" ]]; then
+    fpath=( "$HOME/.docker/completions" $fpath )
+fi
+
+autoload -Uz compinit && compinit
+
+# Sourcegraph
+if [[ -f "$HOME/.sourcegraph/sg.zsh_autocomplete" ]]; then
+    PROG=sg source "$HOME/.sourcegraph/sg.zsh_autocomplete"
+fi
+
+# Grubsta completion
+if [[ -f "$HOME/workplace/lab54/grubsta/scripts/completions/grubsta-completions.zsh" ]]; then
+    source "$HOME/workplace/lab54/grubsta/scripts/completions/grubsta-completions.zsh"
+fi
+
+# 1Password CLI completion and aliases.
 # To regenerate the cached completion file after upgrading the 'op' CLI, run:
 #   op completion zsh > ~/workplace/tds-utils/macos/dot.op-completion
-if [[ -o interactive ]] && (( $+commands[op] )); then
+# The agent/vscode guard is deliberate -- loading this under those hosts trips
+# macOS TCC prompts. See TODO_PLAN.md "Lessons Learned".
+if (( $+commands[op] )); then
     if [[ -z "${ANTIGRAVITY_AGENT:-}" && -z "${CLAI_AGENT:-}" && "${TERM_PROGRAM:-}" != "vscode" ]]; then
-        if [[ -f "${HOME}/.op-completion" ]]; then
-            source "${HOME}/.op-completion"
-        elif [[ -f "${HOME}/workplace/tds-utils/macos/dot.op-completion" ]]; then
-            source "${HOME}/workplace/tds-utils/macos/dot.op-completion"
+        if [[ -f "$HOME/.op-completion" ]]; then
+            source "$HOME/.op-completion"
+        elif [[ -f "$HOME/workplace/tds-utils/macos/dot.op-completion" ]]; then
+            source "$HOME/workplace/tds-utils/macos/dot.op-completion"
         fi
     fi
 fi
+
+# --- Prompt ---
 
 # Define the base prompt
 prompt_base='%D{%H:%M:%S} %n@%m:%2~ %# '
@@ -34,22 +103,7 @@ else
     PROMPT="${prompt_base}"
 fi
 
-# for gpg stuff
-export GPG_TTY=$(tty)
-
-# we want wildcard for ec alias, so define it as a function:
-ec() {
-    emacsclient -n "$@"
-}
-
-# Source aliases
-if [ -f "$HOME/.alias" ]; then
-    source "$HOME/.alias"
-fi
-
-# .local/bin/env and windsurf paths migrated to dot.zshenv
-
-# UV environment indicator of RHS of zsh prompt
+# UV environment indicator on the RHS of the zsh prompt
 setopt prompt_subst
 
 function uv_env_prompt() {
@@ -63,23 +117,32 @@ function uv_env_prompt() {
 
 RPROMPT='$(uv_env_prompt)'
 
-# Docker CLI completions
-fpath=(/Users/stumpf/.docker/completions $fpath)
-autoload -Uz compinit
-compinit
+# --- Interactive conveniences ---
 
-# Grubsta completion
-source ~/workplace/lab54/grubsta/scripts/completions/grubsta-completions.zsh
+# for gpg stuff
+export GPG_TTY=$(tty)
 
-# Path deduplication and additions migrated to dot.zshenv
+# we want wildcard for ec alias, so define it as a function:
+ec() {
+    emacsclient -n "$@"
+}
 
-# log-hoarder: semantic search widget (ctrl-x s)
-if [[ -f ~/workplace/tds-utils/macos/dot.zsh_log_search ]]; then
-    source ~/workplace/tds-utils/macos/dot.zsh_log_search
+# Source aliases
+if [[ -f "$HOME/.alias" ]]; then
+    source "$HOME/.alias"
 fi
 
+# log-hoarder: semantic search widget (ctrl-x s)
+if [[ -f "$HOME/workplace/tds-utils/macos/dot.zsh_log_search" ]]; then
+    source "$HOME/workplace/tds-utils/macos/dot.zsh_log_search"
+fi
+
+# --- Main (must stay last: exec replaces this shell) ---
+
 # log-hoarder: auto-launch tmux for each new terminal window.
-# (1Password ENV is inherited by tmux because it is exported above)
+# NOTHING BELOW THIS BLOCK RUNS in a normal terminal. tmux's shell is login
+# AND interactive, so .zshenv -> path_helper -> .zprofile -> .zshrc all run a
+# second time; that is why tds_path_apply has to be idempotent.
 if [[ -o interactive ]] && [[ -z "$TMUX" ]]; then
     exec tmux new-session
 fi

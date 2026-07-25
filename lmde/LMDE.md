@@ -110,6 +110,26 @@ See [../docs/design/LMDE-CLAI-BOUNDARY.DESIGN.md](../docs/design/LMDE-CLAI-BOUND
 
 A fundamental divide exists between traditional CLI tools (like `gemini-cli`) and modern, GUI-integrated coding agents (like Antigravity or IDE extensions). When a GUI application spawns a background agent or executes a terminal command (e.g., `zsh -c "git push"`), it typically launches a **non-interactive, non-login shell**. According to `zsh` startup rules, **only `~/.zshenv` is sourced** -- `.zprofile` and `.zshrc` are completely bypassed.
 
-To ensure LMDE agents inherit the exact same fully-hydrated toolchain as interactive terminals, **all pure environment configurations must be migrated into `.zshenv`**.
-- **`.zshenv`**: Must contain all `export PATH=...` statements, `brew shellenv`, and non-interactive variables (e.g., `NVM_DIR`).
-- **`.zprofile` / `.zshrc`**: Must be strictly reserved for interactive tools (aliases, prompts, auto-completions). No critical environment variables should be trapped here.
+To ensure LMDE agents inherit the exact same fully-hydrated toolchain as interactive terminals, the environment must be established in `.zshenv`. But `.zshenv` alone is not sufficient, and the earlier policy of moving *everything* there was wrong.
+
+### Why `.zshenv` cannot own PATH order
+
+On macOS, `/etc/zprofile` evaluates `/usr/libexec/path_helper -s`, and it runs **after** `~/.zshenv`. `path_helper` rebuilds `PATH` from `/etc/paths` and `/etc/paths.d` with those system directories **first**, appending the inherited `PATH` after them. Anything `.zshenv` prepended is therefore silently demoted in every login shell.
+
+The concrete damage: `$HOMEBREW_PREFIX/bin` sinks below `/bin`, so `#!/usr/bin/env bash` resolves Apple Bash 3.2 instead of Homebrew Bash 5.x. Bash 3.2 has no `readarray`, which is what aborted the `clai` pre-hook.
+
+The rule that follows:
+
+> `.zshenv` can establish PATH **membership**, but it cannot establish PATH **order**. Order must be re-asserted in `.zprofile`, after `path_helper` has run.
+
+### The three-file contract
+
+- **`.zshenv`** -- static, silent, fork-free environment plus **the canonical PATH ordering, defined exactly once** as a function (`tds_path_apply`). Exported variables only (`NVM_DIR`, `PYENV_ROOT`, `HOMEBREW_PREFIX`, `SSH_AUTH_SOCK`). No runtime-manager startup, no completions, no output of any kind -- this file runs when zsh is a script interpreter, so one stray line on stdout corrupts whatever captured that script. Session state a caller supplied (notably `SSH_AUTH_SOCK`) must never be clobbered.
+- **`.zprofile`** -- login shells only. Re-invokes `tds_path_apply` to repair the ordering `path_helper` just destroyed. It does not restate the ordering.
+- **`.zshrc`** -- interactive shells only: runtime managers (`nvm`, `pyenv`, `direnv`), completion, history, prompt, tmux. Re-invokes `tds_path_apply` once after those managers, since each prepends its own entries.
+
+Two properties make this hold together. The ordering exists in **one** place, so the three files cannot drift apart. And `tds_path_apply` is **idempotent** -- it subtracts its managed entries from wherever they currently sit and re-seats them -- which matters because `.zshrc` execs tmux, whose shell walks the entire startup sequence a second time.
+
+Heavy initialization is banned from `.zshenv` on cost grounds: sourcing `nvm.sh` alone measures ~456ms, and every `zsh -c` an agent spawns would pay it. Where a manager's *PATH contribution* is needed without the manager, derive it statically -- nvm's default node bin directory is one file read (`$NVM_DIR/alias/default`) away.
+
+The contract is enforced by `test/smoketest_shell_env.sh`, which stages the three dotfiles into a throwaway `ZDOTDIR` and exercises them under `env -i` in each shell shape, with `path_helper` still in the loop.
