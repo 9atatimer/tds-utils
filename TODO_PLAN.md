@@ -111,7 +111,7 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 ### LMDE (Local Managed Developer Environment)
 
 - [x] Task LMDE14: **LMDE Shell Environment Propagation.** Migrated pure environment exports (`$PATH`, `$NVM_DIR`, `brew shellenv`, etc.) from `.zshrc` and `.zprofile` into `.zshenv`. This ensures that LMDE agents spawned by GUI applications (like Antigravity or Emacs) inherit the exact same fully-hydrated toolchain as interactive terminals, curing the "crippled PATH" issue.
-- [x] Task LMDE15: **LMDE Environment Design Doc.** Authored `docs/design/LMDE-ENV.DESIGN.md` establishing the architectural policy for `.zshenv` (Universal Environment), `.zprofile` (Login Setup), and `.zshrc` (Interactive Only) across the platform.
+- [x] Task LMDE15: **LMDE Environment Policy.** Added the `.zshenv` environment architecture rule to `lmde/LMDE.md` establishing the architectural policy for `.zshenv` (Universal Environment), `.zprofile` (Login Setup), and `.zshrc` (Interactive Only) across the platform.
 
 - [ ] Task LMDE7: **Events: design reconcile.** Revise `docs/design/LMDE-OBSERVABILITY.DESIGN.md` -- refine the "Log Aggregation" Non-Goal (structured OTLP events in scope; raw terminal logs stay `log-hoarder`'s), add the Loki events architecture, note Tempo as the deferred traces leg.
 - [ ] Task LMDE8: **Events: Loki component.** Pin the Loki image(s) in `images.txt`; add a single-binary `grafana/loki` component under `specs/loki/` with HostPath persistence.
