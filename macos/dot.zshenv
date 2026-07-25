@@ -33,7 +33,7 @@ export PATH="$HOME/go/bin:$PATH"
 
 # NVM magic
 export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" --no-use
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
 # pyenv magic
 if command -v pyenv 1>/dev/null 2>&1; then
