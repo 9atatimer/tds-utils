@@ -4,7 +4,7 @@ export PATH=/Users/stumpf/.sg:$PATH
 # Unset or empty to disable logging (diag logs still go to $HOME).
 # Uses :- so it can be overridden (e.g. for testing).
 export TDS_LOG_DIR="${TDS_LOG_DIR:-$HOME/.local/share/log-hoarder}"
-. "$HOME/.cargo/env"
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 
 # ast-mcp: dynamically resolve AST_MCP_BIN path based on environment if unset
 if [ -z "${AST_MCP_BIN:-}" ]; then
@@ -19,7 +19,11 @@ fi
 # Ensure background agents and GUI shells inherit the full interactive environment.
 
 # Homebrew
-eval "$(/opt/homebrew/bin/brew shellenv)"
+if [ -x /opt/homebrew/bin/brew ]; then
+  eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [ -x /usr/local/bin/brew ]; then
+  eval "$(/usr/local/bin/brew shellenv)"
+fi
 
 # Core Tools
 export PATH="/Users/stumpf/workplace/tds-utils/bin:$PATH"
@@ -29,7 +33,7 @@ export PATH="$HOME/go/bin:$PATH"
 
 # NVM magic
 export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" --no-use
 
 # pyenv magic
 if command -v pyenv 1>/dev/null 2>&1; then
@@ -44,7 +48,7 @@ fi
 export SSH_AUTH_SOCK=~/Library/Group\ Containers/2BUA8C4S2C.com.1password/t/agent.sock
 
 # Local bin and Windsurf
-. "$HOME/.local/bin/env"
+[ -f "$HOME/.local/bin/env" ] && . "$HOME/.local/bin/env"
 export PATH="/Users/stumpf/.codeium/windsurf/bin:$PATH"
 
 # Path updates
