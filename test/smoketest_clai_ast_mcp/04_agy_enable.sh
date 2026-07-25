@@ -33,6 +33,12 @@ main() {
     # Unrelated server preserved.
     assert_jq_eq "${cfg}" '.mcpServers["emacs"].command' "socat" \
         "unrelated mcp server preserved" || return 1
+        
+    # PATH injection works globally.
+    assert_jq_eq "${cfg}" '.mcpServers["ast-mcp"].env.PATH' "$PATH" \
+        "ast-mcp env.PATH is injected" || return 1
+    assert_jq_eq "${cfg}" '.mcpServers["emacs"].env.PATH' "$PATH" \
+        "unrelated server env.PATH is injected" || return 1
 
     # Idempotent: a second run yields byte-identical, valid JSON.
     run_agy_hook "${home}" >/dev/null
