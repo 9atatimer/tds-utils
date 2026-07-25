@@ -11,6 +11,19 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 ## Open Tasks
 
+### LMDE git-mirror Enrollment (phase entry, 2026-07-24)
+
+- **Accomplishments**: 
+  - Enrolled `@nine-at-a-time-media/git-mirror` as a first-class `lmde acquire` component in `tds-utils`.
+  - Updated `tds-utils/lmde/lib/acquire.sh` manifest table to include `git-mirror`.
+  - Updated `tds-utils/bin/lmde` help documentation to note the addition.
+  - Temporarily symlinked `git-mirror` to `~/.local/bin` to unblock immediate `git push` S3 mirroring for the agent.
+- **Lessons learned**: 
+  - Global npm tools installed in previous NVM Node versions (e.g., `v22.16.0`) become stranded when NVM properly hydrates the active default Node version (`v24.18.0`) on startup.
+  - `lmde acquire` correctly solves this by isolating agent-agnostic core tools into `~/.local/bin`, completely bypassing the active Node version dependency.
+- **Suggested next steps**: 
+  - The user must run `lmde acquire` when `GH_AI_TOOLS_PAT` is available in their environment to securely persist the `git-mirror` installation into the LMDE tree.
+
 ### Universal Agent Provisioning -- issue #84 (phase entry, 2026-07-04)
 
 Implementation of `docs/design/PROVISION.DESIGN.md`: every new agent
