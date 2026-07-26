@@ -81,12 +81,28 @@ stage=$(mktemp -d)
 cp macos/dot.zshenv "$stage/.zshenv"
 cp macos/dot.zprofile "$stage/.zprofile"
 cp macos/dot.zshrc "$stage/.zshrc"
+
+# .zshenv + .zprofile only -- .zshrc is NOT sourced by a non-interactive shell
 env -i HOME="$HOME" ZDOTDIR="$stage" TERM=dumb /bin/zsh -lc 'command -v bash'
+
+# adds .zshrc; TMUX must be non-empty or .zshrc execs tmux and the probe hangs
+env -i HOME="$HOME" ZDOTDIR="$stage" TERM=dumb TMUX=probe /bin/zsh -lic \
+    'command -v bash' </dev/null
 ```
 
-Stage all three files. An empty `ZDOTDIR` is not a neutral control -- it means
-no dotfiles load at all, so you measure bare `path_helper` output and conclude
-the config is broken when you never loaded it.
+Match the shell shape to the file you are testing -- zsh sources a different
+set for each, and a green result from the wrong shape means nothing:
+
+| invocation | `.zshenv` | `.zprofile` | `.zshrc` |
+|------------|-----------|-------------|----------|
+| `zsh -c`   | yes       | no          | no       |
+| `zsh -lc`  | yes       | yes         | no       |
+| `zsh -ic`  | yes       | no          | yes      |
+| `zsh -lic` | yes       | yes         | yes      |
+
+Stage all three files regardless. An empty `ZDOTDIR` is not a neutral control
+-- it means no dotfiles load at all, so you measure bare `path_helper` output
+and conclude the config is broken when you never loaded it.
 
 See `test/smoketest_shell_env.sh` for the worked version, and issue #176 for
 what it cost to find this out.
