@@ -243,8 +243,18 @@ replacement mechanisms:
 
 | Kind | Example | Mechanism |
 |------|---------|-----------|
-| Parametric | repo owner, default branch, branch prefix, merge style | Shared skill is pure logic and instructs the agent to read a small repo-owned data file (e.g. `skills/github-workflow/LOCAL.md`) that provision never touches |
+| Parametric | repo owner, default branch, topology | Shared skill **derives** the fact at runtime (`gh repo view --json ...`, `git remote -v`). Authoritative; cannot go stale |
+| Conventional | branch prefixes, review cadence, required check names | Shared skill reads the consuming repo's `AGENT.md`/`CLAUDE.md` -- already the canonical, version-controlled, always-loaded home for repo policy |
 | Behavioral | a repo whose GH flow genuinely diverges | Repo commits its own skill of the same name at project scope; native skill precedence (project shadows managed/global) makes closest-win, mirroring `clai.d` overlay semantics |
+
+**Rejected: a repo-owned data file inside the skill directory** (the `LOCAL.md`
+model this table previously specified). Provision materializes skills as
+symlinks into one shared tree, so "this skill's directory" resolves to the same
+path for every repo on the machine -- a file placed there is not per-repo at
+all. More fundamentally, a skill directory is a unit of distribution that
+provision refreshes and overwrites, like `node_modules`; consumer-owned config
+must never live inside one. Retired in `Nine-At-A-Time-Media/template-tools`
+before any repo adopted it.
 
 Provision rules: it owns the managed skill set and overwrites it freely; it
 never writes into repo-committed overlay paths; it **warns loudly** when a
