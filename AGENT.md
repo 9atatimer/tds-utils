@@ -37,6 +37,62 @@ See README.tds for the original description.
   (e.g., `sed -i ''` not `sed -i`, `du -sm` is fine but watch for GNU-only flags.)
 - Linux scripts use **bash** (`#!/usr/bin/env bash`).
 
+## This Checkout Is Live -- Use a Worktree
+
+**The dotfiles in this repo are not copies. They are the running configuration
+of the machine you are on.** `$HOME` symlinks straight into the checkout -- 14
+links as of 2026-07, including every shell startup file:
+
+```
+~/.zshenv    -> macos/dot.zshenv        ~/.gitconfig  -> git-config/dot.gitconfig
+~/.zshrc     -> macos/dot.zshrc         ~/.tmux.conf  -> log-hoarder/tmux.conf
+~/.zprofile  -> macos/dot.zprofile      ~/.emacs.d    -> emacs/dot.emacs.d
+~/.alias     -> macos/dot.alias         ~/clai.d      -> clai.d
+```
+
+Two consequences, both non-obvious and both expensive to learn the hard way:
+
+- **`git checkout <branch>` rewrites the live shell config mid-session**, for
+  the human and for you. A branch that predates a `.zshenv` fix silently
+  reinstates the bug in every shell spawned from that moment on -- including
+  your own tool calls. The failure surfaces later, somewhere else, looking
+  like something unrelated.
+- **Editing `macos/dot.*` takes effect immediately**, with no install step. A
+  half-finished edit is the machine's real config until you finish it.
+
+**So: do shell/dotfile work in a `git worktree`, never by switching branches in
+the primary checkout.**
+
+```zsh
+git worktree add ~/workplace/.worktrees/<repo>-<topic> -b <branch> master
+# then edit via: git -C ~/workplace/.worktrees/<repo>-<topic> ...
+```
+
+The primary checkout stays on `master`, the live config stays whatever the
+human is currently running, and nothing you write is live until it merges.
+
+To TEST candidate shell config without installing it, point `ZDOTDIR` at a
+staging directory under `env -i`. That sources your candidates while
+`/etc/zshenv` and `/etc/zprofile` still run, so macOS `path_helper` stays in
+the loop -- which is exactly where the interesting bugs live:
+
+```zsh
+stage=$(mktemp -d)
+cp macos/dot.zshenv "$stage/.zshenv"
+cp macos/dot.zprofile "$stage/.zprofile"
+cp macos/dot.zshrc "$stage/.zshrc"
+env -i HOME="$HOME" ZDOTDIR="$stage" TERM=dumb /bin/zsh -lc 'command -v bash'
+```
+
+Stage all three files. An empty `ZDOTDIR` is not a neutral control -- it means
+no dotfiles load at all, so you measure bare `path_helper` output and conclude
+the config is broken when you never loaded it.
+
+See `test/smoketest_shell_env.sh` for the worked version, and issue #176 for
+what it cost to find this out.
+
+Note that `CLAUDE.md` is itself a symlink to `AGENT.md` -- edit `AGENT.md`.
+
 ## Repository Layout
 
 ```
