@@ -203,4 +203,4 @@ Registry --> Kind Cluster --> Ingress Controller --> Telemetry Stack --> Host Ro
 ## Related Documents
 
 - [LMDE Contract](../../lmde/LMDE.md) -- Parent contract.
-- Testing Standards: the provisioned testing skill (`.claude/skills/testing/`) -- Guidance for smoke tests.
+- Testing Standards: the provisioned `testing` skill ([canonical source](https://github.com/Nine-At-A-Time-Media/template-tools/blob/main/skills/testing/SKILL.md); provisioning explained in [AGENT.md](../../AGENT.md)) -- Guidance for smoke tests.
