@@ -68,9 +68,12 @@ Remaining:
   registration, `.github/workflows/copilot-setup-steps.yml` +
   GH_AI_TOOLS_PAT secret, Jules environment setup script). Explicitly a
   design non-goal to automate.
-- [ ] Task P3: **`prompts/` retirement.** After provision is live and the
-  migrated skills prove out, retire the flat `prompts/SKILL.*.md` channel.
-  Keep `prompts/` untouched until then.
+- [x] Task P3: **`prompts/` retirement.** Done 2026-07-26 (issue #179):
+  audited `prompts/` for post-migration drift, ported the unique substance
+  upstream to `template-tools/skills/` (PR-template rule, gadmin
+  coordinates, rejection-mirror rule, sdlc + lmde-dashboards skills),
+  preserved the LMDE radar as `lmde/TECH_RADAR.md`, deleted `prompts/`,
+  and repointed `AGENT.md` at the provisioned skills.
 - [ ] Task P4: **ast-mcp startup race -- install at env-setup, not the
   SessionStart hook.** GH Issue #99. Delivery is fixed (#98, GitHub Packages)
   but the server doesn't connect on first session load: Claude Code attempts
