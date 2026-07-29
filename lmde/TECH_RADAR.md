@@ -1,13 +1,13 @@
-# SKILL: LMDE Tech Radar
+# LMDE Tech Radar
 
 > Purpose: Snapshot of the LMDE's current tech choices and their rationale, to guide additions and prevent drift.
 > When to use: Before adding tooling, services, or languages to the LMDE.
-> Scope: tds-utils (the LMDE) only. Per-project stacks live in template-tools.
+> Scope: tds-utils (the LMDE) only. Fleet defaults live in the tech-radar skill (template-tools/skills/tech-radar); this file is the repo-scoped radar it points to as the worked example.
 > Update Discipline: MAINTAINED BY THE HUMAN. AI agents audit and propose changes, but do not commit edits to this file without explicit human approval.
 
 ---
 
-## When to Invoke This Skill
+## When to Consult This Radar
 
 - About to add a new CLI tool, language, or local service to the LMDE.
 - Considering replacing or removing existing LMDE tech.
@@ -59,8 +59,8 @@ documents the recommended approach so it isn't reinvented per repo.
 - **Chrome for Testing (via `chrome-devtools-mcp`)**: Stand-alone
   Chromium binary for giving an agent driveable control of a browser
   without enabling remote debugging on the user's main Chrome.
-  Per-project install under `~/.cache/<project>-cft/`. See
-  `@nine-at-a-time-media/prompts` `SKILL.CHROME_MCP.md` for the wiring
+  Per-project install under `~/.cache/<project>-cft/`. See the
+  chrome-mcp skill (template-tools/skills/chrome-mcp) for the wiring
   pattern. First adopted in `ai-gm` Phase 0.5.
 
 ---
@@ -89,13 +89,17 @@ documents the recommended approach so it isn't reinvented per repo.
 
 ## Decisions Log
 
+- **2026-07-26**: Moved from `prompts/SKILL.TECH_RADAR.md` to
+  `lmde/TECH_RADAR.md` as part of the `prompts/` retirement
+  (issue #179). Radar *logic* now comes from the provisioned tech-radar
+  skill; this file is the repo-scoped radar data it consults.
+
 - **2026-05-23**: Adopted Chrome for Testing (via `chrome-devtools-mcp`)
   as the per-project pattern for agent-driven browser control. Rationale:
   Chrome 142+ silently disabled `--load-extension` for branded Chrome
-  under `--enable-automation`; CfT is exempt. Pattern lives in
-  `@nine-at-a-time-media/prompts` `SKILL.CHROME_MCP.md`; not LMDE
-  contract because each project gets its own profile, version, and
-  extension loadout.
+  under `--enable-automation`; CfT is exempt. Pattern lives in the
+  chrome-mcp skill; not LMDE contract because each project gets its own
+  profile, version, and extension loadout.
 
 - **2026-05-21**: Formalized LMDE architecture and Observability stack.
 - **2026-05-18**: Initial Tech Radar design conversation (see `docs/design/WIP.TECH_RADAR.DESIGN.md`).

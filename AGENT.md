@@ -2,16 +2,23 @@
 
 It is very important you never do anything destructive to the git history.
 
-It is very important that you enumerate the skills in prompts/ — but
-conservatively. Don't read them all in; they'll flood your context.
+Agent skills are provisioned into `.claude/skills/` (and the peer agent
+dirs) from the canonical `template-tools/skills/` tree by `clai provision`
+at session start; the flat `prompts/` channel is retired (issue #179).
+Skill descriptions surface lazily -- load a skill's body the moment a task
+enters its territory, and only that one. The `sdlc` skill carries the
+always-in-effect laws and the station-to-station reading order.
 
-Ingest the whole relevant file (and follow it) at the moment a task
-starts that maps to one:
-- Writing or reviewing tests → TESTING.md.
+Two triggers are load-bearing enough to restate here:
+- Writing or reviewing tests -> the testing skill.
 - About to push code, create or review a PR, reply to PR feedback, or
-  subscribe to PR activity → GITHUB.md. The trigger is the push/review
-  boundary, not just opening a PR — every interaction with the remote
-  counts.
+  subscribe to PR activity -> the github-workflow skill. The trigger is
+  the push/review boundary, not just opening a PR -- every interaction
+  with the remote counts.
+
+Repo-scoped radar data: `lmde/TECH_RADAR.md` (human-maintained -- audit
+and propose, never edit without approval). The provisioned tech-radar
+skill carries the fleet defaults and points here for LMDE specifics.
 
 ## What This Project Is
 
@@ -215,7 +222,7 @@ main "$@"
   untouched existing content.
 - When told to swarm-code a solution (e.g. `ultracode`), automatically open a
   PR when the coding concludes -- do not wait to be asked -- then automatically
-  triage Copilot's review feedback per `prompts/GITHUB.md`.
+  triage Copilot's review feedback per the github-workflow skill.
 - NEVER use interrogative prompts. Not choice menus, not "shall I proceed?",
   not "which do you prefer?". Decide, state the decision and its reason in one
   line, and act. Only ask when the answer is a value you cannot obtain or
@@ -226,8 +233,8 @@ main "$@"
 ## Pull Request Review (do this WITHOUT being told)
 
 - The moment ANY PR interaction starts -- opening, a review comment, CI, a
-  reply -- ingest `prompts/GITHUB.md` and triage strictly against it. This
-  is automatic; never wait to be told to check `prompts/GITHUB.md`.
+  reply -- ingest the github-workflow skill and triage strictly against
+  it. This is automatic; never wait to be told to load it.
 - When you AGREE with review feedback and push a fix commit to the branch,
   you MUST kick off a Copilot re-review (`request_copilot_review` /
   `gh pr edit --add-reviewer @copilot`) so the next round fires.
