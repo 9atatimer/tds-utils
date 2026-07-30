@@ -164,6 +164,23 @@ seed_installed() {
     printf '%s\n' "${prefix_bin}"
 }
 
+# seed_installed_data <home> <shortname> <npm_name> <version> -- mimic a prior
+# acquire of a DATA package (no binary): plant the package dir with its
+# package.json in the npm prefix, the convention symlink under
+# ~/.local/lib/node_modules pointing at it, and the state stamp. Echoes the
+# package-dir path so a test can assert the symlink target is left intact.
+seed_installed_data() {
+    local home="$1" shortname="$2" npm_name="$3" version="$4"
+    local pkg_dir="${home}/.local/share/tds-utils/acquire/_npm/node_modules/${npm_name}"
+    mkdir -p "${pkg_dir}"
+    printf '{"name":"%s","version":"%s"}\n' "${npm_name}" "${version}" > "${pkg_dir}/package.json"
+    mkdir -p "${home}/.local/lib/node_modules/$(dirname "${npm_name}")"
+    ln -sfn "${pkg_dir}" "${home}/.local/lib/node_modules/${npm_name}"
+    mkdir -p "${home}/.local/state/tds-utils/acquire"
+    printf '%s\n' "${version}" > "${home}/.local/state/tds-utils/acquire/${shortname}.version"
+    printf '%s\n' "${pkg_dir}"
+}
+
 # --- Runner ------------------------------------------------------------------
 
 # run_acquire <dir> [args...] -- run the real bin/lmde acquire with a hermetic
@@ -303,7 +320,7 @@ assert_stdout_empty() {
 
 export -f require_lmde scenario_dir \
     make_npm_stub make_npm_fail_stub make_npm_forbidden_install_stub \
-    seed_installed run_acquire run_check \
+    seed_installed seed_installed_data run_acquire run_check \
     assert_eq assert_file_present assert_file_absent assert_symlink_to \
     assert_installed assert_not_installed assert_stderr_contains \
     assert_stdout_contains assert_stdout_empty
