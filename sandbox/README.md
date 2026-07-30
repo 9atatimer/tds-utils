@@ -6,12 +6,15 @@ migration (#145):
 
 - ACQUIRE-then-CONFIGURE (claude-web, and the laptop path): a pre-session
   env-setup stage runs `lmde acquire` -- installs @nine-at-a-time-media/clai
-  (onto PATH) and @nine-at-a-time-media/ast-mcp (at ~/.local/bin/ast-mcp) from
-  GitHub Packages, with skills + the MCP catalog riding INSIDE the clai wheel
-  -- and the SessionStart hook then runs an OFFLINE, configure-only
-  `clai provision` (no clone, no install). Both packages are version-controlled
-  through ONE `--pins sandbox/pins.env` file (keys CLAI_VERSION + AST_MCP_VERSION
-  -- a real value pins, absent/UNSET/"latest" floats to registry latest).
+  (onto PATH), @nine-at-a-time-media/ast-mcp (at ~/.local/bin/ast-mcp), and
+  the @nine-at-a-time-media/skills DATA package (skills tree + MCP catalog,
+  symlinked at ~/.local/lib/node_modules/@nine-at-a-time-media/skills) from
+  GitHub Packages -- and the SessionStart hook then runs an OFFLINE,
+  configure-only `clai provision` (no clone, no install). The packages are
+  version-controlled through ONE `--pins sandbox/pins.env` file (keys
+  CLAI_VERSION + AST_MCP_VERSION + SKILLS_VERSION -- a real value pins,
+  absent/UNSET/"latest" floats to registry latest; skills floats by design,
+  per LMDE-CLAI-BOUNDARY.DESIGN.md Revision 1).
 - BOOTSTRAP-and-FETCH (codex, copilot, jules -- not yet migrated): the shared
   `provision.sh` core installs a PINNED clai from GitHub Packages
   (`npm install @nine-at-a-time-media/clai@${CLAI_VERSION}`), then execs
@@ -27,9 +30,9 @@ precedent these generalize.
 - `provision.sh` -- shared core for the not-yet-migrated providers (codex,
   copilot, jules); superseded for claude-web by `lmde acquire` + `clai
   provision` (see the header note in that file)
-- `pins.env` -- CLAI_VERSION + AST_MCP_VERSION; the ONLY moving part (see
-  rollout note below). Both are read by `lmde acquire --pins`; CLAI_VERSION is
-  also consumed by `provision.sh`
+- `pins.env` -- CLAI_VERSION + AST_MCP_VERSION + SKILLS_VERSION; the ONLY
+  moving part (see rollout note below). All are read by `lmde acquire
+  --pins`; CLAI_VERSION is also consumed by `provision.sh`
 - `claude-web/` -- acquire-then-configure wrappers (`setup.sh` runs `lmde
   acquire`; `session-start.sh` runs offline `clai provision`)
 - `codex/`, `copilot/`, `jules/` -- per-provider wrappers over `provision.sh`
@@ -71,6 +74,9 @@ The pins are live. To bump them:
 - Set `AST_MCP_VERSION` the same way for `@nine-at-a-time-media/ast-mcp`
   (`lmde acquire` installs it at `~/.local/bin/ast-mcp`). An UNSET key floats
   that package to registry latest.
+- Leave `SKILLS_VERSION` UNSET: the skills DATA package floats by design
+  (fresh sessions get current skills; the review gate is the template-tools
+  PR that merged the skill edit). Pin it only to freeze a bad skill publish.
 - Session hook scripts ship inside the pinned clai package (installed by
   `clai hooks install`), so they roll out via the same `CLAI_VERSION`
   bump -- there is no separate hooks pin.
