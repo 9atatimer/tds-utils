@@ -41,7 +41,9 @@ best-effort mid-session updates.
 >   `_data`).
 > - Accepted consequence: skills stop floating on a bare `template-tools` push;
 >   a skill rollout is a clai release + `CLAI_VERSION` bump in
->   `sandbox/pins.env` (the review gate).
+>   `sandbox/pins.env` (the review gate). **Reversed by RD7 (2026-07-30):**
+>   skills + catalog move to a standalone auto-published package installed by
+>   `lmde acquire`; see RD7 and LMDE-CLAI-BOUNDARY.DESIGN.md Revision 1.
 >
 > See [LMDE-CLAI-BOUNDARY.DESIGN.md](./LMDE-CLAI-BOUNDARY.DESIGN.md) (authoritative)
 > and [LMDE.md](../../lmde/LMDE.md). The rest of this document is kept for
@@ -705,6 +707,31 @@ comments are not stripped -- so any non-instruction content (e.g. a "generated,
 don't edit" header) costs tokens every session and reads as instruction-
 adjacent. Keep the placed file instruction-only; put provenance out of the file
 body. (See Future Considerations.)
+
+### RD7. Skills + catalog delivery: bundled in clai (`_data`) -> standalone acquired package
+
+**Finding (2026-07-30, live sandbox).** The #145 bundling model made a skill
+rollout a two-step human process (clai release, then `CLAI_VERSION` bump in
+`sandbox/pins.env`) with nothing enforcing either step. Both steps were
+skipped in practice: `sdlc` and `lmde-dashboards` landed in the skills tree
+(tds-utils#179) with AGENT.md files across three repos referencing `sdlc`,
+but no clai release followed -- every environment provisions 15 of 17 skills
+and the skill the docs point at is loadable nowhere. Separately, the
+installed clai (0.6.0) lagged the pin (0.7.0). The owner's requirement:
+fresh sessions on any surface start with current skills, no human step
+beyond merging the skill edit; tying skill freshness to a clai release is
+not acceptable.
+
+**Decision.** Skills + the canonical MCP catalog ship as their own
+inert-data npm package (`@nine-at-a-time-media/skills` on GitHub Packages),
+published automatically by template-tools CI on merge to `main`, installed
+by `lmde acquire` (floating to latest by default, pinnable via
+`SKILLS_VERSION`), and read by `clai provision` from its convention path
+with the bundled `clai/_data` demoted to a loud bootstrap fallback. This
+restores this document's original stance -- "executables pinned;
+skills/manifest float; skills are inert and must be fresh to be useful" --
+on the proxy-reachable rail #145 built. Authoritative detail:
+[LMDE-CLAI-BOUNDARY.DESIGN.md](./LMDE-CLAI-BOUNDARY.DESIGN.md), Revision 1.
 
 ---
 

@@ -1,6 +1,11 @@
 # LMDE / clai Boundary -- Acquire vs Configure
 
 > **Status:** ADOPTED  
+> **Revision 1 (2026-07-30, REVIEW):** skills + the canonical MCP catalog are
+> decoupled from the clai release -- they become a standalone inert-data
+> package installed by `lmde acquire`, floating to latest by default. See the
+> "Revision 1" section below; the #145 bundled-in-clai passages it supersedes
+> are annotated in place and kept for history.  
 > **Step 2 (fold into canonical docs):** implemented 2026-07-11 -- see
 > [LMDE.md](../../lmde/LMDE.md),
 > [CLAI.DESIGN.md](https://github.com/nine-at-a-time-media/template-tools/blob/main/packages/clai/docs/CLAI.DESIGN.md),
@@ -80,6 +85,8 @@ from there. That shared path set is the entire contract.
    state to keep current. This velocity governs the clai/ast-mcp **package**
    versions only -- skills and the catalog no longer float on their own; they
    ride the resolved clai version (see the Supply-chain note under Acquire).
+   *Revised by Revision 1: skills + catalog float again, as their own acquired
+   package.*
 
 ## Non-Goals
 
@@ -113,7 +120,10 @@ from there. That shared path set is the entire contract.
 Nothing straddles. The only item that changes shape rather than owner is the
 canonical MCP catalog (below). Under #145 there is no fetch of skills or the
 catalog at all -- both are inert data bundled in the clai wheel (`clai/_data`)
-and copied locally by clai at configure time.
+and copied locally by clai at configure time. *Revised by Revision 1: the
+first two rows change owner to **lmde** -- skills + catalog are acquired as
+`@nine-at-a-time-media/skills`; the bundled `clai/_data` demotes to a
+bootstrap fallback.*
 
 ---
 
@@ -142,7 +152,9 @@ Two rules make the convention load-bearing:
   an error. clai never stats an artifact to decide whether to proceed with a
   launch.
 
-**Exception under #145 (skills + catalog).** The two rules above still govern
+**Exception under #145 (skills + catalog).** *Repealed by Revision 1 -- skills
++ catalog re-enter the boundary as ordinary lmde->clai handoffs; kept for
+history.* The two rules above still govern
 only `~/.local/bin/<server>` and clai-on-`$PATH` -- the pure lmde->clai
 handoffs. For the skills tree and the canonical MCP catalog the invariant is
 amended, not contradicted: lmde never touches them, and clai BOTH writes them
@@ -204,7 +216,9 @@ can and should run.
   that gate when wanted. Mitigation meanwhile: `template-tools` is private with
   protected `main`, and integrity verification still blocks in-transit
   tampering.
-- **Accepted consequence: skills stop floating on a bare push.** Because skills
+- **Accepted consequence: skills stop floating on a bare push.** *Superseded
+  by Revision 1 -- this consequence proved operationally unacceptable; see the
+  motivation there.* Because skills
   and the catalog are versioned inside the `@clai` release (`clai/_data`), a
   skill edit no longer reaches consumers on a bare `template-tools` push -- it
   ships only via a clai release plus a `CLAI_VERSION` bump in
@@ -309,6 +323,128 @@ AFTER
 
 ---
 
+## Revision 1 (2026-07-30) -- Skills decoupled from the clai release
+
+> **Status: REVIEW.** Reverses one consequence of template-tools#145: skills
+> and the canonical MCP catalog no longer ride inside the `@clai` package.
+> Everything else in this design -- the acquire/configure axis,
+> contract-by-convention, collator-not-gatekeeper -- stands; this revision
+> applies those same principles to skills delivery.
+
+### Motivation (measured failure)
+
+The #145 model made a skill rollout a two-step human process: cut a clai
+release, then bump `CLAI_VERSION` in `sandbox/pins.env`. Nothing enforces
+step two, or even step one. Observed 2026-07-30 in a live cloud sandbox:
+
+- The skills tree gained `sdlc` and `lmde-dashboards` (tds-utils#179), and
+  three repos' AGENT.md files were updated to reference `sdlc` -- but no clai
+  release followed. Every environment provisioned 15 of 17 skills; the skill
+  the docs point at is loadable nowhere.
+- Independently, the installed clai (0.6.0) lagged the pin (0.7.0) -- a
+  second silent gap in the same manual chain.
+- Nothing anywhere flags "skills tree ahead of newest release."
+
+The owner's requirement is explicit: a fresh session on ANY surface (laptop,
+IDE, cloud sandbox) starts with the CURRENT skills, with no human step beyond
+merging the skill edit. A running session may stay stale; that is accepted.
+Tying skill freshness to a clai release is NOT acceptable.
+
+### Decision: skills are an acquired artifact, not clai payload
+
+Skills + catalog become a third acquired package:
+
+| Property | Value |
+|---|---|
+| Package | `@nine-at-a-time-media/skills` (GitHub Packages npm) |
+| Contents | `skills/**`, `mcp/manifest.json` (the canonical MCP catalog), `SOURCE_STAMP` |
+| Publisher | template-tools CI, automatically on merge to `main` when `skills/` or `mcp/` changed; auto version bump |
+| Review gate | The PR into template-tools' protected `main` -- **merge IS rollout** |
+| Version at acquire | Floats to latest by default; pinnable via `--pins` (`SKILLS_VERSION`); UNSET floats (the existing loud-but-open convention) |
+| Convention path | `~/.local/lib/node_modules/@nine-at-a-time-media/skills/` -- the deterministic result of `npm install -g --prefix ~/.local`, the same rail that lands `ast-mcp` |
+
+Rationale: skills are inert prompt-surface data, not executable code. The
+#72 supply-chain stance ("a default-branch push must not grant code execution
+in consumers") gates *executables*; the original PROVISION design drew
+exactly that line ("executables pinned; skills/manifest float -- skills are
+inert and must be fresh to be useful"). #145 inverted the skills half of that
+stance to buy a single pin; this revision restores it, on the rail #145 built
+-- GitHub Packages, registry integrity, no git clone, so the cloud-proxy fix
+is untouched.
+
+`SOURCE_STAMP` is computed by the publishing CI with the same digest
+algorithm as clai's build hook (members sorted by POSIX relpath, one sha256
+folding `relpath\0 sha256(bytes)\0` per file), so clai's currency machine
+consumes it unchanged.
+
+### Boundary effects
+
+- **The "Exception under #145" is repealed.** Skills + catalog re-enter the
+  lmde->clai boundary as ordinary handoffs: lmde installs the package at its
+  convention path; clai reads it. Both contract rules apply unamended; no
+  artifact class is boundary-exempt anymore. New locations row:
+
+| Artifact | Convention path (code constant) | lmde does | clai does |
+|---|---|---|---|
+| Skills + canonical MCP catalog | `~/.local/lib/node_modules/@nine-at-a-time-media/skills/` | installs the `@skills` package here | materializes it into the staging path, then enumerates / collates / places as today |
+
+- **clai's data-source order at configure time:** (1) the acquired package at
+  the convention path; (2) its own bundled `clai/_data`, demoted to a
+  **bootstrap fallback** for surfaces where acquire is not wired yet -- used
+  loudly (the trailing epilogue names the fallback and the bundled stamp's
+  age). Absent both: zero skills placed, epilogue, never a gate. The staging
+  path (`~/.cache/clai/template-tools/`) and everything downstream -- sync
+  planner, straggler protection, per-project state -- are untouched.
+- **`clai refresh` stays configure-only.** The tools still never call each
+  other: a mid-session skill update is `lmde acquire && clai refresh`, two
+  commands meeting at the same convention paths.
+- **`CLAI_VERSION` returns to gating launcher code only.** A clai release
+  carries no skills delta by construction; `pins.env` gains the optional
+  `SKILLS_VERSION` key under the existing UNSET-floats convention.
+
+### Structural property gained
+
+The observed failure class is closed, not mitigated: publishing is a CI
+effect of the merge that changed the skill, not a separate human step, so
+the skills tree can never again sit ahead of the newest published package.
+A repo doc referencing a new skill can still merge before the skill does --
+but the skill itself reaches every next session the moment its own PR lands.
+
+### Key decisions (this revision)
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Skills delivery | Standalone `@nine-at-a-time-media/skills` npm package | Decouples skill freshness from launcher releases; restores code-pinned / data-floats |
+| Publish trigger | CI on merge to template-tools `main`, path-filtered to `skills/` + `mcp/` | Merge IS rollout; no second manual step to forget |
+| Catalog placement | Rides in the skills package | Same inert-data class, same freshness requirement |
+| Default version | Float to latest at acquire | The freshness requirement; `--pins` restores a freeze when wanted |
+| clai `_data` bundle | Kept as loud bootstrap fallback | Surfaces without acquire still function; removal tracked in open questions |
+| Mid-session updates | `lmde acquire && clai refresh`, no cross-call | Preserves the never-call-each-other invariant |
+
+### Open questions (this revision)
+
+1. **Version scheme** for the skills package: CI auto-patch (proposed) vs
+   CalVer (encodes rollout date, nonstandard semver).
+2. **`clai/_data` end state** -- once every surface is on
+   acquire-then-configure, is the bundle removed outright? Removal kills the
+   dual-source staleness risk this revision otherwise leaves as a warned
+   fallback.
+3. **Cached-resume currency** -- `lmde acquire` records the resolved version
+   and reinstalls on an upstream bump; confirm the sandbox cached-resume path
+   re-runs acquire (network permitting) rather than trusting the image.
+
+### Rejections (this revision)
+
+- **Automate clai releases on skill merges (keep bundling).** Still couples
+  launcher version churn to prose edits, and a launcher rollback would
+  silently roll back skills.
+- **Return to git-clone of template-tools at provision time.** The cloud
+  proxy block that killed it (#145's original motivation) is unchanged.
+- **Committing skills into each consuming repo.** The drift this whole
+  system exists to kill.
+
+---
+
 ## Key Decisions
 
 | Decision | Choice | Rationale |
@@ -320,8 +456,8 @@ AFTER
 | Staging location | Keep today's `~/.cache/clai/template-tools/` | No churn to the existing clone/symlink layout |
 | Receipt / install manifest | Rejected | clai needs none of what it offered (path is convention, version+currency are Acquire's); it only re-adds tight coupling -- see Rejections |
 | clai on missing artifact | Emit anyway; list dangling refs in a trailing epilogue | Collator, not gatekeeper; the epilogue is a zero-effort debug aid |
-| Versioning | `latest` by default; `--pins <file>` to pin | Kills the release double-edit; integrity always on; the pins file is a passed argument, not ambient state. clai/ast-mcp float to `latest`; skills are pinned to the resolved clai version, so a skill rollout is a clai release + `CLAI_VERSION` bump (accepted, the review gate) |
-| Transport | GitHub Packages npm; skills+catalog ride INSIDE the `@clai` package (`clai/_data`), not a separately-fetched artifact (#145) | One reachable rail; kills the cloud git-clone block |
+| Versioning | `latest` by default; `--pins <file>` to pin | Kills the release double-edit; integrity always on; the pins file is a passed argument, not ambient state. clai/ast-mcp float to `latest`; ~~skills are pinned to the resolved clai version, so a skill rollout is a clai release + `CLAI_VERSION` bump (accepted, the review gate)~~ *superseded by Revision 1: skills float as their own package* |
+| Transport | GitHub Packages npm; ~~skills+catalog ride INSIDE the `@clai` package (`clai/_data`), not a separately-fetched artifact (#145)~~ *Revision 1: skills+catalog are their own package on the same rail* | One reachable rail; kills the cloud git-clone block |
 | MCP catalog | Bundled in `clai/_data`, materialized offline; renamed in prose to "canonical MCP catalog" | It is inert config data shipped in the clai wheel, not a tool-to-tool handoff |
 | lmde in the sandbox | Sandbox runs lmde's cloud-portable acquisition subset | "Rework the sandbox to utilize lmde" -- acquisition is the portable part |
 | ENV in cloud | Out of scope (launch-time only) | Orthogonal launcher-parity gap (G1) |
