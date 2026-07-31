@@ -157,6 +157,75 @@ EOF
     chmod +x "${bindir}/npm"
 }
 
+# make_npm_registry_strict_stub <bindir> <clai_latest> <astmcp_latest>
+# <installlog> <npmrclog> [skills_latest] [admin_latest] -- a fake npm that
+# models the ONE thing real npm does that the permissive stub does not: the
+# default registry governs UNSCOPED dependency resolution.
+#
+# GitHub Packages serves only scoped packages for the configured owner, so an
+# install that makes it the DEFAULT registry cannot resolve an unscoped
+# dependency (e.g. @nine-at-a-time-media/admin depends on `octokit`). This stub
+# therefore FAILS any install invoked with --registry=<GitHub Packages>, the
+# way real npm fails while resolving that dependency, and otherwise plants the
+# artifact like make_npm_stub. It also copies the --userconfig npmrc to
+# <npmrclog> so a test can assert the scope mapping that must carry the routing
+# instead.
+make_npm_registry_strict_stub() {
+    local bindir="$1" clai_latest="$2" astmcp_latest="$3" installlog="$4"
+    local npmrclog="$5" skills_latest="${6:-0.0.1}" admin_latest="${7:-}"
+    cat > "${bindir}/npm" <<EOF
+#!/usr/bin/env bash
+sub="\$1"; shift || true
+if [ "\$sub" = "view" ]; then
+  name="\$1"
+  case "\$name" in
+    *ast-mcp) [ -n "${astmcp_latest}" ] && echo "${astmcp_latest}" || exit 1 ;;
+    *clai)    [ -n "${clai_latest}" ] && echo "${clai_latest}" || exit 1 ;;
+    *skills)  [ -n "${skills_latest}" ] && echo "${skills_latest}" || exit 1 ;;
+    */admin)  [ -n "${admin_latest}" ] && echo "${admin_latest}" || exit 1 ;;
+    *) exit 1 ;;
+  esac
+  exit 0
+fi
+if [ "\$sub" = "install" ]; then
+  prefix=""; spec=""; userconfig=""; forced_default=""
+  while [ \$# -gt 0 ]; do
+    case "\$1" in
+      --prefix) prefix="\$2"; shift 2 ;;
+      --userconfig) userconfig="\$2"; shift 2 ;;
+      --registry=https://npm.pkg.github.com*) forced_default="\$1"; shift ;;
+      -*) shift ;;
+      *) spec="\$1"; shift ;;
+    esac
+  done
+  [ -n "\$prefix" ] || exit 1
+  [ -n "\$spec" ] || exit 1
+  [ -n "\$userconfig" ] && cat "\$userconfig" > "${npmrclog}" 2>/dev/null
+  if [ -n "\$forced_default" ]; then
+    echo "npm ERR! 404 Not Found - GET https://npm.pkg.github.com/octokit" >&2
+    exit 1
+  fi
+  name="\${spec%@*}"; ver="\${spec##*@}"; bin="\${name##*/}"
+  case "\$bin" in admin) bin="gadmin" ;; esac
+  case "\$name" in
+    *skills)
+      mkdir -p "\$prefix/node_modules/\$name/skills" "\$prefix/node_modules/\$name/mcp"
+      printf '{"name":"%s","version":"%s"}\n' "\$name" "\$ver" > "\$prefix/node_modules/\$name/package.json"
+      ;;
+    *)
+      mkdir -p "\$prefix/node_modules/.bin"
+      printf '#!/usr/bin/env bash\necho %s\n' "\$ver" > "\$prefix/node_modules/.bin/\$bin"
+      chmod +x "\$prefix/node_modules/.bin/\$bin"
+      ;;
+  esac
+  printf '%s\n' "\$spec" >> "${installlog}"
+  exit 0
+fi
+exit 0
+EOF
+    chmod +x "${bindir}/npm"
+}
+
 # seed_installed <home> <shortname> <bin> <version> -- mimic a prior acquire:
 # plant the npm-prefix shim, the ~/.local/bin symlink pointing at it, and the
 # state stamp. Echoes (to stdout) the prefix-shim path so a test can assert the
@@ -330,6 +399,7 @@ assert_stdout_empty() {
 
 export -f require_lmde scenario_dir \
     make_npm_stub make_npm_fail_stub make_npm_forbidden_install_stub \
+    make_npm_registry_strict_stub \
     seed_installed seed_installed_data run_acquire run_check \
     assert_eq assert_file_present assert_file_absent assert_symlink_to \
     assert_installed assert_not_installed assert_stderr_contains \

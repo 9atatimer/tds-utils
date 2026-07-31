@@ -20,6 +20,10 @@
 # --- Constants ---
 
 ACQUIRE_REGISTRY="https://npm.pkg.github.com"
+# Where UNSCOPED dependencies of the fleet packages come from. GitHub Packages
+# serves only scoped packages for the configured owner, so it can never be the
+# default registry for an install that has to resolve a dependency tree.
+ACQUIRE_PUBLIC_REGISTRY="https://registry.npmjs.org/"
 ACQUIRE_SCOPE="@nine-at-a-time-media"
 ACQUIRE_SHARE_ROOT="${HOME}/.local/share/tds-utils/acquire"
 ACQUIRE_BIN_DIR="${HOME}/.local/bin"
@@ -128,6 +132,12 @@ write_acquire_npmrc() {
     (
         umask 077
         {
+            # Default registry FIRST, scope mapping second: the scoped fleet
+            # packages come from GitHub Packages, everything they depend on
+            # (unscoped, e.g. admin's `octokit`) comes from npmjs. Stating the
+            # default explicitly keeps an ambient NPM_CONFIG_REGISTRY or a
+            # global npmrc from redirecting dependency resolution.
+            printf 'registry=%s\n' "${ACQUIRE_PUBLIC_REGISTRY}"
             printf '%s:registry=%s\n' "${ACQUIRE_SCOPE}" "${ACQUIRE_REGISTRY}"
             printf '//npm.pkg.github.com/:_authToken=%s\n' "${token}"
         } > "${npmrc}"
@@ -166,9 +176,19 @@ npm_view_latest() {
 # npm_install_pkg <npm_name> <version> <npmrc> -- install <npm_name>@<version>
 # into ACQUIRE_PREFIX (local, not -g). NO integrity-disabling flags: npm's
 # registry integrity check is the supply-chain gate. Returns npm's rc.
+#
+# Deliberately NO --registry flag, unlike npm_view_latest. --registry sets the
+# DEFAULT registry for the whole install, which governs how UNSCOPED
+# DEPENDENCIES resolve -- and GitHub Packages serves only scoped packages for
+# the configured owner. @nine-at-a-time-media/admin depends on the unscoped
+# `octokit`, so forcing the default here made npm 404 on that dependency and
+# the fail-open path silently left gadmin uninstalled. Routing for the private
+# scoped package comes from the npmrc's @nine-at-a-time-media:registry mapping
+# instead; the npmrc also pins the default to npmjs so ambient config cannot
+# redirect it. See PR #187 review.
 npm_install_pkg() {
     local npm_name="$1" version="$2" npmrc="$3" rc=0
-    npm install --prefix "${ACQUIRE_PREFIX}" --registry="${ACQUIRE_REGISTRY}" \
+    npm install --prefix "${ACQUIRE_PREFIX}" \
         --userconfig "${npmrc}" "${npm_name}@${version}" >/dev/null 2>&1 || rc=$?
     return "${rc}"
 }
