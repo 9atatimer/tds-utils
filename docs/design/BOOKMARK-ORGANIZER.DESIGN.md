@@ -249,7 +249,7 @@ costs nothing -- rerun and it regenerates.
 | Netscape HTML out | `bookmarks-organized-<date>.html`, importable via `chrome://bookmarks` Import. The `apply` write path. |
 | Chrome JSON out | `ChromeJsonSink`, the mirror of the existing `ChromeJsonSource`: GUIDs and `date_added` round-trip, `checksum` omitted, `sync_metadata` passed through. The `sync` write path. |
 | Plan report | Human-readable summary to stdout: N moved, N deduped, N triaged, folders created/removed, learned rules added. |
-| Taxonomy write-back | Appends learned rules to `taxonomy.yml`, preserving comments and key order (ruamel-style round-trip parse); only on `apply`. |
+| Taxonomy write-back | Appends learned rules to `taxonomy.yml`, preserving comments and key order (ruamel-style round-trip parse); on `apply` and `sync`, never on `plan`. The learned-rule ratchet is a property of any writing mode -- without it `sync` would re-classify the same residue every run. |
 
 Import caveat for the HTML path (documented in `--help` and the report):
 Chrome imports into an `Imported` folder; the manual step is import,
@@ -376,6 +376,8 @@ the installed Chrome on a *copied* user-data-dir before this ships.
   Chrome rejects it as inconsistent with the rewritten tree, it re-merges
   against the sync server, which is recoverable. Fabricating or dropping it
   is not obviously safer, and preserving it is the cheaper default.
+  Preserving it requires an envelope that today's source does not have --
+  see the prerequisite section below.
 
 #### GUID preservation is mandatory
 
@@ -401,7 +403,7 @@ identity. **The primary intent placement keeps the input GUID; each
 reference-index copy is cloned with a fresh one.** Same for the pinned
 verbatim copies, which duplicate by the same mechanism.
 
-#### Prerequisite: folder and root GUIDs
+#### Prerequisite: carry what the sink must round-trip
 
 The existing source does not round-trip folder identity.
 `ChromeJsonSource._node_to_folder()` reads `guid` for bookmarks only, and
@@ -416,10 +418,27 @@ So `sync` is not "add a sink plus a guard." It requires, first:
 
 | Component | Change |
 |---|---|
-| `domain/model.py` | `Folder` gains `guid: str \| None = None`, matching `Bookmark`. |
-| `adapters/chrome_json.py` | `_node_to_folder()` reads `guid` from folder nodes and the three root nodes. |
+| `domain/model.py` | `Folder` gains `guid: str \| None = None`, matching `Bookmark`. A `ChromeProfileEnvelope` (or equivalent) wraps `BookmarkTree` with the opaque top-level fields the sink must return unaltered. |
+| `adapters/chrome_json.py` | `_node_to_folder()` reads `guid` from folder nodes and the three root nodes. `parse_chrome_json()` stops discarding everything outside `roots` and returns the envelope. |
 | `domain/planner.py` | Carry folder GUIDs through rebuild; mint fresh ones for folders the taxonomy creates; clone reference-index and pinned copies with fresh GUIDs. |
-| `adapters/netscape.py` | Unaffected -- Netscape HTML has no GUID field; the HTML path keeps today's behavior. |
+| `adapters/netscape.py` | Unaffected -- Netscape HTML has neither GUIDs nor an envelope; the HTML path keeps today's behavior. |
+
+The envelope is the non-obvious half. `parse_chrome_json()` today reduces
+the whole file to `BookmarkTree(roots=...)` and drops every other top-level
+key on the floor -- which is correct for a read-only source feeding an HTML
+emitter, and fatal for a sink that promised to pass `sync_metadata` through
+verbatim. There is nowhere for that value to live between load and emit, so
+an implementer following the source-plus-sink description would have to
+drop or fabricate it, triggering exactly the fleet-wide server re-merge the
+decision above exists to avoid.
+
+Treat unrecognized top-level keys the same way: carry them opaquely rather
+than enumerating a fixed set. Chrome adds fields across releases, and a
+sink that silently drops the ones it does not know about is a slow leak of
+profile state.
+
+The domain must not learn what `sync_metadata` means. It is an opaque blob
+that rides from source to sink; only the adapters touch it.
 
 Chrome's three root nodes have fixed, well-known GUIDs. Preserve them from
 the input rather than minting or hardcoding them.
@@ -441,8 +460,11 @@ orgmarks restore [--profile NAME] [--at TS] [--list]
 plan:    read-only everywhere; prints the Plan.
 apply:   writes the output HTML and appends learned rules to taxonomy.yml.
 sync:    profile in, profile out, under the Chrome lifecycle guard. Implies
-         --from-profile; prints the Plan and the sync blast radius, confirms,
-         then quits Chrome / writes / restarts. Appends learned rules.
+         --from-profile. Order is load-bearing (see the state machine):
+         confirm-to-quit, quit Chrome, claim the lock, THEN load / plan /
+         classify, print the Plan and the blast radius, confirm the write,
+         emit, release, restart. Appends learned rules.
+         Chrome is down from the first confirmation to the restart.
 restore: put a backup back, under the same guard. --list shows what is kept.
 
 Errors:
