@@ -20,7 +20,7 @@ Any project running within this environment can assume the existence and availab
 
 ### Management & Automation
 
-- **gadmin**: The administrative toolkit for GitHub, issues, and environment management.
+- **gadmin**: The administrative toolkit for GitHub, issues, and environment management. Delivered by `lmde acquire` (see "Artifact Acquisition" below), so it is available to cloud sandboxes as well as the laptop.
 
 ### AI Stack
 
@@ -56,12 +56,25 @@ dnsmasq, the observability stack), which are laptop-only, `lmde` carries a
 **cloud-portable artifact-acquisition capability**. It is the subset of `lmde`
 a cloud sandbox can and should run; the platform components stay put.
 
-`lmde acquire` installs the agent fleet's two packages from GitHub Packages
+`lmde acquire` installs the agent fleet's packages from GitHub Packages
 (`npm.pkg.github.com`):
 
 - `@nine-at-a-time-media/clai` -- the CLI AI launcher / collator.
 - `@nine-at-a-time-media/ast-mcp` -- the AST MCP server, landing at
   `~/.local/bin/ast-mcp`.
+- `@nine-at-a-time-media/git-mirror` -- the git mirroring tool.
+- `@nine-at-a-time-media/admin` -- the `gadmin` administration dispatcher,
+  landing at `~/.local/bin/gadmin`. Note the npm name is `admin` and the
+  binary it ships is `gadmin`; it is the only package on the rail whose bin
+  name differs from its package name.
+
+The gadmin row is what makes the `github-workflow` skill's tool ranking true
+in a cloud sandbox. That skill puts `gadmin` ahead of the GitHub MCP tools on
+token cost and ships a zero-dependency `gadmin github-gitapi` tier (native
+`fetch()` plus `$GITHUB_TOKEN`) built for exactly that environment. A sandbox
+has no `gh` either, so without this row an agent loses the first and third
+tiers at once and falls back to the MCP tier the skill rates at ~5-10x the
+tokens. See tds-utils#186.
 
 It owns transport, version pins, and supply-chain integrity for the fleet, and
 is agent-agnostic. `--pins <file>` pins exact versions; with no `--pins` (or a

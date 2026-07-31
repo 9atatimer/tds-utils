@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # acquire.sh -- library for the `lmde acquire` verb: install the agent-agnostic
-# clai + ast-mcp + git-mirror npm packages from GitHub Packages (npm.pkg.github.com), latest
-# by default with an optional --pins override, FAIL-OPEN at every step.
+# clai + ast-mcp + git-mirror + gadmin npm packages from GitHub Packages
+# (npm.pkg.github.com), latest by default with an optional --pins override,
+# FAIL-OPEN at every step.
 #
 # Usage:       Sourced by bin/lmde (not executable on its own). Strict mode
 #              (`set -euo pipefail`) is owned by the sourcing script, mirroring
@@ -28,11 +29,17 @@ ACQUIRE_PREFIX="${ACQUIRE_SHARE_ROOT}/_npm"
 # acquire_pkg_table -- the package manifest, whitespace columns read in a
 # while-loop (NOT a declare -A, for macOS bash 3.2). Columns:
 #   shortname  npm_name  bin  pin_var
+#
+# gadmin is the one row whose bin name is not its npm name: the package is
+# @nine-at-a-time-media/admin and it ships `gadmin`. Shortname follows the bin
+# (so the stamp is gadmin.version and the warnings read "gadmin"), because
+# gadmin is what an agent looks for on PATH.
 acquire_pkg_table() {
     cat <<'EOF'
 clai @nine-at-a-time-media/clai clai CLAI_VERSION
 ast-mcp @nine-at-a-time-media/ast-mcp ast-mcp AST_MCP_VERSION
 git-mirror @nine-at-a-time-media/git-mirror git-mirror GIT_MIRROR_VERSION
+gadmin @nine-at-a-time-media/admin gadmin ADMIN_VERSION
 EOF
 }
 
@@ -267,7 +274,7 @@ acquire_run() {
     local token="${GH_AI_TOOLS_PAT:-}"
 
     if [ -z "${token}" ]; then
-        acquire_note "GH_AI_TOOLS_PAT is unset -- need a CLASSIC PAT with read:packages to install clai + ast-mcp from GitHub Packages (npm.pkg.github.com)."
+        acquire_note "GH_AI_TOOLS_PAT is unset -- need a CLASSIC PAT with read:packages to install the fleet packages from GitHub Packages (npm.pkg.github.com)."
         acquire_note "Skipping install; keeping whatever is already installed (fail-open)."
         return 0
     fi
@@ -313,7 +320,7 @@ acquire_run() {
     # Installed-but-unresolved warning: acquire never edits a shell rc.
     case ":${PATH}:" in
         *":${ACQUIRE_BIN_DIR}:"*) ;;
-        *) acquire_note "note: ${ACQUIRE_BIN_DIR} is not on PATH -- installed clai/ast-mcp will not resolve until it is added (acquire does not edit your shell rc)." ;;
+        *) acquire_note "note: ${ACQUIRE_BIN_DIR} is not on PATH -- installed clai/ast-mcp/gadmin will not resolve until it is added (acquire does not edit your shell rc)." ;;
     esac
 
     return 0

@@ -47,13 +47,20 @@ scenario_dir() {
 
 # --- Stubs -------------------------------------------------------------------
 
-# make_npm_stub <bindir> <clai_latest> <astmcp_latest> <installlog> -- a fake
-# npm that answers `npm view <name> version` with the matching latest and, on
-# `npm install --prefix DIR ... <name>@<ver>`, plants an executable shim at
-# DIR/node_modules/.bin/<bin> (bin = the unscoped package name) and appends
-# "<name>@<ver>" to <installlog>. Mimics a reachable GitHub Packages registry.
+# make_npm_stub <bindir> <clai_latest> <astmcp_latest> <installlog> [admin_latest]
+# -- a fake npm that answers `npm view <name> version` with the matching latest
+# and, on `npm install --prefix DIR ... <name>@<ver>`, plants an executable shim
+# at DIR/node_modules/.bin/<bin> and appends "<name>@<ver>" to <installlog>.
+# Mimics a reachable GitHub Packages registry.
+#
+# <bin> is the unscoped package name EXCEPT for the admin package, whose bin is
+# `gadmin` -- the one package in the table whose bin name differs from its npm
+# name, which is exactly the case acquire_one's symlink step has to get right.
+# <admin_latest> defaults to empty, which makes `view` fail for admin so every
+# pre-existing scenario keeps its original two-package behavior.
 make_npm_stub() {
     local bindir="$1" clai_latest="$2" astmcp_latest="$3" installlog="$4"
+    local admin_latest="${5:-}"
     cat > "${bindir}/npm" <<EOF
 #!/usr/bin/env bash
 sub="\$1"; shift || true
@@ -62,6 +69,7 @@ if [ "\$sub" = "view" ]; then
   case "\$name" in
     *ast-mcp) [ -n "${astmcp_latest}" ] && echo "${astmcp_latest}" || exit 1 ;;
     *clai)    [ -n "${clai_latest}" ] && echo "${clai_latest}" || exit 1 ;;
+    */admin)  [ -n "${admin_latest}" ] && echo "${admin_latest}" || exit 1 ;;
     *) exit 1 ;;
   esac
   exit 0
@@ -79,6 +87,7 @@ if [ "\$sub" = "install" ]; then
   [ -n "\$prefix" ] || exit 1
   [ -n "\$spec" ] || exit 1
   name="\${spec%@*}"; ver="\${spec##*@}"; bin="\${name##*/}"
+  case "\$bin" in admin) bin="gadmin" ;; esac
   mkdir -p "\$prefix/node_modules/.bin"
   printf '#!/usr/bin/env bash\necho %s\n' "\$ver" > "\$prefix/node_modules/.bin/\$bin"
   chmod +x "\$prefix/node_modules/.bin/\$bin"
