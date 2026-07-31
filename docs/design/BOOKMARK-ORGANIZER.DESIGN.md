@@ -361,10 +361,9 @@ section back to the drawing board.
 
 #### Write protocol
 
-1. **Back up** `Bookmarks` and `Bookmarks.bak` to
-   `${XDG_STATE_HOME:-~/.local/state}/orgmarks/backups/<profile>/<utc-ts>/`.
-   Outside the user-data-dir on purpose -- Chrome should never see our
-   files. Retain the last N (default 10).
+1. **Snapshot** `Bookmarks` and `Bookmarks.bak` into the archive (below)
+   before touching anything. A `sync` that cannot write its snapshot does
+   not proceed.
 2. **Emit** the new JSON to a temp file in the profile directory, fsync
    the file, atomic `rename()` over `Bookmarks`, then **fsync the
    containing directory**. A torn write is not representable, and the
@@ -375,8 +374,86 @@ section back to the drawing board.
 3. **Leave Chrome's own `Bookmarks.bak` alone.** It holds the pre-run tree
    and Chrome falls back to it if `Bookmarks` fails to parse -- a free
    second safety net. Chrome regenerates it on next exit.
-4. **`orgmarks restore --profile NAME [--at TS]`** puts a backup back,
-   under the same lifecycle guard. Same code path, reversed.
+4. **`orgmarks restore`** puts a snapshot back, under the same lifecycle
+   guard. Same code path, reversed.
+
+#### The archive
+
+`sync` is the only thing in this design that can lose data, so the archive
+is not a convenience -- it is the reason the feature is allowed to exist.
+It has to be good enough to recover from at 2am, without orgmarks, without
+network, and without remembering how any of this works.
+
+**Layout.** `${ORGMARKS_ARCHIVE_DIR:-${XDG_STATE_HOME:-~/.local/state}/orgmarks/archive}/<profile>/`:
+
+```
+<profile>/
+  index.json                   append-only manifest, newest last
+  2026-07-31T00-42-13Z/
+    Bookmarks                  verbatim copy, uncompressed
+    Bookmarks.bak              verbatim copy, if present
+    meta.json                  sha256s, sizes, counts, chrome version,
+                               orgmarks version, trigger, plan summary
+```
+
+**Properties, each load-bearing:**
+
+| Property | Why |
+|---|---|
+| Plain uncompressed `Bookmarks` files, original name | Recovery must not require orgmarks. `cp archive/<ts>/Bookmarks <profile>/Bookmarks` with Chrome closed is a complete manual restore, and that must stay true even if the tool is broken or absent. No tar, no custom container, no format of ours. |
+| One directory per snapshot, UTC-timestamped, never mutated | Nothing rewrites history. A snapshot is write-once. |
+| `index.json` + per-snapshot `meta.json` | Programmatic restore needs machine-readable state -- what exists, when, from what, how big, with which counts. Not scraped from directory names. |
+| sha256 of every archived file | A silently corrupted snapshot is worse than a missing one, because it is trusted. Verified on write and again before any restore. |
+| Mode 0700 dir / 0600 files | The archive is the whole bookmark collection: same sensitivity as `taxonomy.yml`, which this doc already says must stay private. |
+| Outside the user-data-dir | Chrome must never enumerate, sync, or garbage-collect our files. |
+
+**Retention: keep everything by default.** A bookmark collection is
+kilobytes; a hundred snapshots is a rounding error against the disk the
+browser cache already uses. Count-based pruning is exactly wrong for the
+2am case -- a handful of runs in one afternoon would evict the good state
+from a week ago. If pruning is ever enabled it thins by *age band* (keep
+all for 90 days, then weekly, then monthly), never by raw count, and it
+never removes the oldest snapshot for a profile or the last known-good one.
+
+**Off-machine durability is a location choice, not a feature.**
+`ORGMARKS_ARCHIVE_DIR` exists so the archive can point somewhere already
+backed up or synced. orgmarks does not grow an uploader, a remote backend,
+or a cloud integration -- those are somebody else's solved problem, and
+each one would be a new place for the collection to leak. The default is
+local; pointing it at a private synced directory is one line of config.
+Whatever it points at is as sensitive as the collection itself.
+
+#### Restore
+
+```
+orgmarks restore --profile NAME [--at TS | --latest] [--list] [--json] [--yes]
+```
+
+Restore is a first-class operation, not an escape hatch, and it is designed
+to be driven by a script under pressure:
+
+1. **`--list --json`** emits `index.json` state on stdout: timestamps,
+   sizes, bookmark/folder counts, checksums, and what triggered each
+   snapshot. Stable schema, parseable, no prose.
+2. **Snapshot before restoring.** Restore takes its own snapshot of current
+   state first, tagged `trigger: pre-restore`. Restoring is itself
+   undoable; a panicked restore to the wrong timestamp must not be
+   terminal.
+3. **Verify before overwriting.** Re-check the snapshot's sha256 and parse
+   it as Chrome JSON. A snapshot that fails either check is refused, loudly,
+   with the profile untouched -- never half-restored.
+4. **Same lifecycle guard as `sync`**: tool lock, Chrome detection, quit,
+   claim, atomic rename, directory fsync, verify, release, restart. Restore
+   is a profile write and gets identical protection.
+5. **`--yes` for non-interactive use**, because the paged-at-2am path is a
+   script, and exit codes are the contract (same table as `sync`).
+
+The plan report prints the snapshot path before any `sync` write, so the
+undo command is on screen before the thing that might need undoing.
+
+`orgmarks snapshot --profile NAME` takes an archive snapshot and exits --
+no planning, no writing. For checkpointing before something risky that is
+not a `sync` at all.
 
 #### Two Chrome-internal fields
 
@@ -513,7 +590,8 @@ orgmarks plan    [--input FILE | --from-profile [NAME]] [--taxonomy FILE] [--res
 orgmarks apply   [same flags] [--output-dir DIR]
 orgmarks sync    [--profile NAME] [--taxonomy FILE] [--restructure]
                  [--yes] [--no-quit] [--quit-timeout SECS] [--no-restart]
-orgmarks restore [--profile NAME] [--at TS] [--list]
+orgmarks restore  [--profile NAME] [--at TS | --latest] [--list] [--json] [--yes]
+orgmarks snapshot [--profile NAME]
 
 plan:    read-only everywhere; prints the Plan.
 apply:   writes the output HTML and appends learned rules to taxonomy.yml.
@@ -523,7 +601,10 @@ sync:    profile in, profile out, under the Chrome lifecycle guard. Implies
          classify, print the Plan and the blast radius, confirm the write,
          emit, release, restart. Appends learned rules.
          Chrome is down from the first confirmation to the restart.
-restore: put a backup back, under the same guard. --list shows what is kept.
+restore:  put an archived snapshot back, under the same guard. Snapshots the
+          current state first (undo the undo), verifies sha256 + parse before
+          overwriting. --list [--json] enumerates the archive.
+snapshot: archive current state and exit. No plan, no write to the profile.
 
 Errors:
   input unparseable        -> exit 2, no output written
@@ -633,9 +714,14 @@ Plan
 - **`sync` on a signed-in profile is a fleet-wide action.** The reorg
   reaches every device on the account. The confirmation prompt says so
   explicitly rather than burying it in `--help`.
-- **Backups contain the full bookmark collection.** They inherit the same
-  sensitivity as `taxonomy.yml`: written 0600 under `XDG_STATE_HOME`, never
-  into a repo, never into the user-data-dir.
+- **The archive contains the full bookmark collection**, in plaintext, for
+  every snapshot ever taken. It inherits `taxonomy.yml`'s sensitivity:
+  0700 directories, 0600 files, never in a repo, never in the
+  user-data-dir. `ORGMARKS_ARCHIVE_DIR` lets it point at a
+  backed-up location -- whatever that location is becomes as sensitive as
+  the collection, and pointing it somewhere shared or public leaks
+  everything at once. Retention defaults to keep-everything, so the archive
+  only grows; that is deliberate, and it means the exposure is cumulative.
 
 ---
 
@@ -756,8 +842,21 @@ public doc; the file itself belongs in tds-internal if archived):
   across releases to avoid an ID reassignment that costs nothing, because
   node IDs are not identity in Chrome. Omit the key instead.
 - **Backups inside the user-data-dir** -- convenient and puts unknown files
-  where Chrome may enumerate, sync, or garbage-collect them. Backups live
-  under `XDG_STATE_HOME`.
+  where Chrome may enumerate, sync, or garbage-collect them. The archive
+  lives under `XDG_STATE_HOME` (or wherever `ORGMARKS_ARCHIVE_DIR` points).
+- **Count-based archive retention ("keep the last 10")** -- the original
+  plan, and it fails the case the archive exists for: a few runs in one
+  afternoon evict the good state from last week, and the collection is
+  kilobytes so nothing was being saved. Keep everything; thin by age band
+  if ever needed.
+- **A compressed or bespoke archive format** -- smaller and unrecoverable
+  without the tool. The archive must be restorable with `cp` by a person
+  who has never read this document, on a day when orgmarks is the thing
+  that broke.
+- **An upload/remote-backup feature in orgmarks** -- off-machine durability
+  is real, but every backend is a new dependency and a new way for the
+  collection to leak. `ORGMARKS_ARCHIVE_DIR` pointed at an
+  already-backed-up directory gets the same result with none of the code.
 - **Driving `chrome://bookmarks` import via chrome-mcp automation** -- adds a
   browser-automation dependency to save one manual click; fragile against
   Chrome UI changes.
