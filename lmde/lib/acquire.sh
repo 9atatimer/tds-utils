@@ -187,12 +187,21 @@ write_stamp() {
 # link_bin <target> <link> -- create/refresh the stable symlink atomically;
 # skip when it already points at target. Copied from lib.sh link_server
 # semantics (no readlink -f). Works for directory targets too (ln -sfn), so
-# data packages reuse it for their convention symlink.
+# data packages reuse it for their convention symlink -- BUT a real
+# (non-symlink) directory already sitting at <link> is refused: `ln -sfn`
+# treats a directory-valued LINK_NAME as a target directory and would nest
+# the new link INSIDE it (e.g. skills/skills), silently leaving consumers on
+# the stale directory. The directory is not acquire's to delete; the caller
+# warns and skips the stamp so the next run retries.
 link_bin() {
     local target="$1" link="$2"
     mkdir -p "$(dirname "${link}")" || return 1
     if [ -L "${link}" ] && [ "$(readlink "${link}")" = "${target}" ]; then
         return 0
+    fi
+    if [ ! -L "${link}" ] && [ -d "${link}" ]; then
+        acquire_note "WARNING: ${link} exists as a real directory (not a symlink); refusing to link through it -- remove or migrate it by hand"
+        return 1
     fi
     ln -sfn "${target}" "${link}" || return 1
 }

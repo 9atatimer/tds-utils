@@ -88,8 +88,10 @@ sessions still start. Supply-chain integrity is npm's registry check
 plus the pinned, immutable version; the session is always fail-OPEN (every
 terminal state exits 0).
 
-Skills + the MCP catalog are NO LONGER floating inert data: post-#145 they
-ride INSIDE the clai wheel's `_data`, so a skill or catalog edit reaches
-sandboxes only after a clai RELEASE and a `CLAI_VERSION` bump here. That pin
-bump IS the review gate for skills -- the accepted, WANTED consequence of
-#145 (a skill edit is a reviewed change, not a silent default-branch push).
+Skills + the MCP catalog are floating inert data again: per
+LMDE-CLAI-BOUNDARY.DESIGN.md Revision 1 they ship as the standalone
+`@nine-at-a-time-media/skills` package, auto-published by template-tools CI
+on merge, acquired floating by default (`SKILLS_VERSION` UNSET). A skill or
+catalog edit reaches sandboxes on the merge that lands it; the review gate
+is that PR. The clai wheel's `_data` copy (the #145 model this reverses)
+survives only as clai's bootstrap fallback for unacquired surfaces.
