@@ -359,6 +359,12 @@ Test on a copied user-data-dir, before implementation, alongside
 `checksum` and `sync_metadata`. A "Chrome breaks it" result sends this
 section back to the drawing board.
 
+The experiments are specified in **issue #189** and must produce a result
+before any implementation plan is written. What survives a failed lock
+experiment: the GUID contract, the lossless round-trip prerequisites, the
+write protocol, and the archive/restore design. What does not: this
+subsection and the guard table above it.
+
 #### Write protocol
 
 1. **Snapshot** `Bookmarks` and `Bookmarks.bak` into the archive (below)
