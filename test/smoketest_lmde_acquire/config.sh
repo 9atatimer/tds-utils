@@ -163,13 +163,18 @@ EOF
 # default registry governs UNSCOPED dependency resolution.
 #
 # GitHub Packages serves only scoped packages for the configured owner, so an
-# install that makes it the DEFAULT registry cannot resolve an unscoped
+# install whose DEFAULT registry is GitHub Packages cannot resolve an unscoped
 # dependency (e.g. @nine-at-a-time-media/admin depends on `octokit`). This stub
-# therefore FAILS any install invoked with --registry=<GitHub Packages>, the
-# way real npm fails while resolving that dependency, and otherwise plants the
-# artifact like make_npm_stub. It also copies the --userconfig npmrc to
-# <npmrclog> so a test can assert the scope mapping that must carry the routing
-# instead.
+# resolves the effective default the way npm documents it --
+#
+#   command-line --registry  >  $NPM_CONFIG_REGISTRY  >  npmrc  >  npmjs
+#
+# -- and FAILS the install when that default is not npmjs, the way real npm
+# fails while resolving the dependency. Modelling the precedence (rather than
+# just looking for a bad --registry flag) is the point: a fix that only sets the
+# default in the npmrc sits BELOW the environment and does not actually pin
+# anything. It also copies the --userconfig npmrc to <npmrclog> so a test can
+# assert the scope mapping that routes the private root package.
 make_npm_registry_strict_stub() {
     local bindir="$1" clai_latest="$2" astmcp_latest="$3" installlog="$4"
     local npmrclog="$5" skills_latest="${6:-0.0.1}" admin_latest="${7:-}"
@@ -188,12 +193,12 @@ if [ "\$sub" = "view" ]; then
   exit 0
 fi
 if [ "\$sub" = "install" ]; then
-  prefix=""; spec=""; userconfig=""; forced_default=""
+  prefix=""; spec=""; userconfig=""; cli_registry=""
   while [ \$# -gt 0 ]; do
     case "\$1" in
       --prefix) prefix="\$2"; shift 2 ;;
       --userconfig) userconfig="\$2"; shift 2 ;;
-      --registry=https://npm.pkg.github.com*) forced_default="\$1"; shift ;;
+      --registry=*) cli_registry="\${1#--registry=}"; shift ;;
       -*) shift ;;
       *) spec="\$1"; shift ;;
     esac
@@ -201,10 +206,23 @@ if [ "\$sub" = "install" ]; then
   [ -n "\$prefix" ] || exit 1
   [ -n "\$spec" ] || exit 1
   [ -n "\$userconfig" ] && cat "\$userconfig" > "${npmrclog}" 2>/dev/null
-  if [ -n "\$forced_default" ]; then
-    echo "npm ERR! 404 Not Found - GET https://npm.pkg.github.com/octokit" >&2
-    exit 1
+  # npm's documented precedence: CLI flag, then env, then npmrc, then npmjs.
+  effective=""
+  if [ -n "\$cli_registry" ]; then
+    effective="\$cli_registry"
+  elif [ -n "\${NPM_CONFIG_REGISTRY:-}" ]; then
+    effective="\$NPM_CONFIG_REGISTRY"
+  elif [ -n "\$userconfig" ]; then
+    effective="\$(sed -n 's/^registry=//p' "\$userconfig" 2>/dev/null | tail -n1)"
   fi
+  [ -n "\$effective" ] || effective="https://registry.npmjs.org/"
+  case "\$effective" in
+    *registry.npmjs.org*) ;;
+    *)
+      echo "npm ERR! 404 Not Found - GET \${effective}/octokit" >&2
+      exit 1
+      ;;
+  esac
   name="\${spec%@*}"; ver="\${spec##*@}"; bin="\${name##*/}"
   case "\$bin" in admin) bin="gadmin" ;; esac
   case "\$name" in
@@ -267,15 +285,25 @@ seed_installed_data() {
 # and GH_AI_TOOLS_PAT defaulted to a fake token (set TEST_PAT="" to exercise the
 # missing-token path). Captures stderr to <dir>/stderr and echoes the exit code.
 #
+# Set TEST_NPM_CONFIG_REGISTRY to export NPM_CONFIG_REGISTRY into the run --
+# npm's own env-priority override, for scenarios about an ambient registry
+# leaking in from the surrounding sandbox. Left unset, the variable is not
+# exported at all (an empty NPM_CONFIG_REGISTRY is not the same as no
+# NPM_CONFIG_REGISTRY).
+#
 # PATH must NOT inherit the caller's: a real `npm` (or `clai`) on the developer
 # laptop would break the hermetic assumption. Only the scenario's own stubs and
 # /usr/bin:/bin are visible.
 run_acquire() {
     local dir="$1"; shift || true
     local rc=0
-    PATH="${dir}/bin:/usr/bin:/bin" \
-    HOME="${dir}/home" \
-    GH_AI_TOOLS_PAT="${TEST_PAT-faketoken-readpackages}" \
+    local -a envv
+    envv=("PATH=${dir}/bin:/usr/bin:/bin" "HOME=${dir}/home"
+          "GH_AI_TOOLS_PAT=${TEST_PAT-faketoken-readpackages}")
+    if [[ -n "${TEST_NPM_CONFIG_REGISTRY:-}" ]]; then
+        envv+=("NPM_CONFIG_REGISTRY=${TEST_NPM_CONFIG_REGISTRY}")
+    fi
+    env "${envv[@]}" \
         bash "${LMDE_BIN}" acquire "$@" >/dev/null 2>"${dir}/stderr" || rc=$?
     printf '%s\n' "${rc}"
 }

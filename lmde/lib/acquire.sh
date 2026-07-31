@@ -134,9 +134,14 @@ write_acquire_npmrc() {
         {
             # Default registry FIRST, scope mapping second: the scoped fleet
             # packages come from GitHub Packages, everything they depend on
-            # (unscoped, e.g. admin's `octokit`) comes from npmjs. Stating the
-            # default explicitly keeps an ambient NPM_CONFIG_REGISTRY or a
-            # global npmrc from redirecting dependency resolution.
+            # (unscoped, e.g. admin's `octokit`) comes from npmjs.
+            #
+            # This line does NOT outrank an ambient NPM_CONFIG_REGISTRY -- an
+            # npmrc sits below the environment in npm's precedence, which is
+            # why npm_install_pkg asserts the same default on the command
+            # line. Keep it anyway: it makes this npmrc self-describing and
+            # gives any future caller that omits the flag a sane default
+            # rather than npm's ambient one.
             printf 'registry=%s\n' "${ACQUIRE_PUBLIC_REGISTRY}"
             printf '%s:registry=%s\n' "${ACQUIRE_SCOPE}" "${ACQUIRE_REGISTRY}"
             printf '//npm.pkg.github.com/:_authToken=%s\n' "${token}"
@@ -177,18 +182,26 @@ npm_view_latest() {
 # into ACQUIRE_PREFIX (local, not -g). NO integrity-disabling flags: npm's
 # registry integrity check is the supply-chain gate. Returns npm's rc.
 #
-# Deliberately NO --registry flag, unlike npm_view_latest. --registry sets the
-# DEFAULT registry for the whole install, which governs how UNSCOPED
-# DEPENDENCIES resolve -- and GitHub Packages serves only scoped packages for
-# the configured owner. @nine-at-a-time-media/admin depends on the unscoped
-# `octokit`, so forcing the default here made npm 404 on that dependency and
-# the fail-open path silently left gadmin uninstalled. Routing for the private
-# scoped package comes from the npmrc's @nine-at-a-time-media:registry mapping
-# instead; the npmrc also pins the default to npmjs so ambient config cannot
-# redirect it. See PR #187 review.
+# --registry points at the PUBLIC registry here, not the private one -- the
+# opposite of npm_view_latest, and load-bearing. --registry sets the DEFAULT
+# registry for the whole install, which is what governs how UNSCOPED
+# DEPENDENCIES resolve; GitHub Packages serves only scoped packages for the
+# configured owner. @nine-at-a-time-media/admin depends on the unscoped
+# `octokit`, so pointing the default at GitHub Packages made npm 404 on that
+# dependency, and the fail-open path silently left gadmin uninstalled.
+#
+# It must be the COMMAND-LINE flag, not just the npmrc line: npm's config
+# precedence is command line > environment > npmrc > builtin default, so an
+# ambient NPM_CONFIG_REGISTRY in the sandbox outranks anything the npmrc says.
+# Only the flag actually pins it.
+#
+# The private scoped package still routes correctly because --registry sets the
+# default only -- the npmrc's @nine-at-a-time-media:registry mapping is a
+# separate key and wins for that scope. See PR #187 review.
 npm_install_pkg() {
     local npm_name="$1" version="$2" npmrc="$3" rc=0
     npm install --prefix "${ACQUIRE_PREFIX}" \
+        --registry="${ACQUIRE_PUBLIC_REGISTRY}" \
         --userconfig "${npmrc}" "${npm_name}@${version}" >/dev/null 2>&1 || rc=$?
     return "${rc}"
 }
