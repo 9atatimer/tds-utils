@@ -48,18 +48,24 @@ scenario_dir() {
 # --- Stubs -------------------------------------------------------------------
 
 # make_npm_stub <bindir> <clai_latest> <astmcp_latest> <installlog>
-# [skills_latest] -- a fake npm that answers `npm view <name> version` with the
-# matching latest and, on `npm install --prefix DIR ... <name>@<ver>`, plants
-# the package's observable artifact and appends "<name>@<ver>" to <installlog>.
-# Bin packages (clai, ast-mcp) get an executable shim at
-# DIR/node_modules/.bin/<bin> (bin = the unscoped package name); the skills
-# DATA package gets DIR/node_modules/<scoped name>/package.json instead (data
-# packages ship no binary). <skills_latest> defaults to 0.0.1 so the 13
-# pre-skills scenarios keep passing unchanged. Mimics a reachable GitHub
-# Packages registry.
+# [skills_latest] [admin_latest] -- a fake npm that answers `npm view <name>
+# version` with the matching latest and, on `npm install --prefix DIR ...
+# <name>@<ver>`, plants the package's observable artifact and appends
+# "<name>@<ver>" to <installlog>. Bin packages (clai, ast-mcp, admin) get an
+# executable shim at DIR/node_modules/.bin/<bin>; the skills DATA package gets
+# DIR/node_modules/<scoped name>/package.json instead (data packages ship no
+# binary). Mimics a reachable GitHub Packages registry.
+#
+# <bin> is the unscoped package name EXCEPT for the admin package, whose bin is
+# `gadmin` -- the one package in the table whose bin name differs from its npm
+# name, which is exactly the case acquire_one's symlink step has to get right.
+#
+# <skills_latest> defaults to 0.0.1 so the 13 pre-skills scenarios keep passing
+# unchanged. <admin_latest> defaults to empty, which makes `view` fail for admin
+# so scenarios that predate the gadmin row keep their original behavior.
 make_npm_stub() {
     local bindir="$1" clai_latest="$2" astmcp_latest="$3" installlog="$4"
-    local skills_latest="${5:-0.0.1}"
+    local skills_latest="${5:-0.0.1}" admin_latest="${6:-}"
     cat > "${bindir}/npm" <<EOF
 #!/usr/bin/env bash
 sub="\$1"; shift || true
@@ -69,6 +75,7 @@ if [ "\$sub" = "view" ]; then
     *ast-mcp) [ -n "${astmcp_latest}" ] && echo "${astmcp_latest}" || exit 1 ;;
     *clai)    [ -n "${clai_latest}" ] && echo "${clai_latest}" || exit 1 ;;
     *skills)  [ -n "${skills_latest}" ] && echo "${skills_latest}" || exit 1 ;;
+    */admin)  [ -n "${admin_latest}" ] && echo "${admin_latest}" || exit 1 ;;
     *) exit 1 ;;
   esac
   exit 0
@@ -86,6 +93,7 @@ if [ "\$sub" = "install" ]; then
   [ -n "\$prefix" ] || exit 1
   [ -n "\$spec" ] || exit 1
   name="\${spec%@*}"; ver="\${spec##*@}"; bin="\${name##*/}"
+  case "\$bin" in admin) bin="gadmin" ;; esac
   case "\$name" in
     *skills)
       mkdir -p "\$prefix/node_modules/\$name/skills" "\$prefix/node_modules/\$name/mcp"
@@ -118,13 +126,14 @@ EOF
 }
 
 # make_npm_forbidden_install_stub <bindir> <clai_latest> <astmcp_latest> <marker>
-# [skills_latest] -- a fake npm whose `view` succeeds (returns the given
-# latests, so the up-to-date comparison can resolve) but whose `install`
-# touches <marker> and plants nothing, letting a test assert install was NEVER
-# reached. <skills_latest> defaults to 0.0.1, same as make_npm_stub.
+# [skills_latest] [admin_latest] -- a fake npm whose `view` succeeds (returns
+# the given latests, so the up-to-date comparison can resolve) but whose
+# `install` touches <marker> and plants nothing, letting a test assert install
+# was NEVER reached. <skills_latest> defaults to 0.0.1, same as make_npm_stub;
+# <admin_latest> defaults to empty, which makes `view` fail for admin.
 make_npm_forbidden_install_stub() {
     local bindir="$1" clai_latest="$2" astmcp_latest="$3" marker="$4"
-    local skills_latest="${5:-0.0.1}"
+    local skills_latest="${5:-0.0.1}" admin_latest="${6:-}"
     cat > "${bindir}/npm" <<EOF
 #!/usr/bin/env bash
 sub="\$1"; shift || true
@@ -134,12 +143,100 @@ if [ "\$sub" = "view" ]; then
     *ast-mcp) echo "${astmcp_latest}" ;;
     *clai)    echo "${clai_latest}" ;;
     *skills)  echo "${skills_latest}" ;;
+    */admin)  [ -n "${admin_latest}" ] && echo "${admin_latest}" || exit 1 ;;
     *) exit 1 ;;
   esac
   exit 0
 fi
 if [ "\$sub" = "install" ]; then
   : > "${marker}"
+  exit 0
+fi
+exit 0
+EOF
+    chmod +x "${bindir}/npm"
+}
+
+# make_npm_registry_strict_stub <bindir> <clai_latest> <astmcp_latest>
+# <installlog> <npmrclog> [skills_latest] [admin_latest] -- a fake npm that
+# models the ONE thing real npm does that the permissive stub does not: the
+# default registry governs UNSCOPED dependency resolution.
+#
+# GitHub Packages serves only scoped packages for the configured owner, so an
+# install whose DEFAULT registry is GitHub Packages cannot resolve an unscoped
+# dependency (e.g. @nine-at-a-time-media/admin depends on `octokit`). This stub
+# resolves the effective default the way npm documents it --
+#
+#   command-line --registry  >  $NPM_CONFIG_REGISTRY  >  npmrc  >  npmjs
+#
+# -- and FAILS the install when that default is not npmjs, the way real npm
+# fails while resolving the dependency. Modelling the precedence (rather than
+# just looking for a bad --registry flag) is the point: a fix that only sets the
+# default in the npmrc sits BELOW the environment and does not actually pin
+# anything. It also copies the --userconfig npmrc to <npmrclog> so a test can
+# assert the scope mapping that routes the private root package.
+make_npm_registry_strict_stub() {
+    local bindir="$1" clai_latest="$2" astmcp_latest="$3" installlog="$4"
+    local npmrclog="$5" skills_latest="${6:-0.0.1}" admin_latest="${7:-}"
+    cat > "${bindir}/npm" <<EOF
+#!/usr/bin/env bash
+sub="\$1"; shift || true
+if [ "\$sub" = "view" ]; then
+  name="\$1"
+  case "\$name" in
+    *ast-mcp) [ -n "${astmcp_latest}" ] && echo "${astmcp_latest}" || exit 1 ;;
+    *clai)    [ -n "${clai_latest}" ] && echo "${clai_latest}" || exit 1 ;;
+    *skills)  [ -n "${skills_latest}" ] && echo "${skills_latest}" || exit 1 ;;
+    */admin)  [ -n "${admin_latest}" ] && echo "${admin_latest}" || exit 1 ;;
+    *) exit 1 ;;
+  esac
+  exit 0
+fi
+if [ "\$sub" = "install" ]; then
+  prefix=""; spec=""; userconfig=""; cli_registry=""
+  while [ \$# -gt 0 ]; do
+    case "\$1" in
+      --prefix) prefix="\$2"; shift 2 ;;
+      --userconfig) userconfig="\$2"; shift 2 ;;
+      --registry=*) cli_registry="\${1#--registry=}"; shift ;;
+      -*) shift ;;
+      *) spec="\$1"; shift ;;
+    esac
+  done
+  [ -n "\$prefix" ] || exit 1
+  [ -n "\$spec" ] || exit 1
+  [ -n "\$userconfig" ] && cat "\$userconfig" > "${npmrclog}" 2>/dev/null
+  # npm's documented precedence: CLI flag, then env, then npmrc, then npmjs.
+  effective=""
+  if [ -n "\$cli_registry" ]; then
+    effective="\$cli_registry"
+  elif [ -n "\${NPM_CONFIG_REGISTRY:-}" ]; then
+    effective="\$NPM_CONFIG_REGISTRY"
+  elif [ -n "\$userconfig" ]; then
+    effective="\$(sed -n 's/^registry=//p' "\$userconfig" 2>/dev/null | tail -n1)"
+  fi
+  [ -n "\$effective" ] || effective="https://registry.npmjs.org/"
+  case "\$effective" in
+    *registry.npmjs.org*) ;;
+    *)
+      echo "npm ERR! 404 Not Found - GET \${effective}/octokit" >&2
+      exit 1
+      ;;
+  esac
+  name="\${spec%@*}"; ver="\${spec##*@}"; bin="\${name##*/}"
+  case "\$bin" in admin) bin="gadmin" ;; esac
+  case "\$name" in
+    *skills)
+      mkdir -p "\$prefix/node_modules/\$name/skills" "\$prefix/node_modules/\$name/mcp"
+      printf '{"name":"%s","version":"%s"}\n' "\$name" "\$ver" > "\$prefix/node_modules/\$name/package.json"
+      ;;
+    *)
+      mkdir -p "\$prefix/node_modules/.bin"
+      printf '#!/usr/bin/env bash\necho %s\n' "\$ver" > "\$prefix/node_modules/.bin/\$bin"
+      chmod +x "\$prefix/node_modules/.bin/\$bin"
+      ;;
+  esac
+  printf '%s\n' "\$spec" >> "${installlog}"
   exit 0
 fi
 exit 0
@@ -188,15 +285,25 @@ seed_installed_data() {
 # and GH_AI_TOOLS_PAT defaulted to a fake token (set TEST_PAT="" to exercise the
 # missing-token path). Captures stderr to <dir>/stderr and echoes the exit code.
 #
+# Set TEST_NPM_CONFIG_REGISTRY to export NPM_CONFIG_REGISTRY into the run --
+# npm's own env-priority override, for scenarios about an ambient registry
+# leaking in from the surrounding sandbox. Left unset, the variable is not
+# exported at all (an empty NPM_CONFIG_REGISTRY is not the same as no
+# NPM_CONFIG_REGISTRY).
+#
 # PATH must NOT inherit the caller's: a real `npm` (or `clai`) on the developer
 # laptop would break the hermetic assumption. Only the scenario's own stubs and
 # /usr/bin:/bin are visible.
 run_acquire() {
     local dir="$1"; shift || true
     local rc=0
-    PATH="${dir}/bin:/usr/bin:/bin" \
-    HOME="${dir}/home" \
-    GH_AI_TOOLS_PAT="${TEST_PAT-faketoken-readpackages}" \
+    local -a envv
+    envv=("PATH=${dir}/bin:/usr/bin:/bin" "HOME=${dir}/home"
+          "GH_AI_TOOLS_PAT=${TEST_PAT-faketoken-readpackages}")
+    if [[ -n "${TEST_NPM_CONFIG_REGISTRY:-}" ]]; then
+        envv+=("NPM_CONFIG_REGISTRY=${TEST_NPM_CONFIG_REGISTRY}")
+    fi
+    env "${envv[@]}" \
         bash "${LMDE_BIN}" acquire "$@" >/dev/null 2>"${dir}/stderr" || rc=$?
     printf '%s\n' "${rc}"
 }
@@ -320,6 +427,7 @@ assert_stdout_empty() {
 
 export -f require_lmde scenario_dir \
     make_npm_stub make_npm_fail_stub make_npm_forbidden_install_stub \
+    make_npm_registry_strict_stub \
     seed_installed seed_installed_data run_acquire run_check \
     assert_eq assert_file_present assert_file_absent assert_symlink_to \
     assert_installed assert_not_installed assert_stderr_contains \

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # acquire.sh -- library for the `lmde acquire` verb: install the agent-agnostic
-# clai + ast-mcp + git-mirror + skills npm packages from GitHub Packages
+# clai + ast-mcp + git-mirror + skills + gadmin npm packages from GitHub Packages
 # (npm.pkg.github.com), latest by default with an optional --pins override,
 # FAIL-OPEN at every step.
 #
@@ -20,6 +20,10 @@
 # --- Constants ---
 
 ACQUIRE_REGISTRY="https://npm.pkg.github.com"
+# Where UNSCOPED dependencies of the fleet packages come from. GitHub Packages
+# serves only scoped packages for the configured owner, so it can never be the
+# default registry for an install that has to resolve a dependency tree.
+ACQUIRE_PUBLIC_REGISTRY="https://registry.npmjs.org/"
 ACQUIRE_SCOPE="@nine-at-a-time-media"
 ACQUIRE_SHARE_ROOT="${HOME}/.local/share/tds-utils/acquire"
 ACQUIRE_BIN_DIR="${HOME}/.local/bin"
@@ -35,12 +39,18 @@ ACQUIRE_DATA_LINK_ROOT="${HOME}/.local/lib/node_modules"
 # A bin of "-" marks a DATA package: it ships no binary; presence is the
 # package directory itself, and the symlink lands under
 # ACQUIRE_DATA_LINK_ROOT/<npm_name> instead of ACQUIRE_BIN_DIR.
+#
+# gadmin is the one row whose bin name is not its npm name: the package is
+# @nine-at-a-time-media/admin and it ships `gadmin`. Shortname follows the bin
+# (so the stamp is gadmin.version and the warnings read "gadmin"), because
+# gadmin is what an agent looks for on PATH.
 acquire_pkg_table() {
     cat <<'EOF'
 clai @nine-at-a-time-media/clai clai CLAI_VERSION
 ast-mcp @nine-at-a-time-media/ast-mcp ast-mcp AST_MCP_VERSION
 git-mirror @nine-at-a-time-media/git-mirror git-mirror GIT_MIRROR_VERSION
 skills @nine-at-a-time-media/skills - SKILLS_VERSION
+gadmin @nine-at-a-time-media/admin gadmin ADMIN_VERSION
 EOF
 }
 
@@ -122,6 +132,17 @@ write_acquire_npmrc() {
     (
         umask 077
         {
+            # Default registry FIRST, scope mapping second: the scoped fleet
+            # packages come from GitHub Packages, everything they depend on
+            # (unscoped, e.g. admin's `octokit`) comes from npmjs.
+            #
+            # This line does NOT outrank an ambient NPM_CONFIG_REGISTRY -- an
+            # npmrc sits below the environment in npm's precedence, which is
+            # why npm_install_pkg asserts the same default on the command
+            # line. Keep it anyway: it makes this npmrc self-describing and
+            # gives any future caller that omits the flag a sane default
+            # rather than npm's ambient one.
+            printf 'registry=%s\n' "${ACQUIRE_PUBLIC_REGISTRY}"
             printf '%s:registry=%s\n' "${ACQUIRE_SCOPE}" "${ACQUIRE_REGISTRY}"
             printf '//npm.pkg.github.com/:_authToken=%s\n' "${token}"
         } > "${npmrc}"
@@ -160,9 +181,27 @@ npm_view_latest() {
 # npm_install_pkg <npm_name> <version> <npmrc> -- install <npm_name>@<version>
 # into ACQUIRE_PREFIX (local, not -g). NO integrity-disabling flags: npm's
 # registry integrity check is the supply-chain gate. Returns npm's rc.
+#
+# --registry points at the PUBLIC registry here, not the private one -- the
+# opposite of npm_view_latest, and load-bearing. --registry sets the DEFAULT
+# registry for the whole install, which is what governs how UNSCOPED
+# DEPENDENCIES resolve; GitHub Packages serves only scoped packages for the
+# configured owner. @nine-at-a-time-media/admin depends on the unscoped
+# `octokit`, so pointing the default at GitHub Packages made npm 404 on that
+# dependency, and the fail-open path silently left gadmin uninstalled.
+#
+# It must be the COMMAND-LINE flag, not just the npmrc line: npm's config
+# precedence is command line > environment > npmrc > builtin default, so an
+# ambient NPM_CONFIG_REGISTRY in the sandbox outranks anything the npmrc says.
+# Only the flag actually pins it.
+#
+# The private scoped package still routes correctly because --registry sets the
+# default only -- the npmrc's @nine-at-a-time-media:registry mapping is a
+# separate key and wins for that scope. See PR #187 review.
 npm_install_pkg() {
     local npm_name="$1" version="$2" npmrc="$3" rc=0
-    npm install --prefix "${ACQUIRE_PREFIX}" --registry="${ACQUIRE_REGISTRY}" \
+    npm install --prefix "${ACQUIRE_PREFIX}" \
+        --registry="${ACQUIRE_PUBLIC_REGISTRY}" \
         --userconfig "${npmrc}" "${npm_name}@${version}" >/dev/null 2>&1 || rc=$?
     return "${rc}"
 }
@@ -310,7 +349,7 @@ acquire_run() {
     local token="${GH_AI_TOOLS_PAT:-}"
 
     if [ -z "${token}" ]; then
-        acquire_note "GH_AI_TOOLS_PAT is unset -- need a CLASSIC PAT with read:packages to install clai + ast-mcp from GitHub Packages (npm.pkg.github.com)."
+        acquire_note "GH_AI_TOOLS_PAT is unset -- need a CLASSIC PAT with read:packages to install the fleet packages from GitHub Packages (npm.pkg.github.com)."
         acquire_note "Skipping install; keeping whatever is already installed (fail-open)."
         return 0
     fi
@@ -356,7 +395,7 @@ acquire_run() {
     # Installed-but-unresolved warning: acquire never edits a shell rc.
     case ":${PATH}:" in
         *":${ACQUIRE_BIN_DIR}:"*) ;;
-        *) acquire_note "note: ${ACQUIRE_BIN_DIR} is not on PATH -- installed clai/ast-mcp will not resolve until it is added (acquire does not edit your shell rc)." ;;
+        *) acquire_note "note: ${ACQUIRE_BIN_DIR} is not on PATH -- installed clai/ast-mcp/gadmin will not resolve until it is added (acquire does not edit your shell rc)." ;;
     esac
 
     return 0
