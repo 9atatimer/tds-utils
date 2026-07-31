@@ -199,7 +199,9 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 
 ## Active Work: lmde acquire -- skills data package (2026-07-30)
 
-> **Status:** Implemented -- 15/15 acquire scenarios green; PR pending
+> **Status:** SHIPPED -- merged PR #184 (this repo) + template-tools#289;
+> skills@0.1.28 published on the first merge. Activation steps (clai
+> release, pin bumps, fresh-session verification) tracked in issue #190.
 > **Design:** docs/design/LMDE-CLAI-BOUNDARY.DESIGN.md, Revision 1 (merged PR #183)
 > **Branch:** claude/sandbox-skills-mcp-test-mz2txs
 > **Companion:** template-tools carries the package itself + the clai
@@ -270,7 +272,33 @@ GREEN in `lmde/lib/acquire.sh`, then the doc folds. One commit per step.
   means -- the test followed the contract, not the old fixture.
 - npm stub extensions defaulted skills_latest=0.0.1 so the 13 pre-skills
   scenarios needed zero edits.
+
+Review-round lessons (codex, PRs #184 / template-tools#289):
+- `ln -sfn TARGET LINK` with a REAL directory at LINK does not replace it --
+  it creates TARGET's basename INSIDE the directory (skills/skills) and
+  returns success. -n only guards a symlink-to-dir LINK. Any dir-valued
+  convention link needs an explicit not-a-symlink-directory refusal
+  (scenario 16 locks this).
+- A "loud fallback" warning has two failure modes of its own: going quiet
+  on the everything-current fast path (early return built before the
+  warning), and SUPPRESSING a sibling warning gated on `not warnings`.
+  Warnings with different owners belong in different lists, merged at
+  report time.
+- Structural presence (skills/ + manifest exist) is not usability: a
+  corrupt SOURCE_STAMP in a selected source stamps None and can
+  bootstrap-fail a session whose fallback was healthy. Validate the
+  selected source can produce a stamp before selecting it.
+- Doc sweeps for a reversed architecture need THREE passes here: the
+  operative instructions, the historical release notes that state the old
+  model as present-tense fact, and the executable wrapper headers. codex
+  caught stragglers after each of the first two.
 ```
+
+**Handoff (2026-07-31, session archived):** remaining work is issue #190
+(clai 0.8.0 release + CLAI_VERSION bumps in both pins surfaces +
+GH_AI_TOOLS_PAT for the Claude-web env + fresh-session verification) and
+template-tools#304 (github-workflow skill's retired LOCAL.md instruction;
+clai README's phantom fetch prose).
 
 ---
 
