@@ -272,7 +272,8 @@ guaranteed silent clobber. So the guard is a precondition, not a mitigation.
 
 | Step | Action | On failure |
 |---|---|---|
-| DETECT | Read `<user-data-dir>/SingletonLock`; it is a symlink whose target is `<hostname>-<pid>`. Chrome is running iff that pid is alive and its executable is Chrome. | Unreadable/absent lock -> treat as not running. Lock present but pid dead or foreign -> stale, log and treat as not running. |
+| TOOL LOCK | Before anything else, create `<user-data-dir>/../orgmarks.lock` with `O_CREAT\|O_EXCL` (see below). This is orgmarks-vs-orgmarks exclusion and is separate from Chrome's lock. | Already held by a live orgmarks -> exit 4, nothing written. Held by a dead pid -> stale, remove and proceed. |
+| DETECT | Read `<user-data-dir>/SingletonLock`; it is a symlink whose target is `<hostname>-<pid>`. Chrome is running iff that pid is alive and its executable is Chrome. | Unreadable/absent lock -> treat as not running. Pid dead -> stale, log and proceed. **Pid alive but not Chrome -> refuse (exit 4), never break it.** |
 | PROMPT | Chrome running: print the profile path and ask for confirmation to quit it. `--yes` skips the prompt; `--no-quit` refuses instead of asking. | Declined -> exit 3, nothing written. |
 | QUIT | macOS `osascript -e 'quit app "Google Chrome"'`; Linux `SIGTERM` to the lock's pid. Then poll for the lock to clear, 30s default (`--quit-timeout`). | Still held at timeout -> exit 4, nothing written. **Never escalate to `SIGKILL`** -- a killed Chrome is exactly the half-written profile this guard exists to prevent. |
 | CLAIM | Take `SingletonLock` ourselves (symlink to `<hostname>-<our-pid>`) so a relaunched Chrome cannot attach to the profile. Claimed **before** LOAD and held across the whole pipeline; released after the post-rename verification, in a `finally` and a signal handler. | Cannot claim -> exit 4, nothing written. |
@@ -306,8 +307,21 @@ Properties the sequence must hold:
   profile permanently locked.
 - **Ownership loss is fatal.** Re-`readlink()` the lock immediately before
   the rename and confirm it still names our pid. If it does not, abort
-  without writing (exit 4). Losing the lock means another Chrome is live on
+  without writing (exit 4). Losing the lock means another process is live on
   the profile, and *nothing* we write afterward is safe.
+- **Two orgmarks runs exclude each other through a separate lock.**
+  `SingletonLock` keeps *Chrome* out; it cannot keep a second orgmarks out,
+  because once we claim it the owner pid is no longer Chrome's and any
+  liveness-plus-identity rule that lets us break stale Chrome locks lets a
+  second orgmarks break ours. Do not try to encode both concerns in one
+  primitive. A dedicated `orgmarks.lock`, created `O_CREAT|O_EXCL` beside
+  the user-data-dir and holding our pid, makes the two questions
+  independent: "may I touch this profile at all" and "is Chrome running."
+  The tool lock is taken first and released last.
+- **A live non-Chrome owner of `SingletonLock` is never stale.** Staleness
+  means the owner is *dead*, not that it is unfamiliar. Breaking a lock held
+  by a live process -- orgmarks, a Chromium fork, anything -- is the same
+  clobber this section exists to prevent, just with a different culprit.
 - **Revalidate the snapshot as a cheap assertion.** With the guard ordered
   first this should never fire, so treat a mismatch between the loaded
   snapshot and the on-disk file at write time as a bug, not a routine
@@ -404,8 +418,26 @@ The second half is not hypothetical. The reference index inserts *the same*
 subtree (`domain/planner.py`, reference-index loop). On the HTML path that
 duplication is harmless; on the profile path it emits two nodes with one
 identity. **The primary intent placement keeps the input GUID; each
-reference-index copy is cloned with a fresh one.** Same for the pinned
-verbatim copies, which duplicate by the same mechanism.
+reference-index copy gets a different one.** Same for the pinned verbatim
+copies, which duplicate by the same mechanism.
+
+**"Different" must mean *derived*, not *random*.** The reference index is
+regenerated from scratch every run -- `_classifiable()` in `app/pipeline.py`
+deliberately discards prior Reference copies so a second run over our own
+output does not double-file anything. A freshly minted random GUID per copy
+would therefore make the entire Reference subtree a delete-plus-create on
+*every* `sync`, producing fleet-wide churn proportional to the size of the
+collection and directly violating Goal 4 (running twice produces an
+identical tree). The idempotency the rest of the design works for would be
+destroyed by the identity rule meant to protect it.
+
+So generated copies get a **deterministic** GUID: a UUIDv5 over a fixed
+orgmarks namespace plus the primary node's GUID and the copy's placement
+path. That is stable across runs with no matching pass, distinct from the
+primary, and collision-free by construction. Any regenerated node needs
+this treatment, not just reference copies -- the general rule is that a
+node the tool recreates each run must derive its identity from its inputs,
+never mint it.
 
 #### Prerequisite: carry what the sink must round-trip
 
@@ -433,10 +465,10 @@ So `sync` is not "add a sink plus a guard." It requires, first:
 
 | Component | Change |
 |---|---|
-| `domain/model.py` | `Folder` gains `guid: str \| None = None`, matching `Bookmark`. A `ChromeProfileEnvelope` (or equivalent) wraps `BookmarkTree` with the opaque top-level fields the sink must return unaltered. |
+| `domain/model.py` | `Folder` gains `guid: str \| None = None`, matching `Bookmark`. Both gain an opaque bag for unrecognized node-local fields (`date_last_used`, `date_modified`, `meta_info`, future additions). A `ChromeProfileEnvelope` (or equivalent) wraps `BookmarkTree` with the opaque top-level fields the sink must return unaltered. |
 | `adapters/chrome_json.py` | `_node_to_folder()` reads `guid` from folder nodes and the three root nodes. `parse_chrome_json()` stops discarding everything outside `roots` and returns the envelope. `_chrome_date_to_epoch()` stops truncating to whole seconds. |
 | Timestamps | `_chrome_date_to_epoch()` computes `micros // 1_000_000`, so every sub-second remainder is gone by the time the domain sees it and no sink can reconstruct it. Retain the raw Chrome microsecond value (or store microseconds throughout) so `date_added` survives the round trip. |
-| `domain/planner.py` | Carry folder GUIDs through rebuild; mint fresh ones for folders the taxonomy creates; clone reference-index and pinned copies with fresh GUIDs. |
+| `domain/planner.py` | Carry folder GUIDs and node-local opaque fields through rebuild; mint fresh GUIDs for folders the taxonomy creates; give reference-index and pinned copies **deterministic** derived GUIDs (UUIDv5 over namespace + primary GUID + placement), never random ones. |
 | `adapters/netscape.py` | Unaffected -- Netscape HTML has neither GUIDs nor an envelope; the HTML path keeps today's behavior. |
 
 The envelope is the non-obvious half. `parse_chrome_json()` today reduces
@@ -452,6 +484,16 @@ Treat unrecognized top-level keys the same way: carry them opaquely rather
 than enumerating a fixed set. Chrome adds fields across releases, and a
 sink that silently drops the ones it does not know about is a slow leak of
 profile state.
+
+**The same applies per node, not just at the top level.** Chrome bookmark
+nodes carry fields the domain does not model -- `date_last_used`,
+`date_modified`, `meta_info`, and whatever the next release adds -- and
+`Bookmark` and `Folder` have nowhere to put them, so a rebuilding sink
+drops them across the whole collection. An envelope that protects only
+top-level keys still rewrites metadata on every node of every `sync`.
+Every retained node therefore carries an opaque bag of its unrecognized
+fields, restored verbatim on emit. Nodes the tool *generates* have no such
+bag; they are new, and inventing values would be worse than omitting them.
 
 The domain must not learn what `sync_metadata` means. It is an opaque blob
 that rides from source to sink; only the adapters touch it.
@@ -699,6 +741,17 @@ public doc; the file itself belongs in tds-internal if archived):
   the old tree before the rename, pass verification, and overwrite from
   memory afterward. Verification detects one failure mode. If the lock
   proves breakable the mechanism gets replaced, not backstopped.
+- **Using `SingletonLock` alone for orgmarks-vs-orgmarks exclusion** --
+  tempting, since it is already there and already held. But once orgmarks
+  claims it the owner is not Chrome, so any rule permissive enough to break
+  a stale Chrome lock is permissive enough for a second orgmarks to break
+  ours. One primitive cannot answer both "is Chrome running" and "may I
+  touch this profile." Separate `orgmarks.lock`, taken first, released last.
+- **Random GUIDs for regenerated nodes** -- reads as the obvious reading of
+  "generated nodes get fresh GUIDs," and it silently destroys idempotency:
+  the reference index is rebuilt every run, so random identities make the
+  whole subtree delete+create on each `sync`. Derive them (UUIDv5 over
+  namespace + primary GUID + placement) so reruns reproduce them exactly.
 - **Recomputing Chrome's `checksum` field** -- chases an internal algorithm
   across releases to avoid an ID reassignment that costs nothing, because
   node IDs are not identity in Chrome. Omit the key instead.
