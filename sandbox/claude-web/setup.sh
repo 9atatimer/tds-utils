@@ -2,9 +2,11 @@
 # setup.sh -- Claude Code web ENVIRONMENT SETUP script: runs BEFORE session
 # init and ACQUIRES the agent tooling so it is present when the session (and
 # the MCP client) first loads. It discovers the checkout and runs
-# `bin/lmde acquire` -- which installs @nine-at-a-time-media/clai (onto PATH)
-# and @nine-at-a-time-media/ast-mcp (at ~/.local/bin/ast-mcp) from GitHub
-# Packages, skills + catalog riding inside the clai wheel's _data. It does NOT
+# `bin/lmde acquire` -- which installs @nine-at-a-time-media/clai (onto PATH),
+# @nine-at-a-time-media/ast-mcp (at ~/.local/bin/ast-mcp), and the floating
+# @nine-at-a-time-media/skills data package (skills + catalog, symlinked at
+# ~/.local/lib/node_modules/@nine-at-a-time-media/skills; the clai wheel's
+# _data is only clai's bootstrap fallback) from GitHub Packages. It does NOT
 # configure anything (no skill placement, no ~/.claude.json edit, no MCP
 # registration): configuration is clai's job and happens at session start via
 # `clai provision` (docs/design/PROVISION.DESIGN.md, issues #99/#84/#145).
@@ -41,10 +43,11 @@
 #   * $HOME is continuous with the session ($HOME=/root, uid 0 in both), so a
 #     ~/.local/bin/ast-mcp and clai installed here ARE on the session's PATH.
 #
-# WHAT THIS SCRIPT DOES: it runs `lmde acquire` (clai + ast-mcp + the bundled
-# skills/catalog that ride inside the clai wheel) BEFORE session init, all via
-# GitHub Packages (npm.pkg.github.com). Acquisition -- transport, pins, the
-# binary + wheel install -- is `lmde acquire`'s job; this script only
+# WHAT THIS SCRIPT DOES: it runs `lmde acquire` (clai + ast-mcp + the
+# floating @nine-at-a-time-media/skills data package, Revision 1) BEFORE
+# session init, all via GitHub Packages (npm.pkg.github.com). Acquisition --
+# transport, pins, the package installs -- is `lmde acquire`'s job; this
+# script only
 # discovers the checkout and hands off. Configuration (emit dialects, place
 # skills, register ast-mcp at agent scope, epilogue) is NOT done here: it is
 # clai's job and runs at session start via `clai provision`. That split is why

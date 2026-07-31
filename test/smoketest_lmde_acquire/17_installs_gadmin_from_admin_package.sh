@@ -21,9 +21,10 @@ main() {
     cat > "${pins}" <<'EOF'
 CLAI_VERSION="1.0.0"
 AST_MCP_VERSION="0.4.0"
+SKILLS_VERSION="0.0.1"
 ADMIN_VERSION="0.4.0"
 EOF
-    make_npm_stub "${dir}/bin" "1.0.0" "0.4.0" "${log}" "0.4.0"
+    make_npm_stub "${dir}/bin" "1.0.0" "0.4.0" "${log}" "0.0.1" "0.4.0"
 
     rc="$(run_acquire "${dir}" --pins "${pins}")"
 

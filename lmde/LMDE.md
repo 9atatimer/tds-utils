@@ -63,6 +63,10 @@ a cloud sandbox can and should run; the platform components stay put.
 - `@nine-at-a-time-media/ast-mcp` -- the AST MCP server, landing at
   `~/.local/bin/ast-mcp`.
 - `@nine-at-a-time-media/git-mirror` -- the git mirroring tool.
+- `@nine-at-a-time-media/skills` -- INERT DATA (the canonical skills tree +
+  MCP catalog, no binary), symlinked at
+  `~/.local/lib/node_modules/@nine-at-a-time-media/skills` -- the lmde->clai
+  boundary convention path `clai provision` reads from.
 - `@nine-at-a-time-media/admin` -- the `gadmin` administration dispatcher,
   landing at `~/.local/bin/gadmin`. Note the npm name is `admin` and the
   binary it ships is `gadmin`; it is the only package on the rail whose bin
@@ -85,12 +89,15 @@ later run reinstalls on an upstream bump), never an `@latest` tag. npm
 classic `read:packages` PAT in `GH_AI_TOOLS_PAT`. Acquisition never runs a
 piped install script -- it is a signed-package rail only.
 
-Skills and the canonical MCP catalog are **NOT** separately acquired: they ride
-inside the `@clai` package as bundled data (`clai/_data`), and `clai`
-materializes them offline at configure time. Acquisition is therefore a
-git-clone-free rail, which is exactly what fixes the Claude-web proxy block
-(the proxy brokers only the session's own repo). `lmde acquire` does not mutate
-any shell rc; if `~/.local/bin` is not on `$PATH` it warns.
+Skills and the canonical MCP catalog float by default (`SKILLS_VERSION`
+UNSET): a fresh session starts with the current skills, no human rollout step
+-- the review gate is the PR that merged the skill edit
+(LMDE-CLAI-BOUNDARY.DESIGN.md Revision 1; this reverses the earlier
+bundled-in-`@clai` model, whose `clai/_data` remains only as clai's bootstrap
+fallback). Acquisition stays a git-clone-free rail, which is exactly what
+fixes the Claude-web proxy block (the proxy brokers only the session's own
+repo). `lmde acquire` does not mutate any shell rc; if `~/.local/bin` is not
+on `$PATH` it warns.
 
 See [../docs/design/LMDE-CLAI-BOUNDARY.DESIGN.md](../docs/design/LMDE-CLAI-BOUNDARY.DESIGN.md)
 (authoritative for the acquire/configure boundary).
