@@ -2,6 +2,8 @@
 
 > **Status:** APPROVED
 > **Date:** 2026-07-23
+> **Revised:** 2026-07-30 -- profile write-back (`orgmarks sync`) promoted
+> from Future Considerations to Design; see Rejections for what changed.
 > **Authors:** Todd + Claude
 > **Depends on:** [WIP.TECH_RADAR.DESIGN.md](./WIP.TECH_RADAR.DESIGN.md)
 
@@ -103,6 +105,7 @@ bookmark tree. Volatile mechanisms sit behind ports at the edges:
 | Bookmark wire format (Netscape HTML vs Chrome JSON) | `BookmarkSource` / `BookmarkSink` ports |
 | LLM vendor/model (claude-cli, OpenAI-compat, Ollama) | `Classifier` port; provider + model id in `taxonomy.yml`, never in code |
 | Taxonomy content (intents, rules, thresholds) | `taxonomy.yml`, parsed once into a `Taxonomy` value object |
+| Browser process control (macOS `osascript` vs Linux signals) | `BrowserLifecycle` port; the guard sequence is pure logic over its three verbs |
 
 No single-implementation-forever ports: each of these already has two real
 implementations or a vendor boundary.
@@ -243,29 +246,384 @@ costs nothing -- rerun and it regenerates.
 
 | Responsibility | Details |
 |---|---|
-| Netscape HTML out | `bookmarks-organized-<date>.html`, importable via `chrome://bookmarks` Import. v1's only write path for bookmarks. |
+| Netscape HTML out | `bookmarks-organized-<date>.html`, importable via `chrome://bookmarks` Import. The `apply` write path. |
+| Chrome JSON out | `ChromeJsonSink`, the mirror of the existing `ChromeJsonSource`: GUIDs and `date_added` round-trip at full precision, `checksum` omitted, `sync_metadata` and unrecognized top-level keys passed through. Requires the prerequisite work below -- today's source is lossy on all three counts. The `sync` write path. |
 | Plan report | Human-readable summary to stdout: N moved, N deduped, N triaged, folders created/removed, learned rules added. |
-| Taxonomy write-back | Appends learned rules to `taxonomy.yml`, preserving comments and key order (ruamel-style round-trip parse); only on `apply`. |
+| Taxonomy write-back | Appends learned rules to `taxonomy.yml`, preserving comments and key order (ruamel-style round-trip parse); on `apply` and `sync`, never on `plan`. The learned-rule ratchet is a property of any writing mode -- without it `sync` would re-classify the same residue every run. |
 
-Import caveat (documented in `--help` and the report): Chrome imports into an
-`Imported` folder; the manual step is import, spot-check, delete the old
-roots, drag the new tree up. Direct profile-write would remove this step but
-is rejected for v1 (see Rejections).
+Import caveat for the HTML path (documented in `--help` and the report):
+Chrome imports into an `Imported` folder; the manual step is import,
+spot-check, delete the old roots, drag the new tree up. `orgmarks sync`
+below removes that step entirely; `apply` keeps the HTML path for
+non-Chrome targets and for anyone who wants a file to eyeball first.
+
+### Profile write-back (`orgmarks sync`)
+
+The one-command path: read the live profile, plan, write the profile back.
+`--from-profile` already reads Chrome's `Bookmarks` JSON preserving `guid`
+and `date_added`, so this adds a `ChromeJsonSink` plus a lifecycle guard.
+The guard is the whole design; the JSON emit is mechanical.
+
+#### Chrome lifecycle guard
+
+Chrome holds its bookmark tree in memory and rewrites `Bookmarks` on exit.
+Writing the file under a running Chrome is not a race we can win -- it is a
+guaranteed silent clobber. So the guard is a precondition, not a mitigation.
+
+| Step | Action | On failure |
+|---|---|---|
+| TOOL LOCK | Before anything else, create `<user-data-dir>/../orgmarks.lock` with `O_CREAT\|O_EXCL` (see below). This is orgmarks-vs-orgmarks exclusion and is separate from Chrome's lock. | Already held by a live orgmarks -> exit 4, nothing written. Held by a dead pid -> stale, remove and proceed. |
+| DETECT | Read `<user-data-dir>/SingletonLock`; it is a symlink whose target is `<hostname>-<pid>`. Chrome is running iff that pid is alive and its executable is Chrome. | Unreadable/absent lock -> treat as not running. Pid dead -> stale, log and proceed. **Pid alive but not Chrome -> refuse (exit 4), never break it.** |
+| PROMPT | Chrome running: print the profile path and ask for confirmation to quit it. `--yes` skips the prompt; `--no-quit` refuses instead of asking. | Declined -> exit 3, nothing written. |
+| QUIT | macOS `osascript -e 'quit app "Google Chrome"'`; Linux `SIGTERM` to the lock's pid. Then poll for the lock to clear, 30s default (`--quit-timeout`). | Still held at timeout -> exit 4, nothing written. **Never escalate to `SIGKILL`** -- a killed Chrome is exactly the half-written profile this guard exists to prevent. |
+| CLAIM | Take `SingletonLock` ourselves (symlink to `<hostname>-<our-pid>`) so a relaunched Chrome cannot attach to the profile. Claimed **before** LOAD and held across the whole pipeline; released after the post-rename verification, in a `finally` and a signal handler. | Cannot claim -> exit 4, nothing written. |
+| WRITE | Re-`readlink()` the lock and confirm we still own it, then the backup + emit protocol below, then verify the rename landed. | Ownership lost -> exit 4, nothing written. Any other failure -> restore from backup, release the lock, then continue to RESTART. |
+| RESTART | Only if we quit it **and** `--no-restart` was not passed: relaunch (`open -a "Google Chrome"` / the resolved Linux binary), detached, and do not wait on it. Both conditions apply on every exit path, success and failure alike. | Relaunch failure is reported, not fatal -- the profile is already consistent. |
+
+`SingletonLock` is per-user-data-dir, which is the correct granularity: the
+file being written is shared by every profile under that directory. `pgrep`
+is not a substitute -- it cannot distinguish a Chrome running against a
+different data dir, and it sees nothing when the lock is merely stale.
+
+Properties the sequence must hold:
+
+- **Quit and claim *before* LOAD, not before EMIT.** The snapshot the plan
+  is built from must be taken from a quiesced profile that orgmarks already
+  holds the lock on. Reading first and quitting later is unsound: Chrome
+  flushes its in-memory tree on exit, so any bookmark added locally or
+  arriving via sync during the classify stage lands on disk at QUIT and is
+  then overwritten by an output tree built from the older snapshot. That is
+  silent data loss, propagated fleet-wide. Ordering the guard first removes
+  the window rather than narrowing it.
+- **Hold the lock; do not merely re-check it.** Re-reading `SingletonLock`
+  before WRITE is a TOCTOU check, not mutual exclusion: a Chrome launched
+  between the check and the `rename()` loads the old tree and overwrites it
+  on exit. Instead, once Chrome has exited, orgmarks **claims**
+  `SingletonLock` itself, symlinking it to `<hostname>-<our-pid>`, and
+  holds it across load, plan, emit, and rename. That is Chrome's own
+  mutual-exclusion primitive used for its intended purpose rather than
+  raced against. Release happens after the rename, before RESTART, and in
+  a signal handler and `finally` so a killed orgmarks does not leave the
+  profile permanently locked.
+- **Ownership loss is fatal.** Re-`readlink()` the lock immediately before
+  the rename and confirm it still names our pid. If it does not, abort
+  without writing (exit 4). Losing the lock means another process is live on
+  the profile, and *nothing* we write afterward is safe.
+- **Two orgmarks runs exclude each other through a separate lock.**
+  `SingletonLock` keeps *Chrome* out; it cannot keep a second orgmarks out,
+  because once we claim it the owner pid is no longer Chrome's and any
+  liveness-plus-identity rule that lets us break stale Chrome locks lets a
+  second orgmarks break ours. Do not try to encode both concerns in one
+  primitive. A dedicated `orgmarks.lock`, created `O_CREAT|O_EXCL` beside
+  the user-data-dir and holding our pid, makes the two questions
+  independent: "may I touch this profile at all" and "is Chrome running."
+  The tool lock is taken first and released last.
+- **A live non-Chrome owner of `SingletonLock` is never stale.** Staleness
+  means the owner is *dead*, not that it is unfamiliar. Breaking a lock held
+  by a live process -- orgmarks, a Chromium fork, anything -- is the same
+  clobber this section exists to prevent, just with a different culprit.
+- **Revalidate the snapshot as a cheap assertion.** With the guard ordered
+  first this should never fire, so treat a mismatch between the loaded
+  snapshot and the on-disk file at write time as a bug, not a routine
+  branch: abort, keep the backup, report.
+- **Restart is a relaunch, not a session restore.** Tabs return only if
+  Chrome is configured to continue where it left off. Stated in `--help`;
+  not something orgmarks tries to fix.
+
+The cost of quitting first is real and worth stating: Chrome is down for
+the whole run -- including a classify stage that can take minutes on a
+large residue -- not just for the write. That is the price of correctness
+by construction, and for a batch groomer run occasionally it is the right
+trade. `plan` still runs against a live Chrome, so the "what would it do"
+question never requires closing the browser.
+
+#### The lock experiment gates this design
+
+Chrome's behavior when it finds `SingletonLock` held by a **non-Chrome**
+process is unverified: it may refuse with "profile is in use," or it may
+judge the lock stale and break it. This is not an implementation detail to
+settle later -- **it gates the design**.
+
+If Chrome breaks orgmarks-held locks, the mechanism above does not provide
+exclusion and must be replaced, not patched. In particular, post-rename
+verification is *not* a sufficient fallback, and the previous revision of
+this document was wrong to imply it was: Chrome can break the lock and
+load the old tree *before* our rename, verification then reads our own
+fresh file and passes, and the still-running Chrome overwrites it from
+memory minutes later. Verification catches a clobber that has already
+happened by write time; it cannot catch one still queued in another
+process's memory. It stays in the design as a cheap detector of one
+failure mode, with no claim to catching the general case.
+
+Test on a copied user-data-dir, before implementation, alongside
+`checksum` and `sync_metadata`. A "Chrome breaks it" result sends this
+section back to the drawing board.
+
+The experiments are specified in **issue #189** and must produce a result
+before any implementation plan is written. What survives a failed lock
+experiment: the GUID contract, the lossless round-trip prerequisites, the
+write protocol, and the archive/restore design. What does not: this
+subsection and the guard table above it.
+
+#### Write protocol
+
+1. **Snapshot** `Bookmarks` and `Bookmarks.bak` into the archive (below)
+   before touching anything. A `sync` that cannot write its snapshot does
+   not proceed.
+2. **Emit** the new JSON to a temp file in the profile directory, fsync
+   the file, atomic `rename()` over `Bookmarks`, then **fsync the
+   containing directory**. A torn write is not representable, and the
+   directory fsync is what makes the rename itself durable: without it a
+   power loss after `rename()` returns can leave `Bookmarks` reverted or
+   missing, while orgmarks has already reported success and restarted
+   Chrome. Do it before verification, release, and restart.
+3. **Leave Chrome's own `Bookmarks.bak` alone.** It holds the pre-run tree
+   and Chrome falls back to it if `Bookmarks` fails to parse -- a free
+   second safety net. Chrome regenerates it on next exit.
+4. **`orgmarks restore`** puts a snapshot back, under the same lifecycle
+   guard. Same code path, reversed.
+
+#### The archive
+
+`sync` is the only thing in this design that can lose data, so the archive
+is not a convenience -- it is the reason the feature is allowed to exist.
+It has to be good enough to recover from at 2am, without orgmarks, without
+network, and without remembering how any of this works.
+
+**Layout.** `${ORGMARKS_ARCHIVE_DIR:-${XDG_STATE_HOME:-~/.local/state}/orgmarks/archive}/<profile>/`:
+
+```
+<profile>/
+  index.json                   append-only manifest, newest last
+  2026-07-31T00-42-13Z/
+    Bookmarks                  verbatim copy, uncompressed
+    Bookmarks.bak              verbatim copy, if present
+    meta.json                  sha256s, sizes, counts, chrome version,
+                               orgmarks version, trigger, plan summary
+```
+
+**Properties, each load-bearing:**
+
+| Property | Why |
+|---|---|
+| Plain uncompressed `Bookmarks` files, original name | Recovery must not require orgmarks. `cp archive/<ts>/Bookmarks <profile>/Bookmarks` with Chrome closed is a complete manual restore, and that must stay true even if the tool is broken or absent. No tar, no custom container, no format of ours. |
+| One directory per snapshot, UTC-timestamped, never mutated | Nothing rewrites history. A snapshot is write-once. |
+| `index.json` + per-snapshot `meta.json` | Programmatic restore needs machine-readable state -- what exists, when, from what, how big, with which counts. Not scraped from directory names. |
+| sha256 of every archived file | A silently corrupted snapshot is worse than a missing one, because it is trusted. Verified on write and again before any restore. |
+| Mode 0700 dir / 0600 files | The archive is the whole bookmark collection: same sensitivity as `taxonomy.yml`, which this doc already says must stay private. |
+| Outside the user-data-dir | Chrome must never enumerate, sync, or garbage-collect our files. |
+
+**Retention: keep everything by default.** A bookmark collection is
+kilobytes; a hundred snapshots is a rounding error against the disk the
+browser cache already uses. Count-based pruning is exactly wrong for the
+2am case -- a handful of runs in one afternoon would evict the good state
+from a week ago. If pruning is ever enabled it thins by *age band* (keep
+all for 90 days, then weekly, then monthly), never by raw count, and it
+never removes the oldest snapshot for a profile or the last known-good one.
+
+**Off-machine durability is a location choice, not a feature.**
+`ORGMARKS_ARCHIVE_DIR` exists so the archive can point somewhere already
+backed up or synced. orgmarks does not grow an uploader, a remote backend,
+or a cloud integration -- those are somebody else's solved problem, and
+each one would be a new place for the collection to leak. The default is
+local; pointing it at a private synced directory is one line of config.
+Whatever it points at is as sensitive as the collection itself.
+
+#### Restore
+
+```
+orgmarks restore --profile NAME [--at TS | --latest] [--list] [--json] [--yes]
+```
+
+Restore is a first-class operation, not an escape hatch, and it is designed
+to be driven by a script under pressure:
+
+1. **`--list --json`** emits `index.json` state on stdout: timestamps,
+   sizes, bookmark/folder counts, checksums, and what triggered each
+   snapshot. Stable schema, parseable, no prose.
+2. **Snapshot before restoring.** Restore takes its own snapshot of current
+   state first, tagged `trigger: pre-restore`. Restoring is itself
+   undoable; a panicked restore to the wrong timestamp must not be
+   terminal.
+3. **Verify before overwriting.** Re-check the snapshot's sha256 and parse
+   it as Chrome JSON. A snapshot that fails either check is refused, loudly,
+   with the profile untouched -- never half-restored.
+4. **Same lifecycle guard as `sync`**: tool lock, Chrome detection, quit,
+   claim, atomic rename, directory fsync, verify, release, restart. Restore
+   is a profile write and gets identical protection.
+5. **`--yes` for non-interactive use**, because the paged-at-2am path is a
+   script, and exit codes are the contract (same table as `sync`).
+
+The plan report prints the snapshot path before any `sync` write, so the
+undo command is on screen before the thing that might need undoing.
+
+`orgmarks snapshot --profile NAME` takes an archive snapshot and exits --
+no planning, no writing. For checkpointing before something risky that is
+not a `sync` at all.
+
+#### Two Chrome-internal fields
+
+These are the parts of the file that are not ours, and both are
+version-sensitive enough that the implementation must verify them against
+the installed Chrome on a *copied* user-data-dir before this ships.
+
+- **`checksum`** -- an MD5 over the tree that Chrome uses to notice external
+  edits. Decision: omit the key rather than recompute it. A missing or
+  mismatched checksum makes Chrome reassign node IDs, and node IDs are not
+  identity in Chrome -- GUIDs are. Recomputing it means tracking an internal
+  algorithm across Chrome releases for no durable benefit.
+- **`sync_metadata`** -- bookmark sync state, stored in the same file on
+  current Chrome. Decision: preserve the input file's value verbatim. If
+  Chrome rejects it as inconsistent with the rewritten tree, it re-merges
+  against the sync server, which is recoverable. Fabricating or dropping it
+  is not obviously safer, and preserving it is the cheaper default.
+  Preserving it requires an envelope that today's source does not have --
+  see the prerequisite section below.
+
+#### GUID preservation is mandatory
+
+On the HTML path GUIDs are advisory. On the profile path they are the
+contract: sync reconciles by GUID, so a moved node that keeps its GUID
+propagates as a *move*, and one that loses it propagates as a delete plus a
+create. The second form loses per-device state and is far more alarming
+across a fleet.
+
+The rule has two halves, and both matter:
+
+- **Exactly one node carries an input GUID.** Any node the planner carries
+  through from the input retains its GUID.
+- **Every generated node gets a fresh GUID.** A GUID appearing twice in one
+  tree is worse than a missing one -- sync cannot reconcile two nodes
+  claiming the same identity, and the failure is non-local.
+
+The second half is not hypothetical. The reference index inserts *the same*
+`Bookmark` into both its intent folder and the generated `Reference`
+subtree (`domain/planner.py`, reference-index loop). On the HTML path that
+duplication is harmless; on the profile path it emits two nodes with one
+identity. **The primary intent placement keeps the input GUID; each
+reference-index copy gets a different one.** Same for the pinned verbatim
+copies, which duplicate by the same mechanism.
+
+**"Different" must mean *derived*, not *random*.** The reference index is
+regenerated from scratch every run -- `_classifiable()` in `app/pipeline.py`
+deliberately discards prior Reference copies so a second run over our own
+output does not double-file anything. A freshly minted random GUID per copy
+would therefore make the entire Reference subtree a delete-plus-create on
+*every* `sync`, producing fleet-wide churn proportional to the size of the
+collection and directly violating Goal 4 (running twice produces an
+identical tree). The idempotency the rest of the design works for would be
+destroyed by the identity rule meant to protect it.
+
+So generated copies get a **deterministic** GUID: a UUIDv5 over a fixed
+orgmarks namespace plus the primary node's GUID and the copy's placement
+path. That is stable across runs with no matching pass, distinct from the
+primary, and collision-free by construction. Any regenerated node needs
+this treatment, not just reference copies -- the general rule is that a
+node the tool recreates each run must derive its identity from its inputs,
+never mint it.
+
+#### Prerequisite: carry what the sink must round-trip
+
+**The existing source is lossy by design, and every loss is a defect on the
+profile path.** `ChromeJsonSource` was built to feed a Netscape HTML
+emitter, a format that has no GUIDs, no envelope, and second-granularity
+timestamps -- so discarding all three was correct. A sink that writes the
+profile back inverts that requirement completely: anything the source drops
+is something `sync` silently rewrites, and on a signed-in profile every
+silent rewrite propagates to the fleet.
+
+Three separate instances of this have surfaced so far -- folder GUIDs,
+top-level keys like `sync_metadata`, and sub-second timestamp precision --
+which is enough to treat it as one systemic gap rather than three bugs.
+Read the table below as "make the Chrome JSON path lossless," and assume
+anything not yet audited is lossy until checked.
+
+The worst of the three is folder identity: `_node_to_folder()` reads `guid`
+for bookmarks only and the `Folder` model has no `guid` field at all, so a
+retained folder written back with a fresh GUID propagates as delete+create
+and takes its entire subtree with it. A wrongly-recreated folder is a much
+larger blast radius than a wrongly-recreated bookmark.
+
+So `sync` is not "add a sink plus a guard." It requires, first:
+
+| Component | Change |
+|---|---|
+| `domain/model.py` | `Folder` gains `guid: str \| None = None`, matching `Bookmark`. Both gain an opaque bag for unrecognized node-local fields (`date_last_used`, `date_modified`, `meta_info`, future additions). A `ChromeProfileEnvelope` (or equivalent) wraps `BookmarkTree` with the opaque top-level fields the sink must return unaltered. |
+| `adapters/chrome_json.py` | `_node_to_folder()` reads `guid` from folder nodes and the three root nodes. `parse_chrome_json()` stops discarding everything outside `roots` and returns the envelope. `_chrome_date_to_epoch()` stops truncating to whole seconds. |
+| Timestamps | `_chrome_date_to_epoch()` computes `micros // 1_000_000`, so every sub-second remainder is gone by the time the domain sees it and no sink can reconstruct it. Retain the raw Chrome microsecond value (or store microseconds throughout) so `date_added` survives the round trip. |
+| `domain/planner.py` | Carry folder GUIDs and node-local opaque fields through rebuild; mint fresh GUIDs for folders the taxonomy creates; give reference-index and pinned copies **deterministic** derived GUIDs (UUIDv5 over namespace + primary GUID + placement), never random ones. |
+| `adapters/netscape.py` | Unaffected -- Netscape HTML has neither GUIDs nor an envelope; the HTML path keeps today's behavior. |
+
+The envelope is the non-obvious half. `parse_chrome_json()` today reduces
+the whole file to `BookmarkTree(roots=...)` and drops every other top-level
+key on the floor -- which is correct for a read-only source feeding an HTML
+emitter, and fatal for a sink that promised to pass `sync_metadata` through
+verbatim. There is nowhere for that value to live between load and emit, so
+an implementer following the source-plus-sink description would have to
+drop or fabricate it, triggering exactly the fleet-wide server re-merge the
+decision above exists to avoid.
+
+Treat unrecognized top-level keys the same way: carry them opaquely rather
+than enumerating a fixed set. Chrome adds fields across releases, and a
+sink that silently drops the ones it does not know about is a slow leak of
+profile state.
+
+**The same applies per node, not just at the top level.** Chrome bookmark
+nodes carry fields the domain does not model -- `date_last_used`,
+`date_modified`, `meta_info`, and whatever the next release adds -- and
+`Bookmark` and `Folder` have nowhere to put them, so a rebuilding sink
+drops them across the whole collection. An envelope that protects only
+top-level keys still rewrites metadata on every node of every `sync`.
+Every retained node therefore carries an opaque bag of its unrecognized
+fields, restored verbatim on emit. Nodes the tool *generates* have no such
+bag; they are new, and inventing values would be worse than omitting them.
+
+The domain must not learn what `sync_metadata` means. It is an opaque blob
+that rides from source to sink; only the adapters touch it.
+
+Chrome's three root nodes have fixed, well-known GUIDs. Preserve them from
+the input rather than minting or hardcoding them.
+
+This is the real blast radius of `sync`, and it deserves saying plainly:
+on a signed-in profile, the reorg reaches every device on restart. The
+plan report says so before the write, and `sync` requires either an
+interactive confirmation or `--yes`.
 
 ### CLI
 
 ```
-orgmarks plan  [--input FILE | --from-profile [NAME]] [--taxonomy FILE] [--restructure]
-orgmarks apply [same flags]
+orgmarks plan    [--input FILE | --from-profile [NAME]] [--taxonomy FILE] [--restructure]
+orgmarks apply   [same flags] [--output-dir DIR]
+orgmarks sync    [--profile NAME] [--taxonomy FILE] [--restructure]
+                 [--yes] [--no-quit] [--quit-timeout SECS] [--no-restart]
+orgmarks restore  [--profile NAME] [--at TS | --latest] [--list] [--json] [--yes]
+orgmarks snapshot [--profile NAME]
 
-plan:  read-only everywhere; prints the Plan.
-apply: writes the output HTML and appends learned rules to taxonomy.yml.
+plan:    read-only everywhere; prints the Plan.
+apply:   writes the output HTML and appends learned rules to taxonomy.yml.
+sync:    profile in, profile out, under the Chrome lifecycle guard. Implies
+         --from-profile. Order is load-bearing (see the state machine):
+         confirm-to-quit, quit Chrome, claim the lock, THEN load / plan /
+         classify, print the Plan and the blast radius, confirm the write,
+         emit, release, restart. Appends learned rules.
+         Chrome is down from the first confirmation to the restart.
+restore:  put an archived snapshot back, under the same guard. Snapshots the
+          current state first (undo the undo), verifies sha256 + parse before
+          overwriting. --list [--json] enumerates the archive.
+snapshot: archive current state and exit. No plan, no write to the profile.
 
 Errors:
   input unparseable        -> exit 2, no output written
   taxonomy invalid         -> exit 2, Pydantic error listing
   LLM provider unreachable -> warn, degrade to rules-only, residue to _triage, exit 0
+  quit declined            -> exit 3, profile untouched          (sync/restore)
+  no exclusive lock        -> exit 4, profile untouched          (sync/restore)
+      (Chrome would not exit, lock unclaimable, or ownership lost mid-run)
+  profile write failed     -> exit 5, backup restored, Chrome restarted
 ```
+
+`sync` is the one-command path; `plan` remains the way to see what it would
+do without a lifecycle guard anywhere near the profile.
 
 ---
 
@@ -289,7 +647,25 @@ Pipeline stages per run (no persistent state between runs beyond
 | RULES | CLASSIFY | residue non-empty | `llm` block present and reachable |
 | RULES | PLAN | residue empty, or LLM unavailable | residue -> `_triage` when skipping |
 | CLASSIFY | PLAN | all batches resolved | failed batches -> `_triage` |
-| PLAN | EMIT | mode == apply | `plan` mode stops here and prints |
+| PLAN | EMIT | mode == apply or sync | `plan` mode stops here and prints |
+
+`sync` wraps the same pipeline in the lifecycle guard, with the entire
+pipeline inside the lock. DETECT, PROMPT, QUIT and CLAIM all run **before**
+LOAD, so the snapshot comes from a quiesced profile orgmarks already owns;
+RESTART runs after EMIT on every exit path that quit Chrome, including the
+failure ones.
+
+```
+   [DETECT/PROMPT/QUIT/CLAIM] --> LOAD ... PLAN --> EMIT --> [VERIFY,
+              |                     |                |        RELEASE,
+              |                     |                |        RESTART]
+              +-- abort ------------+----------------+------------^
+```
+
+Ordering the guard ahead of LOAD costs a longer Chrome downtime and buys
+the elimination of a whole bug class: there is no window in which Chrome
+can accept a bookmark that the plan does not know about. `plan` is
+unchanged and never touches the guard.
 
 ---
 
@@ -336,8 +712,22 @@ Plan
 - **No secrets in the tool.** Provider credentials come from the provider's
   own config (claude-cli auth, env var for endpoints); never stored in
   `taxonomy.yml`.
-- **Profile reads are read-only.** `--from-profile` opens Chrome's
-  `Bookmarks` file read-only; v1 never writes into the profile directory.
+- **Profile writes are opt-in and reversible.** `plan`, `apply`, and
+  `--from-profile` open Chrome's `Bookmarks` read-only and never write the
+  profile directory. Only `sync` and `restore` write, only under the
+  lifecycle guard, only after a confirmation or `--yes`, and only with a
+  backup already on disk.
+- **`sync` on a signed-in profile is a fleet-wide action.** The reorg
+  reaches every device on the account. The confirmation prompt says so
+  explicitly rather than burying it in `--help`.
+- **The archive contains the full bookmark collection**, in plaintext, for
+  every snapshot ever taken. It inherits `taxonomy.yml`'s sensitivity:
+  0700 directories, 0600 files, never in a repo, never in the
+  user-data-dir. `ORGMARKS_ARCHIVE_DIR` lets it point at a
+  backed-up location -- whatever that location is becomes as sensitive as
+  the collection, and pointing it somewhere shared or public leaks
+  everything at once. Retention defaults to keep-everything, so the archive
+  only grows; that is deliberate, and it means the exposure is cumulative.
 
 ---
 
@@ -415,9 +805,64 @@ public doc; the file itself belongs in tds-internal if archived):
   primary and reference is one exhaustive generated subtree.
 - **Chrome extension form factor** -- store review, permissions surface, and
   no filesystem/YAML access; the batch CLI fits the export/import workflow.
-- **Writing Chrome's `Bookmarks` JSON in place** -- eliminates the import
-  step but races Chrome Sync and requires Chrome to be closed; one corrupted
-  profile outweighs the convenience. Revisit post-v1 with a backup story.
+- ~~**Writing Chrome's `Bookmarks` JSON in place**~~ -- rejected for v1 for
+  want of a backup story; **adopted 2026-07-30** as `orgmarks sync` now that
+  there is one. What changed: the `SingletonLock` guard makes "Chrome is
+  closed" a checked precondition rather than an assumption, atomic rename
+  plus an out-of-tree backup makes a torn write unrepresentable, and GUID
+  preservation turns the sync propagation from delete+create into moves.
+  The original objection was correct; it was a missing-mechanism objection,
+  not a never.
+- **`SIGKILL` as a quit escalation** -- the obvious way to honor
+  `--quit-timeout`, and it manufactures exactly the corrupted profile the
+  guard exists to prevent. A Chrome that will not exit gracefully is a
+  human's problem; orgmarks aborts and says which profile is stuck.
+- **Re-checking `SingletonLock` as the pre-write safeguard** -- reads as
+  sufficient and is a TOCTOU check, not exclusion: a Chrome launched in the
+  gap between check and `rename()` still clobbers. Claim and hold the lock
+  instead. Recorded because "just re-check right before the write" is the
+  intuitive fix and it does not work.
+- **Loading before quitting Chrome** -- the ordering that keeps the browser
+  usable during the classify stage, at the cost of planning from a snapshot
+  Chrome can still append to. Chrome flushes on exit, so a bookmark added
+  or synced mid-run is written to disk at QUIT and then overwritten by the
+  stale plan: silent loss, propagated fleet-wide. Quit first and accept the
+  longer downtime.
+- **Post-rename verification as the fallback for a breakable lock** -- it
+  reads as defense in depth and is not: Chrome can break the lock and load
+  the old tree before the rename, pass verification, and overwrite from
+  memory afterward. Verification detects one failure mode. If the lock
+  proves breakable the mechanism gets replaced, not backstopped.
+- **Using `SingletonLock` alone for orgmarks-vs-orgmarks exclusion** --
+  tempting, since it is already there and already held. But once orgmarks
+  claims it the owner is not Chrome, so any rule permissive enough to break
+  a stale Chrome lock is permissive enough for a second orgmarks to break
+  ours. One primitive cannot answer both "is Chrome running" and "may I
+  touch this profile." Separate `orgmarks.lock`, taken first, released last.
+- **Random GUIDs for regenerated nodes** -- reads as the obvious reading of
+  "generated nodes get fresh GUIDs," and it silently destroys idempotency:
+  the reference index is rebuilt every run, so random identities make the
+  whole subtree delete+create on each `sync`. Derive them (UUIDv5 over
+  namespace + primary GUID + placement) so reruns reproduce them exactly.
+- **Recomputing Chrome's `checksum` field** -- chases an internal algorithm
+  across releases to avoid an ID reassignment that costs nothing, because
+  node IDs are not identity in Chrome. Omit the key instead.
+- **Backups inside the user-data-dir** -- convenient and puts unknown files
+  where Chrome may enumerate, sync, or garbage-collect them. The archive
+  lives under `XDG_STATE_HOME` (or wherever `ORGMARKS_ARCHIVE_DIR` points).
+- **Count-based archive retention ("keep the last 10")** -- the original
+  plan, and it fails the case the archive exists for: a few runs in one
+  afternoon evict the good state from last week, and the collection is
+  kilobytes so nothing was being saved. Keep everything; thin by age band
+  if ever needed.
+- **A compressed or bespoke archive format** -- smaller and unrecoverable
+  without the tool. The archive must be restorable with `cp` by a person
+  who has never read this document, on a day when orgmarks is the thing
+  that broke.
+- **An upload/remote-backup feature in orgmarks** -- off-machine durability
+  is real, but every backend is a new dependency and a new way for the
+  collection to leak. `ORGMARKS_ARCHIVE_DIR` pointed at an
+  already-backed-up directory gets the same result with none of the code.
 - **Driving `chrome://bookmarks` import via chrome-mcp automation** -- adds a
   browser-automation dependency to save one manual click; fragile against
   Chrome UI changes.
@@ -445,8 +890,12 @@ public doc; the file itself belongs in tds-internal if archived):
   support is likely free but untested.
 - **Title enrichment** -- fetching page titles for URL-shaped bookmark names
   before classification; network-bound, so batched and cached if added.
-- **Profile write-back** -- direct `Bookmarks` JSON emit (Chrome closed,
-  timestamped backup, GUID preservation) to remove the import step.
+- **Other Chromium profiles** -- Brave/Edge/Vivaldi use the same `Bookmarks`
+  JSON and the same `SingletonLock`; `sync` is likely near-free for them
+  once the browser binary and data-dir resolution are table-driven.
+- **Sync-aware dry run** -- ask Chrome Sync what it *would* propagate before
+  writing. No supported API for it today; noted because the blast radius is
+  the scariest part of `sync`.
 
 ---
 
