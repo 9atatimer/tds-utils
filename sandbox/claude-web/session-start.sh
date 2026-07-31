@@ -11,7 +11,9 @@
 #
 # Acquisition already happened: the env-setup step (sandbox/claude-web/setup.sh)
 # ran `lmde acquire` PRE-session and installed clai (onto PATH) + ast-mcp +
-# the bundled skills/catalog from GitHub Packages. So this hook does NOT
+# the floating @nine-at-a-time-media/skills data package from GitHub
+# Packages (Revision 1; clai's bundled _data is only a fallback). So this
+# hook does NOT
 # install anything and needs no network or token: it just runs clai's
 # offline, configure-only provisioning engine (emit dialects, place skills,
 # register ast-mcp at agent scope, print the epilogue). If clai is absent

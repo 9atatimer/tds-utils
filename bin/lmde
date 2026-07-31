@@ -268,9 +268,9 @@ Commands:
   status                  Concise health summary (non-zero if any DEGRADED).
   doctor                  Verbose health detail; runs ALL healthchecks.
   acquire [--pins <file>] Install the agent-agnostic clai + ast-mcp + git-mirror
-                          npm packages from GitHub Packages (latest by default;
-                          --pins pins named packages and floats the rest).
-  acquire --check         Advisory-only: report any clai/ast-mcp/git-mirror behind the
+                          + skills npm packages from GitHub Packages (latest by
+                          default; --pins pins named packages, floats the rest).
+  acquire --check         Advisory-only: report any acquired package behind the
         [--pins <file>]   GitHub Packages latest and exit 0 (installs nothing).
 
 Notes:
@@ -278,12 +278,15 @@ Notes:
   component list -- it never installs everything implicitly.
 
   acquire is a first-class verb, distinct from the platform install/sync
-  components: it installs @nine-at-a-time-media/clai (onto PATH) and
-  @nine-at-a-time-media/ast-mcp (at ~/.local/bin/ast-mcp) from GitHub Packages
-  (npm.pkg.github.com). Auth is GH_AI_TOOLS_PAT, a CLASSIC PAT with the
-  read:packages scope. Versions float to registry latest unless a --pins file
-  pins them (keys CLAI_VERSION / AST_MCP_VERSION; an absent or UNSET key
-  floats); sandbox/pins.env is itself a valid --pins file. acquire is
+  components: it installs @nine-at-a-time-media/clai (onto PATH),
+  @nine-at-a-time-media/ast-mcp (at ~/.local/bin/ast-mcp), and the
+  @nine-at-a-time-media/skills DATA package (no binary; symlinked at
+  ~/.local/lib/node_modules/@nine-at-a-time-media/skills, the lmde->clai
+  boundary convention path) from GitHub Packages (npm.pkg.github.com). Auth is
+  GH_AI_TOOLS_PAT, a CLASSIC PAT with the read:packages scope. Versions float
+  to registry latest unless a --pins file pins them (keys CLAI_VERSION /
+  AST_MCP_VERSION / SKILLS_VERSION; an absent or UNSET key floats);
+  sandbox/pins.env is itself a valid --pins file. acquire is
   fail-open: an unreachable registry, a missing token, or a failed install
   degrades to the already-installed binary with a warning and still exits 0.
   It never edits a shell rc -- if ~/.local/bin is not on PATH it only warns.

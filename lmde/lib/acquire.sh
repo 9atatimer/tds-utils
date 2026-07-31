@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # acquire.sh -- library for the `lmde acquire` verb: install the agent-agnostic
-# clai + ast-mcp + git-mirror npm packages from GitHub Packages (npm.pkg.github.com), latest
-# by default with an optional --pins override, FAIL-OPEN at every step.
+# clai + ast-mcp + git-mirror + skills npm packages from GitHub Packages
+# (npm.pkg.github.com), latest by default with an optional --pins override,
+# FAIL-OPEN at every step.
 #
 # Usage:       Sourced by bin/lmde (not executable on its own). Strict mode
 #              (`set -euo pipefail`) is owned by the sourcing script, mirroring
@@ -24,15 +25,22 @@ ACQUIRE_SHARE_ROOT="${HOME}/.local/share/tds-utils/acquire"
 ACQUIRE_BIN_DIR="${HOME}/.local/bin"
 ACQUIRE_STATE_DIR="${HOME}/.local/state/tds-utils/acquire"
 ACQUIRE_PREFIX="${ACQUIRE_SHARE_ROOT}/_npm"
+# Where DATA packages (bin column "-") get their convention symlink: the
+# lmde->clai boundary contract path (LMDE-CLAI-BOUNDARY.DESIGN.md, Revision 1).
+ACQUIRE_DATA_LINK_ROOT="${HOME}/.local/lib/node_modules"
 
 # acquire_pkg_table -- the package manifest, whitespace columns read in a
 # while-loop (NOT a declare -A, for macOS bash 3.2). Columns:
 #   shortname  npm_name  bin  pin_var
+# A bin of "-" marks a DATA package: it ships no binary; presence is the
+# package directory itself, and the symlink lands under
+# ACQUIRE_DATA_LINK_ROOT/<npm_name> instead of ACQUIRE_BIN_DIR.
 acquire_pkg_table() {
     cat <<'EOF'
 clai @nine-at-a-time-media/clai clai CLAI_VERSION
 ast-mcp @nine-at-a-time-media/ast-mcp ast-mcp AST_MCP_VERSION
 git-mirror @nine-at-a-time-media/git-mirror git-mirror GIT_MIRROR_VERSION
+skills @nine-at-a-time-media/skills - SKILLS_VERSION
 EOF
 }
 
@@ -82,6 +90,11 @@ resolve_version() {
     if [ -n "${latest}" ]; then echo "${latest}"; return 0; fi
     echo ""; return 0
 }
+
+# is_data_pkg <bin> -- whether the table's bin column carries the "-" sentinel
+# marking a data-only package (no binary ships; the artifact is the package
+# directory itself).
+is_data_pkg() { [ "$1" = "-" ]; }
 
 # --- Adapters (I/O) ---
 
@@ -173,14 +186,36 @@ write_stamp() {
 
 # link_bin <target> <link> -- create/refresh the stable symlink atomically;
 # skip when it already points at target. Copied from lib.sh link_server
-# semantics (no readlink -f).
+# semantics (no readlink -f). Works for directory targets too (ln -sfn), so
+# data packages reuse it for their convention symlink -- BUT a real
+# (non-symlink) directory already sitting at <link> is refused: `ln -sfn`
+# treats a directory-valued LINK_NAME as a target directory and would nest
+# the new link INSIDE it (e.g. skills/skills), silently leaving consumers on
+# the stale directory. The directory is not acquire's to delete; the caller
+# warns and skips the stamp so the next run retries.
 link_bin() {
     local target="$1" link="$2"
     mkdir -p "$(dirname "${link}")" || return 1
     if [ -L "${link}" ] && [ "$(readlink "${link}")" = "${target}" ]; then
         return 0
     fi
+    if [ ! -L "${link}" ] && [ -d "${link}" ]; then
+        acquire_note "WARNING: ${link} exists as a real directory (not a symlink); refusing to link through it -- remove or migrate it by hand"
+        return 1
+    fi
     ln -sfn "${target}" "${link}" || return 1
+}
+
+# artifact_present <bin> <artifact> -- whether the package's observable
+# artifact is really on disk: an executable prefix binary for bin packages, or
+# the package directory's package.json for data packages.
+artifact_present() {
+    local bin="$1" artifact="$2"
+    if is_data_pkg "${bin}"; then
+        [ -f "${artifact}/package.json" ]
+    else
+        [ -x "${artifact}" ]
+    fi
 }
 
 # --- Flow ---
@@ -190,7 +225,7 @@ link_bin() {
 # machine, guarding every fallible call and always returning 0 (fail-open).
 acquire_one() {
     local shortname="$1" npm_name="$2" bin="$3" pin_var="$4" pins_file="$5" npmrc="$6"
-    local requested latest target installed prefix_bin link
+    local requested latest target installed artifact link
 
     requested="$(pins_lookup "${pins_file}" "${pin_var}")" || requested=""
 
@@ -203,8 +238,16 @@ acquire_one() {
     target="$(resolve_version "${requested}" "${latest}")" || target=""
     installed="$(installed_version "${shortname}")" || installed=""
 
-    prefix_bin="${ACQUIRE_PREFIX}/node_modules/.bin/${bin}"
-    link="${ACQUIRE_BIN_DIR}/${bin}"
+    # Bin packages: artifact is the prefix binary, linked into ACQUIRE_BIN_DIR.
+    # Data packages: artifact is the installed package dir, linked at the
+    # boundary convention path under ACQUIRE_DATA_LINK_ROOT.
+    if is_data_pkg "${bin}"; then
+        artifact="${ACQUIRE_PREFIX}/node_modules/${npm_name}"
+        link="${ACQUIRE_DATA_LINK_ROOT}/${npm_name}"
+    else
+        artifact="${ACQUIRE_PREFIX}/node_modules/.bin/${bin}"
+        link="${ACQUIRE_BIN_DIR}/${bin}"
+    fi
 
     # Registry unreachable (a floating package whose latest could not resolve):
     # keep whatever is installed and name what is stale.
@@ -217,18 +260,18 @@ acquire_one() {
         return 0
     fi
 
-    # Already current AND the prefix binary is really present: no install; just
-    # ensure the symlink is present. If the stamp matches but the binary is gone
-    # (share tree wiped, stamp survived), do NOT trust the stamp -- fall through
-    # to reinstall so clai/ast-mcp are actually available again.
-    if [ -n "${installed}" ] && [ "${installed}" = "${target}" ] && [ -x "${prefix_bin}" ]; then
+    # Already current AND the artifact is really present: no install; just
+    # ensure the symlink is present. If the stamp matches but the artifact is
+    # gone (share tree wiped, stamp survived), do NOT trust the stamp -- fall
+    # through to reinstall so the package is actually available again.
+    if [ -n "${installed}" ] && [ "${installed}" = "${target}" ] && artifact_present "${bin}" "${artifact}"; then
         acquire_note "${shortname} ${target} already up-to-date; skipping install"
-        link_bin "${prefix_bin}" "${link}" \
+        link_bin "${artifact}" "${link}" \
             || acquire_note "WARNING: ${shortname}: could not refresh symlink ${link}"
         return 0
     fi
     if [ -n "${installed}" ] && [ "${installed}" = "${target}" ]; then
-        acquire_note "${shortname} ${target} stamped but ${prefix_bin} is missing; reinstalling"
+        acquire_note "${shortname} ${target} stamped but ${artifact} is missing; reinstalling"
     fi
 
     # Install the target version.
@@ -241,19 +284,19 @@ acquire_one() {
         return 0
     fi
 
-    if [ ! -x "${prefix_bin}" ]; then
-        acquire_note "WARNING: ${shortname}: npm install reported success but ${prefix_bin} is missing -- ${shortname} unavailable this run"
+    if ! artifact_present "${bin}" "${artifact}"; then
+        acquire_note "WARNING: ${shortname}: npm install reported success but ${artifact} is missing -- ${shortname} unavailable this run"
         return 0
     fi
 
-    if ! link_bin "${prefix_bin}" "${link}"; then
+    if ! link_bin "${artifact}" "${link}"; then
         acquire_note "WARNING: ${shortname}: installed ${target} but could not create symlink ${link}"
         return 0
     fi
 
     write_stamp "${shortname}" "${target}" \
         || acquire_note "WARNING: ${shortname}: could not write version stamp"
-    acquire_note "installed ${shortname} ${target} from GitHub Packages; ${link} -> ${prefix_bin}"
+    acquire_note "installed ${shortname} ${target} from GitHub Packages; ${link} -> ${artifact}"
     return 0
 }
 

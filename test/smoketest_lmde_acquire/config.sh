@@ -47,13 +47,19 @@ scenario_dir() {
 
 # --- Stubs -------------------------------------------------------------------
 
-# make_npm_stub <bindir> <clai_latest> <astmcp_latest> <installlog> -- a fake
-# npm that answers `npm view <name> version` with the matching latest and, on
-# `npm install --prefix DIR ... <name>@<ver>`, plants an executable shim at
-# DIR/node_modules/.bin/<bin> (bin = the unscoped package name) and appends
-# "<name>@<ver>" to <installlog>. Mimics a reachable GitHub Packages registry.
+# make_npm_stub <bindir> <clai_latest> <astmcp_latest> <installlog>
+# [skills_latest] -- a fake npm that answers `npm view <name> version` with the
+# matching latest and, on `npm install --prefix DIR ... <name>@<ver>`, plants
+# the package's observable artifact and appends "<name>@<ver>" to <installlog>.
+# Bin packages (clai, ast-mcp) get an executable shim at
+# DIR/node_modules/.bin/<bin> (bin = the unscoped package name); the skills
+# DATA package gets DIR/node_modules/<scoped name>/package.json instead (data
+# packages ship no binary). <skills_latest> defaults to 0.0.1 so the 13
+# pre-skills scenarios keep passing unchanged. Mimics a reachable GitHub
+# Packages registry.
 make_npm_stub() {
     local bindir="$1" clai_latest="$2" astmcp_latest="$3" installlog="$4"
+    local skills_latest="${5:-0.0.1}"
     cat > "${bindir}/npm" <<EOF
 #!/usr/bin/env bash
 sub="\$1"; shift || true
@@ -62,6 +68,7 @@ if [ "\$sub" = "view" ]; then
   case "\$name" in
     *ast-mcp) [ -n "${astmcp_latest}" ] && echo "${astmcp_latest}" || exit 1 ;;
     *clai)    [ -n "${clai_latest}" ] && echo "${clai_latest}" || exit 1 ;;
+    *skills)  [ -n "${skills_latest}" ] && echo "${skills_latest}" || exit 1 ;;
     *) exit 1 ;;
   esac
   exit 0
@@ -79,9 +86,17 @@ if [ "\$sub" = "install" ]; then
   [ -n "\$prefix" ] || exit 1
   [ -n "\$spec" ] || exit 1
   name="\${spec%@*}"; ver="\${spec##*@}"; bin="\${name##*/}"
-  mkdir -p "\$prefix/node_modules/.bin"
-  printf '#!/usr/bin/env bash\necho %s\n' "\$ver" > "\$prefix/node_modules/.bin/\$bin"
-  chmod +x "\$prefix/node_modules/.bin/\$bin"
+  case "\$name" in
+    *skills)
+      mkdir -p "\$prefix/node_modules/\$name/skills" "\$prefix/node_modules/\$name/mcp"
+      printf '{"name":"%s","version":"%s"}\n' "\$name" "\$ver" > "\$prefix/node_modules/\$name/package.json"
+      ;;
+    *)
+      mkdir -p "\$prefix/node_modules/.bin"
+      printf '#!/usr/bin/env bash\necho %s\n' "\$ver" > "\$prefix/node_modules/.bin/\$bin"
+      chmod +x "\$prefix/node_modules/.bin/\$bin"
+      ;;
+  esac
   printf '%s\n' "\$spec" >> "${installlog}"
   exit 0
 fi
@@ -103,11 +118,13 @@ EOF
 }
 
 # make_npm_forbidden_install_stub <bindir> <clai_latest> <astmcp_latest> <marker>
-# -- a fake npm whose `view` succeeds (returns the given latests, so the
-# up-to-date comparison can resolve) but whose `install` touches <marker> and
-# plants nothing, letting a test assert install was NEVER reached.
+# [skills_latest] -- a fake npm whose `view` succeeds (returns the given
+# latests, so the up-to-date comparison can resolve) but whose `install`
+# touches <marker> and plants nothing, letting a test assert install was NEVER
+# reached. <skills_latest> defaults to 0.0.1, same as make_npm_stub.
 make_npm_forbidden_install_stub() {
     local bindir="$1" clai_latest="$2" astmcp_latest="$3" marker="$4"
+    local skills_latest="${5:-0.0.1}"
     cat > "${bindir}/npm" <<EOF
 #!/usr/bin/env bash
 sub="\$1"; shift || true
@@ -116,6 +133,7 @@ if [ "\$sub" = "view" ]; then
   case "\$name" in
     *ast-mcp) echo "${astmcp_latest}" ;;
     *clai)    echo "${clai_latest}" ;;
+    *skills)  echo "${skills_latest}" ;;
     *) exit 1 ;;
   esac
   exit 0
@@ -144,6 +162,23 @@ seed_installed() {
     mkdir -p "${home}/.local/state/tds-utils/acquire"
     printf '%s\n' "${version}" > "${home}/.local/state/tds-utils/acquire/${shortname}.version"
     printf '%s\n' "${prefix_bin}"
+}
+
+# seed_installed_data <home> <shortname> <npm_name> <version> -- mimic a prior
+# acquire of a DATA package (no binary): plant the package dir with its
+# package.json in the npm prefix, the convention symlink under
+# ~/.local/lib/node_modules pointing at it, and the state stamp. Echoes the
+# package-dir path so a test can assert the symlink target is left intact.
+seed_installed_data() {
+    local home="$1" shortname="$2" npm_name="$3" version="$4"
+    local pkg_dir="${home}/.local/share/tds-utils/acquire/_npm/node_modules/${npm_name}"
+    mkdir -p "${pkg_dir}"
+    printf '{"name":"%s","version":"%s"}\n' "${npm_name}" "${version}" > "${pkg_dir}/package.json"
+    mkdir -p "${home}/.local/lib/node_modules/$(dirname "${npm_name}")"
+    ln -sfn "${pkg_dir}" "${home}/.local/lib/node_modules/${npm_name}"
+    mkdir -p "${home}/.local/state/tds-utils/acquire"
+    printf '%s\n' "${version}" > "${home}/.local/state/tds-utils/acquire/${shortname}.version"
+    printf '%s\n' "${pkg_dir}"
 }
 
 # --- Runner ------------------------------------------------------------------
@@ -285,7 +320,7 @@ assert_stdout_empty() {
 
 export -f require_lmde scenario_dir \
     make_npm_stub make_npm_fail_stub make_npm_forbidden_install_stub \
-    seed_installed run_acquire run_check \
+    seed_installed seed_installed_data run_acquire run_check \
     assert_eq assert_file_present assert_file_absent assert_symlink_to \
     assert_installed assert_not_installed assert_stderr_contains \
     assert_stdout_contains assert_stdout_empty

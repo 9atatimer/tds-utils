@@ -197,6 +197,83 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 
 ---
 
+## Active Work: lmde acquire -- skills data package (2026-07-30)
+
+> **Status:** Implemented -- 15/15 acquire scenarios green; PR pending
+> **Design:** docs/design/LMDE-CLAI-BOUNDARY.DESIGN.md, Revision 1 (merged PR #183)
+> **Branch:** claude/sandbox-skills-mcp-test-mz2txs
+> **Companion:** template-tools carries the package itself + the clai
+> source-order change; this repo carries the acquire half only.
+
+**Goal:** `lmde acquire` installs `@nine-at-a-time-media/skills` as a third,
+data-only package: no binary, presence = the package dir, and a convention
+symlink at `~/.local/lib/node_modules/@nine-at-a-time-media/skills` pointing
+into the acquire prefix. `SKILLS_VERSION` pins it; UNSET floats (existing
+convention).
+
+**BDD process:** RED scenarios first (committed as the milestone), then
+GREEN in `lmde/lib/acquire.sh`, then the doc folds. One commit per step.
+
+### Step 1: RED scenarios (milestone)
+
+- [x] Extend `test/smoketest_lmde_acquire/config.sh` stubs: optional 5th
+  `skills_latest` arg (default `0.0.1`); on install of the skills package the
+  stub plants `node_modules/@nine-at-a-time-media/skills/package.json`
+  instead of a `.bin` shim.
+- [x] `14_skills_data_package_floats_and_links.sh` -- Given no pins, When
+  acquire runs, Then skills installs at stub latest, stamp written,
+  convention symlink points at the prefix package dir, and NO
+  `~/.local/bin/skills` link exists.
+- [x] `15_skills_version_pin_honored.sh` -- Given SKILLS_VERSION="0.1.0"
+  while stub latest is 9.9.9, Then skills installs at 0.1.0 and the other
+  packages float (mirror of scenario 02).
+- [x] Run `./test/smoketest_lmde_acquire/run_all.sh`: 13 existing GREEN,
+  14/15 RED (skills not in the package table yet).
+
+**Commit Point:** `test(acquire): add skills data-package scenarios (RED)`
+
+### Step 2: GREEN -- data-package support in acquire.sh
+
+- [x] `acquire_pkg_table` row: `skills @nine-at-a-time-media/skills - SKILLS_VERSION`
+  (bin column `-` = data-only sentinel; document in the column comment).
+- [x] `acquire_one`: data-package branch -- presence check is
+  `<prefix>/node_modules/<npm_name>/package.json`, link target is the
+  package dir, link path is `${ACQUIRE_DATA_LINK_ROOT}/<npm_name>`
+  (new constant `${HOME}/.local/lib/node_modules`). Bin packages unchanged.
+- [x] `bin/lmde` usage text mentions skills.
+- [x] Run `./test/smoketest_lmde_acquire/run_all.sh`: all 15 GREEN.
+
+**Commit Point:** `feat(acquire): install the skills data package (GREEN)`
+
+### Step 3: Doc folds
+
+- [x] `sandbox/pins.env`: add `SKILLS_VERSION="UNSET"` (float is the design
+  intent) and rewrite the stale "CLAI_VERSION is the content-stamp gate"
+  header per Revision 1.
+- [x] `lmde/LMDE.md`: acquire section -- three packages + skills; retire the
+  "NOT separately acquired" passage.
+- [x] `sandbox/README.md` / `lmde/acquire-pins.env.example`: mention
+  SKILLS_VERSION where the float convention is restated.
+
+**Commit Point:** `docs(acquire): fold Revision 1 into pins.env + LMDE.md`
+
+### Learnings
+
+```
+- The acquire table was already data-driven; the real axis of change was the
+  bin-package assumption inside acquire_one, not the row count. One sentinel
+  ("-" in the bin column) + two small helpers (is_data_pkg, artifact_present)
+  covered it without touching the currency machine.
+- Scenario 05 (idempotent rerun) legitimately broke on GREEN: "everything
+  up-to-date" now includes skills, so the scenario seeds it (new
+  seed_installed_data helper). A growing fleet changes what "idempotent"
+  means -- the test followed the contract, not the old fixture.
+- npm stub extensions defaulted skills_latest=0.0.1 so the 13 pre-skills
+  scenarios needed zero edits.
+```
+
+---
+
 ## Active Work: orgmarks (bookmark organizer)
 
 > **Status:** Implemented -- all 10 phases landed on
