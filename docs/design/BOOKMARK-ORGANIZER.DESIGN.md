@@ -247,7 +247,7 @@ costs nothing -- rerun and it regenerates.
 | Responsibility | Details |
 |---|---|
 | Netscape HTML out | `bookmarks-organized-<date>.html`, importable via `chrome://bookmarks` Import. The `apply` write path. |
-| Chrome JSON out | `ChromeJsonSink`, the mirror of the existing `ChromeJsonSource`: GUIDs and `date_added` round-trip, `checksum` omitted, `sync_metadata` passed through. The `sync` write path. |
+| Chrome JSON out | `ChromeJsonSink`, the mirror of the existing `ChromeJsonSource`: GUIDs and `date_added` round-trip at full precision, `checksum` omitted, `sync_metadata` and unrecognized top-level keys passed through. Requires the prerequisite work below -- today's source is lossy on all three counts. The `sync` write path. |
 | Plan report | Human-readable summary to stdout: N moved, N deduped, N triaged, folders created/removed, learned rules added. |
 | Taxonomy write-back | Appends learned rules to `taxonomy.yml`, preserving comments and key order (ruamel-style round-trip parse); on `apply` and `sync`, never on `plan`. The learned-rule ratchet is a property of any writing mode -- without it `sync` would re-classify the same residue every run. |
 
@@ -277,7 +277,7 @@ guaranteed silent clobber. So the guard is a precondition, not a mitigation.
 | QUIT | macOS `osascript -e 'quit app "Google Chrome"'`; Linux `SIGTERM` to the lock's pid. Then poll for the lock to clear, 30s default (`--quit-timeout`). | Still held at timeout -> exit 4, nothing written. **Never escalate to `SIGKILL`** -- a killed Chrome is exactly the half-written profile this guard exists to prevent. |
 | CLAIM | Take `SingletonLock` ourselves (symlink to `<hostname>-<our-pid>`) so a relaunched Chrome cannot attach to the profile. Claimed **before** LOAD and held across the whole pipeline; released after the post-rename verification, in a `finally` and a signal handler. | Cannot claim -> exit 4, nothing written. |
 | WRITE | Re-`readlink()` the lock and confirm we still own it, then the backup + emit protocol below, then verify the rename landed. | Ownership lost -> exit 4, nothing written. Any other failure -> restore from backup, release the lock, then continue to RESTART. |
-| RESTART | Only if we quit it: relaunch (`open -a "Google Chrome"` / the resolved Linux binary), detached, and do not wait on it. | Relaunch failure is reported, not fatal -- the profile is already consistent. |
+| RESTART | Only if we quit it **and** `--no-restart` was not passed: relaunch (`open -a "Google Chrome"` / the resolved Linux binary), detached, and do not wait on it. Both conditions apply on every exit path, success and failure alike. | Relaunch failure is reported, not fatal -- the profile is already consistent. |
 
 `SingletonLock` is per-user-data-dir, which is the correct granularity: the
 file being written is shared by every profile under that directory. `pgrep`
@@ -351,9 +351,13 @@ section back to the drawing board.
    `${XDG_STATE_HOME:-~/.local/state}/orgmarks/backups/<profile>/<utc-ts>/`.
    Outside the user-data-dir on purpose -- Chrome should never see our
    files. Retain the last N (default 10).
-2. **Emit** the new JSON to a temp file in the profile directory, fsync,
-   then atomic `rename()` over `Bookmarks`. A torn write is not
-   representable.
+2. **Emit** the new JSON to a temp file in the profile directory, fsync
+   the file, atomic `rename()` over `Bookmarks`, then **fsync the
+   containing directory**. A torn write is not representable, and the
+   directory fsync is what makes the rename itself durable: without it a
+   power loss after `rename()` returns can leave `Bookmarks` reverted or
+   missing, while orgmarks has already reported success and restarted
+   Chrome. Do it before verification, release, and restart.
 3. **Leave Chrome's own `Bookmarks.bak` alone.** It holds the pre-run tree
    and Chrome falls back to it if `Bookmarks` fails to parse -- a free
    second safety net. Chrome regenerates it on next exit.
@@ -405,21 +409,33 @@ verbatim copies, which duplicate by the same mechanism.
 
 #### Prerequisite: carry what the sink must round-trip
 
-The existing source does not round-trip folder identity.
-`ChromeJsonSource._node_to_folder()` reads `guid` for bookmarks only, and
-the `Folder` model has no `guid` field at all -- folder GUIDs are dropped
-on load today. That is invisible on the HTML path, which has no concept of
-them, and fatal on the profile path: a retained folder written back with a
-fresh GUID propagates as delete+create, taking its entire subtree with it.
-A wrongly-recreated folder is a much larger blast radius than a
-wrongly-recreated bookmark.
+**The existing source is lossy by design, and every loss is a defect on the
+profile path.** `ChromeJsonSource` was built to feed a Netscape HTML
+emitter, a format that has no GUIDs, no envelope, and second-granularity
+timestamps -- so discarding all three was correct. A sink that writes the
+profile back inverts that requirement completely: anything the source drops
+is something `sync` silently rewrites, and on a signed-in profile every
+silent rewrite propagates to the fleet.
+
+Three separate instances of this have surfaced so far -- folder GUIDs,
+top-level keys like `sync_metadata`, and sub-second timestamp precision --
+which is enough to treat it as one systemic gap rather than three bugs.
+Read the table below as "make the Chrome JSON path lossless," and assume
+anything not yet audited is lossy until checked.
+
+The worst of the three is folder identity: `_node_to_folder()` reads `guid`
+for bookmarks only and the `Folder` model has no `guid` field at all, so a
+retained folder written back with a fresh GUID propagates as delete+create
+and takes its entire subtree with it. A wrongly-recreated folder is a much
+larger blast radius than a wrongly-recreated bookmark.
 
 So `sync` is not "add a sink plus a guard." It requires, first:
 
 | Component | Change |
 |---|---|
 | `domain/model.py` | `Folder` gains `guid: str \| None = None`, matching `Bookmark`. A `ChromeProfileEnvelope` (or equivalent) wraps `BookmarkTree` with the opaque top-level fields the sink must return unaltered. |
-| `adapters/chrome_json.py` | `_node_to_folder()` reads `guid` from folder nodes and the three root nodes. `parse_chrome_json()` stops discarding everything outside `roots` and returns the envelope. |
+| `adapters/chrome_json.py` | `_node_to_folder()` reads `guid` from folder nodes and the three root nodes. `parse_chrome_json()` stops discarding everything outside `roots` and returns the envelope. `_chrome_date_to_epoch()` stops truncating to whole seconds. |
+| Timestamps | `_chrome_date_to_epoch()` computes `micros // 1_000_000`, so every sub-second remainder is gone by the time the domain sees it and no sink can reconstruct it. Retain the raw Chrome microsecond value (or store microseconds throughout) so `date_added` survives the round trip. |
 | `domain/planner.py` | Carry folder GUIDs through rebuild; mint fresh ones for folders the taxonomy creates; clone reference-index and pinned copies with fresh GUIDs. |
 | `adapters/netscape.py` | Unaffected -- Netscape HTML has neither GUIDs nor an envelope; the HTML path keeps today's behavior. |
 
