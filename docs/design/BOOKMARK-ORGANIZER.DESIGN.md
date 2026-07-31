@@ -275,8 +275,8 @@ guaranteed silent clobber. So the guard is a precondition, not a mitigation.
 | DETECT | Read `<user-data-dir>/SingletonLock`; it is a symlink whose target is `<hostname>-<pid>`. Chrome is running iff that pid is alive and its executable is Chrome. | Unreadable/absent lock -> treat as not running. Lock present but pid dead or foreign -> stale, log and treat as not running. |
 | PROMPT | Chrome running: print the profile path and ask for confirmation to quit it. `--yes` skips the prompt; `--no-quit` refuses instead of asking. | Declined -> exit 3, nothing written. |
 | QUIT | macOS `osascript -e 'quit app "Google Chrome"'`; Linux `SIGTERM` to the lock's pid. Then poll for the lock to clear, 30s default (`--quit-timeout`). | Still held at timeout -> exit 4, nothing written. **Never escalate to `SIGKILL`** -- a killed Chrome is exactly the half-written profile this guard exists to prevent. |
-| CLAIM | Take `SingletonLock` ourselves (symlink to `<hostname>-<our-pid>`) so a relaunched Chrome cannot attach to the profile mid-write. Held until after the post-rename verification; released in a `finally` and a signal handler. | Cannot claim -> exit 4, nothing written. |
-| WRITE | The backup + emit protocol below, then verify the rename landed. | Any failure -> restore from backup, release the lock, then continue to RESTART. |
+| CLAIM | Take `SingletonLock` ourselves (symlink to `<hostname>-<our-pid>`) so a relaunched Chrome cannot attach to the profile. Claimed **before** LOAD and held across the whole pipeline; released after the post-rename verification, in a `finally` and a signal handler. | Cannot claim -> exit 4, nothing written. |
+| WRITE | Re-`readlink()` the lock and confirm we still own it, then the backup + emit protocol below, then verify the rename landed. | Ownership lost -> exit 4, nothing written. Any other failure -> restore from backup, release the lock, then continue to RESTART. |
 | RESTART | Only if we quit it: relaunch (`open -a "Google Chrome"` / the resolved Linux binary), detached, and do not wait on it. | Relaunch failure is reported, not fatal -- the profile is already consistent. |
 
 `SingletonLock` is per-user-data-dir, which is the correct granularity: the
@@ -284,31 +284,66 @@ file being written is shared by every profile under that directory. `pgrep`
 is not a substitute -- it cannot distinguish a Chrome running against a
 different data dir, and it sees nothing when the lock is merely stale.
 
-Two properties the sequence must hold:
+Properties the sequence must hold:
 
+- **Quit and claim *before* LOAD, not before EMIT.** The snapshot the plan
+  is built from must be taken from a quiesced profile that orgmarks already
+  holds the lock on. Reading first and quitting later is unsound: Chrome
+  flushes its in-memory tree on exit, so any bookmark added locally or
+  arriving via sync during the classify stage lands on disk at QUIT and is
+  then overwritten by an output tree built from the older snapshot. That is
+  silent data loss, propagated fleet-wide. Ordering the guard first removes
+  the window rather than narrowing it.
 - **Hold the lock; do not merely re-check it.** Re-reading `SingletonLock`
   before WRITE is a TOCTOU check, not mutual exclusion: a Chrome launched
   between the check and the `rename()` loads the old tree and overwrites it
-  on exit -- the exact silent clobber the guard exists to prevent. Instead,
-  once Chrome has exited, orgmarks **claims** `SingletonLock` itself,
-  symlinking it to `<hostname>-<our-pid>`, and holds it across backup,
-  emit, and rename. That is Chrome's own mutual-exclusion primitive used
-  for its intended purpose rather than raced against. Release happens
-  after the rename, before RESTART, and in a signal handler and `finally`
-  so a killed orgmarks does not leave the profile permanently locked.
-- **Verify after the rename.** Re-read `Bookmarks` and confirm it is the
-  tree we wrote before releasing the lock. Cheap, and it converts a
-  clobber from silent into reported.
+  on exit. Instead, once Chrome has exited, orgmarks **claims**
+  `SingletonLock` itself, symlinking it to `<hostname>-<our-pid>`, and
+  holds it across load, plan, emit, and rename. That is Chrome's own
+  mutual-exclusion primitive used for its intended purpose rather than
+  raced against. Release happens after the rename, before RESTART, and in
+  a signal handler and `finally` so a killed orgmarks does not leave the
+  profile permanently locked.
+- **Ownership loss is fatal.** Re-`readlink()` the lock immediately before
+  the rename and confirm it still names our pid. If it does not, abort
+  without writing (exit 4). Losing the lock means another Chrome is live on
+  the profile, and *nothing* we write afterward is safe.
+- **Revalidate the snapshot as a cheap assertion.** With the guard ordered
+  first this should never fire, so treat a mismatch between the loaded
+  snapshot and the on-disk file at write time as a bug, not a routine
+  branch: abort, keep the backup, report.
 - **Restart is a relaunch, not a session restore.** Tabs return only if
   Chrome is configured to continue where it left off. Stated in `--help`;
   not something orgmarks tries to fix.
 
-Chrome's behavior when it finds the lock held by a non-Chrome process is
-the third item on the empirical-verification list (with `checksum` and
-`sync_metadata`): it may refuse with "profile is in use," or it may judge
-the lock stale and break it. If it breaks it, the post-rename verification
-is what catches the result. Test this before shipping, on a copied
-user-data-dir.
+The cost of quitting first is real and worth stating: Chrome is down for
+the whole run -- including a classify stage that can take minutes on a
+large residue -- not just for the write. That is the price of correctness
+by construction, and for a batch groomer run occasionally it is the right
+trade. `plan` still runs against a live Chrome, so the "what would it do"
+question never requires closing the browser.
+
+#### The lock experiment gates this design
+
+Chrome's behavior when it finds `SingletonLock` held by a **non-Chrome**
+process is unverified: it may refuse with "profile is in use," or it may
+judge the lock stale and break it. This is not an implementation detail to
+settle later -- **it gates the design**.
+
+If Chrome breaks orgmarks-held locks, the mechanism above does not provide
+exclusion and must be replaced, not patched. In particular, post-rename
+verification is *not* a sufficient fallback, and the previous revision of
+this document was wrong to imply it was: Chrome can break the lock and
+load the old tree *before* our rename, verification then reads our own
+fresh file and passes, and the still-running Chrome overwrites it from
+memory minutes later. Verification catches a clobber that has already
+happened by write time; it cannot catch one still queued in another
+process's memory. It stays in the design as a cheap detector of one
+failure mode, with no claim to catching the general case.
+
+Test on a copied user-data-dir, before implementation, alongside
+`checksum` and `sync_metadata`. A "Chrome breaks it" result sends this
+section back to the drawing board.
 
 #### Write protocol
 
@@ -415,7 +450,8 @@ Errors:
   taxonomy invalid         -> exit 2, Pydantic error listing
   LLM provider unreachable -> warn, degrade to rules-only, residue to _triage, exit 0
   quit declined            -> exit 3, profile untouched          (sync/restore)
-  Chrome would not exit    -> exit 4, profile untouched          (sync/restore)
+  no exclusive lock        -> exit 4, profile untouched          (sync/restore)
+      (Chrome would not exit, lock unclaimable, or ownership lost mid-run)
   profile write failed     -> exit 5, backup restored, Chrome restarted
 ```
 
@@ -446,18 +482,23 @@ Pipeline stages per run (no persistent state between runs beyond
 | CLASSIFY | PLAN | all batches resolved | failed batches -> `_triage` |
 | PLAN | EMIT | mode == apply or sync | `plan` mode stops here and prints |
 
-`sync` wraps the same pipeline in the lifecycle guard: DETECT and PROMPT
-run before LOAD (fail fast, before spending LLM calls), QUIT and the lock
-claim run between PLAN and EMIT, and RESTART runs after EMIT on every exit
-path that quit Chrome -- including the failure ones. The lock is held
-across EMIT and released only after the post-rename verification.
+`sync` wraps the same pipeline in the lifecycle guard, with the entire
+pipeline inside the lock. DETECT, PROMPT, QUIT and CLAIM all run **before**
+LOAD, so the snapshot comes from a quiesced profile orgmarks already owns;
+RESTART runs after EMIT on every exit path that quit Chrome, including the
+failure ones.
 
 ```
-   [DETECT/PROMPT] --> LOAD ... PLAN --> [QUIT, CLAIM LOCK] --> EMIT --> [VERIFY,
-                                              |                  |       RELEASE,
-                                              |                  |       RESTART]
-                                              +-- abort ---------+---------^
+   [DETECT/PROMPT/QUIT/CLAIM] --> LOAD ... PLAN --> EMIT --> [VERIFY,
+              |                     |                |        RELEASE,
+              |                     |                |        RESTART]
+              +-- abort ------------+----------------+------------^
 ```
+
+Ordering the guard ahead of LOAD costs a longer Chrome downtime and buys
+the elimination of a whole bug class: there is no window in which Chrome
+can accept a bookmark that the plan does not know about. `plan` is
+unchanged and never touches the guard.
 
 ---
 
@@ -609,6 +650,17 @@ public doc; the file itself belongs in tds-internal if archived):
   gap between check and `rename()` still clobbers. Claim and hold the lock
   instead. Recorded because "just re-check right before the write" is the
   intuitive fix and it does not work.
+- **Loading before quitting Chrome** -- the ordering that keeps the browser
+  usable during the classify stage, at the cost of planning from a snapshot
+  Chrome can still append to. Chrome flushes on exit, so a bookmark added
+  or synced mid-run is written to disk at QUIT and then overwritten by the
+  stale plan: silent loss, propagated fleet-wide. Quit first and accept the
+  longer downtime.
+- **Post-rename verification as the fallback for a breakable lock** -- it
+  reads as defense in depth and is not: Chrome can break the lock and load
+  the old tree before the rename, pass verification, and overwrite from
+  memory afterward. Verification detects one failure mode. If the lock
+  proves breakable the mechanism gets replaced, not backstopped.
 - **Recomputing Chrome's `checksum` field** -- chases an internal algorithm
   across releases to avoid an ID reassignment that costs nothing, because
   node IDs are not identity in Chrome. Omit the key instead.
