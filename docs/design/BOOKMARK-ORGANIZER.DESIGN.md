@@ -275,7 +275,8 @@ guaranteed silent clobber. So the guard is a precondition, not a mitigation.
 | DETECT | Read `<user-data-dir>/SingletonLock`; it is a symlink whose target is `<hostname>-<pid>`. Chrome is running iff that pid is alive and its executable is Chrome. | Unreadable/absent lock -> treat as not running. Lock present but pid dead or foreign -> stale, log and treat as not running. |
 | PROMPT | Chrome running: print the profile path and ask for confirmation to quit it. `--yes` skips the prompt; `--no-quit` refuses instead of asking. | Declined -> exit 3, nothing written. |
 | QUIT | macOS `osascript -e 'quit app "Google Chrome"'`; Linux `SIGTERM` to the lock's pid. Then poll for the lock to clear, 30s default (`--quit-timeout`). | Still held at timeout -> exit 4, nothing written. **Never escalate to `SIGKILL`** -- a killed Chrome is exactly the half-written profile this guard exists to prevent. |
-| WRITE | The backup + emit protocol below. | Any failure -> restore from backup, then continue to RESTART. |
+| CLAIM | Take `SingletonLock` ourselves (symlink to `<hostname>-<our-pid>`) so a relaunched Chrome cannot attach to the profile mid-write. Held until after the post-rename verification; released in a `finally` and a signal handler. | Cannot claim -> exit 4, nothing written. |
+| WRITE | The backup + emit protocol below, then verify the rename landed. | Any failure -> restore from backup, release the lock, then continue to RESTART. |
 | RESTART | Only if we quit it: relaunch (`open -a "Google Chrome"` / the resolved Linux binary), detached, and do not wait on it. | Relaunch failure is reported, not fatal -- the profile is already consistent. |
 
 `SingletonLock` is per-user-data-dir, which is the correct granularity: the
@@ -285,12 +286,29 @@ different data dir, and it sees nothing when the lock is merely stale.
 
 Two properties the sequence must hold:
 
-- **Re-check DETECT immediately before WRITE.** Nothing stops a human from
-  relaunching Chrome during the LLM classify stage. Cheap check, closes the
-  window that matters.
+- **Hold the lock; do not merely re-check it.** Re-reading `SingletonLock`
+  before WRITE is a TOCTOU check, not mutual exclusion: a Chrome launched
+  between the check and the `rename()` loads the old tree and overwrites it
+  on exit -- the exact silent clobber the guard exists to prevent. Instead,
+  once Chrome has exited, orgmarks **claims** `SingletonLock` itself,
+  symlinking it to `<hostname>-<our-pid>`, and holds it across backup,
+  emit, and rename. That is Chrome's own mutual-exclusion primitive used
+  for its intended purpose rather than raced against. Release happens
+  after the rename, before RESTART, and in a signal handler and `finally`
+  so a killed orgmarks does not leave the profile permanently locked.
+- **Verify after the rename.** Re-read `Bookmarks` and confirm it is the
+  tree we wrote before releasing the lock. Cheap, and it converts a
+  clobber from silent into reported.
 - **Restart is a relaunch, not a session restore.** Tabs return only if
   Chrome is configured to continue where it left off. Stated in `--help`;
   not something orgmarks tries to fix.
+
+Chrome's behavior when it finds the lock held by a non-Chrome process is
+the third item on the empirical-verification list (with `checksum` and
+`sync_metadata`): it may refuse with "profile is in use," or it may judge
+the lock stale and break it. If it breaks it, the post-rename verification
+is what catches the result. Test this before shipping, on a copied
+user-data-dir.
 
 #### Write protocol
 
@@ -327,11 +345,49 @@ the installed Chrome on a *copied* user-data-dir before this ships.
 #### GUID preservation is mandatory
 
 On the HTML path GUIDs are advisory. On the profile path they are the
-contract: sync reconciles by GUID, so a moved bookmark that keeps its GUID
+contract: sync reconciles by GUID, so a moved node that keeps its GUID
 propagates as a *move*, and one that loses it propagates as a delete plus a
 create. The second form loses per-device state and is far more alarming
-across a fleet. Any node the planner carries through from the input MUST
-retain its GUID; only genuinely new folders get fresh ones.
+across a fleet.
+
+The rule has two halves, and both matter:
+
+- **Exactly one node carries an input GUID.** Any node the planner carries
+  through from the input retains its GUID.
+- **Every generated node gets a fresh GUID.** A GUID appearing twice in one
+  tree is worse than a missing one -- sync cannot reconcile two nodes
+  claiming the same identity, and the failure is non-local.
+
+The second half is not hypothetical. The reference index inserts *the same*
+`Bookmark` into both its intent folder and the generated `Reference`
+subtree (`domain/planner.py`, reference-index loop). On the HTML path that
+duplication is harmless; on the profile path it emits two nodes with one
+identity. **The primary intent placement keeps the input GUID; each
+reference-index copy is cloned with a fresh one.** Same for the pinned
+verbatim copies, which duplicate by the same mechanism.
+
+#### Prerequisite: folder and root GUIDs
+
+The existing source does not round-trip folder identity.
+`ChromeJsonSource._node_to_folder()` reads `guid` for bookmarks only, and
+the `Folder` model has no `guid` field at all -- folder GUIDs are dropped
+on load today. That is invisible on the HTML path, which has no concept of
+them, and fatal on the profile path: a retained folder written back with a
+fresh GUID propagates as delete+create, taking its entire subtree with it.
+A wrongly-recreated folder is a much larger blast radius than a
+wrongly-recreated bookmark.
+
+So `sync` is not "add a sink plus a guard." It requires, first:
+
+| Component | Change |
+|---|---|
+| `domain/model.py` | `Folder` gains `guid: str \| None = None`, matching `Bookmark`. |
+| `adapters/chrome_json.py` | `_node_to_folder()` reads `guid` from folder nodes and the three root nodes. |
+| `domain/planner.py` | Carry folder GUIDs through rebuild; mint fresh ones for folders the taxonomy creates; clone reference-index and pinned copies with fresh GUIDs. |
+| `adapters/netscape.py` | Unaffected -- Netscape HTML has no GUID field; the HTML path keeps today's behavior. |
+
+Chrome's three root nodes have fixed, well-known GUIDs. Preserve them from
+the input rather than minting or hardcoding them.
 
 This is the real blast radius of `sync`, and it deserves saying plainly:
 on a signed-in profile, the reorg reaches every device on restart. The
@@ -391,14 +447,16 @@ Pipeline stages per run (no persistent state between runs beyond
 | PLAN | EMIT | mode == apply or sync | `plan` mode stops here and prints |
 
 `sync` wraps the same pipeline in the lifecycle guard: DETECT and PROMPT
-run before LOAD (fail fast, before spending LLM calls), QUIT and the
-DETECT re-check run between PLAN and EMIT, and RESTART runs after EMIT on
-every exit path that quit Chrome -- including the failure ones.
+run before LOAD (fail fast, before spending LLM calls), QUIT and the lock
+claim run between PLAN and EMIT, and RESTART runs after EMIT on every exit
+path that quit Chrome -- including the failure ones. The lock is held
+across EMIT and released only after the post-rename verification.
 
 ```
-   [DETECT/PROMPT] --> LOAD ... PLAN --> [QUIT, re-DETECT] --> EMIT --> [RESTART]
-                                              |                  |         ^
-                                              +-- abort ---------+---------+
+   [DETECT/PROMPT] --> LOAD ... PLAN --> [QUIT, CLAIM LOCK] --> EMIT --> [VERIFY,
+                                              |                  |       RELEASE,
+                                              |                  |       RESTART]
+                                              +-- abort ---------+---------^
 ```
 
 ---
@@ -546,6 +604,11 @@ public doc; the file itself belongs in tds-internal if archived):
   `--quit-timeout`, and it manufactures exactly the corrupted profile the
   guard exists to prevent. A Chrome that will not exit gracefully is a
   human's problem; orgmarks aborts and says which profile is stuck.
+- **Re-checking `SingletonLock` as the pre-write safeguard** -- reads as
+  sufficient and is a TOCTOU check, not exclusion: a Chrome launched in the
+  gap between check and `rename()` still clobbers. Claim and hold the lock
+  instead. Recorded because "just re-check right before the write" is the
+  intuitive fix and it does not work.
 - **Recomputing Chrome's `checksum` field** -- chases an internal algorithm
   across releases to avoid an ID reassignment that costs nothing, because
   node IDs are not identity in Chrome. Omit the key instead.
