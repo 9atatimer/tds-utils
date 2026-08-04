@@ -651,7 +651,7 @@
    '("~/org/job-hunt.org" "~/org/todo.org"))
  '(package-selected-packages
    '(bazel chatgpt-shell claude-code copilot direnv dtrt-indent eat
-           eslint-fix exec-path-from-shell flycheck git-commit
+           eslint-fix exec-path-from-shell flycheck
            git-timemachine gptel groovy-mode js-ts-defs js2-mode
            lsp-treemacs lsp-ui magit mermaid-mode poly-markdown
            poly-rst poly-ruby prettier-js projectile
