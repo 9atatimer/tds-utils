@@ -76,16 +76,26 @@
 ;; This block must stay ahead of the tds-v3-ai-author require below:
 ;; :ensure only installs gptel when this form runs, and a bare
 ;; (require 'gptel) against a wiped elpa aborts the whole init.
+(defun tds-read-file-string (file)
+  "Return the contents of FILE as a trimmed string, or nil.
+Nil when FILE is missing, not a regular file, unreadable, or the read
+fails -- callers get a string or nil, never an error."
+  (and (file-regular-p file)
+       (file-readable-p file)
+       (ignore-errors
+         (string-trim (with-temp-buffer
+                        (insert-file-contents file)
+                        (buffer-string))))))
+
 (defun tds-gptel-system-message ()
   "Return the gptel system prompt.
 The prompt is personal configuration, not public code: it is read from
 a .gitignore'd file beside init.el when present, with a neutral
-default otherwise."
-  (let ((file (locate-user-emacs-file ".gptel-system-message")))
-    (if (file-readable-p file)
-        (string-trim (with-temp-buffer
-                       (insert-file-contents file)
-                       (buffer-string)))
+default when the file is absent, unreadable, or empty."
+  (let ((msg (tds-read-file-string
+              (locate-user-emacs-file ".gptel-system-message"))))
+    (if (and msg (not (equal msg "")))
+        msg
       "You are a helpful, capable AI assistant running locally on Ollama.")))
 
 (use-package gptel
