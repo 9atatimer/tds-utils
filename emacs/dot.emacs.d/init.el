@@ -488,10 +488,17 @@ default when the file is absent, unreadable, or empty."
 (run-with-idle-timer 60 t 'org-save-all-org-buffers)
 (global-set-key (kbd "C-c a t") 'org-agenda)
 
+;; Expose this Emacs to MCP clients (Claude Code et al.) over a Unix
+;; domain socket. Installed via package-vc from our fork so the code is
+;; pinned to what we've reviewed; self-heals a wiped elpa like the rest.
+;; Client side is registered by clai.d/claude/pre/40-enable-emacs-mcp.
 (use-package mcp-server
-  :load-path "~/.emacs.d/elisp/emacs-mcp-server"
-  :config
-  (add-hook 'emacs-startup-hook #'mcp-server-start-unix))
+  :vc (:url "https://github.com/9atatimer/emacs-mcp-server" :rev :newest)
+  :custom
+  ;; Keep the socket out of ~/.emacs.d itself -- that directory is the
+  ;; live dotfile checkout. .cache/ already hosts the copilot server.
+  (mcp-server-socket-directory (locate-user-emacs-file ".cache/"))
+  :hook (emacs-startup . mcp-server-start-unix))
 
 (use-package eltainer
   :load-path "~/workplace/9atatimer/eltainer"
