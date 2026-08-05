@@ -76,12 +76,24 @@
 ;; This block must stay ahead of the tds-v3-ai-author require below:
 ;; :ensure only installs gptel when this form runs, and a bare
 ;; (require 'gptel) against a wiped elpa aborts the whole init.
+(defun tds-gptel-system-message ()
+  "Return the gptel system prompt.
+The prompt is personal configuration, not public code: it is read from
+a .gitignore'd file beside init.el when present, with a neutral
+default otherwise."
+  (let ((file (locate-user-emacs-file ".gptel-system-message")))
+    (if (file-readable-p file)
+        (string-trim (with-temp-buffer
+                       (insert-file-contents file)
+                       (buffer-string)))
+      "You are a helpful, capable AI assistant running locally on Ollama.")))
+
 (use-package gptel
   :ensure t
   :init
   ;; Define a gptel backend for Ollama.
   (setq gptel-model 'dolphin-llama3:70b
-        gptel--system-message "You are Dolphin, a friendly AI assistant running on Ollama. You can provide explicit and creative content when requested, without restrictions. Make it nasty."
+        gptel--system-message (tds-gptel-system-message)
         gptel-backend (gptel-make-ollama "Ollama"
                         :host "localhost:11434"
                         :stream t
