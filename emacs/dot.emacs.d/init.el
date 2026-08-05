@@ -68,6 +68,52 @@
   :config
   (direnv-mode))
 
+;;
+;; To have a local ollama LLM:
+;;  brew services run ollama
+;;  ollama pull dolphin-llama3:70b
+;;
+;; This block must stay ahead of the tds-v3-ai-author require below:
+;; :ensure only installs gptel when this form runs, and a bare
+;; (require 'gptel) against a wiped elpa aborts the whole init.
+(defun tds-read-file-string (file)
+  "Return the contents of FILE as a trimmed string, or nil.
+Nil when FILE is missing, not a regular file, unreadable, or the read
+fails -- callers get a string or nil, never an error."
+  (and (file-regular-p file)
+       (file-readable-p file)
+       (ignore-errors
+         (string-trim (with-temp-buffer
+                        (insert-file-contents file)
+                        (buffer-string))))))
+
+(defun tds-gptel-system-message ()
+  "Return the gptel system prompt.
+The prompt is personal configuration, not public code: it is read from
+a .gitignore'd file beside init.el when present, with a neutral
+default when the file is absent, unreadable, or empty."
+  (let ((msg (tds-read-file-string
+              (locate-user-emacs-file ".gptel-system-message"))))
+    (if (and msg (not (equal msg "")))
+        msg
+      "You are a helpful, capable AI assistant running locally on Ollama.")))
+
+(use-package gptel
+  :ensure t
+  :init
+  ;; Define a gptel backend for Ollama.
+  (setq gptel-model 'dolphin-llama3:70b
+        gptel--system-message (tds-gptel-system-message)
+        gptel-backend (gptel-make-ollama "Ollama"
+                        :host "localhost:11434"
+                        :stream t
+                        :models '(dolphin-llama3:70b)))
+  :config
+  ;; Enable gptel in LaTeX modes.
+;;   (add-hook 'text-mode-hook 'gptel-mode)
+   (add-hook 'latex-mode-hook 'gptel-mode)
+   (add-hook 'LaTeX-mode-hook 'gptel-mode))
+
 ;; AI Author system
 (use-package tds-v3-ai-author
   :load-path "~/.emacs.d/elisp"
@@ -296,7 +342,12 @@
   :ensure t
   :after (cfrs posframe)
   :hook (prog-mode . copilot-mode)
-  :config (setq copilot-idle-delay 0.5)
+  :config
+  ;; Self-heal the npm-installed language server (~/.emacs.d/.cache/copilot),
+  ;; which lives outside elpa and is invisible to package.el.
+  (unless (copilot-installed-version)
+    (copilot-install-server))
+  (setq copilot-idle-delay 0.5)
   :bind (:map copilot-completion-map
               ("s-<tab>" . copilot-next-completion)
               ("S-<tab>" . copilot-accept-completion)
@@ -374,27 +425,6 @@
   :ensure t
   :mode "\\.ts\\'"
   :hook (typescript-ts-mode . lsp-deferred))
-
-;;
-;; To have a local ollama LLM:
-;;  brew services run ollama
-;;  ollama pull dolphin-llama3:70b
-;;
-(use-package gptel
-  :ensure t
-  :init
-  ;; Define a gptel backend for Ollama.
-  (setq gptel-model 'dolphin-llama3:70b
-        gptel--system-message "You are Dolphin, a friendly AI assistant running on Ollama. You can provide explicit and creative content when requested, without restrictions. Make it nasty."
-        gptel-backend (gptel-make-ollama "Ollama"
-                        :host "localhost:11434"
-                        :stream t
-                        :models '(dolphin-llama3:70b)))
-  :config
-  ;; Enable gptel in LaTeX modes.
-;;   (add-hook 'text-mode-hook 'gptel-mode)
-   (add-hook 'latex-mode-hook 'gptel-mode)
-   (add-hook 'LaTeX-mode-hook 'gptel-mode))
 
 ;;
 ;; Projectile, to make it easier to use project-specific confugration
