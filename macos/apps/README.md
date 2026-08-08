@@ -56,5 +56,11 @@ Launch Services, so `build` scripts say `monctl flip`.
 - **Gatekeeper.** Bundles are ad-hoc signed. That is fine for something
   built locally; it would be blocked if it ever arrived with a quarantine
   attribute, which is the correct outcome.
+- **Prefer `~/Applications` over the Desktop.** With Desktop Stacks on
+  (Finder > View > Use Stacks, grouping by Kind), every `.app` collapses
+  into one pile, so several launchers become several identical icons in a
+  stack you have to expand and aim at. A Dock tile is a single
+  unambiguous target; that is why `--dest` defaults to `~/Applications`
+  and `--dock` exists.
 - **`--dock` restarts the Dock.** Windows are untouched, but the Dock
   visibly blinks.
