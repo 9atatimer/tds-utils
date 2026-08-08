@@ -1,0 +1,5 @@
+# ai-agents -- AI authoring stack (clai, sandboxes, claude-code ops)
+NAME=ai-agents
+DESC="AI agent configs and sandbox provisioning"
+PATHS="clai.d sandbox ops/claude-code bin/cline-ollama bin/designomatic-exec"
+LINKS="~/clai.d:clai.d"

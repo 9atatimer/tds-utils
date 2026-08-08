@@ -1,0 +1,5 @@
+# shell-bash -- Linux bash startup suite
+NAME=shell-bash
+DESC="bash startup suite (Linux)"
+PATHS="bash/dot.bashrc bash/dot.prompts"
+LINKS="~/.bashrc:bash/dot.bashrc ~/.prompts:bash/dot.prompts"

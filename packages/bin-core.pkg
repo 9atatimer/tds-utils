@@ -1,0 +1,5 @@
+# bin-core -- OS-neutral standalone utilities
+NAME=bin-core
+DESC="core standalone utilities"
+PATHS="bin/clip bin/pasteclip bin/macmd bin/generate-etags bin/pdb bin/monctl bin/timemachine-audit bin/branch-merged-check bin/clone-audit bin/ipscan.pl bin/soy bin/brand"
+BINS="bin/clip bin/pasteclip bin/macmd bin/generate-etags bin/pdb bin/monctl bin/timemachine-audit bin/branch-merged-check bin/clone-audit bin/ipscan.pl bin/soy bin/brand"

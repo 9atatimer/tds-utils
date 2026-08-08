@@ -1,0 +1,4 @@
+# tiddlywiki -- wiki assets
+NAME=tiddlywiki
+DESC="tiddlywiki empty template + saver"
+PATHS="tiddlywiki"

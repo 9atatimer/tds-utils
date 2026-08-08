@@ -1,0 +1,7 @@
+# goldfish -- github activity report
+NAME=goldfish
+DESC="github activity report"
+PATHS="goldfish bin/goldfish"
+BINS="bin/goldfish"
+UVTOOLS="goldfish"
+VERIFY=test/smoketest_goldfish

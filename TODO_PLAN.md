@@ -16,7 +16,7 @@ This file tracks the status of development tasks, lessons learned, and completed
 Implementation of `docs/design/ENV-DISTRIBUTION.DESIGN.md` (merged in #201).
 Each phase is RED -> GREEN -> COMMIT; smoketests in `test/` are the harness.
 
-- [ ] Phase 1 -- parser + registry: non-eval KEY=VALUE parser (`lib/tds-dist.sh`,
+- [x] Phase 1 -- parser + registry: non-eval KEY=VALUE parser (`lib/tds-dist.sh`,
       shared by `.pkg` and `.manifest`), the 13 `packages/*.pkg` files,
       exclusive-path-ownership check. Smoketest feeds good/bad/overlapping
       fixtures.

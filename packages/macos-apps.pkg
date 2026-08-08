@@ -1,0 +1,6 @@
+# macos-apps -- clickable .app launchers for repo commands
+NAME=macos-apps
+DESC="mkmacapp builder + flip-monitor app"
+PATHS="macos/apps"
+BINS="macos/apps/mkmacapp"
+VERIFY=test/smoketest_macos_apps.sh
