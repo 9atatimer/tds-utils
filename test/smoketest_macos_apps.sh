@@ -45,6 +45,16 @@ setup()   { WORKROOT="$(mktemp -d "${TMPDIR:-/tmp}/macos-apps-test.XXXXXX")"; }
 cleanup() { [ -n "${WORKROOT}" ] && [ -d "${WORKROOT}" ] && rm -rf "${WORKROOT}"; }
 trap cleanup EXIT
 
+# grep exits 1 for "no match" and 2 for "I could not run" -- a bare `! grep`
+# conflates them, so a bad path would pass this check silently. Demand 1.
+# (BSD grep does support --include; verified on grep 2.6.0-FreeBSD.)
+no_home_paths_in_source() {
+    local status=0
+    grep -rqF '/Users/' "${REPO_DIR}/macos/apps/" \
+        --include=mkmacapp --include=build || status=$?
+    [ "${status}" -eq 1 ]
+}
+
 plist_get() {
     /usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist" 2>/dev/null
 }
@@ -140,7 +150,7 @@ test_command_is_wired_through() {
     assert "the repo bin directory is on the generated PATH" \
         "osadecompile '${app}/Contents/Resources/Scripts/main.scpt' 2>/dev/null | grep -qF '${REPO_DIR}/bin'"
     assert "no developer home directory is baked into the repo source" \
-        "! grep -rqF '/Users/' '${REPO_DIR}/macos/apps/' --include=mkmacapp --include=build"
+        "no_home_paths_in_source"
 }
 
 test_usage_errors() {
