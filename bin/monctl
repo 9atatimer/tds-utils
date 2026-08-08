@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+#
+# monctl -- switch the Dell U2725QE between its video inputs via DDC/CI.
+#
+# Requires m1ddc (brew install m1ddc) and a DIRECT Thunderbolt/DP connection
+# from this Mac to the monitor. DDC does not survive the Dell dock's DP hub --
+# routed through the dock, every read fails with an iokit subsystem error.
+#
+# The monitor keeps its link trained while displaying another input, so this
+# machine can switch the panel away and summon it back on its own. That same
+# always-live link is why the monitor's Auto Select will steal the panel back
+# to Thunderbolt on its own; turn Auto Select off in the OSD to stop that.
+
+set -euo pipefail
+
+readonly MONITOR_NAME="DELL U2725QE"
+
+# VCP 0x60 input-source values for this panel.
+readonly INPUT_TB=25    # 0x19 -- Thunderbolt upstream (home Mac, direct cable)
+readonly INPUT_DP=15    # 0x0F -- DisplayPort (work Mac, via the dock)
+readonly INPUT_HDMI=17  # 0x11 -- HDMI
+
+usage() {
+    cat <<'EOF'
+usage: monctl [flip|work|home|hdmi|status]
+
+  flip    switch to whichever of work/home is not current (also: toggle)
+  work    switch to the DisplayPort input, the dock  (also: dp)
+  home    switch to the Thunderbolt input, this Mac  (also: tb)
+  hdmi    switch to the HDMI input
+  status  print the current input (default)
+EOF
+}
+
+# m1ddc display indices are assignment order, not stable identity -- they
+# reshuffle whenever a cable moves. Resolve by name on every invocation.
+resolve_display() {
+    local index
+    index=$(m1ddc display list 2>/dev/null \
+        | grep -F "${MONITOR_NAME}" \
+        | sed -n 's/^\[\([0-9][0-9]*\)\].*/\1/p' \
+        | head -1)
+
+    if [[ -z "${index}" ]]; then
+        echo "monctl: '${MONITOR_NAME}' not found in m1ddc display list" >&2
+        return 1
+    fi
+    printf '%s\n' "${index}"
+}
+
+# Reads go flaky for a second or two after a switch -- m1ddc returns a bare
+# negative number rather than failing outright. Retry rather than trust it.
+read_input() {
+    local index=$1 attempt value
+    for attempt in 1 2 3 4 5; do
+        value=$(m1ddc display "${index}" get input 2>/dev/null || true)
+        if [[ "${value}" =~ ^[0-9]+$ ]]; then
+            printf '%s\n' "${value}"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "monctl: could not read input source after 5 attempts" >&2
+    return 1
+}
+
+input_name() {
+    case "$1" in
+        "${INPUT_TB}")   echo "home (Thunderbolt)" ;;
+        "${INPUT_DP}")   echo "work (DisplayPort)" ;;
+        "${INPUT_HDMI}") echo "HDMI" ;;
+        *)               echo "unknown ($1)" ;;
+    esac
+}
+
+set_input() {
+    local index=$1 value=$2
+    m1ddc display "${index}" set input "${value}" >/dev/null
+    echo "switched to $(input_name "${value}")"
+}
+
+main() {
+    local action=${1:-status} index current
+
+    if [[ "${action}" == "-h" || "${action}" == "--help" ]]; then
+        usage
+        return 0
+    fi
+
+    index=$(resolve_display)
+
+    case "${action}" in
+        work|dp)   set_input "${index}" "${INPUT_DP}" ;;
+        home|tb)   set_input "${index}" "${INPUT_TB}" ;;
+        hdmi)      set_input "${index}" "${INPUT_HDMI}" ;;
+        status)
+            current=$(read_input "${index}")
+            input_name "${current}"
+            ;;
+        flip|toggle)
+            current=$(read_input "${index}")
+            if [[ "${current}" == "${INPUT_TB}" ]]; then
+                set_input "${index}" "${INPUT_DP}"
+            else
+                set_input "${index}" "${INPUT_TB}"
+            fi
+            ;;
+        *)
+            usage >&2
+            return 64
+            ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
