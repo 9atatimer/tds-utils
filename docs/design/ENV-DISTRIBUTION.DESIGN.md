@@ -1,6 +1,6 @@
 # Environment Distribution: Packages, Manifests, and One-Way Seeding
 
-> **Status:** DRAFT
+> **Status:** IMPLEMENTED (issue #202; deviations recorded below)
 > **Date:** 2026-08-08
 > **Authors:** Todd, Claude
 > **Depends on:** none
@@ -430,6 +430,43 @@ artifact: ARTIFACT-MANIFEST  DEVICE, PACKAGES, VERSION, SOURCE_SHA, BUILT_AT
   version vs latest export, failed VERIFY history.
 
 ---
+
+## Implementation Deviations (2026-08-08)
+
+Recorded against the design as merged in #201:
+
+- **Artifacts carry their package metadata.** `tds-export` ships
+  `packages/<name>.pkg` for the exported set plus `.tds-lib/tds-dist.sh`;
+  the installer reads LINKS/BINS/UVTOOLS/SERVICES/INSTALL/VERIFY from the
+  artifact instead of assuming a registry on the consuming device.
+- **VERIFY scripts are auto-shipped.** A package's VERIFY file is staged
+  even when not listed in PATHS (the design's example implied this).
+- **Partial artifacts merge over current.** Installing a `-p`/re-seed
+  artifact seeds the new version dir from the live `current` before
+  overlaying, so a one-package artifact cannot orphan the rest of the
+  environment. Full artifacts install standalone.
+- **Package registry details.** `shell-zsh` also owns
+  `macos/dot.op-completion`; `log-hoarder` owns `macos/dot.zsh_log_search`;
+  the `macos/launchd` plists and the gadmin systemd unit are owned by
+  `lmde`; `macos-apps` ships only the app-builder tree (its .apps are
+  built on-device by `mkmacapp`, not shipped units); `emacs` gained
+  `bin/emacs` and a new VERIFY (`test/smoketest_emacs_init.sh`, skips
+  loudly when no emacs binary is present).
+- **INSTALL hooks run post-activation.** The design ordered hooks before
+  VERIFY/flip, but hooks that write $HOME config (git config --global in
+  install-git-hook-templates) would materialize regular files that then
+  block the LINKS step on a fresh machine. Hooks now run after the flip
+  and link creation, so their writes resolve through current/; VERIFY
+  still gates the staged tree before any flip.
+- **Publish fallback.** `-r` falls back from `gh release create` to
+  `gh release upload` when the `env-<version>` tag already exists
+  (second device seeded the same day).
+- **gpg trust.** Encryption uses `--trust-model always`: the recipient
+  key id comes from the private manifest, which is the trust anchor;
+  no interactive trust prompt on the authoring machine.
+- **PATH cutover is conditional, not manual.** `dot.zshenv` prefers
+  `~/.tds/dist/current/bin` and falls back to the checkout's `bin/` only
+  when no install exists (transition-safe, reversible).
 
 ## Related Documents
 

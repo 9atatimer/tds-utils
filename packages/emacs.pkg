@@ -1,0 +1,7 @@
+# emacs -- whole emacs tree, one link (modular split is a future design)
+NAME=emacs
+DESC="emacs configuration and elisp"
+PATHS="emacs bin/emacs"
+LINKS="~/.emacs.d:emacs/dot.emacs.d"
+BINS="bin/emacs"
+VERIFY=test/smoketest_emacs_init.sh

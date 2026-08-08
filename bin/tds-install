@@ -1,0 +1,400 @@
+#!/usr/bin/env bash
+# tds-install -- install a tds environment artifact (ENV-DISTRIBUTION).
+# Shipped inside artifacts as install.sh; also lives at bin/tds-install.
+#
+# Usage: tds-install [-a <artifact dir|tar.gz>] [-p pkg ...] [-S] [--rollback]
+#
+#   -a          artifact to install (default: the directory containing this
+#               script, i.e. the unpacked artifact when run as install.sh)
+#   -p          install only the named package(s) from the artifact
+#   -S          register SERVICES units (opt-in; never done silently)
+#   --rollback  flip current back to the previous version (re-verified)
+#
+# Install: stage into ~/.tds/dist/<version>/ (seeded from current when the
+# artifact is a partial re-seed), wire BINS, run INSTALL hooks, run every
+# package's VERIFY against the staged tree (failure aborts and removes the
+# staging -- current is never touched), then flip the `current` symlink via
+# temp-link + rename(2) and (re)point $HOME LINKS through current/. Keeps
+# the last 3 versions; older ones are pruned after a successful flip.
+
+set -euo pipefail
+
+TDS_INSTALL_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "${TDS_INSTALL_SELF_DIR}/.tds-lib/tds-dist.sh" ]; then
+    # running as install.sh from inside an unpacked artifact
+    # shellcheck source=../lib/tds-dist.sh
+    source "${TDS_INSTALL_SELF_DIR}/.tds-lib/tds-dist.sh"
+    TDS_INSTALL_DEFAULT_ARTIFACT="${TDS_INSTALL_SELF_DIR}"
+else
+    # running as bin/tds-install from the repo
+    # shellcheck source=../lib/tds-dist.sh
+    source "$(dirname "${TDS_INSTALL_SELF_DIR}")/lib/tds-dist.sh"
+    TDS_INSTALL_DEFAULT_ARTIFACT=""
+fi
+
+die()  { echo "tds-install: $*" >&2; exit 1; }
+note() { echo "tds-install: $*"; }
+
+# --- Action functions ---
+
+mv_replace() {
+    # mv_replace <src> <dest> -- rename(2) over a symlink, GNU or BSD mv
+    if mv --version >/dev/null 2>&1; then
+        mv -T "$1" "$2"          # GNU
+    else
+        mv -h "$1" "$2"          # BSD
+    fi
+}
+
+atomic_symlink() {
+    # atomic_symlink <target> <linkpath> -- no window with a missing link
+    local target="$1" link="$2" tmp
+    tmp="${link}.tds-tmp.$$"
+    ln -s "${target}" "${tmp}"
+    mv_replace "${tmp}" "${link}"
+}
+
+unpack_if_tarball() {
+    # unpack_if_tarball <artifact> -> prints a directory path
+    local artifact="$1" tmp
+    case "${artifact}" in
+        *.tar.gz)
+            [ -f "${artifact}" ] || die "no such artifact: ${artifact}"
+            tmp="$(mktemp -d "${TMPDIR:-/tmp}/tds-install.XXXXXX")"
+            tar -xzf "${artifact}" -C "${tmp}"
+            set -- "${tmp}"/*/
+            [ -d "$1" ] || die "artifact ${artifact} unpacked to nothing"
+            printf '%s\n' "${1%/}"
+            ;;
+        *)
+            [ -d "${artifact}" ] || die "no such artifact dir: ${artifact}"
+            printf '%s\n' "${artifact}"
+            ;;
+    esac
+}
+
+artifact_packages() {
+    # artifact_packages <dir> [only] -> package names present under packages/
+    local dir="$1" only="${2:-}" f name out=""
+    for f in "${dir}"/packages/*.pkg; do
+        [ -f "${f}" ] || continue
+        name="$(basename "${f}" .pkg)"
+        if [ -n "${only}" ]; then
+            case " ${only} " in
+                *" ${name} "*) out="${out} ${name}" ;;
+            esac
+        else
+            out="${out} ${name}"
+        fi
+    done
+    printf '%s\n' "${out# }"
+}
+
+needs_seed() {
+    # needs_seed <artifactdir> <currentdir> -- true when the artifact lacks
+    # packages the live install has (partial re-seed -> merge over current)
+    local adir="$1" cur="$2" f name
+    for f in "${cur}"/packages/*.pkg; do
+        [ -f "${f}" ] || return 1
+        name="$(basename "${f}")"
+        [ -f "${adir}/packages/${name}" ] || return 0
+    done
+    return 1
+}
+
+copy_tree() {
+    # copy_tree <srcdir> <destdir> -- portable structure/mode-preserving copy
+    mkdir -p "$2"
+    ( cd "$1" && tar -cf - . ) | tar -xf - -C "$2"
+}
+
+copy_package_paths() {
+    # copy_package_paths <artifactdir> <destdir> <pkg list> -- partial copy
+    local adir="$1" dest="$2" name f p paths
+    mkdir -p "${dest}/packages"
+    for name in $3; do
+        f="${adir}/packages/${name}.pkg"
+        paths="$(tds_dist_get "${f}" PATHS 2>/dev/null || true)"
+        for p in $(tds_dist_get "${f}" VERIFY 2>/dev/null || true); do
+            paths="${paths} ${p}"
+        done
+        [ -n "${paths// /}" ] && \
+            ( cd "${adir}" && tar -cf - ${paths} ) | tar -xf - -C "${dest}"
+        cp "${f}" "${dest}/packages/"
+    done
+    cp "${adir}/ARTIFACT-MANIFEST" "${dest}/" 2>/dev/null || true
+}
+
+wire_bins() {
+    # wire_bins <dest> <pkgfile>
+    local dest="$1" f="$2" b base dir
+    for b in $(tds_dist_get "${f}" BINS 2>/dev/null || true); do
+        [ -e "${dest}/${b}" ] || die "BINS entry missing in staged tree: ${b}"
+        chmod +x "${dest}/${b}"
+        base="$(basename "${b}")"
+        dir="$(dirname "${b}")"
+        if [ "${dir}" != "bin" ]; then
+            mkdir -p "${dest}/bin"
+            ln -sf "../${b}" "${dest}/bin/${base}"
+        fi
+    done
+}
+
+run_uvtools() {
+    # run_uvtools <dest> <pkgfile> -- install python tools from the SHIPPED
+    # tree (lockfile travels with it); no network fetch of the tool itself.
+    # TDS_UV overrides the uv binary (used by tests to fake or unset it).
+    local dest="$1" f="$2" u uvbin="${TDS_UV:-uv}"
+    for u in $(tds_dist_get "${f}" UVTOOLS 2>/dev/null || true); do
+        command -v "${uvbin}" >/dev/null 2>&1 \
+            || die "UVTOOLS ${u}: uv not on PATH; install uv (signed package channel) or omit this package"
+        [ -d "${dest}/${u}" ] || die "UVTOOLS ${u}: project dir missing in staged tree"
+        "${uvbin}" tool install --reinstall "${dest}/${u}" \
+            || die "UVTOOLS ${u}: uv tool install failed"
+    done
+}
+
+run_services() {
+    # run_services <dest> <pkgfile> <flag> -- register launchd/systemd
+    # units. STRICTLY opt-in via -S: a seed never silently starts daemons.
+    local dest="$1" f="$2" services="$3" s base os
+    s="$(tds_dist_get "${f}" SERVICES 2>/dev/null || true)"
+    [ -n "${s}" ] || return 0
+    if [ "${services}" != "true" ]; then
+        note "SERVICES present but -S not given; skipping unit registration (${s})"
+        return 0
+    fi
+    os="$(uname -s)"
+    for s in ${s}; do
+        base="$(basename "${s}")"
+        [ -f "${dest}/${s}" ] || die "SERVICES unit missing in staged tree: ${s}"
+        case "${base}" in
+            *.plist)
+                if [ "${os}" != "Darwin" ]; then
+                    note "SERVICES ${base}: launchd unit on ${os}, skipping"
+                    continue
+                fi
+                mkdir -p "${HOME}/Library/LaunchAgents"
+                cp "${dest}/${s}" "${HOME}/Library/LaunchAgents/${base}"
+                launchctl bootstrap "gui/$(id -u)" "${HOME}/Library/LaunchAgents/${base}" \
+                    || note "SERVICES ${base}: bootstrap failed (already loaded?)"
+                ;;
+            *.service)
+                if [ "${os}" != "Linux" ]; then
+                    note "SERVICES ${base}: systemd unit on ${os}, skipping"
+                    continue
+                fi
+                mkdir -p "${HOME}/.config/systemd/user"
+                cp "${dest}/${s}" "${HOME}/.config/systemd/user/${base}"
+                systemctl --user daemon-reload \
+                    || die "SERVICES ${base}: systemctl daemon-reload failed"
+                systemctl --user enable --now "${base}" \
+                    || die "SERVICES ${base}: systemctl enable failed"
+                ;;
+            *)
+                die "SERVICES ${s}: unknown unit type (want .plist or .service)"
+                ;;
+        esac
+    done
+}
+
+run_install_hook() {
+    # run_install_hook <dest> <pkgfile>
+    local dest="$1" f="$2" hook
+    hook="$(tds_dist_get "${f}" INSTALL 2>/dev/null || true)"
+    [ -n "${hook}" ] || return 0
+    [ -x "${dest}/${hook}" ] || die "INSTALL hook missing or not executable: ${hook}"
+    ( cd "${dest}" && TDS_INSTALL_ROOT="${dest}" "./${hook}" ) \
+        || die "INSTALL hook failed: ${hook}"
+}
+
+run_verify() {
+    # run_verify <dest> <pkgfile> -- VERIFY against the staged tree
+    local dest="$1" f="$2" v
+    v="$(tds_dist_get "${f}" VERIFY 2>/dev/null || true)"
+    [ -n "${v}" ] || return 0
+    [ -e "${dest}/${v}" ] || die "VERIFY script missing in staged tree: ${v}"
+    chmod +x "${dest}/${v}"
+    if ! ( cd "${dest}" && TDS_VERIFY_ROOT="${dest}" "./${v}" ); then
+        echo "tds-install: VERIFY failed: ${v}" >&2
+        return 1
+    fi
+}
+
+point_home_links() {
+    # point_home_links <distroot> <pkgfile> -- $HOME links through current/
+    local distroot="$1" f="$2" pair t s tgt want
+    for pair in $(tds_dist_get "${f}" LINKS 2>/dev/null || true); do
+        t="${pair%%:*}"
+        s="${pair#*:}"
+        case "${t}" in
+            "~/"*) tgt="${HOME}/${t#\~/}" ;;
+            *) die "LINKS target must start with ~/: ${t}" ;;
+        esac
+        want="${distroot}/current/${s}"
+        if [ -L "${tgt}" ]; then
+            [ "$(readlink "${tgt}")" = "${want}" ] || atomic_symlink "${want}" "${tgt}"
+        elif [ -e "${tgt}" ]; then
+            note "SKIP link ${tgt}: exists and is not a symlink (not clobbering)"
+        else
+            mkdir -p "$(dirname "${tgt}")"
+            atomic_symlink "${want}" "${tgt}"
+        fi
+    done
+}
+
+log_line() {
+    # log_line <distroot> <action> <version> <pkgs>
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $2 $3 [$4]" >> "$1/log"
+}
+
+prune_versions() {
+    # prune_versions <distroot> -- keep the newest 3 version dirs
+    local distroot="$1" d n=0
+    for d in $(ls -td "${distroot}"/*/ 2>/dev/null); do
+        d="${d%/}"
+        [ -d "${d}" ] || continue
+        n=$((n + 1))
+        if [ "${n}" -gt 3 ]; then
+            note "pruning old version $(basename "${d}")"
+            rm -rf "${d}"
+        fi
+    done
+}
+
+# --- Flow functions ---
+
+verify_all() {
+    # verify_all <dest> <pkg list> -> nonzero if any VERIFY fails
+    local dest="$1" name failed=0
+    for name in $2; do
+        run_verify "${dest}" "${dest}/packages/${name}.pkg" || failed=1
+    done
+    return "${failed}"
+}
+
+activate() {
+    # activate <distroot> <dest> <pkg list> -- flip current, links, prune
+    local distroot="$1" dest="$2" pkgs="$3" name oldcur=""
+    [ -L "${distroot}/current" ] && oldcur="$(readlink "${distroot}/current")"
+    if [ -n "${oldcur}" ] && [ "${oldcur}" != "${dest}" ]; then
+        printf '%s\n' "${oldcur}" > "${distroot}/PREVIOUS"
+    fi
+    atomic_symlink "${dest}" "${distroot}/current"
+    for name in ${pkgs}; do
+        point_home_links "${distroot}" "${dest}/packages/${name}.pkg"
+    done
+    prune_versions "${distroot}"
+}
+
+run_install() {
+    local artifact="$1" only="$2" services="$3" distroot="$4"
+    local adir version dest pkgs allpkgs name curtgt=""
+
+    adir="$(unpack_if_tarball "${artifact}")"
+    [ -f "${adir}/ARTIFACT-MANIFEST" ] || die "no ARTIFACT-MANIFEST in ${adir}"
+    version="$(tds_dist_require "${adir}/ARTIFACT-MANIFEST" VERSION)"
+    pkgs="$(artifact_packages "${adir}" "${only}")"
+    [ -n "${pkgs}" ] || die "no packages selected (have: $(artifact_packages "${adir}"))"
+
+    mkdir -p "${distroot}"
+    dest="${distroot}/${version}"
+    [ -L "${distroot}/current" ] && curtgt="$(readlink "${distroot}/current")"
+
+    # partial artifact or -p subset: seed the new version from current
+    if [ ! -d "${dest}" ] && [ -n "${curtgt}" ] && [ -d "${curtgt}" ]; then
+        if [ -n "${only}" ] || needs_seed "${adir}" "${curtgt}"; then
+            note "seeding ${version} from $(basename "${curtgt}") (partial re-seed)"
+            copy_tree "${curtgt}" "${dest}"
+        fi
+    fi
+
+    if [ -n "${only}" ]; then
+        mkdir -p "${dest}"
+        copy_package_paths "${adir}" "${dest}" "${pkgs}"
+    else
+        copy_tree "${adir}" "${dest}"
+    fi
+
+    allpkgs="$(artifact_packages "${dest}")"
+    for name in ${allpkgs}; do
+        wire_bins "${dest}" "${dest}/packages/${name}.pkg"
+        run_uvtools "${dest}" "${dest}/packages/${name}.pkg"
+        run_services "${dest}" "${dest}/packages/${name}.pkg" "${services}"
+    done
+
+    if ! verify_all "${dest}" "${allpkgs}"; then
+        if [ "${curtgt}" != "${dest}" ]; then
+            rm -rf "${dest}"
+        fi
+        die "VERIFY failed; staging rejected, current untouched"
+    fi
+
+    activate "${distroot}" "${dest}" "${allpkgs}"
+
+    # INSTALL hooks run post-activation: they may write through $HOME
+    # config (e.g. git config --global), which must resolve via the just-
+    # created links into current/ -- pre-link they would materialize
+    # regular files that block the links (found on fresh-machine install)
+    for name in ${allpkgs}; do
+        run_install_hook "${dest}" "${dest}/packages/${name}.pkg"
+    done
+    log_line "${distroot}" install "${version}" "${pkgs}"
+    note "installed ${version} -> current (packages:${pkgs:+ }${pkgs})"
+}
+
+run_rollback() {
+    local distroot="$1" prev cur allpkgs
+    [ -f "${distroot}/PREVIOUS" ] || die "no PREVIOUS recorded; nothing to roll back to"
+    prev="$(cat "${distroot}/PREVIOUS")"
+    [ -d "${prev}" ] || die "previous version ${prev} is gone (pruned?)"
+    [ -L "${distroot}/current" ] || die "no current to roll back from"
+    cur="$(readlink "${distroot}/current")"
+    allpkgs="$(artifact_packages "${prev}")"
+    verify_all "${prev}" "${allpkgs}" || die "rollback target fails VERIFY; not flipping"
+    activate "${distroot}" "${prev}" "${allpkgs}"
+    printf '%s\n' "${cur}" > "${distroot}/PREVIOUS"
+    log_line "${distroot}" rollback "$(basename "${prev}")" "${allpkgs}"
+    note "rolled back to $(basename "${prev}")"
+}
+
+usage() {
+    sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+# --- Main ---
+
+main() {
+    local artifact="${TDS_INSTALL_DEFAULT_ARTIFACT}" only="" services=false
+    local rollback=false opt arg args=()
+    for arg in "$@"; do
+        case "${arg}" in
+            --rollback) rollback=true ;;
+            --services) services=true ;;
+            *) args+=("${arg}") ;;
+        esac
+    done
+    set -- ${args[@]+"${args[@]}"}
+    while getopts "a:p:Sh" opt; do
+        case "${opt}" in
+            a) artifact="${OPTARG}" ;;
+            p) only="${only} ${OPTARG}" ;;
+            S) services=true ;;
+            h) usage; exit 0 ;;
+            *) usage; exit 1 ;;
+        esac
+    done
+    only="${only# }"
+
+    local distroot="${TDS_DIST_ROOT:-${HOME}/.tds/dist}"
+    if [ "${rollback}" = "true" ]; then
+        run_rollback "${distroot}"
+    else
+        [ -n "${artifact}" ] || { usage; exit 1; }
+        run_install "${artifact}" "${only}" "${services}" "${distroot}"
+    fi
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    main "$@"
+fi

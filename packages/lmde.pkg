@@ -1,0 +1,7 @@
+# lmde -- LMDE platform contract + sync monitor + gadmin aggregator units
+NAME=lmde
+DESC="LMDE platform contract and sync monitoring"
+PATHS="lmde bin/lmde bin/lmde-sync-monitor bin/launch-sync-monitor assets macos/launchd/com.tds.lmde.sync-monitor.plist macos/launchd/gadmin-aggregator.plist local/systemd/gadmin-aggregator.service"
+BINS="bin/lmde bin/lmde-sync-monitor bin/launch-sync-monitor"
+SERVICES="macos/launchd/com.tds.lmde.sync-monitor.plist local/systemd/gadmin-aggregator.service"
+VERIFY=test/smoketest_lmde_observability

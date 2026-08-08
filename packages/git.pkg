@@ -1,0 +1,6 @@
+# git -- git config, aliases, and hook templates
+NAME=git
+DESC="git config + aliases + hook templates"
+PATHS="git-config/dot.gitconfig git-config/dot.gitignore_global git-aliases git-hooks bin/install-git-hook-templates"
+LINKS="~/.gitconfig:git-config/dot.gitconfig ~/.gitignore_global:git-config/dot.gitignore_global"
+INSTALL=bin/install-git-hook-templates

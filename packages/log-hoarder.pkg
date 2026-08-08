@@ -1,0 +1,8 @@
+# log-hoarder -- tmux logging, indexer, search, shepherd
+NAME=log-hoarder
+DESC="tmux conf + log indexer + search + shepherd"
+PATHS="log-hoarder bin/log_brander bin/log_index bin/log_search bin/tmux_logging.sh bin/tmux_shepherd.sh macos/dot.zsh_log_search"
+LINKS="~/.tmux.conf:log-hoarder/tmux.conf"
+BINS="bin/log_brander bin/log_index bin/log_search"
+UVTOOLS="log-hoarder"
+VERIFY=test/smoketest_log_hoarder.sh

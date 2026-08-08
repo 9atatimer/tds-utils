@@ -707,3 +707,9 @@ default when the file is absent, unreadable, or empty."
 
 ;; make emacs pop to the front of the window stack when all is said and done.
 (select-frame-set-input-focus (selected-frame))
+
+;; ~/.tds-local overlay: device-owned elisp loads last (tds-utils #202);
+;; core ships the hook, the device owns the content.
+(let ((tds-local-init (expand-file-name "~/.tds-local/emacs/init.el")))
+  (when (file-exists-p tds-local-init)
+    (load tds-local-init)))

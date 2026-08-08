@@ -1,0 +1,5 @@
+# screen -- GNU screen config
+NAME=screen
+DESC="screen configuration"
+PATHS="screen"
+LINKS="~/.screenrc:screen/dot.screenrc"

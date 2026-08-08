@@ -1,0 +1,6 @@
+# bookmark-organizer -- browser bookmark taxonomy tool
+NAME=bookmark-organizer
+DESC="bookmark organizer + orgmarks"
+PATHS="bookmark-organizer bin/orgmarks"
+BINS="bin/orgmarks"
+UVTOOLS="bookmark-organizer"

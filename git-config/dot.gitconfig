@@ -47,3 +47,7 @@
 	opid = otdfvqqckyjreye7bjsrgh4gye
 	state-bucket = naatm-terraform-state
 	state-region = us-east-1
+# ~/.tds-local overlay: device-owned git config loads last, so it can
+# override anything above (tds-utils #202)
+[include]
+	path = ~/.tds-local/gitconfig

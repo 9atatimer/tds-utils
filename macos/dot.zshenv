@@ -148,6 +148,16 @@ tds_path_apply() {
 
     tds_nvm_default_bin
 
+    # tds bin: the installed environment (~/.tds/dist/current) owns PATH
+    # once it exists; the dev checkout is only a pre-migration fallback,
+    # so branch switches there stop leaking into live shells (issue #202).
+    local -a tds_bin
+    if [[ -d "$HOME/.tds/dist/current/bin" ]]; then
+        tds_bin=( "$HOME/.tds/dist/current/bin" )
+    else
+        tds_bin=( "$HOME/workplace/tds-utils/bin" )
+    fi
+
     want_head=(
         "$HOME/.local/bin"
         "$HOME/.antigravity/antigravity/bin"
@@ -155,7 +165,7 @@ tds_path_apply() {
         "$PYENV_ROOT/shims"
         "$REPLY"
         "$HOME/go/bin"
-        "$HOME/workplace/tds-utils/bin"
+        $tds_bin
         "${HOMEBREW_PREFIX:+$HOMEBREW_PREFIX/bin}"
         "${HOMEBREW_PREFIX:+$HOMEBREW_PREFIX/sbin}"
     )

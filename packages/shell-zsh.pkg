@@ -1,0 +1,6 @@
+# shell-zsh -- macOS zsh startup suite
+NAME=shell-zsh
+DESC="zsh startup suite (macOS)"
+PATHS="macos/dot.zshenv macos/dot.zprofile macos/dot.zshrc macos/dot.alias macos/dot.env macos/dot.op-completion"
+LINKS="~/.zshenv:macos/dot.zshenv ~/.zprofile:macos/dot.zprofile ~/.zshrc:macos/dot.zshrc ~/.alias:macos/dot.alias"
+VERIFY=test/smoketest_shell_env.sh
