@@ -1,0 +1,244 @@
+#!/usr/bin/env bash
+# tds-export -- build a device artifact from a manifest (ENV-DISTRIBUTION).
+#
+# Usage: tds-export -m <manifest> [-C <srcroot>] [-o <outdir>] [-p pkg ...] [-r]
+#
+#   -m  device manifest (KEY=VALUE: DEVICE, PACKAGES, DENY, GPGKEY)
+#   -C  source tree to export from (default: repo containing this script)
+#   -o  output directory for the artifact (default: <srcroot>/dist)
+#   -p  export only the named package(s) -- the re-seed path (repeatable)
+#   -r  publish as a gpg-encrypted GitHub Release asset (phase 4)
+#
+# The manifest's DENY list is a hard assertion, enforced twice: at resolve
+# time (including transitively via REQUIRES) and by a post-build scan of the
+# tarball listing. Requires a clean tree on master in the source root.
+
+set -euo pipefail
+
+TDS_EXPORT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TDS_EXPORT_REPO="$(dirname "${TDS_EXPORT_DIR}")"
+# shellcheck source=../lib/tds-dist.sh
+source "${TDS_EXPORT_REPO}/lib/tds-dist.sh"
+
+die() { echo "tds-export: $*" >&2; exit 1; }
+
+# --- Action functions ---
+
+# in_list <needle> <space-separated list>
+in_list() {
+    local needle="$1" x
+    for x in $2; do [ "${x}" = "${needle}" ] && return 0; done
+    return 1
+}
+
+pkg_file() {
+    # pkg_file <root> <name> -> path, or die
+    local root="$1" name="$2" f="$1/packages/$2.pkg"
+    [ -f "${f}" ] || die "unknown package '${name}' (no ${f})"
+    printf '%s\n' "${f}"
+}
+
+assert_clean_master() {
+    local root="$1" branch
+    branch="$(git -C "${root}" symbolic-ref --short -q HEAD || true)"
+    [ "${branch}" = "master" ] || die "source tree ${root} not on master (on '${branch:-detached}')"
+    [ -z "$(git -C "${root}" status --porcelain)" ] || die "source tree ${root} is dirty"
+}
+
+resolve_packages() {
+    # resolve_packages <root> <requested list> -> closure over REQUIRES
+    local root="$1" resolved="" queue="$2" name req grew=1
+    resolved="$2"
+    while [ "${grew}" -eq 1 ]; do
+        grew=0
+        for name in ${resolved}; do
+            for req in $(tds_dist_get "$(pkg_file "${root}" "${name}")" REQUIRES 2>/dev/null || true); do
+                if ! in_list "${req}" "${resolved}"; then
+                    resolved="${resolved} ${req}"
+                    grew=1
+                fi
+            done
+        done
+    done
+    printf '%s\n' "${resolved}"
+}
+
+assert_no_deny() {
+    # assert_no_deny <resolved list> <deny list>
+    local name bad=""
+    for name in $1; do
+        in_list "${name}" "$2" && bad="${bad} ${name}"
+    done
+    [ -z "${bad}" ] || die "deny violation: manifest resolves to denied package(s):${bad}"
+}
+
+assert_ownership() {
+    local root="$1"
+    tds_dist_check_ownership "${root}"/packages/*.pkg \
+        || die "exclusive path ownership violated in ${root}/packages"
+}
+
+compute_version() {
+    # compute_version <root> <outdir> <device> -> vYYYY.MM.DD[.n], collision-bumped
+    local root="$1" outdir="$2" device="$3" base ver n=2
+    base="v$(git -C "${root}" log -1 --format=%cs | tr - .)"
+    ver="${base}"
+    while [ -e "${outdir}/tds-env-${device}-${ver}.tar.gz" ]; do
+        ver="${base}.${n}"
+        n=$((n + 1))
+    done
+    printf '%s\n' "${ver}"
+}
+
+stage_packages() {
+    # stage_packages <root> <stagedir> <pkg list> -- copy PATHS + VERIFY
+    local root="$1" stage="$2" name f paths p
+    for name in $3; do
+        f="$(pkg_file "${root}" "${name}")"
+        paths="$(tds_dist_get "${f}" PATHS 2>/dev/null || true)"
+        for p in $(tds_dist_get "${f}" VERIFY 2>/dev/null || true); do
+            paths="${paths} ${p}"
+        done
+        [ -n "${paths// /}" ] || continue
+        for p in ${paths}; do
+            [ -e "${root}/${p}" ] || die "package ${name}: path ${p} missing in ${root}"
+        done
+        # tar pipe preserves structure and modes with portable syntax
+        ( cd "${root}" && tar -cf - ${paths} ) | tar -xf - -C "${stage}"
+    done
+}
+
+write_artifact_manifest() {
+    # write_artifact_manifest <root> <stagedir> <device> <pkgs> <version>
+    local root="$1" stage="$2" device="$3" pkgs="$4" version="$5"
+    {
+        echo "DEVICE=${device}"
+        echo "PACKAGES=\"${pkgs}\""
+        echo "VERSION=${version}"
+        echo "SOURCE_SHA=$(git -C "${root}" rev-parse HEAD)"
+        echo "BUILT_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    } > "${stage}/ARTIFACT-MANIFEST"
+}
+
+bundle_installer() {
+    # bundle_installer <stagedir> -- ship install.sh + parser lib from the
+    # exporter's own repo (the installer versions with the exporter).
+    local stage="$1"
+    mkdir -p "${stage}/.tds-lib"
+    cp "${TDS_EXPORT_REPO}/lib/tds-dist.sh" "${stage}/.tds-lib/tds-dist.sh"
+    if [ -f "${TDS_EXPORT_REPO}/bin/tds-install" ]; then
+        cp "${TDS_EXPORT_REPO}/bin/tds-install" "${stage}/install.sh"
+        chmod +x "${stage}/install.sh"
+    else
+        echo "tds-export: WARNING: bin/tds-install missing, artifact has no installer" >&2
+    fi
+}
+
+scan_artifact() {
+    # scan_artifact <tarball> <root> <deny list> -- post-build assertion:
+    # no denied package's path and no .git anywhere in the tar listing.
+    local tarball="$1" root="$2" deny="$3" listing entry rel name f p
+    listing="$(tar -tzf "${tarball}")"
+    if printf '%s\n' "${listing}" | grep -Eq '(^|/)\.git(/|$)'; then
+        die "artifact scan: .git present in ${tarball}"
+    fi
+    for name in ${deny}; do
+        f="$(pkg_file "${root}" "${name}")"
+        for p in $(tds_dist_get "${f}" PATHS 2>/dev/null || true); do
+            p="${p%/}"
+            while IFS= read -r entry; do
+                rel="${entry#*/}"                       # strip artifact topdir
+                rel="${rel%/}"
+                case "${rel}" in
+                    "${p}" | "${p}"/*)
+                        die "artifact scan: denied path ${rel} (package ${name}) in ${tarball}" ;;
+                esac
+            done <<EOF
+${listing}
+EOF
+        done
+    done
+    return 0
+}
+
+# --- Flow functions ---
+
+run_export() {
+    local manifest="$1" root="$2" outdir="$3" only="$4" publish="$5"
+    local device packages deny resolved exported version topdir stage tarball name
+
+    device="$(tds_dist_require "${manifest}" DEVICE)"   || exit 1
+    packages="$(tds_dist_require "${manifest}" PACKAGES)" || exit 1
+    deny="$(tds_dist_get "${manifest}" DENY 2>/dev/null || true)"
+
+    assert_clean_master "${root}"
+    assert_ownership "${root}"
+
+    resolved="$(resolve_packages "${root}" "${packages}")"
+    assert_no_deny "${resolved}" "${deny}"
+
+    if [ -n "${only}" ]; then
+        for name in ${only}; do
+            in_list "${name}" "${resolved}" \
+                || die "-p ${name}: not in manifest's resolved package set"
+            ! in_list "${name}" "${deny}" || die "-p ${name}: denied by manifest"
+        done
+        exported="${only}"
+    else
+        exported="${resolved}"
+    fi
+
+    mkdir -p "${outdir}"
+    version="$(compute_version "${root}" "${outdir}" "${device}")"
+    topdir="tds-env-${device}-${version}"
+    stage="$(mktemp -d "${TMPDIR:-/tmp}/tds-export.XXXXXX")"
+    # expand now: stage is function-local and gone when the EXIT trap fires
+    trap "rm -rf '${stage}'" EXIT
+    mkdir -p "${stage}/${topdir}"
+
+    stage_packages "${root}" "${stage}/${topdir}" "${exported}"
+    write_artifact_manifest "${root}" "${stage}/${topdir}" "${device}" "${exported}" "${version}"
+    bundle_installer "${stage}/${topdir}"
+
+    tarball="${outdir}/${topdir}.tar.gz"
+    tar -czf "${tarball}" -C "${stage}" "${topdir}"
+    scan_artifact "${tarball}" "${root}" "${deny}"
+
+    echo "tds-export: built ${tarball}"
+    echo "tds-export: packages: ${exported}"
+
+    if [ "${publish}" = "true" ]; then
+        die "-r (publish) not implemented yet (phase 4)"
+    fi
+}
+
+usage() {
+    sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+# --- Main ---
+
+main() {
+    local manifest="" root="${TDS_EXPORT_REPO}" outdir="" only="" publish=false opt
+    while getopts "m:C:o:p:rh" opt; do
+        case "${opt}" in
+            m) manifest="${OPTARG}" ;;
+            C) root="${OPTARG}" ;;
+            o) outdir="${OPTARG}" ;;
+            p) only="${only} ${OPTARG}" ;;
+            r) publish=true ;;
+            h) usage; exit 0 ;;
+            *) usage; exit 1 ;;
+        esac
+    done
+    [ -n "${manifest}" ] || { usage; exit 1; }
+    [ -f "${manifest}" ] || die "no such manifest: ${manifest}"
+    [ -d "${root}" ] || die "no such source root: ${root}"
+    [ -n "${outdir}" ] || outdir="${root}/dist"
+    only="${only# }"
+    run_export "${manifest}" "${root}" "${outdir}" "${only}" "${publish}"
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+    main "$@"
+fi

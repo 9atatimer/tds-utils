@@ -20,7 +20,7 @@ Each phase is RED -> GREEN -> COMMIT; smoketests in `test/` are the harness.
       shared by `.pkg` and `.manifest`), the 13 `packages/*.pkg` files,
       exclusive-path-ownership check. Smoketest feeds good/bad/overlapping
       fixtures.
-- [ ] Phase 2 -- exporter core: `bin/tds-export -m` (resolve + REQUIRES, DENY
+- [x] Phase 2 -- exporter core: `bin/tds-export -m` (resolve + REQUIRES, DENY
       assertion, staging tree, ARTIFACT-MANIFEST, tarball, post-build deny
       scan), tested against a synthetic mini-tree. Ships
       `manifests/example.manifest` only.

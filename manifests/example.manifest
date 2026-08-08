@@ -1,0 +1,19 @@
+# example.manifest -- documentation-only device manifest.
+#
+# Real device manifests live in tds-internal (private repo); tds-export -m
+# takes a path, so nothing device-shaped lands in this public tree. Fields:
+#
+#   DEVICE    device name, used in the artifact filename (local exports)
+#   GPGKEY    public key id of the device instance; -r encrypts to it
+#   PACKAGES  packages to export (see packages/*.pkg for the registry)
+#   DENY      hard assertion: export fails if any of these resolve into
+#             the package set (directly or via REQUIRES), and the built
+#             artifact is scanned for their paths as a second check
+DEVICE=example
+GPGKEY=0xEXAMPLEKEYID
+PACKAGES="shell-zsh git emacs screen bin-core"
+DENY="ai-agents log-hoarder lmde"
+# DENY rationale (recorded, not parsed):
+#   ai-agents   -- AI-authoring stack stays off non-authoring hardware
+#   log-hoarder -- retention-policy-sensitive tooling
+#   lmde        -- personal platform contract
