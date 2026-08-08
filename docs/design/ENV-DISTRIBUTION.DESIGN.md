@@ -66,7 +66,7 @@ work machine receives an artifact -- never the repository.
                                            v
                                   +------------------+      +------------------+
                                   | authoring        |      | device manifest  |
-                                  | checkout         |      | (per device)     |
+                                  | checkout         |      | (tds-internal)   |
                                   +------------------+      +------------------+
                                            |                        |
                                            +----------+-------------+
@@ -77,7 +77,7 @@ work machine receives an artifact -- never the repository.
                                       tds-env-<device>-<version>.tar.gz
                                         |                          |
                                         | (local)                  | GitHub Release asset
-                                        |                          | (https download + sha256)
+                                        |                          | (gpg ciphertext, https)
                                         v                          v
                               +------------------+       +------------------+
                               | home machine     |       | work machine     |
@@ -173,8 +173,9 @@ Initial package registry (from the functional-area map):
 ### Device manifests (`manifests/*.manifest`)
 
 ```
-# manifests/work.manifest
+# tds-internal:manifests/work.manifest
 DEVICE=work
+GPGKEY=0xWORKKEYID
 PACKAGES="shell-zsh git emacs bin-core goldfish"
 DENY="log-hoarder ai-agents lmde"
 # DENY rationale (recorded, not parsed):
@@ -186,9 +187,12 @@ DENY="log-hoarder ai-agents lmde"
 `DENY` is a hard export-time assertion, not documentation: `tds-export` fails
 if a denied package appears in `PACKAGES` or is pulled in via `REQUIRES`, and
 after building it scans the artifact for any path belonging to a denied
-package. Manifests contain only package names and a device label -- nothing
-sensitive -- so they may be checked in; a device may also keep its manifest
-locally (work overlay repo) without the public repo ever knowing it exists.
+package.
+
+Manifests and all device records live in **tds-internal** (the existing
+private repo that hides machine names and infra). The public repo ships only
+`manifests/example.manifest` as documentation; `tds-export -m` takes a path,
+so nothing device-shaped ever lands in the public tree.
 
 ### Exporter (`bin/tds-export`)
 
@@ -206,16 +210,19 @@ tds-export -m manifests/work.manifest [-o outdir] [-p package ...]
   7. assert: no denied package path present in the tar     -> fail on violation
 
   -p <name>: export only the named package(s) -- the re-seed path.
-  -r       : publish the artifact as a GitHub Release asset
-             (gh release create env-<version>, upload tarball + .sha256)
+  -r       : publish as a GitHub Release asset. The tarball is piped through
+             gpg --sign --encrypt -r <device key id from the manifest>, named
+             by an opaque slug (tds-env-<slug>-<version>.tar.gz.gpg), and
+             only the ciphertext is uploaded (gh release create env-<version>)
 ```
 
-Publishing note: the repo is public, so release assets are public. An
-artifact is a strict subset of the already-public tree, so no new content is
-exposed -- but the asset name reveals that a profile exists, so manifest
-labels used for published artifacts stay neutral (`work`, `core`), never
-employer-identifying. Manifests that should not be advertised at all skip
-`-r` and move by private channel.
+Publishing note: the repo is public, so release assets are public -- which is
+why they are ciphertext. Each device manifest (in tds-internal) names the
+gpg key of its device instance; the published blob is encrypted to that key
+and signed by the authoring key, so the public sees an opaque asset with a
+neutral slug, and only the target device can open it. Decryption verifies
+the signature, which replaces a bare checksum for both integrity and
+provenance.
 
 Version is calver from the source commit date: `v2026.08.08` (`.n` suffix on
 collision). The sha in ARTIFACT-MANIFEST is the provenance record.
@@ -254,20 +261,20 @@ personal/work boundary: core ships the hook, the device owns the content.
 Day 0, at home:
 
 ```
-$EDITOR manifests/work.manifest            # pick PACKAGES, set DENY
-bin/tds-export -m manifests/work.manifest -r
-# -> builds tds-env-work-v2026.08.08.tar.gz and publishes it (plus .sha256)
-#    as a GitHub Release asset on the public repo
+$EDITOR <tds-internal>/manifests/work.manifest   # pick PACKAGES, set DENY, device key id
+bin/tds-export -m <tds-internal>/manifests/work.manifest -r
+# -> builds the artifact, gpg-signs + encrypts it to the work instance's key,
+#    publishes ciphertext under a neutral slug on the public repo's release
 ```
 
-Day 0, on the work machine:
+Day 0, on the work machine (work gpg identity already provisioned):
 
 ```
-brew install <prereqs>                     # emacs, uv, ... via work-approved channels
-curl -LO https://github.com/<owner>/tds-utils/releases/download/env-v2026.08.08/tds-env-work-v2026.08.08.tar.gz
-curl -LO .../tds-env-work-v2026.08.08.tar.gz.sha256
-shasum -a 256 -c tds-env-work-v2026.08.08.tar.gz.sha256   # verify before unpacking
-tar -xzf tds-env-work-v2026.08.08.tar.gz && cd tds-env-work-v2026.08.08
+brew install <prereqs>                     # emacs, uv, gnupg via work-approved channels
+curl -LO https://github.com/<owner>/tds-utils/releases/download/env-v2026.08.08/tds-env-<slug>-v2026.08.08.tar.gz.gpg
+gpg --decrypt tds-env-<slug>-v2026.08.08.tar.gz.gpg > tds-env.tar.gz
+# decryption verifies the authoring signature; failure -> stop
+tar -xzf tds-env.tar.gz && cd tds-env-*
 ./install.sh                               # stage, VERIFY, flip current, link $HOME
 git clone <work-private-overlay> ~/.tds-local
 ```
@@ -280,7 +287,8 @@ pushed through work infrastructure).
 Updating (only when wanted -- there is no auto-sync): at home,
 `git pull` master, re-run `tds-export -r` (whole manifest, or `-p emacs` for
 one package), then on the work machine download the new release asset,
-verify the checksum, and run `./install.sh` again. The new
+gpg-decrypt it (which verifies the signature), and run `./install.sh`
+again. The new
 version stages beside the old one, VERIFY gates it, `current` flips, and
 `tds-install --rollback` undoes it if the new version misbehaves.
 
@@ -318,7 +326,8 @@ Lifecycle of one installed version under `~/.tds/dist/`:
 ```
 packages/<name>.pkg          NAME, DESC, PATHS, LINKS, BINS, UVTOOLS,
                              SERVICES, INSTALL, VERIFY, REQUIRES
-manifests/<device>.manifest  DEVICE, PACKAGES, DENY
+tds-internal:manifests/<device>.manifest
+                             DEVICE, GPGKEY, PACKAGES, DENY
 artifact: ARTIFACT-MANIFEST  DEVICE, PACKAGES, VERSION, SOURCE_SHA, BUILT_AT
 ~/.tds/dist/                 <version>/..., current -> <version>, log
 ```
@@ -338,10 +347,11 @@ artifact: ARTIFACT-MANIFEST  DEVICE, PACKAGES, VERSION, SOURCE_SHA, BUILT_AT
   its committed lockfile; no `curl | sh`, no unpinned fetches.
 - **Services are opt-in** -- SERVICES registration requires an explicit
   installer flag; a seed never silently starts daemons on a work machine.
-- **Release-asset integrity** -- every published artifact ships with a
-  `.sha256` sibling; the consuming machine verifies before unpacking.
-  Content exposure is nil (assets are subsets of the public tree), but
-  published asset/manifest labels stay employer-neutral.
+- **Release assets are ciphertext** -- published artifacts are gpg-signed
+  and encrypted to the target device's key, named by neutral slugs. The
+  public sees opaque blobs; decryption verifies provenance. Device identity
+  (names, package selections, infra) lives only in tds-internal -- never in
+  the public tree, asset names, or release notes.
 
 ---
 
@@ -357,7 +367,8 @@ artifact: ARTIFACT-MANIFEST  DEVICE, PACKAGES, VERSION, SOURCE_SHA, BUILT_AT
 | Divergence record | manifest per device + overlay repo | device identity and tweaks live with the device, not in the public tree |
 | Verification | existing `test/` smoketests as VERIFY | they already exist per subsystem; install gets a gate for free |
 | Version scheme | calver `vYYYY.MM.DD[.n]` + source sha | matches "environment snapshot" semantics better than semver |
-| Artifact transport | GitHub Release assets + sha256 | plain https pull from any network, auditable, no sneakernet; supersedes scp/USB as the default channel |
+| Artifact transport | GitHub Release assets, gpg-signed + encrypted per device | https pull from any network, no sneakernet; ciphertext + neutral slugs keep device shape out of public view; signature covers integrity and provenance |
+| Device-tree location | tds-internal (private repo) | manifests and device records never land in the public tree; public repo ships only `example.manifest` |
 
 ---
 
@@ -373,6 +384,11 @@ artifact: ARTIFACT-MANIFEST  DEVICE, PACKAGES, VERSION, SOURCE_SHA, BUILT_AT
    `current/` is a one-time migration; do it link-by-link or in one flip?
 4. **Linux devices** -- manifest for LMDE box would exercise `SERVICES` with
    systemd units; deferred until a Linux device is actually seeded.
+5. **Work gpg key enrollment** -- how the work instance's gpg identity is
+   generated and its private key provisioned on the MBP (work IT-managed
+   key vs. self-generated on-device); the manifest only records the public
+   key id, but the bootstrap order (key before first artifact) needs a
+   documented procedure.
 
 ---
 
@@ -387,6 +403,10 @@ artifact: ARTIFACT-MANIFEST  DEVICE, PACKAGES, VERSION, SOURCE_SHA, BUILT_AT
   policy.
 - **Append-only overlay (no packaging)** -- work divergence includes pruning
   (retention policy) and replacement, which source-at-the-end cannot express.
+- **git-crypt in tds-utils** -- encrypts file contents but not paths or
+  filenames, so device-shaped names still leak from public history; adds
+  keyring state to the primary repo for less privacy than tds-internal plus
+  gpg-encrypted artifacts already provide.
 - **Off-the-shelf dotfile managers (stow, chezmoi, nix home-manager,
   ansible)** -- un-radared dependencies; none model the four install classes
   plus deny-list export in one tool, so custom glue remains either way; the
