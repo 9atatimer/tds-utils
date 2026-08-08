@@ -4,8 +4,9 @@
 # The same gate runs locally and in CI (.github/workflows/dist-ci.yml):
 #   - files whose first line is a bash shebang  -> /bin/bash -n
 #   - files whose first line is a zsh shebang   -> zsh -n
-#   - the extensionless macos/ zsh dotfiles (no shebang of their own,
+#   - the extensionless zsh dotfiles (no shebang of their own,
 #     sourced by zsh at startup)                -> zsh -n
+#   - the extensionless bash/sh dotfiles        -> /bin/bash -n
 #
 # /bin/bash is pinned deliberately: on macOS `env bash` resolves to
 # Homebrew bash 5, which would silently stop parse-testing the 3.2
@@ -26,6 +27,12 @@ set -euo pipefail
 ZSH_DOTFILES="macos/dot.zshenv macos/dot.zprofile macos/dot.zshrc \
 macos/dot.alias macos/dot.env macos/dot.zsh_log_search macos/dot.op-completion"
 
+# Extensionless bash-family dotfiles: sourced by bash (or POSIX sh), no
+# usable shebang (dot.prompts carries a fake '#!/usr/bash' for emacs
+# formatting), so the shebang scan cannot classify these either.
+BASH_DOTFILES="bash/dot.bashrc bash/dot.prompts bash/dot.bashrc.ubuntu_original \
+macos/dot.bashrc macos/dot.profile emacs/dot.emacs.d/dot.emacs_bash"
+
 # --- Action functions ---
 
 # Repo root from this script's own location, so any cwd works.
@@ -43,10 +50,10 @@ first_line() {
     head -n 1 "${file}" 2>/dev/null | LC_ALL=C tr -d '\0' || true
 }
 
-# Is this repo-relative path one of the extensionless zsh dotfiles?
-is_zsh_dotfile() {
-    local rel="$1" candidate
-    for candidate in ${ZSH_DOTFILES}; do
+# Is <rel> listed in the whitespace-separated <list>?
+in_dotfile_list() {
+    local rel="$1" list="$2" candidate
+    for candidate in ${list}; do
         if [ "${rel}" = "${candidate}" ]; then
             return 0
         fi
@@ -86,9 +93,12 @@ sweep_tracked_files() {
                 check_file zsh "${rel}" "${file}" || failed=$((failed + 1))
                 ;;
             *)
-                if is_zsh_dotfile "${rel}"; then
+                if in_dotfile_list "${rel}" "${ZSH_DOTFILES}"; then
                     checked=$((checked + 1))
                     check_file zsh "${rel}" "${file}" || failed=$((failed + 1))
+                elif in_dotfile_list "${rel}" "${BASH_DOTFILES}"; then
+                    checked=$((checked + 1))
+                    check_file /bin/bash "${rel}" "${file}" || failed=$((failed + 1))
                 fi
                 ;;
         esac
