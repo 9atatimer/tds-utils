@@ -134,6 +134,55 @@ test_retargeted_link() {
     assert "drift names the link"         "grep -q '\.alpharc' <<<\"\${STATUS_OUT}\""
 }
 
+test_wrong_source_link() {
+    bold "status: link retargeted WITHIN current/"; printf '\n'
+    local root="$1" home tarball
+    home="$(fresh_home wrongsrc)"
+    tarball="$(export_one "${root}" "${root}/manifests/good.manifest" "${WORKROOT}/outWS")"
+    install_home "${home}" "${tarball}"
+
+    # still under current/, but not the source the package declares --
+    # a prefix-only check would call this clean
+    rm "${home}/.alpharc"
+    ln -s "${home}/.tds/dist/current/alpha/tool" "${home}/.alpharc"
+    run_status "${home}"
+
+    assert "wrong-source link is drift"   "[ ${STATUS_RC} -ne 0 ]"
+    assert "drift names declared want"    "grep -q 'want .*dotfiles/rc' <<<\"\${STATUS_OUT}\""
+}
+
+test_corrupt_pkg() {
+    bold "status: corrupt package metadata"; printf '\n'
+    local root="$1" home tarball verdir
+    home="$(fresh_home corrupt)"
+    tarball="$(export_one "${root}" "${root}/manifests/good.manifest" "${WORKROOT}/outCP")"
+    install_home "${home}" "${tarball}"
+
+    # break the installed .pkg: parse error must read as drift, not as
+    # "no LINKS, no drift"
+    verdir="$(readlink "${home}/.tds/dist/current")"
+    echo 'NAME="unbalanced' >> "${verdir}/packages/alpha.pkg"
+    run_status "${home}"
+
+    assert "corrupt .pkg is drift"        "[ ${STATUS_RC} -ne 0 ]"
+    assert "drift names the package"      "grep -q 'alpha.pkg.*unparseable' <<<\"\${STATUS_OUT}\""
+}
+
+test_deep_stale_link() {
+    bold "status: deep stale link, no install"; printf '\n'
+    local root="$1" home
+    home="$(fresh_home deepstale)"
+    # no install at all; stale link nested 5 levels below $HOME must
+    # still be found (no depth cap on the stale scan)
+    mkdir -p "${home}/.config/vendor/app/profile"
+    ln -s "${home}/.tds/dist/current/dotfiles/rc" \
+        "${home}/.config/vendor/app/profile/rc"
+    run_status "${home}"
+
+    assert "deep stale link is drift"     "[ ${STATUS_RC} -ne 0 ]"
+    assert "drift names the deep link"    "grep -q 'vendor/app/profile/rc' <<<\"\${STATUS_OUT}\""
+}
+
 test_deleted_link() {
     bold "status: deleted \$HOME link"; printf '\n'
     local root="$1" home tarball
@@ -248,6 +297,9 @@ run_all() {
     root="$(build_fixture_repo)"
     test_clean_install "${root}"
     test_retargeted_link "${root}"
+    test_wrong_source_link "${root}"
+    test_corrupt_pkg "${root}"
+    test_deep_stale_link "${root}"
     test_deleted_link "${root}"
     test_dangling_current "${root}"
     test_dangling_link "${root}"

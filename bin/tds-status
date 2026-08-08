@@ -52,16 +52,19 @@ link_target_path() {
 }
 
 check_link() {
-    # check_link <distroot> <tgt> -- one $HOME link vs current/
-    local distroot="$1" tgt="$2" got
+    # check_link <distroot> <tgt> <src> -- one $HOME link vs its declared
+    # source. The installer creates exactly <distroot>/current/<src>
+    # (point_home_links), so anything else -- including a different file
+    # under current/ or a current/../ escape -- is drift.
+    local distroot="$1" tgt="$2" src="$3" got want
+    want="${distroot}/current/${src}"
     if [ -L "${tgt}" ]; then
         got="$(readlink "${tgt}")"
-        case "${got}" in
-            "${distroot}/current/"*)
-                [ -e "${tgt}" ] || drift "link ${tgt} dangling -> ${got}"
-                ;;
-            *) drift "link ${tgt} retargeted -> ${got} (want ${distroot}/current/...)" ;;
-        esac
+        if [ "${got}" = "${want}" ]; then
+            [ -e "${tgt}" ] || drift "link ${tgt} dangling -> ${got}"
+        else
+            drift "link ${tgt} retargeted -> ${got} (want ${want})"
+        fi
     elif [ -e "${tgt}" ]; then
         drift "link ${tgt} is not a symlink"
     else
@@ -90,7 +93,10 @@ check_version() {
 
 check_stale_home_links() {
     # check_stale_home_links <distroot> -- with no active install, any
-    # $HOME symlink still resolving into the distroot is drift
+    # $HOME symlink still resolving into the distroot is drift. Unbounded
+    # walk: LINKS targets may nest arbitrarily deep (the installer
+    # mkdir -p's their parents), so a depth cap would miss real drift;
+    # this path only runs in the rare no-install case of a status tool.
     local distroot="$1" l got
     while IFS= read -r l; do
         [ -n "${l}" ] || continue
@@ -98,23 +104,31 @@ check_stale_home_links() {
         case "${got}" in
             "${distroot}/"*) drift "stale link ${l} -> ${got} (no active install)" ;;
         esac
-    done < <(find "${HOME}" -maxdepth 3 -type l 2>/dev/null || true)
+    done < <(find "${HOME}" -type l 2>/dev/null || true)
 }
 
 # --- Flow functions ---
 
 report_links() {
     # report_links <distroot> -- every LINKS entry of every current package
-    local distroot="$1" f pair tgt
+    local distroot="$1" f pair tgt src
     for f in "${distroot}"/current/packages/*.pkg; do
         [ -f "${f}" ] || continue
+        # gate on parseability first: tds_dist_get returns 1 for BOTH a
+        # missing key and a parse error, and a corrupt package must not
+        # read as "no links, no drift"
+        if ! tds_dist_parse "${f}" >/dev/null 2>&1; then
+            drift "package $(basename "${f}") is unparseable (corrupt metadata)"
+            continue
+        fi
         for pair in $(tds_dist_get "${f}" LINKS 2>/dev/null || true); do
             tgt="$(link_target_path "${pair}")"
-            if [ -z "${tgt}" ]; then
-                drift "bad LINKS target in $(basename "${f}"): ${pair}"
+            case "${pair}" in *:*) src="${pair#*:}" ;; *) src="" ;; esac
+            if [ -z "${tgt}" ] || [ -z "${src}" ]; then
+                drift "bad LINKS pair in $(basename "${f}"): ${pair}"
                 continue
             fi
-            check_link "${distroot}" "${tgt}"
+            check_link "${distroot}" "${tgt}" "${src}"
         done
     done
 }
