@@ -11,6 +11,39 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 ## Open Tasks
 
+### macOS App Launchers -- macos/apps (phase entry, 2026-08-08)
+
+Implementation of `docs/design/MACOS-APPS.DESIGN.md`: a builder that turns
+any repo command into a clickable `.app`, plus the first app, `flip-monitor`
+(`monctl flip`).
+
+- [x] `macos/apps/mkmacapp` -- generates the AppleScript wrapper, compiles,
+  installs the icon, ad-hoc signs, optionally pins to the Dock.
+- [x] `macos/apps/flip-monitor/` -- `build`, `icon.py`, committed `icon.icns`.
+- [x] `test/smoketest_macos_apps.sh` -- 21 assertions over the real macOS
+  toolchain; skips on non-Darwin.
+- [ ] Rebuild the installed bundle from the merged checkout. The one on the
+  Desktop today was hand-built during the prototype and hardcodes an
+  absolute path; `macos/apps/flip-monitor/build --dest ~/Desktop --force`
+  replaces it in place, keeping the existing Dock tile valid.
+
+**Lessons learned**
+
+- A custom `.icns` alone does not change an osacompile applet's icon.
+  Modern osacompile also emits `Contents/Resources/Assets.car` and a
+  `CFBundleIconName` key, and both outrank `applet.icns`. Remove them or
+  the bundle keeps the stock scroll icon with no error anywhere.
+- `codesign` refuses a bundle carrying extended attributes -- "resource
+  fork, Finder information, or similar detritus not allowed". `xattr -cr`
+  has to run first, which is not obvious from the message.
+- Shell aliases are invisible to Launch Services. `mc` is an alias in
+  `macos/dot.alias`, so the bundle has to invoke `monctl` and set PATH
+  itself; `do shell script` starts from a minimal PATH that excludes
+  Homebrew, which `monctl` needs for `m1ddc`.
+- Pillow is not in the Homebrew or system python3 on this machine, only in
+  the pyenv shim. That is why `icon.icns` is committed rather than built
+  at install time.
+
 ### LMDE git-mirror Enrollment (phase entry, 2026-07-24)
 
 - **Accomplishments**: 
