@@ -5,8 +5,9 @@
 # Hermetic: artifacts are exported from a synthetic mini-repo and installed
 # into a throwaway HOME (mktemp), never the real one. Covers: happy-path
 # install (copy, BINS, INSTALL hook, VERIFY, current flip, $HOME links,
-# log), VERIFY-failure abort, version flip + rollback, prune-to-3,
-# regular-file link safety, the UVTOOLS phase-5 stub failing loudly, and
+# log), VERIFY-failure abort, version flip + rollback, prune-to-3 (which
+# must never remove the active version, even when newer-named dirs
+# outrank it), regular-file link safety, the UVTOOLS phase-5 stub, and
 # platform-aware SERVICES registration (-S opt-in; the native unit type
 # registers via a fake registrar, the foreign type skips with a note).
 #
@@ -206,6 +207,25 @@ test_prune() {
         "[ \"\$(basename \"\$(readlink '${dist}/current')\")\" = '${vbase}.10' ]"
 }
 
+test_prune_keeps_active() {
+    bold "install: prune never removes the active version"; printf '\n'
+    local root="$1" home t dist cur rc=0
+    home="$(fresh_home pruneactive)"
+    t="$(export_one "${root}" "${root}/manifests/good.manifest" "${WORKROOT}/outI")"
+    HOME="${home}" "${INSTALLER}" -a "${t}" >/dev/null 2>&1
+    dist="${home}/.tds/dist"
+    cur="$(readlink "${dist}/current")"
+    # stage three newer-named version dirs, then re-install the same older
+    # artifact (downgrade/re-seed): the active dir ranks 4th by calver, so
+    # an unguarded prune would delete it and leave current dangling
+    mkdir "${dist}/v2999.01.01" "${dist}/v2999.01.02" "${dist}/v2999.01.03"
+    HOME="${home}" "${INSTALLER}" -a "${t}" >/dev/null 2>&1 || rc=$?
+    assert "re-install over newer staged dirs succeeds" "[ ${rc} -eq 0 ]"
+    assert "active version dir survives prune" "[ -d '${cur}' ]"
+    assert "current still resolves"    "[ -f '${dist}/current/dotfiles/rc' ]"
+    assert "HOME link still readable"  "grep -q 'rc v1' '${home}/.alpharc'"
+}
+
 test_link_safety() {
     bold "install: link safety"; printf '\n'
     local root="$1" home tarball rc=0
@@ -350,6 +370,7 @@ run_all() {
     test_verify_abort "${root}"
     test_flip_rollback "${root}"
     test_prune "${root}"
+    test_prune_keeps_active "${root}"
     test_link_safety "${root}"
     test_embedded_installer "${root}"
     test_uvtools "${root}"

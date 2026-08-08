@@ -15,7 +15,7 @@
 # package's VERIFY against the staged tree (failure aborts and removes the
 # staging -- current is never touched), then flip the `current` symlink via
 # temp-link + rename(2) and (re)point $HOME LINKS through current/. Keeps
-# the last 3 versions; older ones are pruned after a successful flip.
+# the newest 3 versions (never pruning the active one) after each flip.
 
 set -euo pipefail
 
@@ -260,12 +260,17 @@ prune_versions() {
     # Version dirs are calver vYYYY.MM.DD[.n]: sort every dotted field
     # numerically, newest first, so the collision suffix orders correctly
     # (.10 is newer than .2; lexical or mtime order would misorder it)
-    # and a missing suffix sorts oldest for its day.
-    local distroot="$1" d name n=0
+    # and a missing suffix sorts oldest for its day. The version current
+    # points at is NEVER pruned, even when newer-named dirs outrank it
+    # (downgrade/re-install of an older calver): deleting it would leave
+    # current dangling and every $HOME link through it broken.
+    local distroot="$1" d name n=0 active=""
+    [ -L "${distroot}/current" ] \
+        && active="$(basename "$(readlink "${distroot}/current")")"
     while IFS= read -r name; do
         [ -n "${name}" ] || continue
         n=$((n + 1))
-        if [ "${n}" -gt 3 ]; then
+        if [ "${n}" -gt 3 ] && [ "${name}" != "${active}" ]; then
             note "pruning old version ${name}"
             rm -rf "${distroot:?}/${name}"
         fi
