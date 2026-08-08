@@ -38,6 +38,23 @@ Each phase is RED -> GREEN -> COMMIT; smoketests in `test/` are the harness.
       machine, not by an agent). tds-internal: `manifests/work.manifest` +
       gpg enrollment procedure.
 
+### ENV-DISTRIBUTION follow-through (issue #206, 2026-08-08)
+
+Continuation of #202/#205: get the shipped dist system CI-covered, observable,
+and lint-hardened. Priority order per the issue; RED -> GREEN -> COMMIT each.
+
+- [ ] CI for the dist suite: GitHub Actions workflow running the four dist
+      smoketests plus `bash -n`/`zsh -n` syntax checks on ubuntu-latest AND
+      macos-latest (macOS leg exercises BSD `mv -h`, `shasum`, /bin/bash 3.2;
+      publish suite needs gpg from the runner's package manager).
+- [ ] `bin/tds-status`: read-only drift reporter -- $HOME links vs
+      `~/.tds/dist/current`, active vs newest version dir, history from
+      `~/.tds/dist/log`; nonzero exit on drift. TDD: smoketest first
+      (`test/smoketest_tds_status.sh`, throwaway `HOME=$(mktemp -d)` fixtures).
+- [ ] shellcheck hardening: `lib/tds-dist.sh`, `bin/tds-export`,
+      `bin/tds-install`, `bin/tds-status`; fix genuine findings, CI job for
+      those four files only; suppress only with a one-line justification.
+
 ### macOS App Launchers -- macos/apps (phase entry, 2026-08-08)
 
 Implementation of `docs/design/MACOS-APPS.DESIGN.md`: a builder that turns
