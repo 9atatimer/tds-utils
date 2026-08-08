@@ -47,3 +47,9 @@ alias agy='clai agy'
 alias agy-yolo='clai agy --dangerously-skip-permissions'
 alias codex='clai codex'
 alias opencode='clai opencode'
+
+# monctl -- flip the Dell U2725QE between the home Mac (Thunderbolt) and the
+# work Mac (DisplayPort). `mc flip` is the everyday form.
+# Note: `mc` is also the binary name for GNU Midnight Commander and the MinIO
+# client -- drop this alias if either ever gets installed.
+alias mc=monctl
