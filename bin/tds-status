@@ -7,10 +7,10 @@
 # Checks, against TDS_DIST_ROOT (default ~/.tds/dist, same as tds-install):
 #   links    for every package under current/packages/, each LINKS target
 #            in $HOME must be a symlink resolving into <distroot>/current/;
-#            missing, non-symlink, or retargeted entries are drift
-#   version  the version `current` points at must be the newest version
-#            dir under <distroot> (calver vYYYY.MM.DD[.n]; the .n suffix
-#            compares numerically -- lexical sort would misorder .10)
+#            missing, non-symlink, retargeted, or dangling entries are drift
+#   version  the version `current` points at must exist (a dangling
+#            current is drift) and be the newest version dir under
+#            <distroot> (calver vYYYY.MM.DD[.n]; .n compares numerically)
 #   history  tail of <distroot>/log (install/rollback events; a rejected
 #            stage never reaches the log, so only what the log has shows)
 #
@@ -57,7 +57,9 @@ check_link() {
     if [ -L "${tgt}" ]; then
         got="$(readlink "${tgt}")"
         case "${got}" in
-            "${distroot}/current/"*) ;;
+            "${distroot}/current/"*)
+                [ -e "${tgt}" ] || drift "link ${tgt} dangling -> ${got}"
+                ;;
             *) drift "link ${tgt} retargeted -> ${got} (want ${distroot}/current/...)" ;;
         esac
     elif [ -e "${tgt}" ]; then
@@ -140,6 +142,9 @@ report_status() {
     curver="$(basename "$(readlink "${cur}")")"
     note "distroot: ${distroot}"
     note "current: ${curver}"
+    # a current symlink whose version dir is gone: every $HOME link
+    # through it dangles even though each one still points "correctly"
+    [ -e "${cur}" ] || drift "current -> ${curver} is dangling (version dir missing)"
     report_links "${distroot}"
     check_version "${distroot}" "${curver}"
     report_history "${distroot}"

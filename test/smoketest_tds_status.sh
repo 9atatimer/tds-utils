@@ -4,11 +4,13 @@
 # Hermetic: artifacts are exported from a synthetic mini-repo and installed
 # into a throwaway HOME (mktemp), never the real one. Covers: clean install
 # (exit 0, reports the current version, writes nothing), retargeted and
-# deleted $HOME links (nonzero, names the link), a newer version dir staged
-# but not active (nonzero; the .n calver suffix must compare numerically,
-# not lexically), install + rollback history echoed from the log, and the
-# no-install-at-all case (plain report, exit 0 -- nonzero only when stale
-# tds links remain in $HOME).
+# deleted $HOME links (nonzero, names the link), dangling states (a
+# current symlink whose version dir is gone, and a correctly-pointed
+# $HOME link whose file inside current/ is gone -- both nonzero), a newer
+# version dir staged but not active (nonzero; the .n calver suffix must
+# compare numerically, not lexically), install + rollback history echoed
+# from the log, and the no-install-at-all case (plain report, exit 0 --
+# nonzero only when stale tds links remain in $HOME).
 #
 # Usage: ./test/smoketest_tds_status.sh
 
@@ -146,6 +148,37 @@ test_deleted_link() {
     assert "drift names the missing link" "grep -q '\.alpharc' <<<\"\${STATUS_OUT}\""
 }
 
+test_dangling_current() {
+    bold "status: dangling current symlink"; printf '\n'
+    local root="$1" home
+    home="$(fresh_home dangcur)"
+    # hand-built distroot: current points at a version dir that is gone
+    # (e.g. pruned or deleted by hand); links through it all dangle
+    mkdir -p "${home}/.tds/dist"
+    ln -s "${home}/.tds/dist/v2026.01.01" "${home}/.tds/dist/current"
+    ln -s "${home}/.tds/dist/current/dotfiles/rc" "${home}/.alpharc"
+    run_status "${home}"
+
+    assert "dangling current is drift"    "[ ${STATUS_RC} -ne 0 ]"
+    assert "drift names the gone version" "grep -q 'v2026.01.01' <<<\"\${STATUS_OUT}\""
+}
+
+test_dangling_link() {
+    bold "status: correctly-pointed \$HOME link dangles"; printf '\n'
+    local root="$1" home tarball
+    home="$(fresh_home danglink)"
+    tarball="$(export_one "${root}" "${root}/manifests/good.manifest" "${WORKROOT}/outF")"
+    install_home "${home}" "${tarball}"
+
+    # the link text still matches <distroot>/current/... but the file
+    # behind it is gone -- readlink comparison alone would miss this
+    rm "${home}/.tds/dist/current/dotfiles/rc"
+    run_status "${home}"
+
+    assert "dangling link is drift"       "[ ${STATUS_RC} -ne 0 ]"
+    assert "drift names the dangling link" "grep -q '\.alpharc' <<<\"\${STATUS_OUT}\""
+}
+
 test_version_drift() {
     bold "status: newer version staged but not active"; printf '\n'
     local root="$1" home t1 t2 v1 v2 fake
@@ -216,6 +249,8 @@ run_all() {
     test_clean_install "${root}"
     test_retargeted_link "${root}"
     test_deleted_link "${root}"
+    test_dangling_current "${root}"
+    test_dangling_link "${root}"
     test_version_drift "${root}"
     test_history "${root}"
     test_no_install "${root}"
