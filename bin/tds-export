@@ -105,6 +105,10 @@ stage_packages() {
         done
         # tar pipe preserves structure and modes with portable syntax
         ( cd "${root}" && tar -cf - ${paths} ) | tar -xf - -C "${stage}"
+        # ship the package definition -- the installer reads LINKS/BINS/
+        # UVTOOLS/SERVICES/INSTALL/VERIFY from it
+        mkdir -p "${stage}/packages"
+        cp "${f}" "${stage}/packages/"
     done
 }
 

@@ -24,7 +24,7 @@ Each phase is RED -> GREEN -> COMMIT; smoketests in `test/` are the harness.
       assertion, staging tree, ARTIFACT-MANIFEST, tarball, post-build deny
       scan), tested against a synthetic mini-tree. Ships
       `manifests/example.manifest` only.
-- [ ] Phase 3 -- installer: artifact-embedded `install.sh` + `bin/tds-install`
+- [x] Phase 3 -- installer: artifact-embedded `install.sh` + `bin/tds-install`
       (staged unpack, VERIFY gate, temp-symlink + rename(2) flip, --rollback,
       prune-to-3). Smoketest installs into `HOME=$(mktemp -d)`. UVTOOLS /
       SERVICES / INSTALL hooks are loud-failure stubs.
