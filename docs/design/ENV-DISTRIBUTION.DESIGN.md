@@ -102,7 +102,7 @@ problem (issue documented in AGENT.md, "This Checkout Is Live").
 ### Packages (`packages/*.pkg`)
 
 A package is a named slice of the repo with declared install semantics. One
-flat KEY=VALUE file per package, bash-parseable, no new dependencies:
+flat KEY=VALUE file per package, no new dependencies:
 
 ```
 # packages/shell-zsh.pkg
@@ -122,6 +122,20 @@ BINS="bin/goldfish"
 UVTOOLS="goldfish"
 VERIFY=test/smoketest_goldfish
 ```
+
+`.pkg` and `.manifest` files are **data, never code**. They are read by a
+non-eval line parser (`while IFS='=' read ...` or awk), never `source`d --
+sourcing would turn command substitution and parameter expansion in a value
+into code execution. Parser contract: one `KEY=VALUE` per line; keys match
+`[A-Z_]+`; values are literal strings (optional surrounding double quotes
+stripped, no expansion, no substitution, no escapes); list values are
+whitespace-separated; `#` starts a comment; any other line shape is a parse
+error that aborts the run.
+
+**Path ownership is exclusive**: a repo path may be claimed by at most one
+package's `PATHS`. `tds-export` fails on duplicate claims. This is what makes
+the deny-list artifact scan well-defined -- "path belonging to a denied
+package" has exactly one answer, with no precedence rules.
 
 Install semantics are expressed as optional **action fields**, not a single
 class enum -- a package uses whichever apply:
@@ -181,6 +195,7 @@ locally (work overlay repo) without the public repo ever knowing it exists.
 tds-export -m manifests/work-mbp.manifest [-o outdir] [-p package ...]
 
   1. resolve PACKAGES (+ REQUIRES), check against DENY     -> fail on violation
+     assert exclusive path ownership across all packages   -> fail on violation
   2. require clean tree on master                          -> fail otherwise
   3. copy each package's PATHS into a staging tree
   4. write ARTIFACT-MANIFEST (device, packages, version,
@@ -201,7 +216,9 @@ collision). The sha in ARTIFACT-MANIFEST is the provenance record.
   1. unpack into ~/.tds/dist/<version>/
   2. per package, in order: BINS wiring, UVTOOLS, INSTALL hooks
   3. run each package's VERIFY against the staged version   -> abort, no flip
-  4. flip ~/.tds/dist/current -> <version>   (atomic: ln -sfn)
+  4. flip ~/.tds/dist/current -> <version>   (atomic: temp symlink, then
+     rename(2) over current -- GNU `mv -T`, BSD `mv -h`; never `ln -sfn`,
+     which unlinks first and leaves a window with no current)
   5. (re)point $HOME LINKS at current/...    (idempotent; only missing/wrong)
   6. record install in ~/.tds/dist/log
 
@@ -221,6 +238,36 @@ Every config package's entry point ends with a fixed escape hatch, e.g.
 `[include] path = ~/.tds-local/gitconfig`. `~/.tds-local` is device-owned
 (on the work MBP, a work-private repo). This is the whole
 personal/work boundary: core ships the hook, the device owns the content.
+
+### Operational walkthrough (work MBP)
+
+Day 0, at home:
+
+```
+$EDITOR manifests/work-mbp.manifest        # pick PACKAGES, set DENY
+bin/tds-export -m manifests/work-mbp.manifest
+# -> tds-env-work-mbp-v2026.08.08.tar.gz; copy to work machine (scp/USB)
+```
+
+Day 0, on the work machine:
+
+```
+brew install <prereqs>                     # emacs, uv, ... via work-approved channels
+tar -xzf tds-env-work-mbp-v2026.08.08.tar.gz && cd tds-env-work-mbp-v2026.08.08
+./install.sh                               # stage, VERIFY, flip current, link $HOME
+git clone <work-private-overlay> ~/.tds-local
+```
+
+Steady state on the work machine is: no tds repo, no git remotes to the
+personal tree; `~/.tds/dist/current` is the environment; all work-authored
+config goes in `~/.tds-local` (its own work-private repo, committed and
+pushed through work infrastructure).
+
+Updating (only when wanted -- there is no auto-sync): at home,
+`git pull` master, re-run `tds-export` (whole manifest, or `-p emacs` for
+one package), carry the artifact over, run `./install.sh` again. The new
+version stages beside the old one, VERIFY gates it, `current` flips, and
+`tds-install --rollback` undoes it if the new version misbehaves.
 
 ---
 
@@ -245,7 +292,7 @@ Lifecycle of one installed version under `~/.tds/dist/`:
 |------|----|---------|-----------|
 | STAGED | TESTED | all VERIFY scripts pass | run against staged tree |
 | STAGED/TESTED | REJECTED | any VERIFY fails | staged tree removed, current untouched |
-| TESTED | ACTIVE | `current` flip | atomic `ln -sfn` |
+| TESTED | ACTIVE | `current` flip | temp symlink + rename(2) |
 | ACTIVE | RETIRED | newer version flips in | kept for rollback (last 3) |
 | RETIRED | ACTIVE | `tds-install --rollback` | re-verify then flip |
 
@@ -284,7 +331,7 @@ artifact: ARTIFACT-MANIFEST  DEVICE, PACKAGES, VERSION, SOURCE_SHA, BUILT_AT
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | Delivery mechanism | versioned tarball artifact, not git | one-way flow by construction; no personal history or denied content reachable from work hardware |
-| Package definition | flat KEY=VALUE `.pkg` files | bash-parseable, zero new dependencies, diffable |
+| Package definition | flat KEY=VALUE `.pkg` files | parsed as data by a non-eval reader (never sourced), zero new dependencies, diffable |
 | Install semantics | per-package action fields | packages span classes (log-hoarder is config+tool+service); one enum could not express that |
 | Live-config target | `~/.tds/dist/current` versioned prefix | atomic flip + rollback; dev checkout stops being live config |
 | Pruning | manifest package selection + DENY assertion | policy enforced by tooling, not discipline; "not exported" is stronger than "not linked" |
