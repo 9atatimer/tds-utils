@@ -11,6 +11,33 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 ## Open Tasks
 
+### ENV-DISTRIBUTION -- packages/manifests/export/install (issue #202, 2026-08-08)
+
+Implementation of `docs/design/ENV-DISTRIBUTION.DESIGN.md` (merged in #201).
+Each phase is RED -> GREEN -> COMMIT; smoketests in `test/` are the harness.
+
+- [ ] Phase 1 -- parser + registry: non-eval KEY=VALUE parser (`lib/tds-dist.sh`,
+      shared by `.pkg` and `.manifest`), the 13 `packages/*.pkg` files,
+      exclusive-path-ownership check. Smoketest feeds good/bad/overlapping
+      fixtures.
+- [ ] Phase 2 -- exporter core: `bin/tds-export -m` (resolve + REQUIRES, DENY
+      assertion, staging tree, ARTIFACT-MANIFEST, tarball, post-build deny
+      scan), tested against a synthetic mini-tree. Ships
+      `manifests/example.manifest` only.
+- [ ] Phase 3 -- installer: artifact-embedded `install.sh` + `bin/tds-install`
+      (staged unpack, VERIFY gate, temp-symlink + rename(2) flip, --rollback,
+      prune-to-3). Smoketest installs into `HOME=$(mktemp -d)`. UVTOOLS /
+      SERVICES / INSTALL hooks are loud-failure stubs.
+- [ ] Phase 4 -- publish path: `-r` gpg sign+encrypt to the manifest GPGKEY,
+      neutral-slug asset name, `gh release create`. Round-trip smoketest with
+      a scratch keypair; release upload has a dry-run mode.
+- [ ] Phase 5 -- remaining hooks + migration runbook: UVTOOLS/SERVICES/INSTALL
+      for the packages that need them, `~/.tds-local` overlay hooks in the
+      config entry points, `docs/RUNBOOK.env-migration.md` for the one-flip
+      cutover of the 14 live $HOME links (executed by the human on the real
+      machine, not by an agent). tds-internal: `manifests/work.manifest` +
+      gpg enrollment procedure.
+
 ### macOS App Launchers -- macos/apps (phase entry, 2026-08-08)
 
 Implementation of `docs/design/MACOS-APPS.DESIGN.md`: a builder that turns
