@@ -58,7 +58,9 @@ and lint-hardened. Priority order per the issue; RED -> GREEN -> COMMIT each.
       `bin/tds-install`, `bin/tds-status`; fix genuine findings, CI job for
       those four files only; suppress only with a one-line justification.
       (`shellcheck -x` exits 0 on all four; prune_versions now sorts calver
-      fields numerically -- the .n>=10 edge is pinned by the install suite.)
+      fields numerically -- the .n>=10 edge is pinned by the install suite --
+      and never prunes the active version; tds-status flags a dangling
+      `current` and dangling-but-correctly-pointed $HOME links as drift.)
 
 ### macOS App Launchers -- macos/apps (phase entry, 2026-08-08)
 
