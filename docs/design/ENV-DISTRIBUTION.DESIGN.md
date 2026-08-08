@@ -452,6 +452,12 @@ Recorded against the design as merged in #201:
   built on-device by `mkmacapp`, not shipped units); `emacs` gained
   `bin/emacs` and a new VERIFY (`test/smoketest_emacs_init.sh`, skips
   loudly when no emacs binary is present).
+- **INSTALL hooks run post-activation.** The design ordered hooks before
+  VERIFY/flip, but hooks that write $HOME config (git config --global in
+  install-git-hook-templates) would materialize regular files that then
+  block the LINKS step on a fresh machine. Hooks now run after the flip
+  and link creation, so their writes resolve through current/; VERIFY
+  still gates the staged tree before any flip.
 - **Publish fallback.** `-r` falls back from `gh release create` to
   `gh release upload` when the `env-<version>` tag already exists
   (second device seeded the same day).

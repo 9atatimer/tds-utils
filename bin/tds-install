@@ -321,7 +321,6 @@ run_install() {
         wire_bins "${dest}" "${dest}/packages/${name}.pkg"
         run_uvtools "${dest}" "${dest}/packages/${name}.pkg"
         run_services "${dest}" "${dest}/packages/${name}.pkg" "${services}"
-        run_install_hook "${dest}" "${dest}/packages/${name}.pkg"
     done
 
     if ! verify_all "${dest}" "${allpkgs}"; then
@@ -332,6 +331,14 @@ run_install() {
     fi
 
     activate "${distroot}" "${dest}" "${allpkgs}"
+
+    # INSTALL hooks run post-activation: they may write through $HOME
+    # config (e.g. git config --global), which must resolve via the just-
+    # created links into current/ -- pre-link they would materialize
+    # regular files that block the links (found on fresh-machine install)
+    for name in ${allpkgs}; do
+        run_install_hook "${dest}" "${dest}/packages/${name}.pkg"
+    done
     log_line "${distroot}" install "${version}" "${pkgs}"
     note "installed ${version} -> current (packages:${pkgs:+ }${pkgs})"
 }
