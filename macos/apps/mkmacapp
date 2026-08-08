@@ -46,6 +46,22 @@ die() { print -u2 "mkmacapp: $*"; return 1; }
 
 # --- Action functions ---
 
+# --name becomes ${dest}/${name}.app, which --force hands to rm -rf. A name
+# carrying a path separator or a dot component escapes dest and deletes
+# something else, so refuse it before any of that runs.
+validate_name() {
+    local name=$1
+    # `die` returns from itself, not from here -- so a bad name must fall
+    # through to the explicit `return 1` below, and a good one returns early.
+    case "${name}" in
+        (*/*)      die "name may not contain '/': ${name}" ;;
+        (.|..)     die "name may not be '.' or '..'" ;;
+        ("")       die "name may not be empty" ;;
+        (*)        return 0 ;;
+    esac
+    return 1
+}
+
 # Lowercase, strip everything that is not alphanumeric: "Flip Monitor" ->
 # "flipmonitor". Reverse-DNS labels do not admit spaces or punctuation.
 derive_identifier() {
@@ -125,11 +141,33 @@ sign_bundle() {
     touch "${app}"
 }
 
-pin_to_dock() {
+# Percent-encode everything outside the unreserved set. Doing it this way
+# rather than XML-escaping means &, <, >, and " cannot reach the plist
+# snippet at all, so the XML is safe by construction. LC_ALL=C makes the
+# loop index bytes, so multibyte UTF-8 encodes byte-wise as URLs require.
+url_encode_path() {
+    local text=$1 out="" char i
+    local LC_ALL=C
+    for (( i = 1; i <= ${#text}; i++ )); do
+        char=${text[i]}
+        case "${char}" in
+            ([A-Za-z0-9._~/:-]) out+=${char} ;;
+            (*)                 out+=$(printf '%%%02X' "'${char}") ;;
+        esac
+    done
+    print -r -- "${out}"
+}
+
+# Pure: builds the tile snippet without touching the Dock, so it is testable.
+dock_tile_xml() {
     local app=$1 url
-    url="file://${app// /%20}/"
-    defaults write com.apple.dock persistent-apps -array-add \
-        "<dict><key>tile-data</key><dict><key>file-data</key><dict><key>_CFURLString</key><string>${url}</string><key>_CFURLStringType</key><integer>15</integer></dict></dict><key>tile-type</key><string>file-tile</string></dict>"
+    url="file://$(url_encode_path "${app}")/"
+    print -r -- "<dict><key>tile-data</key><dict><key>file-data</key><dict><key>_CFURLString</key><string>${url}</string><key>_CFURLStringType</key><integer>15</integer></dict></dict><key>tile-type</key><string>file-tile</string></dict>"
+}
+
+pin_to_dock() {
+    local app=$1
+    defaults write com.apple.dock persistent-apps -array-add "$(dock_tile_xml "${app}")"
     killall Dock
 }
 
@@ -137,7 +175,7 @@ pin_to_dock() {
 
 build_app() {
     local name=$1 command=$2 icon=$3 identifier=$4 dest=$5 dock=$6 force=$7
-    local app="${dest}/${name}.app" source
+    local app="${dest}/${name}.app" source workdir
 
     [[ -n "${icon}" && ! -f "${icon}" ]] && die "icon not found: ${icon}"
 
@@ -147,11 +185,14 @@ build_app() {
     fi
 
     mkdir -p "${dest}"
-    source=$(mktemp -t mkmacapp).applescript
+    # A temp DIR, not `mktemp -t x).applescript`: that form writes to a path
+    # mktemp never created and leaks the file it did create, every run.
+    workdir=$(mktemp -d -t mkmacapp)
+    source="${workdir}/applet.applescript"
     generate_source "${name}" "${command}" "${source}"
 
     compile_bundle "${source}" "${app}"
-    rm -f "${source}"
+    rm -rf "${workdir}"
 
     [[ -n "${icon}" ]] && install_icon "${app}" "${icon}"
     plist_set "${app}" CFBundleIdentifier string "${identifier}"
@@ -188,10 +229,14 @@ main() {
         return 64
     fi
 
+    # A bad name is a usage error, not a build failure -- exit 64 like the rest.
+    validate_name "${name}" || return 64
+
     [[ -n "${identifier}" ]] || identifier=$(derive_identifier "${name}")
 
     build_app "${name}" "${command}" "${icon}" "${identifier}" \
               "${dest}" "${dock}" "${force}"
 }
 
-main "$@"
+# Sourceable as a library so the pure functions can be tested directly.
+[[ -n "${MKMACAPP_LIB:-}" ]] || main "$@"

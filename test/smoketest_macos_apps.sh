@@ -192,6 +192,67 @@ test_clobber_protection() {
         "[ '${status}' -eq 0 ] && [ -d '${app}' ]"
 }
 
+test_rejects_path_traversal_in_name() {
+    bold "A name that escapes the dest directory is refused"; printf '\n'
+    local dest="${WORKROOT}/build8" status
+    local outside="${WORKROOT}/ESCAPED.app"
+
+    mkdir -p "${dest}"
+    mkdir -p "${outside}"
+    : > "${outside}/SENTINEL"
+
+    # --name reaches ${dest}/${name}.app, which --force feeds to rm -rf.
+    status=0
+    "${MKMACAPP}" --name "../ESCAPED" --command 'true' --dest "${dest}" --force \
+        >/dev/null 2>&1 || status=$?
+    assert "a name containing .. exits 64" \
+        "[ '${status}' -eq 64 ]"
+    assert "the directory outside dest is untouched" \
+        "[ -f '${outside}/SENTINEL' ]"
+
+    status=0
+    "${MKMACAPP}" --name "sub/dir" --command 'true' --dest "${dest}" \
+        >/dev/null 2>&1 || status=$?
+    assert "a name containing a path separator exits 64" \
+        "[ '${status}' -eq 64 ]"
+
+    status=0
+    "${MKMACAPP}" --name "." --command 'true' --dest "${dest}" --force \
+        >/dev/null 2>&1 || status=$?
+    assert "a bare dot exits 64" \
+        "[ '${status}' -eq 64 ]"
+}
+
+test_leaves_no_temp_files() {
+    bold "Building leaves no temp files behind"; printf '\n'
+    local dest="${WORKROOT}/build9" before after
+    local tmp="${TMPDIR:-/tmp}"
+
+    before=$(find "${tmp}" -maxdepth 1 -name 'mkmacapp*' 2>/dev/null | wc -l | tr -d ' ')
+    "${MKMACAPP}" --name "Tidy" --command 'true' --dest "${dest}" >/dev/null 2>&1
+    after=$(find "${tmp}" -maxdepth 1 -name 'mkmacapp*' 2>/dev/null | wc -l | tr -d ' ')
+
+    assert "the mkmacapp temp count is unchanged after a build" \
+        "[ '${before}' -eq '${after}' ]"
+}
+
+test_dock_url_is_encoded() {
+    bold "The Dock tile URL survives awkward characters"; printf '\n'
+    local xml
+
+    # Source the script as a library to reach the pure function directly;
+    # --dock itself is untestable here because it restarts the live Dock.
+    xml=$(MKMACAPP_LIB=1 /bin/zsh -c \
+        "source '${MKMACAPP}'; dock_tile_xml '/tmp/Foo & Bar.app'" 2>/dev/null) || xml=""
+
+    assert "the tile XML is produced" \
+        "[ -n \"\${xml}\" ]"
+    assert "spaces are percent-encoded, not literal" \
+        "printf '%s' \"\${xml}\" | grep -qF '%20' && ! printf '%s' \"\${xml}\" | grep -qF 'Foo & Bar'"
+    assert "the encoded path carries no XML metacharacters" \
+        "[ -n \"\${xml}\" ] && ! printf '%s' \"\${xml}\" | sed 's|<[^>]*>||g' | grep -qE '[<>&\"]'"
+}
+
 test_flip_monitor_app() {
     bold "The flip-monitor app builds from its own build script"; printf '\n'
     local build="${REPO_DIR}/macos/apps/flip-monitor/build"
@@ -222,6 +283,9 @@ run_all() {
     test_command_is_wired_through; printf '\n'
     test_usage_errors;           printf '\n'
     test_clobber_protection;     printf '\n'
+    test_rejects_path_traversal_in_name; printf '\n'
+    test_leaves_no_temp_files;   printf '\n'
+    test_dock_url_is_encoded;    printf '\n'
     test_flip_monitor_app;       printf '\n'
 
     printf 'ran %d, passed %d, failed %d\n' \
