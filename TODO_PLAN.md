@@ -47,7 +47,7 @@ and lint-hardened. Priority order per the issue; RED -> GREEN -> COMMIT each.
       smoketests plus `bash -n`/`zsh -n` syntax checks on ubuntu-latest AND
       macos-latest (macOS leg exercises BSD `mv -h`, `shasum`, /bin/bash 3.2;
       publish suite needs gpg from the runner's package manager).
-- [ ] `bin/tds-status`: read-only drift reporter -- $HOME links vs
+- [x] `bin/tds-status`: read-only drift reporter -- $HOME links vs
       `~/.tds/dist/current`, active vs newest version dir, history from
       `~/.tds/dist/log`; nonzero exit on drift. TDD: smoketest first
       (`test/smoketest_tds_status.sh`, throwaway `HOME=$(mktemp -d)` fixtures).
