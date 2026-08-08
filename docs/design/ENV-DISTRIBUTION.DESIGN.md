@@ -76,7 +76,8 @@ work machine receives an artifact -- never the repository.
                                                       v
                                       tds-env-<device>-<version>.tar.gz
                                         |                          |
-                                        | (local)                  | scp / USB / AirDrop
+                                        | (local)                  | GitHub Release asset
+                                        |                          | (https download + sha256)
                                         v                          v
                               +------------------+       +------------------+
                               | home machine     |       | work machine     |
@@ -172,8 +173,8 @@ Initial package registry (from the functional-area map):
 ### Device manifests (`manifests/*.manifest`)
 
 ```
-# manifests/work-mbp.manifest
-DEVICE=work-mbp
+# manifests/work.manifest
+DEVICE=work
 PACKAGES="shell-zsh git emacs bin-core goldfish"
 DENY="log-hoarder ai-agents lmde"
 # DENY rationale (recorded, not parsed):
@@ -192,7 +193,7 @@ locally (work overlay repo) without the public repo ever knowing it exists.
 ### Exporter (`bin/tds-export`)
 
 ```
-tds-export -m manifests/work-mbp.manifest [-o outdir] [-p package ...]
+tds-export -m manifests/work.manifest [-o outdir] [-p package ...]
 
   1. resolve PACKAGES (+ REQUIRES), check against DENY     -> fail on violation
      assert exclusive path ownership across all packages   -> fail on violation
@@ -205,7 +206,16 @@ tds-export -m manifests/work-mbp.manifest [-o outdir] [-p package ...]
   7. assert: no denied package path present in the tar     -> fail on violation
 
   -p <name>: export only the named package(s) -- the re-seed path.
+  -r       : publish the artifact as a GitHub Release asset
+             (gh release create env-<version>, upload tarball + .sha256)
 ```
+
+Publishing note: the repo is public, so release assets are public. An
+artifact is a strict subset of the already-public tree, so no new content is
+exposed -- but the asset name reveals that a profile exists, so manifest
+labels used for published artifacts stay neutral (`work`, `core`), never
+employer-identifying. Manifests that should not be advertised at all skip
+`-r` and move by private channel.
 
 Version is calver from the source commit date: `v2026.08.08` (`.n` suffix on
 collision). The sha in ARTIFACT-MANIFEST is the provenance record.
@@ -244,16 +254,20 @@ personal/work boundary: core ships the hook, the device owns the content.
 Day 0, at home:
 
 ```
-$EDITOR manifests/work-mbp.manifest        # pick PACKAGES, set DENY
-bin/tds-export -m manifests/work-mbp.manifest
-# -> tds-env-work-mbp-v2026.08.08.tar.gz; copy to work machine (scp/USB)
+$EDITOR manifests/work.manifest            # pick PACKAGES, set DENY
+bin/tds-export -m manifests/work.manifest -r
+# -> builds tds-env-work-v2026.08.08.tar.gz and publishes it (plus .sha256)
+#    as a GitHub Release asset on the public repo
 ```
 
 Day 0, on the work machine:
 
 ```
 brew install <prereqs>                     # emacs, uv, ... via work-approved channels
-tar -xzf tds-env-work-mbp-v2026.08.08.tar.gz && cd tds-env-work-mbp-v2026.08.08
+curl -LO https://github.com/<owner>/tds-utils/releases/download/env-v2026.08.08/tds-env-work-v2026.08.08.tar.gz
+curl -LO .../tds-env-work-v2026.08.08.tar.gz.sha256
+shasum -a 256 -c tds-env-work-v2026.08.08.tar.gz.sha256   # verify before unpacking
+tar -xzf tds-env-work-v2026.08.08.tar.gz && cd tds-env-work-v2026.08.08
 ./install.sh                               # stage, VERIFY, flip current, link $HOME
 git clone <work-private-overlay> ~/.tds-local
 ```
@@ -264,8 +278,9 @@ config goes in `~/.tds-local` (its own work-private repo, committed and
 pushed through work infrastructure).
 
 Updating (only when wanted -- there is no auto-sync): at home,
-`git pull` master, re-run `tds-export` (whole manifest, or `-p emacs` for
-one package), carry the artifact over, run `./install.sh` again. The new
+`git pull` master, re-run `tds-export -r` (whole manifest, or `-p emacs` for
+one package), then on the work machine download the new release asset,
+verify the checksum, and run `./install.sh` again. The new
 version stages beside the old one, VERIFY gates it, `current` flips, and
 `tds-install --rollback` undoes it if the new version misbehaves.
 
@@ -323,6 +338,10 @@ artifact: ARTIFACT-MANIFEST  DEVICE, PACKAGES, VERSION, SOURCE_SHA, BUILT_AT
   its committed lockfile; no `curl | sh`, no unpinned fetches.
 - **Services are opt-in** -- SERVICES registration requires an explicit
   installer flag; a seed never silently starts daemons on a work machine.
+- **Release-asset integrity** -- every published artifact ships with a
+  `.sha256` sibling; the consuming machine verifies before unpacking.
+  Content exposure is nil (assets are subsets of the public tree), but
+  published asset/manifest labels stay employer-neutral.
 
 ---
 
@@ -338,6 +357,7 @@ artifact: ARTIFACT-MANIFEST  DEVICE, PACKAGES, VERSION, SOURCE_SHA, BUILT_AT
 | Divergence record | manifest per device + overlay repo | device identity and tweaks live with the device, not in the public tree |
 | Verification | existing `test/` smoketests as VERIFY | they already exist per subsystem; install gets a gate for free |
 | Version scheme | calver `vYYYY.MM.DD[.n]` + source sha | matches "environment snapshot" semantics better than semver |
+| Artifact transport | GitHub Release assets + sha256 | plain https pull from any network, auditable, no sneakernet; supersedes scp/USB as the default channel |
 
 ---
 
