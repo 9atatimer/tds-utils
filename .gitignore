@@ -32,3 +32,6 @@ tmp/
 .claude/skills/
 .codex/
 
+
+# tds-export default output (issue #202)
+dist/

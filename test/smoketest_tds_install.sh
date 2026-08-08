@@ -223,13 +223,75 @@ test_embedded_installer() {
     assert "HOME link created" "[ -L '${home}/.alpharc' ]"
 }
 
-test_uvtools_stub() {
-    bold "install: uvtools stub"; printf '\n'
-    local root="$1" home tarball rc=0
+test_uvtools() {
+    bold "install: uvtools"; printf '\n'
+    local root="$1" home tarball rc=0 fakebin="${WORKROOT}/fakebin"
     home="$(fresh_home uv)"
     tarball="$(export_one "${root}" "${root}/manifests/uv.manifest" "${WORKROOT}/outF")"
-    HOME="${home}" "${INSTALLER}" -a "${tarball}" >/dev/null 2>&1 || rc=$?
-    assert "UVTOOLS package fails loudly (phase 5 stub)" "[ ${rc} -ne 0 ]"
+
+    mkdir -p "${fakebin}"
+    cat > "${fakebin}/uv" <<EOF
+#!/bin/sh
+echo "\$@" >> "${WORKROOT}/uv-calls.log"
+exit 0
+EOF
+    chmod +x "${fakebin}/uv"
+
+    HOME="${home}" PATH="${fakebin}:${PATH}" "${INSTALLER}" -a "${tarball}" \
+        >/dev/null 2>&1 || rc=$?
+    assert "UVTOOLS install succeeds with uv present" "[ ${rc} -eq 0 ]"
+    assert "uv tool install called on shipped tree" \
+        "grep -q 'tool install .*gamma' '${WORKROOT}/uv-calls.log'"
+
+    rc=0
+    HOME="$(fresh_home uv2)" TDS_UV=/nonexistent-uv "${INSTALLER}" -a "${tarball}" \
+        >/dev/null 2>&1 || rc=$?
+    assert "UVTOOLS fails loudly without uv" "[ ${rc} -ne 0 ]"
+}
+
+test_services() {
+    bold "install: services (systemd, opt-in)"; printf '\n'
+    local root="$1" home tarball rc=0 fakebin="${WORKROOT}/fakebin-svc"
+    home="$(fresh_home svc)"
+
+    mkdir -p "${root}/units"
+    printf '[Unit]\nDescription=delta test unit\n' > "${root}/units/delta.service"
+    cat > "${root}/packages/delta.pkg" <<'EOF'
+NAME=delta
+PATHS="units/delta.service"
+SERVICES="units/delta.service"
+EOF
+    cat > "${root}/manifests/svc.manifest" <<'EOF'
+DEVICE=devbox
+PACKAGES="delta"
+EOF
+    git -C "${root}" -c user.email=t@t -c user.name=t add -A
+    git -C "${root}" -c user.email=t@t -c user.name=t commit -qm svc
+    tarball="$(export_one "${root}" "${root}/manifests/svc.manifest" "${WORKROOT}/outH")"
+
+    mkdir -p "${fakebin}"
+    cat > "${fakebin}/systemctl" <<EOF
+#!/bin/sh
+echo "\$@" >> "${WORKROOT}/systemctl-calls.log"
+exit 0
+EOF
+    chmod +x "${fakebin}/systemctl"
+
+    # without -S: unit must NOT be registered
+    HOME="${home}" PATH="${fakebin}:${PATH}" "${INSTALLER}" -a "${tarball}" \
+        >/dev/null 2>&1 || rc=$?
+    assert "install without -S succeeds"      "[ ${rc} -eq 0 ]"
+    assert "no unit registered without -S"    "[ ! -e '${home}/.config/systemd/user/delta.service' ]"
+
+    rc=0
+    home="$(fresh_home svc2)"
+    HOME="${home}" PATH="${fakebin}:${PATH}" "${INSTALLER}" -a "${tarball}" -S \
+        >/dev/null 2>&1 || rc=$?
+    assert "install with -S succeeds"         "[ ${rc} -eq 0 ]"
+    assert "unit copied into systemd user dir" \
+        "[ -f '${home}/.config/systemd/user/delta.service' ]"
+    assert "systemctl enable called" \
+        "grep -q 'enable --now delta.service' '${WORKROOT}/systemctl-calls.log'"
 }
 
 # --- Flow ---
@@ -244,7 +306,8 @@ run_all() {
     test_prune "${root}"
     test_link_safety "${root}"
     test_embedded_installer "${root}"
-    test_uvtools_stub "${root}"
+    test_uvtools "${root}"
+    test_services "${root}"
     printf '\n'
     bold "results: ${TESTS_PASSED}/${TESTS_RUN} passed"
     printf '\n'

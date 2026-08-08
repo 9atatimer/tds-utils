@@ -31,7 +31,7 @@ Each phase is RED -> GREEN -> COMMIT; smoketests in `test/` are the harness.
 - [x] Phase 4 -- publish path: `-r` gpg sign+encrypt to the manifest GPGKEY,
       neutral-slug asset name, `gh release create`. Round-trip smoketest with
       a scratch keypair; release upload has a dry-run mode.
-- [ ] Phase 5 -- remaining hooks + migration runbook: UVTOOLS/SERVICES/INSTALL
+- [x] Phase 5 -- remaining hooks + migration runbook: UVTOOLS/SERVICES/INSTALL
       for the packages that need them, `~/.tds-local` overlay hooks in the
       config entry points, `docs/RUNBOOK.env-migration.md` for the one-flip
       cutover of the 14 live $HOME links (executed by the human on the real

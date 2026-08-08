@@ -32,3 +32,8 @@ scp () {
 }
 
 echo 'dot.bashrc' >> ~/trace.log
+
+# ~/.tds-local overlay: device-owned config loads last (tds-utils #202)
+if [ -f "$HOME/.tds-local/bashrc" ]; then
+    . "$HOME/.tds-local/bashrc"
+fi

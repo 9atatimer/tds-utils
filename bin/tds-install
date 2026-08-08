@@ -141,21 +141,61 @@ wire_bins() {
 }
 
 run_uvtools() {
-    # phase-5 stub: fail loudly rather than pretend the tool was installed
-    local f="$1" u
-    u="$(tds_dist_get "${f}" UVTOOLS 2>/dev/null || true)"
-    [ -z "${u}" ] || die "UVTOOLS (${u}) not implemented yet (phase 5); refusing a partial install"
+    # run_uvtools <dest> <pkgfile> -- install python tools from the SHIPPED
+    # tree (lockfile travels with it); no network fetch of the tool itself.
+    # TDS_UV overrides the uv binary (used by tests to fake or unset it).
+    local dest="$1" f="$2" u uvbin="${TDS_UV:-uv}"
+    for u in $(tds_dist_get "${f}" UVTOOLS 2>/dev/null || true); do
+        command -v "${uvbin}" >/dev/null 2>&1 \
+            || die "UVTOOLS ${u}: uv not on PATH; install uv (signed package channel) or omit this package"
+        [ -d "${dest}/${u}" ] || die "UVTOOLS ${u}: project dir missing in staged tree"
+        "${uvbin}" tool install --reinstall "${dest}/${u}" \
+            || die "UVTOOLS ${u}: uv tool install failed"
+    done
 }
 
 run_services() {
-    # phase-5 stub behind the opt-in flag; without -S units are skipped
-    local f="$1" services="$2" s
+    # run_services <dest> <pkgfile> <flag> -- register launchd/systemd
+    # units. STRICTLY opt-in via -S: a seed never silently starts daemons.
+    local dest="$1" f="$2" services="$3" s base os
     s="$(tds_dist_get "${f}" SERVICES 2>/dev/null || true)"
     [ -n "${s}" ] || return 0
-    if [ "${services}" = "true" ]; then
-        die "SERVICES (${s}) not implemented yet (phase 5)"
+    if [ "${services}" != "true" ]; then
+        note "SERVICES present but -S not given; skipping unit registration (${s})"
+        return 0
     fi
-    note "SERVICES present but -S not given; skipping unit registration (${s})"
+    os="$(uname -s)"
+    for s in ${s}; do
+        base="$(basename "${s}")"
+        [ -f "${dest}/${s}" ] || die "SERVICES unit missing in staged tree: ${s}"
+        case "${base}" in
+            *.plist)
+                if [ "${os}" != "Darwin" ]; then
+                    note "SERVICES ${base}: launchd unit on ${os}, skipping"
+                    continue
+                fi
+                mkdir -p "${HOME}/Library/LaunchAgents"
+                cp "${dest}/${s}" "${HOME}/Library/LaunchAgents/${base}"
+                launchctl bootstrap "gui/$(id -u)" "${HOME}/Library/LaunchAgents/${base}" \
+                    || note "SERVICES ${base}: bootstrap failed (already loaded?)"
+                ;;
+            *.service)
+                if [ "${os}" != "Linux" ]; then
+                    note "SERVICES ${base}: systemd unit on ${os}, skipping"
+                    continue
+                fi
+                mkdir -p "${HOME}/.config/systemd/user"
+                cp "${dest}/${s}" "${HOME}/.config/systemd/user/${base}"
+                systemctl --user daemon-reload \
+                    || die "SERVICES ${base}: systemctl daemon-reload failed"
+                systemctl --user enable --now "${base}" \
+                    || die "SERVICES ${base}: systemctl enable failed"
+                ;;
+            *)
+                die "SERVICES ${s}: unknown unit type (want .plist or .service)"
+                ;;
+        esac
+    done
 }
 
 run_install_hook() {
@@ -279,8 +319,8 @@ run_install() {
     allpkgs="$(artifact_packages "${dest}")"
     for name in ${allpkgs}; do
         wire_bins "${dest}" "${dest}/packages/${name}.pkg"
-        run_uvtools "${dest}/packages/${name}.pkg"
-        run_services "${dest}/packages/${name}.pkg" "${services}"
+        run_uvtools "${dest}" "${dest}/packages/${name}.pkg"
+        run_services "${dest}" "${dest}/packages/${name}.pkg" "${services}"
         run_install_hook "${dest}" "${dest}/packages/${name}.pkg"
     done
 
