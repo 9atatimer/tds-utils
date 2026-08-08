@@ -52,6 +52,7 @@ set_title() {
         # Standard xterm escape sequence for window title
         printf "\e]0;%s\a" "$title"
     fi
+    echo "terminal title now: $title" >&2
 }
 
 # --- Flow functions ---
