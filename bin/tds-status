@@ -22,6 +22,7 @@
 set -euo pipefail
 
 TDS_STATUS_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source-path=SCRIPTDIR
 if [ -f "${TDS_STATUS_SELF_DIR}/.tds-lib/tds-dist.sh" ]; then
     # running from inside an unpacked artifact (same layout as install.sh)
     # shellcheck source=../lib/tds-dist.sh

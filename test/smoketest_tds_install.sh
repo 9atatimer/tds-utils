@@ -184,16 +184,26 @@ test_flip_rollback() {
 }
 
 test_prune() {
-    bold "install: prune to 3 versions"; printf '\n'
-    local root="$1" home t i
+    bold "install: prune to 3 versions (numeric .n ordering)"; printf '\n'
+    local root="$1" home t i vbase dist count
     home="$(fresh_home prune)"
-    for i in 1 2 3 4; do
+    vbase="v$(git -C "${root}" log -1 --format=%cs | tr - .)"
+    # 10 same-day exports produce ${vbase}, ${vbase}.2 .. ${vbase}.10; the
+    # .10 suffix must outrank .2-.9 numerically -- a lexical sort would
+    # order .10 below .2 and prune the just-installed newest version
+    for i in 1 2 3 4 5 6 7 8 9 10; do
         t="$(export_one "${root}" "${root}/manifests/good.manifest" "${WORKROOT}/outD")"
         HOME="${home}" "${INSTALLER}" -a "${t}" >/dev/null 2>&1
     done
-    local count
-    count="$(find "${home}/.tds/dist" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
-    assert "at most 3 version dirs kept" "[ '${count}' -le 3 ]"
+    dist="${home}/.tds/dist"
+    count="$(find "${dist}" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+    assert "exactly 3 version dirs kept" "[ '${count}' -eq 3 ]"
+    assert "newest .10 kept"             "[ -d '${dist}/${vbase}.10' ]"
+    assert ".9 kept"                     "[ -d '${dist}/${vbase}.9' ]"
+    assert ".8 kept"                     "[ -d '${dist}/${vbase}.8' ]"
+    assert ".7 pruned"                   "[ ! -e '${dist}/${vbase}.7' ]"
+    assert "current points at .10" \
+        "[ \"\$(basename \"\$(readlink '${dist}/current')\")\" = '${vbase}.10' ]"
 }
 
 test_link_safety() {

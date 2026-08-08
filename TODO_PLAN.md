@@ -51,9 +51,11 @@ and lint-hardened. Priority order per the issue; RED -> GREEN -> COMMIT each.
       `~/.tds/dist/current`, active vs newest version dir, history from
       `~/.tds/dist/log`; nonzero exit on drift. TDD: smoketest first
       (`test/smoketest_tds_status.sh`, throwaway `HOME=$(mktemp -d)` fixtures).
-- [ ] shellcheck hardening: `lib/tds-dist.sh`, `bin/tds-export`,
+- [x] shellcheck hardening: `lib/tds-dist.sh`, `bin/tds-export`,
       `bin/tds-install`, `bin/tds-status`; fix genuine findings, CI job for
       those four files only; suppress only with a one-line justification.
+      (`shellcheck -x` exits 0 on all four; prune_versions now sorts calver
+      fields numerically -- the .n>=10 edge is pinned by the install suite.)
 
 ### macOS App Launchers -- macos/apps (phase entry, 2026-08-08)
 
