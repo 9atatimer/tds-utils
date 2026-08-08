@@ -1,0 +1,26 @@
+#!/bin/zsh
+# build -- Flip Monitor.app: one click flips the Dell U2725QE between the
+# home Mac (Thunderbolt) and the work Mac (DisplayPort).
+#
+# Extra arguments pass through to mkmacapp, so:
+#
+#     ./build                          build into ~/Applications
+#     ./build --dock                   ... and pin it to the Dock
+#     ./build --dest ~/Desktop --force rebuild on the Desktop
+#
+# `monctl`, not `mc`: the alias in macos/dot.alias exists only in interactive
+# zsh, so Launch Services cannot see it.
+
+set -euo pipefail
+
+readonly HERE="${0:A:h}"
+
+main() {
+    "${HERE:h}/mkmacapp" \
+        --name "Flip Monitor" \
+        --command "monctl flip" \
+        --icon "${HERE}/icon.icns" \
+        "$@"
+}
+
+main "$@"
