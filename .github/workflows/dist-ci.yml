@@ -1,0 +1,103 @@
+# dist-ci.yml -- CI gate for the ENV-DISTRIBUTION toolchain (issue #206).
+#
+# Two jobs:
+#
+#   smoketests -- runs test/syntax_sweep.sh (the same parse gate developers
+#     run locally: /bin/bash -n for bash files, zsh -n for zsh files and the
+#     extensionless macos/ zsh dotfiles) and then the five dist smoke suites,
+#     on ubuntu-latest AND macos-latest. The macOS leg is load-bearing, not
+#     decorative: it exercises BSD userland (mv -h, shasum vs sha256sum) and
+#     -- critically -- Apple's stock /bin/bash 3.2, the oldest dialect this
+#     repo must keep working. Every suite is invoked via `/bin/bash` for
+#     that reason: the suites' shebang is `env bash`, which on the macOS
+#     runner resolves to Homebrew bash 5 and would silently un-test 3.2.
+#
+#   shellcheck -- lints exactly the four dist files named in issue #206.
+#     Scope is fixed on purpose: the rest of the repo is not shellcheck-clean
+#     yet, and widening the net here would turn the gate red for reasons
+#     unrelated to the dist toolchain.
+#
+# Dependencies (runner package manager only, per the issue):
+#   ubuntu: zsh (not preinstalled; syntax sweep needs it) and gnupg
+#     (publish suite signs artifacts).
+#   macos: gnupg via brew, guarded by `command -v gpg` -- runner images
+#     usually ship it already, and brew reinstalls are slow.
+#
+# The macOS guard step asserts /bin/bash IS 3.2 so that runner-image drift
+# (Apple replacing bash, GitHub changing images) fails the build loudly
+# instead of silently un-testing the 3.2 leg.
+
+name: dist-ci
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+jobs:
+  smoketests:
+    strategy:
+      # Let both OS legs report -- a BSD-only failure and a GNU-only
+      # failure should surface in the same run, not one per push.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: "Install dependencies (Linux: zsh for the sweep, gnupg for publish)"
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y zsh gnupg
+
+      - name: "Install dependencies (macOS: gnupg for publish, if missing)"
+        if: runner.os == 'macOS'
+        run: command -v gpg >/dev/null || brew install gnupg
+
+      # Runner-drift tripwire: the whole point of the macOS leg is stock
+      # bash 3.2. If the image ever ships something else at /bin/bash,
+      # fail here -- do not let the suites pass against the wrong dialect.
+      - name: Assert /bin/bash is 3.2 (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          /bin/bash -c 'case "$BASH_VERSION" in 3.2.*) exit 0;; *) echo "expected bash 3.2, got $BASH_VERSION"; exit 1;; esac'
+
+      - name: Syntax sweep (bash -n / zsh -n over all tracked shell files)
+        run: /bin/bash test/syntax_sweep.sh
+
+      # One step per suite so a failure names its suite in the Checks UI.
+      # All invoked via /bin/bash -- see the header comment for why.
+      - name: Smoketest lib/tds-dist.sh
+        run: /bin/bash test/smoketest_tds_dist.sh
+
+      - name: Smoketest bin/tds-export
+        run: /bin/bash test/smoketest_tds_export.sh
+
+      - name: Smoketest bin/tds-install
+        run: /bin/bash test/smoketest_tds_install.sh
+
+      - name: Smoketest publish flow
+        run: /bin/bash test/smoketest_tds_publish.sh
+
+      - name: Smoketest bin/tds-status
+        run: /bin/bash test/smoketest_tds_status.sh
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      # Exactly the four dist files named in issue #206 -- see header.
+      - name: Shellcheck the dist toolchain
+        run: shellcheck -x lib/tds-dist.sh bin/tds-export bin/tds-install bin/tds-status
