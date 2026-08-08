@@ -17,6 +17,7 @@ set -euo pipefail
 
 TDS_EXPORT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TDS_EXPORT_REPO="$(dirname "${TDS_EXPORT_DIR}")"
+# shellcheck source-path=SCRIPTDIR
 # shellcheck source=../lib/tds-dist.sh
 source "${TDS_EXPORT_REPO}/lib/tds-dist.sh"
 
@@ -47,7 +48,7 @@ assert_clean_master() {
 
 resolve_packages() {
     # resolve_packages <root> <requested list> -> closure over REQUIRES
-    local root="$1" resolved="" queue="$2" name req grew=1
+    local root="$1" resolved="" name req grew=1
     resolved="$2"
     while [ "${grew}" -eq 1 ]; do
         grew=0
@@ -103,7 +104,10 @@ stage_packages() {
         for p in ${paths}; do
             [ -e "${root}/${p}" ] || die "package ${name}: path ${p} missing in ${root}"
         done
-        # tar pipe preserves structure and modes with portable syntax
+        # tar pipe preserves structure and modes with portable syntax;
+        # ${paths} word-splits on purpose: it is a whitespace-separated
+        # path list (the parser contract bans tabs/newlines in values)
+        # shellcheck disable=SC2086
         ( cd "${root}" && tar -cf - ${paths} ) | tar -xf - -C "${stage}"
         # ship the package definition -- the installer reads LINKS/BINS/
         # UVTOOLS/SERVICES/INSTALL/VERIFY from it
@@ -232,6 +236,7 @@ run_export() {
     topdir="tds-env-${device}-${version}"
     stage="$(mktemp -d "${TMPDIR:-/tmp}/tds-export.XXXXXX")"
     # expand now: stage is function-local and gone when the EXIT trap fires
+    # shellcheck disable=SC2064
     trap "rm -rf '${stage}'" EXIT
     mkdir -p "${stage}/${topdir}"
 

@@ -104,10 +104,10 @@ EOF
     rc=0; tds_dist_parse "${bad}" >/dev/null 2>&1 || rc=$?
     assert "line without = rejected"       "[ ${rc} -ne 0 ]"
 
-    bad="$(write_fixture bad-quote.pkg <<'EOF'
-NAME="unbalanced
-EOF
-)"
+    # No heredoc here: bash 3.2 cannot parse a heredoc inside $( ) whose
+    # body contains an odd number of double quotes (the unbalanced quote
+    # under test), so this one fixture is fed to write_fixture via printf.
+    bad="$(printf 'NAME="unbalanced\n' | write_fixture bad-quote.pkg)"
     rc=0; tds_dist_parse "${bad}" >/dev/null 2>&1 || rc=$?
     assert "unbalanced quote rejected"     "[ ${rc} -ne 0 ]"
 
