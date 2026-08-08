@@ -15,11 +15,12 @@
 # package's VERIFY against the staged tree (failure aborts and removes the
 # staging -- current is never touched), then flip the `current` symlink via
 # temp-link + rename(2) and (re)point $HOME LINKS through current/. Keeps
-# the last 3 versions; older ones are pruned after a successful flip.
+# the newest 3 versions (never pruning the active one) after each flip.
 
 set -euo pipefail
 
 TDS_INSTALL_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source-path=SCRIPTDIR
 if [ -f "${TDS_INSTALL_SELF_DIR}/.tds-lib/tds-dist.sh" ]; then
     # running as install.sh from inside an unpacked artifact
     # shellcheck source=../lib/tds-dist.sh
@@ -118,6 +119,9 @@ copy_package_paths() {
         for p in $(tds_dist_get "${f}" VERIFY 2>/dev/null || true); do
             paths="${paths} ${p}"
         done
+        # ${paths} word-splits on purpose: it is a whitespace-separated
+        # path list (the parser contract bans tabs/newlines in values)
+        # shellcheck disable=SC2086
         [ -n "${paths// /}" ] && \
             ( cd "${adir}" && tar -cf - ${paths} ) | tar -xf - -C "${dest}"
         cp "${f}" "${dest}/packages/"
@@ -227,6 +231,9 @@ point_home_links() {
     for pair in $(tds_dist_get "${f}" LINKS 2>/dev/null || true); do
         t="${pair%%:*}"
         s="${pair#*:}"
+        # literal ~/ match on purpose: LINKS targets must start with the
+        # two characters ~/ per the .pkg contract (no tilde expansion)
+        # shellcheck disable=SC2088
         case "${t}" in
             "~/"*) tgt="${HOME}/${t#\~/}" ;;
             *) die "LINKS target must start with ~/: ${t}" ;;
@@ -249,17 +256,29 @@ log_line() {
 }
 
 prune_versions() {
-    # prune_versions <distroot> -- keep the newest 3 version dirs
-    local distroot="$1" d n=0
-    for d in $(ls -td "${distroot}"/*/ 2>/dev/null); do
-        d="${d%/}"
-        [ -d "${d}" ] || continue
+    # prune_versions <distroot> -- keep the newest 3 version dirs.
+    # Version dirs are calver vYYYY.MM.DD[.n]: sort every dotted field
+    # numerically, newest first, so the collision suffix orders correctly
+    # (.10 is newer than .2; lexical or mtime order would misorder it)
+    # and a missing suffix sorts oldest for its day. The version current
+    # points at is NEVER pruned, even when newer-named dirs outrank it
+    # (downgrade/re-install of an older calver): deleting it would leave
+    # current dangling and every $HOME link through it broken.
+    local distroot="$1" d name n=0 active=""
+    [ -L "${distroot}/current" ] \
+        && active="$(basename "$(readlink "${distroot}/current")")"
+    while IFS= read -r name; do
+        [ -n "${name}" ] || continue
         n=$((n + 1))
-        if [ "${n}" -gt 3 ]; then
-            note "pruning old version $(basename "${d}")"
-            rm -rf "${d}"
+        if [ "${n}" -gt 3 ] && [ "${name}" != "${active}" ]; then
+            note "pruning old version ${name}"
+            rm -rf "${distroot:?}/${name}"
         fi
-    done
+    done < <(
+        for d in "${distroot}"/v*/; do
+            [ -d "${d}" ] && basename "${d}"
+        done | sort -t. -k1,1r -k2,2nr -k3,3nr -k4,4nr
+    )
 }
 
 # --- Flow functions ---
