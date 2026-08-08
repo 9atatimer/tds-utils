@@ -28,7 +28,7 @@ Each phase is RED -> GREEN -> COMMIT; smoketests in `test/` are the harness.
       (staged unpack, VERIFY gate, temp-symlink + rename(2) flip, --rollback,
       prune-to-3). Smoketest installs into `HOME=$(mktemp -d)`. UVTOOLS /
       SERVICES / INSTALL hooks are loud-failure stubs.
-- [ ] Phase 4 -- publish path: `-r` gpg sign+encrypt to the manifest GPGKEY,
+- [x] Phase 4 -- publish path: `-r` gpg sign+encrypt to the manifest GPGKEY,
       neutral-slug asset name, `gh release create`. Round-trip smoketest with
       a scratch keypair; release upload has a dry-run mode.
 - [ ] Phase 5 -- remaining hooks + migration runbook: UVTOOLS/SERVICES/INSTALL

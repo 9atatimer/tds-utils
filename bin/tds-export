@@ -138,6 +138,41 @@ bundle_installer() {
     fi
 }
 
+sha256_hex() {
+    # portable stdin sha256 (Linux sha256sum / macOS shasum)
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum | awk '{print $1}'
+    else
+        shasum -a 256 | awk '{print $1}'
+    fi
+}
+
+publish_artifact() {
+    # publish_artifact <tarball> <manifest> <outdir> <device> <version>
+    # Sign+encrypt to the device key and upload ONLY the ciphertext under a
+    # neutral slug -- release assets are public, so nothing device-shaped
+    # may appear in asset names, tags, or notes.
+    local tarball="$1" manifest="$2" outdir="$3" device="$4" version="$5"
+    local gpgkey slug cipher tag
+    gpgkey="$(tds_dist_require "${manifest}" GPGKEY)" \
+        || die "-r requires GPGKEY in the manifest"
+    slug="$(printf '%s' "${device}:${gpgkey}" | sha256_hex | cut -c1-12)"
+    cipher="${outdir}/tds-env-${slug}-${version}.tar.gz.gpg"
+    # --trust-model always: the recipient key id comes from the private
+    # manifest, which is the trust anchor -- no interactive trust prompt
+    gpg --batch --yes --trust-model always \
+        --sign --encrypt --recipient "${gpgkey}" \
+        --output "${cipher}" "${tarball}" \
+        || die "gpg sign+encrypt failed (recipient ${gpgkey})"
+    tag="env-${version}"
+    if ! gh release create "${tag}" "${cipher}" \
+            --title "${tag}" --notes "environment artifact" >/dev/null 2>&1; then
+        gh release upload "${tag}" "${cipher}" >/dev/null \
+            || die "gh release create/upload failed for ${tag}"
+    fi
+    echo "tds-export: published $(basename "${cipher}") to release ${tag}"
+}
+
 scan_artifact() {
     # scan_artifact <tarball> <root> <deny list> -- post-build assertion:
     # no denied package's path and no .git anywhere in the tar listing.
@@ -212,7 +247,7 @@ run_export() {
     echo "tds-export: packages: ${exported}"
 
     if [ "${publish}" = "true" ]; then
-        die "-r (publish) not implemented yet (phase 4)"
+        publish_artifact "${tarball}" "${manifest}" "${outdir}" "${device}" "${version}"
     fi
 }
 
