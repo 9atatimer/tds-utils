@@ -6,7 +6,9 @@
 # into a throwaway HOME (mktemp), never the real one. Covers: happy-path
 # install (copy, BINS, INSTALL hook, VERIFY, current flip, $HOME links,
 # log), VERIFY-failure abort, version flip + rollback, prune-to-3,
-# regular-file link safety, and the UVTOOLS phase-5 stub failing loudly.
+# regular-file link safety, the UVTOOLS phase-5 stub failing loudly, and
+# platform-aware SERVICES registration (-S opt-in; the native unit type
+# registers via a fake registrar, the foreign type skips with a note).
 #
 # Usage: ./test/smoketest_tds_install.sh
 
@@ -250,16 +252,23 @@ EOF
 }
 
 test_services() {
-    bold "install: services (systemd, opt-in)"; printf '\n'
+    bold "install: services (platform-aware, opt-in)"; printf '\n'
     local root="$1" home tarball rc=0 fakebin="${WORKROOT}/fakebin-svc"
-    home="$(fresh_home svc)"
+    local os native_unit native_call native_log foreign_unit foreign_log
+    local skip_note noflag_out svc_out
+    os="$(uname -s)"
 
+    # fixture package delta ships BOTH unit flavors: run_services must
+    # register only the unit native to the running OS and skip the
+    # foreign one with a note (never a failure)
     mkdir -p "${root}/units"
     printf '[Unit]\nDescription=delta test unit\n' > "${root}/units/delta.service"
+    printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict/></plist>\n' \
+        > "${root}/units/delta.plist"
     cat > "${root}/packages/delta.pkg" <<'EOF'
 NAME=delta
-PATHS="units/delta.service"
-SERVICES="units/delta.service"
+PATHS="units"
+SERVICES="units/delta.service units/delta.plist"
 EOF
     cat > "${root}/manifests/svc.manifest" <<'EOF'
 DEVICE=devbox
@@ -269,29 +278,56 @@ EOF
     git -C "${root}" -c user.email=t@t -c user.name=t commit -qm svc
     tarball="$(export_one "${root}" "${root}/manifests/svc.manifest" "${WORKROOT}/outH")"
 
+    # fake BOTH registrars on PATH; only the native one may ever be invoked
     mkdir -p "${fakebin}"
     cat > "${fakebin}/systemctl" <<EOF
 #!/bin/sh
 echo "\$@" >> "${WORKROOT}/systemctl-calls.log"
 exit 0
 EOF
-    chmod +x "${fakebin}/systemctl"
+    cat > "${fakebin}/launchctl" <<EOF
+#!/bin/sh
+echo "\$@" >> "${WORKROOT}/launchctl-calls.log"
+exit 0
+EOF
+    chmod +x "${fakebin}/systemctl" "${fakebin}/launchctl"
 
-    # without -S: unit must NOT be registered
-    HOME="${home}" PATH="${fakebin}:${PATH}" "${INSTALLER}" -a "${tarball}" \
-        >/dev/null 2>&1 || rc=$?
+    if [ "${os}" = "Darwin" ]; then
+        native_unit="Library/LaunchAgents/delta.plist"
+        native_call="bootstrap gui/.*delta.plist"
+        native_log="${WORKROOT}/launchctl-calls.log"
+        foreign_unit=".config/systemd/user/delta.service"
+        foreign_log="${WORKROOT}/systemctl-calls.log"
+        skip_note="delta.service: systemd unit on Darwin, skipping"
+    else
+        native_unit=".config/systemd/user/delta.service"
+        native_call="enable --now delta.service"
+        native_log="${WORKROOT}/systemctl-calls.log"
+        foreign_unit="Library/LaunchAgents/delta.plist"
+        foreign_log="${WORKROOT}/launchctl-calls.log"
+        skip_note="delta.plist: launchd unit on ${os}, skipping"
+    fi
+
+    # without -S: registration is strictly opt-in, neither unit may register
+    home="$(fresh_home svc)"
+    noflag_out="$(HOME="${home}" PATH="${fakebin}:${PATH}" \
+        "${INSTALLER}" -a "${tarball}" 2>&1)" || rc=$?
     assert "install without -S succeeds"      "[ ${rc} -eq 0 ]"
-    assert "no unit registered without -S"    "[ ! -e '${home}/.config/systemd/user/delta.service' ]"
+    assert "opt-out noted without -S"         "grep -q 'S not given; skipping' <<<\"\${noflag_out}\""
+    assert "no systemd unit without -S"       "[ ! -e '${home}/.config/systemd/user/delta.service' ]"
+    assert "no launchd unit without -S"       "[ ! -e '${home}/Library/LaunchAgents/delta.plist' ]"
 
+    # with -S: native unit registers, foreign unit skips with a note
     rc=0
     home="$(fresh_home svc2)"
-    HOME="${home}" PATH="${fakebin}:${PATH}" "${INSTALLER}" -a "${tarball}" -S \
-        >/dev/null 2>&1 || rc=$?
+    svc_out="$(HOME="${home}" PATH="${fakebin}:${PATH}" \
+        "${INSTALLER}" -a "${tarball}" -S 2>&1)" || rc=$?
     assert "install with -S succeeds"         "[ ${rc} -eq 0 ]"
-    assert "unit copied into systemd user dir" \
-        "[ -f '${home}/.config/systemd/user/delta.service' ]"
-    assert "systemctl enable called" \
-        "grep -q 'enable --now delta.service' '${WORKROOT}/systemctl-calls.log'"
+    assert "native unit copied into user dir" "[ -f '${home}/${native_unit}' ]"
+    assert "native registrar call recorded"   "grep -q '${native_call}' '${native_log}'"
+    assert "foreign unit skip noted"          "grep -q '${skip_note}' <<<\"\${svc_out}\""
+    assert "foreign unit NOT copied"          "[ ! -e '${home}/${foreign_unit}' ]"
+    assert "foreign registrar never invoked"  "[ ! -e '${foreign_log}' ]"
 }
 
 # --- Flow ---
