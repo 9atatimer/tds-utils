@@ -1,6 +1,13 @@
 # Sandbox Lifecycle -- Session-Boundary Provisioning
 
 > **Status:** DRAFT (Approach A adopted in discussion with Todd, 2026-08-13)
+> **Correction (2026-08-13, post-Phase-4 verification):** fact 3 and D3 are
+> corrected in place below -- a user-scope SessionStart hook WRITTEN INTO THE
+> CONTAINER by the setup stage DOES fire in cloud (measured on every session
+> start in a live container's harness diag logs), and it is the one carrier
+> that also covers multi-repo sessions. #124's original "NO" conflated
+> settings SYNC (user-level settings are not synced to cloud) with settings
+> LOADING (a file present in the container loads normally).
 > **Date:** 2026-08-13
 > **Authors:** Claude (from design discussion with Todd)
 > **Depends on:** [LMDE-CLAI-BOUNDARY.DESIGN.md](./LMDE-CLAI-BOUNDARY.DESIGN.md),
@@ -44,13 +51,23 @@ of it is assumption.
 2. **SessionStart cadence.** SessionStart hooks run at the start of EVERY
    session, startup and resume, local and cloud, after Claude Code
    launches. A hook's stdout is added to the session context.
-3. **Hook scopes in cloud.** Cloud sessions run hooks from the REPOSITORY
-   (`.claude/settings.json`) and from server-managed settings only.
-   User-scope `~/.claude/settings.json` hooks do NOT fire -- even when the
-   setup stage wrote them into the container. Measured corroboration:
-   clai 0.6.0's `hooks install --scope user` registered a SessionStart
-   hook at setup; it never ran (`~/.cache/clai` absent in-session). This
-   answers tds-utils#124: NO.
+3. **Hook scopes in cloud (CORRECTED).** Cloud sessions run hooks from the
+   repository (`.claude/settings.json`), from server-managed settings, AND
+   from a user-scope `~/.claude/settings.json` that the setup stage wrote
+   into the container. The docs' "user-level settings stay on your machine"
+   describes sync, not loading: nothing copies the laptop's user settings
+   into the cloud, but a settings file already present in the container
+   loads like any other. Measured: the clai-0.6.0-registered user-scope
+   hook fired on EVERY session start in a live container's harness diag
+   logs (2.0-3.1s, exit 0) and in the Phase 4 verification session. The
+   earlier "does NOT fire" conclusion here inferred non-execution from an
+   absent `~/.cache/clai` -- wrong, because `clai provision --offline-ok`
+   no-ops as `not_a_project` from a multi-repo parent dir without creating
+   it. This answers tds-utils#124: YES, when the container writes the file.
+   Corollary: repo-committed hooks do NOT register in MULTI-REPO sessions
+   (the project dir is the checkouts' parent, not a repo) -- measured as
+   zero provisioning in the Phase 4 verification -- so the user-scope hook
+   is the one carrier that covers every session shape.
 4. **In-session network + credential.** `GH_AI_TOOLS_PAT` (environment
    variable config) is present in the session environment, and
    npm.pkg.github.com answers 200 authed from inside the session. The
@@ -60,9 +77,10 @@ of it is assumption.
    binaries acquired there resolve without any shell-rc edit.
 6. **Multi-repo sessions.** A session opened on several checkouts has its
    project dir at the PARENT directory (e.g. `/home/user`), which is not a
-   repo; a repo-committed SessionStart hook did not load there and nothing
-   provisioned. (Whether added-directory `.claude/settings.json` hooks
-   fire is unmeasured -- see Open Questions.)
+   repo; repo-committed SessionStart hooks (the primary checkout's AND the
+   added directories') did not load there -- zero provisioning, measured in
+   the Phase 4 verification. The user-scope carrier (fact 3, corrected) is
+   what covers this shape.
 
 ### What the old model got wrong
 
@@ -126,8 +144,9 @@ observed:
 ```
    CACHE BUILD (rare)                     EVERY SESSION
 +---------------------------+    +----------------------------------+
-| environment setup script  |    | SessionStart hook (repo-committed |
-|   = CACHE SEEDER          |    |   or server-managed)              |
+| environment setup script  |    | SessionStart hook (user-scope,    |
+|   = CACHE SEEDER          |    |   setup-registered; repo-committed|
+|                           |    |   shims as redundancy)            |
 |                           |    |   = PROVISIONING AUTHORITY        |
 | naatm-sandbox setup:      |    |                                   |
 |   acquire run (all pkgs)  |    |  1. lmde acquire   (refresh all   |
@@ -197,7 +216,11 @@ naatm-sandbox exposes the engine twice:
 - setup stage (`setup-core.sh`): one `acquire_run` (seeds every package,
   fleet pins from the just-installed skills payload) + ast-mcp user-scope
   registration + global CLAUDE.md placement. The user-scope
-  `clai hooks install` call is REMOVED (proven no-op in cloud, fact 3).
+  `clai hooks install` call is REMOVED -- superseded, not no-op (the
+  original "proven no-op" rationale is reversed by the corrected fact 3):
+  the setup stage now registers its OWN user-scope hook pointing at
+  naatm-sandbox-session-start instead (D3, corrected; naatm-sandbox
+  0.6.0).
 - a new `naatm-sandbox-session-start` bin: the per-session authority for
   repos that are not tds-utils -- `acquire_run` then `clai provision`,
   fail-open, summary on stdout. The committed per-repo shim calls it.
@@ -206,21 +229,29 @@ Rejected: publishing acquire as its own package (a fourth moving part for
 two consumers), and npm-dependency reuse (naatm-sandbox must work before
 any npm install has happened).
 
-### D3. The per-repo committed hook is accepted; multi-repo needs measurement
+### D3 (CORRECTED). The setup-registered user-scope hook is the primary carrier
 
-Fact 3 closes the door #124 hoped for: there is no user-scope carrier in
-cloud, so each repo commits one small, stable `.claude/settings.json`
-SessionStart entry plus a shim script. template-base carries the template
-so new repos get it at cut time; existing repos adopt it by hand. The
-shim is deliberately low-velocity: find the engine
-(`naatm-sandbox-session-start`, else `clai provision`, else no-op), run
-it fail-open. All behavioral churn stays behind the acquired packages.
+The corrected fact 3 reverses the original D3: the user-scope carrier
+EXISTS (the setup stage writes it into the container, and it fires every
+session), and it is the only carrier that also covers multi-repo sessions,
+where repo-committed hooks never register. So:
 
-Multi-repo sessions: whether added-directory repos' hooks fire is
-unmeasured (Open Question 1). Until measured, the shim defensively
-provisions ALL sibling checkouts it can see: `clai provision` already
-walks the project dir it is given, and the shim passes the parent
-directory's checkouts when the project dir is not itself a repo.
+- PRIMARY: `naatm-sandbox setup` persists this package's bins into
+  `~/.local` (the pasted Setup box runs via npx, whose cache path is not a
+  stable contract), writes the managed hook script to
+  `~/.claude/hooks/naatm-session-start.sh`, and merges a SessionStart
+  entry into user-scope `~/.claude/settings.json` (idempotent; preserves
+  unrelated keys; refuses symlinks and invalid JSON). The hook runs the
+  find-engine / clai-fallback / loud-no-op ladder.
+- REDUNDANCY: the repo-committed `.claude/settings.json` + shim (templated
+  in template-base, and tds-utils' own committed hook) stays. In
+  single-repo sessions both carriers fire; the engine is an idempotent
+  fast no-op, so double-fire costs one skipped acquire pass. The committed
+  shim also serves laptops and any environment whose setup stage never ran
+  this package.
+- The original D3's "shim provisions all sibling checkouts" fallback is
+  subsumed: the user-scope hook fires regardless of project-dir shape, and
+  `clai provision` walks whatever checkouts it finds from the cwd.
 
 ---
 
@@ -229,14 +260,18 @@ directory's checkouts when the project dir is not itself a repo.
 ```
 BEFORE (RD4-era, measured broken)
   cache build   naatm-sandbox setup: pinned clai 0.6.0 + ast-mcp 0.3.2,
-                user-scope hook registration (never fires), no skills pkg
+                user-scope hook registration (fires, but 0.6.0's hook
+                no-ops outside a single-repo project dir), no skills pkg
   session       nothing runs (multi-repo: no hook; single-repo tds-utils:
                 offline clai provision against the frozen snapshot)
 
-AFTER (Approach A)
+AFTER (Approach A, carriers per D3 corrected)
   cache build   naatm-sandbox setup: acquire_run (skills float + fleet-
-                pinned executables), register ast-mcp, global CLAUDE.md
-  session       repo-committed hook -> acquire_run (refresh to current)
+                pinned executables), register ast-mcp, global CLAUDE.md,
+                persist self + register the user-scope session hook
+  session       user-scope hook (all session shapes; repo-committed shims
+                fire too in single-repo sessions -- idempotent, harmless)
+                -> acquire_run (refresh to current)
                 -> clai provision (place skills, emit dialects)
                 -> stdout summary into session context
 ```
@@ -275,18 +310,18 @@ has setup only, so the committed hook is its session boundary too.
 | Pins home | `packages/skills/pins.env`, shipped in the skills payload | Merge-is-rollout review gate; reachable per-session by any repo; closes the two-pins fork |
 | Pins resolution | explicit --pins > fleet pins > float | Explicit stays the emergency override; float stays the no-config default |
 | Engine for repo-agnostic surfaces | Vendored acquire.sh in naatm-sandbox + `naatm-sandbox-session-start` bin | Works with zero repo files; same deliberate-vendoring precedent as the hook |
-| Per-repo carrier | Committed `.claude/settings.json` + shim, templated in template-base | User-scope hooks measurably do not fire in cloud (#124: NO) |
-| User-scope hook registration | Removed from the setup stage | Proven no-op; dead weight and a false sense of coverage |
+| Session carrier (CORRECTED) | Setup-registered USER-SCOPE hook primary; committed repo shims redundancy | User-scope hooks written by setup DO fire (#124 corrected: YES) and cover multi-repo sessions, which repo hooks measurably do not |
+| User-scope hook registration (CORRECTED) | Restored in the setup stage, pointing at naatm-sandbox-session-start | The original removal acted on the wrong #124 answer; the carrier works and is the multi-repo fix |
 | Approach B | Future Consideration only | Elegant but swaps a solved rail for spawn-time registry coupling; its win over A is only the N-1 window |
 
 ---
 
 ## Open Questions
 
-1. **Added-directory hooks.** Does a multi-repo cloud session run
-   SessionStart hooks from added directories' `.claude/settings.json`?
-   Measure in the Phase 4 verification session; the shim's
-   provision-all-siblings behavior covers the gap either way.
+1. ~~Added-directory hooks.~~ ANSWERED by the Phase 4 verification: no --
+   a multi-repo session's project dir is the checkouts' parent, and no
+   repo-committed hook registered (zero provisioning observed). The
+   user-scope carrier (D3, corrected) covers that shape.
 2. **Seed staleness floor.** Should the seeder deliberately skip
    executables entirely (empty-ish setup script) once Approach B lands
    for MCP servers? Revisit with B.
@@ -299,8 +334,10 @@ has setup only, so the committed hook is its session boundary too.
 - **Keep acquire at setup, shorten the cache.** The cache lifetime is not
   ours to configure; forcing rebuilds by touching the script is a manual
   step, which is the failure class Revision 1 exists to kill.
-- **User-scope SessionStart hooks as the carrier.** Measured: they do not
-  fire in cloud (#124).
+- ~~User-scope SessionStart hooks as the carrier -- "measured: they do not
+  fire in cloud (#124)".~~ REVERSED by the Phase 4 measurement: they do
+  fire when written into the container, and are now the primary carrier
+  (D3, corrected).
 - **A second acquire package.** Vendoring beats a new published moving
   part for two consumers.
 - **npx-spawned MCP servers now (Approach B).** Deferred: new failure
