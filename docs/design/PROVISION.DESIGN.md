@@ -733,6 +733,45 @@ skills/manifest float; skills are inert and must be fresh to be useful" --
 on the proxy-reachable rail #145 built. Authoritative detail:
 [LMDE-CLAI-BOUNDARY.DESIGN.md](./LMDE-CLAI-BOUNDARY.DESIGN.md), Revision 1.
 
+### RD8. Stage semantics: the setup script is a cache seeder; SessionStart is the authority
+
+**Finding (2026-08-13, live session + official docs).** RD4 (and the
+"Sandbox wrapper tree" stage table) assumed the environment setup script
+runs pre-session, i.e. per session. Documented and measured reality: it
+runs once per environment CACHE BUILD; Anthropic snapshots the filesystem
+and later sessions boot from the snapshot, skipping the script, until the
+script or the allowed-hosts config changes or the cache expires (~7
+days). So everything acquired at setup -- packages and pins alike -- is
+frozen for the cache window, which is exactly the "cached env-setup-script
+delivery of binaries" this document's Rejections forbid, and the observed
+mechanism behind stale sessions (tds-utils#190/#194,
+template-tools#355/#381/#382). Two further measured facts: the SESSION
+has `GH_AI_TOOLS_PAT` and authed reachability to npm.pkg.github.com, and
+user-scope `~/.claude/settings.json` SessionStart hooks do NOT fire in
+cloud (answers tds-utils#124: NO -- only repo-committed and
+server-managed hooks run).
+
+**Decision.** Split the stages by cache semantics, not by script surface:
+
+- The setup script is demoted to a CACHE SEEDER. It still runs a full
+  acquire so the snapshot carries a working ast-mcp binary (preserving
+  RD4's fix for the first-connect race -- that analysis stands), but
+  nothing it installs is the source of truth.
+- The repo-committed SessionStart hook is the PROVISIONING AUTHORITY:
+  every session runs `lmde acquire` (refresh everything to current pins;
+  fast no-op when current) then the offline `clai provision`, and prints
+  a version/drift summary to stdout, which Claude Code adds to the
+  session context.
+- MCP-server binaries accept an N-1 freshness window (refreshed binary
+  applies on the next spawn). Skills, catalog, and emitted configs are
+  current every session.
+- The fleet pins ship inside the floating skills data package
+  (`packages/skills/pins.env`), so a pin bump is a reviewed
+  template-tools PR that reaches the next session -- closing the
+  tds-utils/naatm-sandbox pins fork.
+
+Authoritative detail: [SANDBOX-LIFECYCLE.DESIGN.md](./SANDBOX-LIFECYCLE.DESIGN.md).
+
 ---
 
 ## Open Questions

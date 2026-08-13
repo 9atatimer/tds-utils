@@ -32,6 +32,12 @@ ACQUIRE_PREFIX="${ACQUIRE_SHARE_ROOT}/_npm"
 # Where DATA packages (bin column "-") get their convention symlink: the
 # lmde->clai boundary contract path (LMDE-CLAI-BOUNDARY.DESIGN.md, Revision 1).
 ACQUIRE_DATA_LINK_ROOT="${HOME}/.local/lib/node_modules"
+# The FLEET pins shipped inside the skills payload (SANDBOX-LIFECYCLE.DESIGN.md
+# D1): with no explicit --pins, the executable packages take their pins from
+# here -- a reviewed template-tools file that reaches every surface via the
+# same floating acquire that delivers the skills. Resolution order per
+# package: explicit --pins argument > this file > float to registry latest.
+ACQUIRE_FLEET_PINS="${ACQUIRE_DATA_LINK_ROOT}/${ACQUIRE_SCOPE}/skills/pins.env"
 
 # acquire_pkg_table -- the package manifest, whitespace columns read in a
 # while-loop (NOT a declare -A, for macOS bash 3.2). Columns:
@@ -105,6 +111,20 @@ resolve_version() {
 # marking a data-only package (no binary ships; the artifact is the package
 # directory itself).
 is_data_pkg() { [ "$1" = "-" ]; }
+
+# effective_pins <explicit_pins_file> -- resolve the pins file the EXECUTABLE
+# rows use (D1): the explicit --pins argument when one was given, else the
+# fleet pins inside the acquired skills payload when present, else "" (float).
+# The skills row itself never uses the fleet pins (self-reference: it would be
+# pinning itself from the payload it is installing); callers pass it the
+# explicit file only.
+effective_pins() {
+    local explicit="${1:-}"
+    if [ -n "${explicit}" ]; then echo "${explicit}"; return 0; fi
+    if [ -f "${ACQUIRE_FLEET_PINS}" ]; then echo "${ACQUIRE_FLEET_PINS}"; return 0; fi
+    echo ""
+    return 0
+}
 
 # --- Adapters (I/O) ---
 
@@ -383,10 +403,27 @@ acquire_run() {
 
     mkdir -p "${ACQUIRE_BIN_DIR}" "${ACQUIRE_STATE_DIR}" 2>/dev/null || true
 
+    # Two passes (SANDBOX-LIFECYCLE.DESIGN.md D1). Pass 1: the skills DATA
+    # package alone, using only the EXPLICIT pins (skills never pins itself
+    # from the payload being installed). Pass 2: everything else, with the
+    # pins resolved AFTER skills landed -- explicit --pins > fleet pins from
+    # the (now-current) payload > float.
     local shortname npm_name bin pin_var
     while read -r shortname npm_name bin pin_var; do
-        [ -n "${shortname}" ] || continue
+        [ "${shortname}" = "skills" ] || continue
         acquire_one "${shortname}" "${npm_name}" "${bin}" "${pin_var}" "${pins_file}" "${npmrc}"
+    done < <(acquire_pkg_table)
+
+    local exec_pins
+    exec_pins="$(effective_pins "${pins_file}")" || exec_pins="${pins_file}"
+    if [ -z "${pins_file}" ] && [ -n "${exec_pins}" ]; then
+        acquire_note "using fleet pins from the skills payload (${exec_pins})"
+    fi
+
+    while read -r shortname npm_name bin pin_var; do
+        [ -n "${shortname}" ] || continue
+        [ "${shortname}" = "skills" ] && continue
+        acquire_one "${shortname}" "${npm_name}" "${bin}" "${pin_var}" "${exec_pins}" "${npmrc}"
     done < <(acquire_pkg_table)
 
     # The PAT must never linger on disk (see purge_npmrc).
@@ -506,10 +543,18 @@ check_run() {
     fi
     npmrc="${npmrc_dir}/.npmrc"
 
-    local shortname npm_name _bin pin_var
+    # Mirror acquire_run's D1 resolution so the advisory reflects what acquire
+    # would actually do: the skills row checks against the explicit pins only;
+    # the executable rows check against explicit > fleet > float.
+    local exec_pins
+    exec_pins="$(effective_pins "${pins_file}")" || exec_pins="${pins_file}"
+
+    local shortname npm_name _bin pin_var row_pins
     while read -r shortname npm_name _bin pin_var; do
         [ -n "${shortname}" ] || continue
-        check_one "${shortname}" "${npm_name}" "${pin_var}" "${pins_file}" "${npmrc}" "${color}"
+        row_pins="${exec_pins}"
+        [ "${shortname}" = "skills" ] && row_pins="${pins_file}"
+        check_one "${shortname}" "${npm_name}" "${pin_var}" "${row_pins}" "${npmrc}" "${color}"
     done < <(acquire_pkg_table)
 
     purge_npmrc "${npmrc}" "${npmrc_dir}"

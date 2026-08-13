@@ -288,10 +288,14 @@ Notes:
   ~/.local/lib/node_modules/@nine-at-a-time-media/skills, the lmde->clai
   boundary convention path) from GitHub Packages (npm.pkg.github.com). Auth is
   GH_AI_TOOLS_PAT, a CLASSIC PAT with the read:packages scope. Versions float
-  to registry latest unless a --pins file pins them (keys CLAI_VERSION /
+  to registry latest unless pinned (keys CLAI_VERSION /
   AST_MCP_VERSION / GIT_MIRROR_VERSION / SKILLS_VERSION / ADMIN_VERSION; an
-  absent or UNSET key floats); sandbox/pins.env is itself a
-  valid --pins file. acquire is
+  absent or UNSET key floats). Pin resolution per package: an explicit --pins
+  file wins; else the FLEET pins shipped inside the acquired skills payload
+  (~/.local/lib/node_modules/@nine-at-a-time-media/skills/pins.env, reviewed
+  in template-tools) apply; else the package floats. The skills package
+  installs first and never pins itself from its own payload.
+  sandbox/pins.env is itself a valid --pins file. acquire is
   fail-open: an unreachable registry, a missing token, or a failed install
   degrades to the already-installed binary with a warning and still exits 0.
   It never edits a shell rc -- if ~/.local/bin is not on PATH it only warns.

@@ -4,17 +4,20 @@ Deliberately low-velocity wrappers that give every cloud-sandbox provider
 the same session-start behavior. Two shapes coexist during the Phase C
 migration (#145):
 
-- ACQUIRE-then-CONFIGURE (claude-web, and the laptop path): a pre-session
-  env-setup stage runs `lmde acquire` -- installs @nine-at-a-time-media/clai
-  (onto PATH), @nine-at-a-time-media/ast-mcp (at ~/.local/bin/ast-mcp), and
-  the @nine-at-a-time-media/skills DATA package (skills tree + MCP catalog,
-  symlinked at ~/.local/lib/node_modules/@nine-at-a-time-media/skills) from
-  GitHub Packages -- and the SessionStart hook then runs an OFFLINE,
-  configure-only `clai provision` (no clone, no install). The packages are
-  version-controlled through ONE `--pins sandbox/pins.env` file (keys
-  CLAI_VERSION + AST_MCP_VERSION + SKILLS_VERSION -- a real value pins,
-  absent/UNSET/"latest" floats to registry latest; skills floats by design,
-  per LMDE-CLAI-BOUNDARY.DESIGN.md Revision 1).
+- ACQUIRE-then-CONFIGURE (claude-web, and the laptop path): the
+  SessionStart hook is the per-session provisioning AUTHORITY -- it runs
+  `lmde acquire` (installs/refreshes @nine-at-a-time-media/clai onto PATH,
+  @nine-at-a-time-media/ast-mcp at ~/.local/bin/ast-mcp, and the
+  @nine-at-a-time-media/skills DATA package symlinked at
+  ~/.local/lib/node_modules/@nine-at-a-time-media/skills, from GitHub
+  Packages; fast no-op when current) and THEN the OFFLINE, configure-only
+  `clai provision`. The env-setup stage runs the same acquire but is only
+  the CACHE SEEDER: its work is frozen into the environment snapshot for
+  up to ~7 days, so nothing it installs is the source of truth
+  (SANDBOX-LIFECYCLE.DESIGN.md). Executable pins come from the FLEET
+  pins.env shipped inside the skills payload (D1: explicit --pins > fleet
+  pins > float; skills itself floats by design, per
+  LMDE-CLAI-BOUNDARY.DESIGN.md Revision 1).
 - BOOTSTRAP-and-FETCH (codex, copilot, jules -- not yet migrated): the shared
   `provision.sh` core installs a PINNED clai from GitHub Packages
   (`npm install @nine-at-a-time-media/clai@${CLAI_VERSION}`), then execs
@@ -30,11 +33,16 @@ precedent these generalize.
 - `provision.sh` -- shared core for the not-yet-migrated providers (codex,
   copilot, jules); superseded for claude-web by `lmde acquire` + `clai
   provision` (see the header note in that file)
-- `pins.env` -- CLAI_VERSION + AST_MCP_VERSION + SKILLS_VERSION; the ONLY
-  moving part (see rollout note below). All are read by `lmde acquire
-  --pins`; CLAI_VERSION is also consumed by `provision.sh`
-- `claude-web/` -- acquire-then-configure wrappers (`setup.sh` runs `lmde
-  acquire`; `session-start.sh` runs offline `clai provision`)
+- `pins.env` -- CLAI_VERSION + AST_MCP_VERSION + SKILLS_VERSION; consumed
+  by `provision.sh` for the not-yet-migrated providers, and by the
+  claude-web wrapper only as the TRANSITION FALLBACK when no fleet pins
+  payload is on disk. For acquire surfaces the pins now ride the skills
+  package (template-tools packages/skills/pins.env -- see
+  SANDBOX-LIFECYCLE.DESIGN.md D1 and the rollout note below)
+- `claude-web/` -- acquire-then-configure wrappers (`session-start.sh` is
+  the per-session authority: `lmde acquire` then offline `clai provision`
+  plus a stdout version summary; `setup.sh` runs the same acquire as the
+  env-setup cache seeder)
 - `codex/`, `copilot/`, `jules/` -- per-provider wrappers over `provision.sh`
 
 ## Providers
@@ -43,7 +51,7 @@ precedent these generalize.
 |----------|---------------|---------------------------|---------------------|
 | Codex cloud (setup) | Setup script runs once at container create, in the repo checkout | Codex web -> Environments -> setup script: `bash sandbox/codex/setup.sh` | ON -- the only guaranteed-egress phase; full bootstrap happens here |
 | Codex cloud (resume) | Maintenance script runs on cached container resume | Codex web -> Environments -> maintenance script: `bash sandbox/codex/maintenance.sh` | MAYBE OFF -- runs `provision.sh --offline-ok`; cached state + staleness warning |
-| Claude Code web/remote | Env Setup step runs pre-session; SessionStart hook runs synchronously before .mcp.json load (`CLAUDE_PROJECT_DIR` set, `CLAUDE_CODE_REMOTE=true`) | Env Setup script: `bash sandbox/claude-web/setup.sh` (runs `lmde acquire` -- installs clai + ast-mcp + the floating @nine-at-a-time-media/skills data package from GitHub Packages, pre-session, Revision 1); and/or register `sandbox/claude-web/session-start.sh` under `hooks.SessionStart` in `<repo>/.claude/settings.json` (runs OFFLINE configure-only `clai provision`) | ON at env-setup for `lmde acquire`; SessionStart `clai provision` is OFFLINE. Brokered GH_TOKEN cannot read GitHub Packages -- `lmde acquire` needs a classic `read:packages` `GH_AI_TOOLS_PAT` sandbox secret |
+| Claude Code web/remote | Env Setup script runs ONCE per snapshot-cache build (~7 days) -- the cache seeder, NOT per session; SessionStart hook runs EVERY session, synchronously before .mcp.json load (`CLAUDE_PROJECT_DIR` set, `CLAUDE_CODE_REMOTE=true`), stdout added to session context. User-scope `~/.claude/settings.json` hooks do NOT fire in cloud (#124) | Env Setup script: `bash sandbox/claude-web/setup.sh` (seed acquire so the snapshot carries a working ast-mcp for the first-connect race); register `sandbox/claude-web/session-start.sh` under `hooks.SessionStart` in `<repo>/.claude/settings.json` -- the AUTHORITY: `lmde acquire` (refresh to current fleet pins) then OFFLINE `clai provision` | ON in-session: `GH_AI_TOOLS_PAT` env var + npm.pkg.github.com reachable (measured 2026-08-13), so the SessionStart acquire is live; every path degrades fail-open offline. Brokered GH_TOKEN cannot read GitHub Packages -- needs the classic `read:packages` `GH_AI_TOOLS_PAT` |
 | Copilot coding agent | Job named exactly `copilot-setup-steps` in `.github/workflows/copilot-setup-steps.yml`, run before the agent starts | Copy `sandbox/copilot/copilot-setup-steps.yml` to `.github/workflows/` in the target repo; add `GH_AI_TOOLS_PAT` secret | ON during setup steps; job workspace starts EMPTY (Copilot clones for the agent only after setup steps), so the workflow performs its own `actions/checkout` |
 | Jules | Per-repo environment setup script, runs in the VM before the agent | Jules repo configuration -> setup script: `bash sandbox/jules/setup.sh`; add `GH_AI_TOOLS_PAT` secret | ON at setup; no separate cached-resume hook surface |
 
@@ -56,8 +64,18 @@ different problem), so the per-provider nail gets hammered by hand.
 
 ## pins.env rollout note
 
-`pins.env` is the single rollout lever: `provision.sh` sources it and `lmde
-acquire --pins` reads it, so shipping new provisioning behavior everywhere is
+For ACQUIRE surfaces the rollout lever has MOVED: the fleet pins live in
+template-tools `packages/skills/pins.env`, ship inside the published skills
+payload, and reach every surface on its next session via the same floating
+acquire that delivers the skills (SANDBOX-LIFECYCLE.DESIGN.md D1). A pin
+bump is a reviewed template-tools PR; the merge is the rollout. This
+repo's `pins.env` remains the lever ONLY for the not-yet-migrated
+bootstrap-and-fetch providers below, and the claude-web wrapper's
+transition fallback.
+
+`pins.env` here: `provision.sh` sources it and `lmde
+acquire --pins` reads it, so shipping new provisioning behavior to those
+providers is
 ONE reviewed change -- the pin bump is the review gate (same supply-chain
 stance as the ast-mcp hook and ai-tools issue #72: a push to a source
 repo's default branch must never grant code execution in consumers).

@@ -69,16 +69,34 @@ EOF
     chmod +x "${bindir}/clai"
 }
 
+# make_lmde_stub <bindir> -- a fake bin/lmde that records its argv into the
+# SAME record file as the clai stub (so a test can assert ordering: acquire
+# BEFORE provision) and exits 0. The staged layout's checkout-relative
+# bin/lmde and the fake PATH front are the same directory, which mirrors the
+# real repo (sandbox/claude-web/../../bin/lmde).
+make_lmde_stub() {
+    local bindir="$1"
+    cat > "${bindir}/lmde" <<'EOF'
+#!/usr/bin/env bash
+printf 'INVOKE-LMDE|argv=%s\n' "$*" >> "${HOME}/.clai-record" 2>/dev/null || true
+exit 0
+EOF
+    chmod +x "${bindir}/lmde"
+}
+
 # run_session <dir> -- run the staged session-start.sh hermetically with a
 # confined PATH (only the scenario's stubs plus /usr/bin:/bin) and a fake HOME.
 # CLAUDE_PROJECT_DIR points at the staged checkout root (as a real hook sees).
+# stdout is captured to <dir>/stdout: a SessionStart hook's stdout is added to
+# the session context, so what the wrapper prints there is part of its
+# contract (the version/drift summary).
 run_session() {
     local dir="$1" rc=0 cwd="${SESSION_CWD:-$1/cwd}"
     ( cd "${cwd}" \
       && PATH="${dir}/bin:/usr/bin:/bin" \
          HOME="${dir}/home" \
          CLAUDE_PROJECT_DIR="${dir}" \
-         bash "${dir}/sandbox/claude-web/session-start.sh" >/dev/null 2>"${dir}/stderr" ) || rc=$?
+         bash "${dir}/sandbox/claude-web/session-start.sh" >"${dir}/stdout" 2>"${dir}/stderr" ) || rc=$?
     printf '%s\n' "${rc}"
 }
 
@@ -98,6 +116,10 @@ assert_stderr_contains() {
     local dir="$1" needle="$2" msg="$3"
     grep -qF "${needle}" "${dir}/stderr" 2>/dev/null || { echo "FAIL: ${msg}"; echo "  want stderr: ${needle}"; echo "--- stderr ---"; cat "${dir}/stderr" 2>/dev/null; return 1; }
 }
+assert_stdout_contains() {
+    local dir="$1" needle="$2" msg="$3"
+    grep -qF "${needle}" "${dir}/stdout" 2>/dev/null || { echo "FAIL: ${msg}"; echo "  want stdout: ${needle}"; echo "--- stdout ---"; cat "${dir}/stdout" 2>/dev/null; return 1; }
+}
 # assert_record_argv <recfile> <expected-argv> <msg> -- exactly one recorded
 # invocation, argv matches.
 assert_record_argv() {
@@ -110,6 +132,6 @@ assert_record_argv() {
 }
 
 export -f require_session scenario_dir provision_marker clai_record \
-    make_clai_stub run_session \
+    make_clai_stub make_lmde_stub run_session \
     assert_eq assert_file_present assert_file_absent assert_stderr_contains \
-    assert_record_argv
+    assert_stdout_contains assert_record_argv
