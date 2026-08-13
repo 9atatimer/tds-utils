@@ -388,8 +388,10 @@ clai README's phantom fetch prose).
 
 ## Active Work: Session-boundary provisioning (Approach A) -- sandbox lifecycle redesign
 
-> **Status:** EXECUTED (Phases 1-3, 2026-08-13) -- Phase 4 blocked on the
-> manual prerequisites listed there (merges + the clai-v0.8.0 tag);
+> **Status:** EXECUTED (Phases 1-3, 2026-08-13); Phase 4 re-verified
+> 2026-08-13 against the corrected carrier (naatm-sandbox 0.6.0) -- carrier,
+> seed, versions, and ast-mcp PASS; provisioning FAILS in multi-repo
+> sessions (template-tools#417); acceptance test pending that fix.
 > Phase 5 deferred.
 > **Created:** 2026-08-13
 > **Design:** docs/design/SANDBOX-LIFECYCLE.DESIGN.md (authored in Phase 1;
@@ -529,15 +531,55 @@ Manual prerequisites (Todd), in order:
    confirm `GH_AI_TOOLS_PAT` is set as an ENVIRONMENT VARIABLE (it is in
    the current env -- measured in-session 2026-08-13).
 
-- [ ] Todd: the manual prerequisites above.
-- [ ] Force a cache rebuild (setup-script edit) and cut a fresh session;
+- [x] Todd: the manual prerequisites above. (Done 2026-08-13; the
+      deployed seed is naatm-sandbox 0.6.0 with the D3-corrected
+      user-scope carrier.)
+- [x] Force a cache rebuild (setup-script edit) and cut a fresh session;
       verify: `.claude/skills/sdlc` present; provision report says
       acquired-package (no bundled-fallback warning); clai/ast-mcp at their
       pins; drift summary visible in session context (#190's checklist).
+      RESULT: partial -- see the re-verification results below.
 - [ ] The A-now acceptance test: merge a trivial skill edit, cut another
       fresh session WITHOUT a cache rebuild, verify the edit arrived.
-- [ ] Triage/close on results: #190, #120 (recast: seed vs authority),
-      #123, #194, template-tools#355 (cloud half), #381, #382.
+      SKIPPED 2026-08-13: gated on the verification passing; blocked by
+      template-tools#417.
+- [x] Triage/close on results: CLOSED #120, #123, #124 (final carrier
+      picture), template-tools#381, #382. COMMENTED (partial, left open)
+      #190 (fresh-session sdlc checkbox), #194 (laptop servers.txt still
+      0.3.1), template-tools#355 (laptop half). FILED template-tools#417
+      for the multi-repo provision gap.
+
+Re-verification results (2026-08-13, fresh cache, fresh session,
+deliberately MULTI-repo -- project dir the parent of 5 checkouts, the
+shape that failed last time; naatm-sandbox 0.6.0):
+
+- PASS carrier: the setup-registered user-scope hook
+  (`~/.claude/settings.json` -> `~/.claude/hooks/naatm-session-start.sh`)
+  fired (harness diag log: exit 0, 3251ms); the acquire-stamps summary
+  line reached the session context; the legacy
+  `/root/.claude/hooks/session-start.sh` is gone (cache rebuilt clean).
+- PASS seed + plumbing: `naatm-sandbox-session-start` and `naatm-sandbox`
+  persisted under `~/.local/bin`; the
+  `~/.local/lib/node_modules/@nine-at-a-time-media/skills` acquire
+  convention symlink present; its payload pins.env carries
+  `CLAI_VERSION="0.8.0"`.
+- PASS versions: `clai --version` = 0.8.0; acquire stamps clai 0.8.0,
+  ast-mcp 0.4.0, gadmin 0.4.0, skills 0.1.57.
+- FAIL provisioning: `clai provision` ran from the project dir
+  (`/home/user`, not a git repo) -> `not_a_project`; zero
+  `.claude/skills/` in every checkout at session start. Control: manual
+  provision inside a checkout works (37 changes from the acquired 0.1.57
+  payload incl. `sdlc`, no bundled-`_data` fallback), so the gap is
+  provision-target discovery only. Filed template-tools#417. Doc
+  follow-up needed when fixed: SANDBOX-LIFECYCLE D3-corrected's
+  "sibling-checkout fallback subsumed" claim holds at the carrier layer
+  only, not the provision layer.
+- PASS ast-mcp: server connected; `~/.local/bin/ast-mcp` is the acquire
+  symlink at 0.4.0; `get_outline` on this 92KB file returns a compact
+  outline (#194's verification criterion).
+- Benign warnings as expected: git-mirror unpublished (fail-open, loud).
+  sandbox-qol's warning belongs to the seed stage (cache build), so it is
+  not visible at session start.
 
 ### Phase 5 -- Follow-through (may defer)
 
