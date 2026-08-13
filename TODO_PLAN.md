@@ -388,9 +388,11 @@ clai README's phantom fetch prose).
 
 ## Active Work: Session-boundary provisioning (Approach A) -- sandbox lifecycle redesign
 
-> **Status:** EXECUTED (Phases 1-3, 2026-08-13) -- Phase 4 blocked on the
-> manual prerequisites listed there (merges + the clai-v0.8.0 tag);
-> Phase 5 deferred.
+> **Status:** EXECUTED (Phases 1-3, 2026-08-13) -- Phase 4 verification
+> ATTEMPTED AND FAILED 2026-08-13 (multi-repo session: committed shims
+> never loaded, no acquire ran; details in Phase 4). Registry
+> prerequisites are done; remaining gates: env snapshot rebuild,
+> single-repo verify, and a D3 multi-repo carrier. Phase 5 deferred.
 > **Created:** 2026-08-13
 > **Design:** docs/design/SANDBOX-LIFECYCLE.DESIGN.md (authored in Phase 1;
 > landed with this plan's execution)
@@ -529,15 +531,65 @@ Manual prerequisites (Todd), in order:
    confirm `GH_AI_TOOLS_PAT` is set as an ENVIRONMENT VARIABLE (it is in
    the current env -- measured in-session 2026-08-13).
 
-- [ ] Todd: the manual prerequisites above.
+- [ ] Todd: the manual prerequisites above. PARTIAL (measured in the
+      2026-08-13 verify session): registry side DONE -- clai 0.8.0,
+      skills 0.1.56, naatm-sandbox 0.5.0, ast-mcp 0.4.0, admin 0.4.0 all
+      published on npm.pkg.github.com; `GH_AI_TOOLS_PAT` present
+      in-session. Environment snapshot NOT rebuilt: the container seed
+      still carries the pre-0.5.0 path (clai 0.6.0 pyz, legacy
+      user-scope `clai hooks install` hook, zero acquire stamps).
 - [ ] Force a cache rebuild (setup-script edit) and cut a fresh session;
       verify: `.claude/skills/sdlc` present; provision report says
       acquired-package (no bundled-fallback warning); clai/ast-mcp at their
       pins; drift summary visible in session context (#190's checklist).
+      **FAILED 2026-08-13** (multi-repo verify session, 5 checkouts,
+      project dir at their parent). Item results:
+      1. Stamp summary line in session context: FAIL -- absent. Harness
+         diag log shows exactly TWO SessionStart hooks fired: the
+         server-managed git-identity hook (49ms) and the legacy
+         user-scope `/root/.claude/hooks/session-start.sh` (1952ms,
+         clai-0.6.0-managed `clai provision --offline-ok`, which no-ops
+         `not_a_project` from `/home/user`). NEITHER repo-committed shim
+         (this repo, template-base) ever loaded: the project dir is the
+         PARENT of the checkouts, so per-repo `.claude/settings.json`
+         hooks never registered. This is D3's multi-repo fallthrough,
+         now measured, and it is the root cause of every FAIL below.
+      2. Skills: PARTIAL -- `.claude/skills/` populated in all 5
+         checkouts (15 skills incl. github-workflow, coding) but `sdlc`
+         ABSENT; payload content stamp d5afbbcd... == clai 0.6.0's
+         bundled `_data` SOURCE_STAMP (the seed, not the package).
+         `~/.local/lib/node_modules/@nine-at-a-time-media/skills` does
+         not exist (no symlink, no pins.env).
+      3. Versions: FAIL -- `clai --version` = 0.6.0 (pin 0.8.0);
+         `~/.local/state/tds-utils/acquire/` absent, zero stamps.
+         ast-mcp at 0.4.0 via the snapshot seed (right version, wrong
+         provenance -- unstamped).
+      4. Provision source: FAIL -- report says `outcome: current (data
+         d5afbbcd...)` = bundled `_data`; 0.6.0 predates the
+         package-first order entirely.
+      5. ast-mcp: PASS(partial) -- MCP server connected this session;
+         `~/.local/bin/ast-mcp` is the convention symlink into
+         `~/.local/lib/node_modules/...` at 0.4.0; `get_outline` on this
+         92KB file works (32KB fix live). Provenance is the seed, not an
+         acquire run.
+      NEW MEASUREMENT contradicting the 2026-08-13 motivating fact:
+      user-scope `~/.claude/settings.json` SessionStart hooks DID fire
+      in this cloud session (the legacy clai hook ran). #124's "never
+      fire" answer does not hold for this session shape; naatm-sandbox
+      0.5.0 dropped user-scope hook install based on it. Re-measure --
+      if user-scope reliably fires, the seed registering
+      `naatm-sandbox-session-start` user-scope is the D3 multi-repo
+      carrier for free.
 - [ ] The A-now acceptance test: merge a trivial skill edit, cut another
       fresh session WITHOUT a cache rebuild, verify the edit arrived.
-- [ ] Triage/close on results: #190, #120 (recast: seed vs authority),
+      NOT RUN 2026-08-13 -- blocked on the verification failure above
+      (no acquire ran, so the probe could not measure delivery).
+- [x] Triage/close on results: #190, #120 (recast: seed vs authority),
       #123, #194, template-tools#355 (cloud half), #381, #382.
+      All commented, none closed (2026-08-13): every result is partial
+      until a session-boundary acquire actually executes in a fresh
+      session. Single-repo session verify + the D3 multi-repo carrier
+      are the remaining gates.
 
 ### Phase 5 -- Follow-through (may defer)
 
@@ -575,6 +627,18 @@ Manual prerequisites (Todd), in order:
   were asserting behavior the platform ignores. Deleting a feature means
   deleting its tests AND adding the inverse assertion (clai NOT invoked
   at setup), or the regression can sneak back in.
+- (Phase 4 verify, 2026-08-13) A multi-repo cloud session sets the
+  project dir to the PARENT of the checkouts, so per-repo committed
+  `.claude/settings.json` hooks never load -- the D3 fallthrough is
+  real and total, not partial. Meanwhile the user-scope hook DID fire
+  (contradicting the #124 measurement this plan is built on): platform
+  hook-scope behavior is not stable enough to design against a single
+  measurement. Re-measure both scopes per session shape before picking
+  the D3 carrier.
+- The harness diag log (`/tmp/claude-code-*.diag.log`,
+  `hook_spawn_started`/`completed` events) is the ground truth for
+  which SessionStart hooks ran and how long they took -- no guessing
+  from filesystem timestamps needed.
 ```
 
 ---
