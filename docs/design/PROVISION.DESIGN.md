@@ -747,9 +747,14 @@ delivery of binaries" this document's Rejections forbid, and the observed
 mechanism behind stale sessions (tds-utils#190/#194,
 template-tools#355/#381/#382). Two further measured facts: the SESSION
 has `GH_AI_TOOLS_PAT` and authed reachability to npm.pkg.github.com, and
-user-scope `~/.claude/settings.json` SessionStart hooks do NOT fire in
-cloud (answers tds-utils#124: NO -- only repo-committed and
-server-managed hooks run).
+-- CORRECTED 2026-08-13 after the Phase 4 verification -- user-scope
+`~/.claude/settings.json` SessionStart hooks DO fire in cloud when the
+setup stage wrote them into the container (tds-utils#124: YES; the docs'
+"user-level settings stay on your machine" is about sync, not loading).
+Repo-committed hooks, by contrast, never register in multi-repo sessions
+(project dir = the checkouts' parent), so the setup-registered
+user-scope hook is the primary session carrier; see
+SANDBOX-LIFECYCLE.DESIGN.md D3 (corrected).
 
 **Decision.** Split the stages by cache semantics, not by script surface:
 
