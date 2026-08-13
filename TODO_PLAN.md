@@ -388,8 +388,9 @@ clai README's phantom fetch prose).
 
 ## Active Work: Session-boundary provisioning (Approach A) -- sandbox lifecycle redesign
 
-> **Status:** PLANNED -- awaiting human review of this plan; execution starts
-> only on approval.
+> **Status:** EXECUTED (Phases 1-3, 2026-08-13) -- Phase 4 blocked on the
+> manual prerequisites listed there (merges + the clai-v0.8.0 tag);
+> Phase 5 deferred.
 > **Created:** 2026-08-13
 > **Design:** docs/design/SANDBOX-LIFECYCLE.DESIGN.md (Phase 1 deliverable --
 > does not exist yet)
@@ -436,7 +437,7 @@ Future Consideration in the design doc, not executed.
 
 ### Phase 1 -- Design docs (no behavior change)
 
-- [ ] Author `docs/design/SANDBOX-LIFECYCLE.DESIGN.md`: the measured
+- [x] Author `docs/design/SANDBOX-LIFECYCLE.DESIGN.md`: the measured
       lifecycle model (cache semantics, hook scopes, stage contract per
       provider), the seed-vs-authority split, supply-chain analysis
       (snapshot cache vs the #72 stance), Approach B as Future
@@ -457,52 +458,78 @@ Future Consideration in the design doc, not executed.
   - Also resolve: laptop cadence (recommend the same acquire-at-
     SessionStart when the PAT is present, degrade offline -- closes the
     laptop half of template-tools#355).
-- [ ] `docs/design/LMDE-CLAI-BOUNDARY.DESIGN.md`: Revision 2 note --
+- [x] `docs/design/LMDE-CLAI-BOUNDARY.DESIGN.md`: Revision 2 note --
       acquire moves to the session boundary; the acquire/configure axis and
       path contract are unchanged.
-- [ ] `docs/design/PROVISION.DESIGN.md`: RD8 -- cache semantics supersede
+- [x] `docs/design/PROVISION.DESIGN.md`: RD8 -- cache semantics supersede
       RD4's per-session-setup assumption (RD4's race analysis stands).
-- [ ] Comment on and close #124 with the doc citation + live corroboration.
+- [x] Comment on and close #124 with the doc citation + live corroboration.
+      Closed 2026-08-13.
 
 **Commit point:** `docs(design): sandbox lifecycle -- session-boundary
 provisioning (Approach A)`
 
 ### Phase 2 -- SessionStart becomes the acquire authority (this repo)
 
-- [ ] RED: extend the session-start smoketests: wrapper invokes acquire
+- [x] RED: extend the session-start smoketests: wrapper invokes acquire
       BEFORE provision; fail-open on missing PAT/network with a warning
       naming what is stale; still exits 0 on every path.
-- [ ] GREEN: `sandbox/claude-web/session-start.sh` runs
+- [x] GREEN: `sandbox/claude-web/session-start.sh` runs
       `lmde acquire --pins <per D1>` then `clai provision --copy --report`.
-- [ ] GREEN: `.claude/hooks/session-start.sh` (committed project hook):
-      same acquire-first change on its remote branch.
-- [ ] Emit hook JSON with `additionalContext` carrying the provision
-      epilogue (running versions, skills stamp, drift/fallback warnings) so
-      staleness is visible in-session (template-tools#381's done criteria).
-- [ ] Update `sandbox/README.md` + `lmde/LMDE.md` acquire prose to the
-      seed/authority model.
+- [x] GREEN: `.claude/hooks/session-start.sh` (committed project hook):
+      now delegates to the wrapper; its bespoke npm install of ast-mcp is
+      retired (closes the #120 double-install).
+- [x] ~~Emit hook JSON with `additionalContext`~~ Simpler mechanism used:
+      a SessionStart hook's plain STDOUT is added to the session context,
+      so the wrapper prints a version-stamp summary line (scenario 07
+      locks it). Same effect as additionalContext, no JSON envelope
+      (template-tools#381's done criteria).
+- [x] Update `sandbox/README.md` + `lmde/LMDE.md` acquire prose to the
+      seed/authority model. Also: acquire engine gained the D1 fleet-pins
+      resolution (scenarios 20-22; explicit --pins > payload pins > float),
+      and this repo's sandbox/pins.env bumped to clai 0.8.0 / ast-mcp
+      0.4.0 to match the fleet pins.
 
 **Commit points:** one per RED/GREEN pair, per the planning skill.
 
 ### Phase 3 -- Consolidate the setup path (template-tools, companion branch)
 
-- [ ] naatm-sandbox: align to Revision 1 and reduce to the seed role -- one
-      acquire run (clai + ast-mcp + skills + gadmin) + the global CLAUDE.md
-      placement; drop the user-scope `clai hooks install` call (proven
-      no-op in cloud); single pins source per D1.
-- [ ] clai: cut the 0.8.0 release (package-first source order) -- the first
-      unchecked box of #190.
-- [ ] template-base: committed `.claude/settings.json` SessionStart shim +
-      script template for consuming repos (the docs make one small
-      committed file per repo unavoidable; standardize it).
+- [x] naatm-sandbox 0.5.0: reduced to the seed role -- one acquire run via
+      the VENDORED engine (lib/acquire.sh, deliberate copy of
+      lmde/lib/acquire.sh, D2) + global CLAUDE.md placement; user-scope
+      `clai hooks install` dropped; lib/pins.env shrunk to the off-rail
+      sandbox-qol pin. New `naatm-sandbox-session-start` bin is the
+      per-session authority for repo-agnostic repos. Smoke suite reworked
+      (38 checks green).
+- [ ] clai: cut the 0.8.0 release -- BLOCKED ON TODD: the sandbox git
+      proxy denies tag pushes (403). Main already carries the
+      package-first source order; the one manual command is
+      `git tag clai-v0.8.0 <main> && git push origin clai-v0.8.0`
+      in template-tools. Until then the 0.8.0 pins degrade fail-open
+      (loud warning, installed clai kept).
+- [x] template-base: committed `.claude/settings.json` SessionStart shim +
+      `.claude/hooks/session-start.sh` (invokes
+      naatm-sandbox-session-start; degrades to bare clai provision; loud
+      no-op last). Pushed on the same-named branch there.
 - [ ] Retire `sandbox/claude-web/` per #126's preconditions once the
-      packaged path is verified on a non-tds-utils repo.
+      packaged path is verified on a non-tds-utils repo. (Deliberately NOT
+      done yet -- Phase 4 verification is the precondition; README marks
+      the role split meanwhile.)
 
 ### Phase 4 -- Environment rewire + fresh-session verification (manual + agent)
 
-- [ ] Todd: paste the minimal seed setup script into the Claude-web
-      environment config; confirm `GH_AI_TOOLS_PAT` is set as an
-      environment variable.
+Manual prerequisites (Todd), in order:
+
+1. Merge the template-tools PR (publishes skills with the fleet pins and
+   naatm-sandbox 0.5.0), then push the release tag from a real checkout:
+   `git tag clai-v0.8.0 origin/main && git push origin clai-v0.8.0`.
+2. Merge the tds-utils + template-base PRs.
+3. Environment config: keep the pasted setup script floating
+   `@nine-at-a-time-media/sandbox@latest` (it now runs the seed role);
+   confirm `GH_AI_TOOLS_PAT` is set as an ENVIRONMENT VARIABLE (it is in
+   the current env -- measured in-session 2026-08-13).
+
+- [ ] Todd: the manual prerequisites above.
 - [ ] Force a cache rebuild (setup-script edit) and cut a fresh session;
       verify: `.claude/skills/sdlc` present; provision report says
       acquired-package (no bundled-fallback warning); clai/ast-mcp at their
@@ -520,6 +547,35 @@ provisioning (Approach A)`
 - [ ] Approach B spike: npx-spawned ast-mcp with `${GH_AI_TOOLS_PAT}`
       env-indirected `.npmrc`; measure spawn latency warm/cold. Future
       Consideration until then.
+- [ ] Publish git-mirror and sandbox-qol to GitHub Packages or drop them
+      from their rails -- both resolve UNREADABLE on the registry
+      (measured 2026-08-13), so their pins gate nothing (#188-adjacent;
+      SANDBOX-LIFECYCLE Open Question 3).
+
+### Learnings (execution, 2026-08-13)
+
+```
+- The platform answer to "how do we surface drift in-session" was already
+  built in: a SessionStart hook's plain stdout is added to the session
+  context. No JSON envelope, no additionalContext plumbing -- print a
+  line. Scenario 07 locks it.
+- The fleet-pins self-reference resolves cleanly with a two-pass acquire:
+  skills row first (explicit pins only), then everything else against
+  explicit > payload > float. The one semantic wrinkle -- SKILLS_VERSION
+  inside the payload takes effect on the NEXT run -- is documented in the
+  file itself, and emergency freezes use an explicit --pins file.
+- npm -g vs npm --prefix layouts are incompatible for the same package:
+  a -g seed would put a REAL directory at the convention symlink path and
+  trip acquire's directory-refusal guard (scenario 16). The seed had to
+  adopt the acquire engine wholesale (vendoring, D2), not imitate it.
+- The sandbox git proxy scopes pushes to the designated branch: a release
+  tag push to template-tools main 403s. Release tagging stays a laptop
+  step; say so in the plan instead of burying it in a failed command.
+- clai 0.6.0's smoke assertions ("hooks install --scope user" invoked)
+  were asserting behavior the platform ignores. Deleting a feature means
+  deleting its tests AND adding the inverse assertion (clai NOT invoked
+  at setup), or the regression can sneak back in.
+```
 
 ---
 
