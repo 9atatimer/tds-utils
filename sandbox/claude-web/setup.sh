@@ -11,15 +11,17 @@
 # registration): configuration is clai's job and happens at session start via
 # `clai provision` (docs/design/PROVISION.DESIGN.md, issues #99/#84/#145).
 #
-# Why an env-setup script and not the SessionStart hook (RD4, #99): the MCP
-# client connects to the servers in .mcp.json / ~/.claude.json CONCURRENTLY
-# with the SessionStart hooks. A hook that installs the ast-mcp binary can
-# never win that race for the binary it is itself installing -- first spawn
-# ENOENTs, no auto-retry, and ast-mcp only connects on a later reconnect
-# (observed connecting late in #99). Acquiring here, in the environment setup
-# step that runs BEFORE session init, means the binary already exists when MCP
-# first connects. The SessionStart hook remains as an idempotent
-# refresh/fallback, not the first-connect installer.
+# ROLE (SANDBOX-LIFECYCLE.DESIGN.md, 2026-08-13): this stage is the CACHE
+# SEEDER, not the provisioning authority. It runs once per environment
+# snapshot-cache build (~7 days), NOT per session -- everything it installs
+# is frozen into the snapshot and goes stale for the cache lifetime. Its one
+# load-bearing job is the RD4 first-connect race (#99): the MCP client
+# connects to the servers in .mcp.json / ~/.claude.json CONCURRENTLY with
+# the SessionStart hooks, so the snapshot must already carry a working
+# ~/.local/bin/ast-mcp when the client first looks. The per-session
+# `lmde acquire` in the SessionStart wrapper (session-start.sh) is the
+# AUTHORITY that refreshes everything to the current fleet pins; binaries it
+# refreshes apply on the next spawn (N-1 window).
 #
 # LIFECYCLE -- MEASURED, not assumed. Read before changing anything here.
 #

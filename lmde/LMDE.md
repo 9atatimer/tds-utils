@@ -81,13 +81,23 @@ tiers at once and falls back to the MCP tier the skill rates at ~5-10x the
 tokens. See tds-utils#186.
 
 It owns transport, version pins, and supply-chain integrity for the fleet, and
-is agent-agnostic. `--pins <file>` pins exact versions; with no `--pins` (or a
-key set to UNSET/`latest`) a package floats -- acquire resolves the registry's
+is agent-agnostic. Pin resolution per package: an explicit `--pins <file>`
+wins; else the FLEET pins shipped inside the acquired skills payload
+(`~/.local/lib/node_modules/@nine-at-a-time-media/skills/pins.env`, a
+reviewed template-tools file -- SANDBOX-LIFECYCLE.DESIGN.md D1) apply; else
+the package floats -- acquire resolves the registry's
 latest published version and installs THAT concrete version (recording it, so a
-later run reinstalls on an upstream bump), never an `@latest` tag. npm
+later run reinstalls on an upstream bump), never an `@latest` tag. The
+skills package installs first and never pins itself from its own payload. npm
 **registry integrity is always on**. Auth is a
 classic `read:packages` PAT in `GH_AI_TOOLS_PAT`. Acquisition never runs a
 piped install script -- it is a signed-package rail only.
+
+Acquire's SCHEDULE in cloud sandboxes is the session boundary: the
+environment setup script's acquire is only the cache SEEDER (its work is
+frozen into the ~7-day snapshot), and the SessionStart hook's acquire is
+the per-session AUTHORITY. See
+[../docs/design/SANDBOX-LIFECYCLE.DESIGN.md](../docs/design/SANDBOX-LIFECYCLE.DESIGN.md).
 
 Skills and the canonical MCP catalog float by default (`SKILLS_VERSION`
 UNSET): a fresh session starts with the current skills, no human rollout step
