@@ -392,8 +392,8 @@ clai README's phantom fetch prose).
 > manual prerequisites listed there (merges + the clai-v0.8.0 tag);
 > Phase 5 deferred.
 > **Created:** 2026-08-13
-> **Design:** docs/design/SANDBOX-LIFECYCLE.DESIGN.md (Phase 1 deliverable --
-> does not exist yet)
+> **Design:** docs/design/SANDBOX-LIFECYCLE.DESIGN.md (authored in Phase 1;
+> landed with this plan's execution)
 > **Branch:** claude/clai-lmde-sandbox-review-xiqnqn
 > **Refs:** #190 #126 #124 #120 #123 #139 #193 #194;
 > template-tools#355 #381 #382 #368

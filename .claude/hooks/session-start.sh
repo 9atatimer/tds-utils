@@ -31,10 +31,11 @@ run_hook() {
     exit 0
   fi
   # Degraded fallback (wrapper missing -- should not happen in a checkout):
-  # configure-only, same as the wrapper's own no-lmde path.
+  # configure-only, with the same provision argv the wrapper uses so the two
+  # paths only differ by the skipped acquire.
   echo "[.claude/hooks/session-start.sh] wrapper not found at ${wrapper} -- running configure-only fallback" >&2
   if command -v clai >/dev/null 2>&1; then
-    clai provision --offline-ok || echo "[.claude/hooks/session-start.sh] clai provision failed (non-fatal)" >&2
+    clai provision --copy --report || echo "[.claude/hooks/session-start.sh] clai provision failed (non-fatal)" >&2
   else
     echo "[.claude/hooks/session-start.sh] clai not on PATH -- skipping provisioning (fail-open)" >&2
   fi
