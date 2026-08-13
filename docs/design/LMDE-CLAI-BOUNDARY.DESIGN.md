@@ -1,6 +1,13 @@
 # LMDE / clai Boundary -- Acquire vs Configure
 
 > **Status:** ADOPTED  
+> **Revision 2 (2026-08-13, DRAFT):** acquire's TIMING moves to the session
+> boundary -- the cloud setup script is a cache seeder and the SessionStart
+> hook runs the authoritative per-session `lmde acquire && clai provision`.
+> The acquire/configure axis, the convention paths, and collator-not-
+> gatekeeper are all unchanged. See the "Revision 2" section below and
+> [SANDBOX-LIFECYCLE.DESIGN.md](./SANDBOX-LIFECYCLE.DESIGN.md)
+> (authoritative for the lifecycle).  
 > **Revision 1 (2026-07-30, REVIEW):** skills + the canonical MCP catalog are
 > decoupled from the clai release -- they become a standalone inert-data
 > package installed by `lmde acquire`, floating to latest by default. See the
@@ -442,6 +449,58 @@ but the skill itself reaches every next session the moment its own PR lands.
   proxy block that killed it (#145's original motivation) is unchanged.
 - **Committing skills into each consuming repo.** The drift this whole
   system exists to kill.
+
+---
+
+## Revision 2 (2026-08-13) -- Acquire moves to the session boundary
+
+> **Status: DRAFT.** Changes WHEN acquire runs, not what it is. Everything
+> structural in this design -- the acquire/configure axis, contract-by-
+> convention, collator-not-gatekeeper, Revision 1's skills package -- stands.
+> Authoritative detail:
+> [SANDBOX-LIFECYCLE.DESIGN.md](./SANDBOX-LIFECYCLE.DESIGN.md).
+
+### Motivation (measured failure)
+
+The "Sandbox reflow" section above assumed the env-setup stage runs
+pre-session, i.e. per session. Measured 2026-08-13 (and documented at
+code.claude.com): the setup script runs once per environment CACHE BUILD,
+after which sessions boot from a filesystem snapshot for up to ~7 days.
+Everything acquired at setup -- packages AND pins -- is frozen for the
+cache window, so Revision 1's freshness requirement was structurally
+unmet: a skill merge reached sessions only when the cache happened to
+rebuild. Meanwhile the session itself has the PAT and can reach
+npm.pkg.github.com (measured 200 authed), so the constraint that pushed
+acquisition into the setup stage no longer exists at the session stage.
+
+### Decision
+
+- The setup stage becomes a CACHE SEEDER: it still runs a full acquire
+  (so the snapshot always carries a working ast-mcp binary that wins the
+  RD4 first-connect race), but nothing it installs is the source of
+  truth.
+- The SessionStart hook becomes the AUTHORITY: every session runs
+  `lmde acquire && clai provision` -- two commands, still never calling
+  each other, still meeting only at the convention paths. Acquire is a
+  fast no-op when current.
+- MCP-server binaries accept an N-1 freshness window (first spawn races
+  the hook; the refreshed binary applies next spawn). Skills, catalog,
+  and emitted configs are current every session.
+- The fleet pins move into the skills data package
+  (`packages/skills/pins.env`, shipped in the payload), so a pin bump is
+  a template-tools PR and reaches the next session via the same floating
+  acquire that delivers skills. Resolution order: explicit `--pins` >
+  fleet pins from the acquired package > float.
+
+### Boundary effects
+
+- No new locations. The pins file is read from INSIDE the skills package
+  at its existing convention path; no contract row changes.
+- The never-call-each-other invariant is preserved verbatim; the session
+  hook is a wrapper that runs the two tools in sequence, as `lmde acquire
+  && clai refresh` always did mid-session.
+- Open Question 3 of Revision 1 (cached-resume currency) is answered by
+  construction: the session boundary re-runs acquire, network permitting.
 
 ---
 
