@@ -762,7 +762,10 @@ SANDBOX-LIFECYCLE.DESIGN.md D3 (corrected).
   acquire so the snapshot carries a working ast-mcp binary (preserving
   RD4's fix for the first-connect race -- that analysis stands), but
   nothing it installs is the source of truth.
-- The repo-committed SessionStart hook is the PROVISIONING AUTHORITY:
+- The SessionStart hook is the PROVISIONING AUTHORITY -- carried by the
+  setup-registered USER-SCOPE hook (all session shapes, multi-repo
+  included; repo-committed shims remain as redundancy where they load --
+  see SANDBOX-LIFECYCLE.DESIGN.md D3, corrected):
   every session runs `lmde acquire` (refresh everything to current pins;
   fast no-op when current) then the offline `clai provision`, and prints
   a version/drift summary to stdout, which Claude Code adds to the

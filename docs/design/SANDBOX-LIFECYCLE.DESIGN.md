@@ -144,8 +144,9 @@ observed:
 ```
    CACHE BUILD (rare)                     EVERY SESSION
 +---------------------------+    +----------------------------------+
-| environment setup script  |    | SessionStart hook (repo-committed |
-|   = CACHE SEEDER          |    |   or server-managed)              |
+| environment setup script  |    | SessionStart hook (user-scope,    |
+|   = CACHE SEEDER          |    |   setup-registered; repo-committed|
+|                           |    |   shims as redundancy)            |
 |                           |    |   = PROVISIONING AUTHORITY        |
 | naatm-sandbox setup:      |    |                                   |
 |   acquire run (all pkgs)  |    |  1. lmde acquire   (refresh all   |
@@ -215,7 +216,11 @@ naatm-sandbox exposes the engine twice:
 - setup stage (`setup-core.sh`): one `acquire_run` (seeds every package,
   fleet pins from the just-installed skills payload) + ast-mcp user-scope
   registration + global CLAUDE.md placement. The user-scope
-  `clai hooks install` call is REMOVED (proven no-op in cloud, fact 3).
+  `clai hooks install` call is REMOVED -- superseded, not no-op (the
+  original "proven no-op" rationale is reversed by the corrected fact 3):
+  the setup stage now registers its OWN user-scope hook pointing at
+  naatm-sandbox-session-start instead (D3, corrected; naatm-sandbox
+  0.6.0).
 - a new `naatm-sandbox-session-start` bin: the per-session authority for
   repos that are not tds-utils -- `acquire_run` then `clai provision`,
   fail-open, summary on stdout. The committed per-repo shim calls it.
@@ -260,10 +265,13 @@ BEFORE (RD4-era, measured broken)
   session       nothing runs (multi-repo: no hook; single-repo tds-utils:
                 offline clai provision against the frozen snapshot)
 
-AFTER (Approach A)
+AFTER (Approach A, carriers per D3 corrected)
   cache build   naatm-sandbox setup: acquire_run (skills float + fleet-
-                pinned executables), register ast-mcp, global CLAUDE.md
-  session       repo-committed hook -> acquire_run (refresh to current)
+                pinned executables), register ast-mcp, global CLAUDE.md,
+                persist self + register the user-scope session hook
+  session       user-scope hook (all session shapes; repo-committed shims
+                fire too in single-repo sessions -- idempotent, harmless)
+                -> acquire_run (refresh to current)
                 -> clai provision (place skills, emit dialects)
                 -> stdout summary into session context
 ```
