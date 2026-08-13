@@ -386,6 +386,143 @@ clai README's phantom fetch prose).
 
 ---
 
+## Active Work: Session-boundary provisioning (Approach A) -- sandbox lifecycle redesign
+
+> **Status:** PLANNED -- awaiting human review of this plan; execution starts
+> only on approval.
+> **Created:** 2026-08-13
+> **Design:** docs/design/SANDBOX-LIFECYCLE.DESIGN.md (Phase 1 deliverable --
+> does not exist yet)
+> **Branch:** claude/clai-lmde-sandbox-review-xiqnqn
+> **Refs:** #190 #126 #124 #120 #123 #139 #193 #194;
+> template-tools#355 #381 #382 #368
+
+### Motivating facts (measured 2026-08-13, live cloud session + official docs)
+
+- The Claude cloud **setup script is not per-session**: it runs once, the
+  filesystem is snapshotted, and later sessions boot from the snapshot until
+  the script/network config changes or the cache expires (~7 days). Docs:
+  code.claude.com "Configure cloud environments" (Environment caching).
+- **SessionStart hooks run every session** (startup and resume), local and
+  cloud. In-session, `GH_AI_TOOLS_PAT` is present and npm.pkg.github.com
+  answers 200 authed -- per-session acquisition is feasible at SessionStart.
+- **User-scope `~/.claude/settings.json` hooks do NOT fire in cloud** (docs:
+  only repository + server-managed hooks run). Corroborated live: clai
+  0.6.0's `hooks install --scope user` registered a hook at setup that never
+  ran (`~/.cache/clai` absent). This answers #124: NO.
+- The deployed environment runs the **pre-Revision-1 naatm-sandbox** path:
+  clai 0.6.0 (pin target 0.8.0, #190), ast-mcp 0.3.2, NO skills package ->
+  zero provisioned skills in the session that wrote this plan. The
+  Revision 1 path (`lmde acquire` via sandbox/claude-web/setup.sh) was never
+  wired into the environment. Two setup paths, two pins files, both stale.
+- **Multi-repo sessions fall through**: with the project dir at the parent
+  of several checkouts, the repo-committed SessionStart hook never loaded
+  and nothing provisioned.
+- Net effect: Revision 1's core requirement (fresh session -> current
+  skills, no human step beyond the merge) is structurally broken by the
+  snapshot cache, and the #72 stance (no stale cached binaries) is violated
+  by the platform cache for up to ~7 days. Observed failure class: #190,
+  #194, template-tools#355, #381, #382.
+
+### Decision (2026-08-13, with Todd)
+
+**Approach A now**: the setup script is demoted to a cache SEEDER (warm
+start, never the source of truth); the SessionStart hook becomes the
+authoritative per-session `lmde acquire && clai provision`. MCP-server
+binaries accept an N-1 freshness window (first spawn races the hook; the
+refreshed binary applies next spawn). **Approach B later** (npx-spawned MCP
+servers acquiring at spawn time, near-empty setup script) is recorded as a
+Future Consideration in the design doc, not executed.
+
+### Phase 1 -- Design docs (no behavior change)
+
+- [ ] Author `docs/design/SANDBOX-LIFECYCLE.DESIGN.md`: the measured
+      lifecycle model (cache semantics, hook scopes, stage contract per
+      provider), the seed-vs-authority split, supply-chain analysis
+      (snapshot cache vs the #72 stance), Approach B as Future
+      Consideration, and the three decisions below resolved in-doc:
+  - D1 -- single pins source readable per-session by repo-agnostic
+    sessions. Recommendation: fleet pins ride the floating
+    `@nine-at-a-time-media/skills` data package (merge-is-rollout; the PR
+    into template-tools main is the review gate), with an env-var override
+    for emergencies. Retires the duplicated
+    `naatm-sandbox/lib/pins.env` copy.
+  - D2 -- acquire engine for repo-agnostic sessions. Recommendation:
+    naatm-sandbox ships the acquire library; `bin/lmde` remains the laptop
+    surface over the same logic. Resolve the code-sharing mechanism
+    (vendored lib vs package dependency).
+  - D3 -- multi-repo session carrier: measure whether added-directory
+    `.claude/settings.json` hooks fire in cloud; specify the fallback if
+    not (hook discovers sibling checkouts and provisions each).
+  - Also resolve: laptop cadence (recommend the same acquire-at-
+    SessionStart when the PAT is present, degrade offline -- closes the
+    laptop half of template-tools#355).
+- [ ] `docs/design/LMDE-CLAI-BOUNDARY.DESIGN.md`: Revision 2 note --
+      acquire moves to the session boundary; the acquire/configure axis and
+      path contract are unchanged.
+- [ ] `docs/design/PROVISION.DESIGN.md`: RD8 -- cache semantics supersede
+      RD4's per-session-setup assumption (RD4's race analysis stands).
+- [ ] Comment on and close #124 with the doc citation + live corroboration.
+
+**Commit point:** `docs(design): sandbox lifecycle -- session-boundary
+provisioning (Approach A)`
+
+### Phase 2 -- SessionStart becomes the acquire authority (this repo)
+
+- [ ] RED: extend the session-start smoketests: wrapper invokes acquire
+      BEFORE provision; fail-open on missing PAT/network with a warning
+      naming what is stale; still exits 0 on every path.
+- [ ] GREEN: `sandbox/claude-web/session-start.sh` runs
+      `lmde acquire --pins <per D1>` then `clai provision --copy --report`.
+- [ ] GREEN: `.claude/hooks/session-start.sh` (committed project hook):
+      same acquire-first change on its remote branch.
+- [ ] Emit hook JSON with `additionalContext` carrying the provision
+      epilogue (running versions, skills stamp, drift/fallback warnings) so
+      staleness is visible in-session (template-tools#381's done criteria).
+- [ ] Update `sandbox/README.md` + `lmde/LMDE.md` acquire prose to the
+      seed/authority model.
+
+**Commit points:** one per RED/GREEN pair, per the planning skill.
+
+### Phase 3 -- Consolidate the setup path (template-tools, companion branch)
+
+- [ ] naatm-sandbox: align to Revision 1 and reduce to the seed role -- one
+      acquire run (clai + ast-mcp + skills + gadmin) + the global CLAUDE.md
+      placement; drop the user-scope `clai hooks install` call (proven
+      no-op in cloud); single pins source per D1.
+- [ ] clai: cut the 0.8.0 release (package-first source order) -- the first
+      unchecked box of #190.
+- [ ] template-base: committed `.claude/settings.json` SessionStart shim +
+      script template for consuming repos (the docs make one small
+      committed file per repo unavoidable; standardize it).
+- [ ] Retire `sandbox/claude-web/` per #126's preconditions once the
+      packaged path is verified on a non-tds-utils repo.
+
+### Phase 4 -- Environment rewire + fresh-session verification (manual + agent)
+
+- [ ] Todd: paste the minimal seed setup script into the Claude-web
+      environment config; confirm `GH_AI_TOOLS_PAT` is set as an
+      environment variable.
+- [ ] Force a cache rebuild (setup-script edit) and cut a fresh session;
+      verify: `.claude/skills/sdlc` present; provision report says
+      acquired-package (no bundled-fallback warning); clai/ast-mcp at their
+      pins; drift summary visible in session context (#190's checklist).
+- [ ] The A-now acceptance test: merge a trivial skill edit, cut another
+      fresh session WITHOUT a cache rebuild, verify the edit arrived.
+- [ ] Triage/close on results: #190, #120 (recast: seed vs authority),
+      #123, #194, template-tools#355 (cloud half), #381, #382.
+
+### Phase 5 -- Follow-through (may defer)
+
+- [ ] #193: CI job that runs a real `lmde acquire` against the registry.
+- [ ] Map the seed/authority split onto Codex/Jules/Copilot wrappers
+      (#139) -- design notes only in this effort.
+- [ ] Approach B spike: npx-spawned ast-mcp with `${GH_AI_TOOLS_PAT}`
+      env-indirected `.npmrc`; measure spawn latency warm/cold. Future
+      Consideration until then.
+
+---
+
 ## Active Work: orgmarks (bookmark organizer)
 
 > **Status:** Implemented -- all 10 phases landed on
