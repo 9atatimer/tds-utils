@@ -48,7 +48,8 @@ scenario_dir() {
 # --- Stubs -------------------------------------------------------------------
 
 # make_npm_stub <bindir> <clai_latest> <astmcp_latest> <installlog>
-# [skills_latest] [admin_latest] -- a fake npm that answers `npm view <name>
+# [skills_latest] [admin_latest] [skills_pins_file] -- a fake npm that answers
+# `npm view <name>
 # version` with the matching latest and, on `npm install --prefix DIR ...
 # <name>@<ver>`, plants the package's observable artifact and appends
 # "<name>@<ver>" to <installlog>. Bin packages (clai, ast-mcp, admin) get an
@@ -63,9 +64,13 @@ scenario_dir() {
 # <skills_latest> defaults to 0.0.1 so the 13 pre-skills scenarios keep passing
 # unchanged. <admin_latest> defaults to empty, which makes `view` fail for admin
 # so scenarios that predate the gadmin row keep their original behavior.
+#
+# <skills_pins_file> defaults to empty; when set, the stub COPIES that file
+# into the planted skills package as pins.env -- modelling a published skills
+# payload that carries the fleet pins (SANDBOX-LIFECYCLE.DESIGN.md, D1).
 make_npm_stub() {
     local bindir="$1" clai_latest="$2" astmcp_latest="$3" installlog="$4"
-    local skills_latest="${5:-0.0.1}" admin_latest="${6:-}"
+    local skills_latest="${5:-0.0.1}" admin_latest="${6:-}" skills_pins_file="${7:-}"
     cat > "${bindir}/npm" <<EOF
 #!/usr/bin/env bash
 sub="\$1"; shift || true
@@ -98,6 +103,9 @@ if [ "\$sub" = "install" ]; then
     *skills)
       mkdir -p "\$prefix/node_modules/\$name/skills" "\$prefix/node_modules/\$name/mcp"
       printf '{"name":"%s","version":"%s"}\n' "\$name" "\$ver" > "\$prefix/node_modules/\$name/package.json"
+      if [ -n "${skills_pins_file}" ] && [ -f "${skills_pins_file}" ]; then
+        cp "${skills_pins_file}" "\$prefix/node_modules/\$name/pins.env"
+      fi
       ;;
     *)
       mkdir -p "\$prefix/node_modules/.bin"
