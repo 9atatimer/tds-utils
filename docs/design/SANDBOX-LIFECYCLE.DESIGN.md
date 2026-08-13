@@ -250,8 +250,15 @@ where repo-committed hooks never register. So:
   shim also serves laptops and any environment whose setup stage never ran
   this package.
 - The original D3's "shim provisions all sibling checkouts" fallback is
-  subsumed: the user-scope hook fires regardless of project-dir shape, and
-  `clai provision` walks whatever checkouts it finds from the cwd.
+  NOT subsumed by the carrier alone -- measured in the Phase 4
+  re-verification (template-tools#417): the user-scope hook fires
+  regardless of project-dir shape, but `clai provision` targets its CWD
+  ONLY, so from a multi-repo parent dir it no-opd as `not_a_project` and
+  provisioned nothing. The discovery therefore lives in the ENGINE
+  (naatm-sandbox 0.7.0): `naatm-sandbox-session-start` provisions the cwd
+  when it is itself a checkout, else every immediate child checkout, else
+  loudly nothing -- one provision run per checkout, per-target fail-open,
+  outcomes named in the stdout summary.
 
 ---
 
