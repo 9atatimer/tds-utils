@@ -667,8 +667,8 @@ Docs-side defects found while consolidating; each has an owning issue.
       SANDBOX-LIFECYCLE D2 claims the smoketests catch.
 - [ ] template-base#66 (docs) + template-base#68 (the committed shim's
       finder ordering and $HOME guard never got PR d6eb47a's hardening).
-- [ ] Three dead links to `../../CLAI.DESIGN.md` in GADMIN-ISSUES and
-      AGENT-NOTIFICATIONS, stale since #50 removed the bash launcher.
+- [ ] #228: three dead links to `../../CLAI.DESIGN.md` in GADMIN-ISSUES
+      and AGENT-NOTIFICATIONS, stale since #50 removed the bash launcher.
 
 ---
 
