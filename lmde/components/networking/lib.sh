@@ -4,7 +4,7 @@
 # Purpose:     Owns the host edge of the *.{cluster}.localhost ingress
 #              pattern -- registering Caddy reverse-proxy routes that forward
 #              a cluster's wildcard vhost to that cluster's ingress port.
-#              See docs/design/LMDE-OBSERVABILITY.DESIGN.md, section 4.
+#              See docs/design/LMDE.DESIGN.md, section 4 (Host ingress).
 # Usage:       Sourced by a cluster's setup.sh; not executable on its own.
 # Note:        Strict mode is intentionally NOT set here -- the sourcing
 #              script owns `set -euo pipefail`.
