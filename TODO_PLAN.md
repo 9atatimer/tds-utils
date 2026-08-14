@@ -620,6 +620,56 @@ Verification rounds (2026-08-13/14):
   for in warnings rather than breakage -- acceptable for hours, not weeks.
 ```
 
+### Learnings (docs audit + consolidation, 2026-08-14)
+
+```
+- Correcting a measured fact in the design docs does NOT correct the
+  places that USE it. #124's reversal landed in SANDBOX-LIFECYCLE and
+  PROVISION RD8 and nowhere else; four other files still assert the
+  original NO, two of them agent-instruction files that load into every
+  session's context. When a premise flips, sweep for its CONSEQUENCES,
+  not its issue number -- most restatements never cite the issue.
+- A stale doc is most convincing when it is internally consistent.
+  sandbox/README.md's claude-web row reads as coherent because every
+  cell follows from the false premise: repo hooks are the only carrier,
+  so register the repo hook, so paste the repo's setup script. Nothing
+  in it looks wrong until you check the premise.
+- Verification sweeps must be extension-agnostic. A leftover-reference
+  grep filtered to `*.md` and `*.sh` missed sandbox/pins.env entirely,
+  and the PR description asserted a cleanliness that grep had never
+  tested. Copilot caught it.
+- A markdown link is not evidence the target exists. Two links folded
+  into CLAI.DESIGN.md pointed at design docs that had never existed in
+  either repo's history -- aspirational from the day they were written.
+- Consolidation rule that held for both lmde and clai: the DESIGN doc
+  consolidates, the CONTRACT/RUNBOOK stays. lmde/LMDE.md (what a project
+  may assume) and SKILL.CLAI.md (how to install it) both survived; the
+  leaf design docs folded. Keeping the surviving design doc's FILENAME
+  (CLAI.DESIGN.md) cost zero inbound-link churn -- worth optimizing for.
+- Superseded decisions get a SUPERSEDED row, never a deletion. Both
+  consolidations kept the reversed rows (the #145 bundled-in-wheel model,
+  latest-by-default versioning) so the reasoning cannot be relitigated.
+```
+
+### Follow-ups cut from the 2026-08-14 audit
+
+Docs-side defects found while consolidating; each has an owning issue.
+
+- [ ] #223: the #124 reversal never propagated out of the design docs
+      (sandbox/README.md, TODO_PLAN motivating facts).
+- [ ] #224: sandbox/README.md's claude-web row documents the
+      pre-naatm-sandbox install; the real paste box and setup-stage
+      contract are code-only.
+- [ ] #225: RD4's first-connect race is disputed by the owner ("there is
+      no race") -- BLOCKING: two readings lead to opposite edits in four
+      files. Settle before demoting the seeder or reworking #219.
+- [ ] #226: nothing enforces the vendored acquire.sh byte-identity that
+      SANDBOX-LIFECYCLE D2 claims the smoketests catch.
+- [ ] template-base#66 (docs) + template-base#68 (the committed shim's
+      finder ordering and $HOME guard never got PR d6eb47a's hardening).
+- [ ] #228: three dead links to `../../CLAI.DESIGN.md` in GADMIN-ISSUES
+      and AGENT-NOTIFICATIONS, stale since #50 removed the bash launcher.
+
 ---
 
 ## Active Work: orgmarks (bookmark organizer)
