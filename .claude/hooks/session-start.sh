@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# SessionStart hook shim (committed, project scope) -- this repo's
-# per-session provisioning carrier.
+# SessionStart hook shim (committed, project scope) -- this repo's REDUNDANT
+# per-session provisioning carrier. Not the primary one; see below.
 #
 # WHY THIS FILE EXISTS. The PRIMARY carrier is the user-scope hook that
 # `naatm-sandbox setup` writes into the container at
