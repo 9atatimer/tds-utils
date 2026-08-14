@@ -388,11 +388,13 @@ clai README's phantom fetch prose).
 
 ## Active Work: Session-boundary provisioning (Approach A) -- sandbox lifecycle redesign
 
-> **Status:** COMPLETE (Phases 1-4, 2026-08-13; Phase 5 deferred) --
-> Phase 4 verified in a fresh multi-repo session on naatm-sandbox 0.7.0;
-> acceptance probe PR template-tools#420 open. Remaining tail: merge the
-> probe, then ONE fresh session (no cache rebuild) confirms the edit
-> arrived -- that session closes the Approach A acceptance criterion.
+> **Status:** COMPLETE AND ACCEPTED (2026-08-14) -- Phase 4 verified in a
+> fresh multi-repo session on naatm-sandbox 0.7.0, and the acceptance
+> probe (template-tools#420, one sentence added to skills/sdlc/SKILL.md)
+> arrived in a subsequent fresh session WITH NO CACHE REBUILD: the
+> provisioned sdlc skill carried the new sentence. Merge-is-rollout holds
+> end to end; the Approach A acceptance criterion is met. Phase 5 items
+> live in issues (see the Phase 5 list below).
 > **Created:** 2026-08-13
 > **Design:** docs/design/SANDBOX-LIFECYCLE.DESIGN.md (authored in Phase 1;
 > landed with this plan's execution)
@@ -552,16 +554,24 @@ Manual prerequisites (Todd), in order:
 
 ### Phase 5 -- Follow-through (may defer)
 
+Every remaining item has an owning issue; this list is the index.
+
 - [ ] #193: CI job that runs a real `lmde acquire` against the registry.
-- [ ] Map the seed/authority split onto Codex/Jules/Copilot wrappers
-      (#139) -- design notes only in this effort.
-- [ ] Approach B spike: npx-spawned ast-mcp with `${GH_AI_TOOLS_PAT}`
-      env-indirected `.npmrc`; measure spawn latency warm/cold. Future
-      Consideration until then.
-- [ ] Publish git-mirror and sandbox-qol to GitHub Packages or drop them
-      from their rails -- both resolve UNREADABLE on the registry
-      (measured 2026-08-13), so their pins gate nothing (#188-adjacent;
-      SANDBOX-LIFECYCLE Open Question 3).
+- [ ] #139: map the seed/authority split onto Codex/Jules/Copilot wrappers.
+- [ ] #219: Approach B spike -- npx-spawned ast-mcp, spawn-time
+      acquisition (closes the N-1 binary window; design's Future
+      Consideration).
+- [ ] #188 + template-tools#428: git-mirror pin parity / sandbox-qol
+      publish-or-drop -- both packages resolve UNREADABLE on the registry
+      (measured 2026-08-13), so their rails degrade fail-open every run.
+- [ ] #194 (laptop half): lmde/components/mcp/servers.txt still pins
+      ast-mcp 0.3.1; template-tools#355 (laptop half): acquire cadence on
+      LMDE. Both need a LAPTOP session; unverifiable from cloud.
+- [ ] template-base#66: AGENT.md still describes the committed shim as THE
+      carrier; post-correction it is redundancy behind the user-scope
+      hook.
+- [ ] template-tools#412: ci-magic verdict parser fails on prose,
+      converting evaluator formatting flakes into red required checks.
 
 ### Learnings (execution, 2026-08-13)
 
@@ -586,6 +596,28 @@ Manual prerequisites (Todd), in order:
   were asserting behavior the platform ignores. Deleting a feature means
   deleting its tests AND adding the inverse assertion (clai NOT invoked
   at setup), or the regression can sneak back in.
+
+Verification rounds (2026-08-13/14):
+- The setup-script TEXT is the cache key. An accidental control proved it:
+  new package builds were published but a fresh session showed the same
+  failures -- until the pasted script text changed and forced the rebuild.
+  Publishing alone changes nothing a session sees until SessionStart
+  acquisition exists; with it, only the SEED needs the rebuild.
+- Absence of a side effect is not absence of execution. #124's "hook never
+  fires" rested on a missing ~/.cache/clai -- but the hook fired and
+  no-opd as not_a_project without creating it. Measure execution from the
+  harness diag log (hook_spawn_completed), never from an artifact the
+  happy path alone would create.
+- Each verification round isolated exactly one layer: round 1 the carrier
+  (user-scope hooks DO fire; repo hooks don't register multi-repo),
+  round 2 the provision targeting (cwd-only), round 3 green. Fixing the
+  layer the round exposed -- rather than redesigning -- converged in three
+  rounds; the verify-in-one-session, fix-in-another split kept evidence
+  and changes cleanly separated.
+- Pins may safely name a not-yet-published version: fleet pins said clai
+  0.8.0 before the tag existed, and every consumer degraded fail-open
+  with a loud warning until the release landed. Sequencing freedom, paid
+  for in warnings rather than breakage -- acceptable for hours, not weeks.
 ```
 
 ---
