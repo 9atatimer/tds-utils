@@ -102,15 +102,17 @@ the per-session AUTHORITY. See
 Skills and the canonical MCP catalog float by default (`SKILLS_VERSION`
 UNSET): a fresh session starts with the current skills, no human rollout step
 -- the review gate is the PR that merged the skill edit
-(LMDE-CLAI-BOUNDARY.DESIGN.md Revision 1; this reverses the earlier
+(LMDE.DESIGN.md, History; this reverses the earlier
 bundled-in-`@clai` model, whose `clai/_data` remains only as clai's bootstrap
 fallback). Acquisition stays a git-clone-free rail, which is exactly what
 fixes the Claude-web proxy block (the proxy brokers only the session's own
 repo). `lmde acquire` does not mutate any shell rc; if `~/.local/bin` is not
 on `$PATH` it warns.
 
-See [../docs/design/LMDE-CLAI-BOUNDARY.DESIGN.md](../docs/design/LMDE-CLAI-BOUNDARY.DESIGN.md)
-(authoritative for the acquire/configure boundary).
+See [../docs/design/LMDE.DESIGN.md](../docs/design/LMDE.DESIGN.md) -- the
+single design record for lmde, authoritative for the acquire/configure
+boundary (section 2), the observability stack, host ingress, and the
+backplane. This file stays the runtime CONTRACT; the rationale lives there.
 
 ---
 

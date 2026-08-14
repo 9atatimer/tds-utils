@@ -17,7 +17,7 @@ migration (#145):
   (SANDBOX-LIFECYCLE.DESIGN.md). Executable pins come from the FLEET
   pins.env shipped inside the skills payload (D1: explicit --pins > fleet
   pins > float; skills itself floats by design, per
-  LMDE-CLAI-BOUNDARY.DESIGN.md Revision 1).
+  LMDE.DESIGN.md section 2.5).
 - BOOTSTRAP-and-FETCH (codex, copilot, jules -- not yet migrated): the shared
   `provision.sh` core installs a PINNED clai from GitHub Packages
   (`npm install @nine-at-a-time-media/clai@${CLAI_VERSION}`), then execs
@@ -107,7 +107,7 @@ plus the pinned, immutable version; the session is always fail-OPEN (every
 terminal state exits 0).
 
 Skills + the MCP catalog are floating inert data again: per
-LMDE-CLAI-BOUNDARY.DESIGN.md Revision 1 they ship as the standalone
+LMDE.DESIGN.md (section 2, and History for why) they ship as the standalone
 `@nine-at-a-time-media/skills` package, auto-published by template-tools CI
 on merge, acquired floating by default (`SKILLS_VERSION` UNSET). A skill or
 catalog edit reaches sandboxes on the merge that lands it; the review gate

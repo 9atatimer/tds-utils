@@ -30,7 +30,8 @@ ACQUIRE_BIN_DIR="${HOME}/.local/bin"
 ACQUIRE_STATE_DIR="${HOME}/.local/state/tds-utils/acquire"
 ACQUIRE_PREFIX="${ACQUIRE_SHARE_ROOT}/_npm"
 # Where DATA packages (bin column "-") get their convention symlink: the
-# lmde->clai boundary contract path (LMDE-CLAI-BOUNDARY.DESIGN.md, Revision 1).
+# lmde->clai boundary contract path (tds-utils docs/design/LMDE.DESIGN.md,
+# section 2.3).
 ACQUIRE_DATA_LINK_ROOT="${HOME}/.local/lib/node_modules"
 # The FLEET pins shipped inside the skills payload (SANDBOX-LIFECYCLE.DESIGN.md
 # D1): with no explicit --pins, the executable packages take their pins from

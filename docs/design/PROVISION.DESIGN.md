@@ -4,7 +4,7 @@
 > **Superseded/split 2026-07-11 (step two):** the acquire half of this unified
 > design moved to `lmde acquire`; the configure half narrowed to an offline
 > `clai provision`. See
-> [LMDE-CLAI-BOUNDARY.DESIGN.md](./LMDE-CLAI-BOUNDARY.DESIGN.md) (authoritative
+> [LMDE.DESIGN.md](./LMDE.DESIGN.md) (authoritative
 > for the boundary) and
 > [template-tools#145](https://github.com/nine-at-a-time-media/template-tools/issues/145)
 > (the bundling mechanism). Kept for history.  
@@ -43,9 +43,9 @@ best-effort mid-session updates.
 >   a skill rollout is a clai release + `CLAI_VERSION` bump in
 >   `sandbox/pins.env` (the review gate). **Reversed by RD7 (2026-07-30):**
 >   skills + catalog move to a standalone auto-published package installed by
->   `lmde acquire`; see RD7 and LMDE-CLAI-BOUNDARY.DESIGN.md Revision 1.
+>   `lmde acquire`; see RD7 and LMDE.DESIGN.md section 2.
 >
-> See [LMDE-CLAI-BOUNDARY.DESIGN.md](./LMDE-CLAI-BOUNDARY.DESIGN.md) (authoritative)
+> See [LMDE.DESIGN.md](./LMDE.DESIGN.md) (authoritative)
 > and [LMDE.md](../../lmde/LMDE.md). The rest of this document is kept for
 > history; where it describes a git-over-proxy data pull at provision time, that
 > is superseded by the offline-materialization model above.
@@ -731,7 +731,7 @@ with the bundled `clai/_data` demoted to a loud bootstrap fallback. This
 restores this document's original stance -- "executables pinned;
 skills/manifest float; skills are inert and must be fresh to be useful" --
 on the proxy-reachable rail #145 built. Authoritative detail:
-[LMDE-CLAI-BOUNDARY.DESIGN.md](./LMDE-CLAI-BOUNDARY.DESIGN.md), Revision 1.
+[LMDE.DESIGN.md](./LMDE.DESIGN.md), section 2 (History for why).
 
 ### RD8. Stage semantics: the setup script is a cache seeder; SessionStart is the authority
 
@@ -871,4 +871,4 @@ Authoritative detail: [SANDBOX-LIFECYCLE.DESIGN.md](./SANDBOX-LIFECYCLE.DESIGN.m
 - [CLAI.DESIGN.md](https://github.com/nine-at-a-time-media/template-tools/blob/main/packages/clai/docs/CLAI.DESIGN.md) -- the launcher this design adds verbs to
 - [HOWTO.SYNC.md](https://github.com/nine-at-a-time-media/template-tools/blob/main/prompts/HOWTO.SYNC.md) -- the manual sync workflow this design retires
 - `.claude/hooks/session-start.sh` (this repo) -- the fetch/verify/fail-open precedent the wrappers generalize
-- [LMDE-OBSERVABILITY.DESIGN.md](./LMDE-OBSERVABILITY.DESIGN.md) -- collector that would receive provision telemetry (open question 6)
+- [LMDE.DESIGN.md](./LMDE.DESIGN.md) -- collector that would receive provision telemetry (open question 6)

@@ -10,7 +10,7 @@
 > LOADING (a file present in the container loads normally).
 > **Date:** 2026-08-13
 > **Authors:** Claude (from design discussion with Todd)
-> **Depends on:** [LMDE-CLAI-BOUNDARY.DESIGN.md](./LMDE-CLAI-BOUNDARY.DESIGN.md),
+> **Depends on:** [LMDE.DESIGN.md](./LMDE.DESIGN.md),
 > [PROVISION.DESIGN.md](./PROVISION.DESIGN.md),
 > [LMDE.md](../../lmde/LMDE.md)
 
@@ -162,7 +162,7 @@ observed:
         of truth                         of truth
 ```
 
-The acquire/configure axis (LMDE-CLAI-BOUNDARY.DESIGN.md) is untouched:
+The acquire/configure axis (LMDE.DESIGN.md, section 2) is untouched:
 acquire is still agent-agnostic and owns transport/pins/integrity;
 configure is still agent-aware and offline. What moves is WHEN acquire
 runs: at the session boundary, not (only) the cache boundary.
@@ -353,8 +353,8 @@ has setup only, so the committed hook is its session boundary too.
 
 ## Related Documents
 
-- [LMDE-CLAI-BOUNDARY.DESIGN.md](./LMDE-CLAI-BOUNDARY.DESIGN.md) --
-  Revision 2 (acquire timing moves to the session boundary).
+- [LMDE.DESIGN.md](./LMDE.DESIGN.md) -- what acquire IS (section 2); this
+  document owns when it runs.
 - [PROVISION.DESIGN.md](./PROVISION.DESIGN.md) -- RD8 (cache semantics
   supersede RD4's stage assumptions).
 - [LMDE.md](../../lmde/LMDE.md) -- the acquire capability this schedules.

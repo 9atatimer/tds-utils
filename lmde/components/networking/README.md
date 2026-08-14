@@ -4,8 +4,8 @@
 
 Owns the host edge of LMDE cluster ingress: it makes in-cluster HTTP services
 reachable from the laptop at stable `*.{cluster}.localhost` vhosts. See
-[LMDE-OBSERVABILITY.DESIGN.md](../../../docs/design/LMDE-OBSERVABILITY.DESIGN.md),
-section 4, for the full design.
+[LMDE.DESIGN.md](../../../docs/design/LMDE.DESIGN.md), section 4 (Host
+ingress), for the full design.
 
 ## The Pattern
 
