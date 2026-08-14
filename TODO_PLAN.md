@@ -388,9 +388,11 @@ clai README's phantom fetch prose).
 
 ## Active Work: Session-boundary provisioning (Approach A) -- sandbox lifecycle redesign
 
-> **Status:** EXECUTED (Phases 1-3, 2026-08-13) -- Phase 4 blocked on the
-> manual prerequisites listed there (merges + the clai-v0.8.0 tag);
-> Phase 5 deferred.
+> **Status:** COMPLETE (Phases 1-4, 2026-08-13; Phase 5 deferred) --
+> Phase 4 verified in a fresh multi-repo session on naatm-sandbox 0.7.0;
+> acceptance probe PR template-tools#420 open. Remaining tail: merge the
+> probe, then ONE fresh session (no cache rebuild) confirms the edit
+> arrived -- that session closes the Approach A acceptance criterion.
 > **Created:** 2026-08-13
 > **Design:** docs/design/SANDBOX-LIFECYCLE.DESIGN.md (authored in Phase 1;
 > landed with this plan's execution)
@@ -501,12 +503,9 @@ provisioning (Approach A)`
       sandbox-qol pin. New `naatm-sandbox-session-start` bin is the
       per-session authority for repo-agnostic repos. Smoke suite reworked
       (38 checks green).
-- [ ] clai: cut the 0.8.0 release -- BLOCKED ON TODD: the sandbox git
-      proxy denies tag pushes (403). Main already carries the
-      package-first source order; the one manual command is
-      `git tag clai-v0.8.0 <main> && git push origin clai-v0.8.0`
-      in template-tools. Until then the 0.8.0 pins degrade fail-open
-      (loud warning, installed clai kept).
+- [x] clai: cut the 0.8.0 release -- the laptop tag push happened; clai
+      0.8.0 installs from GitHub Packages (verified in-session
+      2026-08-13, acquire log + `clai --version`).
 - [x] template-base: committed `.claude/settings.json` SessionStart shim +
       `.claude/hooks/session-start.sh` (invokes
       naatm-sandbox-session-start; degrades to bare clai provision; loud
@@ -529,15 +528,27 @@ Manual prerequisites (Todd), in order:
    confirm `GH_AI_TOOLS_PAT` is set as an ENVIRONMENT VARIABLE (it is in
    the current env -- measured in-session 2026-08-13).
 
-- [ ] Todd: the manual prerequisites above.
-- [ ] Force a cache rebuild (setup-script edit) and cut a fresh session;
+- [x] Todd: the manual prerequisites above. (Done by 2026-08-13: clai
+      0.8.0 + skills 0.1.57 on GitHub Packages, GH_AI_TOOLS_PAT set.)
+- [x] Force a cache rebuild (setup-script edit) and cut a fresh session;
       verify: `.claude/skills/sdlc` present; provision report says
       acquired-package (no bundled-fallback warning); clai/ast-mcp at their
       pins; drift summary visible in session context (#190's checklist).
+      Took three rounds: round 1 exposed the user-scope-hook carrier gap
+      (D3 correction), round 2 exposed multi-repo provision fallthrough
+      (template-tools#417, fixed in naatm-sandbox 0.7.0), round 3 (this
+      session, multi-repo, setup v3) PASSED -- all 5 checkouts provisioned
+      at session start incl. `sdlc`; stamps clai 0.8.0 / ast-mcp 0.4.0 /
+      gadmin 0.4.0 / skills 0.1.57; payload pins.env CLAI_VERSION 0.8.0;
+      ast-mcp connected via the acquire symlink at 0.4.0; only benign
+      fail-open warnings (git-mirror + sandbox-qol unpublished, Phase 5).
 - [ ] The A-now acceptance test: merge a trivial skill edit, cut another
       fresh session WITHOUT a cache rebuild, verify the edit arrived.
-- [ ] Triage/close on results: #190, #120 (recast: seed vs authority),
-      #123, #194, template-tools#355 (cloud half), #381, #382.
+      Probe PR template-tools#420 is open (one-sentence sdlc edit);
+      remaining: Todd merges, then the fresh-session check.
+- [ ] Triage/close on results: #190 (closed 2026-08-13), #120 (recast:
+      seed vs authority), #123, #194 (cloud half verified, laptop half
+      open), template-tools#355 (same split), #381, #382.
 
 ### Phase 5 -- Follow-through (may defer)
 
