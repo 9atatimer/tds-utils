@@ -360,8 +360,6 @@ sandbox/
   codex/setup.sh            container create (network on): full bootstrap
   codex/maintenance.sh      cached resume (network may be off): provision
                             --offline-ok
-  claude-web/setup.sh       env-setup (pre-session): install+register ast-mcp
-  claude-web/session-start.sh
   copilot/copilot-setup-steps.yml
   jules/setup.sh
 ```
@@ -496,7 +494,7 @@ reports against.
 | Skill format | Open SKILL.md standard (dir per skill, frontmatter) | Adopted by all target agents in 2026; native lazy-loading replaces hand-rolled dispatch; ecosystem tooling exists |
 | Code vs data update policy | Executables pinned; skills/manifest float | Matches supply-chain stance already documented in session-start.sh; skills are inert and must be fresh to be useful. **Revised 2026-07:** "checksummed release asset" -> "pinned version on GitHub Packages, registry integrity" (see Revised Decisions) |
 | Artifact delivery transport | GitHub Packages npm (`npm.pkg.github.com`) | **Added 2026-07 (#98/#101):** the Claude web agent proxy blocks raw GitHub release-asset egress (`api.github.com`/`releases/download` both fail); GitHub Packages is reachable. Needs a classic `read:packages` token |
-| MCP-server binary install timing | Environment SETUP step, not the SessionStart hook | **Added 2026-07 (#99):** Claude Code connects `.mcp.json` servers concurrently with the SessionStart hook; a hook that installs the binary loses the race (ENOENT on first spawn, no retry). The binary must exist before session init; the hook is a refresh/fallback |
+| MCP-server binary install timing | Environment SETUP step, not the SessionStart hook | **Added 2026-07 (#99); re-measured and CONFIRMED 2026-08-14 (#225):** Claude Code starts the `.mcp.json` connect BEFORE the SessionStart hook spawns (599 ms ahead) and completes it 7.1 s before the hook returns -- see RD4 for the diag-log trace. A hook that installs the binary loses the race (ENOENT on first spawn, no retry). The binary must exist before session init; the hook is a refresh/fallback |
 | Update model | New sessions auto-fresh; running sessions frozen; manual `clai refresh` best-effort with report | Todd's explicit requirement; avoids surprise mid-session mutation |
 | MCP config source | One canonical manifest + profile subscription + repo/user overlay layers | Kills four-dialect hand-maintenance; per-repo server sets (GHL) via one `profiles` line |
 | Manifest format | JSON | `jq`-friendly for shell fallbacks; Python stdlib parseable; authored rarely, merged by machine |
@@ -575,6 +573,31 @@ absent until a later reconnect (observed connecting late on return to the
 session). A SessionStart hook fundamentally cannot win this race for the
 binary it is itself installing.
 
+**Re-measured 2026-08-14 (#225) -- CONFIRMED, and the ordering is worse than
+"concurrent."** The owner reported "there's no race, that works fine," which
+is consistent with either a safe ordering or a race that the seed hides. The
+harness diag log settles it. From a live multi-repo cloud session
+(`claude-code-*.diag.log`, ast-mcp being the only `stdio` server registered):
+
+```
+08:32:29.689  mcp_connect_starting     transport=stdio
+08:32:30.288  hook_spawn_started       SessionStart index=0
+08:32:32.036  mcp_connect_complete     transport=stdio   duration_ms=2347
+08:32:39.158  hook_spawn_completed     SessionStart index=0  duration_ms=9017
+```
+
+The client began spawning the MCP server **599 ms before the SessionStart hook
+process even started**, and finished connecting **7.1 s before the hook
+returned**. So the connect is not merely concurrent with the hook -- it is
+ordered ahead of it, and the server that answers is whatever binary the
+snapshot already held. Nothing ENOENTs today only because the setup seed put a
+working `~/.local/bin/ast-mcp` there first. RD4 stands; the seeder's
+"one load-bearing job" is real, not a warm-start nicety.
+
+This also falsifies the "hooks run synchronously before `.mcp.json` loads"
+claim that `sandbox/README.md` and the retired claude-web wrapper header
+carried -- corrected in the same pass.
+
 **Decision.** MCP-server binaries must be installed in the environment SETUP
 step (which runs before session init, so the binary exists when MCP first
 connects). The repo-committed `.mcp.json` + SessionStart hook remain, but the
@@ -585,8 +608,11 @@ at must also exist before session init. Scope choice (user `~/.claude.json` vs
 project `.mcp.json`) tracked in #99.
 
 **Resolved (#99): ONE binary path, registered at both scopes.** The env-setup
-installer is `sandbox/claude-web/setup.sh` (paste as the Claude web
-Environment "Setup script"). It installs `@nine-at-a-time-media/ast-mcp` via
+installer was `sandbox/claude-web/setup.sh` (paste as the Claude web
+Environment "Setup script"); since #126 that wrapper is retired and the
+pasted box is `packages/naatm-sandbox/setup-shim.sh` from template-tools,
+which runs `naatm-sandbox setup` -- same binary, same path, plus the rest of
+the seed. It installs `@nine-at-a-time-media/ast-mcp` via
 `npm install -g --prefix "$HOME/.local"`, landing the executable at
 `~/.local/bin/ast-mcp` -- the *same* path the `clai.d/*/pre/20-enable-ast-mcp`
 hooks register and the *same* path the laptop's `install-claude-user.sh`

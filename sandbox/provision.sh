@@ -10,9 +10,9 @@
 # SUPERSEDED (Phase C, #145): this bootstrap-and-fetch (install pinned clai,
 # then exec clai provision) is superseded by the two-step `lmde acquire`
 # (install clai + ast-mcp from GitHub Packages, pre-session) + `clai provision`
-# (offline configure-only, at session start). claude-web already migrated:
-# its setup.sh runs `lmde acquire` and its session-start.sh runs a plain
-# `clai provision`, neither sourcing this file. This file is NOT deleted or
+# (offline configure-only, at session start). The Claude surfaces already
+# migrated, and their wrappers here were retired entirely (#126) in favour of
+# the @nine-at-a-time-media/sandbox package, which sources none of this. This file is NOT deleted or
 # reduced yet because codex/jules/copilot (out of Phase C scope) still source
 # it as their shared core. Once every provider wrapper migrates, this collapses
 # to a thin shim -- roughly: `lmde acquire "$@"; exec clai provision --copy

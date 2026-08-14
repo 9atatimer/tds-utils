@@ -4,7 +4,7 @@ Deliberately low-velocity wrappers that give every cloud-sandbox provider
 the same session-start behavior. Two shapes coexist during the Phase C
 migration (#145):
 
-- ACQUIRE-then-CONFIGURE (claude-web, and the laptop path): the
+- ACQUIRE-then-CONFIGURE (the Claude surfaces, and the laptop path): the
   SessionStart hook is the per-session provisioning AUTHORITY -- it runs
   `lmde acquire` (installs/refreshes @nine-at-a-time-media/clai onto PATH,
   @nine-at-a-time-media/ast-mcp at ~/.local/bin/ast-mcp, and the
@@ -31,19 +31,24 @@ precedent these generalize.
 ## Layout
 
 - `provision.sh` -- shared core for the not-yet-migrated providers (codex,
-  copilot, jules); superseded for claude-web by `lmde acquire` + `clai
-  provision` (see the header note in that file)
+  copilot, jules); superseded for the Claude surfaces by `lmde acquire` +
+  `clai provision` (see the header note in that file)
 - `pins.env` -- CLAI_VERSION + AST_MCP_VERSION + SKILLS_VERSION; consumed
-  by `provision.sh` for the not-yet-migrated providers, and by the
-  claude-web wrapper only as the TRANSITION FALLBACK when no fleet pins
-  payload is on disk. For acquire surfaces the pins now ride the skills
+  by `provision.sh` for the not-yet-migrated providers. For acquire
+  surfaces the pins now ride the skills
   package (template-tools packages/skills/pins.env -- see
   SANDBOX-LIFECYCLE.DESIGN.md D1 and the rollout note below)
-- `claude-web/` -- acquire-then-configure wrappers (`session-start.sh` is
-  the per-session authority: `lmde acquire` then offline `clai provision`
-  plus a stdout version summary; `setup.sh` runs the same acquire as the
-  env-setup cache seeder)
 - `codex/`, `copilot/`, `jules/` -- per-provider wrappers over `provision.sh`
+
+`claude-web/` is GONE (#126). Its three wrappers were duplicate
+implementations of what `@nine-at-a-time-media/sandbox` now ships --
+`lib/setup-core.sh`, the package's own `setup-shim.sh`, and the
+`naatm-sandbox-session-start` bin -- and the session-start wrapper had
+DIVERGED: it provisioned its cwd only, the exact defect template-tools#417
+fixed in the packaged bin (which provisions the cwd when it is a checkout,
+else every immediate child checkout). Claude surfaces are served by the
+package; this repo's `.claude/hooks/session-start.sh` calls the packaged bin
+directly.
 
 ## Providers
 
@@ -51,7 +56,7 @@ precedent these generalize.
 |----------|---------------|---------------------------|---------------------|
 | Codex cloud (setup) | Setup script runs once at container create, in the repo checkout | Codex web -> Environments -> setup script: `bash sandbox/codex/setup.sh` | ON -- the only guaranteed-egress phase; full bootstrap happens here |
 | Codex cloud (resume) | Maintenance script runs on cached container resume | Codex web -> Environments -> maintenance script: `bash sandbox/codex/maintenance.sh` | MAYBE OFF -- runs `provision.sh --offline-ok`; cached state + staleness warning |
-| Claude Code web/remote | Env Setup script runs ONCE per snapshot-cache build (~7 days) -- the cache seeder, NOT per session; SessionStart hook runs EVERY session, synchronously before .mcp.json load (`CLAUDE_PROJECT_DIR` set, `CLAUDE_CODE_REMOTE=true`), stdout added to session context. User-scope `~/.claude/settings.json` hooks do NOT fire in cloud (#124) | Env Setup script: `bash sandbox/claude-web/setup.sh` (seed acquire so the snapshot carries a working ast-mcp for the first-connect race); register `sandbox/claude-web/session-start.sh` under `hooks.SessionStart` in `<repo>/.claude/settings.json` -- the AUTHORITY: `lmde acquire` (refresh to current fleet pins) then OFFLINE `clai provision` | ON in-session: `GH_AI_TOOLS_PAT` env var + npm.pkg.github.com reachable (measured 2026-08-13), so the SessionStart acquire is live; every path degrades fail-open offline. Brokered GH_TOKEN cannot read GitHub Packages -- needs the classic `read:packages` `GH_AI_TOOLS_PAT` |
+| Claude Code web/remote | Env Setup script runs ONCE per snapshot-cache build (~7 days) -- the cache seeder, NOT per session. SessionStart hooks run EVERY session but NOT before `.mcp.json` loads: the client starts the MCP connect ~600 ms BEFORE the hook process spawns and finishes it ~7 s before the hook returns (measured 2026-08-14, #225), so the SEED -- not the hook -- is what makes ast-mcp answer on first connect (RD4). `CLAUDE_PROJECT_DIR` set, `CLAUDE_CODE_REMOTE=true`, hook stdout added to session context. User-scope `~/.claude/settings.json` hooks written into the container by the setup stage DO fire in cloud (#124, corrected 2026-08-13) and are the PRIMARY carrier -- also the only carrier covering multi-repo sessions, where the project dir is the checkouts' parent and repo-committed hooks never register | Env Setup script: paste `packages/naatm-sandbox/setup-shim.sh` from template-tools (installs `@nine-at-a-time-media/sandbox` and runs `naatm-sandbox setup`), which seed-acquires the fleet AND registers the user-scope SessionStart hook at `~/.claude/hooks/naatm-session-start.sh`. Repos additionally commit `.claude/hooks/session-start.sh` (templated from template-base) as REDUNDANCY -- same idempotent engine, harmless double-fire | ON in-session: `GH_AI_TOOLS_PAT` env var + npm.pkg.github.com reachable (measured 2026-08-13), so the SessionStart acquire is live; every path degrades fail-open offline. Brokered GH_TOKEN cannot read GitHub Packages -- needs the classic `read:packages` `GH_AI_TOOLS_PAT` |
 | Copilot coding agent | Job named exactly `copilot-setup-steps` in `.github/workflows/copilot-setup-steps.yml`, run before the agent starts | Copy `sandbox/copilot/copilot-setup-steps.yml` to `.github/workflows/` in the target repo; add `GH_AI_TOOLS_PAT` secret | ON during setup steps; job workspace starts EMPTY (Copilot clones for the agent only after setup steps), so the workflow performs its own `actions/checkout` |
 | Jules | Per-repo environment setup script, runs in the VM before the agent | Jules repo configuration -> setup script: `bash sandbox/jules/setup.sh`; add `GH_AI_TOOLS_PAT` secret | ON at setup; no separate cached-resume hook surface |
 
@@ -70,8 +75,7 @@ payload, and reach every surface on its next session via the same floating
 acquire that delivers the skills (SANDBOX-LIFECYCLE.DESIGN.md D1). A pin
 bump is a reviewed template-tools PR; the merge is the rollout. This
 repo's `pins.env` remains the lever ONLY for the not-yet-migrated
-bootstrap-and-fetch providers below, and the claude-web wrapper's
-transition fallback.
+bootstrap-and-fetch providers below.
 
 `pins.env` here: `provision.sh` sources it and `lmde
 acquire --pins` reads it, so shipping new provisioning behavior to those

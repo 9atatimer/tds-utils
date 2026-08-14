@@ -109,7 +109,8 @@ observed:
 2. **Per-session pin authority.** A pin bump reaches the next session, not
    the next cache rebuild. MCP-server BINARIES accept an N-1 window: the
    refreshed binary applies on the next spawn, because first connect races
-   the SessionStart hook (RD4's race analysis still holds).
+   the SessionStart hook -- and loses it (RD4's race analysis still holds;
+   re-measured and confirmed 2026-08-14, #225).
 3. **Seed is never truth.** Everything the setup script installs is a
    warm-start optimization; the session must converge to current state
    without it (first-ever session aside, where the seed also wins the MCP
@@ -171,6 +172,13 @@ The RD4 race is handled by the seed: the snapshot always contains a
 working ast-mcp binary at `~/.local/bin/ast-mcp`, so first connect finds
 one. The SessionStart acquire refreshes it for subsequent spawns. Stale
 window: one session after a pin bump, versus up to seven days before.
+
+This is the ONLY reason the arrangement works, and it is worth being blunt
+about it because the seed hides the failure so completely that the race
+reads as absent (#225): the client starts the connect before the hook
+process exists. Remove the seed and the first spawn of a fresh snapshot
+ENOENTs -- the seeder is a correctness requirement, not a warm-start
+optimization.
 
 ---
 
@@ -313,7 +321,7 @@ has setup only, so the committed hook is its session boundary too.
 | Decision | Choice | Rationale |
 |---|---|---|
 | Stage semantics | Setup = cache seeder; SessionStart = provisioning authority | Matches the platform's measured cache/hook cadence, not the assumed one |
-| Freshness split | Data + configs current every session; MCP binaries N-1 | SessionStart cannot win the first-connect race (RD4); one session beats seven days |
+| Freshness split | Data + configs current every session; MCP binaries N-1 | SessionStart cannot win the first-connect race (RD4, re-measured and CONFIRMED 2026-08-14 -- #225: connect starts 599 ms BEFORE the hook spawns and completes 7.1 s before it returns); one session beats seven days |
 | Pins home | `packages/skills/pins.env`, shipped in the skills payload | Merge-is-rollout review gate; reachable per-session by any repo; closes the two-pins fork |
 | Pins resolution | explicit --pins > fleet pins > float | Explicit stays the emergency override; float stays the no-config default |
 | Engine for repo-agnostic surfaces | Vendored acquire.sh in naatm-sandbox + `naatm-sandbox-session-start` bin | Works with zero repo files; same deliberate-vendoring precedent as the hook |

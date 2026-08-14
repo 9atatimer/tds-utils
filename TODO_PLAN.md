@@ -411,10 +411,21 @@ clai README's phantom fetch prose).
 - **SessionStart hooks run every session** (startup and resume), local and
   cloud. In-session, `GH_AI_TOOLS_PAT` is present and npm.pkg.github.com
   answers 200 authed -- per-session acquisition is feasible at SessionStart.
-- **User-scope `~/.claude/settings.json` hooks do NOT fire in cloud** (docs:
-  only repository + server-managed hooks run). Corroborated live: clai
-  0.6.0's `hooks install --scope user` registered a hook at setup that never
-  ran (`~/.cache/clai` absent). This answers #124: NO.
+- ~~**User-scope `~/.claude/settings.json` hooks do NOT fire in cloud**
+  (docs: only repository + server-managed hooks run). Corroborated live:
+  clai 0.6.0's `hooks install --scope user` registered a hook at setup that
+  never ran (`~/.cache/clai` absent). This answers #124: NO.~~
+  **REVERSED 2026-08-13 -- #124 answers YES; see the Learnings block below
+  and SANDBOX-LIFECYCLE.DESIGN.md D3.** A user-scope hook WRITTEN INTO THE
+  CONTAINER by the setup stage does fire every cloud session; the docs'
+  "user-level settings stay on your machine" is about sync, not loading.
+  The 0.6.0 hook never ran for an unrelated reason. The setup-registered
+  user-scope hook is now the PRIMARY carrier -- and the only one covering
+  multi-repo sessions, where the project dir is the checkouts' parent and
+  repo-committed hooks never register at all. Committed shims remain as
+  redundancy (same idempotent engine, harmless double-fire). Left struck
+  rather than deleted: this is the record of what was believed when the
+  plan below was written, and several decisions in it followed from it.
 - The deployed environment runs the **pre-Revision-1 naatm-sandbox** path:
   clai 0.6.0 (pin target 0.8.0, #190), ast-mcp 0.3.2, NO skills package ->
   zero provisioned skills in the session that wrote this plan. The
@@ -512,10 +523,15 @@ provisioning (Approach A)`
       `.claude/hooks/session-start.sh` (invokes
       naatm-sandbox-session-start; degrades to bare clai provision; loud
       no-op last). Pushed on the same-named branch there.
-- [ ] Retire `sandbox/claude-web/` per #126's preconditions once the
-      packaged path is verified on a non-tds-utils repo. (Deliberately NOT
-      done yet -- Phase 4 verification is the precondition; README marks
-      the role split meanwhile.)
+- [x] Retire `sandbox/claude-web/` per #126's preconditions once the
+      packaged path is verified on a non-tds-utils repo. DONE 2026-08-14:
+      preconditions met in the Phase 4 re-verification, so all three
+      wrappers and both smoketest dirs
+      (`test/smoketest_claude_web_{setup,session_start}/`) are deleted and
+      `.claude/hooks/session-start.sh` calls `naatm-sandbox-session-start`
+      directly. The wrapper had DIVERGED (cwd-only provisioning vs the
+      packaged bin's child-checkout discovery, template-tools#417), which
+      is what turned this from tidying into a correctness fix.
 
 ### Phase 4 -- Environment rewire + fresh-session verification (manual + agent)
 
@@ -646,6 +662,16 @@ Verification rounds (2026-08-13/14):
   may assume) and SKILL.CLAI.md (how to install it) both survived; the
   leaf design docs folded. Keeping the surviving design doc's FILENAME
   (CLAI.DESIGN.md) cost zero inbound-link churn -- worth optimizing for.
+- A seed that hides a race makes the race look absent. #225 was opened
+  because the owner observed provisioning "works fine" -- true, and
+  perfectly consistent with a race that the environment-setup seed wins
+  on the hook's behalf every single time. "I have never seen it fail" is
+  evidence about the CURRENT configuration, not about the ordering. The
+  harness diag log settled it in one read: `mcp_connect_starting` vs
+  `hook_spawn_started` timestamps are printed in every session's
+  `/tmp/claude-code-*.diag.log`. Reach for that log before arguing about
+  startup ordering from recollection -- it is the same technique that
+  resolved #124, and it costs one `cat`.
 - Superseded decisions get a SUPERSEDED row, never a deletion. Both
   consolidations kept the reversed rows (the #145 bundled-in-wheel model,
   latest-by-default versioning) so the reasoning cannot be relitigated.
@@ -655,14 +681,24 @@ Verification rounds (2026-08-13/14):
 
 Docs-side defects found while consolidating; each has an owning issue.
 
-- [ ] #223: the #124 reversal never propagated out of the design docs
-      (sandbox/README.md, TODO_PLAN motivating facts).
+- [x] #223: the #124 reversal never propagated out of the design docs
+      (sandbox/README.md, TODO_PLAN motivating facts). DONE 2026-08-14 --
+      both sites now state the corrected carrier model; the motivating
+      fact above is struck in place, not deleted.
 - [ ] #224: sandbox/README.md's claude-web row documents the
       pre-naatm-sandbox install; the real paste box and setup-stage
       contract are code-only.
-- [ ] #225: RD4's first-connect race is disputed by the owner ("there is
+- [x] #225: RD4's first-connect race is disputed by the owner ("there is
       no race") -- BLOCKING: two readings lead to opposite edits in four
-      files. Settle before demoting the seeder or reworking #219.
+      files. SETTLED 2026-08-14 by measurement, reading 2: the race is
+      REAL and the seed is what hides it. Harness diag log, live cloud
+      session -- `mcp_connect_starting` (stdio) fires 599 ms BEFORE
+      `hook_spawn_started`, and `mcp_connect_complete` lands 7.1 s before
+      `hook_spawn_completed`. The connect is ordered AHEAD of the hook,
+      not merely concurrent with it. So: RD4 stands, the seeder keeps its
+      load-bearing job, the N-1 window is a real constraint, and #219's
+      premise survives. The two prose sites claiming synchronous ordering
+      were the wrong ones and are corrected.
 - [ ] #226: nothing enforces the vendored acquire.sh byte-identity that
       SANDBOX-LIFECYCLE D2 claims the smoketests catch.
 - [ ] template-base#66 (docs) + template-base#68 (the committed shim's
