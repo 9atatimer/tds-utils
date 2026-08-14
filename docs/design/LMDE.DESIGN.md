@@ -120,7 +120,7 @@ One tool, one design doc. Anything an implementer needs to know about why
 |   Coding agent ----NATS----> nats.lmde.localhost:4222  (planned)          |
 |                                                                           |
 |   Browser --grafana.lmde.localhost--> Caddy --http--> 127.0.0.1:32100     |
-|     (dnsmasq: *.localhost -> loopback ; Caddy terminates TLS)             |
+|     (*.localhost resolves to loopback natively ; Caddy terminates TLS)    |
 +---------------------------------------------------------------------------+
         |                                              |
         | kind extraPortMappings:                      |
@@ -389,6 +389,12 @@ pattern is reusable across LMDE clusters:
 | Cluster routing | `ingress-nginx` routes by `Host` header to the target Service; pod churn is absorbed via EndpointSlices with zero reconfig and no reload |
 | Host boundary | One kind `extraPortMapping` publishes ingress-nginx's node port to a per-cluster host loopback port (`127.0.0.1` only) |
 | Vhost registration | `lmde/components/networking/lib.sh` registers/updates the Caddy route for `*.{cluster}.localhost` idempotently via the Caddy admin API |
+
+**dnsmasq is not in this path.** `.localhost` resolves to loopback natively,
+so a new cluster vhost needs no DNS entry at all -- see
+`lmde/components/networking/README.md`, Conventions. dnsmasq stays an Adopted
+component for the rest of `.localhost` orchestration and internal service
+discovery (`lmde/LMDE.md`), but the ingress pattern does not depend on it.
 
 **Why it scales.** One Caddy route per cluster (not per service); one
 `extraPortMapping` per cluster, allocated once at cluster-create time; a new
