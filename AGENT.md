@@ -229,6 +229,11 @@ main "$@"
   derive (a credential, a name, a URL) -- then ask for that value directly.
 - NEVER force-push. Land changes only via a PR off a fresh branch; if the
   designated branch is already merged, cut a new branch and open a new PR.
+- Lessons live at the narrowest layer whose readers need them (sdlc skill,
+  law 15): code comment (file-local) -> `docs/arch/` (component) -> this
+  file (repo) -> shared skill (fleet). `TODO_PLAN.md`'s Lessons Learned
+  holds only unsettled lessons on the work in progress; issues never hold
+  lessons -- they vanish when the root cause is fixed.
 
 ## Pull Request Review (do this WITHOUT being told)
 
