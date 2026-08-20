@@ -76,4 +76,10 @@ jobs:
       - name: Provision agent tooling (pinned clai bootstrap + clai provision)
         run: bash sandbox/provision.sh
         env:
+          # Current name. Provision this on the Agents secrets surface.
+          GH_PAT_NAATM_PACKAGES_RO: ${{ secrets.GH_PAT_NAATM_PACKAGES_RO }}
+          # Deprecated predecessor, named for the retired ai-tools repo. Still
+          # passed so a workspace that has not been reprovisioned keeps working;
+          # provision.sh prefers the name above and warns when it falls back
+          # here. Remove once nothing reports using it.
           GH_AI_TOOLS_PAT: ${{ secrets.GH_AI_TOOLS_PAT }}

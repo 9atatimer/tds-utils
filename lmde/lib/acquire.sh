@@ -129,14 +129,40 @@ effective_pins() {
 
 # --- Adapters (I/O) ---
 
+# acquire_token_name -- which environment variable is supplying the credential:
+# the current name, the deprecated one, or neither. Deliberately returns the
+# NAME and never the value, so a caller cannot log the secret by reaching for
+# the wrong helper.
+acquire_token_name() {
+    if [ -n "${GH_PAT_NAATM_PACKAGES_RO:-}" ]; then
+        echo "GH_PAT_NAATM_PACKAGES_RO"
+    elif [ -n "${GH_AI_TOOLS_PAT:-}" ]; then
+        echo "GH_AI_TOOLS_PAT"
+    else
+        echo "none"
+    fi
+}
+
+# acquire_warn_if_deprecated -- one line when the credential arrived under the
+# retired name, so "still on the old variable" is visible rather than inferred.
+# GH_AI_TOOLS_PAT is named for the retired ai-tools repo; GH_PAT_NAATM_PACKAGES_RO
+# replaces it. The fallback stays until nothing reports using it.
+acquire_warn_if_deprecated() {
+    if [ "$(acquire_token_name)" = "GH_AI_TOOLS_PAT" ]; then
+        acquire_note "using DEPRECATED GH_AI_TOOLS_PAT -- reprovision as GH_PAT_NAATM_PACKAGES_RO (classic PAT, read:packages, Nine-At-A-Time-Media owns the @nine-at-a-time-media scope)"
+    fi
+    return 0
+}
+
 # write_acquire_npmrc <dir> -- write an ephemeral authed npmrc scoping
-# @nine-at-a-time-media to GitHub Packages. Token from GH_AI_TOOLS_PAT (classic
-# read:packages). Mode 600 via umask; symlink-guarded. Copied from
-# provision.sh's write_npmrc hardening. The caller removes it after the install.
+# @nine-at-a-time-media to GitHub Packages. Token from GH_PAT_NAATM_PACKAGES_RO
+# (classic read:packages), falling back to the deprecated GH_AI_TOOLS_PAT. Mode
+# 600 via umask; symlink-guarded. Copied from provision.sh's write_npmrc
+# hardening. The caller removes it after the install.
 write_acquire_npmrc() {
-    local dir="$1" token="${GH_AI_TOOLS_PAT:-}"
+    local dir="$1" token="${GH_PAT_NAATM_PACKAGES_RO:-${GH_AI_TOOLS_PAT:-}}"
     if [ -z "${token}" ]; then
-        acquire_note "GH_AI_TOOLS_PAT unset -- need a classic read:packages PAT to install from GitHub Packages"
+        acquire_note "GH_PAT_NAATM_PACKAGES_RO unset (and no deprecated GH_AI_TOOLS_PAT) -- need a classic read:packages PAT to install from GitHub Packages"
         return 1
     fi
     mkdir -p "${dir}" || return 1
@@ -367,10 +393,11 @@ acquire_run() {
     # Optional under set -u, mirroring check_run: always invoked with an arg
     # today, but hardened so a bare acquire_run floats instead of crashing.
     local pins_file="${1:-}"
-    local token="${GH_AI_TOOLS_PAT:-}"
+    local token="${GH_PAT_NAATM_PACKAGES_RO:-${GH_AI_TOOLS_PAT:-}}"
+    acquire_warn_if_deprecated
 
     if [ -z "${token}" ]; then
-        acquire_note "GH_AI_TOOLS_PAT is unset -- need a CLASSIC PAT with read:packages to install the fleet packages from GitHub Packages (npm.pkg.github.com)."
+        acquire_note "GH_PAT_NAATM_PACKAGES_RO is unset (and no deprecated GH_AI_TOOLS_PAT) -- need a CLASSIC PAT with read:packages to install the fleet packages from GitHub Packages (npm.pkg.github.com)."
         acquire_note "Skipping install; keeping whatever is already installed (fail-open)."
         return 0
     fi
@@ -517,10 +544,11 @@ check_run() {
     # Optional under set -u: a bare check_run must float (no pins), never crash
     # on an unbound $1 -- consistent with this verb's fail-open contract.
     local pins_file="${1:-}"
-    local token="${GH_AI_TOOLS_PAT:-}"
+    local token="${GH_PAT_NAATM_PACKAGES_RO:-${GH_AI_TOOLS_PAT:-}}"
+    acquire_warn_if_deprecated
 
     if [ -z "${token}" ]; then
-        acquire_note "GH_AI_TOOLS_PAT unset or empty -- cannot query GitHub Packages; advisory update check skipped."
+        acquire_note "GH_PAT_NAATM_PACKAGES_RO unset or empty (and no deprecated GH_AI_TOOLS_PAT) -- cannot query GitHub Packages; advisory update check skipped."
         return 0
     fi
     if ! command -v npm >/dev/null 2>&1; then

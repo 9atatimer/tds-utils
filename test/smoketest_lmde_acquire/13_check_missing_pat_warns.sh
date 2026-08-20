@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Given no GH_AI_TOOLS_PAT in the environment, When `lmde acquire --check` runs,
+# Given no credential under either env var name, When `lmde acquire --check` runs,
 # Then it cannot query GitHub Packages: it prints nothing on stdout, warns on
 # stderr that the token is unset and the check was skipped, and exits 0.
 set -euo pipefail
@@ -16,6 +16,6 @@ main() {
 
     assert_eq "${rc}" "0" "advisory check always exits 0 without a token" || return 1
     assert_stdout_empty "${dir}" "no advisory without a token to query the registry" || return 1
-    assert_stderr_contains "${dir}" "GH_AI_TOOLS_PAT unset or empty" "stderr names the missing/empty token" || return 1
+    assert_stderr_contains "${dir}" "GH_PAT_NAATM_PACKAGES_RO unset or empty" "stderr names the missing/empty token" || return 1
 }
 main "$@"

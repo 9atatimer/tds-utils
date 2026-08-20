@@ -290,7 +290,7 @@ seed_installed_data() {
 
 # run_acquire <dir> [args...] -- run the real bin/lmde acquire with a hermetic
 # environment: fake PATH (bin/ plus the system dirs the flow needs), fake HOME,
-# and GH_AI_TOOLS_PAT defaulted to a fake token (set TEST_PAT="" to exercise the
+# and the credential env var defaulted to a fake token (set TEST_PAT="" to exercise the
 # missing-token path). Captures stderr to <dir>/stderr and echoes the exit code.
 #
 # Set TEST_NPM_CONFIG_REGISTRY to export NPM_CONFIG_REGISTRY into the run --
@@ -306,8 +306,20 @@ run_acquire() {
     local dir="$1"; shift || true
     local rc=0
     local -a envv
+    # Both credential names are set explicitly, the unused one to empty. `env`
+    # ADDS to the caller's environment rather than replacing it, so a real
+    # GH_AI_TOOLS_PAT on the developer's machine would otherwise satisfy the
+    # fallback and silently defeat every no-token scenario -- with a live token
+    # inside a test, at that. TEST_PAT_VAR selects which name carries the value.
+    local pat_var other_var
+    pat_var="${TEST_PAT_VAR:-GH_PAT_NAATM_PACKAGES_RO}"
+    if [[ "${pat_var}" == "GH_AI_TOOLS_PAT" ]]; then
+        other_var="GH_PAT_NAATM_PACKAGES_RO"
+    else
+        other_var="GH_AI_TOOLS_PAT"
+    fi
     envv=("PATH=${dir}/bin:/usr/bin:/bin" "HOME=${dir}/home"
-          "GH_AI_TOOLS_PAT=${TEST_PAT-faketoken-readpackages}")
+          "${pat_var}=${TEST_PAT-faketoken-readpackages}" "${other_var}=")
     if [[ -n "${TEST_NPM_CONFIG_REGISTRY:-}" ]]; then
         envv+=("NPM_CONFIG_REGISTRY=${TEST_NPM_CONFIG_REGISTRY}")
     fi
@@ -324,9 +336,15 @@ run_acquire() {
 run_check() {
     local dir="$1"; shift || true
     local rc=0
-    PATH="${dir}/bin:/usr/bin:/bin" \
-    HOME="${dir}/home" \
-    GH_AI_TOOLS_PAT="${TEST_PAT-faketoken-readpackages}" \
+    local pat_var other_var
+    pat_var="${TEST_PAT_VAR:-GH_PAT_NAATM_PACKAGES_RO}"
+    if [[ "${pat_var}" == "GH_AI_TOOLS_PAT" ]]; then
+        other_var="GH_PAT_NAATM_PACKAGES_RO"
+    else
+        other_var="GH_AI_TOOLS_PAT"
+    fi
+    env "PATH=${dir}/bin:/usr/bin:/bin" "HOME=${dir}/home" \
+        "${pat_var}=${TEST_PAT-faketoken-readpackages}" "${other_var}=" \
         bash "${LMDE_BIN}" acquire --check "$@" >"${dir}/stdout" 2>"${dir}/stderr" || rc=$?
     printf '%s\n' "${rc}"
 }

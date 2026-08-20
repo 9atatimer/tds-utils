@@ -64,15 +64,20 @@ set -uo pipefail
 note() { echo "[sandbox/provision.sh] $*" >&2; }
 
 # write_npmrc <dir> -- write an ephemeral, authed npmrc scoping
-# @nine-at-a-time-media to GitHub Packages. Token from GH_AI_TOOLS_PAT (a
-# classic read:packages PAT). Written mode 600 via umask; the caller removes
-# it right after the install so the token does not linger. Mirrors
+# @nine-at-a-time-media to GitHub Packages. Token from
+# GH_PAT_NAATM_PACKAGES_RO (a classic read:packages PAT), falling back to the
+# deprecated GH_AI_TOOLS_PAT so environments that have not been reprovisioned
+# keep working. Written mode 600 via umask; the caller removes it right after
+# the install so the token does not linger. Mirrors
 # .claude/hooks/session-start.sh's write_npmrc, including its hardening.
 write_npmrc() {
-  local dir="$1" token="${GH_AI_TOOLS_PAT:-}"
+  local dir="$1" token="${GH_PAT_NAATM_PACKAGES_RO:-${GH_AI_TOOLS_PAT:-}}"
   if [ -z "$token" ]; then
-    note "GH_AI_TOOLS_PAT unset -- need a classic read:packages PAT to install clai from GitHub Packages"
+    note "GH_PAT_NAATM_PACKAGES_RO unset (and no deprecated GH_AI_TOOLS_PAT) -- need a classic read:packages PAT to install clai from GitHub Packages"
     return 1
+  fi
+  if [ -z "${GH_PAT_NAATM_PACKAGES_RO:-}" ]; then
+    note "using DEPRECATED GH_AI_TOOLS_PAT -- reprovision as GH_PAT_NAATM_PACKAGES_RO"
   fi
   mkdir -p "$dir" || return 1
   local npmrc="$dir/.npmrc"
