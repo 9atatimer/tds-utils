@@ -90,7 +90,8 @@ latest published version and installs THAT concrete version (recording it, so a
 later run reinstalls on an upstream bump), never an `@latest` tag. The
 skills package installs first and never pins itself from its own payload. npm
 **registry integrity is always on**. Auth is a
-classic `read:packages` PAT in `GH_AI_TOOLS_PAT`. Acquisition never runs a
+classic `read:packages` PAT in `GH_PAT_NAATM_PACKAGES_RO` (the deprecated
+`GH_AI_TOOLS_PAT` is still honoured). Acquisition never runs a
 piped install script -- it is a signed-package rail only.
 
 Acquire's SCHEDULE in cloud sandboxes is the session boundary: the

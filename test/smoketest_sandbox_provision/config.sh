@@ -144,10 +144,21 @@ EOF
 # stubs and /usr/bin:/bin (awk, sed, rm, mkdir, bash) are visible.
 run_provision() {
     local dir="$1" rc=0
-    PATH="${dir}/bin:/usr/bin:/bin" \
-    HOME="${dir}/home" \
-    CLAI_PREFIX="${dir}/prefix" \
-    GH_AI_TOOLS_PAT="faketoken-readpackages" \
+    # Both credential names are passed explicitly, the unused one empty: these
+    # assignments prefix a command rather than replacing the environment, so a
+    # real GH_AI_TOOLS_PAT on the developer's machine would otherwise satisfy
+    # provision.sh's fallback and leak a live token into the scenario.
+    # TEST_PAT_VAR routes the fake token to the other name.
+    local pat_var other_var
+    pat_var="${TEST_PAT_VAR:-GH_PAT_NAATM_PACKAGES_RO}"
+    if [[ "${pat_var}" == "GH_AI_TOOLS_PAT" ]]; then
+        other_var="GH_PAT_NAATM_PACKAGES_RO"
+    else
+        other_var="GH_AI_TOOLS_PAT"
+    fi
+    env "PATH=${dir}/bin:/usr/bin:/bin" "HOME=${dir}/home" \
+        "CLAI_PREFIX=${dir}/prefix" \
+        "${pat_var}=faketoken-readpackages" "${other_var}=" \
         bash "${dir}/provision.sh" >/dev/null 2>"${dir}/stderr" || rc=$?
     printf '%s\n' "${rc}"
 }
