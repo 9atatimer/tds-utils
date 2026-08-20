@@ -41,7 +41,8 @@
 #   - Rolling out new behavior = bumping pins.env (the review gate); this
 #     script is deliberately low-velocity.
 #
-# Auth: GH_AI_TOOLS_PAT -- a CLASSIC PAT with read:packages (RD2). GitHub
+# Auth: GH_PAT_NAATM_PACKAGES_RO -- a CLASSIC PAT with read:packages (RD2);
+# the deprecated GH_AI_TOOLS_PAT is still accepted as a fallback. GitHub
 # Packages npm reads require the classic read:packages scope; fine-grained
 # PATs have no Packages permission, and the brokered GH_TOKEN injected in
 # Claude web sandboxes cannot read Packages either -- hence the dedicated
@@ -291,7 +292,7 @@ provision_flow() {
     fi
     # BOOTSTRAP FAILED terminal state: log, exit 0, session starts without
     # provisioning (design doc State Machine).
-    note "could not install the pinned clai from GitHub Packages (need npm + GH_AI_TOOLS_PAT with read:packages + egress to npm.pkg.github.com). Provisioning unavailable this session."
+    note "could not install the pinned clai from GitHub Packages (need npm + GH_PAT_NAATM_PACKAGES_RO with read:packages + egress to npm.pkg.github.com). Provisioning unavailable this session."
     exit 0
   fi
 

@@ -15,7 +15,8 @@
 # version; npm verifies every tarball against the registry-published integrity
 # hash and published versions are immutable, so the gate is the version choice
 # plus npm's built-in integrity -- never curl|sh, never integrity-disabling
-# flags. Auth is GH_AI_TOOLS_PAT, a CLASSIC PAT with read:packages.
+# flags. Auth is GH_PAT_NAATM_PACKAGES_RO, a CLASSIC PAT with read:packages
+# (the deprecated GH_AI_TOOLS_PAT is still accepted as a fallback).
 
 # --- Constants ---
 

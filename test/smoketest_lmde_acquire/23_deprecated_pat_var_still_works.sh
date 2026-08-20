@@ -30,8 +30,12 @@ main() {
     assert_eq "${rc}" "0" "acquire still succeeds on the deprecated variable" || return 1
     assert_stderr_contains "${dir}" "DEPRECATED GH_AI_TOOLS_PAT" \
         "stderr flags that the retired variable supplied the credential" || return 1
-    assert_stderr_contains "${dir}" "GH_PAT_NAATM_PACKAGES_RO" \
-        "stderr names the replacement variable" || return 1
+    # Scoped to the warning LINE. A bare stderr-wide grep would also be
+    # satisfied by any unrelated line that happens to name the new variable --
+    # an assertion that quietly stops testing the warning (template-tools#497
+    # review, where exactly that happened).
+    assert_eq "$(grep 'DEPRECATED GH_AI_TOOLS_PAT' "${dir}/stderr" | grep -c 'GH_PAT_NAATM_PACKAGES_RO')" "1" \
+        "the deprecation warning line itself names the replacement" || return 1
     assert_file_present "${dir}/installlog" \
         "the deprecated name must still reach a real install, not degrade" || return 1
 }

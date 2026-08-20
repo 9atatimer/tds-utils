@@ -6,7 +6,7 @@
 #   The per-repo "environment setup script" runs in the VM before the
 #   agent starts, in the repo checkout, with network ON. There is no
 #   separate cached-resume hook surface, so this is the single (full
-#   bootstrap) entry point. The GH_AI_TOOLS_PAT secret must be configured
+#   bootstrap) entry point. The GH_PAT_NAATM_PACKAGES_RO secret must be configured
 #   in the Jules environment for the private-repo fetches.
 #
 # Install location (manual, by the human -- design non-goal to automate):

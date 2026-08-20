@@ -5,7 +5,8 @@
 #   Runs once at container CREATE time, in the repo checkout, with network
 #   ON. This is the only phase guaranteed egress, so the full bootstrap
 #   (npm-install the pinned clai from GitHub Packages, RD1) happens here. Secrets configured
-#   in the Codex environment (GH_AI_TOOLS_PAT) are available to setup
+#   in the Codex environment (GH_PAT_NAATM_PACKAGES_RO, or the deprecated
+#   GH_AI_TOOLS_PAT) are available to setup
 #   scripts.
 #
 # Install location (manual, by the human -- design non-goal to automate):
