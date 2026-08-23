@@ -28,10 +28,23 @@ note() { echo "tds-release-link: $*"; }
 
 # --- Action functions ---
 
+# repo_root -- the PRIMARY checkout, which is not the same thing as "wherever
+# this script happens to live". Both scripts are expected to be run from the
+# release worktree, where those two differ; deriving the repo from the script's
+# own path made REPO and RELEASE identical and tripped the sameness guard
+# (issue #237). git lists the main worktree first, so ask git.
 repo_root() {
-    local self_dir
+    local self_dir main
+    if [ -n "${TDS_RELEASE_REPO:-}" ]; then
+        printf '%s\n' "${TDS_RELEASE_REPO}"
+        return 0
+    fi
     self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    printf '%s\n' "${TDS_RELEASE_REPO:-$(dirname "${self_dir}")}"
+    main="$(git -C "${self_dir}" worktree list --porcelain 2>/dev/null \
+            | awk '/^worktree /{ print substr($0, 10); exit }')"
+    # Fall back to the old derivation so a non-repo still reaches the explicit
+    # "not a git repository" error rather than an empty-path one.
+    printf '%s\n' "${main:-$(dirname "${self_dir}")}"
 }
 
 release_worktree() {
@@ -68,13 +81,27 @@ find_links() {
 # Exit status is the verdict: 0 repointed, 2 skipped, 3 not one of ours.
 repoint_one() {
     local link="$1" from_raw="$2" from_canon="$3" to="$4" dry_run="$5"
-    local target rel want
+    local target rel want target_dir target_canon
 
     target="$(readlink "${link}")"
+    # Three matching passes, cheapest first. The last one exists because the
+    # link's spelling and the repo's spelling are derived independently: git
+    # reports worktrees canonically, while an existing link may hold whatever
+    # path was typed when it was made (/tmp vs /private/tmp, and similar).
+    # Comparing strings alone silently misses those, which is how issue #237's
+    # fix nearly shipped a second bug.
     case "${target}" in
         "${from_raw}"/*)   rel="${target#"${from_raw}"}" ;;
         "${from_canon}"/*) rel="${target#"${from_canon}"}" ;;
-        *) return 3 ;;
+        *)
+            target_dir="$(cd "$(dirname "${target}")" >/dev/null 2>&1 && pwd -P || true)"
+            [ -n "${target_dir}" ] || return 3
+            target_canon="${target_dir}/$(basename "${target}")"
+            case "${target_canon}" in
+                "${from_canon}"/*) rel="${target_canon#"${from_canon}"}" ;;
+                *) return 3 ;;
+            esac
+            ;;
     esac
 
     want="${to}${rel}"

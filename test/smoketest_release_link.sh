@@ -53,13 +53,15 @@ make_fixture() {
     RELEASE="${WORKROOT}/${name}-release"
     HOME_DIR="${WORKROOT}/${name}-home"
 
-    mkdir -p "${REPO}/macos" "${REPO}/clai.d/claude" "${REPO}/emacs/dot.emacs.d"
+    mkdir -p "${REPO}/macos" "${REPO}/clai.d/claude" "${REPO}/emacs/dot.emacs.d" "${REPO}/bin"
     git -C "${REPO}" init -q -b master
     git -C "${REPO}" config user.email t@example.com
     git -C "${REPO}" config user.name  Test
     echo zshrc      > "${REPO}/macos/dot.zshrc"
     echo statusline > "${REPO}/clai.d/claude/statusline.sh"
     echo init       > "${REPO}/emacs/dot.emacs.d/init.el"
+    # bin/ must be tracked, or git will not materialise it in the worktree
+    echo keep       > "${REPO}/bin/.keep"
     git -C "${REPO}" add -A
     git -C "${REPO}" commit -qm one
     git -C "${REPO}" branch release
@@ -155,6 +157,21 @@ case_dangling_refused() {
     assert "warns about the skip"       "grep -qiE 'skip|missing' '${WORKROOT}/out'"
 }
 
+case_discovery_without_env_override() {
+    bold "case: repo discovery works with no TDS_RELEASE_REPO set"; echo
+    make_fixture disco
+    # The gap that let issue #237 ship: every other case passes the repo in,
+    # so none of them exercise discovery. Run the copy that lives INSIDE the
+    # release worktree, with only TDS_RELEASE_HOME set.
+    local linker="${RELEASE}/bin/tds-release-link"
+    cp "${LINKER}" "${linker}"
+    chmod +x "${linker}"
+    TDS_RELEASE_HOME="${HOME_DIR}" "${linker}" >"${WORKROOT}/out" 2>&1 && rc=0 || rc=$?
+    assert "exits 0"                    "[ ${rc} -eq 0 ]"
+    assert "does not claim same path"   "! grep -qi 'same path' '${WORKROOT}/out'"
+    assert "link moved to release"      "[ \"$(target_of "${HOME_DIR}/.zshrc")\" = \"$(canon "${RELEASE}")/macos/dot.zshrc\" ]"
+}
+
 main() {
     [ -x "${LINKER}" ] || { red "FAIL"; printf ' missing or non-executable: %s\n' "${LINKER}"; exit 1; }
     WORKROOT="$(mktemp -d "${TMPDIR:-/tmp}/release-link-test.XXXXXX")"
@@ -164,6 +181,7 @@ main() {
     case_revert
     case_no_release_worktree
     case_dangling_refused
+    case_discovery_without_env_override
     echo
     printf 'ran %d, passed %d, failed %d\n' "${TESTS_RUN}" "${TESTS_PASSED}" "${TESTS_FAILED}"
     [ "${TESTS_FAILED}" -eq 0 ]

@@ -33,10 +33,23 @@ note() { echo "tds-release: $*"; }
 
 # --- Action functions ---
 
+# repo_root -- the PRIMARY checkout, which is not the same thing as "wherever
+# this script happens to live". Both scripts are expected to be run from the
+# release worktree, where those two differ; deriving the repo from the script's
+# own path made REPO and RELEASE identical and tripped the sameness guard
+# (issue #237). git lists the main worktree first, so ask git.
 repo_root() {
-    local self_dir
+    local self_dir main
+    if [ -n "${TDS_RELEASE_REPO:-}" ]; then
+        printf '%s\n' "${TDS_RELEASE_REPO}"
+        return 0
+    fi
     self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    printf '%s\n' "${TDS_RELEASE_REPO:-$(dirname "${self_dir}")}"
+    main="$(git -C "${self_dir}" worktree list --porcelain 2>/dev/null \
+            | awk '/^worktree /{ print substr($0, 10); exit }')"
+    # Fall back to the old derivation so a non-repo still reaches the explicit
+    # "not a git repository" error rather than an empty-path one.
+    printf '%s\n' "${main:-$(dirname "${self_dir}")}"
 }
 
 # release_worktree <repo> -- the checkout whose HEAD is the `release` branch.
