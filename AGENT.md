@@ -44,39 +44,99 @@ See README.tds for the original description.
   (e.g., `sed -i ''` not `sed -i`, `du -sm` is fine but watch for GNU-only flags.)
 - Linux scripts use **bash** (`#!/usr/bin/env bash`).
 
-## This Checkout Is Live -- Use a Worktree
+## The Release Worktree -- What Is Live, and What Is Not
 
-**The dotfiles in this repo are not copies. They are the running configuration
-of the machine you are on.** `$HOME` symlinks straight into the checkout -- 14
-links as of 2026-07, including every shell startup file:
+**The dotfiles in this repo are the running configuration of the machine you
+are on -- but they go live on a release, not on a save.** `$HOME` symlinks do
+not resolve into this checkout. They resolve into the `release` worktree:
 
 ```
-~/.zshenv    -> macos/dot.zshenv        ~/.gitconfig  -> git-config/dot.gitconfig
-~/.zshrc     -> macos/dot.zshrc         ~/.tmux.conf  -> log-hoarder/tmux.conf
-~/.zprofile  -> macos/dot.zprofile      ~/.emacs.d    -> emacs/dot.emacs.d
-~/.alias     -> macos/dot.alias         ~/clai.d      -> clai.d
+~/.zshrc  -> ~/workplace/.worktrees/tds-utils-release/macos/dot.zshrc
+~/.emacs.d -> ~/workplace/.worktrees/tds-utils-release/emacs/dot.emacs.d
+~/.claude/CLAUDE.md -> ~/workplace/.worktrees/tds-utils-release/clai.d/AGENT.global.md
 ```
 
-Two consequences, both non-obvious and both expensive to learn the hard way:
+`bin/tds-release-link` owns those links (`-n` to preview, `-r` to put them back
+on the primary checkout). Run it after creating the release worktree on a new
+machine; it is idempotent, and it only ever moves symlinks that already point
+into one of the two checkouts.
 
-- **`git checkout <branch>` rewrites the live shell config mid-session**, for
-  the human and for you. A branch that predates a `.zshenv` fix silently
-  reinstates the bug in every shell spawned from that moment on -- including
-  your own tool calls. The failure surfaces later, somewhere else, looking
-  like something unrelated.
-- **Editing `macos/dot.*` takes effect immediately**, with no install step. A
-  half-finished edit is the machine's real config until you finish it.
+### Three branches, three roles
 
-**So: do shell/dotfile work in a `git worktree`, never by switching branches in
-the primary checkout.**
+| where | branch | what it is |
+|-------|--------|------------|
+| `~/workplace/tds-utils` | `master` | the primary checkout: read, review, never live |
+| `~/workplace/.worktrees/tds-utils-release` | `release` | what the machine is actually running |
+| `~/workplace/.worktrees/tds-utils-<topic>` | `<topic>` | where you do the work |
+
+`release` is fast-forward only and is never committed to directly. It is
+always an exact commit of `master` that went through a PR -- so "what is
+running" is a point on the reviewed history, never a divergent head and never
+a half-finished edit.
+
+### Releasing
 
 ```zsh
-git worktree add ~/workplace/.worktrees/<repo>-<topic> -b <branch> master
-# then edit via: git -C ~/workplace/.worktrees/<repo>-<topic> ...
+bin/tds-release -n          # what would go live, and which commits
+bin/tds-release             # fast-forward release to origin/master, push it
+bin/tds-release <sha>       # release a specific reviewed commit
+bin/tds-release -f <sha>    # roll back (rewind release deliberately)
 ```
 
-The primary checkout stays on `master`, the live config stays whatever the
-human is currently running, and nothing you write is live until it merges.
+That IS the install step for this machine. The moment `release` moves, the new
+config is what every new shell, editor, and agent session loads. Nothing else
+runs.
+
+Two refusals are worth knowing before you hit them:
+
+- **The target must be an ancestor of `origin/master`.** A topic commit can be
+  a perfectly clean fast-forward from `release` and still have skipped review,
+  so "fast-forwardable" is not the test -- "on reviewed history" is. `-f` lifts
+  the fast-forward requirement only; it does not lift this one. Merge it first.
+- **The release worktree must be clean**, and that is checked before the
+  already-current shortcut. A dirty release tree is a live-config problem
+  whether or not `HEAD` happens to sit on the commit you asked for, so
+  `tds-release` reports it rather than saying "up to date" over the top of it.
+
+### What this buys, and the one trap left
+
+Two hazards this arrangement removes, both of which used to bite hard:
+
+- **`git checkout <branch>` in the primary checkout no longer rewrites the
+  running shell config mid-session.** It used to: a branch predating a
+  `.zshenv` fix silently reinstated the bug in every shell spawned from that
+  moment on, including agent tool calls, and the failure surfaced later
+  somewhere unrelated.
+- **Editing `macos/dot.*` no longer takes effect immediately.** A half-finished
+  edit is now just an edit.
+
+The trap that remains: **never switch branches or edit inside the release
+worktree.** It is the one checkout where the old rules still apply in full --
+whatever is in it is what the machine is running right now. `bin/tds-release`
+refuses to release into a dirty tree for exactly this reason.
+
+Do topic work in its own worktree, per the global rule that worktrees live in
+`~/workplace/.worktrees/<repo>-<topic>`:
+
+```zsh
+git worktree add ~/workplace/.worktrees/tds-utils-<topic> -b <branch> master
+# then edit via: git -C ~/workplace/.worktrees/tds-utils-<topic> ...
+```
+
+### The global agent instruction file
+
+`clai.d/AGENT.global.md` is the global instruction file for every agent on this
+machine (Claude Code, codex, opencode, gemini), reaching them through the
+release worktree. It is NOT this file: `AGENT.md` is repo-scoped instructions
+for working in tds-utils, `AGENT.global.md` is machine-scoped instructions that
+happen to be version-controlled here.
+
+It carries the `.global` suffix so that an agent working inside `clai.d/` does
+not auto-load it a second time as directory-scoped instructions.
+
+Editing it is a PR like any other change -- which is the point. Before this it
+was an untracked file in `~/.claude/`, edited in place with no review, no
+history, and no way for a second machine to have the same one.
 
 To TEST candidate shell config without installing it, point `ZDOTDIR` at a
 staging directory under `env -i`. That sources your candidates while

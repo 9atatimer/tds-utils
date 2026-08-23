@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+# tds-release -- advance the `release` branch to a reviewed commit of master.
+#
+# Usage: tds-release [-n] [-f] [<committish>]
+#
+#   -n            dry run: report what would be released, change nothing
+#   -f            allow a rewind (a target that is not a fast-forward)
+#   <committish>  what to release (default: origin/master)
+#
+# $HOME's dotfile symlinks resolve through the `release` worktree, not the
+# primary checkout, so what this script does IS the install step for this
+# machine: the moment `release` moves, the new config is what every new shell,
+# editor, and agent session loads. Nothing else has to run.
+#
+# Two invariants, both enforced below rather than documented and hoped for:
+#
+#   - the target must be an ancestor of master, so what goes live is always a
+#     commit that went through a PR. A topic commit can be a clean
+#     fast-forward from release and still be unreviewed; -f does not lift this.
+#   - the release worktree must be clean, checked BEFORE the already-current
+#     shortcut -- a dirty tree is a live-config problem whether or not HEAD
+#     happens to sit on the requested commit.
+#
+# Env (used by test/smoketest_release.sh; not for daily use):
+#   TDS_RELEASE_REPO   repo to operate on (default: the repo holding this script)
+#   TDS_RELEASE_FETCH  0 to skip `git fetch origin`
+#   TDS_RELEASE_PUSH   0 to skip pushing `release` to origin
+
+set -euo pipefail
+
+die()  { echo "tds-release: $*" >&2; exit 1; }
+note() { echo "tds-release: $*"; }
+
+# --- Action functions ---
+
+repo_root() {
+    local self_dir
+    self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    printf '%s\n' "${TDS_RELEASE_REPO:-$(dirname "${self_dir}")}"
+}
+
+# release_worktree <repo> -- the checkout whose HEAD is the `release` branch.
+# Located by branch, not by path, so renaming the directory cannot silently
+# release into the wrong tree.
+release_worktree() {
+    git -C "$1" worktree list --porcelain | awk '
+        /^worktree /                   { wt = substr($0, 10) }
+        /^branch refs\/heads\/release$/ { print wt; exit }
+    '
+}
+
+# reviewed_ref <worktree> -- the branch that defines reviewed history.
+# origin/master normally; plain master in a repo with no remote.
+reviewed_ref() {
+    local wt="$1"
+    if git -C "${wt}" rev-parse --verify --quiet origin/master >/dev/null 2>&1; then
+        printf 'origin/master\n'
+    elif git -C "${wt}" rev-parse --verify --quiet master >/dev/null 2>&1; then
+        printf 'master\n'
+    fi
+}
+
+describe() { git -C "$1" log -1 --format='%h %s' "$2"; }
+
+is_ancestor() { git -C "$1" merge-base --is-ancestor "$2" "$3"; }
+
+worktree_dirt() { git -C "$1" status --porcelain; }
+
+# --- Flow functions ---
+
+check_worktree_clean() {
+    local wt="$1" dirt
+    dirt="$(worktree_dirt "${wt}")"
+    [ -z "${dirt}" ] || die "release worktree has uncommitted changes -- refusing:
+$(git -C "${wt}" status --short | sed 's/^/  /')
+  a release into a dirty tree would apply on top of unfinished edits, and a
+  failed merge would leave the machine's live config in conflict-marker state."
+}
+
+check_target_reviewed() {
+    local wt="$1" target_sha="$2" reviewed
+    reviewed="$(reviewed_ref "${wt}")"
+    [ -n "${reviewed}" ] \
+        || die "cannot find master or origin/master -- refusing to release
+  against unknown history"
+    is_ancestor "${wt}" "${target_sha}" "${reviewed}" || die \
+"target is not an ancestor of ${reviewed} -- refusing to release unreviewed work.
+  target   $(describe "${wt}" "${target_sha}")
+  ${reviewed}  $(describe "${wt}" "${reviewed}")
+  a commit can be a clean fast-forward from release and still have skipped
+  review. Merge it to master first; -f does not lift this."
+}
+
+check_fast_forward() {
+    local wt="$1" release_sha="$2" target_sha="$3" force="$4"
+    [ "${force}" -eq 0 ] || return 0
+    is_ancestor "${wt}" "${release_sha}" "${target_sha}" || die \
+"target is not a fast-forward from release -- refusing.
+  release $(describe "${wt}" "${release_sha}")
+  target  $(describe "${wt}" "${target_sha}")
+  this means release carries commits the target does not. Rewind deliberately
+  with -f if that is what you want."
+}
+
+report_dry_run() {
+    local wt="$1" release_sha="$2" target_sha="$3" target="$4"
+    note "would release ${target} ($(git -C "${wt}" rev-parse --short "${target_sha}")) into ${wt}"
+    if is_ancestor "${wt}" "${release_sha}" "${target_sha}"; then
+        git -C "${wt}" log --oneline --no-decorate "${release_sha}..${target_sha}" | sed 's/^/  /'
+    else
+        note "  (a rewind, not a fast-forward)"
+    fi
+}
+
+advance_release() {
+    local wt="$1" release_sha="$2" target_sha="$3"
+    if is_ancestor "${wt}" "${release_sha}" "${target_sha}"; then
+        git -C "${wt}" merge --ff-only "${target_sha}" >/dev/null
+    else
+        note "rewinding release to $(git -C "${wt}" rev-parse --short "${target_sha}")"
+        git -C "${wt}" reset --hard "${target_sha}" >/dev/null
+    fi
+}
+
+push_release() {
+    local wt="$1" force="$2" push_args=""
+    [ "${TDS_RELEASE_PUSH:-1}" != "0" ] || return 0
+    # A fast-forward release is an ordinary push; only a deliberate rewind
+    # needs --force-with-lease.
+    [ "${force}" -eq 1 ] && push_args="--force-with-lease"
+    if git -C "${wt}" push ${push_args} origin release; then
+        note "pushed release to origin"
+    else
+        note "WARNING: local release moved but the push failed -- push it yourself"
+    fi
+}
+
+run_release() {
+    local dry_run="$1" force="$2" target="$3"
+    local repo wt release_sha target_sha
+
+    repo="$(repo_root)"
+    git -C "${repo}" rev-parse --git-dir >/dev/null 2>&1 \
+        || die "not a git repository: ${repo}"
+
+    wt="$(release_worktree "${repo}")"
+    [ -n "${wt}" ] || die "no worktree is checked out on the release branch in ${repo}
+  create one with:
+    git -C ${repo} worktree add ~/workplace/.worktrees/tds-utils-release release"
+    [ -d "${wt}" ] || die "release worktree is registered but missing: ${wt}"
+
+    if [ "${TDS_RELEASE_FETCH:-1}" != "0" ]; then
+        git -C "${wt}" fetch origin --quiet || die "fetch failed"
+    fi
+
+    target_sha="$(git -C "${wt}" rev-parse --verify --quiet "${target}^{commit}")" \
+        || die "no such commit: ${target}"
+    release_sha="$(git -C "${wt}" rev-parse --verify HEAD)"
+
+    # Before the already-current shortcut on purpose: a dirty tree is a
+    # live-config problem regardless of where HEAD sits.
+    check_worktree_clean "${wt}"
+    check_target_reviewed "${wt}" "${target_sha}"
+
+    if [ "${target_sha}" = "${release_sha}" ]; then
+        note "release is already up to date at $(describe "${wt}" HEAD)"
+        return 0
+    fi
+
+    check_fast_forward "${wt}" "${release_sha}" "${target_sha}" "${force}"
+
+    if [ "${dry_run}" -eq 1 ]; then
+        report_dry_run "${wt}" "${release_sha}" "${target_sha}" "${target}"
+        return 0
+    fi
+
+    advance_release "${wt}" "${release_sha}" "${target_sha}"
+    note "released to $(describe "${wt}" HEAD)"
+    push_release "${wt}" "${force}"
+}
+
+# --- Main ---
+
+main() {
+    local dry_run=0 force=0 opt
+    while getopts ':nf' opt; do
+        case "${opt}" in
+            n) dry_run=1 ;;
+            f) force=1 ;;
+            *) die "unknown option: -${OPTARG}" ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+    run_release "${dry_run}" "${force}" "${1:-origin/master}"
+}
+
+main "$@"

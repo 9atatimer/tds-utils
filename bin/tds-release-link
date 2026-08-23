@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+# tds-release-link -- point $HOME's tds-utils symlinks at the `release` worktree.
+#
+# Usage: tds-release-link [-n] [-r]
+#
+#   -n   dry run: report what would be repointed, change nothing
+#   -r   revert: point the links back at the primary checkout
+#
+# Historically every dotfile link resolved into the primary checkout, so
+# `git checkout <branch>` there rewrote the machine's running config mid-session
+# and a half-finished edit WAS the config. This repoints them through the
+# `release` worktree instead: the primary checkout goes back to being an
+# ordinary place to work, and config changes go live only when `bin/tds-release`
+# advances the `release` branch to a merged commit.
+#
+# Only symlinks are touched, and only those already pointing into one of the two
+# checkouts. A regular file at the same path is left exactly as it is -- this
+# never clobbers real config.
+#
+# Env (used by test/smoketest_release_link.sh; not for daily use):
+#   TDS_RELEASE_REPO   repo to operate on (default: the repo holding this script)
+#   TDS_RELEASE_HOME   home directory to scan (default: $HOME)
+
+set -euo pipefail
+
+die()  { echo "tds-release-link: $*" >&2; exit 1; }
+note() { echo "tds-release-link: $*"; }
+
+# --- Action functions ---
+
+repo_root() {
+    local self_dir
+    self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    printf '%s\n' "${TDS_RELEASE_REPO:-$(dirname "${self_dir}")}"
+}
+
+release_worktree() {
+    git -C "$1" worktree list --porcelain | awk '
+        /^worktree /                   { wt = substr($0, 10) }
+        /^branch refs\/heads\/release$/ { print wt; exit }
+    '
+}
+
+abspath() { ( cd "$1" >/dev/null 2>&1 && pwd -P ); }
+
+# scan_roots <home> -- "<dir><tab><maxdepth>" per line. $HOME itself is shallow
+# on purpose (its subtrees are other people's data); the agent and config dirs
+# are searched deeper because their links sit one or two levels down.
+scan_roots() {
+    local home="$1" d
+    printf '%s\t%s\n' "${home}" 1
+    for d in .config .local/bin .claude .codex .gemini .cursor clai.d; do
+        [ -d "${home}/${d}" ] && printf '%s\t%s\n' "${home}/${d}" 4
+    done
+    return 0
+}
+
+# find_links <dir> <maxdepth> -- symlinks under dir. `|| true` because find
+# exits non-zero on any unreadable subdirectory, and under `set -e` that would
+# abort the whole run over a directory we did not care about.
+find_links() {
+    find "$1" -maxdepth "$2" -type l 2>/dev/null || true
+}
+
+# --- Flow functions ---
+
+# repoint_one <link> <from_raw> <from_canon> <to> <dry_run>
+# Exit status is the verdict: 0 repointed, 2 skipped, 3 not one of ours.
+repoint_one() {
+    local link="$1" from_raw="$2" from_canon="$3" to="$4" dry_run="$5"
+    local target rel want
+
+    target="$(readlink "${link}")"
+    case "${target}" in
+        "${from_raw}"/*)   rel="${target#"${from_raw}"}" ;;
+        "${from_canon}"/*) rel="${target#"${from_canon}"}" ;;
+        *) return 3 ;;
+    esac
+
+    want="${to}${rel}"
+    if [ ! -e "${want}" ]; then
+        note "SKIP ${link}: missing in the destination checkout (${want})"
+        return 2
+    fi
+
+    if [ "${dry_run}" -eq 1 ]; then
+        note "would repoint ${link} -> ${want}"
+        return 0
+    fi
+
+    # ln -sfn over a symlink-to-a-directory replaces the LINK; without -n it
+    # would create a link INSIDE the directory it points at.
+    ln -sfn "${want}" "${link}" || die "could not repoint ${link}"
+    note "repointed ${link} -> ${want}"
+}
+
+run_link() {
+    local dry_run="$1" revert="$2"
+    local repo release repo_canon release_canon
+    local from_raw from_canon to
+    local moved=0 skipped=0 seen_file root depth link verdict
+
+    repo="$(repo_root)"
+    git -C "${repo}" rev-parse --git-dir >/dev/null 2>&1 \
+        || die "not a git repository: ${repo}"
+
+    release="$(release_worktree "${repo}")"
+    [ -n "${release}" ] && [ -d "${release}" ] \
+        || die "no worktree is checked out on the release branch in ${repo}
+  create one with:
+    git -C ${repo} worktree add ~/workplace/.worktrees/tds-utils-release release"
+
+    # An existing link may spell its target either way -- /tmp or /private/tmp,
+    # /home/x or a canonicalised path -- so match BOTH spellings and write back
+    # the path git itself reports for the worktree.
+    repo_canon="$(abspath "${repo}")"
+    release_canon="$(abspath "${release}")"
+    [ "${repo_canon}" != "${release_canon}" ] \
+        || die "release worktree and primary checkout are the same path"
+
+    if [ "${revert}" -eq 1 ]; then
+        from_raw="${release}"; from_canon="${release_canon}"; to="${repo}"
+    else
+        from_raw="${repo}";    from_canon="${repo_canon}";    to="${release}"
+    fi
+
+    seen_file="$(mktemp "${TMPDIR:-/tmp}/tds-release-link.XXXXXX")"
+    # shellcheck disable=SC2064
+    trap "rm -f '${seen_file}'" EXIT
+
+    while IFS="$(printf '\t')" read -r root depth; do
+        [ -n "${root}" ] || continue
+        while IFS= read -r link; do
+            [ -n "${link}" ] || continue
+            grep -Fqx "${link}" "${seen_file}" && continue
+            printf '%s\n' "${link}" >> "${seen_file}"
+
+            verdict=0
+            repoint_one "${link}" "${from_raw}" "${from_canon}" "${to}" "${dry_run}" \
+                || verdict=$?
+            case "${verdict}" in
+                0) moved=$((moved + 1)) ;;
+                2) skipped=$((skipped + 1)) ;;
+            esac
+        done <<EOT
+$(find_links "${root}" "${depth}")
+EOT
+    done <<EOT
+$(scan_roots "${SCAN_HOME}")
+EOT
+
+    if [ "${moved}" -eq 0 ]; then
+        note "no links to repoint -- already pointing at ${to}"
+    elif [ "${dry_run}" -eq 1 ]; then
+        note "${moved} link(s) would be repointed at ${to}"
+    else
+        note "${moved} link(s) repointed at ${to}"
+    fi
+    [ "${skipped}" -eq 0 ] || note "${skipped} link(s) skipped"
+}
+
+# --- Main ---
+
+main() {
+    local dry_run=0 revert=0 opt
+    while getopts ':nr' opt; do
+        case "${opt}" in
+            n) dry_run=1 ;;
+            r) revert=1 ;;
+            *) die "unknown option: -${OPTARG}" ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+    SCAN_HOME="${TDS_RELEASE_HOME:-${HOME}}"
+    run_link "${dry_run}" "${revert}"
+}
+
+main "$@"

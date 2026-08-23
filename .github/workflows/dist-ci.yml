@@ -86,6 +86,12 @@ jobs:
       - name: Smoketest bin/tds-status
         run: /bin/bash test/smoketest_tds_status.sh
 
+      - name: Smoketest bin/tds-release
+        run: /bin/bash test/smoketest_release.sh
+
+      - name: Smoketest bin/tds-release-link
+        run: /bin/bash test/smoketest_release_link.sh
+
   shellcheck:
     runs-on: ubuntu-latest
     timeout-minutes: 10
