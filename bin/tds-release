@@ -17,6 +17,9 @@
 #   - the target must be an ancestor of master, so what goes live is always a
 #     commit that went through a PR. A topic commit can be a clean
 #     fast-forward from release and still be unreviewed; -f does not lift this.
+#   - a commit carrying NO.RELEASE is never released, whatever else is true.
+#     Everything on master is releasable by default; that file is how a commit
+#     that landed but is not fit to go live says so, and it carries its reason.
 #   - the release worktree must be clean, checked BEFORE the already-current
 #     shortcut -- a dirty tree is a live-config problem whether or not HEAD
 #     happens to sit on the requested commit.
@@ -27,6 +30,9 @@
 #   TDS_RELEASE_PUSH   0 to skip pushing `release` to origin
 
 set -euo pipefail
+
+# The sentry a commit carries to say "landed, but not fit to go live yet".
+SENTRY_FILE="NO.RELEASE"
 
 die()  { echo "tds-release: $*" >&2; exit 1; }
 note() { echo "tds-release: $*"; }
@@ -73,6 +79,22 @@ reviewed_ref() {
     fi
 }
 
+# sentry_present <worktree> <committish> -- does that commit carry the sentry?
+# PRESENCE, not content: `touch NO.RELEASE` is the obvious way to hold a
+# release, and a content-based test would let an empty one through -- a safety
+# gate failing open, which is the one direction it must never fail.
+sentry_present() {
+    git -C "$1" cat-file -e "$2:${SENTRY_FILE}" 2>/dev/null
+}
+
+# sentry_reason <worktree> <committish> -- the text it carries, if any. Read
+# from the COMMIT, not the working tree: the thing being released is a commit,
+# and the release worktree's files are the previous release until this one
+# succeeds.
+sentry_reason() {
+    git -C "$1" show "$2:${SENTRY_FILE}" 2>/dev/null
+}
+
 describe() { git -C "$1" log -1 --format='%h %s' "$2"; }
 
 is_ancestor() { git -C "$1" merge-base --is-ancestor "$2" "$3"; }
@@ -102,6 +124,33 @@ check_target_reviewed() {
   ${reviewed}  $(describe "${wt}" "${reviewed}")
   a commit can be a clean fast-forward from release and still have skipped
   review. Merge it to master first; -f does not lift this."
+}
+
+# A commit may land on master and still not be fit to go live -- a migration
+# that has to be run by hand first, a config change waiting on something
+# external. Everything on master is releasable by default; NO.RELEASE is how a
+# commit says otherwise, and it carries its own reason so whoever hits the
+# refusal is told why rather than left guessing.
+#
+# There is deliberately no override. -f rewinds; it does not release held work.
+# The way past a sentry is to remove it on master and release that commit,
+# which leaves the decision in the history where it can be reviewed.
+check_target_releasable() {
+    local wt="$1" target_sha="$2" reason
+    sentry_present "${wt}" "${target_sha}" || return 0
+    # `|| true` because git show exits 128 when the path is absent. Presence is
+    # already established above, but the guard stays: under set -e a non-zero
+    # here would abort with no message at all.
+    reason="$(sentry_reason "${wt}" "${target_sha}" || true)"
+    # An unexplained hold is still a hold. Say so rather than printing blank.
+    [ -n "$(printf '%s' "${reason}" | tr -d '[:space:]')" ] \
+        || reason="(no reason recorded in ${SENTRY_FILE})"
+    die "${SENTRY_FILE} is present in the target -- refusing to release it.
+  target $(describe "${wt}" "${target_sha}")
+  reason:
+$(printf '%s\n' "${reason}" | sed 's/^/    /')
+  remove ${SENTRY_FILE} on master and release that commit; -f will not bypass
+  this."
 }
 
 check_fast_forward() {
@@ -174,6 +223,7 @@ run_release() {
     # live-config problem regardless of where HEAD sits.
     check_worktree_clean "${wt}"
     check_target_reviewed "${wt}" "${target_sha}"
+    check_target_releasable "${wt}" "${target_sha}"
 
     if [ "${target_sha}" = "${release_sha}" ]; then
         note "release is already up to date at $(describe "${wt}" HEAD)"
