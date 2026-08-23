@@ -87,6 +87,17 @@ That IS the install step for this machine. The moment `release` moves, the new
 config is what every new shell, editor, and agent session loads. Nothing else
 runs.
 
+Two refusals are worth knowing before you hit them:
+
+- **The target must be an ancestor of `origin/master`.** A topic commit can be
+  a perfectly clean fast-forward from `release` and still have skipped review,
+  so "fast-forwardable" is not the test -- "on reviewed history" is. `-f` lifts
+  the fast-forward requirement only; it does not lift this one. Merge it first.
+- **The release worktree must be clean**, and that is checked before the
+  already-current shortcut. A dirty release tree is a live-config problem
+  whether or not `HEAD` happens to sit on the commit you asked for, so
+  `tds-release` reports it rather than saying "up to date" over the top of it.
+
 ### What this buys, and the one trap left
 
 Two hazards this arrangement removes, both of which used to bite hard:

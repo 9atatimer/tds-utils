@@ -132,7 +132,7 @@ case_revert() {
     assert "still resolves"             "[ -f \"${HOME_DIR}/.zshrc\" ]"
 }
 
-case_no_live_worktree() {
+case_no_release_worktree() {
     bold "case: missing release worktree refused"; echo
     make_fixture nolive
     git -C "${REPO}" worktree remove --force "${RELEASE}"
@@ -162,7 +162,7 @@ main() {
     case_idempotent
     case_dry_run
     case_revert
-    case_no_live_worktree
+    case_no_release_worktree
     case_dangling_refused
     echo
     printf 'ran %d, passed %d, failed %d\n' "${TESTS_RUN}" "${TESTS_PASSED}" "${TESTS_FAILED}"

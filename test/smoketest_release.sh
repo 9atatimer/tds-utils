@@ -134,7 +134,7 @@ case_dry_run() {
     assert "reports the pending commit"  "grep -q 'two' '${WORKROOT}/out'"
 }
 
-case_no_live_worktree() {
+case_no_release_worktree() {
     bold "case: missing release worktree refused"; echo
     local root="${WORKROOT}/bare"
     mkdir -p "${root}"
@@ -147,6 +147,52 @@ case_no_live_worktree() {
     assert "names the release worktree"     "grep -qi 'release' '${WORKROOT}/out'"
 }
 
+case_unreviewed_target_refused() {
+    bold "case: a commit outside master history is refused"; echo
+    local root wt before topic
+    root="$(make_repo unrev)"; wt="$(release_wt unrev)"
+    before="$(head_of "${wt}")"
+    # A topic commit that descends from release but was never merged to master:
+    # fast-forwardable, and exactly the thing that must not go live.
+    git -C "${root}" checkout -q -b topic release
+    echo unreviewed > "${root}/f"
+    git -C "${root}" commit -qam unreviewed
+    topic="$(git -C "${root}" rev-parse topic)"
+    git -C "${root}" checkout -q master
+    run_release "${root}" "${topic}" && rc=0 || rc=$?
+    assert "exits non-zero"              "[ ${rc} -ne 0 ]"
+    assert "release unchanged"           "[ \"$(head_of "${wt}")\" = \"${before}\" ]"
+    assert "explains reviewed history"   "grep -qiE 'master|reviewed' '${WORKROOT}/out'"
+}
+
+case_unreviewed_target_refused_under_force() {
+    bold "case: -f does not bypass the reviewed-history guard"; echo
+    local root wt before topic
+    root="$(make_repo unrevf)"; wt="$(release_wt unrevf)"
+    before="$(head_of "${wt}")"
+    git -C "${root}" checkout -q -b topic release
+    echo unreviewed > "${root}/f"
+    git -C "${root}" commit -qam unreviewed
+    topic="$(git -C "${root}" rev-parse topic)"
+    git -C "${root}" checkout -q master
+    run_release "${root}" -f "${topic}" && rc=0 || rc=$?
+    assert "exits non-zero"              "[ ${rc} -ne 0 ]"
+    assert "release unchanged"           "[ \"$(head_of "${wt}")\" = \"${before}\" ]"
+}
+
+case_dirty_beats_up_to_date() {
+    bold "case: a dirty release tree is reported even when already current"; echo
+    local root wt
+    root="$(make_repo dirtycur)"; wt="$(release_wt dirtycur)"
+    run_release "${root}" master
+    # HEAD now equals the target; the tree is what is wrong.
+    echo scribble >> "${wt}/f"
+    run_release "${root}" master && rc=0 || rc=$?
+    assert "exits non-zero"              "[ ${rc} -ne 0 ]"
+    assert "explains dirty tree"         "grep -qiE 'dirty|uncommitted' '${WORKROOT}/out'"
+    assert "does not claim up to date"   "! grep -qi 'up to date' '${WORKROOT}/out'"
+}
+
 main() {
     [ -x "${RELEASER}" ] || { red "FAIL"; printf ' missing or non-executable: %s\n' "${RELEASER}"; exit 1; }
     WORKROOT="$(mktemp -d)"
@@ -155,7 +201,10 @@ main() {
     case_non_ff_refused
     case_dirty_refused
     case_dry_run
-    case_no_live_worktree
+    case_no_release_worktree
+    case_unreviewed_target_refused
+    case_unreviewed_target_refused_under_force
+    case_dirty_beats_up_to_date
     echo
     printf 'ran %d, passed %d, failed %d\n' "${TESTS_RUN}" "${TESTS_PASSED}" "${TESTS_FAILED}"
     [ "${TESTS_FAILED}" -eq 0 ]
