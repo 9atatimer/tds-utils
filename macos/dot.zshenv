@@ -148,12 +148,19 @@ tds_path_apply() {
 
     tds_nvm_default_bin
 
-    # tds bin: the installed environment (~/.tds/dist/current) owns PATH
-    # once it exists; the dev checkout is only a pre-migration fallback,
-    # so branch switches there stop leaking into live shells (issue #202).
+    # tds bin, highest tier that exists (issues #202, #235):
+    #   1. ~/.tds/dist/current  a real dist install, owned by bin/tds-install
+    #   2. ~/.tds/release       the release worktree, owned by
+    #                           bin/tds-release-link -- a RELEASED commit, so
+    #                           branch switches in the dev checkout cannot
+    #                           change which tds-* binary the next shell gets
+    #   3. the dev checkout     fresh-clone fallback only, and live-editable,
+    #                           which is exactly why it ranks last
     local -a tds_bin
     if [[ -d "$HOME/.tds/dist/current/bin" ]]; then
         tds_bin=( "$HOME/.tds/dist/current/bin" )
+    elif [[ -d "$HOME/.tds/release/bin" ]]; then
+        tds_bin=( "$HOME/.tds/release/bin" )
     else
         tds_bin=( "$HOME/workplace/tds-utils/bin" )
     fi

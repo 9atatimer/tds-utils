@@ -307,6 +307,115 @@ CASES
 
 # path_helper re-introduces entries .zshenv already added; the dedup must run
 # after it, in .zprofile, not only in .zshenv.
+# --- tds bin tier resolution (issue #235) ---------------------------------
+#
+# PATH must reach tds-utils through a RELEASED tree, not through the primary
+# checkout, or `git checkout` there silently changes which tds-* binary the
+# next shell gets. Three tiers, highest first:
+#
+#   1. ~/.tds/dist/current/bin   a real dist install
+#   2. ~/.tds/release/bin        the release worktree, via the pointer
+#                                bin/tds-release-link maintains
+#   3. ~/workplace/tds-utils/bin the dev checkout -- fresh-clone fallback only
+#
+# Driven against a throwaway HOME so the tiers can be created and removed.
+# staged_zsh takes (shape, snippet) and then any number of VAR=VAL pairs, which
+# it injects into its `env -i` line -- so a trailing HOME= overrides the default
+# HOME that env -i would otherwise pass through.
+
+# tds_bin_for <fake-home> [shape] -- the tds path that shape picks in that HOME.
+# Compares each PATH entry against the three candidate tiers as FIXED STRINGS: a
+# regex built from the HOME path would treat the dots mktemp puts in temp
+# directory names as wildcards, and could match a path that is not the tier.
+tds_bin_for() {
+    local fake="$1" shape="${2:--lc}" entry
+    while IFS= read -r entry; do
+        case "${entry}" in
+            "${fake}/.tds/dist/current/bin"|"${fake}/.tds/release/bin"|"${fake}/workplace/tds-utils/bin")
+                printf '%s\n' "${entry}"
+                return 0
+                ;;
+        esac
+    done <<TIERS
+$(staged_zsh "${shape}" 'print -r -- ${(j.:.)path}' HOME="${fake}" | tr ':' '\n')
+TIERS
+    return 0
+}
+
+# make_fake_home <name> <tier...> -- a HOME with only the named tiers present.
+make_fake_home() {
+    local name="$1"; shift
+    local fake="${STAGE}/home-${name}" t
+    mkdir -p "${fake}"
+    for t in "$@"; do mkdir -p "${fake}/${t}"; done
+    printf '%s\n' "${fake}"
+}
+
+check_tds_bin_prefers_dist_install() {
+    bold "tds bin tier: a dist install wins"; echo
+    local fake
+    fake="$(make_fake_home dist .tds/dist/current/bin .tds/release/bin workplace/tds-utils/bin)"
+    assert_eq "picks ~/.tds/dist/current/bin" \
+        "${fake}/.tds/dist/current/bin" "$(tds_bin_for "${fake}")"
+}
+
+check_tds_bin_uses_release_when_no_install() {
+    bold "tds bin tier: release worktree when there is no install"; echo
+    local fake
+    fake="$(make_fake_home rel .tds/release/bin workplace/tds-utils/bin)"
+    assert_eq "picks ~/.tds/release/bin" \
+        "${fake}/.tds/release/bin" "$(tds_bin_for "${fake}")"
+}
+
+check_tds_bin_never_prefers_checkout() {
+    bold "tds bin tier: the primary checkout never wins over a release"; echo
+    local fake picked
+    fake="$(make_fake_home norel .tds/release/bin workplace/tds-utils/bin)"
+    picked="$(tds_bin_for "${fake}")"
+    assert_ok "primary checkout is not on PATH" \
+        "[ \"${picked}\" != \"${fake}/workplace/tds-utils/bin\" ]"
+}
+
+check_tds_bin_falls_back_on_fresh_clone() {
+    bold "tds bin tier: a fresh clone still gets a working PATH"; echo
+    local fake
+    fake="$(make_fake_home fresh workplace/tds-utils/bin)"
+    assert_eq "falls back to the checkout" \
+        "${fake}/workplace/tds-utils/bin" "$(tds_bin_for "${fake}")"
+}
+
+check_tds_bin_tier_in_every_shape() {
+    bold "tds bin tier: holds in all four shell shapes"; echo
+    # tds_bin is set in .zshenv, which every shape sources -- but a green
+    # result from one shape proves nothing about the others (issue #176), and
+    # .zprofile's path_helper repair only runs in login shells. Check all four.
+    local fake shape picked
+    fake="$(make_fake_home shapes .tds/release/bin workplace/tds-utils/bin)"
+    for shape in -c -lc -ic -lic; do
+        picked="$(tds_bin_for "${fake}" "${shape}")"
+        assert_eq "zsh ${shape} picks the release tier" \
+            "${fake}/.tds/release/bin" "${picked}"
+    done
+}
+
+check_zshrc_sources_prefer_release() {
+    bold "zshrc fallbacks: release ranks above the primary checkout"; echo
+    local zshrc="${MACOS_DIR}/dot.zshrc"
+    local f
+    for f in dot.op-completion dot.zsh_log_search; do
+        # The release tier must appear, and must appear BEFORE the checkout.
+        local rel_line ckt_line
+        # Code lines only. dot.zshrc carries a comment naming the checkout
+        # path (how to regenerate the completion), and matching that instead
+        # of the `source` line would compare the wrong two things.
+        rel_line="$(grep -nE "^[^#]*\.tds/release/macos/${f}" "${zshrc}" | head -1 | cut -d: -f1)"
+        ckt_line="$(grep -nE "^[^#]*workplace/tds-utils/macos/${f}" "${zshrc}" | head -1 | cut -d: -f1)"
+        assert_ok "${f}: release tier present"    "[ -n \"${rel_line}\" ]"
+        assert_ok "${f}: release before checkout" \
+            "[ -n \"${rel_line}\" ] && [ -n \"${ckt_line}\" ] && [ \"${rel_line}\" -lt \"${ckt_line}\" ]"
+    done
+}
+
 check_login_path_has_no_duplicates() {
     local path_str dupes
     path_str="$(staged_zsh -lc 'printf %s "$PATH"')"
@@ -331,6 +440,12 @@ run_all() {
     check_nvm_default_resolution
     check_noninteractive_startup_is_fast
     check_login_path_has_no_duplicates
+    check_tds_bin_prefers_dist_install
+    check_tds_bin_uses_release_when_no_install
+    check_tds_bin_never_prefers_checkout
+    check_tds_bin_falls_back_on_fresh_clone
+    check_tds_bin_tier_in_every_shape
+    check_zshrc_sources_prefer_release
 
     printf '\n'
     bold "Results"; printf ': %d run, ' "${TESTS_RUN}"
