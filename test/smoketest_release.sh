@@ -195,7 +195,7 @@ case_dirty_beats_up_to_date() {
 
 main() {
     [ -x "${RELEASER}" ] || { red "FAIL"; printf ' missing or non-executable: %s\n' "${RELEASER}"; exit 1; }
-    WORKROOT="$(mktemp -d)"
+    WORKROOT="$(mktemp -d "${TMPDIR:-/tmp}/release-test.XXXXXX")"
     case_fast_forward
     case_already_current
     case_non_ff_refused

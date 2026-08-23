@@ -124,7 +124,7 @@ run_link() {
         from_raw="${repo}";    from_canon="${repo_canon}";    to="${release}"
     fi
 
-    seen_file="$(mktemp)"
+    seen_file="$(mktemp "${TMPDIR:-/tmp}/tds-release-link.XXXXXX")"
     # shellcheck disable=SC2064
     trap "rm -f '${seen_file}'" EXIT
 

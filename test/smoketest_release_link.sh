@@ -157,7 +157,7 @@ case_dangling_refused() {
 
 main() {
     [ -x "${LINKER}" ] || { red "FAIL"; printf ' missing or non-executable: %s\n' "${LINKER}"; exit 1; }
-    WORKROOT="$(mktemp -d)"
+    WORKROOT="$(mktemp -d "${TMPDIR:-/tmp}/release-link-test.XXXXXX")"
     case_repoints
     case_idempotent
     case_dry_run
