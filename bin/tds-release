@@ -79,10 +79,18 @@ reviewed_ref() {
     fi
 }
 
-# sentry_reason <worktree> <committish> -- the NO.RELEASE text carried by that
-# commit, or nothing when the commit does not carry one. Read from the COMMIT,
-# not the working tree: the thing being released is a commit, and the release
-# worktree's files are the previous release until this one succeeds.
+# sentry_present <worktree> <committish> -- does that commit carry the sentry?
+# PRESENCE, not content: `touch NO.RELEASE` is the obvious way to hold a
+# release, and a content-based test would let an empty one through -- a safety
+# gate failing open, which is the one direction it must never fail.
+sentry_present() {
+    git -C "$1" cat-file -e "$2:${SENTRY_FILE}" 2>/dev/null
+}
+
+# sentry_reason <worktree> <committish> -- the text it carries, if any. Read
+# from the COMMIT, not the working tree: the thing being released is a commit,
+# and the release worktree's files are the previous release until this one
+# succeeds.
 sentry_reason() {
     git -C "$1" show "$2:${SENTRY_FILE}" 2>/dev/null
 }
@@ -129,11 +137,14 @@ check_target_reviewed() {
 # which leaves the decision in the history where it can be reviewed.
 check_target_releasable() {
     local wt="$1" target_sha="$2" reason
-    # `|| true` because git show exits 128 when the path is absent, which is
-    # the ORDINARY case here -- most commits carry no sentry. Without it,
-    # set -e turns "nothing to report" into an abort with no message.
+    sentry_present "${wt}" "${target_sha}" || return 0
+    # `|| true` because git show exits 128 when the path is absent. Presence is
+    # already established above, but the guard stays: under set -e a non-zero
+    # here would abort with no message at all.
     reason="$(sentry_reason "${wt}" "${target_sha}" || true)"
-    [ -n "${reason}" ] || return 0
+    # An unexplained hold is still a hold. Say so rather than printing blank.
+    [ -n "$(printf '%s' "${reason}" | tr -d '[:space:]')" ] \
+        || reason="(no reason recorded in ${SENTRY_FILE})"
     die "${SENTRY_FILE} is present in the target -- refusing to release it.
   target $(describe "${wt}" "${target_sha}")
   reason:

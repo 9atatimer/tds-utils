@@ -118,6 +118,11 @@ Three refusals are worth knowing before you hit them:
   echo "held: the ledger migration must be run by hand first" > NO.RELEASE
   ```
 
+  The gate is on the file's PRESENCE, not its contents -- `touch NO.RELEASE`
+  holds a release just as firmly, and reports "(no reason recorded)". A gate
+  that only fired when the file had text in it would fail open on the most
+  obvious way to write one.
+
   There is deliberately no override. `-f` rewinds; it does not release held
   work. The way past a sentry is to remove it on `master` and release that
   commit, which leaves the decision in the history where it can be reviewed

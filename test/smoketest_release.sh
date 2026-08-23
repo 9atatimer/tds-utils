@@ -254,6 +254,37 @@ case_sentry_checked_on_target_not_current() {
     assert "-f does not bypass it"       "grep -q 'NO.RELEASE' '${WORKROOT}/out'"
 }
 
+case_empty_sentry_blocks_release() {
+    bold "case: an EMPTY NO.RELEASE still refuses"; echo
+    local root wt before
+    root="$(make_repo emptysentry)"; wt="$(release_wt emptysentry)"
+    # `touch NO.RELEASE` is the obvious way to hold a release. Keying the gate
+    # off the file's CONTENT rather than its presence would fail open here --
+    # the one direction a safety gate must never fail.
+    : > "${root}/NO.RELEASE"
+    git -C "${root}" add NO.RELEASE
+    git -C "${root}" commit -qm "hold, no reason given"
+    before="$(head_of "${wt}")"
+    run_release "${root}" master && rc=0 || rc=$?
+    assert "exits non-zero"              "[ ${rc} -ne 0 ]"
+    assert "release unchanged"           "[ \"$(head_of "${wt}")\" = \"${before}\" ]"
+    assert "names the sentry"            "grep -q 'NO.RELEASE' '${WORKROOT}/out'"
+    assert "says no reason recorded"     "grep -qi 'no reason recorded' '${WORKROOT}/out'"
+}
+
+case_whitespace_sentry_blocks_release() {
+    bold "case: a whitespace-only NO.RELEASE still refuses"; echo
+    local root wt before
+    root="$(make_repo wssentry)"; wt="$(release_wt wssentry)"
+    printf '\n  \n\t\n' > "${root}/NO.RELEASE"
+    git -C "${root}" add NO.RELEASE
+    git -C "${root}" commit -qm "hold, blank reason"
+    before="$(head_of "${wt}")"
+    run_release "${root}" master && rc=0 || rc=$?
+    assert "exits non-zero"              "[ ${rc} -ne 0 ]"
+    assert "release unchanged"           "[ \"$(head_of "${wt}")\" = \"${before}\" ]"
+}
+
 main() {
     [ -x "${RELEASER}" ] || { red "FAIL"; printf ' missing or non-executable: %s\n' "${RELEASER}"; exit 1; }
     WORKROOT="$(mktemp -d "${TMPDIR:-/tmp}/release-test.XXXXXX")"
@@ -270,6 +301,8 @@ main() {
     case_sentry_blocks_dry_run
     case_sentry_removed_releases
     case_sentry_checked_on_target_not_current
+    case_empty_sentry_blocks_release
+    case_whitespace_sentry_blocks_release
     echo
     printf 'ran %d, passed %d, failed %d\n' "${TESTS_RUN}" "${TESTS_PASSED}" "${TESTS_FAILED}"
     [ "${TESTS_FAILED}" -eq 0 ]
