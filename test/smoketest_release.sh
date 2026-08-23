@@ -193,6 +193,67 @@ case_dirty_beats_up_to_date() {
     assert "does not claim up to date"   "! grep -qi 'up to date' '${WORKROOT}/out'"
 }
 
+# add_sentry <repo> <reason> -- commit a NO.RELEASE onto master.
+add_sentry() {
+    local root="$1" reason="$2"
+    printf '%s\n' "${reason}" > "${root}/NO.RELEASE"
+    git -C "${root}" add NO.RELEASE
+    git -C "${root}" commit -qm "add NO.RELEASE"
+}
+
+case_sentry_blocks_release() {
+    bold "case: NO.RELEASE on the target refuses the release"; echo
+    local root wt before
+    root="$(make_repo sentry)"; wt="$(release_wt sentry)"
+    add_sentry "${root}" "migration must run by hand first"
+    before="$(head_of "${wt}")"
+    run_release "${root}" master && rc=0 || rc=$?
+    assert "exits non-zero"              "[ ${rc} -ne 0 ]"
+    assert "release unchanged"           "[ \"$(head_of "${wt}")\" = \"${before}\" ]"
+    assert "names the sentry"            "grep -q 'NO.RELEASE' '${WORKROOT}/out'"
+    assert "prints the recorded reason"  "grep -q 'migration must run by hand first' '${WORKROOT}/out'"
+}
+
+case_sentry_blocks_dry_run() {
+    bold "case: NO.RELEASE refuses the dry run too"; echo
+    local root
+    root="$(make_repo sentrydry)"
+    add_sentry "${root}" "held: pending manual step"
+    run_release "${root}" -n master && rc=0 || rc=$?
+    assert "dry run exits non-zero"      "[ ${rc} -ne 0 ]"
+    assert "does not say would release"  "! grep -qi 'would release' '${WORKROOT}/out'"
+}
+
+case_sentry_removed_releases() {
+    bold "case: removing NO.RELEASE unblocks the next commit"; echo
+    local root wt
+    root="$(make_repo sentrygone)"; wt="$(release_wt sentrygone)"
+    add_sentry "${root}" "hold"
+    git -C "${root}" rm -q NO.RELEASE
+    git -C "${root}" commit -qm "release again"
+    run_release "${root}" master && rc=0 || rc=$?
+    assert "exits 0"                     "[ ${rc} -eq 0 ]"
+    assert "release advanced"            "[ \"$(head_of "${wt}")\" = \"$(git -C "${root}" rev-parse master)\" ]"
+}
+
+case_sentry_checked_on_target_not_current() {
+    bold "case: the sentry is read from the target, not the live release"; echo
+    local root wt held
+    root="$(make_repo sentrylive)"; wt="$(release_wt sentrylive)"
+    add_sentry "${root}" "hold"
+    held="$(git -C "${root}" rev-parse master)"
+    git -C "${root}" rm -q NO.RELEASE
+    git -C "${root}" commit -qm "clear the hold"
+    # Release the clean tip, then confirm the held commit is still refused --
+    # the check must read the commit being released, not the working tree and
+    # not whatever release currently points at.
+    run_release "${root}" master
+    assert "clean tip released"          "[ \"$(head_of "${wt}")\" = \"$(git -C "${root}" rev-parse master)\" ]"
+    run_release "${root}" -f "${held}" && rc=0 || rc=$?
+    assert "held commit still refused"   "[ ${rc} -ne 0 ]"
+    assert "-f does not bypass it"       "grep -q 'NO.RELEASE' '${WORKROOT}/out'"
+}
+
 main() {
     [ -x "${RELEASER}" ] || { red "FAIL"; printf ' missing or non-executable: %s\n' "${RELEASER}"; exit 1; }
     WORKROOT="$(mktemp -d "${TMPDIR:-/tmp}/release-test.XXXXXX")"
@@ -205,6 +266,10 @@ main() {
     case_unreviewed_target_refused
     case_unreviewed_target_refused_under_force
     case_dirty_beats_up_to_date
+    case_sentry_blocks_release
+    case_sentry_blocks_dry_run
+    case_sentry_removed_releases
+    case_sentry_checked_on_target_not_current
     echo
     printf 'ran %d, passed %d, failed %d\n' "${TESTS_RUN}" "${TESTS_PASSED}" "${TESTS_FAILED}"
     [ "${TESTS_FAILED}" -eq 0 ]

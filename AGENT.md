@@ -107,7 +107,21 @@ That IS the install step for this machine. The moment `release` moves, the new
 config is what every new shell, editor, and agent session loads. Nothing else
 runs.
 
-Two refusals are worth knowing before you hit them:
+Three refusals are worth knowing before you hit them:
+
+- **A commit carrying `NO.RELEASE` is never released.** Everything on `master`
+  is releasable by default -- that is the whole point of the branch -- so a
+  commit that landed but is not yet fit to go live has to say so. Put the
+  reason in the file; `tds-release` prints it back at whoever hits the refusal:
+
+  ```zsh
+  echo "held: the ledger migration must be run by hand first" > NO.RELEASE
+  ```
+
+  There is deliberately no override. `-f` rewinds; it does not release held
+  work. The way past a sentry is to remove it on `master` and release that
+  commit, which leaves the decision in the history where it can be reviewed
+  rather than in someone's shell.
 
 - **The target must be an ancestor of `origin/master`.** A topic commit can be
   a perfectly clean fast-forward from `release` and still have skipped review,
