@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# tds-release -- advance the `release` branch to a proven commit of master.
+#
+# Usage: tds-release [-n] [<committish>]
+#
+#   -n            dry run: report what would be released, change nothing
+#   <committish>  what to release (default: origin/master)
+#
+# $HOME's dotfile symlinks resolve through the `release` worktree, not the primary
+# checkout, so what this script does IS the install step for this machine: the
+# moment `release` moves, the new config is what every new shell, editor, and
+# agent session loads. Nothing else has to run.
+#
+# The release is fast-forward only and never touches the working tree, so
+# `release` is always an exact commit of master that was merged through a PR --
+# never a divergent head, never a half-applied merge. Rolling back is the same
+# operation aimed at an older commit, with -f to allow the rewind.
+#
+# Env (used by test/smoketest_release.sh; not for daily use):
+#   TDS_RELEASE_REPO   repo to operate on (default: the repo holding this script)
+#   TDS_RELEASE_FETCH  0 to skip `git fetch origin`
+#   TDS_RELEASE_PUSH   0 to skip pushing `release` to origin
+
+set -euo pipefail
+
+die()  { echo "tds-release: $*" >&2; exit 1; }
+note() { echo "tds-release: $*"; }
+
+DRY_RUN=0
+FORCE=0
+while getopts ':nf' opt; do
+    case "${opt}" in
+        n) DRY_RUN=1 ;;
+        f) FORCE=1 ;;
+        *) die "unknown option: -${OPTARG}" ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+TARGET="${1:-origin/master}"
+
+self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="${TDS_RELEASE_REPO:-$(dirname "${self_dir}")}"
+git -C "${REPO}" rev-parse --git-dir >/dev/null 2>&1 \
+    || die "not a git repository: ${REPO}"
+
+# release_worktree -- the checkout whose HEAD is the `release` branch. Located by
+# branch, not by path, so renaming the directory cannot silently release into
+# the wrong tree.
+release_worktree() {
+    git -C "${REPO}" worktree list --porcelain | awk '
+        /^worktree /                  { wt = substr($0, 10) }
+        /^branch refs\/heads\/release$/  { print wt; exit }
+    '
+}
+
+RELEASE="$(release_worktree)"
+[ -n "${RELEASE}" ] || die "no worktree is checked out on the release branch in ${REPO}
+  create one with:
+    git -C ${REPO} worktree add ~/workplace/.worktrees/tds-utils-release release"
+[ -d "${RELEASE}" ] || die "release worktree is registered but missing: ${RELEASE}"
+
+if [ "${TDS_RELEASE_FETCH:-1}" != "0" ]; then
+    git -C "${RELEASE}" fetch origin --quiet || die "fetch failed"
+fi
+
+target_sha="$(git -C "${RELEASE}" rev-parse --verify --quiet "${TARGET}^{commit}")" \
+    || die "no such commit: ${TARGET}"
+release_sha="$(git -C "${RELEASE}" rev-parse --verify HEAD)"
+
+if [ "${target_sha}" = "${release_sha}" ]; then
+    note "release is already up to date at $(git -C "${RELEASE}" log -1 --format='%h %s' HEAD)"
+    exit 0
+fi
+
+# Refuse to release ON TOP OF uncommitted work: a merge here would be applied
+# to a tree the human is still editing, and a failed merge would leave the
+# machine's live config in conflict-marker state.
+if [ -n "$(git -C "${RELEASE}" status --porcelain)" ]; then
+    die "release worktree has uncommitted changes -- refusing to release into a dirty tree:
+$(git -C "${RELEASE}" status --short | sed 's/^/  /')"
+fi
+
+if [ "${FORCE}" -eq 0 ] \
+   && ! git -C "${RELEASE}" merge-base --is-ancestor "${release_sha}" "${target_sha}"; then
+    die "${TARGET} is not a fast-forward from release -- refusing.
+  release $(git -C "${RELEASE}" log -1 --format='%h %s' "${release_sha}")
+  target $(git -C "${RELEASE}" log -1 --format='%h %s' "${target_sha}")
+  this means release carries commits ${TARGET} does not. Rewind deliberately
+  with -f if that is what you want."
+fi
+
+if [ "${DRY_RUN}" -eq 1 ]; then
+    note "would release ${TARGET} ($(git -C "${RELEASE}" rev-parse --short "${target_sha}")) into ${RELEASE}"
+    git -C "${RELEASE}" log --oneline --no-decorate "${release_sha}..${target_sha}" | sed 's/^/  /'
+    exit 0
+fi
+
+if [ "${FORCE}" -eq 1 ] \
+   && ! git -C "${RELEASE}" merge-base --is-ancestor "${release_sha}" "${target_sha}"; then
+    note "rewinding release (-f) to ${TARGET}"
+    git -C "${RELEASE}" reset --hard "${target_sha}" >/dev/null
+else
+    git -C "${RELEASE}" merge --ff-only "${target_sha}" >/dev/null
+fi
+
+note "released to $(git -C "${RELEASE}" log -1 --format='%h %s' HEAD)"
+
+# A fast-forward release is an ordinary push; only a deliberate rewind (-f)
+# needs --force-with-lease, and the repo's no-force-push rule is about landing
+# work on master, not about rewinding this pointer on purpose.
+push_args=""
+[ "${FORCE}" -eq 1 ] && push_args="--force-with-lease"
+
+if [ "${TDS_RELEASE_PUSH:-1}" != "0" ]; then
+    if git -C "${RELEASE}" push ${push_args} origin release; then
+        note "pushed release to origin"
+    else
+        note "WARNING: local release moved but the push failed -- push it yourself"
+    fi
+fi

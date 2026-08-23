@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+# tds-release-link -- point $HOME's tds-utils symlinks at the `release` worktree.
+#
+# Usage: tds-release-link [-n] [-r]
+#
+#   -n   dry run: report what would be repointed, change nothing
+#   -r   revert: point the links back at the primary checkout
+#
+# Historically every dotfile link resolved into the primary checkout, so
+# `git checkout <branch>` there rewrote the machine's running config mid-session
+# and a half-finished edit WAS the config. This repoints them through the `release`
+# worktree instead: the primary checkout goes back to being an ordinary place to
+# work, and config changes go live only when `bin/tds-release` advances the
+# `release` branch to a merged commit.
+#
+# Only symlinks are touched, and only those already pointing into one of the two
+# checkouts. A regular file at the same path is left exactly as it is -- this
+# never clobbers real config.
+#
+# Env (used by test/smoketest_release_link.sh; not for daily use):
+#   TDS_RELEASE_REPO   repo to operate on (default: the repo holding this script)
+#   TDS_RELEASE_HOME   home directory to scan (default: $HOME)
+
+set -euo pipefail
+
+die()  { echo "tds-release-link: $*" >&2; exit 1; }
+note() { echo "tds-release-link: $*"; }
+
+DRY_RUN=0
+REVERT=0
+while getopts ':nr' opt; do
+    case "${opt}" in
+        n) DRY_RUN=1 ;;
+        r) REVERT=1 ;;
+        *) die "unknown option: -${OPTARG}" ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="${TDS_RELEASE_REPO:-$(dirname "${self_dir}")}"
+SCAN_HOME="${TDS_RELEASE_HOME:-${HOME}}"
+
+git -C "${REPO}" rev-parse --git-dir >/dev/null 2>&1 \
+    || die "not a git repository: ${REPO}"
+
+release_worktree() {
+    git -C "${REPO}" worktree list --porcelain | awk '
+        /^worktree /                  { wt = substr($0, 10) }
+        /^branch refs\/heads\/release$/  { print wt; exit }
+    '
+}
+
+RELEASE="$(release_worktree)"
+[ -n "${RELEASE}" ] && [ -d "${RELEASE}" ] || die "no worktree is checked out on the release branch in ${REPO}
+  create one with:
+    git -C ${REPO} worktree add ~/workplace/.worktrees/tds-utils-release release"
+
+# An existing link may spell its target either way -- /tmp or /private/tmp,
+# /home/x or a canonicalised /export/home/x -- so match BOTH spellings and write
+# back the path git itself reports for the worktree.
+abspath() { ( cd "$1" >/dev/null 2>&1 && pwd -P ); }
+REPO_CANON="$(abspath "${REPO}")"
+RELEASE_CANON="$(abspath "${RELEASE}")"
+[ "${REPO_CANON}" != "${RELEASE_CANON}" ] \
+    || die "release worktree and primary checkout are the same path"
+
+if [ "${REVERT}" -eq 1 ]; then
+    FROM_RAW="${RELEASE}"; FROM_CANON="${RELEASE_CANON}"; TO="${REPO}"
+else
+    FROM_RAW="${REPO}";    FROM_CANON="${REPO_CANON}";    TO="${RELEASE}"
+fi
+
+# Where dotfile links live. $HOME itself is shallow on purpose (its subtrees are
+# other people's data); the agent and config dirs are searched a little deeper
+# because their links sit one or two levels down.
+scan_roots() {
+    printf '%s\t%s\n' "${SCAN_HOME}" 1
+    local d
+    for d in .config .local/bin .claude .codex .gemini .cursor clai.d; do
+        [ -d "${SCAN_HOME}/${d}" ] && printf '%s\t%s\n' "${SCAN_HOME}/${d}" 4
+    done
+    return 0
+}
+
+moved=0
+skipped=0
+seen_file="$(mktemp)"
+trap 'rm -f "${seen_file}"' EXIT
+
+while IFS=$'\t' read -r root depth; do
+    [ -n "${root}" ] || continue
+    while IFS= read -r link; do
+        [ -n "${link}" ] || continue
+        grep -Fqx "${link}" "${seen_file}" && continue
+        printf '%s\n' "${link}" >> "${seen_file}"
+
+        target="$(readlink "${link}")"
+        case "${target}" in
+            "${FROM_RAW}"/*)   rel="${target#${FROM_RAW}}" ;;
+            "${FROM_CANON}"/*) rel="${target#${FROM_CANON}}" ;;
+            *) continue ;;
+        esac
+
+        want="${TO}${rel}"
+        if [ ! -e "${want}" ]; then
+            note "SKIP ${link}: missing in the destination checkout (${want})"
+            skipped=$((skipped + 1))
+            continue
+        fi
+
+        if [ "${DRY_RUN}" -eq 1 ]; then
+            note "would repoint ${link} -> ${want}"
+            moved=$((moved + 1))
+            continue
+        fi
+
+        # ln -sfn over a symlink-to-a-directory replaces the LINK; without -n it
+        # would create a link INSIDE the directory it points at.
+        ln -sfn "${want}" "${link}" || die "could not repoint ${link}"
+        note "repointed ${link} -> ${want}"
+        moved=$((moved + 1))
+    done <<EOT
+$(find "${root}" -maxdepth "${depth}" -type l 2>/dev/null)
+EOT
+done <<EOT
+$(scan_roots)
+EOT
+
+if [ "${moved}" -eq 0 ]; then
+    note "no links to repoint -- already pointing at ${TO}"
+else
+    note "${moved} link(s) $([ "${DRY_RUN}" -eq 1 ] && echo 'would be repointed' || echo repointed) at ${TO}"
+fi
+[ "${skipped}" -eq 0 ] || note "${skipped} link(s) skipped"
