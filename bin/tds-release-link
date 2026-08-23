@@ -68,6 +68,38 @@ scan_roots() {
     return 0
 }
 
+# tds_release_pointer <home> -- the stable path the shell startup files key off.
+# They cannot name the release worktree directly: a fresh clone has no release
+# worktree at all, and the worktree may be moved. This one symlink is the only
+# place that mapping lives, and this script owns it exactly as bin/tds-install
+# owns ~/.tds/dist/current.
+tds_release_pointer() { printf '%s\n' "$1/.tds/release"; }
+
+# set_release_pointer <pointer> <release> -- create or correct it.
+set_release_pointer() {
+    local ptr="$1" release="$2" dir
+    dir="$(dirname "${ptr}")"
+    if [ -L "${ptr}" ] && [ "$(readlink "${ptr}")" = "${release}" ]; then
+        return 0
+    fi
+    if [ -e "${ptr}" ] && [ ! -L "${ptr}" ]; then
+        note "SKIP ${ptr}: exists and is not a symlink (not clobbering)"
+        return 1
+    fi
+    mkdir -p "${dir}" 2>/dev/null || { note "cannot create ${dir}"; return 1; }
+    ln -sfn "${release}" "${ptr}" || { note "could not write ${ptr}"; return 1; }
+    note "pointed ${ptr} -> ${release}"
+}
+
+# clear_release_pointer <pointer> -- remove it, but only if we own it (a
+# symlink). Reverting to the primary checkout must also revoke PATH's route
+# through the release worktree, or PATH and the dotfile links disagree.
+clear_release_pointer() {
+    local ptr="$1"
+    [ -L "${ptr}" ] || return 0
+    rm -f "${ptr}" && note "removed ${ptr}"
+}
+
 # find_links <dir> <maxdepth> -- symlinks under dir. `|| true` because find
 # exits non-zero on any unreadable subdirectory, and under `set -e` that would
 # abort the whole run over a directory we did not care about.
@@ -175,6 +207,14 @@ EOT
     done <<EOT
 $(scan_roots "${SCAN_HOME}")
 EOT
+
+    if [ "${dry_run}" -eq 0 ]; then
+        if [ "${revert}" -eq 1 ]; then
+            clear_release_pointer "$(tds_release_pointer "${SCAN_HOME}")"
+        else
+            set_release_pointer "$(tds_release_pointer "${SCAN_HOME}")" "${release}" || true
+        fi
+    fi
 
     if [ "${moved}" -eq 0 ]; then
         note "no links to repoint -- already pointing at ${to}"

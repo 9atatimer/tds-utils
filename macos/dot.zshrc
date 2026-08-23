@@ -87,6 +87,8 @@ if (( $+commands[op] )); then
             source "$HOME/.op-completion"
         elif [[ -f "$HOME/.tds/dist/current/macos/dot.op-completion" ]]; then
             source "$HOME/.tds/dist/current/macos/dot.op-completion"
+        elif [[ -f "$HOME/.tds/release/macos/dot.op-completion" ]]; then
+            source "$HOME/.tds/release/macos/dot.op-completion"
         elif [[ -f "$HOME/workplace/tds-utils/macos/dot.op-completion" ]]; then
             source "$HOME/workplace/tds-utils/macos/dot.op-completion"
         fi
@@ -134,10 +136,13 @@ if [[ -f "$HOME/.alias" ]]; then
     source "$HOME/.alias"
 fi
 
-# log-hoarder: semantic search widget (ctrl-x s); installed env wins over
-# the dev checkout (issue #202)
+# log-hoarder: semantic search widget (ctrl-x s). Same tier order as PATH --
+# dist install, then the release worktree, then the live dev checkout last
+# (issues #202, #235).
 if [[ -f "$HOME/.tds/dist/current/macos/dot.zsh_log_search" ]]; then
     source "$HOME/.tds/dist/current/macos/dot.zsh_log_search"
+elif [[ -f "$HOME/.tds/release/macos/dot.zsh_log_search" ]]; then
+    source "$HOME/.tds/release/macos/dot.zsh_log_search"
 elif [[ -f "$HOME/workplace/tds-utils/macos/dot.zsh_log_search" ]]; then
     source "$HOME/workplace/tds-utils/macos/dot.zsh_log_search"
 fi

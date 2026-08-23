@@ -172,6 +172,27 @@ case_discovery_without_env_override() {
     assert "link moved to release"      "[ \"$(target_of "${HOME_DIR}/.zshrc")\" = \"$(canon "${RELEASE}")/macos/dot.zshrc\" ]"
 }
 
+case_tds_release_pointer() {
+    bold "case: maintains the ~/.tds/release pointer"; echo
+    make_fixture ptr
+    local ptr="${HOME_DIR}/.tds/release"
+
+    run_link -n && rc=0 || rc=$?
+    assert "dry run creates nothing"     "[ ! -e \"${ptr}\" ] && [ ! -L \"${ptr}\" ]"
+
+    run_link && rc=0 || rc=$?
+    assert "exits 0"                     "[ ${rc} -eq 0 ]"
+    assert "pointer is a symlink"        "[ -L \"${ptr}\" ]"
+    assert "points at release worktree"  "[ \"$(cd "${ptr}" 2>/dev/null && pwd -P)\" = \"$(canon "${RELEASE}")\" ]"
+    assert "bin/ reachable through it"   "[ -d \"${ptr}/bin\" ]"
+
+    run_link && rc=0 || rc=$?
+    assert "idempotent"                  "[ -L \"${ptr}\" ] && [ ${rc} -eq 0 ]"
+
+    run_link -r && rc=0 || rc=$?
+    assert "revert removes the pointer"  "[ ! -L \"${ptr}\" ]"
+}
+
 main() {
     [ -x "${LINKER}" ] || { red "FAIL"; printf ' missing or non-executable: %s\n' "${LINKER}"; exit 1; }
     WORKROOT="$(mktemp -d "${TMPDIR:-/tmp}/release-link-test.XXXXXX")"
@@ -182,6 +203,7 @@ main() {
     case_no_release_worktree
     case_dangling_refused
     case_discovery_without_env_override
+    case_tds_release_pointer
     echo
     printf 'ran %d, passed %d, failed %d\n' "${TESTS_RUN}" "${TESTS_PASSED}" "${TESTS_FAILED}"
     [ "${TESTS_FAILED}" -eq 0 ]

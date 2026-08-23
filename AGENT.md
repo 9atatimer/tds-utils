@@ -61,6 +61,26 @@ on the primary checkout). Run it after creating the release worktree on a new
 machine; it is idempotent, and it only ever moves symlinks that already point
 into one of the two checkouts.
 
+It also maintains one pointer that is not a dotfile:
+
+```
+~/.tds/release -> ~/workplace/.worktrees/tds-utils-release
+```
+
+`PATH` and the two `dot.zshrc` source fallbacks key off that path rather than
+naming the worktree, because the startup files must also work on a machine that
+has no release worktree at all. Tier order, highest that exists wins:
+
+| tier | path | owner |
+|------|------|-------|
+| 1 | `~/.tds/dist/current` | `bin/tds-install` -- a real dist install |
+| 2 | `~/.tds/release` | `bin/tds-release-link` -- the release worktree |
+| 3 | `~/workplace/tds-utils` | nobody; fresh-clone fallback, live-editable |
+
+Tier 3 ranks last precisely because it is the one that changes under you.
+`tds_path_apply` filters entries by `-d`, so a missing tier simply drops out
+and a fresh clone still gets a working shell (issues #202, #235).
+
 ### Three branches, three roles
 
 | where | branch | what it is |
