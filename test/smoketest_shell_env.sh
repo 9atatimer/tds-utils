@@ -318,15 +318,28 @@ CASES
 #                                bin/tds-release-link maintains
 #   3. ~/workplace/tds-utils/bin the dev checkout -- fresh-clone fallback only
 #
-# Driven against a throwaway HOME so the tiers can be created and removed;
-# staged_zsh takes VAR=VAL overrides ahead of the shape argument, and a later
-# HOME= wins over the env -i default.
+# Driven against a throwaway HOME so the tiers can be created and removed.
+# staged_zsh takes (shape, snippet) and then any number of VAR=VAL pairs, which
+# it injects into its `env -i` line -- so a trailing HOME= overrides the default
+# HOME that env -i would otherwise pass through.
 
-# tds_bin_for <fake-home> -- the tds path a login shell picks in that HOME.
+# tds_bin_for <fake-home> [shape] -- the tds path that shape picks in that HOME.
+# Compares each PATH entry against the three candidate tiers as FIXED STRINGS: a
+# regex built from the HOME path would treat the dots mktemp puts in temp
+# directory names as wildcards, and could match a path that is not the tier.
 tds_bin_for() {
-    local fake="$1"
-    staged_zsh -lc 'print -r -- ${(j.:.)path}' HOME="${fake}" \
-        | tr ':' '\n' | grep -E "^${fake}/(\.tds/(dist/current|release)|workplace/tds-utils)/bin$" | head -1
+    local fake="$1" shape="${2:--lc}" entry
+    while IFS= read -r entry; do
+        case "${entry}" in
+            "${fake}/.tds/dist/current/bin"|"${fake}/.tds/release/bin"|"${fake}/workplace/tds-utils/bin")
+                printf '%s\n' "${entry}"
+                return 0
+                ;;
+        esac
+    done <<TIERS
+$(staged_zsh "${shape}" 'print -r -- ${(j.:.)path}' HOME="${fake}" | tr ':' '\n')
+TIERS
+    return 0
 }
 
 # make_fake_home <name> <tier...> -- a HOME with only the named tiers present.
@@ -379,8 +392,7 @@ check_tds_bin_tier_in_every_shape() {
     local fake shape picked
     fake="$(make_fake_home shapes .tds/release/bin workplace/tds-utils/bin)"
     for shape in -c -lc -ic -lic; do
-        picked="$(staged_zsh "${shape}" 'print -r -- ${(j.:.)path}' HOME="${fake}" \
-                  | tr ':' '\n' | grep -E "^${fake}/(\.tds/release|workplace/tds-utils)/bin$" | head -1)"
+        picked="$(tds_bin_for "${fake}" "${shape}")"
         assert_eq "zsh ${shape} picks the release tier" \
             "${fake}/.tds/release/bin" "${picked}"
     done
