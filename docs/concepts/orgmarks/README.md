@@ -45,11 +45,12 @@ as it stands today.
 
 ### 1. The existing reader is lossy, and that is a live problem
 
-`ChromeJsonSource` was built to feed a Netscape HTML emitter. HTML has no
-GUIDs, no file-level envelope, and second-granularity timestamps, so
-discarding all three was correct for that job. Any writer inverts the
-requirement: **anything the reader drops is something a writer silently
-rewrites.**
+`ChromeJsonSource` was built to feed a Netscape HTML emitter, a format with
+no folder identity, no file-level envelope, and second-granularity
+timestamps -- so keeping only what HTML could carry was correct for that
+job. It does retain bookmark GUIDs; what it drops is everything else on the
+list below. Any writer inverts the requirement: **anything the reader drops
+is something a writer silently rewrites.**
 
 Four classes found by inspection, none fixed:
 
