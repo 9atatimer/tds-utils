@@ -453,7 +453,7 @@ acquire_run() {
     local exec_pins
     exec_pins="$(effective_pins "${pins_file}")" || exec_pins="${pins_file}"
     if [ -z "${pins_file}" ] && [ -n "${exec_pins}" ]; then
-        acquire_note "using fleet pins from the skills payload (${exec_pins})"
+        acquire_note "using fleet pins beside the engine (${exec_pins})"
     fi
 
     while read -r shortname npm_name bin pin_var; do
