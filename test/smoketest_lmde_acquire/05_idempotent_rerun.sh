@@ -9,7 +9,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
 main() {
     : "${SMOKE_TMP:=$(mktemp -d)}"
     require_lmde || return 1
-    local dir rc home marker clai_target astmcp_target skills_target gadmin_target
+    local dir rc home marker clai_target astmcp_target skills_target gadmin_target staged
     dir="$(scenario_dir idempotent)"
     home="${dir}/home"
     marker="${dir}/install-called"
@@ -19,7 +19,12 @@ main() {
     gadmin_target="$(seed_installed "${home}" "gadmin" "gadmin" "0.4.0")"
     make_npm_forbidden_install_stub "${dir}/bin" "1.2.3" "0.4.0" "${marker}" "0.0.1" "0.4.0"
 
-    rc="$(run_acquire "${dir}")"
+    # Float premise: the checkout ships fleet pins beside the engine, so a
+    # bare run would use THEM. Stage an lmde with an empty pins.env to test
+    # the float path honestly rather than asserting against whatever the
+    # repo happens to pin today.
+    staged="$(stage_lmde "${dir}")"
+    rc="$(LMDE_BIN="${staged}" run_acquire "${dir}")"
 
     assert_eq "${rc}" "0" "fail-open exit code" || return 1
     assert_file_absent "${marker}" "npm install must NOT run when already up-to-date" || return 1

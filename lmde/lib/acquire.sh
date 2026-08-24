@@ -34,12 +34,20 @@ ACQUIRE_PREFIX="${ACQUIRE_SHARE_ROOT}/_npm"
 # lmde->clai boundary contract path (tds-utils docs/design/LMDE.DESIGN.md,
 # section 2.3).
 ACQUIRE_DATA_LINK_ROOT="${HOME}/.local/lib/node_modules"
-# The FLEET pins shipped inside the skills payload (SANDBOX-LIFECYCLE.DESIGN.md
-# D1): with no explicit --pins, the executable packages take their pins from
-# here -- a reviewed template-tools file that reaches every surface via the
-# same floating acquire that delivers the skills. Resolution order per
-# package: explicit --pins argument > this file > float to registry latest.
-ACQUIRE_FLEET_PINS="${ACQUIRE_DATA_LINK_ROOT}/${ACQUIRE_SCOPE}/skills/pins.env"
+# The FLEET pins, shipped NEXT TO THIS ENGINE by whichever repo vendors it.
+#
+# These pins are ENVIRONMENT, not skills. They previously rode inside the
+# acquired skills payload (SANDBOX-LIFECYCLE.DESIGN.md D1), which coupled the
+# executable rollout lever to the skills source -- so moving skills to their
+# own repository would have dragged clai/ast-mcp/gadmin version policy along
+# with them. The skills package is the source of truth for skills and nothing
+# else; the lmde/clai environment stays with the tooling repos.
+#
+# Resolution order per package is unchanged: explicit --pins argument > this
+# file > float to registry latest. Cloud calls acquire_run "" with no explicit
+# file, so this sibling IS the review gate there.
+ACQUIRE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)" || ACQUIRE_LIB_DIR=""
+ACQUIRE_FLEET_PINS="${ACQUIRE_LIB_DIR}/pins.env"
 
 # acquire_pkg_table -- the package manifest, whitespace columns read in a
 # while-loop (NOT a declare -A, for macOS bash 3.2). Columns:
@@ -116,9 +124,8 @@ is_data_pkg() { [ "$1" = "-" ]; }
 
 # effective_pins <explicit_pins_file> -- resolve the pins file the EXECUTABLE
 # rows use (D1): the explicit --pins argument when one was given, else the
-# fleet pins inside the acquired skills payload when present, else "" (float).
-# The skills row itself never uses the fleet pins (self-reference: it would be
-# pinning itself from the payload it is installing); callers pass it the
+# fleet pins beside this engine when present, else "" (float). The skills row
+# floats by design -- a skill merge IS the rollout -- and callers pass it the
 # explicit file only.
 effective_pins() {
     local explicit="${1:-}"
