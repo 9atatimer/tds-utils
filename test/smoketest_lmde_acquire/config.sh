@@ -302,6 +302,28 @@ seed_installed_data() {
 # PATH must NOT inherit the caller's: a real `npm` (or `clai`) on the developer
 # laptop would break the hermetic assumption. Only the scenario's own stubs and
 # /usr/bin:/bin are visible.
+# stage_lmde <scenario_dir> [pins_line...] -- copy the lmde under test into the
+# scenario and give it its OWN sibling pins.env, echoing the staged bin path
+# for LMDE_BIN.
+#
+# The engine resolves its fleet pins as a sibling of lmde/lib/acquire.sh, so a
+# scenario that wants to control those pins cannot use the checkout's copy
+# without editing a tracked file. Staging keeps the sibling lookup under test
+# for real -- nothing is stubbed -- while letting each scenario declare the
+# pins it needs. With no pins_line arguments the staged pins.env is empty, so
+# every executable floats.
+stage_lmde() {
+    local dir="$1"; shift || true
+    local root="${dir}/lmde-under-test"
+    mkdir -p "${root}/bin"
+    cp "${REPO_DIR}/bin/lmde" "${root}/bin/lmde"
+    cp -R "${REPO_DIR}/lmde" "${root}/lmde"
+    : > "${root}/lmde/lib/pins.env"
+    local line
+    for line in "$@"; do printf '%s\n' "${line}" >> "${root}/lmde/lib/pins.env"; done
+    printf '%s\n' "${root}/bin/lmde"
+}
+
 run_acquire() {
     local dir="$1"; shift || true
     local rc=0

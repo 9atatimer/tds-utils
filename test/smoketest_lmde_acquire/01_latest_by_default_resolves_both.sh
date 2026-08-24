@@ -8,13 +8,18 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
 main() {
     : "${SMOKE_TMP:=$(mktemp -d)}"
     require_lmde || return 1
-    local dir rc home log
+    local dir rc home log staged
     dir="$(scenario_dir latest_both)"
     home="${dir}/home"
     log="${dir}/installlog"
     make_npm_stub "${dir}/bin" "1.2.3" "0.4.0" "${log}"
 
-    rc="$(run_acquire "${dir}")"
+    # Float premise: the checkout ships fleet pins beside the engine, so a
+    # bare run would use THEM. Stage an lmde with an empty pins.env to test
+    # the float path honestly rather than asserting against whatever the
+    # repo happens to pin today.
+    staged="$(stage_lmde "${dir}")"
+    rc="$(LMDE_BIN="${staged}" run_acquire "${dir}")"
 
     assert_eq "${rc}" "0" "fail-open exit code" || return 1
     assert_installed "${log}" "@nine-at-a-time-media/clai@1.2.3" "clai installed at latest" || return 1
