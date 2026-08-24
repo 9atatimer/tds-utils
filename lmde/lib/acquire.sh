@@ -137,17 +137,60 @@ effective_pins() {
 
 # --- Adapters (I/O) ---
 
-# acquire_token_name -- which environment variable is supplying the credential:
-# the current name, the deprecated one, or neither. Deliberately returns the
-# NAME and never the value, so a caller cannot log the secret by reaching for
-# the wrong helper.
+# acquire_token_name -- which SOURCE is supplying the credential: the current
+# variable, the deprecated one, the local `gh` login, or nothing. Deliberately
+# returns the NAME and never the value, so a caller cannot log the secret by
+# reaching for the wrong helper.
 acquire_token_name() {
     if [ -n "${GH_PAT_NAATM_PACKAGES_RO:-}" ]; then
         echo "GH_PAT_NAATM_PACKAGES_RO"
     elif [ -n "${GH_AI_TOOLS_PAT:-}" ]; then
         echo "GH_AI_TOOLS_PAT"
+    elif [ -n "$(acquire_gh_token)" ]; then
+        echo "gh"
     else
         echo "none"
+    fi
+}
+
+# acquire_gh_token -- the token from the machine's own `gh` login, or "".
+#
+# A normal interactive machine has a working `gh` and no GH_PAT_NAATM_PACKAGES_RO,
+# and acquire used to refuse on that basis alone -- returning before the package
+# loop, warning twice, exiting 0, and leaving the machine unprovisioned in a way
+# nobody notices (tds-utils#245). `gh auth token` is the credential the user
+# already has; asking for it on demand beats a long-lived PAT exported into
+# every process.
+#
+# Guarded on every axis, because this must never be the thing that hangs or
+# breaks a session: absent gh -> ""; unauthenticated gh -> non-zero -> ""; slow
+# gh -> killed by timeout -> "". Cloud sandboxes have no gh at all and fall
+# through untouched, which is why the explicit variables still rank first.
+acquire_gh_token() {
+    command -v gh >/dev/null 2>&1 || { echo ""; return 0; }
+    local out=""
+    if command -v timeout >/dev/null 2>&1; then
+        out="$(timeout 10 gh auth token 2>/dev/null)" || out=""
+    else
+        out="$(gh auth token 2>/dev/null)" || out=""
+    fi
+    # Strip whitespace; a blank line is not a credential.
+    out="$(printf '%s' "${out}" | tr -d '[:space:]')"
+    echo "${out}"
+    return 0
+}
+
+# acquire_token -- the credential VALUE, by resolution order:
+# GH_PAT_NAATM_PACKAGES_RO > GH_AI_TOOLS_PAT (deprecated) > `gh auth token`.
+# The explicit variables rank first so a cloud sandbox, which has no gh, keeps
+# behaving exactly as before.
+acquire_token() {
+    if [ -n "${GH_PAT_NAATM_PACKAGES_RO:-}" ]; then
+        printf '%s' "${GH_PAT_NAATM_PACKAGES_RO}"
+    elif [ -n "${GH_AI_TOOLS_PAT:-}" ]; then
+        printf '%s' "${GH_AI_TOOLS_PAT}"
+    else
+        printf '%s' "$(acquire_gh_token)"
     fi
 }
 
@@ -168,9 +211,10 @@ acquire_warn_if_deprecated() {
 # 600 via umask; symlink-guarded. Copied from provision.sh's write_npmrc
 # hardening. The caller removes it after the install.
 write_acquire_npmrc() {
-    local dir="$1" token="${GH_PAT_NAATM_PACKAGES_RO:-${GH_AI_TOOLS_PAT:-}}"
+    local dir="$1" token
+    token="$(acquire_token)"
     if [ -z "${token}" ]; then
-        acquire_note "GH_PAT_NAATM_PACKAGES_RO unset (and no deprecated GH_AI_TOOLS_PAT) -- need a classic read:packages PAT to install from GitHub Packages"
+        acquire_note "no credential: GH_PAT_NAATM_PACKAGES_RO unset, no deprecated GH_AI_TOOLS_PAT, and no usable \`gh auth token\` -- need one of those to install from GitHub Packages"
         return 1
     fi
     mkdir -p "${dir}" || return 1
@@ -401,13 +445,17 @@ acquire_run() {
     # Optional under set -u, mirroring check_run: always invoked with an arg
     # today, but hardened so a bare acquire_run floats instead of crashing.
     local pins_file="${1:-}"
-    local token="${GH_PAT_NAATM_PACKAGES_RO:-${GH_AI_TOOLS_PAT:-}}"
+    local token
+    token="$(acquire_token)"
     acquire_warn_if_deprecated
 
     if [ -z "${token}" ]; then
-        acquire_note "GH_PAT_NAATM_PACKAGES_RO is unset (and no deprecated GH_AI_TOOLS_PAT) -- need a CLASSIC PAT with read:packages to install the fleet packages from GitHub Packages (npm.pkg.github.com)."
+        acquire_note "no credential found -- set GH_PAT_NAATM_PACKAGES_RO (a CLASSIC PAT with read:packages) or sign in with \`gh auth login\` to install the fleet packages from GitHub Packages (npm.pkg.github.com)."
         acquire_note "Skipping install; keeping whatever is already installed (fail-open)."
         return 0
+    fi
+    if [ "$(acquire_token_name)" = "gh" ]; then
+        acquire_note "using the local \`gh\` login for GitHub Packages (no GH_PAT_NAATM_PACKAGES_RO set)"
     fi
 
     if ! command -v npm >/dev/null 2>&1; then
