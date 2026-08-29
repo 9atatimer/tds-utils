@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # acquire.sh -- library for the `lmde acquire` verb: install the agent-agnostic
-# clai + ast-mcp + git-mirror + skills + gadmin npm packages from GitHub Packages
+# clai + ast-mcp + git-mirror + skills + gadmin + designomatic npm packages
+# from GitHub Packages
 # (npm.pkg.github.com), latest by default with an optional --pins override,
 # FAIL-OPEN at every step.
 #
@@ -60,6 +61,11 @@ ACQUIRE_FLEET_PINS="${ACQUIRE_LIB_DIR}/pins.env"
 # @nine-at-a-time-media/admin and it ships `gadmin`. Shortname follows the bin
 # (so the stamp is gadmin.version and the warnings read "gadmin"), because
 # gadmin is what an agent looks for on PATH.
+#
+# designomatic also ships a second bin, `dom`; the table links one bin per row,
+# so only `designomatic` -- the name the skill tells agents to run -- lands in
+# ACQUIRE_BIN_DIR. `dom` still exists inside the npm prefix for anyone who
+# wants it.
 acquire_pkg_table() {
     cat <<'EOF'
 clai @nine-at-a-time-media/clai clai CLAI_VERSION
@@ -67,6 +73,7 @@ ast-mcp @nine-at-a-time-media/ast-mcp ast-mcp AST_MCP_VERSION
 git-mirror @nine-at-a-time-media/git-mirror git-mirror GIT_MIRROR_VERSION
 skills @nine-at-a-time-media/skills - SKILLS_VERSION
 gadmin @nine-at-a-time-media/admin gadmin ADMIN_VERSION
+designomatic @nine-at-a-time-media/designomatic designomatic DESIGNOMATIC_VERSION
 EOF
 }
 
