@@ -68,9 +68,14 @@ scenario_dir() {
 # <skills_pins_file> defaults to empty; when set, the stub COPIES that file
 # into the planted skills package as pins.env -- modelling a published skills
 # payload that carries the fleet pins (SANDBOX-LIFECYCLE.DESIGN.md, D1).
+#
+# <designomatic_latest> defaults to empty, which makes `view` fail for
+# designomatic so scenarios that predate the designomatic row keep their
+# original behavior (the same convention <admin_latest> used).
 make_npm_stub() {
     local bindir="$1" clai_latest="$2" astmcp_latest="$3" installlog="$4"
     local skills_latest="${5:-0.0.1}" admin_latest="${6:-}" skills_pins_file="${7:-}"
+    local designomatic_latest="${8:-}"
     cat > "${bindir}/npm" <<EOF
 #!/usr/bin/env bash
 sub="\$1"; shift || true
@@ -81,6 +86,7 @@ if [ "\$sub" = "view" ]; then
     *clai)    [ -n "${clai_latest}" ] && echo "${clai_latest}" || exit 1 ;;
     *skills)  [ -n "${skills_latest}" ] && echo "${skills_latest}" || exit 1 ;;
     */admin)  [ -n "${admin_latest}" ] && echo "${admin_latest}" || exit 1 ;;
+    *designomatic) [ -n "${designomatic_latest}" ] && echo "${designomatic_latest}" || exit 1 ;;
     *) exit 1 ;;
   esac
   exit 0
