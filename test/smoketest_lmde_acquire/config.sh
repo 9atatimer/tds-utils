@@ -57,9 +57,10 @@ scenario_dir() {
 # DIR/node_modules/<scoped name>/package.json instead (data packages ship no
 # binary). Mimics a reachable GitHub Packages registry.
 #
-# <bin> is the unscoped package name EXCEPT for the admin package, whose bin is
-# `gadmin` -- the one package in the table whose bin name differs from its npm
-# name, which is exactly the case acquire_one's symlink step has to get right.
+# <bin> is the unscoped package name EXCEPT for the admin package (bin
+# `gadmin`) and the ci-magic package (bin `naatm-ci-magic`) -- the packages in
+# the table whose bin name differs from their npm name, which is exactly the
+# case acquire_one's symlink step has to get right.
 #
 # <skills_latest> defaults to 0.0.1 so the 13 pre-skills scenarios keep passing
 # unchanged. <admin_latest> defaults to empty, which makes `view` fail for admin
@@ -72,10 +73,14 @@ scenario_dir() {
 # <designomatic_latest> defaults to empty, which makes `view` fail for
 # designomatic so scenarios that predate the designomatic row keep their
 # original behavior (the same convention <admin_latest> used).
+#
+# <ci_magic_latest> defaults to empty, same convention again: `view` fails for
+# ci-magic so scenarios that predate the ci-magic row keep their original
+# behavior.
 make_npm_stub() {
     local bindir="$1" clai_latest="$2" astmcp_latest="$3" installlog="$4"
     local skills_latest="${5:-0.0.1}" admin_latest="${6:-}" skills_pins_file="${7:-}"
-    local designomatic_latest="${8:-}"
+    local designomatic_latest="${8:-}" ci_magic_latest="${9:-}"
     cat > "${bindir}/npm" <<EOF
 #!/usr/bin/env bash
 sub="\$1"; shift || true
@@ -87,6 +92,7 @@ if [ "\$sub" = "view" ]; then
     *skills)  [ -n "${skills_latest}" ] && echo "${skills_latest}" || exit 1 ;;
     */admin)  [ -n "${admin_latest}" ] && echo "${admin_latest}" || exit 1 ;;
     *designomatic) [ -n "${designomatic_latest}" ] && echo "${designomatic_latest}" || exit 1 ;;
+    *ci-magic) [ -n "${ci_magic_latest}" ] && echo "${ci_magic_latest}" || exit 1 ;;
     *) exit 1 ;;
   esac
   exit 0
@@ -104,7 +110,7 @@ if [ "\$sub" = "install" ]; then
   [ -n "\$prefix" ] || exit 1
   [ -n "\$spec" ] || exit 1
   name="\${spec%@*}"; ver="\${spec##*@}"; bin="\${name##*/}"
-  case "\$bin" in admin) bin="gadmin" ;; esac
+  case "\$bin" in admin) bin="gadmin" ;; ci-magic) bin="naatm-ci-magic" ;; esac
   case "\$name" in
     *skills)
       mkdir -p "\$prefix/node_modules/\$name/skills" "\$prefix/node_modules/\$name/mcp"
