@@ -516,11 +516,13 @@ deleted.
 | Skills version at acquire | Float to latest | The freshness requirement; `--pins` restores a freeze |
 | clai `_data` bundle | Kept as a LOUD bootstrap fallback | Surfaces without acquire still function; removal tracked in Open Questions |
 | Mid-session update path | `lmde acquire && clai refresh`, no cross-call | Preserves the never-call-each-other invariant |
-| Fleet pins home | `packages/skills/pins.env`, shipped in the skills payload | Merge-is-rollout review gate; readable per-session by any repo's session; closes the two-pins fork |
+| ~~Fleet pins home: `packages/skills/pins.env`, shipped in the skills payload~~ | SUPERSEDED by the engine-sibling row below | Coupled executable version policy to the skills source; moving skills to their own repository would have dragged clai/ast-mcp/gadmin pinning along (PR #243) |
+| Fleet pins home | `lmde/lib/pins.env`, a sibling of the acquire engine (vendored twin ships in `@nine-at-a-time-media/sandbox`) | Pins are environment, not skills; the review gate is unchanged -- a pin bump is a reviewed PR (PR #243; body-text reconciliation tracked in issue #249) |
 | Pin resolution | explicit `--pins` > fleet pins > float | Explicit stays the emergency override; float stays the no-config default |
 | Skills self-reference | The skills row never pins itself from the payload being installed | Otherwise a payload would gate its own delivery; freeze uses an explicit `--pins` file |
 | Float semantics | Resolve latest, install and stamp the CONCRETE version | An `@latest` tag would make stamp == target forever and freeze the package |
 | gadmin on the rail | Acquire `@nine-at-a-time-media/admin` (bin `gadmin`) | Without it a sandbox agent loses two of three github-workflow tool tiers (tds-utils#186) |
+| designomatic on the rail | Acquire `@nine-at-a-time-media/designomatic` (bin `designomatic`; the `dom` alias stays unlinked inside the npm prefix -- one bin per table row) | The provisioned designomatic skill tells agents to run a binary the rail never installed; skills and executables roll out on separate rails, so a skill naming a binary needs a matching table row (shipped in PR #247; table amendment tracked in issue #248) |
 | Acquire timing | Session boundary, not only the cache boundary | See SANDBOX-LIFECYCLE.DESIGN.md; the setup stage's work is frozen in a ~7-day snapshot |
 | ENV in cloud | Out of scope (launch-time only) | Orthogonal launcher-parity gap G1 |
 | ~~Versioning: `latest` by default for every package~~ | SUPERSEDED by the fleet-pins decision | `latest`-by-default gave executables no review gate; the fleet pins restore it without a second on-disk edit |
