@@ -475,7 +475,7 @@ acquire_run() {
     # Installed-but-unresolved warning: acquire never edits a shell rc.
     case ":${PATH}:" in
         *":${ACQUIRE_BIN_DIR}:"*) ;;
-        *) acquire_note "note: ${ACQUIRE_BIN_DIR} is not on PATH -- installed clai/ast-mcp/gadmin will not resolve until it is added (acquire does not edit your shell rc)." ;;
+        *) acquire_note "note: ${ACQUIRE_BIN_DIR} is not on PATH -- installed clai/ast-mcp/gadmin/designomatic will not resolve until it is added (acquire does not edit your shell rc)." ;;
     esac
 
     return 0
