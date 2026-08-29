@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # acquire.sh -- library for the `lmde acquire` verb: install the agent-agnostic
-# clai + ast-mcp + git-mirror + skills + gadmin + designomatic npm packages
-# from GitHub Packages
+# clai + ast-mcp + git-mirror + skills + gadmin + designomatic + ci-magic npm
+# packages from GitHub Packages
 # (npm.pkg.github.com), latest by default with an optional --pins override,
 # FAIL-OPEN at every step.
 #
@@ -66,6 +66,13 @@ ACQUIRE_FLEET_PINS="${ACQUIRE_LIB_DIR}/pins.env"
 # so only `designomatic` -- the name the skill tells agents to run -- lands in
 # ACQUIRE_BIN_DIR. `dom` still exists inside the npm prefix for anyone who
 # wants it.
+#
+# naatm-ci-magic is the gadmin pattern again: the package is
+# @nine-at-a-time-media/ci-magic and it ships `naatm-ci-magic`. Shortname
+# follows the bin. The real prize is the package directory itself (the ci.magic
+# engine, src/cli.mjs), which lands under the npm prefix alongside the linked
+# installer bin -- consumers wiring pre-commit hooks resolve it from there
+# (9atatimer/Skills issue #11).
 acquire_pkg_table() {
     cat <<'EOF'
 clai @nine-at-a-time-media/clai clai CLAI_VERSION
@@ -74,6 +81,7 @@ git-mirror @nine-at-a-time-media/git-mirror git-mirror GIT_MIRROR_VERSION
 skills @nine-at-a-time-media/skills - SKILLS_VERSION
 gadmin @nine-at-a-time-media/admin gadmin ADMIN_VERSION
 designomatic @nine-at-a-time-media/designomatic designomatic DESIGNOMATIC_VERSION
+naatm-ci-magic @nine-at-a-time-media/ci-magic naatm-ci-magic CI_MAGIC_VERSION
 EOF
 }
 
@@ -475,7 +483,7 @@ acquire_run() {
     # Installed-but-unresolved warning: acquire never edits a shell rc.
     case ":${PATH}:" in
         *":${ACQUIRE_BIN_DIR}:"*) ;;
-        *) acquire_note "note: ${ACQUIRE_BIN_DIR} is not on PATH -- installed clai/ast-mcp/gadmin/designomatic will not resolve until it is added (acquire does not edit your shell rc)." ;;
+        *) acquire_note "note: ${ACQUIRE_BIN_DIR} is not on PATH -- installed clai/ast-mcp/gadmin/designomatic/naatm-ci-magic will not resolve until it is added (acquire does not edit your shell rc)." ;;
     esac
 
     return 0
