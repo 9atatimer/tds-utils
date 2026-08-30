@@ -209,8 +209,19 @@ ACQUIRE_GH_TOKEN_CACHE=""
 ACQUIRE_GH_TOKEN_CACHE_SET=""
 
 # acquire_resolve_gh -- populate the cache. Call this in the PARENT shell.
+#
+# Returns immediately when either explicit variable is set: gh is the LAST
+# tier, so resolving it when a higher-priority credential already exists buys
+# a value that acquire_token will discard -- and on a machine with a locked
+# keychain that discarded value costs the full bound, on every session start
+# and every pre-push advisory check.
 acquire_resolve_gh() {
     if [ -n "${ACQUIRE_GH_TOKEN_CACHE_SET}" ]; then
+        return 0
+    fi
+    if [ -n "${GH_PAT_NAATM_PACKAGES_RO:-}" ] || [ -n "${GH_AI_TOOLS_PAT:-}" ]; then
+        ACQUIRE_GH_TOKEN_CACHE_SET="1"
+        ACQUIRE_GH_TOKEN_CACHE=""
         return 0
     fi
     ACQUIRE_GH_TOKEN_CACHE_SET="1"
@@ -270,6 +281,10 @@ acquire_gh_token() {
 # and strands nothing.
 #
 # bash 3.2 compatible (no `wait -n`).
+
+# Seconds between SIGTERM and SIGKILL in the fallback branch.
+ACQUIRE_KILL_GRACE_SECS=2
+
 acquire_bounded() {
     local secs="$1"; shift
     # Guarded, not bare: this file's header promises every fallible call is,
@@ -282,27 +297,58 @@ acquire_bounded() {
         gtimeout "${secs}" "$@" || return $?
         return 0
     fi
-    local rc=0 pid waited=0 killed=0
-    "$@" 2>/dev/null &
-    pid=$!
-    while kill -0 "${pid}" 2>/dev/null; do
-        if [ "${waited}" -ge "${secs}" ]; then
-            kill -TERM "${pid}" >/dev/null 2>&1 || true
-            killed=1
-            break
+    # The whole fallback runs in a subshell with stderr closed, and reports
+    # through its EXIT STATUS. `set -m` makes the shell announce job state --
+    # "Terminated: 15" lands on stderr when the child is killed, which is
+    # exactly where acquire's real warnings go, so a bounded lookup would
+    # print a scary line every time it did its job. Suppressing it here rather
+    # than at the call site keeps the noise contained to the mechanism that
+    # creates it. stdout still flows to the caller untouched.
+    (
+        local rc=0 pid waited=0 killed=0
+        # Job control ON so the child lands in its OWN process group.
+        # Signalling only the child's pid is not a bound: a grandchild (a
+        # credential helper `gh` spawned) survives, inherits stdout, and holds
+        # the caller's command-substitution pipe open for its full lifetime --
+        # measured 30s against a 2s bound. Killing the GROUP takes the tree.
+        set -m
+        "$@" 2>/dev/null &
+        pid=$!
+        set +m
+        while kill -0 "${pid}" 2>/dev/null; do
+            if [ "${waited}" -ge "${secs}" ]; then
+                kill -TERM "-${pid}" >/dev/null 2>&1 || kill -TERM "${pid}" >/dev/null 2>&1 || true
+                killed=1
+                break
+            fi
+            sleep 1
+            waited=$((waited + 1))
+        done
+        # TERM then wait is NOT a bound: a child that ignores or cannot
+        # service SIGTERM leaves `wait` blocked forever -- and a credential
+        # helper stuck on a locked-keychain prompt is exactly that child,
+        # which is the scenario this watchdog exists for. Escalate to SIGKILL
+        # after a short grace, which nothing can ignore, before waiting.
+        if [ "${killed}" = "1" ]; then
+            grace=0
+            while kill -0 "${pid}" 2>/dev/null; do
+                if [ "${grace}" -ge "${ACQUIRE_KILL_GRACE_SECS}" ]; then
+                    kill -KILL "-${pid}" >/dev/null 2>&1 || kill -KILL "${pid}" >/dev/null 2>&1 || true
+                    break
+                fi
+                sleep 1
+                grace=$((grace + 1))
+            done
         fi
-        sleep 1
-        waited=$((waited + 1))
-    done
-    wait "${pid}" 2>/dev/null || rc=$?
-    # `timeout` reports expiry as 124; a killed child reports 143 (SIGTERM).
-    # Normalize so all three branches agree -- the function is documented as a
-    # general-purpose bound, and a caller testing for 124 must not be wrong
-    # depending on which platform it ran on.
-    if [ "${killed}" = "1" ]; then
-        rc=124
-    fi
-    return "${rc}"
+        wait "${pid}" 2>/dev/null || rc=$?
+        # `timeout` reports expiry as 124; a killed child reports 143/137.
+        # Normalize so all three branches agree.
+        if [ "${killed}" = "1" ]; then
+            rc=124
+        fi
+        exit "${rc}"
+    ) 2>/dev/null
+    return $?
 }
 
 # acquire_token -- the credential VALUE, by resolution order:
