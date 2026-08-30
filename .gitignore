@@ -8,7 +8,12 @@ emacs/dot.emacs.d/.cache
 emacs/dot.emacs.d/.lsp-session-v1
 emacs/dot.emacs.d/chatgpt/
 emacs/dot.emacs.d/transient/
+# Projectile runtime state. `projects` is its project list; the glob also
+# catches siblings like projectile-frecency.eld, which blocked a release
+# because the list named one file from this package and not the family
+# (issue #253 tracks stopping emacs writing state into the worktree at all).
 emacs/dot.emacs.d/projects
+emacs/dot.emacs.d/projectile-*
 
 *DS_Store
 __pycache__/
