@@ -133,6 +133,31 @@ EOF
     chmod +x "${bindir}/npm"
 }
 
+# make_gh_stub <bindir> <token> -- a fake `gh` that answers `auth token` ONLY
+# when github.com is pinned in the argv. Refusing otherwise is the point: with
+# no --hostname, real `gh auth token` returns the token for whatever GH_HOST
+# names, so a regression on that flag would hand an enterprise token to a
+# fixed github.com registry. Here it turns the suite red instead.
+make_gh_stub() {
+    local bindir="$1" token="$2"
+    mkdir -p "${bindir}"
+    cat > "${bindir}/gh" <<EOF
+#!/usr/bin/env bash
+if [ "\$1" = "auth" ] && [ "\$2" = "token" ]; then
+    for a in "\$@"; do
+        if [ "\$a" = "github.com" ]; then
+            printf '%s\n' "${token}"
+            exit 0
+        fi
+    done
+    echo "gh stub: refusing -- hostname not pinned to github.com" >&2
+    exit 1
+fi
+exit 1
+EOF
+    chmod +x "${bindir}/gh"
+}
+
 # make_npm_fail_stub <bindir> -- a fake npm where both `view` and `install`
 # fail (unreachable registry / bad token), planting nothing.
 make_npm_fail_stub() {
@@ -352,8 +377,18 @@ run_acquire() {
     else
         other_var="GH_AI_TOOLS_PAT"
     fi
+    # The THIRD credential source (a gh login) needs neutralizing for the same
+    # reason as the two PAT names above, and it did not get it when that source
+    # was added. `env` without -i keeps the caller's environment, and GH_TOKEN
+    # beats the faked HOME -- so an ambient GH_TOKEN (direnv, devcontainer,
+    # GitHub Actions) makes `gh auth token` succeed inside a scenario that is
+    # supposed to have no credential at all. Scenarios 04 and 13 pass on a Mac
+    # only because Homebrew's gh sits in /opt/homebrew/bin, off the hermetic
+    # PATH; on Linux gh is /usr/bin/gh, which IS on it, and they would quietly
+    # stop testing the no-credential path.
     envv=("PATH=${dir}/bin:/usr/bin:/bin" "HOME=${dir}/home"
-          "${pat_var}=${TEST_PAT-faketoken-readpackages}" "${other_var}=")
+          "${pat_var}=${TEST_PAT-faketoken-readpackages}" "${other_var}="
+          "GH_TOKEN=" "GITHUB_TOKEN=" "GH_HOST=" "GH_CONFIG_DIR=${dir}/home/.config/gh")
     if [[ -n "${TEST_NPM_CONFIG_REGISTRY:-}" ]]; then
         envv+=("NPM_CONFIG_REGISTRY=${TEST_NPM_CONFIG_REGISTRY}")
     fi
@@ -377,7 +412,9 @@ run_check() {
     else
         other_var="GH_AI_TOOLS_PAT"
     fi
+    # Same third-source neutralization as run_acquire above.
     env "PATH=${dir}/bin:/usr/bin:/bin" "HOME=${dir}/home" \
+        "GH_TOKEN=" "GITHUB_TOKEN=" "GH_HOST=" "GH_CONFIG_DIR=${dir}/home/.config/gh" \
         "${pat_var}=${TEST_PAT-faketoken-readpackages}" "${other_var}=" \
         bash "${LMDE_BIN}" acquire --check "$@" >"${dir}/stdout" 2>"${dir}/stderr" || rc=$?
     printf '%s\n' "${rc}"

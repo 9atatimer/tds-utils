@@ -292,8 +292,11 @@ Notes:
   @nine-at-a-time-media/skills DATA package (no binary; symlinked at
   ~/.local/lib/node_modules/@nine-at-a-time-media/skills, the lmde->clai
   boundary convention path) from GitHub Packages (npm.pkg.github.com). Auth is
-  GH_PAT_NAATM_PACKAGES_RO, a CLASSIC PAT with the read:packages scope (the
-  deprecated GH_AI_TOOLS_PAT still works). Versions float
+  resolved in order: GH_PAT_NAATM_PACKAGES_RO (a CLASSIC PAT with the
+  read:packages scope), the deprecated GH_AI_TOOLS_PAT, then the machine's
+  own `gh auth token`. A default `gh auth login` does NOT grant
+  read:packages -- if installs fail to authenticate, run
+  `gh auth refresh -h github.com -s read:packages`. Versions float
   to registry latest unless pinned (keys CLAI_VERSION / AST_MCP_VERSION /
   GIT_MIRROR_VERSION / SKILLS_VERSION / ADMIN_VERSION /
   DESIGNOMATIC_VERSION / CI_MAGIC_VERSION; an absent or UNSET key floats). Pin resolution per

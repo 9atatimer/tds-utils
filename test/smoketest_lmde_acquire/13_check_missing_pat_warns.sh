@@ -23,5 +23,9 @@ main() {
     assert_stderr_contains "${dir}" "GH_PAT_NAATM_PACKAGES_RO" "stderr names the current token env var" || return 1
     assert_stderr_contains "${dir}" "GH_AI_TOOLS_PAT" "stderr names the deprecated env var" || return 1
     assert_stderr_contains "${dir}" "gh auth token" "stderr names the gh login it also tried" || return 1
+    # The behavior under test, which the three substrings above do not pin:
+    # the deprecation warning also names both variables, so without this the
+    # scenario would pass on a run that skipped nothing.
+    assert_stderr_contains "${dir}" "advisory update check skipped" "stderr says the check was skipped" || return 1
 }
 main "$@"

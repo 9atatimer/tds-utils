@@ -10,36 +10,14 @@
 # failure is silent -- the run looks fine and simply installs nothing -- which
 # is how ast-mcp sat on 0.2.1 while the fleet pin said 0.4.0.
 #
-# The `gh` here is a STUB. This asserts the resolution order and that the
-# resolved value reaches the npmrc, not that the real gh works.
+# The `gh` here is a STUB, so this covers the RESOLUTION ORDER and the
+# --hostname pin (the stub refuses without it). It does NOT verify the token
+# value reaches the npmrc: the npm stub discards --userconfig, so substituting
+# a wrong token still passes. Verified by mutation -- do not read more into a
+# green result here than that.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
 
-# make_gh_stub <bindir> <token> -- a `gh` that answers `auth token`.
-make_gh_stub() {
-    local bindir="$1" token="$2"
-    mkdir -p "${bindir}"
-    cat > "${bindir}/gh" <<EOF
-#!/usr/bin/env bash
-# Answers ONLY when the github.com hostname is pinned. Without --hostname,
-# \`gh auth token\` returns the token for whatever GH_HOST names, so a
-# developer on a GitHub Enterprise instance would get an Enterprise token
-# sent to npm.pkg.github.com. Refusing here makes that a red test rather
-# than a silent auth failure on someone's laptop.
-if [ "\$1" = "auth" ] && [ "\$2" = "token" ]; then
-    for a in "\$@"; do
-        if [ "\$a" = "github.com" ]; then
-            printf '%s\n' "${token}"
-            exit 0
-        fi
-    done
-    echo "gh stub: refusing -- hostname not pinned to github.com" >&2
-    exit 1
-fi
-exit 1
-EOF
-    chmod +x "${bindir}/gh"
-}
 
 main() {
     : "${SMOKE_TMP:=$(mktemp -d)}"

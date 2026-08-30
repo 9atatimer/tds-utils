@@ -16,8 +16,10 @@
 # version; npm verifies every tarball against the registry-published integrity
 # hash and published versions are immutable, so the gate is the version choice
 # plus npm's built-in integrity -- never curl|sh, never integrity-disabling
-# flags. Auth is GH_PAT_NAATM_PACKAGES_RO, a CLASSIC PAT with read:packages
-# (the deprecated GH_AI_TOOLS_PAT is still accepted as a fallback).
+# flags. Auth resolves in order: GH_PAT_NAATM_PACKAGES_RO (a CLASSIC PAT with
+# read:packages), then the deprecated GH_AI_TOOLS_PAT, then the machine's own
+# `gh auth token`. Note a default `gh auth login` does NOT grant
+# read:packages -- see the scope hint in acquire_run.
 
 # --- Constants ---
 
@@ -181,18 +183,61 @@ acquire_token_name() {
 # breaks a session: absent gh -> ""; unauthenticated gh -> non-zero -> ""; slow
 # gh -> killed by timeout -> "". Cloud sandboxes have no gh at all and fall
 # through untouched, which is why the explicit variables still rank first.
-acquire_gh_token() {
-    command -v gh >/dev/null 2>&1 || { echo ""; return 0; }
+# Resolution is CACHED for the life of the process. Without this the token was
+# resolved four separate times per `acquire` and three per `--check` (measured
+# with a logging gh stub), and `lmde acquire --check` runs from
+# git-hooks/pre-push -- so every `git push` on a gh-only machine spawned three
+# `gh` processes. With a keyring-backed gh and a locked login keychain, each
+# one can block on a GUI prompt, so the bound multiplied too.
+#
+# It also removes a TOCTOU: acquire_run gated on one resolution while
+# write_acquire_npmrc performed another, so a transient failure between them
+# produced the self-contradicting pair "using the local gh login" followed by
+# "could not write an authed npmrc".
+#
+# Empty string is a legitimate cached answer ("no gh credential"), so the
+# _SET flag -- not the value -- is what marks the cache populated.
+#
+# The cache is only useful if it is POPULATED IN THE PARENT SHELL. Every
+# caller reaches the resolver through `$( )`, and a subshell's assignment dies
+# with it -- so caching inside acquire_gh_token alone changed nothing
+# (measured: still 4 invocations). Subshells DO inherit the parent's
+# variables, so acquire_run and check_run call acquire_resolve_gh once,
+# directly, before anything spawns a subshell; every later lookup then reads
+# the inherited value and skips gh entirely.
+ACQUIRE_GH_TOKEN_CACHE=""
+ACQUIRE_GH_TOKEN_CACHE_SET=""
+
+# acquire_resolve_gh -- populate the cache. Call this in the PARENT shell.
+acquire_resolve_gh() {
+    if [ -n "${ACQUIRE_GH_TOKEN_CACHE_SET}" ]; then
+        return 0
+    fi
+    ACQUIRE_GH_TOKEN_CACHE_SET="1"
+    ACQUIRE_GH_TOKEN_CACHE=""
+    command -v gh >/dev/null 2>&1 || return 0
     local out=""
     # --hostname github.com is REQUIRED, not decorative. `gh auth token` with
     # no hostname returns the token for GH_HOST, so a developer pointed at a
     # GitHub Enterprise instance would hand an Enterprise token to
     # npm.pkg.github.com and get an auth failure despite a perfectly good
     # github.com login. The registry here is fixed, so the host must be too.
+    #
+    # It is a narrowing, not a guarantee: GH_TOKEN in the environment
+    # overrides host resolution entirely, so a GH_TOKEN holding an enterprise
+    # or scope-limited token still reaches us. The scope hint at the call site
+    # is what makes that case diagnosable.
     out="$(acquire_bounded 10 gh auth token --hostname github.com 2>/dev/null)" || out=""
     # Strip whitespace; a blank line is not a credential.
     out="$(printf '%s' "${out}" | tr -d '[:space:]')"
-    echo "${out}"
+    ACQUIRE_GH_TOKEN_CACHE="${out}"
+    return 0
+}
+
+# acquire_gh_token -- the cached value (resolving first if nothing has).
+acquire_gh_token() {
+    acquire_resolve_gh
+    printf '%s' "${ACQUIRE_GH_TOKEN_CACHE}"
     return 0
 }
 
@@ -206,28 +251,57 @@ acquire_gh_token() {
 # taking the documented fail-open path.
 #
 # So: use a timeout binary when there is one, else run the command in the
-# background with a watchdog that kills it. bash 3.2 compatible.
+# background and poll for it, killing it when the bound expires.
+#
+# The fallback deliberately writes NOTHING TO DISK. An earlier version
+# captured the command's stdout in a mktemp file and removed it after `wait`;
+# with no trap anywhere in bin/lmde, a run killed mid-`gh` left the token
+# sitting in /tmp at 0600 -- reproduced under both SIGTERM and SIGKILL. That
+# contradicted this file's own stance (see purge_npmrc: "the PAT must never
+# linger on disk") and, worse, the exposure existed ONLY on the platform this
+# fallback was written for, since the timeout branches never touch disk.
+# Backgrounding the command inside the function lets its stdout flow straight
+# to the caller's capture, so the secret stays in memory.
+#
+# The watchdog is a POLL LOOP rather than a `( sleep N; kill ) &` subshell:
+# killing that subshell leaves its `sleep` reparented to init for the full
+# duration, and `lmde acquire --check` runs from git-hooks/pre-push, so every
+# push would strand detached sleeps. Polling costs one `kill -0` per second
+# and strands nothing.
+#
+# bash 3.2 compatible (no `wait -n`).
 acquire_bounded() {
     local secs="$1"; shift
+    # Guarded, not bare: this file's header promises every fallible call is,
+    # and an unguarded non-zero here aborts bin/lmde under `set -e`.
     if command -v timeout >/dev/null 2>&1; then
-        timeout "${secs}" "$@"
-        return $?
+        timeout "${secs}" "$@" || return $?
+        return 0
     fi
     if command -v gtimeout >/dev/null 2>&1; then
-        gtimeout "${secs}" "$@"
-        return $?
+        gtimeout "${secs}" "$@" || return $?
+        return 0
     fi
-    local out_file rc=0 pid watcher
-    out_file="$(mktemp "${TMPDIR:-/tmp}/acquire-bounded.XXXXXX")" || return 1
-    "$@" >"${out_file}" 2>/dev/null &
+    local rc=0 pid waited=0 killed=0
+    "$@" 2>/dev/null &
     pid=$!
-    ( sleep "${secs}"; kill -TERM "${pid}" >/dev/null 2>&1 ) >/dev/null 2>&1 &
-    watcher=$!
+    while kill -0 "${pid}" 2>/dev/null; do
+        if [ "${waited}" -ge "${secs}" ]; then
+            kill -TERM "${pid}" >/dev/null 2>&1 || true
+            killed=1
+            break
+        fi
+        sleep 1
+        waited=$((waited + 1))
+    done
     wait "${pid}" 2>/dev/null || rc=$?
-    kill -TERM "${watcher}" >/dev/null 2>&1 || true
-    wait "${watcher}" 2>/dev/null || true
-    cat "${out_file}" 2>/dev/null || true
-    rm -f "${out_file}"
+    # `timeout` reports expiry as 124; a killed child reports 143 (SIGTERM).
+    # Normalize so all three branches agree -- the function is documented as a
+    # general-purpose bound, and a caller testing for 124 must not be wrong
+    # depending on which platform it ran on.
+    if [ "${killed}" = "1" ]; then
+        rc=124
+    fi
     return "${rc}"
 }
 
@@ -263,6 +337,7 @@ acquire_warn_if_deprecated() {
 # hardening. The caller removes it after the install.
 write_acquire_npmrc() {
     local dir="$1" token
+    # Reads the cache acquire_run/check_run populated in the parent shell.
     token="$(acquire_token)"
     if [ -z "${token}" ]; then
         acquire_note "no credential: GH_PAT_NAATM_PACKAGES_RO unset, no deprecated GH_AI_TOOLS_PAT, and no usable \`gh auth token\` -- need one of those to install from GitHub Packages"
@@ -497,6 +572,7 @@ acquire_run() {
     # today, but hardened so a bare acquire_run floats instead of crashing.
     local pins_file="${1:-}"
     local token
+    acquire_resolve_gh
     token="$(acquire_token)"
     acquire_warn_if_deprecated
 
@@ -507,6 +583,13 @@ acquire_run() {
     fi
     if [ "$(acquire_token_name)" = "gh" ]; then
         acquire_note "using the local \`gh\` login for GitHub Packages (no GH_PAT_NAATM_PACKAGES_RO set)"
+        # `gh auth login` grants repo/read:org/gist/workflow by DEFAULT --
+        # NOT read:packages. So a gh credential can be present, non-empty and
+        # perfectly valid while every registry call 401s, turning one
+        # actionable message into a wall of per-package install warnings. Say
+        # the remedy up front rather than making someone infer it from seven
+        # unrelated-looking failures.
+        acquire_note "if installs fail to authenticate, that login is missing the packages scope: \`gh auth refresh -h github.com -s read:packages\`"
     fi
 
     if ! command -v npm >/dev/null 2>&1; then
@@ -652,6 +735,7 @@ check_run() {
     # on an unbound $1 -- consistent with this verb's fail-open contract.
     local pins_file="${1:-}"
     local token
+    acquire_resolve_gh
     # Same resolver the install path uses. Reading the environment directly
     # here would leave --check silently disabled on a machine whose only
     # credential is a gh login -- installs would work and the advisory check
