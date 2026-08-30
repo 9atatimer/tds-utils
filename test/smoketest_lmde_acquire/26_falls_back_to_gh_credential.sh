@@ -21,9 +21,20 @@ make_gh_stub() {
     mkdir -p "${bindir}"
     cat > "${bindir}/gh" <<EOF
 #!/usr/bin/env bash
+# Answers ONLY when the github.com hostname is pinned. Without --hostname,
+# \`gh auth token\` returns the token for whatever GH_HOST names, so a
+# developer on a GitHub Enterprise instance would get an Enterprise token
+# sent to npm.pkg.github.com. Refusing here makes that a red test rather
+# than a silent auth failure on someone's laptop.
 if [ "\$1" = "auth" ] && [ "\$2" = "token" ]; then
-    printf '%s\n' "${token}"
-    exit 0
+    for a in "\$@"; do
+        if [ "\$a" = "github.com" ]; then
+            printf '%s\n' "${token}"
+            exit 0
+        fi
+    done
+    echo "gh stub: refusing -- hostname not pinned to github.com" >&2
+    exit 1
 fi
 exit 1
 EOF

@@ -463,6 +463,17 @@ assert_stderr_contains() {
     fi
 }
 
+# assert_stderr_not_contains <dir> <needle> <msg>
+assert_stderr_not_contains() {
+    local dir="$1" needle="$2" msg="$3"
+    if grep -qF "${needle}" "${dir}/stderr" 2>/dev/null; then
+        echo "FAIL: ${msg}"
+        echo "  stderr unexpectedly contains: ${needle}"
+        echo "--- stderr ---"; cat "${dir}/stderr" 2>/dev/null
+        return 1
+    fi
+}
+
 # assert_stdout_contains <dir> <needle> <msg>
 assert_stdout_contains() {
     local dir="$1" needle="$2" msg="$3"

@@ -184,15 +184,51 @@ acquire_token_name() {
 acquire_gh_token() {
     command -v gh >/dev/null 2>&1 || { echo ""; return 0; }
     local out=""
-    if command -v timeout >/dev/null 2>&1; then
-        out="$(timeout 10 gh auth token 2>/dev/null)" || out=""
-    else
-        out="$(gh auth token 2>/dev/null)" || out=""
-    fi
+    # --hostname github.com is REQUIRED, not decorative. `gh auth token` with
+    # no hostname returns the token for GH_HOST, so a developer pointed at a
+    # GitHub Enterprise instance would hand an Enterprise token to
+    # npm.pkg.github.com and get an auth failure despite a perfectly good
+    # github.com login. The registry here is fixed, so the host must be too.
+    out="$(acquire_bounded 10 gh auth token --hostname github.com 2>/dev/null)" || out=""
     # Strip whitespace; a blank line is not a credential.
     out="$(printf '%s' "${out}" | tr -d '[:space:]')"
     echo "${out}"
     return 0
+}
+
+# acquire_bounded <seconds> <cmd...> -- run <cmd>, killed after <seconds>.
+#
+# Stock macOS ships NEITHER `timeout` NOR `gtimeout` (both come from GNU
+# coreutils, which is not installed by default), so a `command -v timeout`
+# guard that falls through to running the command unbounded provides no bound
+# at all on the one platform this credential fallback exists for. A `gh` that
+# stalls on keychain access would then hang the whole acquire run instead of
+# taking the documented fail-open path.
+#
+# So: use a timeout binary when there is one, else run the command in the
+# background with a watchdog that kills it. bash 3.2 compatible.
+acquire_bounded() {
+    local secs="$1"; shift
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "${secs}" "$@"
+        return $?
+    fi
+    if command -v gtimeout >/dev/null 2>&1; then
+        gtimeout "${secs}" "$@"
+        return $?
+    fi
+    local out_file rc=0 pid watcher
+    out_file="$(mktemp "${TMPDIR:-/tmp}/acquire-bounded.XXXXXX")" || return 1
+    "$@" >"${out_file}" 2>/dev/null &
+    pid=$!
+    ( sleep "${secs}"; kill -TERM "${pid}" >/dev/null 2>&1 ) >/dev/null 2>&1 &
+    watcher=$!
+    wait "${pid}" 2>/dev/null || rc=$?
+    kill -TERM "${watcher}" >/dev/null 2>&1 || true
+    wait "${watcher}" 2>/dev/null || true
+    cat "${out_file}" 2>/dev/null || true
+    rm -f "${out_file}"
+    return "${rc}"
 }
 
 # acquire_token -- the credential VALUE, by resolution order:
@@ -615,11 +651,16 @@ check_run() {
     # Optional under set -u: a bare check_run must float (no pins), never crash
     # on an unbound $1 -- consistent with this verb's fail-open contract.
     local pins_file="${1:-}"
-    local token="${GH_PAT_NAATM_PACKAGES_RO:-${GH_AI_TOOLS_PAT:-}}"
+    local token
+    # Same resolver the install path uses. Reading the environment directly
+    # here would leave --check silently disabled on a machine whose only
+    # credential is a gh login -- installs would work and the advisory check
+    # would quietly report nothing, which is the worse of the two failures.
+    token="$(acquire_token)"
     acquire_warn_if_deprecated
 
     if [ -z "${token}" ]; then
-        acquire_note "GH_PAT_NAATM_PACKAGES_RO unset or empty (and no deprecated GH_AI_TOOLS_PAT) -- cannot query GitHub Packages; advisory update check skipped."
+        acquire_note "no credential: GH_PAT_NAATM_PACKAGES_RO unset, no deprecated GH_AI_TOOLS_PAT, and no usable \`gh auth token\` -- cannot query GitHub Packages; advisory update check skipped."
         return 0
     fi
     if ! command -v npm >/dev/null 2>&1; then
