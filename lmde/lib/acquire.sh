@@ -289,13 +289,45 @@ acquire_bounded() {
     local secs="$1"; shift
     # Guarded, not bare: this file's header promises every fallible call is,
     # and an unguarded non-zero here aborts bin/lmde under `set -e`.
+    local tbin=""
     if command -v timeout >/dev/null 2>&1; then
-        timeout "${secs}" "$@" || return $?
-        return 0
+        tbin="timeout"
+    elif command -v gtimeout >/dev/null 2>&1; then
+        tbin="gtimeout"
     fi
-    if command -v gtimeout >/dev/null 2>&1; then
-        gtimeout "${secs}" "$@" || return $?
-        return 0
+    if [ -n "${tbin}" ]; then
+        # `-k` is what makes this branch a BOUND rather than a request.
+        # Without it, timeout(1) sends SIGTERM and then waits indefinitely on
+        # a child that ignores it -- measured 31s against a 2s bound on GNU
+        # coreutils 9.11, exiting 124 the whole time, so the status claimed
+        # the bound held. That child is exactly the credential helper stuck
+        # on a locked keychain this function exists to guard against, and it
+        # is the branch EVERY Linux machine takes (issue #256). The fallback
+        # below has always escalated to SIGKILL; now both branches agree.
+        #
+        # Passed unconditionally, NOT behind a capability probe. Every
+        # timeout(1) that exists has taken -k for years -- GNU coreutils
+        # since 7.0, busybox, toybox, FreeBSD 12+ -- and macOS, the one
+        # platform that lacks the option, lacks the binary entirely and
+        # takes the fallback below. A probe here would have to run some
+        # command to test with, which makes it PATH-dependent, and a probe
+        # that cannot find its test command degrades silently back to the
+        # unbounded form. That silent degradation is the same shape as the
+        # bug being fixed, so the guard would cost more than it bought.
+        local rc=0
+        "${tbin}" -k "${ACQUIRE_KILL_GRACE_SECS}" "${secs}" "$@" || rc=$?
+        # timeout(1) reports a plain expiry as 124, but once -k escalates it
+        # reports the signal instead (137 = SIGKILL, 143 = SIGTERM). The
+        # fallback branch already normalizes its own kill to 124, and this
+        # function's contract is that all branches agree on what expiry looks
+        # like -- so without this mapping the two disagree precisely when the
+        # bound did the most work. The cost is that a child legitimately
+        # exiting 137 or 143 on its own is reported as an expiry; no caller
+        # distinguishes those, and every caller checks non-zero.
+        case "${rc}" in
+            137|143) rc=124 ;;
+        esac
+        return "${rc}"
     fi
     # The whole fallback runs in a subshell with stderr closed, and reports
     # through its EXIT STATUS. `set -m` makes the shell announce job state --
@@ -331,7 +363,16 @@ acquire_bounded() {
         # after a short grace, which nothing can ignore, before waiting.
         if [ "${killed}" = "1" ]; then
             grace=0
-            while kill -0 "${pid}" 2>/dev/null; do
+            # Probe the GROUP, not the leader. The leader can die from the
+            # SIGTERM we just sent while a descendant that ignores it keeps
+            # running -- and keeps the caller's command-substitution pipe
+            # open. Probing only the leader ends this loop on the first
+            # iteration in that case, so SIGKILL is never sent and the
+            # "bound" returns after the descendant's full lifetime: measured
+            # 31s against a 2s bound, with rc still 124 so nothing reported
+            # that the bound had been missed. The leader probe stays as a
+            # fallback for when `set -m` did not give the child its own group.
+            while kill -0 "-${pid}" 2>/dev/null || kill -0 "${pid}" 2>/dev/null; do
                 if [ "${grace}" -ge "${ACQUIRE_KILL_GRACE_SECS}" ]; then
                     kill -KILL "-${pid}" >/dev/null 2>&1 || kill -KILL "${pid}" >/dev/null 2>&1 || true
                     break

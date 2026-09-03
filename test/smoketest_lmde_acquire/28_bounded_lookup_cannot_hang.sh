@@ -23,12 +23,18 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
 main() {
     : "${SMOKE_TMP:=$(mktemp -d)}"
     require_lmde || return 1
-    local dir elapsed rc out
+    local dir bindir elapsed rc out
     dir="$(scenario_dir bounded_lookup)"
+    # A CONSTRUCTED PATH carrying no timeout implementation forces the fallback
+    # branch. `PATH=/usr/bin:/bin` looked equivalent and was not: on Linux it
+    # resolves /usr/bin/timeout, so this test measured the GNU branch instead of
+    # the fallback it names, and failed its own `< 10s` assertion there because
+    # that branch was unbounded too (issue #256). macOS ships no /usr/bin/timeout,
+    # which is why the mistake survived. no_timeout_path asserts the absence.
+    bindir="$(no_timeout_path "${dir}")" || return 1
 
-    # PATH without any timeout binary forces the fallback branch. Sourcing the
-    # library directly is the point: this is the mechanism, not the verb.
-    out="$(env -i HOME="${dir}/home" PATH=/usr/bin:/bin bash -c '
+    # Sourcing the library directly is the point: this is the mechanism, not the verb.
+    out="$(env -i HOME="${dir}/home" PATH="${bindir}" bash -c '
         source "'"${REPO_DIR}"'/lmde/lib/acquire.sh"
         start=$(date +%s)
         captured="$(acquire_bounded 2 bash -c "trap \"\" TERM; sleep 30 & sleep 30")"

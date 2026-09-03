@@ -533,7 +533,69 @@ assert_stdout_empty() {
     fi
 }
 
+# --- Bounded-lookup fixtures -------------------------------------------------
+
+# no_timeout_path <dir> -- build a bin directory holding ONLY the binaries the
+# acquire_bounded fallback needs, deliberately excluding every `timeout`
+# implementation, and echo its path.
+#
+# `PATH=/usr/bin:/bin` is NOT a substitute and was the original bug here: on
+# Linux that resolves /usr/bin/timeout from coreutils, so a test aiming at the
+# no-timeout fallback silently measured the GNU branch instead. macOS ships no
+# /usr/bin/timeout, so the mistake was invisible on the machine it was written
+# on. The self-check below is what makes the intent enforceable rather than
+# assumed.
+no_timeout_path() {
+    local dir="$1/nobin" tool src
+    mkdir -p "${dir}"
+    for tool in bash sleep date seq dirname; do
+        if ! src="$(command -v "${tool}")"; then
+            echo "FAIL: ${tool} not found on host PATH; cannot build a controlled PATH" >&2
+            return 1
+        fi
+        ln -sf "${src}" "${dir}/${tool}"
+    done
+    if PATH="${dir}" command -v timeout >/dev/null 2>&1 \
+       || PATH="${dir}" command -v gtimeout >/dev/null 2>&1; then
+        echo "FAIL: constructed PATH still resolves a timeout implementation" >&2
+        return 1
+    fi
+    printf '%s\n' "${dir}"
+}
+
+# timeout_path <dir> -- the complement: a controlled bin directory that DOES
+# carry a `timeout`, so the primary branch can be exercised deliberately.
+# Skips (echoes nothing, returns 1) when the host has no timeout to link.
+timeout_path() {
+    local dir="$1/tobin" tool src timeout_src
+    if ! timeout_src="$(command -v timeout || command -v gtimeout)"; then
+        return 1
+    fi
+    mkdir -p "${dir}"
+    for tool in bash sleep date seq dirname; do
+        src="$(command -v "${tool}")" || return 1
+        ln -sf "${src}" "${dir}/${tool}"
+    done
+    ln -sf "${timeout_src}" "${dir}/timeout"
+    printf '%s\n' "${dir}"
+}
+
+# hostile_child <dir> -- write a helper that IGNORES SIGTERM and holds whatever
+# stdout it inherits for 30s, without keeping a single long-lived `sleep` child
+# that a group signal would take down on its way past. Echo its path.
+hostile_child() {
+    local script="$1/hostile_child.sh"
+    cat > "${script}" <<'CHILD'
+#!/usr/bin/env bash
+trap "" TERM
+for i in $(seq 1 30); do sleep 1; done
+CHILD
+    chmod +x "${script}"
+    printf '%s\n' "${script}"
+}
+
 export -f require_lmde scenario_dir \
+    no_timeout_path timeout_path hostile_child \
     make_npm_stub make_npm_fail_stub make_npm_forbidden_install_stub \
     make_npm_registry_strict_stub \
     seed_installed seed_installed_data run_acquire run_check \
