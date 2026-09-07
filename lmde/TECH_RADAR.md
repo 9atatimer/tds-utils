@@ -74,6 +74,8 @@ documents the recommended approach so it isn't reinvented per repo.
 ## Assess -- Researching / Observing
 
 - **sqlite-vec**: Potential replacement for heavier embedding search frameworks in `log-hoarder`.
+- **sesh**: tmux session manager (create-or-attach by name, zoxide/tmux/config-driven picker sources). Evaluating as the `tm` interactive alias's backend in place of a hand-rolled `tmux has-session` script.
+- **zoxide**: Frecency-ranked `cd` replacement. Evaluating as a `sesh` picker source (recently/frequently visited dirs), not yet adopted as a `cd` replacement itself.
 
 ---
 
@@ -88,6 +90,9 @@ documents the recommended approach so it isn't reinvented per repo.
 ---
 
 ## Decisions Log
+
+- **2026-09-06**: Added `sesh` and `zoxide` to Assess. Evaluating for a
+  `tm` tmux create-or-attach alias (see `macos/dot.alias`).
 
 - **2026-07-26**: Moved from `prompts/SKILL.TECH_RADAR.md` to
   `lmde/TECH_RADAR.md` as part of the `prompts/` retirement

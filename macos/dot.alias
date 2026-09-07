@@ -53,3 +53,12 @@ alias opencode='clai opencode'
 # Note: `mc` is also the binary name for GNU Midnight Commander and the MinIO
 # client -- drop this alias if either ever gets installed.
 alias mc=monctl
+
+# tm -- create-or-attach a tmux session named after the cwd, via sesh.
+# sesh derives the session name from the path itself (e.g. .../tds-utils ->
+# "tds-utils") and is idempotent: a second call from the same dir reattaches
+# the existing session instead of erroring or recreating it. sesh + zoxide
+# are Assess-ring (evaluation-only) on lmde/TECH_RADAR.md, not yet adopted.
+tm() {
+    command sesh connect "$PWD"
+}
