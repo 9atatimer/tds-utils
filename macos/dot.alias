@@ -60,5 +60,5 @@ alias mc=monctl
 # the existing session instead of erroring or recreating it. sesh + zoxide
 # are Assess-ring (evaluation-only) on lmde/TECH_RADAR.md, not yet adopted.
 tm() {
-    sesh connect "$PWD"
+    command sesh connect "$PWD"
 }
