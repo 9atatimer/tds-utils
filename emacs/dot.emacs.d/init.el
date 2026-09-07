@@ -684,16 +684,8 @@ default when the file is absent, unreadable, or empty."
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
  '(indent-tabs-mode nil)
- '(org-agenda-files
-   '("~/org/job-hunt.org" "~/org/todo.org"))
- '(package-selected-packages
-   '(bazel chatgpt-shell claude-code copilot direnv dtrt-indent eat
-           eslint-fix exec-path-from-shell flycheck
-           git-timemachine gptel groovy-mode js-ts-defs js2-mode
-           lsp-treemacs lsp-ui magit mermaid-mode poly-markdown
-           poly-rst poly-ruby prettier-js projectile
-           quelpa-use-package terraform-mode typescript-mode uuidgen
-           vterm web-mode yasnippet))
+ '(org-agenda-files '("~/org/job-hunt.org" "~/org/todo.org"))
+ '(package-selected-packages nil)
  '(package-vc-selected-packages
    '((claude-code :vc-backend Git :url
                   "https://github.com/stevemolitor/claude-code.el"))))
