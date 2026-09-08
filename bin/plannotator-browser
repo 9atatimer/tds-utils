@@ -1,0 +1,63 @@
+#!/bin/zsh
+# plannotator-browser -- $PLANNOTATOR_BROWSER handler: open Plannotator's review
+# surface in its OWN Chrome window instead of a tab in whatever window happens
+# to be frontmost (issue #266).
+#
+# Inherently macOS-specific: the whole point is `open`'s new-instance handling.
+#
+# Two things about the plugin's resolver (packages/server/browser.ts) shape
+# this script and are easy to undo by accident:
+#
+#   - It exec's $PLANNOTATOR_BROWSER directly ONLY when the value contains a
+#     "/" and does not end in ".app". A bare command name instead degrades to
+#     `open -a <name> <url>`, so this script must always be referenced by
+#     absolute path -- see the export in macos/dot.zshenv.
+#   - `open -a "Google Chrome" --args ...` against an ALREADY RUNNING Chrome
+#     merely activates it and DISCARDS --args, which is precisely the
+#     tab-instead-of-window symptom. `-n` is what forces the new instance whose
+#     command line Chrome's singleton forwards into a new window.
+#
+# For a chromeless window with no tab strip or omnibox, swap --new-window for
+# --app="$url" in open_new_window below.
+
+set -euo pipefail
+
+BROWSER_APP="${PLANNOTATOR_BROWSER_APP:-Google Chrome}"
+
+# --- Action functions ---
+
+die() { print -u2 "plannotator-browser: $*"; exit 1; }
+
+usage() { print -u2 "usage: plannotator-browser <url>"; }
+
+# open_new_window <url> -- hand the URL to Chrome as a new window.
+open_new_window() {
+    local url="$1"
+    # -n and -a stay UNBUNDLED. `open -na` is one argv entry, which reads as a
+    # single opaque flag and hides the load-bearing -n from anyone auditing
+    # the invocation -- including the smoke test, which asserts on argv.
+    open -n -a "${BROWSER_APP}" --args --new-window "${url}"
+}
+
+# --- Flow functions ---
+
+# launch <url> -- validate the platform and the URL, then open.
+launch() {
+    local url="$1"
+    [[ "$(uname -s)" == "Darwin" ]] \
+        || die "macOS only (uses open(1)); got $(uname -s)"
+    [[ -n "${url}" ]] || die "no URL given"
+    open_new_window "${url}"
+}
+
+# --- Main ---
+
+main() {
+    if [[ $# -ne 1 ]]; then
+        usage
+        exit 1
+    fi
+    launch "$1"
+}
+
+main "$@"
