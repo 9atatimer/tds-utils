@@ -420,6 +420,27 @@ run_check() {
     printf '%s\n' "${rc}"
 }
 
+# run_latest <dir> <shortname> -- like run_check but for `acquire --latest
+# <shortname>`: captures the resolved version (or nothing) to <dir>/stdout and
+# warnings to <dir>/stderr, then echoes the exit code. Same hermetic env as
+# run_acquire/run_check.
+run_latest() {
+    local dir="$1" shortname="$2"
+    local rc=0
+    local pat_var other_var
+    pat_var="${TEST_PAT_VAR:-GH_PAT_NAATM_PACKAGES_RO}"
+    if [[ "${pat_var}" == "GH_AI_TOOLS_PAT" ]]; then
+        other_var="GH_PAT_NAATM_PACKAGES_RO"
+    else
+        other_var="GH_AI_TOOLS_PAT"
+    fi
+    env "PATH=${dir}/bin:/usr/bin:/bin" "HOME=${dir}/home" \
+        "GH_TOKEN=" "GITHUB_TOKEN=" "GH_HOST=" "GH_CONFIG_DIR=${dir}/home/.config/gh" \
+        "${pat_var}=${TEST_PAT-faketoken-readpackages}" "${other_var}=" \
+        bash "${LMDE_BIN}" acquire --latest "${shortname}" >"${dir}/stdout" 2>"${dir}/stderr" || rc=$?
+    printf '%s\n' "${rc}"
+}
+
 # --- Assertions --------------------------------------------------------------
 
 assert_eq() {
@@ -598,7 +619,7 @@ export -f require_lmde scenario_dir \
     no_timeout_path timeout_path hostile_child \
     make_npm_stub make_npm_fail_stub make_npm_forbidden_install_stub \
     make_npm_registry_strict_stub \
-    seed_installed seed_installed_data run_acquire run_check \
+    seed_installed seed_installed_data run_acquire run_check run_latest \
     assert_eq assert_file_present assert_file_absent assert_symlink_to \
     assert_installed assert_not_installed assert_stderr_contains \
     assert_stdout_contains assert_stdout_empty

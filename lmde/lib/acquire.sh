@@ -872,3 +872,71 @@ check_run() {
     purge_npmrc "${npmrc}" "${npmrc_dir}"
     return 0
 }
+
+# --- Latest (advisory point query; report-only, NEVER installs, ALWAYS exits 0) ---
+#
+# `lmde acquire --latest <shortname>` prints the registry-resolved latest
+# version of one package's npm name, ignoring any pin -- "what would float".
+# check_one already knows the installed-vs-latest comparison for every row
+# but only surfaces the version numbers when the row is BEHIND (silent when
+# current); a caller that wants a concrete number even when everything
+# agrees (e.g. comparing a local, not-yet-acquired repo checkout against the
+# registry) needs the raw value. Same fail-open contract as the rest of this
+# file: a caller distinguishes success from failure by checking for
+# non-empty stdout, never by exit code.
+
+# latest_run <shortname> -- print <shortname>'s registry-latest version to
+# stdout, or nothing on any failure (no credential, unknown shortname,
+# registry unreachable). ALWAYS returns 0.
+latest_run() {
+    local shortname="$1"
+    local token
+    acquire_resolve_gh
+    token="$(acquire_token)"
+    acquire_warn_if_deprecated
+
+    if [ -z "${token}" ]; then
+        acquire_note "no credential: GH_PAT_NAATM_PACKAGES_RO unset, no deprecated GH_AI_TOOLS_PAT, and no usable \`gh auth token\` -- cannot query GitHub Packages."
+        return 0
+    fi
+    if ! command -v npm >/dev/null 2>&1; then
+        acquire_note "npm not on PATH -- cannot query the registry."
+        return 0
+    fi
+
+    local npm_name=""
+    local row_shortname row_npm_name _bin _pin_var
+    while read -r row_shortname row_npm_name _bin _pin_var; do
+        [ "${row_shortname}" = "${shortname}" ] || continue
+        npm_name="${row_npm_name}"
+        break
+    done < <(acquire_pkg_table)
+    if [ -z "${npm_name}" ]; then
+        acquire_note "unknown package shortname '${shortname}' -- see \`lmde acquire\` usage for the table"
+        return 0
+    fi
+
+    local npmrc_dir="" npmrc=""
+    npmrc_dir="$(mktemp -d "${TMPDIR:-/tmp}/lmde-latest.XXXXXX")" || npmrc_dir=""
+    if [ -z "${npmrc_dir}" ]; then
+        acquire_note "could not create a temp dir for the npmrc -- query skipped."
+        return 0
+    fi
+    if ! write_acquire_npmrc "${npmrc_dir}"; then
+        acquire_note "could not write an authed npmrc -- query skipped."
+        purge_npmrc "${npmrc_dir}/.npmrc" "${npmrc_dir}"
+        return 0
+    fi
+    npmrc="${npmrc_dir}/.npmrc"
+
+    local latest=""
+    latest="$(npm_view_latest "${npm_name}" "${npmrc}")" || latest=""
+    purge_npmrc "${npmrc}" "${npmrc_dir}"
+
+    if [ -z "${latest}" ]; then
+        acquire_note "WARNING: ${shortname}: registry unreachable -- cannot resolve latest"
+        return 0
+    fi
+    printf '%s\n' "${latest}"
+    return 0
+}

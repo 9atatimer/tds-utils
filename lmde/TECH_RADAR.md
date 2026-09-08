@@ -68,6 +68,12 @@ documents the recommended approach so it isn't reinvented per repo.
 ## Trial -- Testing in Limited Scope
 
 - **MCP (Model Context Protocol)**: Evaluating for standardized agent tool-use.
+- **skills** (Vercel, `vercel-labs/skills`, skills.sh): Homebrew-core CLI for
+  installing third-party skill packs (`skills add <source>`) into an agent's
+  skills directory. Ambient, like NATS -- ships via Homebrew, not the
+  `lmde acquire` rail; no version pin, no fleet deployment. Unrelated to
+  `@nine-at-a-time-media/skills` (this org's own inert skills-tree data
+  package) despite the shared name.
 
 ---
 
@@ -90,6 +96,11 @@ documents the recommended approach so it isn't reinvented per repo.
 ---
 
 ## Decisions Log
+
+- **2026-09-07**: Added `skills` (Vercel CLI, Homebrew-core) to Trial.
+  Ambient/unpinned like NATS -- not on the `lmde acquire` rail. See
+  `docs/design/LMDE.DESIGN.md` section 6 (skills-drift indicator) and
+  `lmde/LMDE.md`.
 
 - **2026-09-06**: Added `sesh` and `zoxide` to Assess. Evaluating for a
   `tm` tmux create-or-attach alias (see `macos/dot.alias`).

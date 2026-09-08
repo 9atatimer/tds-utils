@@ -36,6 +36,7 @@ One tool, one design doc. Anything an implementer needs to know about why
 | Observability stack | ADOPTED (deployed; ingress revision live) | `LMDE-OBSERVABILITY.DESIGN.md` |
 | Host ingress pattern | ADOPTED | `LMDE-OBSERVABILITY.DESIGN.md` section 4 |
 | Backplane (NATS-in-kind) | DRAFT (designed, not implemented) | `LMDE-BACKPLANE.DESIGN.md` |
+| Skills-drift indicator (prompt + menu bar) | ADOPTED (implemented) | This document, section 6 |
 
 ### Document map
 
@@ -431,6 +432,78 @@ hence `32100`.
   avoid an `op` bottleneck on every client, the LMDE bootstrap exports
   `NATS_TOKEN` into a local `.env` for host-side agents.
 
+### 6. Skills-drift indicator (prompt + menu bar)
+
+A visible signal, always present rather than something Todd has to go
+looking for, that this repo's own `@nine-at-a-time-media/skills` pipeline
+(NOT Vercel's unrelated `skills` CLI, see `lmde/LMDE.md`'s Core
+Infrastructure list) has drifted between its three sources of truth:
+
+- **published** -- the registry's latest version.
+- **installed** -- this machine's `lmde acquire` stamp
+  (`~/.local/state/tds-utils/acquire/skills.version`).
+- **local** -- the `9atatimer/Skills` clone's own would-be version (the same
+  commit-count rule its CI uses), when a clone is present at
+  `$SKILLS_REPO_PATH` (default `~/workplace/9atatimer/Skills`) -- absent
+  there, this source is skipped, not reported as drift.
+
+**Semantics (Todd's call): binary, not tri-state.** If every source that
+could be checked agrees, green (quiet, no output, no icon accent). If any
+one disagrees, not-green -- no amber "pinned but behind" tier the way
+`check_one`'s coloring distinguishes for the executable rows. A dirty
+working tree touching the local repo's version-relevant paths also counts
+as drift on its own (uncommitted work can never match a published version).
+
+**One shared core, two thin consumers.** `bin/tds-status`-style script,
+`bin/skills-drift-check`: silent + exit 0 when green, one or more
+`DRIFT: <detail>` lines on stdout + exit 1 when not, a single stderr note +
+exit 2 when the check itself could not run (offline, no credential) --
+consumers treat exit 2 the same as exit 0 for display, matching the
+fail-open stance the rest of `lmde acquire`/`check_run` hold throughout: a
+flaky network is not a drift finding. Both the RPROMPT segment
+(`macos/dot.zshrc`) and the menu-bar app (`bin/skills-drift-monitor`) shell
+out to this one script rather than duplicating the comparison logic.
+
+**New `lmde acquire --latest <shortname>`** (`lmde/lib/acquire.sh`). Needed
+because `check_one`'s advisory line only carries version numbers when a row
+is BEHIND -- silent when current, so it never reveals a concrete "latest"
+value to compare a local checkout against. `--latest` reuses the existing
+auth/npmrc plumbing (`acquire_resolve_gh`, `write_acquire_npmrc`,
+`npm_view_latest`) and prints just the resolved version, or nothing on any
+failure -- same fail-open contract (a caller checks for non-empty stdout,
+never the exit code) as every other verb in this file. Installs nothing;
+advisory-only, like `--check`.
+
+**Visual design (color-theory call).** Binary hue alone is a weak signal --
+roughly 8% of men are red/green colorblind -- so both surfaces pair color
+with SHAPE, not color alone:
+
+- Prompt: quiet (empty string) when green; red bold text plus a warning
+  glyph when not (exact format string in `macos/dot.zshrc`,
+  `skills_drift_prompt()`).
+- Menu bar (`bin/skills-drift-monitor`, `assets/skills-drift-icons.py`): a
+  plain rounded-badge outline, template-rendered (macOS tints it to the
+  menu bar's own chrome) when green; a filled warning-triangle-with-
+  exclamation, rendered in explicit non-template red, when not. Different
+  silhouette AND color, so the state reads even with no color perception at
+  all. Both icons are deliberately blunt line art -- a status item renders
+  at ~18-22pt, where anything finer turns to mush (the rule
+  `macos/apps/flip-monitor/icon.py` already established for Dock icons).
+
+**Cheap on every prompt draw.** The check shells out and hits the network,
+so it never runs synchronously in `RPROMPT`. A `precmd`-hooked background
+job refreshes a cache file (`~/.cache/tds-utils/skills-drift.status`) at
+most once per `SKILLS_DRIFT_TTL` (300s); the prompt function only ever
+reads that file. Same cheap-idempotence bar `clai provision`'s own Goal 5
+holds itself to, applied to a much higher-frequency caller (every prompt
+draw, not every session start).
+
+**New sibling app, not a segment on `lmde-sync-monitor`** (Todd's call) --
+unrelated concerns (S3 sync vs. skills currency), same rumps+launchd shape:
+`bin/skills-drift-monitor` + `bin/launch-skills-drift-monitor` +
+`macos/launchd/com.tds.skills-drift-monitor.plist`, mirroring
+`bin/lmde-sync-monitor`'s precedent file-for-file.
+
 ---
 
 ## State Machines
@@ -525,6 +598,8 @@ deleted.
 | designomatic on the rail | Acquire `@nine-at-a-time-media/designomatic` (bin `designomatic`; the `dom` alias stays unlinked inside the npm prefix -- one bin per table row) | The provisioned designomatic skill tells agents to run a binary the rail never installed; skills and executables roll out on separate rails, so a skill naming a binary needs a matching table row (shipped in PR #247; table amendment tracked in issue #248) |
 | Acquire timing | Session boundary, not only the cache boundary | See SANDBOX-LIFECYCLE.DESIGN.md; the setup stage's work is frozen in a ~7-day snapshot |
 | ENV in cloud | Out of scope (launch-time only) | Orthogonal launcher-parity gap G1 |
+| `lmde acquire --latest <shortname>` | New advisory-only verb, prints the resolved registry-latest version or nothing | `check_one` only reveals version numbers when a row is behind; the skills-drift indicator (section 6) needs a concrete "latest" even when everything agrees, to compare a local checkout against |
+| Vercel's `skills` CLI on the rail? | Rejected -- stays a Homebrew-core install (`brew install skills`), ambient like NATS, not `lmde acquire`-managed | Todd's call: no pin, no fleet deployment. It solves a different problem (installing THIRD-PARTY skill packs) than `@nine-at-a-time-media/skills` (this org's own tree); putting it on the rail would imply a currency guarantee that was explicitly declined. Resolves `PROVISION.DESIGN.md` Open Question 1 in the negative for this axis (that question was about using it as clai's placement engine, a still-separate question) |
 | ~~Versioning: `latest` by default for every package~~ | SUPERSEDED by the fleet-pins decision | `latest`-by-default gave executables no review gate; the fleet pins restore it without a second on-disk edit |
 | ~~Skills + catalog ride inside the `@clai` package (`clai/_data`), template-tools#145~~ | SUPERSEDED | Made a skill rollout a two-step human process (clai release + `CLAI_VERSION` bump); measured failure, see History |
 | ~~Skills pinned to the resolved clai version; a skill rollout is a clai release + pin bump~~ | SUPERSEDED | Same failure; skills float as their own package |

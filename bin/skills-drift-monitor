@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""skills-drift-monitor -- macOS menu-bar icon for the 9atatimer/Skills
+drift indicator (installed / published / local-repo agreement -- see
+bin/skills-drift-check, the single source of truth this just polls).
+
+A new sibling app, not a segment bolted onto lmde-sync-monitor (Todd's
+call) -- unrelated concerns, same rumps+launchd shape.
+"""
+import subprocess
+import sys
+from pathlib import Path
+
+import rumps
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CHECK_BIN = REPO_ROOT / "bin" / "skills-drift-check"
+
+ASSETS_DIR = REPO_ROOT / "assets"
+ICON_CURRENT = str(ASSETS_DIR / "skills-current.png")
+ICON_DRIFT = str(ASSETS_DIR / "skills-drift.png")
+
+CHECK_INTERVAL_SECS = 900  # mirror lmde-sync-monitor's default
+
+
+class SkillsDriftMonitor(rumps.App):
+    def __init__(self):
+        super(SkillsDriftMonitor, self).__init__("", icon=ICON_CURRENT, template=True)
+        self.timer = rumps.Timer(self.check_drift, CHECK_INTERVAL_SECS)
+        self.timer.start()
+        self.drift_lines = []
+        self.last_unknown = False
+        self.check_drift(None)
+
+    @rumps.clicked("Check Now")
+    def check_now(self, _):
+        self.check_drift(None)
+
+    def check_drift(self, _):
+        try:
+            result = subprocess.run(
+                [str(CHECK_BIN)], capture_output=True, text=True, timeout=30
+            )
+        except Exception as e:
+            # Never let a broken check crash the app or flip it to a false
+            # alarm -- same fail-open stance as skills-drift-check itself.
+            print(f"skills-drift-monitor: could not run skills-drift-check: {e}", file=sys.stderr)
+            self.last_unknown = True
+            self.update_ui()
+            return
+
+        if result.returncode == 1:
+            self.drift_lines = [
+                line for line in result.stdout.splitlines() if line.startswith("DRIFT:")
+            ]
+            self.last_unknown = False
+        elif result.returncode == 0:
+            self.drift_lines = []
+            self.last_unknown = False
+        else:
+            # exit 2 (or anything else unexpected): couldn't determine this
+            # run -- keep the LAST KNOWN state on the icon (a flaky network
+            # is not a drift finding) but note it in the dropdown.
+            self.last_unknown = True
+
+        self.update_ui()
+
+    def update_ui(self):
+        self.menu.clear()
+        if self.drift_lines:
+            self.icon = ICON_DRIFT
+            self.template = False
+            self.menu.add("Skills drift detected:")
+            for line in self.drift_lines:
+                self.menu.add(line[len("DRIFT: ") :])
+            self.menu.add(None)
+        else:
+            self.icon = ICON_CURRENT
+            self.template = True
+            self.menu.add("Skills current -- local/installed/published agree")
+            self.menu.add(None)
+
+        if self.last_unknown:
+            self.menu.add("(last check could not reach the registry -- showing prior state)")
+            self.menu.add(None)
+
+        self.menu.add("Check Now")
+        self.menu.add("Quit")
+
+
+if __name__ == "__main__":
+    SkillsDriftMonitor().run()

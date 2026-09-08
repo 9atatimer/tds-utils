@@ -119,7 +119,45 @@ function uv_env_prompt() {
   fi
 }
 
-RPROMPT='$(uv_env_prompt)'
+# 9atatimer/Skills drift indicator: quiet when local/installed/published all
+# agree, red when any disagree (see bin/skills-drift-check for the sources
+# and semantics). The check itself shells out and hits the network, so it
+# NEVER runs synchronously in the prompt -- a background job refreshes a
+# cache file at most once per SKILLS_DRIFT_TTL seconds, and the prompt only
+# ever reads that cache.
+SKILLS_DRIFT_CACHE="$HOME/.cache/tds-utils/skills-drift.status"
+SKILLS_DRIFT_CHECK="$HOME/workplace/tds-utils/bin/skills-drift-check"
+SKILLS_DRIFT_TTL=300
+
+function skills_drift_refresh_cache() {
+  [[ -x "$SKILLS_DRIFT_CHECK" ]] || return 0
+  local now mtime=0
+  now=$(date +%s)
+  [[ -f "$SKILLS_DRIFT_CACHE" ]] && mtime=$(date -r "$SKILLS_DRIFT_CACHE" +%s 2>/dev/null || echo 0)
+  (( now - mtime < SKILLS_DRIFT_TTL )) && return 0
+  # Touch first so overlapping prompt draws don't all launch their own
+  # background job while the first is still in flight.
+  mkdir -p "${SKILLS_DRIFT_CACHE:h}" 2>/dev/null
+  touch "$SKILLS_DRIFT_CACHE" 2>/dev/null
+  {
+    local rc=0
+    "$SKILLS_DRIFT_CHECK" >| "${SKILLS_DRIFT_CACHE}.tmp" 2>/dev/null || rc=$?
+    echo "$rc" >> "${SKILLS_DRIFT_CACHE}.tmp"
+    mv -f "${SKILLS_DRIFT_CACHE}.tmp" "$SKILLS_DRIFT_CACHE" 2>/dev/null
+  } &!
+}
+
+function skills_drift_prompt() {
+  [[ -f "$SKILLS_DRIFT_CACHE" ]] || return 0
+  local rc=$(tail -n1 "$SKILLS_DRIFT_CACHE" 2>/dev/null)
+  # rc 1 = confirmed drift; rc 0/2 (current/unknown) stay quiet -- a flaky
+  # network is not a drift finding (see skills-drift-check's own contract).
+  [[ "$rc" == "1" ]] && echo "%F{red}%Bskills⚠%b%f"
+}
+
+autoload -Uz add-zsh-hook 2>/dev/null && add-zsh-hook precmd skills_drift_refresh_cache
+
+RPROMPT='$(uv_env_prompt)$(skills_drift_prompt)'
 
 # --- Interactive conveniences ---
 
