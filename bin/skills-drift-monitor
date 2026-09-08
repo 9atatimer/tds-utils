@@ -25,13 +25,22 @@ CHECK_INTERVAL_SECS = 900  # mirror lmde-sync-monitor's default
 class SkillsDriftMonitor(rumps.App):
     def __init__(self):
         super(SkillsDriftMonitor, self).__init__("", icon=ICON_CURRENT, template=True)
+        # Built ONCE and re-added by reference in update_ui(), never by
+        # string. self.menu.clear() destroys the MenuItem objects it held;
+        # a subsequent self.menu.add("Check Now") builds a brand-new
+        # MenuItem("Check Now") with no callback at all (rumps only wires
+        # @rumps.clicked's callback into the item it builds at App.__init__
+        # time), so every rebuild after the first silently turned both
+        # items inert. Keeping these two objects alive and re-inserting the
+        # SAME instances is what keeps the callback attached across rebuilds.
+        self.check_now_item = rumps.MenuItem("Check Now", callback=self.check_now)
+        self.quit_item = rumps.MenuItem("Quit", callback=rumps.quit_application)
         self.timer = rumps.Timer(self.check_drift, CHECK_INTERVAL_SECS)
         self.timer.start()
         self.drift_lines = []
         self.last_unknown = False
         self.check_drift(None)
 
-    @rumps.clicked("Check Now")
     def check_now(self, _):
         self.check_drift(None)
 
@@ -83,8 +92,8 @@ class SkillsDriftMonitor(rumps.App):
             self.menu.add("(last check could not reach the registry -- showing prior state)")
             self.menu.add(None)
 
-        self.menu.add("Check Now")
-        self.menu.add("Quit")
+        self.menu.add(self.check_now_item)
+        self.menu.add(self.quit_item)
 
 
 if __name__ == "__main__":

@@ -35,7 +35,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-LMDE_BIN="${REPO_ROOT}/bin/lmde"
+: "${LMDE_BIN:=${REPO_ROOT}/bin/lmde}"
 
 SKILLS_STATE_FILE="${HOME}/.local/state/tds-utils/acquire/skills.version"
 SKILLS_REPO_PATH="${SKILLS_REPO_PATH:-${HOME}/workplace/9atatimer/Skills}"
@@ -59,13 +59,25 @@ installed_version() {
     [ -f "${SKILLS_STATE_FILE}" ] && cat "${SKILLS_STATE_FILE}" 2>/dev/null || true
 }
 
+# repo_is_git <repo> -- whether <repo> is a usable git working tree. NOT a
+# `[ -d "<repo>/.git" ]` check: a git WORKTREE (git worktree add, exactly
+# what this fleet's own CLAUDE.md convention puts under
+# ~/workplace/.worktrees/) has a `.git` FILE (a `gitdir:` pointer), not a
+# directory, so that check silently skipped the local source for anyone
+# working from a worktree instead of the primary clone. `rev-parse` is the
+# canonical probe; it is correct for a worktree, a normal clone, and (by
+# failing) a plain non-git directory alike.
+repo_is_git() {
+    git -C "$1" rev-parse --is-inside-work-tree >/dev/null 2>&1
+}
+
 # local_version -- echo the 9atatimer/Skills clone's own would-be version at
 # SKILLS_REPO_PATH, or "" when no clone is there or it lacks a git history
 # (a shallow single-commit checkout, node missing, etc.) -- absence is not
 # drift, it just means this source is not in play.
 local_version() {
     local repo="${SKILLS_REPO_PATH}"
-    [ -d "${repo}/.git" ] || { echo ""; return 0; }
+    repo_is_git "${repo}" || { echo ""; return 0; }
     command -v node >/dev/null 2>&1 || { echo ""; return 0; }
     local count
     # shellcheck disable=SC2086  # SKILLS_VERSION_PATHS is a deliberate word list
@@ -78,7 +90,7 @@ local_version() {
 # the version-relevant paths. Echoes "1" when dirty, "" otherwise/absent.
 local_dirty() {
     local repo="${SKILLS_REPO_PATH}"
-    [ -d "${repo}/.git" ] || { echo ""; return 0; }
+    repo_is_git "${repo}" || { echo ""; return 0; }
     local out
     # shellcheck disable=SC2086
     out="$(git -C "${repo}" status --porcelain -- ${SKILLS_VERSION_PATHS} 2>/dev/null)" || { echo ""; return 0; }
@@ -110,7 +122,13 @@ main() {
         note "could not resolve the registry-latest version (offline, or no GitHub Packages credential) -- skipping the drift check this run"
         UNKNOWN=1
     else
-        if [ -n "${installed}" ] && [ "${installed}" != "${published}" ]; then
+        if [ -z "${installed}" ]; then
+            # A missing stamp is NOT the same as "nothing to compare" the way
+            # an absent local clone is -- the registry resolved fine, so
+            # silence here would read as green ("current") when the honest
+            # state is "never acquired on this machine at all".
+            drift "no installed stamp at ${SKILLS_STATE_FILE} -- skills never acquired on this machine; run \`lmde acquire\`"
+        elif [ "${installed}" != "${published}" ]; then
             drift "installed ${installed} != published ${published} -- run \`lmde acquire\`"
         fi
         if [ -n "${local_v}" ] && [ "${local_v}" != "${published}" ]; then

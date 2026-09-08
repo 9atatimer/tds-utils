@@ -9,7 +9,13 @@
   <array>
     <string>/bin/zsh</string>
     <string>-c</string>
-    <string>exec "$HOME/workplace/tds-utils/bin/launch-skills-drift-monitor"</string>
+    <!-- Bare command name: .zshenv is sourced unconditionally (login or
+         not, interactive or not), so tds_path_apply's tiered tds_bin PATH
+         entry (~/.tds/dist/current -> ~/.tds/release -> the dev checkout)
+         is in effect before this resolves. A hardcoded checkout path here
+         would bypass a real dist/release install, or fail to start at all
+         on a machine with no dev checkout. -->
+    <string>exec launch-skills-drift-monitor</string>
   </array>
 
   <key>EnvironmentVariables</key>

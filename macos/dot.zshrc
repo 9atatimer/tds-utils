@@ -126,11 +126,16 @@ function uv_env_prompt() {
 # cache file at most once per SKILLS_DRIFT_TTL seconds, and the prompt only
 # ever reads that cache.
 SKILLS_DRIFT_CACHE="$HOME/.cache/tds-utils/skills-drift.status"
-SKILLS_DRIFT_CHECK="$HOME/workplace/tds-utils/bin/skills-drift-check"
+# Bare command name, resolved through the tiered tds_bin PATH entry
+# (~/.tds/dist/current -> ~/.tds/release -> the dev checkout, see
+# tds_path_apply in dot.zshenv) -- NOT a hardcoded dev-checkout path, which
+# would bypass a real dist/release install and run the mutable checkout
+# instead (or silently disable the indicator when that checkout is absent).
+SKILLS_DRIFT_CHECK="skills-drift-check"
 SKILLS_DRIFT_TTL=300
 
 function skills_drift_refresh_cache() {
-  [[ -x "$SKILLS_DRIFT_CHECK" ]] || return 0
+  command -v "$SKILLS_DRIFT_CHECK" >/dev/null 2>&1 || return 0
   local now mtime=0
   now=$(date +%s)
   [[ -f "$SKILLS_DRIFT_CACHE" ]] && mtime=$(date -r "$SKILLS_DRIFT_CACHE" +%s 2>/dev/null || echo 0)
