@@ -42,6 +42,15 @@ if [[ -z "${AST_MCP_BIN:-}" ]]; then
     fi
 fi
 
+# Plannotator: the $PLANNOTATOR_BROWSER handler that opens its review surface in
+# its own Chrome window rather than a tab. MUST be an absolute path -- the
+# plugin only exec's this value directly when it contains a "/", and a bare
+# name degrades to `open -a <name> <url>`, which is the tab symptom. Points at
+# the ~/.local/bin symlink (maintained by bin/tds-release-link) rather than at
+# the release worktree, so the path is stable across releases; same shape as
+# AST_MCP_BIN above. Uses :- so a test rig can override it.
+export PLANNOTATOR_BROWSER="${PLANNOTATOR_BROWSER:-$HOME/.local/bin/plannotator-browser}"
+
 # 1Password SSH agent. Only when the caller has not supplied one: agent
 # forwarding, `ssh -A`, a CI harness and a test rig all export their own
 # socket, and clobbering it strands the caller with no way to sign.
