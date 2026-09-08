@@ -92,6 +92,11 @@ jobs:
       - name: Smoketest bin/tds-release-link
         run: /bin/bash test/smoketest_release_link.sh
 
+      # macOS-only argv assertions inside; the suite skips them on the ubuntu
+      # leg and still checks the dot.zshenv wiring there.
+      - name: Smoketest bin/plannotator-browser
+        run: /bin/bash test/smoketest_plannotator_browser.sh
+
   shellcheck:
     runs-on: ubuntu-latest
     timeout-minutes: 10

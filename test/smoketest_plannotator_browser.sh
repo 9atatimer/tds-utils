@@ -16,6 +16,10 @@
 #      plugin only exec's $PLANNOTATOR_BROWSER directly when it contains a "/";
 #      a bare name degrades to `open -a <name> <url>`.
 #
+# Runs on both CI legs. The argv cases are macOS-only -- the handler refuses to
+# run elsewhere by design -- and are skipped on Linux; the dot.zshenv wiring
+# cases are pure greps and run everywhere.
+#
 # Usage: ./test/smoketest_plannotator_browser.sh
 
 set -euo pipefail
@@ -137,12 +141,19 @@ run_all() {
     # 127 if the handler is absent, hiding every later assertion behind one
     # missing file. Report them as skipped instead; test_handler_exists has
     # already failed, so the suite still exits non-zero.
-    if [ -x "${HANDLER}" ]; then
-        test_forces_new_window
-        test_url_not_word_split
-    else
+    if [ ! -x "${HANDLER}" ]; then
         bold "forces a new window, not a tab"; printf '\n'
         printf '  SKIP handler absent -- see the failure above\n'
+    elif [ "$(uname -s)" != "Darwin" ]; then
+        # The handler refuses to run off macOS by design (it exists to drive
+        # open(1)), so the argv cases have nothing to assert on the Linux CI
+        # leg. Skip, never xfail: the grep-only cases below still run there and
+        # keep the dot.zshenv wiring honest on both legs.
+        bold "forces a new window, not a tab"; printf '\n'
+        printf '  SKIP not macOS (handler is open(1)-based by design)\n'
+    else
+        test_forces_new_window
+        test_url_not_word_split
     fi
     test_zshenv_exports_handler
 
