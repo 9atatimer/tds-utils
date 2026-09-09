@@ -162,6 +162,28 @@ Unicode punctuation or symbols in a `.md` file. This applies to newly written
 or edited prose in any file type; it does not mandate churning untouched
 existing content.
 
+## Bullet lists only -- never a numbered list
+
+Write `-`. Never `1.` `2.` `3.`. This holds in every document: design
+records, as-builts, `TODO_PLAN.md`, task files, `AGENT.md`, skills, PR and
+issue bodies, and answers in the terminal.
+
+Numbering claims a sequence the content usually does not have, and it
+renumbers under every insertion -- so a citation to "item 3" rots the moment
+someone inserts an item 2.
+
+**Bugs, todos and lessons are never a numbered sequence.** They are an
+unordered set that grows and shrinks, and numbering them invites the false
+reading that item 1 outranks item 9. Where order is genuinely load-bearing,
+say it in prose ("do this before that") or name the dependency -- a task
+file's `blocked_by` is the machine-readable form.
+
+Where you wanted *identity* rather than position, mint a stable identifier
+instead: a `task-NNN` id, a `D14` key-decision row, a `Q2` open question.
+Those are names that other documents cite, and they stay. The test: a number
+you can cite from elsewhere is an identifier; a number that shifts when you
+insert above it is a list, and lists get bullets.
+
 ## Swarm-coding (`ultracode`) finishes at an open PR
 
 When told to swarm-code a solution (e.g. `ultracode`), automatically open a PR
