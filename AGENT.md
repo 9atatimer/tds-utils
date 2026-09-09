@@ -137,6 +137,15 @@ Three refusals are worth knowing before you hit them:
   whether or not `HEAD` happens to sit on the commit you asked for, so
   `tds-release` reports it rather than saying "up to date" over the top of it.
 
+One failure that is not a refusal and reads like a bug: `tds-release: fetch
+failed`, preceded by `Permission denied (publickey)`. That is the 1Password SSH
+agent being LOCKED -- `origin` is an SSH remote, and a locked agent still
+*lists* keys while failing to sign. The global HTTPS workaround
+(`git push https://github.com/...`, using gh's token) does not reach this: the
+fetch happens inside `tds-release`, which names `origin`. Unlock 1Password on
+the Mac and re-run. Nothing is half-done when it fails here -- it dies before
+touching `release`.
+
 ### What this buys, and the one trap left
 
 Two hazards this arrangement removes, both of which used to bite hard:
@@ -153,6 +162,16 @@ The trap that remains: **never switch branches or edit inside the release
 worktree.** It is the one checkout where the old rules still apply in full --
 whatever is in it is what the machine is running right now. `bin/tds-release`
 refuses to release into a dirty tree for exactly this reason.
+
+That refusal also decides WHICH files may be symlinked out of the release
+worktree at all: **a file the machine writes at runtime must never be one of
+them.** `~/.claude/settings.json` is the worked example -- Claude Code rewrites
+it on a theme or plugin change, and `naatm-sandbox setup` rewrites its hook
+registration on every cache build. Symlinked, each of those writes lands in the
+release worktree and leaves it permanently dirty, so the next `bin/tds-release`
+refuses. Config in that shape gets a `clai.d/<agent>/pre/` hook that jq-merges
+only the keys this repo owns -- the `30-statusline` mould -- and the file itself
+stays a real file in `$HOME` (issue #267).
 
 Do topic work in its own worktree, per the global rule that worktrees live in
 `~/workplace/.worktrees/<repo>-<topic>`:
