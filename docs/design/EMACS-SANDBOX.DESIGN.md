@@ -31,9 +31,14 @@ a per-instance cache root outside every git tree.
 - **G2. Each instance owns its packages** -- a package installed or upgraded
   under one key is not visible to any other key. Assertable by resolving
   `package-user-dir` under two keys and confirming disjoint paths.
-- **G3. No emacs-written file lands in any git tree** -- after a full session
-  under any key, `git status` in that worktree is clean. This retires the
-  twelve reactive `.gitignore` entries and closes #253.
+- **G3. No emacs-written file lands in any git tree** -- every redirected
+  path resolves outside every worktree. Assertable in batch by resolving
+  `package-user-dir` and each state variable under a given key and confirming
+  none is under a git tree. Deliberately NOT assertable by `git status`: D13
+  keeps the twelve reactive `.gitignore` entries, which hold that output clean
+  whether or not the redirect worked. Closes #253, whose done-criterion is
+  that a newly-installed package cannot dirty the release worktree without
+  someone adding an ignore rule for it.
 - **G4. Instance identity is visible on three surfaces** -- scratch bannerlet,
   mode line, frame title. Assertable in batch by checking the three
   variables are set from one resolved key.
@@ -94,13 +99,19 @@ config tree is written to; nothing in the cache root is version controlled.
 ### Instance key resolution
 
 The key is resolved exactly once, in `early-init.el`, because
-`package-user-dir` must be set before `package-initialize` runs.
+`package-user-dir` must be set before `package-initialize` runs (`init.el:40`).
+
+**`early-init.el` does not exist yet.** `emacs/dot.emacs.d/` has no such file
+today, so this design's first implementation step is to create one and ship it
+inside the `emacs` package that `ENV-DISTRIBUTION.DESIGN.md` describes as the
+whole tree behind one link. That file's presence is also what the launcher
+tests to decide whether a tree is instrumented at all -- see the Launcher.
 
 #### Responsibilities
 
 | Responsibility | Details |
 |----------------|---------|
-| Identify the live instance | Resolve `user-emacs-directory` with `file-truename`; if it is under `file-truename` of `~/.tds/release`, the key is the literal string `live` |
+| Identify the live instance | Resolve `user-emacs-directory` with `file-truename`; if it is under the highest EXISTING tier of the ladder `AGENT.md` documents -- `~/.tds/dist/current`, else `~/.tds/release`, else `~/workplace/tds-utils` -- the key is the literal string `live`. Anchoring to `~/.tds/release` alone would leave a machine with a real dist install (tier 1) with no `live` instance at all |
 | Identify a branch instance | Otherwise the key is the basename of the worktree root -- the directory two levels above `emacs/dot.emacs.d` |
 | Handle an unrecognized tree | Fall back to `foreign-<8 hex of sha1 of truename>`; never error, never silently reuse another key |
 | Publish the key | Set `tds-emacs-instance-key` and `tds-emacs-live-p` as the single source every other subsystem reads |
@@ -128,7 +139,7 @@ Every path emacs writes to is set from `tds-emacs-cache-root`.
 | Variable | Set to | Why it matters |
 |----------|--------|----------------|
 | `package-user-dir` | `<root>/elpa` | The 40M. Must be set in `early-init.el` |
-| `native-comp-eln-load-path` | `<root>/eln-cache` first | Not exercised today (see below) but keyed now, because cross-key `.eln` reuse fails silently |
+| eln cache, via `(startup-redirect-eln-cache "<root>/eln-cache")` | `<root>/eln-cache` | The Emacs 29+ entry point for this, and the only correct one: `native-comp-eln-load-path` is not even bound on a build without native compilation, so setting it directly is a no-op that reads as coverage. Not exercised today (see below), but keyed now because cross-key `.eln` reuse fails silently |
 | `auto-save-list-file-prefix` | `<root>/auto-save-list/saves-` | |
 | `transient-history-file` etc. | under `<root>/transient/` | |
 | `projectile-known-projects-file`, `projectile-cache-file` | under `<root>/projectile/` | The pair that produced #253 |
@@ -163,6 +174,7 @@ already-running application activates the existing instance and discards
 | Default to live | `emacs` with no branch flag launches against `~/.tds/release/emacs/dot.emacs.d` |
 | Select a branch tree | `emacs -b <topic>` resolves `~/workplace/.worktrees/tds-utils-<topic>/emacs/dot.emacs.d` and passes it as `--init-directory` |
 | Force a new process | Use `open -n`, or invoke `Emacs.app/Contents/MacOS/Emacs` directly, so a branch instance does not merely focus the live one |
+| Refuse an un-instrumented tree | Exit non-zero when the target tree has no `early-init.el`. A worktree cut before this feature resolves no key, so emacs would default `package-user-dir` back into that git tree and write 40M there -- and because D13 keeps the ignore entries, `git status` would stay clean while it happened. The launcher is the only place this can be caught loudly |
 | Refuse a missing tree | Exit non-zero with the resolved path when the worktree or its `emacs/dot.emacs.d` does not exist -- never fall through to live |
 | Stay honest about the binary | The path to `Emacs.app` remains the one platform-specific value, overridable by env var for a Linux/LMDE port |
 
@@ -312,7 +324,7 @@ reconstructible by relaunching under its key.
 |----|----------|--------|-----------|
 | D1 | How to select a config tree | Launch-time `--init-directory` | Repointing `~/.emacs.d` mutates live, which is precisely what G1 and G5 forbid. Verified working on 30.2 with `package-user-dir` following automatically |
 | D2 | What the state is keyed on | Worktree basename, not branch name | Branch names contain `/`, a branch moves under a worktree, and deriving one means shelling out to git at every startup. The repo's discipline is already one branch per worktree |
-| D3 | How `live` is identified | Literal constant, anchored to `~/.tds/release` | Deriving live's key from its path would let an incidental path change silently re-key the live cache. Reuses an existing documented pointer rather than adding a second |
+| D3 | How `live` is identified | Literal constant, resolved against the highest existing tier of `AGENT.md`'s three-tier ladder | Deriving live's key from its path would let an incidental path change silently re-key the live cache. Anchoring to `~/.tds/release` alone was the first draft and was wrong: tier 1 (`~/.tds/dist/current`) outranks it, so a machine with a dist install would key its live editor as a worktree or `foreign-<hash>` and never have a `live` at all |
 | D4 | Where state goes | Explicit `setq` into a keyed cache root | `no-littering` cannot solve this: it is itself installed into `package-user-dir`, so it cannot relocate `package-user-dir`, and its defaults still land inside `user-emacs-directory`. Chicken-and-egg, plus a dependency the tech radar has not seen |
 | D5 | Seam for key derivation | One function, `tds-emacs--instance-key`, called once in `early-init.el` | The three awareness surfaces and every path variable read its published result. A second caller that recomputes is the drift to watch for |
 | D6 | Seam for cache location | `defvar` honoring `XDG_CACHE_HOME` | The one value a differently-configured machine needs to override |
