@@ -11,16 +11,21 @@ Two DIFFERENT shapes, not just two colors -- a colorblind viewer must be
 able to tell them apart with no color perception at all (see
 docs/design/LMDE.DESIGN.md's skills-drift section for the rationale):
 
-  current: a plain rounded badge outline, rendered TEMPLATE (macOS tints it
-           to match the menu bar; quiet by design -- nothing to say).
+  current: a circular saw blade (a "skill saw" pun) -- solid teeth, no
+           center hole visible at menu-bar scale would be pointless
+           filigree, so it's cut through instead, rendered TEMPLATE (macOS
+           tints it to match the menu bar; quiet by design -- nothing to
+           say).
   drift:   a filled warning triangle with a cut-out exclamation mark,
            rendered in explicit red (NOT template) -- shape AND color both
            say "stop", so the signal survives even without color vision.
 
 Kept deliberately blunt, same rule flip-monitor/icon.py uses: a status item
-renders at ~18-22pt, so anything finer than a thick outline turns to mush.
+renders at ~18-22pt, so anything finer than a thick outline turns to mush --
+8 chunky teeth read at that size, 24 fine ones would not.
 """
 
+import math
 import pathlib
 
 from PIL import Image, ImageDraw
@@ -33,17 +38,27 @@ RED = (220, 38, 38, 255)  # a single, unambiguous "stop" red -- see LMDE.DESIGN.
 
 
 def draw_current() -> Image.Image:
-    """A plain rounded badge outline. Template-rendered, so only the alpha
-    channel matters -- fill color here is irrelevant, kept black for clarity
-    while editing."""
+    """A circular saw blade: a gear-like ring of TEETH triangles alternating
+    outer/inner radius, plus a punched-out arbor hole in the center (same
+    cut-through-to-transparent trick draw_drift uses for its exclamation
+    mark). Template-rendered, so only the alpha channel matters -- fill
+    color here is irrelevant, kept black for clarity while editing."""
     img = Image.new("RGBA", (MASTER, MASTER), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     s = MASTER
-    draw.rounded_rectangle(
-        [0.12 * s, 0.22 * s, 0.88 * s, 0.78 * s],
-        radius=0.14 * s,
-        outline=BLACK,
-        width=int(0.11 * s),
+    cx = cy = s / 2
+    teeth = 10
+    r_out = 0.46 * s
+    r_in = 0.39 * s
+    points = []
+    for i in range(teeth * 2):
+        angle = math.pi * i / teeth
+        r = r_out if i % 2 == 0 else r_in
+        points.append((cx + r * math.sin(angle), cy - r * math.cos(angle)))
+    draw.polygon(points, fill=BLACK)
+    hole_r = 0.10 * s
+    draw.ellipse(
+        [cx - hole_r, cy - hole_r, cx + hole_r, cy + hole_r], fill=(0, 0, 0, 0)
     )
     return img
 

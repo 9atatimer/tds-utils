@@ -482,13 +482,14 @@ with SHAPE, not color alone:
   glyph when not (exact format string in `macos/dot.zshrc`,
   `skills_drift_prompt()`).
 - Menu bar (`bin/skills-drift-monitor`, `assets/skills-drift-icons.py`): a
-  plain rounded-badge outline, template-rendered (macOS tints it to the
-  menu bar's own chrome) when green; a filled warning-triangle-with-
-  exclamation, rendered in explicit non-template red, when not. Different
-  silhouette AND color, so the state reads even with no color perception at
-  all. Both icons are deliberately blunt line art -- a status item renders
-  at ~18-22pt, where anything finer turns to mush (the rule
-  `macos/apps/flip-monitor/icon.py` already established for Dock icons).
+  circular saw blade -- a "skill saw" pun, Todd's call -- template-rendered
+  (macOS tints it to the menu bar's own chrome) when green; a filled
+  warning-triangle-with-exclamation, rendered in explicit non-template red,
+  when not. Different silhouette AND color, so the state reads even with no
+  color perception at all. Both icons are deliberately blunt line art -- a
+  status item renders at ~18-22pt, where anything finer turns to mush (the
+  rule `macos/apps/flip-monitor/icon.py` already established for Dock
+  icons; the blade's 10 teeth are chunky for exactly this reason).
 
 **Cheap on every prompt draw.** The check shells out and hits the network,
 so it never runs synchronously in `RPROMPT`. A `precmd`-hooked background
