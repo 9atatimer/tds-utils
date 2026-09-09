@@ -21,6 +21,14 @@ ICON_DRIFT = str(ASSETS_DIR / "skills-drift.png")
 
 CHECK_INTERVAL_SECS = 900  # mirror lmde-sync-monitor's default
 
+# The one command that mechanically fixes drift: it re-syncs the installed
+# stamp to the registry latest, and is idempotent/safe to run even when the
+# only drift is local-repo-side (it just no-ops on the installed row). It
+# does NOT fix local-repo drift (uncommitted changes, unpublished commits)
+# -- that needs a human git decision (commit, push, wait for the merge to
+# publish), which has no safe one-line command; the modal says so.
+REMEDIATION_COMMAND = "lmde acquire"
+
 
 class SkillsDriftMonitor(rumps.App):
     def __init__(self):
@@ -35,6 +43,11 @@ class SkillsDriftMonitor(rumps.App):
         # SAME instances is what keeps the callback attached across rebuilds.
         self.check_now_item = rumps.MenuItem("Check Now", callback=self.check_now)
         self.quit_item = rumps.MenuItem("Quit", callback=rumps.quit_application)
+        # The status line is itself a button: click it for a modal with the
+        # full text (the dropdown truncates long paths) and a copy-to-
+        # clipboard remediation command. Same persistent-object requirement
+        # as the two items above.
+        self.status_item = rumps.MenuItem("Skills current", callback=self.show_status_modal)
         self.timer = rumps.Timer(self.check_drift, CHECK_INTERVAL_SECS)
         self.timer.start()
         self.drift_lines = []
@@ -78,14 +91,16 @@ class SkillsDriftMonitor(rumps.App):
         if self.drift_lines:
             self.icon = ICON_DRIFT
             self.template = False
-            self.menu.add("Skills drift detected:")
+            self.status_item.title = f"Skills drift ({len(self.drift_lines)}) -- click for details"
+            self.menu.add(self.status_item)
             for line in self.drift_lines:
                 self.menu.add(line[len("DRIFT: ") :])
             self.menu.add(None)
         else:
             self.icon = ICON_CURRENT
             self.template = True
-            self.menu.add("Skills current -- local/installed/published agree")
+            self.status_item.title = "Skills current -- click for details"
+            self.menu.add(self.status_item)
             self.menu.add(None)
 
         if self.last_unknown:
@@ -94,6 +109,44 @@ class SkillsDriftMonitor(rumps.App):
 
         self.menu.add(self.check_now_item)
         self.menu.add(self.quit_item)
+
+    def show_status_modal(self, _):
+        if self.drift_lines:
+            detail = "\n".join(line[len("DRIFT: ") :] for line in self.drift_lines)
+            message = (
+                "Skills drift detected:\n\n"
+                f"{detail}\n\n"
+                "This command fixes the installed-vs-published gap (safe to "
+                "run even when the only drift above is local-repo-side, "
+                "which it leaves untouched -- that needs your own git "
+                "workflow: commit, push, and wait for the merge to "
+                "publish):\n\n"
+                f"$ {REMEDIATION_COMMAND}"
+            )
+            response = rumps.alert(
+                title="Skills Drift",
+                message=message,
+                ok="Copy Command",
+                cancel="Close",
+            )
+            if response != 0:
+                self._copy_to_clipboard(REMEDIATION_COMMAND)
+        else:
+            rumps.alert(
+                title="Skills Status",
+                message="Local, installed, and published skills versions all agree.",
+                ok="OK",
+            )
+
+    @staticmethod
+    def _copy_to_clipboard(text):
+        try:
+            subprocess.run(["pbcopy"], input=text, text=True, check=True)
+            rumps.notification("Skills Status", "Copied to clipboard", text)
+        except Exception as e:
+            # Clipboard failure is a nuisance, never a crash -- same
+            # fail-open stance as the rest of this app.
+            print(f"skills-drift-monitor: could not copy to clipboard: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
