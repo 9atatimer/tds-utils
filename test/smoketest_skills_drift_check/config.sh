@@ -102,7 +102,10 @@ make_skills_repo() {
     git -C "${path}" config user.name "Test"
     git -C "${path}" add -A
     git -C "${path}" commit -q -m "scaffold"
-    for i in $(seq 1 "${n}"); do
+    # Bash arithmetic loop, not `$(seq ...)`: matches this repo's stated
+    # Bash 3.2 baseline (bash 3.2 supports `(( ))` natively) without
+    # depending on an external `seq` binary at all.
+    for ((i = 1; i <= n; i++)); do
         printf 'skill %s\n' "${i}" > "${path}/skills/skill-${i}.md"
         git -C "${path}" add "skills/skill-${i}.md"
         git -C "${path}" commit -q -m "add skill ${i}"

@@ -477,13 +477,27 @@ purge_npmrc() {
     return 0
 }
 
+# Bound for npm_view_latest's registry lookup (acquire_bounded's <seconds>).
+# Was unbounded until PR #265 review: check_run already ran this from
+# git-hooks/pre-push (a foreground, human-visible context), but the
+# skills-drift indicator now also runs it from an unsupervised background
+# job every few minutes (macos/dot.zshrc) and every 15 minutes (the
+# menu-bar app's timer) -- a stalled `npm view` there would outlive the
+# menu-bar app's own 30s subprocess timeout (it only bounds the OUTER
+# skills-drift-check, not this inner npm call), delaying purge_npmrc and
+# leaving the ephemeral, PAT-carrying npmrc on disk for the hang's full
+# duration -- exactly what purge_npmrc's "the PAT must never linger" stance
+# exists to prevent. Same acquire_bounded mechanism already used for
+# acquire_gh_token's `gh auth token` call, same 10s bound.
+ACQUIRE_NPM_VIEW_TIMEOUT_SECS=10
+
 # npm_view_latest <npm_name> <npmrc> -- echo the registry-latest version of
-# <npm_name>, or "" (and return 1) when the registry is unreachable/unauthorized.
-# The explicit --registry is required, else npm queries registry.npmjs.org and
-# E404s for the private scoped package.
+# <npm_name>, or "" (and return 1) when the registry is unreachable/unauthorized
+# /timed out. The explicit --registry is required, else npm queries
+# registry.npmjs.org and E404s for the private scoped package.
 npm_view_latest() {
     local npm_name="$1" npmrc="$2" out rc=0
-    out="$(npm view "${npm_name}" version \
+    out="$(acquire_bounded "${ACQUIRE_NPM_VIEW_TIMEOUT_SECS}" npm view "${npm_name}" version \
         --registry="${ACQUIRE_REGISTRY}" --userconfig "${npmrc}" 2>/dev/null)" || rc=$?
     if [ "${rc}" -ne 0 ]; then echo ""; return 1; fi
     echo "${out}"
