@@ -52,6 +52,12 @@ class SkillsDriftMonitor(rumps.App):
         self.timer.start()
         self.drift_lines = []
         self.last_unknown = False
+        # Distinct from last_unknown: whether ANY check has ever completed
+        # (returncode 0 or 1). If the very first check can't reach the
+        # registry, drift_lines stays at this empty default forever until a
+        # real result lands -- that's not the same as a verified "green",
+        # and show_status_modal must not conflate the two.
+        self.ever_checked = False
         self.check_drift(None)
 
     def check_now(self, _):
@@ -75,9 +81,11 @@ class SkillsDriftMonitor(rumps.App):
                 line for line in result.stdout.splitlines() if line.startswith("DRIFT:")
             ]
             self.last_unknown = False
+            self.ever_checked = True
         elif result.returncode == 0:
             self.drift_lines = []
             self.last_unknown = False
+            self.ever_checked = True
         else:
             # exit 2 (or anything else unexpected): couldn't determine this
             # run -- keep the LAST KNOWN state on the icon (a flaky network
@@ -95,6 +103,16 @@ class SkillsDriftMonitor(rumps.App):
             self.menu.add(self.status_item)
             for line in self.drift_lines:
                 self.menu.add(line[len("DRIFT: ") :])
+            self.menu.add(None)
+        elif self.last_unknown and not self.ever_checked:
+            # Never a successful check yet -- e.g. no network at launch.
+            # ICON_CURRENT is still the least-alarming default (this is not
+            # a confirmed problem, just an unconfirmed state), but the menu
+            # text must not claim "current" for a state never verified.
+            self.icon = ICON_CURRENT
+            self.template = True
+            self.status_item.title = "Skills status unknown -- click for details"
+            self.menu.add(self.status_item)
             self.menu.add(None)
         else:
             self.icon = ICON_CURRENT
@@ -131,12 +149,25 @@ class SkillsDriftMonitor(rumps.App):
             )
             if response != 0:
                 self._copy_to_clipboard(REMEDIATION_COMMAND)
-        else:
+        elif self.last_unknown and not self.ever_checked:
             rumps.alert(
                 title="Skills Status",
-                message="Local, installed, and published skills versions all agree.",
+                message=(
+                    "Status unknown -- no check has reached the registry yet "
+                    "(no network at launch, or no GitHub Packages credential). "
+                    "This is not a confirmed 'current' -- it just hasn't been "
+                    "checked. Try \"Check Now\"."
+                ),
                 ok="OK",
             )
+        else:
+            message = "Local, installed, and published skills versions all agree."
+            if self.last_unknown:
+                message += (
+                    "\n\n(The most recent check could not reach the registry -- "
+                    "this reflects the last successful check, not right now.)"
+                )
+            rumps.alert(title="Skills Status", message=message, ok="OK")
 
     @staticmethod
     def _copy_to_clipboard(text):
