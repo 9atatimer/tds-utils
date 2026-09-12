@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tds.skills-drift-monitor</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-c</string>
+    <!-- Bare command name: .zshenv is sourced unconditionally (login or
+         not, interactive or not), so tds_path_apply's tiered tds_bin PATH
+         entry (~/.tds/dist/current -> ~/.tds/release -> the dev checkout)
+         is in effect before this resolves. A hardcoded checkout path here
+         would bypass a real dist/release install, or fail to start at all
+         on a machine with no dev checkout. -->
+    <string>exec launch-skills-drift-monitor</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <dict>
+    <key>Crashed</key>
+    <true/>
+  </dict>
+
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/skills-drift-monitor.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/tmp/skills-drift-monitor.err.log</string>
+
+  <key>ProcessType</key>
+  <string>Interactive</string>
+</dict>
+</plist>

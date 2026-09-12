@@ -222,6 +222,23 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 - [ ] Task LMDE11: **Stack-health Grafana dashboard.** Add a Grafana dashboard monitoring the obs stack itself -- CPU, memory, storage, restarts/errors per component (prometheus, grafana, otel-collector, loki, ingress-nginx). Dashboard JSON + ConfigMap; no new infra; can land before LMDE7-10.
 - [ ] Task LMDE12: **NATS-in-kind: design.** Drafted in `docs/design/LMDE.DESIGN.md` section 5 (Backplane) -- move the LMDE backplane (starting with NATS, then audit each other Adopted component against the residency rule in `lmde/LMDE.md`) into the kind cluster behind LMDE5's ingress-nginx + `*.lmde.localhost`, so kind-sandboxed coding agents reach the same bus as Mac-local agents. Decide: NATS server in-cluster vs. exposing host NATS via ingress; auth model (anonymous loopback today vs. per-agent creds); how `gadmin` and other clients resolve the bus address from inside vs. outside the cluster; which components actually need to move (Caddy/dnsmasq/registry sit at the edge or feed kind and may stay out). Update the `lmde/LMDE.md` Contract once the design lands.
 - [ ] Task LMDE13: **NATS-in-kind: implement.** Add `lmde/components/nats/` (kind manifest + `setup.sh`), pin the image digest in `lmde/components/registry/images.txt`, register `nats.lmde.localhost` via the LMDE5 ingress helper, and add a `test/smoketest_lmde_nats/` smoke that pub/subs from both the host and an in-cluster pod. Depends on LMDE12.
+- [ ] Task LMDE17: **Formalize menu-bar app persistence via `tds-install -S`.**
+  Neither `lmde-sync-monitor` nor the new `skills-drift-monitor` (added
+  alongside the skills-drift indicator, see `docs/design/LMDE.DESIGN.md`
+  section 6) actually survives a reboot/logout through the declarative
+  ENV-DISTRIBUTION pipeline: `~/Library/LaunchAgents/` had zero `com.tds.*`
+  entries and `~/.tds/dist/current` did not exist when checked (2026-09-07)
+  -- `packages/lmde.pkg`'s `SERVICES=` mechanism (`bin/tds-install -S`) has
+  apparently never actually been run on this machine, despite both plists
+  being fully built out. `skills-drift-monitor` is durably loaded today via
+  a manual `cp` into `~/Library/LaunchAgents` + `launchctl bootstrap`, NOT
+  through the pipeline; `packages/lmde.pkg` now declares its files
+  (`bin/skills-drift-check`, `bin/skills-drift-monitor`,
+  `bin/launch-skills-drift-monitor`, `macos/launchd/com.tds.skills-drift-monitor.plist`)
+  for whenever the pipeline is exercised for real. Deferred per Todd
+  (2026-09-07): work out the skills-drift kinks first, revisit the
+  packaging/install pipeline -- and whether `lmde-sync-monitor` needs the
+  same treatment -- after.
 
 ### Goldfish
 
