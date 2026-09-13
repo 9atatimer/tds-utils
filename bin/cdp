@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# cdp -- bring a CDP-tethered browser up or down, with its profile in the
+#        current repo's .cdp/ sandbox.
+#
+# Usage:
+#   cdp up     [brave|cft] [--port N]
+#   cdp down   [brave|cft]
+#   cdp status [brave|cft]
+#
+# Browser: an argument. Omitted, it is the browser last used in this repo
+# (<repo>/.cdp/last-browser), else brave. Both have their own app bundle, so
+# neither takes over the everyday Google Chrome Dock slot.
+#   brave -- Brave Browser. Shields break Google OAuth sign-in on their own.
+#   cft   -- Chrome for Testing, from ~/.cache/puppeteer. Install once with:
+#            npx @puppeteer/browsers install chrome@stable --path ~/.cache/puppeteer
+#
+# Each browser's profile is <repo>/.cdp/<browser>/profile, never a shared
+# user dir. `up` refuses unless .cdp/ is gitignored. Attach an MCP server with
+# `chrome-devtools-mcp --browserUrl http://127.0.0.1:<port>`; it connects on
+# first tool use, so the browser can come and go under a live session.
+#
+# Seams: CDP_BRAVE_BIN, CDP_CFT_BIN override the executables; see
+# lib/cdp-browser.sh for CDP_PROBE and CDP_LISTENER_PID.
+#
+# Side effects: launches or terminates a browser process; writes <repo>/.cdp/.
+
+set -euo pipefail
+
+# --- Shared libraries ---
+
+CDP_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/cdp-browser.sh
+source "$(dirname "${CDP_SELF_DIR}")/lib/cdp-browser.sh"
+
+# shellcheck disable=SC2034  # read by lib/cdp-browser.sh
+CDP_PROG=cdp
+
+# --- Action functions ---
+
+usage() {
+    echo "usage: cdp {up|down|status} [brave|cft] [--port N]" >&2
+    exit 2
+}
+
+# brave_bin -- print Brave's executable path for this platform.
+brave_bin() {
+    if [ -n "${CDP_BRAVE_BIN:-}" ]; then
+        printf '%s' "${CDP_BRAVE_BIN}"
+    elif [ "$(uname -s)" = Darwin ]; then
+        printf '%s' "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+    else
+        command -v brave-browser || printf '%s' /usr/bin/brave-browser
+    fi
+}
+
+# cft_bin -- print the newest Chrome for Testing executable in the puppeteer cache.
+cft_bin() {
+    local cache="${HOME}/.cache/puppeteer/chrome" found app
+    if [ -n "${CDP_CFT_BIN:-}" ]; then
+        printf '%s' "${CDP_CFT_BIN}"
+        return
+    fi
+    [ -d "${cache}" ] \
+        || cdp_die "Chrome for Testing not installed; run: npx @puppeteer/browsers install chrome@stable --path ~/.cache/puppeteer"
+    if [ "$(uname -s)" = Darwin ]; then
+        app="Google Chrome for Testing"
+        found="$(ls -d "${cache}"/mac*/chrome-mac*/"${app}.app/Contents/MacOS/${app}" 2>/dev/null | sort -V | tail -1 || true)"
+    else
+        found="$(ls -d "${cache}"/linux*/chrome-linux*/chrome 2>/dev/null | sort -V | tail -1 || true)"
+    fi
+    [ -n "${found}" ] \
+        || cdp_die "Chrome for Testing not found under ${cache}; run: npx @puppeteer/browsers install chrome@stable --path ~/.cache/puppeteer"
+    printf '%s' "${found}"
+}
+
+# is_browser <word> -- exit 0 iff <word> is a browser this command drives.
+is_browser() {
+    case "$1" in brave|cft) return 0 ;; *) return 1 ;; esac
+}
+
+# browser_extra_args <browser> -- print launch flags specific to <browser>,
+# one per line.
+browser_extra_args() {
+    case "$1" in
+        # Chrome for Testing is not signed for the login Keychain: without a
+        # mock keychain it blocks on Keychain access at shutdown and ignores
+        # SIGTERM. Logins still persist -- cookies are keyed to the mock key.
+        cft) printf '%s\n' --use-mock-keychain ;;
+    esac
+}
+
+# --- Flow functions ---
+
+# resolve_browser <root> <arg> -- explicit arg, else last used, else brave.
+resolve_browser() {
+    local root="$1" arg="$2" last
+    if [ -n "${arg}" ]; then
+        printf '%s' "${arg}"
+        return
+    fi
+    last="$(cat "${root}/.cdp/last-browser" 2>/dev/null || true)"
+    if is_browser "${last}"; then
+        printf '%s' "${last}"
+    else
+        printf 'brave'
+    fi
+}
+
+browser_bin() {
+    case "$1" in
+        brave) brave_bin ;;
+        cft)   cft_bin ;;
+    esac
+}
+
+main() {
+    local verb="${1:-}" arg="" port="${CDP_DEFAULT_PORT}" root browser exe line
+    local -a extra
+    [ -n "${verb}" ] || usage
+    shift
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --port) [ $# -ge 2 ] || usage; port="$2"; shift 2 ;;
+            -h|--help) usage ;;
+            *)
+                is_browser "$1" || cdp_die "unknown browser '$1' (expected brave or cft)"
+                [ -z "${arg}" ] || usage
+                arg="$1"; shift ;;
+        esac
+    done
+
+    root="$(cdp_repo_root)"
+    browser="$(resolve_browser "${root}" "${arg}")"
+
+    case "${verb}" in
+        up)
+            exe="$(browser_bin "${browser}")"
+            extra=()
+            while IFS= read -r line; do extra+=("${line}"); done < <(browser_extra_args "${browser}")
+            cdp_up "${root}" "${browser}" "${exe}" "${port}" ${extra[@]+"${extra[@]}"}
+            printf '%s' "${browser}" > "${root}/.cdp/last-browser"
+            ;;
+        down)   cdp_down "${root}" "${browser}" ;;
+        status) cdp_status "${root}" "${browser}" ;;
+        *)      usage ;;
+    esac
+}
+
+main "$@"
