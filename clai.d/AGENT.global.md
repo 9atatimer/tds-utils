@@ -131,6 +131,26 @@ This is NOT the banned self-polling from "Never set a timer" above --
 nothing is scheduled and nothing wakes itself. The command runs once and
 notifies on exit.
 
+## After a good result, report it -- do not keep re-confirming it
+
+Once a check gives a positive result (a port is listening, a build is
+green, a release published), stop and say so. Do not chain further
+confirmatory commands against the same fact -- different flags on the same
+command, log searches that come back empty, re-checking a process that was
+already confirmed running. Each extra check either adds nothing or produces
+a noisy non-result that reads as a new problem when it is not.
+
+Observed 2026-09-12: after confirming an MCP backend was listening on its
+expected ports (good news, matching the human's own report that it had
+connected), I kept running more `ps`/log-search commands to triple-check
+it, one of which the human had to reject. The human called this out as
+"thrashing" -- from the outside, over-verification of a success looks
+identical to flailing at a failure.
+
+The fix is procedural, not "be more careful": once a check answers the
+question in front of you, report the answer as the next thing you say, not
+as the reason for one more check.
+
 ## Bash on this machine is real
 
 This is a laptop / real checkout: the bash tool touches the real disk and the
