@@ -118,6 +118,18 @@ def test_pause_sentries(store: RunStorePort) -> None:
     assert store.chore_paused("c") is None
 
 
+def test_delete_run_removes_record_and_artifacts_only(store: RunStorePort) -> None:
+    store.write_record(_record("c-1"))
+    store.append_artifact("c-1", "stdout.log", "x")
+    store.append_ledger({"run_id": "c-1", "started": T0.isoformat()})
+    assert store.delete_run("c-1") is True and store.delete_run("c-1") is False
+    assert (
+        store.read_record("c-1") is None
+        and store.read_artifact("c-1", "stdout.log") == ""
+    )
+    assert store.ledger_count() == 1
+
+
 def test_kill_request_marker(store: RunStorePort) -> None:
     store.write_record(_record("c-1"))
     assert store.kill_requested("c-1") is False

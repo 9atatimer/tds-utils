@@ -104,6 +104,10 @@ class RunStorePort(Protocol):
 
     def artifacts(self, run_id: str) -> Iterator[Artifact]: ...
 
+    def delete_run(self, run_id: str) -> bool:
+        """Remove a run directory (retention); the ledger is never touched."""
+        ...
+
     # --- kill requests (chores kill writes, the runner reads) ---
     def request_kill(self, run_id: str) -> None: ...
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import shutil
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime
@@ -223,6 +224,13 @@ class FsRunStore:
         if run_dir is None:
             return iter(())
         return (name for name in _ARTIFACTS if (run_dir / name).exists())
+
+    def delete_run(self, run_id: str) -> bool:
+        run_dir = self._find_run_dir(run_id)
+        if run_dir is None:
+            return False
+        shutil.rmtree(run_dir, ignore_errors=True)
+        return True
 
     # --- kill requests ---
 

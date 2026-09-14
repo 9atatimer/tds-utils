@@ -219,6 +219,13 @@ class FakeRunStore:
         self._kills: set[str] = set()
         self.lock_held = False
 
+    def delete_run(self, run_id: str) -> bool:
+        existed = run_id in self._records
+        self._records.pop(run_id, None)
+        for key in [k for k in self._artifacts if k[0] == run_id]:
+            del self._artifacts[key]
+        return existed
+
     def request_kill(self, run_id: str) -> None:
         self._kills.add(run_id)
 
