@@ -32,7 +32,8 @@ _ARTIFACT_NAMES = {
 
 
 def _deps(ctx: click.Context) -> Deps:
-    if ctx.obj is None:
+    """The Deps bundle: injected by tests as ``obj``, else built by the wiring."""
+    if not isinstance(ctx.obj, Deps):
         from chores.cli.wiring import build_deps
 
         ctx.obj = build_deps()
@@ -45,7 +46,6 @@ def _deps(ctx: click.Context) -> Deps:
 @click.pass_context
 def main(ctx: click.Context) -> None:
     """Laptop-local herd of LLM-adjacent scheduled jobs."""
-    ctx.ensure_object(object)
 
 
 @main.command("list")

@@ -346,6 +346,8 @@ def check_bindings(
         applicable = set(chore.ceiling.dimensions()) | set(global_ceiling.dimensions())
         if backend is not None:
             applicable |= set(backend.ceiling.dimensions())
+        if chore.kind is not Kind.AGENT:
+            applicable.discard("turns")  # only agent runs have turns
         missing = sorted(applicable - set(chore.budget.declared_dimensions()))
         if missing:
             out.append(

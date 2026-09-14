@@ -260,3 +260,32 @@ def test_agent_allowed_tools_default_to_the_backend_read_only_set() -> None:
         body="x",
     )
     assert c.effective_tools(AGENT_BACKEND) == frozenset({"Read", "Grep", "Glob"})
+
+
+def test_turns_ceiling_applies_to_agent_chores_only() -> None:
+    """Given a global turns ceiling, Then a prompt chore needs no turns budget but an
+    agent chore does."""
+    prompt = Chore.from_mapping(PROMPT, body="x")
+    assert (
+        check_bindings(
+            prompt,
+            backend=COMPLETION_BACKEND,
+            global_ceiling=Ceiling(turns=100),
+            forbidden_paths=(),
+        )
+        == []
+    )
+    agent = Chore.from_mapping(
+        {
+            "name": "review",
+            "schedule": "0 9 * * *",
+            "kind": "agent",
+            "backend": "claude",
+            "budget": {"usd": 0.5, "tokens": 1},
+        },
+        body="x",
+    )
+    out = check_bindings(
+        agent, backend=AGENT_BACKEND, global_ceiling=Ceiling(), forbidden_paths=()
+    )
+    assert any("turns" in v for v in out)
