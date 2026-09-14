@@ -452,6 +452,8 @@ def run_chore(
         if isinstance(found, InvalidDefinition)
         else binding_errors(ctx, found, forbidden=deps.paths.forbidden_for_cwd())
     )
+    if errors and dry_run:
+        return RunOutcome(None, f"{name} is invalid: {'; '.join(errors)}")
     if errors:
         record = write_outcome(
             deps.store,

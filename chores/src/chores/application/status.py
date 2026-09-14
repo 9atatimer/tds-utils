@@ -8,7 +8,13 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from chores.application.context import ledger_window, live_running, load_context, post
+from chores.application.context import (
+    binding_errors,
+    ledger_window,
+    live_running,
+    load_context,
+    post,
+)
 from chores.application.deps import Deps
 from chores.domain.budget import Ceiling, Usage
 from chores.domain.policies import redact
@@ -127,6 +133,7 @@ def status(deps: Deps) -> StatusView:
         records = deps.store.records(chore=chore.name)
         running = live_running(deps.store, deps.process, chore.name)
         last_run, last_success, last_failure = _summaries(records)
+        bindings = binding_errors(ctx, chore, forbidden=deps.paths.forbidden_for_cwd())
         chores.append(
             ChoreStatus(
                 name=chore.name,
@@ -138,7 +145,7 @@ def status(deps: Deps) -> StatusView:
                 if chore.enabled
                 else None,
                 backend=chore.backend,
-                invalid=None,
+                invalid="; ".join(bindings) or None,
                 running=RunSummary.of(running) if running else None,
                 last_run=last_run,
                 last_success=last_success,

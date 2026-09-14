@@ -212,3 +212,13 @@ def test_install_and_uninstall_go_through_the_installer(tmp_path: Path) -> None:
     assert any("differs" in w for w in view["warnings"])
     r = CliRunner().invoke(main, ["uninstall"], obj=deps, catch_exceptions=False)
     assert "booted out" in r.output and not inst.installed()
+
+
+def test_validate_reports_binding_violations(tmp_path: Path) -> None:
+    """Given a chore whose backend does not exist, Then validate exits 1 naming it."""
+    orphan = PROMPT.replace("backend: gw", "backend: nowhere")
+    h = FullHarness(tmp_path, chores={"brand": orphan})
+    code, out = invoke(h, "validate")
+    assert code == 1 and "brand: backend 'nowhere' is not configured" in out
+    code, out = invoke(h, "run", "brand", "--dry-run")
+    assert code == 1 and "invalid" in out and h.store.records() == []
