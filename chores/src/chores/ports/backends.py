@@ -9,7 +9,7 @@ registry behind it is the single place that knows the vendor set.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -42,6 +42,11 @@ class BackendConfig:
 
 
 class BackendCatalogPort(Protocol):
+    @property
+    def errors(self) -> Sequence[str]:
+        """Configuration problems found while building the catalog."""
+        ...
+
     def spec(self, name: str) -> BackendSpec | None: ...
 
     def credential_ref(self, name: str) -> str | None:

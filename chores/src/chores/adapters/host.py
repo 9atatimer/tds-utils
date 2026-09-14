@@ -20,6 +20,9 @@ class SystemClock:
     def now_utc(self) -> datetime:
         return datetime.now(UTC).replace(tzinfo=None, microsecond=0)
 
+    def local_from_utc(self, at: datetime) -> datetime:
+        return at.replace(tzinfo=UTC).astimezone().replace(tzinfo=None)
+
 
 class SystemPower:
     """``pmset -g batt`` on macOS, ``/sys/class/power_supply`` on Linux, else AC."""

@@ -15,6 +15,10 @@ class ClockPort(Protocol):
         """Naive UTC time (records and ids carry it)."""
         ...
 
+    def local_from_utc(self, at: datetime) -> datetime:
+        """Convert a naive UTC instant to naive local wall-clock time."""
+        ...
+
 
 class PowerPort(Protocol):
     def on_battery(self) -> bool: ...

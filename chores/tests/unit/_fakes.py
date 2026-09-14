@@ -29,6 +29,9 @@ class FakeClock:
     def now_utc(self) -> datetime:
         return self._local - self._offset
 
+    def local_from_utc(self, at: datetime) -> datetime:
+        return at + self._offset
+
     def advance(self, seconds: float) -> None:
         self._local = self._local + timedelta(seconds=seconds)
 

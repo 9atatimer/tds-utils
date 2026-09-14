@@ -45,6 +45,7 @@ class FakeCatalog:
         self._completion = completion or FakeCompletion()
         self._agent = agent or FakeAgent()
         self.credentials: list[str | None] = []
+        self.errors: list[str] = []
 
     def spec(self, name: str) -> BackendSpec | None:
         if name == "gw":
