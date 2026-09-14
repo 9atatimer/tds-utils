@@ -9,6 +9,34 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 ---
 
+## Now
+
+The chores build (`docs/design/CHORES.DESIGN.md`), one task file per
+commit-sized unit under `tasks/`, in dependency order:
+
+- task-001 -- package scaffold and toolchain gates; everything else needs a
+  green `uv run pytest`.
+- task-002 -- cron Schedule and due policy; the domain's most bug-prone value,
+  pinned first with property tests.
+- task-003 -- Chore definition, Budget, spend policy; the second pure value
+  the runner needs.
+- task-004 -- run FSM, ledger, ceiling, breaker, admission, redaction;
+  completes the domain before any adapter exists.
+- task-005 -- ports, fakes, filesystem store, definitions loader; the first
+  edge, contract-tested against its fake.
+- task-006 -- completion adapters; the seam the Swap test guards.
+- task-007 -- run use case.
+
+Then task-008 (tick), task-009 (CLI), task-010 (install), task-011 (TUI),
+task-012 (menu bar and Dock), task-013 (private definitions, tds-internal),
+task-014 (as-built and retrospective). `ls tasks/` is the index.
+
+This file is still the legacy mono-file below this section; the migration
+into `tasks/` (todo-plan skill) is filed as its own follow-up rather than
+folded into the chores PR.
+
+---
+
 ## Open Tasks
 
 ### ENV-DISTRIBUTION -- packages/manifests/export/install (issue #202, 2026-08-08)
