@@ -12,6 +12,11 @@
 #     that reason: the suites' shebang is `env bash`, which on the macOS
 #     runner resolves to Homebrew bash 5 and would silently un-test 3.2.
 #
+#   chores -- lint, format, strict types and unit tests for the chores/
+#     uv project (docs/design/CHORES.DESIGN.md). Python is cross-platform,
+#     so one ubuntu leg; the macOS-only surfaces (menu bar, Dock) are
+#     covered by their own smoketests when they land.
+#
 #   shellcheck -- lints exactly the four dist files named in issue #206.
 #     Scope is fixed on purpose: the rest of the repo is not shellcheck-clean
 #     yet, and widening the net here would turn the gate red for reasons
@@ -112,3 +117,33 @@ jobs:
       # Exactly the four dist files named in issue #206 -- see header.
       - name: Shellcheck the dist toolchain
         run: shellcheck -x lib/tds-dist.sh bin/tds-export bin/tds-install bin/tds-status
+
+  chores:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: chores
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Sync the project (all extras + dev group)
+        run: uv sync --all-extras
+
+      - name: Lint (ruff check)
+        run: uv run ruff check .
+
+      - name: Format (ruff format --check)
+        run: uv run ruff format --check .
+
+      - name: Types (mypy --strict)
+        run: uv run mypy
+
+      - name: Unit tests (pytest)
+        run: uv run pytest
