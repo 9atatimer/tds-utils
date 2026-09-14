@@ -1,6 +1,6 @@
 # chores -- laptop-local herd of LLM-adjacent scheduled jobs
 
-> **Status:** DRAFT
+> **Status:** APPROVED (2026-09-14, by Todd Stumpf's delegation to the drafting session; see Key Decisions "Approval authority")
 > **Date:** 2026-09-14
 > **Authors:** Todd Stumpf (intent, `docs/concepts/lmde-tasks/`), Claude (design, on Todd's delegated authority)
 > **Depends on:** [LMDE.DESIGN.md](./LMDE.DESIGN.md) (platform contract), [MACOS-APPS.DESIGN.md](./MACOS-APPS.DESIGN.md) (Dock launcher), [AGENT-NOTIFICATIONS.DESIGN.md](./AGENT-NOTIFICATIONS.DESIGN.md) (notification precedent, DRAFT)
@@ -40,8 +40,11 @@ cloud Routines cannot run local work at all.
 - **One switch stops everything** -- after `chores pause`, no run starts by
   any path (tick, `chores run`, the TUI) until `chores resume`.
 - **Ceilings hold** -- a chore is admitted only when its declared budget fits
-  under every ceiling that applies to it (chore, backend, global), so no
-  ceiling is exceeded by more than one admitted run's declared budget.
+  under every ceiling that applies to it (chore, backend, global). For
+  prompt runs no ceiling is exceeded by more than one admitted run's
+  declared budget. An agent run's actual token and USD usage is only known
+  at its end, so its exposure is the difference between actual and declared;
+  the ledger row carries the actual and the next admission sees it.
 - **One status, three surfaces** -- CLI, TUI and menu bar render the same
   status query; the query completes in under 500ms with 1000 run records on
   disk.
@@ -190,8 +193,10 @@ long-lived daemon.
 | First sight | a chore seen for the first time (new file, renamed) has its window opened at that tick; it fires at its next slot and never catches up across the gap before it was seen |
 | Due detection | domain `due_policy(schedule, window_start, now, grace)`; a slot is due when the cron matches between `window_start` (the last fired or skipped slot, or first sight) and `now`, evaluated on the local wall clock. A spring-forward slot that never exists fires once at the first instant after the gap; a fall-back slot that occurs twice fires once, keyed by its wall-clock label |
 | Missed detection | slots older than `missed_grace_sec` (default two tick intervals) are recorded MISSED, not fired; one record per chore per tick carrying the count; `catch_up: true` fires one run for the set |
-| Admission | domain `admission_policy` (Subsystem 5); every refusal writes a record with its reason. A `defer_on_battery` chore refused for battery keeps its slot: the window does not advance, and the next tick on AC power fires one run |
-| Interrupted | a RUNNING record whose `pid` is gone or whose process start time differs from the recorded one, and a PENDING record older than one tick interval with no RUNNING transition, become INTERRUPTED |
+| Admission | domain `admission_policy` (Subsystem 5); every refusal writes a record with its reason, except that a `defer_on_battery` chore refused for battery writes one DEFERRED_BATTERY record per retained slot, not per tick: the window does not advance, and the next tick on AC power fires one run for it |
+| Interrupted | a RUNNING record whose `pid` is gone or whose process start time differs from the recorded one, and a PENDING record older than one tick interval with no RUNNING transition, become INTERRUPTED; tick posts the notification for it when INTERRUPTED is in the chore's `notify_on` |
+| Host state | on-battery and backend reachability come through `PowerPort` and `NetworkPort` (adapters: pmset / upower, a socket probe), so tests fake them and Linux gets its own adapter |
+| Interval | the tick interval is a `config.yaml` parameter that `chores install` copies into the launchd or systemd unit; changing it requires `chores install` again, and `status` warns when the installed unit disagrees with config |
 | Spawn | admitted chores start as detached `chores run <name>` processes; tick returns without waiting |
 
 ### Subsystem 3: Runner (run)
@@ -212,8 +217,8 @@ tick.
 | Enforce | domain `spend_policy(usage, budget)` after every response and at the end of an agent run; TIMED_OUT / BUDGET_EXCEEDED are terminal statuses, never swallowed exceptions |
 | Record | `RunStorePort` writes `run.json` on every status change, appends transcript lines as complete JSON objects (one per line, so a value cannot straddle two lines), appends one ledger row at the terminal status. Usage includes wall `seconds`, child `cpu_seconds` (rusage) and `disk_bytes` of the run directory; a writer that reaches `max_run_dir_bytes` stops writing, marks the record `truncated`, and does not change the status |
 | Redact | domain `redact(text, secrets)` covers each resolved value verbatim and in JSON-string-escaped and URL-encoded form, applied to every byte before it reaches the store. Encodings a tool invents beyond those (base64, split tokens) are out of the claim |
-| Notify | per `notify_on`; level `alert` for BUDGET_EXCEEDED and a breaker pause, `info` otherwise |
-| Breaker | on a terminal failure, `circuit_breaker(recent_statuses, threshold)` may pause the chore; it posts an `alert` when it does |
+| Notify | per `notify_on` for the statuses the runner itself writes; level `alert` for BUDGET_EXCEEDED and a breaker pause, `info` otherwise |
+| Breaker | on a terminal failure, `circuit_breaker(recent_statuses, threshold)` may pause the chore; the runner is the only poster of the breaker `alert` |
 
 ### Subsystem 4: Backends (the two execution seams)
 
@@ -258,9 +263,9 @@ Dimensions: tokens, USD, turns (agent), seconds. A chore declares a
 `budget` in any subset; **a chore must declare every dimension in which a
 ceiling applies to it** (chore, backend or global), and validation rejects
 one that does not -- so an undeclared dimension is never an unbounded
-addend. Ceilings are per rolling 24h in tokens and USD (backend, global)
-plus the chore's own. `billing: subscription` rows count toward token and
-turn ceilings and, by default, not toward USD ceilings
+addend. Ceilings are per rolling 24h in tokens, USD and turns (chore,
+backend, global). `billing: subscription` rows count toward token and turn
+ceilings and, by default, not toward USD ceilings
 (`count_subscription_usd: false`).
 
 `chores pause [reason]` writes `PAUSED` in the state directory; presence
@@ -294,9 +299,10 @@ timer renders as "not installed".
 run_id, chore, level, text, read`) through the store, after redacting the
 values of every environment variable named in `CHORES_SECRET_NAMES` -- so
 a child run posting from inside its environment cannot leak what it was
-given. The runner posts for each terminal status in the chore's
-`notify_on`, and tick posts for INVALID definitions and breaker pauses
-regardless of any chore's setting. The TUI and menu bar show unread rows;
+given. The runner posts for each terminal status it writes that is in the
+chore's `notify_on`; tick posts for the terminal statuses it writes
+(INTERRUPTED, when in `notify_on`) and for INVALID definitions regardless
+of any chore's setting; the breaker `alert` has one poster, the runner. The TUI and menu bar show unread rows;
 `chores notify --dismiss <id>` marks read. On macOS a level `alert` row
 additionally raises a system notification through the `NotifierPort`'s
 osascript adapter, which passes the text as a script argument and never
@@ -343,9 +349,9 @@ pruned. `chores status` shows the state directory's size.
 | RUNNING | INTERRUPTED | next tick | pid gone or process start time mismatch, no terminal status |
 
 Non-run outcomes written by tick, terminal on creation: MISSED, INVALID,
-SKIPPED_OVERLAP, SKIPPED_PAUSED, SKIPPED_CEILING, SKIPPED_OFFLINE,
-SKIPPED_BATTERY (the slot is consumed) and DEFERRED_BATTERY (the slot is
-retained; written for a `defer_on_battery` chore).
+SKIPPED_OVERLAP, SKIPPED_PAUSED, SKIPPED_CEILING, SKIPPED_OFFLINE, and
+DEFERRED_BATTERY (one per retained slot of a `defer_on_battery` chore; the
+slot fires on the next tick with AC power).
 
 ### Chore
 
@@ -378,11 +384,11 @@ cwd             path; default: a per-chore workspace under the data dir; may
 timeout_sec     int > 0, default 600
 budget          {tokens?: int, usd?: float, turns?: int}; must cover every
                 dimension in which a ceiling applies to this chore
-ceiling         {tokens?: int, usd?: float} per rolling 24h, optional
+ceiling         {tokens?: int, usd?: float, turns?: int} per rolling 24h, optional
 env             map of explicit environment
 secrets         map ENV_NAME -> credential reference (resolved at run start)
-allowed_tools   list (agent only); default read-only tools; write and shell
-                tools only when listed explicitly
+allowed_tools   list (agent only); default: the read-only set the backend's
+                adapter declares; write and shell tools only when listed
 defer_on_battery bool, default false
 requires_network bool, default from backend type
 catch_up        bool, default false
@@ -450,9 +456,8 @@ rows.
   (Non-Goals). Mitigations: `cwd` may not be inside or contain
   `$CHORES_HOME` or the state directory; write and shell tools are opt-in
   per chore; `definition.md` is snapshotted before execution so a
-  self-edit is visible on the next run's diff; the ledger row count is
-  written to `last_tick` so a shrink is reported as a warning on every
-  surface.
+  self-edit is visible on the next run's diff; a ledger that shrinks
+  between ticks is reported as a warning on every surface.
 - **Secrets resolve late and never persist** -- credential references are
   resolved at run start through `SecretsPort` under their own timeout; the
   resolved values are the redaction set for every byte the run writes,
@@ -478,7 +483,7 @@ rows.
 | Decision | Choice | Rationale |
 |---|---|---|
 | Name | `chores` | "Tasks" collides with the todo-plan `tasks/` tree and `gadmin task`; "herd" collides with Laravel Herd's CLI. Chosen on Todd's delegated authority (session 2026-09-14) |
-| File name | `CHORES.DESIGN.md` | matches every sibling in this repo's `docs/design/`; the fleet rubric's `DESIGN.<name>.md` is the template-tools convention |
+| File name | `CHORES.DESIGN.md` | the local majority convention (all but one sibling) deliberately kept; `STYLE-GUIDE.md`'s File Naming section says `DESIGN.<name>.md` and is Todd's to amend or enforce |
 | Home repo and language | tds-utils, Python 3.11+ package `chores/` with `bin/chores` | LMDE tool; Python is Adopt; goldfish and the monitors set the precedent |
 | Scheduling mechanism | launchd `StartInterval` (systemd timer on Linux) invoking a stateless `chores tick`; chores own due/missed logic | crontab has a barren env and no notion of a missed slot; a daemon is fragile across sleep; per-chore plists multiply install state |
 | Cron evaluation | own 5-field matcher in `domain/` on the local wall clock, with the DST rules in Subsystem 2 | bounded; keeps the schedule a pure value; croniter rejected below |
@@ -499,8 +504,9 @@ rows.
 | Radar proposal | **Textual** -> Trial (Python TUI; first consumer chores) | no TUI framework on any ring; Textual is the maintained Python option and pairs with the Adopt toolchain |
 | Radar proposal | **PyYAML** -> Adopt (front-matter and config parsing) | the fleet's YAML front-matter convention needs a parser; stdlib has none |
 | Radar proposal | **rumps** -> Adopt (macOS menu bar), recording existing use by two monitors | already in use with no row |
+| Radar proposal | **Click** -> Adopt in `lmde/TECH_RADAR.md`, mirroring the fleet radar's existing Adopt row | the LMDE radar has no Python CLI row; goldfish uses argparse, this is the first click consumer here |
 | Radar proposal | **croniter** -> not added | see Rejections |
-| Status transitions | DRAFT -> REVIEW after the adversarial panel (2026-09-14, 25 findings, all resolved in this revision); REVIEW -> APPROVED on Todd's explicit delegation ("fill in my shoes for those decisions", same session) | the ladder is human-owned; the delegation is the human act, recorded here so the transition has an owner |
+| Approval authority | Todd delegated the approval decision for this record to the drafting session ("I am stepping away, so you will have to fill in my shoes for those decisions", 2026-09-14) after two adversarial panel passes (25 findings, then 5 new ones, all addressed) | the status ladder is human-owned; the delegation is the human act and this row is its record. Todd may revert to REVIEW at any time |
 
 ---
 
