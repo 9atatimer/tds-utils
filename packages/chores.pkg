@@ -1,0 +1,7 @@
+# chores -- laptop-local herd of LLM-adjacent scheduled jobs (docs/design/CHORES.DESIGN.md)
+NAME=chores
+DESC="chores scheduler, CLI, TUI, menu-bar monitor and Dock app"
+PATHS="chores bin/chores bin/chores-dashboard bin/chores-monitor bin/launch-chores-monitor assets/chores-quiet.png assets/chores-alert.png assets/chores-icons.py macos/launchd/com.tds.chores-monitor.plist macos/apps/chores"
+BINS="bin/chores bin/chores-dashboard bin/chores-monitor bin/launch-chores-monitor"
+SERVICES="macos/launchd/com.tds.chores-monitor.plist"
+VERIFY=chores/tests
