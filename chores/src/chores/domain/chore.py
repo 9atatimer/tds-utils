@@ -17,12 +17,21 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from enum import Enum
 
 from chores.domain.budget import Budget, Ceiling, InvalidBudget
 from chores.domain.errors import DomainError
+from chores.domain.kinds import KIND_PORT, ExecutionPort, Kind
 from chores.domain.run import RunStatus
 from chores.domain.schedule import InvalidSchedule, Schedule
+
+__all__ = [
+    "BackendSpec",
+    "Chore",
+    "ExecutionPort",
+    "InvalidChore",
+    "Kind",
+    "check_bindings",
+]
 
 _NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 _DEFAULT_TIMEOUT_SEC = 600
@@ -63,22 +72,6 @@ _BUDGET_KEYS = frozenset({"tokens", "usd", "turns"})
 
 class InvalidChore(DomainError):
     """The definition violates a field-level invariant; the message names the field."""
-
-
-class Kind(Enum):
-    PROMPT = "prompt"
-    AGENT = "agent"
-    COMMAND = "command"
-
-
-class ExecutionPort(Enum):
-    """Which seam a backend implements. ``kind`` selects the port."""
-
-    COMPLETION = "completion"
-    AGENT = "agent"
-
-
-_KIND_PORT = {Kind.PROMPT: ExecutionPort.COMPLETION, Kind.AGENT: ExecutionPort.AGENT}
 
 
 @dataclass(frozen=True, slots=True)
@@ -309,7 +302,7 @@ class Chore:
 
     @property
     def port(self) -> ExecutionPort | None:
-        return _KIND_PORT.get(self.kind)
+        return KIND_PORT.get(self.kind)
 
     def effective_tools(self, backend: BackendSpec) -> frozenset[str]:
         """Tool allowlist: the declared list, else the adapter's read-only set."""
