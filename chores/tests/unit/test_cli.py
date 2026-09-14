@@ -183,3 +183,32 @@ def test_agent_run_through_cli(tmp_path: Path) -> None:
     code, out = invoke(h, "run", "rev")
     assert code == 0 and "SUCCEEDED" in out
     assert h.store.records()[0].status is RunStatus.SUCCEEDED
+
+
+def test_install_and_uninstall_go_through_the_installer(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from chores.adapters.scheduler import LaunchdInstaller
+
+    calls: list[list[str]] = []
+    inst = LaunchdInstaller(
+        home=tmp_path / "h", uid=7, run=lambda argv: calls.append(argv) or 0
+    )
+    h = FullHarness(
+        tmp_path, chores={"tidy": COMMAND}, config="tick_interval_sec: 30\n"
+    )
+    deps = replace(h.deps(), installer=inst, scheduler_installed=inst.installed)
+    r = CliRunner().invoke(
+        main, ["install", "--dry-run"], obj=deps, catch_exceptions=False
+    )
+    assert "would write" in r.output and calls == []
+    r = CliRunner().invoke(main, ["install"], obj=deps, catch_exceptions=False)
+    assert "every 30s" in r.output and inst.installed()
+    view = json.loads(CliRunner().invoke(main, ["status", "--json"], obj=deps).output)
+    assert view["scheduler"]["installed"] is True and view["warnings"] == []
+    deps2 = replace(deps, definitions=h.definitions)
+    (tmp_path / "home" / "config.yaml").write_text("tick_interval_sec: 60\n")
+    view = json.loads(CliRunner().invoke(main, ["status", "--json"], obj=deps2).output)
+    assert any("differs" in w for w in view["warnings"])
+    r = CliRunner().invoke(main, ["uninstall"], obj=deps, catch_exceptions=False)
+    assert "booted out" in r.output and not inst.installed()

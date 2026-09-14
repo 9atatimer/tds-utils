@@ -4,6 +4,7 @@ from the environment. The only module that knows every adapter."""
 from __future__ import annotations
 
 import os
+import platform
 import secrets
 import subprocess
 import sys
@@ -20,6 +21,7 @@ from chores.adapters.host import (
 )
 from chores.adapters.process import SubprocessRunner
 from chores.adapters.registry import BackendCatalog
+from chores.adapters.scheduler import installer_for
 from chores.adapters.secrets import OpSecrets
 from chores.application.deps import Deps
 from chores.application.paths import Paths
@@ -59,6 +61,15 @@ def build_deps(*, installed_probe: Callable[[], bool | None] | None = None) -> D
     paths = resolve_paths()
     state_dir = Path(paths.state_dir)
     process = SubprocessRunner()
+    installer = installer_for(
+        platform.system(),
+        home=Path(os.environ.get("HOME", "~")).expanduser(),
+        uid=os.getuid(),
+    )
+    if installed_probe is None:
+        installed_probe = (
+            (lambda: installer.installed()) if installer else (lambda: None)
+        )
     return Deps(
         definitions=DefinitionsLoader(Path(paths.chores_home)),
         catalog_for=lambda defs: _catalog(defs, process),
@@ -74,7 +85,8 @@ def build_deps(*, installed_probe: Callable[[], bool | None] | None = None) -> D
         inherited_env=dict(os.environ),
         run_id_suffix=lambda: secrets.token_hex(2),
         launch=_launch_factory(state_dir),
-        scheduler_installed=installed_probe or (lambda: None),
+        scheduler_installed=installed_probe,
+        installer=installer,
     )
 
 

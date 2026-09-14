@@ -7,12 +7,13 @@ function, shape the result. The composition root lives in
 
 from __future__ import annotations
 
-import os
 from datetime import timedelta
+from typing import cast
 
 import click
 
 from chores import __version__
+from chores.adapters.scheduler import SchedulerInstaller
 from chores.application import status as queries
 from chores.application.deps import Deps
 from chores.application.run import run_chore
@@ -278,5 +279,31 @@ def prune(ctx: click.Context) -> None:
     click.echo(f"pruned {len(removed)} run(s)")
 
 
-def _env_flag(name: str) -> bool:
-    return os.environ.get(name, "") not in ("", "0", "false")
+def _installer(ctx: click.Context) -> SchedulerInstaller:
+    deps = _deps(ctx)
+    installer = deps.installer
+    if installer is None:
+        click.echo(
+            "no scheduler installer for this platform (macOS launchd, Linux systemd)"
+        )
+        ctx.exit(1)
+    return cast(SchedulerInstaller, installer)
+
+
+@main.command()
+@click.option("--dry-run", is_flag=True)
+@click.pass_context
+def install(ctx: click.Context, dry_run: bool) -> None:
+    """Install the tick as a launchd agent (macOS) or systemd user timer (Linux)."""
+    deps = _deps(ctx)
+    interval = deps.definitions.load().config.tick_interval_sec
+    for line in _installer(ctx).install(interval_sec=interval, dry_run=dry_run):
+        click.echo(line)
+
+
+@main.command()
+@click.pass_context
+def uninstall(ctx: click.Context) -> None:
+    """Remove the scheduler agent or timer."""
+    for line in _installer(ctx).uninstall():
+        click.echo(line)

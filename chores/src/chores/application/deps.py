@@ -39,6 +39,7 @@ class Deps:
     run_id_suffix: Callable[[], str]
     launch: Callable[[str], None]
     scheduler_installed: Callable[[], bool | None]
+    installer: object | None = None
 
     def as_run_deps(self) -> RunDeps:
         return RunDeps(
