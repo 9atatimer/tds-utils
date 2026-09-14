@@ -118,6 +118,13 @@ def test_pause_sentries(store: RunStorePort) -> None:
     assert store.chore_paused("c") is None
 
 
+def test_kill_request_marker(store: RunStorePort) -> None:
+    store.write_record(_record("c-1"))
+    assert store.kill_requested("c-1") is False
+    store.request_kill("c-1")
+    assert store.kill_requested("c-1") is True
+
+
 def test_tick_mark_round_trips(store: RunStorePort) -> None:
     assert store.last_tick() is None
     store.mark_tick(TickMark(at=T0, ledger_rows=3))

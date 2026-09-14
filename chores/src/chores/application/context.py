@@ -1,0 +1,188 @@
+"""Shared application helpers used by both use cases (run and tick):
+loading definitions with a catalog, finding a chore, live-run detection,
+the rolling ceiling window, admission facts, and outcome recording."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+
+from chores.domain.budget import Usage
+from chores.domain.chore import BackendSpec, Chore, check_bindings
+from chores.domain.kinds import Kind
+from chores.domain.policies import (
+    AdmissionFacts,
+    AdmissionVerdict,
+    Decision,
+    LedgerUsage,
+    admission_policy,
+    ceiling_policy,
+)
+from chores.domain.run import Billing, RunRecord, RunStatus, new_run_id, to_ledger_row
+from chores.ports.backends import BackendCatalogPort
+from chores.ports.definitions import Definitions, DefinitionsPort, InvalidDefinition
+from chores.ports.host import ClockPort, NetworkPort, NotifierPort, PowerPort
+from chores.ports.process import ProcessPort
+from chores.ports.store import RunStorePort
+
+CEILING_WINDOW = timedelta(hours=24)
+PROBE_TIMEOUT_SEC = 3.0
+
+
+@dataclass(frozen=True, slots=True)
+class Context:
+    definitions: Definitions
+    catalog: BackendCatalogPort
+
+
+def load_context(
+    definitions: DefinitionsPort,
+    catalog_for: Callable[[Definitions], BackendCatalogPort],
+) -> Context:
+    defs = definitions.load()
+    return Context(definitions=defs, catalog=catalog_for(defs))
+
+
+def find_chore(defs: Definitions, name: str) -> Chore | InvalidDefinition | None:
+    for chore in defs.chores:
+        if chore.name == name:
+            return chore
+    for invalid in defs.invalid:
+        if invalid.name == name:
+            return invalid
+    return None
+
+
+def binding_errors(
+    ctx: Context, chore: Chore, *, forbidden: Sequence[str]
+) -> list[str]:
+    backend = ctx.catalog.spec(chore.backend) if chore.backend else None
+    return check_bindings(
+        chore,
+        backend=backend,
+        global_ceiling=ctx.definitions.config.ceiling,
+        forbidden_paths=forbidden,
+    )
+
+
+def live_running(
+    store: RunStorePort, process: ProcessPort, chore: str
+) -> RunRecord | None:
+    """The RUNNING record whose process is really alive, if any."""
+    for record in store.records(chore=chore):
+        if record.status is RunStatus.RUNNING and record.pid is not None:
+            start = record.process_start if record.process_start is not None else 0.0
+            if process.alive(record.pid, process_start=start):
+                return record
+    return None
+
+
+def ledger_window(store: RunStorePort, *, now_utc: datetime) -> list[LedgerUsage]:
+    rows: list[LedgerUsage] = []
+    for row in store.ledger_rows(since=now_utc - CEILING_WINDOW):
+        billing = row.get("billing")
+        rows.append(
+            LedgerUsage(
+                chore=str(row.get("chore")),
+                backend=None if row.get("backend") is None else str(row.get("backend")),
+                billing=Billing(str(billing)) if billing else None,
+                usage=Usage(
+                    tokens_in=int(str(row.get("tokens_in", 0))),
+                    tokens_out=int(str(row.get("tokens_out", 0))),
+                    seconds=float(str(row.get("seconds", 0.0))),
+                    usd=None if row.get("usd") is None else float(str(row.get("usd"))),
+                    turns=None
+                    if row.get("turns") is None
+                    else int(str(row.get("turns"))),
+                ),
+            )
+        )
+    return rows
+
+
+@dataclass(frozen=True, slots=True)
+class Host:
+    store: RunStorePort
+    process: ProcessPort
+    clock: ClockPort
+    power: PowerPort
+    network: NetworkPort
+
+
+def admit(
+    ctx: Context, chore: Chore, host: Host, *, force: bool = False
+) -> tuple[AdmissionVerdict, BackendSpec | None]:
+    """Gather the admission facts for one chore and decide."""
+    spec = ctx.catalog.spec(chore.backend) if chore.backend else None
+    offline = False
+    if chore.needs_network(spec) and chore.backend:
+        url = ctx.catalog.probe_url(chore.backend)
+        if url is not None:
+            offline = not host.network.reachable(url, timeout_sec=PROBE_TIMEOUT_SEC)
+    ceiling = ceiling_policy(
+        ledger_window(host.store, now_utc=host.clock.now_utc()),
+        chore=chore,
+        backend=spec,
+        global_ceiling=ctx.definitions.config.ceiling,
+        count_subscription_usd=ctx.definitions.config.count_subscription_usd,
+    )
+    running = live_running(host.store, host.process, chore.name)
+    facts = AdmissionFacts(
+        enabled=chore.enabled,
+        globally_paused=host.store.paused(),
+        chore_paused=host.store.chore_paused(chore.name),
+        running_run_id=running.run_id if running else None,
+        on_battery=host.power.on_battery() if chore.defer_on_battery else False,
+        defer_on_battery=chore.defer_on_battery,
+        offline=offline,
+        requires_network=chore.needs_network(spec),
+        ceiling_refusal=ceiling.reason if ceiling.decision is Decision.REFUSE else None,
+        force=force,
+    )
+    return admission_policy(facts), spec
+
+
+def write_outcome(
+    store: RunStorePort,
+    *,
+    run_id: str,
+    chore: str,
+    kind: Kind,
+    definition_rev: str,
+    status: RunStatus,
+    reason: str,
+    at: datetime,
+) -> RunRecord:
+    """A tick-written outcome: record plus ledger row."""
+    record = RunRecord.outcome(
+        run_id=run_id,
+        chore=chore,
+        kind=kind,
+        definition_rev=definition_rev,
+        status=status,
+        reason=reason,
+        at=at,
+    )
+    store.write_record(record)
+    store.append_ledger(to_ledger_row(record))
+    return record
+
+
+def post(
+    store: RunStorePort,
+    notifier: NotifierPort,
+    *,
+    at: datetime,
+    level: str,
+    text: str,
+    run_id: str | None = None,
+    chore: str | None = None,
+) -> None:
+    store.notify(at=at, level=level, text=text, run_id=run_id, chore=chore)
+    if level == "alert":
+        notifier.alert(title="chores", text=text)
+
+
+def mint_run_id(chore: str, clock: ClockPort, suffix: Callable[[], str]) -> str:
+    return new_run_id(chore, at=clock.now_utc(), suffix=suffix())

@@ -188,6 +188,19 @@ class FakeProcess:
         self.signalled.append(pgid)
         return True
 
+    def own_identity(self) -> ProcessIdentity:
+        return ProcessIdentity(pid=100, pgid=100, process_start=0.25)
+
+
+class FakeWorkspaces:
+    def __init__(self, root: str = "/data/workspaces") -> None:
+        self.root = root
+        self.ensured: list[str] = []
+
+    def ensure(self, chore: str) -> str:
+        self.ensured.append(chore)
+        return f"{self.root}/{chore}"
+
 
 class FakeRunStore:
     """In-memory RunStorePort with the same semantics the contract tests pin."""
@@ -200,7 +213,14 @@ class FakeRunStore:
         self._paused: str | None = None
         self._chore_paused: dict[str, str] = {}
         self._tick: TickMark | None = None
+        self._kills: set[str] = set()
         self.lock_held = False
+
+    def request_kill(self, run_id: str) -> None:
+        self._kills.add(run_id)
+
+    def kill_requested(self, run_id: str) -> bool:
+        return run_id in self._kills
 
     def write_record(self, record: RunRecord) -> None:
         self._records[record.run_id] = record

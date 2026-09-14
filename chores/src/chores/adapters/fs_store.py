@@ -224,6 +224,17 @@ class FsRunStore:
             return iter(())
         return (name for name in _ARTIFACTS if (run_dir / name).exists())
 
+    # --- kill requests ---
+
+    def request_kill(self, run_id: str) -> None:
+        run_dir = self._run_dir(run_id)
+        self._ensure_private(run_dir)
+        (run_dir / "KILL").write_text("", encoding="utf-8")
+
+    def kill_requested(self, run_id: str) -> bool:
+        run_dir = self._find_run_dir(run_id)
+        return run_dir is not None and (run_dir / "KILL").exists()
+
     # --- ledger ---
 
     def append_ledger(self, row: Mapping[str, object]) -> None:
@@ -367,3 +378,15 @@ class FsRunStore:
                 fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
         finally:
             fh.close()
+
+
+class FsWorkspaces:
+    """WorkspacesPort under the data directory (``.../chores/workspaces``)."""
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def ensure(self, chore: str) -> str:
+        path = self.root / chore
+        path.mkdir(parents=True, exist_ok=True, mode=0o700)
+        return str(path)

@@ -53,3 +53,7 @@ class ProcessPort(Protocol):
     def signal_group(self, pgid: int) -> bool:
         """SIGTERM a process group; True if it existed."""
         ...
+
+    def own_identity(self) -> ProcessIdentity:
+        """This process, for runs that execute in-process (prompt runs)."""
+        ...
