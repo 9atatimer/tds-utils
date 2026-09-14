@@ -182,6 +182,16 @@ def status(deps: Deps) -> StatusView:
         tick_interval_sec=config.tick_interval_sec,
         ledger_rows=deps.store.ledger_count(),
     )
+    warnings = [*ctx.definitions.errors, *ctx.catalog.errors]
+    installed_interval = _installed_interval(deps)
+    if (
+        installed_interval is not None
+        and installed_interval != config.tick_interval_sec
+    ):
+        warnings.append(
+            f"installed tick interval {installed_interval}s differs from config "
+            f"{config.tick_interval_sec}s; run `chores install` again"
+        )
     return StatusView(
         at=now_utc,
         paused=deps.store.paused(),
@@ -189,8 +199,16 @@ def status(deps: Deps) -> StatusView:
         usage=usage,
         scheduler=scheduler,
         notifications=deps.store.notifications(),
-        warnings=[*ctx.definitions.errors, *ctx.catalog.errors],
+        warnings=warnings,
     )
+
+
+def _installed_interval(deps: Deps) -> int | None:
+    probe = getattr(deps.installer, "installed_interval", None)
+    if probe is None:
+        return None
+    value = probe()
+    return int(value) if isinstance(value, int) else None
 
 
 # --- runs and show -----------------------------------------------------------
