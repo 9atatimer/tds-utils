@@ -34,6 +34,7 @@ from chores.ports.definitions import Definitions, DefinitionsPort, InvalidDefini
 from chores.ports.errors import (
     BackendError,
     BackendTimeout,
+    ProcessError,
     SecretUnavailable,
     Unreachable,
 )
@@ -179,6 +180,10 @@ def _cwd(chore: Chore, deps: RunDeps) -> str:
     return chore.cwd if chore.cwd is not None else deps.workspaces.ensure(chore.name)
 
 
+def ctx_store_kill_requested(artifacts: _Artifacts) -> bool:
+    return artifacts.store.kill_requested(artifacts.run_id)
+
+
 def _map_error(error: BackendError, *, needs_network: bool) -> tuple[RunStatus, str]:
     if isinstance(error, Unreachable) and needs_network:
         return RunStatus.OFFLINE, str(error)
@@ -196,7 +201,12 @@ def _execute_prompt(
     artifacts: _Artifacts,
 ) -> _Execution:
     model = chore.model or spec.default_model or ""
-    port = ctx.catalog.completion(spec.name, credential=credential)
+    try:
+        port = ctx.catalog.completion(spec.name, credential=credential)
+    except (KeyError, ValueError) as e:
+        reason = f"backend {spec.name!r} misconfigured: {e}"
+        artifacts.append("errors.log", reason + "\n")
+        return _Execution(RunStatus.FAILED, reason, Usage(0, 0, 0.0), backend=spec.name)
     artifacts.event({"role": "user", "content": chore.body, "model": model})
     try:
         response = port.complete(
@@ -243,7 +253,12 @@ def _execute_agent(
     on_start: Callable[[ProcessIdentity], None],
 ) -> _Execution:
     model = chore.model or spec.default_model or ""
-    port = ctx.catalog.agent(spec.name, credential=credential)
+    try:
+        port = ctx.catalog.agent(spec.name, credential=credential)
+    except (KeyError, ValueError) as e:
+        reason = f"backend {spec.name!r} misconfigured: {e}"
+        artifacts.append("errors.log", reason + "\n")
+        return _Execution(RunStatus.FAILED, reason, Usage(0, 0, 0.0), backend=spec.name)
     artifacts.event({"role": "user", "content": chore.body, "model": model})
     try:
         result = port.run(
@@ -255,10 +270,25 @@ def _execute_agent(
                 max_turns=chore.budget.turns,
                 timeout_sec=chore.budget.seconds,
                 env=env,
+                kill_grace_sec=ctx.definitions.config.kill_grace_sec,
             ),
             on_start=on_start,
         )
+    except ProcessError as e:
+        artifacts.append("errors.log", str(e) + "\n")
+        return _Execution(
+            RunStatus.FAILED, str(e), Usage(0, 0, 0.0), backend=spec.name, model=model
+        )
     except BackendError as e:
+        if ctx_store_kill_requested(artifacts):
+            artifacts.append("errors.log", str(e) + "\n")
+            return _Execution(
+                RunStatus.KILLED,
+                "killed by chores kill",
+                Usage(0, 0, 0.0),
+                backend=spec.name,
+                model=model,
+            )
         status, reason = _map_error(e, needs_network=chore.needs_network(spec))
         artifacts.append("errors.log", reason + "\n")
         return _Execution(
@@ -317,15 +347,20 @@ def _execute_command(
     on_start: Callable[[ProcessIdentity], None],
 ) -> _Execution:
     assert chore.command is not None
-    running = deps.process.spawn(
-        ProcessRequest(
-            argv=chore.command,
-            cwd=cwd,
-            env=env,
-            timeout_sec=chore.budget.seconds,
-            kill_grace_sec=ctx.definitions.config.kill_grace_sec,
+    try:
+        running = deps.process.spawn(
+            ProcessRequest(
+                argv=chore.command,
+                cwd=cwd,
+                env=env,
+                timeout_sec=chore.budget.seconds,
+                kill_grace_sec=ctx.definitions.config.kill_grace_sec,
+            )
         )
-    )
+    except ProcessError as e:
+        on_start(deps.process.own_identity())
+        artifacts.append("errors.log", str(e) + "\n")
+        return _Execution(RunStatus.FAILED, str(e), Usage(0, 0, 0.0))
     on_start(running.identity)
     result = running.wait()
     if result.stdout:
@@ -375,9 +410,19 @@ def _finish(
         cpu_seconds=execution.usage.cpu_seconds,
         disk_bytes=deps.store.run_dir_bytes(record.run_id),
     )
-    status, reason = execution.status, execution.reason
+    status = execution.status
+    reason = redact(execution.reason, artifacts.secrets) if execution.reason else None
     if status is RunStatus.SUCCEEDED:
-        verdict = spend_policy(usage, chore.budget)
+        # Time is bounded by the adapters (timeouts); the wall clock here includes
+        # secret resolution and snapshotting, so it must not flip a success.
+        measured = Usage(
+            tokens_in=usage.tokens_in,
+            tokens_out=usage.tokens_out,
+            seconds=execution.usage.seconds,
+            usd=usage.usd,
+            turns=usage.turns,
+        )
+        verdict = spend_policy(measured, chore.budget)
         if verdict.action is SpendAction.STOP:
             status, reason = RunStatus.BUDGET_EXCEEDED, verdict.reason
     record = record.with_usage(

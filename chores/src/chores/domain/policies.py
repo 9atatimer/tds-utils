@@ -12,6 +12,7 @@ from enum import Enum
 
 from chores.domain.budget import Ceiling, Usage
 from chores.domain.chore import BackendSpec, Chore
+from chores.domain.kinds import Kind
 from chores.domain.run import Billing, RunStatus
 
 
@@ -72,7 +73,10 @@ def ceiling_policy(
     count_subscription_usd: bool,
 ) -> CeilingVerdict:
     """REFUSE when spent-in-window plus this chore's declared budget would cross
-    any applicable ceiling; the smallest applicable ceiling wins."""
+    any applicable ceiling; the smallest applicable ceiling wins. Command
+    chores spend no tokens, USD or turns, so no ceiling applies to them."""
+    if chore.kind is Kind.COMMAND:
+        return CeilingVerdict(Decision.ADMIT)
     scopes: list[tuple[str, Ceiling, list[LedgerUsage]]] = [
         ("chore", chore.ceiling, [r for r in rows if r.chore == chore.name]),
         ("global", global_ceiling, list(rows)),

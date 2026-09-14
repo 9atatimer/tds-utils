@@ -343,6 +343,12 @@ def check_bindings(
             and not backend.priced
         ):
             out.append(f"backend {backend.name!r} has a usd ceiling but no price table")
+        if backend is not None and not (chore.model or backend.default_model):
+            out.append(
+                f"no model: set model on the chore or on backend {backend.name!r}"
+            )
+        if chore.kind is Kind.AGENT and chore.budget.turns is None:
+            out.append("agent kind requires budget.turns (the in-run bound)")
         applicable = set(chore.ceiling.dimensions()) | set(global_ceiling.dimensions())
         if backend is not None:
             applicable |= set(backend.ceiling.dimensions())

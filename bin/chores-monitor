@@ -68,8 +68,9 @@ class ChoresMonitor(rumps.App):
             self.status_item.title = "chores: status unavailable"
         else:
             chores = view.get("chores", [])
-            failed = [c["name"] for c in chores if c.get("last_failure") and c.get("last_run")
-                      and c["last_run"]["status"] == c["last_failure"]["status"]]
+            failures = {"FAILED", "TIMED_OUT", "BUDGET_EXCEEDED", "INTERRUPTED"}
+            failed = [c["name"] for c in chores
+                      if c.get("last_run") and c["last_run"]["status"] in failures]
             paused = view.get("paused")
             sched = view.get("scheduler", {})
             bits = [f"{len(chores)} chores"]

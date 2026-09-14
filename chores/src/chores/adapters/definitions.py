@@ -5,6 +5,7 @@ here, at the edge; the domain's ``Chore.from_mapping`` does the validating.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -172,6 +173,11 @@ def _config(raw: object) -> GlobalConfig:
     )
 
 
+def _normalise_cwd(raw: str) -> str:
+    """Expand ~ and resolve symlinks and .. so the cwd rule sees a real path."""
+    return os.path.realpath(os.path.expanduser(raw))
+
+
 def _load_yaml(path: Path) -> object:
     if not path.exists():
         return None
@@ -195,6 +201,8 @@ class DefinitionsLoader:
         for path in sorted((self.home / "chores").glob("*.md")):
             try:
                 data, body = split_front_matter(path.read_text(encoding="utf-8"))
+                if isinstance(data.get("cwd"), str):
+                    data = {**data, "cwd": _normalise_cwd(str(data["cwd"]))}
                 chore = Chore.from_mapping(data, body=body)
                 if chore.name != path.stem:
                     raise InvalidChore(f"name {chore.name!r} must equal the file stem")

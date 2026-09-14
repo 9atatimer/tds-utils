@@ -18,6 +18,7 @@ class AgentTask:
     max_turns: int | None
     timeout_sec: int
     env: Mapping[str, str]
+    kill_grace_sec: int = 10
 
 
 @dataclass(frozen=True, slots=True)

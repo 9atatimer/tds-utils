@@ -28,7 +28,7 @@ require_uv() {
 main() {
     export PATH="/usr/local/bin:/opt/homebrew/bin:${HOME}/.local/bin:${PATH}"
     require_uv
-    exec uv run --quiet --project "$(project_dir)" chores "$@"
+    exec uv run --quiet --project "$(project_dir)" --all-extras chores "$@"
 }
 
 main "$@"

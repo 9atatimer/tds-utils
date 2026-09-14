@@ -98,7 +98,7 @@ def _summaries(
 ) -> tuple[RunSummary | None, RunSummary | None, RunSummary | None]:
     last_run = last_success = last_failure = None
     for r in records:
-        if not r.status.is_terminal:
+        if not r.status.is_run_terminal:
             continue
         if last_run is None:
             last_run = RunSummary.of(r)

@@ -20,7 +20,6 @@ from chores.ports.process import ProcessPort, ProcessRequest
 PROVIDER = "claude-cli"
 READ_ONLY_TOOLS: frozenset[str] = frozenset({"Read", "Grep", "Glob", "LS", "WebFetch"})
 _EMPTY_MCP = '{"mcpServers":{}}'
-_KILL_GRACE_SEC = 10
 
 
 class ClaudeCliAgent:
@@ -54,7 +53,7 @@ class ClaudeCliAgent:
                 cwd=task.cwd,
                 env=task.env,
                 timeout_sec=task.timeout_sec,
-                kill_grace_sec=_KILL_GRACE_SEC,
+                kill_grace_sec=task.kill_grace_sec,
                 stdin_text=task.body,
             )
         )

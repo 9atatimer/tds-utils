@@ -146,7 +146,7 @@ class Schedule:
             )
         minutes, hours, dom, months, dow = parsed
         dow = frozenset(0 if d == 7 else d for d in dow)
-        return cls(
+        schedule = cls(
             expression=expression,
             minutes=minutes,
             hours=hours,
@@ -156,6 +156,8 @@ class Schedule:
             dom_restricted=not _is_wildcard(fields[2].partition("/")[0]),
             dow_restricted=not _is_wildcard(fields[4].partition("/")[0]),
         )
+        schedule.next_after(datetime(2000, 1, 1))  # a schedule with no slot is invalid
+        return schedule
 
     def _day_matches(self, at: datetime) -> bool:
         dom_ok = at.day in self.days_of_month

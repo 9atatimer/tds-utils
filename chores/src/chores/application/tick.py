@@ -21,6 +21,7 @@ from chores.application.context import (
 )
 from chores.application.paths import Paths
 from chores.domain.chore import Chore
+from chores.domain.errors import ChoresError
 from chores.domain.kinds import Kind
 from chores.domain.policies import Decision
 from chores.domain.run import RunRecord, RunStatus, to_ledger_row
@@ -108,7 +109,10 @@ def _interrupt_dead_runs(deps: TickDeps, ctx: Context, report: TickReport) -> No
             reason = "never reached RUNNING within one tick interval"
         if reason is None:
             continue
-        done = record.finish(RunStatus.INTERRUPTED, ended=now, reason=reason)
+        current = deps.store.read_record(record.run_id)
+        if current is None or current.status is not record.status:
+            continue  # the runner finished between the scan and this check
+        done = current.finish(RunStatus.INTERRUPTED, ended=now, reason=reason)
         deps.store.write_record(done)
         deps.store.append_ledger(to_ledger_row(done))
         report.interrupted.append(record.run_id)
@@ -292,7 +296,12 @@ def tick(deps: TickDeps) -> TickReport:
             )
         _interrupt_dead_runs(deps, ctx, report)
         for chore in ctx.definitions.chores:
-            _consider(deps, ctx, host, chore, report, previous_tick=previous_tick)
+            try:
+                _consider(deps, ctx, host, chore, report, previous_tick=previous_tick)
+            except ChoresError as e:  # one broken chore never stops the tick
+                _record_invalid(
+                    deps, ctx, report, name=chore.name, kind=chore.kind, reason=str(e)
+                )
         deps.store.mark_tick(
             TickMark(at=deps.clock.now_utc(), ledger_rows=deps.store.ledger_count())
         )

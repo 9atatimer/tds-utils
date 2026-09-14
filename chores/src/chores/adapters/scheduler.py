@@ -101,7 +101,9 @@ class LaunchdInstaller:
         self.plist.parent.mkdir(parents=True, exist_ok=True)
         self.plist.write_text(text)
         self._run(["launchctl", "bootout", f"{self._domain}/{LAUNCHD_LABEL}"])
-        self._run(["launchctl", "bootstrap", self._domain, str(self.plist)])
+        rc = self._run(["launchctl", "bootstrap", self._domain, str(self.plist)])
+        if rc != 0:
+            return [f"wrote {self.plist}", f"launchctl bootstrap failed (exit {rc})"]
         return [
             f"wrote {self.plist}",
             f"bootstrapped {LAUNCHD_LABEL} every {interval_sec}s",
@@ -141,7 +143,11 @@ class SystemdInstaller:
         (self.unit_dir / f"{SYSTEMD_UNIT}.service").write_text(_SERVICE)
         self.timer.write_text(_TIMER.format(interval=interval_sec))
         self._run(["systemctl", "--user", "daemon-reload"])
-        self._run(["systemctl", "--user", "enable", "--now", f"{SYSTEMD_UNIT}.timer"])
+        rc = self._run(
+            ["systemctl", "--user", "enable", "--now", f"{SYSTEMD_UNIT}.timer"]
+        )
+        if rc != 0:
+            return [f"wrote {self.timer}", f"systemctl enable failed (exit {rc})"]
         return [
             f"wrote {self.timer}",
             f"enabled {SYSTEMD_UNIT}.timer every {interval_sec}s",
