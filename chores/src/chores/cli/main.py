@@ -307,3 +307,16 @@ def uninstall(ctx: click.Context) -> None:
     """Remove the scheduler agent or timer."""
     for line in _installer(ctx).uninstall():
         click.echo(line)
+
+
+@main.command()
+@click.pass_context
+def ui(ctx: click.Context) -> None:
+    """The dashboard as a TUI (needs the tui extra: textual)."""
+    try:
+        from chores.tui.app import run_ui
+    except ImportError as e:  # pragma: no cover - depends on the extra
+        raise click.ClickException(
+            "the TUI needs textual: `uv sync --all-extras` or `pip install chores[tui]`"
+        ) from e
+    run_ui(_deps(ctx))
