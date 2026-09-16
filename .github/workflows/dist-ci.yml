@@ -97,6 +97,9 @@ jobs:
       - name: Smoketest bin/plannotator-browser
         run: /bin/bash test/smoketest_plannotator_browser.sh
 
+      - name: Smoketest bin/cdp and bin/realchrome-cdp
+        run: /bin/bash test/smoketest_cdp.sh
+
   shellcheck:
     runs-on: ubuntu-latest
     timeout-minutes: 10
