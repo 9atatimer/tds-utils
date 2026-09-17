@@ -289,6 +289,13 @@ def resume(deps: Deps, *, chore: str | None = None) -> None:
 
 
 def kill(deps: Deps, run_id: str) -> str:
+    """Signal a RUNNING run's process group after re-validating the exact
+    process identity (pid + start time). The check and the signal are two
+    calls: no portable primitive signals a *group* atomically with an
+    identity (pidfd is Linux-only and per-pid), and the group is what must
+    die. The recorded pgid is the child's own pid (start_new_session), so a
+    misfire needs that exact pid recycled inside the microseconds between
+    the two calls; the marker is only written once the identity checked."""
     record = deps.store.read_record(run_id)
     if record is None:
         return f"no run {run_id}"

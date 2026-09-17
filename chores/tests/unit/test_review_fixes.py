@@ -1692,3 +1692,56 @@ def test_unwritable_unit_paths_are_a_controlled_install_failure(
     systemd = SystemdInstaller(home=tmp_path / "linux", run=lambda a: 0)
     with pytest.raises(SchedulerInstallFailed, match="cannot write"):
         systemd.install(interval_sec=60)
+
+
+# --- Copilot round 17 (PR #290) --------------------------------------------
+
+
+def test_every_run_leaves_all_five_artifacts(tmp_path: Path) -> None:
+    """Design: a complete, separated record -- an empty stream is an empty
+    file, never a missing one (on the real store and the fake alike)."""
+    from chores.adapters.fs_store import FsRunStore
+
+    expected = {
+        "definition.md",
+        "transcript.jsonl",
+        "stdout.log",
+        "stderr.log",
+        "errors.log",
+    }
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    r = run_chore("tidy", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.SUCCEEDED
+    assert set(h.store.artifacts(r.run_id)) == expected
+    real = FullHarness(tmp_path / "real", chores={"tidy": COMMAND})
+    real.store = FsRunStore(tmp_path / "real" / "state")  # type: ignore[assignment]
+    r = run_chore("tidy", real.deps().as_run_deps()).record
+    assert r and set(real.store.artifacts(r.run_id)) == expected
+    assert real.store.read_artifact(r.run_id, "errors.log") == ""
+
+
+def test_a_manual_run_slipping_in_after_the_ticks_admission_is_skipped(
+    tmp_path: Path,
+) -> None:
+    """The tick's admission is advisory: the runner it launches is `chores
+    run`, which re-admits under the per-chore lock. A manual run that lands
+    between the tick's admit and the child's admission makes the child
+    SKIPPED_OVERLAP, so two runs never execute."""
+    hourly = COMMAND.replace("'* * * * *'", "'0 * * * *'")
+    h = FullHarness(tmp_path, chores={"tidy": hourly})
+    h.store.mark_tick(
+        TickMark(at=h.clock.now_utc() - timedelta(seconds=60), ledger_rows=0)
+    )
+    tick(h.deps().as_tick_deps())
+    assert h.launched == ["tidy"]
+    manual = RunRecord.pending(
+        run_id="tidy-manual",
+        chore="tidy",
+        kind=Kind.COMMAND,
+        definition_rev="r",
+        started=h.clock.now_utc(),
+    )
+    h.store.write_record(manual)  # the manual `chores run` wins the lock first
+    child = run_chore("tidy", h.deps().as_run_deps()).record  # the tick's child
+    assert child and child.status is RunStatus.SKIPPED_OVERLAP
+    assert "tidy-manual" in (child.reason or "")

@@ -51,6 +51,14 @@ from chores.ports.host import (
 from chores.ports.process import ProcessPort, ProcessRequest
 from chores.ports.store import Artifact, RunStorePort, WorkspacesPort
 
+ARTIFACTS: tuple[Artifact, ...] = (
+    "definition.md",
+    "transcript.jsonl",
+    "stdout.log",
+    "stderr.log",
+    "errors.log",
+)
+
 _INHERITED_KEYS = ("PATH", "HOME", "LANG")
 
 
@@ -108,6 +116,13 @@ class _Artifacts:
     secrets: Sequence[str]
     max_bytes: int
     truncated: bool = False
+
+    def prepare(self) -> None:
+        """Create every promised artifact up front (design: a complete,
+        separated record), so an empty stream is an empty file, never a
+        missing one."""
+        for name in ARTIFACTS:
+            self.store.append_artifact(self.run_id, name, "")
 
     def append(self, name: Artifact, text: str) -> None:
         if self.truncated:
@@ -649,6 +664,7 @@ def run_chore(
     artifacts = _Artifacts(
         deps.store, run_id, redaction, ctx.definitions.config.max_run_dir_bytes
     )
+    artifacts.prepare()
     source = ctx.definitions.sources.get(name)  # the text this Chore came from
     if source is not None:
         artifacts.append(
