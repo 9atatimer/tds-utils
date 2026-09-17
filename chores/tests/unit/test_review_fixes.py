@@ -1372,3 +1372,55 @@ def test_a_missing_scheduler_command_is_a_controlled_failure(tmp_path: Path) -> 
         systemd.install(interval_sec=60)
     assert systemd.installed() is False
     assert not (systemd.unit_dir / "chores-tick.service").exists()
+
+
+# --- Copilot round 11 (PR #290) --------------------------------------------
+
+
+def test_no_state_file_is_ever_read_or_written_through_a_symlink(
+    tmp_path: Path,
+) -> None:
+    from chores.adapters.fs_store import (
+        FsRunStore,
+        InvalidArtifactName,
+        UnsafeStatePath,
+    )
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "run.json").write_text("{}")
+    store = FsRunStore(tmp_path / "s")
+    run_id = "tidy-20260302T100000Z-ab12"
+    record = RunRecord.pending(
+        run_id=run_id, chore="tidy", kind=Kind.COMMAND, definition_rev="r", started=T0
+    )
+    store.write_record(record)
+    run_dir = store.runs / "tidy" / run_id
+    # enumeration never follows a symlinked chore dir, run dir or record
+    (store.runs / "linked-chore").symlink_to(outside)
+    (store.runs / "tidy" / "linked-run").symlink_to(outside)
+    (store.runs / "tidy" / "tidy-20260302T110000Z-ab12").mkdir()
+    (store.runs / "tidy" / "tidy-20260302T110000Z-ab12" / "run.json").symlink_to(
+        outside / "run.json"
+    )
+    assert [r.run_id for r in store.records()] == [run_id]
+    # artifacts, the ledger and the sentries are written no-follow
+    target = outside / "leak.log"
+    (run_dir / "stdout.log").symlink_to(target)
+    with pytest.raises(UnsafeStatePath):
+        store.append_artifact(run_id, "stdout.log", "secret\n")
+    assert not target.exists()
+    with pytest.raises(UnsafeStatePath):
+        store.read_artifact(run_id, "stdout.log")
+    with pytest.raises(InvalidArtifactName):
+        store.append_artifact(run_id, "../escape", "x")
+    (store.root / "ledger.ndjson").symlink_to(outside / "ledger")
+    with pytest.raises(UnsafeStatePath):
+        store.append_ledger({"a": 1})
+    assert not (outside / "ledger").exists()
+    (store.root / "PAUSED").symlink_to(outside / "paused")
+    with pytest.raises(UnsafeStatePath):
+        store.pause("x")
+    with pytest.raises(UnsafeStatePath):
+        store.paused()
+    assert store.run_dir_bytes(run_id) > 0  # counts real files only

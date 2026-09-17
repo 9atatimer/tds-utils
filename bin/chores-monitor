@@ -86,6 +86,8 @@ class ChoresMonitor(rumps.App):
             self.pause_item.title = "Resume all" if paused else "Pause all"
         self.menu.add(self.status_item)
         if view:
+            for w in view.get("warnings", [])[:3]:
+                self.menu.add(f"[warning] {w[:80]}")
             for n in view.get("notifications", [])[:5]:
                 self.menu.add(f"[{n['level']}] {n['text'][:80]}")
         if self.last_error:

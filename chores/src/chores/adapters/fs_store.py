@@ -47,9 +47,48 @@ class UnsafeWorkspace(InfrastructureError):
 
 
 class UnsafeStatePath(InfrastructureError):
-    """A directory inside the 0700 state tree is a symlink: a pre-planted
-    link could redirect records and artifacts elsewhere, so it is refused
-    rather than followed (the tree is created and used no-follow)."""
+    """A path inside the 0700 state tree is a symlink: a pre-planted link
+    could redirect records, artifacts, the ledger or a sentry elsewhere (or
+    read foreign content back in), so it is refused rather than followed.
+    Every open in the tree goes through the no-follow helpers below."""
+
+
+class InvalidArtifactName(InfrastructureError):
+    """An artifact name outside the fixed set (never a caller-chosen path)."""
+
+
+def check_artifact_name(name: str) -> str:
+    if name not in _ARTIFACTS:
+        raise InvalidArtifactName(f"not an artifact: {name!r}")
+    return name
+
+
+def _write_nofollow(path: Path, text: str, *, append: bool = False) -> None:
+    """Create or append to ``path`` without ever following a symlink at
+    ``path`` itself (O_NOFOLLOW); the parent was already checked."""
+    flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW
+    flags |= os.O_APPEND if append else os.O_TRUNC
+    try:
+        fd = os.open(path, flags, 0o600)
+    except OSError as e:
+        if path.is_symlink():
+            raise UnsafeStatePath(f"{path} is a symlink; refusing to write") from e
+        raise
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def _read_nofollow(path: Path) -> str | None:
+    """The file's text, None when absent; a symlink is refused, not read."""
+    if path.is_symlink():
+        raise UnsafeStatePath(f"{path} is a symlink; refusing to read")
+    if not path.is_file():
+        return None
+    return path.read_text(encoding="utf-8")
+
+
+def _is_real_file(path: Path) -> bool:
+    return path.is_file() and not path.is_symlink()
 
 
 def check_run_id(run_id: str) -> str:
@@ -207,12 +246,11 @@ class FsRunStore:
 
     @staticmethod
     def _append(path: Path, text: str) -> None:
-        with path.open("a", encoding="utf-8") as fh:
-            fh.write(text)
+        _write_nofollow(path, text, append=True)
 
     @staticmethod
     def _read_ndjson(path: Path) -> list[dict[str, object]]:
-        if not path.exists():
+        if _read_nofollow(path) is None:
             return []
         rows: list[dict[str, object]] = []
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -232,15 +270,19 @@ class FsRunStore:
     @staticmethod
     def _write_json(run_dir: Path, record: RunRecord) -> None:
         tmp = run_dir / "run.json.tmp"
-        tmp.write_text(json.dumps(record_to_json(record), indent=1), encoding="utf-8")
-        os.replace(tmp, run_dir / "run.json")
+        _write_nofollow(tmp, json.dumps(record_to_json(record), indent=1))
+        os.replace(tmp, run_dir / "run.json")  # replaces a planted link itself
 
     @contextmanager
     def _record_lock(self, run_dir: Path) -> Iterator[None]:
         """Blocking per-run lock: ``transition`` reads and writes under it, and
         every ``write_record`` takes it, so a check-and-set cannot interleave
         with a runner's own write."""
-        with (run_dir / "record.lock").open("a+") as fh:
+        lock = run_dir / "record.lock"
+        if lock.is_symlink():
+            raise UnsafeStatePath(f"{lock} is a symlink; refusing to lock")
+        fd = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "a+") as fh:
             fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
             try:
                 yield
@@ -267,11 +309,10 @@ class FsRunStore:
 
     def read_record(self, run_id: str) -> RunRecord | None:
         run_dir = self._find_run_dir(run_id)
-        if run_dir is None or not (run_dir / "run.json").exists():
+        if run_dir is None:
             return None
-        return record_from_json(
-            json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
-        )
+        text = _read_nofollow(run_dir / "run.json")
+        return None if text is None else record_from_json(json.loads(text))
 
     def records(
         self, *, chore: str | None = None, since: datetime | None = None
@@ -281,9 +322,11 @@ class FsRunStore:
             return []  # not a path segment: nothing can be filed under it
         chore_dirs = [self.runs / chore] if chore else sorted(self.runs.iterdir())
         for chore_dir in chore_dirs:
-            if not chore_dir.is_dir():
-                continue
+            if not self._real_dir(chore_dir):
+                continue  # a symlinked chore dir is never followed
             for run_json in chore_dir.glob("*/run.json"):
+                if not (self._real_dir(run_json.parent) and _is_real_file(run_json)):
+                    continue  # nor a symlinked run dir or record
                 record = record_from_json(
                     json.loads(run_json.read_text(encoding="utf-8"))
                 )
@@ -294,28 +337,34 @@ class FsRunStore:
     # --- artifacts ---
 
     def append_artifact(self, run_id: str, name: Artifact, text: str) -> int:
+        check_artifact_name(name)
         run_dir = self._run_dir(run_id)
         self._ensure_private(run_dir)
         self._append(run_dir / name, text)
         return self.run_dir_bytes(run_id)
 
     def read_artifact(self, run_id: str, name: Artifact) -> str:
+        check_artifact_name(name)
         run_dir = self._find_run_dir(run_id)
-        if run_dir is None or not (run_dir / name).exists():
+        if run_dir is None:
             return ""
-        return (run_dir / name).read_text(encoding="utf-8")
+        return _read_nofollow(run_dir / name) or ""
 
     def run_dir_bytes(self, run_id: str) -> int:
         run_dir = self._find_run_dir(run_id)
         if run_dir is None:
             return 0
-        return sum(p.stat().st_size for p in run_dir.iterdir() if p.is_file())
+        return sum(
+            p.lstat().st_size
+            for p in run_dir.iterdir()
+            if p.is_file() and not p.is_symlink()
+        )
 
     def artifacts(self, run_id: str) -> Iterator[Artifact]:
         run_dir = self._find_run_dir(run_id)
         if run_dir is None:
             return iter(())
-        return (name for name in _ARTIFACTS if (run_dir / name).exists())
+        return (name for name in _ARTIFACTS if _is_real_file(run_dir / name))
 
     def delete_run(self, run_id: str) -> bool:
         run_dir = self._find_run_dir(run_id)
@@ -332,7 +381,7 @@ class FsRunStore:
     def request_kill(self, run_id: str) -> None:
         run_dir = self._run_dir(run_id)
         self._ensure_private(run_dir)
-        (run_dir / "KILL").write_text("", encoding="utf-8")
+        _write_nofollow(run_dir / "KILL", "")
 
     def kill_requested(self, run_id: str) -> bool:
         run_dir = self._find_run_dir(run_id)
@@ -421,45 +470,45 @@ class FsRunStore:
     # --- pause sentries ---
 
     def pause(self, reason: str) -> None:
-        (self.root / "PAUSED").write_text(reason, encoding="utf-8")
+        _write_nofollow(self.root / "PAUSED", reason)
 
     def unpause(self) -> None:
         (self.root / "PAUSED").unlink(missing_ok=True)
 
     def paused(self) -> str | None:
-        path = self.root / "PAUSED"
-        if not path.exists():
+        text = _read_nofollow(self.root / "PAUSED")
+        if text is None:
             return None
-        return path.read_text(encoding="utf-8").strip() or "(no reason recorded)"
+        return text.strip() or "(no reason recorded)"
 
     def _sentry(self, name: str) -> Path:
         return self.root / "paused" / check_chore_name(name)
 
     def pause_chore(self, name: str, reason: str) -> None:
-        self._sentry(name).write_text(reason, encoding="utf-8")
+        _write_nofollow(self._sentry(name), reason)
 
     def resume_chore(self, name: str) -> None:
         self._sentry(name).unlink(missing_ok=True)
 
     def chore_paused(self, name: str) -> str | None:
-        path = self._sentry(name)
-        if not path.exists():
+        text = _read_nofollow(self._sentry(name))
+        if text is None:
             return None
-        return path.read_text(encoding="utf-8").strip() or "(no reason recorded)"
+        return text.strip() or "(no reason recorded)"
 
     # --- tick liveness and exclusion ---
 
     def mark_tick(self, mark: TickMark) -> None:
         payload = {"at": mark.at.isoformat(), "ledger_rows": mark.ledger_rows}
         tmp = self.root / "last_tick.tmp"
-        tmp.write_text(json.dumps(payload), encoding="utf-8")
+        _write_nofollow(tmp, json.dumps(payload))
         os.replace(tmp, self.root / "last_tick")
 
     def last_tick(self) -> TickMark | None:
-        path = self.root / "last_tick"
-        if not path.exists():
+        text = _read_nofollow(self.root / "last_tick")
+        if text is None:
             return None
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(text)
         return TickMark(
             at=datetime.fromisoformat(str(data["at"])),
             ledger_rows=int(data["ledger_rows"]),
