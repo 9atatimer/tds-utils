@@ -251,6 +251,7 @@ def _execute_agent(
     cwd: str,
     artifacts: _Artifacts,
     on_start: Callable[[ProcessIdentity], None],
+    own_identity: Callable[[], ProcessIdentity],
 ) -> _Execution:
     model = chore.model or spec.default_model or ""
     try:
@@ -275,6 +276,7 @@ def _execute_agent(
             on_start=on_start,
         )
     except ProcessError as e:
+        on_start(own_identity())
         artifacts.append("errors.log", str(e) + "\n")
         return _Execution(
             RunStatus.FAILED, str(e), Usage(0, 0, 0.0), backend=spec.name, model=model
@@ -574,15 +576,17 @@ def run_chore(
         started=started_utc,
     )
     deps.store.write_record(record)
-    source = deps.definitions.source(name)
-    if source is not None:
-        deps.store.append_artifact(run_id, "definition.md", source)
 
     secret_values, credential, failure = _resolve_secrets(chore, ctx, deps)
     redaction = [*secret_values.values(), *([credential] if credential else [])]
     artifacts = _Artifacts(
         deps.store, run_id, redaction, ctx.definitions.config.max_run_dir_bytes
     )
+    source = deps.definitions.source(name)
+    if source is not None:
+        artifacts.append(
+            "definition.md", source
+        )  # redacted and size-capped like every byte
 
     def on_start(identity: ProcessIdentity) -> None:
         nonlocal record
@@ -627,6 +631,7 @@ def run_chore(
             cwd=cwd,
             artifacts=artifacts,
             on_start=on_start,
+            own_identity=deps.process.own_identity,
         )
     else:
         execution = _execute_command(

@@ -118,7 +118,7 @@ class SubprocessRunner:
         start = process_start_time(popen.pid)
         identity = ProcessIdentity(
             pid=popen.pid,
-            pgid=os.getpgid(popen.pid),
+            pgid=popen.pid,  # start_new_session: the child leads its own group
             process_start=start if start is not None else time.time(),
         )
         return _Running(popen, request, identity, time.monotonic(), _children_cpu())

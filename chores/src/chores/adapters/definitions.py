@@ -82,7 +82,14 @@ def _backend(name: str, raw: object) -> BackendConfig:
     if not isinstance(raw, Mapping) or not isinstance(raw.get("type"), str):
         raise ValueError(f"backends.yaml: {name} needs a string type")
     prices: dict[str, Price] = {}
-    for model, p in (raw.get("prices") or {}).items():
+    raw_prices = raw.get("prices")
+    if raw_prices is None:
+        raw_prices = {}
+    if not isinstance(raw_prices, Mapping):
+        raise ValueError(
+            f"backends.yaml: {name} prices must be a map of model -> price"
+        )
+    for model, p in raw_prices.items():
         if not isinstance(p, Mapping):
             raise ValueError(f"backends.yaml: {name} price for {model} must be a map")
         prices[str(model)] = Price(

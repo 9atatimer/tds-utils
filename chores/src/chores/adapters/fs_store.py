@@ -12,6 +12,8 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
+import secrets
 import shutil
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager
@@ -19,9 +21,23 @@ from datetime import datetime
 from pathlib import Path
 
 from chores.domain.budget import Usage
+from chores.domain.errors import InfrastructureError
 from chores.domain.kinds import Kind
 from chores.domain.run import Billing, RunRecord, RunStatus
 from chores.ports.store import Artifact, Notification, TickMark
+
+_RUN_ID_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+
+
+class InvalidRunId(InfrastructureError):
+    """A run id that is not a single path-safe segment (CLI input reaches here)."""
+
+
+def check_run_id(run_id: str) -> str:
+    if not _RUN_ID_RE.match(run_id):
+        raise InvalidRunId(f"not a run id: {run_id!r}")
+    return run_id
+
 
 _ARTIFACTS: tuple[Artifact, ...] = (
     "definition.md",
@@ -138,10 +154,13 @@ class FsRunStore:
         os.chmod(path, 0o700)
 
     def _run_dir(self, run_id: str) -> Path:
+        check_run_id(run_id)
         chore = run_id.rsplit("-", 2)[0]
         return self.runs / chore / run_id
 
     def _find_run_dir(self, run_id: str) -> Path | None:
+        if not _RUN_ID_RE.match(run_id):
+            return None
         direct = self._run_dir(run_id)
         if direct.is_dir():
             return direct
@@ -270,9 +289,8 @@ class FsRunStore:
         run_id: str | None = None,
         chore: str | None = None,
     ) -> Notification:
-        existing = self._read_ndjson(self.root / "notifications.ndjson")
         n = Notification(
-            id=f"n{sum(1 for r in existing if 'text' in r) + 1}",
+            id=f"n{at.strftime('%Y%m%dT%H%M%S')}-{secrets.token_hex(2)}",
             ts=at,
             run_id=run_id,
             chore=chore,

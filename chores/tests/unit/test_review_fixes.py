@@ -192,3 +192,95 @@ def test_installer_reports_a_failed_bootstrap(tmp_path: Path) -> None:
         home=tmp_path, uid=1, run=lambda argv: 1 if argv[1] == "bootstrap" else 0
     )
     assert any("failed" in a for a in inst.install(interval_sec=60))
+
+
+# --- Copilot round 1 (PR #290) ---------------------------------------------
+
+
+def test_run_ids_cannot_escape_the_runs_directory(tmp_path: Path) -> None:
+    from chores.adapters.fs_store import FsRunStore, InvalidRunId
+
+    store = FsRunStore(tmp_path / "s")
+    assert store.read_record("../../etc/passwd") is None
+    assert store.read_artifact("../x", "stdout.log") == ""
+    with pytest.raises(InvalidRunId):
+        store.request_kill("../../escape")
+    assert not (tmp_path / "escape").exists()
+
+
+def test_notification_ids_are_unique_across_writers(tmp_path: Path) -> None:
+    from chores.adapters.fs_store import FsRunStore
+
+    a, b = FsRunStore(tmp_path / "s"), FsRunStore(tmp_path / "s")
+    ids = {
+        a.notify(at=T0, level="info", text="x").id,
+        b.notify(at=T0, level="info", text="y").id,
+    }
+    assert len(ids) == 2
+    assert [n.text for n in a.notifications()] == ["x", "y"]
+
+
+def test_systemd_service_names_the_runtime_path(tmp_path: Path) -> None:
+    from chores.adapters.scheduler import SystemdInstaller
+
+    inst = SystemdInstaller(home=tmp_path, run=lambda argv: 0)
+    inst.install(interval_sec=60)
+    service = (
+        tmp_path / ".config" / "systemd" / "user" / "chores-tick.service"
+    ).read_text()
+    assert "Environment=PATH=%h/.tds/dist/current/bin" in service
+
+
+def test_definition_snapshot_is_redacted(tmp_path: Path) -> None:
+    """Given a definition body that pastes the credential literally, Then the
+    snapshot carries [REDACTED]."""
+    leaky = PROMPT.replace("Summarize.", f"Summarize. key={SECRET}")
+    h = FullHarness(tmp_path, chores={"brand": leaky})
+    r = run_chore("brand", h.deps().as_run_deps()).record
+    assert r is not None
+    snapshot = h.store.read_artifact(r.run_id, "definition.md")
+    assert SECRET not in snapshot and "[REDACTED]" in snapshot
+
+
+def test_malformed_prices_is_a_reported_error_not_a_crash(tmp_path: Path) -> None:
+    from chores.adapters.definitions import DefinitionsLoader
+
+    (tmp_path / "chores").mkdir()
+    (tmp_path / "backends.yaml").write_text(
+        "backends:\n  gw:\n    type: ollama\n    prices: []\n"
+    )
+    defs = DefinitionsLoader(tmp_path, revision_reader=lambda _: "r").load()
+    assert any("prices" in e for e in defs.errors) and defs.backends == {}
+
+
+def test_agent_spawn_failure_records_failed(tmp_path: Path) -> None:
+    class SpawnFails(FakeAgent):
+        def run(self, task, *, on_start):  # type: ignore[no-untyped-def]
+            raise ProcessError("could not start 'claude'")
+
+    h = FullHarness(tmp_path, chores={"rev": AGENT}, agent=SpawnFails())
+    r = run_chore("rev", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.FAILED and "could not start" in (r.reason or "")
+
+
+def test_status_warns_on_ledger_shrink_and_unpriced_usd_ceiling(tmp_path: Path) -> None:
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    (tmp_path / "home" / "backends.yaml").write_text(
+        "backends:\n  unused:\n    type: ollama\n    model: m\n"
+        "    ceiling: {usd: 1.0}\n"
+    )
+    h.store.mark_tick(TickMark(at=h.clock.now_utc(), ledger_rows=5))
+    view = status(h.deps())
+    assert any("shrank" in w for w in view.warnings)
+    assert any("'unused' has a usd ceiling" in w for w in view.warnings)
+
+
+def test_refused_run_exits_3(tmp_path: Path) -> None:
+    from click.testing import CliRunner
+
+    from chores.cli.main import main
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    h.store.pause("flight")
+    result = CliRunner().invoke(main, ["run", "tidy"], obj=h.deps())
+    assert result.exit_code == 3 and "SKIPPED_PAUSED" in result.output

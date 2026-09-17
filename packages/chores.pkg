@@ -6,4 +6,4 @@ DESC="chores scheduler, CLI, TUI and menu-bar monitor"
 PATHS="chores bin/chores bin/chores-dashboard bin/chores-monitor bin/launch-chores-monitor macos/launchd/com.tds.chores-monitor.plist"
 BINS="bin/chores bin/chores-dashboard bin/chores-monitor bin/launch-chores-monitor"
 SERVICES="macos/launchd/com.tds.chores-monitor.plist"
-VERIFY=chores/tests
+VERIFY=chores/verify.sh

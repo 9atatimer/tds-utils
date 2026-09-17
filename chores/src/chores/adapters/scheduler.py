@@ -53,6 +53,9 @@ Description=chores scheduler tick
 
 [Service]
 Type=oneshot
+# A user service inherits no shell PATH; name the runtime tiers explicitly
+# (dist install, release worktree, ~/.local/bin) so a bare `chores` resolves.
+Environment=PATH=%h/.tds/dist/current/bin:%h/.tds/release/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/bin/bash -lc 'exec chores tick'
 """
 

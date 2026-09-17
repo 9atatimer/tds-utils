@@ -190,6 +190,14 @@ def status(deps: Deps) -> StatusView:
         ledger_rows=deps.store.ledger_count(),
     )
     warnings = [*ctx.definitions.errors, *ctx.catalog.errors]
+    for name, backend in ctx.definitions.backends.items():
+        if backend.ceiling.usd is not None and not backend.prices:
+            warnings.append(f"backend {name!r} has a usd ceiling but no price table")
+    if mark is not None and scheduler.ledger_rows < mark.ledger_rows:
+        warnings.append(
+            f"ledger shrank from {mark.ledger_rows} rows to {scheduler.ledger_rows} "
+            "since the last tick"
+        )
     installed_interval = _installed_interval(deps)
     if (
         installed_interval is not None

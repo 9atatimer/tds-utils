@@ -154,7 +154,11 @@ def show(ctx: click.Context, run_id: str, as_json: bool, artifact: str | None) -
 )
 @click.pass_context
 def run(ctx: click.Context, name: str, force: bool, dry_run: bool) -> None:
-    """Run one chore now (admission still applies)."""
+    """Run one chore now (admission still applies).
+
+    Exit 0 ran and succeeded, 1 no such chore, 2 ran and failed (or invalid),
+    3 refused by admission (paused, ceiling, overlap, offline, battery).
+    """
     outcome = run_chore(name, _deps(ctx).as_run_deps(), force=force, dry_run=dry_run)
     if outcome.plan is not None:
         p = outcome.plan
@@ -180,6 +184,8 @@ def run(ctx: click.Context, name: str, force: bool, dry_run: bool) -> None:
         RunStatus.OFFLINE,
     ):
         ctx.exit(2)
+    elif not record.status.is_run_terminal:
+        ctx.exit(3)  # refused: SKIPPED_* or DEFERRED_BATTERY; nothing ran
 
 
 @main.command()
