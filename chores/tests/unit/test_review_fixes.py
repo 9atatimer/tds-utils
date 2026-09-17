@@ -1845,3 +1845,116 @@ def test_a_failed_reinstall_never_leaves_the_old_timer_loaded(tmp_path: Path) ->
     with pytest.raises(SchedulerInstallFailed):
         mac.install(interval_sec=60)
     assert mac.installed() is False
+
+
+# --- Copilot round 20 (PR #290) --------------------------------------------
+
+
+def test_a_refused_unit_write_leaves_what_it_found(tmp_path: Path) -> None:
+    """An installer removes only what this invocation wrote. A path whose
+    no-follow write was refused (a symlink someone planted, or a unit a
+    previous install left) is preserved, and when nothing was written nothing
+    is disabled either."""
+    from chores.adapters.scheduler import SchedulerInstallFailed, SystemdInstaller
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    agents = tmp_path / "mac" / "Library" / "LaunchAgents"
+    agents.mkdir(parents=True)
+    plist = agents / "com.tds.chores.tick.plist"
+    plist.symlink_to(outside / "plist")
+    mac_calls: list[list[str]] = []
+    launchd = LaunchdInstaller(
+        home=tmp_path / "mac", uid=1, run=lambda a: mac_calls.append(a) or 0
+    )
+    with pytest.raises(SchedulerInstallFailed, match="symlink"):
+        launchd.install(interval_sec=60)
+    assert plist.is_symlink() and mac_calls == []  # preserved, nothing booted out
+    units = tmp_path / "linux" / ".config" / "systemd" / "user"
+    units.mkdir(parents=True)
+    service = units / "chores-tick.service"
+    service.symlink_to(outside / "service")
+    calls: list[list[str]] = []
+    systemd = SystemdInstaller(
+        home=tmp_path / "linux", run=lambda a: calls.append(a) or 0
+    )
+    with pytest.raises(SchedulerInstallFailed, match="symlink"):
+        systemd.install(interval_sec=60)
+    assert service.is_symlink() and calls == []  # first write refused: untouched
+    assert not systemd.timer.exists()
+    service.unlink()
+    systemd.timer.symlink_to(outside / "timer")
+    with pytest.raises(SchedulerInstallFailed, match="symlink"):
+        systemd.install(interval_sec=60)
+    assert systemd.timer.is_symlink()  # the refused path is preserved
+    assert not service.exists()  # the unit this invocation wrote is gone
+    assert ["systemctl", "--user", "disable", "--now", "chores-tick.timer"] in calls
+
+
+def test_outcome_artifacts_go_through_the_size_cap(tmp_path: Path) -> None:
+    """A tick-written outcome's errors.log and definition snapshot are bounded
+    by max_run_dir_bytes like every run artifact: a refusal recorded on every
+    tick cannot fill the state volume."""
+    from chores.adapters.fs_store import FsRunStore
+    from chores.application.context import write_outcome
+
+    store = FsRunStore(tmp_path / "state")
+    record = write_outcome(
+        store,
+        run_id="tidy-20260917T000000Z-abcd",
+        chore="tidy",
+        kind=Kind.COMMAND,
+        definition_rev="r1",
+        status=RunStatus.SKIPPED_PAUSED,
+        reason="x" * 10_000,
+        at=T0,
+        max_bytes=2_000,
+        definition="y" * 10_000,
+    )
+    assert record.status is RunStatus.SKIPPED_PAUSED
+    assert set(store.artifacts(record.run_id)) == set(ARTIFACTS)
+    assert store.read_artifact(record.run_id, "errors.log") == ""
+    assert store.read_artifact(record.run_id, "definition.md") == ""
+    assert store.ledger_count() == 1
+    small = write_outcome(
+        store,
+        run_id="tidy-20260917T000001Z-abcd",
+        chore="tidy",
+        kind=Kind.COMMAND,
+        definition_rev="r1",
+        status=RunStatus.SKIPPED_PAUSED,
+        reason="paused",
+        at=T0,
+        max_bytes=2_000,
+    )
+    assert store.read_artifact(small.run_id, "errors.log") == "paused\n"
+
+
+def test_an_invalid_record_missing_its_ledger_row_is_reconciled(
+    tmp_path: Path,
+) -> None:
+    """The record and the ledger row are two writes. A record that lost its
+    row (a crash between the two) is not honoured unpaid by the once-only
+    INVALID dedup: the row is re-appended, and no second record is written."""
+    from chores.application.context import ensure_ledgered
+
+    h = FullHarness(tmp_path, chores={"bad": "---\nname: bad\nkind: prompt\n---\n"})
+    tick(h.deps().as_tick_deps())
+    (only,) = h.store.records(chore="bad")
+    assert only.status is RunStatus.INVALID and h.store.ledger_count() == 1
+    h.store._ledger.clear()  # the crash: record on disk, row never landed
+    h.clock.advance(60)
+    tick(h.deps().as_tick_deps())
+    assert len(h.store.records(chore="bad")) == 1  # still deduplicated
+    assert [r["run_id"] for r in h.store.ledger_rows()] == [only.run_id]
+    assert ensure_ledgered(h.store, only) is False  # now accounted for
+
+
+def test_notify_on_members_must_be_status_names() -> None:
+    from chores.domain.chore import InvalidChore
+
+    from .test_chore import PROMPT as CHORE_MAPPING
+
+    for bad in ([{}], [None], [["SUCCEEDED"]], [3]):
+        with pytest.raises(InvalidChore, match="notify_on"):
+            Chore.from_mapping({**CHORE_MAPPING, "notify_on": bad}, body="x")

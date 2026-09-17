@@ -14,6 +14,7 @@ from chores.application.context import (
     Host,
     admit,
     binding_errors,
+    ensure_ledgered,
     invalid_record_name,
     load_context,
     mint_run_id,
@@ -154,6 +155,7 @@ def _record_invalid(
         and latest.status is RunStatus.INVALID
         and latest.reason == reason
     ):
+        ensure_ledgered(deps.store, latest)  # a crash may have lost its row
         return
     record = write_outcome(
         deps.store,
@@ -164,6 +166,7 @@ def _record_invalid(
         status=RunStatus.INVALID,
         reason=reason,
         at=deps.clock.now_utc(),
+        max_bytes=ctx.definitions.config.max_run_dir_bytes,
     )
     post(
         deps.store,
@@ -206,6 +209,7 @@ def _outcome(
         status=status,
         reason=reason,
         at=deps.clock.now_utc(),
+        max_bytes=ctx.definitions.config.max_run_dir_bytes,
     )
 
 

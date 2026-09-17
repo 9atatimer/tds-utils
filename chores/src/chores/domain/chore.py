@@ -207,6 +207,8 @@ def _notify_on(data: Mapping[str, object]) -> frozenset[RunStatus]:
         raise InvalidChore("notify_on must be a list of run statuses")
     statuses: set[RunStatus] = set()
     for item in raw:
+        if not isinstance(item, str):  # RunStatus({}) would be a TypeError
+            raise InvalidChore(f"notify_on: {item!r} is not a status name")
         try:
             status = RunStatus(item)
         except ValueError as e:

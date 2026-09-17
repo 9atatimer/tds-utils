@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 import subprocess
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Protocol
 from xml.sax.saxutils import escape
@@ -169,8 +169,10 @@ class LaunchdInstaller:
         try:
             self.plist.parent.mkdir(parents=True, exist_ok=True)
             write_nofollow(self.plist, text)  # a planted symlink is refused
-        except (OSError, UnsafeStatePath) as e:  # nothing was loaded
-            _remove_quietly(self.plist)
+        except (OSError, UnsafeStatePath) as e:
+            # Nothing was loaded and nothing of ours was written: whatever
+            # sits at the path (a symlink, a plist a previous install left)
+            # was not created by this invocation and is left as found.
             raise SchedulerInstallFailed(f"cannot write {self.plist}: {e}") from e
         try:
             self._run(["launchctl", "bootout", f"{self._domain}/{LAUNCHD_LABEL}"])
@@ -192,8 +194,9 @@ class LaunchdInstaller:
         ]
 
     def _rollback(self) -> None:
-        """Boot the label out (best effort) and remove the plist: nothing
-        loaded may outlive a plist that is gone."""
+        """Boot the label out (best effort) and remove the plist this
+        invocation wrote: nothing loaded may outlive a plist that is gone.
+        Only reached after ``write_nofollow`` succeeded on the plist."""
         try:
             self._run(["launchctl", "bootout", f"{self._domain}/{LAUNCHD_LABEL}"])
         except SchedulerInstallFailed:
@@ -245,15 +248,24 @@ class SystemdInstaller:
                 f"would write {self.timer} and its service",
                 "would enable the timer",
             ]
-        try:
-            self.unit_dir.mkdir(parents=True, exist_ok=True)
-            write_nofollow(  # a planted symlink is refused, never followed
+        units = (
+            (
                 self.unit_dir / f"{SYSTEMD_UNIT}.service",
                 _SERVICE.format(env=_service_env(env or {})),
-            )
-            write_nofollow(self.timer, _TIMER.format(interval=interval_sec))
+            ),
+            (self.timer, _TIMER.format(interval=interval_sec)),
+        )
+        written: list[Path] = []  # what THIS invocation may clean up
+        try:
+            self.unit_dir.mkdir(parents=True, exist_ok=True)
+            for path, text in units:
+                write_nofollow(path, text)  # a planted symlink is refused
+                written.append(path)
         except (OSError, UnsafeStatePath) as e:
-            self._rollback()  # a reinstall may have had a live timer: stop it
+            # A path whose write was refused (a symlink, an unwritable file)
+            # was not created here and is left as found; a unit written
+            # before it goes, since the pair is only valid together.
+            self._rollback(written)
             raise SchedulerInstallFailed(f"cannot write {self.unit_dir}: {e}") from e
         try:
             reload_rc = self._run(["systemctl", "--user", "daemon-reload"])
@@ -267,10 +279,10 @@ class SystemdInstaller:
                 ["systemctl", "--user", "enable", "--now", f"{SYSTEMD_UNIT}.timer"]
             )
         except SchedulerInstallFailed:
-            self._rollback()
+            self._rollback(written)
             raise
         if rc != 0:
-            self._rollback()
+            self._rollback(written)
             raise SchedulerInstallFailed(
                 f"systemctl --user enable --now {SYSTEMD_UNIT}.timer failed "
                 f"(exit {rc}); disabled and removed the unit files"
@@ -280,19 +292,23 @@ class SystemdInstaller:
             f"enabled {SYSTEMD_UNIT}.timer every {interval_sec}s",
         ]
 
-    def _rollback(self) -> None:
+    def _rollback(self, written: Sequence[Path]) -> None:
         """The one way out of a failed install, whatever failed: stop and
         disable the timer (a reinstall may have found one active, and enable
-        --now may have half-started the new one), remove the unit files,
-        reload. Nothing loaded may outlive files that are gone."""
+        --now may have half-started the new one), remove the unit files this
+        invocation wrote, reload. Nothing loaded may outlive files that are
+        gone -- and nothing this invocation did not write is touched, so a
+        failure before the first write changes nothing on disk."""
+        if not written:
+            return
         try:
             self._run(
                 ["systemctl", "--user", "disable", "--now", f"{SYSTEMD_UNIT}.timer"]
             )
         except SchedulerInstallFailed:
             pass  # systemctl itself is missing: nothing can be loaded
-        for name in (f"{SYSTEMD_UNIT}.timer", f"{SYSTEMD_UNIT}.service"):
-            _remove_quietly(self.unit_dir / name)
+        for path in written:
+            _remove_quietly(path)
         try:
             self._run(["systemctl", "--user", "daemon-reload"])
         except SchedulerInstallFailed:

@@ -4,8 +4,9 @@ the rolling ceiling window, admission facts, and outcome recording."""
 
 from __future__ import annotations
 
+import json
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -19,13 +20,14 @@ from chores.domain.policies import (
     LedgerUsage,
     admission_policy,
     ceiling_policy,
+    redact,
 )
 from chores.domain.run import Billing, RunRecord, RunStatus, new_run_id, to_ledger_row
 from chores.ports.backends import BackendCatalogPort
 from chores.ports.definitions import Definitions, DefinitionsPort, InvalidDefinition
 from chores.ports.host import ClockPort, NetworkPort, NotifierPort, PowerPort
 from chores.ports.process import ProcessPort
-from chores.ports.store import ARTIFACTS, Notification, RunStorePort
+from chores.ports.store import ARTIFACTS, Artifact, Notification, RunStorePort
 
 CEILING_WINDOW = timedelta(hours=24)
 PROBE_TIMEOUT_SEC = 3.0
@@ -176,6 +178,41 @@ def admit(
     return admission_policy(facts), spec
 
 
+@dataclass
+class Artifacts:
+    """Every byte a run directory receives goes through here: redaction,
+    then the size cap. The runner and the tick-written outcomes share it, so
+    no artifact write anywhere is unbounded."""
+
+    store: RunStorePort
+    run_id: str
+    secrets: Sequence[str]
+    max_bytes: int
+    truncated: bool = False
+
+    def prepare(self) -> None:
+        """Create every promised artifact up front (design: a complete,
+        separated record), so an empty stream is an empty file, never a
+        missing one."""
+        for name in ARTIFACTS:
+            self.store.append_artifact(self.run_id, name, "")
+
+    def append(self, name: Artifact, text: str) -> None:
+        if self.truncated:
+            return
+        clean = redact(text, self.secrets)
+        if (
+            self.store.run_dir_bytes(self.run_id) + len(clean.encode("utf-8"))
+            > self.max_bytes
+        ):
+            self.truncated = True
+            return
+        self.store.append_artifact(self.run_id, name, clean)
+
+    def event(self, payload: Mapping[str, object]) -> None:
+        self.append("transcript.jsonl", json.dumps(dict(payload)) + "\n")
+
+
 def write_outcome(
     store: RunStorePort,
     *,
@@ -186,11 +223,14 @@ def write_outcome(
     status: RunStatus,
     reason: str,
     at: datetime,
+    max_bytes: int,
     definition: str | None = None,
 ) -> RunRecord:
     """A tick-written outcome (a refusal, MISSED, INVALID): record, the five
     artifacts every run directory carries (design: complete record) with the
-    definition snapshot when the caller has one, and the ledger row."""
+    definition snapshot when the caller has one, and the ledger row. The
+    artifacts go through the same size cap as a run's: an outcome written on
+    every tick must not be able to fill the state volume."""
     record = RunRecord.outcome(
         run_id=run_id,
         chore=chore,
@@ -201,14 +241,25 @@ def write_outcome(
         at=at,
     )
     store.write_record(record)
-    for name in ARTIFACTS:
-        store.append_artifact(run_id, name, "")
+    artifacts = Artifacts(store, run_id, (), max_bytes)
+    artifacts.prepare()
+    if reason:  # the reason first: the definition is the larger, lesser text
+        artifacts.append("errors.log", reason + "\n")
     if definition is not None:
-        store.append_artifact(run_id, "definition.md", definition)
-    if reason:
-        store.append_artifact(run_id, "errors.log", reason + "\n")
+        artifacts.append("definition.md", definition)
     store.append_ledger(to_ledger_row(record))
     return record
+
+
+def ensure_ledgered(store: RunStorePort, record: RunRecord) -> bool:
+    """The record and its ledger row are two writes; a crash between them
+    leaves a record no row accounts for. Re-append the missing row (True)
+    rather than let a caller that dedups on the record honour it unpaid."""
+    rows = store.ledger_rows(since=record.started)
+    if any(r.get("run_id") == record.run_id for r in rows):
+        return False
+    store.append_ledger(to_ledger_row(record))
+    return True
 
 
 def post(

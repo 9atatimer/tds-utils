@@ -5,13 +5,13 @@ as in tick. Orchestrates ports only; every decision is a domain policy.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from chores.application.context import (
+    Artifacts,
     Context,
     Host,
     admit,
@@ -49,7 +49,7 @@ from chores.ports.host import (
     SecretsPort,
 )
 from chores.ports.process import ProcessPort, ProcessRequest
-from chores.ports.store import ARTIFACTS, Artifact, RunStorePort, WorkspacesPort
+from chores.ports.store import RunStorePort, WorkspacesPort
 
 _INHERITED_KEYS = ("PATH", "HOME", "LANG")
 
@@ -97,39 +97,6 @@ class RunOutcome:
     record: RunRecord | None
     message: str
     plan: RunPlan | None = None
-
-
-@dataclass
-class _Artifacts:
-    """Every byte the run writes goes through here: redaction, then the size cap."""
-
-    store: RunStorePort
-    run_id: str
-    secrets: Sequence[str]
-    max_bytes: int
-    truncated: bool = False
-
-    def prepare(self) -> None:
-        """Create every promised artifact up front (design: a complete,
-        separated record), so an empty stream is an empty file, never a
-        missing one."""
-        for name in ARTIFACTS:
-            self.store.append_artifact(self.run_id, name, "")
-
-    def append(self, name: Artifact, text: str) -> None:
-        if self.truncated:
-            return
-        clean = redact(text, self.secrets)
-        if (
-            self.store.run_dir_bytes(self.run_id) + len(clean.encode("utf-8"))
-            > self.max_bytes
-        ):
-            self.truncated = True
-            return
-        self.store.append_artifact(self.run_id, name, clean)
-
-    def event(self, payload: Mapping[str, object]) -> None:
-        self.append("transcript.jsonl", json.dumps(dict(payload)) + "\n")
 
 
 class RunLost(ChoresError):
@@ -201,7 +168,7 @@ def _cwd(chore: Chore, deps: RunDeps) -> str:
     return chore.cwd if chore.cwd is not None else deps.workspaces.ensure(chore.name)
 
 
-def ctx_store_kill_requested(artifacts: _Artifacts) -> bool:
+def ctx_store_kill_requested(artifacts: Artifacts) -> bool:
     return artifacts.store.kill_requested(artifacts.run_id)
 
 
@@ -219,7 +186,7 @@ def _execute_prompt(
     ctx: Context,
     *,
     credential: str | None,
-    artifacts: _Artifacts,
+    artifacts: Artifacts,
 ) -> _Execution:
     model = chore.model or spec.default_model or ""
     try:
@@ -270,7 +237,7 @@ def _execute_agent(
     credential: str | None,
     env: Mapping[str, str],
     cwd: str,
-    artifacts: _Artifacts,
+    artifacts: Artifacts,
     on_start: Callable[[ProcessIdentity], None],
     own_identity: Callable[[], ProcessIdentity],
 ) -> _Execution:
@@ -378,7 +345,7 @@ def _execute_command(
     *,
     env: Mapping[str, str],
     cwd: str,
-    artifacts: _Artifacts,
+    artifacts: Artifacts,
     on_start: Callable[[ProcessIdentity], None],
 ) -> _Execution:
     assert chore.command is not None
@@ -435,7 +402,7 @@ def _finish(
     ctx: Context,
     *,
     started_utc: datetime,
-    artifacts: _Artifacts,
+    artifacts: Artifacts,
 ) -> RunRecord:
     ended = deps.clock.now_utc()
     usage = Usage(
@@ -564,6 +531,7 @@ def run_chore(
             status=RunStatus.INVALID,
             reason="; ".join(errors),
             at=deps.clock.now_utc(),
+            max_bytes=ctx.definitions.config.max_run_dir_bytes,
         )
         post(
             deps.store,
@@ -636,6 +604,7 @@ def run_chore(
                 status=verdict.record_status,
                 reason=verdict.reason or "",
                 at=deps.clock.now_utc(),
+                max_bytes=ctx.definitions.config.max_run_dir_bytes,
             )
             return RunOutcome(
                 record, f"{name}: {verdict.record_status.value}: {verdict.reason}"
@@ -653,7 +622,7 @@ def run_chore(
 
     secret_values, credential, failure = _resolve_secrets(chore, ctx, deps)
     redaction = [*secret_values.values(), *([credential] if credential else [])]
-    artifacts = _Artifacts(
+    artifacts = Artifacts(
         deps.store, run_id, redaction, ctx.definitions.config.max_run_dir_bytes
     )
     artifacts.prepare()
@@ -717,7 +686,7 @@ def _run_started(
     secret_values: Mapping[str, str],
     credential: str | None,
     cwd: str,
-    artifacts: _Artifacts,
+    artifacts: Artifacts,
     started_utc: datetime,
     on_start: Callable[[ProcessIdentity], None],
 ) -> RunOutcome:
