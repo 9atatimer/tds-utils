@@ -209,6 +209,7 @@ class FakeRunStore:
     """In-memory RunStorePort with the same semantics the contract tests pin."""
 
     def __init__(self) -> None:
+        self.events: list[str] = []  # lock/unlock/write order, for the tests
         self._records: dict[str, RunRecord] = {}
         self._artifacts: dict[tuple[str, str], str] = {}
         self._ledger: list[Mapping[str, object]] = []
@@ -233,6 +234,7 @@ class FakeRunStore:
         return run_id in self._kills
 
     def write_record(self, record: RunRecord) -> None:
+        self.events.append(f"write {record.status.value}")
         self._records[record.run_id] = record
 
     def read_record(self, run_id: str) -> RunRecord | None:
@@ -355,6 +357,17 @@ class FakeRunStore:
 
     def tick_lock(self) -> AbstractContextManager[bool]:
         return self._lock()
+
+    def chore_lock(self, name: str) -> AbstractContextManager[None]:
+        return self._chore_lock(name)
+
+    @contextmanager
+    def _chore_lock(self, name: str) -> Iterator[None]:
+        self.events.append(f"lock {name}")
+        try:
+            yield
+        finally:
+            self.events.append(f"unlock {name}")
 
     @contextmanager
     def _lock(self) -> Iterator[bool]:

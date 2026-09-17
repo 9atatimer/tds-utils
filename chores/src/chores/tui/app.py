@@ -16,6 +16,7 @@ from chores.application import status as queries
 from chores.application.deps import Deps
 from chores.application.status import StatusView
 from chores.cli import render
+from chores.domain.errors import ChoresError
 
 REFRESH_SEC = 5.0
 _COLUMNS = ("chore", "state", "schedule", "next", "last run", "usage", "last failure")
@@ -103,8 +104,12 @@ class ChoresApp(App[None]):
         name = self._selected_chore()
         if name is None:
             return
-        self._deps.launch(name)
-        self.message = f"launched {name}"
+        try:
+            self._deps.launch(name)
+        except ChoresError as e:
+            self.message = f"could not launch {name}: {e}"
+        else:
+            self.message = f"launched {name}"
         self.action_refresh()
 
     def action_toggle_pause(self) -> None:

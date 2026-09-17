@@ -224,13 +224,20 @@ class SystemdInstaller:
         )
         self.timer.write_text(_TIMER.format(interval=interval_sec))
         try:
-            self._run(["systemctl", "--user", "daemon-reload"])
+            reload_rc = self._run(["systemctl", "--user", "daemon-reload"])
+            if reload_rc != 0:
+                # enable would act on stale cached units, not the files
+                # just written: treat it as the install failing
+                raise SchedulerInstallFailed(
+                    f"systemctl --user daemon-reload failed (exit {reload_rc})"
+                )
             rc = self._run(
                 ["systemctl", "--user", "enable", "--now", f"{SYSTEMD_UNIT}.timer"]
             )
         except SchedulerInstallFailed:
             for name in (f"{SYSTEMD_UNIT}.timer", f"{SYSTEMD_UNIT}.service"):
                 (self.unit_dir / name).unlink(missing_ok=True)
+            self._run(["systemctl", "--user", "daemon-reload"])
             raise
         if rc != 0:
             for name in (f"{SYSTEMD_UNIT}.timer", f"{SYSTEMD_UNIT}.service"):

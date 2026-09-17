@@ -63,7 +63,7 @@ def check_artifact_name(name: str) -> str:
     return name
 
 
-def _write_nofollow(path: Path, text: str, *, append: bool = False) -> None:
+def write_nofollow(path: Path, text: str, *, append: bool = False) -> None:
     """Create or append to ``path`` without ever following a symlink at
     ``path`` itself (O_NOFOLLOW); the parent was already checked."""
     flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW
@@ -78,7 +78,7 @@ def _write_nofollow(path: Path, text: str, *, append: bool = False) -> None:
         fh.write(text)
 
 
-def _read_nofollow(path: Path) -> str | None:
+def read_nofollow(path: Path) -> str | None:
     """The file's text, None when absent; a symlink is refused, not read."""
     if path.is_symlink():
         raise UnsafeStatePath(f"{path} is a symlink; refusing to read")
@@ -246,11 +246,11 @@ class FsRunStore:
 
     @staticmethod
     def _append(path: Path, text: str) -> None:
-        _write_nofollow(path, text, append=True)
+        write_nofollow(path, text, append=True)
 
     @staticmethod
     def _read_ndjson(path: Path) -> list[dict[str, object]]:
-        if _read_nofollow(path) is None:
+        if read_nofollow(path) is None:
             return []
         rows: list[dict[str, object]] = []
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -270,7 +270,7 @@ class FsRunStore:
     @staticmethod
     def _write_json(run_dir: Path, record: RunRecord) -> None:
         tmp = run_dir / "run.json.tmp"
-        _write_nofollow(tmp, json.dumps(record_to_json(record), indent=1))
+        write_nofollow(tmp, json.dumps(record_to_json(record), indent=1))
         os.replace(tmp, run_dir / "run.json")  # replaces a planted link itself
 
     @contextmanager
@@ -311,7 +311,7 @@ class FsRunStore:
         run_dir = self._find_run_dir(run_id)
         if run_dir is None:
             return None
-        text = _read_nofollow(run_dir / "run.json")
+        text = read_nofollow(run_dir / "run.json")
         return None if text is None else record_from_json(json.loads(text))
 
     def records(
@@ -348,7 +348,7 @@ class FsRunStore:
         run_dir = self._find_run_dir(run_id)
         if run_dir is None:
             return ""
-        return _read_nofollow(run_dir / name) or ""
+        return read_nofollow(run_dir / name) or ""
 
     def run_dir_bytes(self, run_id: str) -> int:
         run_dir = self._find_run_dir(run_id)
@@ -381,7 +381,7 @@ class FsRunStore:
     def request_kill(self, run_id: str) -> None:
         run_dir = self._run_dir(run_id)
         self._ensure_private(run_dir)
-        _write_nofollow(run_dir / "KILL", "")
+        write_nofollow(run_dir / "KILL", "")
 
     def kill_requested(self, run_id: str) -> bool:
         run_dir = self._find_run_dir(run_id)
@@ -470,13 +470,13 @@ class FsRunStore:
     # --- pause sentries ---
 
     def pause(self, reason: str) -> None:
-        _write_nofollow(self.root / "PAUSED", reason)
+        write_nofollow(self.root / "PAUSED", reason)
 
     def unpause(self) -> None:
         (self.root / "PAUSED").unlink(missing_ok=True)
 
     def paused(self) -> str | None:
-        text = _read_nofollow(self.root / "PAUSED")
+        text = read_nofollow(self.root / "PAUSED")
         if text is None:
             return None
         return text.strip() or "(no reason recorded)"
@@ -485,13 +485,13 @@ class FsRunStore:
         return self.root / "paused" / check_chore_name(name)
 
     def pause_chore(self, name: str, reason: str) -> None:
-        _write_nofollow(self._sentry(name), reason)
+        write_nofollow(self._sentry(name), reason)
 
     def resume_chore(self, name: str) -> None:
         self._sentry(name).unlink(missing_ok=True)
 
     def chore_paused(self, name: str) -> str | None:
-        text = _read_nofollow(self._sentry(name))
+        text = read_nofollow(self._sentry(name))
         if text is None:
             return None
         return text.strip() or "(no reason recorded)"
@@ -501,11 +501,11 @@ class FsRunStore:
     def mark_tick(self, mark: TickMark) -> None:
         payload = {"at": mark.at.isoformat(), "ledger_rows": mark.ledger_rows}
         tmp = self.root / "last_tick.tmp"
-        _write_nofollow(tmp, json.dumps(payload))
+        write_nofollow(tmp, json.dumps(payload))
         os.replace(tmp, self.root / "last_tick")
 
     def last_tick(self) -> TickMark | None:
-        text = _read_nofollow(self.root / "last_tick")
+        text = read_nofollow(self.root / "last_tick")
         if text is None:
             return None
         data = json.loads(text)
@@ -517,9 +517,33 @@ class FsRunStore:
     def tick_lock(self) -> AbstractContextManager[bool]:
         return self._flock(self.root / "tick.lock")
 
+    def chore_lock(self, name: str) -> AbstractContextManager[None]:
+        chore_dir = self.runs / check_chore_name(name)
+        self._ensure_private(self.runs)
+        self._ensure_private(chore_dir)
+        return self._blocking_flock(chore_dir / "admission.lock")
+
+    @staticmethod
+    def _open_lock(path: Path) -> int:
+        if path.is_symlink():
+            raise UnsafeStatePath(f"{path} is a symlink; refusing to lock")
+        return os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+
+    @contextmanager
+    def _blocking_flock(self, path: Path) -> Iterator[None]:
+        fd = self._open_lock(path)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
     @contextmanager
     def _flock(self, path: Path) -> Iterator[bool]:
-        fh = path.open("a+")
+        fh = os.fdopen(self._open_lock(path), "a+")
         try:
             try:
                 fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)

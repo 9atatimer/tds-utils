@@ -114,6 +114,12 @@ class RunStorePort(Protocol):
         """Enter True when the lock was acquired, False when another tick holds it."""
         ...
 
+    def chore_lock(self, name: str) -> AbstractContextManager[None]:
+        """Blocking per-chore lock around admission: the overlap check and the
+        PENDING write happen under it, so two runners of the same chore
+        cannot both see "nothing live" and both start."""
+        ...
+
     def artifacts(self, run_id: str) -> Iterator[Artifact]: ...
 
     def delete_run(self, run_id: str) -> bool:

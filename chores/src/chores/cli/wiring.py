@@ -12,7 +12,13 @@ from collections.abc import Callable
 from pathlib import Path
 
 from chores.adapters.definitions import DefinitionsLoader
-from chores.adapters.fs_store import FsRunStore, FsWorkspaces
+from chores.adapters.fs_store import (
+    FsRunStore,
+    FsWorkspaces,
+    UnsafeStatePath,
+    read_nofollow,
+    write_nofollow,
+)
 from chores.adapters.host import (
     DesktopNotifier,
     SocketNetwork,
@@ -62,16 +68,20 @@ def resolve_paths(env: dict[str, str] | None = None) -> Paths:
 
 def _pointer(state: Path) -> str | None:
     try:
-        return (state / HOME_POINTER).read_text(encoding="utf-8").strip() or None
-    except OSError:
+        text = read_nofollow(state / HOME_POINTER)
+    except (OSError, UnsafeStatePath):
         return None
+    return (text or "").strip() or None
 
 
 def remember_home(paths: Paths) -> None:
-    """Persist paths.chores_home as the pointer (called by `chores install`)."""
+    """Persist paths.chores_home as the pointer (called by `chores install`).
+    Written no-follow like every file in the state tree."""
     state = Path(paths.state_dir)
+    if state.is_symlink():
+        raise UnsafeStatePath(f"{state} is a symlink; refusing to use it")
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
-    (state / HOME_POINTER).write_text(paths.chores_home + "\n", encoding="utf-8")
+    write_nofollow(state / HOME_POINTER, paths.chores_home + "\n")
 
 
 def forget_home(paths: Paths) -> None:
@@ -81,7 +91,10 @@ def forget_home(paths: Paths) -> None:
 def _launch_factory(state_dir: Path) -> Callable[[str], None]:
     def launch(name: str) -> None:
         log = state_dir / "spawn.log"
-        with log.open("ab") as fh:
+        if log.is_symlink():
+            raise UnsafeStatePath(f"{log} is a symlink; refusing to log there")
+        fd = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(fd, "ab") as fh:
             subprocess.Popen(
                 [sys.executable, "-m", "chores", "run", name],
                 stdin=subprocess.DEVNULL,

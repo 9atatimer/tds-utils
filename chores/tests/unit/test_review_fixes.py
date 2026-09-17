@@ -1173,7 +1173,8 @@ def test_uninstall_fails_loudly_when_the_os_keeps_the_unit_loaded(
         return 0  # `launchctl print` / `is-active`: still loaded
 
     def not_loaded(argv: list[str]) -> int:
-        return 0 if "bootstrap" in argv or "enable" in argv else 1
+        ok = ("bootstrap", "enable", "daemon-reload")
+        return 0 if any(word in argv for word in ok) else 1
 
     launchd = LaunchdInstaller(home=tmp_path / "mac", uid=1, run=stuck)
     launchd.install(interval_sec=60)
@@ -1424,3 +1425,72 @@ def test_no_state_file_is_ever_read_or_written_through_a_symlink(
     with pytest.raises(UnsafeStatePath):
         store.paused()
     assert store.run_dir_bytes(run_id) > 0  # counts real files only
+
+
+# --- Copilot round 12 (PR #290) --------------------------------------------
+
+
+def test_admission_and_the_pending_write_share_one_chore_lock(tmp_path: Path) -> None:
+    """The overlap check and the PENDING write happen under the per-chore
+    lock, so a concurrent runner of the same chore serialises behind it and
+    then sees the young PENDING record as live."""
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    run_chore("tidy", h.deps().as_run_deps())
+    events = h.store.events
+    assert events[:3] == ["lock tidy", "write PENDING", "unlock tidy"]
+    dry = FullHarness(tmp_path / "d", chores={"tidy": COMMAND})
+    run_chore("tidy", dry.deps().as_run_deps(), dry_run=True)
+    assert dry.store.events == []  # a dry run reserves nothing
+
+
+def test_fs_chore_lock_lives_in_the_chore_dir_and_is_no_follow(tmp_path: Path) -> None:
+    from chores.adapters.fs_store import FsRunStore, UnsafeStatePath
+
+    store = FsRunStore(tmp_path / "s")
+    with store.chore_lock("tidy"):
+        assert (store.runs / "tidy" / "admission.lock").is_file()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (store.runs / "evil").mkdir()
+    (store.runs / "evil" / "admission.lock").symlink_to(outside / "lock")
+    with pytest.raises(UnsafeStatePath):
+        with store.chore_lock("evil"):
+            pass
+    assert not (outside / "lock").exists()
+
+
+def test_home_pointer_and_spawn_log_are_written_no_follow(tmp_path: Path) -> None:
+    from chores.adapters.fs_store import UnsafeStatePath
+    from chores.application.paths import Paths
+    from chores.cli.wiring import _launch_factory, remember_home
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "home").symlink_to(outside / "pointer")
+    paths = Paths(str(tmp_path / "home"), str(state), str(tmp_path / "data"))
+    with pytest.raises(UnsafeStatePath):
+        remember_home(paths)
+    assert not (outside / "pointer").exists()
+    (state / "spawn.log").symlink_to(outside / "spawn")
+    with pytest.raises(UnsafeStatePath):
+        _launch_factory(state)("tidy")
+    assert not (outside / "spawn").exists()
+
+
+def test_systemd_install_fails_when_daemon_reload_fails(tmp_path: Path) -> None:
+    from chores.adapters.scheduler import SchedulerInstallFailed, SystemdInstaller
+
+    calls: list[list[str]] = []
+
+    def reload_fails(argv: list[str]) -> int:
+        calls.append(argv)
+        return 1 if "daemon-reload" in argv and len(calls) == 1 else 0
+
+    inst = SystemdInstaller(home=tmp_path, run=reload_fails)
+    with pytest.raises(SchedulerInstallFailed, match="daemon-reload"):
+        inst.install(interval_sec=60)
+    assert inst.installed() is False
+    assert not (inst.unit_dir / "chores-tick.service").exists()
+    assert calls[-1] == ["systemctl", "--user", "daemon-reload"]  # reloaded again

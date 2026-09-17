@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -569,68 +570,79 @@ def run_chore(
         return RunOutcome(record, f"{name} is invalid: {record.reason}")
     chore = found
     assert isinstance(chore, Chore)
-    verdict, spec = admit(ctx, chore, host, force=force)
-    cwd = (
-        _cwd(chore, deps) if not dry_run or chore.cwd else (chore.cwd or "<workspace>")
-    )
-    if dry_run:
-        plan = RunPlan(
-            chore=chore.name,
-            kind=chore.kind.value,
-            backend=chore.backend,
-            model=chore.model or (spec.default_model if spec else None),
-            cwd=cwd,
-            env_names=sorted(
-                _build_env(
-                    chore, run_id="<run-id>", secrets={}, inherited=deps.inherited_env
-                )
-            ),
-            secret_names=sorted(chore.secrets or {}),
-            argv=chore.command,
-            budget=chore.budget,
-            admission=verdict.decision.name
-            if verdict.decision is Decision.ADMIT
-            else "SKIP",
-            port=chore.port.value if chore.port else None,
-            ceilings={
-                scope: ceiling
-                for scope, ceiling in (
-                    ("chore", chore.ceiling),
-                    ("backend", spec.ceiling if spec else Ceiling()),
-                    ("global", ctx.definitions.config.ceiling),
-                )
-                if ceiling.dimensions()
-            },
-            admission_reason=verdict.reason,
+    # Admission and the PENDING write are one critical section per chore:
+    # two runners of the same chore serialise here, so the second sees the
+    # first's young PENDING record as live and is SKIPPED_OVERLAP.
+    with ExitStack() as reservation:
+        if not dry_run:
+            reservation.enter_context(deps.store.chore_lock(name))
+        verdict, spec = admit(ctx, chore, host, force=force)
+        cwd = (
+            _cwd(chore, deps)
+            if not dry_run or chore.cwd
+            else (chore.cwd or "<workspace>")
         )
-        return RunOutcome(None, "dry run", plan)
-    run_id = mint_run_id(name, deps.clock, deps.run_id_suffix)
-    if verdict.decision is not Decision.ADMIT:
-        if verdict.record_status is None:
-            return RunOutcome(None, f"{name}: {verdict.reason}")
-        record = write_outcome(
-            deps.store,
+        if dry_run:
+            plan = RunPlan(
+                chore=chore.name,
+                kind=chore.kind.value,
+                backend=chore.backend,
+                model=chore.model or (spec.default_model if spec else None),
+                cwd=cwd,
+                env_names=sorted(
+                    _build_env(
+                        chore,
+                        run_id="<run-id>",
+                        secrets={},
+                        inherited=deps.inherited_env,
+                    )
+                ),
+                secret_names=sorted(chore.secrets or {}),
+                argv=chore.command,
+                budget=chore.budget,
+                admission=verdict.decision.name
+                if verdict.decision is Decision.ADMIT
+                else "SKIP",
+                port=chore.port.value if chore.port else None,
+                ceilings={
+                    scope: ceiling
+                    for scope, ceiling in (
+                        ("chore", chore.ceiling),
+                        ("backend", spec.ceiling if spec else Ceiling()),
+                        ("global", ctx.definitions.config.ceiling),
+                    )
+                    if ceiling.dimensions()
+                },
+                admission_reason=verdict.reason,
+            )
+            return RunOutcome(None, "dry run", plan)
+        run_id = mint_run_id(name, deps.clock, deps.run_id_suffix)
+        if verdict.decision is not Decision.ADMIT:
+            if verdict.record_status is None:
+                return RunOutcome(None, f"{name}: {verdict.reason}")
+            record = write_outcome(
+                deps.store,
+                run_id=run_id,
+                chore=name,
+                kind=chore.kind,
+                definition_rev=ctx.definitions.revision,
+                status=verdict.record_status,
+                reason=verdict.reason or "",
+                at=deps.clock.now_utc(),
+            )
+            return RunOutcome(
+                record, f"{name}: {verdict.record_status.value}: {verdict.reason}"
+            )
+
+        started_utc = deps.clock.now_utc()
+        record = RunRecord.pending(
             run_id=run_id,
             chore=name,
             kind=chore.kind,
             definition_rev=ctx.definitions.revision,
-            status=verdict.record_status,
-            reason=verdict.reason or "",
-            at=deps.clock.now_utc(),
+            started=started_utc,
         )
-        return RunOutcome(
-            record, f"{name}: {verdict.record_status.value}: {verdict.reason}"
-        )
-
-    started_utc = deps.clock.now_utc()
-    record = RunRecord.pending(
-        run_id=run_id,
-        chore=name,
-        kind=chore.kind,
-        definition_rev=ctx.definitions.revision,
-        started=started_utc,
-    )
-    deps.store.write_record(record)
+        deps.store.write_record(record)
 
     secret_values, credential, failure = _resolve_secrets(chore, ctx, deps)
     redaction = [*secret_values.values(), *([credential] if credential else [])]
