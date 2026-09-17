@@ -38,7 +38,13 @@ def resolve_paths(env: dict[str, str] | None = None) -> Paths:
     data = (
         Path(e.get("XDG_DATA_HOME", home / ".local" / "share")).expanduser() / "chores"
     )
-    return Paths(chores_home=str(chores_home), state_dir=str(state), data_dir=str(data))
+    # realpath, not resolve(): the same canonicalisation the loader applies to
+    # every chore cwd, so containment compares like with like.
+    return Paths(
+        chores_home=os.path.realpath(chores_home),
+        state_dir=os.path.realpath(state),
+        data_dir=os.path.realpath(data),
+    )
 
 
 def _launch_factory(state_dir: Path) -> Callable[[str], None]:

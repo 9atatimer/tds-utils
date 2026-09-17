@@ -4,6 +4,7 @@ the rolling ceiling window, admission facts, and outcome recording."""
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -44,6 +45,21 @@ def load_context(
     return Context(definitions=defs, catalog=catalog_for(defs))
 
 
+_NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+
+
+def invalid_record_name(stem: str) -> str:
+    """The ``chore`` under which an INVALID outcome for definition file
+    ``<stem>.md`` is filed. A stem that is already a chore name is used as is;
+    anything else (``foo.bar``, ``My Chore``) is folded to ``INVALID-<safe>``:
+    a path-safe run-id segment that, being uppercase, can never collide with
+    a real chore's name."""
+    if _NAME_RE.match(stem):
+        return stem
+    safe = re.sub(r"[^a-z0-9]+", "-", stem.lower()).strip("-") or "unnamed"
+    return f"INVALID-{safe}"
+
+
 def find_chore(defs: Definitions, name: str) -> Chore | InvalidDefinition | None:
     for chore in defs.chores:
         if chore.name == name:
@@ -67,13 +83,24 @@ def binding_errors(
 
 
 def live_running(
-    store: RunStorePort, process: ProcessPort, chore: str
+    store: RunStorePort,
+    process: ProcessPort,
+    chore: str,
+    *,
+    now_utc: datetime,
+    pending_grace: timedelta,
 ) -> RunRecord | None:
-    """The RUNNING record whose process is really alive, if any."""
+    """The record that counts as live: a RUNNING one whose process is really
+    alive, or a PENDING one younger than ``pending_grace`` (the runner writes
+    PENDING before it resolves secrets and spawns; a stale PENDING is the
+    tick's to interrupt, not a reason to skip)."""
     for record in store.records(chore=chore):
         if record.status is RunStatus.RUNNING and record.pid is not None:
             start = record.process_start if record.process_start is not None else 0.0
             if process.alive(record.pid, process_start=start):
+                return record
+        elif record.status is RunStatus.PENDING:
+            if now_utc - record.started <= pending_grace:
                 return record
     return None
 
@@ -127,7 +154,13 @@ def admit(
         global_ceiling=ctx.definitions.config.ceiling,
         count_subscription_usd=ctx.definitions.config.count_subscription_usd,
     )
-    running = live_running(host.store, host.process, chore.name)
+    running = live_running(
+        host.store,
+        host.process,
+        chore.name,
+        now_utc=host.clock.now_utc(),
+        pending_grace=timedelta(seconds=ctx.definitions.config.tick_interval_sec),
+    )
     facts = AdmissionFacts(
         enabled=chore.enabled,
         globally_paused=host.store.paused(),

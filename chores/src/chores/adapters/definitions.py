@@ -92,9 +92,13 @@ def _backend(name: str, raw: object) -> BackendConfig:
     for model, p in raw_prices.items():
         if not isinstance(p, Mapping):
             raise ValueError(f"backends.yaml: {name} price for {model} must be a map")
-        prices[str(model)] = Price(
-            in_per_1m=float(str(p["in_per_1m"])), out_per_1m=float(str(p["out_per_1m"]))
-        )
+        try:
+            prices[str(model)] = Price(
+                in_per_1m=float(str(p["in_per_1m"])),
+                out_per_1m=float(str(p["out_per_1m"])),
+            )
+        except (KeyError, ValueError) as e:
+            raise ValueError(f"backends.yaml: {name} price for {model}: {e}") from e
     known = {
         "type",
         "model",

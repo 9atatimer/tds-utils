@@ -9,6 +9,7 @@ registry behind it is the single place that knows the vendor set.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -21,10 +22,18 @@ from chores.ports.completion import CompletionPort
 
 @dataclass(frozen=True, slots=True)
 class Price:
-    """USD per one million tokens, in and out."""
+    """USD per one million tokens, in and out. Both rates are finite and
+    non-negative: a NaN rate defeats every ceiling comparison and a negative
+    one subtracts spend, so neither may enter from backends.yaml."""
 
     in_per_1m: float
     out_per_1m: float
+
+    def __post_init__(self) -> None:
+        for name in ("in_per_1m", "out_per_1m"):
+            rate = getattr(self, name)
+            if not math.isfinite(rate) or rate < 0:
+                raise ValueError(f"price {name} must be finite and >= 0 (got {rate})")
 
 
 @dataclass(frozen=True, slots=True)

@@ -16,6 +16,7 @@ from chores.application.context import (
     admit,
     binding_errors,
     find_chore,
+    invalid_record_name,
     load_context,
     mint_run_id,
     post,
@@ -502,10 +503,13 @@ def run_chore(
     if errors and dry_run:
         return RunOutcome(None, f"{name} is invalid: {'; '.join(errors)}")
     if errors:
+        filed_as = invalid_record_name(name)
+        if filed_as != name:
+            errors = [f"definition file {name!r}.md: {e}" for e in errors]
         record = write_outcome(
             deps.store,
-            run_id=mint_run_id(name, deps.clock, deps.run_id_suffix),
-            chore=name,
+            run_id=mint_run_id(filed_as, deps.clock, deps.run_id_suffix),
+            chore=filed_as,
             kind=kind,
             definition_rev=ctx.definitions.revision,
             status=RunStatus.INVALID,

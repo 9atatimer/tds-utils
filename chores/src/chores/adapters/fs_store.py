@@ -256,6 +256,8 @@ class FsRunStore:
         self, *, chore: str | None = None, since: datetime | None = None
     ) -> Sequence[RunRecord]:
         out: list[RunRecord] = []
+        if chore is not None and not _RUN_ID_RE.match(chore):
+            return []  # not a path segment: nothing can be filed under it
         chore_dirs = [self.runs / chore] if chore else sorted(self.runs.iterdir())
         for chore_dir in chore_dirs:
             if not chore_dir.is_dir():

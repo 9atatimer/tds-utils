@@ -499,3 +499,167 @@ def test_systemd_path_includes_the_fresh_clone_tier(tmp_path: Path) -> None:
         tmp_path / ".config" / "systemd" / "user" / "chores-tick.service"
     ).read_text()
     assert "%h/workplace/tds-utils/bin" in service
+
+
+# --- Copilot round 3 (PR #290) ---------------------------------------------
+
+
+def test_prices_must_be_finite_and_non_negative(tmp_path: Path) -> None:
+    from chores.ports.backends import Price
+
+    for bad in (float("nan"), float("inf"), -0.01):
+        with pytest.raises(ValueError):
+            Price(in_per_1m=bad, out_per_1m=1.0)
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    (tmp_path / "home" / "backends.yaml").write_text(
+        "backends:\n  gw:\n    type: openai-compat\n    model: m\n"
+        "    base_url: https://gw\n"
+        "    prices: {m: {in_per_1m: .nan, out_per_1m: -1}}\n"
+    )
+    defs = h.definitions.load()
+    assert any("price for m" in e for e in defs.errors)
+
+
+def test_records_filter_cannot_escape_the_runs_directory(tmp_path: Path) -> None:
+    from chores.adapters.fs_store import FsRunStore
+
+    outside = tmp_path / "outside" / "x"
+    outside.mkdir(parents=True)
+    (outside / "run.json").write_text("{}")
+    store = FsRunStore(tmp_path / "s")
+    assert store.records(chore="../../outside") == []
+    assert store.records(chore="../outside") == []
+
+
+def test_a_young_pending_record_counts_as_live_for_overlap(tmp_path: Path) -> None:
+    """Given a PENDING record seconds old (the runner has not spawned yet),
+    Then a concurrent manual run is SKIPPED_OVERLAP; a PENDING older than one
+    tick interval is not live (it is the tick's to interrupt)."""
+    from chores.application.context import live_running
+
+    h = FullHarness(tmp_path, chores={"brand": PROMPT})
+    young = RunRecord.pending(
+        run_id="brand-a",
+        chore="brand",
+        kind=Kind.PROMPT,
+        definition_rev="r",
+        started=h.clock.now_utc() - timedelta(seconds=5),
+    )
+    h.store.write_record(young)
+    grace = timedelta(seconds=60)
+    now = h.clock.now_utc()
+    live = live_running(h.store, h.process, "brand", now_utc=now, pending_grace=grace)
+    assert live is not None and live.run_id == "brand-a"
+    r = run_chore("brand", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.SKIPPED_OVERLAP and "brand-a" in (r.reason or "")
+    stale = RunRecord.pending(
+        run_id="brand-b",
+        chore="brand",
+        kind=Kind.PROMPT,
+        definition_rev="r",
+        started=h.clock.now_utc() - timedelta(minutes=10),
+    )
+    h.store.write_record(stale)
+    h.store.delete_run("brand-a")
+    assert (
+        live_running(h.store, h.process, "brand", now_utc=now, pending_grace=grace)
+        is None
+    )
+
+
+@pytest.mark.parametrize("cost", ["nan", "inf", "-0.5"])
+def test_provider_costs_must_be_finite_and_non_negative(cost: str) -> None:
+    from chores.adapters._fields import float_field, int_field
+
+    with pytest.raises(BackendError, match="total_cost_usd"):
+        float_field(cost, provider="p", field="total_cost_usd")
+    with pytest.raises(BackendError, match="negative"):
+        int_field(-1, provider="p", field="output_tokens")
+
+
+def test_overlapping_data_and_state_roots_are_refused(tmp_path: Path) -> None:
+    from chores.application.paths import OverlappingRoots, Paths
+    from chores.cli.wiring import resolve_paths
+
+    with pytest.raises(OverlappingRoots):
+        Paths(
+            str(tmp_path / "home"),
+            str(tmp_path / "state"),
+            str(tmp_path / "state" / "d"),
+        )
+    with pytest.raises(OverlappingRoots):
+        Paths(
+            str(tmp_path / "home"), str(tmp_path / "d" / "state"), str(tmp_path / "d")
+        )
+    with pytest.raises(OverlappingRoots):
+        resolve_paths(
+            {
+                "HOME": str(tmp_path),
+                "XDG_STATE_HOME": str(tmp_path / "st"),
+                "XDG_DATA_HOME": str(tmp_path / "st" / "chores" / "data"),
+            }
+        )
+
+
+def test_roots_are_resolved_so_a_symlinked_state_dir_cannot_be_reached(
+    tmp_path: Path,
+) -> None:
+    from chores.cli.wiring import resolve_paths
+
+    real = tmp_path / "real-state"
+    real.mkdir()
+    link = tmp_path / "link-state"
+    link.symlink_to(real)
+    paths = resolve_paths({"HOME": str(tmp_path), "XDG_STATE_HOME": str(link)})
+    assert paths.state_dir == str(real / "chores")
+    assert str(real / "chores") in paths.forbidden_for_cwd()
+
+
+def test_cli_refuses_to_start_on_overlapping_roots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from click.testing import CliRunner
+
+    import chores.cli.wiring as wiring
+    from chores.cli.main import main
+
+    def boom() -> None:
+        raise ValueError("data dir overlaps the state dir")
+
+    monkeypatch.setattr(wiring, "build_deps", boom)
+    r = CliRunner().invoke(main, ["status"])
+    assert r.exit_code == 1 and "overlaps" in r.output
+
+
+def _write_bad_stem(tmp_path: Path) -> None:
+    (tmp_path / "home" / "chores" / "foo.bar.md").write_text(
+        "---\nname: foo.bar\nkind: command\n---\n"
+    )
+
+
+def test_tick_files_an_invalid_definition_with_a_bad_stem_path_safely(
+    tmp_path: Path,
+) -> None:
+    from chores.adapters.fs_store import FsRunStore
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    _write_bad_stem(tmp_path)
+    h.store = FsRunStore(tmp_path / "state")  # type: ignore[assignment]
+    report = tick(h.deps().as_tick_deps())
+    assert "INVALID-foo-bar" in report.invalid
+    (rec,) = h.store.records(chore="INVALID-foo-bar")
+    assert rec.status is RunStatus.INVALID and "'foo.bar'.md" in (rec.reason or "")
+    assert rec.run_id.startswith("INVALID-foo-bar-")
+    tick(h.deps().as_tick_deps())  # same error again: no second record
+    assert len(h.store.records(chore="INVALID-foo-bar")) == 1
+
+
+def test_manual_run_of_a_bad_stem_definition_records_invalid(tmp_path: Path) -> None:
+    from chores.adapters.fs_store import FsRunStore
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    _write_bad_stem(tmp_path)
+    h.store = FsRunStore(tmp_path / "state")  # type: ignore[assignment]
+    r = run_chore("foo.bar", h.deps().as_run_deps()).record
+    assert r is not None and r.status is RunStatus.INVALID
+    assert r.chore == "INVALID-foo-bar" and h.store.read_record(r.run_id) == r

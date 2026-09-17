@@ -131,7 +131,13 @@ def status(deps: Deps) -> StatusView:
     chores: list[ChoreStatus] = []
     for chore in ctx.definitions.chores:
         records = deps.store.records(chore=chore.name)
-        running = live_running(deps.store, deps.process, chore.name)
+        running = live_running(
+            deps.store,
+            deps.process,
+            chore.name,
+            now_utc=now_utc,
+            pending_grace=timedelta(seconds=config.tick_interval_sec),
+        )
         last_run, last_success, last_failure = _summaries(records)
         bindings = binding_errors(ctx, chore, forbidden=deps.paths.forbidden_for_cwd())
         chores.append(

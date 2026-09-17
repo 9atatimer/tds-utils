@@ -90,8 +90,12 @@ class BackendSpec:
 # --- predicates --------------------------------------------------------------
 
 
-def _is_under(path: str, root: str) -> bool:
+def is_under(path: str, root: str) -> bool:
+    """Is ``path`` equal to ``root`` or inside it? Lexical: callers resolve first."""
     return path == root or path.startswith(root.rstrip("/") + "/")
+
+
+_is_under = is_under
 
 
 # --- field parsers -----------------------------------------------------------

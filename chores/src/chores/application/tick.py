@@ -14,6 +14,7 @@ from chores.application.context import (
     Host,
     admit,
     binding_errors,
+    invalid_record_name,
     load_context,
     mint_run_id,
     post,
@@ -142,6 +143,10 @@ def _record_invalid(
     kind: Kind,
     reason: str,
 ) -> None:
+    filed_as = invalid_record_name(name)
+    if filed_as != name:
+        reason = f"definition file {name!r}.md: {reason}"
+    name = filed_as
     latest = next(iter(deps.store.records(chore=name)), None)
     report.invalid.append(name)
     if (

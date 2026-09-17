@@ -73,3 +73,16 @@ async def test_dismiss_and_open_run(tmp_path: Path) -> None:
         await pilot.press("enter")
         await pilot.pause()
         assert "SUCCEEDED" in str(app.query_one("#detail", Static).render())
+
+
+async def test_status_warnings_show_in_the_banner(tmp_path: Path) -> None:
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND}, installed=True)
+    (tmp_path / "home" / "backends.yaml").write_text(
+        "backends:\n  unused:\n    type: ollama\n    model: m\n"
+        "    ceiling: {usd: 1.0}\n"
+    )
+    app = ChoresApp(h.deps(), refresh_sec=60)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        banner = str(app.query_one("#banner", Static).render())
+        assert "WARNING" in banner and "usd ceiling" in banner

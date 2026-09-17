@@ -37,7 +37,11 @@ def _deps(ctx: click.Context) -> Deps:
     if not isinstance(ctx.obj, Deps):
         from chores.cli.wiring import build_deps
 
-        ctx.obj = build_deps()
+        try:
+            ctx.obj = build_deps()
+        except ValueError as e:  # OverlappingRoots: refuse before touching disk
+            click.echo(f"chores: {e}", err=True)
+            ctx.exit(1)
     deps: Deps = ctx.obj
     return deps
 

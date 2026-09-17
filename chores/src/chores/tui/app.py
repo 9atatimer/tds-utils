@@ -78,6 +78,7 @@ class ChoresApp(App[None]):
         banner.append(
             f"scheduler {installed}, last tick {tick}{' STALE' if sched.stale else ''}"
         )
+        banner.extend(f"WARNING: {w}" for w in view.warnings)
         if self.message:
             banner.append(self.message)
         self.query_one("#banner", Static).update("  |  ".join(banner))
