@@ -1494,3 +1494,62 @@ def test_systemd_install_fails_when_daemon_reload_fails(tmp_path: Path) -> None:
     assert inst.installed() is False
     assert not (inst.unit_dir / "chores-tick.service").exists()
     assert calls[-1] == ["systemctl", "--user", "daemon-reload"]  # reloaded again
+
+
+# --- Copilot round 13 (PR #290) --------------------------------------------
+
+
+def test_is_under_treats_the_filesystem_root_as_containing_everything() -> None:
+    from chores.domain.chore import is_under
+
+    assert is_under("/home/x", "/") and is_under("/", "/")
+    assert not is_under("/", "/home")
+    assert is_under("/home/x/y", "/home/x/") and not is_under("/home/xy", "/home/x")
+
+
+def test_failed_install_unloads_what_it_loaded(tmp_path: Path) -> None:
+    from chores.adapters.scheduler import SchedulerInstallFailed, SystemdInstaller
+
+    calls: list[list[str]] = []
+
+    def enable_fails(argv: list[str]) -> int:
+        calls.append(argv)
+        return 1 if "bootstrap" in argv or "enable" in argv else 0
+
+    launchd = LaunchdInstaller(home=tmp_path / "mac", uid=1, run=enable_fails)
+    with pytest.raises(SchedulerInstallFailed, match="booted out"):
+        launchd.install(interval_sec=60)
+    assert calls[-1][:2] == ["launchctl", "bootout"] and not launchd.installed()
+    calls.clear()
+    systemd = SystemdInstaller(home=tmp_path / "linux", run=enable_fails)
+    with pytest.raises(SchedulerInstallFailed, match="disabled and removed"):
+        systemd.install(interval_sec=60)
+    assert ["systemctl", "--user", "disable", "--now", "chores-tick.timer"] in calls
+    assert calls[-1] == ["systemctl", "--user", "daemon-reload"]
+    assert not systemd.installed()
+
+
+def test_install_persists_the_pointer_first_and_rolls_it_back(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from click.testing import CliRunner
+
+    from chores.cli.main import main
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    state = Path(h.paths.state_dir)
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "home").symlink_to(tmp_path / "elsewhere")
+    calls: list[list[str]] = []
+    inst = LaunchdInstaller(
+        home=tmp_path / "h", uid=7, run=lambda argv: calls.append(argv) or 0
+    )
+    deps = replace(h.deps(), installer=inst, scheduler_installed=inst.installed)
+    r = CliRunner().invoke(main, ["install"], obj=deps)
+    assert r.exit_code == 1 and "symlink" in r.output
+    assert calls == [] and not inst.installed()  # refused before the OS job
+    (state / "home").unlink()
+    failing = LaunchdInstaller(home=tmp_path / "h2", uid=7, run=lambda argv: 1)
+    deps = replace(h.deps(), installer=failing, scheduler_installed=failing.installed)
+    r = CliRunner().invoke(main, ["install"], obj=deps)
+    assert r.exit_code == 1 and not (state / "home").exists()  # pointer rolled back

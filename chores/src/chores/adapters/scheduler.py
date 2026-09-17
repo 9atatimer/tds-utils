@@ -163,10 +163,13 @@ class LaunchdInstaller:
             self.plist.unlink(missing_ok=True)  # nothing half-installed
             raise
         if rc != 0:
+            # bootstrap can fail after loading part of the job: unload the
+            # label before the plist goes, so nothing orphaned keeps running
+            self._run(["launchctl", "bootout", f"{self._domain}/{LAUNCHD_LABEL}"])
             self.plist.unlink(missing_ok=True)
             raise SchedulerInstallFailed(
                 f"launchctl bootstrap {self._domain} failed (exit {rc}); "
-                f"removed {self.plist}"
+                f"booted out and removed {self.plist}"
             )
         return [
             f"wrote {self.plist}",
@@ -240,12 +243,17 @@ class SystemdInstaller:
             self._run(["systemctl", "--user", "daemon-reload"])
             raise
         if rc != 0:
+            # enable --now can fail after enabling or starting: stop and
+            # disable first so no active timer or .wants link is left behind
+            self._run(
+                ["systemctl", "--user", "disable", "--now", f"{SYSTEMD_UNIT}.timer"]
+            )
             for name in (f"{SYSTEMD_UNIT}.timer", f"{SYSTEMD_UNIT}.service"):
                 (self.unit_dir / name).unlink(missing_ok=True)
             self._run(["systemctl", "--user", "daemon-reload"])
             raise SchedulerInstallFailed(
                 f"systemctl --user enable --now {SYSTEMD_UNIT}.timer failed "
-                f"(exit {rc}); removed the unit files"
+                f"(exit {rc}); disabled and removed the unit files"
             )
         return [
             f"wrote {self.timer}",

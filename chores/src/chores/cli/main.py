@@ -328,15 +328,25 @@ def install(ctx: click.Context, dry_run: bool) -> None:
         click.echo(f"install refused: {defs.config_error}", err=True)
         ctx.exit(1)
     interval = defs.config.tick_interval_sec
+    installer = _installer(ctx)
     try:
-        lines = _installer(ctx).install(
-            interval_sec=interval, dry_run=dry_run, env=_unit_env(deps)
-        )
+        # The pointer first: it is the step that can refuse (a symlinked
+        # state dir), and refusing before the OS job exists leaves nothing
+        # half-installed. If the scheduler then fails, the pointer goes too.
+        if not dry_run:
+            remember_home(deps.paths)
+        try:
+            lines = installer.install(
+                interval_sec=interval, dry_run=dry_run, env=_unit_env(deps)
+            )
+        except InfrastructureError:
+            if not dry_run:
+                forget_home(deps.paths)
+            raise
     except InfrastructureError as e:
         click.echo(f"install failed: {e}", err=True)
         ctx.exit(1)
     if not dry_run:
-        remember_home(deps.paths)
         lines.append(f"remembered CHORES_HOME={deps.paths.chores_home}")
     for line in lines:
         click.echo(line)

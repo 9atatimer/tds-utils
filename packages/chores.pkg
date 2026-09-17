@@ -1,6 +1,10 @@
 # chores -- laptop-local herd of LLM-adjacent scheduled jobs (docs/design/CHORES.DESIGN.md)
 # The monitor's icons live under chores/assets/ so this package ships them
 # (assets/ belongs to lmde.pkg); macos/apps/chores ships with macos-apps.pkg.
+# Runtime rail: uv. bin/chores is `uv run --project chores`, and VERIFY runs
+# the unit suite the same way, so a machine without uv cannot run this
+# package at all -- VERIFY failing loudly there is the correct outcome.
+# tds-install already treats uv as the install rail's prerequisite (UVTOOLS).
 NAME=chores
 DESC="chores scheduler, CLI, TUI and menu-bar monitor"
 # Tracked project paths, not `chores` whole: tds-export tars each PATHS

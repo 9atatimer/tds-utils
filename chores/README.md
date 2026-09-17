@@ -5,6 +5,10 @@ Design record: `docs/design/CHORES.DESIGN.md` (APPROVED). Concept:
 
 ## Try it
 
+`uv` is the runtime rail: `bin/chores` is `uv run --project chores`, and the
+dist VERIFY hook runs the unit suite the same way. Install uv through a
+signed package channel (`brew install uv`) before installing the package.
+
 ```zsh
 export CHORES_HOME=~/workplace/tds-internal/ops/chores   # your git-tracked definitions
 chores validate                 # every definition, backend and ceiling binding
