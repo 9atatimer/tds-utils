@@ -354,12 +354,15 @@ def check_bindings(
             or global_ceiling.usd is not None
             or (backend is not None and backend.ceiling.usd is not None)
         )
-        if backend is not None and not backend.priced:
+        metered = backend is not None and backend.billing in (None, Billing.METERED)
+        if backend is not None and not backend.priced and metered:
+            # free (NONE) and self-reporting (SUBSCRIPTION) backends need no
+            # price table; None (a test double) is treated as metered
             if backend.ceiling.usd is not None:
                 out.append(
                     f"backend {backend.name!r} has a usd ceiling but no price table"
                 )
-            elif backend.billing is Billing.METERED and usd_applies:
+            elif usd_applies:
                 out.append(
                     f"backend {backend.name!r} is metered but has no price table: "
                     "a usd budget or ceiling would count its spend as zero"

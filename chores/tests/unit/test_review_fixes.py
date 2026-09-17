@@ -270,8 +270,8 @@ def test_agent_spawn_failure_records_failed(tmp_path: Path) -> None:
 def test_status_warns_on_ledger_shrink_and_unpriced_usd_ceiling(tmp_path: Path) -> None:
     h = FullHarness(tmp_path, chores={"tidy": COMMAND})
     (tmp_path / "home" / "backends.yaml").write_text(
-        "backends:\n  unused:\n    type: ollama\n    model: m\n"
-        "    ceiling: {usd: 1.0}\n"
+        "backends:\n  unused:\n    type: openai-compat\n    model: m\n"
+        "    base_url: https://gw\n    ceiling: {usd: 1.0}\n"
     )
     h.store.mark_tick(TickMark(at=h.clock.now_utc(), ledger_rows=5))
     view = status(h.deps())
@@ -1066,3 +1066,130 @@ def test_delete_run_reports_what_is_left_on_disk(
     assert store.read_record("c-1") is not None
     monkeypatch.undo()
     assert store.delete_run("c-1") is True and store.read_record("c-1") is None
+
+
+# --- Copilot round 7 (PR #290) ---------------------------------------------
+
+
+def test_an_unparseable_config_admits_installs_and_runs_nothing(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from click.testing import CliRunner
+
+    from chores.cli.main import main
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    (tmp_path / "home" / "config.yaml").write_text("ceiling: [not, a, map]\n")
+    defs = h.definitions.load()
+    assert defs.config_error is not None and "config.yaml" in defs.config_error
+    report = tick(h.deps().as_tick_deps())
+    assert any("nothing admitted" in w for w in report.warnings)
+    assert h.launched == [] and h.store.records() == []
+    outcome = run_chore("tidy", h.deps().as_run_deps())
+    assert outcome.record is None and "refused: config.yaml" in outcome.message
+    inst = LaunchdInstaller(home=tmp_path / "h", uid=7, run=lambda argv: 0)
+    deps = replace(h.deps(), installer=inst, scheduler_installed=inst.installed)
+    r = CliRunner().invoke(main, ["install"], obj=deps)
+    assert r.exit_code == 1 and "install refused" in r.output and not inst.installed()
+
+
+def test_definition_snapshot_is_the_source_that_was_parsed(tmp_path: Path) -> None:
+    """A re-read after secret resolution could see a newer file; the snapshot
+    must be the text the executed Chore came from."""
+    from chores.adapters.definitions import DefinitionsLoader
+
+    class ReReadsDifferently(DefinitionsLoader):
+        def source(self, name: str) -> str | None:
+            return "TAMPERED\n"
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    h.definitions = ReReadsDifferently(tmp_path / "home", revision_reader=lambda _: "r")
+    r = run_chore("tidy", h.deps().as_run_deps()).record
+    assert r is not None and r.status is RunStatus.SUCCEEDED
+    snapshot = h.store.read_artifact(r.run_id, "definition.md")
+    assert "TAMPERED" not in snapshot and snapshot == COMMAND
+
+
+def test_free_and_subscription_backends_may_carry_a_usd_ceiling_unpriced(
+    tmp_path: Path,
+) -> None:
+    from chores.domain.run import Billing
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    (tmp_path / "home" / "backends.yaml").write_text(
+        "backends:\n"
+        "  local: {type: ollama, model: m, ceiling: {usd: 1.0}}\n"
+        "  claude: {type: claude-cli, model: s, ceiling: {usd: 1.0}}\n"
+        "  metered: {type: openai-compat, model: m, base_url: 'https://gw',"
+        " ceiling: {usd: 1.0}}\n"
+    )
+    view = status(h.deps())
+    assert [w for w in view.warnings if "'metered' has a usd ceiling" in w]
+    assert not [w for w in view.warnings if "'local'" in w or "'claude'" in w]
+
+    def spec(billing: Billing) -> BackendSpec:
+        return BackendSpec(
+            name="b",
+            port=ExecutionPort.COMPLETION,
+            default_model="m",
+            requires_network=False,
+            priced=False,
+            ceiling=Ceiling(usd=1.0),
+            read_only_tools=frozenset(),
+            billing=billing,
+        )
+
+    chore = Chore.from_mapping(
+        {
+            "name": "p",
+            "kind": "prompt",
+            "schedule": "* * * * *",
+            "backend": "b",
+            "timeout_sec": 5,
+            "budget": {"usd": 0.5},
+        },
+        body="x",
+    )
+    for free in (Billing.NONE, Billing.SUBSCRIPTION):
+        assert not check_bindings(
+            chore, backend=spec(free), global_ceiling=Ceiling(), forbidden_paths=()
+        )
+    assert check_bindings(
+        chore,
+        backend=spec(Billing.METERED),
+        global_ceiling=Ceiling(),
+        forbidden_paths=(),
+    )
+
+
+def test_uninstall_fails_loudly_when_the_os_keeps_the_unit_loaded(
+    tmp_path: Path,
+) -> None:
+    from chores.adapters.scheduler import SchedulerInstallFailed, SystemdInstaller
+
+    def stuck(argv: list[str]) -> int:
+        if argv[:2] == ["launchctl", "bootout"] or "disable" in argv:
+            return 1  # could not unload / stop
+        return 0  # `launchctl print` / `is-active`: still loaded
+
+    def not_loaded(argv: list[str]) -> int:
+        return 0 if "bootstrap" in argv or "enable" in argv else 1
+
+    launchd = LaunchdInstaller(home=tmp_path / "mac", uid=1, run=stuck)
+    launchd.install(interval_sec=60)
+    with pytest.raises(SchedulerInstallFailed, match="still loaded"):
+        launchd.uninstall()
+    assert launchd.installed() is True  # the plist is left in place
+    launchd = LaunchdInstaller(home=tmp_path / "mac2", uid=1, run=not_loaded)
+    launchd.install(interval_sec=60)
+    launchd.uninstall()  # bootout nonzero but not loaded: idempotent
+    assert launchd.installed() is False
+    systemd = SystemdInstaller(home=tmp_path / "linux", run=stuck)
+    systemd.install(interval_sec=60)
+    with pytest.raises(SchedulerInstallFailed, match="still active"):
+        systemd.uninstall()
+    assert systemd.installed() is True
+    systemd = SystemdInstaller(home=tmp_path / "linux2", run=not_loaded)
+    systemd.install(interval_sec=60)
+    systemd.uninstall()
+    assert systemd.installed() is False

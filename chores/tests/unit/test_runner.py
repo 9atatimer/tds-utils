@@ -15,7 +15,8 @@ from chores.application.run import RunDeps, run_chore
 from chores.domain.budget import Ceiling
 from chores.domain.chore import BackendSpec
 from chores.domain.kinds import ExecutionPort
-from chores.domain.run import RunStatus
+from chores.domain.run import Billing, RunStatus
+from chores.ports.definitions import Definitions
 from chores.ports.errors import BackendTimeout, Unreachable
 
 from ._fakes import (
@@ -46,8 +47,42 @@ class FakeCatalog:
         self._agent = agent or FakeAgent()
         self.credentials: list[str | None] = []
         self.errors: list[str] = []
+        self.defs: Definitions | None = None
+
+    def bind(self, defs: Definitions) -> FakeCatalog:
+        """What the real catalog gets at construction: the loaded definitions,
+        so backends the fixtures do not hard-code still resolve to a spec."""
+        self.defs = defs
+        return self
+
+    def _from_config(self, name: str) -> BackendSpec | None:
+        cfg = self.defs.backends.get(name) if self.defs is not None else None
+        if cfg is None:
+            return None
+        billing = {"ollama": Billing.NONE, "claude-cli": Billing.SUBSCRIPTION}.get(
+            cfg.type, Billing.METERED
+        )
+        return BackendSpec(
+            name=name,
+            port=ExecutionPort.AGENT
+            if cfg.type == "claude-cli"
+            else ExecutionPort.COMPLETION,
+            default_model=cfg.model,
+            requires_network=(
+                cfg.requires_network
+                if cfg.requires_network is not None
+                else cfg.type != "ollama"
+            ),
+            priced=bool(cfg.prices),
+            ceiling=cfg.ceiling,
+            read_only_tools=frozenset(),
+            priced_models=frozenset(cfg.prices),
+            billing=billing,
+        )
 
     def spec(self, name: str) -> BackendSpec | None:
+        if name not in ("gw", "local", "claude"):
+            return self._from_config(name)
         if name == "gw":
             return BackendSpec(
                 "gw",

@@ -296,6 +296,14 @@ def tick(deps: TickDeps) -> TickReport:
         for error in [*ctx.definitions.errors, *ctx.catalog.errors]:
             report.warnings.append(error)
             _notify_once(deps, text=f"definitions: {error}", level="info")
+        if ctx.definitions.config_error is not None:
+            # Defaults would stand in for the global ceiling and the tick
+            # interval: admit nothing until config.yaml parses again.
+            report.warnings.append("config.yaml invalid: nothing admitted this tick")
+            deps.store.mark_tick(
+                TickMark(at=deps.clock.now_utc(), ledger_rows=deps.store.ledger_count())
+            )
+            return report
         for invalid in ctx.definitions.invalid:
             _record_invalid(
                 deps,

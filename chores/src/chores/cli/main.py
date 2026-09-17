@@ -319,7 +319,11 @@ def _unit_env(deps: Deps) -> dict[str, str]:
 def install(ctx: click.Context, dry_run: bool) -> None:
     """Install the tick as a launchd agent (macOS) or systemd user timer (Linux)."""
     deps = _deps(ctx)
-    interval = deps.definitions.load().config.tick_interval_sec
+    defs = deps.definitions.load()
+    if defs.config_error is not None:
+        click.echo(f"install refused: {defs.config_error}", err=True)
+        ctx.exit(1)
+    interval = defs.config.tick_interval_sec
     try:
         lines = _installer(ctx).install(
             interval_sec=interval, dry_run=dry_run, env=_unit_env(deps)
@@ -338,7 +342,12 @@ def install(ctx: click.Context, dry_run: bool) -> None:
 @click.pass_context
 def uninstall(ctx: click.Context) -> None:
     """Remove the scheduler agent or timer."""
-    for line in _installer(ctx).uninstall():
+    try:
+        lines = _installer(ctx).uninstall()
+    except InfrastructureError as e:
+        click.echo(f"uninstall failed: {e}", err=True)
+        ctx.exit(1)
+    for line in lines:
         click.echo(line)
     forget_home(_deps(ctx).paths)
 

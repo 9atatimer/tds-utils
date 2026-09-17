@@ -62,7 +62,7 @@ class FullHarness:
     def deps(self) -> Deps:
         return Deps(
             definitions=self.definitions,
-            catalog_for=lambda d: self.catalog,
+            catalog_for=lambda d: self.catalog.bind(d),
             store=self.store,
             clock=self.clock,
             process=self.process,

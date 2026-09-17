@@ -40,6 +40,14 @@ class Definitions:
     config: GlobalConfig
     revision: str
     errors: Sequence[str] = field(default_factory=tuple)
+    config_error: str | None = None
+    """Set when config.yaml could not be parsed. ``config`` then holds the
+    defaults for display only: nothing may be admitted or installed on a
+    guessed global ceiling or tick interval."""
+    sources: Mapping[str, str] = field(default_factory=dict)
+    """The raw definition file of every parsed chore, read in the same load
+    as the ``Chore`` it produced, so a run's ``definition.md`` snapshot is
+    the source that actually ran and not a later re-read."""
 
 
 class DefinitionsPort(Protocol):

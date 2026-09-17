@@ -3,7 +3,9 @@
 # (assets/ belongs to lmde.pkg); macos/apps/chores ships with macos-apps.pkg.
 NAME=chores
 DESC="chores scheduler, CLI, TUI and menu-bar monitor"
-PATHS="chores bin/chores bin/chores-dashboard bin/chores-monitor bin/launch-chores-monitor macos/launchd/com.tds.chores-monitor.plist"
+# Tracked project paths, not `chores` whole: tds-export tars each PATHS
+# entry as is, so a directory claim would ship the per-checkout chores/.venv.
+PATHS="chores/README.md chores/assets chores/pyproject.toml chores/src chores/tests chores/uv.lock chores/verify.sh bin/chores bin/chores-dashboard bin/chores-monitor bin/launch-chores-monitor macos/launchd/com.tds.chores-monitor.plist"
 BINS="bin/chores bin/chores-dashboard bin/chores-monitor bin/launch-chores-monitor"
 SERVICES="macos/launchd/com.tds.chores-monitor.plist"
 VERIFY=chores/verify.sh

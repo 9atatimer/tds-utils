@@ -520,6 +520,8 @@ def run_chore(
     name: str, deps: RunDeps, *, force: bool = False, dry_run: bool = False
 ) -> RunOutcome:
     ctx = load_context(deps.definitions, deps.catalog_for)
+    if ctx.definitions.config_error is not None:
+        return RunOutcome(None, f"refused: {ctx.definitions.config_error}")
     host = Host(deps.store, deps.process, deps.clock, deps.power, deps.network)
     found = find_chore(ctx.definitions, name)
     kind = found.kind if isinstance(found, Chore) else Kind.COMMAND
@@ -616,7 +618,7 @@ def run_chore(
     artifacts = _Artifacts(
         deps.store, run_id, redaction, ctx.definitions.config.max_run_dir_bytes
     )
-    source = deps.definitions.source(name)
+    source = ctx.definitions.sources.get(name)  # the text this Chore came from
     if source is not None:
         artifacts.append(
             "definition.md", source

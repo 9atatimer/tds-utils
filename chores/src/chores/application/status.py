@@ -196,8 +196,14 @@ def status(deps: Deps) -> StatusView:
         ledger_rows=deps.store.ledger_count(),
     )
     warnings = [*ctx.definitions.errors, *ctx.catalog.errors]
-    for name, backend in ctx.definitions.backends.items():
-        if backend.ceiling.usd is not None and not backend.prices:
+    for name in ctx.definitions.backends:
+        spec = ctx.catalog.spec(name)  # None: refused, already in catalog.errors
+        if (
+            spec is not None
+            and spec.ceiling.usd is not None
+            and not spec.priced
+            and spec.billing in (None, Billing.METERED)
+        ):
             warnings.append(f"backend {name!r} has a usd ceiling but no price table")
     if mark is not None and scheduler.ledger_rows < mark.ledger_rows:
         warnings.append(

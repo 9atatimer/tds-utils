@@ -167,7 +167,16 @@ class LaunchdInstaller:
         ]
 
     def uninstall(self) -> list[str]:
-        self._run(["launchctl", "bootout", f"{self._domain}/{LAUNCHD_LABEL}"])
+        target = f"{self._domain}/{LAUNCHD_LABEL}"
+        rc = self._run(["launchctl", "bootout", target])
+        # bootout is nonzero when the job was not loaded (fine, idempotent)
+        # and when it could not be unloaded (not fine): `print` tells them
+        # apart -- it succeeds only while the job is still loaded.
+        if rc != 0 and self._run(["launchctl", "print", target]) == 0:
+            raise SchedulerInstallFailed(
+                f"launchctl bootout {target} failed (exit {rc}) and the job is "
+                f"still loaded; {self.plist} left in place"
+            )
         self.plist.unlink(missing_ok=True)
         return [f"booted out {LAUNCHD_LABEL}", f"removed {self.plist}"]
 
@@ -225,7 +234,15 @@ class SystemdInstaller:
         ]
 
     def uninstall(self) -> list[str]:
-        self._run(["systemctl", "--user", "disable", "--now", f"{SYSTEMD_UNIT}.timer"])
+        timer = f"{SYSTEMD_UNIT}.timer"
+        rc = self._run(["systemctl", "--user", "disable", "--now", timer])
+        # disable is nonzero for an unknown unit (fine) and for a unit it
+        # could not stop (not fine): is-active succeeds only in the latter.
+        if rc != 0 and self._run(["systemctl", "--user", "is-active", timer]) == 0:
+            raise SchedulerInstallFailed(
+                f"systemctl --user disable --now {timer} failed (exit {rc}) and "
+                "the timer is still active; unit files left in place"
+            )
         for name in (f"{SYSTEMD_UNIT}.timer", f"{SYSTEMD_UNIT}.service"):
             (self.unit_dir / name).unlink(missing_ok=True)
         self._run(["systemctl", "--user", "daemon-reload"])

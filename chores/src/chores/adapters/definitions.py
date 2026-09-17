@@ -218,15 +218,18 @@ class DefinitionsLoader:
         chores: list[Chore] = []
         invalid: list[InvalidDefinition] = []
         errors: list[str] = []
+        sources: dict[str, str] = {}
         for path in sorted((self.home / "chores").glob("*.md")):
             try:
-                data, body = split_front_matter(path.read_text(encoding="utf-8"))
+                text = path.read_text(encoding="utf-8")
+                data, body = split_front_matter(text)
                 if isinstance(data.get("cwd"), str):
                     data = {**data, "cwd": _normalise_cwd(str(data["cwd"]))}
                 chore = Chore.from_mapping(data, body=body)
                 if chore.name != path.stem:
                     raise InvalidChore(f"name {chore.name!r} must equal the file stem")
                 chores.append(chore)
+                sources[chore.name] = text
             except (InvalidChore, yaml.YAMLError, OSError) as e:
                 invalid.append(InvalidDefinition(name=path.stem, error=str(e)))
         backends: dict[str, BackendConfig] = {}
@@ -247,10 +250,14 @@ class DefinitionsLoader:
         except (ValueError, yaml.YAMLError, KeyError) as e:
             errors.append(f"backends.yaml: {e}")
         config = GlobalConfig()
+        config_error: str | None = None
         try:
             config = _config(_load_yaml(self.home / "config.yaml"))
         except (ValueError, yaml.YAMLError) as e:
-            errors.append(str(e))
+            config_error = (
+                f"config.yaml: {e}" if "config.yaml" not in str(e) else str(e)
+            )
+            errors.append(config_error)
         return Definitions(
             chores=chores,
             invalid=invalid,
@@ -258,6 +265,8 @@ class DefinitionsLoader:
             config=config,
             revision=self._revision_reader(self.home),
             errors=tuple(errors),
+            config_error=config_error,
+            sources=sources,
         )
 
     def source(self, name: str) -> str | None:
