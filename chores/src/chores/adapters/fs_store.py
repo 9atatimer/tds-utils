@@ -42,6 +42,10 @@ class InvalidChoreName(InfrastructureError):
     """A chore name that is not a single path-safe segment (CLI input reaches here)."""
 
 
+class UnsafeWorkspace(InfrastructureError):
+    """The default workspace is a symlink or resolves outside the data root."""
+
+
 def check_run_id(run_id: str) -> str:
     if not _RUN_ID_RE.match(run_id):
         raise InvalidRunId(f"not a run id: {run_id!r}")
@@ -471,6 +475,18 @@ class FsWorkspaces:
         self.root = root
 
     def ensure(self, chore: str) -> str:
+        """The default cwd is trusted without a bindings check, so it must
+        really be a directory under the data root: a pre-planted symlink at
+        ``workspaces/<chore>`` (or at ``workspaces`` itself) pointing into
+        the state or definitions root is refused, never followed."""
+        check_chore_name(chore)
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         path = self.root / chore
-        path.mkdir(parents=True, exist_ok=True, mode=0o700)
-        return str(path)
+        if path.is_symlink() or self.root.is_symlink():
+            raise UnsafeWorkspace(f"{path} is a symlink; refusing to use it as cwd")
+        path.mkdir(exist_ok=True, mode=0o700)
+        real_root = os.path.realpath(self.root)
+        real = os.path.realpath(path)
+        if not (real == real_root or real.startswith(real_root.rstrip("/") + "/")):
+            raise UnsafeWorkspace(f"{path} resolves outside {self.root}")
+        return real

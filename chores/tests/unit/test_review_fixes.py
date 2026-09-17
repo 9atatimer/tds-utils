@@ -1193,3 +1193,55 @@ def test_uninstall_fails_loudly_when_the_os_keeps_the_unit_loaded(
     systemd.install(interval_sec=60)
     systemd.uninstall()
     assert systemd.installed() is False
+
+
+# --- Copilot round 8 (PR #290) ---------------------------------------------
+
+
+def test_default_workspace_never_follows_a_symlink(tmp_path: Path) -> None:
+    from chores.adapters.fs_store import FsWorkspaces, UnsafeWorkspace
+
+    root = tmp_path / "data" / "workspaces"
+    state = tmp_path / "state"
+    state.mkdir()
+    ws = FsWorkspaces(root)
+    assert ws.ensure("tidy") == str(root / "tidy")
+    (root / "evil").symlink_to(state)
+    with pytest.raises(UnsafeWorkspace, match="symlink"):
+        ws.ensure("evil")
+    linked_root = tmp_path / "linked"
+    linked_root.symlink_to(state)
+    with pytest.raises(UnsafeWorkspace, match="symlink"):
+        FsWorkspaces(linked_root).ensure("tidy")
+    with pytest.raises(Exception, match="not a chore name"):
+        ws.ensure("../escape")
+
+
+@pytest.mark.parametrize("url", ["https://host:bad-port/v1", "not a url"])
+def test_a_malformed_url_is_a_transport_error_not_a_crash(url: str) -> None:
+    from chores.adapters.http import TransportError, UrllibTransport
+
+    with pytest.raises(TransportError, match="malformed url"):
+        UrllibTransport().post_json(url, headers={}, body={}, timeout_sec=0.01)
+
+
+@pytest.mark.parametrize("url", ["ftp://gw/v1", "https://host:bad-port", "gw.example"])
+def test_catalog_refuses_a_malformed_base_url(url: str) -> None:
+    from chores.adapters.registry import BackendCatalog
+    from chores.ports.backends import BackendConfig
+
+    catalog = BackendCatalog(
+        {"gw": BackendConfig(name="gw", type="openai-compat", model="m", base_url=url)},
+        process=FakeProcess(),
+    )
+    assert catalog.spec("gw") is None and any("base_url" in e for e in catalog.errors)
+
+
+def test_empty_xdg_values_are_unset_not_the_working_directory(tmp_path: Path) -> None:
+    from chores.cli.wiring import resolve_paths
+
+    paths = resolve_paths(
+        {"HOME": str(tmp_path), "XDG_STATE_HOME": "", "XDG_DATA_HOME": ""}
+    )
+    assert paths.state_dir == str(tmp_path / ".local" / "state" / "chores")
+    assert paths.data_dir == str(tmp_path / ".local" / "share" / "chores")

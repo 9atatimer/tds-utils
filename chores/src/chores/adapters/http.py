@@ -4,6 +4,7 @@ transport and keeps the one network mechanism in one file."""
 
 from __future__ import annotations
 
+import http.client
 import json
 import socket
 import urllib.error
@@ -51,15 +52,19 @@ class UrllibTransport:
         timeout_sec: float,
     ) -> HttpResponse:
         data = json.dumps(dict(body)).encode("utf-8")
-        request = urllib.request.Request(
-            url,
-            data=data,
-            method="POST",
-            headers={"Content-Type": "application/json", **headers},
-        )
         try:
+            request = urllib.request.Request(  # raises ValueError on a bad url
+                url,
+                data=data,
+                method="POST",
+                headers={"Content-Type": "application/json", **headers},
+            )
             with urllib.request.urlopen(request, timeout=timeout_sec) as resp:
                 return HttpResponse(resp.status, _parse(resp.read()))
+        except (ValueError, http.client.HTTPException) as e:
+            # unknown url type (ValueError) or InvalidURL, a non-numeric
+            # port, which http.client raises as its own HTTPException
+            raise TransportError(f"malformed url {url!r}: {e}") from e
         except urllib.error.HTTPError as e:
             return HttpResponse(e.code, _parse(e.read()))
         except TimeoutError as e:

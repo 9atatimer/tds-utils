@@ -5,6 +5,7 @@ application/ changes."""
 
 from __future__ import annotations
 
+import urllib.parse
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
@@ -117,6 +118,15 @@ def _config_error(cfg: BackendConfig) -> str | None:
         return f"unknown type {cfg.type!r}"
     if kind.requires_base_url and not cfg.base_url:
         return f"{cfg.type} needs base_url"
+    if cfg.base_url is not None:
+        try:
+            parsed = urllib.parse.urlparse(cfg.base_url)
+            port = parsed.port  # raises ValueError on a non-numeric port
+        except ValueError as e:
+            return f"base_url {cfg.base_url!r} is malformed: {e}"
+        del port
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            return f"base_url {cfg.base_url!r} must be http(s)://host[:port]/..."
     return None
 
 

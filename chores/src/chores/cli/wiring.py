@@ -36,16 +36,20 @@ def resolve_paths(env: dict[str, str] | None = None) -> Paths:
     monitor, which see no shell exports, use the installed herd), else the
     XDG default."""
     e = os.environ if env is None else env
-    home = Path(e.get("HOME", "~")).expanduser()
+    # `or`, not a default argument: an empty exported value is unset, else
+    # Path("") is the current directory and state lands in the working tree.
+    home = Path(e.get("HOME") or "~").expanduser()
     state = (
-        Path(e.get("XDG_STATE_HOME", home / ".local" / "state")).expanduser() / "chores"
+        Path(e.get("XDG_STATE_HOME") or home / ".local" / "state").expanduser()
+        / "chores"
     )
     chores_home = Path(
         e.get("CHORES_HOME") or _pointer(state) or home / ".config" / "chores"
     )
     chores_home = chores_home.expanduser()
     data = (
-        Path(e.get("XDG_DATA_HOME", home / ".local" / "share")).expanduser() / "chores"
+        Path(e.get("XDG_DATA_HOME") or home / ".local" / "share").expanduser()
+        / "chores"
     )
     # realpath, not resolve(): the same canonicalisation the loader applies to
     # every chore cwd, so containment compares like with like.
