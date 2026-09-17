@@ -25,6 +25,7 @@ from chores.application.context import (
 from chores.application.paths import Paths
 from chores.domain.budget import Budget, SpendAction, Usage, spend_policy
 from chores.domain.chore import BackendSpec, Chore
+from chores.domain.errors import ChoresError
 from chores.domain.kinds import Kind
 from chores.domain.policies import Decision, circuit_breaker, redact
 from chores.domain.run import Billing, RunRecord, RunStatus, to_ledger_row
@@ -115,6 +116,11 @@ class _Artifacts:
 
     def event(self, payload: Mapping[str, object]) -> None:
         self.append("transcript.jsonl", json.dumps(dict(payload)) + "\n")
+
+
+class RunLost(ChoresError):
+    """The tick recorded this run as INTERRUPTED (a stale PENDING) before the
+    runner reached RUNNING: the runner stops, and writes nothing more."""
 
 
 @dataclass
@@ -318,6 +324,17 @@ def _execute_agent(
             billing=result.billing,
             exit_code=result.exit_code,
         )
+    if ctx_store_kill_requested(artifacts):
+        # a killed child exits nonzero without raising: the marker decides
+        return _Execution(
+            RunStatus.KILLED,
+            "killed by chores kill",
+            usage,
+            backend=spec.name,
+            model=model,
+            billing=result.billing,
+            exit_code=result.exit_code,
+        )
     if result.exit_code != 0:
         return _Execution(
             RunStatus.FAILED,
@@ -437,8 +454,21 @@ def _finish(
     )
     if artifacts.truncated:
         record = record.truncate()
-    record = record.finish(status, ended=ended, reason=reason)
-    deps.store.write_record(record)
+    final = record.finish(status, ended=ended, reason=reason)
+    record = final
+    done = deps.store.transition(
+        record.run_id, expected=RunStatus.RUNNING, then=lambda _current: final
+    )
+    if done is None:
+        # The tick already recorded INTERRUPTED (its process check lost to our
+        # exit); that terminal record and its ledger row stand.
+        artifacts.append(
+            "errors.log",
+            f"outcome {status.value} not recorded: the tick had already closed "
+            "this run as INTERRUPTED\n",
+        )
+        current = deps.store.read_record(record.run_id)
+        return current if current is not None else record
     deps.store.append_ledger(to_ledger_row(record))
     if status in chore.notify_on:
         level = "alert" if status is RunStatus.BUDGET_EXCEEDED else "info"
@@ -594,10 +624,66 @@ def run_chore(
 
     def on_start(identity: ProcessIdentity) -> None:
         nonlocal record
-        record = record.start(
-            pid=identity.pid, pgid=identity.pgid, process_start=identity.process_start
+        started = deps.store.transition(
+            run_id,
+            expected=RunStatus.PENDING,
+            then=lambda current: current.start(
+                pid=identity.pid,
+                pgid=identity.pgid,
+                process_start=identity.process_start,
+            ),
         )
-        deps.store.write_record(record)
+        if started is None:
+            # The tick interrupted the stale PENDING record (secret resolution
+            # outran one tick interval). Nothing of ours may be written now.
+            if identity.pid != deps.process.own_identity().pid:
+                deps.process.signal_group(identity.pgid)
+            raise RunLost(run_id)
+        record = started
+
+    def current_record() -> RunRecord:
+        return record
+
+    try:
+        return _run_started(
+            chore,
+            spec,
+            deps,
+            ctx,
+            current_record=current_record,
+            failure=failure,
+            secret_values=secret_values,
+            credential=credential,
+            cwd=cwd,
+            artifacts=artifacts,
+            started_utc=started_utc,
+            on_start=on_start,
+        )
+    except RunLost:
+        note = "lost the start race: the tick closed this run as INTERRUPTED first"
+        artifacts.append("errors.log", note + "\n")
+        return RunOutcome(deps.store.read_record(run_id), f"{name}: {note}")
+
+
+def _run_started(
+    chore: Chore,
+    spec: BackendSpec | None,
+    deps: RunDeps,
+    ctx: Context,
+    *,
+    current_record: Callable[[], RunRecord],
+    failure: str | None,
+    secret_values: Mapping[str, str],
+    credential: str | None,
+    cwd: str,
+    artifacts: _Artifacts,
+    started_utc: datetime,
+    on_start: Callable[[ProcessIdentity], None],
+) -> RunOutcome:
+    """Everything after the PENDING record exists: start, execute, finish.
+    ``current_record`` reads the record ``on_start`` advanced to RUNNING."""
+    name = chore.name
+    run_id = current_record().run_id
 
     if failure is not None:
         on_start(deps.process.own_identity())
@@ -605,7 +691,7 @@ def run_chore(
         execution = _Execution(RunStatus.FAILED, failure, Usage(0, 0, 0.0))
         return RunOutcome(
             _finish(
-                record,
+                current_record(),
                 execution,
                 chore,
                 deps,
@@ -642,7 +728,7 @@ def run_chore(
             chore, deps, ctx, env=env, cwd=cwd, artifacts=artifacts, on_start=on_start
         )
     final = _finish(
-        record,
+        current_record(),
         execution,
         chore,
         deps,

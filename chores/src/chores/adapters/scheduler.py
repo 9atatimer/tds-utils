@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import re
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Protocol
+from xml.sax.saxutils import escape
 
 from chores.domain.errors import InfrastructureError
 
@@ -36,7 +37,7 @@ _PLIST = """<?xml version="1.0" encoding="UTF-8"?>
   <key>RunAtLoad</key>
   <true/>
   <key>EnvironmentVariables</key>
-  <dict>
+  <dict>{env}
     <key>PATH</key>
     <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
   </dict>
@@ -54,7 +55,7 @@ _SERVICE = """[Unit]
 Description=chores scheduler tick
 
 [Service]
-Type=oneshot
+Type=oneshot{env}
 # A user service inherits no shell PATH; name the runtime tiers explicitly
 # (dist install, release worktree, fresh-clone fallback, ~/.local/bin) so a
 # bare `chores` resolves -- the same tier order as AGENT.md's PATH table.
@@ -86,8 +87,30 @@ def _run_subprocess(argv: list[str]) -> int:
     return subprocess.run(argv, capture_output=True, check=False).returncode
 
 
+def _plist_env(env: Mapping[str, str]) -> str:
+    return "".join(
+        f"\n    <key>{escape(k)}</key>\n    <string>{escape(v)}</string>"
+        for k, v in sorted(env.items())
+    )
+
+
+def _service_env(env: Mapping[str, str]) -> str:
+    return "".join(f'\nEnvironment="{k}={v}"' for k, v in sorted(env.items()))
+
+
 class SchedulerInstaller(Protocol):
-    def install(self, *, interval_sec: int, dry_run: bool = False) -> list[str]: ...
+    def install(
+        self,
+        *,
+        interval_sec: int,
+        dry_run: bool = False,
+        env: Mapping[str, str] | None = None,
+    ) -> list[str]:
+        """Write and enable the unit. ``env`` is persisted into it: the tick
+        runs in a fresh service environment, so the definitions and state
+        roots chosen at install time (CHORES_HOME, XDG_*) must travel with it.
+        """
+        ...
 
     def uninstall(self) -> list[str]: ...
 
@@ -102,8 +125,16 @@ class LaunchdInstaller:
         self._domain = f"gui/{uid}"
         self._run = run
 
-    def install(self, *, interval_sec: int, dry_run: bool = False) -> list[str]:
-        text = _PLIST.format(label=LAUNCHD_LABEL, interval=interval_sec)
+    def install(
+        self,
+        *,
+        interval_sec: int,
+        dry_run: bool = False,
+        env: Mapping[str, str] | None = None,
+    ) -> list[str]:
+        text = _PLIST.format(
+            label=LAUNCHD_LABEL, interval=interval_sec, env=_plist_env(env or {})
+        )
         if dry_run:
             return [
                 f"would write {self.plist}",
@@ -148,14 +179,22 @@ class SystemdInstaller:
     def timer(self) -> Path:
         return self.unit_dir / f"{SYSTEMD_UNIT}.timer"
 
-    def install(self, *, interval_sec: int, dry_run: bool = False) -> list[str]:
+    def install(
+        self,
+        *,
+        interval_sec: int,
+        dry_run: bool = False,
+        env: Mapping[str, str] | None = None,
+    ) -> list[str]:
         if dry_run:
             return [
                 f"would write {self.timer} and its service",
                 "would enable the timer",
             ]
         self.unit_dir.mkdir(parents=True, exist_ok=True)
-        (self.unit_dir / f"{SYSTEMD_UNIT}.service").write_text(_SERVICE)
+        (self.unit_dir / f"{SYSTEMD_UNIT}.service").write_text(
+            _SERVICE.format(env=_service_env(env or {}))
+        )
         self.timer.write_text(_TIMER.format(interval=interval_sec))
         self._run(["systemctl", "--user", "daemon-reload"])
         rc = self._run(

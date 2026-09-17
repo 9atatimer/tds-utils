@@ -301,6 +301,17 @@ def _installer(ctx: click.Context) -> SchedulerInstaller:
     return cast(SchedulerInstaller, installer)
 
 
+def _unit_env(deps: Deps) -> dict[str, str]:
+    """What the tick unit must carry to see the same herd `install` saw: the
+    definitions root always, and the XDG roots when this shell set them."""
+    env = {"CHORES_HOME": deps.paths.chores_home}
+    for key in ("XDG_STATE_HOME", "XDG_DATA_HOME"):
+        value = deps.inherited_env.get(key)
+        if value:
+            env[key] = value
+    return env
+
+
 @main.command()
 @click.option("--dry-run", is_flag=True)
 @click.pass_context
@@ -309,7 +320,9 @@ def install(ctx: click.Context, dry_run: bool) -> None:
     deps = _deps(ctx)
     interval = deps.definitions.load().config.tick_interval_sec
     try:
-        lines = _installer(ctx).install(interval_sec=interval, dry_run=dry_run)
+        lines = _installer(ctx).install(
+            interval_sec=interval, dry_run=dry_run, env=_unit_env(deps)
+        )
     except InfrastructureError as e:
         click.echo(f"install failed: {e}", err=True)
         ctx.exit(1)

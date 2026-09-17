@@ -21,7 +21,7 @@ from chores.domain.schedule import InvalidSchedule, Schedule
 from chores.ports.errors import BackendError, ProcessError
 from chores.ports.store import TickMark
 
-from ._fakes import FakeAgent, FakeClock, FakeCompletion, FakeProcess
+from ._fakes import FakeAgent, FakeClock, FakeCompletion, FakeProcess, FakeRunStore
 from ._harness import T0, FullHarness
 from .test_runner import AGENT, COMMAND, PROMPT, SECRET
 
@@ -663,3 +663,107 @@ def test_manual_run_of_a_bad_stem_definition_records_invalid(tmp_path: Path) -> 
     r = run_chore("foo.bar", h.deps().as_run_deps()).record
     assert r is not None and r.status is RunStatus.INVALID
     assert r.chore == "INVALID-foo-bar" and h.store.read_record(r.run_id) == r
+
+
+# --- Copilot round 4 (PR #290) ---------------------------------------------
+
+
+class TickWinsTheStart(FakeRunStore):
+    """The tick closes the stale PENDING record before the runner starts."""
+
+    def write_record(self, record: RunRecord) -> None:
+        super().write_record(record)
+        if record.status is RunStatus.PENDING:
+            super().write_record(
+                record.finish(
+                    RunStatus.INTERRUPTED, ended=record.started, reason="tick"
+                )
+            )
+
+
+class TickWinsTheFinish(FakeRunStore):
+    """The tick closes the RUNNING record before the runner's own finish."""
+
+    def transition(self, run_id, *, expected, then):  # type: ignore[no-untyped-def]
+        if expected is RunStatus.RUNNING:
+            current = self.read_record(run_id)
+            assert current is not None
+            super().write_record(
+                current.finish(RunStatus.INTERRUPTED, ended=current.started, reason="t")
+            )
+            return None
+        return super().transition(run_id, expected=expected, then=then)
+
+
+def test_runner_that_loses_the_start_race_stops_and_writes_nothing(
+    tmp_path: Path,
+) -> None:
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    h.store = TickWinsTheStart()  # type: ignore[assignment]
+    outcome = run_chore("tidy", h.deps().as_run_deps())
+    assert outcome.record is not None
+    assert outcome.record.status is RunStatus.INTERRUPTED
+    assert "lost the start race" in outcome.message
+    assert h.store.ledger_rows() == []  # the runner appended no row of its own
+    assert len(h.process.signalled) == 1  # the already-spawned child was stopped
+    assert "lost the start race" in h.store.read_artifact(
+        outcome.record.run_id, "errors.log"
+    )
+
+
+def test_runner_that_loses_the_finish_race_keeps_the_ticks_record(
+    tmp_path: Path,
+) -> None:
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    h.store = TickWinsTheFinish()  # type: ignore[assignment]
+    outcome = run_chore("tidy", h.deps().as_run_deps())
+    assert outcome.record is not None
+    assert outcome.record.status is RunStatus.INTERRUPTED
+    assert h.store.ledger_rows() == []
+    assert "not recorded" in h.store.read_artifact(outcome.record.run_id, "errors.log")
+    assert h.notifier.alerts == []
+
+
+def test_agent_killed_child_with_nonzero_exit_records_killed(tmp_path: Path) -> None:
+    """A killed claude child exits nonzero and returns a normal AgentResult;
+    the kill marker, not the exit code, decides the status."""
+    h = FullHarness(tmp_path, chores={"rev": AGENT}, agent=FakeAgent(exit_code=143))
+    h.store.request_kill("rev-20260302T170030Z-ab12")
+    r = run_chore("rev", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.KILLED and r.exit_code == 143
+
+
+def test_scheduler_units_persist_the_roots_chosen_at_install(tmp_path: Path) -> None:
+    from chores.adapters.scheduler import SystemdInstaller
+
+    env = {"CHORES_HOME": "/Users/t/workplace/tds-internal/ops/chores"}
+    launchd = LaunchdInstaller(home=tmp_path / "mac", uid=501, run=lambda a: 0)
+    launchd.install(interval_sec=60, env={**env, "XDG_STATE_HOME": "/a b/c"})
+    plist = launchd.plist.read_text()
+    assert "<key>CHORES_HOME</key>" in plist and env["CHORES_HOME"] in plist
+    assert "<key>XDG_STATE_HOME</key>\n    <string>/a b/c</string>" in plist
+    systemd = SystemdInstaller(home=tmp_path / "linux", run=lambda a: 0)
+    systemd.install(interval_sec=60, env={**env, "XDG_STATE_HOME": "/a b/c"})
+    service = (systemd.unit_dir / "chores-tick.service").read_text()
+    assert f'Environment="CHORES_HOME={env["CHORES_HOME"]}"' in service
+    assert 'Environment="XDG_STATE_HOME=/a b/c"' in service
+    assert "Environment=PATH=" in service
+
+
+def test_cli_install_passes_the_definitions_root_to_the_unit(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from click.testing import CliRunner
+
+    from chores.cli.main import main
+
+    inst = LaunchdInstaller(home=tmp_path / "h", uid=7, run=lambda argv: 0)
+    h = FullHarness(
+        tmp_path, chores={"tidy": COMMAND}, env={"XDG_STATE_HOME": str(tmp_path)}
+    )
+    deps = replace(h.deps(), installer=inst, scheduler_installed=inst.installed)
+    r = CliRunner().invoke(main, ["install"], obj=deps, catch_exceptions=False)
+    assert r.exit_code == 0
+    plist = inst.plist.read_text()
+    assert f"<string>{h.paths.chores_home}</string>" in plist
+    assert f"<string>{tmp_path}</string>" in plist
