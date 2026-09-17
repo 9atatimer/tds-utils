@@ -57,6 +57,18 @@ test for that reason and needed fix-ups. `set -o pipefail` first, or check
 `${PIPESTATUS[0]}`. Unsettled: this belongs in the global agent
 instructions (`about: global`) if it recurs across repos.
 
+### Two state-root names differing only by case collide on macOS
+
+about: wip
+
+`PAUSED` (the global sentry file) and `paused/` (the per-chore sentry dir)
+were one entry on the default case-insensitive macOS filesystem: `chores
+pause` failed with IsADirectoryError on every Mac, and Linux CI never saw
+it. The dir is now `paused.d/`, the chores gates run on a macOS leg too,
+and a test asserts no two state-root names fold to the same string.
+Unsettled: `docs/design/CHORES.DESIGN.md` (frozen) still says
+`paused/<chore>`; the next retrospective records the rename as drift.
+
 ### YAML front-matter turns `off` and `true` into booleans
 
 about: wip

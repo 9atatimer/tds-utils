@@ -1,6 +1,8 @@
 """FsRunStore -- the state directory as a RunStorePort (CHORES.DESIGN.md Data
 Model: ``runs/<chore>/<run-id>/``, ``ledger.ndjson``, ``notifications.ndjson``,
-``last_tick``, ``PAUSED``, ``paused/<chore>``, ``tick.lock``; mode 0700).
+``last_tick``, ``PAUSED``, ``paused.d/<chore>``, ``tick.lock``; mode 0700).
+The per-chore sentry dir is ``paused.d``, not ``paused``: the default macOS
+filesystem is case-insensitive, and ``paused`` would BE the ``PAUSED`` file.
 
 Records are JSON documents rewritten on every transition; artifacts and the
 two NDJSON files are append-only; the tick lock is an OS-held ``flock`` that
@@ -211,7 +213,7 @@ class FsRunStore:
         self.runs = root / "runs"
         self._ensure_private(root)
         self._ensure_private(self.runs)
-        self._ensure_private(root / "paused")
+        self._ensure_private(root / "paused.d")
 
     # --- helpers ---
 
@@ -491,9 +493,9 @@ class FsRunStore:
 
     def _sentry(self, name: str) -> Path:
         """The per-chore pause sentry. Its parents are checked at every use,
-        like a run dir's components: a ``paused`` dir swapped for a symlink
+        like a run dir's components: a ``paused.d`` dir swapped for a symlink
         after construction is refused, never followed."""
-        paused = self.root / "paused"
+        paused = self.root / "paused.d"
         for component in (self.root, paused):
             if component.is_symlink():
                 raise UnsafeStatePath(f"{component} is a symlink; refusing to use it")

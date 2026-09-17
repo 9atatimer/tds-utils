@@ -1964,7 +1964,7 @@ def test_notify_on_members_must_be_status_names() -> None:
 
 
 def test_pause_sentries_refuse_a_symlinked_parent(tmp_path: Path) -> None:
-    """The per-chore sentry's parents are checked at every use: a `paused`
+    """The per-chore sentry's parents are checked at every use: a `paused.d`
     dir swapped for a symlink after construction is refused by pause, read
     and resume alike, and nothing lands outside the state tree."""
     from chores.adapters.fs_store import FsRunStore, UnsafeStatePath
@@ -1974,7 +1974,7 @@ def test_pause_sentries_refuse_a_symlinked_parent(tmp_path: Path) -> None:
     assert store.chore_paused("tidy") == "before"
     outside = tmp_path / "outside"
     outside.mkdir()
-    paused = tmp_path / "state" / "paused"
+    paused = tmp_path / "state" / "paused.d"
     (paused / "tidy").unlink()
     paused.rmdir()
     paused.symlink_to(outside)
@@ -2110,3 +2110,19 @@ def test_a_failed_reinstall_restores_the_previous_units(tmp_path: Path) -> None:
         mac.install(interval_sec=120)
     assert mac.installed_interval() == 60
     assert mac_calls[-1][:2] == ["launchctl", "bootstrap"]  # the old plist reloaded
+
+
+def test_global_and_per_chore_sentries_do_not_collide_case_insensitively(
+    tmp_path: Path,
+) -> None:
+    """The default macOS filesystem folds case: a `paused/` dir and the
+    `PAUSED` file would be the same entry. The state root must never carry
+    two names that differ only by case (found by the macOS CI leg)."""
+    from chores.adapters.fs_store import FsRunStore
+
+    store = FsRunStore(tmp_path / "state")
+    store.pause("flight")
+    store.pause_chore("tidy", "wip")
+    assert store.paused() == "flight" and store.chore_paused("tidy") == "wip"
+    names = [p.name for p in (tmp_path / "state").iterdir()]
+    assert len({n.lower() for n in names}) == len(names), names
