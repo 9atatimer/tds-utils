@@ -8,7 +8,7 @@ from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from chores.domain.run import Billing, RunRecord
+from chores.domain.run import Billing, RunRecord, RunStatus
 from chores.ports.agent import AgentResult, AgentTask, ProcessIdentity
 from chores.ports.completion import CompletionRequest, CompletionResponse
 from chores.ports.errors import BackendError, SecretUnavailable
@@ -237,6 +237,20 @@ class FakeRunStore:
 
     def read_record(self, run_id: str) -> RunRecord | None:
         return self._records.get(run_id)
+
+    def transition(
+        self,
+        run_id: str,
+        *,
+        expected: RunStatus,
+        then: Callable[[RunRecord], RunRecord],
+    ) -> RunRecord | None:
+        current = self._records.get(run_id)
+        if current is None or current.status is not expected:
+            return None
+        done = then(current)
+        self._records[run_id] = done
+        return done
 
     def records(
         self, *, chore: str | None = None, since: datetime | None = None

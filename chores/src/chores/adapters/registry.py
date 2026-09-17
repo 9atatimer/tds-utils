@@ -143,7 +143,12 @@ class BackendCatalog:
         if pair is None:
             return None
         cfg, kind = pair
-        return cfg.base_url if kind.requires_network and cfg.base_url else None
+        needs_network = (
+            cfg.requires_network
+            if cfg.requires_network is not None
+            else kind.requires_network
+        )
+        return cfg.base_url if needs_network and cfg.base_url else None
 
     def completion(self, name: str, *, credential: str | None = None) -> CompletionPort:
         pair = self._pair(name)

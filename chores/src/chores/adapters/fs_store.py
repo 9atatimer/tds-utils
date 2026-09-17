@@ -15,7 +15,7 @@ import os
 import re
 import secrets
 import shutil
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -26,17 +26,32 @@ from chores.domain.kinds import Kind
 from chores.domain.run import Billing, RunRecord, RunStatus
 from chores.ports.store import Artifact, Notification, TickMark
 
-_RUN_ID_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+# A run id is ``<chore>-<yyyymmddThhmmssZ>-<suffix>`` (domain ``new_run_id``):
+# the timestamp carries an uppercase T and Z, so the class is case-insensitive.
+# Chore names are the domain's ``[a-z0-9]+(-[a-z0-9]+)*``. Both reach here from
+# CLI arguments, and both are used as path components.
+_RUN_ID_RE = re.compile(r"^[A-Za-z0-9]+(-[A-Za-z0-9]+)*$")
+_CHORE_NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 
 
 class InvalidRunId(InfrastructureError):
     """A run id that is not a single path-safe segment (CLI input reaches here)."""
 
 
+class InvalidChoreName(InfrastructureError):
+    """A chore name that is not a single path-safe segment (CLI input reaches here)."""
+
+
 def check_run_id(run_id: str) -> str:
     if not _RUN_ID_RE.match(run_id):
         raise InvalidRunId(f"not a run id: {run_id!r}")
     return run_id
+
+
+def check_chore_name(name: str) -> str:
+    if not _CHORE_NAME_RE.match(name):
+        raise InvalidChoreName(f"not a chore name: {name!r}")
+    return name
 
 
 _ARTIFACTS: tuple[Artifact, ...] = (
@@ -190,9 +205,44 @@ class FsRunStore:
         run_dir = self._run_dir(record.run_id)
         self._ensure_private(run_dir.parent)
         self._ensure_private(run_dir)
+        with self._record_lock(run_dir):
+            self._write_json(run_dir, record)
+
+    @staticmethod
+    def _write_json(run_dir: Path, record: RunRecord) -> None:
         tmp = run_dir / "run.json.tmp"
         tmp.write_text(json.dumps(record_to_json(record), indent=1), encoding="utf-8")
         os.replace(tmp, run_dir / "run.json")
+
+    @contextmanager
+    def _record_lock(self, run_dir: Path) -> Iterator[None]:
+        """Blocking per-run lock: ``transition`` reads and writes under it, and
+        every ``write_record`` takes it, so a check-and-set cannot interleave
+        with a runner's own write."""
+        with (run_dir / "record.lock").open("a+") as fh:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+    def transition(
+        self,
+        run_id: str,
+        *,
+        expected: RunStatus,
+        then: Callable[[RunRecord], RunRecord],
+    ) -> RunRecord | None:
+        run_dir = self._find_run_dir(run_id)
+        if run_dir is None:
+            return None
+        with self._record_lock(run_dir):
+            current = self.read_record(run_id)
+            if current is None or current.status is not expected:
+                return None
+            done = then(current)
+            self._write_json(run_dir, done)
+            return done
 
     def read_record(self, run_id: str) -> RunRecord | None:
         run_dir = self._find_run_dir(run_id)
@@ -356,14 +406,17 @@ class FsRunStore:
             return None
         return path.read_text(encoding="utf-8").strip() or "(no reason recorded)"
 
+    def _sentry(self, name: str) -> Path:
+        return self.root / "paused" / check_chore_name(name)
+
     def pause_chore(self, name: str, reason: str) -> None:
-        (self.root / "paused" / name).write_text(reason, encoding="utf-8")
+        self._sentry(name).write_text(reason, encoding="utf-8")
 
     def resume_chore(self, name: str) -> None:
-        (self.root / "paused" / name).unlink(missing_ok=True)
+        self._sentry(name).unlink(missing_ok=True)
 
     def chore_paused(self, name: str) -> str | None:
-        path = self.root / "paused" / name
+        path = self._sentry(name)
         if not path.exists():
             return None
         return path.read_text(encoding="utf-8").strip() or "(no reason recorded)"

@@ -188,10 +188,14 @@ def test_agent_needs_turns_and_a_model_must_exist() -> None:
 
 
 def test_installer_reports_a_failed_bootstrap(tmp_path: Path) -> None:
+    from chores.adapters.scheduler import SchedulerInstallFailed
+
     inst = LaunchdInstaller(
         home=tmp_path, uid=1, run=lambda argv: 1 if argv[1] == "bootstrap" else 0
     )
-    assert any("failed" in a for a in inst.install(interval_sec=60))
+    with pytest.raises(SchedulerInstallFailed, match="bootstrap"):
+        inst.install(interval_sec=60)
+    assert inst.installed() is False
 
 
 # --- Copilot round 1 (PR #290) ---------------------------------------------
@@ -284,3 +288,214 @@ def test_refused_run_exits_3(tmp_path: Path) -> None:
     h.store.pause("flight")
     result = CliRunner().invoke(main, ["run", "tidy"], obj=h.deps())
     assert result.exit_code == 3 and "SKIPPED_PAUSED" in result.output
+
+
+# --- Copilot round 2 (PR #290) ---------------------------------------------
+
+
+def test_generated_run_ids_are_accepted_by_the_filesystem_store(
+    tmp_path: Path,
+) -> None:
+    """Given a real ``new_run_id`` (uppercase T and Z in the timestamp), Then the
+    store writes it: the path-safety check must not reject the ids it stores."""
+    from chores.adapters.fs_store import FsRunStore
+    from chores.domain.run import new_run_id
+
+    store = FsRunStore(tmp_path / "s")
+    run_id = new_run_id("brand", at=T0, suffix="ab12")
+    record = RunRecord.pending(
+        run_id=run_id, chore="brand", kind=Kind.PROMPT, definition_rev="r", started=T0
+    )
+    store.write_record(record)
+    assert store.read_record(run_id) == record
+    assert (tmp_path / "s" / "runs" / "brand" / run_id / "run.json").exists()
+
+
+def test_chore_names_cannot_escape_the_paused_directory(tmp_path: Path) -> None:
+    from chores.adapters.fs_store import FsRunStore, InvalidChoreName
+
+    store = FsRunStore(tmp_path / "s")
+    for bad in ("../../outside", "..", "a/b", "UPPER"):
+        with pytest.raises(InvalidChoreName):
+            store.pause_chore(bad, "x")
+        with pytest.raises(InvalidChoreName):
+            store.resume_chore(bad)
+        with pytest.raises(InvalidChoreName):
+            store.chore_paused(bad)
+    assert not (tmp_path / "outside").exists()
+    store.pause_chore("log-brand", "why")
+    assert store.chore_paused("log-brand") == "why"
+
+
+def test_tick_interrupt_is_a_check_and_set(tmp_path: Path) -> None:
+    """Given a runner that finishes between the tick's scan and its write, Then
+    the terminal SUCCEEDED record survives and no INTERRUPTED row is appended."""
+    from chores.domain.budget import Usage
+    from chores.domain.run import Billing
+
+    h = FullHarness(tmp_path, chores={"brand": PROMPT})
+    running = RunRecord.pending(
+        run_id="brand-20260302T090000Z-aa",
+        chore="brand",
+        kind=Kind.PROMPT,
+        definition_rev="r",
+        started=T0 - timedelta(minutes=5),
+    ).start(pid=4242, pgid=4242, process_start=1.0)
+    h.store.write_record(running)  # pid 4242 is not in the fake's alive set
+
+    real_records = h.store.records
+
+    def records_then_finish(**kw):  # type: ignore[no-untyped-def]
+        out = real_records(**kw)
+        if kw:
+            return out  # the per-chore schedule scan; only the full scan races
+        done = running.with_usage(
+            Usage(1, 1, 0.0, 1.0), backend="b", model="m", billing=Billing.NONE
+        ).finish(RunStatus.SUCCEEDED, ended=T0, reason=None)
+        h.store.write_record(done)  # the runner lands after the scan
+        return out
+
+    h.store.records = records_then_finish  # type: ignore[method-assign]
+    report = tick(h.deps().as_tick_deps())
+    assert report.interrupted == []
+    final = h.store.read_record("brand-20260302T090000Z-aa")
+    assert final is not None and final.status is RunStatus.SUCCEEDED
+    assert not any(r["status"] == "INTERRUPTED" for r in h.store.ledger_rows())
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+def test_budgets_and_ceilings_reject_non_finite_usd(value: float) -> None:
+    from chores.domain.budget import Budget, InvalidBudget
+
+    with pytest.raises(InvalidBudget):
+        Budget(seconds=1, usd=value)
+    with pytest.raises(InvalidBudget):
+        Ceiling(usd=value)
+
+
+def test_json_escaped_redaction_form_matches_the_json_encoder() -> None:
+    """The escaped form must be exactly what ``json.dumps`` (ensure_ascii) emits,
+    or a secret with a control, non-ASCII or astral character persists."""
+    import json
+
+    from hypothesis import given, settings
+    from hypothesis import strategies as st
+
+    from chores.domain.policies import redact, redaction_forms
+
+    @settings(max_examples=200, deadline=None)
+    @given(st.text(min_size=1))
+    def check(secret: str) -> None:
+        assert json.dumps(secret)[1:-1] in redaction_forms(secret)
+
+    check()
+    for secret in ("päss\bw\f", "\U0001f512key", 'a"b\\c/d'):
+        encoded = json.dumps({"k": secret})
+        assert secret not in redact(encoded, [secret])
+        assert json.dumps(secret)[1:-1] not in redact(encoded, [secret])
+
+
+def test_malformed_usage_counts_are_backend_errors() -> None:
+    from chores.adapters.http import HttpResponse
+    from chores.adapters.ollama import OllamaCompletion
+    from chores.adapters.openai_compat import OpenAICompatCompletion
+    from chores.ports.completion import CompletionRequest
+
+    from .test_completion_adapters import FakeTransport
+
+    req = CompletionRequest(
+        prompt="p", model="m", timeout_sec=1.0, max_output_tokens=None
+    )
+    bad_openai = HttpResponse(
+        200,
+        {
+            "choices": [{"message": {"content": "x"}}],
+            "usage": {"prompt_tokens": "lots", "completion_tokens": 1},
+        },
+    )
+    with pytest.raises(BackendError, match="prompt_tokens"):
+        OpenAICompatCompletion(
+            FakeTransport(bad_openai),
+            base_url="u",
+            auth_header="x-auth",
+            credential="c",
+            prices={},
+            provider="p",
+        ).complete(req)
+    bad_ollama = HttpResponse(
+        200, {"message": {"content": "x"}, "prompt_eval_count": "1", "eval_count": {}}
+    )
+    with pytest.raises(BackendError, match="eval_count"):
+        OllamaCompletion(FakeTransport(bad_ollama), base_url="u").complete(req)
+
+
+def test_network_probe_honours_the_requires_network_override() -> None:
+    from chores.adapters.registry import BackendCatalog
+    from chores.ports.backends import BackendConfig
+
+    catalog = BackendCatalog(
+        {
+            "remote-ollama": BackendConfig(
+                name="remote-ollama",
+                type="ollama",
+                model="m",
+                base_url="http://box:11434",
+                requires_network=True,
+            )
+        },
+        process=FakeProcess(),
+    )
+    spec = catalog.spec("remote-ollama")
+    assert spec is not None and spec.requires_network is True
+    assert catalog.probe_url("remote-ollama") == "http://box:11434"
+
+
+def test_probe_treats_a_malformed_url_as_unreachable() -> None:
+    from chores.adapters.http import probe
+
+    assert probe("https://host:bad-port", timeout_sec=0.01) is False
+    assert probe("not a url", timeout_sec=0.01) is False
+
+
+def test_failed_scheduler_enable_raises_and_leaves_nothing_behind(
+    tmp_path: Path,
+) -> None:
+    from chores.adapters.scheduler import SchedulerInstallFailed, SystemdInstaller
+
+    def enable_fails(argv: list[str]) -> int:
+        return 1 if "enable" in argv or "bootstrap" in argv else 0
+
+    launchd = LaunchdInstaller(home=tmp_path / "mac", uid=501, run=enable_fails)
+    with pytest.raises(SchedulerInstallFailed):
+        launchd.install(interval_sec=60)
+    assert launchd.installed() is False
+    systemd = SystemdInstaller(home=tmp_path / "linux", run=enable_fails)
+    with pytest.raises(SchedulerInstallFailed):
+        systemd.install(interval_sec=60)
+    assert systemd.installed() is False
+
+
+def test_cli_install_exits_1_when_the_scheduler_refuses(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    from click.testing import CliRunner
+
+    from chores.cli.main import main
+
+    inst = LaunchdInstaller(home=tmp_path / "h", uid=7, run=lambda argv: 1)
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    deps = replace(h.deps(), installer=inst, scheduler_installed=inst.installed)
+    r = CliRunner().invoke(main, ["install"], obj=deps)
+    assert r.exit_code == 1 and "install failed" in r.output
+    assert not inst.installed()
+
+
+def test_systemd_path_includes_the_fresh_clone_tier(tmp_path: Path) -> None:
+    from chores.adapters.scheduler import SystemdInstaller
+
+    inst = SystemdInstaller(home=tmp_path, run=lambda argv: 0)
+    inst.install(interval_sec=60)
+    service = (
+        tmp_path / ".config" / "systemd" / "user" / "chores-tick.service"
+    ).read_text()
+    assert "%h/workplace/tds-utils/bin" in service

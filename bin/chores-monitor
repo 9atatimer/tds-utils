@@ -18,7 +18,7 @@ from pathlib import Path
 import rumps
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ASSETS_DIR = REPO_ROOT / "assets"
+ASSETS_DIR = REPO_ROOT / "chores" / "assets"  # shipped by chores.pkg
 ICON_QUIET = str(ASSETS_DIR / "chores-quiet.png")
 ICON_ALERT = str(ASSETS_DIR / "chores-alert.png")
 CHECK_INTERVAL_SECS = 60

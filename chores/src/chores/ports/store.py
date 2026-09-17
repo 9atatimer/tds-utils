@@ -6,13 +6,13 @@ liveness file and the tick lock live and die together.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
-from chores.domain.run import RunRecord
+from chores.domain.run import RunRecord, RunStatus
 
 # One of: definition.md, transcript.jsonl, stdout.log, stderr.log, errors.log
 Artifact = str
@@ -40,6 +40,18 @@ class RunStorePort(Protocol):
     def write_record(self, record: RunRecord) -> None: ...
 
     def read_record(self, run_id: str) -> RunRecord | None: ...
+
+    def transition(
+        self,
+        run_id: str,
+        *,
+        expected: RunStatus,
+        then: Callable[[RunRecord], RunRecord],
+    ) -> RunRecord | None:
+        """Check-and-set: atomically against ``write_record``, if the stored
+        record's status is ``expected`` replace it with ``then(current)`` and
+        return that; otherwise write nothing and return None."""
+        ...
 
     def records(
         self, *, chore: str | None = None, since: datetime | None = None

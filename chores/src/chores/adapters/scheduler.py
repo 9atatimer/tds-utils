@@ -14,6 +14,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
+from chores.domain.errors import InfrastructureError
+
 LAUNCHD_LABEL = "com.tds.chores.tick"
 SYSTEMD_UNIT = "chores-tick"
 
@@ -54,8 +56,9 @@ Description=chores scheduler tick
 [Service]
 Type=oneshot
 # A user service inherits no shell PATH; name the runtime tiers explicitly
-# (dist install, release worktree, ~/.local/bin) so a bare `chores` resolves.
-Environment=PATH=%h/.tds/dist/current/bin:%h/.tds/release/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# (dist install, release worktree, fresh-clone fallback, ~/.local/bin) so a
+# bare `chores` resolves -- the same tier order as AGENT.md's PATH table.
+Environment=PATH=%h/.tds/dist/current/bin:%h/.tds/release/bin:%h/workplace/tds-utils/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/bin/bash -lc 'exec chores tick'
 """
 
@@ -72,6 +75,11 @@ WantedBy=timers.target
 """
 
 RunFn = Callable[[list[str]], int]
+
+
+class SchedulerInstallFailed(InfrastructureError):
+    """The unit was written but the OS refused to enable it; nothing is left
+    behind, so ``installed()`` stays False and the CLI exits nonzero."""
 
 
 def _run_subprocess(argv: list[str]) -> int:
@@ -106,7 +114,11 @@ class LaunchdInstaller:
         self._run(["launchctl", "bootout", f"{self._domain}/{LAUNCHD_LABEL}"])
         rc = self._run(["launchctl", "bootstrap", self._domain, str(self.plist)])
         if rc != 0:
-            return [f"wrote {self.plist}", f"launchctl bootstrap failed (exit {rc})"]
+            self.plist.unlink(missing_ok=True)
+            raise SchedulerInstallFailed(
+                f"launchctl bootstrap {self._domain} failed (exit {rc}); "
+                f"removed {self.plist}"
+            )
         return [
             f"wrote {self.plist}",
             f"bootstrapped {LAUNCHD_LABEL} every {interval_sec}s",
@@ -150,7 +162,13 @@ class SystemdInstaller:
             ["systemctl", "--user", "enable", "--now", f"{SYSTEMD_UNIT}.timer"]
         )
         if rc != 0:
-            return [f"wrote {self.timer}", f"systemctl enable failed (exit {rc})"]
+            for name in (f"{SYSTEMD_UNIT}.timer", f"{SYSTEMD_UNIT}.service"):
+                (self.unit_dir / name).unlink(missing_ok=True)
+            self._run(["systemctl", "--user", "daemon-reload"])
+            raise SchedulerInstallFailed(
+                f"systemctl --user enable --now {SYSTEMD_UNIT}.timer failed "
+                f"(exit {rc}); removed the unit files"
+            )
         return [
             f"wrote {self.timer}",
             f"enabled {SYSTEMD_UNIT}.timer every {interval_sec}s",

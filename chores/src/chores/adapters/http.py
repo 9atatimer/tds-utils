@@ -81,11 +81,15 @@ def _parse(raw: bytes) -> Mapping[str, object]:
 
 def probe(url: str, *, timeout_sec: float) -> bool:
     """Can a TCP connection be opened to the host in ``url``? (NetworkPort)"""
-    parsed = urllib.parse.urlparse(url)
-    host = parsed.hostname
+    try:
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.hostname
+        port = parsed.port  # raises ValueError on a non-numeric port
+    except ValueError:
+        return False
     if host is None:
         return False
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    port = port or (443 if parsed.scheme == "https" else 80)
     try:
         with socket.create_connection((host, port), timeout=timeout_sec):
             return True

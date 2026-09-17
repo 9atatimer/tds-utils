@@ -198,13 +198,30 @@ _JSON_ESCAPES = {
     "\n": "\\n",
     "\r": "\\r",
     "\t": "\\t",
-    "/": "/",
+    "\b": "\\b",
+    "\f": "\\f",
 }
 _URL_SAFE = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-~")
 
 
+def _json_escaped_char(ch: str) -> str:
+    """One character as ``json.dumps`` (ensure_ascii, the adapters' default)
+    would emit it: the short escapes, ``\\u00XX`` for other controls, and
+    ``\\uXXXX`` (a surrogate pair above the BMP) for everything non-ASCII."""
+    short = _JSON_ESCAPES.get(ch)
+    if short is not None:
+        return short
+    code = ord(ch)
+    if 0x20 <= code < 0x7F:
+        return ch
+    if code < 0x10000:
+        return f"\\u{code:04x}"
+    code -= 0x10000
+    return f"\\u{0xD800 | (code >> 10):04x}\\u{0xDC00 | (code & 0x3FF):04x}"
+
+
 def _json_escaped(value: str) -> str:
-    return "".join(_JSON_ESCAPES.get(ch, ch) for ch in value)
+    return "".join(_json_escaped_char(ch) for ch in value)
 
 
 def _url_encoded(value: str) -> str:

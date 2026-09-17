@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from collections.abc import Mapping
 
+from chores.adapters._fields import int_field
 from chores.adapters._http_errors import raise_for_status, raise_for_transport
 from chores.adapters.http import HttpTransport, TransportError, TransportTimeout
 from chores.domain.run import Billing
@@ -46,8 +47,14 @@ class OllamaCompletion:
             raise BackendError(f"{PROVIDER}: response carried no message.content")
         return CompletionResponse(
             text=str(message["content"]),
-            tokens_in=int(str(response.body.get("prompt_eval_count", 0))),
-            tokens_out=int(str(response.body.get("eval_count", 0))),
+            tokens_in=int_field(
+                response.body.get("prompt_eval_count"),
+                provider=PROVIDER,
+                field="prompt_eval_count",
+            ),
+            tokens_out=int_field(
+                response.body.get("eval_count"), provider=PROVIDER, field="eval_count"
+            ),
             usd=None,
             provider=PROVIDER,
             model=request.model,

@@ -160,3 +160,25 @@ def test_fs_state_directory_is_private(
     store = make(tmp_path)
     store.pause("x")
     assert (store.root.stat().st_mode & 0o777) == 0o700
+
+
+def test_transition_is_a_check_and_set(store: RunStorePort) -> None:
+    """Given a stored RUNNING record, transition(expected=RUNNING) applies and
+    returns the finished record; a second call with a stale expectation writes
+    nothing and returns None."""
+    running = _record("c-1").start(pid=1, pgid=1, process_start=0.5)
+    store.write_record(running)
+
+    def interrupt(current: RunRecord) -> RunRecord:
+        return current.finish(
+            RunStatus.INTERRUPTED, ended=T0 + timedelta(seconds=1), reason="gone"
+        )
+
+    done = store.transition("c-1", expected=RunStatus.RUNNING, then=interrupt)
+    assert done is not None and done.status is RunStatus.INTERRUPTED
+    assert store.read_record("c-1") == done
+    assert store.transition("c-1", expected=RunStatus.RUNNING, then=interrupt) is None
+    assert (
+        store.transition("missing", expected=RunStatus.RUNNING, then=interrupt) is None
+    )
+    assert store.read_record("c-1") == done

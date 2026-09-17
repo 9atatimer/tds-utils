@@ -1,6 +1,6 @@
 # chores -- laptop-local herd of LLM-adjacent scheduled jobs (docs/design/CHORES.DESIGN.md)
-# assets/chores-*.png ship with lmde.pkg (it claims assets/ whole) and
-# macos/apps/chores with macos-apps.pkg (macos/apps/ whole): ownership is exclusive.
+# The monitor's icons live under chores/assets/ so this package ships them
+# (assets/ belongs to lmde.pkg); macos/apps/chores ships with macos-apps.pkg.
 NAME=chores
 DESC="chores scheduler, CLI, TUI and menu-bar monitor"
 PATHS="chores bin/chores bin/chores-dashboard bin/chores-monitor bin/launch-chores-monitor macos/launchd/com.tds.chores-monitor.plist"

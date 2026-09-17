@@ -19,6 +19,7 @@ from chores.application.deps import Deps
 from chores.application.run import run_chore
 from chores.application.tick import tick as run_tick
 from chores.cli import render
+from chores.domain.errors import InfrastructureError
 from chores.domain.run import RunStatus
 
 _ARTIFACT_FLAGS = ("transcript", "stdout", "stderr", "errors", "definition")
@@ -303,7 +304,12 @@ def install(ctx: click.Context, dry_run: bool) -> None:
     """Install the tick as a launchd agent (macOS) or systemd user timer (Linux)."""
     deps = _deps(ctx)
     interval = deps.definitions.load().config.tick_interval_sec
-    for line in _installer(ctx).install(interval_sec=interval, dry_run=dry_run):
+    try:
+        lines = _installer(ctx).install(interval_sec=interval, dry_run=dry_run)
+    except InfrastructureError as e:
+        click.echo(f"install failed: {e}", err=True)
+        ctx.exit(1)
+    for line in lines:
         click.echo(line)
 
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping
 
+from chores.adapters._fields import float_field, int_field
 from chores.domain.run import Billing
 from chores.ports.agent import AgentResult, AgentTask, ProcessIdentity
 from chores.ports.errors import BackendError, Unauthorized
@@ -86,14 +87,16 @@ class ClaudeCliAgent:
         tokens_in = tokens_out = 0
         if isinstance(usage, Mapping):
             tokens_in = sum(
-                int(str(usage.get(k, 0)))
+                int_field(usage.get(k), provider=PROVIDER, field=k)
                 for k in (
                     "input_tokens",
                     "cache_creation_input_tokens",
                     "cache_read_input_tokens",
                 )
             )
-            tokens_out = int(str(usage.get("output_tokens", 0)))
+            tokens_out = int_field(
+                usage.get("output_tokens"), provider=PROVIDER, field="output_tokens"
+            )
         cost = payload.get("total_cost_usd")
         turns = payload.get("num_turns")
         return AgentResult(
@@ -101,8 +104,12 @@ class ClaudeCliAgent:
             events=[dict(payload)],
             tokens_in=tokens_in,
             tokens_out=tokens_out,
-            usd=float(str(cost)) if cost is not None else None,
-            turns=int(str(turns)) if turns is not None else None,
+            usd=float_field(cost, provider=PROVIDER, field="total_cost_usd"),
+            turns=(
+                int_field(turns, provider=PROVIDER, field="num_turns")
+                if turns is not None
+                else None
+            ),
             billing=Billing.SUBSCRIPTION,
             exit_code=result.exit_code,
             timed_out=False,

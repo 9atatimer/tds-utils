@@ -7,6 +7,7 @@ are plain values with one invariant each: nothing negative, seconds > 0.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import Enum
 
@@ -14,14 +15,20 @@ from chores.domain.errors import DomainError
 
 
 class InvalidBudget(DomainError):
-    """A budget or ceiling carried a negative or zero-length dimension."""
+    """A budget or ceiling carried a negative, non-finite or zero-length dimension."""
 
 
 # --- helpers -----------------------------------------------------------------
 
 
 def _require_non_negative(name: str, value: int | float | None) -> None:
-    if value is not None and value < 0:
+    if value is None:
+        return
+    if isinstance(value, float) and not math.isfinite(value):
+        # YAML `.nan` / `.inf` parse as floats; every comparison against them
+        # is False, which would make the policy silently unbounded.
+        raise InvalidBudget(f"{name} must be finite (got {value})")
+    if value < 0:
         raise InvalidBudget(f"{name} may not be negative (got {value})")
 
 

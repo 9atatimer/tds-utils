@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 from collections.abc import Mapping, Sequence
 
+from chores.adapters._fields import int_field
 from chores.adapters._http_errors import raise_for_status, raise_for_transport
 from chores.adapters.http import HttpTransport, TransportError, TransportTimeout
 from chores.domain.run import Billing
@@ -57,8 +58,16 @@ class OpenAICompatCompletion:
         usage = response.body.get("usage")
         tokens_in = tokens_out = 0
         if isinstance(usage, Mapping):
-            tokens_in = int(str(usage.get("prompt_tokens", 0)))
-            tokens_out = int(str(usage.get("completion_tokens", 0)))
+            tokens_in = int_field(
+                usage.get("prompt_tokens"),
+                provider=self._provider,
+                field="prompt_tokens",
+            )
+            tokens_out = int_field(
+                usage.get("completion_tokens"),
+                provider=self._provider,
+                field="completion_tokens",
+            )
         return CompletionResponse(
             text=text,
             tokens_in=tokens_in,

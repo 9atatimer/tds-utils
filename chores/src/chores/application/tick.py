@@ -109,11 +109,15 @@ def _interrupt_dead_runs(deps: TickDeps, ctx: Context, report: TickReport) -> No
             reason = "never reached RUNNING within one tick interval"
         if reason is None:
             continue
-        current = deps.store.read_record(record.run_id)
-        if current is None or current.status is not record.status:
+
+        def interrupt(cur: RunRecord, *, why: str = reason) -> RunRecord:
+            return cur.finish(RunStatus.INTERRUPTED, ended=now, reason=why)
+
+        done = deps.store.transition(
+            record.run_id, expected=record.status, then=interrupt
+        )
+        if done is None:
             continue  # the runner finished between the scan and this check
-        done = current.finish(RunStatus.INTERRUPTED, ended=now, reason=reason)
-        deps.store.write_record(done)
         deps.store.append_ledger(to_ledger_row(done))
         report.interrupted.append(record.run_id)
         chore = by_name.get(record.chore)
