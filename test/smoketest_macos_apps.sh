@@ -42,7 +42,15 @@ assert() {
 skip() { bold "  SKIP"; printf ' %s\n' "$1"; }
 
 setup()   { WORKROOT="$(mktemp -d "${TMPDIR:-/tmp}/macos-apps-test.XXXXXX")"; }
-cleanup() { [ -n "${WORKROOT}" ] && [ -d "${WORKROOT}" ] && rm -rf "${WORKROOT}"; }
+# Returns 0 on the skip path too: with WORKROOT empty the `&&` chain fails,
+# and as the EXIT trap's last command that status became the script's --
+# the non-macOS skip exited 1 and failed the ubuntu CI leg.
+cleanup() {
+    if [ -n "${WORKROOT}" ] && [ -d "${WORKROOT}" ]; then
+        rm -rf "${WORKROOT}"
+    fi
+    return 0
+}
 trap cleanup EXIT
 
 # grep exits 1 for "no match" and 2 for "I could not run" -- a bare `! grep`
