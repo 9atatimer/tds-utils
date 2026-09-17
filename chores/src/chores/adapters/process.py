@@ -10,9 +10,11 @@ import os
 import resource
 import signal
 import subprocess
+import threading
 import time
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
+from typing import IO
 
 from chores.ports.agent import ProcessIdentity
 from chores.ports.errors import ProcessError
@@ -58,40 +60,110 @@ def _start_or_unknown(pid: int) -> float:
     return start if start is not None else UNKNOWN_START
 
 
+_CHUNK = 64 * 1024
+
+
+@dataclass
+class _Capture:
+    """One stream's bounded capture: the first ``cap`` bytes are kept, the
+    rest are counted as lost. Memory never exceeds the cap however much the
+    child writes."""
+
+    cap: int | None
+    data: bytearray = field(default_factory=bytearray)
+    truncated: bool = False
+
+    def feed(self, chunk: bytes) -> None:
+        if self.cap is None:
+            self.data += chunk
+            return
+        room = self.cap - len(self.data)
+        if len(chunk) > room:
+            self.truncated = True
+        if room > 0:
+            self.data += chunk[:room]
+
+    def text(self) -> str:
+        return self.data.decode("utf-8", errors="replace")
+
+
+def _drain(stream: IO[bytes], capture: _Capture) -> None:
+    """Reader-thread body: pull the pipe to EOF so the child never blocks on
+    a full buffer, keeping only what the cap allows."""
+    fd = stream.fileno()
+    try:
+        while chunk := os.read(fd, _CHUNK):
+            capture.feed(chunk)
+    except OSError:
+        pass
+    finally:
+        stream.close()
+
+
+def _feed_stdin(stream: IO[bytes], text: str) -> None:
+    try:
+        stream.write(text.encode("utf-8"))
+        stream.close()
+    except OSError:  # BrokenPipe: the child stopped reading, its business
+        pass
+
+
+def _thread(target: Callable[..., None], *args: object) -> threading.Thread:
+    t = threading.Thread(target=target, args=args, daemon=True)
+    t.start()
+    return t
+
+
 @dataclass
 class _Running:
-    popen: subprocess.Popen[str]
+    popen: subprocess.Popen[bytes]
     request: ProcessRequest
     identity: ProcessIdentity
     started_monotonic: float
     rusage_before: float
 
     def wait(self) -> ProcessResult:
+        """Block until exit or timeout. Output is streamed into bounded
+        captures by reader threads rather than buffered whole by
+        ``communicate``: a command that prints without end costs the runner
+        at most ``max_output_bytes`` per stream, not its memory."""
+        cap = self.request.max_output_bytes
+        out, err = _Capture(cap), _Capture(cap)
+        assert self.popen.stdout is not None and self.popen.stderr is not None
+        threads = [
+            _thread(_drain, self.popen.stdout, out),
+            _thread(_drain, self.popen.stderr, err),
+        ]
+        if self.popen.stdin is not None:
+            threads.append(
+                _thread(_feed_stdin, self.popen.stdin, self.request.stdin_text or "")
+            )
         timed_out = False
         try:
-            stdout, stderr = self.popen.communicate(
-                input=self.request.stdin_text, timeout=self.request.timeout_sec
-            )
+            self.popen.wait(timeout=self.request.timeout_sec)
         except subprocess.TimeoutExpired:
             timed_out = True
             self.terminate_group()
             try:
-                stdout, stderr = self.popen.communicate(
-                    timeout=self.request.kill_grace_sec
-                )
+                self.popen.wait(timeout=self.request.kill_grace_sec)
             except subprocess.TimeoutExpired:
                 _signal_group(self.identity.pgid, signal.SIGKILL)
-                stdout, stderr = self.popen.communicate()
+                self.popen.wait()
+        for t in threads:
+            # EOF follows the group's exit; a grandchild that escaped the
+            # group and still holds the pipe is not waited for without end
+            t.join(timeout=self.request.kill_grace_sec)
         cpu = _children_cpu() - self.rusage_before
         return ProcessResult(
             exit_code=self.popen.returncode
             if self.popen.returncode is not None
             else -1,
-            stdout=stdout or "",
-            stderr=stderr or "",
+            stdout=out.text(),
+            stderr=err.text(),
             timed_out=timed_out,
             cpu_seconds=max(cpu, 0.0),
             seconds=time.monotonic() - self.started_monotonic,
+            output_truncated=out.truncated or err.truncated,
         )
 
     def terminate_group(self) -> None:
@@ -126,7 +198,6 @@ class SubprocessRunner:
                 else subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True,
                 start_new_session=True,
             )
         except (OSError, ValueError) as e:

@@ -125,7 +125,13 @@ jobs:
         run: shellcheck -x lib/tds-dist.sh bin/tds-export bin/tds-install bin/tds-status
 
   chores:
-    runs-on: ubuntu-latest
+    strategy:
+      # The scheduler, process and store adapters have platform edges
+      # (launchd, BSD ps, /private/tmp realpaths); the suite runs on both.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     permissions:
       contents: read

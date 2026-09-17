@@ -23,7 +23,7 @@ from chores.application.context import (
 )
 from chores.application.paths import Paths
 from chores.domain.chore import Chore
-from chores.domain.errors import ChoresError
+from chores.domain.errors import ChoresError, DomainError
 from chores.domain.kinds import Kind
 from chores.domain.policies import Decision
 from chores.domain.run import RunRecord, RunStatus, to_ledger_row
@@ -179,6 +179,23 @@ def _record_invalid(
     )
 
 
+def _warn_chore(deps: TickDeps, report: TickReport, chore: Chore, e: Exception) -> None:
+    """An infrastructure failure while considering one chore (the launcher,
+    the store) is reported as a tick warning and a notification. It is not an
+    INVALID record: the definition is fine, and one broken chore never stops
+    the tick."""
+    text = f"{chore.name}: tick could not act: {e}"
+    report.warnings.append(text)
+    post(
+        deps.store,
+        deps.notifier,
+        at=deps.clock.now_utc(),
+        level="info",
+        text=text,
+        chore=chore.name,
+    )
+
+
 def _window_start(
     deps: TickDeps, chore: Chore, *, previous_tick: TickMark | None
 ) -> tuple[datetime, RunRecord | None]:
@@ -321,10 +338,12 @@ def tick(deps: TickDeps) -> TickReport:
         for chore in ctx.definitions.chores:
             try:
                 _consider(deps, ctx, host, chore, report, previous_tick=previous_tick)
-            except ChoresError as e:  # one broken chore never stops the tick
+            except DomainError as e:  # a rule violated: the definition is wrong
                 _record_invalid(
                     deps, ctx, report, name=chore.name, kind=chore.kind, reason=str(e)
                 )
+            except ChoresError as e:  # a mechanism failed: the chore stays valid
+                _warn_chore(deps, report, chore, e)
         deps.store.mark_tick(
             TickMark(at=deps.clock.now_utc(), ledger_rows=deps.store.ledger_count())
         )

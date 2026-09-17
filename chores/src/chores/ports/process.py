@@ -18,6 +18,9 @@ class ProcessRequest:
     timeout_sec: int
     kill_grace_sec: int
     stdin_text: str | None = None
+    max_output_bytes: int | None = None
+    """Per-stream cap on captured stdout/stderr; the rest is drained and
+    dropped (``ProcessResult.output_truncated``), never buffered."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,6 +31,7 @@ class ProcessResult:
     timed_out: bool
     cpu_seconds: float
     seconds: float
+    output_truncated: bool = False
 
 
 class RunningProcess(Protocol):

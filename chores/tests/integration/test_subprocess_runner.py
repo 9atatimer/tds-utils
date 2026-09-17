@@ -77,3 +77,27 @@ def test_alive_uses_start_time_to_reject_a_reused_pid() -> None:
     me = runner.own_identity()
     assert runner.alive(me.pid, process_start=me.process_start) is True
     assert runner.alive(me.pid, process_start=me.process_start + 1000) is False
+
+
+def test_output_past_the_cap_is_dropped_not_buffered() -> None:
+    """A child that prints far more than the cap costs the runner the cap per
+    stream: the rest is drained and dropped, and the result says so."""
+    running = SubprocessRunner().spawn(
+        ProcessRequest(
+            [
+                "sh",
+                "-c",
+                "i=0; while [ $i -lt 20000 ]; do "
+                "echo 0123456789012345678901234567890123456789; i=$((i+1)); done; "
+                "echo tail >&2",
+            ],
+            cwd="/",
+            env=ENV,
+            timeout_sec=30,
+            kill_grace_sec=1,
+            max_output_bytes=10_000,
+        )
+    )
+    result = running.wait()
+    assert result.exit_code == 0 and result.output_truncated is True
+    assert len(result.stdout.encode()) == 10_000 and result.stderr == "tail\n"

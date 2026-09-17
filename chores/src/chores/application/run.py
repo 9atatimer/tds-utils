@@ -113,6 +113,7 @@ class _Execution:
     model: str | None = None
     billing: Billing | None = None
     exit_code: int | None = None
+    output_truncated: bool = False
 
 
 # --- helpers -----------------------------------------------------------------
@@ -357,6 +358,7 @@ def _execute_command(
                 env=env,
                 timeout_sec=chore.budget.seconds,
                 kill_grace_sec=ctx.definitions.config.kill_grace_sec,
+                max_output_bytes=ctx.definitions.config.max_run_dir_bytes,
             )
         )
     except ProcessError as e:
@@ -370,11 +372,16 @@ def _execute_command(
     if result.stderr:
         artifacts.append("stderr.log", result.stderr)
     usage = Usage(0, 0, result.seconds, cpu_seconds=result.cpu_seconds)
+    lost = result.output_truncated  # the adapter dropped output past its cap
     if deps.store.kill_requested(artifacts.run_id):
         # first: a command that ignored SIGTERM comes back through the
         # timeout path, and the operator's kill is still the outcome
         return _Execution(
-            RunStatus.KILLED, "killed by chores kill", usage, exit_code=result.exit_code
+            RunStatus.KILLED,
+            "killed by chores kill",
+            usage,
+            exit_code=result.exit_code,
+            output_truncated=lost,
         )
     if result.timed_out:
         return _Execution(
@@ -382,6 +389,7 @@ def _execute_command(
             f"timed out after {chore.budget.seconds}s",
             usage,
             exit_code=result.exit_code,
+            output_truncated=lost,
         )
     if result.exit_code != 0:
         tail = result.stderr.strip()[-200:]
@@ -390,8 +398,11 @@ def _execute_command(
             f"exit {result.exit_code}: {tail}".rstrip(": "),
             usage,
             exit_code=result.exit_code,
+            output_truncated=lost,
         )
-    return _Execution(RunStatus.SUCCEEDED, None, usage, exit_code=0)
+    return _Execution(
+        RunStatus.SUCCEEDED, None, usage, exit_code=0, output_truncated=lost
+    )
 
 
 def _finish(
@@ -436,7 +447,7 @@ def _finish(
         billing=execution.billing,
         exit_code=execution.exit_code,
     )
-    if artifacts.truncated:
+    if artifacts.truncated or execution.output_truncated:
         record = record.truncate()
     final = record.finish(status, ended=ended, reason=reason)
     record = final

@@ -74,14 +74,28 @@ def _pointer(state: Path) -> str | None:
     return (text or "").strip() or None
 
 
-def remember_home(paths: Paths) -> None:
+def remember_home(paths: Paths) -> str | None:
     """Persist paths.chores_home as the pointer (called by `chores install`).
-    Written no-follow like every file in the state tree."""
+    Written no-follow like every file in the state tree. Returns the pointer
+    it replaced (None when there was none) so a failed install can put it
+    back with :func:`restore_home`."""
     state = Path(paths.state_dir)
     if state.is_symlink():
         raise UnsafeStatePath(f"{state} is a symlink; refusing to use it")
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    previous = _pointer(state)
     write_nofollow(state / HOME_POINTER, paths.chores_home + "\n")
+    return previous
+
+
+def restore_home(paths: Paths, previous: str | None) -> None:
+    """Undo :func:`remember_home`: put the prior pointer back, or remove
+    ours when there was none. A scheduler that survived the failed install
+    keeps resolving the herd it was installed for."""
+    if previous is None:
+        forget_home(paths)
+        return
+    write_nofollow(Path(paths.state_dir) / HOME_POINTER, previous + "\n")
 
 
 def forget_home(paths: Paths) -> None:

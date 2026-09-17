@@ -1958,3 +1958,155 @@ def test_notify_on_members_must_be_status_names() -> None:
     for bad in ([{}], [None], [["SUCCEEDED"]], [3]):
         with pytest.raises(InvalidChore, match="notify_on"):
             Chore.from_mapping({**CHORE_MAPPING, "notify_on": bad}, body="x")
+
+
+# --- Copilot round 21 (PR #290) --------------------------------------------
+
+
+def test_pause_sentries_refuse_a_symlinked_parent(tmp_path: Path) -> None:
+    """The per-chore sentry's parents are checked at every use: a `paused`
+    dir swapped for a symlink after construction is refused by pause, read
+    and resume alike, and nothing lands outside the state tree."""
+    from chores.adapters.fs_store import FsRunStore, UnsafeStatePath
+
+    store = FsRunStore(tmp_path / "state")
+    store.pause_chore("tidy", "before")
+    assert store.chore_paused("tidy") == "before"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    paused = tmp_path / "state" / "paused"
+    (paused / "tidy").unlink()
+    paused.rmdir()
+    paused.symlink_to(outside)
+    with pytest.raises(UnsafeStatePath, match="symlink"):
+        store.pause_chore("tidy", "after")
+    with pytest.raises(UnsafeStatePath, match="symlink"):
+        store.chore_paused("tidy")
+    with pytest.raises(UnsafeStatePath, match="symlink"):
+        store.resume_chore("tidy")
+    assert list(outside.iterdir()) == []
+
+
+def test_a_failed_install_restores_the_prior_pointer(tmp_path: Path) -> None:
+    """A reinstall that fails puts the previous pointer back, not nothing:
+    the scheduler that survived keeps resolving the herd it was installed
+    for."""
+    from dataclasses import replace
+
+    from click.testing import CliRunner
+
+    from chores.cli.main import main
+    from chores.cli.wiring import remember_home, restore_home
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    state = Path(h.paths.state_dir)
+    state.mkdir(parents=True, exist_ok=True)
+    (state / "home").write_text("/prior/herd\n")
+    failing = LaunchdInstaller(home=tmp_path / "h", uid=7, run=lambda argv: 1)
+    deps = replace(h.deps(), installer=failing, scheduler_installed=failing.installed)
+    r = CliRunner().invoke(main, ["install"], obj=deps)
+    assert r.exit_code == 1 and (state / "home").read_text() == "/prior/herd\n"
+    assert remember_home(h.paths) == "/prior/herd"
+    restore_home(h.paths, None)
+    assert not (state / "home").exists()
+
+
+def test_unreadable_yaml_is_a_reported_error(tmp_path: Path) -> None:
+    """backends.yaml or config.yaml that exists but cannot be read (here: a
+    directory) is a configuration error in the report, not a traceback."""
+    import shutil
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    home = Path(h.paths.chores_home)
+    for name in ("backends.yaml", "config.yaml"):
+        target = home / name
+        if target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink(missing_ok=True)
+        target.mkdir()
+    defs = h.definitions.load()
+    assert any("backends.yaml" in e for e in defs.errors)
+    assert defs.config_error is not None and "config.yaml" in defs.config_error
+
+
+def test_output_dropped_by_the_process_adapter_marks_the_run_truncated(
+    tmp_path: Path,
+) -> None:
+    """The adapter caps what it captures (memory), the artifact writer caps
+    what it keeps (disk); either bound tripping makes the record say so."""
+    from dataclasses import replace
+
+    process = FakeProcess(stdout="head")
+    process.result = replace(process.result, output_truncated=True)
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND}, process=process)
+    r = run_chore("tidy", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.SUCCEEDED and r.truncated is True
+    (request,) = process.requests
+    assert request.max_output_bytes == 50 * 1024 * 1024  # max_run_dir_bytes
+
+
+def test_a_mechanism_failing_in_the_tick_is_a_warning_not_invalid(
+    tmp_path: Path,
+) -> None:
+    """A launcher or store failure while considering a chore leaves the
+    definition valid: the tick warns and notifies, writes no INVALID record,
+    and still marks liveness."""
+    from dataclasses import replace
+
+    from chores.adapters.fs_store import UnsafeStatePath
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    h.store.mark_tick(
+        TickMark(at=h.clock.now_utc() - timedelta(seconds=60), ledger_rows=0)
+    )
+
+    def boom(name: str) -> None:
+        raise UnsafeStatePath("spawn.log is a symlink; refusing to log there")
+
+    report = tick(replace(h.deps(), launch=boom).as_tick_deps())
+    assert report.invalid == [] and h.store.records() == []
+    assert any("tidy: tick could not act" in w for w in report.warnings)
+    assert any("could not act" in n.text for n in h.store.notifications())
+    assert h.store.last_tick() is not None
+
+
+def test_a_failed_reinstall_restores_the_previous_units(tmp_path: Path) -> None:
+    """A reinstall that fails after overwriting a unit puts the prior
+    install's text back and loads it again, so the old configuration keeps
+    running rather than vanishing."""
+    from chores.adapters.scheduler import SchedulerInstallFailed, SystemdInstaller
+
+    calls: list[list[str]] = []
+
+    def enable_fails_after_first(argv: list[str]) -> int:
+        calls.append(argv)
+        enables = sum(1 for c in calls if "enable" in c)
+        return 1 if "enable" in argv and enables == 2 else 0
+
+    inst = SystemdInstaller(home=tmp_path, run=enable_fails_after_first)
+    inst.install(interval_sec=60)
+    with pytest.raises(SchedulerInstallFailed, match="restored the previous"):
+        inst.install(interval_sec=120)
+    assert inst.installed_interval() == 60  # the prior timer is back
+    assert "CHORES_HOME" not in (inst.unit_dir / "chores-tick.service").read_text()
+    assert [c for c in calls if "enable" in c][-1][-1] == "chores-tick.timer"
+    assert calls[-2:] == [
+        ["systemctl", "--user", "daemon-reload"],
+        ["systemctl", "--user", "enable", "--now", "chores-tick.timer"],
+    ]
+    mac_calls: list[list[str]] = []
+
+    def bootstrap_fails_after_first(argv: list[str]) -> int:
+        mac_calls.append(argv)
+        boots = sum(1 for c in mac_calls if "bootstrap" in c)
+        return 1 if "bootstrap" in argv and boots == 2 else 0
+
+    mac = LaunchdInstaller(
+        home=tmp_path / "mac", uid=1, run=bootstrap_fails_after_first
+    )
+    mac.install(interval_sec=60)
+    with pytest.raises(SchedulerInstallFailed, match="restored the previous"):
+        mac.install(interval_sec=120)
+    assert mac.installed_interval() == 60
+    assert mac_calls[-1][:2] == ["launchctl", "bootstrap"]  # the old plist reloaded

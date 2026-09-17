@@ -247,13 +247,13 @@ class DefinitionsLoader:
                         backends[str(name)] = _backend(str(name), raw)
                     except (ValueError, KeyError) as e:
                         errors.append(f"backends.yaml: {e}")
-        except (ValueError, yaml.YAMLError, KeyError, UnicodeError) as e:
-            errors.append(f"backends.yaml: {e}")
+        except (OSError, ValueError, yaml.YAMLError, KeyError, UnicodeError) as e:
+            errors.append(f"backends.yaml: {e}")  # OSError: unreadable, a dir
         config = GlobalConfig()
         config_error: str | None = None
         try:
             config = _config(_load_yaml(self.home / "config.yaml"))
-        except (ValueError, yaml.YAMLError, UnicodeError) as e:
+        except (OSError, ValueError, yaml.YAMLError, UnicodeError) as e:
             config_error = (
                 f"config.yaml: {e}" if "config.yaml" not in str(e) else str(e)
             )

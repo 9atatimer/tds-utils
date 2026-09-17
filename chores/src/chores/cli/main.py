@@ -19,7 +19,7 @@ from chores.application.deps import Deps
 from chores.application.run import run_chore
 from chores.application.tick import tick as run_tick
 from chores.cli import render
-from chores.cli.wiring import forget_home, remember_home
+from chores.cli.wiring import forget_home, remember_home, restore_home
 from chores.domain.errors import InfrastructureError
 from chores.domain.run import RunStatus
 
@@ -329,19 +329,21 @@ def install(ctx: click.Context, dry_run: bool) -> None:
         ctx.exit(1)
     interval = defs.config.tick_interval_sec
     installer = _installer(ctx)
+    previous: str | None = None
     try:
         # The pointer first: it is the step that can refuse (a symlinked
         # state dir), and refusing before the OS job exists leaves nothing
-        # half-installed. If the scheduler then fails, the pointer goes too.
+        # half-installed. If the scheduler then fails, the pointer goes back
+        # to what it was: the prior install's, or none.
         if not dry_run:
-            remember_home(deps.paths)
+            previous = remember_home(deps.paths)
         try:
             lines = installer.install(
                 interval_sec=interval, dry_run=dry_run, env=_unit_env(deps)
             )
         except InfrastructureError:
             if not dry_run:
-                forget_home(deps.paths)
+                restore_home(deps.paths, previous)
             raise
     except InfrastructureError as e:
         click.echo(f"install failed: {e}", err=True)

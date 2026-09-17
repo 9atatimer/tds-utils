@@ -490,7 +490,14 @@ class FsRunStore:
         return text.strip() or "(no reason recorded)"
 
     def _sentry(self, name: str) -> Path:
-        return self.root / "paused" / check_chore_name(name)
+        """The per-chore pause sentry. Its parents are checked at every use,
+        like a run dir's components: a ``paused`` dir swapped for a symlink
+        after construction is refused, never followed."""
+        paused = self.root / "paused"
+        for component in (self.root, paused):
+            if component.is_symlink():
+                raise UnsafeStatePath(f"{component} is a symlink; refusing to use it")
+        return paused / check_chore_name(name)
 
     def pause_chore(self, name: str, reason: str) -> None:
         write_nofollow(self._sentry(name), reason)
