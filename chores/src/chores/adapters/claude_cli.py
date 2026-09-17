@@ -83,6 +83,10 @@ class ClaudeCliAgent:
         if payload.get("is_error"):
             subtype = payload.get("subtype", "error")
             raise BackendError(f"{PROVIDER}: {subtype}: {payload.get('result', '')}")
+        text = payload.get("result")
+        if not isinstance(text, str):
+            # `{}` is valid JSON and would otherwise be an empty success
+            raise BackendError(f"{PROVIDER}: response carried no result string")
         usage = payload.get("usage")
         tokens_in = tokens_out = 0
         if isinstance(usage, Mapping):
@@ -100,7 +104,7 @@ class ClaudeCliAgent:
         cost = payload.get("total_cost_usd")
         turns = payload.get("num_turns")
         return AgentResult(
-            text=str(payload.get("result", "")),
+            text=text,
             events=[dict(payload)],
             tokens_in=tokens_in,
             tokens_out=tokens_out,

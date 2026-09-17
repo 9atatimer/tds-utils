@@ -49,7 +49,7 @@ def test_loader_parses_chores_backends_config_and_reports_invalid(
     assert set(names) == {"brand", "tidy"}
     assert (
         names["brand"].kind is Kind.PROMPT
-        and names["brand"].body == "Summarize the logs."
+        and names["brand"].body == "Summarize the logs.\n"
     )
     assert names["tidy"].command == ("ls", "-la")
     assert [i.name for i in defs.invalid] == ["broken"]

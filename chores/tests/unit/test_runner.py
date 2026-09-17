@@ -236,7 +236,9 @@ def test_prompt_run_succeeds_with_full_record(tmp_path: Path) -> None:
         json.loads(line)
         for line in h.store.read_artifact(r.run_id, "transcript.jsonl").splitlines()
     ]
-    assert transcript[0]["role"] == "user" and transcript[0]["content"] == "Summarize."
+    assert (
+        transcript[0]["role"] == "user" and transcript[0]["content"] == "Summarize.\n"
+    )
     assert transcript[1]["role"] == "assistant" and transcript[1]["content"] == "ok"
     assert h.store.read_artifact(r.run_id, "definition.md").startswith(
         "---\nname: brand"

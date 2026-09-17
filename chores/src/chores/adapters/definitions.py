@@ -34,7 +34,7 @@ def split_front_matter(text: str) -> tuple[Mapping[str, object], str]:
             data = yaml.safe_load("".join(lines[1:i])) or {}
             if not isinstance(data, Mapping):
                 raise InvalidChore("front-matter must be a mapping")
-            return data, "".join(lines[i + 1 :]).strip()
+            return data, "".join(lines[i + 1 :])  # verbatim (design: the body)
     raise InvalidChore("unterminated front-matter")
 
 
@@ -230,7 +230,7 @@ class DefinitionsLoader:
                     raise InvalidChore(f"name {chore.name!r} must equal the file stem")
                 chores.append(chore)
                 sources[chore.name] = text
-            except (InvalidChore, yaml.YAMLError, OSError) as e:
+            except (InvalidChore, yaml.YAMLError, OSError, UnicodeError) as e:
                 invalid.append(InvalidDefinition(name=path.stem, error=str(e)))
         backends: dict[str, BackendConfig] = {}
         try:
@@ -247,13 +247,13 @@ class DefinitionsLoader:
                         backends[str(name)] = _backend(str(name), raw)
                     except (ValueError, KeyError) as e:
                         errors.append(f"backends.yaml: {e}")
-        except (ValueError, yaml.YAMLError, KeyError) as e:
+        except (ValueError, yaml.YAMLError, KeyError, UnicodeError) as e:
             errors.append(f"backends.yaml: {e}")
         config = GlobalConfig()
         config_error: str | None = None
         try:
             config = _config(_load_yaml(self.home / "config.yaml"))
-        except (ValueError, yaml.YAMLError) as e:
+        except (ValueError, yaml.YAMLError, UnicodeError) as e:
             config_error = (
                 f"config.yaml: {e}" if "config.yaml" not in str(e) else str(e)
             )

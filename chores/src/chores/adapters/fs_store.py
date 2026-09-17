@@ -9,12 +9,14 @@ dies with the process.
 
 from __future__ import annotations
 
+import errno
 import fcntl
 import json
 import os
 import re
 import secrets
 import shutil
+import stat
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime
@@ -79,12 +81,22 @@ def write_nofollow(path: Path, text: str, *, append: bool = False) -> None:
 
 
 def read_nofollow(path: Path) -> str | None:
-    """The file's text, None when absent; a symlink is refused, not read."""
-    if path.is_symlink():
-        raise UnsafeStatePath(f"{path} is a symlink; refusing to read")
-    if not path.is_file():
+    """The file's text, None when absent. One O_NOFOLLOW open and one read
+    on that descriptor: a symlink is refused by the kernel (ELOOP), never
+    followed, and nothing can be swapped in between a check and the read."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except FileNotFoundError:
         return None
-    return path.read_text(encoding="utf-8")
+    except OSError as e:
+        if e.errno == errno.ELOOP or path.is_symlink():
+            raise UnsafeStatePath(f"{path} is a symlink; refusing to read") from e
+        raise
+    if not stat.S_ISREG(os.fstat(fd).st_mode):
+        os.close(fd)
+        return None  # a directory or device is "absent" as a text file
+    with os.fdopen(fd, "r", encoding="utf-8") as fh:
+        return fh.read()
 
 
 def _is_real_file(path: Path) -> bool:
@@ -250,10 +262,11 @@ class FsRunStore:
 
     @staticmethod
     def _read_ndjson(path: Path) -> list[dict[str, object]]:
-        if read_nofollow(path) is None:
+        text = read_nofollow(path)
+        if text is None:
             return []
         rows: list[dict[str, object]] = []
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line in text.splitlines():
             if line.strip():
                 rows.append(json.loads(line))
         return rows
@@ -325,11 +338,15 @@ class FsRunStore:
             if not self._real_dir(chore_dir):
                 continue  # a symlinked chore dir is never followed
             for run_json in chore_dir.glob("*/run.json"):
-                if not (self._real_dir(run_json.parent) and _is_real_file(run_json)):
-                    continue  # nor a symlinked run dir or record
-                record = record_from_json(
-                    json.loads(run_json.read_text(encoding="utf-8"))
-                )
+                if not self._real_dir(run_json.parent):
+                    continue  # nor a symlinked run dir
+                try:
+                    text = read_nofollow(run_json)  # nor a symlinked record
+                except UnsafeStatePath:
+                    continue
+                if text is None:
+                    continue
+                record = record_from_json(json.loads(text))
                 if since is None or record.started >= since:
                     out.append(record)
         return sorted(out, key=lambda r: (r.started, r.run_id), reverse=True)
@@ -385,7 +402,7 @@ class FsRunStore:
 
     def kill_requested(self, run_id: str) -> bool:
         run_dir = self._find_run_dir(run_id)
-        return run_dir is not None and (run_dir / "KILL").exists()
+        return run_dir is not None and read_nofollow(run_dir / "KILL") is not None
 
     # --- ledger ---
 

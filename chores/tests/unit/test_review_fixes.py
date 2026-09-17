@@ -1553,3 +1553,99 @@ def test_install_persists_the_pointer_first_and_rolls_it_back(tmp_path: Path) ->
     deps = replace(h.deps(), installer=failing, scheduler_installed=failing.installed)
     r = CliRunner().invoke(main, ["install"], obj=deps)
     assert r.exit_code == 1 and not (state / "home").exists()  # pointer rolled back
+
+
+# --- Copilot round 14 (PR #290) --------------------------------------------
+
+
+def test_read_nofollow_is_one_descriptor(tmp_path: Path) -> None:
+    from chores.adapters.fs_store import UnsafeStatePath, read_nofollow
+
+    assert read_nofollow(tmp_path / "missing") is None
+    (tmp_path / "f").write_text("x")
+    assert read_nofollow(tmp_path / "f") == "x"
+    (tmp_path / "d").mkdir()
+    assert read_nofollow(tmp_path / "d") is None  # not a regular file
+    (tmp_path / "l").symlink_to(tmp_path / "f")
+    with pytest.raises(UnsafeStatePath):
+        read_nofollow(tmp_path / "l")  # ELOOP from the kernel, never followed
+
+
+def test_kill_marker_is_read_no_follow(tmp_path: Path) -> None:
+    from chores.adapters.fs_store import FsRunStore, UnsafeStatePath
+
+    store = FsRunStore(tmp_path / "s")
+    run_id = "tidy-20260302T100000Z-ab12"
+    store.write_record(
+        RunRecord.pending(
+            run_id=run_id,
+            chore="tidy",
+            kind=Kind.COMMAND,
+            definition_rev="r",
+            started=T0,
+        )
+    )
+    assert store.kill_requested(run_id) is False
+    (store.runs / "tidy" / run_id / "KILL").symlink_to(tmp_path / "s" / "ledger.ndjson")
+    with pytest.raises(UnsafeStatePath):
+        store.kill_requested(run_id)  # a planted link never counts as a kill
+
+
+def test_claude_response_without_a_result_string_is_a_backend_error() -> None:
+    import json
+
+    from chores.adapters.claude_cli import ClaudeCliAgent
+    from chores.ports.agent import AgentTask
+
+    process = FakeProcess(stdout=json.dumps({}))
+    agent = ClaudeCliAgent(process, binary="claude")
+    with pytest.raises(BackendError, match="no result string"):
+        agent.run(
+            AgentTask(
+                body="x",
+                model="m",
+                cwd="/tmp",
+                allowed_tools=frozenset(),
+                max_turns=1,
+                timeout_sec=1.0,
+                env={},
+                kill_grace_sec=1,
+            ),
+            on_start=lambda _identity: None,
+        )
+
+
+def test_prompt_body_is_verbatim_and_bad_utf8_is_reported(tmp_path: Path) -> None:
+    from chores.adapters.definitions import DefinitionsLoader, split_front_matter
+
+    _data, body = split_front_matter("---\nname: p\n---\n\n  keep me  \n\n")
+    assert body == "\n  keep me  \n\n"
+    home = tmp_path / "home"
+    (home / "chores").mkdir(parents=True)
+    (home / "chores" / "bad.md").write_bytes(b"---\nname: bad\n---\n\xff\xfe")
+    (home / "backends.yaml").write_bytes(b"\xff")
+    (home / "config.yaml").write_bytes(b"\xff")
+    defs = DefinitionsLoader(home, revision_reader=lambda _: "r").load()
+    assert [i.name for i in defs.invalid] == ["bad"]
+    assert any("backends.yaml" in e for e in defs.errors)
+    assert defs.config_error is not None
+
+
+def test_runs_since_zero_is_a_boundary(tmp_path: Path) -> None:
+    from click.testing import CliRunner
+
+    from chores.cli.main import main
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    old = RunRecord.pending(
+        run_id="tidy-a",
+        chore="tidy",
+        kind=Kind.COMMAND,
+        definition_rev="r",
+        started=h.clock.now_utc() - timedelta(hours=1),
+    )
+    h.store.write_record(old)
+    r = CliRunner().invoke(main, ["runs", "--since", "0"], obj=h.deps())
+    assert r.exit_code == 0 and "tidy-a" not in r.output
+    r = CliRunner().invoke(main, ["runs", "--since", "2"], obj=h.deps())
+    assert "tidy-a" in r.output

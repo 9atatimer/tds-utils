@@ -116,7 +116,7 @@ def runs_cmd(
     records = queries.runs(
         _deps(ctx),
         chore=chore,
-        since=timedelta(hours=since_hours) if since_hours else None,
+        since=timedelta(hours=since_hours) if since_hours is not None else None,
         statuses=[RunStatus(s) for s in statuses],
     )
     click.echo(render.records_json(records) if as_json else render.runs_text(records))

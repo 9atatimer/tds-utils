@@ -248,7 +248,7 @@ def runs(
     since: timedelta | None = None,
     statuses: Sequence[RunStatus] | None = None,
 ) -> Sequence[RunRecord]:
-    since_at = deps.clock.now_utc() - since if since else None
+    since_at = deps.clock.now_utc() - since if since is not None else None
     found = deps.store.records(chore=chore, since=since_at)
     if statuses:
         wanted = set(statuses)
