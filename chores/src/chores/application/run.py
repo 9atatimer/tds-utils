@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from chores.application.context import (
@@ -23,7 +23,7 @@ from chores.application.context import (
     write_outcome,
 )
 from chores.application.paths import Paths
-from chores.domain.budget import Budget, SpendAction, Usage, spend_policy
+from chores.domain.budget import Budget, Ceiling, SpendAction, Usage, spend_policy
 from chores.domain.chore import BackendSpec, Chore
 from chores.domain.errors import ChoresError
 from chores.domain.kinds import Kind
@@ -83,6 +83,12 @@ class RunPlan:
     budget: Budget
     admission: str
     admission_reason: str | None
+    port: str | None = None
+    """The execution port the kind resolves to (completion / agent), None for
+    a command chore."""
+    ceilings: Mapping[str, Ceiling] = field(default_factory=dict)
+    """Every ceiling that applies, by scope: chore, backend, global (only
+    scopes that cap at least one dimension are present)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -314,21 +320,22 @@ def _execute_agent(
         turns=result.turns,
         cpu_seconds=result.cpu_seconds,
     )
-    if result.timed_out:
+    if ctx_store_kill_requested(artifacts):
+        # first: a killed child exits nonzero without raising, or comes back
+        # through the timeout path if it ignored SIGTERM; the marker decides
         return _Execution(
-            RunStatus.TIMED_OUT,
-            f"timed out after {chore.budget.seconds}s",
+            RunStatus.KILLED,
+            "killed by chores kill",
             usage,
             backend=spec.name,
             model=model,
             billing=result.billing,
             exit_code=result.exit_code,
         )
-    if ctx_store_kill_requested(artifacts):
-        # a killed child exits nonzero without raising: the marker decides
+    if result.timed_out:
         return _Execution(
-            RunStatus.KILLED,
-            "killed by chores kill",
+            RunStatus.TIMED_OUT,
+            f"timed out after {chore.budget.seconds}s",
             usage,
             backend=spec.name,
             model=model,
@@ -388,16 +395,18 @@ def _execute_command(
     if result.stderr:
         artifacts.append("stderr.log", result.stderr)
     usage = Usage(0, 0, result.seconds, cpu_seconds=result.cpu_seconds)
+    if deps.store.kill_requested(artifacts.run_id):
+        # first: a command that ignored SIGTERM comes back through the
+        # timeout path, and the operator's kill is still the outcome
+        return _Execution(
+            RunStatus.KILLED, "killed by chores kill", usage, exit_code=result.exit_code
+        )
     if result.timed_out:
         return _Execution(
             RunStatus.TIMED_OUT,
             f"timed out after {chore.budget.seconds}s",
             usage,
             exit_code=result.exit_code,
-        )
-    if deps.store.kill_requested(artifacts.run_id):
-        return _Execution(
-            RunStatus.KILLED, "killed by chores kill", usage, exit_code=result.exit_code
         )
     if result.exit_code != 0:
         tail = result.stderr.strip()[-200:]
@@ -582,6 +591,16 @@ def run_chore(
             admission=verdict.decision.name
             if verdict.decision is Decision.ADMIT
             else "SKIP",
+            port=chore.port.value if chore.port else None,
+            ceilings={
+                scope: ceiling
+                for scope, ceiling in (
+                    ("chore", chore.ceiling),
+                    ("backend", spec.ceiling if spec else Ceiling()),
+                    ("global", ctx.definitions.config.ceiling),
+                )
+                if ceiling.dimensions()
+            },
             admission_reason=verdict.reason,
         )
         return RunOutcome(None, "dry run", plan)

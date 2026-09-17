@@ -1245,3 +1245,74 @@ def test_empty_xdg_values_are_unset_not_the_working_directory(tmp_path: Path) ->
     )
     assert paths.state_dir == str(tmp_path / ".local" / "state" / "chores")
     assert paths.data_dir == str(tmp_path / ".local" / "share" / "chores")
+
+
+# --- Copilot round 9 (PR #290) ---------------------------------------------
+
+
+def test_process_identity_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unknown recorded start, or a start ps cannot give now, never vouches
+    for a pid: alive() is False, so the tick closes the run and kill never
+    signals a possibly recycled group."""
+    import os
+
+    import chores.adapters.process as process
+    from chores.adapters.process import UNKNOWN_START, SubprocessRunner
+
+    runner = SubprocessRunner()
+    me = os.getpid()
+    assert runner.alive(me, process_start=UNKNOWN_START) is False
+    monkeypatch.setattr(process, "process_start_time", lambda pid: None)
+    assert runner.alive(me, process_start=12345.0) is False
+    assert runner.own_identity().process_start == UNKNOWN_START  # not a guess
+    monkeypatch.setattr(process, "process_start_time", lambda pid: 500.0)
+    assert runner.alive(me, process_start=501.0) is True
+    assert runner.alive(me, process_start=900.0) is False
+
+
+def test_ps_is_read_in_the_c_locale(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    from chores.adapters.process import process_start_time
+
+    seen: dict[str, str] = {}
+
+    def fake_run(argv, **kw):  # type: ignore[no-untyped-def]
+        seen.update(kw["env"])
+        return subprocess.CompletedProcess(argv, 0, "Wed Sep 17 12:00:00 2026\n", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert process_start_time(1) is not None
+    assert seen["LC_ALL"] == "C" and seen["LC_TIME"] == "C"
+
+
+def test_a_kill_request_outranks_the_timeout(tmp_path: Path) -> None:
+    h = FullHarness(
+        tmp_path, chores={"tidy": COMMAND}, process=FakeProcess(timed_out=True)
+    )
+    h.store.request_kill("tidy-20260302T170030Z-ab12")
+    r = run_chore("tidy", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.KILLED
+    h = FullHarness(
+        tmp_path / "a", chores={"rev": AGENT}, agent=FakeAgent(timed_out=True)
+    )
+    h.store.request_kill("rev-20260302T170030Z-ab12")
+    r = run_chore("rev", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.KILLED
+
+
+def test_dry_run_plan_shows_the_port_and_applicable_ceilings(tmp_path: Path) -> None:
+    from click.testing import CliRunner
+
+    from chores.cli.main import main
+
+    h = FullHarness(
+        tmp_path, chores={"brand": PROMPT}, config="ceiling: {tokens: 5000}\n"
+    )
+    out = run_chore("brand", h.deps().as_run_deps(), dry_run=True)
+    assert out.plan is not None and out.plan.port == "completion"
+    assert set(out.plan.ceilings) == {"backend", "global"}  # gw caps usd; global tokens
+    assert out.plan.ceilings["global"].tokens == 5000
+    r = CliRunner().invoke(main, ["run", "brand", "--dry-run"], obj=h.deps())
+    assert "port completion" in r.output
+    assert "ceiling:   global:" in r.output and "ceiling:   backend:" in r.output

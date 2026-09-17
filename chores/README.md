@@ -20,7 +20,13 @@ Every later entry point that sees no shell export -- the tick, the
 menu-bar monitor, a Dock launch -- resolves the same herd; an explicit
 `CHORES_HOME` in the environment still wins. `chores uninstall` forgets it.
 
-State lives in `$XDG_STATE_HOME/chores` (default `~/.local/state/chores`):
+State lives in `$XDG_STATE_HOME/chores` (default `~/.local/state/chores`).
+A customised `XDG_STATE_HOME` belongs in `~/.zshenv` (the three-file
+contract in the repo AGENT.md): every launchd job here runs through zsh,
+which sources `.zshenv` unconditionally, so the menu-bar monitor and the
+Dock launcher see the same state root as your shell and find the herd
+pointer there. The tick unit carries the value explicitly as well.
+State holds:
 one directory per run (`run.json`, `definition.md`, `transcript.jsonl`,
 `stdout.log`, `stderr.log`, `errors.log`), the append-only
 `ledger.ndjson`, `notifications.ndjson`, the `PAUSED` sentry and

@@ -168,11 +168,15 @@ def run(ctx: click.Context, name: str, force: bool, dry_run: bool) -> None:
     outcome = run_chore(name, _deps(ctx).as_run_deps(), force=force, dry_run=dry_run)
     if outcome.plan is not None:
         p = outcome.plan
-        click.echo(f"chore:     {p.chore} ({p.kind})")
+        click.echo(f"chore:     {p.chore} ({p.kind}, port {p.port or '-'})")
         click.echo(f"backend:   {p.backend or '-'}  model: {p.model or '-'}")
         click.echo(f"cwd:       {p.cwd}")
         click.echo(f"argv:      {' '.join(p.argv) if p.argv else '-'}")
         click.echo(f"budget:    {p.budget}")
+        for scope, ceiling in p.ceilings.items():
+            click.echo(f"ceiling:   {scope}: {ceiling}")
+        if not p.ceilings:
+            click.echo("ceiling:   none applies")
         click.echo(f"env:       {', '.join(p.env_names)}")
         click.echo(f"secrets:   {', '.join(p.secret_names) or '-'}")
         click.echo(

@@ -19,10 +19,18 @@ from chores.ports.errors import ProcessError
 from chores.ports.process import ProcessRequest, ProcessResult
 
 _START_TOLERANCE_SEC = 2.0
+UNKNOWN_START = 0.0
+"""A recorded ``process_start`` of 0.0 means the start time could not be
+read when the process was spawned. Identity is then unknown, and unknown
+fails closed: ``alive`` says False, so the tick closes the run and
+``chores kill`` never signals a group it cannot vouch for."""
 
 
 def process_start_time(pid: int) -> float | None:
-    """Epoch seconds the process started, via ``ps`` (works on macOS and Linux)."""
+    """Epoch seconds the process started, via ``ps`` (macOS and Linux), read
+    under ``LC_ALL=C`` so ``lstart`` is the English form ``strptime`` expects
+    whatever the host locale is. None when ps failed or printed nothing."""
+    env = {**os.environ, "LC_ALL": "C", "LANG": "C", "LC_TIME": "C"}
     try:
         out = subprocess.run(
             ["ps", "-o", "lstart=", "-p", str(pid)],
@@ -30,6 +38,7 @@ def process_start_time(pid: int) -> float | None:
             text=True,
             timeout=5,
             check=False,
+            env=env,
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -40,6 +49,13 @@ def process_start_time(pid: int) -> float | None:
         return time.mktime(time.strptime(text, "%a %b %d %H:%M:%S %Y"))
     except ValueError:
         return None
+
+
+def _start_or_unknown(pid: int) -> float:
+    start = process_start_time(pid)
+    if start is None:
+        start = process_start_time(pid)  # one retry: ps hiccups are transient
+    return start if start is not None else UNKNOWN_START
 
 
 @dataclass
@@ -115,24 +131,29 @@ class SubprocessRunner:
             )
         except (OSError, ValueError) as e:
             raise ProcessError(f"could not start {argv[0]!r}: {e}") from e
-        start = process_start_time(popen.pid)
         identity = ProcessIdentity(
             pid=popen.pid,
             pgid=popen.pid,  # start_new_session: the child leads its own group
-            process_start=start if start is not None else time.time(),
+            process_start=_start_or_unknown(popen.pid),  # never a guess
         )
         return _Running(popen, request, identity, time.monotonic(), _children_cpu())
 
     def alive(self, pid: int, *, process_start: float) -> bool:
+        """Is that exact process running? Fails closed: an unknown recorded
+        identity, a pid we may not inspect, or a start time ps cannot give
+        now all answer False rather than vouching for a pid that may have
+        been recycled."""
+        if process_start == UNKNOWN_START:
+            return False
         try:
             os.kill(pid, 0)
         except ProcessLookupError:
             return False
         except PermissionError:
-            return True
+            return False
         start = process_start_time(pid)
-        if start is None or process_start == 0.0:
-            return True
+        if start is None:
+            return False
         return abs(start - process_start) <= _START_TOLERANCE_SEC
 
     def signal_group(self, pgid: int) -> bool:
@@ -140,9 +161,6 @@ class SubprocessRunner:
 
     def own_identity(self) -> ProcessIdentity:
         pid = os.getpid()
-        start = process_start_time(pid)
         return ProcessIdentity(
-            pid=pid,
-            pgid=os.getpgid(pid),
-            process_start=start if start is not None else 0.0,
+            pid=pid, pgid=os.getpgid(pid), process_start=_start_or_unknown(pid)
         )
