@@ -25,7 +25,7 @@ from chores.ports.backends import BackendCatalogPort
 from chores.ports.definitions import Definitions, DefinitionsPort, InvalidDefinition
 from chores.ports.host import ClockPort, NetworkPort, NotifierPort, PowerPort
 from chores.ports.process import ProcessPort
-from chores.ports.store import RunStorePort
+from chores.ports.store import Notification, RunStorePort
 
 CEILING_WINDOW = timedelta(hours=24)
 PROBE_TIMEOUT_SEC = 3.0
@@ -211,10 +211,14 @@ def post(
     text: str,
     run_id: str | None = None,
     chore: str | None = None,
-) -> None:
-    store.notify(at=at, level=level, text=text, run_id=run_id, chore=chore)
+) -> Notification:
+    """The one place a notification is queued and, for level=alert, the
+    desktop is told: every producer (runner, tick, `chores notify`) goes
+    through here so an alert is raised exactly once."""
+    posted = store.notify(at=at, level=level, text=text, run_id=run_id, chore=chore)
     if level == "alert":
         notifier.alert(title="chores", text=text)
+    return posted
 
 
 def mint_run_id(chore: str, clock: ClockPort, suffix: Callable[[], str]) -> str:

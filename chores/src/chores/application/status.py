@@ -320,8 +320,14 @@ def notify(
 ) -> Notification:
     values = [deps.inherited_env.get(name, "") for name in secret_names]
     clean = redact(text, values)
-    return deps.store.notify(
-        at=deps.clock.now_utc(), level=level, text=clean, run_id=run_id, chore=chore
+    return post(
+        deps.store,
+        deps.notifier,
+        at=deps.clock.now_utc(),
+        level=level,
+        text=clean,
+        run_id=run_id,
+        chore=chore,
     )
 
 

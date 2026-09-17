@@ -284,9 +284,7 @@ def notify(
         chore=env.get("CHORES_CHORE"),
         secret_names=names,
     )
-    if level == "alert":
-        deps.notifier.alert(title="chores", text=n.text)
-    click.echo(n.id)
+    click.echo(n.id)  # post() already raised the desktop alert for level=alert
 
 
 @main.command()

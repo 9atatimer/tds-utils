@@ -25,10 +25,23 @@ require_uv() {
 
 # --- Main --------------------------------------------------------------------
 
+# The TUI extra (textual) is only synced for `chores ui`; every other verb
+# runs on the base dependencies, so a scheduler tick or a status poll never
+# installs UI packages.
+extras_for() {
+    case "${1:-}" in
+        ui) printf '%s\n' "--extra tui" ;;
+        *)  printf '%s\n' "" ;;
+    esac
+}
+
 main() {
     export PATH="/usr/local/bin:/opt/homebrew/bin:${HOME}/.local/bin:${PATH}"
     require_uv
-    exec uv run --quiet --project "$(project_dir)" --all-extras chores "$@"
+    local extras
+    extras="$(extras_for "${1:-}")"
+    # shellcheck disable=SC2086
+    exec uv run --quiet --project "$(project_dir)" ${extras} chores "$@"
 }
 
 main "$@"
