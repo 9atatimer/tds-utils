@@ -287,8 +287,10 @@ def tick(deps: TickDeps) -> TickReport:
             report.locked_out = True
             return report
         previous_tick = deps.store.last_tick()
-        rows = _check_ledger(deps, report)
-        deps.store.mark_tick(TickMark(at=deps.clock.now_utc(), ledger_rows=rows))
+        _check_ledger(deps, report)
+        # The mark is written once, AFTER the pass: a pass that dies half way
+        # leaves the previous mark in place, so the next tick replays its
+        # window instead of treating the dead pass as done.
         ctx = load_context(deps.definitions, deps.catalog_for)
         host = Host(deps.store, deps.process, deps.clock, deps.power, deps.network)
         for error in [*ctx.definitions.errors, *ctx.catalog.errors]:

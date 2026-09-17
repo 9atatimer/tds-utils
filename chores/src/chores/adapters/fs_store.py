@@ -300,8 +300,11 @@ class FsRunStore:
         run_dir = self._find_run_dir(run_id)
         if run_dir is None:
             return False
-        shutil.rmtree(run_dir, ignore_errors=True)
-        return True
+        try:
+            shutil.rmtree(run_dir)
+        except OSError:
+            pass  # reported below by what is actually left on disk
+        return not run_dir.exists()
 
     # --- kill requests ---
 

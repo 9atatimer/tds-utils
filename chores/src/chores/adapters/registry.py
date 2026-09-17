@@ -14,6 +14,7 @@ from chores.adapters.ollama import DEFAULT_BASE_URL, OllamaCompletion
 from chores.adapters.openai_compat import OpenAICompatCompletion
 from chores.domain.chore import BackendSpec
 from chores.domain.kinds import ExecutionPort
+from chores.domain.run import Billing
 from chores.ports.agent import AgentPort
 from chores.ports.backends import BackendConfig
 from chores.ports.completion import CompletionPort
@@ -39,6 +40,7 @@ class BackendType:
     build_completion: CompletionBuilder | None
     build_agent: AgentBuilder | None
     requires_base_url: bool = False
+    billing: Billing = Billing.METERED
 
 
 _TYPES: dict[str, BackendType] = {}
@@ -73,7 +75,15 @@ def _claude_cli(cfg: BackendConfig, credential: str | None, deps: Deps) -> Agent
 
 
 register_type(
-    BackendType("ollama", ExecutionPort.COMPLETION, False, frozenset(), _ollama, None)
+    BackendType(
+        "ollama",
+        ExecutionPort.COMPLETION,
+        False,
+        frozenset(),
+        _ollama,
+        None,
+        billing=Billing.NONE,
+    )
 )
 register_type(
     BackendType(
@@ -88,7 +98,13 @@ register_type(
 )
 register_type(
     BackendType(
-        "claude-cli", ExecutionPort.AGENT, True, READ_ONLY_TOOLS, None, _claude_cli
+        "claude-cli",
+        ExecutionPort.AGENT,
+        True,
+        READ_ONLY_TOOLS,
+        None,
+        _claude_cli,
+        billing=Billing.SUBSCRIPTION,
     )
 )
 
@@ -147,6 +163,7 @@ class BackendCatalog:
             ceiling=cfg.ceiling,
             read_only_tools=kind.read_only_tools,
             priced_models=frozenset(cfg.prices),
+            billing=kind.billing,
         )
 
     def credential_ref(self, name: str) -> str | None:

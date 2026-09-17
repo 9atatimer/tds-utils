@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from chores.domain.budget import Budget, Ceiling, InvalidBudget
 from chores.domain.errors import DomainError
 from chores.domain.kinds import KIND_PORT, ExecutionPort, Kind
-from chores.domain.run import RunStatus
+from chores.domain.run import Billing, RunStatus
 from chores.domain.schedule import InvalidSchedule, Schedule
 
 __all__ = [
@@ -88,6 +88,10 @@ class BackendSpec:
     priced_models: frozenset[str] = frozenset()
     """The models the price table names; empty when the backend has none
     (``priced`` says whether a table exists at all)."""
+    billing: Billing | None = None
+    """How this backend charges: METERED spend is only measurable through a
+    price table; NONE is free; SUBSCRIPTION reports its own cost. None means
+    unknown (a test double)."""
 
 
 # --- predicates --------------------------------------------------------------
@@ -344,24 +348,28 @@ def check_bindings(
                 f"kind {chore.kind.value} needs a {wanted} port but backend "
                 f"{backend.name!r} implements {backend.port.value}"
             )
-        if (
-            backend is not None
-            and backend.ceiling.usd is not None
-            and not backend.priced
-        ):
-            out.append(f"backend {backend.name!r} has a usd ceiling but no price table")
+        usd_applies = (
+            chore.budget.usd is not None
+            or chore.ceiling.usd is not None
+            or global_ceiling.usd is not None
+            or (backend is not None and backend.ceiling.usd is not None)
+        )
+        if backend is not None and not backend.priced:
+            if backend.ceiling.usd is not None:
+                out.append(
+                    f"backend {backend.name!r} has a usd ceiling but no price table"
+                )
+            elif backend.billing is Billing.METERED and usd_applies:
+                out.append(
+                    f"backend {backend.name!r} is metered but has no price table: "
+                    "a usd budget or ceiling would count its spend as zero"
+                )
         if backend is not None and not (chore.model or backend.default_model):
             out.append(
                 f"no model: set model on the chore or on backend {backend.name!r}"
             )
         if backend is not None and backend.priced_models:
             model = chore.model or backend.default_model
-            usd_applies = (
-                chore.budget.usd is not None
-                or chore.ceiling.usd is not None
-                or backend.ceiling.usd is not None
-                or global_ceiling.usd is not None
-            )
             if usd_applies and model and model not in backend.priced_models:
                 out.append(
                     f"model {model!r} has no price on backend {backend.name!r}: "

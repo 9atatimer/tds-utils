@@ -941,3 +941,128 @@ def test_install_remembers_chores_home_for_shell_less_entry_points(
     r = CliRunner().invoke(main, ["uninstall"], obj=deps, catch_exceptions=False)
     assert r.exit_code == 0 and not (Path(h.paths.state_dir) / "home").exists()
     del state_home
+
+
+# --- Copilot round 6 (PR #290) ---------------------------------------------
+
+
+class DiesMidPass(FakeRunStore):
+    """The pass blows up after the ledger check (an uncaught adapter error)."""
+
+    def records(self, *, chore=None, since=None):  # type: ignore[no-untyped-def]
+        raise RuntimeError("disk vanished")
+
+
+def test_a_pass_that_dies_leaves_the_previous_tick_mark_in_place(
+    tmp_path: Path,
+) -> None:
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    h.store = DiesMidPass()  # type: ignore[assignment]
+    before = TickMark(at=h.clock.now_utc() - timedelta(minutes=5), ledger_rows=0)
+    h.store.mark_tick(before)
+    with pytest.raises(RuntimeError):
+        tick(h.deps().as_tick_deps())
+    assert h.store.last_tick() == before  # the next tick replays this window
+
+
+def test_a_metered_backend_without_prices_cannot_carry_any_usd_limit() -> None:
+    from chores.domain.run import Billing
+
+    def spec(billing: Billing) -> BackendSpec:
+        return BackendSpec(
+            name="b",
+            port=ExecutionPort.COMPLETION,
+            default_model="m",
+            requires_network=True,
+            priced=False,
+            ceiling=Ceiling(),
+            read_only_tools=frozenset(),
+            billing=billing,
+        )
+
+    chore = Chore.from_mapping(
+        {
+            "name": "p",
+            "kind": "prompt",
+            "schedule": "* * * * *",
+            "backend": "b",
+            "timeout_sec": 5,
+            "budget": {"usd": 0.5},
+        },
+        body="x",
+    )
+    metered = check_bindings(
+        chore,
+        backend=spec(Billing.METERED),
+        global_ceiling=Ceiling(),
+        forbidden_paths=(),
+    )
+    assert any("metered but has no price table" in e for e in metered)
+    free = check_bindings(
+        chore, backend=spec(Billing.NONE), global_ceiling=Ceiling(), forbidden_paths=()
+    )
+    assert free == []
+    plain = Chore.from_mapping(
+        {
+            "name": "p",
+            "kind": "prompt",
+            "schedule": "* * * * *",
+            "backend": "b",
+            "timeout_sec": 5,
+        },
+        body="x",
+    )
+    global_cap = check_bindings(
+        plain,
+        backend=spec(Billing.METERED),
+        global_ceiling=Ceiling(usd=2.0),
+        forbidden_paths=(),
+    )
+    assert any("metered but has no price table" in e for e in global_cap)
+
+
+def test_registry_types_declare_their_billing() -> None:
+    from chores.adapters.registry import BackendCatalog
+    from chores.domain.run import Billing
+    from chores.ports.backends import BackendConfig
+
+    catalog = BackendCatalog(
+        {
+            "local": BackendConfig(name="local", type="ollama", model="m"),
+            "gw": BackendConfig(
+                name="gw", type="openai-compat", model="m", base_url="https://gw"
+            ),
+            "claude": BackendConfig(name="claude", type="claude-cli", model="s"),
+        },
+        process=FakeProcess(),
+    )
+    billing = {n: catalog.spec(n).billing for n in ("local", "gw", "claude")}  # type: ignore[union-attr]
+    assert billing == {
+        "local": Billing.NONE,
+        "gw": Billing.METERED,
+        "claude": Billing.SUBSCRIPTION,
+    }
+
+
+def test_delete_run_reports_what_is_left_on_disk(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import shutil
+
+    from chores.adapters.fs_store import FsRunStore
+
+    store = FsRunStore(tmp_path / "s")
+    store.write_record(
+        RunRecord.pending(
+            run_id="c-1", chore="c", kind=Kind.COMMAND, definition_rev="r", started=T0
+        )
+    )
+
+    def refuse(path, *a, **kw):  # type: ignore[no-untyped-def]
+        raise OSError("busy")
+
+    monkeypatch.setattr(shutil, "rmtree", refuse)
+    assert store.delete_run("c-1") is False  # the directory is still there
+    assert store.read_record("c-1") is not None
+    monkeypatch.undo()
+    assert store.delete_run("c-1") is True and store.read_record("c-1") is None
