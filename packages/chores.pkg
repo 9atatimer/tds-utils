@@ -1,7 +1,9 @@
 # chores -- laptop-local herd of LLM-adjacent scheduled jobs (docs/design/CHORES.DESIGN.md)
+# assets/chores-*.png ship with lmde.pkg (it claims assets/ whole) and
+# macos/apps/chores with macos-apps.pkg (macos/apps/ whole): ownership is exclusive.
 NAME=chores
-DESC="chores scheduler, CLI, TUI, menu-bar monitor and Dock app"
-PATHS="chores bin/chores bin/chores-dashboard bin/chores-monitor bin/launch-chores-monitor assets/chores-quiet.png assets/chores-alert.png assets/chores-icons.py macos/launchd/com.tds.chores-monitor.plist macos/apps/chores"
+DESC="chores scheduler, CLI, TUI and menu-bar monitor"
+PATHS="chores bin/chores bin/chores-dashboard bin/chores-monitor bin/launch-chores-monitor macos/launchd/com.tds.chores-monitor.plist"
 BINS="bin/chores bin/chores-dashboard bin/chores-monitor bin/launch-chores-monitor"
 SERVICES="macos/launchd/com.tds.chores-monitor.plist"
 VERIFY=chores/tests
