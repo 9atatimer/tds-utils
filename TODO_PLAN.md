@@ -240,6 +240,18 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
   packaging/install pipeline -- and whether `lmde-sync-monitor` needs the
   same treatment -- after.
 
+  **Update 2026-09-16 (retrospective, PR #265):** the "kinks" are worked
+  out -- see issues #275/#276 for what shipped undocumented and untested.
+  Separately, `~/.tds/release` caught up to the merge (6e17cf2) during
+  ordinary maintenance, so the manual `~/Library/LaunchAgents` copy was
+  re-synced from the repo's now-safe, PATH-tiered plist (Copilot's
+  original finding on PR #265): the live agent now resolves through
+  `~/.tds/release/bin/skills-drift-monitor`, not the mutable dev
+  checkout. That was the one part of this task blocked on the
+  skills-drift work; `tds-install -S` formalization (and whether
+  `lmde-sync-monitor` needs the same plist fix -- it still hardcodes the
+  dev-checkout path) is still open.
+
 ### Goldfish
 
 - [x] Task G10: **smoketest hermeticity: `resolve_orgs()` falls through to real `gh`.** Scenarios 01/05/06 fail because when smoke config has `"orgs": []`, `resolve_orgs()` runs `gh api user --jq .login` and uses the real user's login, polluting the smoke env with real GitHub data (which then hides the test fixtures behind the actionability filter). Fix: added a `--no-gh` flag to goldfish and updated the smoke runner to use it + `--no-filter`. PR #59.
