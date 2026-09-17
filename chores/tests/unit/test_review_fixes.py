@@ -1316,3 +1316,59 @@ def test_dry_run_plan_shows_the_port_and_applicable_ceilings(tmp_path: Path) -> 
     r = CliRunner().invoke(main, ["run", "brand", "--dry-run"], obj=h.deps())
     assert "port completion" in r.output
     assert "ceiling:   global:" in r.output and "ceiling:   backend:" in r.output
+
+
+# --- Copilot round 10 (PR #290) --------------------------------------------
+
+
+def test_state_tree_never_follows_a_symlinked_component(tmp_path: Path) -> None:
+    from chores.adapters.fs_store import FsRunStore, UnsafeStatePath
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    store = FsRunStore(tmp_path / "s")
+    (store.runs / "evil").symlink_to(outside)
+    record = RunRecord.pending(
+        run_id="evil-20260302T100000Z-ab12",
+        chore="evil",
+        kind=Kind.COMMAND,
+        definition_rev="r",
+        started=T0,
+    )
+    with pytest.raises(UnsafeStatePath, match="symlink"):
+        store.write_record(record)
+    assert list(outside.iterdir()) == []  # nothing was written through the link
+    with pytest.raises(UnsafeStatePath):
+        store.read_record(record.run_id)
+    (store.runs / "good").mkdir()
+    (store.runs / "good" / "good-20260302T100000Z-ab12").symlink_to(outside)
+    with pytest.raises(UnsafeStatePath):
+        store.append_artifact("good-20260302T100000Z-ab12", "stdout.log", "x")
+    assert list(outside.iterdir()) == []
+    (tmp_path / "link-state").symlink_to(outside)
+    with pytest.raises(UnsafeStatePath):
+        FsRunStore(tmp_path / "link-state")
+
+
+def test_a_missing_scheduler_command_is_a_controlled_failure(tmp_path: Path) -> None:
+    from chores.adapters.scheduler import (
+        SchedulerInstallFailed,
+        SystemdInstaller,
+        _run_subprocess,
+    )
+
+    with pytest.raises(SchedulerInstallFailed, match="cannot run"):
+        _run_subprocess(["/definitely/not/launchctl", "print"])
+
+    def missing(argv: list[str]) -> int:
+        raise SchedulerInstallFailed(f"cannot run {argv[0]}: not found")
+
+    launchd = LaunchdInstaller(home=tmp_path / "mac", uid=1, run=missing)
+    with pytest.raises(SchedulerInstallFailed, match="cannot run"):
+        launchd.install(interval_sec=60)
+    assert launchd.installed() is False  # the written plist was removed
+    systemd = SystemdInstaller(home=tmp_path / "linux", run=missing)
+    with pytest.raises(SchedulerInstallFailed, match="cannot run"):
+        systemd.install(interval_sec=60)
+    assert systemd.installed() is False
+    assert not (systemd.unit_dir / "chores-tick.service").exists()

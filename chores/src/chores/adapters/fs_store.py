@@ -46,6 +46,12 @@ class UnsafeWorkspace(InfrastructureError):
     """The default workspace is a symlink or resolves outside the data root."""
 
 
+class UnsafeStatePath(InfrastructureError):
+    """A directory inside the 0700 state tree is a symlink: a pre-planted
+    link could redirect records and artifacts elsewhere, so it is refused
+    rather than followed (the tree is created and used no-follow)."""
+
+
 def check_run_id(run_id: str) -> str:
     if not _RUN_ID_RE.match(run_id):
         raise InvalidRunId(f"not a run id: {run_id!r}")
@@ -169,22 +175,33 @@ class FsRunStore:
 
     @staticmethod
     def _ensure_private(path: Path) -> None:
+        if path.is_symlink():
+            raise UnsafeStatePath(f"{path} is a symlink; refusing to use it")
         path.mkdir(parents=True, exist_ok=True, mode=0o700)
-        os.chmod(path, 0o700)
+        os.chmod(path, 0o700, follow_symlinks=False)
+
+    @staticmethod
+    def _real_dir(path: Path) -> bool:
+        """A directory that is not reached through a symlink at this level."""
+        return path.is_dir() and not path.is_symlink()
 
     def _run_dir(self, run_id: str) -> Path:
         check_run_id(run_id)
         chore = run_id.rsplit("-", 2)[0]
-        return self.runs / chore / run_id
+        path = self.runs / chore / run_id
+        for component in (self.runs, path.parent, path):
+            if component.is_symlink():
+                raise UnsafeStatePath(f"{component} is a symlink; refusing to use it")
+        return path
 
     def _find_run_dir(self, run_id: str) -> Path | None:
         if not _RUN_ID_RE.match(run_id):
             return None
-        direct = self._run_dir(run_id)
-        if direct.is_dir():
+        direct = self._run_dir(run_id)  # raises on a symlinked component
+        if self._real_dir(direct):
             return direct
         for candidate in self.runs.glob(f"*/{run_id}"):
-            if candidate.is_dir():
+            if self._real_dir(candidate) and self._real_dir(candidate.parent):
                 return candidate
         return None
 

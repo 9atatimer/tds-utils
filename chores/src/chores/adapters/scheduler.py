@@ -79,7 +79,10 @@ RunFn = Callable[[list[str]], int]
 
 
 def _run_subprocess(argv: list[str]) -> int:
-    return subprocess.run(argv, capture_output=True, check=False).returncode
+    try:
+        return subprocess.run(argv, capture_output=True, check=False).returncode
+    except OSError as e:  # launchctl / systemctl missing or not executable
+        raise SchedulerInstallFailed(f"cannot run {argv[0]}: {e}") from e
 
 
 class SchedulerInstallFailed(InfrastructureError):
@@ -153,8 +156,12 @@ class LaunchdInstaller:
             ]
         self.plist.parent.mkdir(parents=True, exist_ok=True)
         self.plist.write_text(text)
-        self._run(["launchctl", "bootout", f"{self._domain}/{LAUNCHD_LABEL}"])
-        rc = self._run(["launchctl", "bootstrap", self._domain, str(self.plist)])
+        try:
+            self._run(["launchctl", "bootout", f"{self._domain}/{LAUNCHD_LABEL}"])
+            rc = self._run(["launchctl", "bootstrap", self._domain, str(self.plist)])
+        except SchedulerInstallFailed:
+            self.plist.unlink(missing_ok=True)  # nothing half-installed
+            raise
         if rc != 0:
             self.plist.unlink(missing_ok=True)
             raise SchedulerInstallFailed(
@@ -216,10 +223,15 @@ class SystemdInstaller:
             _SERVICE.format(env=_service_env(env or {}))
         )
         self.timer.write_text(_TIMER.format(interval=interval_sec))
-        self._run(["systemctl", "--user", "daemon-reload"])
-        rc = self._run(
-            ["systemctl", "--user", "enable", "--now", f"{SYSTEMD_UNIT}.timer"]
-        )
+        try:
+            self._run(["systemctl", "--user", "daemon-reload"])
+            rc = self._run(
+                ["systemctl", "--user", "enable", "--now", f"{SYSTEMD_UNIT}.timer"]
+            )
+        except SchedulerInstallFailed:
+            for name in (f"{SYSTEMD_UNIT}.timer", f"{SYSTEMD_UNIT}.service"):
+                (self.unit_dir / name).unlink(missing_ok=True)
+            raise
         if rc != 0:
             for name in (f"{SYSTEMD_UNIT}.timer", f"{SYSTEMD_UNIT}.service"):
                 (self.unit_dir / name).unlink(missing_ok=True)
