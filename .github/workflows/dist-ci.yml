@@ -14,8 +14,8 @@
 #
 #   chores -- lint, format, strict types and unit tests for the chores/
 #     uv project (docs/design/CHORES.DESIGN.md). Python is cross-platform,
-#     so one ubuntu leg; the macOS-only surfaces (menu bar, Dock) are
-#     covered by their own smoketests when they land.
+#     so one ubuntu leg; the Dock app is covered by the macos-apps
+#     smoketest in the smoketests job's macOS leg.
 #
 #   shellcheck -- lints exactly the four dist files named in issue #206.
 #     Scope is fixed on purpose: the rest of the repo is not shellcheck-clean
@@ -101,6 +101,12 @@ jobs:
       # leg and still checks the dot.zshenv wiring there.
       - name: Smoketest bin/plannotator-browser
         run: /bin/bash test/smoketest_plannotator_browser.sh
+
+      # Builds real bundles with osacompile/codesign/iconutil, so this only
+      # runs on the macOS leg (it skips itself elsewhere). Covers every
+      # macos/apps/<name>/build, the chores Dock app included.
+      - name: Smoketest macos/apps/mkmacapp
+        run: /bin/bash test/smoketest_macos_apps.sh
 
   shellcheck:
     runs-on: ubuntu-latest

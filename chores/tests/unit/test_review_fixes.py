@@ -767,3 +767,177 @@ def test_cli_install_passes_the_definitions_root_to_the_unit(tmp_path: Path) -> 
     plist = inst.plist.read_text()
     assert f"<string>{h.paths.chores_home}</string>" in plist
     assert f"<string>{tmp_path}</string>" in plist
+
+
+# --- Copilot round 5 (PR #290) ---------------------------------------------
+
+
+def test_kill_never_signals_a_group_whose_process_is_gone(tmp_path: Path) -> None:
+    from chores.application.status import kill
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    gone = RunRecord.pending(
+        run_id="tidy-a", chore="tidy", kind=Kind.COMMAND, definition_rev="r", started=T0
+    ).start(pid=9, pgid=9, process_start=1.0)
+    h.store.write_record(gone)  # pid 9 is not alive in the fake
+    assert "already gone" in kill(h.deps(), "tidy-a")
+    assert h.process.signalled == [] and not h.store.kill_requested("tidy-a")
+    h.process.alive_pids.add(9)
+    assert "signalled group 9" in kill(h.deps(), "tidy-a")
+    assert h.process.signalled == [9] and h.store.kill_requested("tidy-a")
+
+
+def test_usd_limits_need_the_resolved_model_to_be_priced() -> None:
+    from chores.domain.budget import Budget
+
+    gw = BackendSpec(
+        name="gw",
+        port=ExecutionPort.COMPLETION,
+        default_model="m",
+        requires_network=True,
+        priced=True,
+        ceiling=Ceiling(),
+        read_only_tools=frozenset(),
+        priced_models=frozenset({"m"}),
+    )
+    base = Chore.from_mapping(
+        {
+            "name": "p",
+            "kind": "prompt",
+            "schedule": "* * * * *",
+            "backend": "gw",
+            "timeout_sec": 5,
+            "model": "other",
+        },
+        body="x",
+    )
+    assert not check_bindings(
+        base, backend=gw, global_ceiling=Ceiling(), forbidden_paths=()
+    )
+    errors = check_bindings(
+        base, backend=gw, global_ceiling=Ceiling(usd=1.0), forbidden_paths=()
+    )
+    assert any("'other' has no price" in e for e in errors)
+    with_budget = Chore.from_mapping(
+        {
+            "name": "p",
+            "kind": "prompt",
+            "schedule": "* * * * *",
+            "backend": "gw",
+            "timeout_sec": 5,
+            "model": "other",
+            "budget": {"usd": 0.5},
+        },
+        body="x",
+    )
+    assert isinstance(with_budget.budget, Budget)
+    errors = check_bindings(
+        with_budget, backend=gw, global_ceiling=Ceiling(), forbidden_paths=()
+    )
+    assert any("'other' has no price" in e for e in errors)
+    priced = Chore.from_mapping(
+        {
+            "name": "p",
+            "kind": "prompt",
+            "schedule": "* * * * *",
+            "backend": "gw",
+            "timeout_sec": 5,
+            "budget": {"usd": 0.5},
+        },
+        body="x",
+    )
+    assert not check_bindings(
+        priced, backend=gw, global_ceiling=Ceiling(), forbidden_paths=()
+    )
+
+
+def test_catalog_refuses_an_openai_compat_backend_without_base_url() -> None:
+    from chores.adapters.registry import BackendCatalog
+    from chores.ports.backends import BackendConfig
+
+    catalog = BackendCatalog(
+        {"gw": BackendConfig(name="gw", type="openai-compat", model="m")},
+        process=FakeProcess(),
+    )
+    assert catalog.spec("gw") is None
+    assert any("needs base_url" in e for e in catalog.errors)
+
+
+def test_loader_rejects_unknown_ceiling_keys_and_non_bool_requires_network(
+    tmp_path: Path,
+) -> None:
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    (tmp_path / "home" / "backends.yaml").write_text(
+        "backends:\n  a:\n    type: ollama\n    model: m\n"
+        "    ceiling: {usd: 1, usdd: 2}\n"
+        "  b:\n    type: ollama\n    model: m\n    requires_network: 'false'\n"
+    )
+    errors = h.definitions.load().errors
+    assert any("unknown dimensions ['usdd']" in e for e in errors)
+    assert any("requires_network must be true or false" in e for e in errors)
+
+
+def test_linux_battery_detection_covers_named_mains_and_battery_status(
+    tmp_path: Path,
+) -> None:
+    from chores.adapters.host import linux_on_battery
+
+    def supply(name: str, **files: str) -> None:
+        d = tmp_path / name
+        d.mkdir(parents=True, exist_ok=True)
+        for k, v in files.items():
+            (d / k).write_text(v + "\n")
+
+    assert linux_on_battery(tmp_path / "missing") is False
+    supply("ADP1", type="Mains", online="0")
+    supply("BAT0", type="Battery", status="Discharging")
+    assert linux_on_battery(tmp_path) is True
+    supply("ADP1", type="Mains", online="1")
+    assert linux_on_battery(tmp_path) is False  # mains decides over the battery
+    import shutil
+
+    shutil.rmtree(tmp_path / "ADP1")
+    assert linux_on_battery(tmp_path) is True  # no mains: battery status decides
+    supply("BAT0", type="Battery", status="Charging")
+    assert linux_on_battery(tmp_path) is False
+
+
+def test_systemd_environment_values_are_escaped(tmp_path: Path) -> None:
+    from chores.adapters.scheduler import SchedulerInstallFailed, SystemdInstaller
+
+    inst = SystemdInstaller(home=tmp_path, run=lambda a: 0)
+    inst.install(interval_sec=60, env={"CHORES_HOME": '/h/"odd"\\100%'})
+    service = (inst.unit_dir / "chores-tick.service").read_text()
+    assert 'Environment="CHORES_HOME=/h/\\"odd\\"\\\\100%%"' in service
+    with pytest.raises(SchedulerInstallFailed):
+        inst.install(interval_sec=60, env={"CHORES_HOME": "/a\nb"})
+
+
+def test_install_remembers_chores_home_for_shell_less_entry_points(
+    tmp_path: Path,
+) -> None:
+    from dataclasses import replace
+
+    from click.testing import CliRunner
+
+    from chores.cli.main import main
+    from chores.cli.wiring import resolve_paths
+
+    inst = LaunchdInstaller(home=tmp_path / "h", uid=7, run=lambda argv: 0)
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    deps = replace(h.deps(), installer=inst, scheduler_installed=inst.installed)
+    r = CliRunner().invoke(main, ["install"], obj=deps, catch_exceptions=False)
+    assert r.exit_code == 0 and "remembered CHORES_HOME" in r.output
+    state_home = tmp_path  # h.paths.state_dir is <tmp_path>/state, not XDG-shaped
+    env = {"HOME": str(tmp_path / "nohome")}
+    (tmp_path / "xdg" / "chores").mkdir(parents=True)
+    (tmp_path / "xdg" / "chores" / "home").write_text(h.paths.chores_home + "\n")
+    env["XDG_STATE_HOME"] = str(tmp_path / "xdg")
+    assert resolve_paths(env).chores_home == h.paths.chores_home
+    assert resolve_paths(
+        {**env, "CHORES_HOME": str(tmp_path / "x")}
+    ).chores_home == str(tmp_path / "x")
+    assert (Path(h.paths.state_dir) / "home").read_text().strip() == h.paths.chores_home
+    r = CliRunner().invoke(main, ["uninstall"], obj=deps, catch_exceptions=False)
+    assert r.exit_code == 0 and not (Path(h.paths.state_dir) / "home").exists()
+    del state_home

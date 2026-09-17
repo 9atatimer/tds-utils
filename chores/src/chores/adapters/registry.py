@@ -38,6 +38,7 @@ class BackendType:
     read_only_tools: frozenset[str]
     build_completion: CompletionBuilder | None
     build_agent: AgentBuilder | None
+    requires_base_url: bool = False
 
 
 _TYPES: dict[str, BackendType] = {}
@@ -54,7 +55,7 @@ def _ollama(cfg: BackendConfig, credential: str | None, deps: Deps) -> Completio
 def _openai_compat(
     cfg: BackendConfig, credential: str | None, deps: Deps
 ) -> CompletionPort:
-    if cfg.base_url is None:
+    if cfg.base_url is None:  # unreachable: the catalog refuses such a config
         raise KeyError(f"backend {cfg.name!r}: openai-compat needs base_url")
     return OpenAICompatCompletion(
         deps.transport,
@@ -82,6 +83,7 @@ register_type(
         frozenset(),
         _openai_compat,
         None,
+        requires_base_url=True,
     )
 )
 register_type(
@@ -89,6 +91,17 @@ register_type(
         "claude-cli", ExecutionPort.AGENT, True, READ_ONLY_TOOLS, None, _claude_cli
     )
 )
+
+
+def _config_error(cfg: BackendConfig) -> str | None:
+    """Why this configuration cannot become a backend, or None. Checked once
+    at catalog build so `chores validate` refuses it before any run starts."""
+    kind = _TYPES.get(cfg.type)
+    if kind is None:
+        return f"unknown type {cfg.type!r}"
+    if kind.requires_base_url and not cfg.base_url:
+        return f"{cfg.type} needs base_url"
+    return None
 
 
 class BackendCatalog:
@@ -103,15 +116,16 @@ class BackendCatalog:
     ) -> None:
         self._configs = dict(configs)
         self._deps = Deps(transport=transport or UrllibTransport(), process=process)
-        self.errors: list[str] = [
-            f"backend {name!r}: unknown type {cfg.type!r}"
-            for name, cfg in configs.items()
-            if cfg.type not in _TYPES
-        ]
+        self.errors: list[str] = []
+        for name, cfg in configs.items():
+            error = _config_error(cfg)
+            if error is not None:
+                self.errors.append(f"backend {name!r}: {error}")
+                del self._configs[name]  # a refused backend is not configured
 
     def _pair(self, name: str) -> tuple[BackendConfig, BackendType] | None:
         cfg = self._configs.get(name)
-        if cfg is None or cfg.type not in _TYPES:
+        if cfg is None:
             return None
         return cfg, _TYPES[cfg.type]
 
@@ -132,6 +146,7 @@ class BackendCatalog:
             priced=bool(cfg.prices),
             ceiling=cfg.ceiling,
             read_only_tools=kind.read_only_tools,
+            priced_models=frozenset(cfg.prices),
         )
 
     def credential_ref(self, name: str) -> str | None:

@@ -27,14 +27,23 @@ from chores.application.deps import Deps
 from chores.application.paths import Paths
 from chores.ports.definitions import Definitions
 
+HOME_POINTER = "home"  # <state dir>/home: the CHORES_HOME `chores install` saw
+
 
 def resolve_paths(env: dict[str, str] | None = None) -> Paths:
+    """CHORES_HOME from the environment, else from the pointer `chores
+    install` left in the state dir (so launchd agents and the menu-bar
+    monitor, which see no shell exports, use the installed herd), else the
+    XDG default."""
     e = os.environ if env is None else env
     home = Path(e.get("HOME", "~")).expanduser()
-    chores_home = Path(e.get("CHORES_HOME", home / ".config" / "chores")).expanduser()
     state = (
         Path(e.get("XDG_STATE_HOME", home / ".local" / "state")).expanduser() / "chores"
     )
+    chores_home = Path(
+        e.get("CHORES_HOME") or _pointer(state) or home / ".config" / "chores"
+    )
+    chores_home = chores_home.expanduser()
     data = (
         Path(e.get("XDG_DATA_HOME", home / ".local" / "share")).expanduser() / "chores"
     )
@@ -45,6 +54,24 @@ def resolve_paths(env: dict[str, str] | None = None) -> Paths:
         state_dir=os.path.realpath(state),
         data_dir=os.path.realpath(data),
     )
+
+
+def _pointer(state: Path) -> str | None:
+    try:
+        return (state / HOME_POINTER).read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+
+
+def remember_home(paths: Paths) -> None:
+    """Persist paths.chores_home as the pointer (called by `chores install`)."""
+    state = Path(paths.state_dir)
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    (state / HOME_POINTER).write_text(paths.chores_home + "\n", encoding="utf-8")
+
+
+def forget_home(paths: Paths) -> None:
+    (Path(paths.state_dir) / HOME_POINTER).unlink(missing_ok=True)
 
 
 def _launch_factory(state_dir: Path) -> Callable[[str], None]:

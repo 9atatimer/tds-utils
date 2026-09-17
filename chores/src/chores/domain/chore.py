@@ -85,6 +85,9 @@ class BackendSpec:
     priced: bool
     ceiling: Ceiling
     read_only_tools: frozenset[str]
+    priced_models: frozenset[str] = frozenset()
+    """The models the price table names; empty when the backend has none
+    (``priced`` says whether a table exists at all)."""
 
 
 # --- predicates --------------------------------------------------------------
@@ -351,6 +354,19 @@ def check_bindings(
             out.append(
                 f"no model: set model on the chore or on backend {backend.name!r}"
             )
+        if backend is not None and backend.priced_models:
+            model = chore.model or backend.default_model
+            usd_applies = (
+                chore.budget.usd is not None
+                or chore.ceiling.usd is not None
+                or backend.ceiling.usd is not None
+                or global_ceiling.usd is not None
+            )
+            if usd_applies and model and model not in backend.priced_models:
+                out.append(
+                    f"model {model!r} has no price on backend {backend.name!r}: "
+                    "a usd budget or ceiling would count its spend as zero"
+                )
         if chore.kind is Kind.AGENT and chore.budget.turns is None:
             out.append("agent kind requires budget.turns (the in-run bound)")
         applicable = set(chore.ceiling.dimensions()) | set(global_ceiling.dimensions())

@@ -136,6 +136,7 @@ def test_kill_signals_the_group_of_a_running_run(tmp_path: Path) -> None:
         run_id="tidy-x", chore="tidy", kind=Kind.COMMAND, definition_rev="r", started=T0
     ).start(pid=55, pgid=55, process_start=1.0)
     h.store.write_record(live)
+    h.process.alive_pids.add(55)  # kill revalidates the exact pid first
     code, out = invoke(h, "kill", "tidy-x")
     assert "signalled group 55" in out and h.process.signalled == [55]
     assert h.store.kill_requested("tidy-x")

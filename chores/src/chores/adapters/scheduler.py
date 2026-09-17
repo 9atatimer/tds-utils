@@ -78,13 +78,13 @@ WantedBy=timers.target
 RunFn = Callable[[list[str]], int]
 
 
+def _run_subprocess(argv: list[str]) -> int:
+    return subprocess.run(argv, capture_output=True, check=False).returncode
+
+
 class SchedulerInstallFailed(InfrastructureError):
     """The unit was written but the OS refused to enable it; nothing is left
     behind, so ``installed()`` stays False and the CLI exits nonzero."""
-
-
-def _run_subprocess(argv: list[str]) -> int:
-    return subprocess.run(argv, capture_output=True, check=False).returncode
 
 
 def _plist_env(env: Mapping[str, str]) -> str:
@@ -94,8 +94,19 @@ def _plist_env(env: Mapping[str, str]) -> str:
     )
 
 
+def _service_value(value: str) -> str:
+    """Quote for ``Environment="K=V"`` (systemd.syntax: backslash and quote
+    escaped inside quotes; ``%`` doubled so specifiers stay literal). A
+    newline or NUL cannot be carried and is refused."""
+    if "\n" in value or "\0" in value:
+        raise SchedulerInstallFailed(f"cannot persist {value!r} into a unit file")
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
+
+
 def _service_env(env: Mapping[str, str]) -> str:
-    return "".join(f'\nEnvironment="{k}={v}"' for k, v in sorted(env.items()))
+    return "".join(
+        f'\nEnvironment="{k}={_service_value(v)}"' for k, v in sorted(env.items())
+    )
 
 
 class SchedulerInstaller(Protocol):

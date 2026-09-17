@@ -40,12 +40,33 @@ class SystemPower:
             except (OSError, subprocess.TimeoutExpired):
                 return False
             return "Battery Power" in out.stdout
-        for online in Path("/sys/class/power_supply").glob("AC*/online"):
-            try:
-                return online.read_text().strip() == "0"
-            except OSError:
-                continue
+        return linux_on_battery(Path("/sys/class/power_supply"))
+
+
+def _read(path: Path) -> str | None:
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return None
+
+
+def linux_on_battery(supplies: Path) -> bool:
+    """Discharging? Any ``type == Mains`` supply that reports ``online``
+    decides (AC, ADP1, ACAD, USB-C PD all present that way); with no mains
+    supply, a battery whose ``status`` is Discharging decides; otherwise
+    assume mains (a desktop has no battery and must never defer)."""
+    if not supplies.is_dir():
         return False
+    for supply in sorted(supplies.iterdir()):
+        if _read(supply / "type") == "Mains":
+            online = _read(supply / "online")
+            if online is not None:
+                return online == "0"
+    for supply in sorted(supplies.iterdir()):
+        if _read(supply / "type") == "Battery":
+            if _read(supply / "status") == "Discharging":
+                return True
+    return False
 
 
 class SocketNetwork:

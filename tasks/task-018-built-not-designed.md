@@ -1,7 +1,7 @@
 ---
 id: task-018
 kind: task
-title: chores: decide each built-but-not-designed behaviour
+title: "chores: decide each built-but-not-designed behaviour"
 created: 2026-09-17
 issue: 286
 implements: docs/design/CHORES.DESIGN.md

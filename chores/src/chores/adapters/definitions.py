@@ -68,6 +68,12 @@ def _ceiling(raw: object, *, where: str) -> Ceiling:
         return Ceiling()
     if not isinstance(raw, Mapping):
         raise ValueError(f"{where}: ceiling must be a map")
+    unknown = sorted(str(k) for k in raw if k not in ("tokens", "usd", "turns"))
+    if unknown:
+        raise ValueError(
+            f"{where}: ceiling has unknown dimensions {unknown} "
+            "(a misspelt one would silently drop a cap)"
+        )
     try:
         return Ceiling(
             tokens=None if raw.get("tokens") is None else int(str(raw["tokens"])),
@@ -110,6 +116,11 @@ def _backend(name: str, raw: object) -> BackendConfig:
         "requires_network",
     }
     requires_network = raw.get("requires_network")
+    if requires_network is not None and not isinstance(requires_network, bool):
+        raise ValueError(
+            f"backends.yaml: {name} requires_network must be true or false "
+            f"(got {requires_network!r})"
+        )
     return BackendConfig(
         name=name,
         type=str(raw["type"]),
@@ -121,9 +132,7 @@ def _backend(name: str, raw: object) -> BackendConfig:
         ),
         prices=prices,
         ceiling=_ceiling(raw.get("ceiling"), where=f"backends.yaml: {name}"),
-        requires_network=requires_network
-        if isinstance(requires_network, bool)
-        else None,
+        requires_network=requires_network,
         extra={k: v for k, v in raw.items() if k not in known},
     )
 
@@ -231,7 +240,10 @@ class DefinitionsLoader:
                         "backends.yaml: expected a top-level 'backends' map"
                     )
                 for name, raw in raw_backends["backends"].items():
-                    backends[str(name)] = _backend(str(name), raw)
+                    try:  # one bad backend must not hide the others' errors
+                        backends[str(name)] = _backend(str(name), raw)
+                    except (ValueError, KeyError) as e:
+                        errors.append(f"backends.yaml: {e}")
         except (ValueError, yaml.YAMLError, KeyError) as e:
             errors.append(f"backends.yaml: {e}")
         config = GlobalConfig()

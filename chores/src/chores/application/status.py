@@ -281,6 +281,12 @@ def kill(deps: Deps, run_id: str) -> str:
         return f"no run {run_id}"
     if record.status is not RunStatus.RUNNING or record.pgid is None:
         return f"{run_id} is {record.status.value}, nothing to kill"
+    if record.pid is None or not deps.process.alive(
+        record.pid, process_start=record.process_start or 0.0
+    ):
+        # The recorded pid is gone (the tick will close it as INTERRUPTED);
+        # its group id may already belong to someone else, so never signal it.
+        return f"process {record.pid} already gone; nothing signalled"
     deps.store.request_kill(run_id)
     signalled = deps.process.signal_group(record.pgid)
     return (

@@ -1,7 +1,7 @@
 ---
 id: task-015
 kind: bug
-title: chores: a ceiling can be exceeded by N admissions in one tick
+title: "chores: a ceiling can be exceeded by N admissions in one tick"
 created: 2026-09-17
 issue: 283
 implements: docs/design/CHORES.DESIGN.md

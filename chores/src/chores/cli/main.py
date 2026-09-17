@@ -19,6 +19,7 @@ from chores.application.deps import Deps
 from chores.application.run import run_chore
 from chores.application.tick import tick as run_tick
 from chores.cli import render
+from chores.cli.wiring import forget_home, remember_home
 from chores.domain.errors import InfrastructureError
 from chores.domain.run import RunStatus
 
@@ -326,6 +327,9 @@ def install(ctx: click.Context, dry_run: bool) -> None:
     except InfrastructureError as e:
         click.echo(f"install failed: {e}", err=True)
         ctx.exit(1)
+    if not dry_run:
+        remember_home(deps.paths)
+        lines.append(f"remembered CHORES_HOME={deps.paths.chores_home}")
     for line in lines:
         click.echo(line)
 
@@ -336,6 +340,7 @@ def uninstall(ctx: click.Context) -> None:
     """Remove the scheduler agent or timer."""
     for line in _installer(ctx).uninstall():
         click.echo(line)
+    forget_home(_deps(ctx).paths)
 
 
 @main.command()

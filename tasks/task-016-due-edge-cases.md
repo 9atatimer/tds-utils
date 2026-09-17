@@ -1,7 +1,7 @@
 ---
 id: task-016
 kind: bug
-title: chores: due-detection edge cases (DST, first sight, retained battery slots, manual runs)
+title: "chores: due-detection edge cases (DST, first sight, retained battery slots, manual runs)"
 created: 2026-09-17
 issue: 284
 implements: docs/design/CHORES.DESIGN.md

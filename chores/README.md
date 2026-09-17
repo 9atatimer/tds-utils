@@ -14,6 +14,12 @@ chores status                   # or --json; chores ui for the TUI
 chores install                  # launchd agent (macOS) / systemd user timer (Linux)
 ```
 
+`chores install` also remembers that `CHORES_HOME` in the state dir
+(`<state>/home`), and the generated launchd/systemd unit carries it too.
+Every later entry point that sees no shell export -- the tick, the
+menu-bar monitor, a Dock launch -- resolves the same herd; an explicit
+`CHORES_HOME` in the environment still wins. `chores uninstall` forgets it.
+
 State lives in `$XDG_STATE_HOME/chores` (default `~/.local/state/chores`):
 one directory per run (`run.json`, `definition.md`, `transcript.jsonl`,
 `stdout.log`, `stderr.log`, `errors.log`), the append-only
