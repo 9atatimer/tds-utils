@@ -79,6 +79,11 @@ class StatusView:
     scheduler: SchedulerStatus
     notifications: Sequence[Notification]
     warnings: Sequence[str] = field(default_factory=tuple)
+    """Runtime and operator warnings (ledger shrank, interval drift): shown on
+    every surface, never a reason for `chores validate` to fail."""
+    problems: Sequence[str] = field(default_factory=tuple)
+    """Definition, backend and config problems: what `chores validate` exits
+    1 on (also rendered with the warnings)."""
 
     @property
     def needs_attention(self) -> bool:
@@ -195,7 +200,7 @@ def status(deps: Deps) -> StatusView:
         tick_interval_sec=config.tick_interval_sec,
         ledger_rows=deps.store.ledger_count(),
     )
-    warnings = [*ctx.definitions.errors, *ctx.catalog.errors]
+    problems = [*ctx.definitions.errors, *ctx.catalog.errors]
     for name in ctx.definitions.backends:
         spec = ctx.catalog.spec(name)  # None: refused, already in catalog.errors
         if (
@@ -204,7 +209,8 @@ def status(deps: Deps) -> StatusView:
             and not spec.priced
             and spec.billing in (None, Billing.METERED)
         ):
-            warnings.append(f"backend {name!r} has a usd ceiling but no price table")
+            problems.append(f"backend {name!r} has a usd ceiling but no price table")
+    warnings: list[str] = []
     if mark is not None and scheduler.ledger_rows < mark.ledger_rows:
         warnings.append(
             f"ledger shrank from {mark.ledger_rows} rows to {scheduler.ledger_rows} "
@@ -226,7 +232,8 @@ def status(deps: Deps) -> StatusView:
         usage=usage,
         scheduler=scheduler,
         notifications=deps.store.notifications(),
-        warnings=warnings,
+        warnings=[*problems, *warnings],
+        problems=problems,
     )
 
 

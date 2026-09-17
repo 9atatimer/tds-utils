@@ -75,8 +75,10 @@ def validate(ctx: click.Context) -> None:
     """Validate every definition, backend and config; exit 1 on any problem."""
     deps = _deps(ctx)
     view = queries.status(deps)
+    # definitions, backends and bindings only: a shrunk ledger or a stale
+    # installed interval is a status warning, not an invalid tree
     problems = [f"{c.name}: {c.invalid}" for c in view.chores if c.invalid] + list(
-        view.warnings
+        view.problems
     )
     for p in problems:
         click.echo(p)

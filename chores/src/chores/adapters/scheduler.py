@@ -78,6 +78,15 @@ WantedBy=timers.target
 RunFn = Callable[[list[str]], int]
 
 
+def _remove_quietly(path: Path) -> None:
+    """Best-effort cleanup of a unit we may have half-written: the failure
+    being reported is the write, not whether the leftover could be removed."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def _run_subprocess(argv: list[str]) -> int:
     try:
         return subprocess.run(argv, capture_output=True, check=False).returncode
@@ -154,8 +163,12 @@ class LaunchdInstaller:
                 f"would write {self.plist}",
                 f"would launchctl bootstrap {self._domain}",
             ]
-        self.plist.parent.mkdir(parents=True, exist_ok=True)
-        self.plist.write_text(text)
+        try:
+            self.plist.parent.mkdir(parents=True, exist_ok=True)
+            self.plist.write_text(text)
+        except OSError as e:  # permissions, disk: nothing was loaded
+            _remove_quietly(self.plist)
+            raise SchedulerInstallFailed(f"cannot write {self.plist}: {e}") from e
         try:
             self._run(["launchctl", "bootout", f"{self._domain}/{LAUNCHD_LABEL}"])
             rc = self._run(["launchctl", "bootstrap", self._domain, str(self.plist)])
@@ -221,11 +234,16 @@ class SystemdInstaller:
                 f"would write {self.timer} and its service",
                 "would enable the timer",
             ]
-        self.unit_dir.mkdir(parents=True, exist_ok=True)
-        (self.unit_dir / f"{SYSTEMD_UNIT}.service").write_text(
-            _SERVICE.format(env=_service_env(env or {}))
-        )
-        self.timer.write_text(_TIMER.format(interval=interval_sec))
+        try:
+            self.unit_dir.mkdir(parents=True, exist_ok=True)
+            (self.unit_dir / f"{SYSTEMD_UNIT}.service").write_text(
+                _SERVICE.format(env=_service_env(env or {}))
+            )
+            self.timer.write_text(_TIMER.format(interval=interval_sec))
+        except OSError as e:  # permissions, disk: nothing was enabled
+            for name in (f"{SYSTEMD_UNIT}.timer", f"{SYSTEMD_UNIT}.service"):
+                _remove_quietly(self.unit_dir / name)
+            raise SchedulerInstallFailed(f"cannot write {self.unit_dir}: {e}") from e
         try:
             reload_rc = self._run(["systemctl", "--user", "daemon-reload"])
             if reload_rc != 0:

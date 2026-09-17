@@ -1649,3 +1649,46 @@ def test_runs_since_zero_is_a_boundary(tmp_path: Path) -> None:
     assert r.exit_code == 0 and "tidy-a" not in r.output
     r = CliRunner().invoke(main, ["runs", "--since", "2"], obj=h.deps())
     assert "tidy-a" in r.output
+
+
+# --- Copilot round 15 (PR #290) --------------------------------------------
+
+
+def test_validate_ignores_runtime_warnings_but_fails_on_problems(
+    tmp_path: Path,
+) -> None:
+    from click.testing import CliRunner
+
+    from chores.cli.main import main
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    h.store.mark_tick(TickMark(at=h.clock.now_utc(), ledger_rows=5))  # "shrank"
+    view = status(h.deps())
+    assert any("shrank" in w for w in view.warnings) and view.problems == []
+    r = CliRunner().invoke(main, ["validate"], obj=h.deps())
+    assert r.exit_code == 0 and "ok: 1 chore(s)" in r.output
+    (tmp_path / "home" / "backends.yaml").write_text(
+        "backends:\n  metered:\n    type: openai-compat\n    model: m\n"
+        "    base_url: https://gw\n    ceiling: {usd: 1.0}\n"
+    )
+    r = CliRunner().invoke(main, ["validate"], obj=h.deps())
+    assert r.exit_code == 1 and "no price table" in r.output
+
+
+def test_unwritable_unit_paths_are_a_controlled_install_failure(
+    tmp_path: Path,
+) -> None:
+    from chores.adapters.scheduler import SchedulerInstallFailed, SystemdInstaller
+
+    blocker = tmp_path / "mac" / "Library"
+    blocker.parent.mkdir()
+    blocker.write_text("a file where a directory must go")
+    launchd = LaunchdInstaller(home=tmp_path / "mac", uid=1, run=lambda a: 0)
+    with pytest.raises(SchedulerInstallFailed, match="cannot write"):
+        launchd.install(interval_sec=60)
+    blocker = tmp_path / "linux" / ".config"
+    blocker.parent.mkdir()
+    blocker.write_text("same")
+    systemd = SystemdInstaller(home=tmp_path / "linux", run=lambda a: 0)
+    with pytest.raises(SchedulerInstallFailed, match="cannot write"):
+        systemd.install(interval_sec=60)
