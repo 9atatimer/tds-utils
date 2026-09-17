@@ -1745,3 +1745,42 @@ def test_a_manual_run_slipping_in_after_the_ticks_admission_is_skipped(
     child = run_chore("tidy", h.deps().as_run_deps()).record  # the tick's child
     assert child and child.status is RunStatus.SKIPPED_OVERLAP
     assert "tidy-manual" in (child.reason or "")
+
+
+# --- Copilot round 18 (PR #290) --------------------------------------------
+
+
+def test_unit_files_are_written_no_follow(tmp_path: Path) -> None:
+    from chores.adapters.scheduler import SchedulerInstallFailed, SystemdInstaller
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    agents = tmp_path / "mac" / "Library" / "LaunchAgents"
+    agents.mkdir(parents=True)
+    (agents / "com.tds.chores.tick.plist").symlink_to(outside / "plist")
+    launchd = LaunchdInstaller(home=tmp_path / "mac", uid=1, run=lambda a: 0)
+    with pytest.raises(SchedulerInstallFailed, match="symlink"):
+        launchd.install(interval_sec=60)
+    assert not (outside / "plist").exists()
+    units = tmp_path / "linux" / ".config" / "systemd" / "user"
+    units.mkdir(parents=True)
+    (units / "chores-tick.timer").symlink_to(outside / "timer")
+    systemd = SystemdInstaller(home=tmp_path / "linux", run=lambda a: 0)
+    with pytest.raises(SchedulerInstallFailed, match="symlink"):
+        systemd.install(interval_sec=60)
+    assert not (outside / "timer").exists()
+    assert not (units / "chores-tick.service").exists()  # cleaned up
+
+
+def test_state_and_definitions_roots_may_not_contain_each_other(tmp_path: Path) -> None:
+    from chores.application.paths import OverlappingRoots, Paths
+
+    with pytest.raises(OverlappingRoots, match="definitions"):
+        Paths(
+            str(tmp_path / "cfg" / "chores"), str(tmp_path / "cfg"), str(tmp_path / "d")
+        )
+    with pytest.raises(OverlappingRoots):
+        Paths(str(tmp_path / "s" / "home"), str(tmp_path / "s"), str(tmp_path / "d"))
+    Paths(
+        str(tmp_path / "h"), str(tmp_path / "s"), str(tmp_path / "d")
+    )  # distinct: fine

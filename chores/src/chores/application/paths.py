@@ -14,9 +14,10 @@ from chores.domain.chore import is_under
 
 
 class OverlappingRoots(ValueError):
-    """The data root (default workspaces) lies inside, or contains, the state
-    or definitions root: a command chore's default cwd could then write into
-    ``runs/``, the ledger or the sentries."""
+    """Two of the three roots lie inside one another. The data root holds
+    default workspaces a chore writes into, the state root is what chores
+    writes, and the definitions root is the git-tracked tree it must never
+    write to; any containment lets one bleed into another."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,14 +27,20 @@ class Paths:
     data_dir: str
 
     def __post_init__(self) -> None:
-        for name, root in (
-            ("state", self.state_dir),
+        # No two roots may contain one another: the data root holds default
+        # workspaces a chore writes into, the state root is what chores
+        # writes, and the definitions root is what it must never write to.
+        roots = (
             ("definitions", self.chores_home),
-        ):
-            if is_under(self.data_dir, root) or is_under(root, self.data_dir):
-                raise OverlappingRoots(
-                    f"data dir {self.data_dir} overlaps the {name} dir {root}"
-                )
+            ("state", self.state_dir),
+            ("data", self.data_dir),
+        )
+        for i, (name_a, a) in enumerate(roots):
+            for name_b, b in roots[i + 1 :]:
+                if is_under(a, b) or is_under(b, a):
+                    raise OverlappingRoots(
+                        f"{name_a} dir {a} overlaps the {name_b} dir {b}"
+                    )
 
     def forbidden_for_cwd(self) -> tuple[str, str]:
         """Directories a chore's cwd may neither be inside nor contain."""

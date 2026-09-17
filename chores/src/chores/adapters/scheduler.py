@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Protocol
 from xml.sax.saxutils import escape
 
+from chores.adapters.fs_store import UnsafeStatePath, write_nofollow
 from chores.domain.errors import InfrastructureError
 
 LAUNCHD_LABEL = "com.tds.chores.tick"
@@ -165,8 +166,8 @@ class LaunchdInstaller:
             ]
         try:
             self.plist.parent.mkdir(parents=True, exist_ok=True)
-            self.plist.write_text(text)
-        except OSError as e:  # permissions, disk: nothing was loaded
+            write_nofollow(self.plist, text)  # a planted symlink is refused
+        except (OSError, UnsafeStatePath) as e:  # nothing was loaded
             _remove_quietly(self.plist)
             raise SchedulerInstallFailed(f"cannot write {self.plist}: {e}") from e
         try:
@@ -236,11 +237,12 @@ class SystemdInstaller:
             ]
         try:
             self.unit_dir.mkdir(parents=True, exist_ok=True)
-            (self.unit_dir / f"{SYSTEMD_UNIT}.service").write_text(
-                _SERVICE.format(env=_service_env(env or {}))
+            write_nofollow(  # a planted symlink is refused, never followed
+                self.unit_dir / f"{SYSTEMD_UNIT}.service",
+                _SERVICE.format(env=_service_env(env or {})),
             )
-            self.timer.write_text(_TIMER.format(interval=interval_sec))
-        except OSError as e:  # permissions, disk: nothing was enabled
+            write_nofollow(self.timer, _TIMER.format(interval=interval_sec))
+        except (OSError, UnsafeStatePath) as e:  # nothing was enabled
             for name in (f"{SYSTEMD_UNIT}.timer", f"{SYSTEMD_UNIT}.service"):
                 _remove_quietly(self.unit_dir / name)
             raise SchedulerInstallFailed(f"cannot write {self.unit_dir}: {e}") from e
