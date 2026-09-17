@@ -507,6 +507,12 @@ rows.
 | Radar proposal | **Click** -> Adopt in `lmde/TECH_RADAR.md`, mirroring the fleet radar's existing Adopt row | the LMDE radar has no Python CLI row; goldfish uses argparse, this is the first click consumer here |
 | Radar proposal | **croniter** -> not added | see Rejections |
 | Approval authority | Todd delegated the approval decision for this record to the drafting session ("I am stepping away, so you will have to fill in my shoes for those decisions", 2026-09-14) after two adversarial panel passes (25 findings, then 5 new ones, all addressed) | the status ladder is human-owned; the delegation is the human act and this row is its record. Todd may revert to REVIEW at any time |
+| Turns ceilings bind agent chores only (added 2026-09-14, implementation; tds-utils issue #286) | a global or backend `turns` ceiling does not require prompt or command chores to declare a turns budget | only agent runs have turns; the seeded `config.yaml` turns ceiling made every prompt chore INVALID otherwise |
+| Command chores are exempt from ceilings (2026-09-14; issue #286) | `ceiling_policy` admits `kind: command` unconditionally | they spend no tokens, USD or turns; a token ceiling exhausted by LLM chores must not skip a cleanup job |
+| Reasons are redacted (2026-09-14; issue #286) | a run's `reason` passes through `redact` before `run.json`, the ledger and notifications | a backend error body or child stderr can echo a credential; the Goal covers every persisted byte |
+| Spend is judged on adapter-measured seconds (2026-09-14; issue #286) | `spend_policy` sees the adapter's latency or child wall time, not the runner's clock including secret resolution | timeouts are the adapters' bound; a slow `op read` must not flip a success to BUDGET_EXCEEDED |
+| A young PENDING record counts as live (2026-09-14; issue #286) | overlap admission treats a PENDING record younger than one stale window as running | the window between admission and spawn was invisible to a concurrent run |
+| First sight opens at the previous tick (2026-09-14; issue #284) | a chore with no records has its window opened at the previous tick, not "that tick" as Subsystem 2 says | recorded as drift, not amended; the divergence bites only after a long sleep |
 
 ---
 
