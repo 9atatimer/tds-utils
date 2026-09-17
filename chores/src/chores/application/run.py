@@ -49,15 +49,7 @@ from chores.ports.host import (
     SecretsPort,
 )
 from chores.ports.process import ProcessPort, ProcessRequest
-from chores.ports.store import Artifact, RunStorePort, WorkspacesPort
-
-ARTIFACTS: tuple[Artifact, ...] = (
-    "definition.md",
-    "transcript.jsonl",
-    "stdout.log",
-    "stderr.log",
-    "errors.log",
-)
+from chores.ports.store import ARTIFACTS, Artifact, RunStorePort, WorkspacesPort
 
 _INHERITED_KEYS = ("PATH", "HOME", "LANG")
 

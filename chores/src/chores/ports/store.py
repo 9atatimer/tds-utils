@@ -17,6 +17,16 @@ from chores.domain.run import RunRecord, RunStatus
 # One of: definition.md, transcript.jsonl, stdout.log, stderr.log, errors.log
 Artifact = str
 
+ARTIFACTS: tuple[Artifact, ...] = (
+    "definition.md",
+    "transcript.jsonl",
+    "stdout.log",
+    "stderr.log",
+    "errors.log",
+)
+"""Every run directory carries all five (design: a complete, separated
+record), an empty stream being an empty file."""
+
 
 @dataclass(frozen=True, slots=True)
 class Notification:

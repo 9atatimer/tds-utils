@@ -60,8 +60,10 @@ Type=oneshot{env}
 # A user service inherits no shell PATH; name the runtime tiers explicitly
 # (dist install, release worktree, fresh-clone fallback, ~/.local/bin) so a
 # bare `chores` resolves -- the same tier order as AGENT.md's PATH table.
+# `bash -c`, not `-lc`: a login shell would source /etc/profile and the
+# user's profile, which may rebuild PATH and drop the tiers above.
 Environment=PATH=%h/.tds/dist/current/bin:%h/.tds/release/bin:%h/workplace/tds-utils/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/bin/bash -lc 'exec chores tick'
+ExecStart=/bin/bash -c 'exec chores tick'
 """
 
 _TIMER = """[Unit]
@@ -174,13 +176,12 @@ class LaunchdInstaller:
             self._run(["launchctl", "bootout", f"{self._domain}/{LAUNCHD_LABEL}"])
             rc = self._run(["launchctl", "bootstrap", self._domain, str(self.plist)])
         except SchedulerInstallFailed:
-            self.plist.unlink(missing_ok=True)  # nothing half-installed
+            self._rollback()  # a reinstall may have had the job loaded
             raise
         if rc != 0:
             # bootstrap can fail after loading part of the job: unload the
             # label before the plist goes, so nothing orphaned keeps running
-            self._run(["launchctl", "bootout", f"{self._domain}/{LAUNCHD_LABEL}"])
-            self.plist.unlink(missing_ok=True)
+            self._rollback()
             raise SchedulerInstallFailed(
                 f"launchctl bootstrap {self._domain} failed (exit {rc}); "
                 f"booted out and removed {self.plist}"
@@ -189,6 +190,15 @@ class LaunchdInstaller:
             f"wrote {self.plist}",
             f"bootstrapped {LAUNCHD_LABEL} every {interval_sec}s",
         ]
+
+    def _rollback(self) -> None:
+        """Boot the label out (best effort) and remove the plist: nothing
+        loaded may outlive a plist that is gone."""
+        try:
+            self._run(["launchctl", "bootout", f"{self._domain}/{LAUNCHD_LABEL}"])
+        except SchedulerInstallFailed:
+            pass  # launchctl itself is missing: nothing can be loaded
+        _remove_quietly(self.plist)
 
     def uninstall(self) -> list[str]:
         target = f"{self._domain}/{LAUNCHD_LABEL}"
@@ -242,9 +252,8 @@ class SystemdInstaller:
                 _SERVICE.format(env=_service_env(env or {})),
             )
             write_nofollow(self.timer, _TIMER.format(interval=interval_sec))
-        except (OSError, UnsafeStatePath) as e:  # nothing was enabled
-            for name in (f"{SYSTEMD_UNIT}.timer", f"{SYSTEMD_UNIT}.service"):
-                _remove_quietly(self.unit_dir / name)
+        except (OSError, UnsafeStatePath) as e:
+            self._rollback()  # a reinstall may have had a live timer: stop it
             raise SchedulerInstallFailed(f"cannot write {self.unit_dir}: {e}") from e
         try:
             reload_rc = self._run(["systemctl", "--user", "daemon-reload"])
@@ -258,19 +267,10 @@ class SystemdInstaller:
                 ["systemctl", "--user", "enable", "--now", f"{SYSTEMD_UNIT}.timer"]
             )
         except SchedulerInstallFailed:
-            for name in (f"{SYSTEMD_UNIT}.timer", f"{SYSTEMD_UNIT}.service"):
-                (self.unit_dir / name).unlink(missing_ok=True)
-            self._run(["systemctl", "--user", "daemon-reload"])
+            self._rollback()
             raise
         if rc != 0:
-            # enable --now can fail after enabling or starting: stop and
-            # disable first so no active timer or .wants link is left behind
-            self._run(
-                ["systemctl", "--user", "disable", "--now", f"{SYSTEMD_UNIT}.timer"]
-            )
-            for name in (f"{SYSTEMD_UNIT}.timer", f"{SYSTEMD_UNIT}.service"):
-                (self.unit_dir / name).unlink(missing_ok=True)
-            self._run(["systemctl", "--user", "daemon-reload"])
+            self._rollback()
             raise SchedulerInstallFailed(
                 f"systemctl --user enable --now {SYSTEMD_UNIT}.timer failed "
                 f"(exit {rc}); disabled and removed the unit files"
@@ -279,6 +279,24 @@ class SystemdInstaller:
             f"wrote {self.timer}",
             f"enabled {SYSTEMD_UNIT}.timer every {interval_sec}s",
         ]
+
+    def _rollback(self) -> None:
+        """The one way out of a failed install, whatever failed: stop and
+        disable the timer (a reinstall may have found one active, and enable
+        --now may have half-started the new one), remove the unit files,
+        reload. Nothing loaded may outlive files that are gone."""
+        try:
+            self._run(
+                ["systemctl", "--user", "disable", "--now", f"{SYSTEMD_UNIT}.timer"]
+            )
+        except SchedulerInstallFailed:
+            pass  # systemctl itself is missing: nothing can be loaded
+        for name in (f"{SYSTEMD_UNIT}.timer", f"{SYSTEMD_UNIT}.service"):
+            _remove_quietly(self.unit_dir / name)
+        try:
+            self._run(["systemctl", "--user", "daemon-reload"])
+        except SchedulerInstallFailed:
+            pass
 
     def uninstall(self) -> list[str]:
         timer = f"{SYSTEMD_UNIT}.timer"

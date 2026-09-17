@@ -25,7 +25,7 @@ from chores.ports.backends import BackendCatalogPort
 from chores.ports.definitions import Definitions, DefinitionsPort, InvalidDefinition
 from chores.ports.host import ClockPort, NetworkPort, NotifierPort, PowerPort
 from chores.ports.process import ProcessPort
-from chores.ports.store import Notification, RunStorePort
+from chores.ports.store import ARTIFACTS, Notification, RunStorePort
 
 CEILING_WINDOW = timedelta(hours=24)
 PROBE_TIMEOUT_SEC = 3.0
@@ -186,8 +186,11 @@ def write_outcome(
     status: RunStatus,
     reason: str,
     at: datetime,
+    definition: str | None = None,
 ) -> RunRecord:
-    """A tick-written outcome: record plus ledger row."""
+    """A tick-written outcome (a refusal, MISSED, INVALID): record, the five
+    artifacts every run directory carries (design: complete record) with the
+    definition snapshot when the caller has one, and the ledger row."""
     record = RunRecord.outcome(
         run_id=run_id,
         chore=chore,
@@ -198,6 +201,12 @@ def write_outcome(
         at=at,
     )
     store.write_record(record)
+    for name in ARTIFACTS:
+        store.append_artifact(run_id, name, "")
+    if definition is not None:
+        store.append_artifact(run_id, "definition.md", definition)
+    if reason:
+        store.append_artifact(run_id, "errors.log", reason + "\n")
     store.append_ledger(to_ledger_row(record))
     return record
 

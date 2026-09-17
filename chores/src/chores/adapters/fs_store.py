@@ -26,7 +26,7 @@ from chores.domain.budget import Usage
 from chores.domain.errors import InfrastructureError
 from chores.domain.kinds import Kind
 from chores.domain.run import Billing, RunRecord, RunStatus
-from chores.ports.store import Artifact, Notification, TickMark
+from chores.ports.store import ARTIFACTS, Artifact, Notification, TickMark
 
 # A run id is ``<chore>-<yyyymmddThhmmssZ>-<suffix>`` (domain ``new_run_id``):
 # the timestamp carries an uppercase T and Z, so the class is case-insensitive.
@@ -60,7 +60,7 @@ class InvalidArtifactName(InfrastructureError):
 
 
 def check_artifact_name(name: str) -> str:
-    if name not in _ARTIFACTS:
+    if name not in ARTIFACTS:
         raise InvalidArtifactName(f"not an artifact: {name!r}")
     return name
 
@@ -113,15 +113,6 @@ def check_chore_name(name: str) -> str:
     if not _CHORE_NAME_RE.match(name):
         raise InvalidChoreName(f"not a chore name: {name!r}")
     return name
-
-
-_ARTIFACTS: tuple[Artifact, ...] = (
-    "definition.md",
-    "transcript.jsonl",
-    "stdout.log",
-    "stderr.log",
-    "errors.log",
-)
 
 
 # --- serialization -----------------------------------------------------------
@@ -381,7 +372,7 @@ class FsRunStore:
         run_dir = self._find_run_dir(run_id)
         if run_dir is None:
             return iter(())
-        return (name for name in _ARTIFACTS if _is_real_file(run_dir / name))
+        return (name for name in ARTIFACTS if _is_real_file(run_dir / name))
 
     def delete_run(self, run_id: str) -> bool:
         run_dir = self._find_run_dir(run_id)

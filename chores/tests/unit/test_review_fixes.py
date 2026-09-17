@@ -19,7 +19,7 @@ from chores.domain.kinds import ExecutionPort, Kind
 from chores.domain.run import RunRecord, RunStatus
 from chores.domain.schedule import InvalidSchedule, Schedule
 from chores.ports.errors import BackendError, ProcessError
-from chores.ports.store import TickMark
+from chores.ports.store import ARTIFACTS, TickMark
 
 from ._fakes import FakeAgent, FakeClock, FakeCompletion, FakeProcess, FakeRunStore
 from ._harness import T0, FullHarness
@@ -1784,3 +1784,64 @@ def test_state_and_definitions_roots_may_not_contain_each_other(tmp_path: Path) 
     Paths(
         str(tmp_path / "h"), str(tmp_path / "s"), str(tmp_path / "d")
     )  # distinct: fine
+
+
+# --- Copilot round 19 (PR #290) --------------------------------------------
+
+
+def test_every_outcome_record_carries_the_five_artifacts(tmp_path: Path) -> None:
+    """A refusal, MISSED or INVALID record is a run directory like any other:
+    all five artifacts exist (empty streams are empty files) and errors.log
+    carries the reason."""
+    from chores.adapters.fs_store import FsRunStore
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    h.store = FsRunStore(tmp_path / "state")  # type: ignore[assignment]
+    h.store.pause("maintenance")
+    r = run_chore("tidy", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.SKIPPED_PAUSED
+    assert set(h.store.artifacts(r.run_id)) == set(ARTIFACTS)
+    assert "maintenance" in h.store.read_artifact(r.run_id, "errors.log")
+
+
+def test_systemd_service_runs_a_plain_shell_so_the_unit_path_holds(
+    tmp_path: Path,
+) -> None:
+    from chores.adapters.scheduler import SystemdInstaller
+
+    inst = SystemdInstaller(home=tmp_path, run=lambda a: 0)
+    inst.install(interval_sec=60)
+    service = (inst.unit_dir / "chores-tick.service").read_text()
+    exec_line = next(line for line in service.splitlines() if "ExecStart" in line)
+    assert exec_line == "ExecStart=/bin/bash -c 'exec chores tick'"
+    assert "-l" not in exec_line  # a login shell could rebuild PATH
+
+
+def test_a_failed_reinstall_never_leaves_the_old_timer_loaded(tmp_path: Path) -> None:
+    """Whatever fails during a reinstall (here: the reload), the rollback
+    stops and disables the timer before the unit files go, so nothing
+    loaded outlives files that are gone."""
+    from chores.adapters.scheduler import SchedulerInstallFailed, SystemdInstaller
+
+    calls: list[list[str]] = []
+
+    def reload_fails_once(argv: list[str]) -> int:
+        calls.append(argv)
+        reloads = sum(1 for c in calls if "daemon-reload" in c)
+        return 1 if "daemon-reload" in argv and reloads == 1 else 0
+
+    inst = SystemdInstaller(home=tmp_path, run=reload_fails_once)
+    with pytest.raises(SchedulerInstallFailed, match="daemon-reload"):
+        inst.install(interval_sec=60)
+    assert ["systemctl", "--user", "disable", "--now", "chores-tick.timer"] in calls
+    assert inst.installed() is False
+    launchd_calls: list[list[str]] = []
+
+    def launchctl_missing(argv: list[str]) -> int:
+        launchd_calls.append(argv)
+        raise SchedulerInstallFailed("cannot run launchctl")
+
+    mac = LaunchdInstaller(home=tmp_path / "mac", uid=1, run=launchctl_missing)
+    with pytest.raises(SchedulerInstallFailed):
+        mac.install(interval_sec=60)
+    assert mac.installed() is False
