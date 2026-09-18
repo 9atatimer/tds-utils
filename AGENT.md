@@ -281,7 +281,7 @@ Three things worth knowing:
 The fleet's infrastructure-as-code lives in the private infra repo
 [tds-internal](https://github.com/9atatimer/tds-internal) under
 `ops/terraform/`; its `docs/policy/{INFRASTRUCTURE,TERRAFORM,CREDENTIALS}.md`
-are the rules and win over anything here. Load the shared `infra` skill
+are the rules and win over anything here. Load the shared `iac` skill
 the moment a task touches a cloud resource or a GitHub secret.
 
 This repo owns no long-lived cloud resource. Two things here look like
