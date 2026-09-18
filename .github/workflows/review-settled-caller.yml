@@ -45,7 +45,12 @@ permissions:
 jobs:
   review-settled:
     # issue_comment also fires for plain issues; only PR comments matter.
-    if: github.event_name != 'issue_comment' || github.event.issue.pull_request != null
+    # A PR from a fork is skipped outright: its token is read-only (no
+    # status could be posted anyway) and `tools_ref` below would otherwise
+    # check out and run an untrusted head. Fork PRs are human-merge.
+    if: >-
+      (github.event_name != 'issue_comment' || github.event.issue.pull_request != null)
+      && (github.event.pull_request == null || github.event.pull_request.head.repo.full_name == github.repository)
     uses: ./.github/workflows/review-settled.yml
     permissions:
       statuses: write
