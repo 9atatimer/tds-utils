@@ -98,7 +98,11 @@ tmux list-panes -a -F \
 `pane_id` (`%N`) is carried through to the agent probes so `capture-pane
 -t %N` reads the agent's pane and never tmux's current one.
 
-The tool's own session (`$TMUX` pane) is always KEEP, whatever it holds.
+The tool's own session is always KEEP, whatever it holds. `$TMUX` only
+says "inside tmux"; the identity comes from
+`tmux display-message -p -t "$TMUX_PANE" '#{session_name}'`, resolved
+once at startup and compared by name against every discovered session.
+Run outside tmux (`$TMUX_PANE` unset) there is no own session to exempt.
 
 ### Process inspection (proc adapter)
 
@@ -109,7 +113,15 @@ The tool's own session (`$TMUX` pane) is always KEEP, whatever it holds.
 | start time of a process | `ps -o etime= -p PID`, subtracted from now | same |
 
 `ps` output is fetched once per run and walked in memory; one `lsof` and
-one `ps -o etime=` per agent process, never per pane. `etime` is the one
+one `ps -o etime=` per agent process, never per pane.
+
+The snapshot fails closed. If `ps` exits non-zero or prints nothing the run
+aborts before classifying anything (exit 1). If a pane's `pane_pid` is
+absent from the snapshot -- it exited between `list-panes` and `ps`, or
+`ps` could not see it -- that pane is UNKNOWN, which classifies as KEEP,
+never IDLE, and the plan line says `(pid N not in snapshot)`. "Provably
+idle" means proven from a snapshot that contains the pane; a gap is not a
+proof. `etime` is the one
 elapsed-time column BSD and procps agree on (`[[dd-]hh:]mm:ss`); the
 adapter converts it to an epoch start.
 
@@ -120,6 +132,7 @@ A session's verdict is the max over its panes of:
 | pane state | verdict |
 |------------|---------|
 | `pane_dead=1` | IDLE |
+| `pane_pid` missing from the `ps` snapshot | KEEP (fail closed) |
 | foreground command is a shell (`zsh bash sh fish`) and the pane pid has no descendants | IDLE |
 | foreground is a shell with descendants, none of them an agent | KEEP (e.g. `vim`, `make`, an ssh) |
 | foreground is not a shell and not an agent (`tmux new-session vim`) | KEEP |
@@ -247,7 +260,8 @@ if its verdict is no longer IDLE -- a client attached or a child started in
 the window between plan and apply. Renames are idempotent and need no
 recheck.
 
-Exit 0 when the plan is empty or applied; 1 when `tmux` is unreachable.
+Exit 0 when the plan is empty or applied; 1 when `tmux` is unreachable or
+the `ps` snapshot is empty.
 
 ---
 
@@ -271,7 +285,7 @@ Sessions have no lifecycle inside this tool beyond one verdict per run:
 |------|----|---------|-----------|
 | pane | IDLE | classify | dead, or shell fg with no descendants |
 | IDLE | KEEP | classify | `session_attached` > 0, or `-k` match, or own session |
-| pane | KEEP | classify | non-shell foreground, or non-agent descendants |
+| pane | KEEP | classify | non-shell foreground, non-agent descendants, or pid missing from the snapshot |
 | pane | AGENT | classify | agent binary is the pane root or among descendants |
 | IDLE | SKIP | apply | recheck before `kill-session` no longer says IDLE |
 
@@ -339,6 +353,8 @@ the only state, and `tmux ls` before and after is the audit trail.
 | Name separators | `@` agent, `/` path, `=` branch, `+` slug | `.` and `:` are the only tmux-illegal characters; `=` and `+` are legal, unambiguous, and shell-safe unquoted in `tmux attach -t` |
 | Slug source | agent's own session record first, pane text second | Structured, current, and per-session; pane text is the fallback for agents with no readable store |
 | RAW slug sources | alphabetic 2-12 char tokens only | A credential, hash, or URL has no run of short alphabetic words; a task description does |
+| Snapshot gaps | fail closed: KEEP, or abort on an empty snapshot | A pid that is not in the table cannot be shown childless |
+| Own session | `display-message -t "$TMUX_PANE"` by name | `$TMUX` alone does not say which session |
 | Kill safety | recheck each session before `kill-session` | The plan is a snapshot; the guarantee is about the moment of the kill |
 | Slug heuristic mismatch | accepted | branch and path are exact; a swapped slug between two agents in one dir costs a glance, an LLM would cost a dependency |
 | Agent probe seam | one function per agent, same signature | Adding an agent is one function and one entry in the detection list |
