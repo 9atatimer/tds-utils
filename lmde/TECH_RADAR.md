@@ -68,6 +68,12 @@ documents the recommended approach so it isn't reinvented per repo.
 ## Trial -- Testing in Limited Scope
 
 - **MCP (Model Context Protocol)**: Evaluating for standardized agent tool-use.
+- **skills** (Vercel, `vercel-labs/skills`, skills.sh): Homebrew-core CLI for
+  installing third-party skill packs (`skills add <source>`) into an agent's
+  skills directory. Ambient, like NATS -- ships via Homebrew, not the
+  `lmde acquire` rail; no version pin, no fleet deployment. Unrelated to
+  `@nine-at-a-time-media/skills` (this org's own inert skills-tree data
+  package) despite the shared name.
 
 ---
 
@@ -76,6 +82,8 @@ documents the recommended approach so it isn't reinvented per repo.
 - **sqlite-vec**: Potential replacement for heavier embedding search frameworks in `log-hoarder`.
 - **sesh**: tmux session manager (create-or-attach by name, zoxide/tmux/config-driven picker sources). Evaluating as the `tm` interactive alias's backend in place of a hand-rolled `tmux has-session` script.
 - **zoxide**: Frecency-ranked `cd` replacement. Evaluating as a `sesh` picker source (recently/frequently visited dirs), not yet adopted as a `cd` replacement itself.
+- **Docling** (IBM): document-to-structured-data conversion (PDF, DOCX, HTML -> Markdown/JSON with layout and tables). Evaluating as the ingestion front end for LLM-adjacent jobs that read documents.
+- **Marker**: PDF -> Markdown converter with OCR and layout detection. Evaluating alongside Docling; one of the two, not both, would be adopted.
 
 ---
 
@@ -90,6 +98,14 @@ documents the recommended approach so it isn't reinvented per repo.
 ---
 
 ## Decisions Log
+
+- **2026-09-17**: Added `Docling` and `Marker` to Assess at Todd's request
+  ("both seem interesting"); no consumer yet.
+
+- **2026-09-07**: Added `skills` (Vercel CLI, Homebrew-core) to Trial.
+  Ambient/unpinned like NATS -- not on the `lmde acquire` rail. See
+  `docs/design/LMDE.DESIGN.md` section 6 (skills-drift indicator) and
+  `lmde/LMDE.md`.
 
 - **2026-09-06**: Added `sesh` and `zoxide` to Assess. Evaluating for a
   `tm` tmux create-or-attach alias (see `macos/dot.alias`).

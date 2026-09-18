@@ -208,7 +208,7 @@ do_doctor() {
 # then hand off to acquire_run (which always returns 0). Only a genuine usage
 # error (bad flag) returns non-zero.
 do_acquire() {
-    local pins_file="" check=0
+    local pins_file="" check=0 latest_shortname=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --pins)
@@ -223,6 +223,15 @@ do_acquire() {
             --check)
                 check=1
                 shift
+                ;;
+            --latest)
+                if [[ $# -lt 2 ]]; then
+                    log "ERROR: --latest requires a <shortname> argument."
+                    usage >&2
+                    return 2
+                fi
+                latest_shortname="$2"
+                shift 2
                 ;;
             -*)
                 log "ERROR: unknown flag '$1' for acquire."
@@ -251,6 +260,14 @@ do_acquire() {
         return 0
     fi
 
+    # --latest is a point query: print one package's registry-resolved latest
+    # version (ignoring any pin) and ALWAYS exit 0; nothing on stdout means
+    # the query failed (see latest_run's fail-open contract).
+    if [[ -n "${latest_shortname}" ]]; then
+        latest_run "${latest_shortname}"
+        return 0
+    fi
+
     acquire_run "${pins_file}"
 }
 
@@ -275,6 +292,9 @@ Commands:
                           --pins pins named packages, floats the rest).
   acquire --check         Advisory-only: report any acquired package behind the
         [--pins <file>]   GitHub Packages latest and exit 0 (installs nothing).
+  acquire --latest <name> Print one package's registry-resolved latest version
+                          (ignoring any pin) to stdout, or nothing on failure.
+                          Installs nothing; always exits 0.
 
 Notes:
   install/sync with no component (and no --all) only prints this help and the

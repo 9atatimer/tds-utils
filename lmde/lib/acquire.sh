@@ -477,13 +477,27 @@ purge_npmrc() {
     return 0
 }
 
+# Bound for npm_view_latest's registry lookup (acquire_bounded's <seconds>).
+# Was unbounded until PR #265 review: check_run already ran this from
+# git-hooks/pre-push (a foreground, human-visible context), but the
+# skills-drift indicator now also runs it from an unsupervised background
+# job every few minutes (macos/dot.zshrc) and every 15 minutes (the
+# menu-bar app's timer) -- a stalled `npm view` there would outlive the
+# menu-bar app's own 30s subprocess timeout (it only bounds the OUTER
+# skills-drift-check, not this inner npm call), delaying purge_npmrc and
+# leaving the ephemeral, PAT-carrying npmrc on disk for the hang's full
+# duration -- exactly what purge_npmrc's "the PAT must never linger" stance
+# exists to prevent. Same acquire_bounded mechanism already used for
+# acquire_gh_token's `gh auth token` call, same 10s bound.
+ACQUIRE_NPM_VIEW_TIMEOUT_SECS=10
+
 # npm_view_latest <npm_name> <npmrc> -- echo the registry-latest version of
-# <npm_name>, or "" (and return 1) when the registry is unreachable/unauthorized.
-# The explicit --registry is required, else npm queries registry.npmjs.org and
-# E404s for the private scoped package.
+# <npm_name>, or "" (and return 1) when the registry is unreachable/unauthorized
+# /timed out. The explicit --registry is required, else npm queries
+# registry.npmjs.org and E404s for the private scoped package.
 npm_view_latest() {
     local npm_name="$1" npmrc="$2" out rc=0
-    out="$(npm view "${npm_name}" version \
+    out="$(acquire_bounded "${ACQUIRE_NPM_VIEW_TIMEOUT_SECS}" npm view "${npm_name}" version \
         --registry="${ACQUIRE_REGISTRY}" --userconfig "${npmrc}" 2>/dev/null)" || rc=$?
     if [ "${rc}" -ne 0 ]; then echo ""; return 1; fi
     echo "${out}"
@@ -870,5 +884,73 @@ check_run() {
     done < <(acquire_pkg_table)
 
     purge_npmrc "${npmrc}" "${npmrc_dir}"
+    return 0
+}
+
+# --- Latest (advisory point query; report-only, NEVER installs, ALWAYS exits 0) ---
+#
+# `lmde acquire --latest <shortname>` prints the registry-resolved latest
+# version of one package's npm name, ignoring any pin -- "what would float".
+# check_one already knows the installed-vs-latest comparison for every row
+# but only surfaces the version numbers when the row is BEHIND (silent when
+# current); a caller that wants a concrete number even when everything
+# agrees (e.g. comparing a local, not-yet-acquired repo checkout against the
+# registry) needs the raw value. Same fail-open contract as the rest of this
+# file: a caller distinguishes success from failure by checking for
+# non-empty stdout, never by exit code.
+
+# latest_run <shortname> -- print <shortname>'s registry-latest version to
+# stdout, or nothing on any failure (no credential, unknown shortname,
+# registry unreachable). ALWAYS returns 0.
+latest_run() {
+    local shortname="$1"
+    local token
+    acquire_resolve_gh
+    token="$(acquire_token)"
+    acquire_warn_if_deprecated
+
+    if [ -z "${token}" ]; then
+        acquire_note "no credential: GH_PAT_NAATM_PACKAGES_RO unset, no deprecated GH_AI_TOOLS_PAT, and no usable \`gh auth token\` -- cannot query GitHub Packages."
+        return 0
+    fi
+    if ! command -v npm >/dev/null 2>&1; then
+        acquire_note "npm not on PATH -- cannot query the registry."
+        return 0
+    fi
+
+    local npm_name=""
+    local row_shortname row_npm_name _bin _pin_var
+    while read -r row_shortname row_npm_name _bin _pin_var; do
+        [ "${row_shortname}" = "${shortname}" ] || continue
+        npm_name="${row_npm_name}"
+        break
+    done < <(acquire_pkg_table)
+    if [ -z "${npm_name}" ]; then
+        acquire_note "unknown package shortname '${shortname}' -- see \`lmde acquire\` usage for the table"
+        return 0
+    fi
+
+    local npmrc_dir="" npmrc=""
+    npmrc_dir="$(mktemp -d "${TMPDIR:-/tmp}/lmde-latest.XXXXXX")" || npmrc_dir=""
+    if [ -z "${npmrc_dir}" ]; then
+        acquire_note "could not create a temp dir for the npmrc -- query skipped."
+        return 0
+    fi
+    if ! write_acquire_npmrc "${npmrc_dir}"; then
+        acquire_note "could not write an authed npmrc -- query skipped."
+        purge_npmrc "${npmrc_dir}/.npmrc" "${npmrc_dir}"
+        return 0
+    fi
+    npmrc="${npmrc_dir}/.npmrc"
+
+    local latest=""
+    latest="$(npm_view_latest "${npm_name}" "${npmrc}")" || latest=""
+    purge_npmrc "${npmrc}" "${npmrc_dir}"
+
+    if [ -z "${latest}" ]; then
+        acquire_note "WARNING: ${shortname}: registry unreachable -- cannot resolve latest"
+        return 0
+    fi
+    printf '%s\n' "${latest}"
     return 0
 }

@@ -103,12 +103,18 @@ stage_packages() {
         [ -n "${paths// /}" ] || continue
         for p in ${paths}; do
             [ -e "${root}/${p}" ] || die "package ${name}: path ${p} missing in ${root}"
+            git -C "${root}" ls-files --error-unmatch -- "${p}" >/dev/null 2>&1 \
+                || die "package ${name}: path ${p} is not tracked by git"
         done
-        # tar pipe preserves structure and modes with portable syntax;
+        # Stage exactly what git tracks under each path: a directory claim
+        # must never sweep in ignored artifacts (a .venv, __pycache__, a
+        # .pytest_cache) that a local test run left behind. NUL-separated
+        # so any tracked filename survives; tar preserves modes and links.
         # ${paths} word-splits on purpose: it is a whitespace-separated
         # path list (the parser contract bans tabs/newlines in values)
         # shellcheck disable=SC2086
-        ( cd "${root}" && tar -cf - ${paths} ) | tar -xf - -C "${stage}"
+        ( cd "${root}" && git ls-files -z -- ${paths} | tar -cf - --null -T - ) \
+            | tar -xf - -C "${stage}"
         # ship the package definition -- the installer reads LINKS/BINS/
         # UVTOOLS/SERVICES/INSTALL/VERIFY from it
         mkdir -p "${stage}/packages"

@@ -1,0 +1,15 @@
+# chores -- laptop-local herd of LLM-adjacent scheduled jobs (docs/design/CHORES.DESIGN.md)
+# The monitor's icons live under chores/assets/ so this package ships them
+# (assets/ belongs to lmde.pkg); macos/apps/chores ships with macos-apps.pkg.
+# Runtime rail: uv. bin/chores is `uv run --project chores`, and VERIFY runs
+# the unit suite the same way, so a machine without uv cannot run this
+# package at all -- VERIFY failing loudly there is the correct outcome.
+# tds-install already treats uv as the install rail's prerequisite (UVTOOLS).
+NAME=chores
+DESC="chores scheduler, CLI, TUI and menu-bar monitor"
+# Tracked project paths, not `chores` whole: tds-export tars each PATHS
+# entry as is, so a directory claim would ship the per-checkout chores/.venv.
+PATHS="chores/README.md chores/assets chores/pyproject.toml chores/src chores/tests chores/uv.lock chores/verify.sh bin/chores bin/chores-dashboard bin/chores-monitor bin/launch-chores-monitor macos/launchd/com.tds.chores-monitor.plist"
+BINS="bin/chores bin/chores-dashboard bin/chores-monitor bin/launch-chores-monitor"
+SERVICES="macos/launchd/com.tds.chores-monitor.plist"
+VERIFY=chores/verify.sh

@@ -9,6 +9,65 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 ---
 
+## Now
+
+The chores build (`docs/design/CHORES.DESIGN.md`, APPROVED) is implemented
+through task-013; the retrospective ran 2026-09-14/17 and cut drift as
+tasks 015-019 (issues #283-#287). Order:
+
+- task-015 -- ceilings vs N admissions in one tick; the only drift that
+  can spend money.
+- task-016 -- due-detection edge cases; the degrading stories depend on it.
+- task-018 -- Todd's decisions on the built-but-not-designed rows; unblocks
+  the design's status transition.
+- task-017 -- status drift (size, remaining, shrink warning, perf goal).
+- task-019 -- notification ids and the store contract gap.
+- task-014 -- as-built at release, then APPROVED -> IMPLEMENTED (Todd).
+
+`ls tasks/` is the index. This file is still the legacy mono-file below
+this section; issue #289 owns the migration into `tasks/`.
+
+## Blockers
+
+- 2026-09-17: `lmde/TECH_RADAR.md` rows for Textual, PyYAML, rumps and
+  Click (issue #288) -- human-maintained file; the code already depends on
+  them. Unblock: Todd lands the rows or refuses a ring.
+- 2026-09-17: the design's APPROVED -> IMPLEMENTED transition waits on
+  release (`bin/tds-release`) plus tasks 015-019; only Todd moves it.
+
+## Lessons Learned (chores, unsettled)
+
+### Fake-driven CLI tests never exercised the composition root
+
+about: wip
+
+Every CliRunner test injected `obj=Deps(...)`, so `ctx.ensure_object(object)`
+pre-filling `obj` was invisible until the first real `chores validate`.
+One test now drives the CLI with no injected deps (`tests/unit/test_wiring.py`).
+Unsettled: whether the testing-python skill should require one such test per
+CLI, which would make this a `skill:testing-python` lesson.
+
+### A shell chain that pipes pytest into tail commits on red
+
+about: wip
+
+`uv run pytest | tail -1 && git commit` commits when pytest fails because the
+pipeline's status is tail's. Two commits in this build landed with a red
+test for that reason and needed fix-ups. `set -o pipefail` first, or check
+`${PIPESTATUS[0]}`. Unsettled: this belongs in the global agent
+instructions (`about: global`) if it recurs across repos.
+
+### YAML front-matter turns `off` and `true` into booleans
+
+about: wip
+
+A chore named `off` and a command `[true]` both failed validation with
+messages that pointed at the wrong field. Quote them in fixtures. Unsettled:
+the loader could reject non-string scalars with a message naming YAML 1.1
+booleans (`chores/src/chores/adapters/definitions.py`).
+
+---
+
 ## Open Tasks
 
 ### ENV-DISTRIBUTION -- packages/manifests/export/install (issue #202, 2026-08-08)
@@ -222,6 +281,23 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 - [ ] Task LMDE11: **Stack-health Grafana dashboard.** Add a Grafana dashboard monitoring the obs stack itself -- CPU, memory, storage, restarts/errors per component (prometheus, grafana, otel-collector, loki, ingress-nginx). Dashboard JSON + ConfigMap; no new infra; can land before LMDE7-10.
 - [ ] Task LMDE12: **NATS-in-kind: design.** Drafted in `docs/design/LMDE.DESIGN.md` section 5 (Backplane) -- move the LMDE backplane (starting with NATS, then audit each other Adopted component against the residency rule in `lmde/LMDE.md`) into the kind cluster behind LMDE5's ingress-nginx + `*.lmde.localhost`, so kind-sandboxed coding agents reach the same bus as Mac-local agents. Decide: NATS server in-cluster vs. exposing host NATS via ingress; auth model (anonymous loopback today vs. per-agent creds); how `gadmin` and other clients resolve the bus address from inside vs. outside the cluster; which components actually need to move (Caddy/dnsmasq/registry sit at the edge or feed kind and may stay out). Update the `lmde/LMDE.md` Contract once the design lands.
 - [ ] Task LMDE13: **NATS-in-kind: implement.** Add `lmde/components/nats/` (kind manifest + `setup.sh`), pin the image digest in `lmde/components/registry/images.txt`, register `nats.lmde.localhost` via the LMDE5 ingress helper, and add a `test/smoketest_lmde_nats/` smoke that pub/subs from both the host and an in-cluster pod. Depends on LMDE12.
+- [ ] Task LMDE17: **Formalize menu-bar app persistence via `tds-install -S`.**
+  Neither `lmde-sync-monitor` nor the new `skills-drift-monitor` (added
+  alongside the skills-drift indicator, see `docs/design/LMDE.DESIGN.md`
+  section 6) actually survives a reboot/logout through the declarative
+  ENV-DISTRIBUTION pipeline: `~/Library/LaunchAgents/` had zero `com.tds.*`
+  entries and `~/.tds/dist/current` did not exist when checked (2026-09-07)
+  -- `packages/lmde.pkg`'s `SERVICES=` mechanism (`bin/tds-install -S`) has
+  apparently never actually been run on this machine, despite both plists
+  being fully built out. `skills-drift-monitor` is durably loaded today via
+  a manual `cp` into `~/Library/LaunchAgents` + `launchctl bootstrap`, NOT
+  through the pipeline; `packages/lmde.pkg` now declares its files
+  (`bin/skills-drift-check`, `bin/skills-drift-monitor`,
+  `bin/launch-skills-drift-monitor`, `macos/launchd/com.tds.skills-drift-monitor.plist`)
+  for whenever the pipeline is exercised for real. Deferred per Todd
+  (2026-09-07): work out the skills-drift kinks first, revisit the
+  packaging/install pipeline -- and whether `lmde-sync-monitor` needs the
+  same treatment -- after.
 
 ### Goldfish
 

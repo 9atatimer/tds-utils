@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""skills-drift-monitor -- macOS menu-bar icon for the 9atatimer/Skills
+drift indicator (installed / published / local-repo agreement -- see
+bin/skills-drift-check, the single source of truth this just polls).
+
+A new sibling app, not a segment bolted onto lmde-sync-monitor (Todd's
+call) -- unrelated concerns, same rumps+launchd shape.
+"""
+import subprocess
+import sys
+from pathlib import Path
+
+import rumps
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CHECK_BIN = REPO_ROOT / "bin" / "skills-drift-check"
+
+ASSETS_DIR = REPO_ROOT / "assets"
+ICON_CURRENT = str(ASSETS_DIR / "skills-current.png")
+ICON_DRIFT = str(ASSETS_DIR / "skills-drift.png")
+
+CHECK_INTERVAL_SECS = 900  # mirror lmde-sync-monitor's default
+
+# The one command that mechanically fixes drift: it re-syncs the installed
+# stamp to the registry latest, and is idempotent/safe to run even when the
+# only drift is local-repo-side (it just no-ops on the installed row). It
+# does NOT fix local-repo drift (uncommitted changes, unpublished commits)
+# -- that needs a human git decision (commit, push, wait for the merge to
+# publish), which has no safe one-line command; the modal says so.
+REMEDIATION_COMMAND = "lmde acquire"
+
+
+class SkillsDriftMonitor(rumps.App):
+    def __init__(self):
+        super(SkillsDriftMonitor, self).__init__("", icon=ICON_CURRENT, template=True)
+        # Built ONCE and re-added by reference in update_ui(), never by
+        # string. self.menu.clear() destroys the MenuItem objects it held;
+        # a subsequent self.menu.add("Check Now") builds a brand-new
+        # MenuItem("Check Now") with no callback at all (rumps only wires
+        # @rumps.clicked's callback into the item it builds at App.__init__
+        # time), so every rebuild after the first silently turned both
+        # items inert. Keeping these two objects alive and re-inserting the
+        # SAME instances is what keeps the callback attached across rebuilds.
+        self.check_now_item = rumps.MenuItem("Check Now", callback=self.check_now)
+        self.quit_item = rumps.MenuItem("Quit", callback=rumps.quit_application)
+        # The status line is itself a button: click it for a modal with the
+        # full text (the dropdown truncates long paths) and a copy-to-
+        # clipboard remediation command. Same persistent-object requirement
+        # as the two items above.
+        self.status_item = rumps.MenuItem("Skills current", callback=self.show_status_modal)
+        self.timer = rumps.Timer(self.check_drift, CHECK_INTERVAL_SECS)
+        self.timer.start()
+        self.drift_lines = []
+        self.last_unknown = False
+        # Distinct from last_unknown: whether ANY check has ever completed
+        # (returncode 0 or 1). If the very first check can't reach the
+        # registry, drift_lines stays at this empty default forever until a
+        # real result lands -- that's not the same as a verified "green",
+        # and show_status_modal must not conflate the two.
+        self.ever_checked = False
+        self.check_drift(None)
+
+    def check_now(self, _):
+        self.check_drift(None)
+
+    def check_drift(self, _):
+        try:
+            result = subprocess.run(
+                [str(CHECK_BIN)], capture_output=True, text=True, timeout=30
+            )
+        except Exception as e:
+            # Never let a broken check crash the app or flip it to a false
+            # alarm -- same fail-open stance as skills-drift-check itself.
+            print(f"skills-drift-monitor: could not run skills-drift-check: {e}", file=sys.stderr)
+            self.last_unknown = True
+            self.update_ui()
+            return
+
+        if result.returncode == 1:
+            self.drift_lines = [
+                line for line in result.stdout.splitlines() if line.startswith("DRIFT:")
+            ]
+            self.last_unknown = False
+            self.ever_checked = True
+        elif result.returncode == 0:
+            self.drift_lines = []
+            self.last_unknown = False
+            self.ever_checked = True
+        else:
+            # exit 2 (or anything else unexpected): couldn't determine this
+            # run -- keep the LAST KNOWN state on the icon (a flaky network
+            # is not a drift finding) but note it in the dropdown.
+            self.last_unknown = True
+
+        self.update_ui()
+
+    def update_ui(self):
+        self.menu.clear()
+        if self.drift_lines:
+            self.icon = ICON_DRIFT
+            self.template = False
+            self.status_item.title = f"Skills drift ({len(self.drift_lines)}) -- click for details"
+            self.menu.add(self.status_item)
+            for line in self.drift_lines:
+                self.menu.add(line[len("DRIFT: ") :])
+            self.menu.add(None)
+        elif self.last_unknown and not self.ever_checked:
+            # Never a successful check yet -- e.g. no network at launch.
+            # ICON_CURRENT is still the least-alarming default (this is not
+            # a confirmed problem, just an unconfirmed state), but the menu
+            # text must not claim "current" for a state never verified.
+            self.icon = ICON_CURRENT
+            self.template = True
+            self.status_item.title = "Skills status unknown -- click for details"
+            self.menu.add(self.status_item)
+            self.menu.add(None)
+        else:
+            self.icon = ICON_CURRENT
+            self.template = True
+            self.status_item.title = "Skills current -- click for details"
+            self.menu.add(self.status_item)
+            self.menu.add(None)
+
+        if self.last_unknown:
+            self.menu.add("(last check could not reach the registry -- showing prior state)")
+            self.menu.add(None)
+
+        self.menu.add(self.check_now_item)
+        self.menu.add(self.quit_item)
+
+    def show_status_modal(self, _):
+        if self.drift_lines:
+            detail = "\n".join(line[len("DRIFT: ") :] for line in self.drift_lines)
+            message = (
+                "Skills drift detected:\n\n"
+                f"{detail}\n\n"
+                "This command fixes the installed-vs-published gap (safe to "
+                "run even when the only drift above is local-repo-side, "
+                "which it leaves untouched -- that needs your own git "
+                "workflow: commit, push, and wait for the merge to "
+                "publish):\n\n"
+                f"$ {REMEDIATION_COMMAND}"
+            )
+            response = rumps.alert(
+                title="Skills Drift",
+                message=message,
+                ok="Copy Command",
+                cancel="Close",
+            )
+            if response != 0:
+                self._copy_to_clipboard(REMEDIATION_COMMAND)
+        elif self.last_unknown and not self.ever_checked:
+            rumps.alert(
+                title="Skills Status",
+                message=(
+                    "Status unknown -- no check has reached the registry yet "
+                    "(no network at launch, or no GitHub Packages credential). "
+                    "This is not a confirmed 'current' -- it just hasn't been "
+                    "checked. Try \"Check Now\"."
+                ),
+                ok="OK",
+            )
+        else:
+            message = "Local, installed, and published skills versions all agree."
+            if self.last_unknown:
+                message += (
+                    "\n\n(The most recent check could not reach the registry -- "
+                    "this reflects the last successful check, not right now.)"
+                )
+            rumps.alert(title="Skills Status", message=message, ok="OK")
+
+    @staticmethod
+    def _copy_to_clipboard(text):
+        try:
+            subprocess.run(["pbcopy"], input=text, text=True, check=True)
+            rumps.notification("Skills Status", "Copied to clipboard", text)
+        except Exception as e:
+            # Clipboard failure is a nuisance, never a crash -- same
+            # fail-open stance as the rest of this app.
+            print(f"skills-drift-monitor: could not copy to clipboard: {e}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    SkillsDriftMonitor().run()
