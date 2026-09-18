@@ -120,12 +120,16 @@ class BreakerVerdict:
 def circuit_breaker(recent: Sequence[RunStatus], *, threshold: int) -> BreakerVerdict:
     """PAUSE when the last ``threshold`` run-terminal outcomes were all failures.
 
-    Skips and OFFLINE are neither failures nor streak breakers: they say
-    nothing about the chore itself.
+    Skips, OFFLINE and KILLED are neither failures nor streak breakers: they
+    say nothing about the chore itself. KILLED has to be transparent in both
+    directions or the operator's own remediation defeats the breaker -- a
+    chore that hangs every time and is killed every time would reset the
+    streak on each kill and never pause (issue #296).
     """
-    considered = [s for s in recent if s.is_run_terminal and s is not RunStatus.OFFLINE]
+    transparent = (RunStatus.OFFLINE, RunStatus.KILLED)
+    considered = [s for s in recent if s.is_run_terminal and s not in transparent]
     tail = considered[-threshold:] if threshold > 0 else []
-    if len(tail) == threshold and all(s.is_failure for s in tail):
+    if threshold > 0 and len(tail) == threshold and all(s.is_failure for s in tail):
         return BreakerVerdict(Decision.PAUSE, f"{threshold} consecutive failures")
     return BreakerVerdict(Decision.KEEP)
 

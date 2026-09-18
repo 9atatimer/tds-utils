@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 
 from chores.adapters.claude_cli import ClaudeCliAgent
@@ -80,7 +82,21 @@ def test_adapters_are_built_per_type_with_credentials_supplied_at_the_edge() -> 
         c.completion("claude")
 
 
-def test_swap_test_a_fourth_type_is_one_register_call() -> None:
+@pytest.fixture
+def registry_restored() -> Iterator[None]:
+    """`register_type` writes a module-level dict. Put it back afterwards, so
+    a registration cannot leak into whatever test pytest-randomly runs next."""
+    from chores.adapters import registry
+
+    before = dict(registry._TYPES)
+    yield
+    registry._TYPES.clear()
+    registry._TYPES.update(before)
+
+
+def test_swap_test_a_fourth_type_is_one_register_call(
+    registry_restored: None,
+) -> None:
     """Registering a new completion type needs no change outside the registry."""
     register_type(
         BackendType(

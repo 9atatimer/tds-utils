@@ -204,3 +204,16 @@ def test_catch_up_fires_one_run_for_the_missed_set() -> None:
 def test_never_matching_schedule_is_rejected_at_parse() -> None:
     with pytest.raises(InvalidSchedule):
         Schedule.parse("0 0 31 4 *")
+
+
+def test_a_slot_exactly_at_the_grace_boundary_still_fires() -> None:
+    """The newest slot fires when it is *no older* than the grace, so the
+    boundary instant belongs to FIRE, not MISSED."""
+    hourly = Schedule.parse("0 * * * *")
+    slot = T0 + timedelta(hours=1)
+    assert due_policy(
+        hourly, window_start=T0, now=slot + GRACE, grace=GRACE
+    ) == DueVerdict(fire=slot, missed=0)
+    assert due_policy(
+        hourly, window_start=T0, now=slot + GRACE + timedelta(seconds=1), grace=GRACE
+    ) == DueVerdict(fire=None, missed=1)

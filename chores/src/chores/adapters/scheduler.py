@@ -245,7 +245,11 @@ class LaunchdInstaller:
     def installed_interval(self) -> int | None:
         if not self.plist.exists():
             return None
-        found = re.search(r"<integer>(\d+)</integer>", self.plist.read_text())
+        # anchored on the key: the template may grow another <integer>
+        found = re.search(
+            r"<key>StartInterval</key>\s*<integer>(\d+)</integer>",
+            self.plist.read_text(),
+        )
         return int(found.group(1)) if found else None
 
 

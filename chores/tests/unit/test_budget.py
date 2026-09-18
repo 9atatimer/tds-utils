@@ -94,3 +94,17 @@ def test_budgets_and_ceilings_reject_non_finite_usd(value: float) -> None:
         Budget(seconds=1, usd=value)
     with pytest.raises(InvalidBudget):
         Ceiling(usd=value)
+
+
+def test_usage_landing_exactly_on_the_budget_is_not_over_it() -> None:
+    """STOP is for usage that *exceeds* the budget; equality continues."""
+    budget = Budget(seconds=10, tokens=1000, usd=0.50, turns=5)
+    exact = Usage(tokens_in=600, tokens_out=400, seconds=10.0, usd=0.50, turns=5)
+    assert spend_policy(exact, budget).action is SpendAction.CONTINUE
+    for over in (
+        Usage(tokens_in=600, tokens_out=401, seconds=1.0),
+        Usage(tokens_in=0, tokens_out=0, seconds=1.0, usd=0.5001),
+        Usage(tokens_in=0, tokens_out=0, seconds=1.0, turns=6),
+        Usage(tokens_in=0, tokens_out=0, seconds=10.001),
+    ):
+        assert spend_policy(over, budget).action is SpendAction.STOP

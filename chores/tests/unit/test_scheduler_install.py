@@ -421,3 +421,18 @@ def test_a_failed_reinstall_restores_the_previous_units(tmp_path: Path) -> None:
         mac.install(interval_sec=120)
     assert mac.installed_interval() == 60
     assert mac_calls[-1][:2] == ["launchctl", "bootstrap"]  # the old plist reloaded
+
+
+def test_installed_interval_reads_the_start_interval_key(tmp_path: Path) -> None:
+    """The interval is read from its own key, not from whichever <integer>
+    happens to come first -- the plist template may grow another one."""
+    inst = LaunchdInstaller(home=tmp_path, uid=501, run=Recorder())
+    inst.install(interval_sec=45)
+    text = inst.plist.read_text()
+    inst.plist.write_text(
+        text.replace(
+            "<key>Label</key>",
+            "<key>Nice</key>\n  <integer>7</integer>\n  <key>Label</key>",
+        )
+    )
+    assert inst.installed_interval() == 45

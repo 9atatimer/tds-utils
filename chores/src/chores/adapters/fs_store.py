@@ -342,6 +342,9 @@ class FsRunStore:
         self, *, chore: str | None = None, since: datetime | None = None
     ) -> Sequence[RunRecord]:
         out: list[RunRecord] = []
+        # _RUN_ID_RE, not _CHORE_NAME_RE, on purpose: INVALID outcomes are
+        # filed under the uppercase `INVALID-<safe>` names invalid_record_name
+        # mints, and the tick looks those up through here.
         if chore is not None and not _RUN_ID_RE.match(chore):
             return []  # not a path segment: nothing can be filed under it
         chore_dirs = [self.runs / chore] if chore else sorted(self.runs.iterdir())

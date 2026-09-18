@@ -37,10 +37,17 @@ def raise_for_status(response: HttpResponse, *, provider: str) -> None:
     raise BackendError(f"{provider}: HTTP {status} {detail}")
 
 
+_MAX_DETAIL = 200
+"""Backend-supplied text becomes the run's ``reason``, which is persisted to
+run.json and to the never-pruned ledger with no size check of its own, so it
+is bounded here -- the same cap every other error path in the package uses
+(issue #297)."""
+
+
 def _detail(body: Mapping[str, object]) -> str:
     error = body.get("error")
     if isinstance(error, Mapping):
-        return str(error.get("message", error))
+        return str(error.get("message", error))[:_MAX_DETAIL]
     if error is not None:
-        return str(error)
-    return str(body.get("raw", ""))[:200]
+        return str(error)[:_MAX_DETAIL]
+    return str(body.get("raw", ""))[:_MAX_DETAIL]

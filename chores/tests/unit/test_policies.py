@@ -282,3 +282,75 @@ def test_json_escaped_redaction_form_matches_the_json_encoder() -> None:
         encoded = json.dumps({"k": secret})
         assert secret not in redact(encoded, [secret])
         assert json.dumps(secret)[1:-1] not in redact(encoded, [secret])
+
+
+def test_a_killed_run_neither_fails_nor_resets_the_streak() -> None:
+    """An operator kill says nothing about the chore, exactly as OFFLINE does
+    not: it must not count as a failure, and it must not reset the count. A
+    chore that hangs on every run and is killed every time still trips the
+    breaker (issue #296)."""
+    killed_between = [
+        RunStatus.FAILED,
+        RunStatus.KILLED,
+        RunStatus.FAILED,
+        RunStatus.KILLED,
+        RunStatus.FAILED,
+    ]
+    assert circuit_breaker(killed_between, threshold=3).decision is Decision.PAUSE
+    assert (
+        circuit_breaker([RunStatus.KILLED] * 5, threshold=3).decision is Decision.KEEP
+    )
+    assert (
+        circuit_breaker(
+            [RunStatus.FAILED, RunStatus.KILLED, RunStatus.SUCCEEDED], threshold=1
+        ).decision
+        is Decision.KEEP
+    )
+
+
+def test_a_zero_threshold_breaker_pauses_nothing() -> None:
+    """`all([])` is vacuously true, so an unguarded zero threshold pauses on a
+    clean history. Unreachable through config.yaml, which rejects it -- the
+    pure function defends itself (issue #296)."""
+    assert circuit_breaker([RunStatus.SUCCEEDED], threshold=0).decision is Decision.KEEP
+    assert circuit_breaker([], threshold=0).decision is Decision.KEEP
+
+
+def test_ceiling_admits_spend_that_lands_exactly_on_the_cap() -> None:
+    """The design refuses what would *cross* a ceiling, so equality is admitted
+    -- the boundary the two neighbouring tests straddle without touching."""
+    v = ceiling_policy(
+        [row(usd=0.40)],
+        chore=chore(usd=0.10),
+        backend=BACKEND,
+        global_ceiling=Ceiling(),
+        count_subscription_usd=False,
+    )
+    assert v.decision is Decision.ADMIT
+    over = ceiling_policy(
+        [row(usd=0.4001)],
+        chore=chore(usd=0.10),
+        backend=BACKEND,
+        global_ceiling=Ceiling(),
+        count_subscription_usd=False,
+    )
+    assert over.decision is Decision.REFUSE
+
+
+def test_a_disabled_chore_cannot_be_forced() -> None:
+    """force lifts overlap, offline and battery only; disabled is not on that
+    list, and the ordering is what enforces it."""
+    facts = AdmissionFacts(
+        enabled=False,
+        globally_paused=None,
+        chore_paused=None,
+        running_run_id=None,
+        on_battery=False,
+        defer_on_battery=False,
+        offline=False,
+        requires_network=False,
+        ceiling_refusal=None,
+        force=True,
+    )
+    verdict = admission_policy(facts)
+    assert verdict.decision is Decision.SKIP and verdict.reason == "disabled"

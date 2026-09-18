@@ -6,6 +6,7 @@ from collections.abc import Mapping
 
 import pytest
 
+from chores.adapters._http_errors import raise_for_status
 from chores.adapters.http import HttpResponse, TransportError, TransportTimeout
 from chores.adapters.ollama import OllamaCompletion
 from chores.adapters.openai_compat import OpenAICompatCompletion
@@ -179,3 +180,17 @@ def test_provider_costs_must_be_finite_and_non_negative(cost: str) -> None:
         float_field(cost, provider="p", field="total_cost_usd")
     with pytest.raises(BackendError, match="negative"):
         int_field(-1, provider="p", field="output_tokens")
+
+
+def test_a_huge_backend_error_message_cannot_reach_the_record() -> None:
+    """Backend-supplied error text is bounded like every other error path in
+    the package: the reason it becomes is persisted to run.json and to the
+    ledger, which is never pruned (issue #297)."""
+    for body in (
+        {"error": {"message": "x" * 50_000}},
+        {"error": "y" * 50_000},
+        {"raw": "z" * 50_000},
+    ):
+        with pytest.raises(BackendError) as caught:
+            raise_for_status(HttpResponse(500, body), provider="gw")
+        assert len(str(caught.value)) < 400, body.keys()
