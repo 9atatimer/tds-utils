@@ -65,6 +65,7 @@ query($owner: String!, $name: String!, $number: Int!, $after: String) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       headRefOid
+      isCrossRepository
       reviews(last: 100) {
         nodes { author { login } state submittedAt commit { oid } }
       }
@@ -92,6 +93,7 @@ async function graphql(token, query, variables) {
 async function readPullRequest(token, owner, name, number) {
   let after = null;
   let headSha = null;
+  let isCrossRepository = false;
   let reviews = [];
   const threads = [];
   for (;;) {
@@ -99,6 +101,7 @@ async function readPullRequest(token, owner, name, number) {
     const pr = data.repository?.pullRequest;
     if (!pr) throw new Error(`no pull request ${owner}/${name}#${number}`);
     headSha = pr.headRefOid;
+    isCrossRepository = pr.isCrossRepository === true;
     reviews = pr.reviews.nodes.map((node) => ({
       author: node.author?.login ?? '',
       state: node.state,
@@ -109,7 +112,7 @@ async function readPullRequest(token, owner, name, number) {
     if (!pr.reviewThreads.pageInfo.hasNextPage) break;
     after = pr.reviewThreads.pageInfo.endCursor;
   }
-  return { headSha, reviews, threads };
+  return { headSha, isCrossRepository, reviews, threads };
 }
 
 async function postStatus(token, owner, name, sha, verdict) {
@@ -140,6 +143,14 @@ async function main() {
   const reviewers = parseReviewers(args.reviewers);
 
   const facts = await readPullRequest(token, owner, name, args.pr);
+  // A fork PR is not a landing candidate: its head is untrusted and it is
+  // human-merge, so it never carries this status. Decided here, on the
+  // API's answer, because a caller cannot tell from every event it runs
+  // on (issue_comment carries no pull_request payload).
+  if (facts.isCrossRepository) {
+    console.log(`${CONTEXT}: ${owner}/${name}#${args.pr} is a fork PR -- no status posted`);
+    return;
+  }
   const verdict = settle({ ...facts, reviewers });
   console.log(`${CONTEXT}: ${verdict.state} on ${facts.headSha.slice(0, 7)} -- ${verdict.description}`);
   if (args.dryRun) return;

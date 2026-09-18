@@ -47,7 +47,10 @@ jobs:
     # issue_comment also fires for plain issues; only PR comments matter.
     # A PR from a fork is skipped outright: its token is read-only (no
     # status could be posted anyway) and `tools_ref` below would otherwise
-    # check out and run an untrusted head. Fork PRs are human-merge.
+    # check out and run an untrusted head. Fork PRs are human-merge. This
+    # guard can only see the head repo on events that carry a pull_request
+    # payload; on issue_comment `tools_ref` is master (trusted) and the
+    # checker itself refuses a fork PR from the API's isCrossRepository.
     if: >-
       (github.event_name != 'issue_comment' || github.event.issue.pull_request != null)
       && (github.event.pull_request == null || github.event.pull_request.head.repo.full_name == github.repository)
