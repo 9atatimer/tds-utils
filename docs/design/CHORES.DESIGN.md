@@ -513,6 +513,7 @@ rows.
 | Spend is judged on adapter-measured seconds (2026-09-14; issue #286) | `spend_policy` sees the adapter's latency or child wall time, not the runner's clock including secret resolution | timeouts are the adapters' bound; a slow `op read` must not flip a success to BUDGET_EXCEEDED |
 | A young PENDING record counts as live (2026-09-14; issue #286) | overlap admission treats a PENDING record younger than one stale window as running | the window between admission and spawn was invisible to a concurrent run |
 | First sight opens at the previous tick (2026-09-14; issue #284) | a chore with no records has its window opened at the previous tick, not "that tick" as Subsystem 2 says | recorded as drift, not amended; the divergence bites only after a long sleep |
+| Per-chore sentry dir is `paused.d/` (2026-09-17, review round; PR #290) | the state root holds `PAUSED` and `paused.d/<chore>`, not `paused/<chore>` as Architecture Overview and Data Model say | the default macOS filesystem folds case, so `paused/` and `PAUSED` were one entry and `chores pause` failed on every Mac; recorded as drift, not amended; `adapters/fs_store.py` and `tests/unit/test_fs_store.py` carry the rule that no two state-root names may fold to the same string |
 
 ---
 
