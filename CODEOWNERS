@@ -1,0 +1,7 @@
+# CODEOWNERS -- read by tedium from master (use_codeowners = true in
+# tedium.toml): a PR touching these paths needs an approving review from
+# an owner before the bot will land it, and the ruleset's Copilot review
+# does not count. These are the files that decide what may merge.
+tedium.toml          @9atatimer
+CODEOWNERS           @9atatimer
+.github/workflows/   @9atatimer

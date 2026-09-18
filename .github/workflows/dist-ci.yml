@@ -29,10 +29,16 @@
 
 name: dist-ci
 
+# `gate` is the one always-present check: it needs every other job and
+# fails on any failure or cancellation, so the ruleset and tedium can
+# require a single name that exists on every head (issue #292). The
+# tedium/* branches are where tedium builds its staging commits; without
+# them in the trigger a batch waits timeout_sec for a check that never
+# runs.
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [master, tedium/merge, tedium/try]
 
 jobs:
   smoketests:
@@ -116,3 +122,29 @@ jobs:
       # Exactly the four dist files named in issue #206 -- see header.
       - name: Shellcheck the dist toolchain
         run: shellcheck -x lib/tds-dist.sh bin/tds-export bin/tds-install bin/tds-status
+
+  # The required check. Add every new job to `needs`; a job left out is a
+  # job that cannot block a landing. `if: always()` so a failed or
+  # cancelled dependency still produces this check (red), never an absent
+  # one -- absent is what hangs tedium.
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    if: always()
+    needs: [smoketests, shellcheck]
+    permissions: {}
+    steps:
+      - name: Every needed job succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS"
+          if echo "$RESULTS" | grep -Eq '"result": *"(failure|cancelled)"'; then
+            echo "::error::a needed job failed or was cancelled"
+            exit 1
+          fi
+          if echo "$RESULTS" | grep -Eq '"result": *"skipped"'; then
+            echo "::error::a needed job was skipped; dist-ci has no path filters, so this is a workflow bug"
+            exit 1
+          fi
