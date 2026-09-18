@@ -306,6 +306,16 @@ reconstructible by relaunching under its key.
 
 ---
 
+## Data Warehouse
+
+Nothing is ledgered. Every byte this design creates is a local, derived,
+disposable cache: package installs, byte-compiled output, and per-instance
+editor state, all reconstructible by relaunching under the key that owns them.
+There is no event, metric, or record here that another system would want to
+read, and deliberately nothing that survives `rm -rf <cache-base>/<key>`.
+
+---
+
 ## Security Considerations
 
 - **A branch's `init.el` is arbitrary executable elisp.** Launching
