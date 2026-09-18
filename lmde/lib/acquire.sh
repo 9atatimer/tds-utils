@@ -17,9 +17,9 @@
 # hash and published versions are immutable, so the gate is the version choice
 # plus npm's built-in integrity -- never curl|sh, never integrity-disabling
 # flags. Auth resolves in order: GH_PAT_NAATM_PACKAGES_RO (a CLASSIC PAT with
-# read:packages), then the deprecated GH_AI_TOOLS_PAT, then the machine's own
-# `gh auth token`. Note a default `gh auth login` does NOT grant
-# read:packages -- see the scope hint in acquire_run.
+# read:packages), then the machine's own `gh auth token`. Note a default
+# `gh auth login` does NOT grant read:packages -- see the scope hint in
+# acquire_run.
 
 # --- Constants ---
 
@@ -154,15 +154,13 @@ effective_pins() {
 
 # --- Adapters (I/O) ---
 
-# acquire_token_name -- which SOURCE is supplying the credential: the current
-# variable, the deprecated one, the local `gh` login, or nothing. Deliberately
+# acquire_token_name -- which SOURCE is supplying the credential: the
+# variable, the local `gh` login, or nothing. Deliberately
 # returns the NAME and never the value, so a caller cannot log the secret by
 # reaching for the wrong helper.
 acquire_token_name() {
     if [ -n "${GH_PAT_NAATM_PACKAGES_RO:-}" ]; then
         echo "GH_PAT_NAATM_PACKAGES_RO"
-    elif [ -n "${GH_AI_TOOLS_PAT:-}" ]; then
-        echo "GH_AI_TOOLS_PAT"
     elif [ -n "$(acquire_gh_token)" ]; then
         echo "gh"
     else
@@ -182,7 +180,7 @@ acquire_token_name() {
 # Guarded on every axis, because this must never be the thing that hangs or
 # breaks a session: absent gh -> ""; unauthenticated gh -> non-zero -> ""; slow
 # gh -> killed by timeout -> "". Cloud sandboxes have no gh at all and fall
-# through untouched, which is why the explicit variables still rank first.
+# through untouched, which is why the explicit variable still ranks first.
 # Resolution is CACHED for the life of the process. Without this the token was
 # resolved four separate times per `acquire` and three per `--check` (measured
 # with a logging gh stub), and `lmde acquire --check` runs from
@@ -210,7 +208,7 @@ ACQUIRE_GH_TOKEN_CACHE_SET=""
 
 # acquire_resolve_gh -- populate the cache. Call this in the PARENT shell.
 #
-# Returns immediately when either explicit variable is set: gh is the LAST
+# Returns immediately when the explicit variable is set: gh is the LAST
 # tier, so resolving it when a higher-priority credential already exists buys
 # a value that acquire_token will discard -- and on a machine with a locked
 # keychain that discarded value costs the full bound, on every session start
@@ -219,7 +217,7 @@ acquire_resolve_gh() {
     if [ -n "${ACQUIRE_GH_TOKEN_CACHE_SET}" ]; then
         return 0
     fi
-    if [ -n "${GH_PAT_NAATM_PACKAGES_RO:-}" ] || [ -n "${GH_AI_TOOLS_PAT:-}" ]; then
+    if [ -n "${GH_PAT_NAATM_PACKAGES_RO:-}" ]; then
         ACQUIRE_GH_TOKEN_CACHE_SET="1"
         ACQUIRE_GH_TOKEN_CACHE=""
         return 0
@@ -393,33 +391,20 @@ acquire_bounded() {
 }
 
 # acquire_token -- the credential VALUE, by resolution order:
-# GH_PAT_NAATM_PACKAGES_RO > GH_AI_TOOLS_PAT (deprecated) > `gh auth token`.
-# The explicit variables rank first so a cloud sandbox, which has no gh, keeps
+# GH_PAT_NAATM_PACKAGES_RO > `gh auth token`.
+# The explicit variable ranks first so a cloud sandbox, which has no gh, keeps
 # behaving exactly as before.
 acquire_token() {
     if [ -n "${GH_PAT_NAATM_PACKAGES_RO:-}" ]; then
         printf '%s' "${GH_PAT_NAATM_PACKAGES_RO}"
-    elif [ -n "${GH_AI_TOOLS_PAT:-}" ]; then
-        printf '%s' "${GH_AI_TOOLS_PAT}"
     else
         printf '%s' "$(acquire_gh_token)"
     fi
 }
 
-# acquire_warn_if_deprecated -- one line when the credential arrived under the
-# retired name, so "still on the old variable" is visible rather than inferred.
-# GH_AI_TOOLS_PAT is named for the retired ai-tools repo; GH_PAT_NAATM_PACKAGES_RO
-# replaces it. The fallback stays until nothing reports using it.
-acquire_warn_if_deprecated() {
-    if [ "$(acquire_token_name)" = "GH_AI_TOOLS_PAT" ]; then
-        acquire_note "using DEPRECATED GH_AI_TOOLS_PAT -- reprovision as GH_PAT_NAATM_PACKAGES_RO (classic PAT, read:packages, Nine-At-A-Time-Media owns the @nine-at-a-time-media scope)"
-    fi
-    return 0
-}
-
 # write_acquire_npmrc <dir> -- write an ephemeral authed npmrc scoping
 # @nine-at-a-time-media to GitHub Packages. Token from GH_PAT_NAATM_PACKAGES_RO
-# (classic read:packages), falling back to the deprecated GH_AI_TOOLS_PAT. Mode
+# (classic read:packages), falling back to the local `gh` login. Mode
 # 600 via umask; symlink-guarded. Copied from provision.sh's write_npmrc
 # hardening. The caller removes it after the install.
 write_acquire_npmrc() {
@@ -427,7 +412,7 @@ write_acquire_npmrc() {
     # Reads the cache acquire_run/check_run populated in the parent shell.
     token="$(acquire_token)"
     if [ -z "${token}" ]; then
-        acquire_note "no credential: GH_PAT_NAATM_PACKAGES_RO unset, no deprecated GH_AI_TOOLS_PAT, and no usable \`gh auth token\` -- need one of those to install from GitHub Packages"
+        acquire_note "no credential: GH_PAT_NAATM_PACKAGES_RO unset and no usable \`gh auth token\` -- need one of those to install from GitHub Packages"
         return 1
     fi
     mkdir -p "${dir}" || return 1
@@ -675,7 +660,6 @@ acquire_run() {
     local token
     acquire_resolve_gh
     token="$(acquire_token)"
-    acquire_warn_if_deprecated
 
     if [ -z "${token}" ]; then
         acquire_note "no credential found -- set GH_PAT_NAATM_PACKAGES_RO (a CLASSIC PAT with read:packages) or sign in with \`gh auth login\` to install the fleet packages from GitHub Packages (npm.pkg.github.com)."
@@ -842,10 +826,9 @@ check_run() {
     # credential is a gh login -- installs would work and the advisory check
     # would quietly report nothing, which is the worse of the two failures.
     token="$(acquire_token)"
-    acquire_warn_if_deprecated
 
     if [ -z "${token}" ]; then
-        acquire_note "no credential: GH_PAT_NAATM_PACKAGES_RO unset, no deprecated GH_AI_TOOLS_PAT, and no usable \`gh auth token\` -- cannot query GitHub Packages; advisory update check skipped."
+        acquire_note "no credential: GH_PAT_NAATM_PACKAGES_RO unset and no usable \`gh auth token\` -- cannot query GitHub Packages; advisory update check skipped."
         return 0
     fi
     if ! command -v npm >/dev/null 2>&1; then
@@ -907,10 +890,9 @@ latest_run() {
     local token
     acquire_resolve_gh
     token="$(acquire_token)"
-    acquire_warn_if_deprecated
 
     if [ -z "${token}" ]; then
-        acquire_note "no credential: GH_PAT_NAATM_PACKAGES_RO unset, no deprecated GH_AI_TOOLS_PAT, and no usable \`gh auth token\` -- cannot query GitHub Packages."
+        acquire_note "no credential: GH_PAT_NAATM_PACKAGES_RO unset and no usable \`gh auth token\` -- cannot query GitHub Packages."
         return 0
     fi
     if ! command -v npm >/dev/null 2>&1; then

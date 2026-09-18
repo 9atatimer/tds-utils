@@ -313,8 +313,7 @@ Notes:
   ~/.local/lib/node_modules/@nine-at-a-time-media/skills, the lmde->clai
   boundary convention path) from GitHub Packages (npm.pkg.github.com). Auth is
   resolved in order: GH_PAT_NAATM_PACKAGES_RO (a CLASSIC PAT with the
-  read:packages scope), the deprecated GH_AI_TOOLS_PAT, then the machine's
-  own `gh auth token`. A default `gh auth login` does NOT grant
+  read:packages scope), then the machine's own `gh auth token`. A default `gh auth login` does NOT grant
   read:packages -- if installs fail to authenticate, run
   `gh auth refresh -h github.com -s read:packages`. Versions float
   to registry latest unless pinned (keys CLAI_VERSION / AST_MCP_VERSION /
