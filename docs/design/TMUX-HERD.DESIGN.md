@@ -92,8 +92,11 @@ One call gathers everything the classifier needs, one pane per line:
 
 ```
 tmux list-panes -a -F \
-  '#{session_name}\t#{session_attached}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_dead}'
+  '#{session_name}\t#{session_attached}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_dead}'
 ```
+
+`pane_id` (`%N`) is carried through to the agent probes so `capture-pane
+-t %N` reads the agent's pane and never tmux's current one.
 
 The tool's own session (`$TMUX` pane) is always KEEP, whatever it holds.
 
@@ -103,9 +106,12 @@ The tool's own session (`$TMUX` pane) is always KEEP, whatever it holds.
 |------|-------|-------|
 | descendants of `pane_pid` | `ps -axo pid=,ppid=,comm=,args=` walked in-shell | same |
 | cwd of a process | `lsof -a -p PID -d cwd -Fn` | `readlink /proc/PID/cwd` |
+| start time of a process | `ps -o etime= -p PID`, subtracted from now | same |
 
-`ps` output is fetched once per run and walked in memory; one `lsof` per
-agent process, never per pane.
+`ps` output is fetched once per run and walked in memory; one `lsof` and
+one `ps -o etime=` per agent process, never per pane. `etime` is the one
+elapsed-time column BSD and procps agree on (`[[dd-]hh:]mm:ss`); the
+adapter converts it to an epoch start.
 
 ### Classification (core)
 
@@ -116,10 +122,14 @@ A session's verdict is the max over its panes of:
 | `pane_dead=1` | IDLE |
 | foreground command is a shell (`zsh bash sh fish`) and the pane pid has no descendants | IDLE |
 | foreground is a shell with descendants, none of them an agent | KEEP (e.g. `vim`, `make`, an ssh) |
-| any descendant is an agent binary (`claude`, `codex`, `opencode`, or a `node` whose argv names one) | AGENT |
+| foreground is not a shell and not an agent (`tmux new-session vim`) | KEEP |
+| the pane pid itself, or any descendant, is an agent binary (`claude`, `codex`, `opencode`, or a `node` whose argv names one) | AGENT |
 
-Session verdict: AGENT > KEEP > IDLE. `session_attached=1` promotes IDLE to
-KEEP. Only IDLE sessions are killed.
+The pane root counts: `tmux new-session claude` has the agent AS
+`pane_pid`, with no shell in the tree.
+
+Session verdict: AGENT > KEEP > IDLE. `session_attached` is a client count;
+any value > 0 promotes IDLE to KEEP. Only IDLE sessions are killed.
 
 The classifier takes the pane lines and a `pid -> (ppid, comm, args)` table
 as input, so the smoketest drives it with fixture text and never a live
@@ -133,10 +143,15 @@ window may be elsewhere). For KEEP sessions it is the pane path.
 
 ```
 toplevel   = git -C cwd rev-parse --show-toplevel
-common     = git -C cwd rev-parse --git-common-dir      # main repo for a worktree
+common     = git -C cwd rev-parse --path-format=absolute --git-common-dir
 branch     = git -C cwd rev-parse --abbrev-ref HEAD      # or "detached" / short sha
 repo-path  = dirname(common) made relative to ~/workplace, else to ~
 ```
+
+`--git-common-dir` is relative to cwd by default (`.git` in a primary
+checkout), so `--path-format=absolute` (git 2.31+) is required before
+`dirname` means anything; on an older git the adapter prepends cwd and
+normalizes.
 
 Using the COMMON dir is what groups worktrees: a worktree at
 `~/workplace/.worktrees/tds-utils-yellow` resolves to
@@ -146,18 +161,27 @@ branch is empty.
 
 ### Agent probes (one per agent, behind one interface)
 
-`probe_<agent> <pid> <cwd>` prints a slug or nothing. Order of preference
-inside each probe: the agent's own structured record, then the pane's
-visible text, then nothing.
+`probe_<agent> <pid> <cwd> <start_epoch> <pane_id>` prints a slug or
+nothing. Order of preference inside each probe: the agent's own structured
+record, then the pane's visible text, then nothing.
 
 | agent | record | fields used |
 |-------|--------|-------------|
-| claude | newest `~/.claude/projects/<cwd with / -> ->>/*.jsonl` whose mtime >= the process start time | `summary` (type=summary), else `slug`, else first `user` message text |
-| codex | newest `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` whose `cwd` field matches | first `user` message text |
+| claude | newest `~/.claude/projects/<cwd with / -> ->>/*.jsonl` whose mtime >= `start_epoch` | `summary` (type=summary), else `slug`, else first `user` message text |
+| codex | newest `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` whose `cwd` field matches and mtime >= `start_epoch` | first `user` message text |
 | opencode | `~/.local/share/opencode/` session store for that project | session title |
-| any | `tmux capture-pane -p -S -40` on the agent pane | last non-empty line that is not a prompt or status bar |
+| any | `tmux capture-pane -p -t <pane_id> -S -40` | last non-empty line that is not a prompt or status bar |
 
-The slug is the source text lowercased, non-`[a-z0-9]` runs collapsed to
+Slug sources are of two kinds. `summary`, `slug`, and an opencode title are
+TITLES: short text the agent already wrote to describe the session, and
+they are slugged whole. First-user-message text and pane text are RAW:
+they can begin with anything, including a pasted credential, so the slug
+rule for RAW input admits only tokens that are purely alphabetic and 2-12
+characters long, and drops the source entirely if fewer than 2 such tokens
+remain in the first 12. A key, token, hash, or URL never survives that
+filter; a sentence does.
+
+In both cases the slug is lowercased, non-`[a-z0-9]` runs collapsed to
 `-`, truncated to the first 4 words / 32 chars.
 
 Matching a transcript to a process by cwd + mtime >= start time is a
@@ -216,6 +240,13 @@ RENAME  claude@9atatimer/tds-utils=master+fix-release-link  <- 7
 SAME    claude@9atatimer/tds-utils=feature/yellow-flowers+tmux-herd-design
 ```
 
+Applying is not a replay of the plan. For each KILL, `-y` re-runs
+discovery and classification for that one session immediately before
+`kill-session` and skips it (reported as `SKIP <name> (changed since plan)`)
+if its verdict is no longer IDLE -- a client attached or a child started in
+the window between plan and apply. Renames are idempotent and need no
+recheck.
+
 Exit 0 when the plan is empty or applied; 1 when `tmux` is unreachable.
 
 ---
@@ -239,9 +270,10 @@ Sessions have no lifecycle inside this tool beyond one verdict per run:
 | From | To | Trigger | Condition |
 |------|----|---------|-----------|
 | pane | IDLE | classify | dead, or shell fg with no descendants |
-| IDLE | KEEP | classify | `session_attached=1`, or `-k` match, or own session |
-| pane | KEEP | classify | non-agent descendants |
-| pane | AGENT | classify | agent binary among descendants |
+| IDLE | KEEP | classify | `session_attached` > 0, or `-k` match, or own session |
+| pane | KEEP | classify | non-shell foreground, or non-agent descendants |
+| pane | AGENT | classify | agent binary is the pane root or among descendants |
+| IDLE | SKIP | apply | recheck before `kill-session` no longer says IDLE |
 
 ---
 
@@ -252,7 +284,8 @@ Nothing persisted. Two in-memory tables for the run:
 ```
 pane
 +-- session        string   tmux session name
-+-- attached       0|1
++-- attached       int      session_attached (client count)
++-- pane_id        string   %N
 +-- pid            int      pane_pid
 +-- fg_cmd         string   pane_current_command
 +-- path           string   pane_current_path
@@ -263,12 +296,14 @@ session_plan
 +-- verdict        IDLE | KEEP | AGENT
 +-- agent          claude | codex | opencode | sh
 +-- agent_pid      int      (AGENT only)
++-- agent_start    epoch    (AGENT only; from ps etime)
++-- agent_pane     string   %N of the pane holding agent_pid
 +-- cwd            string
 +-- repo_path      string
 +-- branch         string
 +-- slug           string
 +-- new_name       string
-+-- action         KILL | RENAME | SAME | KEEP
++-- action         KILL | RENAME | SAME | KEEP | SKIP
 ```
 
 ## Data Warehouse
@@ -283,10 +318,13 @@ the only state, and `tmux ls` before and after is the audit trail.
 - **Reads agent transcripts** -- `~/.claude/projects/*.jsonl` and peers
   hold prompt text. The tool reads only the fields named above, keeps
   nothing, and emits at most a 32-char slug into a tmux session name,
-  which is visible to anyone who can see the terminal already.
+  which is visible to anyone who can see the terminal already. RAW
+  sources (first user message, pane text) pass the alphabetic-token
+  filter in Agent probes, so a pasted secret cannot become a name.
 - **Kills processes** -- only sessions whose every pane is a childless
-  shell or dead. A shell with any descendant is never killed, so a
-  backgrounded `&` job protects its session.
+  shell or dead, re-verified immediately before each `kill-session`. A
+  shell with any descendant is never killed, so a backgrounded `&` job
+  protects its session.
 - **No network, no secrets, no privilege.**
 
 ---
@@ -300,6 +338,8 @@ the only state, and `tmux ls` before and after is the audit trail.
 | Worktree grouping | `git-common-dir` gives the repo path, `HEAD` gives the branch | Worktrees of one repo share a prefix and differ only in `=branch` |
 | Name separators | `@` agent, `/` path, `=` branch, `+` slug | `.` and `:` are the only tmux-illegal characters; `=` and `+` are legal, unambiguous, and shell-safe unquoted in `tmux attach -t` |
 | Slug source | agent's own session record first, pane text second | Structured, current, and per-session; pane text is the fallback for agents with no readable store |
+| RAW slug sources | alphabetic 2-12 char tokens only | A credential, hash, or URL has no run of short alphabetic words; a task description does |
+| Kill safety | recheck each session before `kill-session` | The plan is a snapshot; the guarantee is about the moment of the kill |
 | Slug heuristic mismatch | accepted | branch and path are exact; a swapped slug between two agents in one dir costs a glance, an LLM would cost a dependency |
 | Agent probe seam | one function per agent, same signature | Adding an agent is one function and one entry in the detection list |
 | Dry run default | yes | Kills are irreversible; the plan is cheap to read |
