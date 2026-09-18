@@ -6,7 +6,9 @@
 # Hermetic: no network, no test sleeps, no real browser. Each case builds a
 # throwaway git repo and drives the command through its seams:
 #   CDP_BRAVE_BIN / CDP_CFT_BIN / CDP_REALCHROME_BIN
-#       -- the browser executable; here a stub that records argv and exits.
+#       -- the browser executable; here a stub that records argv and then
+#       stays resident, as a real browser does. A case bends a stub by
+#       writing <stub>.extra, which the stub sources before it settles.
 #   CDP_PROBE -- run as "$CDP_PROBE" PORT; exit 0 means the CDP endpoint on
 #       PORT answers. Here a stub whose answer the case controls.
 #   CDP_LISTENER_PID -- run as "$CDP_LISTENER_PID" PORT; prints the pid that
@@ -57,7 +59,13 @@ assert() {
 }
 
 cleanup() {
+    local p
     [ -n "${BG_PID:-}" ] && kill "${BG_PID}" 2>/dev/null || true
+    if [ -f "${STUB_PIDS:-}" ]; then
+        while read -r p; do
+            [ -n "${p}" ] && kill "${p}" 2>/dev/null || true
+        done < "${STUB_PIDS}"
+    fi
     [ -n "${WORKROOT}" ] && rm -rf "${WORKROOT}"
 }
 trap cleanup EXIT
@@ -69,17 +77,24 @@ STUBDIR="${WORKROOT}/stubs"
 ARGV_LOG="${WORKROOT}/argv.log"
 PROBE_STATE="${WORKROOT}/probe.state"
 LISTENER_STATE="${WORKROOT}/listener.state"
+STUB_PIDS="${WORKROOT}/stub.pids"
 BG_PID=""
 
 make_stubs() {
     mkdir -p "${STUBDIR}"
     local b
     for b in brave cft realchrome; do
+        : > "${STUBDIR}/${b}.extra"
         cat > "${STUBDIR}/${b}" <<EOF
 #!/usr/bin/env bash
 printf '%s' "${b}" >> "${ARGV_LOG}"
 printf ' %s' "\$@" >> "${ARGV_LOG}"
 printf '\n' >> "${ARGV_LOG}"
+printf '%s\n' "\$\$" >> "${STUB_PIDS}"
+. "${STUBDIR}/${b}.extra"
+# A real browser holds its pid until told to quit; so does this. Exiting
+# here instead would race cdp_wait_ready's liveness check (issue #295).
+exec sleep 300
 EOF
         chmod +x "${STUBDIR}/${b}"
     done
@@ -93,6 +108,19 @@ EOF
 cat "${LISTENER_STATE}" 2>/dev/null || true
 EOF
     chmod +x "${STUBDIR}/probe" "${STUBDIR}/listener"
+}
+
+# stub_extra <browser> <line> -- make that browser's stub run <line> before
+# it settles. Replaces whatever a previous case asked of it.
+stub_extra() {
+    printf '%s\n' "$2" > "${STUBDIR}/$1.extra"
+}
+
+# stop_launched <repo> <browser> -- kill the stub this case brought up.
+stop_launched() {
+    local pid
+    pid="$(cat "$1/.cdp/$2/browser.pid" 2>/dev/null || true)"
+    [ -n "${pid}" ] && kill "${pid}" 2>/dev/null || true
 }
 
 # new_repo [ignored] -- a fresh git repo; .cdp/ gitignored unless "noignore".
@@ -145,9 +173,9 @@ case_default_is_brave() {
     local repo
     repo="$(new_repo)"
     printf 'down' > "${PROBE_STATE}"
-    # probe flips to up once the stub has been exec'd: emulate by making the
-    # brave stub mark the probe up.
-    printf 'printf up > "%s"\n' "${PROBE_STATE}" >> "${STUBDIR}/brave"
+    # the probe flips to up once the stub has been exec'd: emulate by making
+    # the brave stub mark the probe up.
+    stub_extra brave "printf up > \"${PROBE_STATE}\""
     run "${CDP}" "${repo}" up
     assert "exit 0" '[ "${RC}" -eq 0 ]'
     assert "brave stub was launched" 'grep -q "^brave " "${ARGV_LOG}"'
@@ -158,6 +186,7 @@ case_default_is_brave() {
     assert "last-browser recorded as brave" \
         '[ "$(cat "${repo}/.cdp/last-browser")" = brave ]'
     assert "profile dir created" '[ -d "${repo}/.cdp/brave/profile" ]'
+    stop_launched "${repo}" brave
 }
 
 case_explicit_cft_and_last_used() {
@@ -165,7 +194,7 @@ case_explicit_cft_and_last_used() {
     local repo
     repo="$(new_repo)"
     printf 'down' > "${PROBE_STATE}"
-    printf 'printf up > "%s"\n' "${PROBE_STATE}" >> "${STUBDIR}/cft"
+    stub_extra cft "printf up > \"${PROBE_STATE}\""
     run "${CDP}" "${repo}" up cft --port 9444
     assert "exit 0" '[ "${RC}" -eq 0 ]'
     assert "cft stub was launched" 'grep -q "^cft " "${ARGV_LOG}"'
@@ -177,6 +206,36 @@ case_explicit_cft_and_last_used() {
     assert "last-browser is cft" '[ "$(cat "${repo}/.cdp/last-browser")" = cft ]'
     run "${CDP}" "${repo}" status
     assert "bare status reports cft" 'printf "%s" "${OUT}" | grep -q "cft"'
+    stop_launched "${repo}" cft
+}
+
+case_up_leaves_browser_resident() {
+    bold "up leaves the browser resident; a later status finds it"; echo
+    local repo pid
+    repo="$(new_repo)"
+    printf 'down' > "${PROBE_STATE}"
+    stub_extra brave "printf up > \"${PROBE_STATE}\""
+    run "${CDP}" "${repo}" up
+    assert "exit 0" '[ "${RC}" -eq 0 ]'
+    pid="$(cat "${repo}/.cdp/brave/browser.pid" 2>/dev/null || true)"
+    assert "the recorded pid is still alive" \
+        '[ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null'
+    run "${CDP}" "${repo}" status
+    assert "status reports it up" 'printf "%s" "${OUT}" | grep -q "up on http"'
+    stop_launched "${repo}" brave
+}
+
+case_up_fails_when_browser_dies() {
+    bold "up fails when the browser exits without ever answering"; echo
+    local repo
+    repo="$(new_repo)"
+    printf 'down' > "${PROBE_STATE}"
+    stub_extra brave 'exit 0'
+    run "${CDP}" "${repo}" up
+    assert "nonzero exit" '[ "${RC}" -ne 0 ]'
+    assert "message names the browser log" \
+        'printf "%s" "${OUT}" | grep -q "browser.log"'
+    assert "last-browser not recorded" '[ ! -e "${repo}/.cdp/last-browser" ]'
 }
 
 case_refuses_unignored_sandbox() {
@@ -264,7 +323,7 @@ case_realchrome_distinct() {
     local repo
     repo="$(new_repo)"
     printf 'down' > "${PROBE_STATE}"
-    printf 'printf up > "%s"\n' "${PROBE_STATE}" >> "${STUBDIR}/realchrome"
+    stub_extra realchrome "printf up > \"${PROBE_STATE}\""
     run "${REALCHROME}" "${repo}" up
     assert "exit 0" '[ "${RC}" -eq 0 ]'
     assert "realchrome stub was launched" 'grep -q "^realchrome " "${ARGV_LOG}"'
@@ -273,6 +332,7 @@ case_realchrome_distinct() {
     assert "does not touch cdp's last-browser" '[ ! -e "${repo}/.cdp/last-browser" ]'
     run "${REALCHROME}" "${repo}" up brave
     assert "rejects a browser argument" '[ "${RC}" -ne 0 ]'
+    stop_launched "${repo}" realchrome
 }
 
 # --- Main ------------------------------------------------------------------
@@ -282,6 +342,10 @@ main() {
     case_default_is_brave
     make_stubs
     case_explicit_cft_and_last_used
+    make_stubs
+    case_up_leaves_browser_resident
+    make_stubs
+    case_up_fails_when_browser_dies
     make_stubs
     case_refuses_unignored_sandbox
     case_refuses_foreign_port
