@@ -395,6 +395,30 @@ main "$@"
   holds only unsettled lessons on the work in progress; issues never hold
   lessons -- they vanish when the root cause is fixed.
 
+## Landing via tedium (issue #292)
+
+This repo lands PRs through the tedium merge bot; the rules are in
+`tedium.toml` on `master` and the gates skill assumes what follows.
+
+- **Required checks.** `gate` (the `dist-ci.yml` job that needs every
+  other job) must be green on the PR head AND on the staging commit tedium
+  builds on `tedium/merge` (`status` in `tedium.toml`). `review-settled`
+  (the commit status from `.github/workflows/review-settled.yml`:
+  Copilot's newest review is on the head and every thread is resolved)
+  must be green on the PR head only (`pr_status`); the staging commit
+  never carries it. The `master` ruleset requires both on the PR head once
+  tds-internal's github root is applied.
+- **`gate` is the only name to add to.** A new CI job goes into `gate`'s
+  `needs`; a job outside it cannot block a landing.
+- **`hold` label** keeps a PR out of the queue. `tedium dryrun` builds it
+  on `tedium/try` without landing.
+- **CODEOWNERS** (`tedium.toml`, `CODEOWNERS`, `.github/workflows/`) need
+  a human owner's approval before tedium lands a change to them.
+- **`tedium/merge` and `tedium/try` are the bot's build branches**: never
+  protect them, never commit to them, never base work on them.
+- Merging to `master` deploys nothing here -- `bin/tds-release` is the
+  human step -- which is why this repo is first in the go-live rollout.
+
 ## Pull Request Review (do this WITHOUT being told)
 
 - The moment ANY PR interaction starts -- opening, a review comment, CI, a

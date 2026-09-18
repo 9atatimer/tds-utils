@@ -11,6 +11,23 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 ## Open Tasks
 
+### tedium go-live landing surface (issue #292, 2026-09-18)
+
+First repo in the go-live rollout (tds-utils -> Skills -> template-tools):
+tedium lands PRs here with no human in the loop once the ruleset requires
+`gate` + `review-settled` (tds-internal terraform) and the Skills
+gates-authorize rule change lands.
+
+- [x] `review-settled` reusable workflow + checker (`bin/review-settled`,
+      `lib/review-settled.mjs`, PR #293) -- hosted here because the
+      enrolled repos span two owners and only a public repo's reusable
+      workflow is callable across them
+- [x] `gate` job in `dist-ci.yml` (needs every job, `if: always()`),
+      triggers on `tedium/merge` + `tedium/try`
+- [x] `tedium.toml`, `CODEOWNERS`, AGENT.md "Landing via tedium"
+- [ ] HUMAN: apply the ruleset (tds-internal) after this merges, then one
+      `tedium dryrun` and one trivial `tedium land` before any real PR
+
 ### ENV-DISTRIBUTION -- packages/manifests/export/install (issue #202, 2026-08-08)
 
 Implementation of `docs/design/ENV-DISTRIBUTION.DESIGN.md` (merged in #201).
