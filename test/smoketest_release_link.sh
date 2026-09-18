@@ -77,7 +77,24 @@ make_fixture() {
 
 run_link() {
     TDS_RELEASE_REPO="${REPO}" TDS_RELEASE_HOME="${HOME_DIR}" \
+    TDS_RELEASE_PRIVATE_REPO="${TDS_RELEASE_PRIVATE_REPO:-${WORKROOT}/no-such-private-repo}" \
         "${LINKER}" "$@" >"${WORKROOT}/out" 2>&1
+}
+
+# make_private <name> -- a private repo with a release branch and worktree,
+# standing in for tds-internal. Echoes its release worktree path.
+make_private() {
+    local root="${WORKROOT}/$1" wt="${WORKROOT}/$1-release"
+    mkdir -p "${root}/ops/chores"
+    git -C "${root}" init -q -b main
+    git -C "${root}" config user.email t@example.com
+    git -C "${root}" config user.name  Test
+    echo herd > "${root}/ops/chores/config.yaml"
+    git -C "${root}" add -A
+    git -C "${root}" commit -qm seed
+    git -C "${root}" branch release
+    git -C "${root}" worktree add -q "${wt}" release
+    printf '%s\n' "${wt}"
 }
 
 target_of() { readlink "$1"; }
@@ -193,6 +210,34 @@ case_tds_release_pointer() {
     assert "revert removes the pointer"  "[ ! -L \"${ptr}\" ]"
 }
 
+
+case_tds_internal_pointer() {
+    bold "case: maintains the ~/.tds/internal pointer when the private repo is there"; echo
+    make_fixture iptr
+    local ptr="${HOME_DIR}/.tds/internal" wt
+    wt="$(make_private privrepo)"
+
+    TDS_RELEASE_PRIVATE_REPO="${WORKROOT}/privrepo" run_link && rc=0 || rc=$?
+    assert "exits 0"                       "[ ${rc} -eq 0 ]"
+    assert "pointer is a symlink"          "[ -L \"${ptr}\" ]"
+    assert "points at the private release" \
+        "[ \"$(cd "${ptr}" 2>/dev/null && pwd -P)\" = \"$(canon "${wt}")\" ]"
+    assert "the herd is reachable through it" "[ -f \"${ptr}/ops/chores/config.yaml\" ]"
+
+    TDS_RELEASE_PRIVATE_REPO="${WORKROOT}/privrepo" run_link -r && rc=0 || rc=$?
+    assert "revert removes it"             "[ ! -L \"${ptr}\" ]"
+}
+
+case_no_private_repo_is_silent() {
+    bold "case: no private checkout leaves no pointer and no failure"; echo
+    make_fixture noprv
+    local ptr="${HOME_DIR}/.tds/internal"
+    run_link && rc=0 || rc=$?
+    assert "exits 0"                    "[ ${rc} -eq 0 ]"
+    assert "no private pointer written" "[ ! -e \"${ptr}\" ] && [ ! -L \"${ptr}\" ]"
+    assert "the public pointer is still written" "[ -L \"${HOME_DIR}/.tds/release\" ]"
+}
+
 main() {
     [ -x "${LINKER}" ] || { red "FAIL"; printf ' missing or non-executable: %s\n' "${LINKER}"; exit 1; }
     WORKROOT="$(mktemp -d "${TMPDIR:-/tmp}/release-link-test.XXXXXX")"
@@ -204,6 +249,8 @@ main() {
     case_dangling_refused
     case_discovery_without_env_override
     case_tds_release_pointer
+    case_tds_internal_pointer
+    case_no_private_repo_is_silent
     echo
     printf 'ran %d, passed %d, failed %d\n' "${TESTS_RUN}" "${TESTS_PASSED}" "${TESTS_FAILED}"
     [ "${TESTS_FAILED}" -eq 0 ]

@@ -167,3 +167,21 @@ def test_unreadable_yaml_is_a_reported_error(tmp_path: Path) -> None:
     defs = h.definitions.load()
     assert any("backends.yaml" in e for e in defs.errors)
     assert defs.config_error is not None and "config.yaml" in defs.config_error
+
+
+def test_a_definitions_root_without_a_chores_directory_is_an_error(
+    tmp_path: Path,
+) -> None:
+    """An absent `chores/` directory is a misconfigured CHORES_HOME, not an
+    empty herd: globbing it silently yields nothing, so a dead pointer reads
+    exactly like a working one (issue #300)."""
+    defs = DefinitionsLoader(tmp_path / "nowhere", revision_reader=lambda _: "r").load()
+    assert defs.chores == []
+    assert any("chores" in e and "nowhere" in e for e in defs.errors), defs.errors
+
+
+def test_an_empty_chores_directory_is_still_a_clean_zero(tmp_path: Path) -> None:
+    """A herd with no definitions yet is legitimate and must stay green."""
+    (tmp_path / "chores").mkdir()
+    defs = DefinitionsLoader(tmp_path, revision_reader=lambda _: "r").load()
+    assert defs.chores == [] and defs.errors == ()
