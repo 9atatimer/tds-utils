@@ -2126,3 +2126,107 @@ def test_global_and_per_chore_sentries_do_not_collide_case_insensitively(
     assert store.paused() == "flight" and store.chore_paused("tidy") == "wip"
     names = [p.name for p in (tmp_path / "state").iterdir()]
     assert len({n.lower() for n in names}) == len(names), names
+
+
+# --- Codex round 1 (PR #290) ------------------------------------------------
+
+
+def test_tick_interruptions_trip_the_breaker_and_carry_artifacts(
+    tmp_path: Path,
+) -> None:
+    """A runner that dies before finishing is a failure like any other: the
+    tick's INTERRUPTED closes count toward the breaker, and the closed run
+    dir carries the five artifacts with the reason in errors.log even when
+    the runner never reached Artifacts.prepare()."""
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND}, config="failure_threshold: 2\n")
+    for i in (1, 2):
+        pending = RunRecord.pending(
+            run_id=f"tidy-20260918T0{i}0000Z-dead",
+            chore="tidy",
+            kind=Kind.COMMAND,
+            definition_rev="r",
+            started=h.clock.now_utc() - timedelta(seconds=30),
+        )
+        h.store.write_record(
+            pending.start(pid=4000 + i, pgid=4000 + i, process_start=1.0)
+        )
+    report = tick(h.deps().as_tick_deps())  # FakeProcess: no pid is alive
+    assert len(report.interrupted) == 2
+    for run_id in report.interrupted:
+        assert set(h.store.artifacts(run_id)) == set(ARTIFACTS)
+        assert "gone without a terminal status" in h.store.read_artifact(
+            run_id, "errors.log"
+        )
+    assert h.store.chore_paused("tidy") is not None
+    assert any(
+        n.level == "alert" and "breaker" in n.text for n in h.store.notifications()
+    )
+
+
+def test_torn_ledger_tail_is_skipped_and_corruption_is_named(tmp_path: Path) -> None:
+    """An append cut off mid-row (full disk, dead process) leaves a torn
+    final line: readers skip it. An undecodable row anywhere else is
+    corruption: readers raise CorruptState, the tick admits nothing and
+    alerts, and status still loads with the problem listed."""
+    from chores.adapters.fs_store import CorruptState, FsRunStore
+
+    store = FsRunStore(tmp_path / "state")
+    store.append_ledger({"run_id": "a", "started": T0.isoformat()})
+    store.append_ledger({"run_id": "b", "started": T0.isoformat()})
+    ledger = tmp_path / "state" / "ledger.ndjson"
+    with ledger.open("a") as fh:
+        fh.write('{"run_id": "c", "star')  # torn: no newline, no closing brace
+    assert store.ledger_count() == 2
+    assert [r["run_id"] for r in store.ledger_rows()] == ["a", "b"]
+    ledger.write_text('{"run_id": "a"}\nnot json\n{"run_id": "b"}\n')
+    with pytest.raises(CorruptState, match="ledger.ndjson:2"):
+        store.ledger_count()
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    h.store = store  # type: ignore[assignment]
+    store.mark_tick(
+        TickMark(at=h.clock.now_utc() - timedelta(seconds=60), ledger_rows=2)
+    )
+    report = tick(h.deps().as_tick_deps())
+    assert report.fired == [] and any("ledger unreadable" in w for w in report.warnings)
+    assert any(
+        n.level == "alert" and "unreadable" in n.text for n in store.notifications()
+    )
+    mark = store.last_tick()
+    assert mark is not None and mark.ledger_rows == 2  # liveness kept, no shrink
+    view = status(h.deps())
+    assert any("ledger unreadable" in p for p in view.problems)
+
+
+def test_agent_output_is_capped_and_truncation_marks_the_run(tmp_path: Path) -> None:
+    """The agent adapter passes the run-dir cap to the process runner, and
+    output the runner dropped marks the record truncated, as the command
+    path does."""
+    import json
+    from dataclasses import replace
+
+    from chores.adapters.claude_cli import ClaudeCliAgent
+    from chores.ports.agent import AgentTask
+
+    from .test_claude_cli_adapter import RESULT
+
+    proc = FakeProcess(stdout=json.dumps(RESULT))
+    proc.result = replace(proc.result, output_truncated=True)
+    out = ClaudeCliAgent(proc).run(
+        AgentTask(
+            body="hi",
+            model="sonnet",
+            cwd="/",
+            allowed_tools=frozenset(),
+            max_turns=None,
+            timeout_sec=5,
+            env={},
+            max_output_bytes=4096,
+        ),
+        on_start=lambda _identity: None,
+    )
+    assert proc.requests[0].max_output_bytes == 4096 and out.output_truncated is True
+    agent = FakeAgent()
+    agent.result = replace(agent.result, output_truncated=True)
+    h = FullHarness(tmp_path, chores={"rev": AGENT}, agent=agent)
+    r = run_chore("rev", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.SUCCEEDED and r.truncated is True

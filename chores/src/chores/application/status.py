@@ -17,6 +17,7 @@ from chores.application.context import (
 )
 from chores.application.deps import Deps
 from chores.domain.budget import Ceiling, Usage
+from chores.domain.errors import InfrastructureError
 from chores.domain.policies import redact
 from chores.domain.run import Billing, RunRecord, RunStatus
 from chores.ports.store import Notification
@@ -180,7 +181,14 @@ def status(deps: Deps) -> StatusView:
                 last_failure=None,
             )
         )
-    window = ledger_window(deps.store, now_utc=now_utc)
+    ledger_problem: str | None = None
+    try:
+        window = ledger_window(deps.store, now_utc=now_utc)
+        ledger_count = deps.store.ledger_count()
+    except InfrastructureError as e:  # a corrupt ledger: report it, still load
+        ledger_problem = f"ledger unreadable: {e}"
+        window = []
+        ledger_count = None
     usage: list[ScopeUsage] = [ScopeUsage("global", _sum(window), config.ceiling)]
     for name, backend in ctx.definitions.backends.items():
         rows = [r for r in window if r.backend == name]
@@ -198,9 +206,13 @@ def status(deps: Deps) -> StatusView:
         stale=stale,
         installed=deps.scheduler_installed(),
         tick_interval_sec=config.tick_interval_sec,
-        ledger_rows=deps.store.ledger_count(),
+        ledger_rows=ledger_count
+        if ledger_count is not None
+        else (mark.ledger_rows if mark else 0),
     )
     problems = [*ctx.definitions.errors, *ctx.catalog.errors]
+    if ledger_problem is not None:
+        problems.append(ledger_problem)
     for name in ctx.definitions.backends:
         spec = ctx.catalog.spec(name)  # None: refused, already in catalog.errors
         if (

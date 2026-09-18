@@ -19,6 +19,8 @@ class AgentTask:
     timeout_sec: int
     env: Mapping[str, str]
     kill_grace_sec: int = 10
+    max_output_bytes: int | None = None
+    """Per-stream cap on what the adapter keeps of the child's output."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +42,7 @@ class AgentResult:
     exit_code: int
     timed_out: bool
     cpu_seconds: float
+    output_truncated: bool = False
 
 
 class AgentPort(Protocol):

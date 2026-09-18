@@ -15,6 +15,7 @@ from chores.application.context import (
     Context,
     Host,
     admit,
+    apply_breaker,
     binding_errors,
     find_chore,
     invalid_record_name,
@@ -28,7 +29,7 @@ from chores.domain.budget import Budget, Ceiling, SpendAction, Usage, spend_poli
 from chores.domain.chore import BackendSpec, Chore
 from chores.domain.errors import ChoresError
 from chores.domain.kinds import Kind
-from chores.domain.policies import Decision, circuit_breaker, redact
+from chores.domain.policies import Decision, redact
 from chores.domain.run import Billing, RunRecord, RunStatus, to_ledger_row
 from chores.ports.agent import AgentTask, ProcessIdentity
 from chores.ports.backends import BackendCatalogPort
@@ -261,6 +262,7 @@ def _execute_agent(
                 timeout_sec=chore.budget.seconds,
                 env=env,
                 kill_grace_sec=ctx.definitions.config.kill_grace_sec,
+                max_output_bytes=ctx.definitions.config.max_run_dir_bytes,
             ),
             on_start=on_start,
         )
@@ -307,6 +309,7 @@ def _execute_agent(
             model=model,
             billing=result.billing,
             exit_code=result.exit_code,
+            output_truncated=result.output_truncated,
         )
     if result.timed_out:
         return _Execution(
@@ -317,6 +320,7 @@ def _execute_agent(
             model=model,
             billing=result.billing,
             exit_code=result.exit_code,
+            output_truncated=result.output_truncated,
         )
     if result.exit_code != 0:
         return _Execution(
@@ -327,6 +331,7 @@ def _execute_agent(
             model=model,
             billing=result.billing,
             exit_code=result.exit_code,
+            output_truncated=result.output_truncated,
         )
     return _Execution(
         RunStatus.SUCCEEDED,
@@ -336,6 +341,7 @@ def _execute_agent(
         model=model,
         billing=result.billing,
         exit_code=0,
+        output_truncated=result.output_truncated,
     )
 
 
@@ -476,36 +482,14 @@ def _finish(
             run_id=record.run_id,
             chore=chore.name,
         )
-    _apply_breaker(chore, deps, ctx, at=ended)
-    return record
-
-
-def _apply_breaker(chore: Chore, deps: RunDeps, ctx: Context, *, at: datetime) -> None:
-    recent = [
-        r.status
-        for r in reversed(deps.store.records(chore=chore.name))
-        if r.status.is_run_terminal
-    ]
-    verdict = circuit_breaker(
-        recent, threshold=ctx.definitions.config.failure_threshold
+    apply_breaker(
+        deps.store,
+        deps.notifier,
+        chore,
+        threshold=ctx.definitions.config.failure_threshold,
+        at=ended,
     )
-    if (
-        verdict.decision is Decision.PAUSE
-        and deps.store.chore_paused(chore.name) is None
-    ):
-        reason = verdict.reason or "breaker"
-        deps.store.pause_chore(chore.name, reason)
-        post(
-            deps.store,
-            deps.notifier,
-            at=at,
-            level="alert",
-            text=(
-                f"{chore.name} paused by breaker: {reason}; "
-                f"`chores resume {chore.name}` to clear"
-            ),
-            chore=chore.name,
-        )
+    return record
 
 
 # --- the use case ------------------------------------------------------------

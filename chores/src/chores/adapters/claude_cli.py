@@ -56,6 +56,7 @@ class ClaudeCliAgent:
                 timeout_sec=task.timeout_sec,
                 kill_grace_sec=task.kill_grace_sec,
                 stdin_text=task.body,
+                max_output_bytes=task.max_output_bytes,
             )
         )
         on_start(running.identity)
@@ -72,6 +73,7 @@ class ClaudeCliAgent:
                 exit_code=result.exit_code,
                 timed_out=True,
                 cpu_seconds=result.cpu_seconds,
+                output_truncated=result.output_truncated,
             )
         if result.exit_code != 0 and not result.stdout.strip():
             if "login" in result.stderr.lower() or "auth" in result.stderr.lower():
@@ -118,6 +120,7 @@ class ClaudeCliAgent:
             exit_code=result.exit_code,
             timed_out=False,
             cpu_seconds=result.cpu_seconds,
+            output_truncated=result.output_truncated,
         )
 
 

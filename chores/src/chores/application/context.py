@@ -20,6 +20,7 @@ from chores.domain.policies import (
     LedgerUsage,
     admission_policy,
     ceiling_policy,
+    circuit_breaker,
     redact,
 )
 from chores.domain.run import Billing, RunRecord, RunStatus, new_run_id, to_ledger_row
@@ -279,6 +280,40 @@ def post(
     if level == "alert":
         notifier.alert(title="chores", text=text)
     return posted
+
+
+def apply_breaker(
+    store: RunStorePort,
+    notifier: NotifierPort,
+    chore: Chore,
+    *,
+    threshold: int,
+    at: datetime,
+) -> None:
+    """Pause the chore when its recent terminal runs trip the breaker. Every
+    producer of a terminal status calls this: the runner at finish and the
+    tick when it closes a dead run as INTERRUPTED (a failure like any other,
+    or a chore that crashes before finishing would never trip it)."""
+    recent = [
+        r.status
+        for r in reversed(store.records(chore=chore.name))
+        if r.status.is_run_terminal
+    ]
+    verdict = circuit_breaker(recent, threshold=threshold)
+    if verdict.decision is Decision.PAUSE and store.chore_paused(chore.name) is None:
+        reason = verdict.reason or "breaker"
+        store.pause_chore(chore.name, reason)
+        post(
+            store,
+            notifier,
+            at=at,
+            level="alert",
+            text=(
+                f"{chore.name} paused by breaker: {reason}; "
+                f"`chores resume {chore.name}` to clear"
+            ),
+            chore=chore.name,
+        )
 
 
 def mint_run_id(chore: str, clock: ClockPort, suffix: Callable[[], str]) -> str:

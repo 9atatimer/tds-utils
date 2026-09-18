@@ -27,7 +27,8 @@ require_uv() {
 
 # The TUI extra (textual) is only synced for `chores ui`; every other verb
 # runs on the base dependencies, so a scheduler tick or a status poll never
-# installs UI packages.
+# installs UI packages. --no-dev keeps the dev group (pytest, ruff, mypy,
+# stubs) out of every runtime sync too: chores/verify.sh is what wants it.
 extras_for() {
     case "${1:-}" in
         ui) printf '%s\n' "--extra tui" ;;
@@ -41,7 +42,7 @@ main() {
     local extras
     extras="$(extras_for "${1:-}")"
     # shellcheck disable=SC2086
-    exec uv run --quiet --project "$(project_dir)" ${extras} chores "$@"
+    exec uv run --quiet --no-dev --project "$(project_dir)" ${extras} chores "$@"
 }
 
 main "$@"

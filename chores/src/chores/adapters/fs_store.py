@@ -57,6 +57,12 @@ class UnsafeStatePath(InfrastructureError):
     Every open in the tree goes through the no-follow helpers below."""
 
 
+class CorruptState(InfrastructureError):
+    """An NDJSON state file has an undecodable row that is not a torn tail:
+    the file needs a human, and every reader says so by name instead of
+    raising a bare decode error."""
+
+
 class InvalidArtifactName(InfrastructureError):
     """An artifact name outside the fixed set (never a caller-chosen path)."""
 
@@ -255,13 +261,25 @@ class FsRunStore:
 
     @staticmethod
     def _read_ndjson(path: Path) -> list[dict[str, object]]:
+        """Every decodable row. A torn final line (an append cut off by a
+        full disk or a dead process, so no trailing newline) is skipped: the
+        row it was going to be never landed. An undecodable line anywhere
+        else, or a torn line that IS newline-terminated, is corruption and
+        raises CorruptState naming the file and line."""
         text = read_nofollow(path)
         if text is None:
             return []
         rows: list[dict[str, object]] = []
-        for line in text.splitlines():
-            if line.strip():
+        lines = text.split("\n")
+        for number, line in enumerate(lines, start=1):
+            if not line.strip():
+                continue
+            try:
                 rows.append(json.loads(line))
+            except ValueError as e:
+                if number == len(lines):  # last piece, no newline after it
+                    break
+                raise CorruptState(f"{path}:{number}: undecodable row: {e}") from e
         return rows
 
     # --- records ---

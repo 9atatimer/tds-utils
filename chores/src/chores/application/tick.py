@@ -10,9 +10,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from chores.application.context import (
+    Artifacts,
     Context,
     Host,
     admit,
+    apply_breaker,
     binding_errors,
     ensure_ledgered,
     invalid_record_name,
@@ -23,7 +25,7 @@ from chores.application.context import (
 )
 from chores.application.paths import Paths
 from chores.domain.chore import Chore
-from chores.domain.errors import ChoresError, DomainError
+from chores.domain.errors import ChoresError, DomainError, InfrastructureError
 from chores.domain.kinds import Kind
 from chores.domain.policies import Decision
 from chores.domain.run import RunRecord, RunStatus, to_ledger_row
@@ -85,9 +87,18 @@ def _notify_once(
     )
 
 
-def _check_ledger(deps: TickDeps, report: TickReport) -> int:
-    count = deps.store.ledger_count()
+def _check_ledger(deps: TickDeps, report: TickReport) -> int | None:
+    """The ledger row count, or None when the ledger cannot be read: the
+    ceilings are computed from it, so nothing may be admitted until a human
+    repairs the file."""
     last = deps.store.last_tick()
+    try:
+        count = deps.store.ledger_count()
+    except InfrastructureError as e:
+        warning = f"ledger unreadable: {e}; nothing admitted this tick"
+        report.warnings.append(warning)
+        _notify_once(deps, text=warning, level="alert")
+        return None
     if last is not None and count < last.ledger_rows:
         warning = (
             f"ledger shrank from {last.ledger_rows} rows to {count} since the last tick"
@@ -120,9 +131,25 @@ def _interrupt_dead_runs(deps: TickDeps, ctx: Context, report: TickReport) -> No
         )
         if done is None:
             continue  # the runner finished between the scan and this check
+        # A runner that died before Artifacts.prepare() (resolving a secret,
+        # say) left a bare record: the five artifacts and the reason are
+        # written here so an INTERRUPTED run dir reads like any other.
+        artifacts = Artifacts(
+            deps.store, done.run_id, (), ctx.definitions.config.max_run_dir_bytes
+        )
+        artifacts.prepare()
+        artifacts.append("errors.log", reason + "\n")
         deps.store.append_ledger(to_ledger_row(done))
         report.interrupted.append(record.run_id)
         chore = by_name.get(record.chore)
+        if chore is not None:
+            apply_breaker(
+                deps.store,
+                deps.notifier,
+                chore,
+                threshold=ctx.definitions.config.failure_threshold,
+                at=now,
+            )
         if chore is not None and RunStatus.INTERRUPTED in chore.notify_on:
             post(
                 deps.store,
@@ -308,7 +335,13 @@ def tick(deps: TickDeps) -> TickReport:
             report.locked_out = True
             return report
         previous_tick = deps.store.last_tick()
-        _check_ledger(deps, report)
+        ledger_rows = _check_ledger(deps, report)
+        if ledger_rows is None:
+            # Liveness is still marked (the scheduler IS running), with the
+            # previous count so the next tick does not report a shrink.
+            rows = previous_tick.ledger_rows if previous_tick is not None else 0
+            deps.store.mark_tick(TickMark(at=deps.clock.now_utc(), ledger_rows=rows))
+            return report
         # The mark is written once, AFTER the pass: a pass that dies half way
         # leaves the previous mark in place, so the next tick replays its
         # window instead of treating the dead pass as done.

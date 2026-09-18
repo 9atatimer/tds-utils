@@ -4,15 +4,36 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-BIN_PATH="${REPO_ROOT}/bin/chores-monitor"
+# --- Action functions ---
 
-export PATH="/usr/local/bin:/opt/homebrew/bin:${HOME}/.local/bin:/usr/bin:/bin:${PATH}"
+repo_root() {
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    printf '%s\n' "$(cd "${script_dir}/.." && pwd)"
+}
 
-if ! command -v uv &> /dev/null; then
-    echo "Error: uv not found. Please install uv (brew install uv)." >&2
-    exit 1
-fi
+require_uv() {
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "Error: uv not found. Please install uv (brew install uv)." >&2
+        return 1
+    fi
+}
 
-exec uv run --with rumps --with pyobjc-framework-Cocoa "${BIN_PATH}"
+# --- Flow functions ---
+
+launch_monitor() {
+    local bin_path
+    bin_path="$(repo_root)/bin/chores-monitor"
+    # launchd starts with a barren PATH; uv and Homebrew must be findable
+    export PATH="/usr/local/bin:/opt/homebrew/bin:${HOME}/.local/bin:/usr/bin:/bin:${PATH}"
+    require_uv
+    exec uv run --with rumps --with pyobjc-framework-Cocoa "${bin_path}"
+}
+
+# --- Main ---
+
+main() {
+    launch_monitor
+}
+
+main "$@"
