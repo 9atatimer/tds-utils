@@ -1,7 +1,9 @@
 # tedium.toml -- landing rules for the tedium merge bot
-# (template-tools packages/naatm-tedium). Read from THIS branch (master),
-# never from the PR, so a PR cannot rewrite the rules that judge it
-# (template-tools#595); CODEOWNERS puts this file under a human owner.
+# (template-tools packages/naatm-tedium). tedium reads it from the BASE
+# branch (master) once template-tools#595 is deployed, so a PR cannot
+# rewrite the rules that judge it; until that deploy the bot still reads
+# the PR's copy, and CODEOWNERS (a human owner on this file,
+# use_codeowners below) is the guard either way.
 
 # The check that must report green on the staging commit tedium builds
 # on tedium/merge (and tedium/try for a dryrun): the `gate` job in

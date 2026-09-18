@@ -400,12 +400,14 @@ main "$@"
 This repo lands PRs through the tedium merge bot; the rules are in
 `tedium.toml` on `master` and the gates skill assumes what follows.
 
-- **Required checks**, on every PR head and on the staging commit tedium
-  builds: `gate` (the `dist-ci.yml` job that needs every other job) and
-  `review-settled` (the commit status from
-  `.github/workflows/review-settled.yml`: Copilot's newest review is on
-  the head and every thread is resolved). Both are required by the
-  `master` ruleset.
+- **Required checks.** `gate` (the `dist-ci.yml` job that needs every
+  other job) must be green on the PR head AND on the staging commit tedium
+  builds on `tedium/merge` (`status` in `tedium.toml`). `review-settled`
+  (the commit status from `.github/workflows/review-settled.yml`:
+  Copilot's newest review is on the head and every thread is resolved)
+  must be green on the PR head only (`pr_status`); the staging commit
+  never carries it. The `master` ruleset requires both on the PR head once
+  tds-internal's github root is applied.
 - **`gate` is the only name to add to.** A new CI job goes into `gate`'s
   `needs`; a job outside it cannot block a landing.
 - **`hold` label** keeps a PR out of the queue. `tedium dryrun` builds it
