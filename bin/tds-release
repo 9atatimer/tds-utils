@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# tds-release -- advance the `release` branch to a reviewed commit of master.
+# tds-release -- advance a `release` branch to a reviewed commit of its repo's
+# own line (master in this repo, main in tds-internal).
 #
 # Usage: tds-release [-n] [-f] [-u <unit>] [<committish>]
 #
@@ -30,12 +31,14 @@
 #
 # Two invariants, both enforced below rather than documented and hoped for:
 #
-#   - the target must be an ancestor of master, so what goes live is always a
-#     commit that went through a PR. A topic commit can be a clean
-#     fast-forward from release and still be unreviewed; -f does not lift this.
+#   - the target must be an ancestor of the unit's reviewed line (master in
+#     this repo, main in tds-internal), so what goes live is always a commit
+#     that went through a PR. A topic commit can be a clean fast-forward from
+#     release and still be unreviewed; -f does not lift this.
 #   - a commit carrying NO.RELEASE is never released, whatever else is true.
-#     Everything on master is releasable by default; that file is how a commit
-#     that landed but is not fit to go live says so, and it carries its reason.
+#     Everything on that line is releasable by default; that file is how a
+#     commit that landed but is not fit to go live says so, and it carries its
+#     reason.
 #   - the release worktree must be clean, checked BEFORE the already-current
 #     shortcut -- a dirty tree is a live-config problem whether or not HEAD
 #     happens to sit on the requested commit.
@@ -149,27 +152,29 @@ check_target_reviewed() {
     local wt="$1" target_sha="$2" reviewed
     reviewed="$(reviewed_ref "${wt}")"
     [ -n "${reviewed}" ] \
-        || die "cannot find master or origin/master -- refusing to release
-  against unknown history"
+        || die "cannot find a reviewed line (origin/HEAD, origin/master,
+  origin/main, master or main) in ${wt} -- refusing to release against
+  unknown history"
     is_ancestor "${wt}" "${target_sha}" "${reviewed}" || die \
 "target is not an ancestor of ${reviewed} -- refusing to release unreviewed work.
   target   $(describe "${wt}" "${target_sha}")
   ${reviewed}  $(describe "${wt}" "${reviewed}")
   a commit can be a clean fast-forward from release and still have skipped
-  review. Merge it to master first; -f does not lift this."
+  review. Merge it to ${reviewed} first; -f does not lift this."
 }
 
-# A commit may land on master and still not be fit to go live -- a migration
-# that has to be run by hand first, a config change waiting on something
-# external. Everything on master is releasable by default; NO.RELEASE is how a
-# commit says otherwise, and it carries its own reason so whoever hits the
-# refusal is told why rather than left guessing.
+# A commit may land on the reviewed line and still not be fit to go live -- a
+# migration that has to be run by hand first, a config change waiting on
+# something external. Everything on that line is releasable by default;
+# NO.RELEASE is how a commit says otherwise, and it carries its own reason so
+# whoever hits the refusal is told why rather than left guessing.
 #
 # There is deliberately no override. -f rewinds; it does not release held work.
-# The way past a sentry is to remove it on master and release that commit,
-# which leaves the decision in the history where it can be reviewed.
+# The way past a sentry is to remove it on the reviewed line and release that
+# commit, which leaves the decision in the history where it can be reviewed.
 check_target_releasable() {
-    local wt="$1" target_sha="$2" reason
+    local wt="$1" target_sha="$2" reason reviewed
+    reviewed="$(reviewed_ref "${wt}")"
     sentry_present "${wt}" "${target_sha}" || return 0
     # `|| true` because git show exits 128 when the path is absent. Presence is
     # already established above, but the guard stays: under set -e a non-zero
@@ -182,8 +187,8 @@ check_target_releasable() {
   target $(describe "${wt}" "${target_sha}")
   reason:
 $(printf '%s\n' "${reason}" | sed 's/^/    /')
-  remove ${SENTRY_FILE} on master and release that commit; -f will not bypass
-  this."
+  remove ${SENTRY_FILE} on ${reviewed:-the reviewed line} and release that
+  commit; -f will not bypass this."
 }
 
 check_fast_forward() {
