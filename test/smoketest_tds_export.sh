@@ -55,6 +55,11 @@ build_fixture_repo() {
     echo "SECRET"         > "${root}/secret/hidden.txt"
     printf '#!/bin/sh\nexit 0\n' > "${root}/test/smoke_alpha"
     chmod +x "${root}/test/smoke_alpha"
+    # An ignored artifact under a claimed directory: present on disk, not
+    # tracked, so a clean tree still has it -- and an export must not.
+    printf '__pycache__/\n' > "${root}/.gitignore"
+    mkdir -p "${root}/alpha/__pycache__"
+    echo "stale bytecode" > "${root}/alpha/__pycache__/file.cpython-311.pyc"
 
     cat > "${root}/packages/alpha.pkg" <<'EOF'
 NAME=alpha
@@ -115,6 +120,7 @@ test_good_export() {
     assert "ARTIFACT-MANIFEST present" "grep -q 'ARTIFACT-MANIFEST\$' <<<\"\${listing}\""
     assert "denied package absent"     "! grep -q secret <<<\"\${listing}\""
     assert "no git history in artifact" "! grep -q '\\.git' <<<\"\${listing}\""
+    assert "ignored artifacts not shipped" "! grep -q '__pycache__' <<<\"\${listing}\""
 
     local mdir="${WORKROOT}/m1"
     mkdir -p "${mdir}"
