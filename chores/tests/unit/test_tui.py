@@ -10,8 +10,7 @@ from textual.widgets import DataTable, Static
 from chores.cli.main import main
 from chores.tui.app import ChoresApp
 
-from ._harness import FullHarness
-from .test_runner import COMMAND, PROMPT
+from ._harness import COMMAND, PROMPT, FullHarness
 
 pytestmark = pytest.mark.asyncio
 

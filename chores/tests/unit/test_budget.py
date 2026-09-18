@@ -84,3 +84,13 @@ def test_ceiling_rejects_negative() -> None:
     """Given a negative ceiling, Then construction fails."""
     with pytest.raises(DomainError):
         Ceiling(usd=-1.0)
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+def test_budgets_and_ceilings_reject_non_finite_usd(value: float) -> None:
+    from chores.domain.budget import Budget, InvalidBudget
+
+    with pytest.raises(InvalidBudget):
+        Budget(seconds=1, usd=value)
+    with pytest.raises(InvalidBudget):
+        Ceiling(usd=value)

@@ -101,3 +101,71 @@ def test_swap_test_a_fourth_type_is_one_register_call() -> None:
     spec = c.spec("f")
     assert spec and spec.port is ExecutionPort.COMPLETION
     assert isinstance(c.completion("f"), FakeCompletion)
+
+
+def test_network_probe_honours_the_requires_network_override() -> None:
+    from chores.adapters.registry import BackendCatalog
+    from chores.ports.backends import BackendConfig
+
+    catalog = BackendCatalog(
+        {
+            "remote-ollama": BackendConfig(
+                name="remote-ollama",
+                type="ollama",
+                model="m",
+                base_url="http://box:11434",
+                requires_network=True,
+            )
+        },
+        process=FakeProcess(),
+    )
+    spec = catalog.spec("remote-ollama")
+    assert spec is not None and spec.requires_network is True
+    assert catalog.probe_url("remote-ollama") == "http://box:11434"
+
+
+def test_catalog_refuses_an_openai_compat_backend_without_base_url() -> None:
+    from chores.adapters.registry import BackendCatalog
+    from chores.ports.backends import BackendConfig
+
+    catalog = BackendCatalog(
+        {"gw": BackendConfig(name="gw", type="openai-compat", model="m")},
+        process=FakeProcess(),
+    )
+    assert catalog.spec("gw") is None
+    assert any("needs base_url" in e for e in catalog.errors)
+
+
+def test_registry_types_declare_their_billing() -> None:
+    from chores.adapters.registry import BackendCatalog
+    from chores.domain.run import Billing
+    from chores.ports.backends import BackendConfig
+
+    catalog = BackendCatalog(
+        {
+            "local": BackendConfig(name="local", type="ollama", model="m"),
+            "gw": BackendConfig(
+                name="gw", type="openai-compat", model="m", base_url="https://gw"
+            ),
+            "claude": BackendConfig(name="claude", type="claude-cli", model="s"),
+        },
+        process=FakeProcess(),
+    )
+    billing = {n: catalog.spec(n).billing for n in ("local", "gw", "claude")}  # type: ignore[union-attr]
+    assert billing == {
+        "local": Billing.NONE,
+        "gw": Billing.METERED,
+        "claude": Billing.SUBSCRIPTION,
+    }
+
+
+@pytest.mark.parametrize("url", ["ftp://gw/v1", "https://host:bad-port", "gw.example"])
+def test_catalog_refuses_a_malformed_base_url(url: str) -> None:
+    from chores.adapters.registry import BackendCatalog
+    from chores.ports.backends import BackendConfig
+
+    catalog = BackendCatalog(
+        {"gw": BackendConfig(name="gw", type="openai-compat", model="m", base_url=url)},
+        process=FakeProcess(),
+    )
+    assert catalog.spec("gw") is None and any("base_url" in e for e in catalog.errors)

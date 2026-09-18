@@ -260,3 +260,25 @@ def test_redact_covers_verbatim_json_escaped_and_url_encoded_forms() -> None:
 def test_redact_with_no_secrets_is_identity() -> None:
     assert redact("plain", []) == "plain"
     assert redact("plain", [""]) == "plain"
+
+
+def test_json_escaped_redaction_form_matches_the_json_encoder() -> None:
+    """The escaped form must be exactly what ``json.dumps`` (ensure_ascii) emits,
+    or a secret with a control, non-ASCII or astral character persists."""
+    import json
+
+    from hypothesis import given, settings
+    from hypothesis import strategies as st
+
+    from chores.domain.policies import redact, redaction_forms
+
+    @settings(max_examples=200, deadline=None)
+    @given(st.text(min_size=1))
+    def check(secret: str) -> None:
+        assert json.dumps(secret)[1:-1] in redaction_forms(secret)
+
+    check()
+    for secret in ("päss\bw\f", "\U0001f512key", 'a"b\\c/d'):
+        encoded = json.dumps({"k": secret})
+        assert secret not in redact(encoded, [secret])
+        assert json.dumps(secret)[1:-1] not in redact(encoded, [secret])

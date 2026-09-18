@@ -99,3 +99,50 @@ def test_is_error_result_is_a_backend_error_carrying_the_text() -> None:
             TASK, on_start=lambda _: None
         )
     assert "error_max_turns" in str(exc.value)
+
+
+def test_claude_response_without_a_result_string_is_a_backend_error() -> None:
+    import json
+
+    from chores.adapters.claude_cli import ClaudeCliAgent
+    from chores.ports.agent import AgentTask
+
+    process = FakeProcess(stdout=json.dumps({}))
+    agent = ClaudeCliAgent(process, binary="claude")
+    with pytest.raises(BackendError, match="no result string"):
+        agent.run(
+            AgentTask(
+                body="x",
+                model="m",
+                cwd="/tmp",
+                allowed_tools=frozenset(),
+                max_turns=1,
+                timeout_sec=1.0,
+                env={},
+                kill_grace_sec=1,
+            ),
+            on_start=lambda _identity: None,
+        )
+
+
+def test_the_output_cap_reaches_the_process_and_truncation_is_reported() -> None:
+    """The adapter passes the run-dir cap down to the process runner and
+    reports back what the runner dropped."""
+    from dataclasses import replace
+
+    proc = FakeProcess(stdout=json.dumps(RESULT))
+    proc.result = replace(proc.result, output_truncated=True)
+    out = ClaudeCliAgent(proc).run(
+        AgentTask(
+            body="hi",
+            model="sonnet",
+            cwd="/",
+            allowed_tools=frozenset(),
+            max_turns=None,
+            timeout_sec=5,
+            env={},
+            max_output_bytes=4096,
+        ),
+        on_start=lambda _identity: None,
+    )
+    assert proc.requests[0].max_output_bytes == 4096 and out.output_truncated is True

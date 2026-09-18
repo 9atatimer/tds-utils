@@ -4,10 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from chores.adapters.definitions import DefinitionsLoader
 from chores.domain.budget import Ceiling
 from chores.domain.kinds import Kind
 from chores.ports.backends import Price
+
+from ._harness import COMMAND, FullHarness
 
 
 def write_home(home: Path) -> None:
@@ -87,3 +91,79 @@ def test_source_returns_raw_file(tmp_path: Path) -> None:
     loader = DefinitionsLoader(tmp_path, revision_reader=lambda _: "r")
     assert (loader.source("tidy") or "").startswith("---\nname: tidy")
     assert loader.source("nope") is None
+
+
+def test_malformed_prices_is_a_reported_error_not_a_crash(tmp_path: Path) -> None:
+    from chores.adapters.definitions import DefinitionsLoader
+
+    (tmp_path / "chores").mkdir()
+    (tmp_path / "backends.yaml").write_text(
+        "backends:\n  gw:\n    type: ollama\n    prices: []\n"
+    )
+    defs = DefinitionsLoader(tmp_path, revision_reader=lambda _: "r").load()
+    assert any("prices" in e for e in defs.errors) and defs.backends == {}
+
+
+def test_prices_must_be_finite_and_non_negative(tmp_path: Path) -> None:
+    from chores.ports.backends import Price
+
+    for bad in (float("nan"), float("inf"), -0.01):
+        with pytest.raises(ValueError):
+            Price(in_per_1m=bad, out_per_1m=1.0)
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    (tmp_path / "home" / "backends.yaml").write_text(
+        "backends:\n  gw:\n    type: openai-compat\n    model: m\n"
+        "    base_url: https://gw\n"
+        "    prices: {m: {in_per_1m: .nan, out_per_1m: -1}}\n"
+    )
+    defs = h.definitions.load()
+    assert any("price for m" in e for e in defs.errors)
+
+
+def test_loader_rejects_unknown_ceiling_keys_and_non_bool_requires_network(
+    tmp_path: Path,
+) -> None:
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    (tmp_path / "home" / "backends.yaml").write_text(
+        "backends:\n  a:\n    type: ollama\n    model: m\n"
+        "    ceiling: {usd: 1, usdd: 2}\n"
+        "  b:\n    type: ollama\n    model: m\n    requires_network: 'false'\n"
+    )
+    errors = h.definitions.load().errors
+    assert any("unknown dimensions ['usdd']" in e for e in errors)
+    assert any("requires_network must be true or false" in e for e in errors)
+
+
+def test_prompt_body_is_verbatim_and_bad_utf8_is_reported(tmp_path: Path) -> None:
+    from chores.adapters.definitions import DefinitionsLoader, split_front_matter
+
+    _data, body = split_front_matter("---\nname: p\n---\n\n  keep me  \n\n")
+    assert body == "\n  keep me  \n\n"
+    home = tmp_path / "home"
+    (home / "chores").mkdir(parents=True)
+    (home / "chores" / "bad.md").write_bytes(b"---\nname: bad\n---\n\xff\xfe")
+    (home / "backends.yaml").write_bytes(b"\xff")
+    (home / "config.yaml").write_bytes(b"\xff")
+    defs = DefinitionsLoader(home, revision_reader=lambda _: "r").load()
+    assert [i.name for i in defs.invalid] == ["bad"]
+    assert any("backends.yaml" in e for e in defs.errors)
+    assert defs.config_error is not None
+
+
+def test_unreadable_yaml_is_a_reported_error(tmp_path: Path) -> None:
+    """backends.yaml or config.yaml that exists but cannot be read (here: a
+    directory) is a configuration error in the report, not a traceback."""
+    import shutil
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    home = Path(h.paths.chores_home)
+    for name in ("backends.yaml", "config.yaml"):
+        target = home / name
+        if target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink(missing_ok=True)
+        target.mkdir()
+    defs = h.definitions.load()
+    assert any("backends.yaml" in e for e in defs.errors)
+    assert defs.config_error is not None and "config.yaml" in defs.config_error

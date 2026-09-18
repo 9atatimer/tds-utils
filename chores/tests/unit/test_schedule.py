@@ -199,3 +199,8 @@ def test_catch_up_fires_one_run_for_the_missed_set() -> None:
         catch_up=True,
     )
     assert v == DueVerdict(fire=T0 + timedelta(hours=4), missed=4, caught_up=True)
+
+
+def test_never_matching_schedule_is_rejected_at_parse() -> None:
+    with pytest.raises(InvalidSchedule):
+        Schedule.parse("0 0 31 4 *")

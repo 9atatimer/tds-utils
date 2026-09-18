@@ -137,3 +137,45 @@ def test_malformed_success_body_is_a_backend_error() -> None:
         OllamaCompletion(
             FakeTransport(HttpResponse(200, {"nope": 1})), base_url="u"
         ).complete(REQ)
+
+
+def test_malformed_usage_counts_are_backend_errors() -> None:
+    from chores.adapters.http import HttpResponse
+    from chores.adapters.ollama import OllamaCompletion
+    from chores.adapters.openai_compat import OpenAICompatCompletion
+    from chores.ports.completion import CompletionRequest
+
+    req = CompletionRequest(
+        prompt="p", model="m", timeout_sec=1.0, max_output_tokens=None
+    )
+    bad_openai = HttpResponse(
+        200,
+        {
+            "choices": [{"message": {"content": "x"}}],
+            "usage": {"prompt_tokens": "lots", "completion_tokens": 1},
+        },
+    )
+    with pytest.raises(BackendError, match="prompt_tokens"):
+        OpenAICompatCompletion(
+            FakeTransport(bad_openai),
+            base_url="u",
+            auth_header="x-auth",
+            credential="c",
+            prices={},
+            provider="p",
+        ).complete(req)
+    bad_ollama = HttpResponse(
+        200, {"message": {"content": "x"}, "prompt_eval_count": "1", "eval_count": {}}
+    )
+    with pytest.raises(BackendError, match="eval_count"):
+        OllamaCompletion(FakeTransport(bad_ollama), base_url="u").complete(req)
+
+
+@pytest.mark.parametrize("cost", ["nan", "inf", "-0.5"])
+def test_provider_costs_must_be_finite_and_non_negative(cost: str) -> None:
+    from chores.adapters._fields import float_field, int_field
+
+    with pytest.raises(BackendError, match="total_cost_usd"):
+        float_field(cost, provider="p", field="total_cost_usd")
+    with pytest.raises(BackendError, match="negative"):
+        int_field(-1, provider="p", field="output_tokens")

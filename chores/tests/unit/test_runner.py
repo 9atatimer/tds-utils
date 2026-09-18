@@ -12,12 +12,11 @@ import pytest
 from chores.adapters.definitions import DefinitionsLoader
 from chores.application.paths import Paths
 from chores.application.run import RunDeps, run_chore
-from chores.domain.budget import Ceiling
-from chores.domain.chore import BackendSpec
-from chores.domain.kinds import ExecutionPort
-from chores.domain.run import Billing, RunStatus
-from chores.ports.definitions import Definitions
-from chores.ports.errors import BackendTimeout, Unreachable
+from chores.application.tick import tick
+from chores.domain.kinds import Kind
+from chores.domain.run import RunRecord, RunStatus
+from chores.ports.errors import BackendError, BackendTimeout, ProcessError, Unreachable
+from chores.ports.store import ARTIFACTS, TickMark
 
 from ._fakes import (
     FakeAgent,
@@ -31,138 +30,18 @@ from ._fakes import (
     FakeSecrets,
     FakeWorkspaces,
 )
+from ._harness import (
+    AGENT,
+    COMMAND,
+    LOCAL,
+    PROMPT,
+    SECRET,
+    FakeCatalog,
+    FullHarness,
+    write_home,
+)
 
 T0 = datetime(2026, 3, 2, 10, 0)
-SECRET = "sk-verysecret/1"
-
-
-class FakeCatalog:
-    def __init__(
-        self,
-        *,
-        completion: FakeCompletion | None = None,
-        agent: FakeAgent | None = None,
-    ) -> None:
-        self._completion = completion or FakeCompletion()
-        self._agent = agent or FakeAgent()
-        self.credentials: list[str | None] = []
-        self.errors: list[str] = []
-        self.defs: Definitions | None = None
-
-    def bind(self, defs: Definitions) -> FakeCatalog:
-        """What the real catalog gets at construction: the loaded definitions,
-        so backends the fixtures do not hard-code still resolve to a spec."""
-        self.defs = defs
-        return self
-
-    def _from_config(self, name: str) -> BackendSpec | None:
-        cfg = self.defs.backends.get(name) if self.defs is not None else None
-        if cfg is None:
-            return None
-        billing = {"ollama": Billing.NONE, "claude-cli": Billing.SUBSCRIPTION}.get(
-            cfg.type, Billing.METERED
-        )
-        return BackendSpec(
-            name=name,
-            port=ExecutionPort.AGENT
-            if cfg.type == "claude-cli"
-            else ExecutionPort.COMPLETION,
-            default_model=cfg.model,
-            requires_network=(
-                cfg.requires_network
-                if cfg.requires_network is not None
-                else cfg.type != "ollama"
-            ),
-            priced=bool(cfg.prices),
-            ceiling=cfg.ceiling,
-            read_only_tools=frozenset(),
-            priced_models=frozenset(cfg.prices),
-            billing=billing,
-        )
-
-    def spec(self, name: str) -> BackendSpec | None:
-        if name not in ("gw", "local", "claude"):
-            return self._from_config(name)
-        if name == "gw":
-            return BackendSpec(
-                "gw",
-                ExecutionPort.COMPLETION,
-                "m",
-                True,
-                True,
-                Ceiling(usd=1.0),
-                frozenset(),
-            )
-        if name == "local":
-            return BackendSpec(
-                "local",
-                ExecutionPort.COMPLETION,
-                "llama",
-                False,
-                False,
-                Ceiling(),
-                frozenset(),
-            )
-        if name == "claude":
-            return BackendSpec(
-                "claude",
-                ExecutionPort.AGENT,
-                "sonnet",
-                True,
-                True,
-                Ceiling(),
-                frozenset({"Read"}),
-            )
-        return None
-
-    def credential_ref(self, name: str) -> str | None:
-        return "op://v/gw/password" if name == "gw" else None
-
-    def probe_url(self, name: str) -> str | None:
-        return "https://gw.example" if name == "gw" else None
-
-    def completion(self, name: str, *, credential: str | None = None) -> FakeCompletion:
-        self.credentials.append(credential)
-        return self._completion
-
-    def agent(self, name: str, *, credential: str | None = None) -> FakeAgent:
-        return self._agent
-
-
-def write_home(home: Path, *, chores: Mapping[str, str], config: str = "") -> None:
-    (home / "chores").mkdir(parents=True, exist_ok=True)
-    for name, text in chores.items():
-        (home / "chores" / f"{name}.md").write_text(text)
-    (home / "backends.yaml").write_text(
-        "backends:\n"
-        "  gw:\n    type: openai-compat\n    base_url: https://gw.example\n"
-        "    model: m\n"
-        "    credential_ref: 'op://v/gw/password'\n"
-        "    prices: {m: {in_per_1m: 1, out_per_1m: 1}}\n    ceiling: {usd: 1.0}\n"
-        "  local: {type: ollama, model: llama}\n"
-        "  claude: {type: claude-cli, model: sonnet}\n"
-    )
-    (home / "config.yaml").write_text(config)
-
-
-PROMPT = (
-    "---\nname: brand\nschedule: '0 3 * * *'\nkind: prompt\nbackend: gw\n"
-    "budget: {usd: 0.10, tokens: 4000}\n"
-    "secrets: {API_KEY: 'op://v/other/credential'}\n---\nSummarize.\n"
-)
-LOCAL = (
-    "---\nname: loc\nschedule: '0 3 * * *'\nkind: prompt\nbackend: local\n"
-    "budget: {tokens: 100}\n---\nHi.\n"
-)
-COMMAND = (
-    "---\nname: tidy\nschedule: '* * * * *'\nkind: command\ncommand: [echo, hi]\n"
-    "timeout_sec: 5\n---\n"
-)
-AGENT = (
-    "---\nname: rev\nschedule: '0 9 * * *'\nkind: agent\nbackend: claude\n"
-    "budget: {usd: 0.5, turns: 5, tokens: 100000}\nallowed_tools: [Read, Grep]\n"
-    "---\nReview.\n"
-)
 
 
 class Harness:
@@ -481,3 +360,401 @@ def test_overlap_skips_when_a_live_run_exists(tmp_path: Path) -> None:
     r = run_chore("brand", h.deps()).record
     assert r and r.status is RunStatus.SKIPPED_OVERLAP and "brand-x" in (r.reason or "")
     assert r.started == T0 + timedelta(seconds=60)
+
+
+class FailingSpawn(FakeProcess):
+    def spawn(self, request):  # type: ignore[no-untyped-def]
+        raise ProcessError("could not start 'nope': No such file")
+
+
+class TickingClock(FakeClock):
+    """Every now_utc() call advances 30s: wall time passes during a run."""
+
+    def now_utc(self) -> datetime:
+        self.advance(30)
+        return super().now_utc()
+
+
+def test_reason_and_notification_are_redacted(tmp_path: Path) -> None:
+    """Given a backend error that echoes the credential, Then reason, ledger and
+    notification carry [REDACTED], not the value."""
+    err = BackendError(f"HTTP 401 for token {SECRET}")
+    h = FullHarness(
+        tmp_path, chores={"brand": PROMPT}, completion=FakeCompletion(error=err)
+    )
+    r = run_chore("brand", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.FAILED and SECRET not in (r.reason or "")
+    assert "[REDACTED]" in (r.reason or "")
+    assert SECRET not in str(h.store.ledger_rows()[0]["reason"])
+    assert all(SECRET not in n.text for n in h.store.notifications())
+
+
+def test_process_error_is_failed_not_a_crash(tmp_path: Path) -> None:
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND}, process=FailingSpawn())
+    r = run_chore("tidy", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.FAILED and "could not start" in (r.reason or "")
+
+
+def test_wall_clock_does_not_flip_a_success_to_budget_exceeded(tmp_path: Path) -> None:
+    """Given a command with a 5s timeout whose wall time (secret resolution,
+    snapshot) exceeds 5s, When it exits 0 in time, Then SUCCEEDED."""
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    h.clock = TickingClock(T0, utc_offset=timedelta(hours=-7))
+    r = run_chore("tidy", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.SUCCEEDED and r.usage and r.usage.seconds > 5
+
+
+def test_command_chores_are_never_ceiling_refused(tmp_path: Path) -> None:
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND}, config="ceiling: {tokens: 1}\n")
+    h.store.append_ledger(
+        {
+            "chore": "x",
+            "backend": "gw",
+            "billing": "metered",
+            "tokens_in": 5,
+            "tokens_out": 5,
+            "usd": 0,
+            "seconds": 1,
+            "started": h.clock.now_utc().isoformat(),
+        }
+    )
+    r = run_chore("tidy", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.SUCCEEDED
+
+
+def test_agent_run_with_kill_marker_is_killed(tmp_path: Path) -> None:
+    h = FullHarness(
+        tmp_path, chores={"rev": AGENT}, agent=FakeAgent(error=BackendError("exit 143"))
+    )
+    h.store.request_kill("rev-20260302T170030Z-ab12")
+    r = run_chore("rev", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.KILLED
+
+
+def test_definition_snapshot_is_redacted(tmp_path: Path) -> None:
+    """Given a definition body that pastes the credential literally, Then the
+    snapshot carries [REDACTED]."""
+    leaky = PROMPT.replace("Summarize.", f"Summarize. key={SECRET}")
+    h = FullHarness(tmp_path, chores={"brand": leaky})
+    r = run_chore("brand", h.deps().as_run_deps()).record
+    assert r is not None
+    snapshot = h.store.read_artifact(r.run_id, "definition.md")
+    assert SECRET not in snapshot and "[REDACTED]" in snapshot
+
+
+def test_agent_spawn_failure_records_failed(tmp_path: Path) -> None:
+    class SpawnFails(FakeAgent):
+        def run(self, task, *, on_start):  # type: ignore[no-untyped-def]
+            raise ProcessError("could not start 'claude'")
+
+    h = FullHarness(tmp_path, chores={"rev": AGENT}, agent=SpawnFails())
+    r = run_chore("rev", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.FAILED and "could not start" in (r.reason or "")
+
+
+def test_a_young_pending_record_counts_as_live_for_overlap(tmp_path: Path) -> None:
+    """Given a PENDING record seconds old (the runner has not spawned yet),
+    Then a concurrent manual run is SKIPPED_OVERLAP; a PENDING older than one
+    tick interval is not live (it is the tick's to interrupt)."""
+    from chores.application.context import live_running
+
+    h = FullHarness(tmp_path, chores={"brand": PROMPT})
+    young = RunRecord.pending(
+        run_id="brand-a",
+        chore="brand",
+        kind=Kind.PROMPT,
+        definition_rev="r",
+        started=h.clock.now_utc() - timedelta(seconds=5),
+    )
+    h.store.write_record(young)
+    grace = timedelta(seconds=60)
+    now = h.clock.now_utc()
+    live = live_running(h.store, h.process, "brand", now_utc=now, pending_grace=grace)
+    assert live is not None and live.run_id == "brand-a"
+    r = run_chore("brand", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.SKIPPED_OVERLAP and "brand-a" in (r.reason or "")
+    stale = RunRecord.pending(
+        run_id="brand-b",
+        chore="brand",
+        kind=Kind.PROMPT,
+        definition_rev="r",
+        started=h.clock.now_utc() - timedelta(minutes=10),
+    )
+    h.store.write_record(stale)
+    h.store.delete_run("brand-a")
+    assert (
+        live_running(h.store, h.process, "brand", now_utc=now, pending_grace=grace)
+        is None
+    )
+
+
+def test_manual_run_of_a_bad_stem_definition_records_invalid(tmp_path: Path) -> None:
+    from chores.adapters.fs_store import FsRunStore
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    (tmp_path / "home" / "chores" / "foo.bar.md").write_text(
+        "---\nname: foo.bar\nkind: command\n---\n"
+    )
+    h.store = FsRunStore(tmp_path / "state")  # type: ignore[assignment]
+    r = run_chore("foo.bar", h.deps().as_run_deps()).record
+    assert r is not None and r.status is RunStatus.INVALID
+    assert r.chore == "INVALID-foo-bar" and h.store.read_record(r.run_id) == r
+
+
+class TickWinsTheStart(FakeRunStore):
+    """The tick closes the stale PENDING record before the runner starts."""
+
+    def write_record(self, record: RunRecord) -> None:
+        super().write_record(record)
+        if record.status is RunStatus.PENDING:
+            super().write_record(
+                record.finish(
+                    RunStatus.INTERRUPTED, ended=record.started, reason="tick"
+                )
+            )
+
+
+class TickWinsTheFinish(FakeRunStore):
+    """The tick closes the RUNNING record before the runner's own finish."""
+
+    def transition(self, run_id, *, expected, then):  # type: ignore[no-untyped-def]
+        if expected is RunStatus.RUNNING:
+            current = self.read_record(run_id)
+            assert current is not None
+            super().write_record(
+                current.finish(RunStatus.INTERRUPTED, ended=current.started, reason="t")
+            )
+            return None
+        return super().transition(run_id, expected=expected, then=then)
+
+
+def test_runner_that_loses_the_start_race_stops_and_writes_nothing(
+    tmp_path: Path,
+) -> None:
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    h.store = TickWinsTheStart()  # type: ignore[assignment]
+    outcome = run_chore("tidy", h.deps().as_run_deps())
+    assert outcome.record is not None
+    assert outcome.record.status is RunStatus.INTERRUPTED
+    assert "lost the start race" in outcome.message
+    assert h.store.ledger_rows() == []  # the runner appended no row of its own
+    assert len(h.process.signalled) == 1  # the already-spawned child was stopped
+    assert "lost the start race" in h.store.read_artifact(
+        outcome.record.run_id, "errors.log"
+    )
+
+
+def test_runner_that_loses_the_finish_race_keeps_the_ticks_record(
+    tmp_path: Path,
+) -> None:
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    h.store = TickWinsTheFinish()  # type: ignore[assignment]
+    outcome = run_chore("tidy", h.deps().as_run_deps())
+    assert outcome.record is not None
+    assert outcome.record.status is RunStatus.INTERRUPTED
+    assert h.store.ledger_rows() == []
+    assert "not recorded" in h.store.read_artifact(outcome.record.run_id, "errors.log")
+    assert h.notifier.alerts == []
+
+
+def test_agent_killed_child_with_nonzero_exit_records_killed(tmp_path: Path) -> None:
+    """A killed claude child exits nonzero and returns a normal AgentResult;
+    the kill marker, not the exit code, decides the status."""
+    h = FullHarness(tmp_path, chores={"rev": AGENT}, agent=FakeAgent(exit_code=143))
+    h.store.request_kill("rev-20260302T170030Z-ab12")
+    r = run_chore("rev", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.KILLED and r.exit_code == 143
+
+
+def test_definition_snapshot_is_the_source_that_was_parsed(tmp_path: Path) -> None:
+    """A re-read after secret resolution could see a newer file; the snapshot
+    must be the text the executed Chore came from."""
+    from chores.adapters.definitions import DefinitionsLoader
+
+    class ReReadsDifferently(DefinitionsLoader):
+        def source(self, name: str) -> str | None:
+            return "TAMPERED\n"
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    h.definitions = ReReadsDifferently(tmp_path / "home", revision_reader=lambda _: "r")
+    r = run_chore("tidy", h.deps().as_run_deps()).record
+    assert r is not None and r.status is RunStatus.SUCCEEDED
+    snapshot = h.store.read_artifact(r.run_id, "definition.md")
+    assert "TAMPERED" not in snapshot and snapshot == COMMAND
+
+
+def test_a_kill_request_outranks_the_timeout(tmp_path: Path) -> None:
+    h = FullHarness(
+        tmp_path, chores={"tidy": COMMAND}, process=FakeProcess(timed_out=True)
+    )
+    h.store.request_kill("tidy-20260302T170030Z-ab12")
+    r = run_chore("tidy", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.KILLED
+    h = FullHarness(
+        tmp_path / "a", chores={"rev": AGENT}, agent=FakeAgent(timed_out=True)
+    )
+    h.store.request_kill("rev-20260302T170030Z-ab12")
+    r = run_chore("rev", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.KILLED
+
+
+def test_dry_run_plan_shows_the_port_and_applicable_ceilings(tmp_path: Path) -> None:
+    from click.testing import CliRunner
+
+    from chores.cli.main import main
+
+    h = FullHarness(
+        tmp_path, chores={"brand": PROMPT}, config="ceiling: {tokens: 5000}\n"
+    )
+    out = run_chore("brand", h.deps().as_run_deps(), dry_run=True)
+    assert out.plan is not None and out.plan.port == "completion"
+    assert set(out.plan.ceilings) == {"backend", "global"}  # gw caps usd; global tokens
+    assert out.plan.ceilings["global"].tokens == 5000
+    r = CliRunner().invoke(main, ["run", "brand", "--dry-run"], obj=h.deps())
+    assert "port completion" in r.output
+    assert "ceiling:   global:" in r.output and "ceiling:   backend:" in r.output
+
+
+def test_admission_and_the_pending_write_share_one_chore_lock(tmp_path: Path) -> None:
+    """The overlap check and the PENDING write happen under the per-chore
+    lock, so a concurrent runner of the same chore serialises behind it and
+    then sees the young PENDING record as live."""
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    run_chore("tidy", h.deps().as_run_deps())
+    events = h.store.events
+    assert events[:3] == ["lock tidy", "write PENDING", "unlock tidy"]
+    dry = FullHarness(tmp_path / "d", chores={"tidy": COMMAND})
+    run_chore("tidy", dry.deps().as_run_deps(), dry_run=True)
+    assert dry.store.events == []  # a dry run reserves nothing
+
+
+def test_every_run_leaves_all_five_artifacts(tmp_path: Path) -> None:
+    """Design: a complete, separated record -- an empty stream is an empty
+    file, never a missing one (on the real store and the fake alike)."""
+    from chores.adapters.fs_store import FsRunStore
+
+    expected = {
+        "definition.md",
+        "transcript.jsonl",
+        "stdout.log",
+        "stderr.log",
+        "errors.log",
+    }
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    r = run_chore("tidy", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.SUCCEEDED
+    assert set(h.store.artifacts(r.run_id)) == expected
+    real = FullHarness(tmp_path / "real", chores={"tidy": COMMAND})
+    real.store = FsRunStore(tmp_path / "real" / "state")  # type: ignore[assignment]
+    r = run_chore("tidy", real.deps().as_run_deps()).record
+    assert r and set(real.store.artifacts(r.run_id)) == expected
+    assert real.store.read_artifact(r.run_id, "errors.log") == ""
+
+
+def test_a_manual_run_slipping_in_after_the_ticks_admission_is_skipped(
+    tmp_path: Path,
+) -> None:
+    """The tick's admission is advisory: the runner it launches is `chores
+    run`, which re-admits under the per-chore lock. A manual run that lands
+    between the tick's admit and the child's admission makes the child
+    SKIPPED_OVERLAP, so two runs never execute."""
+    hourly = COMMAND.replace("'* * * * *'", "'0 * * * *'")
+    h = FullHarness(tmp_path, chores={"tidy": hourly})
+    h.store.mark_tick(
+        TickMark(at=h.clock.now_utc() - timedelta(seconds=60), ledger_rows=0)
+    )
+    tick(h.deps().as_tick_deps())
+    assert h.launched == ["tidy"]
+    manual = RunRecord.pending(
+        run_id="tidy-manual",
+        chore="tidy",
+        kind=Kind.COMMAND,
+        definition_rev="r",
+        started=h.clock.now_utc(),
+    )
+    h.store.write_record(manual)  # the manual `chores run` wins the lock first
+    child = run_chore("tidy", h.deps().as_run_deps()).record  # the tick's child
+    assert child and child.status is RunStatus.SKIPPED_OVERLAP
+    assert "tidy-manual" in (child.reason or "")
+
+
+def test_every_outcome_record_carries_the_five_artifacts(tmp_path: Path) -> None:
+    """A refusal, MISSED or INVALID record is a run directory like any other:
+    all five artifacts exist (empty streams are empty files) and errors.log
+    carries the reason."""
+    from chores.adapters.fs_store import FsRunStore
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    h.store = FsRunStore(tmp_path / "state")  # type: ignore[assignment]
+    h.store.pause("maintenance")
+    r = run_chore("tidy", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.SKIPPED_PAUSED
+    assert set(h.store.artifacts(r.run_id)) == set(ARTIFACTS)
+    assert "maintenance" in h.store.read_artifact(r.run_id, "errors.log")
+
+
+def test_outcome_artifacts_go_through_the_size_cap(tmp_path: Path) -> None:
+    """A tick-written outcome's errors.log and definition snapshot are bounded
+    by max_run_dir_bytes like every run artifact: a refusal recorded on every
+    tick cannot fill the state volume."""
+    from chores.adapters.fs_store import FsRunStore
+    from chores.application.context import write_outcome
+
+    store = FsRunStore(tmp_path / "state")
+    record = write_outcome(
+        store,
+        run_id="tidy-20260917T000000Z-abcd",
+        chore="tidy",
+        kind=Kind.COMMAND,
+        definition_rev="r1",
+        status=RunStatus.SKIPPED_PAUSED,
+        reason="x" * 10_000,
+        at=T0,
+        max_bytes=2_000,
+        definition="y" * 10_000,
+    )
+    assert record.status is RunStatus.SKIPPED_PAUSED
+    assert set(store.artifacts(record.run_id)) == set(ARTIFACTS)
+    assert store.read_artifact(record.run_id, "errors.log") == ""
+    assert store.read_artifact(record.run_id, "definition.md") == ""
+    assert store.ledger_count() == 1
+    small = write_outcome(
+        store,
+        run_id="tidy-20260917T000001Z-abcd",
+        chore="tidy",
+        kind=Kind.COMMAND,
+        definition_rev="r1",
+        status=RunStatus.SKIPPED_PAUSED,
+        reason="paused",
+        at=T0,
+        max_bytes=2_000,
+    )
+    assert store.read_artifact(small.run_id, "errors.log") == "paused\n"
+
+
+def test_output_dropped_by_the_process_adapter_marks_the_run_truncated(
+    tmp_path: Path,
+) -> None:
+    """The adapter caps what it captures (memory), the artifact writer caps
+    what it keeps (disk); either bound tripping makes the record say so."""
+    from dataclasses import replace
+
+    process = FakeProcess(stdout="head")
+    process.result = replace(process.result, output_truncated=True)
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND}, process=process)
+    r = run_chore("tidy", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.SUCCEEDED and r.truncated is True
+    (request,) = process.requests
+    assert request.max_output_bytes == 50 * 1024 * 1024  # max_run_dir_bytes
+
+
+def test_output_truncated_by_the_agent_marks_the_run(tmp_path: Path) -> None:
+    """Output the process runner dropped marks the record truncated on the
+    agent path, as it does on the command path."""
+    from dataclasses import replace
+
+    agent = FakeAgent()
+    agent.result = replace(agent.result, output_truncated=True)
+    h = FullHarness(tmp_path, chores={"rev": AGENT}, agent=agent)
+    r = run_chore("rev", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.SUCCEEDED and r.truncated is True

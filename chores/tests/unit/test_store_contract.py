@@ -1,5 +1,8 @@
 """RunStorePort contract, run against the fake and the filesystem adapter
-(testing-python skill section 6: contract tests pin fakes to real adapters)."""
+(testing-python skill section 6: contract tests pin fakes to real adapters).
+Behaviors only the filesystem adapter can have -- path safety, the no-follow
+discipline -- live in test_fs_store.py.
+"""
 
 from __future__ import annotations
 

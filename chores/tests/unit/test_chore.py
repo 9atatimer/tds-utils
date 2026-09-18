@@ -289,3 +289,197 @@ def test_turns_ceiling_applies_to_agent_chores_only() -> None:
         agent, backend=AGENT_BACKEND, global_ceiling=Ceiling(), forbidden_paths=()
     )
     assert any("turns" in v for v in out)
+
+
+def test_agent_needs_turns_and_a_model_must_exist() -> None:
+    backend = BackendSpec(
+        "claude", ExecutionPort.AGENT, None, True, True, Ceiling(), frozenset()
+    )
+    agent = Chore.from_mapping(
+        {
+            "name": "rev",
+            "schedule": "0 9 * * *",
+            "kind": "agent",
+            "backend": "claude",
+            "budget": {"tokens": 1},
+        },
+        body="x",
+    )
+    out = check_bindings(
+        agent, backend=backend, global_ceiling=Ceiling(), forbidden_paths=()
+    )
+    assert any("turns" in v for v in out) and any("no model" in v for v in out)
+
+
+def test_usd_limits_need_the_resolved_model_to_be_priced() -> None:
+    from chores.domain.budget import Budget
+
+    gw = BackendSpec(
+        name="gw",
+        port=ExecutionPort.COMPLETION,
+        default_model="m",
+        requires_network=True,
+        priced=True,
+        ceiling=Ceiling(),
+        read_only_tools=frozenset(),
+        priced_models=frozenset({"m"}),
+    )
+    base = Chore.from_mapping(
+        {
+            "name": "p",
+            "kind": "prompt",
+            "schedule": "* * * * *",
+            "backend": "gw",
+            "timeout_sec": 5,
+            "model": "other",
+        },
+        body="x",
+    )
+    assert not check_bindings(
+        base, backend=gw, global_ceiling=Ceiling(), forbidden_paths=()
+    )
+    errors = check_bindings(
+        base, backend=gw, global_ceiling=Ceiling(usd=1.0), forbidden_paths=()
+    )
+    assert any("'other' has no price" in e for e in errors)
+    with_budget = Chore.from_mapping(
+        {
+            "name": "p",
+            "kind": "prompt",
+            "schedule": "* * * * *",
+            "backend": "gw",
+            "timeout_sec": 5,
+            "model": "other",
+            "budget": {"usd": 0.5},
+        },
+        body="x",
+    )
+    assert isinstance(with_budget.budget, Budget)
+    errors = check_bindings(
+        with_budget, backend=gw, global_ceiling=Ceiling(), forbidden_paths=()
+    )
+    assert any("'other' has no price" in e for e in errors)
+    priced = Chore.from_mapping(
+        {
+            "name": "p",
+            "kind": "prompt",
+            "schedule": "* * * * *",
+            "backend": "gw",
+            "timeout_sec": 5,
+            "budget": {"usd": 0.5},
+        },
+        body="x",
+    )
+    assert not check_bindings(
+        priced, backend=gw, global_ceiling=Ceiling(), forbidden_paths=()
+    )
+
+
+def test_a_metered_backend_without_prices_cannot_carry_any_usd_limit() -> None:
+    from chores.domain.run import Billing
+
+    def spec(billing: Billing) -> BackendSpec:
+        return BackendSpec(
+            name="b",
+            port=ExecutionPort.COMPLETION,
+            default_model="m",
+            requires_network=True,
+            priced=False,
+            ceiling=Ceiling(),
+            read_only_tools=frozenset(),
+            billing=billing,
+        )
+
+    chore = Chore.from_mapping(
+        {
+            "name": "p",
+            "kind": "prompt",
+            "schedule": "* * * * *",
+            "backend": "b",
+            "timeout_sec": 5,
+            "budget": {"usd": 0.5},
+        },
+        body="x",
+    )
+    metered = check_bindings(
+        chore,
+        backend=spec(Billing.METERED),
+        global_ceiling=Ceiling(),
+        forbidden_paths=(),
+    )
+    assert any("metered but has no price table" in e for e in metered)
+    free = check_bindings(
+        chore, backend=spec(Billing.NONE), global_ceiling=Ceiling(), forbidden_paths=()
+    )
+    assert free == []
+    plain = Chore.from_mapping(
+        {
+            "name": "p",
+            "kind": "prompt",
+            "schedule": "* * * * *",
+            "backend": "b",
+            "timeout_sec": 5,
+        },
+        body="x",
+    )
+    global_cap = check_bindings(
+        plain,
+        backend=spec(Billing.METERED),
+        global_ceiling=Ceiling(usd=2.0),
+        forbidden_paths=(),
+    )
+    assert any("metered but has no price table" in e for e in global_cap)
+
+
+def test_is_under_treats_the_filesystem_root_as_containing_everything() -> None:
+    from chores.domain.chore import is_under
+
+    assert is_under("/home/x", "/") and is_under("/", "/")
+    assert not is_under("/", "/home")
+    assert is_under("/home/x/y", "/home/x/") and not is_under("/home/xy", "/home/x")
+
+
+def test_notify_on_members_must_be_status_names() -> None:
+    from chores.domain.chore import InvalidChore
+
+    for bad in ([{}], [None], [["SUCCEEDED"]], [3]):
+        with pytest.raises(InvalidChore, match="notify_on"):
+            Chore.from_mapping({**PROMPT, "notify_on": bad}, body="x")
+
+
+def test_free_and_subscription_backends_may_carry_a_usd_ceiling_unpriced() -> None:
+    from chores.domain.run import Billing
+
+    def spec(billing: Billing) -> BackendSpec:
+        return BackendSpec(
+            name="b",
+            port=ExecutionPort.COMPLETION,
+            default_model="m",
+            requires_network=False,
+            priced=False,
+            ceiling=Ceiling(usd=1.0),
+            read_only_tools=frozenset(),
+            billing=billing,
+        )
+
+    chore = Chore.from_mapping(
+        {
+            "name": "p",
+            "kind": "prompt",
+            "schedule": "* * * * *",
+            "backend": "b",
+            "timeout_sec": 5,
+            "budget": {"usd": 0.5},
+        },
+        body="x",
+    )
+    for free in (Billing.NONE, Billing.SUBSCRIPTION):
+        assert not check_bindings(
+            chore, backend=spec(free), global_ceiling=Ceiling(), forbidden_paths=()
+        )
+    assert check_bindings(
+        chore,
+        backend=spec(Billing.METERED),
+        global_ceiling=Ceiling(),
+        forbidden_paths=(),
+    )
