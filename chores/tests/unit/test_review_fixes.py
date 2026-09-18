@@ -2230,3 +2230,40 @@ def test_agent_output_is_capped_and_truncation_marks_the_run(tmp_path: Path) -> 
     h = FullHarness(tmp_path, chores={"rev": AGENT}, agent=agent)
     r = run_chore("rev", h.deps().as_run_deps()).record
     assert r and r.status is RunStatus.SUCCEEDED and r.truncated is True
+
+
+# --- Copilot round 22 (PR #290) --------------------------------------------
+
+
+def test_invalid_records_carry_the_declared_kind_or_unknown(tmp_path: Path) -> None:
+    """An INVALID record says the kind the front matter declared when it
+    parsed that far, else `unknown`; never a made-up `command`. And
+    `unknown` is a record's word only: a definition cannot declare it."""
+    from chores.domain.chore import InvalidChore
+
+    h = FullHarness(
+        tmp_path,
+        chores={
+            "badprompt": "---\nname: badprompt\nkind: prompt\n---\nno schedule\n",
+            "broken": "---\nname: [\n---\n",
+        },
+    )
+    defs = h.definitions.load()
+    by_name = {i.name: i for i in defs.invalid}
+    assert by_name["badprompt"].kind is Kind.PROMPT
+    assert by_name["broken"].kind is Kind.UNKNOWN
+    tick(h.deps().as_tick_deps())
+    kinds = {r.chore: r.kind for r in h.store.records()}
+    assert kinds == {"badprompt": Kind.PROMPT, "broken": Kind.UNKNOWN}
+    r = run_chore("broken", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.INVALID and r.kind is Kind.UNKNOWN
+    with pytest.raises(InvalidChore, match="kind must be one of"):
+        Chore.from_mapping(
+            {
+                "name": "x",
+                "schedule": "* * * * *",
+                "kind": "unknown",
+                "command": ["true"],
+            },
+            body="",
+        )

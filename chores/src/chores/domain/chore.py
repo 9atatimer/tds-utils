@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 from chores.domain.budget import Budget, Ceiling, InvalidBudget
 from chores.domain.errors import DomainError
-from chores.domain.kinds import KIND_PORT, ExecutionPort, Kind
+from chores.domain.kinds import DEFINABLE_KINDS, KIND_PORT, ExecutionPort, Kind
 from chores.domain.run import Billing, RunStatus
 from chores.domain.schedule import InvalidSchedule, Schedule
 
@@ -269,6 +269,8 @@ class Chore:
             kind = Kind(kind_text)
         except ValueError as e:
             raise InvalidChore("kind must be one of prompt, agent, command") from e
+        if kind not in DEFINABLE_KINDS:  # "unknown" is a record's word, not ours
+            raise InvalidChore("kind must be one of prompt, agent, command")
         backend = _str(data, "backend") if "backend" in data else None
         command = _str_list(data, "command")
         allowed_tools = _str_list(data, "allowed_tools")

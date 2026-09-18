@@ -14,6 +14,7 @@ import yaml
 
 from chores.domain.budget import Ceiling, InvalidBudget
 from chores.domain.chore import Chore, InvalidChore
+from chores.domain.kinds import DEFINABLE_KINDS, Kind
 from chores.ports.backends import BackendConfig, Price
 from chores.ports.definitions import Definitions, GlobalConfig, InvalidDefinition
 
@@ -198,6 +199,16 @@ def _normalise_cwd(raw: str) -> str:
     return os.path.realpath(os.path.expanduser(raw))
 
 
+def _declared_kind(data: Mapping[str, object]) -> Kind:
+    """The kind a front matter names, for the INVALID record of a definition
+    that fails later validation; UNKNOWN when it names none or a bad one."""
+    try:
+        kind = Kind(str(data.get("kind")))
+    except ValueError:
+        return Kind.UNKNOWN
+    return kind if kind in DEFINABLE_KINDS else Kind.UNKNOWN
+
+
 def _load_yaml(path: Path) -> object:
     if not path.exists():
         return None
@@ -220,9 +231,11 @@ class DefinitionsLoader:
         errors: list[str] = []
         sources: dict[str, str] = {}
         for path in sorted((self.home / "chores").glob("*.md")):
+            declared = Kind.UNKNOWN  # what the front matter said, if it parsed
             try:
                 text = path.read_text(encoding="utf-8")
                 data, body = split_front_matter(text)
+                declared = _declared_kind(data)
                 if isinstance(data.get("cwd"), str):
                     data = {**data, "cwd": _normalise_cwd(str(data["cwd"]))}
                 chore = Chore.from_mapping(data, body=body)
@@ -231,7 +244,9 @@ class DefinitionsLoader:
                 chores.append(chore)
                 sources[chore.name] = text
             except (InvalidChore, yaml.YAMLError, OSError, UnicodeError) as e:
-                invalid.append(InvalidDefinition(name=path.stem, error=str(e)))
+                invalid.append(
+                    InvalidDefinition(name=path.stem, error=str(e), kind=declared)
+                )
         backends: dict[str, BackendConfig] = {}
         try:
             raw_backends = _load_yaml(self.home / "backends.yaml")

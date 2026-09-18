@@ -364,7 +364,7 @@ def tick(deps: TickDeps) -> TickReport:
                 ctx,
                 report,
                 name=invalid.name,
-                kind=Kind.COMMAND,
+                kind=invalid.kind,
                 reason=invalid.error,
             )
         _interrupt_dead_runs(deps, ctx, report)

@@ -8,6 +8,7 @@ from typing import Protocol
 
 from chores.domain.budget import Ceiling
 from chores.domain.chore import Chore
+from chores.domain.kinds import Kind
 from chores.ports.backends import BackendConfig
 
 
@@ -30,6 +31,9 @@ class GlobalConfig:
 class InvalidDefinition:
     name: str
     error: str
+    kind: Kind = Kind.UNKNOWN
+    """The kind the front matter declared when it parsed that far, so the
+    INVALID record does not claim a kind the file never had."""
 
 
 @dataclass(frozen=True, slots=True)

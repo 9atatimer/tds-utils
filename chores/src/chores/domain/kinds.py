@@ -9,6 +9,12 @@ class Kind(Enum):
     PROMPT = "prompt"
     AGENT = "agent"
     COMMAND = "command"
+    UNKNOWN = "unknown"
+    """Only on an INVALID record whose definition never parsed far enough
+    to say; never a valid chore's kind (from_mapping refuses it)."""
+
+
+DEFINABLE_KINDS = frozenset({Kind.PROMPT, Kind.AGENT, Kind.COMMAND})
 
 
 class ExecutionPort(Enum):

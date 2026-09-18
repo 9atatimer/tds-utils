@@ -503,7 +503,7 @@ def run_chore(
         return RunOutcome(None, f"refused: {ctx.definitions.config_error}")
     host = Host(deps.store, deps.process, deps.clock, deps.power, deps.network)
     found = find_chore(ctx.definitions, name)
-    kind = found.kind if isinstance(found, Chore) else Kind.COMMAND
+    kind = found.kind if found is not None else Kind.UNKNOWN  # never a false one
     if found is None:
         return RunOutcome(None, f"no chore named {name!r}")
     errors = (
