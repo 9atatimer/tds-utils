@@ -14,6 +14,14 @@
 # requires) -- so all three re-evaluate, and workflow_dispatch covers a
 # stuck one by hand.
 #
+# Part of the contract, not a gap to close: a thread UNRESOLVED with no
+# comment fires nothing either, so a green status can outlive it until
+# the next event on the PR. The gates skill has every reopen carry a
+# reply (that reply re-evaluates), a `tedium land` comment re-evaluates
+# before the batch is judged, and the human who reopens a thread without
+# a word is the backstop this status is designed around, not a case it
+# can see.
+#
 # `tools_ref` is the PR's own head so a change to the checker is tested
 # by the PR that carries it, not by the one after.
 
