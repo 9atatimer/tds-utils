@@ -31,14 +31,21 @@ a per-instance cache root outside every git tree.
 - **G2. Each instance owns its packages** -- a package installed or upgraded
   under one key is not visible to any other key. Assertable by resolving
   `package-user-dir` under two keys and confirming disjoint paths.
-- **G3. No emacs-written file lands in any git tree** -- every redirected
-  path resolves outside every worktree. Assertable in batch by resolving
-  `package-user-dir` and each state variable under a given key and confirming
-  none is under a git tree. Deliberately NOT assertable by `git status`: D13
-  keeps the twelve reactive `.gitignore` entries, which hold that output clean
-  whether or not the redirect worked. Closes #253, whose done-criterion is
-  that a newly-installed package cannot dirty the release worktree without
-  someone adding an ignore rule for it.
+- **G3. No emacs-written file lands in any git tree** -- asserted by
+  `git status --porcelain --ignored` over the config tree after a full session
+  showing no emacs-written path. The `--ignored` flag is what makes this a real
+  test: D13 keeps the twelve reactive `.gitignore` entries, so plain
+  `git status` stays clean whether or not the redirect worked, while
+  `--ignored` sees through them. The entries keep `tds-release` quiet; the test
+  refuses to be fooled by them.
+
+  **This is detection, not prevention, and the distinction is the honest one.**
+  Enumerating state variables cannot guarantee the property: elisp can write
+  anywhere, and a package installed next year can introduce a fresh
+  `user-emacs-directory` write that no list anticipated. #253's done-criterion
+  ("without anyone adding a `.gitignore` rule") is therefore met by the
+  `--ignored` check catching a new writer the first time it writes, not by the
+  redirect table being complete.
 - **G4. Instance identity is visible on three surfaces** -- scratch bannerlet,
   mode line, frame title. Assertable in batch by checking the three
   variables are set from one resolved key.
@@ -71,10 +78,10 @@ a per-instance cache root outside every git tree.
        LAUNCH                     CONFIG TREE                  STATE
                              (git, read-only to emacs)   (outside git, writable)
 
-  emacs                 -->  ~/.tds/release/            -->  ~/.cache/emacs/live/
+  emacs                 -->  <highest existing tier>/   -->  ~/.cache/emacs/live/
   (no args)                    emacs/dot.emacs.d/              elpa/
-                                                               eln-cache/
-                                                               transient/ ...
+                             (dist/current > release >         eln-cache/
+                              workplace/tds-utils)                transient/ ...
 
   emacs -b <topic>      -->  ~/workplace/.worktrees/    -->  ~/.cache/emacs/
                                tds-utils-<topic>/               tds-utils-<topic>/
@@ -146,6 +153,9 @@ Every path emacs writes to is set from `tds-emacs-cache-root`.
 | `lsp-session-file` | `<root>/lsp-session` | |
 | `url-configuration-directory` | `<root>/url/` | Carries `network-security.data` |
 | `gnutls-*`, `nsm-settings-file` | `<root>/nsm-settings` | |
+| `custom-file` | `<root>/custom.el`, and loaded if present | **The one that is actively biting.** No `custom-file` is set today, so Custom appends `custom-set-variables` / `custom-set-faces` to `init.el` itself (`init.el:681`, `:693`) -- a TRACKED file. PR #260's "emacs custom-var drift" was this happening. Every instance would otherwise rewrite the shared, version-controlled init |
+| `mcp-server-socket-directory` | `<root>/mcp/` | `init.el:500` sets it to `(locate-user-emacs-file ".cache/")`, i.e. inside the config tree. `.cache` is one of the twelve ignore entries, which is why it has gone unnoticed |
+| `backup-directory-alist`, `auto-save-file-name-transforms` | under `<root>/` | Already outside the tree (`~/emacs/backups`, `~/emacs/autosaves` at `init.el:267-268`), so not a G3 concern -- but unkeyed, so every instance shares one backup pool. Keyed for G2, not G3 |
 
 **Native compilation is currently unavailable** -- this machine's Emacs 30.2
 reports `native-comp-available-p` as nil and has no `eln-cache` anywhere.
@@ -171,7 +181,7 @@ already-running application activates the existing instance and discards
 
 | Responsibility | Details |
 |----------------|---------|
-| Default to live | `emacs` with no branch flag launches against `~/.tds/release/emacs/dot.emacs.d` |
+| Default to live | `emacs` with no branch flag launches against the SAME highest-existing tier the key resolver uses -- `~/.tds/dist/current`, else `~/.tds/release`, else `~/workplace/tds-utils` -- suffixed `emacs/dot.emacs.d`. Hardcoding `~/.tds/release` here (the first draft) contradicts D3: after an ENV-DISTRIBUTION install, tier 1 is live and `$HOME` links point there, so the launcher would open the release tree, the resolver would decline to call it `live`, and G5 would break |
 | Select a branch tree | `emacs -b <topic>` resolves `~/workplace/.worktrees/tds-utils-<topic>/emacs/dot.emacs.d` and passes it as `--init-directory` |
 | Force a new process | Use `open -n`, or invoke `Emacs.app/Contents/MacOS/Emacs` directly, so a branch instance does not merely focus the live one |
 | Refuse an un-instrumented tree | Exit non-zero when the target tree has no `early-init.el`. A worktree cut before this feature resolves no key, so emacs would default `package-user-dir` back into that git tree and write 40M there -- and because D13 keeps the ignore entries, `git status` would stay clean while it happened. The launcher is the only place this can be caught loudly |
