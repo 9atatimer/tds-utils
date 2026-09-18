@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# chores -- laptop-local herd of LLM-adjacent scheduled jobs.
+#
+# Thin launcher: resolves the sibling uv project and execs its `chores`
+# console script, so a bare `chores` on PATH (tiered through ~/.tds/release
+# or the dev checkout) reaches the package without a manual install.
+# Design: docs/design/CHORES.DESIGN.md
+
+set -euo pipefail
+
+# --- Helpers -----------------------------------------------------------------
+
+project_dir() {
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    printf '%s\n' "${script_dir}/../chores"
+}
+
+require_uv() {
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "chores: uv not found on PATH (brew install uv)" >&2
+        return 127
+    fi
+}
+
+# --- Main --------------------------------------------------------------------
+
+# The TUI extra (textual) is only synced for `chores ui`; every other verb
+# runs on the base dependencies, so a scheduler tick or a status poll never
+# installs UI packages. --no-dev keeps the dev group (pytest, ruff, mypy,
+# stubs) out of every runtime sync too: chores/verify.sh is what wants it.
+extras_for() {
+    case "${1:-}" in
+        ui) printf '%s\n' "--extra tui" ;;
+        *)  printf '%s\n' "" ;;
+    esac
+}
+
+main() {
+    export PATH="/usr/local/bin:/opt/homebrew/bin:${HOME}/.local/bin:${PATH}"
+    require_uv
+    local extras
+    extras="$(extras_for "${1:-}")"
+    # shellcheck disable=SC2086
+    exec uv run --quiet --no-dev --project "$(project_dir)" ${extras} chores "$@"
+}
+
+main "$@"

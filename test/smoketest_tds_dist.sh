@@ -179,7 +179,7 @@ test_registry() {
     bold "registry: packages/*.pkg"; printf '\n'
 
     local pkgs=("${REPO_DIR}"/packages/*.pkg)
-    assert "registry has 13 packages" "[ \${#pkgs[@]} -eq 13 ]"
+    assert "registry has 14 packages" "[ \${#pkgs[@]} -eq 14 ]"
 
     local pkg name stem rc all_ok=0 name_ok=0 paths_ok=0 links_ok=0 verify_ok=0
     for pkg in "${pkgs[@]}"; do
