@@ -1,0 +1,152 @@
+#!/usr/bin/env node
+// review-settled -- post the `review-settled` commit status on a PR head.
+//
+// Green iff the newest review from each required reviewer is on the
+// current head commit and every review thread is resolved; red otherwise,
+// with the first reason in the status description. The decision itself
+// is lib/review-settled.mjs (pure, unit-tested); this file is the I/O:
+// one GraphQL read, one REST write.
+//
+// Usage:
+//   review-settled --repo OWNER/NAME --pr N [--reviewers a,b] [--dry-run]
+//   env: GITHUB_TOKEN (statuses:write, pull-requests:read)
+//        GITHUB_API_URL (optional, default https://api.github.com)
+//        GITHUB_SERVER_URL + GITHUB_RUN_ID (optional; sets target_url)
+//
+// Called by .github/workflows/review-settled.yml (the reusable workflow
+// every enrolled repo runs on pull_request, pull_request_review and
+// pull_request_review_thread events) and usable by hand with
+// `GITHUB_TOKEN=$(gh auth token)`. Exit 0 whenever a status was posted
+// (red is a posted answer, not a script failure); non-zero only when the
+// facts could not be read or the status could not be written.
+
+import { parseReviewers, settle } from '../lib/review-settled.mjs';
+
+const CONTEXT = 'review-settled';
+const DEFAULT_REVIEWERS = 'copilot-pull-request-reviewer';
+
+// --- Arguments --------------------------------------------------------------
+
+function parseArgs(argv) {
+  const out = { reviewers: DEFAULT_REVIEWERS, dryRun: false };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    const next = () => {
+      i += 1;
+      if (i >= argv.length) throw new Error(`${arg} needs a value`);
+      return argv[i];
+    };
+    if (arg === '--repo') out.repo = next();
+    else if (arg === '--pr') out.pr = Number(next());
+    else if (arg === '--reviewers') out.reviewers = next();
+    else if (arg === '--dry-run') out.dryRun = true;
+    else throw new Error(`unknown argument: ${arg}`);
+  }
+  if (!out.repo || !/^[^/]+\/[^/]+$/.test(out.repo)) throw new Error('--repo OWNER/NAME is required');
+  if (!Number.isInteger(out.pr) || out.pr <= 0) throw new Error('--pr N is required');
+  return out;
+}
+
+// --- GitHub I/O -------------------------------------------------------------
+
+const apiUrl = () => (process.env.GITHUB_API_URL ?? 'https://api.github.com').replace(/\/$/, '');
+
+function authHeaders(token) {
+  return {
+    authorization: `Bearer ${token}`,
+    accept: 'application/vnd.github+json',
+    'content-type': 'application/json',
+    'user-agent': 'tds-utils review-settled',
+  };
+}
+
+const PR_QUERY = `
+query($owner: String!, $name: String!, $number: Int!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      headRefOid
+      reviews(last: 100) {
+        nodes { author { login } state submittedAt commit { oid } }
+      }
+      reviewThreads(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { isResolved }
+      }
+    }
+  }
+}`;
+
+async function graphql(token, query, variables) {
+  const res = await fetch(`${apiUrl()}/graphql`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify({ query, variables }),
+  });
+  if (!res.ok) throw new Error(`GraphQL HTTP ${res.status}: ${await res.text()}`);
+  const body = await res.json();
+  if (body.errors?.length) throw new Error(`GraphQL: ${JSON.stringify(body.errors)}`);
+  return body.data;
+}
+
+/** Read head, reviews and every review thread (paging the threads). */
+async function readPullRequest(token, owner, name, number) {
+  let after = null;
+  let headSha = null;
+  let reviews = [];
+  const threads = [];
+  for (;;) {
+    const data = await graphql(token, PR_QUERY, { owner, name, number, after });
+    const pr = data.repository?.pullRequest;
+    if (!pr) throw new Error(`no pull request ${owner}/${name}#${number}`);
+    headSha = pr.headRefOid;
+    reviews = pr.reviews.nodes.map((node) => ({
+      author: node.author?.login ?? '',
+      state: node.state,
+      submittedAt: node.submittedAt,
+      commit: node.commit?.oid ?? '',
+    }));
+    threads.push(...pr.reviewThreads.nodes);
+    if (!pr.reviewThreads.pageInfo.hasNextPage) break;
+    after = pr.reviewThreads.pageInfo.endCursor;
+  }
+  return { headSha, reviews, threads };
+}
+
+async function postStatus(token, owner, name, sha, verdict) {
+  const targetUrl =
+    process.env.GITHUB_SERVER_URL && process.env.GITHUB_RUN_ID
+      ? `${process.env.GITHUB_SERVER_URL}/${owner}/${name}/actions/runs/${process.env.GITHUB_RUN_ID}`
+      : undefined;
+  const res = await fetch(`${apiUrl()}/repos/${owner}/${name}/statuses/${sha}`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify({
+      state: verdict.state,
+      context: CONTEXT,
+      description: verdict.description,
+      ...(targetUrl ? { target_url: targetUrl } : {}),
+    }),
+  });
+  if (!res.ok) throw new Error(`status POST HTTP ${res.status}: ${await res.text()}`);
+}
+
+// --- Main -------------------------------------------------------------------
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) throw new Error('GITHUB_TOKEN is not set');
+  const [owner, name] = args.repo.split('/');
+  const reviewers = parseReviewers(args.reviewers);
+
+  const facts = await readPullRequest(token, owner, name, args.pr);
+  const verdict = settle({ ...facts, reviewers });
+  console.log(`${CONTEXT}: ${verdict.state} on ${facts.headSha.slice(0, 7)} -- ${verdict.description}`);
+  if (args.dryRun) return;
+  await postStatus(token, owner, name, facts.headSha, verdict);
+}
+
+main().catch((error) => {
+  console.error(`review-settled: ${error.message}`);
+  process.exit(1);
+});
