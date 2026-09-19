@@ -17,9 +17,15 @@
 # checkouts. A regular file at the same path is left exactly as it is -- this
 # never clobbers real config.
 #
+# It also maintains one pointer per release unit: ~/.tds/release for this repo,
+# and ~/.tds/internal for the private one (tds-internal) when the machine has
+# it. Consumers address paths under those pointers rather than naming a
+# worktree -- CHORES_HOME is "$(readlink ~/.tds/internal)/ops/chores".
+#
 # Env (used by test/smoketest_release_link.sh; not for daily use):
-#   TDS_RELEASE_REPO   repo to operate on (default: the repo holding this script)
-#   TDS_RELEASE_HOME   home directory to scan (default: $HOME)
+#   TDS_RELEASE_REPO          repo to operate on (default: the repo holding this script)
+#   TDS_RELEASE_HOME          home directory to scan (default: $HOME)
+#   TDS_RELEASE_PRIVATE_REPO  the private unit's repo (default: ~/workplace/tds-internal)
 
 set -euo pipefail
 
@@ -74,6 +80,25 @@ scan_roots() {
 # place that mapping lives, and this script owns it exactly as bin/tds-install
 # owns ~/.tds/dist/current.
 tds_release_pointer() { printf '%s\n' "$1/.tds/release"; }
+
+# tds_internal_pointer <home> -- the same mapping for the PRIVATE release unit
+# (tds-internal: manifests, routines, the chores herd). Consumers address paths
+# under it -- CHORES_HOME is "$(readlink ~/.tds/internal)/ops/chores" -- so a
+# new consumer needs no change here. Absent on a machine with no private
+# checkout, which is the normal case and not an error.
+tds_internal_pointer() { printf '%s\n' "$1/.tds/internal"; }
+
+# private_release_worktree -- the private unit's release worktree, or empty
+# when the machine has no private checkout or it has no release worktree yet.
+private_release_worktree() {
+    local repo wt
+    repo="${TDS_RELEASE_PRIVATE_REPO:-${HOME}/workplace/tds-internal}"
+    [ -d "${repo}" ] || return 0
+    git -C "${repo}" rev-parse --git-dir >/dev/null 2>&1 || return 0
+    wt="$(release_worktree "${repo}")"
+    [ -n "${wt}" ] && [ -d "${wt}" ] || return 0
+    printf '%s\n' "${wt}"
+}
 
 # set_release_pointer <pointer> <release> -- create or correct it.
 set_release_pointer() {
@@ -209,10 +234,16 @@ $(scan_roots "${SCAN_HOME}")
 EOT
 
     if [ "${dry_run}" -eq 0 ]; then
+        local private
+        private="$(private_release_worktree)"
         if [ "${revert}" -eq 1 ]; then
             clear_release_pointer "$(tds_release_pointer "${SCAN_HOME}")"
+            clear_release_pointer "$(tds_internal_pointer "${SCAN_HOME}")"
         else
             set_release_pointer "$(tds_release_pointer "${SCAN_HOME}")" "${release}" || true
+            # Silent when there is no private checkout: most machines have none.
+            [ -z "${private}" ] \
+                || set_release_pointer "$(tds_internal_pointer "${SCAN_HOME}")" "${private}" || true
         fi
     fi
 

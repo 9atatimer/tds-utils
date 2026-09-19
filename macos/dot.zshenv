@@ -26,6 +26,17 @@
 # Uses :- so it can be overridden (e.g. for testing).
 export TDS_LOG_DIR="${TDS_LOG_DIR:-$HOME/.local/share/log-hoarder}"
 
+# chores: the herd of scheduled jobs reads its definitions from CHORES_HOME.
+# Addressed through the private release unit's pointer (~/.tds/internal,
+# maintained by bin/tds-release-link) rather than a checkout: a working tree's
+# branch is arbitrary, and a definitions root that is missing or on the wrong
+# branch is a scheduler that ticks over nothing. Silent and unset on a machine
+# with no private checkout, which is the normal case -- chores then falls back
+# to its XDG default. Uses :- so a test rig can override it.
+if [[ -z "${CHORES_HOME:-}" && -L "$HOME/.tds/internal" ]]; then
+    export CHORES_HOME="$HOME/.tds/internal/ops/chores"
+fi
+
 # Language-runtime roots. Setting the variables is free; starting the managers
 # is not, so that happens in .zshrc. Both must be unconditional: the PATH
 # block below derives directories from them, so gating them on the tool

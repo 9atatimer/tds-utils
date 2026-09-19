@@ -230,6 +230,16 @@ class DefinitionsLoader:
         invalid: list[InvalidDefinition] = []
         errors: list[str] = []
         sources: dict[str, str] = {}
+        # An ABSENT chores/ directory is a misconfigured root -- a CHORES_HOME
+        # aimed at a checkout on the wrong branch, say -- and globbing it
+        # yields nothing, which would read exactly like a working herd with no
+        # definitions. An EMPTY one is a herd with none yet, which is fine
+        # (issue #300).
+        if not (self.home / "chores").is_dir():
+            errors.append(
+                f"{self.home}: no chores/ directory -- CHORES_HOME does not "
+                "point at a definitions root"
+            )
         for path in sorted((self.home / "chores").glob("*.md")):
             declared = Kind.UNKNOWN  # what the front matter said, if it parsed
             try:

@@ -1,25 +1,44 @@
 #!/usr/bin/env bash
-# tds-release -- advance the `release` branch to a reviewed commit of master.
+# tds-release -- advance a `release` branch to a reviewed commit of its repo's
+# own line (master in this repo, main in tds-internal).
 #
-# Usage: tds-release [-n] [-f] [<committish>]
+# Usage: tds-release [-n] [-f] [-u <unit>] [<committish>]
 #
 #   -n            dry run: report what would be released, change nothing
 #   -f            allow a rewind (a target that is not a fast-forward)
-#   <committish>  what to release (default: origin/master)
+#   -u <unit>     release only this unit: public or private (default: both)
+#   <committish>  what to release (default: the unit's own reviewed line).
+#                 Applies to the unit named by -u, else the public one.
 #
 # $HOME's dotfile symlinks resolve through the `release` worktree, not the
 # primary checkout, so what this script does IS the install step for this
 # machine: the moment `release` moves, the new config is what every new shell,
 # editor, and agent session loads. Nothing else has to run.
 #
+# It releases RELEASE UNITS, not subsystems. A unit is a repo with a `release`
+# branch, a worktree checked out on it, and a NO.RELEASE sentry; the same flow
+# and the same guards apply to each. There are two:
+#
+#   public   this repo (tds-utils) -- the machine's public configuration
+#   private  tds-internal -- private machine data: manifests, routines, the
+#            chores herd. Absent on most machines, and its absence is a SKIP,
+#            never an error: this script ships in the public repo and must
+#            work on a machine that has no private checkout at all.
+#
+# Consumers address paths under a unit's pointer (`~/.tds/release`,
+# `~/.tds/internal`, both maintained by bin/tds-release-link); adding one must
+# need no change here.
+#
 # Two invariants, both enforced below rather than documented and hoped for:
 #
-#   - the target must be an ancestor of master, so what goes live is always a
-#     commit that went through a PR. A topic commit can be a clean
-#     fast-forward from release and still be unreviewed; -f does not lift this.
+#   - the target must be an ancestor of the unit's reviewed line (master in
+#     this repo, main in tds-internal), so what goes live is always a commit
+#     that went through a PR. A topic commit can be a clean fast-forward from
+#     release and still be unreviewed; -f does not lift this.
 #   - a commit carrying NO.RELEASE is never released, whatever else is true.
-#     Everything on master is releasable by default; that file is how a commit
-#     that landed but is not fit to go live says so, and it carries its reason.
+#     Everything on that line is releasable by default; that file is how a
+#     commit that landed but is not fit to go live says so, and it carries its
+#     reason.
 #   - the release worktree must be clean, checked BEFORE the already-current
 #     shortcut -- a dirty tree is a live-config problem whether or not HEAD
 #     happens to sit on the requested commit.
@@ -32,7 +51,14 @@
 set -euo pipefail
 
 # The sentry a commit carries to say "landed, but not fit to go live yet".
+# Repo-root, per unit: the sentry belongs to the release unit, not to any
+# subdirectory of it.
 SENTRY_FILE="NO.RELEASE"
+
+# The units, in release order. The public one is derived (it is the repo this
+# script lives in); the private one is a known location, overridable for tests.
+UNITS="public private"
+PRIVATE_REPO_DEFAULT="${HOME}/workplace/tds-internal"
 
 die()  { echo "tds-release: $*" >&2; exit 1; }
 note() { echo "tds-release: $*"; }
@@ -68,15 +94,25 @@ release_worktree() {
     '
 }
 
-# reviewed_ref <worktree> -- the branch that defines reviewed history.
-# origin/master normally; plain master in a repo with no remote.
+# reviewed_ref <worktree> -- the branch that defines reviewed history. Asked
+# of the repo rather than named: this repo's line is master, the private
+# repo's is main, and a unit's line is its business, not this script's.
+# origin/HEAD when the remote publishes one, else the first branch that
+# exists, tried remote-first.
 reviewed_ref() {
-    local wt="$1"
-    if git -C "${wt}" rev-parse --verify --quiet origin/master >/dev/null 2>&1; then
-        printf 'origin/master\n'
-    elif git -C "${wt}" rev-parse --verify --quiet master >/dev/null 2>&1; then
-        printf 'master\n'
+    local wt="$1" head ref
+    head="$(git -C "${wt}" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+    if [ -n "${head}" ] \
+        && git -C "${wt}" rev-parse --verify --quiet "${head}" >/dev/null 2>&1; then
+        printf '%s\n' "${head}"
+        return 0
     fi
+    for ref in origin/master origin/main master main; do
+        if git -C "${wt}" rev-parse --verify --quiet "${ref}" >/dev/null 2>&1; then
+            printf '%s\n' "${ref}"
+            return 0
+        fi
+    done
 }
 
 # sentry_present <worktree> <committish> -- does that commit carry the sentry?
@@ -116,27 +152,29 @@ check_target_reviewed() {
     local wt="$1" target_sha="$2" reviewed
     reviewed="$(reviewed_ref "${wt}")"
     [ -n "${reviewed}" ] \
-        || die "cannot find master or origin/master -- refusing to release
-  against unknown history"
+        || die "cannot find a reviewed line (origin/HEAD, origin/master,
+  origin/main, master or main) in ${wt} -- refusing to release against
+  unknown history"
     is_ancestor "${wt}" "${target_sha}" "${reviewed}" || die \
 "target is not an ancestor of ${reviewed} -- refusing to release unreviewed work.
   target   $(describe "${wt}" "${target_sha}")
   ${reviewed}  $(describe "${wt}" "${reviewed}")
   a commit can be a clean fast-forward from release and still have skipped
-  review. Merge it to master first; -f does not lift this."
+  review. Merge it to ${reviewed} first; -f does not lift this."
 }
 
-# A commit may land on master and still not be fit to go live -- a migration
-# that has to be run by hand first, a config change waiting on something
-# external. Everything on master is releasable by default; NO.RELEASE is how a
-# commit says otherwise, and it carries its own reason so whoever hits the
-# refusal is told why rather than left guessing.
+# A commit may land on the reviewed line and still not be fit to go live -- a
+# migration that has to be run by hand first, a config change waiting on
+# something external. Everything on that line is releasable by default;
+# NO.RELEASE is how a commit says otherwise, and it carries its own reason so
+# whoever hits the refusal is told why rather than left guessing.
 #
 # There is deliberately no override. -f rewinds; it does not release held work.
-# The way past a sentry is to remove it on master and release that commit,
-# which leaves the decision in the history where it can be reviewed.
+# The way past a sentry is to remove it on the reviewed line and release that
+# commit, which leaves the decision in the history where it can be reviewed.
 check_target_releasable() {
-    local wt="$1" target_sha="$2" reason
+    local wt="$1" target_sha="$2" reason reviewed
+    reviewed="$(reviewed_ref "${wt}")"
     sentry_present "${wt}" "${target_sha}" || return 0
     # `|| true` because git show exits 128 when the path is absent. Presence is
     # already established above, but the guard stays: under set -e a non-zero
@@ -149,8 +187,8 @@ check_target_releasable() {
   target $(describe "${wt}" "${target_sha}")
   reason:
 $(printf '%s\n' "${reason}" | sed 's/^/    /')
-  remove ${SENTRY_FILE} on master and release that commit; -f will not bypass
-  this."
+  remove ${SENTRY_FILE} on ${reviewed:-the reviewed line} and release that
+  commit; -f will not bypass this."
 }
 
 check_fast_forward() {
@@ -197,26 +235,76 @@ push_release() {
     fi
 }
 
-run_release() {
-    local dry_run="$1" force="$2" target="$3"
+# unit_repo <unit> -- where that unit's primary checkout is, or empty when the
+# machine does not have it.
+unit_repo() {
+    case "$1" in
+        public)  repo_root ;;
+        private) printf '%s\n' "${TDS_RELEASE_PRIVATE_REPO:-${PRIVATE_REPO_DEFAULT}}" ;;
+        *)       die "unknown release unit: $1" ;;
+    esac
+}
+
+# unit_is_required <unit> -- is a missing unit an error or a skip? The public
+# unit is the repo this script ships in, so its absence is a real failure. The
+# private one is optional by design: most machines do not have it, and this
+# script must still release the public config there.
+unit_is_required() { [ "$1" = public ]; }
+
+# skip_or_die <unit> <message> -- one line and carry on for an optional unit;
+# the existing hard failure for a required one.
+skip_or_die() {
+    local unit="$1" message="$2"
+    if unit_is_required "${unit}"; then
+        die "${message}"
+    fi
+    note "skipping the ${unit} unit: ${message%%$'\n'*}"
+    return 1
+}
+
+# plan_unit <unit> <target> <plan-file> -- resolve and CHECK one unit,
+# changing nothing. APPENDS a tab-separated plan to <plan-file> when there is
+# work to do, writes nothing when the unit is absent or already current, and
+# dies on any refusal. Every guard is a read-only question, which is what lets
+# them all be asked before anything moves.
+#
+# The plan goes to a file rather than stdout because `note` writes to stdout
+# too: capturing this function's output would fold its skip and up-to-date
+# lines into the plan.
+plan_unit() {
+    local unit="$1" target="$2" plan_file="$3"
     local repo wt release_sha target_sha
 
-    repo="$(repo_root)"
-    git -C "${repo}" rev-parse --git-dir >/dev/null 2>&1 \
-        || die "not a git repository: ${repo}"
+    repo="$(unit_repo "${unit}")"
+    if ! { [ -n "${repo}" ] && [ -d "${repo}" ] \
+           && git -C "${repo}" rev-parse --git-dir >/dev/null 2>&1; }; then
+        skip_or_die "${unit}" "not a git repository: ${repo}" || return 0
+    fi
 
     wt="$(release_worktree "${repo}")"
-    [ -n "${wt}" ] || die "no worktree is checked out on the release branch in ${repo}
+    if [ -z "${wt}" ]; then
+        skip_or_die "${unit}" "no worktree is checked out on the release branch in ${repo}
   create one with:
-    git -C ${repo} worktree add ~/workplace/.worktrees/tds-utils-release release"
-    [ -d "${wt}" ] || die "release worktree is registered but missing: ${wt}"
+    git -C ${repo} worktree add ~/workplace/.worktrees/$(basename "${repo}")-release release" \
+            || return 0
+    fi
+    if [ ! -d "${wt}" ]; then
+        skip_or_die "${unit}" "release worktree is registered but missing: ${wt}" || return 0
+    fi
+
+    # Empty target: release that unit's own reviewed line. Only the unit named
+    # on the command line takes a committish -- the others resolve their own.
+    [ -n "${target}" ] || target="$(reviewed_ref "${wt}")"
+    if [ -z "${target}" ]; then
+        skip_or_die "${unit}" "cannot find a reviewed line in ${repo}" || return 0
+    fi
 
     if [ "${TDS_RELEASE_FETCH:-1}" != "0" ]; then
-        git -C "${wt}" fetch origin --quiet || die "fetch failed"
+        git -C "${wt}" fetch origin --quiet || die "${unit}: fetch failed"
     fi
 
     target_sha="$(git -C "${wt}" rev-parse --verify --quiet "${target}^{commit}")" \
-        || die "no such commit: ${target}"
+        || die "${unit}: no such commit: ${target}"
     release_sha="$(git -C "${wt}" rev-parse --verify HEAD)"
 
     # Before the already-current shortcut on purpose: a dirty tree is a
@@ -226,35 +314,86 @@ run_release() {
     check_target_releasable "${wt}" "${target_sha}"
 
     if [ "${target_sha}" = "${release_sha}" ]; then
-        note "release is already up to date at $(describe "${wt}" HEAD)"
+        note "${unit}: release is already up to date at $(describe "${wt}" HEAD)"
         return 0
     fi
 
     check_fast_forward "${wt}" "${release_sha}" "${target_sha}" "${force}"
 
-    if [ "${dry_run}" -eq 1 ]; then
-        report_dry_run "${wt}" "${release_sha}" "${target_sha}" "${target}"
-        return 0
-    fi
+    printf '%s\t%s\t%s\t%s\t%s\n' \
+        "${unit}" "${wt}" "${release_sha}" "${target_sha}" "${target}" >> "${plan_file}"
+}
 
+# apply_plan <plan-line> -- advance one unit that already passed every check.
+apply_plan() {
+    local unit wt release_sha target_sha target
+    IFS=$'\t' read -r unit wt release_sha target_sha target <<EOT
+$1
+EOT
     advance_release "${wt}" "${release_sha}" "${target_sha}"
-    note "released to $(describe "${wt}" HEAD)"
+    note "${unit}: released to $(describe "${wt}" HEAD)"
     push_release "${wt}" "${force}"
+}
+
+# run_units -- CHECK every selected unit, then advance them. Two passes, not
+# one: a refusal in any unit must leave every unit where it was. Releasing the
+# public config and then refusing the private one would exit nonzero having
+# already changed the machine, which reads as "nothing happened" and is not
+# (Copilot, PR #302).
+run_units() {
+    # force is read by plan_unit (the fast-forward guard) and apply_plan (the
+    # push), which run inside this function's scope.
+    local dry_run="$1" force="$2" target="$3" selected="$4"
+    local unit line plan_file
+    plan_file="$(mktemp "${TMPDIR:-/tmp}/tds-release-plan.XXXXXX")" \
+        || die "could not create a temporary file"
+    # shellcheck disable=SC2064  # expand the path now, not at trap time
+    trap "rm -f '${plan_file}'" EXIT
+
+    for unit in ${UNITS}; do
+        [ "${selected}" = all ] || [ "${selected}" = "${unit}" ] || continue
+        # The committish argument belongs to the unit you named (or the public
+        # one by default); every other unit releases its own reviewed line.
+        if [ "${selected}" = "${unit}" ] || [ "${unit}" = public ]; then
+            plan_unit "${unit}" "${target}" "${plan_file}"
+        else
+            plan_unit "${unit}" "" "${plan_file}"
+        fi
+    done
+
+    while IFS= read -r line; do
+        [ -n "${line}" ] || continue
+        if [ "${dry_run}" -eq 1 ]; then
+            local unit_name w r s tgt
+            IFS=$'\t' read -r unit_name w r s tgt <<EOT
+${line}
+EOT
+            note "${unit_name}:"
+            report_dry_run "${w}" "${r}" "${s}" "${tgt}"
+        else
+            apply_plan "${line}"
+        fi
+    done < "${plan_file}"
 }
 
 # --- Main ---
 
 main() {
-    local dry_run=0 force=0 opt
-    while getopts ':nf' opt; do
+    local dry_run=0 force=0 unit=all opt
+    while getopts ':nfu:' opt; do
         case "${opt}" in
             n) dry_run=1 ;;
             f) force=1 ;;
+            u) unit="${OPTARG}" ;;
             *) die "unknown option: -${OPTARG}" ;;
         esac
     done
     shift $((OPTIND - 1))
-    run_release "${dry_run}" "${force}" "${1:-origin/master}"
+    case "${unit}" in
+        all|public|private) ;;
+        *) die "unknown release unit: ${unit} (public, private, or omit for all)" ;;
+    esac
+    run_units "${dry_run}" "${force}" "${1:-}" "${unit}"
 }
 
 main "$@"
