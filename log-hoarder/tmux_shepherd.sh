@@ -73,14 +73,19 @@ brander_path() {
 archive_pane_dir() {
     local session="$1" window="$2" pane="$3"
     local src="$(active_dir)/${session}/${window}/${pane}"
-    local dst="$(archived_dir)/${session}/${window}/${pane}"
 
     [[ -d "${src}" ]] || return 0
 
+    local stamp root dst
+    stamp=$(session_stamp "${session}")
+    root=$(archive_root "${session}" "${stamp}")
+    dst="${root}/${window}/${pane}"
+
     mkdir -p "$(dirname "${dst}")"
     # Never mv onto an occupied destination: mv would move src INSIDE it,
-    # nesting one session's logs under another's. Ids are reused across tmux
-    # server restarts, so the destination really can be occupied.
+    # nesting one session's logs under another's. archive_root has already
+    # separated the generations; this catches the same pane archived twice
+    # within one of them.
     if [[ -e "${dst}" ]]; then
         local n=1
         while [[ -e "${dst}.${n}" ]]; do
@@ -90,20 +95,50 @@ archive_pane_dir() {
         dst="${dst}.${n}"
     fi
     mv "${src}" "${dst}"
-    archive_session_name "${session}"
+    archive_session_metadata "${session}" "${root}"
     diag_log "archived: ${src} → ${dst}"
+}
+
+# The stamp identifying this session's generation, empty for a pre-#307 tree
+# that never carried one.
+session_stamp() {
+    local stampfile="$(active_dir)/$1/created.txt"
+    [[ -f "${stampfile}" ]] && cat "${stampfile}" || true
+}
+
+# The archived root for one session GENERATION. A tmux id is reused across
+# server restarts, so `archived/$0` may already hold a different session's
+# logs; the stamp decides, and a mismatch takes the next free sibling root.
+# Suffixing the ROOT rather than the pane dir is what keeps name.txt with the
+# logs it describes -- and keeps every pane of one generation together.
+archive_root() {
+    local session="$1" stamp="$2"
+    local base="$(archived_dir)/${session}"
+    local root="${base}" n=1 existing
+
+    while [[ -d "${root}" ]]; do
+        existing=""
+        [[ -f "${root}/created.txt" ]] && existing=$(<"${root}/created.txt")
+        [[ "${existing}" == "${stamp}" ]] && break
+        root="${base}.${n}"
+        (( n++ ))
+    done
+    print -r -- "${root}"
 }
 
 # Carry the human-readable name across with the logs, so the archived tree is
 # still readable by someone who thinks in session names rather than in ids.
-archive_session_name() {
-    local session="$1"
-    local src="$(active_dir)/${session}/name.txt"
-    local dst="$(archived_dir)/${session}/name.txt"
+# The stamp goes too: it is what tells the next generation this root is taken.
+archive_session_metadata() {
+    local session="$1" root="$2"
+    local srcdir="$(active_dir)/${session}"
+    local f
 
-    [[ -f "${src}" ]] || return 0
-    mkdir -p "$(dirname "${dst}")"
-    cp "${src}" "${dst}"
+    mkdir -p "${root}"
+    for f in name.txt created.txt; do
+        [[ -f "${srcdir}/${f}" ]] && cp "${srcdir}/${f}" "${root}/${f}"
+    done
+    return 0
 }
 
 # Drop an emptied session dir from active/, taking its metadata with it -- but

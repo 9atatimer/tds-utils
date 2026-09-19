@@ -263,29 +263,61 @@ test_reused_session_id_does_not_adopt_a_stale_tree() {
         "[[ -n \$(print -rn -- '${TDS_LOG_DIR}/archived/${sid}-1'/*/*/stale.log(N)) ]]"
 }
 
-test_archive_never_clobbers_an_existing_destination() {
-    bold "\nTest: archiving into an occupied destination nests nothing\n"
+test_archive_separates_generations_that_reuse_an_id() {
+    bold "\nTest: an archived id already taken by an earlier session is not merged into\n"
 
     create_logged_session "smoke-collide"
     local ids panedir
     ids=(${=$(tm display-message -p -t 'smoke-collide' '#{session_id} #{window_id} #{pane_id}')})
     panedir="${TDS_LOG_DIR}/active/${ids[1]}/${ids[2]}/${ids[3]}"
 
-    # A pane dir already in archived/ under the same ids -- what a server
-    # restart produces. Plain `mv` would move the live one INSIDE it.
-    local occupied="${TDS_LOG_DIR}/archived/${ids[1]}/${ids[2]}/${ids[3]}"
-    mkdir -p "${occupied}"
-    print "earlier session" > "${occupied}/old.log"
-    print "this session" > "${panedir}/new.log"
+    # An earlier session, same ids, already archived -- what a server restart
+    # produces. Plain `mv` would move the live pane INSIDE it, and a shared
+    # name.txt would be overwritten by whichever session archived last.
+    local earlier="${TDS_LOG_DIR}/archived/${ids[1]}"
+    mkdir -p "${earlier}/${ids[2]}/${ids[3]}"
+    print "earlier session" > "${earlier}/${ids[2]}/${ids[3]}/old.log"
+    print "earlier-name"    > "${earlier}/name.txt"
+    print "1"               > "${earlier}/created.txt"
+    print "this session"    > "${panedir}/new.log"
 
     tm kill-session -t "smoke-collide"
     run_shepherd "${ids[1]}" "${ids[2]}" "${ids[3]}"
 
-    assert "the earlier archive is untouched" "[[ -f '${occupied}/old.log' ]]"
+    local later="${earlier}.1"
+    assert "the earlier archive is untouched" \
+        "[[ -f '${earlier}/${ids[2]}/${ids[3]}/old.log' ]]"
     assert "nothing was nested inside it" \
-        "[[ ! -e '${occupied}/${ids[3]}' ]]"
-    assert "the new logs archived alongside" \
-        "[[ -f '${occupied}.1/new.log' ]]"
+        "[[ ! -e '${earlier}/${ids[2]}/${ids[3]}/${ids[3]}' ]]"
+    assert "this session archived under its own root" \
+        "[[ -f '${later}/${ids[2]}/${ids[3]}/new.log' ]]"
+    assert_eq "the earlier archive keeps its name" "earlier-name" \
+        "$(cat "${earlier}/name.txt" 2>/dev/null)"
+    assert_eq "this session's archive carries ITS name" "smoke-collide" \
+        "$(cat "${later}/name.txt" 2>/dev/null)"
+}
+
+test_unstamped_tree_is_not_adopted() {
+    bold "\nTest: an unstamped (pre-#307) tree at an id path is not adopted\n"
+
+    create_logged_session "smoke-unstamped"
+    local sid panedir
+    sid=$(session_id_of "smoke-unstamped")
+    panedir=$(pane_dir_of "smoke-unstamped")
+
+    # A pre-#307 tree is keyed on the session NAME, and a name can look exactly
+    # like an id -- so an unstamped tree here belongs to something else.
+    rm -f "${TDS_LOG_DIR}/active/${sid}/created.txt"
+    print "someone else's output" > "${panedir}/legacy.log"
+
+    tm new-window -t "smoke-unstamped"
+    sleep 1
+
+    assert "the unstamped tree was set aside" \
+        "[[ -n \$(print -rn -- '${TDS_LOG_DIR}/active/${sid}-unstamped'/*/*/legacy.log(N)) ]]"
+    assert "the live tree does not carry its log" "[[ ! -e '${panedir}/legacy.log' ]]"
+    assert "the live tree is stamped" \
+        "[[ -f '${TDS_LOG_DIR}/active/${sid}/created.txt' ]]"
 }
 
 test_id_shaped_session_name_is_not_read_as_an_id() {
@@ -356,7 +388,8 @@ main() {
     test_shepherd_archives_dead_session
     test_legacy_name_keyed_dir_is_swept_by_name
     test_reused_session_id_does_not_adopt_a_stale_tree
-    test_archive_never_clobbers_an_existing_destination
+    test_archive_separates_generations_that_reuse_an_id
+    test_unstamped_tree_is_not_adopted
     test_id_shaped_session_name_is_not_read_as_an_id
     test_cron_brands_unbranded_pane_dirs
     test_logging_suppressed_without_tds_log_dir

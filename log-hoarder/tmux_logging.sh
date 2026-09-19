@@ -58,13 +58,18 @@ claim_session_dir() {
     local stampfile="${sessiondir}/created.txt"
     local previous aside
 
-    if [[ -f "${stampfile}" ]]; then
-        previous=$(<"${stampfile}")
+    # A directory is this session's only if its stamp says so. An UNSTAMPED
+    # one is not an edge case to tolerate: a pre-#307 tree is keyed on the
+    # session name, and a name may look exactly like an id ("$0"), so an
+    # unstamped tree at this path belongs to something else by definition.
+    if [[ -d "${sessiondir}" ]]; then
+        previous=""
+        [[ -f "${stampfile}" ]] && previous=$(<"${stampfile}")
         if [[ "${previous}" != "${created}" ]]; then
-            aside="${sessiondir}-${previous}"
+            aside="${sessiondir}-${previous:-unstamped}"
             [[ -e "${aside}" ]] && aside="${aside}-${created}"
             mv "${sessiondir}" "${aside}"
-            diag_log "session id reused; set aside: ${sessiondir} -> ${aside}"
+            diag_log "tree is not this session's; set aside: ${sessiondir} -> ${aside}"
         fi
     fi
 

@@ -43,9 +43,15 @@ An id is unique only within one running tmux server: after a restart, `$0/@0/%0`
 are handed out again. `<session>/created.txt` holds the session's creation
 stamp, so a tree left behind by a dead server is recognised rather than adopted
 -- it is set aside as `<id>-<old stamp>`, which no live session can match, and
-the next sweep archives it. Archiving never moves onto an occupied destination
-either (that would nest one session's logs inside another's); it falls back to
-`<pane>.N`.
+the next sweep archives it. An UNSTAMPED tree is set aside too (`<id>-unstamped`):
+a pre-#307 tree is keyed on the session name, and a name can look exactly like
+an id.
+
+The same reuse reaches `archived/`, where an id may already be taken by an
+earlier session. The stamp decides there as well, and it is the archived ROOT
+that takes a `<id>.N` suffix, not the pane directory -- so each generation's
+`name.txt` and `created.txt` stay with the logs they describe, and no session
+overwrites another's name.
 
 Directories written before #307 are keyed on the name. The sweep tests a key
 against both live ids and live names, so those archive normally as their
