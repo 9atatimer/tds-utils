@@ -173,6 +173,12 @@ Without that last check a user could point `XDG_CACHE_HOME` through a symlink
 into a checkout and the design would write every instance's state into a git
 tree while still claiming G3 holds.
 
+**`<state-base>` gets exactly the same treatment, for exactly the same
+reason.** `custom.el` is emacs-written state like any other, so a relative,
+empty, or symlinked `XDG_STATE_HOME` would place it inside a checkout and
+break G3 through the durable root instead of the purgeable one. Validating one
+base and trusting the other was an asymmetry with no justification.
+
 ### State redirection
 
 Every path emacs writes to is set from `tds-emacs-cache-root`.
@@ -188,6 +194,7 @@ Every path emacs writes to is set from `tds-emacs-cache-root`.
 | `url-configuration-directory` | `<root>/url/` | Carries `network-security.data` |
 | `gnutls-*`, `nsm-settings-file` | `<root>/nsm-settings` | |
 | `custom-file` | `<state-root>/custom.el`, and loaded if present -- **NOT under `<root>`** | **The one that is actively biting.** No `custom-file` is set today, so Custom appends `custom-set-variables` / `custom-set-faces` to `init.el` itself (`init.el:681`, `:693`) -- a TRACKED file. PR #260's "emacs custom-var drift" was this happening. Every instance would otherwise rewrite the shared, version-controlled init |
+| `copilot-install-dir` | `<root>/copilot/` | `init.el:348-349` runs `copilot-install-server` automatically when no server is installed, and the comment above it records that the server lands in `~/.emacs.d/.cache/copilot` -- inside the config tree. A cold or repair launch therefore writes an npm install into the selected tree. It must be redirected BEFORE that install can run |
 | `mcp-server-socket-directory` | `<root>/mcp/` | `init.el:500` sets it to `(locate-user-emacs-file ".cache/")`, i.e. inside the config tree. `.cache` is one of the twelve ignore entries, which is why it has gone unnoticed |
 | `backup-directory-alist`, `auto-save-file-name-transforms` | under `<root>/` | Already outside the tree (`~/emacs/backups`, `~/emacs/autosaves` at `init.el:267-268`), so not a G3 concern -- but unkeyed, so every instance shares one backup pool. Keyed for G2, not G3 |
 
@@ -211,6 +218,20 @@ customization saved since this design shipped, with no warning and nothing to
 restore from. Purgeable and durable are different lifetimes, so they get
 different roots.
 
+**The redirects must REPLACE the existing assignments, not race them.**
+`early-init.el` runs first, so anything `init.el` sets afterwards wins, and
+three current assignments would silently undo this table: the backup and
+auto-save `setq` at `init.el:267-268`, and the MCP `:custom` at `init.el:500`.
+Implementation must remove or rewrite those, not merely add the early ones.
+
+The Custom ordering runs the other way and is the more destructive of the two.
+`init.el:681` and `:693` hold tracked `custom-set-variables` /
+`custom-set-faces` forms. If `custom.el` is loaded BEFORE those forms execute,
+they overwrite every persisted choice on next startup -- the user's saved
+customizations lose to the committed ones, silently, on every launch. So
+`custom.el` loads only AFTER the static forms, or those forms are moved out of
+`init.el` entirely as part of this work.
+
 The redirect must be **explicit `setq`, not a package.** See Key Decisions.
 
 ### Launcher
@@ -231,7 +252,7 @@ already-running application activates the existing instance and discards
 |----------------|---------|
 | Default to live | `emacs` with no branch flag launches against the SAME highest-existing tier the key resolver uses -- `~/.tds/dist/current`, else `~/.tds/release`, else `~/workplace/tds-utils` -- suffixed `emacs/dot.emacs.d`. Hardcoding `~/.tds/release` here (the first draft) contradicts D3: after an ENV-DISTRIBUTION install, tier 1 is live and `$HOME` links point there, so the launcher would open the release tree, the resolver would decline to call it `live`, and G5 would break |
 | Select a branch tree | `emacs -b <topic>` resolves `~/workplace/.worktrees/tds-utils-<topic>/emacs/dot.emacs.d` and passes it as `--init-directory`. `<topic>` is validated as a bare selector with NO path components: `../../other-tree` would otherwise escape `.worktrees` entirely, and slash-bearing values collide on the derived key -- `feature/foo` and `bug/foo` both basename to `foo` and would silently share one cache. Canonicalize the resolved tree, verify it is still contained by `.worktrees`, and derive the key from the validated selector rather than from the path |
-| Force a new process, but ONE per key | Use `open -n`, or invoke `Emacs.app/Contents/MacOS/Emacs` directly, so a branch instance does not merely focus the live one. `open -n` alone would permit two processes under the SAME key: they would bootstrap into one `<cache-base>/<key>` concurrently and both claim one `server-name`, racing on package installs and leaving the socket ambiguous. Before launching, probe for a running server under that key (`emacsclient -s <key> --eval t`); if one answers, raise it instead of starting a second |
+| Force a new process, but ONE per key | Use `open -n`, or invoke `Emacs.app/Contents/MacOS/Emacs` directly, so a branch instance does not merely focus the live one. `open -n` alone would permit two processes under the SAME key: they would bootstrap into one `<cache-base>/<key>` concurrently and both claim one `server-name`, racing on package installs and leaving the socket ambiguous. A bare probe is NOT sufficient and an earlier draft wrongly said it was: two launchers can both observe no server before either reaches `server-start`, so the check-then-act is a race, and simply "raising" a server that does answer silently discards the file arguments the caller passed. Required instead: an atomic per-key launch claim (an `O_EXCL` lockfile under `<state-base>/<key>/`, holding the launcher pid) taken before startup and released once the server answers, with stale-owner recovery when the recorded pid is gone; and when a server already answers, reuse it via `emacsclient -s <key>` FORWARDING the caller's arguments rather than just raising the frame |
 | Refuse an un-instrumented tree | Exit non-zero when the target tree has no `early-init.el`. A worktree cut before this feature resolves no key, so emacs would default `package-user-dir` back into that git tree and write 40M there -- and because D13 keeps the ignore entries, `git status` would stay clean while it happened. The launcher is the only place this can be caught loudly |
 | Refuse a missing tree | Exit non-zero with the resolved path when the worktree or its `emacs/dot.emacs.d` does not exist -- never fall through to live |
 | Stay honest about the binary | The path to `Emacs.app` remains the one platform-specific value, overridable by env var for a Linux/LMDE port |
@@ -263,8 +284,12 @@ do not all reach a wrapper:
 | `macos/dot.zshrc:174` | `emacsclient -n "$@"` | yes |
 | `git-config/dot.gitconfig:8` | `/Applications/Emacs.app/Contents/MacOS/bin/emacsclient -c -a=''` | **no -- absolute path** |
 
-The first three are served by a `emacsclient` wrapper on `PATH` that supplies
-`-s live` (D-decision: bare `emacsclient` always means live). The gitconfig
+The first three are served by an `emacsclient` wrapper on `PATH` that supplies
+`-s live` **only when the caller passed neither `-s` nor `--socket-name`**.
+Adding the selector unconditionally would break the deliberate case the design
+itself depends on: D7 preserves explicit `emacsclient -s <key>` calls, and the
+launcher's own reuse path passes one, so a second selector would either
+connect to the wrong server or fail outright. The gitconfig
 editor bypasses `PATH` entirely by design and must be edited to pass `-s live`
 explicitly, or it will fail to find a socket once the rename lands.
 
