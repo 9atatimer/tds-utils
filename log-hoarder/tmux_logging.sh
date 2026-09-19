@@ -36,11 +36,25 @@ check_ansifilter() {
     command -v ansifilter >/dev/null 2>&1
 }
 
-# The three ids of the pane this hook fired for, plus the session's creation
-# stamp, space-separated. None of them can contain a space, so the caller may
-# split on it.
+# The three ids of the pane this hook fired for, plus the three fields the
+# ownership stamp is built from, space-separated. None of them can contain a
+# space, so the caller may split on it.
 pane_ids() {
-    tmux display-message -p '#{session_id} #{window_id} #{pane_id} #{session_created}'
+    tmux display-message -p \
+        '#{session_id} #{window_id} #{pane_id} #{start_time} #{pid} #{session_created}'
+}
+
+# Which session, on which server, a log tree belongs to.
+#
+# `session_created` alone is a wall-clock second, so two servers' $0 can carry
+# the same value -- a restart inside one second would mint it twice, and the
+# stamp is what decides whether an existing tree is adopted or set aside. The
+# server's start time and pid pin it to one server: a pid is unique among live
+# processes, and a reused pid belongs to a server that started at some other
+# second.
+ownership_stamp() {
+    local start_time="$1" server_pid="$2" session_created="$3"
+    print -r -- "${start_time}.${server_pid}.${session_created}"
 }
 
 session_name() {
@@ -131,7 +145,8 @@ run_logging() {
     local ids
     ids=(${=$(pane_ids)})
     local session_id="${ids[1]}" window_id="${ids[2]}" pane_id="${ids[3]}"
-    local created="${ids[4]}"
+    local created
+    created=$(ownership_stamp "${ids[4]}" "${ids[5]}" "${ids[6]}")
 
     claim_session_dir "${TDS_LOG_DIR}/active/${session_id}" "${created}"
     record_session_name "${TDS_LOG_DIR}/active/${session_id}" "$(session_name)"

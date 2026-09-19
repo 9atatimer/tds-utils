@@ -112,7 +112,10 @@ setup() {
 }
 
 cleanup() {
-    tmux -L "${SOCKET}" kill-server 2>/dev/null || true
+    local sock
+    for sock in "${SOCKET}" "${SOCKET}-b" "${SOCKET}-c"; do
+        tmux -L "${sock}" kill-server 2>/dev/null || true
+    done
     if [[ -n "${TEST_TDS_LOG_DIR}" ]]; then
         rm -rf "${TEST_TDS_LOG_DIR}"
     fi
@@ -297,6 +300,58 @@ test_archive_separates_generations_that_reuse_an_id() {
         "$(cat "${later}/name.txt" 2>/dev/null)"
 }
 
+test_ownership_stamp_is_server_unique() {
+    bold "\nTest: the ownership stamp is not just a wall-clock second\n"
+
+    local sid stamp
+    sid=$(session_id_of "smoke-log")
+    stamp=$(cat "${TDS_LOG_DIR}/active/${sid}/created.txt")
+
+    # tmux reports session_created at second granularity, so on its own it
+    # cannot tell two servers' $0 apart: a restart inside one second would
+    # mint the same value. The server's start time and pid pin it down.
+    assert "stamp is more than #{session_created}" \
+        "[[ '${stamp}' != \$(tm display-message -p -t 'smoke-log' '#{session_created}') ]]"
+    assert "stamp carries the server start time" \
+        "[[ '${stamp}' == *\$(tm display-message -p '#{start_time}')* ]]"
+    assert "stamp carries the server pid" \
+        "[[ '${stamp}' == *\$(tm display-message -p '#{pid}')* ]]"
+}
+
+test_a_second_server_does_not_adopt_the_first_servers_tree() {
+    bold "\nTest: a fresh server's \$0 does not adopt a dead server's \$0 tree\n"
+
+    # Both servers share one TDS_LOG_DIR and both hand out $0/@0/%0 -- the
+    # real shape of a restart, played out end to end rather than forged.
+    local sock2="${SOCKET}-b"
+    local conf="${TEST_TDS_LOG_DIR}/tmux.conf"
+
+    tmux -L "${sock2}" -f "${conf}" new-session -d -s server-b
+    sleep 1
+    local sid2 panedir2 ids2
+    ids2=(${=$(tmux -L "${sock2}" display-message -p -t 'server-b' '#{session_id} #{window_id} #{pane_id}')})
+    sid2="${ids2[1]}"
+    panedir2="${TDS_LOG_DIR}/active/${ids2[1]}/${ids2[2]}/${ids2[3]}"
+
+    print "server B output" > "${panedir2}/b.log"
+    tmux -L "${sock2}" kill-server 2>/dev/null || true
+
+    # A third server, same id space, same log dir.
+    local sock3="${SOCKET}-c"
+    tmux -L "${sock3}" -f "${conf}" new-session -d -s server-c
+    sleep 1
+    local ids3 panedir3
+    ids3=(${=$(tmux -L "${sock3}" display-message -p -t 'server-c' '#{session_id} #{window_id} #{pane_id}')})
+    panedir3="${TDS_LOG_DIR}/active/${ids3[1]}/${ids3[2]}/${ids3[3]}"
+
+    assert_eq "the two servers really did reuse the id" "${sid2}" "${ids3[1]}"
+    assert "server C did not inherit server B's log" "[[ ! -e '${panedir3}/b.log' ]]"
+    assert "server B's tree was set aside intact" \
+        "[[ -n \$(print -rn -- '${TDS_LOG_DIR}/active/${sid2}'-*/*/*/b.log(N)) ]]"
+
+    tmux -L "${sock3}" kill-server 2>/dev/null || true
+}
+
 test_unstamped_tree_is_not_adopted() {
     bold "\nTest: an unstamped (pre-#307) tree at an id path is not adopted\n"
 
@@ -389,6 +444,8 @@ main() {
     test_legacy_name_keyed_dir_is_swept_by_name
     test_reused_session_id_does_not_adopt_a_stale_tree
     test_archive_separates_generations_that_reuse_an_id
+    test_ownership_stamp_is_server_unique
+    test_a_second_server_does_not_adopt_the_first_servers_tree
     test_unstamped_tree_is_not_adopted
     test_id_shaped_session_name_is_not_read_as_an_id
     test_cron_brands_unbranded_pane_dirs

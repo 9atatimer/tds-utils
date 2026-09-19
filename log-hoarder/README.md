@@ -40,8 +40,10 @@ shepherd rewrites it on every sweep, so it tracks renames, and carries it into
 `archived/` with the logs.
 
 An id is unique only within one running tmux server: after a restart, `$0/@0/%0`
-are handed out again. `<session>/created.txt` holds the session's creation
-stamp, so a tree left behind by a dead server is recognised rather than adopted
+are handed out again. `<session>/created.txt` holds an ownership stamp --
+`<server start time>.<server pid>.<session created>`, since the session's own
+creation time is only a wall-clock second and two servers' `$0` could share it
+-- so a tree left behind by a dead server is recognised rather than adopted
 -- it is set aside as `<id>-<old stamp>`, which no live session can match, and
 the next sweep archives it. An UNSTAMPED tree is set aside too (`<id>-unstamped`):
 a pre-#307 tree is keyed on the session name, and a name can look exactly like
