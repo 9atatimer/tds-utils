@@ -168,7 +168,7 @@ test_rename_does_not_strand_the_pipe() {
     run_shepherd
 
     assert "pipe still writes to the same single file" \
-        "(( \$(print -rl -- '${panedir}'/*.log(N) | wc -l) == 1 ))"
+        "(( \$(print -rl -- '${panedir}'/*.log(N) | grep -c .) == 1 ))"
     assert "pane dir survives the rename"    "[[ -d '${panedir}' ]]"
     assert "nothing was archived"            "[[ ! -d '${TDS_LOG_DIR}/archived/${sid}' ]]"
     assert "pipe is still open"              "[[ \$(tm display-message -p -t 'smoke-renamed' '#{pane_pipe}') == 1 ]]"
@@ -229,6 +229,63 @@ test_legacy_name_keyed_dir_is_swept_by_name() {
     assert "legacy dir of a LIVE session is left alone" "[[ -d '${live}' ]]"
     assert "legacy dir of a DEAD session is archived" \
         "[[ -d '${TDS_LOG_DIR}/archived/smoke-gone/0/0' ]]"
+}
+
+test_reused_session_id_does_not_adopt_a_stale_tree() {
+    bold "\nTest: a reused session id does not adopt the dead session's tree\n"
+
+    create_logged_session "smoke-reuse"
+    local sid panedir
+    sid=$(session_id_of "smoke-reuse")
+    panedir=$(pane_dir_of "smoke-reuse")
+
+    # tmux ids restart at $0/@0/%0 on every server restart, so a tree left in
+    # active/ by a dead server can be re-keyed by a brand new session. Forge
+    # that: an older creation stamp plus a log the new session must not touch.
+    print "1" > "${TDS_LOG_DIR}/active/${sid}/created.txt"
+    print "dead session output" > "${panedir}/stale.log"
+
+    # Opening another pane on the same session re-runs the logging hook.
+    tm new-window -t "smoke-reuse"
+    sleep 1
+
+    # [[ -f ]] does not glob, and `print -rl` emits a blank line for no
+    # matches -- -rn gives genuinely empty output.
+    assert "the dead session's tree was set aside" \
+        "[[ -n \$(print -rn -- '${TDS_LOG_DIR}/active/${sid}-1'/*/*/stale.log(N)) ]]"
+    assert "the live tree does not carry the dead session's log" \
+        "[[ ! -e '${panedir}/stale.log' ]]"
+    assert "the live tree is re-stamped" \
+        "[[ \$(cat '${TDS_LOG_DIR}/active/${sid}/created.txt') != 1 ]]"
+
+    run_shepherd
+    assert "the set-aside tree archives on the next sweep" \
+        "[[ -n \$(print -rn -- '${TDS_LOG_DIR}/archived/${sid}-1'/*/*/stale.log(N)) ]]"
+}
+
+test_archive_never_clobbers_an_existing_destination() {
+    bold "\nTest: archiving into an occupied destination nests nothing\n"
+
+    create_logged_session "smoke-collide"
+    local ids panedir
+    ids=(${=$(tm display-message -p -t 'smoke-collide' '#{session_id} #{window_id} #{pane_id}')})
+    panedir="${TDS_LOG_DIR}/active/${ids[1]}/${ids[2]}/${ids[3]}"
+
+    # A pane dir already in archived/ under the same ids -- what a server
+    # restart produces. Plain `mv` would move the live one INSIDE it.
+    local occupied="${TDS_LOG_DIR}/archived/${ids[1]}/${ids[2]}/${ids[3]}"
+    mkdir -p "${occupied}"
+    print "earlier session" > "${occupied}/old.log"
+    print "this session" > "${panedir}/new.log"
+
+    tm kill-session -t "smoke-collide"
+    run_shepherd "${ids[1]}" "${ids[2]}" "${ids[3]}"
+
+    assert "the earlier archive is untouched" "[[ -f '${occupied}/old.log' ]]"
+    assert "nothing was nested inside it" \
+        "[[ ! -e '${occupied}/${ids[3]}' ]]"
+    assert "the new logs archived alongside" \
+        "[[ -f '${occupied}.1/new.log' ]]"
 }
 
 test_id_shaped_session_name_is_not_read_as_an_id() {
@@ -298,6 +355,8 @@ main() {
     test_shepherd_skips_alive_session
     test_shepherd_archives_dead_session
     test_legacy_name_keyed_dir_is_swept_by_name
+    test_reused_session_id_does_not_adopt_a_stale_tree
+    test_archive_never_clobbers_an_existing_destination
     test_id_shaped_session_name_is_not_read_as_an_id
     test_cron_brands_unbranded_pane_dirs
     test_logging_suppressed_without_tds_log_dir

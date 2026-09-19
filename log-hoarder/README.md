@@ -39,6 +39,14 @@ The human-readable name is recorded alongside, in `<session>/name.txt`. The
 shepherd rewrites it on every sweep, so it tracks renames, and carries it into
 `archived/` with the logs.
 
+An id is unique only within one running tmux server: after a restart, `$0/@0/%0`
+are handed out again. `<session>/created.txt` holds the session's creation
+stamp, so a tree left behind by a dead server is recognised rather than adopted
+-- it is set aside as `<id>-<old stamp>`, which no live session can match, and
+the next sweep archives it. Archiving never moves onto an occupied destination
+either (that would nest one session's logs inside another's); it falls back to
+`<pane>.N`.
+
 Directories written before #307 are keyed on the name. The sweep tests a key
 against both live ids and live names, so those archive normally as their
 sessions die rather than being torn away from a live pipe on upgrade -- and no

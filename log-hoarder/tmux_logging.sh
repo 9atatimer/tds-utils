@@ -36,14 +36,40 @@ check_ansifilter() {
     command -v ansifilter >/dev/null 2>&1
 }
 
-# The three ids of the pane this hook fired for, space-separated.
-# None of them can contain a space, so the caller may split on it.
+# The three ids of the pane this hook fired for, plus the session's creation
+# stamp, space-separated. None of them can contain a space, so the caller may
+# split on it.
 pane_ids() {
-    tmux display-message -p '#{session_id} #{window_id} #{pane_id}'
+    tmux display-message -p '#{session_id} #{window_id} #{pane_id} #{session_created}'
 }
 
 session_name() {
     tmux display-message -p '#S'
+}
+
+# A tmux id is unique only within one running server: after a restart, $0/@0/%0
+# are handed out again, so a tree left behind in active/ by a dead server would
+# be adopted by a brand new session -- its logs interleaved, and its archive
+# destination already occupied. The session's creation stamp settles ownership.
+# A tree stamped by a different session is set aside under a key no live
+# session can match, which is exactly what the shepherd's sweep archives.
+claim_session_dir() {
+    local sessiondir="$1" created="$2"
+    local stampfile="${sessiondir}/created.txt"
+    local previous aside
+
+    if [[ -f "${stampfile}" ]]; then
+        previous=$(<"${stampfile}")
+        if [[ "${previous}" != "${created}" ]]; then
+            aside="${sessiondir}-${previous}"
+            [[ -e "${aside}" ]] && aside="${aside}-${created}"
+            mv "${sessiondir}" "${aside}"
+            diag_log "session id reused; set aside: ${sessiondir} -> ${aside}"
+        fi
+    fi
+
+    mkdir -p "${sessiondir}"
+    print -r -- "${created}" > "${stampfile}"
 }
 
 # The name is display data, not a key: it is recorded next to the logs so a
@@ -100,7 +126,9 @@ run_logging() {
     local ids
     ids=(${=$(pane_ids)})
     local session_id="${ids[1]}" window_id="${ids[2]}" pane_id="${ids[3]}"
+    local created="${ids[4]}"
 
+    claim_session_dir "${TDS_LOG_DIR}/active/${session_id}" "${created}"
     record_session_name "${TDS_LOG_DIR}/active/${session_id}" "$(session_name)"
 
     local logpath

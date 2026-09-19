@@ -14,6 +14,7 @@
 # Directory convention (shared with tmux_logging.sh):
 #   active/$SESSION/@WINDOW/%PANE/HHMMSS.log
 #   active/$SESSION/name.txt                        (human-readable session name)
+#   active/$SESSION/created.txt                     (session creation stamp)
 #   archived/$SESSION/@WINDOW/%PANE/HHMMSS.log      (moved, not yet branded)
 #   archived/$SESSION/name.txt
 #   archived/$SESSION/@WINDOW/%PANE/slug.txt        (written by log_brander)
@@ -77,6 +78,17 @@ archive_pane_dir() {
     [[ -d "${src}" ]] || return 0
 
     mkdir -p "$(dirname "${dst}")"
+    # Never mv onto an occupied destination: mv would move src INSIDE it,
+    # nesting one session's logs under another's. Ids are reused across tmux
+    # server restarts, so the destination really can be occupied.
+    if [[ -e "${dst}" ]]; then
+        local n=1
+        while [[ -e "${dst}.${n}" ]]; do
+            (( n++ ))
+        done
+        diag_log "destination occupied: ${dst} -- archiving as ${dst}.${n}"
+        dst="${dst}.${n}"
+    fi
     mv "${src}" "${dst}"
     archive_session_name "${session}"
     diag_log "archived: ${src} → ${dst}"
@@ -94,20 +106,27 @@ archive_session_name() {
     cp "${src}" "${dst}"
 }
 
-# Drop an emptied session dir from active/, taking name.txt with it -- but only
-# once nothing else is left, so a pane dir that failed to move keeps its label.
+# Drop an emptied session dir from active/, taking its metadata with it -- but
+# only once nothing else is left, so a pane dir that failed to move keeps its
+# label.
 retire_session_dir() {
     local session="$1"
     local sessiondir="$(active_dir)/${session}"
-    local windowdir remaining
+    local windowdir remaining leftover logs_remain=0
 
     for windowdir in "${sessiondir}"/*(N/); do
         rmdir "${windowdir}" 2>/dev/null || true
     done
 
     remaining=("${sessiondir}"/*(ND))
-    if (( ${#remaining} == 1 )) && [[ "${remaining[1]:t}" == "name.txt" ]]; then
-        rm -f "${sessiondir}/name.txt"
+    for leftover in "${remaining[@]}"; do
+        case "${leftover:t}" in
+            name.txt|created.txt) ;;
+            *) logs_remain=1 ;;
+        esac
+    done
+    if (( logs_remain == 0 )); then
+        rm -f "${sessiondir}/name.txt" "${sessiondir}/created.txt"
     fi
     rmdir "${sessiondir}" 2>/dev/null || true
 }
