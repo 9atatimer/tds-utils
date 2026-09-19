@@ -24,20 +24,36 @@ a per-instance cache root outside every git tree.
 
 ## Goals
 
-- **G1. Live is never mutated by an experiment** -- launching any branch
-  instance leaves `~/.emacs.d`, `~/.tds/release`, and the release
-  worktree's mtimes untouched. Assertable by a smoketest that snapshots
-  the release worktree before and after a branch launch.
+- **G1. Live is never mutated by an experiment, FOR TRUSTED CONFIG** --
+  launching any branch instance leaves `~/.emacs.d`, `~/.tds/release`, and the
+  release worktree's mtimes untouched. Assertable by a smoketest that
+  snapshots the release worktree before and after a branch launch.
+
+  **The qualifier is not a hedge, it is the boundary.** A branch's
+  `init.el` is arbitrary elisp running with the user's full privileges (see
+  Security Considerations), so it can write to the release tree directly and
+  no amount of variable redirection stops it. This design defends against
+  DEFAULTS, not against hostile or careless code: it moves where emacs writes
+  when nobody told it otherwise. The trusted-code assumption is that you wrote
+  the branch, or reviewed it. Enforcing G1 against untrusted config needs
+  process or filesystem isolation, which is a Non-Goal here.
 - **G2. Each instance owns its packages** -- a package installed or upgraded
   under one key is not visible to any other key. Assertable by resolving
   `package-user-dir` under two keys and confirming disjoint paths.
-- **G3. No emacs-written file lands in any git tree** -- asserted by
-  `git status --porcelain --ignored` over the config tree after a full session
-  showing no emacs-written path. The `--ignored` flag is what makes this a real
-  test: D13 keeps the twelve reactive `.gitignore` entries, so plain
-  `git status` stays clean whether or not the redirect worked, while
-  `--ignored` sees through them. The entries keep `tds-release` quiet; the test
-  refuses to be fooled by them.
+- **G3. No emacs-written file lands in any git tree** -- asserted by a
+  content-aware before/after inventory of the config tree: enumerate every
+  file, ignored ones individually and by path plus hash, before a session and
+  after it, and fail on any path added, removed, or changed.
+
+  **A single `git status --porcelain --ignored` is not sufficient, and an
+  earlier draft of this record wrongly said it was.** Three ways it reports
+  clean while a writer is at work: an already-ignored file that is MODIFIED
+  keeps its path, so the status line does not change; git collapses an ignored
+  directory to one entry rather than listing what appeared inside it; and an
+  ignored path present in the baseline is indistinguishable from one written
+  during the session. Path-shaped output cannot answer a content question.
+  D13 keeps the twelve ignore entries, so the weaker check is exactly the one
+  that would look reassuring.
 
   **This is detection, not prevention, and the distinction is the honest one.**
   Enumerating state variables cannot guarantee the property: elisp can write
@@ -114,11 +130,21 @@ inside the `emacs` package that `ENV-DISTRIBUTION.DESIGN.md` describes as the
 whole tree behind one link. That file's presence is also what the launcher
 tests to decide whether a tree is instrumented at all -- see the Launcher.
 
+**The existing VERIFY gate cannot see any of this, and must be changed with
+it.** `test/smoketest_emacs_init.sh:34` runs `emacs --batch -q -l init.el`.
+The `-q` suppresses implicit startup, so `early-init.el` is never loaded and
+`--init-directory` is never exercised -- the gate would stay green with key
+resolution and cache redirection completely broken, which is the worst
+possible property for the one check standing over this design. Implementation
+must add a VERIFY path that launches against a real init directory and asserts
+the resolved key and the redirected cache paths, rather than only that
+`init.el` parses.
+
 #### Responsibilities
 
 | Responsibility | Details |
 |----------------|---------|
-| Identify the live instance | Resolve `user-emacs-directory` with `file-truename`; if it is under the highest EXISTING tier of the ladder `AGENT.md` documents -- `~/.tds/dist/current`, else `~/.tds/release`, else `~/workplace/tds-utils` -- the key is the literal string `live`. Anchoring to `~/.tds/release` alone would leave a machine with a real dist install (tier 1) with no `live` instance at all |
+| Identify the live instance | Take the highest tier of `AGENT.md`'s ladder (`~/.tds/dist/current`, `~/.tds/release`, `~/workplace/tds-utils`) that CONTAINS an instrumented `emacs/dot.emacs.d`; canonicalize both it and `user-emacs-directory` with `file-truename` before comparing; if contained, the key is the literal `live`. Tier EXISTENCE is the wrong test: a partial dist install can create `~/.tds/dist/current` without the emacs package while `~/.emacs.d` still points at release, and an existence-based rule would then label the actual live config foreign and send the launcher at a config that is not there. Canonicalizing both sides is required because the tier paths are themselves symlinks |
 | Identify a branch instance | Otherwise the key is the basename of the worktree root -- the directory two levels above `emacs/dot.emacs.d` |
 | Handle an unrecognized tree | Fall back to `foreign-<8 hex of sha1 of truename>`; never error, never silently reuse another key |
 | Publish the key | Set `tds-emacs-instance-key` and `tds-emacs-live-p` as the single source every other subsystem reads |
@@ -135,9 +161,17 @@ tds-emacs-live-p         -- boolean, non-nil only when key is exactly "live"
 tds-emacs-cache-root     -- directory, <cache-base>/<key>/
 ```
 
-`<cache-base>` is `$XDG_CACHE_HOME/emacs` when that variable is set,
-otherwise `~/.cache/emacs`. It is a defvar, not a literal, so a machine with
-a different cache policy overrides one thing.
+`<cache-base>` is `$XDG_CACHE_HOME/emacs` when that variable is set to a
+non-empty absolute path, otherwise `~/.cache/emacs`. It is a defvar, not a
+literal, so a machine with a different cache policy overrides one thing.
+
+The override is validated rather than trusted, because G3 is stated over it:
+an empty value is treated as unset (the XDG spec's own rule), a relative value
+is rejected rather than resolved against an arbitrary working directory, and
+the canonicalized result is rejected if it falls inside a git working tree.
+Without that last check a user could point `XDG_CACHE_HOME` through a symlink
+into a checkout and the design would write every instance's state into a git
+tree while still claiming G3 holds.
 
 ### State redirection
 
@@ -153,7 +187,7 @@ Every path emacs writes to is set from `tds-emacs-cache-root`.
 | `lsp-session-file` | `<root>/lsp-session` | |
 | `url-configuration-directory` | `<root>/url/` | Carries `network-security.data` |
 | `gnutls-*`, `nsm-settings-file` | `<root>/nsm-settings` | |
-| `custom-file` | `<root>/custom.el`, and loaded if present | **The one that is actively biting.** No `custom-file` is set today, so Custom appends `custom-set-variables` / `custom-set-faces` to `init.el` itself (`init.el:681`, `:693`) -- a TRACKED file. PR #260's "emacs custom-var drift" was this happening. Every instance would otherwise rewrite the shared, version-controlled init |
+| `custom-file` | `<state-root>/custom.el`, and loaded if present -- **NOT under `<root>`** | **The one that is actively biting.** No `custom-file` is set today, so Custom appends `custom-set-variables` / `custom-set-faces` to `init.el` itself (`init.el:681`, `:693`) -- a TRACKED file. PR #260's "emacs custom-var drift" was this happening. Every instance would otherwise rewrite the shared, version-controlled init |
 | `mcp-server-socket-directory` | `<root>/mcp/` | `init.el:500` sets it to `(locate-user-emacs-file ".cache/")`, i.e. inside the config tree. `.cache` is one of the twelve ignore entries, which is why it has gone unnoticed |
 | `backup-directory-alist`, `auto-save-file-name-transforms` | under `<root>/` | Already outside the tree (`~/emacs/backups`, `~/emacs/autosaves` at `init.el:267-268`), so not a G3 concern -- but unkeyed, so every instance shares one backup pool. Keyed for G2, not G3 |
 
@@ -162,6 +196,20 @@ reports `native-comp-available-p` as nil and has no `eln-cache` anywhere.
 The variable is keyed anyway: if the build ever changes, an unkeyed eln
 cache would let one instance's compiled output be loaded by another with no
 error and no indication.
+
+**Two roots, not one, and the split is load-bearing.** Everything above lands
+under the purgeable `<root>` (`<cache-base>/<key>/`) EXCEPT `custom-file`,
+which lands under a durable `<state-root>` (`<state-base>/<key>/`, with
+`<state-base>` defaulting to `$XDG_STATE_HOME/emacs` else `~/.local/state/emacs`).
+
+`custom.el` is the one file here that is not reconstructible. It holds choices
+a human made through the Customize interface -- not a cache, not a download,
+not compiler output. D12's escape hatch is `rm -rf <cache-base>/<key>`, and the
+Data Warehouse section calls this tree disposable and unbacked; if `custom.el`
+lived under `<root>`, a routine cache reset would silently delete every
+customization saved since this design shipped, with no warning and nothing to
+restore from. Purgeable and durable are different lifetimes, so they get
+different roots.
 
 The redirect must be **explicit `setq`, not a package.** See Key Decisions.
 
@@ -182,8 +230,8 @@ already-running application activates the existing instance and discards
 | Responsibility | Details |
 |----------------|---------|
 | Default to live | `emacs` with no branch flag launches against the SAME highest-existing tier the key resolver uses -- `~/.tds/dist/current`, else `~/.tds/release`, else `~/workplace/tds-utils` -- suffixed `emacs/dot.emacs.d`. Hardcoding `~/.tds/release` here (the first draft) contradicts D3: after an ENV-DISTRIBUTION install, tier 1 is live and `$HOME` links point there, so the launcher would open the release tree, the resolver would decline to call it `live`, and G5 would break |
-| Select a branch tree | `emacs -b <topic>` resolves `~/workplace/.worktrees/tds-utils-<topic>/emacs/dot.emacs.d` and passes it as `--init-directory` |
-| Force a new process | Use `open -n`, or invoke `Emacs.app/Contents/MacOS/Emacs` directly, so a branch instance does not merely focus the live one |
+| Select a branch tree | `emacs -b <topic>` resolves `~/workplace/.worktrees/tds-utils-<topic>/emacs/dot.emacs.d` and passes it as `--init-directory`. `<topic>` is validated as a bare selector with NO path components: `../../other-tree` would otherwise escape `.worktrees` entirely, and slash-bearing values collide on the derived key -- `feature/foo` and `bug/foo` both basename to `foo` and would silently share one cache. Canonicalize the resolved tree, verify it is still contained by `.worktrees`, and derive the key from the validated selector rather than from the path |
+| Force a new process, but ONE per key | Use `open -n`, or invoke `Emacs.app/Contents/MacOS/Emacs` directly, so a branch instance does not merely focus the live one. `open -n` alone would permit two processes under the SAME key: they would bootstrap into one `<cache-base>/<key>` concurrently and both claim one `server-name`, racing on package installs and leaving the socket ambiguous. Before launching, probe for a running server under that key (`emacsclient -s <key> --eval t`); if one answers, raise it instead of starting a second |
 | Refuse an un-instrumented tree | Exit non-zero when the target tree has no `early-init.el`. A worktree cut before this feature resolves no key, so emacs would default `package-user-dir` back into that git tree and write 40M there -- and because D13 keeps the ignore entries, `git status` would stay clean while it happened. The launcher is the only place this can be caught loudly |
 | Refuse a missing tree | Exit non-zero with the resolved path when the worktree or its `emacs/dot.emacs.d` does not exist -- never fall through to live |
 | Stay honest about the binary | The path to `Emacs.app` remains the one platform-specific value, overridable by env var for a Linux/LMDE port |
@@ -203,6 +251,22 @@ land in the experiment.
 `server-name` is set to `tds-emacs-instance-key`. `emacsclient -s live` is
 then unambiguous, and the shell gains a matching wrapper so the common case
 stays short.
+
+**Naming the socket removes the default `server`, so every existing client has
+to be migrated with it.** Four call sites invoke `emacsclient` today, and they
+do not all reach a wrapper:
+
+| Call site | Form | Covered by a PATH wrapper? |
+|-----------|------|----------------------------|
+| `bash/dot.bashrc:15` | `export EDITOR=emacsclient` | yes |
+| `bin/macmd:3` | `emacsclient --eval ...` | yes |
+| `macos/dot.zshrc:174` | `emacsclient -n "$@"` | yes |
+| `git-config/dot.gitconfig:8` | `/Applications/Emacs.app/Contents/MacOS/bin/emacsclient -c -a=''` | **no -- absolute path** |
+
+The first three are served by a `emacsclient` wrapper on `PATH` that supplies
+`-s live` (D-decision: bare `emacsclient` always means live). The gitconfig
+editor bypasses `PATH` entirely by design and must be edited to pass `-s live`
+explicitly, or it will fail to find a socket once the rename lands.
 
 ### Awareness surfaces
 
@@ -266,7 +330,7 @@ and it destroys nothing but cache.
 |------|----|---------|-----------|
 | ABSENT | BOOTSTRAPPING | launch under a key with no cache root | config tree exists |
 | BOOTSTRAPPING | READY | `use-package` `:ensure` completes for all packages | archives reachable |
-| BOOTSTRAPPING | ABSENT | init aborts before any package installs | -- |
+| BOOTSTRAPPING | BOOTSTRAPPING | init aborts part-way | a later launch under the same key resumes it |
 | READY | READY | ordinary use | -- |
 | READY | ABSENT | `rm -rf <cache-base>/<key>` | no instance running under that key |
 
@@ -274,6 +338,19 @@ and it destroys nothing but cache.
 compilation, once per key. It is not silent: `*Compile-Log*` shows the
 byte-compiler working through the package set, so the frame is visibly busy
 rather than apparently hung.
+
+**An aborted bootstrap stays in `BOOTSTRAPPING`; it does not return to
+`ABSENT`.** By the time the first package installs, `package-refresh-contents`
+has already written `<root>/elpa/archives/` -- the `archives` directory beside
+the packages in the live tree today is that same artifact -- so the cache root
+exists and is partially populated. Calling that state `ABSENT` would
+contradict `ABSENT`'s own definition, which is having no cache root.
+
+No cleanup runs, and none should: `use-package` `:ensure` is idempotent, so the
+next launch under that key installs only what is missing and completes the
+bootstrap. Discarding a partial root would throw away tens of megabytes of
+good downloads because one package failed. `ABSENT` is reachable only by an
+explicit `rm -rf`.
 
 **Cold bootstrap works unmodified.** `use-package` is built-in on Emacs
 30.2, so `package-installed-p` returns non-nil and the
@@ -308,11 +385,17 @@ reconstructible by relaunching under its key.
 
 ## Data Warehouse
 
-Nothing is ledgered. Every byte this design creates is a local, derived,
-disposable cache: package installs, byte-compiled output, and per-instance
-editor state, all reconstructible by relaunching under the key that owns them.
-There is no event, metric, or record here that another system would want to
-read, and deliberately nothing that survives `rm -rf <cache-base>/<key>`.
+Nothing is ledgered. Almost every byte this design creates is a local,
+derived, disposable cache -- package installs, byte-compiled output, and
+per-instance editor state -- all reconstructible by relaunching under the key
+that owns them, and deliberately nothing under `<cache-base>/<key>` survives an
+`rm -rf` of it.
+
+The one exception is `<state-base>/<key>/custom.el`, which is authored by a
+human through Customize and is not reconstructible from anything. It lives
+outside the purgeable cache for that reason (see State redirection). It is
+still not ledgered -- no other system reads it -- but it is the one file here
+that a backup should cover.
 
 ---
 
