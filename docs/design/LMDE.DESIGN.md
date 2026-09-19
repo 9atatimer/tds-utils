@@ -525,8 +525,13 @@ actually completed (exit 0 or 1); both the menu title and the modal say
 "status unknown" instead of asserting an agreement that was never
 observed. A later `last_unknown` (registry unreachable on a *subsequent*
 check, after at least one success) is a different, milder case -- the
-modal shows the last known-good state with a note that it's stale, since
-that state WAS actually verified once.
+modal shows the last verified state rather than retreating to "unknown",
+since that state WAS actually verified once. As shipped, the staleness
+note rides only on the green branch: `show_status_modal` tests
+`self.drift_lines` first, so a last-verified state of *drift* shows the
+drift detail and Copy Command with nothing saying the reading may be
+stale. That is drift from the intent stated here, and it is issue #309,
+not a decision -- the note belongs on both paths.
 
 ---
 
