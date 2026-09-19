@@ -296,9 +296,9 @@ new session acquires and provisions before you type anything.
 Three things worth knowing:
 
 - **No token needed.** `lmde acquire` resolves the credential from
-  `GH_PAT_NAATM_PACKAGES_RO`, then the deprecated `GH_AI_TOOLS_PAT`, then
-  your own `gh auth token`. A default `gh auth login` does NOT grant
-  `read:packages` though -- if installs 401, run
+  `GH_PAT_NAATM_PACKAGES_RO`, then your own `gh auth token`. A default
+  `gh auth login` does NOT grant `read:packages` though -- if installs 401,
+  run
   `gh auth refresh -h github.com -s read:packages`.
 - **Remove the older user-scope hook.** `~/.claude/hooks/session-start.sh`
   (registered by `clai hooks install`) runs `clai provision` only, and
@@ -333,9 +333,8 @@ infrastructure and are not:
   Grafana); it runs on the laptop, not in a cloud account.
 
 Secrets this repo's workflows read, names only (registry: tds-internal
-`ops/credentials/REGISTRY.md`): `GH_PAT_NAATM_PACKAGES_RO` and the
-deprecated `GH_AI_TOOLS_PAT` fallback, both on the Agents secrets
-surface, both `read:packages`.
+`ops/credentials/REGISTRY.md`): `GH_PAT_NAATM_PACKAGES_RO`, on the
+Agents secrets surface, `read:packages`.
 
 `docs/design/DEPLOY-SECRETS.DESIGN.md` (`GADMIN_VAULT`, DRAFT) is neither
 adopted nor rejected; tds-internal `docs/policy/CREDENTIALS.md` lists it
