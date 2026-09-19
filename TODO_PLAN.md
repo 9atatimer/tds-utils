@@ -24,6 +24,14 @@ tasks 015-019 (issues #283-#287). Order:
 - task-019 -- notification ids and the store contract gap.
 - task-014 -- as-built at release, then APPROVED -> IMPLEMENTED (Todd).
 
+tmux-herd (`docs/design/TMUX-HERD.DESIGN.md`, DRAFT, merged in PR #305):
+the design shipped, no code did. Retrospective ran 2026-09-19. Order:
+
+- task-021 -- log-hoarder keys log dirs on the session name (issue #307);
+  a rename strands the pipe, so tmux-herd cannot rename until this lands.
+- task-020 -- build `bin/tmux-herd`; needs Todd's APPROVED on the design
+  first, and task-021 before it can rename on this machine.
+
 `ls tasks/` is the index. This file is still the legacy mono-file below
 this section; issue #289 owns the migration into `tasks/`.
 
@@ -34,8 +42,27 @@ this section; issue #289 owns the migration into `tasks/`.
   them. Unblock: Todd lands the rows or refuses a ring.
 - 2026-09-17: the design's APPROVED -> IMPLEMENTED transition waits on
   release (`bin/tds-release`) plus tasks 015-019; only Todd moves it.
+- 2026-09-19: `TMUX-HERD.DESIGN.md` DRAFT -> APPROVED is Todd's call; the
+  implementer (a different, cheaper model) must not start task-020 before
+  it.
 
-## Lessons Learned (chores, unsettled)
+## Lessons Learned (unsettled)
+
+### A skill read by grep is a skill not loaded
+
+about: global
+
+The tmux-herd design went to PR without the reviewer panel the design
+skill mandates ("Run the panel before you ask a human", designomatic).
+The skill was grepped for section names, and the mandate sat between the
+matches. Copilot then took three rounds and 12 findings to do what one
+panel run would have done before the human saw it. Mechanism: grepping a
+skill returns the lines that match the question you already had, never
+the rule you did not know to ask about. Belongs in the global agent
+instructions (org-managed, not editable from this repo): load a skill's
+full body at the phase boundary, grep only to re-find a rule you have
+already read.
+
 
 ### Fake-driven CLI tests never exercised the composition root
 

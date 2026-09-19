@@ -320,7 +320,11 @@ local/        Machine-specific customizations
 third-party/  Vendored external tools
 ```
 
-- New executable scripts go in **bin/**.
+- New executable scripts go in **bin/**. `bin/tmux_logging.sh` and
+  `bin/tmux_shepherd.sh` are log-hoarder's tmux hook scripts
+  (`docs/design/LOG-HOARDER.DESIGN.md`), not session-management tools;
+  the session tool is `bin/tmux-herd` (`docs/design/TMUX-HERD.DESIGN.md`).
+  Grep `bin/` and `docs/design/` for the concept before naming a new one.
 - macOS-only config goes in **macos/**.
 - Dotfile configs use the **dot.** prefix convention (e.g., `dot.zshrc`).
 
