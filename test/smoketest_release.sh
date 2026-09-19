@@ -415,6 +415,38 @@ case_unit_selection_limits_the_run() {
     assert "private untouched" "[ \"$(head_of "$(release_wt privG)")\" = \"${priv_before}\" ]"
 }
 
+
+case_a_later_units_refusal_moves_nothing() {
+    bold "case: a refusal in any unit releases none of them"; echo
+    local pub priv pub_wt priv_wt rc pub_before priv_before
+    pub="$(make_repo pubH)"; priv="$(make_repo_on privH main)"
+    pub_wt="$(release_wt pubH)"; priv_wt="$(release_wt privH)"
+    pub_before="$(head_of "${pub_wt}")"
+    priv_before="$(head_of "${priv_wt}")"
+    # The public unit is releasable; the private one is not.
+    echo scribble >> "${priv_wt}/f"
+    run_release_units "${pub}" "${priv}" && rc=0 || rc=$?
+    assert "exits nonzero"        "[ ${rc} -ne 0 ]"
+    assert "private did not move" "[ \"$(head_of "${priv_wt}")\" = \"${priv_before}\" ]"
+    assert "public did not move either -- checked before anything advances" \
+        "[ \"$(head_of "${pub_wt}")\" = \"${pub_before}\" ]"
+}
+
+case_a_later_units_sentry_moves_nothing() {
+    bold "case: a sentry on the private unit holds the public one too"; echo
+    local pub priv pub_wt rc pub_before
+    pub="$(make_repo pubI)"; priv="$(make_repo_on privI main)"
+    pub_wt="$(release_wt pubI)"
+    pub_before="$(head_of "${pub_wt}")"
+    echo "herd is mid-migration" > "${priv}/NO.RELEASE"
+    git -C "${priv}" add NO.RELEASE
+    git -C "${priv}" commit -qm hold
+    run_release_units "${pub}" "${priv}" && rc=0 || rc=$?
+    assert "exits nonzero"   "[ ${rc} -ne 0 ]"
+    assert "public did not move" "[ \"$(head_of "${pub_wt}")\" = \"${pub_before}\" ]"
+    assert "prints the reason"   "grep -q 'mid-migration' '${WORKROOT}/out'"
+}
+
 main() {
     [ -x "${RELEASER}" ] || { red "FAIL"; printf ' missing or non-executable: %s\n' "${RELEASER}"; exit 1; }
     WORKROOT="$(mktemp -d "${TMPDIR:-/tmp}/release-test.XXXXXX")"
@@ -440,6 +472,8 @@ main() {
     case_private_sentry_blocks_its_own_unit
     case_dry_run_reports_both_units
     case_unit_selection_limits_the_run
+    case_a_later_units_refusal_moves_nothing
+    case_a_later_units_sentry_moves_nothing
     echo
     printf 'ran %d, passed %d, failed %d\n' "${TESTS_RUN}" "${TESTS_PASSED}" "${TESTS_FAILED}"
     [ "${TESTS_FAILED}" -eq 0 ]

@@ -262,8 +262,17 @@ skip_or_die() {
     return 1
 }
 
-run_release() {
-    local dry_run="$1" force="$2" target="$3" unit="${4:-public}"
+# plan_unit <unit> <target> <plan-file> -- resolve and CHECK one unit,
+# changing nothing. APPENDS a tab-separated plan to <plan-file> when there is
+# work to do, writes nothing when the unit is absent or already current, and
+# dies on any refusal. Every guard is a read-only question, which is what lets
+# them all be asked before anything moves.
+#
+# The plan goes to a file rather than stdout because `note` writes to stdout
+# too: capturing this function's output would fold its skip and up-to-date
+# lines into the plan.
+plan_unit() {
+    local unit="$1" target="$2" plan_file="$3"
     local repo wt release_sha target_sha
 
     repo="$(unit_repo "${unit}")"
@@ -283,20 +292,19 @@ run_release() {
         skip_or_die "${unit}" "release worktree is registered but missing: ${wt}" || return 0
     fi
 
-    # Empty target: release that unit's own reviewed line. Only the public
-    # unit takes a committish from the command line -- it is the repo you are
-    # standing in -- so the private one always resolves its own.
+    # Empty target: release that unit's own reviewed line. Only the unit named
+    # on the command line takes a committish -- the others resolve their own.
     [ -n "${target}" ] || target="$(reviewed_ref "${wt}")"
     if [ -z "${target}" ]; then
         skip_or_die "${unit}" "cannot find a reviewed line in ${repo}" || return 0
     fi
 
     if [ "${TDS_RELEASE_FETCH:-1}" != "0" ]; then
-        git -C "${wt}" fetch origin --quiet || die "fetch failed"
+        git -C "${wt}" fetch origin --quiet || die "${unit}: fetch failed"
     fi
 
     target_sha="$(git -C "${wt}" rev-parse --verify --quiet "${target}^{commit}")" \
-        || die "no such commit: ${target}"
+        || die "${unit}: no such commit: ${target}"
     release_sha="$(git -C "${wt}" rev-parse --verify HEAD)"
 
     # Before the already-current shortcut on purpose: a dirty tree is a
@@ -312,29 +320,60 @@ run_release() {
 
     check_fast_forward "${wt}" "${release_sha}" "${target_sha}" "${force}"
 
-    if [ "${dry_run}" -eq 1 ]; then
-        report_dry_run "${wt}" "${release_sha}" "${target_sha}" "${target}"
-        return 0
-    fi
+    printf '%s\t%s\t%s\t%s\t%s\n' \
+        "${unit}" "${wt}" "${release_sha}" "${target_sha}" "${target}" >> "${plan_file}"
+}
 
+# apply_plan <plan-line> -- advance one unit that already passed every check.
+apply_plan() {
+    local unit wt release_sha target_sha target
+    IFS=$'\t' read -r unit wt release_sha target_sha target <<EOT
+$1
+EOT
     advance_release "${wt}" "${release_sha}" "${target_sha}"
     note "${unit}: released to $(describe "${wt}" HEAD)"
     push_release "${wt}" "${force}"
 }
 
-# run_units -- every selected unit, in order, through the one flow above.
+# run_units -- CHECK every selected unit, then advance them. Two passes, not
+# one: a refusal in any unit must leave every unit where it was. Releasing the
+# public config and then refusing the private one would exit nonzero having
+# already changed the machine, which reads as "nothing happened" and is not
+# (Copilot, PR #302).
 run_units() {
-    local dry_run="$1" force="$2" target="$3" selected="$4" unit
+    # force is read by plan_unit (the fast-forward guard) and apply_plan (the
+    # push), which run inside this function's scope.
+    local dry_run="$1" force="$2" target="$3" selected="$4"
+    local unit line plan_file
+    plan_file="$(mktemp "${TMPDIR:-/tmp}/tds-release-plan.XXXXXX")" \
+        || die "could not create a temporary file"
+    # shellcheck disable=SC2064  # expand the path now, not at trap time
+    trap "rm -f '${plan_file}'" EXIT
+
     for unit in ${UNITS}; do
         [ "${selected}" = all ] || [ "${selected}" = "${unit}" ] || continue
         # The committish argument belongs to the unit you named (or the public
         # one by default); every other unit releases its own reviewed line.
         if [ "${selected}" = "${unit}" ] || [ "${unit}" = public ]; then
-            run_release "${dry_run}" "${force}" "${target}" "${unit}"
+            plan_unit "${unit}" "${target}" "${plan_file}"
         else
-            run_release "${dry_run}" "${force}" "" "${unit}"
+            plan_unit "${unit}" "" "${plan_file}"
         fi
     done
+
+    while IFS= read -r line; do
+        [ -n "${line}" ] || continue
+        if [ "${dry_run}" -eq 1 ]; then
+            local unit_name w r s tgt
+            IFS=$'\t' read -r unit_name w r s tgt <<EOT
+${line}
+EOT
+            note "${unit_name}:"
+            report_dry_run "${w}" "${r}" "${s}" "${tgt}"
+        else
+            apply_plan "${line}"
+        fi
+    done < "${plan_file}"
 }
 
 # --- Main ---
