@@ -47,8 +47,8 @@ tool is deliberately named `tmux-herd` to avoid that collision.
   (`prefix s`) is the UI.
 - **Not a log branding replacement** -- log-hoarder's `log_brander` slugs
   archived logs after the fact; tmux-herd labels live sessions. Neither
-  calls the other; the one coupling is the rename gate on an open pipe
-  (issue #307).
+  calls the other; the rename gate that once coupled them is gone (issue
+  #307).
 - **Not an agent controller** -- it never sends keys to a pane or
   interrupts an agent.
 - **No LLM in the loop** -- labels come from structured session records
@@ -93,7 +93,7 @@ One call gathers everything the classifier needs, one pane per line:
 
 ```
 tmux list-panes -a -F \
-  '#{session_name}\t#{session_attached}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_dead}\t#{pane_pipe}'
+  '#{session_name}\t#{session_attached}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_dead}'
 ```
 
 `pane_id` (`%N`) is carried through to the agent probes so `capture-pane
@@ -281,16 +281,21 @@ name; if the recomputed name still collides (the list moved again) the
 session is reported `SKIP <name> (target taken)` and left for the next
 run.
 
-### The log-hoarder gate
+### The log-hoarder gate -- lifted
 
-`bin/tmux_logging.sh` keys a pane's log directory on the session NAME at
-the moment the pipe opens, and `bin/tmux_shepherd.sh` sweeps by name
-(issue #307). Renaming a session with an open pipe leaves the pipe writing
-under a name the sweep believes is dead. Until issue #307 lands, a session
-in which any pane reports `#{pane_pipe}` = 1 is never renamed: the plan
-line reads `SKIP <name> (log-hoarder pipe open, issue #307)`. Kills are
-unaffected -- a killed session's pipe closes with it, which is the path
-log-hoarder already handles.
+log-hoarder used to key a pane's log directory on the session NAME at the
+moment the pipe opened, and to sweep by name, so renaming a session with an
+open pipe left that pipe writing under a name the sweep believed was dead.
+This design originally fenced that off: any session with `#{pane_pipe}` = 1
+was never renamed.
+
+Issue #307 moved both the directory key and the liveness test onto tmux's
+immutable ids (`$N`/`@N`/`%N`), with the session name recorded beside the
+logs in `name.txt` and refreshed on every sweep. A rename is now invisible
+to log-hoarder's paths and visible in its labels, which is the right way
+round -- so the gate is gone: no session is skipped for having an open
+pipe, and `#{pane_pipe}` need not be collected at all. Kills were never
+affected; a killed session's pipe closes with it.
 
 Exit 0 when the plan is empty or applied; 1 when `tmux` is unreachable or
 the `ps` snapshot is empty.
@@ -336,7 +341,6 @@ pane
 +-- fg_cmd         string   pane_current_command
 +-- path           string   pane_current_path
 +-- dead           0|1
-+-- piped          0|1      pane_pipe (log-hoarder gate)
 
 session_plan
 +-- session        string
@@ -387,7 +391,7 @@ the only state, and `tmux ls` before and after is the audit trail.
 | Slug source | agent's own session record first, pane text second | Structured, current, and per-session; pane text is the fallback for agents with no readable store |
 | RAW slug sources | alphabetic 2-12 char tokens only | A credential, hash, or URL has no run of short alphabetic words; a task description does |
 | repo-path source | `origin` owner/name, filesystem path as fallback | Groups clones and worktrees by identity, not by where they were cloned |
-| Renaming a piped session | refused until issue #307 | log-hoarder keys on the name; a rename would strand the open pipe |
+| Renaming a piped session | allowed; the gate was lifted when issue #307 landed | log-hoarder keys on immutable ids, so a rename moves no path and strands no pipe |
 | Rename race | re-list and recompute the suffix before each rename | `rename-session` rejects duplicates; the plan is a snapshot |
 | Snapshot gaps | fail closed: KEEP, or abort on an empty snapshot | A pid that is not in the table cannot be shown childless |
 | Own session | `display-message -t "$TMUX_PANE"` by name | `$TMUX` alone does not say which session |
@@ -438,6 +442,7 @@ the only state, and `tmux ls` before and after is the audit trail.
 
 - [LOG-HOARDER.DESIGN.md](./LOG-HOARDER.DESIGN.md) -- the other tmux-adjacent
   tool; owns `bin/tmux_shepherd.sh` and `bin/tmux_logging.sh`. Issue #307
-  is the name-keyed log path that gates renames here.
+  re-keyed its log paths onto immutable tmux ids, which is what allows
+  renames here.
 - [CHORES.DESIGN.md](./CHORES.DESIGN.md) -- the scheduler that could run
   this on a cadence.

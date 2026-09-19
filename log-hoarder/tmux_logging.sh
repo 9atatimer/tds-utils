@@ -2,7 +2,12 @@
 # tmux_logging.sh — start pipe-pane logging for the current tmux pane
 #
 # Invoked by tmux hooks on session-created, after-new-window, after-split-window.
-# Writes to $TDS_LOG_DIR/active/SESSION/WINDOW/PANE/HHMMSS.log
+# Writes to $TDS_LOG_DIR/active/$SESSION/@WINDOW/%PANE/HHMMSS.log
+#
+# The path keys on tmux's IMMUTABLE ids ($N/@N/%N), never on the session name:
+# a `tmux rename-session` would otherwise leave this pipe writing under a name
+# the shepherd's sweep believes is dead (issue #307). The human-readable name
+# is recorded alongside, in active/$SESSION/name.txt.
 #
 # Log path convention is shared with tmux_shepherd.sh — do not change independently.
 
@@ -31,26 +36,99 @@ check_ansifilter() {
     command -v ansifilter >/dev/null 2>&1
 }
 
+# The three ids of the pane this hook fired for, plus the three fields the
+# ownership stamp is built from, space-separated. None of them can contain a
+# space, so the caller may split on it.
+pane_ids() {
+    tmux display-message -p \
+        '#{session_id} #{window_id} #{pane_id} #{start_time} #{pid} #{session_created}'
+}
+
+# Which session, on which server, a log tree belongs to.
+#
+# `session_created` alone is a wall-clock second, so two servers' $0 can carry
+# the same value -- a restart inside one second would mint it twice, and the
+# stamp is what decides whether an existing tree is adopted or set aside. The
+# server's start time and pid pin it to one server: a pid is unique among live
+# processes, and a reused pid belongs to a server that started at some other
+# second.
+ownership_stamp() {
+    local start_time="$1" server_pid="$2" session_created="$3"
+    print -r -- "${start_time}.${server_pid}.${session_created}"
+}
+
+session_name() {
+    tmux display-message -p '#S'
+}
+
+# A tmux id is unique only within one running server: after a restart, $0/@0/%0
+# are handed out again, so a tree left behind in active/ by a dead server would
+# be adopted by a brand new session -- its logs interleaved, and its archive
+# destination already occupied. The session's creation stamp settles ownership.
+# A tree stamped by a different session is set aside under a key no live
+# session can match, which is exactly what the shepherd's sweep archives.
+claim_session_dir() {
+    local sessiondir="$1" created="$2"
+    local stampfile="${sessiondir}/created.txt"
+    local previous aside
+
+    # A directory is this session's only if its stamp says so. An UNSTAMPED
+    # one is not an edge case to tolerate: a pre-#307 tree is keyed on the
+    # session name, and a name may look exactly like an id ("$0"), so an
+    # unstamped tree at this path belongs to something else by definition.
+    if [[ -d "${sessiondir}" ]]; then
+        previous=""
+        [[ -f "${stampfile}" ]] && previous=$(<"${stampfile}")
+        if [[ "${previous}" != "${created}" ]]; then
+            aside="${sessiondir}-${previous:-unstamped}"
+            [[ -e "${aside}" ]] && aside="${aside}-${created}"
+            mv "${sessiondir}" "${aside}"
+            diag_log "tree is not this session's; set aside: ${sessiondir} -> ${aside}"
+        fi
+    fi
+
+    mkdir -p "${sessiondir}"
+    print -r -- "${created}" > "${stampfile}"
+}
+
+# The name is display data, not a key: it is recorded next to the logs so a
+# human (or the indexer) can still say which session a directory belonged to.
+record_session_name() {
+    local sessiondir="$1" name="$2"
+    mkdir -p "${sessiondir}"
+    print -r -- "${name}" > "${sessiondir}/name.txt"
+}
+
 build_log_path() {
-    local session window_idx pane_idx stamp
-    session=$(tmux display-message -p '#S')
-    window_idx=$(tmux display-message -p '#I')
-    pane_idx=$(tmux display-message -p '#P')
+    local session_id="$1" window_id="$2" pane_id="$3"
+    local stamp
     stamp=$(date '+%H%M%S')
 
-    local logdir="${TDS_LOG_DIR}/active/${session}/${window_idx}/${pane_idx}"
+    local logdir="${TDS_LOG_DIR}/active/${session_id}/${window_id}/${pane_id}"
     mkdir -p "${logdir}"
     echo "${logdir}/${stamp}.log"
 }
 
+# tmux runs the pipe command through strftime(3) before the shell sees it, and
+# every pane id carries a '%'. Undoubled, '%0' is consumed as an unknown
+# conversion and the log lands one directory up from its pane.
+escape_strftime() {
+    print -r -- "${1//\%/%%}"
+}
+
 start_pipe_pane() {
-    local logpath="$1"
+    local pane_id="$1" logpath="$2"
+    # The path is single-quoted for the shell tmux runs the pipe command in:
+    # a session id begins with '$' and would otherwise be expanded away.
+    local quoted
+    quoted=$(escape_strftime "${logpath}")
+
     if check_ansifilter; then
-        tmux pipe-pane -o "ansifilter >> '${logpath}'"
+        tmux pipe-pane -o -t "${pane_id}" "ansifilter >> '${quoted}'"
         diag_log "pipe opened (ansifilter): ${logpath}"
     else
         echo "# log-hoarder: ansifilter not found; log contains raw ANSI sequences" >> "${logpath}"
-        tmux pipe-pane -o "cat >> '${logpath}'"
+        tmux pipe-pane -o -t "${pane_id}" "cat >> '${quoted}'"
         diag_log "pipe opened (raw, ansifilter missing): ${logpath}"
     fi
 }
@@ -64,9 +142,18 @@ run_logging() {
         return 0
     fi
 
+    local ids
+    ids=(${=$(pane_ids)})
+    local session_id="${ids[1]}" window_id="${ids[2]}" pane_id="${ids[3]}"
+    local created
+    created=$(ownership_stamp "${ids[4]}" "${ids[5]}" "${ids[6]}")
+
+    claim_session_dir "${TDS_LOG_DIR}/active/${session_id}" "${created}"
+    record_session_name "${TDS_LOG_DIR}/active/${session_id}" "$(session_name)"
+
     local logpath
-    logpath=$(build_log_path)
-    start_pipe_pane "${logpath}"
+    logpath=$(build_log_path "${session_id}" "${window_id}" "${pane_id}")
+    start_pipe_pane "${pane_id}" "${logpath}"
 }
 
 # --- Main ---
