@@ -338,6 +338,29 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
   `lmde-sync-monitor` needs the same plist fix -- it still hardcodes the
   dev-checkout path) is still open.
 
+- [ ] Task LMDE18: **The stale-check note never reaches the drift branch.**
+  `show_status_modal` tests `self.drift_lines` first, so a last-verified
+  state of *drift* plus a later `last_unknown` shows the drift detail and
+  Copy Command with nothing saying the reading may be stale -- only the
+  green branch carries the note. Issue #309. `docs/design/LMDE.DESIGN.md`
+  section 6 now says what actually ships rather than the intent (99dfdc3,
+  PR #278's correction). Do it with issue #276: both want the same seam,
+  a `show_status_modal` that yields a testable message instead of driving
+  `rumps` directly, and after that this is a test plus three lines.
+
+### CDP browser tether (`bin/cdp`, `bin/realchrome-cdp`)
+
+- [ ] Task CDP1: **Land PR #273.** CI is green as of 746834b's master
+  (the fixture fix, issue #295) but five Copilot findings on
+  `lib/cdp-browser.sh` have sat untriaged since 2026-09-13 and the repo
+  does not land unreviewed code. Each needs an accept-or-reject on its
+  thread: the `profile-probe` sentinel not proving `.cdp/` is ignored;
+  PID reuse defeating `kill -0` ownership in `cdp_recorded_pid`;
+  `mkdir -p` following a symlinked profile out of the repo; the listener
+  check being unreachable when a non-CDP service holds the port; and a
+  readiness timeout leaving the spawned browser plus its pid file behind.
+  At least the last two look correct on a first read.
+
 ### Goldfish
 
 - [x] Task G10: **smoketest hermeticity: `resolve_orgs()` falls through to real `gh`.** Scenarios 01/05/06 fail because when smoke config has `"orgs": []`, `resolve_orgs()` runs `gh api user --jq .login` and uses the real user's login, polluting the smoke env with real GitHub data (which then hides the test fixtures behind the actionability filter). Fix: added a `--no-gh` flag to goldfish and updated the smoke runner to use it + `--no-filter`. PR #59.
