@@ -9,6 +9,92 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 ---
 
+## Now
+
+The chores build (`docs/design/CHORES.DESIGN.md`, APPROVED) is implemented
+through task-013; the retrospective ran 2026-09-14/17 and cut drift as
+tasks 015-019 (issues #283-#287). Order:
+
+- task-015 -- ceilings vs N admissions in one tick; the only drift that
+  can spend money.
+- task-016 -- due-detection edge cases; the degrading stories depend on it.
+- task-018 -- Todd's decisions on the built-but-not-designed rows; unblocks
+  the design's status transition.
+- task-017 -- status drift (size, remaining, shrink warning, perf goal).
+- task-019 -- notification ids and the store contract gap.
+- task-014 -- as-built at release, then APPROVED -> IMPLEMENTED (Todd).
+
+tmux-herd (`docs/design/TMUX-HERD.DESIGN.md`, DRAFT, merged in PR #305):
+the design shipped, no code did. Retrospective ran 2026-09-19. Order:
+
+- task-021 -- log-hoarder keys log dirs on the session name (issue #307);
+  a rename strands the pipe, so tmux-herd cannot rename until this lands.
+- task-020 -- build `bin/tmux-herd`; needs Todd's APPROVED on the design
+  first, and task-021 before it can rename on this machine.
+
+`ls tasks/` is the index. This file is still the legacy mono-file below
+this section; issue #289 owns the migration into `tasks/`.
+
+## Blockers
+
+- 2026-09-17: `lmde/TECH_RADAR.md` rows for Textual, PyYAML, rumps and
+  Click (issue #288) -- human-maintained file; the code already depends on
+  them. Unblock: Todd lands the rows or refuses a ring.
+- 2026-09-17: the design's APPROVED -> IMPLEMENTED transition waits on
+  release (`bin/tds-release`) plus tasks 015-019; only Todd moves it.
+- 2026-09-19: `TMUX-HERD.DESIGN.md` DRAFT -> APPROVED is Todd's call; the
+  implementer (a different, cheaper model) must not start task-020 before
+  it.
+
+## Lessons Learned (unsettled)
+
+### A skill read by grep is a skill not loaded
+
+about: global
+
+The tmux-herd design went to PR without the reviewer panel the design
+skill mandates ("Run the panel before you ask a human", designomatic).
+The skill was grepped for section names, and the mandate sat between the
+matches. Copilot then took three rounds and 12 findings to do what one
+panel run would have done before the human saw it. Mechanism: grepping a
+skill returns the lines that match the question you already had, never
+the rule you did not know to ask about. Belongs in the global agent
+instructions (org-managed, not editable from this repo): load a skill's
+full body at the phase boundary, grep only to re-find a rule you have
+already read.
+
+
+### Fake-driven CLI tests never exercised the composition root
+
+about: wip
+
+Every CliRunner test injected `obj=Deps(...)`, so `ctx.ensure_object(object)`
+pre-filling `obj` was invisible until the first real `chores validate`.
+One test now drives the CLI with no injected deps (`tests/unit/test_wiring.py`).
+Unsettled: whether the testing-python skill should require one such test per
+CLI, which would make this a `skill:testing-python` lesson.
+
+### A shell chain that pipes pytest into tail commits on red
+
+about: wip
+
+`uv run pytest | tail -1 && git commit` commits when pytest fails because the
+pipeline's status is tail's. Two commits in this build landed with a red
+test for that reason and needed fix-ups. `set -o pipefail` first, or check
+`${PIPESTATUS[0]}`. Unsettled: this belongs in the global agent
+instructions (`about: global`) if it recurs across repos.
+
+### YAML front-matter turns `off` and `true` into booleans
+
+about: wip
+
+A chore named `off` and a command `[true]` both failed validation with
+messages that pointed at the wrong field. Quote them in fixtures. Unsettled:
+the loader could reject non-string scalars with a message naming YAML 1.1
+booleans (`chores/src/chores/adapters/definitions.py`).
+
+---
+
 ## Open Tasks
 
 ### ENV-DISTRIBUTION -- packages/manifests/export/install (issue #202, 2026-08-08)
@@ -239,6 +325,41 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
   (2026-09-07): work out the skills-drift kinks first, revisit the
   packaging/install pipeline -- and whether `lmde-sync-monitor` needs the
   same treatment -- after.
+
+  **Update 2026-09-16 (retrospective, PR #265):** the "kinks" are worked
+  out -- see issues #275/#276 for what shipped undocumented and untested.
+  Separately, `~/.tds/release` caught up to the merge (6e17cf2) during
+  ordinary maintenance, so the manual `~/Library/LaunchAgents` copy was
+  re-synced from the repo's now-safe, PATH-tiered plist (Copilot's
+  original finding on PR #265): the live agent now resolves through
+  `~/.tds/release/bin/skills-drift-monitor`, not the mutable dev
+  checkout. That was the one part of this task blocked on the
+  skills-drift work; `tds-install -S` formalization (and whether
+  `lmde-sync-monitor` needs the same plist fix -- it still hardcodes the
+  dev-checkout path) is still open.
+
+- [ ] Task LMDE18: **The stale-check note never reaches the drift branch.**
+  `show_status_modal` tests `self.drift_lines` first, so a last-verified
+  state of *drift* plus a later `last_unknown` shows the drift detail and
+  Copy Command with nothing saying the reading may be stale -- only the
+  green branch carries the note. Issue #309. `docs/design/LMDE.DESIGN.md`
+  section 6 now says what actually ships rather than the intent (99dfdc3,
+  PR #278's correction). Do it with issue #276: both want the same seam,
+  a `show_status_modal` that yields a testable message instead of driving
+  `rumps` directly, and after that this is a test plus three lines.
+
+### CDP browser tether (`bin/cdp`, `bin/realchrome-cdp`)
+
+- [ ] Task CDP1: **Land PR #273.** CI is green as of 746834b's master
+  (the fixture fix, issue #295) but five Copilot findings on
+  `lib/cdp-browser.sh` have sat untriaged since 2026-09-13 and the repo
+  does not land unreviewed code. Each needs an accept-or-reject on its
+  thread: the `profile-probe` sentinel not proving `.cdp/` is ignored;
+  PID reuse defeating `kill -0` ownership in `cdp_recorded_pid`;
+  `mkdir -p` following a symlinked profile out of the repo; the listener
+  check being unreachable when a non-CDP service holds the port; and a
+  readiness timeout leaving the spawned browser plus its pid file behind.
+  At least the last two look correct on a first read.
 
 ### Goldfish
 

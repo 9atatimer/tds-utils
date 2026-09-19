@@ -30,7 +30,8 @@ commitment: see §4.
 ## 2. Terminology
 
 - **Pane Directory** — a tmux pane's archived log directory, located at
-  `$TDS_LOG_DIR/archived/SESSION/WINDOW/PANE/`. The unit of capture and the
+  `$TDS_LOG_DIR/archived/$SESSION/@WINDOW/%PANE/`, keyed on tmux's immutable
+  ids rather than on the session name (see §13). The unit of capture and the
   unit of ingestion.
 - **Log File** — a single `.log` file inside a pane directory. A pane
   directory may contain more than one if the pane was reused across tmux
@@ -633,3 +634,17 @@ conversation history that produced this document.
   framing. The port is retained as *insulation* between the domain and
   txtai's API surface, not as preparation for replacing txtai. We are not
   replacing txtai.
+
+## 13. Key Decisions
+
+Append-only. Each row cites the issue that produced it.
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Directory key | tmux's immutable ids -- `$N` session, `@N` window, `%N` pane (#307) | A session name is mutable and reusable: `rename-session` left the open pipe writing under a name the orphan sweep read as dead, so it archived a growing log and `log_brander` could brand a file still being written; a reused name interleaved two sessions in one tree |
+| Human-readable name | recorded in `<session>/name.txt`, refreshed on every sweep, carried into `archived/` (#307) | The name is display data, not identity -- it stays available to a human and to the indexer without any path depending on it |
+| Liveness test | a key is alive if it matches a live session's id OR its name (#307) | Testing both lists is what makes the upgrade safe -- without it, every pre-#307 directory would look dead at once and be moved out from under its live pipe. Shape cannot tell the two kinds of key apart (tmux accepts `$1` as a NAME), and the bias is deliberate: holding a directory one sweep too long costs nothing, archiving a live one is the defect |
+| Id reuse across server restarts | each session dir carries `created.txt` -- `<server start time>.<server pid>.<session created>`; a tree whose stamp is not this session's -- including an unstamped one -- is set aside as `<id>-<old stamp>` and swept (#307) | A tmux id is unique only within one running server: after a restart `$0/@0/%0` are issued again, so an id alone cannot say WHICH session a leftover tree belonged to. `session_created` alone is a wall-clock second, so a restart inside one second would mint the same value for two different `$0`s; the server's start time and pid pin it to one server, since a pid is unique among live processes and a reused pid belongs to a server that started at some other second. Unstamped counts as foreign because a pre-#307 tree is keyed on the NAME, and a name may look exactly like an id |
+| Archiving a generation that reuses an id | the archived ROOT takes the suffix (`<id>.N`), never the pane dir (#307) | `mv src dst` with `dst` a directory moves src INSIDE it, nesting one session's logs under another's. Suffixing the root instead keeps every pane of one generation together and keeps `name.txt`/`created.txt` with the logs they describe -- a shared root would let whichever session archived last overwrite the other's name |
+| Pipe path escaping | `%` doubled before it reaches `pipe-pane` (#307) | tmux runs the pipe command through `strftime(3)`, which eats an undoubled `%N` and drops the log one directory above its pane |
+| Hook argument quoting | `#{q:session_id}` in `tmux.conf` (#307) | A session id begins with `$`; unquoted, the shell `run-shell` uses expands `$0` to its own name before the shepherd sees it |

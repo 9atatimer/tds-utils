@@ -40,3 +40,6 @@ tmp/
 
 # tds-export default output (issue #202)
 dist/
+
+# chores (uv project): per-machine virtualenv
+chores/.venv/

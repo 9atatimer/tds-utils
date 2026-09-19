@@ -1,0 +1,49 @@
+[project]
+name = "chores"
+version = "0.1.0"
+description = "Laptop-local herd of LLM-adjacent scheduled jobs (docs/design/CHORES.DESIGN.md)"
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+tui = ["textual>=1.0"]
+
+[project.scripts]
+chores = "chores.cli.main:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-randomly>=3.15",
+    "pytest-asyncio>=0.24",
+    "hypothesis>=6.100",
+    "ruff>=0.6",
+    "mypy>=1.11",
+    "types-PyYAML>=6.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.8,<0.9"]
+build-backend = "uv_build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+asyncio_mode = "strict"
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+packages = ["chores"]
+mypy_path = "src"
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

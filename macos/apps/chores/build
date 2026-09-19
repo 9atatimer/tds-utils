@@ -1,0 +1,23 @@
+#!/bin/zsh
+# build -- Chores.app: one click opens the chores dashboard (the TUI) in a
+# Terminal window, via bin/chores-dashboard.
+#
+# Extra arguments pass through to mkmacapp, so:
+#
+#     ./build                          build into ~/Applications
+#     ./build --dock                   ... and pin it to the Dock
+#     ./build --dest ~/Desktop --force rebuild on the Desktop
+
+set -euo pipefail
+
+readonly HERE="${0:A:h}"
+
+main() {
+    "${HERE:h}/mkmacapp" \
+        --name "Chores" \
+        --command "chores-dashboard" \
+        --icon "${HERE}/icon.icns" \
+        "$@"
+}
+
+main "$@"

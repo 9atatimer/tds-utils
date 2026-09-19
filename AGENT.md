@@ -94,18 +94,53 @@ always an exact commit of `master` that went through a PR -- so "what is
 running" is a point on the reviewed history, never a divergent head and never
 a half-finished edit.
 
+### Two release units: public and private
+
+`tds-release` does not know about emacs, zsh, the monitors or chores. It knows
+about a **release unit**: a repo with a `release` branch, a worktree checked
+out on it, a `NO.RELEASE` sentry, and a pointer under `~/.tds/`. There are two.
+
+| unit | repo | pointer | what it carries |
+|------|------|---------|-----------------|
+| public | `~/workplace/tds-utils` | `~/.tds/release` | the machine's public configuration: dotfiles, `bin/`, emacs |
+| private | `~/workplace/tds-internal` | `~/.tds/internal` | private machine data: manifests, routines, the chores herd |
+
+Both go through the identical flow and the identical guards. The difference is
+that **the private unit is optional**: most machines do not have that checkout,
+and its absence is a one-line skip, never an error. `tds-release` ships in the
+public repo and has to work on a machine that has never heard of tds-internal.
+
+Consumers address paths *under a pointer* rather than naming a worktree --
+`CHORES_HOME` is `~/.tds/internal/ops/chores`, set in `macos/dot.zshenv` when
+the pointer exists. Adding the next consumer needs no change to the release
+tooling, and that is the test of whether this stays one mechanism.
+
+Why it exists at all: the chores herd was first pointed straight at
+`~/workplace/tds-internal/ops/chores`, a working tree whose branch is
+arbitrary. It was on an unrelated branch, so the directory did not exist and
+`chores validate` reported `ok: 0 chore(s)` -- a scheduler about to be
+installed against nothing. Live config must never be read out of a
+branch-switchable checkout; that rule is not specific to dotfiles.
+
 ### Releasing
 
 ```zsh
-bin/tds-release -n          # what would go live, and which commits
-bin/tds-release             # fast-forward release to origin/master, push it
-bin/tds-release <sha>       # release a specific reviewed commit
-bin/tds-release -f <sha>    # roll back (rewind release deliberately)
+bin/tds-release -n              # what would go live in every unit
+bin/tds-release                 # release both units, push each
+bin/tds-release <sha>           # release a specific reviewed commit (public unit)
+bin/tds-release -f <sha>        # roll back (rewind release deliberately)
+bin/tds-release -u private      # one unit only
+bin/tds-release -u private -f <sha>   # ... including its rollback
 ```
 
 That IS the install step for this machine. The moment `release` moves, the new
 config is what every new shell, editor, and agent session loads. Nothing else
 runs.
+
+A committish argument belongs to the unit you named with `-u`, or to the public
+unit when you name none; every other unit releases its own reviewed line
+(`master` here, `main` in tds-internal -- `tds-release` asks each repo rather
+than naming a branch).
 
 Three refusals are worth knowing before you hit them:
 
@@ -276,6 +311,36 @@ Three things worth knowing:
   each package as current or stale without installing anything. It is also
   what `git-hooks/pre-push` runs.
 
+## Infrastructure
+
+The fleet's infrastructure-as-code lives in the private infra repo
+[tds-internal](https://github.com/9atatimer/tds-internal) under
+`ops/terraform/`; its `docs/policy/{INFRASTRUCTURE,TERRAFORM,CREDENTIALS}.md`
+are the rules and win over anything here. Load the shared `iac` skill
+the moment a task touches a cloud resource or a GitHub secret.
+
+This repo owns no long-lived cloud resource. Two things here look like
+infrastructure and are not:
+
+- `ops/terraform/remvllm/` -- a provisioning primitive inside the
+  `remvllm` CLI: a TTL'd GPU spot node that `remvllm up` creates and
+  `remvllm destroy` (or its watchdog) tears down, state kept per host by
+  the tool, credentials read at run time with `op read` and never
+  written to disk. It stays here by recorded exception (tds-internal
+  `ops/terraform/README.md`, "Modules that live elsewhere"), pending the
+  human's ruling in tds-internal `docs/design/DESIGN.infra-centralization.md`.
+- `lmde/` -- the local managed developer environment (kind, Caddy,
+  Grafana); it runs on the laptop, not in a cloud account.
+
+Secrets this repo's workflows read, names only (registry: tds-internal
+`ops/credentials/REGISTRY.md`): `GH_PAT_NAATM_PACKAGES_RO` and the
+deprecated `GH_AI_TOOLS_PAT` fallback, both on the Agents secrets
+surface, both `read:packages`.
+
+`docs/design/DEPLOY-SECRETS.DESIGN.md` (`GADMIN_VAULT`, DRAFT) is neither
+adopted nor rejected; tds-internal `docs/policy/CREDENTIALS.md` lists it
+as an open question.
+
 ## Repository Layout
 
 ```
@@ -290,7 +355,11 @@ local/        Machine-specific customizations
 third-party/  Vendored external tools
 ```
 
-- New executable scripts go in **bin/**.
+- New executable scripts go in **bin/**. `bin/tmux_logging.sh` and
+  `bin/tmux_shepherd.sh` are log-hoarder's tmux hook scripts
+  (`docs/design/LOG-HOARDER.DESIGN.md`), not session-management tools;
+  the session tool is `bin/tmux-herd` (`docs/design/TMUX-HERD.DESIGN.md`).
+  Grep `bin/` and `docs/design/` for the concept before naming a new one.
 - macOS-only config goes in **macos/**.
 - Dotfile configs use the **dot.** prefix convention (e.g., `dot.zshrc`).
 

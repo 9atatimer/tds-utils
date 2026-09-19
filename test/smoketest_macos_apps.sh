@@ -42,7 +42,15 @@ assert() {
 skip() { bold "  SKIP"; printf ' %s\n' "$1"; }
 
 setup()   { WORKROOT="$(mktemp -d "${TMPDIR:-/tmp}/macos-apps-test.XXXXXX")"; }
-cleanup() { [ -n "${WORKROOT}" ] && [ -d "${WORKROOT}" ] && rm -rf "${WORKROOT}"; }
+# Returns 0 on the skip path too: with WORKROOT empty the `&&` chain fails,
+# and as the EXIT trap's last command that status became the script's --
+# the non-macOS skip exited 1 and failed the ubuntu CI leg.
+cleanup() {
+    if [ -n "${WORKROOT}" ] && [ -d "${WORKROOT}" ]; then
+        rm -rf "${WORKROOT}"
+    fi
+    return 0
+}
 trap cleanup EXIT
 
 # grep exits 1 for "no match" and 2 for "I could not run" -- a bare `! grep`
@@ -272,6 +280,25 @@ test_flip_monitor_app() {
         "osadecompile '${app}/Contents/Resources/Scripts/main.scpt' 2>/dev/null | grep -qF 'monctl flip'"
 }
 
+test_chores_app() {
+    bold "The chores app builds from its own build script"; printf '\n'
+    local build="${REPO_DIR}/macos/apps/chores/build"
+    local dest="${WORKROOT}/build8" app
+    app="${dest}/Chores.app"
+
+    assert "chores/build is executable" \
+        "[ -x '${build}' ]"
+    assert "chores/icon.icns is committed" \
+        "[ -s '${REPO_DIR}/macos/apps/chores/icon.icns' ]"
+
+    "${build}" --dest "${dest}" >/dev/null 2>&1
+
+    assert "it produces a Chores bundle" \
+        "[ -d '${app}' ]"
+    assert "it wraps chores-dashboard (the Terminal opener), not chores ui directly" \
+        "osadecompile '${app}/Contents/Resources/Scripts/main.scpt' 2>/dev/null | grep -qF 'chores-dashboard'"
+}
+
 # --- Flow ---
 
 run_all() {
@@ -287,6 +314,7 @@ run_all() {
     test_leaves_no_temp_files;   printf '\n'
     test_dock_url_is_encoded;    printf '\n'
     test_flip_monitor_app;       printf '\n'
+    test_chores_app;             printf '\n'
 
     printf 'ran %d, passed %d, failed %d\n' \
         "${TESTS_RUN}" "${TESTS_PASSED}" "${TESTS_FAILED}"

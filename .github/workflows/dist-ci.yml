@@ -12,6 +12,11 @@
 #     that reason: the suites' shebang is `env bash`, which on the macOS
 #     runner resolves to Homebrew bash 5 and would silently un-test 3.2.
 #
+#   chores -- lint, format, strict types and unit tests for the chores/
+#     uv project (docs/design/CHORES.DESIGN.md). Python is cross-platform,
+#     so one ubuntu leg; the Dock app is covered by the macos-apps
+#     smoketest in the smoketests job's macOS leg.
+#
 #   shellcheck -- lints exactly the four dist files named in issue #206.
 #     Scope is fixed on purpose: the rest of the repo is not shellcheck-clean
 #     yet, and widening the net here would turn the gate red for reasons
@@ -97,6 +102,12 @@ jobs:
       - name: Smoketest bin/plannotator-browser
         run: /bin/bash test/smoketest_plannotator_browser.sh
 
+      # Builds real bundles with osacompile/codesign/iconutil, so this only
+      # runs on the macOS leg (it skips itself elsewhere). Covers every
+      # macos/apps/<name>/build, the chores Dock app included.
+      - name: Smoketest macos/apps/mkmacapp
+        run: /bin/bash test/smoketest_macos_apps.sh
+
       - name: Smoketest bin/cdp and bin/realchrome-cdp
         run: /bin/bash test/smoketest_cdp.sh
 
@@ -115,3 +126,39 @@ jobs:
       # Exactly the four dist files named in issue #206 -- see header.
       - name: Shellcheck the dist toolchain
         run: shellcheck -x lib/tds-dist.sh bin/tds-export bin/tds-install bin/tds-status
+
+  chores:
+    strategy:
+      # The scheduler, process and store adapters have platform edges
+      # (launchd, BSD ps, /private/tmp realpaths); the suite runs on both.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: chores
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Sync the project (all extras + dev group)
+        run: uv sync --all-extras
+
+      - name: Lint (ruff check)
+        run: uv run ruff check .
+
+      - name: Format (ruff format --check)
+        run: uv run ruff format --check .
+
+      - name: Types (mypy --strict)
+        run: uv run mypy
+
+      - name: Unit tests (pytest)
+        run: uv run pytest

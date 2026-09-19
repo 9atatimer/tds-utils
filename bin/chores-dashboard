@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# chores-dashboard -- open the chores TUI in a new Terminal window (macOS),
+# or in the current terminal elsewhere. The Dock app and the menu-bar item
+# both call this; the text reaches osascript as an argument, never
+# interpolated into the script (CHORES.DESIGN.md, Security Considerations).
+
+set -euo pipefail
+
+# --- Helpers -----------------------------------------------------------------
+
+open_in_terminal_app() {
+    osascript \
+        -e 'on run argv' \
+        -e 'tell application "Terminal"' \
+        -e '  activate' \
+        -e '  do script (item 1 of argv)' \
+        -e 'end tell' \
+        -e 'end run' \
+        "chores ui"
+}
+
+# --- Main --------------------------------------------------------------------
+
+main() {
+    if [[ "$(uname -s)" == "Darwin" ]] && command -v osascript >/dev/null 2>&1; then
+        open_in_terminal_app
+    else
+        exec chores ui
+    fi
+}
+
+main "$@"

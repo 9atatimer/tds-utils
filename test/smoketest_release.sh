@@ -6,6 +6,12 @@
 # drives the releaser at it via TDS_RELEASE_REPO with fetch and push disabled
 # (TDS_RELEASE_FETCH=0 / TDS_RELEASE_PUSH=0).
 #
+# The releaser handles more than one release unit -- the public repo it ships
+# in, and the private repo (tds-internal) when the machine has one. The second
+# unit is shimmed with TDS_RELEASE_PRIVATE_REPO, which every case below
+# defaults to a path that cannot exist, so a case that does not opt in can
+# never reach this machine's real private checkout.
+#
 # Usage: ./test/smoketest_release.sh
 
 set -euo pipefail
@@ -68,7 +74,35 @@ branch_of(){ git -C "$1" rev-parse --abbrev-ref HEAD; }
 run_release() {
     local root="$1"; shift
     TDS_RELEASE_REPO="${root}" TDS_RELEASE_FETCH=0 TDS_RELEASE_PUSH=0 \
+    TDS_RELEASE_PRIVATE_REPO="${TDS_RELEASE_PRIVATE_REPO:-${WORKROOT}/no-such-private-repo}" \
         "${RELEASER}" "$@" >"${WORKROOT}/out" 2>&1
+}
+
+# run_release_units <public-repo> <private-repo> [args...] -- both units armed
+run_release_units() {
+    local pub="$1" priv="$2"; shift 2
+    TDS_RELEASE_PRIVATE_REPO="${priv}" run_release "${pub}" "$@"
+}
+
+# make_repo_on <name> <default-branch> -- make_repo, but for a repo whose
+# reviewed line is not `master`. The private repo's is `main`, and the releaser
+# must not have that branch name baked into it.
+make_repo_on() {
+    local name="$1" line="$2"
+    local root="${WORKROOT}/${name}"
+    local wt="${WORKROOT}/${name}-release"
+    mkdir -p "${root}"
+    git -C "${root}" init -q -b "${line}"
+    git -C "${root}" config user.email t@example.com
+    git -C "${root}" config user.name  Test
+    echo one > "${root}/f"
+    git -C "${root}" add f
+    git -C "${root}" commit -qm one
+    git -C "${root}" branch release
+    echo two > "${root}/f"
+    git -C "${root}" commit -qam two
+    git -C "${root}" worktree add -q "${wt}" release
+    printf '%s\n' "${root}"
 }
 
 # --- Cases -----------------------------------------------------------------
@@ -285,6 +319,134 @@ case_whitespace_sentry_blocks_release() {
     assert "release unchanged"           "[ \"$(head_of "${wt}")\" = \"${before}\" ]"
 }
 
+
+# --- The private release unit ----------------------------------------------
+
+case_private_unit_advances() {
+    bold "case: the private unit is released alongside the public one"; echo
+    local pub priv rc
+    pub="$(make_repo pubA)"; priv="$(make_repo_on privA main)"
+    run_release_units "${pub}" "${priv}" && rc=0 || rc=$?
+    assert "exits 0" "[ ${rc} -eq 0 ]"
+    assert "public release advanced" \
+        "[ \"$(head_of "$(release_wt pubA)")\" = \"$(git -C "${pub}" rev-parse master)\" ]"
+    assert "private release advanced to its own line (main)" \
+        "[ \"$(head_of "$(release_wt privA)")\" = \"$(git -C "${priv}" rev-parse main)\" ]"
+    assert "private worktree still on release" \
+        "[ \"$(branch_of "$(release_wt privA)")\" = release ]"
+}
+
+case_absent_private_unit_is_a_skip() {
+    bold "case: no private checkout is a skip, not a failure"; echo
+    local pub rc
+    pub="$(make_repo pubB)"
+    run_release_units "${pub}" "${WORKROOT}/definitely-not-here" && rc=0 || rc=$?
+    assert "exits 0"                  "[ ${rc} -eq 0 ]"
+    assert "public release happened"  \
+        "[ \"$(head_of "$(release_wt pubB)")\" = \"$(git -C "${pub}" rev-parse master)\" ]"
+    assert "says the unit was skipped" "grep -qi 'skip' '${WORKROOT}/out'"
+}
+
+case_private_unit_without_a_release_worktree_is_a_skip() {
+    bold "case: a private checkout with no release worktree is a skip"; echo
+    local pub priv rc
+    pub="$(make_repo pubC)"
+    priv="${WORKROOT}/privC"
+    mkdir -p "${priv}"
+    git -C "${priv}" init -q -b main
+    git -C "${priv}" config user.email t@example.com
+    git -C "${priv}" config user.name Test
+    echo x > "${priv}/f"; git -C "${priv}" add f; git -C "${priv}" commit -qm one
+    run_release_units "${pub}" "${priv}" && rc=0 || rc=$?
+    assert "exits 0"                   "[ ${rc} -eq 0 ]"
+    assert "says the unit was skipped" "grep -qi 'skip' '${WORKROOT}/out'"
+}
+
+case_dirty_private_unit_refused() {
+    bold "case: a dirty private release worktree refuses"; echo
+    local pub priv wt rc before
+    pub="$(make_repo pubD)"; priv="$(make_repo_on privD main)"; wt="$(release_wt privD)"
+    before="$(head_of "${wt}")"
+    echo scribble >> "${wt}/f"
+    run_release_units "${pub}" "${priv}" && rc=0 || rc=$?
+    assert "exits nonzero"            "[ ${rc} -ne 0 ]"
+    assert "private did not move"     "[ \"$(head_of "${wt}")\" = \"${before}\" ]"
+    assert "reports uncommitted work" "grep -q 'uncommitted changes' '${WORKROOT}/out'"
+}
+
+case_private_sentry_blocks_its_own_unit() {
+    bold "case: NO.RELEASE on the private unit holds that unit"; echo
+    local pub priv wt rc before
+    pub="$(make_repo pubE)"; priv="$(make_repo_on privE main)"; wt="$(release_wt privE)"
+    before="$(head_of "${wt}")"
+    echo "the gateway key rotates on Monday" > "${priv}/NO.RELEASE"
+    git -C "${priv}" add NO.RELEASE
+    git -C "${priv}" commit -qm "hold the private unit"
+    run_release_units "${pub}" "${priv}" && rc=0 || rc=$?
+    assert "exits nonzero"        "[ ${rc} -ne 0 ]"
+    assert "private did not move" "[ \"$(head_of "${wt}")\" = \"${before}\" ]"
+    assert "prints the reason"    "grep -q 'rotates on Monday' '${WORKROOT}/out'"
+}
+
+case_dry_run_reports_both_units() {
+    bold "case: -n reports both units and moves neither"; echo
+    local pub priv rc pub_before priv_before
+    pub="$(make_repo pubF)"; priv="$(make_repo_on privF main)"
+    pub_before="$(head_of "$(release_wt pubF)")"
+    priv_before="$(head_of "$(release_wt privF)")"
+    run_release_units "${pub}" "${priv}" -n && rc=0 || rc=$?
+    assert "exits 0"            "[ ${rc} -eq 0 ]"
+    assert "public unchanged"   "[ \"$(head_of "$(release_wt pubF)")\" = \"${pub_before}\" ]"
+    assert "private unchanged"  "[ \"$(head_of "$(release_wt privF)")\" = \"${priv_before}\" ]"
+    local reported
+    reported="$(grep -c 'would release' "${WORKROOT}/out" || true)"
+    assert "mentions both trees" "[ \"${reported}\" -eq 2 ]"
+}
+
+case_unit_selection_limits_the_run() {
+    bold "case: -u names the only unit to release"; echo
+    local pub priv rc priv_before
+    pub="$(make_repo pubG)"; priv="$(make_repo_on privG main)"
+    priv_before="$(head_of "$(release_wt privG)")"
+    run_release_units "${pub}" "${priv}" -u public && rc=0 || rc=$?
+    assert "exits 0"           "[ ${rc} -eq 0 ]"
+    assert "public advanced"   \
+        "[ \"$(head_of "$(release_wt pubG)")\" = \"$(git -C "${pub}" rev-parse master)\" ]"
+    assert "private untouched" "[ \"$(head_of "$(release_wt privG)")\" = \"${priv_before}\" ]"
+}
+
+
+case_a_later_units_refusal_moves_nothing() {
+    bold "case: a refusal in any unit releases none of them"; echo
+    local pub priv pub_wt priv_wt rc pub_before priv_before
+    pub="$(make_repo pubH)"; priv="$(make_repo_on privH main)"
+    pub_wt="$(release_wt pubH)"; priv_wt="$(release_wt privH)"
+    pub_before="$(head_of "${pub_wt}")"
+    priv_before="$(head_of "${priv_wt}")"
+    # The public unit is releasable; the private one is not.
+    echo scribble >> "${priv_wt}/f"
+    run_release_units "${pub}" "${priv}" && rc=0 || rc=$?
+    assert "exits nonzero"        "[ ${rc} -ne 0 ]"
+    assert "private did not move" "[ \"$(head_of "${priv_wt}")\" = \"${priv_before}\" ]"
+    assert "public did not move either -- checked before anything advances" \
+        "[ \"$(head_of "${pub_wt}")\" = \"${pub_before}\" ]"
+}
+
+case_a_later_units_sentry_moves_nothing() {
+    bold "case: a sentry on the private unit holds the public one too"; echo
+    local pub priv pub_wt rc pub_before
+    pub="$(make_repo pubI)"; priv="$(make_repo_on privI main)"
+    pub_wt="$(release_wt pubI)"
+    pub_before="$(head_of "${pub_wt}")"
+    echo "herd is mid-migration" > "${priv}/NO.RELEASE"
+    git -C "${priv}" add NO.RELEASE
+    git -C "${priv}" commit -qm hold
+    run_release_units "${pub}" "${priv}" && rc=0 || rc=$?
+    assert "exits nonzero"   "[ ${rc} -ne 0 ]"
+    assert "public did not move" "[ \"$(head_of "${pub_wt}")\" = \"${pub_before}\" ]"
+    assert "prints the reason"   "grep -q 'mid-migration' '${WORKROOT}/out'"
+}
+
 main() {
     [ -x "${RELEASER}" ] || { red "FAIL"; printf ' missing or non-executable: %s\n' "${RELEASER}"; exit 1; }
     WORKROOT="$(mktemp -d "${TMPDIR:-/tmp}/release-test.XXXXXX")"
@@ -303,6 +465,15 @@ main() {
     case_sentry_checked_on_target_not_current
     case_empty_sentry_blocks_release
     case_whitespace_sentry_blocks_release
+    case_private_unit_advances
+    case_absent_private_unit_is_a_skip
+    case_private_unit_without_a_release_worktree_is_a_skip
+    case_dirty_private_unit_refused
+    case_private_sentry_blocks_its_own_unit
+    case_dry_run_reports_both_units
+    case_unit_selection_limits_the_run
+    case_a_later_units_refusal_moves_nothing
+    case_a_later_units_sentry_moves_nothing
     echo
     printf 'ran %d, passed %d, failed %d\n' "${TESTS_RUN}" "${TESTS_PASSED}" "${TESTS_FAILED}"
     [ "${TESTS_FAILED}" -eq 0 ]
