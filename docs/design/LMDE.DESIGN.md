@@ -505,6 +505,34 @@ unrelated concerns (S3 sync vs. skills currency), same rumps+launchd shape:
 `macos/launchd/com.tds.skills-drift-monitor.plist`, mirroring
 `bin/lmde-sync-monitor`'s precedent file-for-file.
 
+**The status line is itself a button** (added in PR #265's review
+response, retrospective issue #275). Clicking "Skills current" / "Skills
+drift (N)" in the dropdown opens a native modal (`rumps.alert`) with the
+full detail -- the dropdown truncates long repo paths -- and, when there
+is drift, a "Copy Command" button that `pbcopy`'s `lmde acquire` onto the
+clipboard. That command mechanically fixes the installed-vs-published gap
+and is safe to run even when the only drift is local-repo-side (it just
+no-ops there); it does NOT fix local-repo drift (uncommitted changes,
+unpublished commits), which needs a human git decision, so the modal says
+that rather than offering a fake one-line fix for something that has none.
+
+**A distinct "status unknown" state, not folded into green.** If the very
+first check this process ever runs can't reach the registry,
+`self.drift_lines` sits at its `__init__` empty default until a real
+result lands -- indistinguishable, without a separate flag, from a
+verified "all agree". `self.ever_checked` tracks whether any check has
+actually completed (exit 0 or 1); both the menu title and the modal say
+"status unknown" instead of asserting an agreement that was never
+observed. A later `last_unknown` (registry unreachable on a *subsequent*
+check, after at least one success) is a different, milder case -- the
+modal shows the last verified state rather than retreating to "unknown",
+since that state WAS actually verified once. As shipped, the staleness
+note rides only on the green branch: `show_status_modal` tests
+`self.drift_lines` first, so a last-verified state of *drift* shows the
+drift detail and Copy Command with nothing saying the reading may be
+stale. That is drift from the intent stated here, and it is issue #309,
+not a decision -- the note belongs on both paths.
+
 ---
 
 ## State Machines
@@ -601,6 +629,8 @@ deleted.
 | ENV in cloud | Out of scope (launch-time only) | Orthogonal launcher-parity gap G1 |
 | `lmde acquire --latest <shortname>` | New advisory-only verb, prints the resolved registry-latest version or nothing | `check_one` only reveals version numbers when a row is behind; the skills-drift indicator (section 6) needs a concrete "latest" even when everything agrees, to compare a local checkout against |
 | Vercel's `skills` CLI on the rail? | Rejected -- stays a Homebrew-core install (`brew install skills`), ambient like NATS, not `lmde acquire`-managed | Todd's call: no pin, no fleet deployment. It solves a different problem (installing THIRD-PARTY skill packs) than `@nine-at-a-time-media/skills` (this org's own tree); putting it on the rail would imply a currency guarantee that was explicitly declined. Resolves `PROVISION.DESIGN.md` Open Question 1 in the negative for this axis (that question was about using it as clai's placement engine, a still-separate question) |
+| Status-line click behavior | A modal (`rumps.alert`) with full detail + a "Copy Command" clipboard button, not a static dropdown line | Retrospective issue #275 (PR #265 shipped this in review response; the design doc section did not originally describe it). The dropdown truncates long repo paths; the copy button targets the one command (`lmde acquire`) that has a safe, mechanical fix -- local-repo drift is explicitly NOT offered a fake one-liner |
+| Never-checked vs. confirmed-green | A separate `ever_checked` flag; "status unknown" is its own menu/modal state, not folded into green | Retrospective issue #275. Without it, a first check that can't reach the registry left `drift_lines` at its empty default, which read identically to a verified green -- asserting agreement that was never actually observed |
 | ~~Versioning: `latest` by default for every package~~ | SUPERSEDED by the fleet-pins decision | `latest`-by-default gave executables no review gate; the fleet pins restore it without a second on-disk edit |
 | ~~Skills + catalog ride inside the `@clai` package (`clai/_data`), template-tools#145~~ | SUPERSEDED | Made a skill rollout a two-step human process (clai release + `CLAI_VERSION` bump); measured failure, see History |
 | ~~Skills pinned to the resolved clai version; a skill rollout is a clai release + pin bump~~ | SUPERSEDED | Same failure; skills float as their own package |
