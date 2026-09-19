@@ -65,9 +65,9 @@ note() { echo "[sandbox/provision.sh] $*" >&2; }
 
 # write_npmrc <dir> -- write an ephemeral, authed npmrc scoping
 # @nine-at-a-time-media to GitHub Packages. Token from
-# GH_PAT_NAATM_PACKAGES_RO (a classic read:packages PAT). Written mode 600 via umask; the caller removes it right after
-# the install so the token does not linger. Mirrors
-# .claude/hooks/session-start.sh's write_npmrc, including its hardening.
+# GH_PAT_NAATM_PACKAGES_RO (a classic read:packages PAT). Written mode 600
+# via umask; the caller removes it right after the install so the token
+# does not linger.
 write_npmrc() {
   local dir="$1" token="${GH_PAT_NAATM_PACKAGES_RO:-}"
   if [ -z "$token" ]; then

@@ -261,8 +261,9 @@ new session acquires and provisions before you type anything.
 Three things worth knowing:
 
 - **No token needed.** `lmde acquire` resolves the credential from
-  `GH_PAT_NAATM_PACKAGES_RO`, then your own `gh auth token`. A default `gh auth login` does NOT grant
-  `read:packages` though -- if installs 401, run
+  `GH_PAT_NAATM_PACKAGES_RO`, then your own `gh auth token`. A default
+  `gh auth login` does NOT grant `read:packages` though -- if installs 401,
+  run
   `gh auth refresh -h github.com -s read:packages`.
 - **Remove the older user-scope hook.** `~/.claude/hooks/session-start.sh`
   (registered by `clai hooks install`) runs `clai provision` only, and

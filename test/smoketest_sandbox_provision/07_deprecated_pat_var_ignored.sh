@@ -19,14 +19,15 @@ main() {
 
     rc="$(TEST_PAT="" TEST_DEPRECATED_PAT="faketoken-retired-name" run_provision "${dir}")"
 
+    # The load-bearing assertion first: whatever the wording, npm must not run.
+    assert_file_absent "${dir}/npm-called" \
+        "must NOT invoke npm on the retired variable" || return 1
     assert_eq "${rc}" "0" "fail-open exit code" || return 1
     assert_not_provisioned "${dir}" || return 1
     assert_stderr_contains "${dir}" "GH_PAT_NAATM_PACKAGES_RO unset" \
         "a token under the retired name alone is no credential" || return 1
     assert_stderr_not_contains "${dir}" "GH_AI_TOOLS_PAT" \
         "the retired variable is not named, as a source or as a hint" || return 1
-    assert_file_absent "${dir}/npm-called" \
-        "must NOT invoke npm on the retired variable" || return 1
 }
 
 main "$@"
