@@ -5,3 +5,8 @@
 tedium.toml          @9atatimer
 CODEOWNERS           @9atatimer
 .github/workflows/   @9atatimer
+# The checker itself: review-settled.yml sparse-checks out exactly these
+# two files at tools_ref and runs them with statuses:write, so a change
+# here changes every enrolled repo's merge verdict.
+bin/review-settled      @9atatimer
+lib/review-settled.mjs  @9atatimer

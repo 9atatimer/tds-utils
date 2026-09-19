@@ -20,7 +20,10 @@
 // (red is a posted answer, not a script failure); non-zero only when the
 // facts could not be read or the status could not be written.
 
-import { parseReviewers, settle } from '../lib/review-settled.mjs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { clamp, parseReviewers, settle } from '../lib/review-settled.mjs';
 
 const CONTEXT = 'review-settled';
 const DEFAULT_REVIEWERS = 'copilot-pull-request-reviewer';
@@ -61,15 +64,16 @@ function authHeaders(token) {
 }
 
 const PR_QUERY = `
-query($owner: String!, $name: String!, $number: Int!, $after: String) {
+query($owner: String!, $name: String!, $number: Int!, $reviewsAfter: String, $threadsAfter: String) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       headRefOid
       isCrossRepository
-      reviews(last: 100) {
+      reviews(first: 100, after: $reviewsAfter) {
+        pageInfo { hasNextPage endCursor }
         nodes { author { login } state submittedAt commit { oid } }
       }
-      reviewThreads(first: 100, after: $after) {
+      reviewThreads(first: 100, after: $threadsAfter) {
         pageInfo { hasNextPage endCursor }
         nodes { isResolved }
       }
@@ -89,33 +93,48 @@ async function graphql(token, query, variables) {
   return body.data;
 }
 
-/** Read head, reviews and every review thread (paging the threads). */
-async function readPullRequest(token, owner, name, number) {
-  let after = null;
+/**
+ * Read head, reviews and every review thread, paging BOTH connections.
+ *
+ * Reviews are paged, not taken as one `last: 100` window: a long-lived
+ * PR under this bot-driven flow accumulates a review per round, and once
+ * the window overflows the required reviewer's newest review can fall
+ * outside it -- which reads as "not reviewed yet" and blocks the landing.
+ * An exhausted connection just returns an empty page, so looping while
+ * either has a next page is safe.
+ */
+export async function readPullRequest(token, owner, name, number) {
+  let reviewsAfter = null;
+  let threadsAfter = null;
   let headSha = null;
   let isCrossRepository = false;
-  let reviews = [];
+  const reviews = [];
   const threads = [];
   for (;;) {
-    const data = await graphql(token, PR_QUERY, { owner, name, number, after });
+    const data = await graphql(token, PR_QUERY, { owner, name, number, reviewsAfter, threadsAfter });
     const pr = data.repository?.pullRequest;
     if (!pr) throw new Error(`no pull request ${owner}/${name}#${number}`);
     headSha = pr.headRefOid;
     isCrossRepository = pr.isCrossRepository === true;
-    reviews = pr.reviews.nodes.map((node) => ({
-      author: node.author?.login ?? '',
-      state: node.state,
-      submittedAt: node.submittedAt,
-      commit: node.commit?.oid ?? '',
-    }));
+    reviews.push(
+      ...pr.reviews.nodes.map((node) => ({
+        author: node.author?.login ?? '',
+        state: node.state,
+        submittedAt: node.submittedAt,
+        commit: node.commit?.oid ?? '',
+      })),
+    );
     threads.push(...pr.reviewThreads.nodes);
-    if (!pr.reviewThreads.pageInfo.hasNextPage) break;
-    after = pr.reviewThreads.pageInfo.endCursor;
+    const moreReviews = pr.reviews.pageInfo.hasNextPage;
+    const moreThreads = pr.reviewThreads.pageInfo.hasNextPage;
+    if (!moreReviews && !moreThreads) break;
+    if (moreReviews) reviewsAfter = pr.reviews.pageInfo.endCursor;
+    if (moreThreads) threadsAfter = pr.reviewThreads.pageInfo.endCursor;
   }
   return { headSha, isCrossRepository, reviews, threads };
 }
 
-async function postStatus(token, owner, name, sha, verdict) {
+export async function postStatus(token, owner, name, sha, verdict) {
   const targetUrl =
     process.env.GITHUB_SERVER_URL && process.env.GITHUB_RUN_ID
       ? `${process.env.GITHUB_SERVER_URL}/${owner}/${name}/actions/runs/${process.env.GITHUB_RUN_ID}`
@@ -134,6 +153,33 @@ async function postStatus(token, owner, name, sha, verdict) {
 }
 
 // --- Main -------------------------------------------------------------------
+
+/**
+ * Best-effort `error` status when the run could not reach a verdict.
+ *
+ * Without this, a rate limit or a 5xx leaves the context ABSENT, which a
+ * ruleset reads as "waiting" and tedium reads as "not settled yet" --
+ * indistinguishable from a genuinely unreviewed PR. An explicit error
+ * state says which it was. The head sha has to be re-read because the
+ * failure may well have been the read itself; if that also fails there
+ * is nothing useful left to do, so this never masks the original error.
+ */
+async function postErrorStatus(token, owner, name, number, message) {
+  try {
+    const res = await fetch(`${apiUrl()}/repos/${owner}/${name}/pulls/${number}`, {
+      headers: authHeaders(token),
+    });
+    if (!res.ok) return;
+    const sha = (await res.json())?.head?.sha;
+    if (!sha) return;
+    await postStatus(token, owner, name, sha, {
+      state: 'error',
+      description: clamp(`could not evaluate: ${message}`),
+    });
+  } catch {
+    // Reporting the failure must not replace it.
+  }
+}
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
@@ -157,7 +203,26 @@ async function main() {
   await postStatus(token, owner, name, facts.headSha, verdict);
 }
 
-main().catch((error) => {
-  console.error(`review-settled: ${error.message}`);
-  process.exit(1);
-});
+// Run only as a script: the test suite imports this file for its I/O.
+const invokedDirectly =
+  process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+
+if (invokedDirectly) {
+  // Parsed here too, so the failure path knows which PR to mark errored.
+  // A usage error leaves this null and main() reports it as before.
+  let target = null;
+  try {
+    target = parseArgs(process.argv.slice(2));
+  } catch {
+    target = null;
+  }
+  main().catch(async (error) => {
+    console.error(`review-settled: ${error.message}`);
+    const token = process.env.GITHUB_TOKEN;
+    if (target && token && !target.dryRun) {
+      const [owner, name] = target.repo.split('/');
+      await postErrorStatus(token, owner, name, target.pr, error.message);
+    }
+    process.exit(1);
+  });
+}

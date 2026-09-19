@@ -78,11 +78,19 @@ jobs:
         with:
           node-version: '22'
 
+      # Inputs go through env, never interpolated into the script: this is
+      # a public reusable workflow, so `reviewers` is whatever an arbitrary
+      # caller passes, and `${{ }}` in a `run:` block is substituted before
+      # the shell parses it -- a value carrying a quote would execute here,
+      # in a job holding statuses:write.
       - name: Decide and post the status
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ inputs.pr }}
+          REVIEWERS: ${{ inputs.reviewers }}
         run: |
           node .review-settled/bin/review-settled \
-            --repo "${{ github.repository }}" \
-            --pr "${{ inputs.pr }}" \
-            --reviewers "${{ inputs.reviewers }}"
+            --repo "$REPO" \
+            --pr "$PR" \
+            --reviewers "$REVIEWERS"
