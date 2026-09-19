@@ -241,6 +241,45 @@ absolute paths to it rather than `cd`-ing. Only reach for `cd` after confirming
 none of the above applies *and* that the command must run with that dir as
 cwd -- and in that case, ask first or expect to be interrupted.
 
+## Always work off a branch, and use a worktree whenever you can
+
+Two rules, the second stronger than it used to be.
+
+**Never work on the default branch.** Every repo instruction file already
+says this; it holds even for a one-line docs edit and even when the change
+will obviously be merged.
+
+**Prefer a worktree over checking a branch out in the shared clone.** The
+shared clone at `~/workplace/<repo>` is not yours alone: the human runs
+several terminals on several repos at once, and other agent sessions work
+in that same directory. A branch checkout there is a shared mutable
+resource, and the failure is silent.
+
+Observed 2026-09-19, `naatm/template-tools`: one session staged a revert on
+a feature branch in the shared clone while a second session, in the same
+directory, did `git reset` + `git checkout main` + `git pull` and started
+its own branch. The first session's staged work was gone with no error --
+its next `git commit` reported "nothing to commit, working tree clean" on a
+branch it had never heard of. Both sessions were doing ordinary, correct
+things; the directory was the bug.
+
+So:
+
+```
+git -C ~/workplace/<repo> fetch origin
+git -C ~/workplace/<repo> worktree add \
+    ~/workplace/.worktrees/<repo>-<topic> -b <branch> origin/<default>
+```
+
+A worktree is cheap, it is isolated, and `git worktree remove` cleans it up.
+Branch from `origin/<default>` explicitly rather than from whatever the
+shared clone's HEAD happens to be -- in a shared clone that is not
+necessarily the default branch, or current.
+
+Reach for a plain checkout in the shared clone only when a worktree genuinely
+cannot work (a tool that hardcodes the clone path, a submodule or build
+artifact that will not relocate). Say which one it is when you do.
+
 ## Worktrees live in `~/workplace/.worktrees/`, never at the workspace root
 
 Never create a git worktree as a sibling of the repo it came from. A
