@@ -47,7 +47,8 @@ tool is deliberately named `tmux-herd` to avoid that collision.
   (`prefix s`) is the UI.
 - **Not a log branding replacement** -- log-hoarder's `log_brander` slugs
   archived logs after the fact; tmux-herd labels live sessions. Neither
-  calls the other.
+  calls the other; the one coupling is the rename gate on an open pipe
+  (issue #307).
 - **Not an agent controller** -- it never sends keys to a pane or
   interrupts an agent.
 - **No LLM in the loop** -- labels come from structured session records
@@ -92,7 +93,7 @@ One call gathers everything the classifier needs, one pane per line:
 
 ```
 tmux list-panes -a -F \
-  '#{session_name}\t#{session_attached}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_dead}'
+  '#{session_name}\t#{session_attached}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_dead}\t#{pane_pipe}'
 ```
 
 `pane_id` (`%N`) is carried through to the agent probes so `capture-pane
@@ -127,12 +128,15 @@ adapter converts it to an epoch start.
 
 ### Classification (core)
 
-A session's verdict is the max over its panes of:
+A session's verdict is the max over its panes of the FIRST matching row,
+top to bottom. A dead pane has no live process by definition, so its
+`pane_pid` is normally absent from the snapshot; the dead row is first so
+that absence never turns a dead pane into a KEEP.
 
 | pane state | verdict |
 |------------|---------|
 | `pane_dead=1` | IDLE |
-| `pane_pid` missing from the `ps` snapshot | KEEP (fail closed) |
+| `pane_pid` missing from the `ps` snapshot (pane not dead) | KEEP (fail closed) |
 | foreground command is a shell (`zsh bash sh fish`) and the pane pid has no descendants | IDLE |
 | foreground is a shell with descendants, none of them an agent | KEEP (e.g. `vim`, `make`, an ssh) |
 | foreground is not a shell and not an agent (`tmux new-session vim`) | KEEP |
@@ -158,8 +162,18 @@ window may be elsewhere). For KEEP sessions it is the pane path.
 toplevel   = git -C cwd rev-parse --show-toplevel
 common     = git -C cwd rev-parse --path-format=absolute --git-common-dir
 branch     = git -C cwd rev-parse --abbrev-ref HEAD      # or "detached" / short sha
-repo-path  = dirname(common) made relative to ~/workplace, else to ~
+origin     = git -C cwd remote get-url origin            # may be absent
+repo-path  = owner/name parsed from origin
+             (ssh: git@host:owner/name.git; https: https://host/owner/name[.git])
+             else dirname(common) relative to ~/workplace, else to ~
 ```
+
+`repo-path` is the remote's `owner/name` when there is one, and a
+filesystem path only as a fallback. The primary checkout lives at
+`~/workplace/tds-utils`, so a filesystem rule alone would yield
+`tds-utils`; the `9atatimer/tds-utils` in the examples comes from
+`origin`. Keying on the remote also groups two clones of one repo that
+sit in different directories.
 
 `--git-common-dir` is relative to cwd by default (`.git` in a primary
 checkout), so `--path-format=absolute` (git 2.31+) is required before
@@ -180,7 +194,7 @@ record, then the pane's visible text, then nothing.
 
 | agent | record | fields used |
 |-------|--------|-------------|
-| claude | newest `~/.claude/projects/<cwd with / -> ->>/*.jsonl` whose mtime >= `start_epoch` | `summary` (type=summary), else `slug`, else first `user` message text |
+| claude | newest `~/.claude/projects/<enc(cwd)>/*.jsonl` whose mtime >= `start_epoch`, where `enc` replaces every character outside `[A-Za-z0-9]` with `-` (`/home/user/tds-utils` -> `-home-user-tds-utils`; `~/workplace/.worktrees/x` -> `-Users-todd-workplace--worktrees-x`) | `summary` (type=summary), else `slug`, else first `user` message text |
 | codex | newest `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` whose `cwd` field matches and mtime >= `start_epoch` | first `user` message text |
 | opencode | `~/.local/share/opencode/` session store for that project | session title |
 | any | `tmux capture-pane -p -t <pane_id> -S -40` | last non-empty line that is not a prompt or status bar |
@@ -257,8 +271,26 @@ Applying is not a replay of the plan. For each KILL, `-y` re-runs
 discovery and classification for that one session immediately before
 `kill-session` and skips it (reported as `SKIP <name> (changed since plan)`)
 if its verdict is no longer IDLE -- a client attached or a child started in
-the window between plan and apply. Renames are idempotent and need no
-recheck.
+the window between plan and apply.
+
+Renames race too: a session created after the plan, or a concurrent herd
+run, can occupy a planned target, and `rename-session` rejects a
+duplicate. So before each rename `-y` re-lists session names, recomputes
+the `-n` collision suffix against that list, and renames to the recomputed
+name; if the recomputed name still collides (the list moved again) the
+session is reported `SKIP <name> (target taken)` and left for the next
+run.
+
+### The log-hoarder gate
+
+`bin/tmux_logging.sh` keys a pane's log directory on the session NAME at
+the moment the pipe opens, and `bin/tmux_shepherd.sh` sweeps by name
+(issue #307). Renaming a session with an open pipe leaves the pipe writing
+under a name the sweep believes is dead. Until issue #307 lands, a session
+in which any pane reports `#{pane_pipe}` = 1 is never renamed: the plan
+line reads `SKIP <name> (log-hoarder pipe open, issue #307)`. Kills are
+unaffected -- a killed session's pipe closes with it, which is the path
+log-hoarder already handles.
 
 Exit 0 when the plan is empty or applied; 1 when `tmux` is unreachable or
 the `ps` snapshot is empty.
@@ -304,6 +336,7 @@ pane
 +-- fg_cmd         string   pane_current_command
 +-- path           string   pane_current_path
 +-- dead           0|1
++-- piped          0|1      pane_pipe (log-hoarder gate)
 
 session_plan
 +-- session        string
@@ -353,6 +386,9 @@ the only state, and `tmux ls` before and after is the audit trail.
 | Name separators | `@` agent, `/` path, `=` branch, `+` slug | `.` and `:` are the only tmux-illegal characters; `=` and `+` are legal, unambiguous, and shell-safe unquoted in `tmux attach -t` |
 | Slug source | agent's own session record first, pane text second | Structured, current, and per-session; pane text is the fallback for agents with no readable store |
 | RAW slug sources | alphabetic 2-12 char tokens only | A credential, hash, or URL has no run of short alphabetic words; a task description does |
+| repo-path source | `origin` owner/name, filesystem path as fallback | Groups clones and worktrees by identity, not by where they were cloned |
+| Renaming a piped session | refused until issue #307 | log-hoarder keys on the name; a rename would strand the open pipe |
+| Rename race | re-list and recompute the suffix before each rename | `rename-session` rejects duplicates; the plan is a snapshot |
 | Snapshot gaps | fail closed: KEEP, or abort on an empty snapshot | A pid that is not in the table cannot be shown childless |
 | Own session | `display-message -t "$TMUX_PANE"` by name | `$TMUX` alone does not say which session |
 | Kill safety | recheck each session before `kill-session` | The plan is a snapshot; the guarantee is about the moment of the kill |
@@ -401,6 +437,7 @@ the only state, and `tmux ls` before and after is the audit trail.
 ## Related Documents
 
 - [LOG-HOARDER.DESIGN.md](./LOG-HOARDER.DESIGN.md) -- the other tmux-adjacent
-  tool; owns `bin/tmux_shepherd.sh` and `bin/tmux_logging.sh`.
+  tool; owns `bin/tmux_shepherd.sh` and `bin/tmux_logging.sh`. Issue #307
+  is the name-keyed log path that gates renames here.
 - [CHORES.DESIGN.md](./CHORES.DESIGN.md) -- the scheduler that could run
   this on a cadence.
