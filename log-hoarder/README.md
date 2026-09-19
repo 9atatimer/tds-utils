@@ -10,10 +10,10 @@ human-readable slug by a local LLM.
 Terminal opens
   → zshrc launches tmux new-session
     → session-created hook fires tmux_logging.sh
-      → pipe-pane opens: PTY output → ansifilter → active/SESSION/WINDOW/PANE/HHMMSS.log
+      → pipe-pane opens: PTY output → ansifilter → active/$SESSION/@WINDOW/%PANE/HHMMSS.log
 
 Pane exits (shell exit or Ctrl-D)
-  → pane-exited hook fires tmux_shepherd.sh SESSION WINDOW PANE
+  → pane-exited hook fires tmux_shepherd.sh $SESSION @WINDOW %PANE
     → pane log dir moved: active/ → archived/
     → orphan sweep: any active/ dirs whose session is dead are also archived
 
@@ -26,6 +26,22 @@ Cron runs tmux_shepherd.sh (no args)
 Force-killed panes (`Prefix-x`) do not fire `pane-exited`. Their logs remain
 in `active/` until the orphan sweep picks them up on the next pane exit or
 cron run.
+
+## The directory key
+
+Directories are keyed on tmux's immutable ids -- `$N` session, `@N` window,
+`%N` pane -- never on the session name. A name is mutable (`rename-session`,
+`prefix $`, `tmux-herd`), and keying on one meant a rename left the open pipe
+writing under a name the orphan sweep read as dead, archiving the tree out
+from under a live fd (issue #307).
+
+The human-readable name is recorded alongside, in `<session>/name.txt`. The
+shepherd rewrites it on every sweep, so it tracks renames, and carries it into
+`archived/` with the logs.
+
+Directories written before #307 are keyed on the name; the sweep still judges
+those by name, so they archive normally as their sessions die rather than
+being torn away from a live pipe on upgrade.
 
 When `TDS_LOG_DIR` is unset, logging is suppressed but diagnostic output is
 still written to `~/log-hoarder.logging.log` (and `~/log-hoarder.shepherd.*.log`
@@ -149,8 +165,8 @@ Then uncomment the curl block in `log_brander` and remove the stub exit.
 Open a new terminal. You should see a tmux session start. Then:
 
 ```sh
-# Check a log is being written
-ls -la $TDS_LOG_DIR/active/
+# Check a log is being written (quoted: a session id starts with '$')
+ls -la "$TDS_LOG_DIR/active/$(tmux display -p '#{session_id}')/"
 
 # Check the pipe is open on the current pane
 tmux display -p '#{?pane_pipe,pipe open,no pipe}'

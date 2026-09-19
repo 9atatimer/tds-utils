@@ -30,7 +30,8 @@ commitment: see §4.
 ## 2. Terminology
 
 - **Pane Directory** — a tmux pane's archived log directory, located at
-  `$TDS_LOG_DIR/archived/SESSION/WINDOW/PANE/`. The unit of capture and the
+  `$TDS_LOG_DIR/archived/$SESSION/@WINDOW/%PANE/`, keyed on tmux's immutable
+  ids rather than on the session name (see §13). The unit of capture and the
   unit of ingestion.
 - **Log File** — a single `.log` file inside a pane directory. A pane
   directory may contain more than one if the pane was reused across tmux
@@ -633,3 +634,15 @@ conversation history that produced this document.
   framing. The port is retained as *insulation* between the domain and
   txtai's API surface, not as preparation for replacing txtai. We are not
   replacing txtai.
+
+## 13. Key Decisions
+
+Append-only. Each row cites the issue that produced it.
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Directory key | tmux's immutable ids -- `$N` session, `@N` window, `%N` pane (#307) | A session name is mutable and reusable: `rename-session` left the open pipe writing under a name the orphan sweep read as dead, so it archived a growing log and `log_brander` could brand a file still being written; a reused name interleaved two sessions in one tree |
+| Human-readable name | recorded in `<session>/name.txt`, refreshed on every sweep, carried into `archived/` (#307) | The name is display data, not identity -- it stays available to a human and to the indexer without any path depending on it |
+| Liveness test | `#{session_id}` membership, with a name-keyed fallback for pre-#307 directories (#307) | The fallback is what makes the upgrade safe: without it, every directory already in `active/` would look dead at once and be moved out from under its live pipe. It is removable when no such directory remains |
+| Pipe path escaping | `%` doubled before it reaches `pipe-pane` (#307) | tmux runs the pipe command through `strftime(3)`, which eats an undoubled `%N` and drops the log one directory above its pane |
+| Hook argument quoting | `#{q:session_id}` in `tmux.conf` (#307) | A session id begins with `$`; unquoted, the shell `run-shell` uses expands `$0` to its own name before the shepherd sees it |
