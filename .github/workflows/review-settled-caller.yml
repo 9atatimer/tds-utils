@@ -1,0 +1,73 @@
+# review-settled-caller.yml -- this repo's own call of the reusable
+# review-settled workflow (which lives in this repo too; other repos call
+# it as 9atatimer/tds-utils/.github/workflows/review-settled.yml@master).
+#
+# Posts the `review-settled` commit status on every PR head: green iff
+# Copilot's newest review is on the current head and every review thread
+# is resolved. The ruleset requires it; tedium checks it in `pr_status`.
+#
+# Why these events: GitHub has no workflow trigger for a review thread
+# being resolved (pull_request_review_thread is a webhook, not a
+# workflow event). What does fire on the way to a settled review is the
+# review itself, the reply in a thread, and the PR comment the reviewer
+# posts after resolving (the self-review epilogue the gates skill
+# requires) -- so all three re-evaluate, and workflow_dispatch covers a
+# stuck one by hand.
+#
+# Part of the contract, not a gap to close: a thread UNRESOLVED with no
+# comment fires nothing either, so a green status can outlive it until
+# the next event on the PR. The gates skill has every reopen carry a
+# reply (that reply re-evaluates), a `tedium land` comment re-evaluates
+# before the batch is judged, and the human who reopens a thread without
+# a word is the backstop this status is designed around, not a case it
+# can see.
+#
+# `tools_ref` is the PR's own head so a change to the checker is tested
+# by the PR that carries it, not by the one after.
+
+name: review-settled
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+  pull_request_review_comment:
+    types: [created, edited]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to re-evaluate
+        type: number
+        required: true
+
+concurrency:
+  group: review-settled-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  review-settled:
+    # issue_comment also fires for plain issues; only PR comments matter.
+    # A PR from a fork is skipped outright: its token is read-only (no
+    # status could be posted anyway) and `tools_ref` below would otherwise
+    # check out and run an untrusted head. Fork PRs are human-merge. This
+    # guard can only see the head repo on events that carry a pull_request
+    # payload; on issue_comment `tools_ref` is master (trusted) and the
+    # checker itself refuses a fork PR from the API's isCrossRepository.
+    if: >-
+      (github.event_name != 'issue_comment' || github.event.issue.pull_request != null)
+      && (github.event.pull_request == null || github.event.pull_request.head.repo.full_name == github.repository)
+    uses: ./.github/workflows/review-settled.yml
+    permissions:
+      statuses: write
+      pull-requests: read
+      contents: read
+    with:
+      reviewers: copilot-pull-request-reviewer
+      pr: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
+      tools_ref: ${{ github.event.pull_request.head.sha || 'master' }}

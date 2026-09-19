@@ -1,0 +1,96 @@
+# review-settled.yml -- reusable workflow: post the `review-settled` commit
+# status on a pull request's head (template-tools issue #597).
+#
+# Green iff the newest review from each required reviewer is on the
+# current head commit AND every review thread is resolved; red otherwise
+# with the reason in the status description. It is the mechanical form of
+# the fleet's "zero unreviewed code" rule, and the status a repo's ruleset
+# requires (tds-internal ops/terraform/github) and tedium checks in
+# `pr_status` before it batches a PR.
+#
+# Hosted HERE, not in template-tools, because a reusable workflow in a
+# private repo can only be called from repos of the same owner, and the
+# three repos tedium lands on span two owners (9atatimer: tds-utils,
+# Skills; Nine-At-A-Time-Media: template-tools). A public repo's reusable
+# workflow can be called from anywhere. The decision logic is
+# lib/review-settled.mjs; the CLI is bin/review-settled.
+#
+# Caller shape: see review-settled-caller.yml next to this file (this
+# repo's own call), which every enrolled repo copies with
+# `uses: 9atatimer/tds-utils/.github/workflows/review-settled.yml@master`.
+# GitHub has no workflow trigger for a thread being resolved, so the
+# caller fires on the review, on replies in threads, on PR comments (the
+# epilogue posted after resolving), on pushes, and by hand. A synchronize
+# event turns the status red at once (the newest review is on the old
+# head) until the reviewer re-reviews the new one -- that is the head-SHA
+# freshness the decision encodes.
+
+name: review-settled
+
+on:
+  workflow_call:
+    inputs:
+      pr:
+        description: The pull request number (from pull_request, the issue on issue_comment, or by hand).
+        type: number
+        required: true
+      reviewers:
+        description: >-
+          Reviewer logins that must each have reviewed the head, comma or
+          space separated, with or without a [bot] suffix. Copilot by
+          default; add chatgpt-codex-connector where Codex is required.
+        type: string
+        required: false
+        default: copilot-pull-request-reviewer
+      tools_ref:
+        description: The tds-utils ref to run the checker from (pin to a sha to freeze it).
+        type: string
+        required: false
+        default: master
+
+permissions:
+  contents: read
+
+jobs:
+  review-settled:
+    name: review-settled
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+      pull-requests: read
+      contents: read
+    steps:
+      # The checker lives in this (public) repo; the caller may be any
+      # repo, so fetch just the two files it needs.
+      - name: Fetch the checker
+        uses: actions/checkout@v4
+        with:
+          repository: 9atatimer/tds-utils
+          ref: ${{ inputs.tools_ref }}
+          path: .review-settled
+          sparse-checkout: |
+            bin/review-settled
+            lib/review-settled.mjs
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Inputs go through env, never interpolated into the script: this is
+      # a public reusable workflow, so `reviewers` is whatever an arbitrary
+      # caller passes, and `${{ }}` in a `run:` block is substituted before
+      # the shell parses it -- a value carrying a quote would execute here,
+      # in a job holding statuses:write.
+      - name: Decide and post the status
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ inputs.pr }}
+          REVIEWERS: ${{ inputs.reviewers }}
+        run: |
+          node .review-settled/bin/review-settled \
+            --repo "$REPO" \
+            --pr "$PR" \
+            --reviewers "$REVIEWERS"
