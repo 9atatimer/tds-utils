@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# realchrome-cdp -- bring the real Google Chrome app up or down under CDP, with
+#                   its profile in the current repo's .cdp/realchrome/ sandbox.
+#
+# Usage:
+#   realchrome-cdp up     [--port N]
+#   realchrome-cdp down
+#   realchrome-cdp status
+#
+# Deliberately a separate command from `cdp`: this launches the everyday
+# Google Chrome app bundle (a second instance on its own profile), which
+# shares -- and takes over -- the Chrome Dock slot while it runs. Prefer
+# `cdp` (Brave or Chrome for Testing) unless the real Chrome is the point.
+#
+# Profile: <repo>/.cdp/realchrome/profile, never the everyday Chrome profile
+# (Chrome refuses remote debugging on its default user-data-dir anyway).
+#
+# Seams: CDP_REALCHROME_BIN overrides the executable; see lib/cdp-browser.sh
+# for CDP_PROBE and CDP_LISTENER_PID.
+#
+# Side effects: launches or terminates a Chrome process; writes <repo>/.cdp/.
+
+set -euo pipefail
+
+# --- Shared libraries ---
+
+CDP_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/cdp-browser.sh
+source "$(dirname "${CDP_SELF_DIR}")/lib/cdp-browser.sh"
+
+# shellcheck disable=SC2034  # read by lib/cdp-browser.sh
+CDP_PROG=realchrome-cdp
+SANDBOX=realchrome
+
+# --- Action functions ---
+
+usage() {
+    echo "usage: realchrome-cdp {up|down|status} [--port N]" >&2
+    exit 2
+}
+
+# chrome_bin -- print Google Chrome's executable path for this platform.
+chrome_bin() {
+    if [ -n "${CDP_REALCHROME_BIN:-}" ]; then
+        printf '%s' "${CDP_REALCHROME_BIN}"
+    elif [ "$(uname -s)" = Darwin ]; then
+        printf '%s' "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    else
+        command -v google-chrome || printf '%s' /usr/bin/google-chrome
+    fi
+}
+
+# --- Main ---
+
+main() {
+    local verb="${1:-}" port="${CDP_DEFAULT_PORT}" root exe
+    [ -n "${verb}" ] || usage
+    shift
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --port) [ $# -ge 2 ] || usage; port="$2"; shift 2 ;;
+            *) usage ;;
+        esac
+    done
+
+    root="$(cdp_repo_root)"
+    case "${verb}" in
+        up)     exe="$(chrome_bin)"; cdp_up "${root}" "${SANDBOX}" "${exe}" "${port}" ;;
+        down)   cdp_down "${root}" "${SANDBOX}" ;;
+        status) cdp_status "${root}" "${SANDBOX}" ;;
+        *)      usage ;;
+    esac
+}
+
+main "$@"
