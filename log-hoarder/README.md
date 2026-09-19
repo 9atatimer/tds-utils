@@ -39,9 +39,11 @@ The human-readable name is recorded alongside, in `<session>/name.txt`. The
 shepherd rewrites it on every sweep, so it tracks renames, and carries it into
 `archived/` with the logs.
 
-Directories written before #307 are keyed on the name; the sweep still judges
-those by name, so they archive normally as their sessions die rather than
-being torn away from a live pipe on upgrade.
+Directories written before #307 are keyed on the name. The sweep tests a key
+against both live ids and live names, so those archive normally as their
+sessions die rather than being torn away from a live pipe on upgrade -- and no
+key's shape has to be trusted, since tmux will happily accept `$1` as a
+session name.
 
 When `TDS_LOG_DIR` is unset, logging is suppressed but diagnostic output is
 still written to `~/log-hoarder.logging.log` (and `~/log-hoarder.shepherd.*.log`

@@ -112,19 +112,17 @@ retire_session_dir() {
     rmdir "${sessiondir}" 2>/dev/null || true
 }
 
-# Returns true if the session a directory key names is currently alive.
+# Returns true if any live session answers to this directory key.
 #
-# Keys are immutable session ids ($N) since issue #307. Directories written
-# before that are keyed on the mutable session NAME, so they are matched by
-# name -- otherwise the upgrade would archive a live session's logs out from
-# under its open pipe. That branch can go once active/ holds no such dirs.
+# Keys are immutable session ids ($N) since issue #307; directories written
+# before that are keyed on the mutable session NAME. Both lists are consulted
+# rather than inferring which kind a key is from its shape -- tmux accepts
+# "$1" as a session NAME, so the shape proves nothing. The bias is
+# deliberate: holding a directory in active/ one sweep too long costs nothing,
+# while archiving a live one out from under its open pipe is the whole defect.
 session_alive() {
     local key="$1"
-    if [[ "${key}" == '$'<-> ]]; then
-        tmux list-sessions -F '#{session_id}' 2>/dev/null | grep -qxF -- "${key}"
-    else
-        tmux list-sessions -F '#S' 2>/dev/null | grep -qxF -- "${key}"
-    fi
+    tmux list-sessions -F $'#{session_id}\n#S' 2>/dev/null | grep -qxF -- "${key}"
 }
 
 # Re-record every live session's name: names change under `rename-session`,

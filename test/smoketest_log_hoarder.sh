@@ -231,6 +231,24 @@ test_legacy_name_keyed_dir_is_swept_by_name() {
         "[[ -d '${TDS_LOG_DIR}/archived/smoke-gone/0/0' ]]"
 }
 
+test_id_shaped_session_name_is_not_read_as_an_id() {
+    bold "\nTest: a legacy dir named like a session id is still judged by name\n"
+
+    # tmux accepts '$9999' as a session NAME, and no session will hold it as
+    # an id here -- so a key's shape cannot say which kind of key it is.
+    tm new-session -d -s '$9999'
+    sleep 1
+    assert "precondition: no live session holds that id" \
+        "! tm list-sessions -F '#{session_id}' | grep -qxF -- '\$9999'"
+
+    local legacy="${TDS_LOG_DIR}/active/"'$9999'"/0/0"
+    mkdir -p "${legacy}"
+
+    run_shepherd
+
+    assert "legacy dir of a live, id-shaped NAME survives" "[[ -d '${legacy}' ]]"
+}
+
 test_cron_brands_unbranded_pane_dirs() {
     bold "\nTest: the cron sweep hands unbranded pane dirs to the brander\n"
 
@@ -280,6 +298,7 @@ main() {
     test_shepherd_skips_alive_session
     test_shepherd_archives_dead_session
     test_legacy_name_keyed_dir_is_swept_by_name
+    test_id_shaped_session_name_is_not_read_as_an_id
     test_cron_brands_unbranded_pane_dirs
     test_logging_suppressed_without_tds_log_dir
 
