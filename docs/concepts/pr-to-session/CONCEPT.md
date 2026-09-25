@@ -62,10 +62,15 @@ Working label `pr-to-session`; the name is open.
   Chores is the dashboard mould (one `status()` query, several surfaces).
 - log-hoarder's localhost HTTP+JSON daemon is the transport precedent;
   NATS KV `agent.<agent>.<session>.state` is the other.
+- Stable session identity already exists: `bin/tmux_logging.sh` keys log
+  dirs on `#{session_id}` (issue #307 / task-021, landed). The constraint
+  a reverse map inherits: a tmux id is unique only for the life of one
+  tmux server, so after a server restart an id can be reused;
+  log-hoarder pairs it with `#{session_created}` (a creation stamp) to
+  tell the new session from the old one.
 
 **What the idea leans on that does not exist yet:**
 
-- Stable session identity (`#{session_id}`, tmux-herd task-021 / issue #307).
 - Any browser extension or userscript anywhere in tds-utils or
   template-tools. `lmde/TECH_RADAR.md` has no row for MV3 extensions,
   Swift, Electron, Tauri, Rust, or plain sqlite; rumps is un-radared
