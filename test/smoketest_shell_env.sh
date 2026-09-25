@@ -259,7 +259,7 @@ check_noninteractive_startup_is_fast() {
 # cost of nvm's loader. That resolver is invisible to the parity checks above:
 # it degrades by dropping the entry, and Homebrew's node then backfills `node`
 # and `npm`, so both shell shapes stay equal and equally wrong. Meanwhile the
-# binary that actually vanishes -- `claude`, an npm global scoped to one node
+# binary that actually vanishes -- `gadmin`, an npm global scoped to one node
 # version -- is not a tool any other check probes. So exercise the resolver
 # directly, against the alias shapes nvm really writes.
 #

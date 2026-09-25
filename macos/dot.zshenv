@@ -147,8 +147,9 @@ tds_nvm_default_bin() {
 #   pyenv shims       pyenv global is 3.12.4; Homebrew ships python3 3.14.6.
 #                     Shims must outrank Homebrew or an agent gets a different
 #                     interpreter than the terminal does.
-#   node default bin  `claude` is an npm global scoped to that node version
-#                     alone; Homebrew's node does not carry it.
+#   node default bin  gadmin, naatm-admin and naatm-sandbox are npm globals
+#                     scoped to that node version alone; Homebrew's node does
+#                     not carry them. (`claude` is brew-only, not here.)
 #   go/bin            `go install` target (goimports and friends).
 #   tds-utils/bin     this repo's scripts (lmde, goldfish, orgmarks, ...).
 #   Homebrew bin,     GNU bash 5.x (readarray), gh, uv, git, tmux, direnv, op,
