@@ -58,6 +58,9 @@ sure I don't make mistakes.
 
 I want "observability" on my writing: something that can be monitored,
 adjusted, and AI-influenced, to produce a final result that is "Green".
+Green means it is meeting all quality bars: it is consistent, matches the
+narrative arcs, is correct, gets positive marks from the AI reviewers,
+stays on-tone and on-voice, et cetera.
 
 ## Story sets
 
@@ -92,11 +95,14 @@ adjusted, and AI-influenced, to produce a final result that is "Green".
   I don't, have it filled.
 - Technical writing gets the same loop plus guardrails against mistakes.
 - The writing has "observability" and a "Green" end state.
+- Green = meeting all quality bars: consistency, matching the narrative
+  arcs, correctness, positive marks from AI reviewers, on-tone, on-voice,
+  et cetera.
 
 **Open:**
 
-- What "Green" means -- what has to be true of a story, or a technical
-  document, for it to be done.
+- Who sets the quality bars behind Green, and whether they differ per
+  work, per genre, or per author.
 - Pictures and video are a "maybe."
 - Word integration is assumed possible, not known.
 - Working label `iae`; the name is open.
