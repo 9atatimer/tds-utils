@@ -273,16 +273,16 @@ RevisionSession   a working copy of a node's text open in the editor
 | Which Rs happen where | Read, review (incl. attaching notes), and reject in the Multiverse View; revise triggers an emacs session | Todd, 2026-09-26 |
 | Lights | Traffic light from expectations over analyzer metrics with confidence | Concept, "The model" |
 | Paths | Manual or guided by a policy; saved paths keep a permanent revision history and can be forked | Todd, 2026-09-26 (transcribed "parts", read as "paths" -- see Open Questions) |
+| Nexus order in the POC | One fixed nexus order; paths differ only in which node they pick at each nexus (agent's call; Todd to confirm) | Proves the multiverse view, lights, and saved paths without structural forks; structural forks are MVP |
 | Analyzer count for POC | Two: one objective, one contextual | The smallest set that exercises both kinds the concept names |
 
 ---
 
 ## Open Questions
 
-1. **Branching structure** -- the POC treats a path as one node per
-   nexus. The concept's forks change which nexuses follow ("Joe dead" has
-   no apartment scene); does the POC need paths that pass through
-   different nexuses, or is one fixed nexus order enough to prove it?
+1. **Structural forks** -- decided below for the POC (fixed nexus
+   order); whether MVP paths may pass through different nexuses (the
+   concept's "Joe dead, no apartment scene") stays open.
 2. **Snippet vs node vs nexus naming** -- "snippet" (concept) is used
    here as the author-facing word for a node's text; confirm the three
    nouns.
