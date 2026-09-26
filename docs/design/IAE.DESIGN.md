@@ -108,6 +108,25 @@ are phase 3.
 | Rank a nexus | Siblings ordered green, amber, red; ties by creation time, newest first |
 | Carry the 4 Rs | Read, review, reject, revise as use cases (below) |
 
+### Paths
+
+A path is either **manual** -- the author picks the node at each nexus --
+or **guided** by a policy that picks for them. POC policies:
+
+| Policy | Picks, at each nexus, the non-rejected node with... |
+|---|---|
+| most steamy | the highest steaminess value |
+| least words | the fewest words |
+| least AI | the smallest share of AI-authored text |
+| most green | the best light (the default ranking) |
+
+Ties break by light, then newest. A guided path is resolved once, when
+asked; it does not re-route itself as new nodes arrive.
+
+Paths can be **saved** under a name. A saved path has a permanent revision
+history: every change to it appends a revision, none is ever lost, and
+any revision can be **forked** into a new saved path.
+
 ### Generator
 
 Writes new node text for a nexus. Input: the author's intent note for the
@@ -177,6 +196,9 @@ replaced by seams in phase 3.
 | A node is revised by the AI | `revise_node_with_note(node: NodeId, path: Path, note: IntentNote) -> Node` | text generation, project store | Given a note "more salty", When revision runs, Then a new sibling node linked to its origin is added |
 | A node is lit | `light_node(node: NodeId, path: Path) -> Light` | analysis | Given expectations on a nexus, When the node's analyzers report, Then the light follows the light rules table |
 | A nexus is ranked | `rank_nexus(nexus: NexusId, path: Path) -> list[RankedNode]` | analysis, project store | Given a nexus with green, amber, and red nodes, When ranked, Then the order is green, amber, red |
+| A path is guided | `guide_path(policy: PathPolicy, from_path: Path) -> Path` | analysis, project store | Given nexuses holding nodes of different word counts, When the author guides by "least words", Then each nexus contributes its shortest non-rejected node |
+| A path is saved | `save_path(name: PathName, path: Path) -> SavedPath` | project store | Given a path, When saved under an existing name, Then a new revision is appended and every earlier revision is still retrievable |
+| A saved path is forked | `fork_path(saved: SavedPathId, revision: RevisionNumber, name: PathName) -> SavedPath` | project store | Given a saved path with 3 revisions, When revision 2 is forked, Then a new saved path starts from revision 2, records its origin, and the original is unchanged |
 | A path is chosen | `choose_node(path: Path, node: NodeId) -> Path` | project store | Given a path, When the author picks another node at a nexus, Then the new path runs through it and downstream contextual lights are recomputed |
 | A path is read as a work | `render_path(path: Path) -> Manuscript` | project store | Given a path, When rendered, Then the manuscript is the path's node texts in order |
 
@@ -205,6 +227,14 @@ Nexus
 Edge              Node -> Node, "may follow"
 
 Path              ordered list of NodeId
+
+PathPolicy        manual | most steamy | least words | least AI | most green
+
+SavedPath
++-- id            SavedPathId
++-- name          PathName
++-- revisions     append-only list of (RevisionNumber, Path, created_at)
++-- forked_from   (SavedPathId, RevisionNumber) or none
 
 Expectation
 +-- nexus         NexusId
@@ -242,6 +272,7 @@ RevisionSession   a working copy of a node's text open in the editor
 | Where the Multiverse View lives | Its own visualization layer, separate from the editor | Todd, 2026-09-26: "Graph view will need to be its own visualization layer" |
 | Which Rs happen where | Read, review (incl. attaching notes), and reject in the Multiverse View; revise triggers an emacs session | Todd, 2026-09-26 |
 | Lights | Traffic light from expectations over analyzer metrics with confidence | Concept, "The model" |
+| Paths | Manual or guided by a policy; saved paths keep a permanent revision history and can be forked | Todd, 2026-09-26 (transcribed "parts", read as "paths" -- see Open Questions) |
 | Analyzer count for POC | Two: one objective, one contextual | The smallest set that exercises both kinds the concept names |
 
 ---
@@ -255,10 +286,15 @@ RevisionSession   a working copy of a node's text open in the editor
 2. **Snippet vs node vs nexus naming** -- "snippet" (concept) is used
    here as the author-facing word for a node's text; confirm the three
    nouns.
-3. **Home repo** -- the concept lives in tds-utils; the tool is a product
+3. **"Parts" or "paths"** -- Todd's message said "Parts can be manual,
+   or guided... Parts can be saved"; read as paths. Confirm.
+4. **Measuring "least AI"** -- share of words in AI-authored nodes; when
+   the author hand-revises an AI node, is the new node human, AI, or
+   mixed?
+5. **Home repo** -- the concept lives in tds-utils; the tool is a product
    of its own and may want its own repository.
-4. **Voice sample** -- which accepted nodes form it, and how much.
-5. **Model vendor(s)** for generator and analyzers -- phase 3, tech radar.
+6. **Voice sample** -- which accepted nodes form it, and how much.
+7. **Model vendor(s)** for generator and analyzers -- phase 3, tech radar.
 
 ---
 
