@@ -275,6 +275,7 @@ RevisionSession   a working copy of a node's text open in the editor
 | Lights | Traffic light from expectations over analyzer metrics with confidence | Concept, "The model" |
 | Paths | Manual or guided by a policy; saved paths keep a permanent revision history and can be forked | Todd, 2026-09-26 (transcribed "parts", read as "paths" -- see Open Questions) |
 | AI taint | Every node carries an AI taint weight 0.0-1.0; hand-revising an AI node yields a tainted node, not a clean one; the formula is an implementation detail | Todd, 2026-09-26: "Tainted, clearly" |
+| Home repo | tds-utils, for now | Todd, 2026-09-26: "Just go with what we got for now"; moving it out is a later detail |
 | Nexus order in the POC | One fixed nexus order; paths differ only in which node they pick at each nexus (agent's call; Todd to confirm) | Proves the multiverse view, lights, and saved paths without structural forks; structural forks are MVP |
 | Analyzer count for POC | Two: one objective, one contextual | The smallest set that exercises both kinds the concept names |
 
@@ -293,10 +294,8 @@ RevisionSession   a working copy of a node's text open in the editor
 4. **Measuring AI taint** -- settled that it is a 0-1 weight and that a
    hand revision of an AI node is tainted; the formula (starting from
    word-count share) is an implementation detail, not design.
-5. **Home repo** -- the concept lives in tds-utils; the tool is a product
-   of its own and may want its own repository.
-6. **Voice sample** -- which accepted nodes form it, and how much.
-7. **Model vendor(s)** for generator and analyzers -- phase 3, tech radar.
+5. **Voice sample** -- which accepted nodes form it, and how much.
+6. **Model vendor(s)** for generator and analyzers -- phase 3, tech radar.
 
 ---
 
