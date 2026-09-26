@@ -63,6 +63,15 @@ synthesize, analyze, and evaluate the options: "Should Joe die here, or
 in Act 3?" "Should she say yes? Fuck no? Hell no? Maybe?" The writing
 tools help consider all those possibilities.
 
+It literally treats writing like a graph. You aren't writing one
+revision; you're forking off an infinite number of potential revisions
+with each change. "I'm going to kill Joe in Act 2, not Act 3..." -- and it
+should just figure out what impact that has on plot structure, character
+knowledge, character emotion. Can't use Joe's apartment in Act 3 if he's
+dead in Act 2 -- or at least there'd better be some change in tone. Et
+cetera. Some of those graph lines will be green, some red, some orange,
+some other colors.
+
 We're taking writing to the next level.
 
 When technical writing, I want the same thing, plus guardrails that make
@@ -79,7 +88,7 @@ stays on-tone and on-voice, et cetera.
 | File | Theme |
 |---|---|
 | STORIES.composing.md | structure in my words, ideas dumped raw, the prose filled in for me |
-| STORIES.variants.md | nothing is a single revision: every version kept, swappable, blended, weighed |
+| STORIES.variants.md | writing as a graph: every change forks, consequences are worked out, every line colored |
 | STORIES.observability.md | watching the writing move toward "Green", and guardrails |
 | STORIES.workspace.md | the IDE-shaped shell: toolbar, tabs, left and right panels, the editor in the middle |
 | STORIES.corpus.md | the many files, of many formats, that cut across the writing |
@@ -111,6 +120,11 @@ stays on-tone and on-voice, et cetera.
   swappable, composable, blended.
 - The IAE helps synthesize, analyze, and evaluate the alternatives,
   including story-level choices ("Should Joe die here, or in Act 3?").
+- Writing is a graph: each change forks potential revisions. A
+  story-level change ("kill Joe in Act 2, not Act 3") has its impact on
+  plot structure, character knowledge, and character emotion worked out
+  by the IAE, not by the author.
+- Graph lines carry a status color: green, red, orange, others.
 - Technical writing gets the same loop plus guardrails against mistakes.
 - The writing has "observability" and a "Green" end state.
 - Green = meeting all quality bars: consistency, matching the narrative
