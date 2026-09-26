@@ -14,3 +14,7 @@ Structure in my words, ideas dumped raw, the prose filled in for me.
   voice, with my own ideas.
 - As an author, I get dialog without pulling teeth.
 - As an author, I produce the work faster than I could ever write it.
+- As an author, the IAE learns my voice from what I have written in this
+  project.
+- As an author, I can point the IAE at a corpus of my prior works so it
+  is aware of them when it writes in my voice.

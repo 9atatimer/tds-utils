@@ -51,7 +51,9 @@ I've set, to produce a compelling story.
 
 Like ai-author in emacs: I write what I want to write, mark out the areas
 I don't want to write, and LLMs help fill those in -- in my own voice,
-with my own ideas, faster than I could ever write.
+with my own ideas, faster than I could ever write. My voice comes from
+what I've written: either in the project, or a corpus of prior works I
+want it to be aware of.
 
 A manuscript isn't a single revision. That's the way paper works, not
 electricity. Every revision, scene, draft, and vignette is kept --
@@ -213,6 +215,8 @@ Expectations, as Todd gave them:
   predicate notes, discussing with AIs, copy-editor mode, or author mode.
 - Summaries and outlines (act, chapter, stages) become events or regions
   on a timeline and feed contextual metrics.
+- The author's voice is learned from what the author has written: the
+  project itself, or a corpus of prior works the author chooses.
 - Technical writing gets the same loop plus guardrails against mistakes.
 - The writing has "observability" and a "Green" end state.
 - Green = meeting all quality bars: consistency, matching the narrative
