@@ -163,8 +163,9 @@ The 0.7 threshold is a POC parameter, not a rule of the domain.
 Its own app and visualization layer, separate from the editor. It may be
 a web app, but it must operate properly with the author's running emacs
 server session: revise opens the working copy in that session (a new
-frame or buffer of the existing server), not in a fresh emacs. Key
-bindings are the known risk for a web implementation. Draws the graph
+frame or buffer of the existing server), not in a fresh emacs. Outside
+the emacs session the view defines its own key bindings, and needs few:
+navigating the path and moving the camera. Draws the graph
 left-to-right in path order; each nexus is a carousel column of its
 nodes, most-green on top; the current path is a highlighted line through
 one node per column. Clicking a node opens the 4 Rs:
@@ -276,6 +277,7 @@ RevisionSession   a working copy of a node's text open in the editor
 | Where prose is written | The author's own editor (emacs), on plain files | Concept: editor is the author's choice; snippets are files the editor works on |
 | Where the Multiverse View lives | Its own visualization layer, separate from the editor | Todd, 2026-09-26: "Graph view will need to be its own visualization layer" |
 | Multiverse View runtime | Its own app; web is acceptable if it operates properly with a running emacs server session; the runtime choice is phase 3 | Todd, 2026-09-26: "I think it's its own app. Could be web... I suspect key bindings make that hard" |
+| Multiverse View key bindings | Its own, not emacs's; only path navigation and camera movement | Todd, 2026-09-26 |
 | Which Rs happen where | Read, review (incl. attaching notes), and reject in the Multiverse View; revise triggers an emacs session | Todd, 2026-09-26 |
 | Lights | Traffic light from expectations over analyzer metrics with confidence | Concept, "The model" |
 | Paths | Manual or guided by a policy; saved paths keep a permanent revision history and can be forked | Todd, 2026-09-26 (transcribed "parts", read as "paths" -- see Open Questions) |
@@ -299,9 +301,9 @@ RevisionSession   a working copy of a node's text open in the editor
 4. **Measuring AI taint** -- settled that it is a 0-1 weight and that a
    hand revision of an AI node is tainted; the formula (starting from
    word-count share) is an implementation detail, not design.
-5. **Key bindings in the Multiverse View** -- which keys the author
-   expects to work in the view, and whether they must be emacs-style;
-   this decides whether web is viable.
+5. **What the Multiverse View is built on** -- an off-the-shelf graph
+   visualization if one fits; otherwise Todd names Godot as the build
+   option. Phase 3, through the tech radar.
 6. **Voice sample** -- which accepted nodes form it, and how much.
 7. **Model vendor(s)** for generator and analyzers -- phase 3, tech radar.
 
