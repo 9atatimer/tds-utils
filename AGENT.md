@@ -421,6 +421,12 @@ main "$@"
 - `set -euo pipefail` at the top.
 - Functions grouped and labeled with section comments (`# --- Section ---`).
 - Use `local` for all function-scoped variables.
+- Cleanup that must run (a temp dir holding a credential, a child to
+  stop) traps the signals by name: `trap cleanup EXIT INT TERM HUP`. In
+  zsh an `EXIT` trap alone does not run when the script is killed by
+  SIGTERM -- not at top level, not inside a function (verified, zsh 5.9,
+  2026-09-25: a spike runner left a registry credential on disk after
+  `kill -TERM`). Only the named signal traps fire.
 
 ## Agent Operating Rules
 
