@@ -34,7 +34,10 @@ you with observations: "This contradicts Y." "X wouldn't say that because
 he doesn't know."
 
 An AI helps you get set up. You just have a conversation with it, and it
-sets all the details.
+sets all the details. When that conversation ends, what's in place is:
+act structure, character bibles, settings notes, an outline, scene notes,
+probably what is wanted and what to avoid, language and tone, and a
+description of the audience.
 
 All the ai-author concepts are in: knowledge bases, scene flow, dramatic
 notes, storyboarding, act structure -- and the tooling to fill them in by
@@ -175,7 +178,9 @@ Expectations, as Todd gave them:
   in the middle.
 - The editor is the author's choice, integrated by plugin; emacs is Todd's.
 - There are two kinds of agent: ones you ask, and ones that watch.
-- Setup is a conversation with an AI.
+- Setup is a conversation with an AI. It leaves in place: act structure,
+  character bibles, settings notes, outline, scene notes, what is wanted,
+  what to avoid, language and tone, description of the audience.
 - The biggest drag on pace today is the writing itself: the literal
   words. Dialog is pulling teeth.
 - The author's words define structure (boundaries, narratives, emotional
