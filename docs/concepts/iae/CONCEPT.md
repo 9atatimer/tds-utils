@@ -167,7 +167,9 @@ Expectations, as Todd gave them:
 
 ## Notes
 
-**Settled in session (Todd's words):**
+**Settled in session (Todd's words), grouped:**
+
+*Shape of the product*
 
 - The existing emacs tooling (`emacs/dot.emacs.d/elisp/tds-v3-ai-author*.el`)
   is illustrative only -- "wood and stone." The IAE is "glass and steel."
@@ -176,76 +178,94 @@ Expectations, as Todd gave them:
 - It looks like an IDE: toolbar across the top, tabs driving the
   left-hand panels, AI agent panels on the right, the author's own editor
   in the middle.
-- The editor is the author's choice, integrated by plugin; emacs is Todd's.
-- What the editor holds is snippets: a file the editor can work on. LaTeX
-  or plain text -- either.
-- There are two kinds of agent: ones you ask, and ones that watch.
+- The editor is the author's choice, integrated by plugin; emacs is
+  Todd's. What the editor holds is snippets: a file the editor can work
+  on. LaTeX or plain text -- either.
 - Setup is a conversation with an AI. It leaves in place: act structure,
   character bibles, settings notes, outline, scene notes, what is wanted,
   what to avoid, language and tone, description of the audience.
+
+*Composing*
+
 - The biggest drag on pace today is the writing itself: the literal
   words. Dialog is pulling teeth.
 - The author's words define structure (boundaries, narratives, emotional
-  curves, details, moments); raw ideas are dictated in; LLMs produce the
+  curves, details, moments); raw ideas are dumped in; LLMs produce the
   prose to fit, in the author's voice and with the author's ideas.
 - Raw input is both spoken dictation ("Whisper et al.") and shotgun
   stream-of-consciousness typing: incoherent thoughts that get processed
   into readable thoughts.
 - The ai-author loop carries over as intent: write what I want, mark what
   I don't, have it filled.
+- The author's voice is learned from what the author has written: the
+  project itself, or a corpus of prior works the author chooses.
+
+*Graph and variants*
+
 - A manuscript is not a single revision. Every revision, scene, draft,
   vignette, variation, and rewrite is kept and selectable by a click --
   swappable, composable, blended.
-- The IAE helps synthesize, analyze, and evaluate the alternatives,
-  including story-level choices ("Should Joe die here, or in Act 3?").
-- Writing is a graph: each change forks potential revisions. A
-  story-level change ("kill Joe in Act 2, not Act 3") has its impact on
+- Writing is a graph: each change forks potential revisions. Pages are a
+  graph path through writing snippets.
+- A story-level change ("kill Joe in Act 2, not Act 3") has its impact on
   plot structure, character knowledge, and character emotion worked out
-  by the IAE, not by the author.
+  by the IAE, not by the author. The IAE helps synthesize, analyze, and
+  evaluate the alternatives.
 - Graph lines carry a traffic-light status: red, amber, green. Non-green
   lines are violating constraints.
-- Two kinds of constraint named so far: factual correctness (hair color,
-  locations described properly) and emotional/thematic correctness
-  (rising action, steamy).
-- Work likely starts as disjointed high points (scenes, stories, reveals)
-  that are then arranged on a timeline.
-- A third timeline exists: the editorial (page-number) timeline.
-- Chronological timeline (cause and effect) and narrative timeline
-  (flashback, flashforward, amnesia, unreliable narrator) are distinct;
-  the narrative timeline is what puts the words on the page.
+
+*Observability and Green*
+
 - The analyzer / metric / expectation model in "The model" is Todd's own
   and is settled at the level he stated it. It is mechanism volunteered in
   phase 1: phase 2 takes it as the human's intent and still reviews it.
-- "a private" in Todd's message was autocorrect for "a predicate";
-  confirmed.
-- AIs and analyzers/classifiers come in background and foreground; the
-  foreground may include real-time specialists. Notifications are one
-  general channel used by all of them. Whether "watching agents" and
-  "analyzers" are one thing was asked; this is the answer as given.
-- Pages are a graph path through writing snippets.
-- A red expectation is worked from the editorial (page-number) timeline
-  down to the page and the offending region, then handled by reading
-  predicate notes, discussing with AIs, copy-editor mode, or author mode.
-- Summaries and outlines (act, chapter, stages) become events or regions
-  on a timeline and feed contextual metrics.
-- The author's voice is learned from what the author has written: the
-  project itself, or a corpus of prior works the author chooses.
-- Technical writing gets the same loop plus guardrails against mistakes:
-  factual errors, style/format compliance, code correctness.
-- The writing has "observability" and a "Green" end state.
 - Green = meeting all quality bars: consistency, matching the narrative
   arcs, correctness, positive marks from AI reviewers, on-tone, on-voice,
   et cetera.
+- Two kinds of constraint named: factual correctness (hair color,
+  locations described properly) and emotional/thematic correctness
+  (rising action, steamy).
+- Technical writing gets the same loop plus guardrails against mistakes:
+  factual errors, style/format compliance, code correctness.
+- AIs and analyzers/classifiers come in background and foreground; the
+  foreground may include real-time specialists. Notifications are one
+  general channel used by all of them. (Asked whether "watching agents"
+  and "analyzers" are one thing; this is the answer as given.)
+- A red expectation is worked from the editorial (page-number) timeline
+  down to the page and the offending region, then handled by reading
+  predicate notes, discussing with AIs, copy-editor mode, or author mode.
+- "a private" in Todd's message was autocorrect for "a predicate";
+  confirmed.
+
+*Craft and timelines*
+
+- Work likely starts as disjointed high points (scenes, stories, reveals)
+  that are then arranged on a timeline.
+- Three timelines: chronological (cause and effect), narrative
+  (flashback, flashforward, amnesia, unreliable narrator -- what puts the
+  words on the page), and editorial (page number).
+- Summaries and outlines (act, chapter, stages) become events or regions
+  on a timeline and feed contextual metrics.
+
+*Media*
+
+- Pictures and video are a "maybe"; what they'd be for is named:
+  character portraits, reference graphs or charts, math formulae, tables,
+  maps.
 
 **Open:**
 
 - Transcription: "code in correction" was read as "code correctness";
-  confirm.
-- Who sets the quality bars behind Green, and whether they differ per
-  work, per genre, or per author.
-- Pictures and video are a "maybe."
+  unconfirmed.
+- What comes out the other end once a work is Green -- asked, unanswered
+  when the session closed.
+- Who sets the quality bars behind Green beyond what setup produces, and
+  whether they differ per work, per genre, or per author.
 - Word integration is assumed possible, not known.
 - Working label `iae`; the name is open.
 
 **Leans on:** nothing in this repo beyond the emacs tooling as a
 reference for what an inline AI loop felt like.
+
+**Exit:** Todd closed the concept session on 2026-09-26 and moved to
+POC/MVP requirements -- phase 2 opens from here.
