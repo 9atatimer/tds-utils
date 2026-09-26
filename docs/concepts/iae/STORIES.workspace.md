@@ -14,3 +14,6 @@ The IDE-shaped shell around the writing.
   around it.
 - As a vi author, I can do the same in vi.
 - As a Word author, I can do the same in Word.
+- As an author, the thing open in my editor is a snippet, in a file my
+  editor works on natively.
+- As an author, my snippets can be LaTeX or plain text.

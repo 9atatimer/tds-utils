@@ -177,6 +177,8 @@ Expectations, as Todd gave them:
   left-hand panels, AI agent panels on the right, the author's own editor
   in the middle.
 - The editor is the author's choice, integrated by plugin; emacs is Todd's.
+- What the editor holds is snippets: a file the editor can work on. LaTeX
+  or plain text -- either.
 - There are two kinds of agent: ones you ask, and ones that watch.
 - Setup is a conversation with an AI. It leaves in place: act structure,
   character bibles, settings notes, outline, scene notes, what is wanted,
