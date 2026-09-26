@@ -477,12 +477,18 @@ This repo lands PRs through the tedium merge bot; the rules are in
 
 - **Required checks.** `gate` (the `dist-ci.yml` job that needs every
   other job) must be green on the PR head AND on the staging commit tedium
-  builds on `tedium/merge` (`status` in `tedium.toml`). `review-settled`
-  (the commit status from `.github/workflows/review-settled.yml`:
-  Copilot's newest review is on the head and every thread is resolved)
-  must be green on the PR head only (`pr_status`); the staging commit
-  never carries it. The `master` ruleset requires both on the PR head once
-  tds-internal's github root is applied.
+  builds on `tedium/merge` (`status` in `tedium.toml`). The `master`
+  ruleset requires `gate` and a PR; only the tedium App may bypass it.
+- **No review gate while Copilot has no quota (2026-09-26).**
+  `review-settled` (the commit status from
+  `.github/workflows/review-settled.yml`: Copilot's newest review is on
+  the head and every thread is resolved) still posts, but neither
+  `pr_status` nor the ruleset requires it: with no quota it can never go
+  green. Tedium therefore lands a green PR on a reviewer's `r+` with no
+  review at all. Restore it in `pr_status` when Copilot reviews again.
+- **Reviewers** (who may `r+`) are the repo's direct collaborators with
+  push, synced by tedium. An agent acting under a reviewer's token is a
+  reviewer.
 - **`gate` is the only name to add to.** A new CI job goes into `gate`'s
   `needs`; a job outside it cannot block a landing.
 - **`hold` label** keeps a PR out of the queue. `tedium dryrun` builds it
