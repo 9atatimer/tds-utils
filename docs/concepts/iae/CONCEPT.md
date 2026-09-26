@@ -53,6 +53,18 @@ Like ai-author in emacs: I write what I want to write, mark out the areas
 I don't want to write, and LLMs help fill those in -- in my own voice,
 with my own ideas, faster than I could ever write.
 
+A manuscript isn't a single revision. That's the way paper works, not
+electricity. Every revision, scene, draft, and vignette is kept --
+revisions, variations, rewrites -- and all of it is selectable by a click:
+swappable, composable, blended. You can go back to an earlier revision,
+keep the tone, keep a phrase, strike through a line, make a note to be
+more loving, salty, truthful, deceitful, et cetera. And the IAE helps you
+synthesize, analyze, and evaluate the options: "Should Joe die here, or
+in Act 3?" "Should she say yes? Fuck no? Hell no? Maybe?" The writing
+tools help consider all those possibilities.
+
+We're taking writing to the next level.
+
 When technical writing, I want the same thing, plus guardrails that make
 sure I don't make mistakes.
 
@@ -67,6 +79,7 @@ stays on-tone and on-voice, et cetera.
 | File | Theme |
 |---|---|
 | STORIES.composing.md | structure in my words, ideas dumped raw, the prose filled in for me |
+| STORIES.variants.md | nothing is a single revision: every version kept, swappable, blended, weighed |
 | STORIES.observability.md | watching the writing move toward "Green", and guardrails |
 | STORIES.workspace.md | the IDE-shaped shell: toolbar, tabs, left and right panels, the editor in the middle |
 | STORIES.corpus.md | the many files, of many formats, that cut across the writing |
@@ -93,6 +106,11 @@ stays on-tone and on-voice, et cetera.
   prose to fit, in the author's voice and with the author's ideas.
 - The ai-author loop carries over as intent: write what I want, mark what
   I don't, have it filled.
+- A manuscript is not a single revision. Every revision, scene, draft,
+  vignette, variation, and rewrite is kept and selectable by a click --
+  swappable, composable, blended.
+- The IAE helps synthesize, analyze, and evaluate the alternatives,
+  including story-level choices ("Should Joe die here, or in Act 3?").
 - Technical writing gets the same loop plus guardrails against mistakes.
 - The writing has "observability" and a "Green" end state.
 - Green = meeting all quality bars: consistency, matching the narrative
