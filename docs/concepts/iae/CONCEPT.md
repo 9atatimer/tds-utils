@@ -90,7 +90,8 @@ timeline -- flashback, flashforward, drug-induced amnesia, a literally
 untrustworthy narrator -- which is what nails the words to the page.
 
 When technical writing, I want the same thing, plus guardrails that make
-sure I don't make mistakes.
+sure I don't make mistakes: factual errors, style/format compliance, code
+correctness.
 
 I want "observability" on my writing: something that can be monitored,
 adjusted, and AI-influenced, to produce a final result that is "Green".
@@ -217,7 +218,8 @@ Expectations, as Todd gave them:
   on a timeline and feed contextual metrics.
 - The author's voice is learned from what the author has written: the
   project itself, or a corpus of prior works the author chooses.
-- Technical writing gets the same loop plus guardrails against mistakes.
+- Technical writing gets the same loop plus guardrails against mistakes:
+  factual errors, style/format compliance, code correctness.
 - The writing has "observability" and a "Green" end state.
 - Green = meeting all quality bars: consistency, matching the narrative
   arcs, correctness, positive marks from AI reviewers, on-tone, on-voice,
@@ -225,6 +227,8 @@ Expectations, as Todd gave them:
 
 **Open:**
 
+- Transcription: "code in correction" was read as "code correctness";
+  confirm.
 - Who sets the quality bars behind Green, and whether they differ per
   work, per genre, or per author.
 - Pictures and video are a "maybe."

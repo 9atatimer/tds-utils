@@ -21,6 +21,11 @@ Analyzers, metrics, expectations, and the traffic light toward "Green".
   bars.
 - As a technical writer, I have guardrails that make sure I don't make
   mistakes.
+- As a technical writer, factual errors are caught.
+- As a technical writer, departures from the required style and format
+  are caught.
+- As a technical writer, code in the document that is not correct is
+  caught.
 - As an author, I can run analyzers over a section of writing, along a
   path I choose through the graph, and see a time series of metric values.
 - As an author, I see every metric value with a confidence number.
