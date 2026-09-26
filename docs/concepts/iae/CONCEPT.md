@@ -122,6 +122,16 @@ outlines, stages, and such, which lend themselves to events on a timeline
 -- maybe regions on a timeline. Those high-level summaries feed into the
 contextual metrics.
 
+Pages are composed of a graph path through writing snippets. You add a
+new snippet, or signal a revision of an existing snippet, add a segue, et
+cetera.
+
+When an expectation goes red, you view the editorial (page-number)
+timeline and see the offending pages, then drill into a page and see the
+offending regions. From there: click to review the predicate's notes;
+open a discussion with one or more AIs; engage copy-editor mode to strike
+through things and leave notes; engage author mode and write a revision.
+
 Expectations, as Todd gave them:
 
 - **Steamy-ness, for romantasy.** Certain scenes need it. Others must not
@@ -136,6 +146,7 @@ Expectations, as Todd gave them:
 | File | Theme |
 |---|---|
 | STORIES.composing.md | structure in my words, ideas dumped raw, the prose filled in for me |
+| STORIES.reviewing.md | from a red light to the offending page, the region, and the fix |
 | STORIES.variants.md | writing as a graph: every change forks, consequences are worked out, every line colored |
 | STORIES.observability.md | analyzers, metrics, expectations, and the traffic light toward "Green" |
 | STORIES.workspace.md | the IDE-shaped shell: toolbar, tabs, left and right panels, the editor in the middle |
@@ -179,6 +190,7 @@ Expectations, as Todd gave them:
   (rising action, steamy).
 - Work likely starts as disjointed high points (scenes, stories, reveals)
   that are then arranged on a timeline.
+- A third timeline exists: the editorial (page-number) timeline.
 - Chronological timeline (cause and effect) and narrative timeline
   (flashback, flashforward, amnesia, unreliable narrator) are distinct;
   the narrative timeline is what puts the words on the page.
@@ -187,6 +199,10 @@ Expectations, as Todd gave them:
   phase 1: phase 2 takes it as the human's intent and still reviews it.
 - "a private" in Todd's message was autocorrect for "a predicate";
   confirmed.
+- Pages are a graph path through writing snippets.
+- A red expectation is worked from the editorial (page-number) timeline
+  down to the page and the offending region, then handled by reading
+  predicate notes, discussing with AIs, copy-editor mode, or author mode.
 - Summaries and outlines (act, chapter, stages) become events or regions
   on a timeline and feed contextual metrics.
 - Technical writing gets the same loop plus guardrails against mistakes.
