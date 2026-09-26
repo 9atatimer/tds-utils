@@ -168,6 +168,8 @@ Expectations, as Todd gave them:
 
 - The existing emacs tooling (`emacs/dot.emacs.d/elisp/tds-v3-ai-author*.el`)
   is illustrative only -- "wood and stone." The IAE is "glass and steel."
+- Single-seat tool: no human editors, co-authors, or beta readers inside
+  a project. The only human role is the author.
 - It looks like an IDE: toolbar across the top, tabs driving the
   left-hand panels, AI agent panels on the right, the author's own editor
   in the middle.
