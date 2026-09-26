@@ -70,7 +70,7 @@ should just figure out what impact that has on plot structure, character
 knowledge, character emotion. Can't use Joe's apartment in Act 3 if he's
 dead in Act 2 -- or at least there'd better be some change in tone. Et
 cetera. Some of those graph lines will be green, some red, some orange,
-some other colors.
+some other colors -- the non-green ones are violating other constraints.
 
 We're taking writing to the next level.
 
@@ -124,7 +124,8 @@ stays on-tone and on-voice, et cetera.
   story-level change ("kill Joe in Act 2, not Act 3") has its impact on
   plot structure, character knowledge, and character emotion worked out
   by the IAE, not by the author.
-- Graph lines carry a status color: green, red, orange, others.
+- Graph lines carry a status color: green, red, orange, others. Non-green
+  lines are violating constraints.
 - Technical writing gets the same loop plus guardrails against mistakes.
 - The writing has "observability" and a "Green" end state.
 - Green = meeting all quality bars: consistency, matching the narrative
