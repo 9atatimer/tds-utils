@@ -6,6 +6,9 @@ Structure in my words, ideas dumped raw, the prose filled in for me.
   boundaries, narratives, emotional curves, details, and moments.
 - As an author, I can stream-of-consciousness my ideas, dictation-like,
   into a file without stopping to shape them.
+- As an author, I can speak my ideas and have them land as text.
+- As an author, I can shotgun-type incoherent thoughts and have them
+  processed into readable thoughts.
 - As an author, I can have that raw dump ground up, pulled apart, and made
   to fit the constraints I set, so it becomes a compelling story.
 - As an author, I write the parts I want to write and mark out the parts I

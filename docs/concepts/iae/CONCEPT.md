@@ -188,6 +188,9 @@ Expectations, as Todd gave them:
 - The author's words define structure (boundaries, narratives, emotional
   curves, details, moments); raw ideas are dictated in; LLMs produce the
   prose to fit, in the author's voice and with the author's ideas.
+- Raw input is both spoken dictation ("Whisper et al.") and shotgun
+  stream-of-consciousness typing: incoherent thoughts that get processed
+  into readable thoughts.
 - The ai-author loop carries over as intent: write what I want, mark what
   I don't, have it filled.
 - A manuscript is not a single revision. Every revision, scene, draft,
