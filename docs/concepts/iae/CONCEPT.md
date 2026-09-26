@@ -40,12 +40,31 @@ All the ai-author concepts are in: knowledge bases, scene flow, dramatic
 notes, storyboarding, act structure -- and the tooling to fill them in by
 hand or with AI assistance.
 
-The thing that slows the writing down today is the writing.
+The thing that slows the writing down today is the writing -- the literal
+words, the authoring part. Writing dialog is just pulling teeth.
+
+I want to work in terms of boundaries, narratives, emotional curves,
+details, and moments. I want to use my words to define the structure of
+the work, then stream-of-consciousness my ideas, dictation-like, into a
+file -- and have it ground up, pulled out, and made to fit the constraints
+I've set, to produce a compelling story.
+
+Like ai-author in emacs: I write what I want to write, mark out the areas
+I don't want to write, and LLMs help fill those in -- in my own voice,
+with my own ideas, faster than I could ever write.
+
+When technical writing, I want the same thing, plus guardrails that make
+sure I don't make mistakes.
+
+I want "observability" on my writing: something that can be monitored,
+adjusted, and AI-influenced, to produce a final result that is "Green".
 
 ## Story sets
 
 | File | Theme |
 |---|---|
+| STORIES.composing.md | structure in my words, ideas dumped raw, the prose filled in for me |
+| STORIES.observability.md | watching the writing move toward "Green", and guardrails |
 | STORIES.workspace.md | the IDE-shaped shell: toolbar, tabs, left and right panels, the editor in the middle |
 | STORIES.corpus.md | the many files, of many formats, that cut across the writing |
 | STORIES.agents.md | agents you ask, and agents that watch and speak up |
@@ -64,12 +83,20 @@ The thing that slows the writing down today is the writing.
 - The editor is the author's choice, integrated by plugin; emacs is Todd's.
 - There are two kinds of agent: ones you ask, and ones that watch.
 - Setup is a conversation with an AI.
-- The biggest drag on pace today is the writing itself.
+- The biggest drag on pace today is the writing itself: the literal
+  words. Dialog is pulling teeth.
+- The author's words define structure (boundaries, narratives, emotional
+  curves, details, moments); raw ideas are dictated in; LLMs produce the
+  prose to fit, in the author's voice and with the author's ideas.
+- The ai-author loop carries over as intent: write what I want, mark what
+  I don't, have it filled.
+- Technical writing gets the same loop plus guardrails against mistakes.
+- The writing has "observability" and a "Green" end state.
 
 **Open:**
 
-- What "the writing" is as a bottleneck -- the typing, the drafting, the
-  deciding, the revising -- is the next question.
+- What "Green" means -- what has to be true of a story, or a technical
+  document, for it to be done.
 - Pictures and video are a "maybe."
 - Word integration is assumed possible, not known.
 - Working label `iae`; the name is open.
