@@ -131,6 +131,17 @@ This is NOT the banned self-polling from "Never set a timer" above --
 nothing is scheduled and nothing wakes itself. The command runs once and
 notifies on exit.
 
+### Stop a background process by its PID, and check it stopped
+
+A process started with `&` inside one tool call is stopped with
+`kill "$pid"` using the PID captured from `$!`, then verified with
+`kill -0 "$pid"` (or, for a listener, by checking its port is free). Never
+`kill %1`: in the tool shell (zsh 5.9, no job control) it exits 0 and
+leaves the job running -- observed 2026-09-25, when a test listener left
+that way held 127.0.0.1:8765 for half an hour and a real run of the same
+script failed to bind. Why zsh accepts the jobspec without signalling the
+job is not diagnosed; the rule does not depend on it.
+
 ## Bash on this machine is real
 
 This is a laptop / real checkout: the bash tool touches the real disk and the
