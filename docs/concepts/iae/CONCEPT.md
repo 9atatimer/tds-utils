@@ -75,6 +75,18 @@ A traffic light: red, amber, green.
 
 We're taking writing to the next level.
 
+There are kinds of constraint. Correctness: are things factually correct
+in the scene -- characters have the right hair color, locations are
+described properly. And emotional and thematic correctness: rising
+action, steamy, et cetera.
+
+The writing process probably starts as disjointed high points -- scenes
+or stories or reveals that make the story interesting. Then those get
+arranged in some sort of timeline. There's the chronological timeline --
+what happened, cause and effect -- and that's distinct from the narrative
+timeline -- flashback, flashforward, drug-induced amnesia, a literally
+untrustworthy narrator -- which is what nails the words to the page.
+
 When technical writing, I want the same thing, plus guardrails that make
 sure I don't make mistakes.
 
@@ -94,7 +106,7 @@ stays on-tone and on-voice, et cetera.
 | STORIES.workspace.md | the IDE-shaped shell: toolbar, tabs, left and right panels, the editor in the middle |
 | STORIES.corpus.md | the many files, of many formats, that cut across the writing |
 | STORIES.agents.md | agents you ask, and agents that watch and speak up |
-| STORIES.craft.md | the story-building tools: knowledge bases, scene flow, structure, pacing |
+| STORIES.craft.md | the story-building tools: high points, two timelines, knowledge bases, structure, pacing |
 | STORIES.setup.md | getting set up by talking to an AI |
 
 ## Notes
@@ -127,6 +139,14 @@ stays on-tone and on-voice, et cetera.
   by the IAE, not by the author.
 - Graph lines carry a traffic-light status: red, amber, green. Non-green
   lines are violating constraints.
+- Two kinds of constraint named so far: factual correctness (hair color,
+  locations described properly) and emotional/thematic correctness
+  (rising action, steamy).
+- Work likely starts as disjointed high points (scenes, stories, reveals)
+  that are then arranged on a timeline.
+- Chronological timeline (cause and effect) and narrative timeline
+  (flashback, flashforward, amnesia, unreliable narrator) are distinct;
+  the narrative timeline is what puts the words on the page.
 - Technical writing gets the same loop plus guardrails against mistakes.
 - The writing has "observability" and a "Green" end state.
 - Green = meeting all quality bars: consistency, matching the narrative
