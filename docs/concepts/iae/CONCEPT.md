@@ -110,6 +110,10 @@ series of metric values.
 - Some are **objective**: precedence and context don't matter; an
   evaluation of a snippet stands on its own.
 
+There are background and foreground AIs, or analyzers/classifiers. The
+foreground may also have real-time specialists. Notifications are
+general: used by all of them.
+
 A metric might be a true/false enumeration -- for example, a predicate
 that a character's description is factual.
 
@@ -199,6 +203,10 @@ Expectations, as Todd gave them:
   phase 1: phase 2 takes it as the human's intent and still reviews it.
 - "a private" in Todd's message was autocorrect for "a predicate";
   confirmed.
+- AIs and analyzers/classifiers come in background and foreground; the
+  foreground may include real-time specialists. Notifications are one
+  general channel used by all of them. Whether "watching agents" and
+  "analyzers" are one thing was asked; this is the answer as given.
 - Pages are a graph path through writing snippets.
 - A red expectation is worked from the editorial (page-number) timeline
   down to the page and the offending region, then handled by reading
