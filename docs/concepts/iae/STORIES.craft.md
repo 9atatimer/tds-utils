@@ -20,3 +20,7 @@ The story-building tools around the prose.
 - As an author, I can tell the story out of order -- flashback,
   flashforward, drug-induced amnesia, a literally untrustworthy narrator
   -- and the narrative timeline decides what lands on the page.
+- As an author, I can write summaries, act outlines, chapter outlines,
+  and stages, and see them as events or regions on a timeline.
+- As an author, my summaries and outlines inform the contextual metrics
+  that judge the prose.

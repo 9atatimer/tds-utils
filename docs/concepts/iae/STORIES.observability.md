@@ -1,6 +1,6 @@
 # Stories: observability
 
-Watching the writing move toward "Green", and guardrails.
+Analyzers, metrics, expectations, and the traffic light toward "Green".
 
 - As an author, I can monitor my writing the way an operator monitors a
   system.
@@ -21,3 +21,18 @@ Watching the writing move toward "Green", and guardrails.
   bars.
 - As a technical writer, I have guardrails that make sure I don't make
   mistakes.
+- As an author, I can run analyzers over a section of writing, along a
+  path I choose through the graph, and see a time series of metric values.
+- As an author, I see every metric value with a confidence number.
+- As an author, I can rely on objective metrics that judge a snippet on
+  its own, whatever came before it.
+- As an author, I can rely on contextual metrics that judge a snippet in
+  light of the path that led to it.
+- As an author, I can set an expectation on a paragraph, scene, chapter,
+  or act: this metric stays within this band, or within this subset.
+- As an author, a section that does not comply with an expectation shows
+  up as an error.
+- As an author, I can check a true/false metric, such as "this
+  character's description is factual".
+- As an analyzer, I evaluate the writing along a specified path and
+  report a value and my confidence in it.

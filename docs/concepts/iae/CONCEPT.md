@@ -96,13 +96,39 @@ Green means it is meeting all quality bars: it is consistent, matches the
 narrative arcs, is correct, gets positive marks from the AI reviewers,
 stays on-tone and on-voice, et cetera.
 
+## The model
+
+Todd's statement of how observability works, recorded as said. It is the
+definition the rest of the idea turns on.
+
+There are various **analyzers**, each producing a numerical or enumerated
+value with a confidence number. An analyzer evaluates a section of
+writing, based on a specified path along the graph, and produces a time
+series of metric values.
+
+- Some analyzers are **contextual**: precedence (the path) matters.
+- Some are **objective**: precedence and context don't matter; an
+  evaluation of a snippet stands on its own.
+
+A metric might be a true/false enumeration -- for example, a predicate
+that a character's description is factual.
+
+The main tool usage is defining **expectations** for a paragraph, scene,
+chapter, or act: that a metric sits within a certain band, or within a
+given subset of values. A lack of compliance is an error.
+
+Then there are tools for writing summaries, act outlines, chapter
+outlines, stages, and such, which lend themselves to events on a timeline
+-- maybe regions on a timeline. Those high-level summaries feed into the
+contextual metrics.
+
 ## Story sets
 
 | File | Theme |
 |---|---|
 | STORIES.composing.md | structure in my words, ideas dumped raw, the prose filled in for me |
 | STORIES.variants.md | writing as a graph: every change forks, consequences are worked out, every line colored |
-| STORIES.observability.md | watching the writing move toward "Green", and guardrails |
+| STORIES.observability.md | analyzers, metrics, expectations, and the traffic light toward "Green" |
 | STORIES.workspace.md | the IDE-shaped shell: toolbar, tabs, left and right panels, the editor in the middle |
 | STORIES.corpus.md | the many files, of many formats, that cut across the writing |
 | STORIES.agents.md | agents you ask, and agents that watch and speak up |
@@ -147,6 +173,11 @@ stays on-tone and on-voice, et cetera.
 - Chronological timeline (cause and effect) and narrative timeline
   (flashback, flashforward, amnesia, unreliable narrator) are distinct;
   the narrative timeline is what puts the words on the page.
+- The analyzer / metric / expectation model in "The model" is Todd's own
+  and is settled at the level he stated it. It is mechanism volunteered in
+  phase 1: phase 2 takes it as the human's intent and still reviews it.
+- Summaries and outlines (act, chapter, stages) become events or regions
+  on a timeline and feed contextual metrics.
 - Technical writing gets the same loop plus guardrails against mistakes.
 - The writing has "observability" and a "Green" end state.
 - Green = meeting all quality bars: consistency, matching the narrative
@@ -155,6 +186,8 @@ stays on-tone and on-voice, et cetera.
 
 **Open:**
 
+- Transcription: "a private that a character's description is factual"
+  was read as "a predicate"; confirm.
 - Who sets the quality bars behind Green, and whether they differ per
   work, per genre, or per author.
 - Pictures and video are a "maybe."
