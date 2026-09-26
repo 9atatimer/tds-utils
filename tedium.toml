@@ -11,8 +11,12 @@
 status = ["gate"]
 
 # Commit statuses that must be green on the PR head before it is
-# batched: the review signal (.github/workflows/review-settled.yml).
-pr_status = ["review-settled"]
+# batched. `review-settled` (.github/workflows/review-settled.yml) is
+# deliberately NOT listed: Copilot is out of quota, so it can never go
+# green, and the owner ruled (2026-09-26, tds-internal#93) that tedium
+# lands without review until it returns. Restore it here when Copilot
+# reviews again.
+pr_status = []
 
 # A PR carrying this label is never batched.
 block_labels = ["hold"]
