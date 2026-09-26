@@ -36,3 +36,11 @@ Analyzers, metrics, expectations, and the traffic light toward "Green".
   character's description is factual".
 - As an analyzer, I evaluate the writing along a specified path and
   report a value and my confidence in it.
+- As a romantasy author, I can require steamy-ness in certain scenes and
+  forbid it in others, so the book never reads like a Penthouse Forum
+  letter.
+- As an author, I can lay down a relationship status curve -- up when
+  boy meets girl, down when boy loses girl, up when boy gets girl -- and
+  see the prose held to it.
+- As an author, I can set a frenemies arc -- antagonist, then neutral,
+  then in bed by Act 2 -- and see where the writing is off it.

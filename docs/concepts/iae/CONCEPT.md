@@ -122,6 +122,15 @@ outlines, stages, and such, which lend themselves to events on a timeline
 -- maybe regions on a timeline. Those high-level summaries feed into the
 contextual metrics.
 
+Expectations, as Todd gave them:
+
+- **Steamy-ness, for romantasy.** Certain scenes need it. Others must not
+  have it, or it reads like a Penthouse Forum letter.
+- **Relationship status curve.** Boy meets girl: goes up. Boy loses girl:
+  goes down. Boy gets girl: goes up.
+- **Frenemies.** Starts out antagonist, moves to neutral, ends up in bed
+  by Act 2.
+
 ## Story sets
 
 | File | Theme |
@@ -176,6 +185,8 @@ contextual metrics.
 - The analyzer / metric / expectation model in "The model" is Todd's own
   and is settled at the level he stated it. It is mechanism volunteered in
   phase 1: phase 2 takes it as the human's intent and still reviews it.
+- "a private" in Todd's message was autocorrect for "a predicate";
+  confirmed.
 - Summaries and outlines (act, chapter, stages) become events or regions
   on a timeline and feed contextual metrics.
 - Technical writing gets the same loop plus guardrails against mistakes.
@@ -186,8 +197,6 @@ contextual metrics.
 
 **Open:**
 
-- Transcription: "a private that a character's description is factual"
-  was read as "a predicate"; confirm.
 - Who sets the quality bars behind Green, and whether they differ per
   work, per genre, or per author.
 - Pictures and video are a "maybe."
