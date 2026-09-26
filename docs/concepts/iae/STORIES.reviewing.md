@@ -15,4 +15,3 @@ From a red light to the offending page, the region, and the fix.
 - As an author, I can engage author mode and write a revision.
 - As an author, I can add a new snippet to a page, signal a revision of
   an existing snippet, or add a segue between snippets.
-- As a copy editor, I strike through and annotate without rewriting.
