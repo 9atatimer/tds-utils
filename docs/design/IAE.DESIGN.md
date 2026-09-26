@@ -117,7 +117,7 @@ or **guided** by a policy that picks for them. POC policies:
 |---|---|
 | most steamy | the highest steaminess value |
 | least words | the fewest words |
-| least AI | the smallest share of AI-authored text |
+| least AI | the lowest AI taint |
 | most green | the best light (the default ranking) |
 
 Ties break by light, then newest. A guided path is resolved once, when
@@ -214,7 +214,8 @@ Node
 +-- nexus         NexusId
 +-- text          NodeText (plain text or LaTeX)
 +-- origin        NodeId or none -- the node it revises
-+-- author        "human" | "ai"
++-- ai_taint      0.0-1.0 -- how much of the text is AI-derived; a hand
+|                 revision of an AI node inherits taint, it is not clean
 +-- created_at    timestamp
 +-- rejected      bool, default false
 +-- review_notes  list of ReviewNote -- author's notes, attached in the view
@@ -273,6 +274,7 @@ RevisionSession   a working copy of a node's text open in the editor
 | Which Rs happen where | Read, review (incl. attaching notes), and reject in the Multiverse View; revise triggers an emacs session | Todd, 2026-09-26 |
 | Lights | Traffic light from expectations over analyzer metrics with confidence | Concept, "The model" |
 | Paths | Manual or guided by a policy; saved paths keep a permanent revision history and can be forked | Todd, 2026-09-26 (transcribed "parts", read as "paths" -- see Open Questions) |
+| AI taint | Every node carries an AI taint weight 0.0-1.0; hand-revising an AI node yields a tainted node, not a clean one; the formula is an implementation detail | Todd, 2026-09-26: "Tainted, clearly" |
 | Nexus order in the POC | One fixed nexus order; paths differ only in which node they pick at each nexus (agent's call; Todd to confirm) | Proves the multiverse view, lights, and saved paths without structural forks; structural forks are MVP |
 | Analyzer count for POC | Two: one objective, one contextual | The smallest set that exercises both kinds the concept names |
 
@@ -288,9 +290,9 @@ RevisionSession   a working copy of a node's text open in the editor
    nouns.
 3. **"Parts" or "paths"** -- Todd's message said "Parts can be manual,
    or guided... Parts can be saved"; read as paths. Confirm.
-4. **Measuring "least AI"** -- share of words in AI-authored nodes; when
-   the author hand-revises an AI node, is the new node human, AI, or
-   mixed?
+4. **Measuring AI taint** -- settled that it is a 0-1 weight and that a
+   hand revision of an AI node is tainted; the formula (starting from
+   word-count share) is an implementation detail, not design.
 5. **Home repo** -- the concept lives in tds-utils; the tool is a product
    of its own and may want its own repository.
 6. **Voice sample** -- which accepted nodes form it, and how much.
