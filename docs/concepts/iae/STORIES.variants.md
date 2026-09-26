@@ -27,6 +27,6 @@ every line colored. Nothing is a single revision.
 - As an author, I am told when a later scene no longer works on this
   branch -- Joe's apartment in Act 3 when Joe died in Act 2 -- or needs at
   least a change in tone.
-- As an author, I can see each line of the graph colored by its state:
-  green, red, orange, and others; a non-green line tells me it is
-  violating a constraint, and which kind.
+- As an author, I can see each line of the graph colored like a traffic
+  light -- red, amber, green -- where anything short of green is
+  violating a constraint.
