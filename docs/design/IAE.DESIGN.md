@@ -141,9 +141,18 @@ The 0.7 threshold is a POC parameter, not a rule of the domain.
 
 ### Multiverse View
 
-Draws the graph left-to-right in path order; each nexus is a carousel
-column of its nodes, most-green on top; the current path is a highlighted
-line through one node per column. Clicking a node opens the 4 Rs.
+Its own visualization layer, separate from the editor. Draws the graph
+left-to-right in path order; each nexus is a carousel column of its
+nodes, most-green on top; the current path is a highlighted line through
+one node per column. Clicking a node opens the 4 Rs:
+
+| R | Where it happens |
+|---|---|
+| Read | In the Multiverse View |
+| Review | In the Multiverse View: analyzer results, plus review notes the author attaches to the node |
+| Reject | In the Multiverse View |
+| Revise | Triggers an emacs session on the node's text; saving adds a new node |
+
 Choosing a different node in a column re-routes the current path through
 it and recomputes contextual lights downstream.
 
@@ -159,10 +168,12 @@ replaced by seams in phase 3.
 | Variants are generated | `generate_variants(nexus: NexusId, path: Path, count: int, note: IntentNote) -> list[Node]` | text generation, project store | Given a nexus on the current path, When the author asks for 3 variants, Then 3 new nodes join that nexus and no existing node changes |
 | A failed generation adds nothing | (same use case; error path) | text generation, project store | Given the generator fails on 1 of 3 calls, When generation completes, Then 2 nodes are added and the failure is reported, not retried |
 | A node is read | `read_node(node: NodeId) -> NodeText` | project store | Given any node, rejected or not, When read, Then its full text is returned unchanged |
-| A node is reviewed | `review_node(node: NodeId, path: Path) -> Review` | analysis, project store | Given a node on a path, When reviewed, Then every expectation on its nexus is listed with value, confidence, light, and note |
+| A node is reviewed | `review_node(node: NodeId, path: Path) -> Review` | analysis, project store | Given a node on a path, When reviewed, Then every expectation on its nexus is listed with value, confidence, light, and note, followed by the author's review notes |
 | A node is rejected | `reject_node(node: NodeId) -> Node` | project store | Given a node, When rejected, Then it leaves the default view and every ranking, and remains readable |
 | The path avoids rejected nodes | `reject_node` (same use case; path rule) | project store | Given the current path runs through a node, When that node is rejected, Then the path re-routes through the most-green remaining sibling |
-| A node is revised by hand | `revise_node(node: NodeId, text: NodeText) -> Node` | project store | Given the author edits a node's text in the editor, When saved, Then a new node is added to the same nexus, linked to its origin, and the origin is unchanged |
+| A review note is attached | `attach_review_note(node: NodeId, note: ReviewNote) -> Node` | project store | Given a node in the Multiverse View, When the author attaches a note, Then the note shows on the node's review and the node's text is unchanged |
+| Revise opens the editor | `begin_revision(node: NodeId) -> RevisionSession` | editor launch, project store | Given a node, When the author picks revise, Then an emacs session opens on a working copy of the node's text, never on the node itself |
+| A node is revised by hand | `revise_node(node: NodeId, text: NodeText) -> Node` | project store | Given a revision session, When the author saves, Then a new node is added to the same nexus, linked to its origin, and the origin is unchanged |
 | A node is revised by the AI | `revise_node_with_note(node: NodeId, path: Path, note: IntentNote) -> Node` | text generation, project store | Given a note "more salty", When revision runs, Then a new sibling node linked to its origin is added |
 | A node is lit | `light_node(node: NodeId, path: Path) -> Light` | analysis | Given expectations on a nexus, When the node's analyzers report, Then the light follows the light rules table |
 | A nexus is ranked | `rank_nexus(nexus: NexusId, path: Path) -> list[RankedNode]` | analysis, project store | Given a nexus with green, amber, and red nodes, When ranked, Then the order is green, amber, red |
@@ -184,6 +195,7 @@ Node
 +-- author        "human" | "ai"
 +-- created_at    timestamp
 +-- rejected      bool, default false
++-- review_notes  list of ReviewNote -- author's notes, attached in the view
 
 Nexus
 +-- id            NexusId
@@ -201,7 +213,9 @@ Expectation
 
 Metric            value, confidence 0.0-1.0, note
 Light             red | amber | green
-Review            list of (Expectation, Metric, Light)
+ReviewNote        text, created_at
+Review            list of (Expectation, Metric, Light), then ReviewNotes
+RevisionSession   a working copy of a node's text open in the editor
 ```
 
 ---
@@ -225,7 +239,8 @@ Review            list of (Expectation, Metric, Light)
 | Node actions | The 4 Rs: read, review, reject, revise | Todd, 2026-09-26 |
 | Nothing is overwritten | Append-only nodes; reject hides, never deletes | Concept: "Every revision, scene, draft, and vignette is kept" |
 | Where prose is written | The author's own editor (emacs), on plain files | Concept: editor is the author's choice; snippets are files the editor works on |
-| Where the Multiverse View lives | A local browser window beside emacs (agent's call; Todd to confirm) | A graph with carousels needs a real canvas; keeps emacs as the editor rather than the viewer |
+| Where the Multiverse View lives | Its own visualization layer, separate from the editor | Todd, 2026-09-26: "Graph view will need to be its own visualization layer" |
+| Which Rs happen where | Read, review (incl. attaching notes), and reject in the Multiverse View; revise triggers an emacs session | Todd, 2026-09-26 |
 | Lights | Traffic light from expectations over analyzer metrics with confidence | Concept, "The model" |
 | Analyzer count for POC | Two: one objective, one contextual | The smallest set that exercises both kinds the concept names |
 
