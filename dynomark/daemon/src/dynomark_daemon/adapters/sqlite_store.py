@@ -11,6 +11,13 @@ ranked by ``bm25``; ``knn_candidates`` is brute-force cosine similarity in
 Python over float32 blobs. ``sqlite-vec`` is the planned accelerator; it is
 Assess on the tech radar, so it is not used until it is promoted.
 
+KNN reads its vectors from ``_VectorCache``, not the file: every vector
+unpacked with its norm, and the placed identities, loaded on first use.
+This connection's writes update it after they commit; a commit through any
+other connection (another store, the check command, a hand edit) changes
+``PRAGMA data_version``, and the cache is reloaded. Migrations run in
+``open``, before any cache exists. At 10,000 x 768 it holds about 30 MB.
+
 Thread-safe: one connection, every method under one lock, each write one
 transaction. Schema migrations are versioned in code (``MIGRATIONS``,
 recorded in ``PRAGMA user_version``); a file from a newer schema is refused.
@@ -195,12 +202,39 @@ else:
 
 
 def _cosine(
-    query: Sequence[float], query_norm: float, row: bytes, norm: float
+    query: Sequence[float], query_norm: float, vector: Sequence[float], norm: float
 ) -> float:
-    vector = _unpack(row)
     if len(vector) != len(query) or query_norm == 0.0 or norm == 0.0:
         return 0.0
     return _dot(query, vector) / (query_norm * norm)
+
+
+@dataclass(slots=True)
+class _VectorCache:
+    """What KNN needs of the ``entries`` and ``placements`` tables, as of
+    ``data_version``. The arrays are replaced, never mutated in place."""
+
+    data_version: int
+    vectors: dict[str, tuple["array.array[float]", float]]
+    placed: set[str]
+
+
+def _data_version(db: sqlite3.Connection) -> int:
+    (version,) = db.execute("PRAGMA data_version").fetchone()
+    return int(version)
+
+
+def _load_vector_cache(db: sqlite3.Connection) -> _VectorCache:
+    version = _data_version(db)
+    vectors = {
+        str(identity): (_unpack(blob), float(norm))
+        for identity, blob, norm in db.execute(
+            "SELECT identity, vector, norm FROM entries"
+        )
+        if isinstance(blob, bytes) and isinstance(norm, float | int)
+    }
+    placed = {str(row[0]) for row in db.execute("SELECT identity FROM placements")}
+    return _VectorCache(data_version=version, vectors=vectors, placed=placed)
 
 
 def _best_first(scored: Iterable[tuple[str, float]], limit: int) -> list[Candidate]:
@@ -268,6 +302,7 @@ class SqliteCorpusStore:
         self._path = path
         self._read_only = read_only
         self._lock = threading.RLock()
+        self._vectors: _VectorCache | None = None
 
     @classmethod
     def open(cls, path: Path, *, read_only: bool = False) -> Self:
@@ -291,6 +326,7 @@ class SqliteCorpusStore:
 
     def close(self) -> None:
         with self._lock:
+            self._vectors = None
             self._db.close()
 
     def health(self) -> StoreHealth:
@@ -342,6 +378,14 @@ class SqliteCorpusStore:
     def _docs(self, sql: str, params: Sequence[object] = ()) -> list[str]:
         return [str(row[0]) for row in self._all(sql, params)]
 
+    def _vector_cache(self) -> _VectorCache:
+        """The cache, (re)loaded when missing or another connection committed."""
+        with self._lock:
+            cache = self._vectors
+            if cache is None or cache.data_version != _data_version(self._db):
+                cache = self._vectors = _load_vector_cache(self._db)
+            return cache
+
     def _entry(self, doc: object, vector: object) -> CorpusEntry:
         bare = load_record(str(doc), CorpusEntry)
         values = tuple(_unpack(bytes(vector))) if isinstance(vector, bytes) else ()
@@ -352,36 +396,39 @@ class SqliteCorpusStore:
 
     def put_entry(self, entry: CorpusEntry) -> None:
         blob, norm = _pack(entry.embedding.vector)
-        with self._write() as db:
-            db.execute(
-                "INSERT INTO entries (identity, doc, vector, norm, model_id)"
-                " VALUES (?, ?, ?, ?, ?) ON CONFLICT (identity) DO UPDATE SET"
-                " doc = excluded.doc, vector = excluded.vector,"
-                " norm = excluded.norm, model_id = excluded.model_id",
-                (
-                    entry.identity.value,
-                    _entry_doc(entry),
-                    blob,
-                    norm,
-                    entry.embedding.model_id,
-                ),
-            )
-            (position,) = db.execute(
-                "SELECT position FROM entries WHERE identity = ?",
-                (entry.identity.value,),
-            ).fetchone()
-            db.execute("DELETE FROM entries_fts WHERE rowid = ?", (position,))
-            db.execute(
-                "INSERT INTO entries_fts (rowid, title, summary, tags, text)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (
-                    position,
-                    entry.bookmark.title,
-                    entry.summary,
-                    " ".join(entry.tags),
-                    entry.capture.text,
-                ),
-            )
+        with self._lock:
+            with self._write() as db:
+                db.execute(
+                    "INSERT INTO entries (identity, doc, vector, norm, model_id)"
+                    " VALUES (?, ?, ?, ?, ?) ON CONFLICT (identity) DO UPDATE SET"
+                    " doc = excluded.doc, vector = excluded.vector,"
+                    " norm = excluded.norm, model_id = excluded.model_id",
+                    (
+                        entry.identity.value,
+                        _entry_doc(entry),
+                        blob,
+                        norm,
+                        entry.embedding.model_id,
+                    ),
+                )
+                (position,) = db.execute(
+                    "SELECT position FROM entries WHERE identity = ?",
+                    (entry.identity.value,),
+                ).fetchone()
+                db.execute("DELETE FROM entries_fts WHERE rowid = ?", (position,))
+                db.execute(
+                    "INSERT INTO entries_fts (rowid, title, summary, tags, text)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (
+                        position,
+                        entry.bookmark.title,
+                        entry.summary,
+                        " ".join(entry.tags),
+                        entry.capture.text,
+                    ),
+                )
+            if self._vectors is not None:  # committed: now KNN may see it
+                self._vectors.vectors[entry.identity.value] = (_unpack(blob), norm)
 
     def get_entry(self, identity: Identity) -> CorpusEntry | None:
         row = self._one(
@@ -423,14 +470,20 @@ class SqliteCorpusStore:
         self, vector: Sequence[float], *, limit: int, placed_only: bool = False
     ) -> list[Candidate]:
         query, query_norm = _unpack(_pack(vector)[0]), math.hypot(*vector)
-        sql = "SELECT e.identity, e.vector, e.norm FROM entries e"
-        if placed_only:
-            sql += " JOIN placements p ON p.identity = e.identity"
+        with self._lock:
+            cache = self._vector_cache()
+            if placed_only:
+                rows = [
+                    (identity, cache.vectors[identity])
+                    for identity in cache.placed
+                    if identity in cache.vectors
+                ]
+            else:
+                rows = list(cache.vectors.items())
         return _best_first(
             (
-                (str(identity), _cosine(query, query_norm, bytes(blob), float(norm)))
-                for identity, blob, norm in self._all(sql)
-                if isinstance(blob, bytes) and isinstance(norm, float | int)
+                (identity, _cosine(query, query_norm, row, norm))
+                for identity, (row, norm) in rows
             ),
             limit,
         )
@@ -438,11 +491,14 @@ class SqliteCorpusStore:
     # --- Placements ---
 
     def put_placement(self, placement: Placement) -> None:
-        with self._write() as db:
-            db.execute(
-                "INSERT OR REPLACE INTO placements (identity, doc) VALUES (?, ?)",
-                (placement.identity.value, dump_record(placement)),
-            )
+        with self._lock:
+            with self._write() as db:
+                db.execute(
+                    "INSERT OR REPLACE INTO placements (identity, doc) VALUES (?, ?)",
+                    (placement.identity.value, dump_record(placement)),
+                )
+            if self._vectors is not None:  # committed: now KNN may see it
+                self._vectors.placed.add(placement.identity.value)
 
     def get_placement(self, identity: Identity) -> Placement | None:
         doc = self._doc(
