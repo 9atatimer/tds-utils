@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { ExtensionRuntime } from '../../../src/app/runtime.js';
+import { RECONNECT_BACKOFF } from '../../../src/domain/backoff.js';
 import type { HostRole } from '../../../src/domain/roles.js';
 import { FakeExtensionWorld } from '../../fakes/FakeExtensionWorld.js';
 import { seedOwnedTree, type Seeded } from '../../fixtures/ownedTree.js';
@@ -46,6 +47,18 @@ describe('Background-tab capture on the writer', () => {
     const { w, ids } = await setup();
     expect(sentOf(w, 'ingest').map((r) => r.bookmark.node_id)).toEqual([ids.saved]);
     expect(w.backgroundTabs.opened).toEqual([]);
+  });
+
+  it('Given a writer whose link just dropped (role unknown until the next hello), When a save no tab shows arrives, Then after the reconnect ingest carries a background_tab capture', async () => {
+    const { w, ids, runtime } = await setup();
+    await w.daemon().drop('disconnected');
+    const node = await w.tree.createBookmark(ids.followUp, 'Story', URL);
+    runtime.onBookmarkEvent({ kind: 'created', node });
+    await runtime.idle();
+    await w.timer().advance(RECONNECT_BACKOFF.max_ms);
+    await runtime.idle();
+    expect(sentOf(w, 'ingest').find((r) => r.bookmark.node_id === node.id)?.capture).toEqual({ source: 'background_tab', ...PAGE });
+    expect(w.backgroundTabs.opened).toEqual([URL]);
   });
 
   it('Given a reader host, When a save no tab shows arrives, Then no background tab is opened and ingest carries source none', async () => {
