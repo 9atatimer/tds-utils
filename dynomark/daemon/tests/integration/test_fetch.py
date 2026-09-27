@@ -78,12 +78,19 @@ class _Site(BaseHTTPRequestHandler):
         type(self).release.wait(RELEASE_TIMEOUT_S)
 
 
+class _Server(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request: object, client_address: object) -> None:
+        """A client that stops reading (the byte cap, the timeout) is expected."""
+        return None
+
+
 @pytest.fixture
 def site() -> Iterator[str]:
     _Site.seen = []
     _Site.release = threading.Event()
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _Site)
-    server.daemon_threads = True
+    server = _Server(("127.0.0.1", 0), _Site)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
