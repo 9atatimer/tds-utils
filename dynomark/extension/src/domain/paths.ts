@@ -31,3 +31,11 @@ export function resolveFolderPath(tree: TreeRead, path: FolderPath): NodeId | un
   }
   return current;
 }
+
+// --- Containment ---
+
+/** True when `path` is `root` or lies under it: same RootKey and `root.names` a prefix of `path.names` (syntactic; contract v1, Boundary). */
+export function isPathInside(path: FolderPath, root: FolderPath): boolean {
+  if (path.root !== root.root || root.names.length > path.names.length) return false;
+  return root.names.every((name, i) => path.names[i] === name);
+}

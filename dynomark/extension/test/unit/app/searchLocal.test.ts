@@ -153,7 +153,8 @@ describe('Goal 4: tier-1 suggestions within 20 ms (P95) at 10,000 entries', () =
     const index = bigIndex();
     const frecency: Frecency = new Map(index.slice(0, 2000).map((r, i) => [r.identity, i]));
     const queries = ['tokio', 'async rust', 'serde notes', 'kernl', 'budget cloud', 'garden 42', 'bookmarks design'];
-    searchLocal('warm up', index, frecency, { owned_roots: ROOTS });
+    // Warm-up: one pass over every query, so the JIT has compiled the path being measured (steady state, as on every keystroke).
+    for (const q of [...queries, ...queries]) searchLocal(q, index, frecency, { owned_roots: ROOTS });
     const samples = Array.from({ length: RUNS }, (_, i) => {
       const start = performance.now();
       searchLocal(queries[i % queries.length] ?? 'rust', index, frecency, { owned_roots: ROOTS });
