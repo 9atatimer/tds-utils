@@ -7,6 +7,7 @@ from dataclasses import dataclass
 
 from dynomark_daemon.app.errors import Busy, InvalidRequest, UnknownRecord
 from dynomark_daemon.app.file import propose_inverse
+from dynomark_daemon.app.flags import locked_folders
 from dynomark_daemon.domain.batch import (
     BatchState,
     UndoDrop,
@@ -68,7 +69,11 @@ def undo(
     if not record.tree_since_receipt or tree is None:
         raise Busy(f"no tree snapshot since the receipt of {batch_id}")
     operations, dropped = guarded_inverse(
-        record.batch, applied_ops(record.receipt), tree, roots
+        record.batch,
+        applied_ops(record.receipt),
+        tree,
+        roots,
+        locked=locked_folders(store=store),
     )
     if not operations:
         return Undone(undoes=batch_id, batch=None, dropped=dropped)

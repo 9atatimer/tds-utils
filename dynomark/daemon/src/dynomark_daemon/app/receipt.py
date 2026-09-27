@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from dynomark_daemon.app.errors import UnknownRecord
 from dynomark_daemon.app.file import propose_inverse
+from dynomark_daemon.app.flags import locked_folders
 from dynomark_daemon.app.jobs import record_job_change
 from dynomark_daemon.domain.batch import (
     BatchReceipt,
@@ -120,7 +121,13 @@ def receive_receipt(
         and record.undone_by is None
         and tree is not None
     ):
-        operations = invert(record.batch, applied_ops(recorded), tree, roots)
+        operations = invert(
+            record.batch,
+            applied_ops(recorded),
+            tree,
+            roots,
+            locked=locked_folders(store=store),
+        )
         if operations:
             inverse = propose_inverse(
                 record, operations, roots, store=store, clock=clock, ids=ids

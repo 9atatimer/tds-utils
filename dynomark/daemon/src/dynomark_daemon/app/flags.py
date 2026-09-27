@@ -73,3 +73,8 @@ def set_folder_flags(
         locked=flags.locked,
         item_count=count,
     )
+
+
+def locked_folders(*, store: CorpusStorePort) -> frozenset[NodeId]:
+    """The folders no batch may move (Glossary: ``locked``)."""
+    return frozenset(n for n, flags in store.folder_flags().items() if flags.locked)

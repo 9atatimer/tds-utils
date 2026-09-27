@@ -108,5 +108,5 @@ def test_the_prefix_inverse_leaves_a_locked_folder_where_it_is() -> None:
         FILING, APPLIED, AFTER, make_roots(), locked=frozenset({NodeId("16")})
     )
 
-    assert [type(op) for op in operations] == [OpMove]
-    assert operations[0].node_id == NodeId("42")
+    (move_back,) = operations
+    assert isinstance(move_back, OpMove) and move_back.node_id == NodeId("42")

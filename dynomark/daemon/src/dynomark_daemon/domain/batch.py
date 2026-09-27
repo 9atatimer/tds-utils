@@ -1,6 +1,6 @@
 """Write batches: path-idempotent operations, their inverse, and receipts."""
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Self
@@ -95,6 +95,9 @@ class UndoDropReason(StrEnum):
     NODE_MOVED = "node_moved"
     NODE_MISSING = "node_missing"
     NOT_EMPTY = "not_empty"
+    LOCKED = "locked"
+    """The step would move or remove a folder the user has locked since
+    (Glossary: locked is never moved by any batch)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -468,6 +471,7 @@ def _invert(
     roots: OwnedRoots,
     *,
     guarded: bool,
+    locked: Collection[NodeId],
 ) -> tuple[tuple[Operation, ...], tuple[UndoDrop, ...]]:
     changed = {a.index: a for a in applied if a.changed}
     inverting = _Inverting(
@@ -488,6 +492,9 @@ def _invert(
         if revert.of_index not in changed:
             continue
         op = batch.operations[revert.of_index]
+        if inverting.moved_node(op) in locked:
+            drops.append(UndoDrop(op.index, UndoDropReason.LOCKED))
+            continue
         reason = _guard(op, inverting, leaving) if guarded else None
         step = None if reason else _step(op, revert, inverting, index=len(ops))
         if step is None:
@@ -503,14 +510,17 @@ def invert(
     applied: Sequence[OpApplied],
     tree: Snapshot,
     roots: OwnedRoots,
+    *,
+    locked: Collection[NodeId] = frozenset(),
 ) -> tuple[Operation, ...]:
     """The inverse of the ops ``applied`` with ``changed`` true, last first: a
     created node goes to ``Graveyard`` (a folder only if empty; ``Graveyard``
     itself is created first when the inverse removes), a moved or removed
     node goes back. Node ids a create minted come from ``applied``,
     every other folder id from ``tree``. Unguarded (a ``PARTIAL`` prefix):
-    the extension re-checks each ``Expect`` when it applies it."""
-    return _invert(batch, applied, tree, roots, guarded=False)[0]
+    the extension re-checks each ``Expect`` when it applies it. A step that
+    would move a ``locked`` folder is left out."""
+    return _invert(batch, applied, tree, roots, guarded=False, locked=locked)[0]
 
 
 def guarded_inverse(
@@ -518,9 +528,12 @@ def guarded_inverse(
     applied: Sequence[OpApplied],
     tree: Snapshot,
     roots: OwnedRoots,
+    *,
+    locked: Collection[NodeId] = frozenset(),
 ) -> tuple[tuple[Operation, ...], tuple[UndoDrop, ...]]:
     """The undo of an applied batch against the tree read after its receipt:
     ``invert`` keeping only the steps whose node is still where the batch left
-    it, and a folder removal only if nothing else fills the folder. The rest
-    are dropped and reported, by the original op's index."""
-    return _invert(batch, applied, tree, roots, guarded=True)
+    it, and a folder removal only if nothing else fills the folder; a
+    ``locked`` folder is never moved. The rest are dropped and reported, by
+    the original op's index."""
+    return _invert(batch, applied, tree, roots, guarded=True, locked=locked)

@@ -11,7 +11,7 @@ event) map outbound only, because the domain holds more than the wire
 Wire models are strict: lists, not tuples; plain strings for enums.
 """
 
-from typing import Literal, cast
+from typing import Final, Literal, cast
 
 from dynomark_daemon.domain.batch import (
     BatchReceipt,
@@ -430,8 +430,20 @@ def undo_drop_from_wire(drop: w.UndoDrop) -> UndoDrop:
     return UndoDrop(index=drop.index, reason=UndoDropReason(drop.reason))
 
 
+_WIRE_DROP_REASON: Final[dict[UndoDropReason, w.UndoDropReason]] = {
+    UndoDropReason.NODE_MOVED: "node_moved",
+    UndoDropReason.NODE_MISSING: "node_missing",
+    UndoDropReason.NOT_EMPTY: "not_empty",
+    UndoDropReason.LOCKED: "node_moved",
+}
+
+
 def undo_drop_to_wire(drop: UndoDrop) -> w.UndoDrop:
-    return w.UndoDrop(index=drop.index, reason=drop.reason.value)
+    """Contract v1's UndoDropReason has no ``locked``: a step dropped because
+    the user locked its folder since is reported ``node_moved`` (the user
+    changed the node after the batch left it), until a contract version
+    carries the reason."""
+    return w.UndoDrop(index=drop.index, reason=_WIRE_DROP_REASON[drop.reason])
 
 
 def batch_summary_to_wire(record: BatchRecord) -> w.BatchSummary:

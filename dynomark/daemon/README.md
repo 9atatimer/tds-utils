@@ -150,7 +150,9 @@ jq -r 'select(.event == "job.applied") | .interval_ms' ~/.local/state/dynomark/d
   it carries the same item reference. The Ollama adapter proposes folder
   moves and adds only; merge rules are undefined (design Open Question 1).
 - Flags: `folder.flags.set` pins or locks an owned folder by node id; a
-  lock keeps placement out of that folder and its subtree.
+  lock keeps placement out of that folder and its subtree, and no undo
+  moves the folder (the step is dropped; contract v1 has no `locked`
+  reason, so `undo.result` reports it `node_moved`).
 - Writer marker: a writer keeps an empty folder `dynomark-writer:<host_id>`
   directly in `Dynomark`, created by an ordinary batch after the first
   snapshot that lacks it. A writer that sees another host's marker is in
