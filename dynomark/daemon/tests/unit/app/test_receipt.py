@@ -17,6 +17,7 @@ from dynomark_daemon.app.events import replay_events
 from dynomark_daemon.app.receipt import ReceiptRecorded
 from dynomark_daemon.domain.batch import (
     BatchReceipt,
+    BatchRecord,
     BatchState,
     Expect,
     FailReason,
@@ -36,6 +37,7 @@ from dynomark_daemon.domain.ids import BatchId, EventId, NodeId, ProfileId
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.testing.store import InMemoryCorpusStore
 from dynomark_daemon.testing.transport import RecordingTransport
+from tests._crash import DyingStore
 from tests._factories import make_path
 from tests.unit.app._filed import CREATED, MOVED, RUST, TREE, Daemon
 
@@ -316,3 +318,32 @@ def test_a_partial_receipt_resent_after_a_kill_fails_the_job_with_one_inverse() 
     assert daemon.job_now().state is JobState.FAILED
     assert len(daemon.offers()) == 1
     assert len(daemon.store.list_batches()) == 2
+
+
+def _links_an_inverse(value: object) -> bool:
+    """The write that records ``original.undone_by``."""
+    return isinstance(value, BatchRecord) and value.undone_by is not None
+
+
+def test_a_partial_receipt_resent_after_a_kill_before_the_link_offers_one_inverse() -> (
+    None
+):
+    """Given the daemon was killed after a PARTIAL receipt's inverse was stored
+    and offered and before the original recorded ``undone_by``, When the
+    receipt is re-sent, Then exactly one inverse is offered, the original
+    names it, and the job is FAILED."""
+    store = DyingStore()
+    daemon = Daemon(store)
+    store.kill_at("put_batch", _links_an_inverse)
+    with pytest.raises(SystemExit):
+        daemon.receive(_partial(daemon))
+
+    again = daemon.receive(_partial(daemon))
+
+    assert again.inverse is not None
+    inverses = [r for r in store.list_batches() if r.undoes == daemon.batch.batch_id]
+    assert [r.batch for r in inverses] == [again.inverse]
+    assert [o.batch for o in daemon.offers()] == [again.inverse]
+    original = store.get_batch(daemon.batch.batch_id)
+    assert original is not None and original.undone_by == again.inverse.batch_id
+    assert daemon.job_now().state is JobState.FAILED

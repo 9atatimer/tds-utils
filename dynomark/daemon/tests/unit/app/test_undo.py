@@ -19,6 +19,7 @@ from dynomark_daemon.app.flags import set_folder_flags
 from dynomark_daemon.app.tree import record_tree_snapshot
 from dynomark_daemon.app.undo import Undone, undo
 from dynomark_daemon.domain.batch import (
+    BatchRecord,
     BatchState,
     Expect,
     OpCreateFolder,
@@ -32,6 +33,8 @@ from dynomark_daemon.domain.ids import NodeId
 from dynomark_daemon.domain.roles import HostRole, NotWriter
 from dynomark_daemon.domain.tree import Snapshot, SnapshotNode
 from dynomark_daemon.domain.writer import WriterConflict
+from dynomark_daemon.testing.store import InMemoryCorpusStore
+from tests._crash import DyingStore
 from tests._factories import make_node, make_path, make_roots, make_tree
 from tests.unit.app._filed import ASYNC, CREATED, MOVED, RUST, TREE, Daemon
 
@@ -57,9 +60,11 @@ def _after(*nodes: SnapshotNode) -> Snapshot:
     return make_tree(*BASE, *nodes, taken_at=TREE.taken_at + 60_000)
 
 
-def _applied_daemon(tree_after: Snapshot | None) -> Daemon:
+def _applied_daemon(
+    tree_after: Snapshot | None, store: InMemoryCorpusStore | None = None
+) -> Daemon:
     """The filing batch APPLIED; then, if given, the tree the extension sends."""
-    daemon = Daemon()
+    daemon = Daemon(store)
     daemon.receive(
         ReceiptApplied(
             batch_id=daemon.batch.batch_id,
@@ -262,3 +267,35 @@ def test_undo_on_a_reader_is_not_writer_and_stores_no_batch() -> None:
 
     assert isinstance(result, NotWriter)
     assert len(daemon.store.list_batches()) == 1
+
+
+def _links_an_inverse(value: object) -> bool:
+    """The write that records ``original.undone_by``."""
+    return isinstance(value, BatchRecord) and value.undone_by is not None
+
+
+def test_an_undo_retried_after_a_kill_before_the_link_offers_one_inverse() -> None:
+    """Given the daemon was killed after an undo stored and offered the inverse
+    and before it recorded the original's ``undone_by``, When the undo is
+    retried, Then exactly one inverse of the batch is offered and it is the
+    one the original names."""
+    store = DyingStore()
+    daemon = _applied_daemon(
+        _after(
+            make_node("16", "14", "Async"),
+            make_node("42", "16", "Tokio tutorial", url=URL),
+        ),
+        store,
+    )
+    store.kill_at("put_batch", _links_an_inverse)
+    with pytest.raises(SystemExit):
+        _undo(daemon)
+
+    again = _undo(daemon)
+
+    assert isinstance(again, Undone) and again.batch is not None
+    inverses = [r for r in store.list_batches() if r.undoes == daemon.batch.batch_id]
+    assert [r.batch for r in inverses] == [again.batch]
+    assert [o.batch for o in daemon.offers()] == [again.batch]
+    original = store.get_batch(daemon.batch.batch_id)
+    assert original is not None and original.undone_by == again.batch.batch_id
