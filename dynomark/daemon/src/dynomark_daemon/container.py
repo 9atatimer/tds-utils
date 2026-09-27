@@ -12,6 +12,7 @@ when jobs moved. The store adapter is safe to share between them.
 """
 
 import asyncio
+import signal
 import threading
 import time
 import uuid
@@ -40,6 +41,7 @@ from dynomark_daemon.app.writer import writer_conflict
 from dynomark_daemon.domain.config import Config
 from dynomark_daemon.domain.connection import served_role
 from dynomark_daemon.domain.job import Job
+from dynomark_daemon.logs import configure_logging
 from dynomark_daemon.ports.clock import Clock, IdSource
 from dynomark_daemon.ports.completion import CompletionPort
 from dynomark_daemon.ports.content import ContentSourcePort
@@ -286,3 +288,37 @@ class Daemon:
             await stop.wait()
         finally:
             await self.close()
+
+
+# --- Serving ---
+
+
+async def _serve(daemon: Daemon) -> None:
+    stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        loop.add_signal_handler(signum, stop.set)
+    await daemon.start()
+    await daemon.run_until(stop)
+
+
+def private_state_dir(settings: Settings) -> None:
+    """Create the state directory owner-only (before the store opens in it)."""
+    settings.state_dir.mkdir(parents=True, exist_ok=True)
+    settings.state_dir.chmod(0o700)
+
+
+def serve(settings: Settings, ports: Ports) -> None:
+    """Run ``ports`` as the daemon until SIGTERM, SIGINT or SIGHUP: JSON-lines
+    logging in the state directory, the socket and the job loop.
+
+    Raises:
+        SocketUnavailable: the socket path is served, not a socket, or refused.
+    """
+    configure_logging(settings.log_path)
+    try:
+        asyncio.run(_serve(Daemon(settings, ports)))
+    finally:
+        store = ports.store
+        if isinstance(store, SqliteCorpusStore):
+            store.close()

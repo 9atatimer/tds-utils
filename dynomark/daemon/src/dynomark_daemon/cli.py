@@ -11,12 +11,10 @@ Entry points stay thin: parse, call the composition root or an adapter,
 print.
 """
 
-import asyncio
 import os
 import platform
 import plistlib
 import shutil
-import signal
 import socket
 import sys
 from collections.abc import Mapping
@@ -34,8 +32,8 @@ from dynomark_daemon.adapters.host_manifest import (
 from dynomark_daemon.adapters.ollama import OllamaClient, OllamaError, has_model
 from dynomark_daemon.adapters.socket_server import SocketUnavailable
 from dynomark_daemon.adapters.sqlite_store import SqliteCorpusStore, StoreError
-from dynomark_daemon.container import Daemon, build_ports
-from dynomark_daemon.logs import configure_logging
+from dynomark_daemon.container import build_ports, private_state_dir
+from dynomark_daemon.container import serve as serve_daemon
 from dynomark_daemon.settings import ConfigError, Settings, load_settings
 
 # --- Constants ---
@@ -80,11 +78,6 @@ def _installed(name: str) -> Path:
         return beside
     found = shutil.which(name)
     return Path(found) if found else Path(sys.argv[0]).resolve().parent / name
-
-
-def _private_dir(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True)
-    path.chmod(0o700)
 
 
 def _check_config(settings: Settings) -> list[CheckLine]:
@@ -177,15 +170,6 @@ def launchd_plist(program: Path, settings: Settings, env: Mapping[str, str]) -> 
     return plistlib.dumps(document)
 
 
-async def _serve(daemon: Daemon) -> None:
-    stop = asyncio.Event()
-    loop = asyncio.get_running_loop()
-    for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
-        loop.add_signal_handler(signum, stop.set)
-    await daemon.start()
-    await daemon.run_until(stop)
-
-
 # --- Entry points ---
 
 
@@ -198,17 +182,11 @@ def main() -> None:
 def serve() -> None:
     """Run the socket server and the job loop until SIGTERM or SIGINT."""
     settings = _settings(os.environ)
-    _private_dir(settings.state_dir)
-    configure_logging(settings.log_path)
-    ports = build_ports(settings)
+    private_state_dir(settings)
     try:
-        asyncio.run(_serve(Daemon(settings, ports)))
+        serve_daemon(settings, build_ports(settings))
     except SocketUnavailable as error:
         raise click.ClickException(str(error)) from error
-    finally:
-        store = ports.store
-        if isinstance(store, SqliteCorpusStore):
-            store.close()
 
 
 @main.command()
