@@ -9,6 +9,8 @@ from pathlib import Path
 from dynomark_daemon.adapters.dispatch import Dispatcher
 from dynomark_daemon.adapters.socket_server import Sessions, SocketServer
 from dynomark_daemon.domain.roles import HostRole
+from dynomark_daemon.ports.completion import CompletionPort
+from dynomark_daemon.ports.embedding import EmbeddingPort
 from dynomark_daemon.ports.store import CorpusStorePort
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.completion import ScriptedCompletion
@@ -24,13 +26,15 @@ def build_server(
     *,
     role: HostRole = HostRole.WRITER,
     store: CorpusStorePort | None = None,
+    embedding: EmbeddingPort | None = None,
+    completion: CompletionPort | None = None,
 ) -> SocketServer:
     sessions = Sessions()
     dispatcher = Dispatcher(
         make_config(role=role),
         store=store or InMemoryCorpusStore(),
-        embedding=HashingEmbedding(),
-        completion=ScriptedCompletion(),
+        embedding=embedding or HashingEmbedding(),
+        completion=completion or ScriptedCompletion(),
         clock=FakeClock(start_ms=1_000),
         ids=SequentialIds(),
         transport=sessions,

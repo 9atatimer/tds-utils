@@ -7,6 +7,7 @@ port"). Real sockets in a temp directory; a fake-backed dispatcher.
 import json
 import socket
 import stat
+import threading
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,13 @@ from dynomark_daemon.adapters.socket_server import (
     DaemonAlreadyRunning,
     SocketUnavailable,
 )
+from dynomark_daemon.domain.bookmark import Embedding
+from dynomark_daemon.domain.chat import DraftAnswer
+from dynomark_daemon.domain.config import ModelInfo
+from dynomark_daemon.domain.diff import DiffKind, DiffProposal
+from dynomark_daemon.domain.tree import TreeOutline
+from dynomark_daemon.testing.completion import ScriptedCompletion
+from dynomark_daemon.testing.embedding import HashingEmbedding
 from tests import _client as client
 from tests import _wire as wire
 from tests._server import build_server, running
@@ -203,3 +211,98 @@ def test_a_socket_path_the_os_cannot_bind_is_refused_by_name(tmp_path: Path) -> 
         running(build_server(path)),
     ):
         pass
+
+
+# --- Model calls off the event loop (a slow completion stalls nothing) ---
+
+GATE_TIMEOUT_S = 5.0
+"""How long a gated model call waits before failing (a hang becomes a failure)."""
+
+
+class _Gate:
+    """A model call in progress: ``entered`` once it started, then it waits
+    for ``release`` (bounded, so a broken test fails instead of hanging)."""
+
+    def __init__(self) -> None:
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def hold(self) -> None:
+        self.entered.set()
+        assert self.release.wait(GATE_TIMEOUT_S), (
+            "the gated model call was never released"
+        )
+
+
+class _GatedEmbedding:
+    """``HashingEmbedding`` whose every call waits at the gate."""
+
+    def __init__(self, gate: _Gate) -> None:
+        self._gate = gate
+        self._inner = HashingEmbedding()
+
+    def model(self) -> ModelInfo:
+        return self._inner.model()
+
+    def embed(self, text: str) -> Embedding:
+        self._gate.hold()
+        return self._inner.embed(text)
+
+
+class _GatedCompletion(ScriptedCompletion):
+    """A completion whose diff proposal waits at the gate, then proposes none."""
+
+    def __init__(self, gate: _Gate) -> None:
+        super().__init__(answer=[DraftAnswer(text="Slowly.", cited=(), urls=())])
+        self._gate = gate
+
+    def propose_diff(
+        self, kind: DiffKind, *, outline: TreeOutline, own_bar: TreeOutline
+    ) -> tuple[DiffProposal, ...]:
+        self._gate.hold()
+        return ()
+
+
+def _model_request(kind: str, request_id: str) -> bytes:
+    if kind == "ask":
+        return wire.body(kind, request_id, question="how?", history=[])
+    if kind == "search":
+        return wire.body(kind, request_id, query="tokio")
+    return wire.body(kind, request_id, kind="audit")
+
+
+@pytest.mark.parametrize("kind", ["ask", "search", "diff.propose"])
+def test_a_slow_model_call_does_not_stall_other_connections_or_later_requests(
+    tmp_path: Path, kind: str
+) -> None:
+    """Given a model-backed request whose model call is still running, When
+    another profile's connection and the same connection send requests, Then
+    both are answered before it returns, and it is answered by its id once
+    the model does (contract v1: responses may arrive in any order)."""
+    path = _socket(tmp_path)
+    gate = _Gate()
+    server = build_server(
+        path, embedding=_GatedEmbedding(gate), completion=_GatedCompletion(gate)
+    )
+    with running(server), client.connect(path) as slow, client.connect(path) as other:
+        client.send(slow, wire.hello())
+        client.answer_to(slow, "h-1")
+        client.send(slow, wire.tree_snapshot("t-1"))
+        client.answer_to(slow, "t-1")
+        client.send(other, wire.hello("h-2", profile="profile-b"))
+        client.answer_to(other, "h-2")
+
+        client.send(slow, _model_request(kind, "m-1"))
+        assert gate.entered.wait(GATE_TIMEOUT_S), f"{kind} never reached its model"
+        client.send(other, wire.body("status", "s-2"))
+        other_status, _ = client.answer_to(other, "s-2")
+        client.send(slow, wire.body("status", "s-1"))
+        same_status, _ = client.answer_to(slow, "s-1")
+        gate.release.set()
+        answer, _ = client.answer_to(slow, "m-1")
+
+    assert (other_status["type"], same_status["type"]) == (
+        "status.result",
+        "status.result",
+    )
+    assert answer["type"] == f"{kind}.result"
