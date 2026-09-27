@@ -5,7 +5,9 @@ and Write batches: Receipts, Inverses).
 The first receipt recorded for a batch wins; a repeat records nothing new,
 but finishes what a daemon stopped mid-receipt left undone for a job still
 waiting on the batch. A receipt acknowledges the batch's offer, so the next
-batch can be offered.
+batch can be offered -- last, once everything else it does is stored: until
+then the offer stays unacknowledged, a restarted daemon replays it, and the
+extension's answer from its cursor is the repeat that finishes the work.
 """
 
 from dataclasses import dataclass
@@ -62,7 +64,8 @@ def _acknowledge_offer(record: BatchRecord, *, store: CorpusStorePort) -> None:
         if isinstance(p.event, BatchOffered)
         and p.event.batch.batch_id == record.batch.batch_id
     ]
-    store.ack_events(record.profile_id, offers)
+    if offers:
+        store.ack_events(record.profile_id, offers)
 
 
 def _needs_inverse(receipt: BatchReceipt, failure: str | None) -> bool:
@@ -90,10 +93,11 @@ def receive_receipt(
 ) -> ReceiptRecorded:
     """Record the extension's answer for a batch, once.
 
-    The steps after the batch row -- the offer's ack, the prefix inverse,
-    the job change -- are finished by a repeat of the receipt when a daemon
-    stopped between them: a repeat whose job still waits on this batch
-    completes them from the receipt recorded first.
+    The steps after the batch row -- the prefix inverse, the job change,
+    then the offer's ack -- are finished by a repeat of the receipt when a
+    daemon stopped between them: a repeat whose job still waits on this
+    batch completes them from the receipt recorded first, and any repeat
+    acknowledges the offer.
 
     Raises:
         UnknownRecord: no batch has ``receipt.batch_id`` (``not_found``).
@@ -109,8 +113,8 @@ def receive_receipt(
         store.put_batch(record)
         recorded = receipt
     elif not _awaits(job, record):
+        _acknowledge_offer(record, store=store)  # a daemon stopped just before it
         return ReceiptRecorded(first=False, job=job, inverse=None)
-    _acknowledge_offer(record, store=store)
     failure = filing_failure(
         record.batch, recorded, job.node_id if job is not None else None
     )
@@ -136,4 +140,5 @@ def receive_receipt(
         now = clock.now_ms()
         job = job.filed(at=now) if failure is None else job.failed(failure, at=now)
         record_job_change(job, store=store, ids=ids)
+    _acknowledge_offer(record, store=store)
     return ReceiptRecorded(first=first, job=job, inverse=inverse)

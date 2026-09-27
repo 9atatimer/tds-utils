@@ -8,7 +8,7 @@ job like PARTIAL, and a receipt delivered twice is recorded once
 (``receipt.batch_id`` is the idempotency key; "A receipt is delivered").
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 import pytest
 
@@ -32,7 +32,7 @@ from dynomark_daemon.domain.batch import (
 )
 from dynomark_daemon.domain.connection import HelloMode
 from dynomark_daemon.domain.events import BatchOffered, JobUpdated
-from dynomark_daemon.domain.ids import BatchId, NodeId
+from dynomark_daemon.domain.ids import BatchId, EventId, NodeId, ProfileId
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.testing.store import InMemoryCorpusStore
 from dynomark_daemon.testing.transport import RecordingTransport
@@ -255,6 +255,54 @@ def test_a_kill_mid_receipt_leaves_the_offer_to_replay(
     daemon = _killed_mid_receipt(receipt)
 
     assert daemon.batch.batch_id in _replayed_offers(daemon)
+
+
+def test_a_replayed_offer_answered_again_after_a_kill_files_the_job() -> None:
+    """Given the daemon was killed after an APPLIED receipt's batch row was
+    recorded and before its job changed, When the replayed offer is answered
+    with the same receipt, Then the job is FILED and the offer acknowledged."""
+    daemon = _killed_mid_receipt(_applied)
+    assert daemon.batch.batch_id in _replayed_offers(daemon)
+
+    daemon.receive(_applied(daemon))
+
+    assert daemon.job_now().state is JobState.FILED
+    assert _replayed_offers(daemon) == []
+
+
+class _DiesAtAck(InMemoryCorpusStore):
+    """A store whose next offer ack never happens: the daemon was killed after
+    the receipt's job change and before the offer was acknowledged."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.armed = False
+
+    def ack_events(self, profile_id: ProfileId, event_ids: Iterable[EventId]) -> None:
+        if self.armed:
+            self.armed = False
+            raise SystemExit("killed")
+        super().ack_events(profile_id, event_ids)
+
+
+def test_a_kill_before_the_offer_ack_is_finished_by_the_repeat() -> None:
+    """Given the daemon was killed after an APPLIED receipt filed the job and
+    before the offer was acknowledged, When the replayed offer is answered
+    again, Then the offer is acknowledged (it no longer holds back the next
+    batch) and the job stays FILED."""
+    store = _DiesAtAck()
+    daemon = Daemon(store)
+    store.armed = True
+    with pytest.raises(SystemExit):
+        daemon.receive(_applied(daemon))
+    assert daemon.job_now().state is JobState.FILED
+    assert daemon.batch.batch_id in _replayed_offers(daemon)
+
+    again = daemon.receive(_applied(daemon))
+
+    assert again.first is False
+    assert _replayed_offers(daemon) == []
+    assert daemon.job_now().state is JobState.FILED
 
 
 def test_a_partial_receipt_resent_after_a_kill_fails_the_job_with_one_inverse() -> None:
