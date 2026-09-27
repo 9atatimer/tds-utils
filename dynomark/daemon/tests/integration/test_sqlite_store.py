@@ -8,7 +8,9 @@ disk ... owner-only permissions in the user's state directory"); task-025
 import array
 import sqlite3
 import stat
+from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -228,6 +230,57 @@ def test_a_failed_replace_leaves_knn_on_the_committed_vector(tmp_path: Path) -> 
         store.put_entry(make_entry("https://a.example/", vector=(0.0, 1.0)))
 
     assert _nearest(store) == ["https://a.example/", "https://b.example/"]
+
+
+class _CommitFails:
+    """A connection whose next ``COMMIT``, once armed, fails as a full or
+    failing disk fails it: rolled back by SQLite (``rolls_back``), or left
+    open (a failure SQLite does not roll back for you). Everything else goes
+    to the real connection."""
+
+    def __init__(self, db: Path, *, rolls_back: bool) -> None:
+        self._db = sqlite3.connect(db, isolation_level=None, check_same_thread=False)
+        self._rolls_back = rolls_back
+        self.armed = False
+
+    def execute(self, sql: str, parameters: Sequence[object] = ()) -> sqlite3.Cursor:
+        if sql == "COMMIT" and self.armed:
+            self.armed = False
+            if self._rolls_back:
+                self._db.execute("ROLLBACK")
+            raise sqlite3.OperationalError("disk I/O error")
+        return self._db.execute(sql, parameters)
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._db, name)
+
+
+@pytest.mark.parametrize("rolls_back", [True, False])
+def test_a_unit_whose_commit_fails_leaves_knn_and_later_writes_on_what_was_committed(
+    tmp_path: Path, rolls_back: bool
+) -> None:
+    """Given KNN asked once, When a unit of work writes vectors and its COMMIT
+    fails (rolled back by SQLite, or left open), Then the error reaches the
+    caller, KNN ranks only what was committed, and the next write commits."""
+    db = tmp_path / "corpus.sqlite3"
+    SqliteCorpusStore.open(db).close()
+    connection = _CommitFails(db, rolls_back=rolls_back)
+    store = SqliteCorpusStore(cast(sqlite3.Connection, connection), db, read_only=False)
+    store.put_entry(make_entry("https://a.example/", vector=(1.0, 0.0)))
+    assert _nearest(store) == ["https://a.example/"]
+
+    connection.armed = True
+    with pytest.raises(sqlite3.OperationalError, match="disk I/O"), store.atomic():
+        store.put_entry(make_entry("https://ghost.example/", vector=(1.0, 0.0)))
+
+    assert _nearest(store) == ["https://a.example/"]
+    store.put_entry(make_entry("https://b.example/", vector=(0.6, 0.8)))
+    store.close()
+    reopened = SqliteCorpusStore.open(db)
+    try:
+        assert _nearest(reopened) == ["https://a.example/", "https://b.example/"]
+    finally:
+        reopened.close()
 
 
 @pytest.mark.parametrize("placed_only", [False, True])
