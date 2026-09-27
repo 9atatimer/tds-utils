@@ -31,3 +31,21 @@ export interface TransportPort {
   /** Subscribe to daemon events, in arrival order; returns the unsubscribe. */
   onEvent(listener: (event: EventMessage) => void): () => void;
 }
+
+/** The state of the link under a transport: never opened, open, lost (with the browser's reason), or superseded for good. */
+export type LinkState =
+  | { readonly state: 'idle' }
+  | { readonly state: 'connected' }
+  | { readonly state: 'disconnected'; readonly detail: string }
+  | { readonly state: 'superseded' };
+
+/**
+ * What a transport reports about its link, beside the requests it carries:
+ * the runtime reconnects (and says hello again) when the link is lost while
+ * nothing is in flight, and the settings page shows it.
+ */
+export interface TransportLink {
+  linkState(): LinkState;
+  /** Subscribe to link state changes; returns the unsubscribe. */
+  onLink(listener: (state: LinkState) => void): () => void;
+}
