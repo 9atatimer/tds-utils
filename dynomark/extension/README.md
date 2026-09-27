@@ -55,7 +55,8 @@ and fails the build if any bare specifier is left.
 6. Chat: the Ask row, or Alt+Shift+K (chrome://extensions/shortcuts to
    change), opens `chat.html` in a popup window. A citation opens in one
    click; "why here" shows the placement reason; an external URL can be
-   filed into `Follow Up`.
+   filed into `Follow Up`. Batches that ended PARTIAL or REJECTED and FAILED
+   jobs are listed on top, each job with Retry.
 7. Diffs: `diff.html` (linked from the settings page). Propose an audit or
    a rebuild, open it, accept one item at a time; each accepted item is a
    batch whose state shows on its row. Pin or lock owned folders there.

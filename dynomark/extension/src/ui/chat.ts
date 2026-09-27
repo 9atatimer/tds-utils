@@ -4,13 +4,17 @@
 // lives in the page. Security: the completion model, local or cloud, is
 // shown). A citation opens in one click and closes the chat; a URL the answer
 // mentions that is not in the corpus is marked external and can be filed
-// into Follow Up.
+// into Follow Up. Batches that ended PARTIAL or REJECTED and FAILED jobs are
+// listed on top, each job with Retry (design, Transport contract: "they
+// surface in chat and the diff view"; State Machine: FAILED -> QUEUED "user
+// retries from chat or menu").
 
 import { withTurn, type Answer, type Citation, type Question, type Turn } from '../domain/chat.js';
 import type { PlacementReason } from '../domain/diff.js';
+import type { Job } from '../domain/jobs.js';
 import type { Url } from '../domain/values.js';
-import type { PageClient } from '../ports/pages.js';
-import { byId, el } from './dom.js';
+import type { PageClient, PageResponse } from '../ports/pages.js';
+import { byId, el, when } from './dom.js';
 
 // --- Types ---
 
@@ -21,10 +25,17 @@ export interface ChatOptions {
   readonly close: () => void;
 }
 
+type Batch = Extract<PageResponse, { kind: 'batch.list' }>['batches'][number];
+
 // --- Pure helpers ---
 
 function pathText(names: readonly string[]): string {
   return names.join(' / ');
+}
+
+/** A batch the user should see: it stopped midway or was refused, and is not retried by itself. */
+function needsAttention(batch: Batch): boolean {
+  return batch.state === 'PARTIAL' || batch.state === 'REJECTED';
 }
 
 // --- Rendering ---
@@ -79,7 +90,36 @@ function answerBlock(doc: Document, client: PageClient, options: ChatOptions, an
   return block;
 }
 
+function attentionBatch(doc: Document, batch: Batch): HTMLElement {
+  const what = batch.identity ?? batch.diff_item_id ?? '';
+  return el(doc, 'li', `${when(batch.created_at)} ${batch.batch_id} ${batch.state} ${what}`, { 'data-batch': batch.batch_id });
+}
+
+function attentionJob(doc: Document, client: PageClient, job: Job): HTMLElement {
+  const li = el(doc, 'li', `${job.identity}: ${job.last_error ?? 'failed'} `);
+  const retry = el(doc, 'button', 'Retry', { type: 'button', 'data-job': job.job_id });
+  retry.addEventListener('click', () => void retryJob(doc, client, job.job_id));
+  li.append(retry);
+  return li;
+}
+
 // --- Flow ---
+
+/** List what needs the user: the newest page's PARTIAL and REJECTED batches, and the FAILED jobs. */
+async function showAttention(doc: Document, client: PageClient): Promise<void> {
+  const [batches, jobs] = await Promise.all([client.request({ kind: 'batch.list' }), client.request({ kind: 'job.list' })]);
+  const failedBatches = batches.ok && batches.kind === 'batch.list' ? batches.batches.filter(needsAttention) : [];
+  const failedJobs = jobs.ok && jobs.kind === 'job.list' ? jobs.jobs : [];
+  byId(doc, 'attention-batches').replaceChildren(...failedBatches.map((b) => attentionBatch(doc, b)));
+  byId(doc, 'attention-jobs').replaceChildren(...failedJobs.map((j) => attentionJob(doc, client, j)));
+  byId(doc, 'attention').hidden = failedBatches.length === 0 && failedJobs.length === 0;
+}
+
+async function retryJob(doc: Document, client: PageClient, job_id: string): Promise<void> {
+  const response = await client.request({ kind: 'job.retry', job_id });
+  say(doc, response.ok ? `retry ${job_id}: queued` : `retry ${job_id}: ${response.error}`);
+  await showAttention(doc, client);
+}
 
 async function openUrl(doc: Document, client: PageClient, options: ChatOptions, url: Url): Promise<void> {
   const response = await client.request({ kind: 'open', url });
@@ -136,6 +176,7 @@ export async function mountChat(doc: Document, client: PageClient, options: Chat
     void ask(question);
   });
   const model = showModel(doc, client);
+  const attention = showAttention(doc, client);
   if (options.question !== undefined) await ask(options.question);
-  await model;
+  await Promise.all([model, attention]);
 }
