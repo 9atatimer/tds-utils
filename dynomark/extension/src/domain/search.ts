@@ -1,6 +1,7 @@
 // search.ts -- queries, hits, the LocalIndex and frecency (design, "Query /
 // Hit", "LocalIndex", "Frecency").
 
+import { MAX_INDEX_ROW_BYTES, utf8Length } from './limits.js';
 import type { FolderPath } from './tree.js';
 import type { EpochMs, Identity, Title } from './values.js';
 
@@ -88,4 +89,18 @@ export function shouldRequestTier2(tier1: readonly Hit[], thresholds: Tier2Thres
 export function appendTier2(tier1: readonly Hit[], tier2: readonly Hit[]): Hit[] {
   const shown = new Set(tier1.map((h) => h.identity));
   return [...tier1, ...tier2.filter((h) => !shown.has(h.identity))];
+}
+
+// --- LocalIndex ---
+
+/** True when the row, as compact UTF-8 JSON, is within the contract's 512 bytes. */
+export function fitsIndexRow(row: LocalIndexRow): boolean {
+  return utf8Length(JSON.stringify(row)) <= MAX_INDEX_ROW_BYTES;
+}
+
+/** One row per identity across the pulled pages (a later row replaces an earlier one), oversize rows left out. */
+export function toLocalIndex(rows: readonly LocalIndexRow[]): LocalIndex {
+  const byIdentity = new Map<Identity, LocalIndexRow>();
+  for (const row of rows) if (fitsIndexRow(row)) byIdentity.set(row.identity, row);
+  return [...byIdentity.values()];
 }
