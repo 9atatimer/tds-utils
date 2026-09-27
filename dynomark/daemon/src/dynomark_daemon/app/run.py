@@ -13,11 +13,10 @@ from typing import Final
 
 from dynomark_daemon.app.errors import TreeNotReady, UnknownRecord
 from dynomark_daemon.app.file import file, park
+from dynomark_daemon.app.jobs import record_job_change
 from dynomark_daemon.app.place import place
 from dynomark_daemon.app.process import process_job
 from dynomark_daemon.domain.batch import OutsideOwnedRoots
-from dynomark_daemon.domain.events import JobUpdated
-from dynomark_daemon.domain.ids import EventId
 from dynomark_daemon.domain.job import Job, JobState, RetryPolicy, is_duplicate
 from dynomark_daemon.domain.placement import (
     NoAdmissibleFolder,
@@ -241,7 +240,5 @@ def run_job(
     ):
         job = _file_job(job, role, roots, policy, store=store, clock=clock, ids=ids)
     if job != start:
-        store.put_event(
-            job.profile_id, JobUpdated(event_id=EventId(ids.new_id("event")), job=job)
-        )
+        record_job_change(job, store=store, ids=ids)
     return job

@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from dynomark_daemon.app.errors import UnknownRecord
 from dynomark_daemon.app.file import propose_inverse
+from dynomark_daemon.app.jobs import record_job_change
 from dynomark_daemon.domain.batch import (
     BatchReceipt,
     BatchRecord,
@@ -20,8 +21,8 @@ from dynomark_daemon.domain.batch import (
     filing_failure,
     invert,
 )
-from dynomark_daemon.domain.events import BatchOffered, JobUpdated
-from dynomark_daemon.domain.ids import EventId, SnapshotId
+from dynomark_daemon.domain.events import BatchOffered
+from dynomark_daemon.domain.ids import SnapshotId
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.domain.tree import OwnedRoots
 from dynomark_daemon.ports.clock import Clock, IdSource
@@ -107,8 +108,5 @@ def receive_receipt(
     ):
         now = clock.now_ms()
         job = job.filed(at=now) if failure is None else job.failed(failure, at=now)
-        store.put_job(job)
-        store.put_event(
-            job.profile_id, JobUpdated(event_id=EventId(ids.new_id("event")), job=job)
-        )
+        record_job_change(job, store=store, ids=ids)
     return ReceiptRecorded(first=True, job=job, inverse=inverse)
