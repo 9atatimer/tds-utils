@@ -153,6 +153,11 @@ export class Connection implements TransportPort {
     return this.deps.transport.onEvent(listener);
   }
 
+  /** The link under this connection was lost with nothing in flight: the next request (or connect) says hello again. */
+  linkLost(): void {
+    this.lose(this.generation);
+  }
+
   private async handshake(generation: number): Promise<HelloOutcome> {
     const hello = {
       v: CONTRACT_VERSION,
