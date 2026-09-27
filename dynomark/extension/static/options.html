@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Dynomark settings</title>
+    <link rel="stylesheet" href="pages.css" />
+    <script type="module" src="options.js"></script>
+  </head>
+  <body>
+    <h1>Dynomark</h1>
+    <p><button id="refresh" type="button">Refresh</button> <span id="message"></span></p>
+
+    <h2>Transport</h2>
+    <dl>
+      <dt>Native messaging</dt>
+      <dd id="link">-</dd>
+      <dt>Connection</dt>
+      <dd id="connection">-</dd>
+    </dl>
+
+    <h2>Daemon</h2>
+    <dl>
+      <dt>Role</dt>
+      <dd id="daemon-role">-</dd>
+      <dt>Host id</dt>
+      <dd id="daemon-host">-</dd>
+      <dt>Embedding model</dt>
+      <dd id="daemon-embedding">-</dd>
+      <dt>Completion model</dt>
+      <dd id="daemon-completion">-</dd>
+      <dt>Queue depth</dt>
+      <dd id="daemon-queue">-</dd>
+    </dl>
+    <p id="daemon-error"></p>
+
+    <h2>Follow Up</h2>
+    <dl>
+      <dt>Watched folder</dt>
+      <dd id="follow-up">-</dd>
+      <dt>Profile id</dt>
+      <dd id="profile">-</dd>
+    </dl>
+    <label
+      ><input id="capture" type="checkbox" /> Capture a saved page from an open tab (otherwise the daemon fetches it, without
+      cookies)</label
+    >
+
+    <h2>Problems</h2>
+    <ul id="problems"></ul>
+  </body>
+</html>

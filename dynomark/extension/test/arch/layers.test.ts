@@ -20,6 +20,7 @@ const ALLOWED_IMPORTS: Readonly<Record<string, readonly string[]>> = {
   ports: ['domain', 'ports', 'wire'],
   app: ['domain', 'ports', 'wire', 'app'],
   adapters: ['domain', 'ports', 'wire', 'adapters', 'zod'],
+  ui: ['domain', 'ports', 'wire', 'ui'],
 };
 
 // --- Helpers ---
