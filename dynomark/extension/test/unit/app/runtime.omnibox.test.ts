@@ -3,14 +3,17 @@
 // answered from the LocalIndex at once; when tier 1 is under the named
 // thresholds, tier-2 hits are appended after a debounce (a newer keystroke
 // cancels the older request's suggestions); Enter navigates to the hit's
-// identity. The omnibox itself cannot be typed into in a headless browser,
-// so the handler is exercised here and through the background's handle in
-// e2e.
+// identity. The last row is always `Ask: <query>` (design, "Ask
+// fall-through"): entering it, or entering with no hit, opens the chat
+// surface with the query pre-sent. The omnibox itself cannot be typed into in
+// a headless browser, so the handler is exercised here and through the
+// background's handle in e2e.
 
 import { describe, expect, it } from 'vitest';
 import { TIER2_DEBOUNCE_MS } from '../../../src/app/omnibox.js';
 import type { ExtensionRuntime } from '../../../src/app/runtime.js';
-import type { Hit, LocalIndexRow } from '../../../src/domain/search.js';
+import { askRowContent, type OmniboxRows } from '../../../src/domain/omnibox.js';
+import type { LocalIndexRow } from '../../../src/domain/search.js';
 import type { RequestMessage, ResponseMessage } from '../../../src/wire/messages.js';
 import { FakeExtensionWorld } from '../../fakes/FakeExtensionWorld.js';
 import { scriptDaemon, sentOf, startRuntime } from '../../fixtures/runtime.js';
@@ -54,9 +57,9 @@ async function setup(): Promise<{ w: FakeExtensionWorld; runtime: ExtensionRunti
   return { w, runtime: await startRuntime(w) };
 }
 
-function type(runtime: ExtensionRuntime, text: string): Hit[][] {
-  const rounds: Hit[][] = [];
-  runtime.omniboxInput(text, (hits) => rounds.push([...hits]));
+function type(runtime: ExtensionRuntime, text: string): OmniboxRows[] {
+  const rounds: OmniboxRows[] = [];
+  runtime.omniboxInput(text, (rows) => rounds.push(rows));
   return rounds;
 }
 
@@ -68,7 +71,7 @@ describe('Omnibox bm -- tier 1 per keystroke, tier 2 after the debounce', () => 
     const before = w.connection().sent.length;
     const rounds = type(runtime, 'tokio');
     expect(rounds).toHaveLength(1);
-    expect(rounds[0]?.map((h) => [h.identity, h.tier])).toEqual([['https://tokio.rs/tokio/tutorial', 'local']]);
+    expect(rounds[0]?.hits.map((h) => [h.identity, h.tier])).toEqual([['https://tokio.rs/tokio/tutorial', 'local']]);
     expect(w.connection().sent).toHaveLength(before);
   });
 
@@ -78,7 +81,8 @@ describe('Omnibox bm -- tier 1 per keystroke, tier 2 after the debounce', () => 
     await w.timer().advance(TIER2_DEBOUNCE_MS);
     await runtime.idle();
     expect(sentOf(w, 'search').map((r) => r.query)).toEqual(['tokio']);
-    expect(rounds.at(-1)?.map((h) => h.tier)).toEqual(['local', 'corpus']);
+    expect(rounds.at(-1)?.hits.map((h) => h.tier)).toEqual(['local', 'corpus']);
+    expect(rounds.at(-1)?.ask).toBe('tokio');
   });
 
   it('Given a second keystroke inside the debounce, When time passes, Then only the latest query reaches the daemon', async () => {
@@ -105,8 +109,35 @@ describe('Omnibox bm -- tier 1 per keystroke, tier 2 after the debounce', () => 
     const { w, runtime } = await setup();
     const rounds = type(runtime, '   ');
     await w.timer().advance(TIER2_DEBOUNCE_MS);
-    expect(rounds).toEqual([[]]);
+    expect(rounds).toEqual([{ hits: [], enter_asks: false }]);
     expect(sentOf(w, 'search')).toEqual([]);
+  });
+});
+
+describe('Omnibox bm -- the Ask row', () => {
+  it('Given hits, When typed, Then the Ask row follows them and Enter on the text does not ask', async () => {
+    const { runtime } = await setup();
+    const [first] = type(runtime, 'tokio');
+    expect(first).toMatchObject({ ask: 'tokio', enter_asks: false });
+  });
+
+  it('Given no hit, When typed, Then the Ask row is the only row and the default', async () => {
+    const { runtime } = await setup();
+    expect(type(runtime, 'zzzz')[0]).toEqual({ hits: [], ask: 'zzzz', enter_asks: true });
+  });
+
+  it('Given the Ask row, When it is entered, Then the chat surface opens with the query pre-sent and nothing is navigated', async () => {
+    const { w, runtime } = await setup();
+    type(runtime, 'tokio');
+    await runtime.omniboxEnter(askRowContent('tokio'), 'currentTab');
+    expect(w.surface.opened).toEqual(['tokio']);
+    expect(w.navigator.opened).toEqual([]);
+  });
+
+  it('Given the keyboard command, When it fires, Then the chat surface opens empty', async () => {
+    const { w, runtime } = await setup();
+    await runtime.openChat();
+    expect(w.surface.opened).toEqual([undefined]);
   });
 });
 
@@ -124,10 +155,11 @@ describe('Omnibox bm -- Enter navigates to the hit identity', () => {
     expect(w.navigator.opened).toEqual([{ url: 'https://tokio.rs/tokio/tutorial', disposition: 'newForegroundTab' }]);
   });
 
-  it('Given text matching nothing, When entered, Then nothing opens', async () => {
+  it('Given text matching nothing, When entered, Then no page opens and the chat surface opens with the text pre-sent', async () => {
     const { w, runtime } = await setup();
     await runtime.omniboxEnter('zzzz', 'currentTab');
     expect(w.navigator.opened).toEqual([]);
+    expect(w.surface.opened).toEqual(['zzzz']);
   });
 
   it('Given a corpus hit whose identity is not http(s), When entered, Then it is not opened', async () => {

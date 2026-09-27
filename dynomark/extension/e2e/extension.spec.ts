@@ -117,14 +117,16 @@ test('Given the pulled index, When the omnibox handler gets "tokio" (through the
   const rounds = await worker.evaluate(async () => {
     const runtime = (
       globalThis as unknown as {
-        dynomark: { omniboxInput(t: string, s: (h: readonly { identity: string; tier: string }[]) => void): void };
+        dynomark: {
+          omniboxInput(t: string, s: (rows: { hits: readonly { identity: string; tier: string }[]; ask?: string }) => void): void;
+        };
       }
     ).dynomark;
     const seen: string[][] = [];
     for (let i = 0; i < 50; i += 1) {
       seen.length = 0;
-      runtime.omniboxInput('tokio', (hits) => seen.push(hits.map((h) => `${h.tier} ${h.identity}`)));
-      if ((seen[0] ?? []).length > 0) break;
+      runtime.omniboxInput('tokio', (rows) => seen.push([...rows.hits.map((h) => `${h.tier} ${h.identity}`), `ask ${rows.ask ?? ''}`]));
+      if ((seen[0] ?? []).length > 1) break;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
     await new Promise((resolve) => setTimeout(resolve, 1_000));

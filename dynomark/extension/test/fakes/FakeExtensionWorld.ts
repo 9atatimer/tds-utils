@@ -17,9 +17,11 @@ import type { HistoryPort } from '../../src/ports/history.js';
 import type { IdSource } from '../../src/ports/idSource.js';
 import type { StoragePort } from '../../src/ports/storage.js';
 import type { Navigator } from '../../src/ports/navigator.js';
+import type { ChatSurfacePort } from '../../src/ports/chatSurface.js';
 import type { Timer } from '../../src/ports/timer.js';
 import type { TransportLink, TransportPort } from '../../src/ports/transport.js';
 import { FakeBookmarkTree } from './FakeBookmarkTree.js';
+import { FakeChatSurface } from './FakeChatSurface.js';
 import { FakeClock } from './FakeClock.js';
 import { FakeHistory } from './FakeHistory.js';
 import { FakeNavigator } from './FakeNavigator.js';
@@ -50,6 +52,7 @@ export interface WorkerPorts {
   readonly ids: IdSource;
   readonly timer: Timer;
   readonly navigator: Navigator;
+  readonly surface: ChatSurfacePort;
 }
 
 export interface FakeExtensionWorldOptions {
@@ -76,6 +79,8 @@ export class FakeExtensionWorld {
   readonly ids = new SequentialIdSource();
   /** Every navigation any worker asked for (the browser's tabs outlive workers). */
   readonly navigator = new FakeNavigator();
+  /** Every time any worker opened the chat surface. */
+  readonly surface = new FakeChatSurface();
   private current: Worker;
 
   constructor(options: FakeExtensionWorldOptions) {
@@ -138,6 +143,7 @@ export class FakeExtensionWorld {
       ids: bind<IdSource>(this.ids),
       timer: bind<Timer>(timer),
       navigator: bind<Navigator>(this.navigator),
+      surface: bind<ChatSurfacePort>(this.surface),
     };
     return Object.assign(partial, { connection, timer, ports });
   }

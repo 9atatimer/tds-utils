@@ -1,14 +1,15 @@
 // chromeEvents.test.ts -- the browser-event adapters: chrome.bookmarks events
 // become BookmarkEvents; the omnibox shows hits as XML-escaped suggestions
-// whose content is the hit's identity and reports Enter with its
-// disposition; the navigator opens a URL where the disposition says; pages
+// whose content is the hit's identity, then the Ask row, switches its default
+// row to Ask when there is no hit, and reports Enter with its disposition; the navigator opens a URL where the disposition says; pages
 // and background talk over chrome.runtime messaging, answering only
 // Dynomark page requests from this extension.
 
 import { describe, expect, it } from 'vitest';
 import { listenBookmarkEvents } from '../../../src/adapters/chrome/bookmarkEvents.js';
 import { ChromeNavigator } from '../../../src/adapters/chrome/navigator.js';
-import { describeHit, listenOmnibox, type OmniboxSuggestion } from '../../../src/adapters/chrome/omnibox.js';
+import { describeAsk, describeHit, listenOmnibox, type OmniboxSuggestion } from '../../../src/adapters/chrome/omnibox.js';
+import { askRowContent } from '../../../src/domain/omnibox.js';
 import { ChromePageClient, servePages } from '../../../src/adapters/chrome/pageChannel.js';
 import type { Hit } from '../../../src/domain/search.js';
 import type { BookmarkEvent } from '../../../src/ports/bookmarkEvents.js';
@@ -34,6 +35,16 @@ function bookmarkApi() {
     onChanged: new EventStub<[string, { title: string; url?: string }]>(),
     onRemoved: new EventStub<[string, { parentId: string; index: number }]>(),
     onChildrenReordered: new EventStub<[string, { childIds: string[] }]>(),
+  };
+}
+
+function omniboxApi() {
+  const defaults: string[] = [];
+  return {
+    defaults,
+    onInputChanged: new EventStub<[string, (suggestions: OmniboxSuggestion[]) => void]>(),
+    onInputEntered: new EventStub<[string, 'currentTab' | 'newForegroundTab' | 'newBackgroundTab']>(),
+    setDefaultSuggestion: (s: { description: string }) => void defaults.push(s.description),
   };
 }
 
@@ -69,21 +80,40 @@ describe('Omnibox suggestions', () => {
     );
   });
 
-  it('Given keystrokes and Enter, When the omnibox fires, Then hits become suggestions with the identity as content, and Enter carries the disposition', () => {
-    const api = {
-      onInputChanged: new EventStub<[string, (suggestions: OmniboxSuggestion[]) => void]>(),
-      onInputEntered: new EventStub<[string, 'currentTab' | 'newForegroundTab' | 'newBackgroundTab']>(),
-      setDefaultSuggestion: (s: { description: string }) => void defaults.push(s.description),
-    };
-    const defaults: string[] = [];
+  it('Given a question with XML metacharacters, When the Ask row is described, Then it is escaped', () => {
+    expect(describeAsk('a<b & c')).toBe('Ask: <match>a&lt;b &amp; c</match>');
+  });
+
+  it('Given keystrokes and Enter, When the omnibox fires, Then hits become suggestions with the identity as content, the Ask row comes last, and Enter carries the disposition', () => {
+    const api = omniboxApi();
     const entered: [string, string][] = [];
-    listenOmnibox({ input: (_text, suggest) => suggest([HIT]), enter: (text, d) => void entered.push([text, d]) }, api);
+    listenOmnibox(
+      {
+        input: (_text, suggest) => suggest({ hits: [HIT], ask: 'q&a', enter_asks: false }),
+        enter: (text, d) => void entered.push([text, d]),
+      },
+      api,
+    );
     const shown: OmniboxSuggestion[][] = [];
     api.onInputChanged.fire('q&a', (s) => shown.push(s));
     api.onInputEntered.fire('https://example.com/?a=1&b=<2>', 'newBackgroundTab');
-    expect(shown).toEqual([[{ content: HIT.identity, description: describeHit(HIT) }]]);
+    expect(shown).toEqual([
+      [
+        { content: HIT.identity, description: describeHit(HIT) },
+        { content: askRowContent('q&a'), description: describeAsk('q&a') },
+      ],
+    ]);
     expect(entered).toEqual([['https://example.com/?a=1&b=<2>', 'newBackgroundTab']]);
-    expect(defaults).toHaveLength(1);
+  });
+
+  it('Given no hit and then a hit, When the omnibox fires, Then the default row says Ask, then says Search again', () => {
+    const api = omniboxApi();
+    let rows = { hits: [] as Hit[], ask: 'zzz', enter_asks: true };
+    listenOmnibox({ input: (_text, suggest) => suggest(rows), enter: () => undefined }, api);
+    api.onInputChanged.fire('zzz', () => undefined);
+    rows = { hits: [HIT], ask: 'q', enter_asks: false };
+    api.onInputChanged.fire('q', () => undefined);
+    expect(api.defaults.map((d) => d.split(' ')[0])).toEqual(['Search', 'Ask:', 'Search']);
   });
 });
 
