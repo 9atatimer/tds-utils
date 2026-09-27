@@ -244,9 +244,9 @@ def accept_diff(
     clock: Clock,
     ids: IdSource,
 ) -> DiffItem | NotWriter | WriterConflict:
-    """Record the acceptance of one item and offer its batch, once; a repeat
-    returns the recorded acceptance (and offers the batch if it was lost).
-    A writer in ``conflict`` refuses.
+    """Record the acceptance of one item and offer its batch, once, in one
+    unit of work; a repeat returns the recorded acceptance. A writer in
+    ``conflict`` refuses.
 
     Raises:
         UnknownRecord: no such item (``not_found``).
@@ -258,6 +258,22 @@ def accept_diff(
         return NotWriter(use_case="accept_diff_item")
     if conflict is not None:
         return conflict
+    with store.atomic():
+        return _accept(
+            item_id, role, roots, profile_id, store=store, clock=clock, ids=ids
+        )
+
+
+def _accept(
+    item_id: ItemId,
+    role: HostRole,
+    roots: OwnedRoots,
+    profile_id: ProfileId,
+    *,
+    store: CorpusStorePort,
+    clock: Clock,
+    ids: IdSource,
+) -> DiffItem | NotWriter:
     item = store.get_diff_item(item_id)
     diff = None if item is None else store.get_diff(item.diff_id)
     if item is None or diff is None:
