@@ -131,3 +131,27 @@ describe('Reconnect -- a lost link is re-opened with backoff; hello goes first e
     expect(sentOf(w, 'hello')[0]?.profile_id).toBe(profile);
   });
 });
+
+describe('Connect routine -- a step that fails is reported, the rest still runs, and the routine is tried again', () => {
+  it('Given the daemon answers the first index.pull internal, When the connect routine fails, Then it is reported, the backlog and writer status still run, and after the backoff the routine runs again', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    let pulls = 0;
+    scriptDaemon(w, {}, (r) =>
+      r.type === 'index.pull' && (pulls += 1) === 1
+        ? { v: 1, type: 'error', re: r.id, code: 'internal', message: 'store closed' }
+        : undefined,
+    );
+    const ids = await seedOwnedTree(w.tree);
+    const runtime = await startRuntime(w);
+
+    expect(sentOf(w, 'ingest').map((r) => r.bookmark.node_id)).toEqual([ids.saved]);
+    expect(sentOf(w, 'writer.status')).toHaveLength(1);
+    const page = await runtime.page({ kind: 'overview' });
+    expect(page.ok && page.kind === 'overview' ? page.overview.problems.join('\n') : '').toContain('store closed');
+
+    await w.timer().advance(RECONNECT_BACKOFF.base_ms);
+    await runtime.idle();
+    expect(sentOf(w, 'index.pull')).toHaveLength(2);
+    expect(sentOf(w, 'hello')).toHaveLength(1);
+  });
+});
