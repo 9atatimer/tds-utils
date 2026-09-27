@@ -16,6 +16,14 @@ export interface Capture {
   readonly title?: Title;
 }
 
+/** A source the extension itself can send: never `fetch`. */
+export type ExtensionCaptureSource = Exclude<CaptureSource, 'fetch'>;
+
+/** A capture as the extension sends it in `ingest`. */
+export interface ExtensionCapture extends Capture {
+  readonly source: ExtensionCaptureSource;
+}
+
 /** What an open tab showing a URL yields: readable text already extracted by the content adapter, and the page title. */
 export interface TabContent {
   readonly title: Title;
@@ -25,7 +33,7 @@ export interface TabContent {
 // --- Constants ---
 
 /** No content was read: the daemon falls back to fetch. */
-export const NO_CAPTURE: Capture = { source: 'none', text: '' };
+export const NO_CAPTURE: ExtensionCapture = { source: 'none', text: '' };
 
 const CAPTURABLE_SCHEME = /^https?:/i;
 
@@ -36,10 +44,15 @@ export function isCapturableUrl(url: Url): boolean {
   return CAPTURABLE_SCHEME.test(url);
 }
 
+/** True when the extension may send this capture: any source but the daemon's own `fetch`. */
+export function isExtensionCapture(capture: Capture): capture is ExtensionCapture {
+  return capture.source !== 'fetch';
+}
+
 // --- Pure helpers ---
 
 /** A `tab` capture of what the tab shows, within the caps and well-formed; `NO_CAPTURE` when it has no readable text. */
-export function captureFromTab(tab: TabContent): Capture {
+export function captureFromTab(tab: TabContent): ExtensionCapture {
   if (tab.text.trim() === '') return NO_CAPTURE;
   return { source: 'tab', text: fitText(tab.text, MAX_CAPTURE_TEXT).text, title: fitText(tab.title, MAX_TITLE).text };
 }

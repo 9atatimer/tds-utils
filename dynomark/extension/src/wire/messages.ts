@@ -89,14 +89,14 @@ export const TreeSnapshotSchema = request('tree.snapshot', { snapshot: SnapshotS
 export const MoveObservedSchema = request('move.observed', { move: MoveSchema });
 export const BatchReceiptMessageSchema = request('batch.receipt', { receipt: BatchReceiptSchema });
 export const EventsReplaySchema = request('events.replay', {});
-export const EventsAckSchema = request('events.ack', { event_ids: z.array(IdSchema).min(1).max(1000) });
+export const EventsAckSchema = request('events.ack', { event_ids: z.array(IdSchema).min(1).max(1000).readonly() });
 export const IndexPullSchema = request('index.pull', { cursor: CursorSchema.exactOptional(), limit: pageLimit(1000) });
 export const SearchSchema = request('search', {
   query: text({ min: 1, max: 1024 }),
   cursor: CursorSchema.exactOptional(),
   limit: pageLimit(100),
 });
-export const AskSchema = request('ask', { question: text({ min: 1, max: 8192 }), history: z.array(TurnSchema).max(50) });
+export const AskSchema = request('ask', { question: text({ min: 1, max: 8192 }), history: z.array(TurnSchema).max(50).readonly() });
 export const PlacementExplainSchema = request('placement.explain', {
   identity: IdentitySchema.exactOptional(),
   url: UrlSchema.exactOptional(),
@@ -130,18 +130,21 @@ export const HelloResultSchema = z.strictObject({
 });
 export const IngestResultSchema = response('ingest.result', { job: JobSchema });
 export const JobRetryResultSchema = response('job.retry.result', { job: JobSchema });
-export const JobListResultSchema = response('job.list.result', { jobs: z.array(JobSchema).max(1000), next_cursor: nextCursor });
+export const JobListResultSchema = response('job.list.result', { jobs: z.array(JobSchema).max(1000).readonly(), next_cursor: nextCursor });
 export const TreeSnapshotResultSchema = response('tree.snapshot.result', {});
 export const MoveObservedResultSchema = response('move.observed.result', {});
 export const BatchReceiptMessageResultSchema = response('batch.receipt.result', {});
 export const EventsReplayResultSchema = response('events.replay.result', { count: count() });
 export const EventsAckResultSchema = response('events.ack.result', {});
 export const IndexPullResultSchema = response('index.pull.result', {
-  rows: z.array(LocalIndexRowSchema).max(1000),
+  rows: z.array(LocalIndexRowSchema).max(1000).readonly(),
   next_cursor: nextCursor,
 });
 export const SearchResultSchema = response('search.result', {
-  hits: z.array(HitSchema.extend({ tier: z.literal('corpus') })).max(100),
+  hits: z
+    .array(HitSchema.extend({ tier: z.literal('corpus') }))
+    .max(100)
+    .readonly(),
   next_cursor: nextCursor,
 });
 export const AskResultSchema = response('ask.result', { answer: AnswerSchema });
@@ -149,22 +152,25 @@ export const PlacementExplainResultSchema = response('placement.explain.result',
 export const UndoResultSchema = response('undo.result', {
   batch_id: IdSchema.nullable(),
   undoes: IdSchema,
-  dropped: z.array(UndoDropSchema).max(1000),
+  dropped: z.array(UndoDropSchema).max(1000).readonly(),
 });
 export const BatchListResultSchema = response('batch.list.result', {
-  batches: z.array(BatchSummarySchema).max(100),
+  batches: z.array(BatchSummarySchema).max(100).readonly(),
   next_cursor: nextCursor,
 });
 export const DiffProposeResultSchema = response('diff.propose.result', { diff: TreeDiffSchema });
-export const DiffListResultSchema = response('diff.list.result', { diffs: z.array(TreeDiffSchema).max(100), next_cursor: nextCursor });
+export const DiffListResultSchema = response('diff.list.result', {
+  diffs: z.array(TreeDiffSchema).max(100).readonly(),
+  next_cursor: nextCursor,
+});
 export const DiffPageResultSchema = response('diff.page.result', {
   diff: TreeDiffSchema,
-  items: z.array(DiffItemSchema).max(100),
+  items: z.array(DiffItemSchema).max(100).readonly(),
   next_cursor: nextCursor,
 });
 export const DiffAcceptResultSchema = response('diff.accept.result', { item_id: IdSchema, accepted_at: count(), batch_id: IdSchema });
 export const OutlineGetResultSchema = response('outline.get.result', {
-  outline: z.array(OutlineFolderSchema).max(1000),
+  outline: z.array(OutlineFolderSchema).max(1000).readonly(),
   next_cursor: nextCursor,
 });
 export const FolderFlagsSetResultSchema = response('folder.flags.set.result', { folder: OutlineFolderSchema });

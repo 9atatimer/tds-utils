@@ -3,6 +3,7 @@
 // made well-formed, then cut at a code point boundary, never mid-pair.
 
 import { toWellFormed } from './text.js';
+import type { Bookmark, FolderPath } from './tree.js';
 
 // --- Constants ---
 
@@ -43,4 +44,18 @@ export function truncateCodePoints(s: string, max: number): Fitted {
 /** `s` made well-formed (lone surrogates -> U+FFFD), then cut to `max` code points. */
 export function fitText(s: string, max: number): Fitted {
   return truncateCodePoints(toWellFormed(s), max);
+}
+
+// --- Bookmarks ---
+
+/** A FolderPath with every name well-formed and within the title cap. */
+export function fitPath(path: FolderPath): FolderPath {
+  return { root: path.root, names: path.names.map((name) => fitText(name, MAX_TITLE).text) };
+}
+
+/** The bookmark as it may be sent: well-formed, title and folder names cut to the cap; undefined when its url is over the cap (it is not ingested). */
+export function fitBookmark(bookmark: Bookmark): Bookmark | undefined {
+  const url = fitText(bookmark.url, MAX_URL);
+  if (url.truncated) return undefined;
+  return { ...bookmark, url: url.text, title: fitText(bookmark.title, MAX_TITLE).text, path: fitPath(bookmark.path) };
 }

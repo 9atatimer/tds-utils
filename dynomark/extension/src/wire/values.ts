@@ -46,7 +46,7 @@ export function count(max = MAX_EPOCH_MS): z.ZodInt {
   return z.int().min(0).max(max);
 }
 
-/** An array whose items are pairwise distinct; a duplicate is reported at its own index. */
+/** A read-only array whose items are pairwise distinct; a duplicate is reported at its own index. */
 export function uniqueArray<T extends z.ZodType>(item: T, bounds: { readonly max: number }) {
   return z
     .array(item)
@@ -57,7 +57,8 @@ export function uniqueArray<T extends z.ZodType>(item: T, bounds: { readonly max
         if (seen.has(value)) ctx.addIssue({ code: 'custom', path: [index], message: 'items must be unique' });
         seen.add(value);
       });
-    });
+    })
+    .readonly();
 }
 
 // --- Scalars ---
@@ -96,6 +97,8 @@ export const ErrorCodeSchema = z.enum([
   'internal',
   'superseded',
 ]);
+/** The closed set of `error` codes (contract v1, "Roles and errors"). */
+export type ErrorCode = z.output<typeof ErrorCodeSchema>;
 export const BatchStateSchema = z.enum(['PROPOSED', 'APPLIED', 'PARTIAL', 'REJECTED']);
 export const SkipReasonSchema = z.enum(['node_missing', 'parent_mismatch', 'not_empty']);
 export const FailReasonSchema = z.enum(['parent_missing', 'browser_error']);
@@ -107,7 +110,7 @@ export const DiffActionSchema = z.enum(['add', 'move', 'merge']);
 
 export const FolderPathSchema = z.strictObject({
   root: RootKeySchema,
-  names: z.array(TitleSchema).max(64),
+  names: z.array(TitleSchema).max(64).readonly(),
 }) satisfies z.ZodType<FolderPath>;
 
 export const OwnedRootsSchema = z.strictObject({
@@ -149,7 +152,7 @@ export const RootIdsSchema = z.strictObject({
 export const SnapshotSchema = z.strictObject({
   taken_at: EpochMsSchema,
   root_ids: RootIdsSchema,
-  nodes: z.array(SnapshotNodeSchema).min(1).max(500_000),
+  nodes: z.array(SnapshotNodeSchema).min(1).max(500_000).readonly(),
 }) satisfies z.ZodType<Snapshot>;
 
 // --- Capture ---
@@ -198,7 +201,7 @@ export const OperationSchema = z.discriminatedUnion('op', [
 
 export const WriteBatchSchema = z.strictObject({
   batch_id: IdSchema,
-  operations: z.array(OperationSchema).min(1).max(MAX_OPS_PER_BATCH),
+  operations: z.array(OperationSchema).min(1).max(MAX_OPS_PER_BATCH).readonly(),
   diff_item_id: IdSchema.exactOptional(),
 }) satisfies z.ZodType<WriteBatch>;
 
@@ -225,16 +228,16 @@ export const BatchReceiptSchema = z.discriminatedUnion('state', [
     .strictObject({
       ...receiptBase,
       state: z.literal('APPLIED'),
-      applied: z.array(OpAppliedSchema).max(MAX_OPS_PER_BATCH),
-      skipped: z.array(OpSkippedSchema).max(MAX_OPS_PER_BATCH),
+      applied: z.array(OpAppliedSchema).max(MAX_OPS_PER_BATCH).readonly(),
+      skipped: z.array(OpSkippedSchema).max(MAX_OPS_PER_BATCH).readonly(),
     })
     .refine(hasOneSnapshotForm, SNAPSHOT_FORM),
   z
     .strictObject({
       ...receiptBase,
       state: z.literal('PARTIAL'),
-      applied: z.array(OpAppliedSchema).max(MAX_OPS_PER_BATCH),
-      skipped: z.array(OpSkippedSchema).max(MAX_OPS_PER_BATCH),
+      applied: z.array(OpAppliedSchema).max(MAX_OPS_PER_BATCH).readonly(),
+      skipped: z.array(OpSkippedSchema).max(MAX_OPS_PER_BATCH).readonly(),
       failed: OpFailedSchema,
     })
     .refine(hasOneSnapshotForm, SNAPSHOT_FORM),
@@ -260,7 +263,7 @@ export const LocalIndexRowSchema = z.strictObject({
   identity: IdentitySchema,
   title: TitleSchema,
   path: FolderPathSchema,
-  tags: z.array(TagSchema).max(32),
+  tags: z.array(TagSchema).max(32).readonly(),
   summary: text({ max: 512 }),
 }) satisfies z.ZodType<LocalIndexRow>;
 
@@ -285,16 +288,16 @@ export const TurnSchema = z.strictObject({
 
 export const AnswerSchema = z.strictObject({
   text: text({ max: 65536 }),
-  citations: z.array(EntryRefSchema).max(50),
-  external_urls: z.array(UrlSchema).max(50),
+  citations: z.array(EntryRefSchema).max(50).readonly(),
+  external_urls: z.array(UrlSchema).max(50).readonly(),
 }) satisfies z.ZodType<Answer>;
 
 export const PlacementReasonSchema = z.strictObject({
   identity: IdentitySchema,
   folder: FolderPathSchema,
-  neighbours: z.array(EntryRefSchema).max(50),
+  neighbours: z.array(EntryRefSchema).max(50).readonly(),
   rationale: text({ max: 8192 }),
-  feedback_ids: z.array(IdSchema).max(50),
+  feedback_ids: z.array(IdSchema).max(50).readonly(),
   model_id: text({ min: 1, max: 256 }),
   created_at: EpochMsSchema,
 }) satisfies z.ZodType<PlacementReason>;
@@ -327,7 +330,7 @@ export const DiffItemSchema = z.strictObject({
   diff_id: IdSchema,
   action: DiffActionSchema,
   description: text({ min: 1, max: 4096 }),
-  operations: z.array(OperationSchema).min(1).max(MAX_OPS_PER_DIFF_ITEM),
+  operations: z.array(OperationSchema).min(1).max(MAX_OPS_PER_DIFF_ITEM).readonly(),
   accepted_at: EpochMsSchema.nullable(),
   batch_id: IdSchema.exactOptional(),
   batch_state: BatchStateSchema.exactOptional(),
