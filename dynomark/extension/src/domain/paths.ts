@@ -1,0 +1,60 @@
+// paths.ts -- FolderPath resolution, the one owner of the rule (contract v1
+// README, "Write batches", Paths). Pure over a tree read; the tree port and
+// its fake resolve through it, and so will the boundary check.
+
+import { toWellFormed } from './text.js';
+import { ROOT_KEYS, type FolderPath, type RootKey, type SnapshotNode, type TreeRead } from './tree.js';
+import type { NodeId, Title } from './values.js';
+
+// --- Predicates ---
+
+/** True when the node is a folder directly in `parentId` whose well-formed title equals the well-formed `name`. */
+function isFolderNamed(node: SnapshotNode, parentId: NodeId, name: Title): boolean {
+  return node.kind === 'folder' && node.parent_id === parentId && toWellFormed(node.title) === toWellFormed(name);
+}
+
+// --- Pure helpers ---
+
+/** The child folder of `parentId` titled `name` with the lowest index, if any. */
+export function pickChildFolder(nodes: readonly SnapshotNode[], parentId: NodeId, name: Title): SnapshotNode | undefined {
+  return nodes
+    .filter((n) => isFolderNamed(n, parentId, name))
+    .reduce<SnapshotNode | undefined>((best, n) => (best === undefined || n.index < best.index ? n : best), undefined);
+}
+
+/** The node id a `FolderPath` names in this tree, or undefined when any level does not resolve. */
+export function resolveFolderPath(tree: TreeRead, path: FolderPath): NodeId | undefined {
+  let current: NodeId | undefined = tree.root_ids[path.root];
+  for (const name of path.names) {
+    if (current === undefined) return undefined;
+    current = pickChildFolder(tree.nodes, current, name)?.id;
+  }
+  return current;
+}
+
+/** The RootKey whose top-level folder is `id`, if any. */
+function rootKeyOf(tree: TreeRead, id: NodeId): RootKey | undefined {
+  return ROOT_KEYS.find((key) => tree.root_ids[key] === id);
+}
+
+/** The FolderPath naming folder `id` (root key, then each title downward); undefined for a non-folder, the browser root, or a folder outside every root_ids folder. */
+export function folderPathOf(tree: TreeRead, id: NodeId): FolderPath | undefined {
+  const byId = new Map(tree.nodes.map((n) => [n.id, n] as const));
+  if (byId.get(id)?.kind !== 'folder') return undefined;
+  const names: string[] = [];
+  for (let at: SnapshotNode | undefined = byId.get(id); at !== undefined; at = at.parent_id === null ? undefined : byId.get(at.parent_id)) {
+    const root = rootKeyOf(tree, at.id);
+    if (root !== undefined) return { root, names: names.reverse() };
+    if (names.length > tree.nodes.length) return undefined;
+    names.push(at.title);
+  }
+  return undefined;
+}
+
+// --- Containment ---
+
+/** True when `path` is `root` or lies under it: same RootKey and `root.names` a prefix of `path.names` (syntactic; contract v1, Boundary). */
+export function isPathInside(path: FolderPath, root: FolderPath): boolean {
+  if (path.root !== root.root || root.names.length > path.names.length) return false;
+  return root.names.every((name, i) => path.names[i] === name);
+}

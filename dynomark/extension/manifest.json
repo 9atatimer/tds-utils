@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Dynomark",
+  "version": "0.0.0",
+  "description": "Live AI filing for native bookmarks: saves into Follow Up are captured, summarized and filed by a local daemon.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqTFpjR7qiZOsx2ACyIFzyB6JWyAt7icbXZxUI3tHwHaFcxp6TsXHT/6M8TB3GDlIAvLpSK7p1tbAQX5RizYFKYEbiR/FsX7HYlsOlYLX+ofWDRKtsrFpX8Nb1eU2ZaKmICSInjzaod3j2W6QUs6+PUxqMywpJgDelksCSh6mUFAlq5gri19BPIAUoD0luT80r3Hvym8DmcuzwbL+7nQje/OgdaW940usZaTR+9D9UimFBCPaBOUV2IPbZmTPcfUcSvGWOlECYPNjYUvD/RxnF57EsZW7stEEqE67t2/F3T+y8cyN4OH0AHXU27tHUFfvZ1FiwQN0MDkE0F55BHEulQIDAQAB",
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": ["bookmarks", "history", "nativeMessaging", "scripting", "storage", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "omnibox": {
+    "keyword": "bm"
+  },
+  "options_page": "options.html",
+  "action": {
+    "default_title": "Dynomark",
+    "default_popup": "history.html"
+  },
+  "commands": {
+    "open-chat": {
+      "suggested_key": {
+        "default": "Alt+Shift+K",
+        "mac": "Alt+Shift+K"
+      },
+      "description": "Ask Dynomark: open the chat"
+    }
+  }
+}
