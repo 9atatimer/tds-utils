@@ -152,3 +152,32 @@ describe('Delivery -- a request with no answer is re-sent after a reconnect with
     expect(w.connection().sent).toHaveLength(before);
   });
 });
+
+describe('Link loss with nothing in flight -- Connection.linkLost()', () => {
+  it('Given a connection that said hello, When the link is lost while idle, Then the next connect says hello again and replays events', async () => {
+    const { w, connection } = await setup({});
+    await connection.connect();
+    connection.linkLost();
+    expect(connection.outcome()).toBeUndefined();
+    await connection.connect();
+    expect(types(w.connection().sent)).toEqual([
+      'hello',
+      'tree.snapshot',
+      'events.replay',
+      'index.pull',
+      'hello',
+      'tree.snapshot',
+      'events.replay',
+      'index.pull',
+    ]);
+  });
+
+  it('Given a superseded connection, When the link is reported lost, Then it stays superseded', async () => {
+    const { w, connection } = await setup({});
+    await connection.connect();
+    await w.daemon().drop('superseded');
+    await expect(connection.send({ ...EVENTS_REPLAY, id: 'req-2' })).rejects.toMatchObject({ reason: 'superseded' });
+    connection.linkLost();
+    await expect(connection.connect()).rejects.toMatchObject({ reason: 'superseded' });
+  });
+});
