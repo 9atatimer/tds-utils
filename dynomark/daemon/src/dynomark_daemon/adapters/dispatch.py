@@ -147,6 +147,8 @@ class Session:
     roots: OwnedRoots | None = None
     snapshot_seen: bool = False
     replay_pending: bool = False
+    greeting: m.HelloResult | None = None
+    """The answer to the first ``hello``; a repeat is answered with it."""
 
     def offers_ready(self, *, conflict: bool) -> bool:
         """Full mode, served writer, not in writer conflict, and a
@@ -444,6 +446,8 @@ class Dispatcher:
     # --- Connection ---
 
     def _hello(self, message: m.Hello, session: Session) -> Outcome:
+        if session.greeting is not None:
+            return Outcome(session.greeting.model_copy(update={"re": message.id}))
         greeting = hello(
             ProfileId(message.profile_id),
             message.v,
@@ -460,8 +464,7 @@ class Dispatcher:
             mode=greeting.mode.value,
             owned_roots=owned_roots_to_wire(greeting.owned_roots),
         )
-        if session.mode is not None:
-            return Outcome(reply)
+        session.greeting = reply
         session.profile_id = ProfileId(message.profile_id)
         session.mode = greeting.mode
         session.role = greeting.role
