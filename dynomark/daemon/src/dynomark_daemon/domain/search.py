@@ -1,7 +1,9 @@
 """Queries, hits, store candidates and the extension's local index."""
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Final
 
 from dynomark_daemon.domain.bookmark import Identity
 from dynomark_daemon.domain.tree import FolderPath
@@ -34,6 +36,34 @@ class Candidate:
 
     identity: Identity
     score: float
+
+
+# --- Hybrid ranking (Key Decisions: fusion in the domain) ---
+
+RRF_K: Final = 60
+"""Reciprocal-rank-fusion constant: how much a top rank outweighs the next."""
+
+
+def _reciprocal_ranks(candidates: Sequence[Candidate]) -> dict[Identity, float]:
+    ranks: dict[Identity, float] = {}
+    for rank, candidate in enumerate(candidates, start=1):
+        ranks.setdefault(candidate.identity, 1.0 / (RRF_K + rank))
+    return ranks
+
+
+def fuse(text: Sequence[Candidate], knn: Sequence[Candidate]) -> list[Candidate]:
+    """One ranking from the full-text and nearest-neighbour lists, each best
+    first: reciprocal rank fusion, scaled so that leading both lists scores 1.
+    Only ranks count, so neither list's score scale dominates. Ties break by
+    identity."""
+    lists = (_reciprocal_ranks(text), _reciprocal_ranks(knn))
+    best = 2.0 / (RRF_K + 1)
+    fused = {
+        identity: min(1.0, sum(ranks.get(identity, 0.0) for ranks in lists) / best)
+        for identity in lists[0].keys() | lists[1].keys()
+    }
+    ranked = sorted(fused.items(), key=lambda item: (-item[1], item[0].value))
+    return [Candidate(identity, score) for identity, score in ranked]
 
 
 @dataclass(frozen=True, slots=True)
