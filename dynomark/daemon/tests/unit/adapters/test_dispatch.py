@@ -8,6 +8,7 @@ over 1 MiB to the extension). Driven with fakes behind every port.
 """
 
 import json
+import threading
 
 import pytest
 from structlog.testing import capture_logs
@@ -18,15 +19,16 @@ from dynomark_daemon.domain.batch import Expect, OpCreateFolder, OpMove
 from dynomark_daemon.domain.bookmark import Enrichment, Identity
 from dynomark_daemon.domain.chat import DraftAnswer
 from dynomark_daemon.domain.connection import HelloMode
-from dynomark_daemon.domain.diff import DiffAction, DiffProposal
+from dynomark_daemon.domain.diff import DiffAction, DiffKind, DiffProposal
 from dynomark_daemon.domain.events import BatchOffered, JobUpdated
 from dynomark_daemon.domain.ids import EventId, JobId, NodeId, ProfileId
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.domain.placement import FolderChoice
 from dynomark_daemon.domain.roles import HostRole
+from dynomark_daemon.domain.tree import TreeOutline
 from dynomark_daemon.ports.completion import CompletionError
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
-from dynomark_daemon.testing.completion import ScriptedCompletion
+from dynomark_daemon.testing.completion import ProposeDiffCall, ScriptedCompletion
 from dynomark_daemon.testing.content import FakeFetch
 from dynomark_daemon.testing.embedding import HashingEmbedding
 from dynomark_daemon.testing.store import InMemoryCorpusStore
@@ -556,6 +558,64 @@ def test_diff_propose_reusing_an_id_with_another_body_is_invalid() -> None:
     reply = harness.send(wire.body("diff.propose", "d-1", kind="audit"))
 
     assert _error(reply) == ("d-1", "invalid")
+
+
+class _GatedCompletion(ScriptedCompletion):
+    """A ScriptedCompletion whose first ``propose_diff`` holds until released:
+    a slow model call still running on a model-pool thread."""
+
+    def __init__(self, propose_diff: list[tuple[DiffProposal, ...]]) -> None:
+        super().__init__(propose_diff=propose_diff)
+        self.entered = threading.Event()
+        self.release = threading.Event()
+        self._held = False
+
+    def propose_diff(
+        self, kind: DiffKind, *, outline: TreeOutline, own_bar: TreeOutline
+    ) -> tuple[DiffProposal, ...]:
+        if not self._held:
+            self._held = True
+            self.entered.set()
+            assert self.release.wait(5), "the held proposal was never released"
+        return super().propose_diff(kind, outline=outline, own_bar=own_bar)
+
+
+def test_a_diff_propose_resent_while_its_first_run_proposes_is_busy_then_one_diff() -> (
+    None
+):
+    """Given diff.propose d-1 still asking the model when its connection drops,
+    When the extension re-sends d-1 on a new connection, Then that answer is
+    busy with no second model call, and once the first run ends d-1 answers
+    the one stored diff, whose item can be accepted."""
+    completion = _GatedCompletion(propose_diff=[(TOOLS,), (TOOLS,)])
+    harness = Harness(completion=completion)
+    harness.hello()
+    harness.send(wire.tree_snapshot("t-1"))
+    second = Session()
+    harness.dispatcher.handle(wire.hello("h-2"), second)
+    propose = wire.body("diff.propose", "d-1", kind="rebuild")
+    first: list[m.AnyMessage] = []
+    running = threading.Thread(target=lambda: first.append(harness.send(propose)))
+    running.start()
+    try:
+        assert completion.entered.wait(5), "the first proposal never reached the model"
+        resent = harness.dispatcher.handle(propose, second).reply
+    finally:
+        completion.release.set()
+        running.join(5)
+
+    assert resent is not None and _error(resent) == ("d-1", "busy")
+    again = harness.dispatcher.handle(propose, second).reply
+    assert isinstance(again, m.DiffProposeResult) and [again] == [
+        f.model_copy(update={"re": "d-1"}) for f in first
+    ]
+    assert sum(isinstance(c, ProposeDiffCall) for c in completion.calls) == 1
+    page = harness.send(wire.body("diff.page", "d-2", diff_id=again.diff.diff_id))
+    assert isinstance(page, m.DiffPageResult)
+    accepted = harness.send(
+        wire.body("diff.accept", "d-3", item_id=page.items[0].item_id)
+    )
+    assert isinstance(accepted, m.DiffAcceptResult)
 
 
 def test_diff_accept_records_the_acceptance_and_offers_its_batch() -> None:
