@@ -18,9 +18,11 @@ import pytest
 
 from dynomark_daemon.domain.batch import BatchState
 from dynomark_daemon.domain.bookmark import Identity, Save
+from dynomark_daemon.domain.events import JobUpdated, PendingEvent
 from dynomark_daemon.domain.ids import (
     BatchId,
     DiffId,
+    EventId,
     ItemId,
     JobId,
     NodeId,
@@ -47,6 +49,8 @@ from tests._factories import (
 )
 
 pytestmark = pytest.mark.contract
+
+PROFILE_A, PROFILE_B = ProfileId("profile-a"), ProfileId("profile-b")
 
 STORES: dict[str, Callable[[Path], CorpusStorePort]] = {
     "memory": lambda _tmp: InMemoryCorpusStore(),
@@ -354,3 +358,50 @@ def test_list_diffs_is_newest_first(store: CorpusStorePort) -> None:
 
     assert [d.diff_id for d in store.list_diffs()] == ["new", "old"]
     assert store.get_diff(DiffId("diff-9")) is None
+
+
+# --- Events (contract/v1 README, Delivery and replay) ---
+
+
+def _job_event(event_id: str) -> JobUpdated:
+    return JobUpdated(event_id=EventId(event_id), job=make_job())
+
+
+def test_unacked_events_are_oldest_first_until_acknowledged(
+    store: CorpusStorePort,
+) -> None:
+    """Given events put for a profile, When one is acknowledged, Then the rest
+    stay, oldest first; unknown and repeated acks change nothing."""
+    first, second = _job_event("evt-1"), _job_event("evt-2")
+    store.put_event(PROFILE_A, first)
+    store.put_event(PROFILE_A, second)
+
+    store.ack_events(PROFILE_A, [EventId("evt-1"), EventId("evt-9")])
+    store.ack_events(PROFILE_A, [EventId("evt-1")])
+
+    assert [p.event for p in store.unacked_events(PROFILE_A)] == [second]
+
+
+def test_events_belong_to_their_profile(store: CorpusStorePort) -> None:
+    """Given an event of one profile, When another profile reads or acks, Then
+    it neither sees nor acknowledges it."""
+    event = _job_event("evt-1")
+    store.put_event(PROFILE_A, event)
+
+    store.ack_events(PROFILE_B, [EventId("evt-1")])
+
+    assert store.unacked_events(PROFILE_B) == []
+    assert [p.event for p in store.unacked_events(PROFILE_A)] == [event]
+
+
+def test_put_event_twice_keeps_one_and_marks_pushed(store: CorpusStorePort) -> None:
+    """Given an event put twice, When it is marked pushed, Then it is held once
+    and reads back as pushed until acknowledged."""
+    event = _job_event("evt-1")
+    store.put_event(PROFILE_A, event)
+    store.put_event(PROFILE_A, event)
+    assert store.unacked_events(PROFILE_A) == [PendingEvent(event, pushed=False)]
+
+    store.mark_pushed(PROFILE_A, [EventId("evt-1")])
+
+    assert store.unacked_events(PROFILE_A) == [PendingEvent(event, pushed=True)]
