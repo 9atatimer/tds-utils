@@ -27,6 +27,7 @@ from dynomark_daemon.domain.ids import (
     JobId,
     NodeId,
     ProfileId,
+    RequestId,
     SnapshotId,
 )
 from dynomark_daemon.domain.job import JobState
@@ -447,3 +448,15 @@ def test_a_profiles_follow_up_folder_is_remembered(store: CorpusStorePort) -> No
 
     assert store.follow_up_of(PROFILE_A) == make_path("Inbox", "Follow Up")
     assert store.follow_up_of(PROFILE_B) is None
+
+
+# --- Request-id memory (contract v1, Envelope) ---
+
+
+def test_a_request_fingerprint_is_remembered_by_id(store: CorpusStorePort) -> None:
+    """Given a request id's body fingerprint put, When read back, Then it is
+    the one kept; an unknown id has none."""
+    store.put_request(RequestId("req-1"), "sha256:abc")
+
+    assert store.get_request(RequestId("req-1")) == "sha256:abc"
+    assert store.get_request(RequestId("req-2")) is None
