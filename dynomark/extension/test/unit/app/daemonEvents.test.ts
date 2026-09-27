@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { BatchLane } from '../../../src/app/batchLane.js';
 import { DaemonEvents } from '../../../src/app/daemonEvents.js';
 import type { Job, JobState } from '../../../src/domain/jobs.js';
-import type { EventMessage, RequestMessage } from '../../../src/wire/messages.js';
+import type { EventMessage, RequestMessage, ResponseMessage } from '../../../src/wire/messages.js';
 import { FakeExtensionWorld } from '../../fakes/FakeExtensionWorld.js';
 import { FakeTransport } from '../../fakes/FakeTransport.js';
 import { scriptedDaemon } from '../../fixtures/daemon.js';
@@ -38,6 +38,11 @@ function setup() {
 
 function sentOf(transport: FakeTransport, type: string): RequestMessage[] {
   return transport.sent.filter((r) => r.type === type);
+}
+
+/** What dynomark-host answers when no daemon listens (daemon README): busy, retry later. */
+function daemonDown(r: RequestMessage): ResponseMessage {
+  return { v: 1, type: 'error', re: r.id, code: 'busy', message: 'the dynomark daemon is not running' };
 }
 
 function acked(transport: FakeTransport): string[] {
@@ -141,5 +146,58 @@ describe('Daemon events -- DaemonEvents(deps, lane).handle(event)', () => {
     });
     expect(sentOf(w.connection(), 'batch.receipt')).toHaveLength(1);
     expect(acked(w.connection())).toEqual([]);
+  });
+
+  // Found by the integration e2e: a daemon restart between an event and its
+  // ack left 'daemon error busy' in the settings page's problems for good.
+  it('Given the daemon went down after pushing a job.updated (the host answers busy), When handled, Then it resolves quietly and its effect waits for the replay', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    w.connection().autoAnswer(daemonDown);
+    const events = new DaemonEvents(w.worker(), NO_BATCHES);
+
+    await expect(events.handle(jobUpdated('evt-1', 'FILED', 3))).resolves.toBeUndefined();
+    await events.idle();
+    expect(events.jobs().has('job-1')).toBe(false);
+    expect(sentOf(w.connection(), 'index.pull')).toEqual([]);
+
+    w.connection().autoAnswer(scriptedDaemon({}));
+    await events.handle(jobUpdated('evt-1', 'FILED', 3));
+    await events.idle();
+    expect(events.jobs().get('job-1')).toMatchObject({ state: 'FILED', seq: 3 });
+    expect(sentOf(w.connection(), 'index.pull')).toHaveLength(1);
+  });
+
+  it('Given the link is lost while a job.updated is acknowledged, When handled, Then it resolves quietly (the daemon replays it)', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    w.connection().unreachable(true);
+    const events = new DaemonEvents(w.worker(), NO_BATCHES);
+
+    await expect(events.handle(jobUpdated('evt-1', 'FILED', 3))).resolves.toBeUndefined();
+    expect(events.jobs().has('job-1')).toBe(false);
+  });
+
+  it('Given the daemon answers the ack invalid, When handled, Then it rejects (only transport loss and retryable codes wait for a replay)', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    w.connection().autoAnswer((r) => ({ v: 1, type: 'error', re: r.id, code: 'invalid', message: 'no' }));
+    const events = new DaemonEvents(w.worker(), NO_BATCHES);
+
+    await expect(events.handle(jobUpdated('evt-1', 'FILED', 3))).rejects.toThrow('invalid');
+  });
+
+  it('Given the daemon went down before a batch receipt reached it, When the offer is handled, Then it resolves quietly (the daemon re-offers it and the cursor answers)', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    await seedOwnedTree(w.tree);
+    w.connection().autoAnswer((r) => (r.type === 'batch.receipt' ? daemonDown(r) : scriptedDaemon({})(r)));
+    const events = new DaemonEvents(w.worker(), new BatchLane(() => CONTEXT, w.worker()));
+
+    await expect(
+      events.handle({
+        v: 1,
+        type: 'batch.offer',
+        event_id: 'evt-b',
+        batch: { batch_id: 'batch-1', operations: [{ op: 'create_folder', index: 0, parent: DYNOMARK, title: 'Go' }] },
+      }),
+    ).resolves.toBeUndefined();
+    expect(sentOf(w.connection(), 'batch.receipt')).toHaveLength(1);
   });
 });
