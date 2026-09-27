@@ -6,6 +6,7 @@ examples/invalid/". Design: Transport contract, "Identity and version --
 The contract is a versioned schema artifact in the repo".
 """
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import cast
 
@@ -35,8 +36,43 @@ UNENFORCEABLE_HERE: dict[str, str] = {}
 DEF_NAME_BY_TYPE = {message_type_of(name): name for name in message_def_names()}
 
 
+DISCRIMINATORS = ("type", "op", "state")
+
+
 def _ids(paths: list[Path]) -> list[str]:
     return [path.name for path in paths]
+
+
+def _step(node: object, part: str | int) -> object:
+    if isinstance(node, dict) and part in node:
+        return cast(object, node[part])
+    if isinstance(node, list) and isinstance(part, int) and part < len(node):
+        return cast(object, node[part])
+    return None
+
+
+def _is_union_tag(node: object, part: str | int) -> bool:
+    """Pydantic puts a discriminated union's tag in ``loc``; JSON Pointer does not."""
+    if not isinstance(node, dict) or not isinstance(part, str) or part in node:
+        return False
+    return part in {node.get(key) for key in DISCRIMINATORS}
+
+
+def _on_one_branch(a: list[str], b: list[str]) -> bool:
+    shorter = min(len(a), len(b))
+    return a[:shorter] == b[:shorter]
+
+
+def instance_path(document: object, loc: Sequence[str | int]) -> list[str]:
+    """A Pydantic error ``loc`` as the JSON Pointer tokens of the instance."""
+    tokens: list[str] = []
+    node = document
+    for part in loc:
+        if _is_union_tag(node, part):
+            continue
+        tokens.append(str(part))
+        node = _step(node, part)
+    return tokens
 
 
 @pytest.mark.parametrize("path", valid_files(), ids=_ids(valid_files()))
@@ -55,14 +91,21 @@ def test_parse_valid_example_yields_the_model_of_its_type(path: Path) -> None:
 @pytest.mark.parametrize("path", invalid_files(), ids=_ids(invalid_files()))
 def test_parse_invalid_example_is_rejected(path: Path) -> None:
     """Given a contract v1 invalid example, When the daemon parses it, Then it is
-    rejected (the rule named in invalid-rules.json holds on the daemon)."""
+    rejected on the instance path invalid-rules.json names for it (at, above or
+    below it: Pydantic reports a model-level rule on the object, a missing
+    clause on the field)."""
     raw = path.read_bytes()
     if path.name in UNENFORCEABLE_HERE:
         validate_message(raw)
         return
+    named = [t for t in invalid_rules()[path.name]["path"].split("/") if t]
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError) as rejected:
         validate_message(raw)
+
+    document = load_object(path)
+    found = [instance_path(document, e["loc"]) for e in rejected.value.errors()]
+    assert any(_on_one_branch(named, tokens) for tokens in found), found
 
 
 def test_unenforceable_allowlist_names_only_known_invalid_examples() -> None:
