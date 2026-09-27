@@ -8,7 +8,10 @@ Design: Data Model ("one corpus_entry per identity"), Seams ("Corpus
 store ... SQLite with FTS5 and a vector extension / in-memory fake"), Key
 Decisions ("Hybrid ranking: fusion in the domain over the store's two
 candidate lists"); contract/v1/README.md, Delivery and replay
-("index.pull cursors ... keyset by identity") and the idempotency table.
+("index.pull cursors MUST stay valid across data changes") and the
+idempotency table. Entries page by their store position, a compact keyset
+that fits the 1,024-byte ``Cursor`` where an identity (up to 65,536 code
+points) does not.
 """
 
 from collections.abc import Callable
@@ -86,20 +89,42 @@ def test_put_entry_twice_keeps_one_entry_per_identity(store: CorpusStorePort) ->
     store.put_entry(make_entry(summary="old"))
     store.put_entry(newer := make_entry(summary="new"))
 
-    assert store.list_entries(limit=10) == [newer]
+    assert [stored.entry for stored in store.list_entries(limit=10)] == [newer]
 
 
-def test_list_entries_pages_by_identity_keyset(store: CorpusStorePort) -> None:
-    """Given entries put out of order, When listed in pages of two after the last
-    identity seen, Then every entry comes once, ordered by identity."""
+def test_list_entries_pages_by_position_keyset(store: CorpusStorePort) -> None:
+    """Given entries put in some order, When listed in pages of two after the
+    last position seen, Then every entry comes once, in first-put order, with
+    increasing positions."""
     urls = ["https://c.example/", "https://a.example/", "https://b.example/"]
     for url in urls:
         store.put_entry(make_entry(url))
 
     first = store.list_entries(limit=2)
-    rest = store.list_entries(after=first[-1].identity, limit=2)
+    rest = store.list_entries(after=first[-1].position, limit=2)
 
-    assert [e.identity.value for e in first + rest] == sorted(urls)
+    listed = first + rest
+    assert [s.entry.identity.value for s in listed] == urls
+    positions = [s.position for s in listed]
+    assert positions == sorted(set(positions))
+
+
+def test_list_entries_keeps_a_replaced_entry_at_its_position(
+    store: CorpusStorePort,
+) -> None:
+    """Given a page read, When an entry already listed is replaced and a new one
+    is put, Then the next page holds only the new entry (a cursor stays valid
+    across data changes: nothing listed moves behind or ahead of it)."""
+    store.put_entry(make_entry("https://b.example/"))
+    store.put_entry(make_entry("https://c.example/"))
+    first = store.list_entries(limit=2)
+
+    store.put_entry(make_entry("https://b.example/", summary="re-enriched"))
+    store.put_entry(make_entry("https://a.example/"))
+    rest = store.list_entries(after=first[-1].position, limit=2)
+
+    assert [s.entry.identity.value for s in rest] == ["https://a.example/"]
+    assert store.list_entries(limit=1)[0].entry.summary == "re-enriched"
 
 
 # --- Placements ---

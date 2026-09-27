@@ -4,16 +4,20 @@ corpus, When built, Then rows hold exactly identity, title, path, tags,
 one-line summary"; Ubiquitous language: "at most 512 bytes per entry".
 Contract v1 (Size limits): the 512 bytes are the row's compact UTF-8 JSON;
 the daemon trims summary, then tags, then title, and leaves out a row whose
-identity alone cannot fit. ``index.pull`` pages keyset by identity.
+identity alone cannot fit. ``index.pull`` pages by an opaque cursor that
+stays valid across data changes and fits the contract's 1,024-byte
+``Cursor`` whatever the identities' length.
 """
 
 import dataclasses
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from dynomark_daemon.app.index import build_local_index, local_index_page
-from dynomark_daemon.domain.bookmark import CorpusEntry, Identity
+from dynomark_daemon.app.pages import StaleCursor
+from dynomark_daemon.domain.bookmark import CorpusEntry
 from dynomark_daemon.domain.search import LocalIndexRow
 from dynomark_daemon.testing.store import InMemoryCorpusStore
 from dynomark_daemon.wire.mapping import local_index_row_to_wire
@@ -67,15 +71,15 @@ def test_build_local_index_rows_hold_exactly_the_five_fields() -> None:
     assert set(wire) == {"identity", "title", "path", "tags", "summary"}
 
 
-def test_build_local_index_has_one_row_per_entry_by_identity() -> None:
-    """Given three entries, When built, Then there is one row each, by identity;
-    an unplaced entry's path is where it was saved."""
+def test_build_local_index_has_one_row_per_entry_in_store_order() -> None:
+    """Given three entries, When built, Then there is one row each, in the order
+    they were first stored; an unplaced entry's path is where it was saved."""
     urls = ["https://c.example/", "https://a.example/", "https://b.example/"]
     store = _store(*(make_entry(url) for url in urls))
 
     rows = build_local_index(store=store).rows
 
-    assert [r.identity.value for r in rows] == sorted(urls)
+    assert [r.identity.value for r in rows] == urls
     assert {r.path for r in rows} == {make_path("Follow Up")}
 
 
@@ -138,24 +142,44 @@ def test_every_built_row_fits_512_bytes_and_the_wire(
     assert _wire_bytes(row) <= MAX_ROW_BYTES
 
 
-def test_local_index_pages_by_identity_and_survive_inserts() -> None:
-    """Given four entries, When paged two at a time and an entry is added before
-    the cursor between pages, Then the pages hold every original entry once in
-    identity order and the last page says so (keyset: cursors stay valid
+def test_local_index_pages_survive_inserts_and_replacements() -> None:
+    """Given four entries, When paged two at a time while a listed entry is
+    re-enriched and a new one is added between pages, Then the pages hold every
+    entry exactly once and the last page has no cursor (cursors stay valid
     across data changes)."""
     store = _store(*(make_entry(f"https://{c}.example/") for c in "bdfh"))
 
     first = local_index_page(None, 2, store=store)
+    store.put_entry(make_entry("https://b.example/", summary="re-enriched"))
     store.put_entry(make_entry("https://a.example/"))
-    second = local_index_page(first.next_after, 2, store=store)
+    second = local_index_page(first.next_cursor, 2, store=store)
+    third = local_index_page(second.next_cursor, 2, store=store)
 
-    assert [r.identity.value for r in first.rows] == [
-        "https://b.example/",
-        "https://d.example/",
-    ]
-    assert [r.identity.value for r in second.rows] == [
-        "https://f.example/",
-        "https://h.example/",
-    ]
-    assert first.next_after == Identity("https://d.example/")
-    assert second.next_after is None
+    paged = [r.identity.value for r in first.items + second.items + third.items]
+    assert paged == [f"https://{c}.example/" for c in "bdfha"]
+    assert first.next_cursor is not None and second.next_cursor is not None
+    assert third.next_cursor is None
+
+
+def test_local_index_cursor_fits_the_contract_whatever_the_identity() -> None:
+    """Given entries whose identities are far longer than a Cursor may be, When
+    the first page is read, Then its cursor is printable ASCII without spaces
+    and at most 1,024 characters (contract v1, Size limits: Cursor)."""
+    store = _store(*(make_entry("https://example.org/" + c * 60_000) for c in "ab"))
+
+    cursor = local_index_page(None, 1, store=store).next_cursor
+
+    assert cursor is not None and 1 <= len(cursor) <= 1024
+    assert all("!" <= ch <= "~" for ch in cursor)
+
+
+@pytest.mark.parametrize(
+    "cursor", ["job~0000000000000000~job-1", "index~garbled", "not-a-cursor"]
+)
+def test_local_index_page_refuses_a_foreign_cursor(cursor: str) -> None:
+    """Given a cursor minted by another list or garbled, When presented to
+    index.pull, Then StaleCursor is raised (the extension restarts the pull)."""
+    store = _store(make_entry("https://a.example/"), make_entry("https://b.example/"))
+
+    with pytest.raises(StaleCursor):
+        local_index_page(cursor, 1, store=store)
