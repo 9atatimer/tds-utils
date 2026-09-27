@@ -32,7 +32,11 @@ def record_feedback(
     # records the feedback once (by ``feedback_id``) and moves the placement.
     store.put_feedback(feedback)
     placed = store.get_placement(feedback.identity)
-    if placed is not None and feedback.to_path.is_inside(roots.dynomark):
+    if (
+        placed is not None
+        and feedback.to_path.is_inside(roots.dynomark)
+        and not _newer_user_move(placed, feedback)
+    ):
         store.put_placement(
             Placement(
                 identity=feedback.identity,
@@ -47,3 +51,13 @@ def record_feedback(
             )
         )
     return feedback
+
+
+def _newer_user_move(placed: Placement, feedback: MoveFeedback) -> bool:
+    """True when the placement already follows a user move observed after
+    this one: a report re-sent after a busy answer can arrive after a later
+    move of the same bookmark, and must not move the placement back."""
+    return (
+        placed.reason.model_id == USER_MODEL
+        and placed.created_at > feedback.observed_at
+    )
