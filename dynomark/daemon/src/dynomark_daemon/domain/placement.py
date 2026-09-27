@@ -7,7 +7,8 @@ from enum import StrEnum
 
 from dynomark_daemon.domain.bookmark import Identity
 from dynomark_daemon.domain.ids import FeedbackId, NodeId
-from dynomark_daemon.domain.tree import FolderPath, TreeOutline
+from dynomark_daemon.domain.roles import HostRole
+from dynomark_daemon.domain.tree import FolderPath, OwnedRoots, TreeOutline
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,3 +148,27 @@ def admit_folder(
     if is_admissible(outline.root, outline):
         return outline.root
     raise NoAdmissibleFolder(f"every folder under {outline.root.names} is locked")
+
+
+# --- Feedback (Ubiquitous language: Move, MoveFeedback) ---
+
+
+def feedback_of(move: Move, role: HostRole, roots: OwnedRoots) -> MoveFeedback | None:
+    """The labelled example a move gives, if any: only a user's move of a
+    bookmark between two owned folders, observed on the writer. Its id is
+    derived from (node, time), so a repeat is the same feedback."""
+    if (
+        role is not HostRole.WRITER
+        or move.origin is not MoveOrigin.USER
+        or move.url is None
+        or not roots.contains(move.from_path)
+        or not roots.contains(move.to_path)
+    ):
+        return None
+    return MoveFeedback(
+        feedback_id=FeedbackId(f"fb-{move.node_id}-{move.observed_at}"),
+        identity=Identity.from_url(move.url),
+        from_path=move.from_path,
+        to_path=move.to_path,
+        observed_at=move.observed_at,
+    )
