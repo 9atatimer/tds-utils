@@ -49,6 +49,7 @@ test('Given an accepted batch being applied, When the service worker is stopped 
     () => tree.titles(['Dynomark', 'Archive']),
     (titles) => titles.length >= STOP_AFTER,
     30_000,
+    10,
   );
   await world.browser.stopServiceWorkers();
 

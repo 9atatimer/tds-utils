@@ -207,13 +207,13 @@ export const test = base.extend<{ world: World }>({
   },
 });
 
-/** Poll `read` until `accept` holds (Playwright's expect.poll with a scenario-sized timeout). */
-export async function until<T>(read: () => Promise<T>, accept: (value: T) => boolean, timeoutMs = 30_000): Promise<T> {
+/** Poll `read` every `intervalMs` until `accept` holds (like expect.poll, with a scenario-sized timeout). */
+export async function until<T>(read: () => Promise<T>, accept: (value: T) => boolean, timeoutMs = 30_000, intervalMs = 100): Promise<T> {
   const deadline = Date.now() + timeoutMs;
   let last = await read();
   while (!accept(last)) {
     if (Date.now() > deadline) throw new Error(`condition not met within ${timeoutMs} ms; last value: ${JSON.stringify(last)}`);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
     last = await read();
   }
   return last;
