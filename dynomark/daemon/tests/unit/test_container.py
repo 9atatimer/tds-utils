@@ -22,7 +22,7 @@ from dynomark_daemon.domain.job import JobState
 from dynomark_daemon.domain.placement import EntryRef, FolderChoice, MoveFeedback
 from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.domain.tree import TreeOutline
-from dynomark_daemon.ports.completion import CompletionPort
+from dynomark_daemon.ports.completion import CompletionError, CompletionPort
 from dynomark_daemon.settings import parse_settings
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.completion import ScriptedCompletion
@@ -214,3 +214,22 @@ def test_the_job_loop_proposes_a_due_rebuild_and_reports_progress() -> None:
 
     events = [p.event for p in ports.store.unacked_events(A)]
     assert [type(e) for e in events] == [DiffProposed] and progress == [1]
+
+
+def test_run_once_reports_the_retry_a_job_failing_in_this_pass_waits_for() -> None:
+    """Given a queued save whose enrichment fails with a retryable error, When
+    the job loop runs once, Then the schedule it reports (what the loop sleeps
+    on) names that job's retry, not nothing -- so the loop wakes after the
+    backoff instead of its idle wait."""
+    completion = ScriptedCompletion(
+        enrich=[CompletionError("model loading", retryable=True)]
+    )
+    ports = _ports(completion)
+    _save(ports, "42")
+    config = make_config()
+
+    schedule = JobLoop(config, ports).run_once()
+
+    (job,) = ports.store.list_jobs()
+    assert (job.state, job.attempts) == (JobState.CAPTURING, 1)
+    assert schedule.next_retry_at == job.updated_at + config.retry.backoff_ms(1)
