@@ -6,14 +6,22 @@
 // of one job the higher seq is kept. A FILED or INDEXED job re-pulls the
 // LocalIndex; an update during a pull does not restart it but makes one more
 // pull follow. A batch.offer is the lane's: its receipt is its ack.
+//
+// An ack or receipt that cannot reach the daemon -- the link was lost, or the
+// daemon (or dynomark-host with no daemon behind it) answered a retryable
+// code -- is not a failure of the event: it stays unacknowledged on the
+// daemon, which replays it after the next hello (design, "Transport
+// contract": transport loss and daemon restart are retryable by
+// reconnecting). Such an event resolves quietly and has no effect until then.
 
 import type { TreeDiff } from '../domain/diff.js';
 import { isNewerJob, refreshesIndex, type Job } from '../domain/jobs.js';
 import type { WriteBatch } from '../domain/batch.js';
 import type { EventId, Id, JobId } from '../domain/values.js';
+import { TransportLost } from '../ports/transport.js';
 import type { EventMessage } from '../wire/messages.js';
 import { CONTRACT_VERSION } from '../wire/messages.js';
-import { resultOrThrow } from './errors.js';
+import { DaemonError, isRetryable, resultOrThrow } from './errors.js';
 import { syncIndex, type SyncDeps } from './syncIndex.js';
 
 // --- Types ---
@@ -21,6 +29,25 @@ import { syncIndex, type SyncDeps } from './syncIndex.js';
 /** Where batch offers go (a BatchLane). */
 export interface OfferSink {
   offer(batch: WriteBatch): Promise<void>;
+}
+
+// --- Predicates ---
+
+/** True when the daemon's replay recovers from `error`: a lost link, or a retryable error code. */
+function awaitsReplay(error: unknown): boolean {
+  if (error instanceof TransportLost) return error.reason === 'disconnected';
+  return error instanceof DaemonError && isRetryable(error.code);
+}
+
+/** `work`, with a failure the replay recovers from turned into a quiet resolution. */
+async function unlessReplayed(work: Promise<void>): Promise<boolean> {
+  try {
+    await work;
+    return true;
+  } catch (error) {
+    if (awaitsReplay(error)) return false;
+    throw error;
+  }
 }
 
 // --- Index refresh ---
@@ -73,10 +100,13 @@ export class DaemonEvents {
     this.refresher = new IndexRefresher(deps);
   }
 
-  /** Handle one event frame; resolves once it is acknowledged (a batch.offer: once its receipt is). */
+  /** Handle one event frame; resolves once it is acknowledged (a batch.offer: once its receipt is), or once it is clear the daemon will replay it. */
   async handle(event: EventMessage): Promise<void> {
-    if (event.type === 'batch.offer') return this.lane.offer(event.batch);
-    await this.acknowledge(event.event_id);
+    if (event.type === 'batch.offer') {
+      await unlessReplayed(this.lane.offer(event.batch));
+      return;
+    }
+    if (!(await unlessReplayed(this.acknowledge(event.event_id)))) return;
     if (this.seen.has(event.event_id)) return;
     this.seen.add(event.event_id);
     if (event.type === 'job.updated') this.applyJob(event.job);
