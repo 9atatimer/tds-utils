@@ -134,12 +134,21 @@ def _flagged_lines(outline: TreeOutline) -> list[str]:
     ]
 
 
+def _split_names(values: list[str]) -> tuple[str, ...]:
+    """Folder names as the prompts write paths: an answered element that is a
+    /-joined line (copied from the prompt) is split into its names. A title
+    with a / in it cannot be told from a path in the prompt either."""
+    return tuple(
+        part.strip() for value in values for part in value.split("/") if part.strip()
+    )
+
+
 def _names(value: object) -> tuple[str, ...] | None:
     if not isinstance(value, list) or not value:
         return None
     if not all(isinstance(v, str) and v.strip() for v in value):
         return None
-    return tuple(str(v).strip() for v in value)
+    return _split_names([str(v) for v in value]) or None
 
 
 def _diff_item(
@@ -218,8 +227,10 @@ def _tags(raw: list[str]) -> tuple[str, ...]:
 
 
 def _folder(names: list[str], outline: TreeOutline) -> FolderPath:
-    cleaned = [name.strip() for name in names]
-    if not cleaned or not all(cleaned):
+    if not names or not all(name.strip() for name in names):
+        raise CompletionError("model answer's folder is empty", retryable=True)
+    cleaned = list(_split_names(names))
+    if not cleaned:
         raise CompletionError("model answer's folder is empty", retryable=True)
     root = outline.root
     if tuple(cleaned[: len(root.names)]) != root.names:
