@@ -36,6 +36,7 @@ from dynomark_daemon.domain.tree import (
     FolderPath,
     NodeKind,
     OutlineFolder,
+    OwnedRoots,
     RootIds,
     RootKey,
     Snapshot,
@@ -233,4 +234,45 @@ def make_outline(*folders: OutlineFolder) -> TreeOutline:
     return TreeOutline(
         root=make_path("Dynomark"),
         folders=(make_outline_folder("Dynomark"), *folders),
+    )
+
+
+def make_node(
+    node_id: str,
+    parent_id: str | None,
+    title: str,
+    *,
+    index: int = 0,
+    url: str | None = None,
+) -> SnapshotNode:
+    return SnapshotNode(
+        node_id=NodeId(node_id),
+        parent_id=None if parent_id is None else NodeId(parent_id),
+        index=index,
+        kind=NodeKind.FOLDER if url is None else NodeKind.BOOKMARK,
+        title=title,
+        date_added=0,
+        url=url,
+    )
+
+
+def make_tree(*nodes: SnapshotNode, taken_at: int = 1_790_000_000_000) -> Snapshot:
+    """A snapshot whose bar is node "1" and other node "2", plus ``nodes``."""
+    return Snapshot(
+        taken_at=taken_at,
+        root_ids=RootIds(bar=NodeId("1"), other=NodeId("2")),
+        nodes=(
+            make_node("0", None, ""),
+            make_node("1", "0", "Bookmarks bar"),
+            make_node("2", "0", "Other bookmarks", index=1),
+            *nodes,
+        ),
+    )
+
+
+def make_roots() -> OwnedRoots:
+    return OwnedRoots(
+        follow_up=make_path("Follow Up"),
+        dynomark=make_path("Dynomark"),
+        graveyard=make_path("Graveyard"),
     )
