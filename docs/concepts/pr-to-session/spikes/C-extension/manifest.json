@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "pr-to-session spike",
+  "version": "0.0.1",
+  "description": "Spike C: on a GitHub PR page, read head repo+branch and ask a loopback service which tmux sessions are on it.",
+  "host_permissions": ["http://127.0.0.1/*"],
+  "background": { "service_worker": "sw.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*/pull/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
