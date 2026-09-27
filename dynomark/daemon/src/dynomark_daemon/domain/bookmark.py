@@ -210,3 +210,12 @@ class CorpusEntry:
     tags: tuple[str, ...]
     embedding: Embedding
     indexed_at: int
+
+
+def embedding_text(bookmark: Bookmark, enrichment: Enrichment) -> str:
+    """What an entry's embedding is computed from: title, summary and tags.
+
+    The captured text is searched in full by the store's full-text index;
+    the vector carries what the entry is about.
+    """
+    return "\n".join([bookmark.title, enrichment.summary, " ".join(enrichment.tags)])
