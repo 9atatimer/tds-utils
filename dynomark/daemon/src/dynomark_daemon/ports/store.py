@@ -7,6 +7,7 @@ adapter can run one suite (tests/contract/ports/test_store_contract.py).
 """
 
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from typing import Protocol
 
 from dynomark_daemon.domain.batch import BatchRecord
@@ -30,6 +31,16 @@ from dynomark_daemon.domain.search import Candidate, Query
 from dynomark_daemon.domain.tree import FolderFlags, FolderPath, Snapshot
 
 
+@dataclass(frozen=True, slots=True)
+class StoredEntry:
+    """An entry and its store position: assigned on first put, kept when the
+    entry is replaced, increasing with every new identity. Pages of entries
+    are keyset by it, so a page boundary survives any change to the corpus."""
+
+    position: int
+    entry: CorpusEntry
+
+
 class CorpusStorePort(Protocol):
     # --- Entries ---
 
@@ -40,9 +51,9 @@ class CorpusStorePort(Protocol):
     def get_entry(self, identity: Identity) -> CorpusEntry | None: ...
 
     def list_entries(
-        self, *, after: Identity | None = None, limit: int
-    ) -> list[CorpusEntry]:
-        """Up to ``limit`` entries with identity > ``after``, by identity."""
+        self, *, after: int | None = None, limit: int
+    ) -> list[StoredEntry]:
+        """Up to ``limit`` entries with position > ``after``, by position."""
         ...
 
     # --- Candidates for hybrid search (fusion is the domain's) ---

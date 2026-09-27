@@ -32,6 +32,7 @@ from dynomark_daemon.domain.placement import MoveFeedback, Placement
 from dynomark_daemon.domain.search import Candidate, Query
 from dynomark_daemon.domain.tree import FolderFlags, FolderPath, Snapshot
 from dynomark_daemon.ports.errors import NotFound
+from dynomark_daemon.ports.store import StoredEntry
 
 WORD: Final = re.compile(r"\w+")
 T = TypeVar("T")
@@ -80,6 +81,7 @@ def _newest_first(rows: list[T], key: list[int]) -> list[T]:
 class InMemoryCorpusStore:
     def __init__(self) -> None:
         self._entries: dict[Identity, CorpusEntry] = {}
+        self._positions: dict[Identity, int] = {}
         self._placements: dict[Identity, Placement] = {}
         self._jobs: dict[JobId, Job] = {}
         self._saves: dict[JobId, Save] = {}
@@ -97,18 +99,21 @@ class InMemoryCorpusStore:
     # --- Entries ---
 
     def put_entry(self, entry: CorpusEntry) -> None:
+        self._positions.setdefault(entry.identity, len(self._positions) + 1)
         self._entries[entry.identity] = entry
 
     def get_entry(self, identity: Identity) -> CorpusEntry | None:
         return self._entries.get(identity)
 
     def list_entries(
-        self, *, after: Identity | None = None, limit: int
-    ) -> list[CorpusEntry]:
-        ordered = sorted(self._entries.values(), key=lambda e: e.identity.value)
-        if after is not None:
-            ordered = [e for e in ordered if e.identity.value > after.value]
-        return ordered[:limit]
+        self, *, after: int | None = None, limit: int
+    ) -> list[StoredEntry]:
+        stored = (
+            StoredEntry(self._positions[identity], entry)
+            for identity, entry in self._entries.items()
+        )
+        ordered = sorted(stored, key=lambda s: s.position)
+        return [s for s in ordered if after is None or s.position > after][:limit]
 
     # --- Candidates ---
 
