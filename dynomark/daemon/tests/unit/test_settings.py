@@ -42,6 +42,7 @@ max_backoff_ms = 600000
 [capture]
 fetch_timeout_s = 7.5
 max_bytes = 1000000
+private_addresses = true
 """
 
 
@@ -55,7 +56,8 @@ def _parse(
 def test_no_config_file_gives_documented_defaults_with_role_reader() -> None:
     """Given no config file, When settings are parsed, Then the host is a reader
     named after the machine, with the default local models, retry policy and
-    files under ~/.local/state/dynomark."""
+    files under ~/.local/state/dynomark, and the fetch reaches only public
+    addresses."""
     settings = _parse(None)
     config = settings.config
 
@@ -74,6 +76,7 @@ def test_no_config_file_gives_documented_defaults_with_role_reader() -> None:
     assert settings.ollama_url == "http://127.0.0.1:11434"
     assert config.owned_roots.dynomark.root is RootKey.BAR
     assert config.owned_roots.dynomark.names == ("Dynomark",)
+    assert settings.capture.private_addresses is False
     assert not settings.config_found
 
 
@@ -100,6 +103,7 @@ def test_a_full_config_file_sets_every_value() -> None:
         7.5,
         1_000_000,
     )
+    assert settings.capture.private_addresses is True
     assert settings.config_found
 
 
@@ -133,6 +137,7 @@ def test_the_environment_places_state_socket_and_ollama() -> None:
         ("[retry]\nattempts = true", "retry.attempts"),
         ("[models]\nembedding = ''", "models.embedding"),
         ("[capture]\nmax_bytes = -1", "capture.max_bytes"),
+        ('[capture]\nprivate_addresses = "yes"', "capture.private_addresses"),
         ("[store]\nsize = 1", "store.size"),
     ],
 )
