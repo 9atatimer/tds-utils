@@ -1,0 +1,6 @@
+{
+  "manifest_version": 3,
+  "name": "Dynomark",
+  "version": "0.0.0",
+  "description": "Live AI filing for native bookmarks: saves into Follow Up are captured, summarized and filed by a local daemon."
+}
