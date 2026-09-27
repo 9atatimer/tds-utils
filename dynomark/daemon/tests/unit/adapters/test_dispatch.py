@@ -14,11 +14,13 @@ from structlog.testing import capture_logs
 
 from dynomark_daemon.adapters.dispatch import Dispatcher, Session
 from dynomark_daemon.app.run import run_job
+from dynomark_daemon.domain.batch import Expect, OpCreateFolder, OpMove
 from dynomark_daemon.domain.bookmark import Enrichment, Identity
 from dynomark_daemon.domain.chat import DraftAnswer
 from dynomark_daemon.domain.connection import HelloMode
+from dynomark_daemon.domain.diff import DiffAction, DiffProposal
 from dynomark_daemon.domain.events import BatchOffered, JobUpdated
-from dynomark_daemon.domain.ids import EventId, JobId, ProfileId
+from dynomark_daemon.domain.ids import EventId, JobId, NodeId, ProfileId
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.domain.placement import FolderChoice
 from dynomark_daemon.domain.roles import HostRole
@@ -271,7 +273,6 @@ def test_a_foreign_cursor_is_stale() -> None:
 @pytest.mark.parametrize(
     ("message_type", "fields"),
     [
-        ("diff.propose", {"kind": "audit"}),
         ("writer.status", {}),
     ],
 )
@@ -468,3 +469,96 @@ def test_an_ask_answer_is_cut_to_fit_one_mebibyte() -> None:
     assert isinstance(reply, m.AskResult)
     assert len(encode_message(reply)) <= MIB
     assert 0 < len(reply.answer.citations) < len(identities)
+
+
+# --- Diffs ---
+
+TOOLS = DiffProposal(
+    action=DiffAction.MOVE,
+    description="Move Rust under Tools",
+    operations=(
+        OpCreateFolder(index=0, parent=make_path("Dynomark"), title="Tools"),
+        OpMove(
+            index=1,
+            node_id=NodeId("14"),
+            to=make_path("Dynomark", "Tools"),
+            expect=Expect(parent_id=NodeId("11"), parent_path=make_path("Dynomark")),
+        ),
+    ),
+)
+
+
+def _diff_harness(role: HostRole = HostRole.WRITER) -> Harness:
+    harness = Harness(role, completion=ScriptedCompletion(propose_diff=[(TOOLS,)]))
+    harness.hello()
+    harness.send(wire.tree_snapshot("t-1"))
+    return harness
+
+
+def test_diff_propose_answers_the_header_and_a_repeat_the_same_diff() -> None:
+    """Given a writer connection with a tree, When diff.propose arrives twice
+    with one id, Then both answers carry the same diff with one unaccepted
+    item, and diff.page lists that item."""
+    harness = _diff_harness()
+
+    first = harness.send(wire.body("diff.propose", "d-1", kind="rebuild"))
+    again = harness.send(wire.body("diff.propose", "d-1", kind="rebuild"))
+
+    assert isinstance(first, m.DiffProposeResult) and first == again.model_copy(
+        update={"re": "d-1"}
+    )
+    assert (first.diff.item_count, first.diff.unaccepted_count) == (1, 1)
+    page = harness.send(wire.body("diff.page", "d-2", diff_id=first.diff.diff_id))
+    assert isinstance(page, m.DiffPageResult)
+    assert [item.description for item in page.items] == ["Move Rust under Tools"]
+    listed = harness.send(wire.body("diff.list", "d-3"))
+    assert isinstance(listed, m.DiffListResult)
+    assert [d.diff_id for d in listed.diffs] == [first.diff.diff_id]
+
+
+def test_diff_propose_reusing_an_id_with_another_body_is_invalid() -> None:
+    """Given a proposed diff, When its request id arrives with another kind,
+    Then the answer is error invalid."""
+    harness = _diff_harness()
+    harness.send(wire.body("diff.propose", "d-1", kind="rebuild"))
+
+    reply = harness.send(wire.body("diff.propose", "d-1", kind="audit"))
+
+    assert _error(reply) == ("d-1", "invalid")
+
+
+def test_diff_accept_records_the_acceptance_and_offers_its_batch() -> None:
+    """Given a proposed diff, When its item is accepted, Then the answer carries
+    accepted_at and a batch id, and that batch is offered on the connection."""
+    harness = _diff_harness()
+    proposed = harness.send(wire.body("diff.propose", "d-1", kind="rebuild"))
+    assert isinstance(proposed, m.DiffProposeResult)
+    page = harness.send(wire.body("diff.page", "d-2", diff_id=proposed.diff.diff_id))
+    assert isinstance(page, m.DiffPageResult)
+
+    reply = harness.send(wire.body("diff.accept", "d-3", item_id=page.items[0].item_id))
+
+    assert isinstance(reply, m.DiffAcceptResult) and reply.accepted_at == 1_000
+    offers = [e for e in harness.transport.events_for(A) if isinstance(e, BatchOffered)]
+    assert offers[-1].batch.batch_id == reply.batch_id
+    assert offers[-1].batch.diff_item_id == page.items[0].item_id
+
+
+def test_diff_accept_on_a_reader_connection_is_not_writer() -> None:
+    """Given a reader daemon, When diff.accept arrives, Then it is answered
+    not_writer."""
+    harness = Harness(HostRole.READER)
+    harness.hello()
+
+    reply = harness.send(wire.body("diff.accept", "d-1", item_id="item-1"))
+
+    assert _error(reply) == ("d-1", "not_writer")
+
+
+def test_diff_page_of_an_unknown_diff_is_not_found() -> None:
+    """Given no diff, When diff.page names one, Then it is answered not_found."""
+    harness = _diff_harness()
+
+    reply = harness.send(wire.body("diff.page", "d-1", diff_id="diff-404"))
+
+    assert _error(reply) == ("d-1", "not_found")

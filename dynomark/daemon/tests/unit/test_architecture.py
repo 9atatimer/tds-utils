@@ -3,7 +3,7 @@
 Arrow: the application layer imports only the standard library, the domain,
 the ports and itself -- never an adapter, the wire format or a vendor.
 Trace: every daemon use case the design's Behaviors and Interfaces table
-names for the PoC resolves to one application function, whose ports are
+names (PoC and MVP) resolves to one application function, whose ports are
 keyword-only dependencies after its values. Reading the package's own
 source is the subject of these tests, not incidental I/O.
 """
@@ -40,6 +40,12 @@ POC_USE_CASES = {
     "search_corpus": "search",
     "build_local_index": "index",
 }
+MVP_USE_CASES = {
+    "ask": "ask",
+    "propose_diff": "diffs",
+    "accept_diff_item": "diffs",
+    "explain_placement": "explain",
+}
 
 
 def _imports(source: str) -> list[str]:
@@ -71,11 +77,13 @@ def test_application_imports_only_stdlib_domain_ports_and_itself() -> None:
     assert leaks == {}
 
 
-@pytest.mark.parametrize(("name", "module"), sorted(POC_USE_CASES.items()))
-def test_each_poc_use_case_is_one_app_function_with_keyword_only_ports(
+@pytest.mark.parametrize(
+    ("name", "module"), sorted({**POC_USE_CASES, **MVP_USE_CASES}.items())
+)
+def test_each_use_case_is_one_app_function_with_keyword_only_ports(
     name: str, module: str
 ) -> None:
-    """Given a daemon use case of the design's Behaviors table (PoC), When its
+    """Given a daemon use case of the design's Behaviors table, When its
     application module is loaded, Then the function exists and every port it
     takes is keyword-only, after the values."""
     function = getattr(importlib.import_module(f"dynomark_daemon.app.{module}"), name)
