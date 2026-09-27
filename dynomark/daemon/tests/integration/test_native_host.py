@@ -8,6 +8,7 @@ subprocess; hermetic.
 
 import json
 import os
+import select
 import socket
 import subprocess
 import sys
@@ -26,6 +27,19 @@ TIMEOUT_S = 5.0
 
 def _frame(body: bytes) -> bytes:
     return len(body).to_bytes(4, "little") + body
+
+
+def _read_within(fd: int, size: int) -> bytes:
+    """Exactly ``size`` bytes from ``fd``, failing (never hanging) after the
+    timeout."""
+    data = b""
+    while len(data) < size:
+        ready, _, _ = select.select([fd], [], [], TIMEOUT_S)
+        assert ready, "the host wrote nothing in time"
+        chunk = os.read(fd, size - len(data))
+        assert chunk, "the host closed stdout early"
+        data += chunk
+    return data
 
 
 def _read_all(fd: int) -> bytes:
@@ -121,21 +135,30 @@ def test_the_installed_host_pipes_a_hello_to_the_daemon_and_back(
     tmp_path: Path,
 ) -> None:
     """Given a daemon listening on $DYNOMARK_SOCKET, When the host runs as its
-    own process and the browser sends hello then closes stdin, Then stdout
-    carries the daemon's hello.result and the process exits 0."""
+    own process and the browser sends hello, Then stdout carries the daemon's
+    hello.result; when the browser then closes stdin the process exits 0."""
     path = tmp_path / "dynomark" / "daemon.sock"
     env = {**os.environ, "DYNOMARK_SOCKET": str(path)}
     with running(build_server(path)):
-        host = subprocess.run(
+        host = subprocess.Popen(
             [sys.executable, "-m", "dynomark_daemon.host", "chrome-extension://x/"],
-            input=_frame(wire.hello("h-1")),
-            capture_output=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             env=env,
-            timeout=TIMEOUT_S * 2,
-            check=False,
         )
+        assert host.stdin is not None and host.stdout is not None
+        try:
+            host.stdin.write(_frame(wire.hello("h-1")))
+            host.stdin.flush()
+            out = host.stdout.fileno()
+            length = int.from_bytes(_read_within(out, 4), "little")
+            answer = json.loads(_read_within(out, length))
+            host.stdin.close()
+            code = host.wait(timeout=TIMEOUT_S)
+        finally:
+            host.kill()
+            host.wait(timeout=TIMEOUT_S)
 
-    out = host.stdout
-    answer = json.loads(out[4 : 4 + int.from_bytes(out[:4], "little")])
     assert (answer["type"], answer["re"]) == ("hello.result", "h-1")
-    assert host.returncode == 0, host.stderr
+    assert code == 0
