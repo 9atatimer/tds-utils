@@ -17,7 +17,7 @@ import type { StoragePort } from '../ports/storage.js';
 export class IssuedMoves implements BookmarkTreePort {
   /** The moves issued and not yet reported, oldest first (one batch can move a node twice); undefined until loaded. */
   private issued: readonly IssuedMove[] | undefined;
-  private loading: Promise<readonly IssuedMove[]> | undefined;
+  private loading: Promise<void> | undefined;
 
   constructor(
     private readonly inner: BookmarkTreePort,
@@ -32,7 +32,8 @@ export class IssuedMoves implements BookmarkTreePort {
   /** Remembered before the call (the browser can report the move first); forgotten if the browser refuses it, as no report will come. */
   async move(nodeId: NodeId, parentId: NodeId): Promise<SnapshotNode> {
     const issued = { node_id: nodeId, parent_id: parentId };
-    await this.store(withIssued(await this.load(), issued));
+    await this.load();
+    await this.store(withIssued(this.current(), issued));
     try {
       return await this.inner.move(nodeId, parentId);
     } catch (error) {
@@ -67,24 +68,37 @@ export class IssuedMoves implements BookmarkTreePort {
 
   /** Drop one remembered move; false when there is none. */
   private async forget(move: IssuedMove): Promise<boolean> {
-    const rest = withoutIssued(await this.load(), move);
+    await this.load();
+    const rest = withoutIssued(this.current(), move);
     if (rest === undefined) return false;
     await this.store(rest);
     return true;
   }
 
-  private async load(): Promise<readonly IssuedMove[]> {
-    if (this.issued !== undefined) return this.issued;
+  /**
+   * The list as it is now. Callers read it synchronously after `await
+   * this.load()`, never across another await: overlapping calls (a burst of
+   * reports to a fresh worker, a batch move issued while a report is consumed)
+   * all wait on one load, and each must change what the others left, or one
+   * update is lost.
+   */
+  private current(): readonly IssuedMove[] {
+    return this.issued ?? [];
+  }
+
+  /** Read storage once per worker; a failed read is retried by the next call. */
+  private load(): Promise<void> {
+    if (this.issued !== undefined) return Promise.resolve();
     this.loading ??= this.storage.loadIssuedMoves().then(
-      (moves) => moves ?? [],
+      (moves) => {
+        this.issued ??= moves ?? [];
+      },
       (error: unknown) => {
         this.loading = undefined;
         throw error;
       },
     );
-    const stored = await this.loading;
-    this.issued ??= stored;
-    return this.issued;
+    return this.loading;
   }
 
   /** The list in memory at once (a report handled meanwhile sees it), then in storage. */
