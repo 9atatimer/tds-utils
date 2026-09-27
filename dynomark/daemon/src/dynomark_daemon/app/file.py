@@ -110,7 +110,7 @@ def propose(
     ids: IdSource,
 ) -> WriteBatch:
     """Admit ``operations`` through the boundary, then store the job's batch
-    ``PROPOSED``, offer it, and point the job at it.
+    ``PROPOSED``, offer it, and point the job at it, in one unit of work.
 
     Raises:
         OutsideOwnedRoots: before anything is stored.
@@ -130,8 +130,9 @@ def propose(
         job_id=job.job_id,
         identity=job.identity,
     )
-    offer(record, store=store, ids=ids)
-    store.put_job(job.filed_by(batch.batch_id, at=now))
+    with store.atomic():  # an offered batch no job points at is offered again
+        offer(record, store=store, ids=ids)
+        store.put_job(job.filed_by(batch.batch_id, at=now))
     return batch
 
 

@@ -5,7 +5,8 @@ retried, then parked; and the job half of Content falls back to fetch
 
 The daemon side needs more than the design's signature names: the
 ``RetryPolicy`` value, the fetch ``ContentSourcePort`` for the capture
-fallback, and a ``Clock``.
+fallback, a ``Clock``, and an ``IdSource`` (a failed attempt is recorded
+with its ``job.updated``).
 """
 
 from dynomark_daemon.app.ingest import ingest
@@ -64,6 +65,7 @@ def test_process_job_with_a_capture_makes_an_entry_with_summary_tags_embedding()
         embedding=HashingEmbedding(),
         completion=ScriptedCompletion(enrich=[ENRICHMENT]),
         clock=FakeClock(start_ms=5_000),
+        ids=SequentialIds(),
     )
 
     assert isinstance(result, CorpusEntry)
@@ -92,6 +94,7 @@ def test_search_corpus_finds_a_word_only_in_the_captured_text() -> None:
         embedding=HashingEmbedding(),
         completion=ScriptedCompletion(enrich=[ENRICHMENT]),
         clock=FakeClock(),
+        ids=SequentialIds(),
     )
 
     hits = search_corpus(Query("epoll"), store=store, embedding=HashingEmbedding())
@@ -115,6 +118,7 @@ def test_process_job_without_a_capture_fetches_the_page() -> None:
         embedding=HashingEmbedding(),
         completion=ScriptedCompletion(enrich=[ENRICHMENT]),
         clock=FakeClock(),
+        ids=SequentialIds(),
     )
 
     assert isinstance(result, CorpusEntry)
@@ -140,6 +144,7 @@ def test_process_job_whose_fetch_fails_continues_with_source_none() -> None:
         embedding=HashingEmbedding(),
         completion=ScriptedCompletion(enrich=[ENRICHMENT]),
         clock=FakeClock(),
+        ids=SequentialIds(),
     )
 
     assert isinstance(result, CorpusEntry)
@@ -164,6 +169,7 @@ def _process(
         embedding=HashingEmbedding(),
         completion=completion,
         clock=FakeClock(),
+        ids=SequentialIds(),
     )
 
 
@@ -242,6 +248,7 @@ def test_process_job_whose_embedding_errors_is_retried_like_enrichment() -> None
         embedding=_BrokenEmbedding(),
         completion=ScriptedCompletion(enrich=[ENRICHMENT]),
         clock=FakeClock(),
+        ids=SequentialIds(),
     )
 
     assert isinstance(result, Job)

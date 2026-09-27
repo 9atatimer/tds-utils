@@ -7,6 +7,16 @@ each job that is due, and again after ``RetryPolicy.backoff_ms`` for a job
 left waiting on a retry, or after the next ``tree.snapshot`` for a job
 left PLACED without a batch. One ``job.updated`` event records what
 changed.
+
+Units of work: the model calls (enrichment inside ``process_job``, the
+folder choice inside ``place``) come first, outside any unit. Everything
+after the last of them -- the job's new state, its batch and offer, and
+its ``job.updated`` -- is one unit, so a job is never left in a state the
+loop does not run again (FAILED, INDEXED, FILED, PLACED with a batch)
+without its update, nor pointing at no batch after one was offered. A
+kill before that unit commits leaves the job QUEUED, CAPTURING or ENRICHED,
+which the loop runs again; ``place`` has then stored a placement already,
+and the rerun's ``place`` replaces it (one placement per identity).
 """
 
 from typing import Final
@@ -17,13 +27,14 @@ from dynomark_daemon.app.jobs import record_job_change
 from dynomark_daemon.app.place import place
 from dynomark_daemon.app.process import process_job
 from dynomark_daemon.domain.batch import OutsideOwnedRoots
+from dynomark_daemon.domain.bookmark import CorpusEntry
 from dynomark_daemon.domain.job import Job, JobState, RetryPolicy, is_duplicate
 from dynomark_daemon.domain.placement import (
     NoAdmissibleFolder,
     Placement,
     PlacementReason,
 )
-from dynomark_daemon.domain.roles import HostRole
+from dynomark_daemon.domain.roles import HostRole, NotWriter
 from dynomark_daemon.domain.tree import OwnedRoots, TreeOutline, outline_of
 from dynomark_daemon.domain.writer import WriterConflict
 from dynomark_daemon.ports.clock import Clock, IdSource
@@ -108,32 +119,33 @@ def _backfill(
     return filed
 
 
-def _place_job(
+Chosen = Placement | PortError | NoAdmissibleFolder | None
+"""What the models made of placing a job: its placement, the error that
+stopped them, or ``None`` when no model places it (a backfill, a reader, a
+duplicate)."""
+
+
+def _choose(
     job: Job,
     role: HostRole,
-    roots: OwnedRoots,
-    policy: RetryPolicy,
     *,
+    roots: OwnedRoots,
     store: CorpusStorePort,
     embedding: EmbeddingPort,
     completion: CompletionPort,
     clock: Clock,
-) -> Job:
-    if job.backfill:
-        return _backfill(job, role, roots, store=store, clock=clock)
-    if role is HostRole.READER:
-        indexed = job.indexed(at=clock.now_ms())
-        store.put_job(indexed)
-        return indexed
+) -> Chosen:
+    """Place an ENRICHED job the writer files, before any unit of work opens
+    (it calls the models)."""
+    if job.backfill or role is HostRole.READER:
+        return None
     entry = store.get_entry(job.identity)
     if entry is None:
         raise UnknownRecord(f"job {job.job_id} has no entry")
     if _is_duplicate(job, store=store):
-        placed = job.placed(at=clock.now_ms())
-        store.put_job(placed)
-        return placed
+        return None
     try:
-        place(
+        placement = place(
             entry,
             current_outline(roots, store=store),
             store.recent_feedback(limit=FEEDBACK_EXAMPLES),
@@ -143,18 +155,39 @@ def _place_job(
             completion=completion,
             clock=clock,
         )
-    except PortError as error:
+    except (PortError, NoAdmissibleFolder) as error:
+        return error
+    return None if isinstance(placement, NotWriter) else placement
+
+
+def _place_job(
+    job: Job,
+    chosen: Chosen,
+    role: HostRole,
+    roots: OwnedRoots,
+    policy: RetryPolicy,
+    *,
+    store: CorpusStorePort,
+    clock: Clock,
+) -> Job:
+    if job.backfill:
+        return _backfill(job, role, roots, store=store, clock=clock)
+    if role is HostRole.READER:
+        indexed = job.indexed(at=clock.now_ms())
+        store.put_job(indexed)
+        return indexed
+    if isinstance(chosen, PortError):
         return _fail(
             job,
-            error,
-            retryable=error.retryable,
+            chosen,
+            retryable=chosen.retryable,
             policy=policy,
             store=store,
             clock=clock,
         )
-    except NoAdmissibleFolder as error:
+    if isinstance(chosen, NoAdmissibleFolder):
         return _fail(
-            job, error, retryable=False, policy=policy, store=store, clock=clock
+            job, chosen, retryable=False, policy=policy, store=store, clock=clock
         )
     placed = job.placed(at=clock.now_ms())
     store.put_job(placed)
@@ -223,7 +256,7 @@ def run_job(
     (contract v1, Writer marker)."""
     start = job
     if job.state in (JobState.QUEUED, JobState.CAPTURING):
-        process_job(
+        processed = process_job(
             job,
             policy,
             store=store,
@@ -231,28 +264,35 @@ def run_job(
             embedding=embedding,
             completion=completion,
             clock=clock,
+            ids=ids,
         )
         job = _reload(job, store=store)
-    if conflict is not None and role is HostRole.WRITER and _awaits_filing(job):
-        job = job.failed(conflict.reason(), at=clock.now_ms())
-        store.put_job(job)
-    if job.state is JobState.ENRICHED:
-        job = _place_job(
+        if not isinstance(processed, CorpusEntry):
+            return job  # the failed attempt is recorded with its update
+    refused = conflict is not None and role is HostRole.WRITER and _awaits_filing(job)
+    chosen: Chosen = None
+    if job.state is JobState.ENRICHED and not refused:
+        chosen = _choose(
             job,
             role,
-            roots,
-            policy,
+            roots=roots,
             store=store,
             embedding=embedding,
             completion=completion,
             clock=clock,
         )
-    if (
-        job.state is JobState.PLACED
-        and job.batch_id is None
-        and role is HostRole.WRITER
-    ):
-        job = _file_job(job, role, roots, policy, store=store, clock=clock, ids=ids)
-    if job != start:
-        record_job_change(job, store=store, ids=ids)
+    with store.atomic():
+        if conflict is not None and refused:
+            job = job.failed(conflict.reason(), at=clock.now_ms())
+            store.put_job(job)
+        if job.state is JobState.ENRICHED:
+            job = _place_job(job, chosen, role, roots, policy, store=store, clock=clock)
+        if (
+            job.state is JobState.PLACED
+            and job.batch_id is None
+            and role is HostRole.WRITER
+        ):
+            job = _file_job(job, role, roots, policy, store=store, clock=clock, ids=ids)
+        if job != start:
+            record_job_change(job, store=store, ids=ids)
     return job

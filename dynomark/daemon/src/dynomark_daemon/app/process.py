@@ -4,10 +4,18 @@ and Interfaces; The daemon, "Enrich and index").
 One attempt: capture resolved (the ingest's, else the fetch fallback),
 summary and tags through ``CompletionPort``, an embedding through
 ``EmbeddingPort``, the entry stored through ``CorpusStorePort``.
+
+The model calls sit between the writes, so no unit of work spans the
+attempt. A kill before its last write leaves the job QUEUED or CAPTURING,
+which the loop runs again at once (no failed attempt is counted), with a
+fetched capture kept for it. The last write is one unit of work: the entry
+with the job ENRICHED, or a failed attempt with its ``job.updated`` (FAILED
+is never run again, so it must not be stored unannounced).
 """
 
 from dynomark_daemon.app.capture import capture
 from dynomark_daemon.app.errors import UnknownRecord
+from dynomark_daemon.app.jobs import record_job_change
 from dynomark_daemon.domain.bookmark import (
     CaptureSource,
     CorpusEntry,
@@ -15,7 +23,7 @@ from dynomark_daemon.domain.bookmark import (
     embedding_text,
 )
 from dynomark_daemon.domain.job import Job, JobState, RetryPolicy
-from dynomark_daemon.ports.clock import Clock
+from dynomark_daemon.ports.clock import Clock, IdSource
 from dynomark_daemon.ports.completion import CompletionPort
 from dynomark_daemon.ports.content import ContentSourcePort
 from dynomark_daemon.ports.embedding import EmbeddingPort
@@ -46,12 +54,14 @@ def process_job(
     embedding: EmbeddingPort,
     completion: CompletionPort,
     clock: Clock,
+    ids: IdSource,
 ) -> CorpusEntry | Job:
     """Run one attempt of ``job`` from QUEUED or CAPTURING to ENRICHED.
 
     Returns:
         The stored ``CorpusEntry``; or, when the attempt failed, the job as
-        stored after it (still CAPTURING for a retry, or FAILED).
+        stored after it (still CAPTURING for a retry, or FAILED) with its
+        ``job.updated`` recorded.
     """
     save = store.get_save(job.job_id)
     if save is None:
@@ -67,8 +77,7 @@ def process_job(
         failed = job.attempt_failed(
             str(error), retryable=error.retryable, policy=policy, at=clock.now_ms()
         )
-        store.put_job(failed)
-        return failed
+        return record_job_change(failed, store=store, ids=ids)
     entry = CorpusEntry(
         identity=job.identity,
         bookmark=save.bookmark,
@@ -78,6 +87,7 @@ def process_job(
         embedding=vector,
         indexed_at=clock.now_ms(),
     )
-    store.put_entry(entry)
-    store.put_job(job.enriched(save.capture.source, at=clock.now_ms()))
+    with store.atomic():
+        store.put_entry(entry)
+        store.put_job(job.enriched(save.capture.source, at=clock.now_ms()))
     return entry

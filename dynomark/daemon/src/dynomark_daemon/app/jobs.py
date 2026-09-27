@@ -13,11 +13,13 @@ from dynomark_daemon.ports.store import CorpusStorePort
 
 
 def record_job_change(job: Job, *, store: CorpusStorePort, ids: IdSource) -> Job:
-    """Store ``job`` and its ``job.updated`` event (the outbox)."""
-    store.put_job(job)
-    store.put_event(
-        job.profile_id, JobUpdated(event_id=EventId(ids.new_id("event")), job=job)
-    )
+    """Store ``job`` and its ``job.updated`` event (the outbox), in one unit
+    of work: a job change is never stored unannounced."""
+    with store.atomic():
+        store.put_job(job)
+        store.put_event(
+            job.profile_id, JobUpdated(event_id=EventId(ids.new_id("event")), job=job)
+        )
     return job
 
 
