@@ -141,6 +141,21 @@ describe('Omnibox bm -- the Ask row', () => {
   });
 });
 
+describe('Omnibox bm -- a pulled index that cannot be stored is still searched', () => {
+  it('Given the browser refuses to store the pulled index (quota), When a keystroke arrives, Then tier 1 searches the pulled rows and the refusal is reported', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    scriptDaemon(w, {}, answers);
+    w.storage.saveLocalIndex = () => Promise.reject(new Error('Resource::kQuotaBytes quota exceeded'));
+    const runtime = await startRuntime(w);
+
+    const rounds = type(runtime, 'tokio');
+
+    expect(rounds[0]?.hits.map((h) => h.identity)).toEqual(['https://tokio.rs/tokio/tutorial']);
+    const page = await runtime.page({ kind: 'overview' });
+    expect(page.ok && page.kind === 'overview' ? page.overview.problems.join('\n') : '').toContain('quota exceeded');
+  });
+});
+
 describe('Omnibox bm -- Enter navigates to the hit identity', () => {
   it('Given a suggestion was picked (its content is the identity), When entered, Then that identity opens in the disposition asked for', async () => {
     const { w, runtime } = await setup();

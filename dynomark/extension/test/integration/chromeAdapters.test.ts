@@ -82,6 +82,26 @@ describeStorageContract('ChromeStorage (real chrome.storage.local)', () => {
   return new RemoteStorage(page, `contract-${prefixes}:`);
 });
 
+describe('ChromeStorage (real chrome.storage.local) -- a LocalIndex past the default 10 MB quota', () => {
+  it('Given 22,000 rows near the 512-byte cap (about 11 MB), When saved and loaded, Then every row comes back', async () => {
+    prefixes += 1;
+    const storage = new RemoteStorage(page, `quota-${prefixes}:`);
+    const rows = Array.from({ length: 22_000 }, (_, i) => ({
+      identity: `https://example.org/${i}`,
+      title: `Entry ${i} `.padEnd(120, 'x'),
+      path: { root: 'bar' as const, names: ['Dynomark', 'Reading'] },
+      tags: ['reading', 'later'],
+      summary: 'A page kept for later reading. '.repeat(10).slice(0, 300),
+    }));
+    try {
+      await storage.saveLocalIndex(rows);
+      expect((await storage.loadLocalIndex())?.length).toBe(rows.length);
+    } finally {
+      await storage.saveLocalIndex([]);
+    }
+  });
+});
+
 describeContentSourceContract('ChromeTabContent (real chrome.tabs and chrome.scripting)', () => {
   const ready = resetTabs();
   return {
