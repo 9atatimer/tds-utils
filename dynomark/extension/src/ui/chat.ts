@@ -105,11 +105,30 @@ function attentionJob(doc: Document, client: PageClient, job: Job): HTMLElement 
 
 // --- Flow ---
 
-/** List what needs the user: the newest page's PARTIAL and REJECTED batches, and the FAILED jobs. */
+/** Every FAILED job, page by page; a cursor gone stale (retries change the list) starts again from the first page, once. */
+async function allFailedJobs(client: PageClient): Promise<Job[]> {
+  const jobs: Job[] = [];
+  let cursor: string | undefined;
+  let restarted = false;
+  for (;;) {
+    const response = await client.request(cursor === undefined ? { kind: 'job.list' } : { kind: 'job.list', cursor });
+    if (!response.ok && response.code === 'stale_cursor' && !restarted) {
+      restarted = true;
+      jobs.length = 0;
+      cursor = undefined;
+      continue;
+    }
+    if (!response.ok || response.kind !== 'job.list') return jobs;
+    jobs.push(...response.jobs);
+    if (response.next_cursor === null) return jobs;
+    cursor = response.next_cursor;
+  }
+}
+
+/** List what needs the user: the newest page's PARTIAL and REJECTED batches, and every FAILED job. */
 async function showAttention(doc: Document, client: PageClient): Promise<void> {
-  const [batches, jobs] = await Promise.all([client.request({ kind: 'batch.list' }), client.request({ kind: 'job.list' })]);
+  const [batches, failedJobs] = await Promise.all([client.request({ kind: 'batch.list' }), allFailedJobs(client)]);
   const failedBatches = batches.ok && batches.kind === 'batch.list' ? batches.batches.filter(needsAttention) : [];
-  const failedJobs = jobs.ok && jobs.kind === 'job.list' ? jobs.jobs : [];
   byId(doc, 'attention-batches').replaceChildren(...failedBatches.map((b) => attentionBatch(doc, b)));
   byId(doc, 'attention-jobs').replaceChildren(...failedJobs.map((j) => attentionJob(doc, client, j)));
   byId(doc, 'attention').hidden = failedBatches.length === 0 && failedJobs.length === 0;

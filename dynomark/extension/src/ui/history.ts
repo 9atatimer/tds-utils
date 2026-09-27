@@ -52,10 +52,18 @@ async function loadBatches(doc: Document, client: PageClient, cursor?: string): 
   more.onclick = response.next_cursor === null ? null : () => void loadBatches(doc, client, response.next_cursor ?? undefined);
 }
 
-async function loadJobs(doc: Document, client: PageClient): Promise<void> {
-  const response = await client.request({ kind: 'job.list' });
+/** One page of FAILED jobs, oldest first; a cursor gone stale (retries change the list) starts again from the first page. */
+async function loadJobs(doc: Document, client: PageClient, cursor?: string): Promise<void> {
+  const response = await client.request(cursor === undefined ? { kind: 'job.list' } : { kind: 'job.list', cursor });
+  if (!response.ok && response.code === 'stale_cursor') return loadJobs(doc, client);
   if (!response.ok || response.kind !== 'job.list') return say(doc, response.ok ? '' : `jobs: ${response.error}`);
-  byId(doc, 'jobs').replaceChildren(...response.jobs.map((j) => jobRow(doc, client, j)));
+  const body = byId(doc, 'jobs');
+  const rows = response.jobs.map((j) => jobRow(doc, client, j));
+  if (cursor === undefined) body.replaceChildren(...rows);
+  else body.append(...rows);
+  const more = byId(doc, 'jobs-more');
+  more.hidden = response.next_cursor === null;
+  more.onclick = response.next_cursor === null ? null : () => void loadJobs(doc, client, response.next_cursor ?? undefined);
 }
 
 async function undo(doc: Document, client: PageClient, batch_id: string): Promise<void> {
