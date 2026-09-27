@@ -110,6 +110,10 @@ def test_get_placement_returns_the_latest_put(store: CorpusStorePort) -> None:
 # --- Candidates for hybrid search ---
 
 
+def _found(store: CorpusStorePort, text: str) -> list[str]:
+    return [c.identity.value for c in store.text_candidates(Query(text), limit=5)]
+
+
 def test_text_candidates_find_a_word_only_in_captured_text(
     store: CorpusStorePort,
 ) -> None:
@@ -130,15 +134,14 @@ def test_text_candidates_match_title_summary_and_tags_case_insensitively(
     """Given words in a title, a summary and a tag, When queried in another case,
     Then each entry is found."""
     store.put_entry(make_entry("https://t.example/", title="Tokio Tutorial"))
-    store.put_entry(make_entry("https://s.example/", summary="an async runtime"))
-    store.put_entry(make_entry("https://g.example/", tags=("concurrency",)))
+    store.put_entry(
+        make_entry("https://s.example/", title="S", summary="an async runtime")
+    )
+    store.put_entry(make_entry("https://g.example/", title="G", tags=("concurrency",)))
 
-    def found(text: str) -> list[str]:
-        return [c.identity.value for c in store.text_candidates(Query(text), limit=5)]
-
-    assert found("TUTORIAL") == ["https://t.example/"]
-    assert found("Runtime") == ["https://s.example/"]
-    assert found("Concurrency") == ["https://g.example/"]
+    assert _found(store, "TUTORIAL") == ["https://t.example/"]
+    assert _found(store, "Runtime") == ["https://s.example/"]
+    assert _found(store, "Concurrency") == ["https://g.example/"]
 
 
 def test_text_candidates_require_every_query_word(store: CorpusStorePort) -> None:
