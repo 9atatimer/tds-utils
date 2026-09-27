@@ -17,6 +17,7 @@ from dynomark_daemon.domain.batch import (
 from dynomark_daemon.domain.ids import BatchId
 from dynomark_daemon.domain.roles import HostRole, NotWriter
 from dynomark_daemon.domain.tree import OwnedRoots
+from dynomark_daemon.domain.writer import WriterConflict
 from dynomark_daemon.ports.clock import Clock, IdSource
 from dynomark_daemon.ports.store import CorpusStorePort
 
@@ -36,11 +37,13 @@ def undo(
     role: HostRole,
     roots: OwnedRoots,
     *,
+    conflict: WriterConflict | None = None,
     store: CorpusStorePort,
     clock: Clock,
     ids: IdSource,
-) -> Undone | NotWriter:
-    """The guarded inverse of an ``APPLIED`` batch, stored and offered once.
+) -> Undone | NotWriter | WriterConflict:
+    """The guarded inverse of an ``APPLIED`` batch, stored and offered once;
+    a writer in ``conflict`` refuses.
 
     Raises:
         UnknownRecord: no such batch (``not_found``).
@@ -49,6 +52,8 @@ def undo(
     """
     if role is HostRole.READER:
         return NotWriter(use_case="undo")
+    if conflict is not None:
+        return conflict
     record = store.get_batch(batch_id)
     if record is None:
         raise UnknownRecord(f"no batch {batch_id}")

@@ -27,6 +27,7 @@ from dynomark_daemon.domain.batch import (
 from dynomark_daemon.domain.ids import NodeId
 from dynomark_daemon.domain.roles import HostRole, NotWriter
 from dynomark_daemon.domain.tree import Snapshot, SnapshotNode
+from dynomark_daemon.domain.writer import WriterConflict
 from tests._factories import make_node, make_path, make_roots, make_tree
 from tests.unit.app._filed import ASYNC, CREATED, MOVED, RUST, TREE, Daemon
 
@@ -67,7 +68,9 @@ def _applied_daemon(tree_after: Snapshot | None) -> Daemon:
     return daemon
 
 
-def _undo(daemon: Daemon, role: HostRole = HostRole.WRITER) -> Undone | NotWriter:
+def _undo(
+    daemon: Daemon, role: HostRole = HostRole.WRITER
+) -> Undone | NotWriter | WriterConflict:
     return undo(
         daemon.batch.batch_id,
         role,

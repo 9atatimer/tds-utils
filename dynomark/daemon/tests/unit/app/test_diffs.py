@@ -44,6 +44,7 @@ from dynomark_daemon.domain.events import BatchOffered
 from dynomark_daemon.domain.ids import DiffId, NodeId, ProfileId, RequestId
 from dynomark_daemon.domain.roles import HostRole, NotWriter
 from dynomark_daemon.domain.tree import FolderFlags, FolderPath, RootKey, TreeOutline
+from dynomark_daemon.domain.writer import WriterConflict
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.completion import ProposeDiffCall, ScriptedCompletion
 from dynomark_daemon.testing.store import InMemoryCorpusStore
@@ -127,7 +128,7 @@ class Writer:
 
     def accept(
         self, item: DiffItem, role: HostRole = HostRole.WRITER
-    ) -> DiffItem | NotWriter:
+    ) -> DiffItem | NotWriter | WriterConflict:
         return accept_diff(
             item.item_id,
             role,

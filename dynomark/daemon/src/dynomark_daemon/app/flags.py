@@ -16,6 +16,7 @@ from dynomark_daemon.domain.tree import (
     OutlineFolder,
     OwnedRoots,
 )
+from dynomark_daemon.domain.writer import WriterConflict
 from dynomark_daemon.ports.store import CorpusStorePort
 
 UNFLAGGED = FolderFlags(pinned=False, locked=False)
@@ -29,10 +30,12 @@ def set_folder_flags(
     role: HostRole,
     roots: OwnedRoots,
     *,
+    conflict: WriterConflict | None = None,
     store: CorpusStorePort,
-) -> OutlineFolder | NotWriter:
+) -> OutlineFolder | NotWriter | WriterConflict:
     """Set the flags given (``None`` keeps one) on the owned folder
-    ``node_id``; ``path``, when given, must be where it is.
+    ``node_id``; ``path``, when given, must be where it is. A writer in
+    ``conflict`` refuses.
 
     Raises:
         TreeNotReady: no tree snapshot yet (``busy``).
@@ -42,6 +45,8 @@ def set_folder_flags(
     """
     if role is HostRole.READER:
         return NotWriter(use_case="set_folder_flags")
+    if conflict is not None:
+        return conflict
     tree = store.latest_tree_snapshot()
     if tree is None:
         raise TreeNotReady("no tree snapshot to find the folder in")

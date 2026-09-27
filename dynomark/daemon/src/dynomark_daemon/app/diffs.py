@@ -39,6 +39,7 @@ from dynomark_daemon.domain.diff import (
 from dynomark_daemon.domain.ids import DiffId, ItemId, ProfileId, RequestId
 from dynomark_daemon.domain.roles import HostRole, NotWriter
 from dynomark_daemon.domain.tree import OwnedRoots, TreeOutline, bar_outline
+from dynomark_daemon.domain.writer import WriterConflict
 from dynomark_daemon.ports.clock import Clock, IdSource
 from dynomark_daemon.ports.completion import CompletionPort
 from dynomark_daemon.ports.store import CorpusStorePort
@@ -181,12 +182,14 @@ def accept_diff(
     roots: OwnedRoots,
     profile_id: ProfileId,
     *,
+    conflict: WriterConflict | None = None,
     store: CorpusStorePort,
     clock: Clock,
     ids: IdSource,
-) -> DiffItem | NotWriter:
+) -> DiffItem | NotWriter | WriterConflict:
     """Record the acceptance of one item and offer its batch, once; a repeat
     returns the recorded acceptance (and offers the batch if it was lost).
+    A writer in ``conflict`` refuses.
 
     Raises:
         UnknownRecord: no such item (``not_found``).
@@ -196,6 +199,8 @@ def accept_diff(
     """
     if role is HostRole.READER:
         return NotWriter(use_case="accept_diff_item")
+    if conflict is not None:
+        return conflict
     item = store.get_diff_item(item_id)
     diff = None if item is None else store.get_diff(item.diff_id)
     if item is None or diff is None:

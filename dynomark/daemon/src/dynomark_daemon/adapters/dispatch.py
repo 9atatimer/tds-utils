@@ -48,6 +48,11 @@ from dynomark_daemon.app.run import current_outline
 from dynomark_daemon.app.search import search_page
 from dynomark_daemon.app.tree import record_tree_snapshot
 from dynomark_daemon.app.undo import undo
+from dynomark_daemon.app.writer import (
+    ensure_writer_marker,
+    writer_conflict,
+    writer_status,
+)
 from dynomark_daemon.domain.bookmark import Capture, Identity
 from dynomark_daemon.domain.chat import Question
 from dynomark_daemon.domain.config import Config
@@ -67,6 +72,7 @@ from dynomark_daemon.domain.job import JobState
 from dynomark_daemon.domain.roles import HostRole, NotWriter
 from dynomark_daemon.domain.search import Query
 from dynomark_daemon.domain.tree import OwnedRoots
+from dynomark_daemon.domain.writer import WriterConflict
 from dynomark_daemon.ports.clock import Clock, IdSource
 from dynomark_daemon.ports.completion import CompletionPort
 from dynomark_daemon.ports.embedding import EmbeddingPort
@@ -114,13 +120,6 @@ log = structlog.get_logger("dynomark.transport")
 
 V: Final = CONTRACT_VERSION
 MAX_DETAIL: Final = 4096
-UNSERVED: Final = frozenset(
-    {
-        "writer.status",
-    }
-)
-"""MVP requests (chat, diffs, folder flags, writer marker) this daemon still
-answers ``invalid`` (tasks 028-030)."""
 
 
 # --- Connection standing ---
@@ -137,13 +136,14 @@ class Session:
     snapshot_seen: bool = False
     replay_pending: bool = False
 
-    def offers_ready(self) -> bool:
-        """Full mode, served writer, and a ``tree.snapshot`` recorded on it
-        (no writer-conflict detection in the PoC)."""
+    def offers_ready(self, *, conflict: bool) -> bool:
+        """Full mode, served writer, not in writer conflict, and a
+        ``tree.snapshot`` recorded on it (markers re-read from it)."""
         return (
             self.mode is HelloMode.FULL
             and self.role is HostRole.WRITER
             and self.snapshot_seen
+            and not conflict
         )
 
 
@@ -225,6 +225,14 @@ def _fit_answer(reply: m.AskResult) -> m.AskResult:
     return reply
 
 
+def _refused(re: str, refusal: NotWriter | WriterConflict) -> m.Error:
+    """``not_writer`` on a reader, ``writer_conflict`` on a writer that sees
+    another host's marker."""
+    if isinstance(refusal, NotWriter):
+        return _error(re, "not_writer", f"this host is a reader ({refusal.use_case})")
+    return _error(re, "writer_conflict", refusal.reason())
+
+
 def _profile(session: Session) -> ProfileId:
     """The connection's profile; admission guarantees a hello came first."""
     if session.profile_id is None:
@@ -298,10 +306,22 @@ class Dispatcher:
         send(
             session.profile_id,
             mode=mode,
-            offers_ready=session.offers_ready(),
+            offers_ready=self._offers_ready(session),
             store=self._store,
             transport=self._transport,
         )
+
+    # --- Writer standing ---
+
+    def _conflict(self, session: Session) -> WriterConflict | None:
+        if session.roots is None:
+            return None
+        return writer_conflict(
+            session.role, self._config.host_id, session.roots, store=self._store
+        )
+
+    def _offers_ready(self, session: Session) -> bool:
+        return session.offers_ready(conflict=self._conflict(session) is not None)
 
     # --- Serving ---
 
@@ -376,10 +396,11 @@ class Dispatcher:
                 return self._outline_get(message, session)
             case m.FolderFlagsSet():
                 return self._folder_flags_set(message, session)
+            case m.WriterStatus():
+                return self._writer_status(message, session)
             case _:
                 request_id = getattr(message, "id", None)
-                why = "yet (MVP)" if message.type in UNSERVED else "here"
-                detail = f"{message.type} is not served by this daemon {why}"
+                detail = f"{message.type} is not a request this daemon serves"
                 return Outcome(_error(request_id, "invalid", detail))
 
     # --- Connection ---
@@ -512,6 +533,15 @@ class Dispatcher:
         record_tree_snapshot(
             snapshot_from_wire(message.snapshot), session.role, store=self._store
         )
+        ensure_writer_marker(
+            session.role,
+            self._config.host_id,
+            _roots(session),
+            _profile(session),
+            store=self._store,
+            clock=self._clock,
+            ids=self._ids,
+        )
         first = not session.snapshot_seen
         session.snapshot_seen = True
         session.replay_pending = session.replay_pending or first
@@ -583,12 +613,13 @@ class Dispatcher:
             BatchId(message.batch_id),
             session.role,
             _roots(session),
+            conflict=self._conflict(session),
             store=self._store,
             clock=self._clock,
             ids=self._ids,
         )
-        if isinstance(result, NotWriter):
-            return Outcome(_error(message.id, "not_writer", "this host is a reader"))
+        if isinstance(result, NotWriter | WriterConflict):
+            return Outcome(_refused(message.id, result))
         return Outcome(
             m.UndoResult(
                 v=V,
@@ -608,7 +639,7 @@ class Dispatcher:
         count = replay_events(
             _profile(session),
             mode=cast(HelloMode, session.mode),
-            offers_ready=session.offers_ready(),
+            offers_ready=self._offers_ready(session),
             store=self._store,
             transport=self._transport,
         )
@@ -754,12 +785,13 @@ class Dispatcher:
             session.role,
             _roots(session),
             _profile(session),
+            conflict=self._conflict(session),
             store=self._store,
             clock=self._clock,
             ids=self._ids,
         )
-        if isinstance(accepted, NotWriter):
-            return Outcome(_error(message.id, "not_writer", "this host is a reader"))
+        if isinstance(accepted, NotWriter | WriterConflict):
+            return Outcome(_refused(message.id, accepted))
         if accepted.accepted_at is None or accepted.batch_id is None:
             raise InvalidRequest(f"item {message.item_id} was not accepted")
         return Outcome(
@@ -803,15 +835,33 @@ class Dispatcher:
             message.locked,
             session.role,
             _roots(session),
+            conflict=self._conflict(session),
             store=self._store,
         )
-        if isinstance(folder, NotWriter):
-            return Outcome(_error(message.id, "not_writer", "this host is a reader"))
+        if isinstance(folder, NotWriter | WriterConflict):
+            return Outcome(_refused(message.id, folder))
         return Outcome(
             m.FolderFlagsSetResult(
                 v=V,
                 type="folder.flags.set.result",
                 re=message.id,
                 folder=outline_folder_to_wire(folder),
+            )
+        )
+
+    def _writer_status(self, message: m.WriterStatus, session: Session) -> Outcome:
+        standing = writer_status(
+            session.role, self._config.host_id, _roots(session), store=self._store
+        )
+        return Outcome(
+            m.WriterStatusResult(
+                v=V,
+                type="writer.status.result",
+                re=message.id,
+                role=standing.role.value,
+                host_id=standing.host_id,
+                own_marker=standing.own_marker,
+                other_writers=list(standing.other_writers),
+                conflict=standing.conflict,
             )
         )

@@ -25,6 +25,7 @@ from dynomark_daemon.domain.placement import (
 )
 from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.domain.tree import OwnedRoots, TreeOutline, outline_of
+from dynomark_daemon.domain.writer import WriterConflict
 from dynomark_daemon.ports.clock import Clock, IdSource
 from dynomark_daemon.ports.completion import CompletionPort
 from dynomark_daemon.ports.content import ContentSourcePort
@@ -196,6 +197,13 @@ def _file_job(
     return _reload(job, store=store)
 
 
+def _awaits_filing(job: Job) -> bool:
+    """Indexed and not filed yet: the point where a writer would place it."""
+    if job.state is JobState.PLACED:
+        return job.batch_id is None
+    return job.state is JobState.ENRICHED
+
+
 def run_job(
     job: Job,
     role: HostRole,
@@ -208,8 +216,11 @@ def run_job(
     completion: CompletionPort,
     clock: Clock,
     ids: IdSource,
+    conflict: WriterConflict | None = None,
 ) -> Job:
-    """Advance ``job`` as far as it can go now; the job as stored after."""
+    """Advance ``job`` as far as it can go now; the job as stored after. On a
+    writer in ``conflict`` the job is indexed, then FAILED naming it
+    (contract v1, Writer marker)."""
     start = job
     if job.state in (JobState.QUEUED, JobState.CAPTURING):
         process_job(
@@ -222,6 +233,9 @@ def run_job(
             clock=clock,
         )
         job = _reload(job, store=store)
+    if conflict is not None and role is HostRole.WRITER and _awaits_filing(job):
+        job = job.failed(conflict.reason(), at=clock.now_ms())
+        store.put_job(job)
     if job.state is JobState.ENRICHED:
         job = _place_job(
             job,

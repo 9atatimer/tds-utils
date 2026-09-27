@@ -41,6 +41,7 @@ AFTER_FILING = make_tree(
     make_node("11", "1", "Dynomark", index=1),
     make_node("12", "1", "Graveyard", index=2),
     make_node("14", "11", "Rust"),
+    make_node("13", "11", "dynomark-writer:mbp", index=1),
     make_node("42", "14", "Tokio tutorial", url=wire.URL),
     taken_at=1_790_000_100_000,
 )

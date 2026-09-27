@@ -8,7 +8,12 @@ from enum import StrEnum
 from dynomark_daemon.domain.bookmark import Identity
 from dynomark_daemon.domain.ids import FeedbackId, NodeId
 from dynomark_daemon.domain.roles import HostRole
-from dynomark_daemon.domain.tree import FolderPath, OwnedRoots, TreeOutline
+from dynomark_daemon.domain.tree import (
+    WRITER_MARKER_PREFIX,
+    FolderPath,
+    OwnedRoots,
+    TreeOutline,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,8 +93,13 @@ class NoAdmissibleFolder(Exception):
 
 
 def is_admissible(path: FolderPath, outline: TreeOutline) -> bool:
-    """Inside the ``Dynomark`` subtree and not in or under a locked folder."""
-    return path.is_inside(outline.root) and not outline.is_locked(path)
+    """Inside the ``Dynomark`` subtree, not in or under a locked folder, and
+    no writer marker (markers are excluded from placement)."""
+    return (
+        path.is_inside(outline.root)
+        and not outline.is_locked(path)
+        and not any(name.startswith(WRITER_MARKER_PREFIX) for name in path.names)
+    )
 
 
 def _same_name(a: str, b: str) -> bool:

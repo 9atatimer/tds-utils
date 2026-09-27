@@ -14,6 +14,7 @@ from dynomark_daemon.app.run import current_outline
 from dynomark_daemon.domain.ids import NodeId
 from dynomark_daemon.domain.roles import HostRole, NotWriter
 from dynomark_daemon.domain.tree import FolderPath, OutlineFolder
+from dynomark_daemon.domain.writer import WriterConflict
 from dynomark_daemon.testing.store import InMemoryCorpusStore
 from tests._factories import make_node, make_path, make_roots, make_tree
 
@@ -41,7 +42,7 @@ def _set(
     pinned: bool | None = None,
     locked: bool | None = None,
     role: HostRole = HostRole.WRITER,
-) -> OutlineFolder | NotWriter:
+) -> OutlineFolder | NotWriter | WriterConflict:
     return set_folder_flags(
         NodeId(node_id), path, pinned, locked, role, make_roots(), store=store
     )
