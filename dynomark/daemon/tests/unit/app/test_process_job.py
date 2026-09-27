@@ -15,12 +15,15 @@ from dynomark_daemon.domain.bookmark import (
     Capture,
     CaptureSource,
     CorpusEntry,
+    Embedding,
     Enrichment,
     Identity,
 )
 from dynomark_daemon.domain.ids import ProfileId
 from dynomark_daemon.domain.job import Job, JobState, RetryPolicy
 from dynomark_daemon.domain.search import HitTier, Query
+from dynomark_daemon.ports.completion import CompletionError
+from dynomark_daemon.ports.embedding import EmbeddingError
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.completion import ScriptedCompletion
 from dynomark_daemon.testing.content import FakeFetch
@@ -146,3 +149,105 @@ def test_process_job_whose_fetch_fails_continues_with_source_none() -> None:
         JobState.ENRICHED,
         CaptureSource.NONE,
     )
+
+
+def _process(
+    store: InMemoryCorpusStore, job: Job, completion: ScriptedCompletion
+) -> CorpusEntry | Job:
+    stored = store.get_job(job.job_id)
+    assert stored is not None
+    return process_job(
+        stored,
+        POLICY,
+        store=store,
+        content=FakeFetch({}),
+        embedding=HashingEmbedding(),
+        completion=completion,
+        clock=FakeClock(),
+    )
+
+
+def test_process_job_whose_enrichment_always_errors_fails_after_policy_attempts() -> (
+    None
+):
+    """Given a completion that errors RetryPolicy.attempts times, When the job
+    is processed that many times, Then it waits for a retry until the last
+    attempt, is then FAILED with the error, and no write batch references its
+    identity."""
+    store = InMemoryCorpusStore()
+    job = _queued(store, make_capture("text"))
+    down = CompletionError("completion: connection refused", retryable=True)
+    completion = ScriptedCompletion(enrich=[down] * POLICY.attempts)
+
+    results = [_process(store, job, completion) for _ in range(POLICY.attempts)]
+
+    assert [r.state for r in results if isinstance(r, Job)] == [
+        JobState.CAPTURING,
+        JobState.CAPTURING,
+        JobState.FAILED,
+    ]
+    failed = store.get_job(job.job_id)
+    assert failed is not None
+    assert (failed.state, failed.attempts) == (JobState.FAILED, POLICY.attempts)
+    assert failed.last_error == "completion: connection refused"
+    assert store.get_entry(job.identity) is None
+    assert [b for b in store.list_batches() if b.identity == job.identity] == []
+
+
+def test_process_job_after_one_transient_error_succeeds_on_the_retry() -> None:
+    """Given a completion that errors once then answers, When the job is
+    processed twice, Then the first attempt leaves it for a retry and the
+    second yields the entry."""
+    store = InMemoryCorpusStore()
+    job = _queued(store, make_capture("text"))
+    completion = ScriptedCompletion(
+        enrich=[CompletionError("model loading", retryable=True), ENRICHMENT]
+    )
+
+    first = _process(store, job, completion)
+    second = _process(store, job, completion)
+
+    assert isinstance(first, Job) and first.attempts == 1
+    assert isinstance(second, CorpusEntry)
+    stored = store.get_job(job.job_id)
+    assert stored is not None and stored.state is JobState.ENRICHED
+
+
+def test_process_job_with_a_non_retryable_error_fails_at_once() -> None:
+    """Given a completion error that is not retryable, When processed, Then the
+    job is FAILED after one attempt."""
+    store = InMemoryCorpusStore()
+    job = _queued(store, make_capture("text"))
+    completion = ScriptedCompletion(
+        enrich=[CompletionError("model refused the input", retryable=False)]
+    )
+
+    result = _process(store, job, completion)
+
+    assert isinstance(result, Job)
+    assert (result.state, result.attempts) == (JobState.FAILED, 1)
+
+
+def test_process_job_whose_embedding_errors_is_retried_like_enrichment() -> None:
+    """Given an embedding port that errors, When processed, Then the attempt is
+    counted like a completion error (both are enrichment)."""
+    store = InMemoryCorpusStore()
+    job = _queued(store, make_capture("text"))
+
+    result = process_job(
+        job,
+        POLICY,
+        store=store,
+        content=FakeFetch({}),
+        embedding=_BrokenEmbedding(),
+        completion=ScriptedCompletion(enrich=[ENRICHMENT]),
+        clock=FakeClock(),
+    )
+
+    assert isinstance(result, Job)
+    assert (result.state, result.attempts) == (JobState.CAPTURING, 1)
+
+
+class _BrokenEmbedding(HashingEmbedding):
+    def embed(self, text: str) -> Embedding:
+        raise EmbeddingError("embedding: timeout", retryable=True)
