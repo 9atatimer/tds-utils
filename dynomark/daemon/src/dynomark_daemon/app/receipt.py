@@ -2,12 +2,14 @@
 Interfaces; The daemon, "Receipts"; contract/v1 README, Jobs: Receipt -> job,
 and Write batches: Receipts, Inverses).
 
-The first receipt recorded for a batch wins; a repeat records nothing new,
-but finishes what a daemon stopped mid-receipt left undone for a job still
-waiting on the batch. A receipt acknowledges the batch's offer, so the next
-batch can be offered -- last, once everything else it does is stored: until
-then the offer stays unacknowledged, a restarted daemon replays it, and the
-extension's answer from its cursor is the repeat that finishes the work.
+The first receipt recorded for a batch wins; a repeat records nothing new.
+Everything a receipt does is one unit of work: the batch row with the
+receipt, its snapshot, the prefix inverse and its link, the job change and
+its event, and the acknowledgement of the batch's offer. A daemon killed
+part-way leaves none of it, the offer stays unacknowledged, a restarted
+daemon replays it, and the extension's answer from its cursor is recorded
+as the first; so a recorded receipt always has every effect, whether or
+not the batch has a job.
 """
 
 from dataclasses import dataclass
@@ -91,43 +93,45 @@ def receive_receipt(
     clock: Clock,
     ids: IdSource,
 ) -> ReceiptRecorded:
-    """Record the extension's answer for a batch, once.
-
-    The steps after the batch row -- the prefix inverse, the job change,
-    then the offer's ack -- are finished by a repeat of the receipt when a
-    daemon stopped between them: a repeat whose job still waits on this
-    batch completes them from the receipt recorded first, and any repeat
-    acknowledges the offer.
+    """Record the extension's answer for a batch, once, with all its effects
+    in one unit of work.
 
     Raises:
         UnknownRecord: no batch has ``receipt.batch_id`` (``not_found``).
     """
+    with store.atomic():
+        return _record(receipt, roots, store=store, clock=clock, ids=ids)
+
+
+def _record(
+    receipt: BatchReceipt,
+    roots: OwnedRoots,
+    *,
+    store: CorpusStorePort,
+    clock: Clock,
+    ids: IdSource,
+) -> ReceiptRecorded:
     record = store.get_batch(receipt.batch_id)
     if record is None:
         raise UnknownRecord(f"no batch {receipt.batch_id}")
     job = None if record.job_id is None else store.get_job(record.job_id)
-    first = record.receipt is None
-    recorded = record.receipt
-    if recorded is None:
-        record = record.with_receipt(receipt, _archive(receipt, record, store=store))
-        store.put_batch(record)
-        recorded = receipt
-    elif not _awaits(job, record):
-        _acknowledge_offer(record, store=store)  # a daemon stopped just before it
+    if record.receipt is not None:
         return ReceiptRecorded(first=False, job=job, inverse=None)
+    record = record.with_receipt(receipt, _archive(receipt, record, store=store))
+    store.put_batch(record)
     failure = filing_failure(
-        record.batch, recorded, job.node_id if job is not None else None
+        record.batch, receipt, job.node_id if job is not None else None
     )
     inverse = None
-    tree = recorded.snapshot or store.latest_tree_snapshot()
+    tree = receipt.snapshot or store.latest_tree_snapshot()
     if (
-        _needs_inverse(recorded, failure)
+        _needs_inverse(receipt, failure)
         and record.undone_by is None
         and tree is not None
     ):
         operations = invert(
             record.batch,
-            applied_ops(recorded),
+            applied_ops(receipt),
             tree,
             roots,
             locked=locked_folders(store=store),
@@ -141,4 +145,4 @@ def receive_receipt(
         job = job.filed(at=now) if failure is None else job.failed(failure, at=now)
         record_job_change(job, store=store, ids=ids)
     _acknowledge_offer(record, store=store)
-    return ReceiptRecorded(first=first, job=job, inverse=inverse)
+    return ReceiptRecorded(first=True, job=job, inverse=inverse)

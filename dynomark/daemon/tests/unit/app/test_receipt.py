@@ -8,7 +8,7 @@ job like PARTIAL, and a receipt delivered twice is recorded once
 (``receipt.batch_id`` is the idempotency key; "A receipt is delivered").
 """
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import replace
 
 import pytest
@@ -34,9 +34,8 @@ from dynomark_daemon.domain.batch import (
 )
 from dynomark_daemon.domain.connection import HelloMode
 from dynomark_daemon.domain.events import BatchOffered, JobUpdated
-from dynomark_daemon.domain.ids import BatchId, EventId, NodeId, ProfileId
-from dynomark_daemon.domain.job import Job, JobState
-from dynomark_daemon.testing.store import InMemoryCorpusStore
+from dynomark_daemon.domain.ids import BatchId, NodeId
+from dynomark_daemon.domain.job import JobState
 from dynomark_daemon.testing.transport import RecordingTransport
 from tests._crash import DyingStore
 from tests._factories import make_path
@@ -190,42 +189,40 @@ def test_receive_a_receipt_for_an_unknown_batch_is_not_found() -> None:
         daemon.receive(receipt)
 
 
-class _DiesAtFirstJobWrite(InMemoryCorpusStore):
-    """A store whose first job write never happens: the daemon was killed
-    after the receipt's batch row committed and before the job changed."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.armed = False
-
-    def put_job(self, job: Job) -> None:
-        if self.armed:
-            self.armed = False
-            raise SystemExit("killed")
-        super().put_job(job)
-
-
 def _killed_mid_receipt(receipt: Callable[[Daemon], BatchReceipt]) -> Daemon:
-    """A daemon killed while recording ``receipt``: its batch row is in."""
-    store = _DiesAtFirstJobWrite()
+    """A daemon killed at its job write while recording ``receipt``, after the
+    batch row and any inverse were written in the same unit of work."""
+    store = DyingStore()
     daemon = Daemon(store)
-    store.armed = True
+    store.kill_at("put_job")
     with pytest.raises(SystemExit):
         daemon.receive(receipt(daemon))
     return daemon
 
 
+def test_a_kill_mid_receipt_records_none_of_it() -> None:
+    """Given the daemon was killed at the job change of a PARTIAL receipt,
+    after its batch row and inverse were written, Then none of it is
+    recorded: no receipt, no inverse, the job still PLACED."""
+    daemon = _killed_mid_receipt(_partial)
+
+    record = daemon.store.get_batch(daemon.batch.batch_id)
+    assert record is not None
+    assert (record.receipt, record.undone_by) == (None, None)
+    assert len(daemon.store.list_batches()) == 1
+    assert daemon.job_now().state is JobState.PLACED
+
+
 def test_a_receipt_resent_after_a_kill_mid_recording_files_the_job() -> None:
-    """Given the daemon was killed after an APPLIED receipt's batch row was
-    recorded and before its job changed, When the extension re-sends the
-    receipt (at-least-once), Then the job is FILED instead of stranded
-    PLACED."""
+    """Given the daemon was killed while recording an APPLIED receipt, When the
+    extension re-sends the receipt (at-least-once), Then it is recorded as
+    the first and the job is FILED instead of stranded PLACED."""
     daemon = _killed_mid_receipt(_applied)
     assert daemon.job_now().state is JobState.PLACED
 
     again = daemon.receive(_applied(daemon))
 
-    assert again.first is False
+    assert again.first is True
     assert daemon.job_now().state is JobState.FILED
     assert again.job == daemon.job_now()
 
@@ -273,45 +270,30 @@ def test_a_replayed_offer_answered_again_after_a_kill_files_the_job() -> None:
     assert _replayed_offers(daemon) == []
 
 
-class _DiesAtAck(InMemoryCorpusStore):
-    """A store whose next offer ack never happens: the daemon was killed after
-    the receipt's job change and before the offer was acknowledged."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.armed = False
-
-    def ack_events(self, profile_id: ProfileId, event_ids: Iterable[EventId]) -> None:
-        if self.armed:
-            self.armed = False
-            raise SystemExit("killed")
-        super().ack_events(profile_id, event_ids)
-
-
-def test_a_kill_before_the_offer_ack_is_finished_by_the_repeat() -> None:
-    """Given the daemon was killed after an APPLIED receipt filed the job and
-    before the offer was acknowledged, When the replayed offer is answered
-    again, Then the offer is acknowledged (it no longer holds back the next
-    batch) and the job stays FILED."""
-    store = _DiesAtAck()
+def test_a_kill_at_the_offer_ack_is_finished_by_the_repeat() -> None:
+    """Given the daemon was killed at the offer's acknowledgement, the last
+    write of an APPLIED receipt, When the replayed offer is answered again,
+    Then the job is FILED and the offer acknowledged (it no longer holds
+    back the next batch)."""
+    store = DyingStore()
     daemon = Daemon(store)
-    store.armed = True
+    store.kill_at("ack_events")
     with pytest.raises(SystemExit):
         daemon.receive(_applied(daemon))
-    assert daemon.job_now().state is JobState.FILED
+    assert daemon.job_now().state is JobState.PLACED
     assert daemon.batch.batch_id in _replayed_offers(daemon)
 
     again = daemon.receive(_applied(daemon))
 
-    assert again.first is False
+    assert again.first is True
     assert _replayed_offers(daemon) == []
     assert daemon.job_now().state is JobState.FILED
 
 
 def test_a_partial_receipt_resent_after_a_kill_fails_the_job_with_one_inverse() -> None:
-    """Given the daemon was killed after a PARTIAL receipt's inverse was offered
-    and before its job changed, When the receipt is re-sent, Then the job is
-    FAILED and the inverse is not offered twice."""
+    """Given the daemon was killed at the job change of a PARTIAL receipt, after
+    its inverse was offered in the same unit of work, When the receipt is
+    re-sent, Then the job is FAILED and the inverse is not offered twice."""
     daemon = _killed_mid_receipt(_partial)
 
     daemon.receive(_partial(daemon))
