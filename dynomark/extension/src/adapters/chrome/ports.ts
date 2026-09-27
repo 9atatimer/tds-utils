@@ -13,13 +13,15 @@ import { ChromeNavigator } from './navigator.js';
 import { ChromeStorage } from './storage.js';
 import { ChromeTabContent } from './tabContent.js';
 
-/** The chrome adapters, one per port. */
+/** The chrome adapters, one per port; a background window an earlier worker left open is closed. */
 export function chromePorts() {
+  const background = new ChromeBackgroundTab();
+  void background.sweep();
   return {
     tree: new ChromeBookmarkTree(),
     history: new ChromeHistory(),
     content: new ChromeTabContent(),
-    background: new ChromeBackgroundTab(),
+    background,
     storage: new ChromeStorage(),
     transport: new NativeMessagingTransport(),
     clock: new SystemClock(),
