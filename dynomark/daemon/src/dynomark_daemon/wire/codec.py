@@ -9,6 +9,7 @@ connection (``MalformedBody``); an object failing the schema is answered
 """
 
 import json
+from dataclasses import dataclass
 from typing import Final
 
 from pydantic import ValidationError
@@ -97,6 +98,30 @@ def _readable_id(pairs: list[tuple[str, object]]) -> str | None:
 
 
 # --- Entry points ---
+
+
+@dataclass(frozen=True, slots=True)
+class Envelope:
+    """What admission reads before the schema: ``type`` and ``v`` as sent (any
+    JSON value), and ``id`` when it is a readable ``Id``."""
+
+    type: object
+    v: object
+    id: str | None
+
+
+def peek_envelope(body: bytes | str) -> Envelope:
+    """Read a body's envelope without validating the message (Connection
+    lifecycle, step 3, rules 1-2).
+
+    Raises:
+        MalformedBody: not one UTF-8 JSON object.
+    """
+    pairs = _object_pairs(_decode_text(body))
+    fields = dict(pairs.top_level)
+    return Envelope(
+        type=fields.get("type"), v=fields.get("v"), id=_readable_id(pairs.top_level)
+    )
 
 
 def decode_body(body: bytes | str) -> AnyMessage:

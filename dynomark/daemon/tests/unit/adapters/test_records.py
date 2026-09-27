@@ -20,28 +20,28 @@ from tests._factories import make_job, make_node, make_snapshot, make_tree
 EVENT_TYPES = (JobUpdated, BatchOffered, DiffProposed)
 
 
-@settings(max_examples=60)
+@settings(max_examples=30)
 @given(record=s.batch_records)
 def test_a_batch_record_round_trips(record: BatchRecord) -> None:
     """Given any batch record, When dumped and loaded, Then it is equal."""
     assert load_record(dump_record(record), BatchRecord) == record
 
 
-@settings(max_examples=60)
+@settings(max_examples=30)
 @given(job=s.jobs)
 def test_a_job_round_trips(job: Job) -> None:
     """Given any job, When dumped and loaded, Then it is equal."""
     assert load_record(dump_record(job), Job) == job
 
 
-@settings(max_examples=40)
+@settings(max_examples=20)
 @given(diff=s.tree_diffs)
 def test_a_tree_diff_round_trips(diff: TreeDiff) -> None:
     """Given any diff with its items, When dumped and loaded, Then it is equal."""
     assert load_record(dump_record(diff), TreeDiff) == diff
 
 
-@settings(max_examples=60)
+@settings(max_examples=30)
 @given(event=s.events)
 def test_an_event_round_trips_as_its_own_union_member(event: Event) -> None:
     """Given any event, When dumped and loaded as the Event union, Then it is

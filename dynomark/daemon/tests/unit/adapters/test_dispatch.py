@@ -380,7 +380,7 @@ def test_a_search_page_is_shortened_to_fit_one_mebibyte() -> None:
     """Given hits whose identities are huge, When a full page is asked for,
     Then the answer is at most 1 MiB and its cursor leads to the rest."""
     harness = Harness()
-    for c in "abcdefghij":
+    for c in "abcdefghijklmnopqrst":
         harness.store.put_entry(
             make_entry("https://example.org/" + c * 60_000, text="tokio runtime")
         )
@@ -390,4 +390,4 @@ def test_a_search_page_is_shortened_to_fit_one_mebibyte() -> None:
 
     assert isinstance(reply, m.SearchResult)
     assert len(encode_message(reply)) <= MIB
-    assert 0 < len(reply.hits) < 10 and reply.next_cursor is not None
+    assert 0 < len(reply.hits) < 20 and reply.next_cursor is not None
