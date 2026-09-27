@@ -5,7 +5,7 @@
 // tier by it.
 
 import { describe, expect, it } from 'vitest';
-import { buildFrecency } from '../../../src/app/buildFrecency.js';
+import { buildFrecency, HISTORY_CONCURRENCY } from '../../../src/app/buildFrecency.js';
 import type { LocalIndexRow } from '../../../src/domain/search.js';
 import { FakeClock } from '../../fakes/FakeClock.js';
 import { FakeHistory } from '../../fakes/FakeHistory.js';
@@ -57,5 +57,27 @@ describe('Frecency is derived from history -- buildFrecency(index, { history, cl
     history.recordVisit('https://elsewhere.example/', NOW - DAY);
     const frecency = await buildFrecency([row('https://a.example/')], { history, clock: new FakeClock(NOW) });
     expect([...frecency.keys()].filter((k) => k !== 'https://a.example/')).toEqual([]);
+  });
+
+  it('Given an index of 10,000 identities, When built, Then no more than HISTORY_CONCURRENCY history lookups are ever in flight at once', async () => {
+    const history = new FakeHistory();
+    const index = Array.from({ length: 10_000 }, (_, i) => row(`https://site${i}.example/`));
+    history.recordVisit('https://site9999.example/', NOW - DAY);
+    const frecency = await buildFrecency(index, { history, clock: new FakeClock(NOW) });
+    expect(history.peak).toBeGreaterThan(0);
+    expect(history.peak).toBeLessThanOrEqual(HISTORY_CONCURRENCY);
+    expect(frecency.has('https://site9999.example/')).toBe(true);
+  });
+
+  it('Given one identity whose history lookup fails, When built, Then it gets no boost and the others keep theirs', async () => {
+    const history = new FakeHistory();
+    history.recordVisit('https://a.example/', NOW - DAY);
+    history.recordVisit('https://broken.example/', NOW - DAY);
+    history.refuse('https://broken.example/');
+    const frecency = await buildFrecency([row('https://a.example/'), row('https://broken.example/')], {
+      history,
+      clock: new FakeClock(NOW),
+    });
+    expect([...frecency.keys()]).toEqual(['https://a.example/']);
   });
 });

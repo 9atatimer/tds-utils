@@ -10,6 +10,8 @@
 import { describe, expect, it } from 'vitest';
 import { FOLLOW_UP_TITLE } from '../../../src/domain/followUp.js';
 import { RECONNECT_BACKOFF } from '../../../src/domain/backoff.js';
+import { ExtensionRuntime } from '../../../src/app/runtime.js';
+import type { LocalIndexRow } from '../../../src/domain/search.js';
 import { FakeExtensionWorld } from '../../fakes/FakeExtensionWorld.js';
 import { FOLLOW_UP, seedOwnedTree } from '../../fixtures/ownedTree.js';
 import { scriptDaemon, sentOf, sentTypes, startRuntime } from '../../fixtures/runtime.js';
@@ -20,6 +22,15 @@ function world(): FakeExtensionWorld {
   const w = new FakeExtensionWorld({ flavor: 'chrome' });
   scriptDaemon(w);
   return w;
+}
+
+function row(identity: string): LocalIndexRow {
+  return { identity, title: identity, path: { root: 'bar', names: ['Dynomark'] }, tags: [], summary: '' };
+}
+
+/** Let every queued continuation run: one turn of the event loop (no wall-clock wait). */
+function settle(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
 // --- Tests ---
@@ -153,5 +164,33 @@ describe('Connect routine -- a step that fails is reported, the rest still runs,
     await runtime.idle();
     expect(sentOf(w, 'index.pull')).toHaveLength(2);
     expect(sentOf(w, 'hello')).toHaveLength(1);
+  });
+});
+
+describe('Start does not wait on frecency -- history is a ranking input, not a precondition', () => {
+  it('Given a stored index whose history lookups have not answered, When a worker starts, Then start resolves and hello is sent', async () => {
+    const w = world();
+    await w.storage.saveLocalIndex([row('https://a.example/'), row('https://b.example/')]);
+    w.history.hold();
+    const runtime = new ExtensionRuntime(w.worker());
+    let started = false;
+    const starting = runtime.start().then(() => (started = true));
+    await settle();
+    const early = { started, hellos: sentOf(w, 'hello').length };
+    w.history.release();
+    await starting;
+    await runtime.idle();
+    expect(early).toEqual({ started: true, hellos: 1 });
+  });
+
+  it('Given a stored index with one identity whose history lookup fails, When a worker starts, Then it starts, says hello and answers pages', async () => {
+    const w = world();
+    await w.storage.saveLocalIndex([row('https://a.example/'), row('https://broken.example/')]);
+    w.history.refuse('https://broken.example/');
+    const runtime = new ExtensionRuntime(w.worker());
+    await runtime.start();
+    await runtime.idle();
+    expect(sentOf(w, 'hello')).toHaveLength(1);
+    expect(await runtime.page({ kind: 'overview' })).toMatchObject({ ok: true });
   });
 });

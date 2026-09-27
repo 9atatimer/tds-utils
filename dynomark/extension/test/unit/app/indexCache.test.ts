@@ -5,9 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { IndexCache } from '../../../src/app/indexCache.js';
-import type { LocalIndexRow, Visit } from '../../../src/domain/search.js';
-import type { Url } from '../../../src/domain/values.js';
-import type { HistoryPort } from '../../../src/ports/history.js';
+import type { LocalIndexRow } from '../../../src/domain/search.js';
 import { FakeClock } from '../../fakes/FakeClock.js';
 import { FakeHistory } from '../../fakes/FakeHistory.js';
 import { FakeStorage } from '../../fakes/FakeStorage.js';
@@ -21,39 +19,13 @@ function row(identity: string): LocalIndexRow {
   return { identity, title: identity, path: { root: 'bar', names: ['Dynomark'] }, tags: [], summary: '' };
 }
 
-/** A FakeHistory whose lookups made while held wait until release(); lookups made after pass() go straight through. */
-class HeldHistory implements HistoryPort {
-  private held = false;
-  private readonly waiting: (() => void)[] = [];
-
-  constructor(private readonly inner: FakeHistory) {}
-
-  hold(): void {
-    this.held = true;
-  }
-
-  pass(): void {
-    this.held = false;
-  }
-
-  release(): void {
-    this.waiting.splice(0).forEach((go) => go());
-  }
-
-  async visitsTo(url: Url): Promise<readonly Visit[]> {
-    if (this.held) await new Promise<void>((go) => this.waiting.push(go));
-    return this.inner.visitsTo(url);
-  }
-}
-
 // --- Tests ---
 
 describe('The in-memory index and its frecency -- IndexCache', () => {
   it('Given two stored indexes whose older frecency build finishes last, When both builds finish, Then the frecency is of the newer index', async () => {
-    const visits = new FakeHistory();
-    visits.recordVisit('https://a.example/', NOW - DAY);
-    visits.recordVisit('https://b.example/', NOW - DAY);
-    const history = new HeldHistory(visits);
+    const history = new FakeHistory();
+    history.recordVisit('https://a.example/', NOW - DAY);
+    history.recordVisit('https://b.example/', NOW - DAY);
     const work: Promise<unknown>[] = [];
     const cache = new IndexCache({ storage: new FakeStorage(), history, clock: new FakeClock(NOW) }, (w) => work.push(w));
     const storage = cache.observing(new FakeStorage());
