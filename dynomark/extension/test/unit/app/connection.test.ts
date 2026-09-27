@@ -59,18 +59,17 @@ describe('Hello handling -- Connection(identity, { transport, ids }, onConnected
     });
   });
 
-  it('Given mode read_only, When connected, Then no tree.snapshot is sent, events are replayed and the index pulled, and a write request is refused locally', async () => {
+  it('Given a v1 daemon answering read_only, When connected, Then it is a ContractViolation (read_only needs an extension newer than the daemon)', async () => {
     const { w, connection } = await setup({ mode: 'read_only' });
-    await connection.connect();
-    expect(types(w.connection().sent)).toEqual(['hello', 'events.replay', 'index.pull']);
-    const ingest = {
-      v: 1 as const,
-      type: 'move.observed' as const,
-      id: 'req-m',
-      move: { node_id: '1', from: FOLLOW_UP, to: FOLLOW_UP, origin: 'user' as const, observed_at: 1 },
-    };
-    await expect(connection.send(ingest)).rejects.toBeInstanceOf(ModeRefused);
-    expect(types(w.connection().sent)).toEqual(['hello', 'events.replay', 'index.pull']);
+    await expect(connection.connect()).rejects.toBeInstanceOf(ContractViolation);
+    expect(types(w.connection().sent)).toEqual(['hello']);
+  });
+
+  it('Given a read_only outcome, When the connect routine runs, Then no tree.snapshot is sent: events are replayed and the index pulled', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    w.connection().autoAnswer(scriptedDaemon({}));
+    await onConnected({ v: 1, mode: 'read_only', role: 'writer', host_id: 'mbp', owned_roots: ROOTS }, w.worker());
+    expect(types(w.connection().sent)).toEqual(['events.replay', 'index.pull']);
   });
 
   it('Given mode refused, When connected, Then nothing follows hello and every request is refused locally', async () => {
