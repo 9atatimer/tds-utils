@@ -102,7 +102,9 @@ def test_install_host_manifest_writes_both_browsers_under_home(tmp_path: Path) -
     )
 
     assert result.exit_code == 0, result.output
-    written = [Path(line) for line in result.output.split() if line.endswith(".json")]
+    written = [
+        Path(line) for line in result.output.splitlines() if line.endswith(".json")
+    ]
     assert len(written) == 2 and all(p.is_file() for p in written)
 
 
