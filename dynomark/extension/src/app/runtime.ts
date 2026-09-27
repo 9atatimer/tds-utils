@@ -28,6 +28,7 @@ import type { Timer } from '../ports/timer.js';
 import type { LinkState, TransportLink, TransportPort } from '../ports/transport.js';
 import { BatchLane } from './batchLane.js';
 import { Connection, type HelloOutcome } from './connection.js';
+import { DiffAcceptance } from './diffs.js';
 import { DaemonEvents } from './daemonEvents.js';
 import { openFollowUp, type FollowUpFolder } from './followUp.js';
 import { IndexCache } from './indexCache.js';
@@ -80,6 +81,7 @@ export class ExtensionRuntime {
   private readonly issued: IssuedMoves;
   private readonly omnibox: OmniboxSession;
   private readonly saves = new SubmittedSaves();
+  private readonly acceptance = new DiffAcceptance();
   private readonly ready: Promise<Started>;
   private resolveReady: (started: Started) => void = () => undefined;
   private state: Started | undefined;
@@ -154,6 +156,8 @@ export class ExtensionRuntime {
       ids: this.ports.ids,
       tree: this.ports.tree,
       navigator: this.ports.navigator,
+      clock: this.ports.clock,
+      acceptance: this.acceptance,
       link: () => this.ports.transport.linkState(),
       outcome: () => started.connection.outcome(),
       settings: () => this.state?.settings ?? started.settings,

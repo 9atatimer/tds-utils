@@ -12,12 +12,14 @@ import { isOpenable } from '../domain/search.js';
 import type { FolderPath } from '../domain/tree.js';
 import type { BookmarkTreePort } from '../ports/bookmarkTree.js';
 import type { IdSource } from '../ports/idSource.js';
+import type { Clock } from '../ports/clock.js';
 import type { Navigator } from '../ports/navigator.js';
 import type { Overview, PageRequest, PageResponse } from '../ports/pages.js';
 import type { LinkState, TransportPort } from '../ports/transport.js';
 import { CONTRACT_VERSION } from '../wire/messages.js';
 import { askQuestion, explainPlacement, fileThis } from './chat.js';
 import type { HelloOutcome } from './connection.js';
+import { listDiffs, proposeDiff, readDiffPage, readOutline, setFolderFlags, type DiffAcceptance } from './diffs.js';
 import { DaemonError, resultOrThrow } from './errors.js';
 
 // --- Types ---
@@ -27,6 +29,8 @@ export interface PageContext {
   readonly ids: IdSource;
   readonly tree: BookmarkTreePort;
   readonly navigator: Navigator;
+  readonly clock: Clock;
+  readonly acceptance: DiffAcceptance;
   link(): LinkState;
   outcome(): HelloOutcome | undefined;
   settings(): Settings;
@@ -107,6 +111,23 @@ async function ask(request: Exclude<PageRequest, { kind: 'overview' | 'settings.
       const followUp = context.followUp();
       if (followUp === undefined) return { ok: false, error: 'no Follow Up folder is watched' };
       return { ok: true, kind: 'file', ...(await fileThis(request.url, request.title, followUp, context)) };
+    }
+    case 'diff.list':
+      return { ok: true, kind: 'diff.list', ...(await listDiffs(request.cursor, context)) };
+    case 'diff.page':
+      return { ok: true, kind: 'diff.page', ...(await readDiffPage(request.diff_id, request.cursor, context)) };
+    case 'diff.propose':
+      return { ok: true, kind: 'diff.propose', diff: await proposeDiff(request.diff_kind, context) };
+    case 'diff.accept':
+      return { ok: true, kind: 'diff.accept', ...(await context.acceptance.accept(request.item_id, context)) };
+    case 'outline':
+      return { ok: true, kind: 'outline', ...(await readOutline(request.cursor, context)) };
+    case 'folder.flags': {
+      const flags = {
+        ...(request.pinned === undefined ? {} : { pinned: request.pinned }),
+        ...(request.locked === undefined ? {} : { locked: request.locked }),
+      };
+      return { ok: true, kind: 'folder.flags', folder: await setFolderFlags(request, flags, context) };
     }
   }
 }

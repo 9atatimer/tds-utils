@@ -41,6 +41,12 @@ const KINDS: ReadonlySet<string> = new Set([
   'explain',
   'open',
   'file',
+  'diff.list',
+  'diff.page',
+  'diff.propose',
+  'diff.accept',
+  'outline',
+  'folder.flags',
 ]);
 
 // --- Predicates ---

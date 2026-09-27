@@ -11,9 +11,9 @@ import type { ResultOf } from '../wire/messages.js';
 import type { LinkState } from './transport.js';
 import type { ConnectionMode, HostRole } from '../domain/roles.js';
 import type { Job } from '../domain/jobs.js';
-import type { PlacementReason, UndoDrop } from '../domain/diff.js';
+import type { DiffItem, DiffKind, OutlineFolder, PlacementReason, TreeDiff, UndoDrop } from '../domain/diff.js';
 import type { Answer, Question, Turn } from '../domain/chat.js';
-import type { Identity, NodeId, Title, Url } from '../domain/values.js';
+import type { EpochMs, Id, Identity, NodeId, Title, Url } from '../domain/values.js';
 
 // --- Requests ---
 
@@ -27,7 +27,19 @@ export type PageRequest =
   | { readonly kind: 'ask'; readonly question: Question; readonly history: readonly Turn[] }
   | { readonly kind: 'explain'; readonly identity: Identity }
   | { readonly kind: 'open'; readonly url: Url }
-  | { readonly kind: 'file'; readonly url: Url; readonly title: Title };
+  | { readonly kind: 'file'; readonly url: Url; readonly title: Title }
+  | { readonly kind: 'diff.list'; readonly cursor?: Cursor }
+  | { readonly kind: 'diff.page'; readonly diff_id: Id; readonly cursor?: Cursor }
+  | { readonly kind: 'diff.propose'; readonly diff_kind: DiffKind }
+  | { readonly kind: 'diff.accept'; readonly item_id: Id }
+  | { readonly kind: 'outline'; readonly cursor?: Cursor }
+  | {
+      readonly kind: 'folder.flags';
+      readonly node_id: NodeId;
+      readonly path: FolderPath;
+      readonly pinned?: boolean;
+      readonly locked?: boolean;
+    };
 
 // --- Answers ---
 
@@ -63,6 +75,18 @@ export type PageResponse =
   | { readonly ok: true; readonly kind: 'explain'; readonly reason: PlacementReason }
   | { readonly ok: true; readonly kind: 'open' }
   | { readonly ok: true; readonly kind: 'file'; readonly node_id: NodeId; readonly created: boolean }
+  | { readonly ok: true; readonly kind: 'diff.list'; readonly diffs: readonly TreeDiff[]; readonly next_cursor: Cursor | null }
+  | {
+      readonly ok: true;
+      readonly kind: 'diff.page';
+      readonly diff: TreeDiff;
+      readonly items: readonly DiffItem[];
+      readonly next_cursor: Cursor | null;
+    }
+  | { readonly ok: true; readonly kind: 'diff.propose'; readonly diff: TreeDiff }
+  | { readonly ok: true; readonly kind: 'diff.accept'; readonly item_id: Id; readonly accepted_at: EpochMs; readonly batch_id: BatchId }
+  | { readonly ok: true; readonly kind: 'outline'; readonly folders: readonly OutlineFolder[]; readonly next_cursor: Cursor | null }
+  | { readonly ok: true; readonly kind: 'folder.flags'; readonly folder: OutlineFolder }
   | { readonly ok: false; readonly error: string; readonly code?: ErrorCode };
 
 /** How a page asks the background. */
