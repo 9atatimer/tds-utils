@@ -66,13 +66,7 @@ export class World {
   async start(options: DaemonOptions): Promise<void> {
     await this.current?.stop();
     this.current = await RealDaemon.start(this.home, this.socket, options);
-    if (this.started === undefined) {
-      this.started = await launchBrowser(this.home);
-      if (process.env['DM_DEBUG']) {
-        const w = await this.started.serviceWorker();
-        w.on('console', (m) => console.log('SW', m.type(), m.text().slice(0, 400)));
-      }
-    }
+    this.started ??= await launchBrowser(this.home);
   }
 
   /** Stop the running daemon (SIGTERM), leaving the browser up. */
@@ -190,10 +184,6 @@ export class World {
   }
 
   async close(): Promise<void> {
-    if (process.env['DM_DEBUG']) {
-      for (const e of this.current?.log() ?? []) if (e['level'] !== 'info') console.log('DAEMON', JSON.stringify(e).slice(0, 600));
-      for (const e of this.current?.log() ?? []) if (e.event === 'job.ran') console.log('JOB', JSON.stringify(e).slice(0, 300));
-    }
     await this.started?.close().catch(() => undefined);
     await this.current?.stop();
     await this.server?.close();
