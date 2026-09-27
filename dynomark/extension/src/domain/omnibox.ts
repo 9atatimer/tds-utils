@@ -4,7 +4,7 @@
 // no hit, opens the chat surface with the query pre-sent).
 
 import type { Question } from './chat.js';
-import type { Hit, Query } from './search.js';
+import { isOpenable, type Hit, type Query } from './search.js';
 import type { Identity } from './values.js';
 
 // --- Constants ---
@@ -50,12 +50,17 @@ function ask(text: string): EnterAction {
 
 /**
  * What Enter on `text` does: the Ask row asks its question; a picked hit
- * (its content is its identity) opens; plain text opens the best hit, or
- * asks when there is none.
+ * (its content is its identity) opens; so does text that is itself an
+ * http(s) URL -- a picked row's identity reaches a worker that may never have
+ * shown it (the worker restarted, or the hit came from tier 2) -- and plain
+ * text opens the best hit, or asks when there is none.
  */
 export function enterAction(text: string, shown: readonly Hit[], best: Hit | undefined): EnterAction {
   if (text.startsWith(ASK_PREFIX)) return ask(text.slice(ASK_PREFIX.length));
-  const picked = shown.find((h) => h.identity === text) ?? best;
+  const picked = shown.find((h) => h.identity === text);
   if (picked !== undefined) return { kind: 'open', identity: picked.identity };
+  const url = text.trim();
+  if (isOpenable(url) && !/\s/.test(url)) return { kind: 'open', identity: url };
+  if (best !== undefined) return { kind: 'open', identity: best.identity };
   return ask(text);
 }

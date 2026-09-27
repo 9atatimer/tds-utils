@@ -161,6 +161,7 @@ export class ExtensionRuntime {
 
   /** Omnibox Enter: open the chosen hit's identity (http(s) only), or open the chat surface with the question. */
   async omniboxEnter(text: string, disposition: Disposition): Promise<void> {
+    await this.ready; // the stored index is loaded: a fresh worker decides on the same rows
     const action = this.omnibox.enter(text);
     if (action.kind === 'ask') await this.ports.surface.open(action.question);
     else if (action.kind === 'open' && isOpenable(action.identity)) await this.ports.navigator.open(action.identity, disposition);
