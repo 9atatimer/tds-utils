@@ -368,6 +368,29 @@ def test_no_batch_offer_before_a_tree_snapshot_on_the_connection() -> None:
     assert BatchOffered in after
 
 
+def test_events_go_only_to_the_connection_whose_standing_chose_them() -> None:
+    """Given a full writer connection with a snapshot and a batch waiting, and
+    a newer read_only connection of the same profile (it superseded the
+    first), When events are delivered for the first connection, Then they go
+    to that connection alone: the read_only one gets no batch.offer, nor
+    anything else chosen by another connection's standing."""
+    harness = Harness()
+    first = RecordingTransport()
+    harness.session = Session(transport=first)
+    harness.hello()
+    harness.send(wire.tree_snapshot("t-1"))
+    newer = RecordingTransport()
+    later = Session(transport=newer)
+    harness.dispatcher.handle(wire.hello("h-2", v=2), later)
+    harness.ingest()
+    _placed_job(harness)
+
+    harness.dispatcher.deliver(harness.session)
+
+    assert BatchOffered in [type(e) for e in first.events_for(A)]
+    assert newer.pushed == [] and harness.transport.pushed == []
+
+
 def test_events_replay_resends_unacknowledged_events_and_counts_them() -> None:
     """Given job events already pushed, When events.replay arrives, Then they
     are pushed again and the answer counts them; after events.ack they are
