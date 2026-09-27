@@ -7,6 +7,7 @@
     "node_id": "42",
     "identity": "https://tokio.rs/tokio/tutorial",
     "state": "FAILED",
+    "seq": 4,
     "attempts": 3,
     "backfill": false,
     "last_error": "completion: connection refused",

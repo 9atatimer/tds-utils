@@ -4,6 +4,11 @@
   "id": "req-0008",
   "snapshot": {
     "taken_at": 1790000001000,
+    "root_ids": {
+      "bar": "1",
+      "other": "2",
+      "mobile": "3"
+    },
     "nodes": [
       {
         "id": "0",
@@ -90,7 +95,6 @@
         "id": "42",
         "parent_id": "10",
         "index": 0,
-        "kind": "bookmark",
         "title": "Tokio tutorial",
         "url": "https://tokio.rs/tokio/tutorial?utm_source=x",
         "date_added": 1790000000000

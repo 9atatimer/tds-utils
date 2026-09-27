@@ -1,10 +1,10 @@
 {
   "v": 1,
   "type": "batch.receipt",
-  "id": "req-0012",
+  "id": "req-0045",
   "receipt": {
-    "state": "applied",
-    "batch_id": "batch-0101",
+    "state": "APPLIED",
+    "batch_id": "batch-0104",
     "snapshot": {
       "taken_at": 1790000001000,
       "root_ids": {
@@ -78,16 +78,16 @@
           "date_added": 1789999300000
         },
         {
-          "id": "14",
-          "parent_id": "11",
-          "index": 1,
+          "id": "60",
+          "parent_id": "1",
+          "index": 3,
           "kind": "folder",
-          "title": "Rust",
-          "date_added": 1789999400000
+          "title": "Reading",
+          "date_added": 1789995000000
         },
         {
           "id": "15",
-          "parent_id": "14",
+          "parent_id": "60",
           "index": 0,
           "kind": "bookmark",
           "title": "The Rust Book",
@@ -95,29 +95,34 @@
           "date_added": 1789999500000
         },
         {
-          "id": "42",
-          "parent_id": "10",
+          "id": "77",
+          "parent_id": "2",
           "index": 0,
           "kind": "bookmark",
-          "title": "Tokio tutorial",
-          "url": "https://tokio.rs/tokio/tutorial?utm_source=x",
-          "date_added": 1790000000000
+          "title": "Rust by Example",
+          "url": "https://doc.rust-lang.org/rust-by-example/",
+          "date_added": 1789996000000
         }
       ]
     },
+    "pre_batch": true,
     "applied": [
       {
         "index": 0,
-        "node_id": "16",
-        "changed": true
+        "node_id": "60",
+        "changed": false
       },
       {
         "index": 1,
-        "node_id": "42",
+        "node_id": "15",
+        "changed": false
+      },
+      {
+        "index": 2,
+        "node_id": "77",
         "changed": true
       }
     ],
-    "skipped": [],
-    "pre_batch": true
+    "skipped": []
   }
 }

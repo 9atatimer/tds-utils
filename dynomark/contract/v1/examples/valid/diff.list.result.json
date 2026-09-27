@@ -1,0 +1,22 @@
+{
+  "v": 1,
+  "type": "diff.list.result",
+  "re": "req-0043",
+  "diffs": [
+    {
+      "diff_id": "diff-0003",
+      "kind": "rebuild",
+      "proposed_at": 1790086400000,
+      "item_count": 5,
+      "unaccepted_count": 5
+    },
+    {
+      "diff_id": "diff-0002",
+      "kind": "audit",
+      "proposed_at": 1790000090000,
+      "item_count": 2,
+      "unaccepted_count": 1
+    }
+  ],
+  "next_cursor": null
+}

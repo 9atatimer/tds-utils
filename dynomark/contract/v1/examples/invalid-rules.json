@@ -89,6 +89,11 @@
     "path": "/follow_up/root",
     "rule": "RootKey enum"
   },
+  "hello-missing-profile-id.json": {
+    "keyword": "required",
+    "path": "/profile_id",
+    "rule": "hello names the browser profile"
+  },
   "hello-mode-unknown.json": {
     "keyword": "enum",
     "path": "/mode",
@@ -124,6 +129,11 @@
     "path": "/backfill",
     "rule": "backfill flag is explicit"
   },
+  "job-missing-seq.json": {
+    "keyword": "required",
+    "path": "/job/seq",
+    "rule": "a Job carries its per-job seq so replayed copies can be ordered"
+  },
   "job-state-unknown.json": {
     "keyword": "enum",
     "path": "/job/state",
@@ -133,6 +143,11 @@
     "keyword": "required",
     "path": "/v",
     "rule": "every message carries v"
+  },
+  "move-expect-without-parent-id.json": {
+    "keyword": "required",
+    "path": "/batch/operations/1/expect/parent_id",
+    "rule": "every move/remove carries expect.parent_id"
   },
   "move-origin-unknown.json": {
     "keyword": "enum",
@@ -159,15 +174,15 @@
     "path": "",
     "rule": "explain takes identity xor url"
   },
+  "receipt-applied-missing-changed.json": {
+    "keyword": "required",
+    "path": "/receipt/applied/0/changed",
+    "rule": "an applied op says whether it changed the tree"
+  },
   "receipt-applied-with-failed.json": {
     "keyword": "additionalProperties",
     "path": "/receipt/failed",
     "rule": "APPLIED has no failing op"
-  },
-  "receipt-missing-snapshot.json": {
-    "keyword": "required",
-    "path": "/receipt/snapshot",
-    "rule": "every receipt carries the pre-batch snapshot"
   },
   "receipt-partial-missing-failed.json": {
     "keyword": "required",
@@ -179,6 +194,11 @@
     "path": "/receipt/reason",
     "rule": "RejectReason enum"
   },
+  "receipt-snapshot-omitted-false.json": {
+    "keyword": "const",
+    "path": "/receipt/snapshot_omitted",
+    "rule": "a receipt carries snapshot, or snapshot_omitted true only"
+  },
   "receipt-state-lowercase.json": {
     "keyword": "oneOf",
     "path": "/receipt",
@@ -188,6 +208,11 @@
     "keyword": "pattern",
     "path": "/id",
     "rule": "ids are [A-Za-z0-9._:-]{1,128}"
+  },
+  "request-id-trailing-newline.json": {
+    "keyword": "pattern",
+    "path": "/job_id",
+    "rule": "Id patterns are anchored at end of input; a trailing newline does not match (Python: fullmatch, never re.match with $)"
   },
   "request-missing-id.json": {
     "keyword": "required",
@@ -224,10 +249,20 @@
     "path": "/receipt/skipped/0/reason",
     "rule": "SkipReason enum"
   },
+  "snapshot-folder-with-url.json": {
+    "keyword": "not",
+    "path": "/snapshot/nodes/9",
+    "rule": "only kind bookmark carries url"
+  },
   "snapshot-missing-root-ids.json": {
     "keyword": "required",
     "path": "/snapshot/root_ids",
     "rule": "snapshot maps RootKey to node ids"
+  },
+  "snapshot-node-missing-kind.json": {
+    "keyword": "required",
+    "path": "/snapshot/nodes/10/kind",
+    "rule": "every snapshot node states its kind"
   },
   "snapshot-node-negative-index.json": {
     "keyword": "minimum",

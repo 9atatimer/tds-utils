@@ -23,6 +23,12 @@
       "$ref": "#/$defs/JobRetryResult"
     },
     {
+      "$ref": "#/$defs/JobList"
+    },
+    {
+      "$ref": "#/$defs/JobListResult"
+    },
+    {
       "$ref": "#/$defs/TreeSnapshot"
     },
     {
@@ -83,10 +89,22 @@
       "$ref": "#/$defs/UndoResult"
     },
     {
+      "$ref": "#/$defs/BatchList"
+    },
+    {
+      "$ref": "#/$defs/BatchListResult"
+    },
+    {
       "$ref": "#/$defs/DiffPropose"
     },
     {
       "$ref": "#/$defs/DiffProposeResult"
+    },
+    {
+      "$ref": "#/$defs/DiffList"
+    },
+    {
+      "$ref": "#/$defs/DiffListResult"
     },
     {
       "$ref": "#/$defs/DiffPage"
@@ -132,11 +150,14 @@
     },
     {
       "$ref": "#/$defs/BatchOffer"
+    },
+    {
+      "$ref": "#/$defs/DiffProposed"
     }
   ],
   "$defs": {
     "Id": {
-      "description": "Opaque identifier chosen by its owner (request id by the extension; job, batch, event, diff and item ids by the daemon). Compare byte-for-byte; never parse.",
+      "description": "Opaque identifier chosen by its owner (request id by the extension; job, batch, event, diff and item ids by the daemon). A request id is unique for the lifetime of the daemon store: the extension generates it randomly with at least 122 bits (a UUIDv4 or ULID) and never reuses it for a different body. Compare byte-for-byte; never parse.",
       "type": "string",
       "pattern": "^[A-Za-z0-9._:-]{1,128}$"
     },
@@ -162,24 +183,24 @@
       "maximum": 9007199254740991
     },
     "Url": {
-      "description": "A raw URL exactly as the browser reports it. The extension never normalizes.",
+      "description": "A raw URL exactly as the browser reports it. The extension never normalizes. An extension sends no bookmark whose url is longer than this cap (it reports it locally instead).",
       "type": "string",
       "minLength": 1,
       "maxLength": 65536
     },
     "Identity": {
-      "description": "The normalized URL of a corpus entry. Computed only by the daemon; the extension may echo one it received, never compute one.",
+      "description": "The normalized URL of a corpus entry: an absolute URL that the browser can navigate to and that reaches the same resource as the raw URLs it stands for (normalization only removes equivalent variants). Computed only by the daemon; the extension may echo, open or look up one it received, never compute one.",
       "type": "string",
       "minLength": 1,
       "maxLength": 65536
     },
     "Title": {
-      "description": "A bookmark, folder or page title.",
+      "description": "A bookmark, folder or page title. The extension truncates a longer title at a code-point boundary before sending.",
       "type": "string",
       "maxLength": 4096
     },
     "RootKey": {
-      "description": "A browser top-level folder, independent of browser and locale. bar = bookmarks bar / toolbar; other = other bookmarks; mobile = mobile bookmarks; menu = Firefox bookmarks menu.",
+      "description": "A browser top-level folder, independent of browser and locale. bar = bookmarks bar / toolbar; other = other bookmarks; mobile = mobile bookmarks; menu = Firefox bookmarks menu. The node each key maps to on a connection is Snapshot.root_ids[key]; see README (Paths).",
       "enum": [
         "bar",
         "other",
@@ -189,7 +210,7 @@
     },
     "FolderPath": {
       "type": "object",
-      "description": "A folder addressed by path: the top-level folder, then folder titles downward. names [] is the top-level folder itself. Resolution picks, at each level, the child FOLDER with the lowest index whose title equals the name exactly.",
+      "description": "A folder addressed by path: the top-level folder (Snapshot.root_ids[root]), then folder titles downward. names [] is the top-level folder itself. Resolution picks, at each level, the child FOLDER (never a bookmark or separator) with the lowest index whose title equals the name exactly.",
       "properties": {
         "root": {
           "$ref": "#/$defs/RootKey"
@@ -265,7 +286,7 @@
       ]
     },
     "ErrorCode": {
-      "description": "Closed set. Retryable (same request id, after backoff): busy, internal. All others are final for that request.",
+      "description": "Closed set. Retryable (same request id, after backoff): busy, internal. All others are final for that request. superseded is unsolicited (re null): a newer connection of the same profile_id replaced this one; the extension does not reconnect this connection.",
       "enum": [
         "version_mismatch",
         "hello_required",
@@ -275,7 +296,8 @@
         "invalid",
         "stale_cursor",
         "busy",
-        "internal"
+        "internal",
+        "superseded"
       ]
     },
     "ReceiptState": {
@@ -285,28 +307,44 @@
         "REJECTED"
       ]
     },
+    "BatchState": {
+      "description": "A write batch's lifecycle state on the daemon.",
+      "enum": [
+        "PROPOSED",
+        "APPLIED",
+        "PARTIAL",
+        "REJECTED"
+      ]
+    },
+    "NodeKind": {
+      "description": "What a snapshot node is. Firefox separators are kept so sibling indices have no gaps; they never match FolderPath resolution.",
+      "enum": [
+        "folder",
+        "bookmark",
+        "separator"
+      ]
+    },
     "SkipReason": {
-      "description": "Why an operation was skipped rather than applied. node_missing: its node no longer exists. parent_mismatch: expect.parent_path or expect.parent_id did not hold. not_empty: expect.empty did not hold. unknown_after_resume: the op was in the prefix applied before the extension restarted and its outcome cannot be re-derived.",
+      "description": "Why an operation was skipped rather than applied. node_missing: its node no longer exists. parent_mismatch: expect.parent_path or expect.parent_id did not hold. not_empty: expect.empty did not hold.",
       "enum": [
         "node_missing",
         "parent_mismatch",
-        "not_empty",
-        "unknown_after_resume"
+        "not_empty"
       ]
     },
     "FailReason": {
-      "description": "Why an operation without a matching expect clause failed. node_missing: move/remove of a node that does not exist. parent_missing: the target folder (parent, to, or the graveyard root) does not resolve. browser_error: the browser API refused.",
+      "description": "Why an operation failed. parent_missing: the target folder (parent, to, or the graveyard root) does not resolve. browser_error: the browser API refused. (A missing node is never a failure: every move/remove carries expect, so it is skipped node_missing.)",
       "enum": [
-        "node_missing",
         "parent_missing",
         "browser_error"
       ]
     },
     "RejectReason": {
-      "description": "boundary: an operation targets or takes a node from outside the owned roots and the batch carries no diff_item_id. invalid: the batch is malformed (e.g. op indices not 0..n-1).",
+      "description": "boundary: an operation targets or takes a node from outside the owned roots and the batch carries no diff_item_id. invalid: the batch is malformed (e.g. op indices not 0..n-1). writer_conflict: owned_roots.dynomark holds a writer marker folder of a host other than this connection's hello.result host_id.",
       "enum": [
         "boundary",
-        "invalid"
+        "invalid",
+        "writer_conflict"
       ]
     },
     "UndoDropReason": {
@@ -336,7 +374,7 @@
     },
     "OwnedRoots": {
       "type": "object",
-      "description": "The three folders Dynomark owns, as the daemon resolves them for this connection.",
+      "description": "The three folders Dynomark owns, as the daemon resolves them for this connection. follow_up is exactly the hello.follow_up of this connection.",
       "properties": {
         "follow_up": {
           "$ref": "#/$defs/FolderPath"
@@ -426,7 +464,7 @@
     },
     "Job": {
       "type": "object",
-      "description": "The daemon's unit of work for one ingested save, keyed on (node_id, identity). capture_source is present once capture resolved; batch_id is the latest batch that files this job's node; last_error is present when state is FAILED.",
+      "description": "The daemon's unit of work for one ingested save, keyed on (profile, node_id, identity). seq increases on every change of the job; of two copies the extension keeps the one with the higher seq. capture_source is present once capture resolved; batch_id is the latest batch that files this job's node (absent for a backfill filed in place); last_error is present when state is FAILED.",
       "properties": {
         "job_id": {
           "$ref": "#/$defs/Id"
@@ -439,6 +477,11 @@
         },
         "state": {
           "$ref": "#/$defs/JobState"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
         },
         "attempts": {
           "type": "integer",
@@ -462,6 +505,7 @@
         "node_id",
         "identity",
         "state",
+        "seq",
         "attempts",
         "backfill"
       ],
@@ -469,7 +513,7 @@
     },
     "SnapshotNode": {
       "type": "object",
-      "description": "One node of the browser tree. url present = bookmark, absent = folder. parent_id null only for the browser's root node. index is the position among siblings. Titles and urls are not length-capped here (only the frame limit applies) because the snapshot must represent the tree as it is.",
+      "description": "One node of the browser tree. kind bookmark carries url; folder and separator do not. parent_id null only for the browser's root node. index is the position among siblings, separators included. title and url are capped like Title and Url: the extension truncates a longer one at a code-point boundary and sets truncated true; a truncated url is never used as a create url.",
       "properties": {
         "id": {
           "$ref": "#/$defs/NodeId"
@@ -488,12 +532,20 @@
           "type": "integer",
           "minimum": 0
         },
+        "kind": {
+          "$ref": "#/$defs/NodeKind"
+        },
         "title": {
-          "type": "string"
+          "type": "string",
+          "maxLength": 4096
         },
         "url": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "maxLength": 65536
+        },
+        "truncated": {
+          "const": true
         },
         "date_added": {
           "$ref": "#/$defs/EpochMs"
@@ -503,10 +555,30 @@
         "id",
         "parent_id",
         "index",
+        "kind",
         "title",
         "date_added"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "bookmark"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "url"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "url"
+          ]
+        }
+      }
     },
     "Snapshot": {
       "type": "object",
@@ -517,7 +589,7 @@
         },
         "root_ids": {
           "type": "object",
-          "description": "Node id of each top-level folder present in this browser, keyed by RootKey.",
+          "description": "The node each RootKey resolves to for every FolderPath on this connection, keyed by RootKey; each is a folder directly under the root node. Where the browser exposes both an account (syncing) and a local-only copy of a top-level folder, this is the syncing copy.",
           "properties": {
             "bar": {
               "$ref": "#/$defs/NodeId"
@@ -556,7 +628,7 @@
     },
     "Expect": {
       "type": "object",
-      "description": "Precondition re-checked by the extension at apply time. Every present clause must hold: the node is directly in the folder parent_path resolves to / its parent node id is parent_id / it is a folder with no children. If any clause fails, or the node does not exist, the op is SKIPPED (not failed).",
+      "description": "Precondition re-checked by the extension at apply time, after the already-in-target test. Every present clause must hold: the node is directly in the folder parent_path resolves to / its parent node id is parent_id / it is a folder with no children. If any clause fails, or the node does not exist, the op is SKIPPED (not failed).",
       "properties": {
         "parent_path": {
           "$ref": "#/$defs/FolderPath"
@@ -601,7 +673,7 @@
     },
     "OpCreate": {
       "type": "object",
-      "description": "Create a bookmark directly in parent unless a child bookmark with exactly this url exists (then no-op). The parent must already exist. Result node id: the bookmark's.",
+      "description": "Create a bookmark directly in parent unless a child bookmark with exactly this url exists (then no-op). The parent must already exist. url is exactly as a browser reported it (a Bookmark.url or an untruncated SnapshotNode.url), never an Identity. Result node id: the bookmark's.",
       "properties": {
         "op": {
           "const": "create"
@@ -632,7 +704,7 @@
     },
     "OpMove": {
       "type": "object",
-      "description": "Move node_id to the end of folder to, unless it is already directly in it (then no-op). Result node id: node_id.",
+      "description": "Move node_id to the end of folder to. If it is already directly in to, the op is applied (changed false) without evaluating expect; otherwise expect is checked and the op skipped if it fails. expect.parent_id is always present. Result node id: node_id.",
       "properties": {
         "op": {
           "const": "move"
@@ -649,20 +721,24 @@
           "$ref": "#/$defs/FolderPath"
         },
         "expect": {
-          "$ref": "#/$defs/Expect"
+          "$ref": "#/$defs/Expect",
+          "required": [
+            "parent_id"
+          ]
         }
       },
       "required": [
         "op",
         "index",
         "node_id",
-        "to"
+        "to",
+        "expect"
       ],
       "additionalProperties": false
     },
     "OpRemove": {
       "type": "object",
-      "description": "Remove-to-graveyard: move node_id to the end of owned_roots.graveyard (from this connection's hello.result), unless already directly in it. Never deletes. Result node id: node_id.",
+      "description": "Remove-to-graveyard: move node_id to the end of owned_roots.graveyard (from this connection's hello.result). If it is already directly in it, the op is applied (changed false) without evaluating expect; otherwise as move. Never deletes. expect.parent_id is always present. Result node id: node_id.",
       "properties": {
         "op": {
           "const": "remove"
@@ -676,13 +752,17 @@
           "$ref": "#/$defs/NodeId"
         },
         "expect": {
-          "$ref": "#/$defs/Expect"
+          "$ref": "#/$defs/Expect",
+          "required": [
+            "parent_id"
+          ]
         }
       },
       "required": [
         "op",
         "index",
-        "node_id"
+        "node_id",
+        "expect"
       ],
       "additionalProperties": false
     },
@@ -705,7 +785,7 @@
     },
     "WriteBatch": {
       "type": "object",
-      "description": "Ordered operations the extension applies. operations[i].index == i. diff_item_id present = the batch realizes an accepted DiffItem and may cross the owned-roots boundary. The inverse stays on the daemon.",
+      "description": "Ordered operations the extension applies. operations[i].index == i. diff_item_id present = the batch realizes, or reverts, an accepted DiffItem and may cross the owned-roots boundary; every inverse batch (undo and PARTIAL prefix) carries the original's diff_item_id. The inverse stays on the daemon.",
       "properties": {
         "batch_id": {
           "$ref": "#/$defs/Id"
@@ -738,13 +818,18 @@
         },
         "node_id": {
           "$ref": "#/$defs/NodeId"
+        },
+        "changed": {
+          "type": "boolean"
         }
       },
       "required": [
         "index",
-        "node_id"
+        "node_id",
+        "changed"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "description": "An applied op. changed true only when this batch's op itself modified the tree; false for a no-op (already there) or when the extension cannot know."
     },
     "OpSkipped": {
       "type": "object",
@@ -798,6 +883,12 @@
         "snapshot": {
           "$ref": "#/$defs/Snapshot"
         },
+        "snapshot_omitted": {
+          "const": true
+        },
+        "pre_batch": {
+          "type": "boolean"
+        },
         "applied": {
           "type": "array",
           "items": {
@@ -818,11 +909,23 @@
       "required": [
         "state",
         "batch_id",
-        "snapshot",
         "applied",
-        "skipped"
+        "skipped",
+        "pre_batch"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "snapshot"
+          ]
+        },
+        {
+          "required": [
+            "snapshot_omitted"
+          ]
+        }
+      ]
     },
     "ReceiptPartial": {
       "type": "object",
@@ -836,6 +939,12 @@
         },
         "snapshot": {
           "$ref": "#/$defs/Snapshot"
+        },
+        "snapshot_omitted": {
+          "const": true
+        },
+        "pre_batch": {
+          "type": "boolean"
         },
         "applied": {
           "type": "array",
@@ -860,12 +969,24 @@
       "required": [
         "state",
         "batch_id",
-        "snapshot",
         "applied",
         "skipped",
-        "failed"
+        "failed",
+        "pre_batch"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "snapshot"
+          ]
+        },
+        {
+          "required": [
+            "snapshot_omitted"
+          ]
+        }
+      ]
     },
     "ReceiptRejected": {
       "type": "object",
@@ -880,6 +1001,12 @@
         "snapshot": {
           "$ref": "#/$defs/Snapshot"
         },
+        "snapshot_omitted": {
+          "const": true
+        },
+        "pre_batch": {
+          "type": "boolean"
+        },
         "reason": {
           "$ref": "#/$defs/RejectReason"
         },
@@ -890,13 +1017,25 @@
       "required": [
         "state",
         "batch_id",
-        "snapshot",
-        "reason"
+        "reason",
+        "pre_batch"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "snapshot"
+          ]
+        },
+        {
+          "required": [
+            "snapshot_omitted"
+          ]
+        }
+      ]
     },
     "BatchReceipt": {
-      "description": "The extension's answer for a batch; discriminated by state. snapshot is the tree read immediately before this apply attempt touched the tree (for a resumed or already-applied batch: read at the start of this attempt).",
+      "description": "The extension's answer for a batch; discriminated by state. snapshot is the tree read at the start of this apply attempt; pre_batch true = no op of this batch had changed the tree before it was read. snapshot_omitted true replaces snapshot only when the receipt would not fit the 32 MiB frame.",
       "oneOf": [
         {
           "$ref": "#/$defs/ReceiptApplied"
@@ -979,7 +1118,7 @@
     },
     "Hit": {
       "type": "object",
-      "description": "A ranked search match. score: higher is better, comparable only within one tier. Hits on the wire are always tier corpus.",
+      "description": "A ranked match. score: higher is better, comparable only within one tier. Hits on the wire are always tier corpus. Opening a hit navigates to its identity.",
       "properties": {
         "identity": {
           "$ref": "#/$defs/Identity"
@@ -1056,7 +1195,7 @@
     },
     "Answer": {
       "type": "object",
-      "description": "A grounded reply. external_urls are URLs the answer mentions that are not in the corpus.",
+      "description": "A grounded reply. external_urls are URLs the answer mentions that are not in the corpus. On the wire the daemon drops trailing citations, then external_urls, until the frame fits 1 MiB.",
       "properties": {
         "text": {
           "type": "string",
@@ -1089,7 +1228,7 @@
     },
     "PlacementReason": {
       "type": "object",
-      "description": "Why an entry was placed where it was.",
+      "description": "Why an entry was placed where it was. On the wire the daemon drops trailing neighbours and feedback_ids until the frame fits 1 MiB.",
       "properties": {
         "identity": {
           "$ref": "#/$defs/Identity"
@@ -1157,6 +1296,42 @@
       ],
       "additionalProperties": false
     },
+    "BatchSummary": {
+      "type": "object",
+      "description": "One write batch as batch.list shows it. job_id and identity: the job it files (filing and parking batches). diff_item_id: the DiffItem it realizes or reverts. undoes: the batch this one is the inverse of. undone_by: the recorded inverse of this batch.",
+      "properties": {
+        "batch_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "state": {
+          "$ref": "#/$defs/BatchState"
+        },
+        "created_at": {
+          "$ref": "#/$defs/EpochMs"
+        },
+        "job_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "identity": {
+          "$ref": "#/$defs/Identity"
+        },
+        "diff_item_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "undoes": {
+          "$ref": "#/$defs/Id"
+        },
+        "undone_by": {
+          "$ref": "#/$defs/Id"
+        }
+      },
+      "required": [
+        "batch_id",
+        "state",
+        "created_at"
+      ],
+      "additionalProperties": false
+    },
     "TreeDiff": {
       "type": "object",
       "properties": {
@@ -1172,19 +1347,25 @@
         "item_count": {
           "type": "integer",
           "minimum": 0
+        },
+        "unaccepted_count": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [
         "diff_id",
         "kind",
         "proposed_at",
-        "item_count"
+        "item_count",
+        "unaccepted_count"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "description": "A diff header. unaccepted_count counts its items whose accepted_at is null."
     },
     "DiffItem": {
       "type": "object",
-      "description": "One line of a TreeDiff. operations[i].index == i. accepted_at null = proposed; set = accepted (recorded by the daemon).",
+      "description": "One line of a TreeDiff. operations[i].index == i. accepted_at null = proposed; set = accepted (recorded by the daemon). Once accepted, batch_id and batch_state name the batch that realizes it and its current state.",
       "properties": {
         "item_id": {
           "$ref": "#/$defs/Id"
@@ -1217,6 +1398,12 @@
               "type": "null"
             }
           ]
+        },
+        "batch_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "batch_state": {
+          "$ref": "#/$defs/BatchState"
         }
       },
       "required": [
@@ -1289,7 +1476,7 @@
     },
     "Hello": {
       "type": "object",
-      "description": "First request on every connection. v is the extension's contract version; follow_up is the Follow Up folder the extension resolved.",
+      "description": "First request on every connection. v is the extension's contract version; profile_id identifies the browser profile (generated once by the extension, kept in its settings); follow_up is the Follow Up folder the extension resolved.",
       "properties": {
         "v": {
           "type": "integer",
@@ -1302,6 +1489,9 @@
         "id": {
           "$ref": "#/$defs/Id"
         },
+        "profile_id": {
+          "$ref": "#/$defs/Id"
+        },
         "follow_up": {
           "$ref": "#/$defs/FolderPath"
         }
@@ -1310,13 +1500,14 @@
         "v",
         "type",
         "id",
+        "profile_id",
         "follow_up"
       ],
       "additionalProperties": false
     },
     "HelloResult": {
       "type": "object",
-      "description": "The daemon's answer to hello. v is the daemon's contract version.",
+      "description": "The daemon's answer to hello. v is the daemon's contract version. role is the role this connection is served with: the Config HostRole for the profile the daemon files for, reader for any other profile. owned_roots.follow_up equals hello.follow_up.",
       "properties": {
         "v": {
           "type": "integer",
@@ -1355,7 +1546,7 @@
     },
     "Ingest": {
       "type": "object",
-      "description": "Submit a save. Idempotent on (bookmark.node_id, identity(bookmark.url)). backfill true = index but never file.",
+      "description": "Submit a save. Idempotent on (bookmark.node_id, identity(bookmark.url)). backfill true = never offered a batch: on a writer, a backfill whose bookmark.path is owned_roots.dynomark or inside it records a placement at that path and ends FILED with no batch; every other backfill ends INDEXED.",
       "properties": {
         "v": {
           "const": 1,
@@ -1464,9 +1655,84 @@
       ],
       "additionalProperties": false
     },
+    "JobList": {
+      "type": "object",
+      "description": "Read one page of jobs, newest first, optionally only those in one state (e.g. FAILED for the retry view). No cursor = first page.",
+      "properties": {
+        "v": {
+          "const": 1,
+          "description": "Contract version of the sender."
+        },
+        "type": {
+          "const": "job.list"
+        },
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "state": {
+          "$ref": "#/$defs/JobState"
+        },
+        "cursor": {
+          "$ref": "#/$defs/Cursor"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "JobListResult": {
+      "type": "object",
+      "description": "One page of jobs; next_cursor null = last page.",
+      "properties": {
+        "v": {
+          "const": 1,
+          "description": "Contract version of the sender."
+        },
+        "type": {
+          "const": "job.list.result"
+        },
+        "re": {
+          "$ref": "#/$defs/Id"
+        },
+        "jobs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Job"
+          },
+          "minItems": 0,
+          "maxItems": 1000
+        },
+        "next_cursor": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "re",
+        "jobs",
+        "next_cursor"
+      ],
+      "additionalProperties": false
+    },
     "TreeSnapshot": {
       "type": "object",
-      "description": "The full tree, sent after hello and (debounced) after changes under the owned roots. The daemon keeps the one with the latest taken_at.",
+      "description": "The full tree. Sent after every hello, right after every batch.receipt.result (not debounced), immediately before every diff.propose (awaiting its result), and debounced after changes under the owned roots. The daemon keeps the one with the latest taken_at; a receipt's snapshot never replaces it.",
       "properties": {
         "v": {
           "const": 1,
@@ -1659,7 +1925,7 @@
     },
     "EventsAck": {
       "type": "object",
-      "description": "Acknowledge job.updated events. Unknown or already-acked ids, and batch.offer ids (acked only by a receipt), are ignored.",
+      "description": "Acknowledge job.updated and diff.proposed events. Unknown or already-acked ids, and batch.offer ids (acked only by a receipt), are ignored.",
       "properties": {
         "v": {
           "const": 1,
@@ -2026,7 +2292,7 @@
     },
     "UndoResult": {
       "type": "object",
-      "description": "batch_id is the inverse batch, offered by a batch.offer event; null when the guard dropped every operation.",
+      "description": "batch_id is the inverse batch, offered by a batch.offer event; null when the guard dropped every operation (not recorded as the batch's inverse: a later undo re-evaluates).",
       "properties": {
         "v": {
           "const": 1,
@@ -2067,6 +2333,78 @@
         "batch_id",
         "undoes",
         "dropped"
+      ],
+      "additionalProperties": false
+    },
+    "BatchList": {
+      "type": "object",
+      "description": "Read one page of write batches, newest first (for undo and the diff view). No cursor = first page.",
+      "properties": {
+        "v": {
+          "const": 1,
+          "description": "Contract version of the sender."
+        },
+        "type": {
+          "const": "batch.list"
+        },
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "cursor": {
+          "$ref": "#/$defs/Cursor"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "BatchListResult": {
+      "type": "object",
+      "description": "One page of batches; next_cursor null = last page.",
+      "properties": {
+        "v": {
+          "const": 1,
+          "description": "Contract version of the sender."
+        },
+        "type": {
+          "const": "batch.list.result"
+        },
+        "re": {
+          "$ref": "#/$defs/Id"
+        },
+        "batches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/BatchSummary"
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "next_cursor": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "re",
+        "batches",
+        "next_cursor"
       ],
       "additionalProperties": false
     },
@@ -2119,6 +2457,78 @@
         "type",
         "re",
         "diff"
+      ],
+      "additionalProperties": false
+    },
+    "DiffList": {
+      "type": "object",
+      "description": "Read one page of TreeDiff headers, newest first. No cursor = first page.",
+      "properties": {
+        "v": {
+          "const": 1,
+          "description": "Contract version of the sender."
+        },
+        "type": {
+          "const": "diff.list"
+        },
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "cursor": {
+          "$ref": "#/$defs/Cursor"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "DiffListResult": {
+      "type": "object",
+      "description": "One page of diff headers; next_cursor null = last page.",
+      "properties": {
+        "v": {
+          "const": 1,
+          "description": "Contract version of the sender."
+        },
+        "type": {
+          "const": "diff.list.result"
+        },
+        "re": {
+          "$ref": "#/$defs/Id"
+        },
+        "diffs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TreeDiff"
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "next_cursor": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Cursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "re",
+        "diffs",
+        "next_cursor"
       ],
       "additionalProperties": false
     },
@@ -2331,7 +2741,7 @@
     },
     "FolderFlagsSet": {
       "type": "object",
-      "description": "Set pinned and/or locked on one owned folder.",
+      "description": "Set pinned and/or locked on one owned folder, addressed by node_id. path, when present, is a check: a folder whose path differs is answered not_found. Idempotent on (node_id, flag values).",
       "properties": {
         "v": {
           "const": 1,
@@ -2342,6 +2752,9 @@
         },
         "id": {
           "$ref": "#/$defs/Id"
+        },
+        "node_id": {
+          "$ref": "#/$defs/NodeId"
         },
         "path": {
           "$ref": "#/$defs/FolderPath"
@@ -2357,7 +2770,7 @@
         "v",
         "type",
         "id",
-        "path"
+        "node_id"
       ],
       "additionalProperties": false,
       "anyOf": [
@@ -2550,7 +2963,7 @@
     },
     "Error": {
       "type": "object",
-      "description": "The one error response. re is the request id, or null when the request's id could not be read.",
+      "description": "The one error response. re is the request id, or null when the request's id could not be read or the code is superseded.",
       "properties": {
         "v": {
           "type": "integer",
@@ -2614,7 +3027,7 @@
     },
     "BatchOffer": {
       "type": "object",
-      "description": "A batch for the extension to apply. Acked only by a batch.receipt for batch.batch_id.",
+      "description": "A batch for the extension to apply. Acked only by a batch.receipt for batch.batch_id; every offer frame, a repeat included, is answered by one.",
       "properties": {
         "v": {
           "const": 1,
@@ -2635,6 +3048,32 @@
         "type",
         "event_id",
         "batch"
+      ],
+      "additionalProperties": false
+    },
+    "DiffProposed": {
+      "type": "object",
+      "description": "A diff the daemon proposed on its own (Config rebuild cadence). Acked by events.ack.",
+      "properties": {
+        "v": {
+          "const": 1,
+          "description": "Contract version of the sender."
+        },
+        "type": {
+          "const": "diff.proposed"
+        },
+        "event_id": {
+          "$ref": "#/$defs/Id"
+        },
+        "diff": {
+          "$ref": "#/$defs/TreeDiff"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "event_id",
+        "diff"
       ],
       "additionalProperties": false
     }

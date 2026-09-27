@@ -19,7 +19,7 @@
       },
       {
         "op": "move",
-        "index": 1000,
+        "index": 1,
         "node_id": "42",
         "to": {
           "root": "bar",
@@ -35,8 +35,7 @@
             "names": [
               "Follow Up"
             ]
-          },
-          "parent_id": "10"
+          }
         }
       }
     ]

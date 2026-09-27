@@ -1,0 +1,90 @@
+{
+  "v": 1,
+  "type": "tree.snapshot",
+  "id": "req-0048",
+  "snapshot": {
+    "taken_at": 1790000001000,
+    "root_ids": {
+      "bar": "toolbar_____",
+      "other": "unfiled_____",
+      "mobile": "mobile______",
+      "menu": "menu________"
+    },
+    "nodes": [
+      {
+        "id": "root________",
+        "parent_id": null,
+        "index": 0,
+        "kind": "folder",
+        "title": "",
+        "date_added": 1789991000000
+      },
+      {
+        "id": "menu________",
+        "parent_id": "root________",
+        "index": 0,
+        "kind": "folder",
+        "title": "Bookmarks Menu",
+        "date_added": 1789991000000
+      },
+      {
+        "id": "toolbar_____",
+        "parent_id": "root________",
+        "index": 1,
+        "kind": "folder",
+        "title": "Bookmarks Toolbar",
+        "date_added": 1789991000000
+      },
+      {
+        "id": "unfiled_____",
+        "parent_id": "root________",
+        "index": 2,
+        "kind": "folder",
+        "title": "Other Bookmarks",
+        "date_added": 1789991000000
+      },
+      {
+        "id": "mobile______",
+        "parent_id": "root________",
+        "index": 3,
+        "kind": "folder",
+        "title": "Mobile Bookmarks",
+        "date_added": 1789991000000
+      },
+      {
+        "id": "f1Up-aaaaaaa",
+        "parent_id": "toolbar_____",
+        "index": 0,
+        "kind": "folder",
+        "title": "Follow Up",
+        "date_added": 1789999200000
+      },
+      {
+        "id": "sep-bbbbbbbb",
+        "parent_id": "toolbar_____",
+        "index": 1,
+        "kind": "separator",
+        "title": "",
+        "date_added": 1789999200000
+      },
+      {
+        "id": "dm-cccccccc",
+        "parent_id": "toolbar_____",
+        "index": 2,
+        "kind": "folder",
+        "title": "Dynomark",
+        "date_added": 1789999200000
+      },
+      {
+        "id": "bm-dddddddd",
+        "parent_id": "unfiled_____",
+        "index": 0,
+        "kind": "bookmark",
+        "title": "data: image",
+        "url": "data:image/png;base64,iVBORw0KGgo",
+        "truncated": true,
+        "date_added": 1789999300000
+      }
+    ]
+  }
+}

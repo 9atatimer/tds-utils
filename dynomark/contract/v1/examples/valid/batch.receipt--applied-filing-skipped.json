@@ -1,9 +1,9 @@
 {
   "v": 1,
   "type": "batch.receipt",
-  "id": "req-0012",
+  "id": "req-0046",
   "receipt": {
-    "state": "applied",
+    "state": "APPLIED",
     "batch_id": "batch-0101",
     "snapshot": {
       "taken_at": 1790000001000,
@@ -93,31 +93,22 @@
           "title": "The Rust Book",
           "url": "https://doc.rust-lang.org/book/",
           "date_added": 1789999500000
-        },
-        {
-          "id": "42",
-          "parent_id": "10",
-          "index": 0,
-          "kind": "bookmark",
-          "title": "Tokio tutorial",
-          "url": "https://tokio.rs/tokio/tutorial?utm_source=x",
-          "date_added": 1790000000000
         }
       ]
     },
+    "pre_batch": true,
     "applied": [
       {
         "index": 0,
         "node_id": "16",
         "changed": true
-      },
-      {
-        "index": 1,
-        "node_id": "42",
-        "changed": true
       }
     ],
-    "skipped": [],
-    "pre_batch": true
+    "skipped": [
+      {
+        "index": 1,
+        "reason": "node_missing"
+      }
+    ]
   }
 }

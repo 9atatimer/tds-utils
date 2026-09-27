@@ -3,7 +3,7 @@
   "type": "batch.receipt",
   "id": "req-0012",
   "receipt": {
-    "state": "applied",
+    "state": "APPLIED",
     "batch_id": "batch-0101",
     "snapshot": {
       "taken_at": 1790000001000,
@@ -108,8 +108,7 @@
     "applied": [
       {
         "index": 0,
-        "node_id": "16",
-        "changed": true
+        "node_id": "16"
       },
       {
         "index": 1,

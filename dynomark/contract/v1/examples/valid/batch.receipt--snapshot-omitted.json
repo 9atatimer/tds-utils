@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "type": "batch.receipt",
+  "id": "req-0047",
+  "receipt": {
+    "state": "REJECTED",
+    "batch_id": "batch-0108",
+    "snapshot_omitted": true,
+    "pre_batch": true,
+    "reason": "writer_conflict",
+    "detail": "Dynomark holds dynomark-writer:work-laptop"
+  }
+}

@@ -16,8 +16,9 @@ Python stdlib only. It checks the contract artifact against itself:
   examples/invalid-rules.json names for it, and no two invalid examples
   break the same rule.
 - Semantic rules JSON Schema cannot state, on the valid examples: op
-  indices, receipt partitions, 512-byte LocalIndex rows, frame limits,
-  snapshot shape.
+  indices, receipt partitions, 512-byte LocalIndex rows, frame limits
+  (on the JSON body, not the 4-byte header), snapshot shape, and no lone
+  UTF-16 surrogate in any string.
 - README.md's message table lists exactly the schema's message types,
   each with the direction its envelope implies.
 
@@ -352,11 +353,11 @@ def check_operations(ops: list[dict[str, Any]], where: str) -> list[str]:
 
 
 def check_receipt(receipt: dict[str, Any], where: str) -> list[str]:
+    problems = check_snapshot(receipt["snapshot"], where) if "snapshot" in receipt else []
     if receipt["state"] == "REJECTED":
-        return check_snapshot(receipt["snapshot"], where)
+        return problems
     applied = [a["index"] for a in receipt["applied"]]
     skipped = [s["index"] for s in receipt["skipped"]]
-    problems = check_snapshot(receipt["snapshot"], where)
     if applied != sorted(applied) or skipped != sorted(skipped) or set(applied) & set(skipped):
         problems.append(f"{where}: applied/skipped not ascending and disjoint")
     if receipt["state"] == "PARTIAL":
@@ -379,12 +380,30 @@ def check_snapshot(snapshot: dict[str, Any], where: str) -> list[str]:
     by_id = {n["id"]: n for n in nodes}
     for key, node_id in snapshot["root_ids"].items():
         node = by_id.get(node_id)
-        if node is None or node["parent_id"] != roots[0]["id"] or "url" in node:
+        if node is None or node["parent_id"] != roots[0]["id"] or node["kind"] != "folder":
             problems.append(f"{where}: root_ids.{key} is not a folder directly under the root")
+    siblings: dict[str, list[int]] = {}
     for n in nodes:
-        if n["parent_id"] is not None and n["parent_id"] not in by_id:
-            problems.append(f"{where}: node {n['id']} has unknown parent {n['parent_id']}")
+        if n["parent_id"] is None:
+            continue
+        parent = by_id.get(n["parent_id"])
+        if parent is None or parent["kind"] != "folder":
+            problems.append(f"{where}: node {n['id']} has unknown or non-folder parent {n['parent_id']}")
+        siblings.setdefault(n["parent_id"], []).append(n["index"])
+    for parent_id, indices in siblings.items():
+        if sorted(indices) != list(range(len(indices))):
+            problems.append(f"{where}: children of {parent_id} have indices {sorted(indices)}, want 0..n-1")
     return problems
+
+
+def lone_surrogates(value: Any, path: str) -> list[str]:
+    if isinstance(value, str):
+        return [path or "/"] if any(0xD800 <= ord(c) <= 0xDFFF for c in value) else []
+    if isinstance(value, list):
+        return [p for i, item in enumerate(value) for p in lone_surrogates(item, pointer(path, i))]
+    if isinstance(value, dict):
+        return [p for k, item in value.items() for p in lone_surrogates(k, path) + lone_surrogates(item, pointer(path, k))]
+    return []
 
 
 def compact_utf8_len(value: Any) -> int:
@@ -393,8 +412,10 @@ def compact_utf8_len(value: Any) -> int:
 
 def semantic_problems(doc: dict[str, Any], where: str, direction: str) -> list[str]:
     problems: list[str] = []
-    if compact_utf8_len(doc) + 4 > FRAME_MAX[direction]:
-        problems.append(f"{where}: frame exceeds {FRAME_MAX[direction]} bytes")
+    if compact_utf8_len(doc) > FRAME_MAX[direction]:
+        problems.append(f"{where}: JSON body exceeds {FRAME_MAX[direction]} bytes")
+    for p in lone_surrogates(doc, ""):
+        problems.append(f"{where}: {p}: lone UTF-16 surrogate (strings must be Unicode scalar values)")
     kind = doc["type"]
     if kind == "batch.offer":
         problems += check_operations(doc["batch"]["operations"], where)
