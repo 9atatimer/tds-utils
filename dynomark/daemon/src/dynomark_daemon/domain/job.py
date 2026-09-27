@@ -80,6 +80,10 @@ class Job:
             updated_at=at,
         )
 
+    def indexed(self, *, at: int) -> Self:
+        """ENRICHED -> INDEXED: searchable here, never filed (a reader host)."""
+        return replace(self, state=JobState.INDEXED, seq=self.seq + 1, updated_at=at)
+
     def placed(self, *, at: int) -> Self:
         """ENRICHED -> PLACED: the placement is recorded (writer only)."""
         return replace(self, state=JobState.PLACED, seq=self.seq + 1, updated_at=at)

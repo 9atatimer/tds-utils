@@ -147,6 +147,8 @@ def file(
         OutsideOwnedRoots: the placement leaves the owned roots.
         TreeNotReady: no tree snapshot resolves where the node was saved.
     """
+    if role is HostRole.READER:
+        return NotWriter(use_case="file")
     operations = filing_operations(
         placement.folder,
         outline,
@@ -171,6 +173,8 @@ def park(
     Raises:
         TreeNotReady: no tree snapshot resolves where the node was saved.
     """
+    if role is HostRole.READER:
+        return NotWriter(use_case="park")
     operations = parking_operations(
         roots, node_id=job.node_id, expect=saved_node_expect(job, store=store)
     )

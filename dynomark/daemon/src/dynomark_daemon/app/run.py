@@ -80,6 +80,10 @@ def _place_job(
     completion: CompletionPort,
     clock: Clock,
 ) -> Job:
+    if role is HostRole.READER:
+        indexed = job.indexed(at=clock.now_ms())
+        store.put_job(indexed)
+        return indexed
     entry = store.get_entry(job.identity)
     if entry is None:
         raise UnknownRecord(f"job {job.job_id} has no entry")
@@ -189,7 +193,11 @@ def run_job(
             completion=completion,
             clock=clock,
         )
-    if job.state is JobState.PLACED and job.batch_id is None:
+    if (
+        job.state is JobState.PLACED
+        and job.batch_id is None
+        and role is HostRole.WRITER
+    ):
         job = _file_job(job, role, roots, policy, store=store, clock=clock, ids=ids)
     if job != start:
         store.put_event(

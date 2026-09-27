@@ -75,6 +75,8 @@ def place(
         CompletionError: the completion could not choose.
         NoAdmissibleFolder: every folder of the outline is locked.
     """
+    if role is HostRole.READER:
+        return NotWriter(use_case="place")
     neighbours = _neighbours(entry, store=store, embedding=embedding)
     choice = completion.choose_folder(
         entry, neighbours=neighbours, outline=outline, feedback=feedback
