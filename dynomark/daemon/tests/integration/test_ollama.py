@@ -219,6 +219,20 @@ def test_a_folder_choice_without_the_root_is_placed_under_it() -> None:
     assert choice.folder == make_path("Dynomark", "Rust")
 
 
+def test_a_folder_choice_copied_from_a_prompt_line_names_that_folder() -> None:
+    """Given the prompt shows folders as slash-joined lines and the model
+    answers one such line as a single name, When choosing, Then the answer
+    names the existing folder, not a new one titled with slashes."""
+    outline = make_outline(make_outline_folder("Dynomark", "Rust"))
+    answer = json.dumps({"folder": ["Dynomark/Rust"], "rationale": "x"})
+    with fake_ollama(Script(responses=[answer])) as base:
+        choice = _completion(base).choose_folder(
+            make_entry(), neighbours=(), outline=outline, feedback=()
+        )
+
+    assert choice.folder == make_path("Dynomark", "Rust")
+
+
 # --- Completion: diffs ---
 
 BAR = FolderPath(root=RootKey.BAR, names=())
@@ -284,6 +298,37 @@ def test_propose_diff_shows_both_outlines_and_builds_operations() -> None:
     )
     assert add.operations == (
         OpCreateFolder(index=0, parent=make_path("Reading"), title="Async"),
+    )
+
+
+def test_propose_diff_reads_slash_joined_names_as_the_prompt_writes_them() -> None:
+    """Given folders written as the prompt writes them (names separated by /),
+    When a move names them that way, Then it is built as if the names were
+    listed one by one."""
+    answer = json.dumps(
+        {
+            "items": [
+                {
+                    "action": "move",
+                    "folder": ["Dynomark/Rust"],
+                    "to": ["Reading/Languages"],
+                    "description": "x",
+                }
+            ]
+        }
+    )
+    with fake_ollama(Script(responses=[answer])) as base:
+        (move,) = _completion(base).propose_diff(
+            DiffKind.AUDIT, outline=DIFF_OUTLINE, own_bar=OWN_BAR
+        )
+
+    assert move.operations[-1] == OpMove(
+        index=1,
+        node_id=NodeId("14"),
+        to=make_path("Reading", "Languages"),
+        expect=Expect(
+            parent_id=NodeId("n-Dynomark"), parent_path=make_path("Dynomark")
+        ),
     )
 
 
