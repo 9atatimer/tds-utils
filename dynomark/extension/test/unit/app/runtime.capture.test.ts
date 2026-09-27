@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import type { ExtensionRuntime } from '../../../src/app/runtime.js';
 import { RECONNECT_BACKOFF } from '../../../src/domain/backoff.js';
 import type { HostRole } from '../../../src/domain/roles.js';
+import type { RequestMessage, ResponseMessage } from '../../../src/wire/messages.js';
 import { FakeExtensionWorld } from '../../fakes/FakeExtensionWorld.js';
 import { seedOwnedTree, type Seeded } from '../../fixtures/ownedTree.js';
 import { scriptDaemon, sentOf, startRuntime } from '../../fixtures/runtime.js';
@@ -85,6 +86,27 @@ describe('Background-tab capture on the writer', () => {
     w.restart();
     scriptDaemon(w, { role: 'writer' });
     await startRuntime(w);
+    expect(w.backgroundTabs.opened).toEqual([URL]);
+  });
+
+  it('Given a writer whose save the daemon answered internal, When the worker is terminated during the backoff, Then the next worker re-sends the identical frame (same id and capture) without opening another tab', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    let refused = false;
+    const internalOnce = (r: RequestMessage): ResponseMessage | undefined => {
+      if (r.type !== 'ingest' || r.bookmark.url !== URL || refused) return undefined;
+      refused = true;
+      return { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
+    };
+    scriptDaemon(w, { role: 'writer' }, internalOnce);
+    const ids = await seedOwnedTree(w.tree);
+    w.backgroundTabs.serve(URL, PAGE);
+    const first = await save(w, await startRuntime(w), ids.followUp);
+    expect(first?.capture).toEqual({ source: 'background_tab', ...PAGE });
+    w.restart();
+    scriptDaemon(w, { role: 'writer' });
+    await startRuntime(w);
+    const again = sentOf(w, 'ingest').find((r) => r.bookmark.url === URL);
+    expect(again).toEqual(first);
     expect(w.backgroundTabs.opened).toEqual([URL]);
   });
 
