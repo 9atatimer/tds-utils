@@ -35,7 +35,7 @@ def test_retry_backoff_stays_within_initial_and_cap(failed: int) -> None:
 
 # --- The State Machine table (DYNOMARK.DESIGN.md, State Machine) ---
 
-Q, C, E, P, F, I, X = (
+QU, CA, EN, PL, FI, IN, FA = (
     JobState.QUEUED,
     JobState.CAPTURING,
     JobState.ENRICHED,
@@ -45,16 +45,16 @@ Q, C, E, P, F, I, X = (
     JobState.FAILED,
 )
 DESIGN_TRANSITIONS = {
-    (Q, C),  # job picked up
-    (C, E),  # capture resolved and entry enriched
-    (E, I),  # entry indexed (reader)
-    (E, P),  # placement recorded (writer)
-    (P, F),  # APPLIED receipt
-    (Q, X),  # retries exhausted, or PARTIAL / REJECTED receipt
-    (C, X),
-    (E, X),
-    (P, X),
-    (X, Q),  # user retries
+    (QU, CA),  # job picked up
+    (CA, EN),  # capture resolved and entry enriched
+    (EN, IN),  # entry indexed (reader)
+    (EN, PL),  # placement recorded (writer)
+    (PL, FI),  # APPLIED receipt
+    (QU, FA),  # retries exhausted, or PARTIAL / REJECTED receipt
+    (CA, FA),
+    (EN, FA),
+    (PL, FA),
+    (FA, QU),  # user retries
 }
 
 

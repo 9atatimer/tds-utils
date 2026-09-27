@@ -3,7 +3,7 @@
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from enum import StrEnum
-from typing import Self
+from typing import Final, Self
 
 from dynomark_daemon.domain.bookmark import CaptureSource, Identity
 from dynomark_daemon.domain.ids import BatchId, JobId, NodeId, ProfileId
@@ -20,6 +20,28 @@ class JobState(StrEnum):
     FILED = "FILED"
     INDEXED = "INDEXED"
     FAILED = "FAILED"
+
+
+TRANSITIONS: Final = frozenset(
+    {
+        (JobState.QUEUED, JobState.CAPTURING),
+        (JobState.CAPTURING, JobState.ENRICHED),
+        (JobState.ENRICHED, JobState.INDEXED),
+        (JobState.ENRICHED, JobState.PLACED),
+        (JobState.PLACED, JobState.FILED),
+        (JobState.QUEUED, JobState.FAILED),
+        (JobState.CAPTURING, JobState.FAILED),
+        (JobState.ENRICHED, JobState.FAILED),
+        (JobState.PLACED, JobState.FAILED),
+        (JobState.FAILED, JobState.QUEUED),
+    }
+)
+"""The design's State Machine table, one (from, to) pair per row; the
+triggers and host-role conditions are the use cases' (see each change)."""
+
+
+class IllegalTransition(Exception):
+    """A job change the state machine does not allow."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,43 +87,41 @@ class Job:
 
     # --- Changes: every change moves ``seq`` and ``updated_at`` ---
 
+    def moved_to(self, state: JobState, *, at: int) -> Self:
+        """The job in ``state``, if the state machine allows the move.
+
+        Raises:
+            IllegalTransition: (``self.state``, ``state``) is not in the table.
+        """
+        if (self.state, state) not in TRANSITIONS:
+            raise IllegalTransition(f"job {self.job_id}: {self.state} -> {state}")
+        return replace(self, state=state, seq=self.seq + 1, updated_at=at)
+
     def picked_up(self, *, at: int) -> Self:
         """QUEUED -> CAPTURING: the job loop took the job."""
-        return replace(self, state=JobState.CAPTURING, seq=self.seq + 1, updated_at=at)
+        return self.moved_to(JobState.CAPTURING, at=at)
 
     def enriched(self, source: CaptureSource, *, at: int) -> Self:
         """CAPTURING -> ENRICHED: capture resolved and the entry enriched."""
-        return replace(
-            self,
-            state=JobState.ENRICHED,
-            capture_source=source,
-            last_error=None,
-            seq=self.seq + 1,
-            updated_at=at,
-        )
+        moved = self.moved_to(JobState.ENRICHED, at=at)
+        return replace(moved, capture_source=source, last_error=None)
 
     def indexed(self, *, at: int) -> Self:
         """ENRICHED -> INDEXED: searchable here, never filed (a reader host)."""
-        return replace(self, state=JobState.INDEXED, seq=self.seq + 1, updated_at=at)
+        return self.moved_to(JobState.INDEXED, at=at)
 
     def placed(self, *, at: int) -> Self:
         """ENRICHED -> PLACED: the placement is recorded (writer only)."""
-        return replace(self, state=JobState.PLACED, seq=self.seq + 1, updated_at=at)
+        return self.moved_to(JobState.PLACED, at=at)
 
     def filed(self, *, at: int) -> Self:
         """PLACED -> FILED: the ``APPLIED`` receipt of its batch."""
-        return replace(self, state=JobState.FILED, seq=self.seq + 1, updated_at=at)
+        return self.moved_to(JobState.FILED, at=at)
 
     def failed(self, error: str, *, at: int) -> Self:
         """-> FAILED without counting an attempt: a ``PARTIAL`` or ``REJECTED``
         receipt, or a filing op the extension skipped."""
-        return replace(
-            self,
-            state=JobState.FAILED,
-            last_error=error,
-            seq=self.seq + 1,
-            updated_at=at,
-        )
+        return replace(self.moved_to(JobState.FAILED, at=at), last_error=error)
 
     def filed_by(self, batch_id: BatchId, *, at: int) -> Self:
         """The latest batch that files this job's node."""
@@ -114,14 +134,11 @@ class Job:
         is not retryable; otherwise the job stays where it is for a retry."""
         attempts = self.attempts + 1
         exhausted = not retryable or attempts >= policy.attempts
-        return replace(
-            self,
-            state=JobState.FAILED if exhausted else self.state,
-            attempts=attempts,
-            last_error=error,
-            seq=self.seq + 1,
-            updated_at=at,
-        )
+        if exhausted:
+            moved = self.moved_to(JobState.FAILED, at=at)
+        else:
+            moved = replace(self, seq=self.seq + 1, updated_at=at)
+        return replace(moved, attempts=attempts, last_error=error)
 
 
 @dataclass(frozen=True, slots=True)
