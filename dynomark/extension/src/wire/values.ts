@@ -12,6 +12,7 @@ import type { Job } from '../domain/jobs.js';
 import type { Move } from '../domain/move.js';
 import type { Hit, LocalIndexRow } from '../domain/search.js';
 import type { Bookmark, FolderPath, OwnedRoots, RootIds, Snapshot, SnapshotNode } from '../domain/tree.js';
+import { isWellFormed } from '../domain/text.js';
 import { ROOT_KEYS } from '../domain/tree.js';
 
 // --- Constants (contract v1 README, "Size limits") ---
@@ -28,7 +29,7 @@ const MAX_OPS_PER_DIFF_ITEM = 100;
 // --- Helpers ---
 
 /**
- * A string whose length in code points lies in [min, max]. zod 4 counts code
+ * A well-formed string whose length in code points lies in [min, max]. zod 4 counts code
  * points for string min/max (not UTF-16 units), as the contract requires;
  * test/unit/wire/code-points.test.ts pins that.
  */
@@ -36,7 +37,8 @@ export function text(bounds: { readonly min?: number; readonly max: number }): z
   return z
     .string()
     .min(bounds.min ?? 0)
-    .max(bounds.max);
+    .max(bounds.max)
+    .refine(isWellFormed, { message: 'a wire string holds no lone surrogate' });
 }
 
 /** A non-negative integer no larger than `max`. */
