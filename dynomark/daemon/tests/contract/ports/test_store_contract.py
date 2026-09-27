@@ -31,6 +31,7 @@ from dynomark_daemon.domain.ids import (
 )
 from dynomark_daemon.domain.job import JobState
 from dynomark_daemon.domain.search import Query
+from dynomark_daemon.domain.tree import FolderFlags
 from dynomark_daemon.ports.errors import NotFound
 from dynomark_daemon.ports.store import CorpusStorePort
 from dynomark_daemon.testing.store import InMemoryCorpusStore
@@ -405,3 +406,19 @@ def test_put_event_twice_keeps_one_and_marks_pushed(store: CorpusStorePort) -> N
     store.mark_pushed(PROFILE_A, [EventId("evt-1")])
 
     assert store.unacked_events(PROFILE_A) == [PendingEvent(event, pushed=True)]
+
+
+# --- Owned-folder flags (Data Model: owned_folder pinned, locked) ---
+
+
+def test_folder_flags_are_kept_per_node_and_replaced(store: CorpusStorePort) -> None:
+    """Given flags set on two folders and one set again, When read, Then each
+    folder holds its latest flags."""
+    store.put_folder_flags(NodeId("14"), FolderFlags(pinned=True, locked=False))
+    store.put_folder_flags(NodeId("21"), FolderFlags(pinned=False, locked=True))
+    store.put_folder_flags(NodeId("14"), FolderFlags(pinned=False, locked=True))
+
+    assert store.folder_flags() == {
+        NodeId("14"): FolderFlags(pinned=False, locked=True),
+        NodeId("21"): FolderFlags(pinned=False, locked=True),
+    }
