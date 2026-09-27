@@ -66,3 +66,26 @@ export function frecencyOf(visits: readonly Visit[], now: EpochMs): number {
     .slice(0, SAMPLED_VISITS)
     .reduce((sum, v) => sum + visitWeight(v, now), 0);
 }
+
+// --- Tier 2 ---
+
+/** When tier 1 is not enough: fewer hits than `tier2_min_hits`, or a best score under `tier2_min_score`. */
+export interface Tier2Thresholds {
+  readonly tier2_min_hits: number;
+  readonly tier2_min_score: number;
+}
+
+/** The design's named parameters, with their values in code. */
+export const TIER2_THRESHOLDS: Tier2Thresholds = { tier2_min_hits: 3, tier2_min_score: 0.7 };
+
+/** True when tier 1 returned fewer than `tier2_min_hits` hits or its best score is under `tier2_min_score`. */
+export function shouldRequestTier2(tier1: readonly Hit[], thresholds: Tier2Thresholds = TIER2_THRESHOLDS): boolean {
+  if (tier1.length < thresholds.tier2_min_hits) return true;
+  return Math.max(...tier1.map((h) => h.score)) < thresholds.tier2_min_score;
+}
+
+/** Tier-2 hits appended below tier 1, leaving out any identity tier 1 already shows. */
+export function appendTier2(tier1: readonly Hit[], tier2: readonly Hit[]): Hit[] {
+  const shown = new Set(tier1.map((h) => h.identity));
+  return [...tier1, ...tier2.filter((h) => !shown.has(h.identity))];
+}
