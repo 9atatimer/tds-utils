@@ -6,13 +6,17 @@
 // fails is kept in `invalid`, and the connection is closed as the contract
 // says) and recorded; the lifecycle requests are answered as a writer daemon
 // would; batch offers are durable until a receipt for them is recorded, and
-// re-sent on events.replay.
+// re-sent on events.replay. Chat, diffs, the outline and writer status are
+// answered from the fields a test sets; accepting a diff item offers its
+// batch (with the item's reference) and the receipt sets its batch state.
 
 import { createServer, type Server, type Socket } from 'node:net';
 import { unlinkSync } from 'node:fs';
 import type { LocalIndexRow } from '../../src/domain/search.js';
 import type { WriteBatch } from '../../src/domain/batch.js';
 import type { Job } from '../../src/domain/jobs.js';
+import type { Answer as ChatAnswer } from '../../src/domain/chat.js';
+import type { DiffItem, OutlineFolder, PlacementReason, TreeDiff } from '../../src/domain/diff.js';
 import { RequestSchema, type EventMessage, type RequestMessage, type ResponseMessage, type ResultOf } from '../../src/wire/messages.js';
 import { FrameDecoder, encodeFrame } from './framing.js';
 
@@ -57,6 +61,16 @@ export class FakeDaemon {
   batches: ResultOf<'batch.list'>['batches'][number][] = [];
   /** What job.list returns (one page). */
   failedJobs: Job[] = [];
+  /** What ask answers. */
+  askAnswer: ChatAnswer = { text: '', citations: [], external_urls: [] };
+  /** What placement.explain answers, by identity. */
+  reasons: PlacementReason[] = [];
+  /** The diffs diff.list and diff.propose show (diff.propose answers the first of its kind). */
+  diffs: TreeDiff[] = [];
+  /** Every diff's items; diff.accept records acceptance here and offers the item's batch. */
+  diffItems: DiffItem[] = [];
+  /** What outline.get returns; folder.flags.set updates it. */
+  outline: OutlineFolder[] = [];
   /** What writer.status reports. */
   writer: { own_marker: boolean; other_writers: string[]; conflict: boolean } = { own_marker: true, other_writers: [], conflict: false };
   /** Answers tried before the built-in ones; undefined falls through. */
@@ -229,7 +243,45 @@ export class FakeDaemon {
       case 'batch.receipt':
         if (!this.receipts.has(r.receipt.batch_id)) this.receipts.set(r.receipt.batch_id, r.receipt);
         this.offers.delete(r.receipt.batch_id);
+        this.diffItems = this.diffItems.map((item) =>
+          item.batch_id === r.receipt.batch_id ? { ...item, batch_state: r.receipt.state } : item,
+        );
         return { v: 1, type: 'batch.receipt.result', re: r.id };
+      case 'ask':
+        return { v: 1, type: 'ask.result', re: r.id, answer: this.askAnswer };
+      case 'placement.explain': {
+        const reason = this.reasons.find((x) => x.identity === r.identity);
+        if (reason === undefined) return { v: 1, type: 'error', re: r.id, code: 'not_found', message: 'no such entry' };
+        return { v: 1, type: 'placement.explain.result', re: r.id, reason };
+      }
+      case 'diff.propose': {
+        const diff = this.diffs.find((d) => d.kind === r.kind);
+        if (diff === undefined) return { v: 1, type: 'error', re: r.id, code: 'busy', message: 'no diff scripted' };
+        return { v: 1, type: 'diff.propose.result', re: r.id, diff: this.header(diff) };
+      }
+      case 'diff.list':
+        return { v: 1, type: 'diff.list.result', re: r.id, diffs: this.diffs.map((d) => this.header(d)), next_cursor: null };
+      case 'diff.page': {
+        const diff = this.diffs.find((d) => d.diff_id === r.diff_id);
+        if (diff === undefined) return { v: 1, type: 'error', re: r.id, code: 'not_found', message: 'no such diff' };
+        const items = this.diffItems.filter((i) => i.diff_id === r.diff_id);
+        return { v: 1, type: 'diff.page.result', re: r.id, diff: this.header(diff), items, next_cursor: null };
+      }
+      case 'diff.accept':
+        return this.acceptItem(r);
+      case 'outline.get':
+        return { v: 1, type: 'outline.get.result', re: r.id, outline: this.outline, next_cursor: null };
+      case 'folder.flags.set': {
+        const folder = this.outline.find((f) => f.node_id === r.node_id);
+        if (folder === undefined) return { v: 1, type: 'error', re: r.id, code: 'not_found', message: 'no such folder' };
+        const updated = {
+          ...folder,
+          ...(r.pinned === undefined ? {} : { pinned: r.pinned }),
+          ...(r.locked === undefined ? {} : { locked: r.locked }),
+        };
+        this.outline = this.outline.map((f) => (f.node_id === r.node_id ? updated : f));
+        return { v: 1, type: 'folder.flags.set.result', re: r.id, folder: updated };
+      }
       case 'status':
         return {
           v: 1,
@@ -252,6 +304,29 @@ export class FakeDaemon {
       default:
         return { v: 1, type: 'error', re: r.id, code: 'internal', message: `fake daemon has no answer for ${r.type}` };
     }
+  }
+
+  /** A diff header whose unaccepted count follows its items. */
+  private header(diff: TreeDiff): TreeDiff {
+    const items = this.diffItems.filter((i) => i.diff_id === diff.diff_id);
+    return { ...diff, item_count: items.length, unaccepted_count: items.filter((i) => i.accepted_at === null).length };
+  }
+
+  /** Record the acceptance once, then offer the item's batch carrying its reference. */
+  private acceptItem(r: Extract<RequestMessage, { type: 'diff.accept' }>): ResponseMessage {
+    if (this.writer.conflict) return { v: 1, type: 'error', re: r.id, code: 'writer_conflict', message: 'marker of another host present' };
+    const item = this.diffItems.find((i) => i.item_id === r.item_id);
+    if (item === undefined) return { v: 1, type: 'error', re: r.id, code: 'not_found', message: 'no such item' };
+    const accepted =
+      item.accepted_at === null
+        ? { ...item, accepted_at: Date.now(), batch_id: `batch-${item.item_id}`, batch_state: 'PROPOSED' as const }
+        : item;
+    this.diffItems = this.diffItems.map((i) => (i.item_id === item.item_id ? accepted : i));
+    const batch_id = accepted.batch_id ?? `batch-${item.item_id}`;
+    if (item.accepted_at === null) {
+      setImmediate(() => this.offer({ batch_id, operations: accepted.operations, diff_item_id: accepted.item_id }));
+    }
+    return { v: 1, type: 'diff.accept.result', re: r.id, item_id: accepted.item_id, accepted_at: accepted.accepted_at ?? 0, batch_id };
   }
 
   private jobFor(r: Extract<RequestMessage, { type: 'ingest' }>): Job {

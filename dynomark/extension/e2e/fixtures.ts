@@ -1,6 +1,9 @@
 /// <reference types="chrome" />
 // fixtures.ts -- the e2e test object: every test gets its own launched
-// extension (fresh profile, fresh fake daemon), closed after it.
+// extension (fresh profile, fresh fake daemon), closed after it. No network:
+// every request that is not to 127.0.0.1 is aborted unless a test routes it
+// (a route added later takes precedence), so a page the extension opens by
+// itself (a background tab, a citation) never leaves the machine.
 
 import { test as base, expect } from '@playwright/test';
 import { launchExtension, type Launched } from '../test/support/browser.js';
@@ -13,6 +16,10 @@ export const test = base.extend<{ ext: Launched }>({
   // eslint-disable-next-line no-empty-pattern
   ext: async ({}, use) => {
     const ext = await launchExtension();
+    await ext.context.route(
+      (url) => url.hostname !== '127.0.0.1',
+      (route) => route.abort('internetdisconnected'),
+    );
     await use(ext);
     await ext.close();
   },
