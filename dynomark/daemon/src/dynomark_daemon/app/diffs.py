@@ -209,9 +209,10 @@ def propose_scheduled_rebuild(
         clock=clock,
         ids=ids,
     )
-    store.put_diff(diff)
-    event = DiffProposed(event_id=EventId(ids.new_id("event")), diff=diff)
-    store.put_event(profile, event)
+    with store.atomic():  # the cadence counts a stored diff as announced
+        store.put_diff(diff)
+        event = DiffProposed(event_id=EventId(ids.new_id("event")), diff=diff)
+        store.put_event(profile, event)
     return diff
 
 

@@ -103,24 +103,36 @@ def fail_oversize_offers(
 ) -> list[Job]:
     """Withdraw every pending offer that cannot fit one frame: its event leaves
     the outbox (so it never blocks the next offer), its batch is ``REJECTED``
-    and its job, if it is still waiting for it, ``FAILED`` with ``OVERSIZE``;
-    the jobs failed."""
+    and its job, if it is still waiting for it, ``FAILED`` with ``OVERSIZE``,
+    in one unit of work per offer (once the event is gone nothing would
+    withdraw it again); the jobs failed."""
     failed: list[Job] = []
     for pending in store.unacked_events(profile_id):
         event = pending.event
         if not isinstance(event, BatchOffered) or transport.fits(event):
             continue
-        store.ack_events(profile_id, [event.event_id])
-        record = store.get_batch(event.batch.batch_id)
-        if record is None:
-            continue
-        store.put_batch(replace(record, state=BatchState.REJECTED))
-        job = None if record.job_id is None else store.get_job(record.job_id)
-        if job is None or job.state is not JobState.PLACED:
-            continue
-        failed.append(
-            record_job_change(
-                job.failed(OVERSIZE, at=clock.now_ms()), store=store, ids=ids
-            )
-        )
+        with store.atomic():
+            job = _withdraw(profile_id, event, store=store, clock=clock, ids=ids)
+        if job is not None:
+            failed.append(job)
     return failed
+
+
+def _withdraw(
+    profile_id: ProfileId,
+    event: BatchOffered,
+    *,
+    store: CorpusStorePort,
+    clock: Clock,
+    ids: IdSource,
+) -> Job | None:
+    store.ack_events(profile_id, [event.event_id])
+    record = store.get_batch(event.batch.batch_id)
+    if record is None:
+        return None
+    store.put_batch(replace(record, state=BatchState.REJECTED))
+    job = None if record.job_id is None else store.get_job(record.job_id)
+    if job is None or job.state is not JobState.PLACED:
+        return None
+    failed = job.failed(OVERSIZE, at=clock.now_ms())
+    return record_job_change(failed, store=store, ids=ids)
