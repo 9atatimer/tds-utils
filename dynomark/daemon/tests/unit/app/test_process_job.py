@@ -29,7 +29,7 @@ from dynomark_daemon.testing.completion import ScriptedCompletion
 from dynomark_daemon.testing.content import FakeFetch
 from dynomark_daemon.testing.embedding import HashingEmbedding
 from dynomark_daemon.testing.store import InMemoryCorpusStore
-from tests._factories import make_bookmark, make_capture
+from tests._factories import make_bookmark, make_capture, make_entry
 
 URL = "https://tokio.rs/tokio/tutorial"
 POLICY = RetryPolicy(attempts=3, initial_backoff_ms=1_000, max_backoff_ms=60_000)
@@ -251,3 +251,30 @@ def test_process_job_whose_embedding_errors_is_retried_like_enrichment() -> None
 class _BrokenEmbedding(HashingEmbedding):
     def embed(self, text: str) -> Embedding:
         raise EmbeddingError("embedding: timeout", retryable=True)
+
+
+def test_search_corpus_fuses_full_text_and_nearest_neighbour_candidates() -> None:
+    """Given one entry matching the query's words and meaning, one only close in
+    meaning, When search_corpus runs over the fake store, Then both are hits
+    and the entry found by both lists ranks first."""
+    embedding = HashingEmbedding()
+    store = InMemoryCorpusStore()
+    both = make_entry(
+        "https://tokio.rs/",
+        title="Tokio",
+        text="tokio runtime",
+        vector=embedding.embed("tokio runtime").vector,
+    )
+    near = make_entry(
+        "https://smol.rs/",
+        title="smol",
+        text="small executor",
+        vector=embedding.embed("tokio runtime async").vector,
+    )
+    store.put_entry(both)
+    store.put_entry(near)
+
+    hits = search_corpus(Query("tokio runtime"), store=store, embedding=embedding)
+
+    assert [hit.identity for hit in hits] == [both.identity, near.identity]
+    assert all(hit.tier is HitTier.CORPUS and 0 <= hit.score <= 1 for hit in hits)
