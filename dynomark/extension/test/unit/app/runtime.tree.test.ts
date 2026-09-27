@@ -277,6 +277,40 @@ describe("Batch offers -- a batch move is the extension's across a worker restar
     await moved(w, next, ids.saved, ids.rust);
     expect(sentOf(w, 'move.observed').at(-1)?.move).toMatchObject({ node_id: ids.saved, to: RUST, origin: 'user' });
   });
+
+  it('Given the worker was terminated after remembering a batch move and before making it, When the replayed batch makes it and the user later moves the save out and back, Then the move back is origin user', async () => {
+    const { w, ids, runtime } = await setup();
+    const serdePath = { root: 'bar' as const, names: ['Dynomark', 'Serde'] };
+    const offer = {
+      v: 1 as const,
+      type: 'batch.offer' as const,
+      event_id: 'evt-offer-1',
+      batch: {
+        batch_id: 'batch-1',
+        operations: [
+          { op: 'create_folder' as const, index: 0, parent: DYNOMARK, title: 'Serde' },
+          { op: 'move' as const, index: 1, node_id: ids.saved, to: serdePath, expect: { parent_id: ids.followUp } },
+        ],
+      },
+    };
+    w.tree.failOnMutation(2, 'terminate-before');
+    await w.daemon().emit(offer);
+    await runtime.idle();
+    expect((await w.tree.getNode(ids.saved))?.parent_id).toBe(ids.followUp);
+    w.restart();
+    scriptDaemon(w);
+    const next = await startRuntime(w);
+    await w.daemon().emit(offer);
+    await next.idle();
+    const serde = (await w.tree.resolveFolder(serdePath)) ?? '';
+    expect((await w.tree.getNode(ids.saved))?.parent_id).toBe(serde);
+    await deliver(next, { kind: 'moved', node_id: ids.saved, parent_id: serde, old_parent_id: ids.followUp });
+
+    await moved(w, next, ids.saved, ids.dynomark);
+    await moved(w, next, ids.saved, serde);
+
+    expect(sentOf(w, 'move.observed').map((r) => r.move.origin)).toEqual(['extension', 'user', 'user']);
+  });
 });
 
 describe('A batch receipt answered with a retryable code on a live link', () => {
