@@ -10,30 +10,38 @@ PROPOSED batch offered to the extension.
 
 from dynomark_daemon.app.ingest import ingest
 from dynomark_daemon.app.run import run_job
-from dynomark_daemon.domain.batch import BatchState
+from dynomark_daemon.domain.batch import (
+    BatchState,
+    Expect,
+    OpCreateFolder,
+    OpRemove,
+)
 from dynomark_daemon.domain.bookmark import Enrichment
 from dynomark_daemon.domain.events import BatchOffered, JobUpdated
-from dynomark_daemon.domain.ids import ProfileId
+from dynomark_daemon.domain.ids import NodeId, ProfileId
 from dynomark_daemon.domain.job import Job, JobState, RetryPolicy
-from dynomark_daemon.domain.placement import FolderChoice
+from dynomark_daemon.domain.placement import FolderChoice, Placement
 from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.domain.tree import Snapshot
 from dynomark_daemon.ports.completion import CompletionError
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
-from dynomark_daemon.testing.completion import ScriptedCompletion
+from dynomark_daemon.testing.completion import EnrichCall, ScriptedCompletion
 from dynomark_daemon.testing.content import FakeFetch
 from dynomark_daemon.testing.embedding import HashingEmbedding
 from dynomark_daemon.testing.store import InMemoryCorpusStore
 from tests._factories import (
     make_bookmark,
     make_capture,
+    make_job,
     make_node,
     make_path,
+    make_placement,
     make_roots,
     make_tree,
 )
 
 PROFILE = ProfileId("profile-a")
+URL = "https://tokio.rs/tokio/tutorial"
 POLICY = RetryPolicy(attempts=3, initial_backoff_ms=1_000, max_backoff_ms=60_000)
 RUST = make_path("Dynomark", "Rust")
 TREE = make_tree(
@@ -147,3 +155,57 @@ def test_run_job_whose_placement_errors_counts_an_attempt() -> None:
 
     assert (job.state, job.attempts) == (JobState.ENRICHED, 1)
     assert loop.store.list_batches() == []
+
+
+def _with_filed_original(loop: Loop, *, node_id: str) -> Placement:
+    """An earlier save of the same URL, FILED at node ``node_id`` in Rust."""
+    original = make_job("job-original", node_id=node_id, state=JobState.FILED)
+    loop.store.put_job(original)
+    placement = make_placement(original.identity.value, folder=RUST)
+    loop.store.put_placement(placement)
+    return placement
+
+
+def test_run_job_parks_a_duplicate_identity_in_the_graveyard() -> None:
+    """Given an identity already FILED whose node is in the tree, When a new node
+    of it is run on the writer, Then the batch moves the new node to Graveyard
+    and the existing placement is unchanged (no completion is asked)."""
+    tree = make_tree(*TREE.nodes[3:], make_node("41", "14", "Tokio", url=URL))
+    loop = Loop(ScriptedCompletion(enrich=[ENRICHMENT]), tree)
+    existing = _with_filed_original(loop, node_id="41")
+
+    job = loop.run(loop.save())
+
+    assert job.state is JobState.PLACED and job.batch_id is not None
+    record = loop.store.get_batch(job.batch_id)
+    assert record is not None
+    assert record.batch.operations == (
+        OpCreateFolder(index=0, parent=make_path(), title="Graveyard"),
+        OpRemove(
+            index=1,
+            node_id=NodeId("42"),
+            expect=Expect(parent_id=NodeId("10"), parent_path=make_path("Follow Up")),
+        ),
+    )
+    assert loop.store.get_placement(job.identity) == existing
+    assert [type(c) for c in loop.completion.calls] == [EnrichCall]
+
+
+def test_run_job_files_again_an_identity_whose_filed_node_is_gone() -> None:
+    """Given an identity FILED earlier whose node is no longer in the tree, When
+    a new node of it is run, Then it is placed and filed, not parked."""
+    loop = Loop(
+        ScriptedCompletion(
+            enrich=[ENRICHMENT],
+            choose_folder=[FolderChoice(folder=RUST, rationale="rust")],
+        ),
+        TREE,
+    )
+    _with_filed_original(loop, node_id="41")
+
+    job = loop.run(loop.save())
+
+    assert job.batch_id is not None
+    record = loop.store.get_batch(job.batch_id)
+    assert record is not None
+    assert not any(isinstance(op, OpRemove) for op in record.batch.operations)
