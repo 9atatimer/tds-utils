@@ -12,13 +12,13 @@ changed.
 from typing import Final
 
 from dynomark_daemon.app.errors import TreeNotReady, UnknownRecord
-from dynomark_daemon.app.file import file
+from dynomark_daemon.app.file import file, park
 from dynomark_daemon.app.place import place
 from dynomark_daemon.app.process import process_job
 from dynomark_daemon.domain.batch import OutsideOwnedRoots
 from dynomark_daemon.domain.events import JobUpdated
 from dynomark_daemon.domain.ids import EventId
-from dynomark_daemon.domain.job import Job, JobState, RetryPolicy
+from dynomark_daemon.domain.job import Job, JobState, RetryPolicy, is_duplicate
 from dynomark_daemon.domain.placement import NoAdmissibleFolder
 from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.domain.tree import OwnedRoots, TreeOutline, outline_of
@@ -64,6 +64,11 @@ def _fail(
     return failed
 
 
+def _is_duplicate(job: Job, *, store: CorpusStorePort) -> bool:
+    filed = store.list_jobs(state=JobState.FILED)
+    return is_duplicate(job, filed, store.latest_tree_snapshot())
+
+
 def _place_job(
     job: Job,
     role: HostRole,
@@ -78,6 +83,10 @@ def _place_job(
     entry = store.get_entry(job.identity)
     if entry is None:
         raise UnknownRecord(f"job {job.job_id} has no entry")
+    if _is_duplicate(job, store=store):
+        placed = job.placed(at=clock.now_ms())
+        store.put_job(placed)
+        return placed
     try:
         place(
             entry,
@@ -121,16 +130,19 @@ def _file_job(
     if placement is None:
         raise UnknownRecord(f"job {job.job_id} has no placement")
     try:
-        file(
-            placement,
-            job,
-            current_outline(roots, store=store),
-            roots,
-            role,
-            store=store,
-            clock=clock,
-            ids=ids,
-        )
+        if _is_duplicate(job, store=store):
+            park(job, roots, role, store=store, clock=clock, ids=ids)
+        else:
+            file(
+                placement,
+                job,
+                current_outline(roots, store=store),
+                roots,
+                role,
+                store=store,
+                clock=clock,
+                ids=ids,
+            )
     except TreeNotReady:
         return job
     except OutsideOwnedRoots as error:

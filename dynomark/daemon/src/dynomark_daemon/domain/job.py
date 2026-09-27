@@ -1,11 +1,13 @@
 """The durable unit of daemon work for one ingested save."""
 
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Self
 
 from dynomark_daemon.domain.bookmark import CaptureSource, Identity
 from dynomark_daemon.domain.ids import BatchId, JobId, NodeId, ProfileId
+from dynomark_daemon.domain.tree import Snapshot
 
 
 class JobState(StrEnum):
@@ -116,3 +118,18 @@ class RetryPolicy:
         doubling from ``initial_backoff_ms``, capped at ``max_backoff_ms``."""
         doublings = min(max(failed - 1, 0), 62)
         return min(self.initial_backoff_ms << doublings, self.max_backoff_ms)
+
+
+def is_duplicate(job: Job, filed: Iterable[Job], tree: Snapshot | None) -> bool:
+    """``job``'s identity is already filed: another job of it is FILED and its
+    node is present in the latest tree (contract v1, Jobs: Duplicate
+    identity)."""
+    if tree is None:
+        return False
+    return any(
+        other.job_id != job.job_id
+        and other.identity == job.identity
+        and other.state is JobState.FILED
+        and tree.node(other.node_id) is not None
+        for other in filed
+    )

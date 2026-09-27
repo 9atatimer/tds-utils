@@ -15,6 +15,7 @@ from dynomark_daemon.domain.batch import (
     WriteBatch,
     admit,
     filing_operations,
+    parking_operations,
     plan_inverse,
 )
 from dynomark_daemon.domain.events import BatchOffered
@@ -103,5 +104,26 @@ def file(
         outline,
         node_id=job.node_id,
         expect=saved_node_expect(job, store=store),
+    )
+    return propose(operations, job, roots, store=store, clock=clock, ids=ids)
+
+
+def park(
+    job: Job,
+    roots: OwnedRoots,
+    role: HostRole,
+    *,
+    store: CorpusStorePort,
+    clock: Clock,
+    ids: IdSource,
+) -> WriteBatch | NotWriter:
+    """File nothing new for a duplicate identity: a batch moves ``job``'s node
+    to ``Graveyard``; the existing placement is untouched.
+
+    Raises:
+        TreeNotReady: no tree snapshot resolves where the node was saved.
+    """
+    operations = parking_operations(
+        roots, node_id=job.node_id, expect=saved_node_expect(job, store=store)
     )
     return propose(operations, job, roots, store=store, clock=clock, ids=ids)
