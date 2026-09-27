@@ -5,6 +5,7 @@ scheduler port -- an in-process loop with RetryPolicy as a value").
 """
 
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 
 from structlog.testing import capture_logs
@@ -15,6 +16,7 @@ from dynomark_daemon.domain.bookmark import Bookmark, Capture, CorpusEntry, Enri
 from dynomark_daemon.domain.chat import DraftAnswer, Question, Turn
 from dynomark_daemon.domain.config import ModelInfo
 from dynomark_daemon.domain.diff import DiffKind, DiffProposal
+from dynomark_daemon.domain.events import DiffProposed
 from dynomark_daemon.domain.ids import ProfileId
 from dynomark_daemon.domain.job import JobState
 from dynomark_daemon.domain.placement import EntryRef, FolderChoice, MoveFeedback
@@ -196,3 +198,19 @@ def test_the_job_loop_fails_saves_of_a_writer_in_conflict() -> None:
     (job,) = ports.store.list_jobs()
     assert (job.state, job.batch_id) == (JobState.FAILED, None)
     assert job.last_error == "writer_conflict: marker of host work-laptop present"
+
+
+def test_the_job_loop_proposes_a_due_rebuild_and_reports_progress() -> None:
+    """Given a writer with a daily rebuild cadence, a bound profile and a tree,
+    When the job loop runs once, Then a rebuild diff is announced to the
+    profile by a diff.proposed event and the server is told."""
+    ports = _ports(ScriptedCompletion(propose_diff=[()]))
+    ports.store.bind_writer_profile(A)
+    ports.store.put_tree_snapshot(wire.TREE)
+    progress: list[int] = []
+    config = replace(make_config(), rebuild_cadence_ms=86_400_000)
+
+    JobLoop(config, ports, on_progress=lambda: progress.append(1)).run_once()
+
+    events = [p.event for p in ports.store.unacked_events(A)]
+    assert [type(e) for e in events] == [DiffProposed] and progress == [1]
