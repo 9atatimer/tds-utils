@@ -131,3 +131,19 @@ export interface BatchCursor {
   readonly outcomes: readonly OpOutcome[];
   readonly started?: number;
 }
+
+// --- Receipt construction ---
+
+function appliedOf(outcomes: readonly OpOutcome[]): OpApplied[] {
+  return outcomes.filter((o) => o.outcome === 'applied').map(({ index, node_id, changed }) => ({ index, node_id, changed }));
+}
+
+function skippedOf(outcomes: readonly OpOutcome[]): OpSkipped[] {
+  return outcomes.filter((o) => o.outcome === 'skipped').map(({ index, reason }) => ({ index, reason }));
+}
+
+/** APPLIED: `applied` and `skipped` partition every op index, each ascending. */
+export function appliedReceipt(batch_id: BatchId, outcomes: readonly OpOutcome[], snapshot: Snapshot, pre_batch: boolean): ReceiptApplied {
+  const ordered = [...outcomes].sort((a, b) => a.index - b.index);
+  return { state: 'APPLIED', batch_id, snapshot, pre_batch, applied: appliedOf(ordered), skipped: skippedOf(ordered) };
+}
