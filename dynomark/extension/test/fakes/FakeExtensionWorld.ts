@@ -20,6 +20,7 @@ import type { Navigator } from '../../src/ports/navigator.js';
 import type { ChatSurfacePort } from '../../src/ports/chatSurface.js';
 import type { Timer } from '../../src/ports/timer.js';
 import type { TransportLink, TransportPort } from '../../src/ports/transport.js';
+import { FakeBackgroundTabs } from './FakeBackgroundTabs.js';
 import { FakeBookmarkTree } from './FakeBookmarkTree.js';
 import { FakeChatSurface } from './FakeChatSurface.js';
 import { FakeClock } from './FakeClock.js';
@@ -46,6 +47,8 @@ export interface WorkerPorts {
   readonly tree: BookmarkTreePort;
   readonly history: HistoryPort;
   readonly content: ContentSourcePort;
+  /** Opens a URL in a background tab and reads it (the writer's third ContentSourcePort adapter). */
+  readonly background: ContentSourcePort;
   readonly storage: StoragePort;
   readonly transport: TransportPort & TransportLink;
   readonly clock: Clock;
@@ -75,6 +78,8 @@ export class FakeExtensionWorld {
   readonly tree: FakeBookmarkTree;
   readonly history = new FakeHistory();
   readonly tabs = new FakeTabs();
+  /** What a background tab would show for each URL (the browser is signed in); every URL opened. */
+  readonly backgroundTabs = new FakeBackgroundTabs();
   readonly storage = new FakeStorage();
   readonly ids = new SequentialIdSource();
   /** Every navigation any worker asked for (the browser's tabs outlive workers). */
@@ -137,6 +142,7 @@ export class FakeExtensionWorld {
       tree: bind<BookmarkTreePort>(this.tree),
       history: bind<HistoryPort>(this.history),
       content: bind<ContentSourcePort>(this.tabs),
+      background: bind<ContentSourcePort>(this.backgroundTabs),
       storage: bind<StoragePort>(this.storage),
       transport: bind<TransportPort & TransportLink>(connection),
       clock: bind<Clock>(this.clock),
