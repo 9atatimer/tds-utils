@@ -18,7 +18,9 @@ src/dynomark_daemon/
   wire/        contract v1 models (Pydantic), codec, wire <-> domain mapping
   adapters/    sqlite_store, records (JSON rows), socket_server, dispatch,
                framing, fetch, readable, ollama, host_manifest
-  testing/     in-memory fakes of every port (shared by all suites)
+  testing/     in-memory fakes of every port (shared by all suites);
+               e2e.py is the integration e2e's daemon: production wiring,
+               scripted fake models (python -m, no console script)
   settings.py  Config from TOML + environment; paths
   container.py composition root: build_ports, JobLoop, Daemon
   cli.py       dynomark-daemon (Click)
