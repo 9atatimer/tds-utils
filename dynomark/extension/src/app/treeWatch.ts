@@ -84,6 +84,8 @@ function bookmarkOf(node: SnapshotNode, path: FolderPath): Bookmark | undefined 
 
 export class TreeWatch {
   private cancelSnapshot: (() => void) | undefined;
+  /** Saves that arrived while the role was unknown: the next backlog captures each once with the background chain allowed. */
+  private readonly owed = new Set<NodeId>();
 
   constructor(
     private readonly deps: TreeWatchDeps,
@@ -112,14 +114,15 @@ export class TreeWatch {
    * Ingest every bookmark now in Follow Up (after a full hello: repeats are
    * no-ops on the daemon). Open tabs only: the backlog is re-sent on every
    * hello, and a worker says hello often, so a background tab here would
-   * reopen every waiting save each time; the created event carries the chain.
+   * reopen every waiting save each time; the created event carries the chain,
+   * or, when it came while the role was unknown, this backlog does, once.
    */
   async submitBacklog(): Promise<void> {
     const path = this.context.followUp();
     if (path === undefined) return;
     const id = await this.deps.tree.resolveFolder(path);
     if (id === undefined) return;
-    for (const node of await this.deps.tree.getChildren(id)) await this.save(node, { background: false });
+    for (const node of await this.deps.tree.getChildren(id)) await this.save(node, { background: this.owed.delete(node.id) });
   }
 
   // --- Flow ---
@@ -150,6 +153,11 @@ export class TreeWatch {
     const path = this.context.followUp();
     const bookmark = path === undefined ? undefined : bookmarkOf(node, path);
     if (bookmark === undefined) return;
+    // No hello yet: the role that decides the chain is unknown, and the full hello's backlog will submit it.
+    if (options.background && this.context.outcome() === undefined) {
+      this.owed.add(bookmark.node_id);
+      return;
+    }
     const submitted = this.deps.saves.get(bookmark.node_id, bookmark.url)?.outcome !== undefined;
     const content = submitted ? NO_CAPTURE : await this.captureOf(bookmark, options.background);
     await submitSave(bookmark, content, this.deps);
