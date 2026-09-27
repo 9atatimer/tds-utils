@@ -79,6 +79,10 @@ function toml(options: DaemonOptions, home: string, socket: string): string {
     'initial_backoff_ms = 500',
     'max_backoff_ms = 1000',
     '',
+    '[capture]',
+    '# the pages are served from 127.0.0.1',
+    'private_addresses = true',
+    '',
   ].join('\n');
 }
 

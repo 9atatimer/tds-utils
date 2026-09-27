@@ -103,8 +103,9 @@ initial_backoff_ms = 5000
 max_backoff_ms = 300000
 
 [capture]                       # the fetch fallback
-fetch_timeout_s = 15
+fetch_timeout_s = 15            # for the whole fetch, not each read
 max_bytes = 5000000
+private_addresses = false       # true: also fetch loopback, link-local, LAN
 
 [diffs]                         # absent: rebuilds are proposed on request only
 rebuild_every_hours = 168       # the job loop proposes a rebuild this often
@@ -197,7 +198,12 @@ If NEW is switched before the old marker is gone, it reports the conflict
   whose offer cannot fit is never offered: it is marked REJECTED and its
   job FAILED with `batch over the 1 MiB frame limit; not offered`).
 - Fetch: urllib with no cookie handler and no proxy, http(s) only (also on
-  redirect), size-capped; readable text via `html.parser` (article, then
-  main, then body; no script, style, nav, header, footer).
+  redirect), size-capped, and given up once `fetch_timeout_s` has passed.
+  Each host (a redirect's too) is resolved first and refused unless every
+  address it resolves to is public; the connection goes to exactly the
+  address that was checked. `private_addresses = true` lifts the refusal
+  for an install whose saves live on a LAN or localhost. Readable text via
+  `html.parser` (article, then main, then body; no script, style, nav,
+  header, footer).
 - Ollama: `/api/embed`, `/api/generate` with `format: json`; strict
   parsing, an unparseable answer is a retryable error.

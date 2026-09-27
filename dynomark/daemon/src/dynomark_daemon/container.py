@@ -24,7 +24,12 @@ from typing import Final
 import structlog
 
 from dynomark_daemon.adapters.dispatch import Dispatcher
-from dynomark_daemon.adapters.fetch import FetchContentSource
+from dynomark_daemon.adapters.fetch import (
+    AddressPolicy,
+    FetchContentSource,
+    any_address,
+    is_public,
+)
 from dynomark_daemon.adapters.ollama import (
     OllamaClient,
     OllamaCompletion,
@@ -89,6 +94,12 @@ class Ports:
     ids: IdSource
 
 
+def fetch_policy(settings: Settings) -> AddressPolicy:
+    """Where the fetch fallback may connect: public addresses only, unless the
+    config allows private ones (``[capture] private_addresses``)."""
+    return any_address if settings.capture.private_addresses else is_public
+
+
 def build_ports(settings: Settings) -> Ports:
     """The production adapters: SQLite, Ollama, fetch, the system clock."""
     client = OllamaClient(settings.ollama_url, timeout_s=settings.model_timeout_s)
@@ -104,6 +115,7 @@ def build_ports(settings: Settings) -> Ports:
         content=FetchContentSource(
             timeout_s=settings.capture.fetch_timeout_s,
             max_bytes=settings.capture.max_bytes,
+            address_allowed=fetch_policy(settings),
         ),
         clock=SystemClock(),
         ids=RandomIds(),

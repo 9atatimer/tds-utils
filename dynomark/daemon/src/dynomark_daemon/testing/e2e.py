@@ -39,6 +39,7 @@ from dynomark_daemon.container import (
     Ports,
     RandomIds,
     SystemClock,
+    fetch_policy,
     private_state_dir,
     serve,
 )
@@ -155,6 +156,7 @@ def e2e_ports(settings: Settings, completion: ScriptedCompletion) -> Ports:
         content=FetchContentSource(
             timeout_s=settings.capture.fetch_timeout_s,
             max_bytes=settings.capture.max_bytes,
+            address_allowed=fetch_policy(settings),
         ),
         clock=SystemClock(),
         ids=RandomIds(),

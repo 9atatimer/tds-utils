@@ -67,6 +67,12 @@ passes the request's timeout."""
 BLOCKSIZE: Final = 8192
 
 
+def any_address(address: IPAddress) -> bool:
+    """Every address: an install that fetches its intranet and localhost
+    pages (``[capture] private_addresses``)."""
+    return True
+
+
 class RefusedAddress(OSError):
     """The host resolves to an address the policy refuses; nothing was sent."""
 

@@ -66,7 +66,7 @@ SCHEMA: Final[Mapping[str, frozenset[str]]] = {
     "store": frozenset({"path"}),
     "socket": frozenset({"path"}),
     "retry": frozenset({"attempts", "initial_backoff_ms", "max_backoff_ms"}),
-    "capture": frozenset({"fetch_timeout_s", "max_bytes"}),
+    "capture": frozenset({"fetch_timeout_s", "max_bytes", "private_addresses"}),
     "diffs": frozenset({"rebuild_every_hours"}),
 }
 HOUR_MS: Final = 3_600_000
@@ -78,10 +78,12 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class CaptureSettings:
-    """The fetch adapter's limits."""
+    """The fetch adapter's limits, and whether it may reach loopback,
+    link-local and private addresses (off: public addresses only)."""
 
     fetch_timeout_s: float
     max_bytes: int
+    private_addresses: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +177,10 @@ def _is_count(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 1
 
 
+def _is_flag(value: object) -> bool:
+    return isinstance(value, bool)
+
+
 def _is_seconds(value: object) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool) and value > 0
 
@@ -229,6 +235,13 @@ def _capture(document: Mapping[str, object]) -> CaptureSettings:
             "max_bytes",
             DEFAULT_FETCH_MAX_BYTES,
             _is_count,
+        ),
+        private_addresses=_value(
+            table,
+            "capture.private_addresses",
+            "private_addresses",
+            False,
+            _is_flag,
         ),
     )
 
