@@ -11,6 +11,7 @@ type Served = PageText | 'unreadable' | 'never-loads';
 interface StubWindow {
   readonly tabId: number;
   readonly url: string;
+  readonly state: string;
 }
 
 export class BackgroundBrowserStub {
@@ -37,9 +38,14 @@ export class BackgroundBrowserStub {
       if (this.refuseWindows) return Promise.reject(new Error('No current window'));
       this.next += 2;
       const id = this.next;
-      this.open.set(id, { tabId: id + 1, url: data.url });
+      this.open.set(id, { tabId: id + 1, url: data.url, state: data.state });
       this.log.push(`open ${data.url} focused=${String(data.focused)} state=${data.state}`);
       return Promise.resolve({ id, tabs: [{ id: id + 1 }] });
+    },
+    get: (windowId: number, _options: { populate: true }): Promise<{ state?: string; tabs?: { id?: number }[] }> => {
+      const win = this.open.get(windowId);
+      if (win === undefined) return Promise.reject(new Error(`No window with id: ${windowId}.`));
+      return Promise.resolve({ state: win.state, tabs: [{ id: win.tabId }] });
     },
     remove: (windowId: number): Promise<void> => {
       const win = this.open.get(windowId);
