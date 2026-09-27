@@ -163,6 +163,12 @@ export function appliedReceipt(batch_id: BatchId, outcomes: readonly OpOutcome[]
   return { state: 'APPLIED', batch_id, snapshot, pre_batch, applied: appliedOf(ordered), skipped: skippedOf(ordered) };
 }
 
+/** The receipt with its snapshot left out (`snapshot_omitted`), for a frame that would not fit. */
+export function withoutSnapshot(receipt: BatchReceipt): BatchReceipt {
+  const { snapshot: _omitted, ...rest } = receipt;
+  return { ...rest, snapshot_omitted: true };
+}
+
 // --- Cursor transitions ---
 
 /** The cursor of a batch no op of which has been recorded. */

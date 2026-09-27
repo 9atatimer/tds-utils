@@ -19,6 +19,8 @@ export const MAX_QUERY = 1024;
 export const MAX_DETAIL = 4096;
 /** A `LocalIndexRow` as compact UTF-8 JSON: bytes. */
 export const MAX_INDEX_ROW_BYTES = 512;
+/** A frame body, extension -> daemon: bytes of UTF-8 JSON. */
+export const MAX_FRAME_TO_DAEMON_BYTES = 33_554_432;
 
 // --- Types ---
 
@@ -41,6 +43,21 @@ export function truncateCodePoints(s: string, max: number): Fitted {
     points += 1;
   }
   return { text: s, truncated: false };
+}
+
+/** The UTF-8 byte length of a well-formed string, without encoding it. */
+export function utf8Length(s: string): number {
+  let bytes = 0;
+  for (let i = 0; i < s.length; i += 1) {
+    const code = s.charCodeAt(i);
+    if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code >= 0xd800 && code <= 0xdbff) {
+      bytes += 4;
+      i += 1;
+    } else bytes += 3;
+  }
+  return bytes;
 }
 
 /** `s` made well-formed (lone surrogates -> U+FFFD), then cut to `max` code points. */
