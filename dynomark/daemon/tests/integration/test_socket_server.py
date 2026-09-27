@@ -11,7 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from dynomark_daemon.adapters.socket_server import DaemonAlreadyRunning
+from dynomark_daemon.adapters.socket_server import (
+    DaemonAlreadyRunning,
+    SocketUnavailable,
+)
 from tests import _client as client
 from tests import _wire as wire
 from tests._server import build_server, running
@@ -188,3 +191,15 @@ def test_a_path_that_is_not_a_socket_is_never_removed(tmp_path: Path) -> None:
         pass
 
     assert path.read_text() == "not a socket"
+
+
+def test_a_socket_path_the_os_cannot_bind_is_refused_by_name(tmp_path: Path) -> None:
+    """Given a socket path longer than a unix socket address may be, When the
+    server starts, Then SocketUnavailable names the path (no bare OSError)."""
+    path = tmp_path / ("d" * 120) / "daemon.sock"
+
+    with (
+        pytest.raises(SocketUnavailable, match="daemon.sock"),
+        running(build_server(path)),
+    ):
+        pass

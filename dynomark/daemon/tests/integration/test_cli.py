@@ -161,3 +161,14 @@ def test_serve_refuses_a_socket_another_daemon_serves(tmp_path: Path) -> None:
     assert result.exit_code == 1 and "already" in result.output
     state = tmp_path / "state" / "dynomark"
     assert stat.S_IMODE(state.stat().st_mode) == 0o700
+
+
+def test_serve_on_a_socket_path_too_long_exits_1_saying_why(tmp_path: Path) -> None:
+    """Given DYNOMARK_SOCKET longer than the OS allows, When serve runs, Then it
+    exits 1 with a message naming the socket, not a traceback."""
+    env = {**_env(tmp_path, ""), "DYNOMARK_SOCKET": str(tmp_path / ("s" * 120))}
+
+    result = CliRunner().invoke(main, ["serve"], env=env)
+
+    assert result.exit_code == 1
+    assert "cannot listen" in result.output and "Traceback" not in result.output
