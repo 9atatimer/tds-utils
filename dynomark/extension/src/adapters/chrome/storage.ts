@@ -1,8 +1,7 @@
 /// <reference types="chrome" />
 // storage.ts -- the StoragePort on chrome.storage.local: the extension's
 // durable state (settings, the LocalIndex, the in-flight batch cursor,
-// backfill progress)
-// survives a service-worker restart there. The browser serializes values, so
+// backfill progress, the saves owed a background capture) survives a service-worker restart there. The browser serializes values, so
 // each load is a fresh copy. `prefix` namespaces the keys (the integration
 // suite runs beside a live extension's own state).
 
@@ -10,6 +9,7 @@ import type { BackfillProgress } from '../../domain/backfill.js';
 import type { BatchCursor } from '../../domain/batch.js';
 import type { LocalIndex } from '../../domain/search.js';
 import type { Settings } from '../../domain/settings.js';
+import type { NodeId } from '../../domain/values.js';
 import type { StoragePort } from '../../ports/storage.js';
 
 // --- Types ---
@@ -23,7 +23,7 @@ export interface StorageAreaApi {
 
 // --- Constants ---
 
-const KEYS = { settings: 'settings', index: 'local_index', cursor: 'batch_cursor', backfill: 'backfill' } as const;
+const KEYS = { settings: 'settings', index: 'local_index', cursor: 'batch_cursor', backfill: 'backfill', owed: 'owed_captures' } as const;
 
 // --- The adapter ---
 
@@ -71,6 +71,14 @@ export class ChromeStorage implements StoragePort {
 
   saveBackfill(progress: BackfillProgress): Promise<void> {
     return this.write(KEYS.backfill, progress);
+  }
+
+  loadOwedCaptures(): Promise<readonly NodeId[] | undefined> {
+    return this.read<NodeId[]>(KEYS.owed);
+  }
+
+  saveOwedCaptures(node_ids: readonly NodeId[]): Promise<void> {
+    return this.write(KEYS.owed, node_ids);
   }
 
   private async read<T>(key: string): Promise<T | undefined> {

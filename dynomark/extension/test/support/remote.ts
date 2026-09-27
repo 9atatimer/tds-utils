@@ -173,6 +173,14 @@ export class RemoteStorage implements StoragePort {
     return this.call('saveBackfill', progress) as Promise<void>;
   }
 
+  loadOwedCaptures(): Promise<readonly NodeId[] | undefined> {
+    return this.call('loadOwedCaptures') as Promise<readonly NodeId[] | undefined>;
+  }
+
+  saveOwedCaptures(node_ids: readonly NodeId[]): Promise<void> {
+    return this.call('saveOwedCaptures', node_ids) as Promise<void>;
+  }
+
   private call(method: string, ...args: unknown[]): Promise<unknown> {
     return call(this.page, this.target, method, args);
   }

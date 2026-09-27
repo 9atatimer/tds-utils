@@ -1,7 +1,8 @@
 // storage.contract.ts -- what every StoragePort must do. The extension's
 // durable state is settings, the rebuildable LocalIndex and the in-flight
 // batch cursor (design, "The extension"), plus backfill progress (Open
-// Question 3, resumable across worker restarts); storage is the only
+// Question 3, resumable across worker restarts) and the saves owed a
+// background capture; storage is the only
 // thing besides the browser's own data that survives a service-worker
 // restart, and it stores values, not references.
 
@@ -83,6 +84,15 @@ export function describeStorageContract(name: string, make: () => StoragePort): 
       expect(await storage.loadBackfill()).toEqual(BACKFILL);
       await storage.saveBackfill({ ...BACKFILL, next_index: 3 });
       expect(await storage.loadBackfill()).toEqual({ ...BACKFILL, next_index: 3 });
+    });
+
+    it('Given saves owed a background capture, When saved, loaded, and saved again, Then they round-trip and the later list replaces the earlier', async () => {
+      const storage = make();
+      expect(await storage.loadOwedCaptures()).toBeUndefined();
+      await storage.saveOwedCaptures(['41', '42']);
+      expect(await storage.loadOwedCaptures()).toEqual(['41', '42']);
+      await storage.saveOwedCaptures(['42']);
+      expect(await storage.loadOwedCaptures()).toEqual(['42']);
     });
 
     it('Given all three values saved, When the cursor is cleared, Then only the cursor is gone', async () => {

@@ -4,7 +4,9 @@
 // moved into, Follow Up is captured and ingested; a move is reported as
 // move.observed when both ends are owned; a change under the owned roots
 // schedules one debounced tree.snapshot. Every step is short and repeatable:
-// the worker can die between any two events, and ingest is idempotent.
+// the worker can die between any two events, and ingest is idempotent. The
+// saves owed a background capture are stored, so a worker that dies before
+// the hello that pays them does not lose the debt.
 
 import { capturesFromTab, capturesInBackground, type Settings } from '../domain/settings.js';
 import { NO_CAPTURE, type ExtensionCapture } from '../domain/capture.js';
@@ -16,6 +18,7 @@ import type { BookmarkEvent } from '../ports/bookmarkEvents.js';
 import type { Clock } from '../ports/clock.js';
 import type { ContentSourcePort } from '../ports/contentSource.js';
 import type { IdSource } from '../ports/idSource.js';
+import type { StoragePort } from '../ports/storage.js';
 import type { Timer } from '../ports/timer.js';
 import type { TransportPort } from '../ports/transport.js';
 import { capture } from './capture.js';
@@ -28,6 +31,9 @@ import { submitSave, type SubmittedSaves } from './submitSave.js';
 
 /** Quiet time after the last change under the owned roots before tree.snapshot is sent. */
 export const SNAPSHOT_DEBOUNCE_MS = 2000;
+
+/** At most this many saves are owed a background capture at once (the oldest is dropped past it). */
+export const MAX_OWED_CAPTURES = 1000;
 
 /** Open-tab capture is off: no tab is read. */
 const NOTHING_OPEN: ContentSourcePort = { readTab: () => Promise.resolve(undefined) };
@@ -43,6 +49,7 @@ export interface TreeWatchDeps {
   readonly clock: Clock;
   readonly timer: Timer;
   readonly saves: SubmittedSaves;
+  readonly storage: StoragePort;
 }
 
 /** What the runtime knows now that the events are judged against. */
@@ -82,8 +89,8 @@ function bookmarkOf(node: SnapshotNode, path: FolderPath): Bookmark | undefined 
 
 export class TreeWatch {
   private cancelSnapshot: (() => void) | undefined;
-  /** Saves that arrived while the role was unknown: the next backlog captures each once with the background chain allowed. */
-  private readonly owed = new Set<NodeId>();
+  /** Saves that arrived while the role was unknown: the next backlog captures each once with the background chain allowed. Loaded once, then written through. */
+  private owed: Promise<Set<NodeId>> | undefined;
 
   constructor(
     private readonly deps: TreeWatchDeps,
@@ -120,7 +127,13 @@ export class TreeWatch {
     if (path === undefined) return;
     const id = await this.deps.tree.resolveFolder(path);
     if (id === undefined) return;
-    for (const node of await this.deps.tree.getChildren(id)) await this.save(node, { background: this.owed.delete(node.id) });
+    const children = await this.deps.tree.getChildren(id);
+    const owed = await this.owedSet();
+    const waiting = new Set(children.map((node) => node.id));
+    const gone = [...owed].filter((node_id) => !waiting.has(node_id));
+    for (const node_id of gone) owed.delete(node_id);
+    if (gone.length > 0) await this.storeOwed(owed);
+    for (const node of children) await this.save(node, { background: owed.has(node.id) });
   }
 
   // --- Flow ---
@@ -154,12 +167,35 @@ export class TreeWatch {
     if (bookmark === undefined) return;
     // No hello yet: the role that decides the chain is unknown, and the full hello's backlog will submit it.
     if (options.background && this.context.outcome() === undefined) {
-      this.owed.add(bookmark.node_id);
-      return;
+      const owed = await this.owedSet();
+      if (owed.has(bookmark.node_id)) return;
+      owed.add(bookmark.node_id);
+      for (const oldest of [...owed].slice(0, Math.max(0, owed.size - MAX_OWED_CAPTURES))) owed.delete(oldest);
+      return this.storeOwed(owed);
     }
     const submitted = this.deps.saves.get(bookmark.node_id, bookmark.url)?.outcome !== undefined;
     const content = submitted ? NO_CAPTURE : await this.captureOf(bookmark, options.background);
     await submitSave(bookmark, content, { ...this.deps, track: (work) => this.context.track(work) });
+    // Paid only once the daemon has the save: a worker that dies first owes it still.
+    const owed = await this.owedSet();
+    if (owed.delete(bookmark.node_id)) await this.storeOwed(owed);
+  }
+
+  /** The saves owed a background capture, read from storage once per worker; every caller mutates this one set in place. */
+  private owedSet(): Promise<Set<NodeId>> {
+    this.owed ??= this.deps.storage.loadOwedCaptures().then(
+      (node_ids) => new Set(node_ids ?? []),
+      (error: unknown) => {
+        this.owed = undefined;
+        throw error;
+      },
+    );
+    return this.owed;
+  }
+
+  /** Store the owed set as it is now: writes go out in call order, each carrying the whole set. */
+  private storeOwed(owed: ReadonlySet<NodeId>): Promise<void> {
+    return this.deps.storage.saveOwedCaptures([...owed]);
   }
 
   /** The capture chain the settings and role allow: open tab (setting), background tab (writer, setting), else none. */

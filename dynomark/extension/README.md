@@ -61,6 +61,20 @@ and fails the build if any bare specifier is left.
    a rebuild, open it, accept one item at a time; each accepted item is a
    batch whose state shows on its row. Pin or lock owned folders there.
 
+## Durable state
+
+Everything the service worker keeps across a restart goes through the
+`StoragePort` (`src/ports/storage.ts`), on `chrome.storage.local`. The rest
+is in memory and is rebuilt, or re-sent, after the next full hello.
+
+| Key             | What                                                                       | Bound                              |
+| --------------- | -------------------------------------------------------------------------- | ---------------------------------- |
+| `settings`      | profile id, transport, the two capture settings                            | one record                         |
+| `local_index`   | the rebuildable LocalIndex the omnibox searches                            | the daemon's index                 |
+| `batch_cursor`  | the in-flight batch: how far it got, each op's outcome                     | one batch                          |
+| `backfill`      | backfill candidates and how far it got (design, Open Question 3)           | the tree when it started           |
+| `owed_captures` | Follow Up saves made while the role was unknown, owed a background capture | Follow Up's children, at most 1000 |
+
 ## Test
 
 ```zsh
