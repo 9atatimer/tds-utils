@@ -590,11 +590,17 @@ class Dispatcher:
         )
 
     def _move_observed(self, message: m.MoveObserved, session: Session) -> Outcome:
-        record_feedback(
+        feedback = record_feedback(
             move_from_wire(message.move),
             session.role,
             _roots(session),
             store=self._store,
+        )
+        log.info(
+            "move.observed",
+            node_id=message.move.node_id,
+            origin=message.move.origin,
+            feedback=feedback is not None,
         )
         return Outcome(
             m.MoveObservedResult(v=V, type="move.observed.result", re=message.id)
