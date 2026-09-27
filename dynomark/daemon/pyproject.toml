@@ -9,6 +9,10 @@ dependencies = [
     "structlog>=24.1",
 ]
 
+[project.scripts]
+dynomark-daemon = "dynomark_daemon.cli:main"
+dynomark-host = "dynomark_daemon.host:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",

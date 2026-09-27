@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from typing import Final
 
-from dynomark_daemon.settings import socket_path
+from dynomark_daemon.settings import ConfigError, load_settings, socket_path
 
 CHUNK: Final = 65536
 HEADER: Final = 4
@@ -113,9 +113,19 @@ def run_host(path: Path, *, stdin_fd: int = 0, stdout_fd: int = 1) -> int:
 # --- Entry point ---
 
 
+def daemon_socket() -> Path:
+    """The socket the daemon listens on: its config's, or the default when the
+    config cannot be read (the daemon then refuses to start anyway)."""
+    home = Path.home()
+    try:
+        return load_settings(os.environ, home=home, hostname="").socket_path
+    except ConfigError:
+        return socket_path(os.environ, home=home)
+
+
 def main() -> None:
     """``dynomark-host [origin]``: the browser passes the calling origin."""
-    sys.exit(run_host(socket_path(os.environ, home=Path.home())))
+    sys.exit(run_host(daemon_socket()))
 
 
 if __name__ == "__main__":

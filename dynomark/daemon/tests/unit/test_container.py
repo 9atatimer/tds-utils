@@ -92,6 +92,8 @@ def _ports(
 
 
 def _save(ports: Ports, node_id: str) -> None:
+    """Ingest a save of profile A, bound as the writer's profile (its hello)."""
+    ports.store.bind_writer_profile(A)
     ingest(
         make_bookmark(f"https://example.org/{node_id}", node_id=node_id),
         make_capture("text"),

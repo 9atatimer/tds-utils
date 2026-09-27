@@ -71,7 +71,9 @@ def fake_ollama(script: Script) -> Iterator[str]:
     """The base URL of a fake Ollama answering from ``script``."""
     handler = type("Handler", (_Handler,), {"script": script})
     server = _Server(("127.0.0.1", 0), handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_address[1]}"
