@@ -103,6 +103,7 @@ def test_tier2_hits_arrive_within_500_ms_p95_at_10000_entries(
         assert hits
 
     observed, calibration = _p95(searches), _p95(calibrations)
+    print(f"tier-2 P95 {observed:.1f} ms, calibration P95 {calibration:.1f} ms")
     if observed > BUDGET_MS and calibration > CALIBRATION_BUDGET_MS:
         pytest.skip(
             f"runner too slow to measure Goal 4 tier 2: P95 {observed:.0f} ms, "
