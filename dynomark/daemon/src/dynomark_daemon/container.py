@@ -34,6 +34,7 @@ from dynomark_daemon.adapters.sqlite_store import SqliteCorpusStore
 from dynomark_daemon.app.hello import owned_roots_for
 from dynomark_daemon.app.loop import Schedule, due_jobs
 from dynomark_daemon.app.run import run_job
+from dynomark_daemon.app.writer import writer_conflict
 from dynomark_daemon.domain.config import Config
 from dynomark_daemon.domain.connection import served_role
 from dynomark_daemon.domain.job import Job
@@ -133,10 +134,11 @@ class JobLoop:
     def _run(self, job: Job) -> None:
         ports, config = self._ports, self._config
         role = served_role(config.role, ports.store.writer_profile(), job.profile_id)
+        roots = owned_roots_for(job.profile_id, config, store=ports.store)
         after = run_job(
             job,
             role,
-            owned_roots_for(job.profile_id, config, store=ports.store),
+            roots,
             config.retry,
             store=ports.store,
             content=ports.content,
@@ -144,6 +146,7 @@ class JobLoop:
             completion=ports.completion,
             clock=ports.clock,
             ids=ports.ids,
+            conflict=writer_conflict(role, config.host_id, roots, store=ports.store),
         )
         if after != job:
             log.info(
