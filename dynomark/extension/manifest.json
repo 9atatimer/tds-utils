@@ -8,7 +8,7 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "permissions": ["bookmarks", "history", "nativeMessaging", "scripting", "storage", "tabs"],
+  "permissions": ["bookmarks", "history", "nativeMessaging", "scripting", "storage", "tabs", "unlimitedStorage"],
   "host_permissions": ["<all_urls>"],
   "omnibox": {
     "keyword": "bm"

@@ -40,8 +40,9 @@ export class IndexCache {
       saveSettings: (s) => storage.saveSettings(s),
       loadLocalIndex: () => storage.loadLocalIndex(),
       saveLocalIndex: async (index) => {
-        await storage.saveLocalIndex(index);
+        // Searched from memory even when the browser refuses to store it; the refusal still reaches the caller.
         this.track(this.replace(index));
+        await storage.saveLocalIndex(index);
       },
       loadCursor: () => storage.loadCursor(),
       saveCursor: (c) => storage.saveCursor(c),
