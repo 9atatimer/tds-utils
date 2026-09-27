@@ -158,7 +158,4 @@ def test_local_index_pages_by_identity_and_survive_inserts() -> None:
         "https://h.example/",
     ]
     assert first.next_after == Identity("https://d.example/")
-    assert (
-        second.next_after is None
-        or local_index_page(second.next_after, 2, store=store).rows == []
-    )
+    assert second.next_after is None
