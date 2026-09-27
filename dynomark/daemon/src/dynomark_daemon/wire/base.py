@@ -10,8 +10,9 @@ Rules taken from contract/v1/README.md and messages.schema.json:
   trailing newline never passes a ``$`` anchor.
 - Lengths count Unicode code points (Python ``len``).
 - Optional fields are omitted, never ``null``: an explicit ``null`` for an
-  optional field is rejected, and serialization leaves out an optional
-  field that is unset. A required field typed ``X | None`` keeps its null.
+  optional field in JSON input is rejected, and serialization leaves out
+  an optional field that is ``None``. A required field typed ``X | None``
+  keeps its null.
 """
 
 import re
@@ -24,6 +25,7 @@ from pydantic import (
     Field,
     SerializationInfo,
     SerializerFunctionWrapHandler,
+    ValidationInfo,
     model_serializer,
     model_validator,
 )
@@ -99,8 +101,9 @@ class WireModel(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _optional_is_never_null(cls, data: object) -> object:
-        if isinstance(data, dict):
+    def _optional_is_never_null(cls, data: object, info: ValidationInfo) -> object:
+        """On the wire only: Python callers may pass ``None`` for "absent"."""
+        if info.mode == "json" and isinstance(data, dict):
             for name, field in cls.model_fields.items():
                 key = field.alias or name
                 if not field.is_required() and data.get(key, ...) is None:

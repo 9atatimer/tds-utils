@@ -12,7 +12,7 @@ domain value maps to a message that contract v1 accepts, keeping its ids.
 from collections.abc import Callable, Iterator
 
 import pytest
-from hypothesis import given
+from hypothesis import given, settings
 from pydantic import BaseModel
 
 from dynomark_daemon.domain.batch import BatchRecord, WriteBatch
@@ -27,6 +27,10 @@ from dynomark_daemon.wire.messages import AnyMessage
 from tests.contract.golden import valid_files
 
 pytestmark = pytest.mark.contract
+
+# Nested domain values are costly to draw; 25 examples keep each property
+# under the unit-test budget while still covering every Operation kind.
+FEW = settings(max_examples=25)
 
 LOSSLESS: dict[type[BaseModel], tuple[Callable[..., object], Callable[..., object]]] = {
     w.FolderPath: (mapping.folder_path_from_wire, mapping.folder_path_to_wire),
@@ -100,6 +104,7 @@ def _round_trips(message: AnyMessage) -> bool:
     return decode_body(encode_message(message)) == message
 
 
+@FEW
 @given(strategies.jobs)
 def test_map_job_to_wire_yields_a_contract_valid_job(job: Job) -> None:
     """Given any in-contract Job, When mapped to the wire, Then contract v1
@@ -115,6 +120,7 @@ def test_map_job_to_wire_yields_a_contract_valid_job(job: Job) -> None:
     assert w.Job.model_validate_json(wire.model_dump_json()) == wire
 
 
+@FEW
 @given(strategies.write_batches)
 def test_map_write_batch_to_wire_offers_its_operations_not_its_inverse(
     batch: WriteBatch,
@@ -130,6 +136,7 @@ def test_map_write_batch_to_wire_offers_its_operations_not_its_inverse(
     assert wire.diff_item_id == batch.diff_item_id
 
 
+@FEW
 @given(strategies.tree_diffs)
 def test_map_tree_diff_to_wire_counts_items_and_unaccepted_items(
     diff: TreeDiff,
@@ -142,6 +149,7 @@ def test_map_tree_diff_to_wire_counts_items_and_unaccepted_items(
     assert wire.unaccepted_count == sum(i.accepted_at is None for i in diff.items)
 
 
+@FEW
 @given(strategies.batch_records)
 def test_map_batch_record_to_wire_summarizes_it(record: BatchRecord) -> None:
     """Given a BatchRecord, When summarized for batch.list, Then the summary
@@ -162,6 +170,7 @@ def test_map_batch_record_to_wire_summarizes_it(record: BatchRecord) -> None:
     )
 
 
+@FEW
 @given(strategies.events)
 def test_map_event_to_wire_yields_its_event_message(event: Event) -> None:
     """Given a domain Event, When mapped, Then it is the matching event message

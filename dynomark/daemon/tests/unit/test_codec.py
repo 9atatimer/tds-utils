@@ -102,3 +102,20 @@ def test_decode_any_json_raises_only_contract_errors(value: object) -> None:
         decode_body(json.dumps(value).encode())
     except (MalformedBody, InvalidMessage):
         pass
+
+
+def test_decode_null_for_an_optional_field_is_invalid() -> None:
+    """Given job.list with "state": null, When decoded, Then it is InvalidMessage
+    (optional fields are omitted, never null)."""
+    with pytest.raises(InvalidMessage):
+        decode_body(b'{"v":1,"type":"job.list","id":"r-1","state":null}')
+
+
+def test_decode_null_for_a_nullable_required_field_is_accepted() -> None:
+    """Given job.list.result with "next_cursor": null, When decoded, Then it is
+    accepted (null where the schema says null: end of pagination)."""
+    message = decode_body(
+        b'{"v":1,"type":"job.list.result","re":"r-1","jobs":[],"next_cursor":null}'
+    )
+
+    assert message.type == "job.list.result"
