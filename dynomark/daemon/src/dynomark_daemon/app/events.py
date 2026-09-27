@@ -3,18 +3,28 @@
 Delivery and replay).
 
 Use cases record events in the store (an outbox); these functions send
-them. ``offers_ready`` is the connection's standing the transport adapter
-knows: mode ``full``, role ``writer``, no writer conflict, and a
-``tree.snapshot`` recorded on it.
+them. A batch whose offer cannot fit one frame is never sent: its job fails
+instead (contract/v1 README, Size limits). ``offers_ready`` is the
+connection's standing the transport adapter knows: mode ``full``, role
+``writer``, no writer conflict, and a ``tree.snapshot`` recorded on it.
 """
 
 from collections.abc import Iterable
+from dataclasses import replace
+from typing import Final
 
+from dynomark_daemon.app.jobs import record_job_change
+from dynomark_daemon.domain.batch import BatchState
 from dynomark_daemon.domain.connection import HelloMode
-from dynomark_daemon.domain.events import ackable, deliverable
+from dynomark_daemon.domain.events import BatchOffered, ackable, deliverable
 from dynomark_daemon.domain.ids import EventId, ProfileId
+from dynomark_daemon.domain.job import Job, JobState
+from dynomark_daemon.ports.clock import Clock, IdSource
 from dynomark_daemon.ports.store import CorpusStorePort
 from dynomark_daemon.ports.transport import TransportPort
+
+OVERSIZE: Final = "batch over the 1 MiB frame limit; not offered"
+"""The ``last_error`` of a job whose batch could not be offered."""
 
 
 def _send(
@@ -81,3 +91,36 @@ def ack_events(
     """Acknowledge job and diff events; offers, unknown and repeated ids are
     ignored."""
     store.ack_events(profile_id, ackable(store.unacked_events(profile_id), event_ids))
+
+
+def fail_oversize_offers(
+    profile_id: ProfileId,
+    *,
+    store: CorpusStorePort,
+    transport: TransportPort,
+    clock: Clock,
+    ids: IdSource,
+) -> list[Job]:
+    """Withdraw every pending offer that cannot fit one frame: its event leaves
+    the outbox (so it never blocks the next offer), its batch is ``REJECTED``
+    and its job, if it is still waiting for it, ``FAILED`` with ``OVERSIZE``;
+    the jobs failed."""
+    failed: list[Job] = []
+    for pending in store.unacked_events(profile_id):
+        event = pending.event
+        if not isinstance(event, BatchOffered) or transport.fits(event):
+            continue
+        store.ack_events(profile_id, [event.event_id])
+        record = store.get_batch(event.batch.batch_id)
+        if record is None:
+            continue
+        store.put_batch(replace(record, state=BatchState.REJECTED))
+        job = None if record.job_id is None else store.get_job(record.job_id)
+        if job is None or job.state is not JobState.PLACED:
+            continue
+        failed.append(
+            record_job_change(
+                job.failed(OVERSIZE, at=clock.now_ms()), store=store, ids=ids
+            )
+        )
+    return failed

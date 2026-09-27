@@ -191,7 +191,9 @@ If NEW is switched before the old marker is gone, it reports the conflict
   on a small model pool, so a slow completion delays only its own answer.
   The job loop is a thread that wakes on ingest, retry and snapshot, and
   asks the server to deliver events. Frames: 32 MiB in, 1 MiB out (pages
-  shrink to fit; an oversize answer becomes `error` `internal`).
+  shrink to fit; an oversize answer becomes `error` `internal`; a batch
+  whose offer cannot fit is never offered: it is marked REJECTED and its
+  job FAILED with `batch over the 1 MiB frame limit; not offered`).
 - Fetch: urllib with no cookie handler and no proxy, http(s) only (also on
   redirect), size-capped; readable text via `html.parser` (article, then
   main, then body; no script, style, nav, header, footer).

@@ -191,6 +191,9 @@ class Sessions:
         if connection is not None:
             connection.send(event_to_wire(event))
 
+    def fits(self, event: Event) -> bool:
+        return len(encode_message(event_to_wire(event))) <= MAX_OUTBOUND
+
 
 # --- The server ---
 

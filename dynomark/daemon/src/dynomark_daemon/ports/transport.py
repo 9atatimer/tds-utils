@@ -16,3 +16,7 @@ class TransportPort(Protocol):
     def push(self, profile_id: ProfileId, event: Event) -> None:
         """Send ``event`` to the connection of ``profile_id``, if there is one."""
         ...
+
+    def fits(self, event: Event) -> bool:
+        """Whether ``event`` fits one frame to the extension (1 MiB)."""
+        ...

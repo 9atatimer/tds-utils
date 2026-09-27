@@ -35,7 +35,12 @@ from dynomark_daemon.app.errors import (
     TreeNotReady,
     UnknownRecord,
 )
-from dynomark_daemon.app.events import ack_events, deliver, replay_events
+from dynomark_daemon.app.events import (
+    ack_events,
+    deliver,
+    fail_oversize_offers,
+    replay_events,
+)
 from dynomark_daemon.app.explain import explain_placement
 from dynomark_daemon.app.feedback import record_feedback
 from dynomark_daemon.app.flags import set_folder_flags
@@ -364,6 +369,7 @@ class Dispatcher:
         if session.profile_id is None or session.mode in (None, HelloMode.REFUSED):
             return
         mode = cast(HelloMode, session.mode)
+        self._withdraw_oversize(session.profile_id)
         send = replay_events if session.replay_pending else deliver
         session.replay_pending = False
         send(
@@ -373,6 +379,16 @@ class Dispatcher:
             store=self._store,
             transport=self._transport,
         )
+
+    def _withdraw_oversize(self, profile_id: ProfileId) -> None:
+        for job in fail_oversize_offers(
+            profile_id,
+            store=self._store,
+            transport=self._transport,
+            clock=self._clock,
+            ids=self._ids,
+        ):
+            log.error("batch.oversize", job_id=job.job_id, batch_id=job.batch_id)
 
     # --- Writer standing ---
 
@@ -658,6 +674,7 @@ class Dispatcher:
 
     def _events_replay(self, message: m.EventsReplay, session: Session) -> Outcome:
         session.replay_pending = False
+        self._withdraw_oversize(_profile(session))
         count = replay_events(
             _profile(session),
             mode=cast(HelloMode, session.mode),
