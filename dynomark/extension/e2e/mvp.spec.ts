@@ -2,7 +2,9 @@
 // mvp.spec.ts -- the MVP extension flows end to end in Chromium, against the
 // fake native host: an ask round trip through the chat surface (opened from
 // the omnibox's Ask fall-through) with "why here", "file this" and a citation
-// that opens in one click; a diff proposed, read and accepted one item at a
+// that opens in one click; PARTIAL and REJECTED batches and FAILED jobs shown
+// in chat with Retry (design, Transport contract: they "surface in chat and
+// the diff view"; State Machine: FAILED -> QUEUED from chat); a diff proposed, read and accepted one item at a
 // time, its batch applied and its state shown, and a folder pinned; the
 // writer-conflict banner, with a batch refused while the conflict stands;
 // background-tab capture of a save no tab shows (a real page on 127.0.0.1);
@@ -88,6 +90,45 @@ test('Given no hit, When the omnibox Enter asks, Then the chat surface opens wit
   await expect
     .poll(() => page.evaluate(async () => (await chrome.tabs.query({})).map((t) => t.url ?? t.pendingUrl)))
     .toContain(CITED.identity);
+});
+
+test('Given a PARTIAL and a REJECTED batch and a FAILED job, When the chat surface opens, Then it lists them, and Retry there sends job.retry', async ({
+  ext,
+}) => {
+  ext.daemon.batches = [
+    { batch_id: 'batch-p', state: 'PARTIAL', created_at: 1_790_000_000_000, identity: 'https://serde.rs/' },
+    { batch_id: 'batch-r', state: 'REJECTED', created_at: 1_790_000_001_000, identity: 'https://tokio.rs/' },
+    { batch_id: 'batch-a', state: 'APPLIED', created_at: 1_790_000_002_000, identity: 'https://ok.example/' },
+  ];
+  ext.daemon.failedJobs = [
+    {
+      job_id: 'job-9',
+      node_id: '42',
+      identity: 'https://serde.rs/',
+      state: 'FAILED',
+      seq: 3,
+      attempts: 3,
+      backfill: false,
+      last_error: 'boundary',
+    },
+  ];
+  ext.daemon.extra = (r) =>
+    r.type === 'job.retry'
+      ? { v: 1, type: 'job.retry.result', re: r.id, job: { ...ext.daemon.failedJobs[0]!, state: 'QUEUED', seq: 4 } }
+      : undefined;
+  await ext.daemon.waitFor(ofType('index.pull'));
+
+  const chat = await ext.extensionPage('chat.html');
+
+  const attention = chat.locator('#attention');
+  await expect(attention).toContainText('batch-p');
+  await expect(attention).toContainText('PARTIAL');
+  await expect(attention).toContainText('batch-r');
+  await expect(attention).toContainText('REJECTED');
+  await expect(attention).not.toContainText('batch-a');
+  await chat.locator('button[data-job="job-9"]').click();
+  expect(await ext.daemon.waitFor(ofType('job.retry'))).toMatchObject({ job_id: 'job-9' });
+  await expect(chat.locator('#message')).toContainText('queued');
 });
 
 test('Given an audit diff, When it is proposed, read and one item accepted in the diff view, Then its batch is applied across the boundary and the item shows APPLIED; a folder can be pinned', async ({
