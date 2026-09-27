@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from typing import Final, TypeVar
 
 from dynomark_daemon.domain.batch import BatchRecord
-from dynomark_daemon.domain.bookmark import CorpusEntry, Identity
+from dynomark_daemon.domain.bookmark import CorpusEntry, Identity, Save
 from dynomark_daemon.domain.diff import DiffItem, TreeDiff
 from dynomark_daemon.domain.ids import (
     BatchId,
@@ -79,6 +79,7 @@ class InMemoryCorpusStore:
         self._entries: dict[Identity, CorpusEntry] = {}
         self._placements: dict[Identity, Placement] = {}
         self._jobs: dict[JobId, Job] = {}
+        self._saves: dict[JobId, Save] = {}
         self._batches: dict[BatchId, BatchRecord] = {}
         self._latest_tree: Snapshot | None = None
         self._snapshots: dict[SnapshotId, Snapshot] = {}
@@ -157,6 +158,12 @@ class InMemoryCorpusStore:
 
     def list_jobs(self, *, state: JobState | None = None) -> list[Job]:
         return [j for j in self._jobs.values() if state is None or j.state == state]
+
+    def put_save(self, job_id: JobId, save: Save) -> None:
+        self._saves[job_id] = save
+
+    def get_save(self, job_id: JobId) -> Save | None:
+        return self._saves.get(job_id)
 
     # --- Batches ---
 

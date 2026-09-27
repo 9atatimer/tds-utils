@@ -165,6 +165,14 @@ class Capture:
 
 
 @dataclass(frozen=True, slots=True)
+class Save:
+    """What one ingest brings: the bookmark as saved and its capture."""
+
+    bookmark: Bookmark
+    capture: Capture
+
+
+@dataclass(frozen=True, slots=True)
 class Embedding:
     """A vector plus the id of the model that produced it."""
 

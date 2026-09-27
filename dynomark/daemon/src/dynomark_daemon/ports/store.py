@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from typing import Protocol
 
 from dynomark_daemon.domain.batch import BatchRecord
-from dynomark_daemon.domain.bookmark import CorpusEntry, Identity
+from dynomark_daemon.domain.bookmark import CorpusEntry, Identity, Save
 from dynomark_daemon.domain.diff import DiffItem, TreeDiff
 from dynomark_daemon.domain.ids import (
     BatchId,
@@ -79,6 +79,12 @@ class CorpusStorePort(Protocol):
     def list_jobs(self, *, state: JobState | None = None) -> list[Job]:
         """Jobs in first-insertion order, optionally in one state."""
         ...
+
+    def put_save(self, job_id: JobId, save: Save) -> None:
+        """Insert or replace the save (bookmark and capture) a job processes."""
+        ...
+
+    def get_save(self, job_id: JobId) -> Save | None: ...
 
     # --- Batches ---
 
