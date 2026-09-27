@@ -13,6 +13,7 @@ from collections.abc import Callable
 import pytest
 
 from dynomark_daemon.app.errors import UnknownRecord
+from dynomark_daemon.app.events import replay_events
 from dynomark_daemon.app.receipt import ReceiptRecorded
 from dynomark_daemon.domain.batch import (
     BatchReceipt,
@@ -29,10 +30,12 @@ from dynomark_daemon.domain.batch import (
     RejectReason,
     SkipReason,
 )
-from dynomark_daemon.domain.events import JobUpdated
+from dynomark_daemon.domain.connection import HelloMode
+from dynomark_daemon.domain.events import BatchOffered, JobUpdated
 from dynomark_daemon.domain.ids import BatchId, NodeId
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.testing.store import InMemoryCorpusStore
+from dynomark_daemon.testing.transport import RecordingTransport
 from tests._factories import make_path
 from tests.unit.app._filed import CREATED, MOVED, RUST, TREE, Daemon
 
@@ -222,6 +225,36 @@ def test_a_receipt_resent_after_a_kill_mid_recording_files_the_job() -> None:
     assert again.first is False
     assert daemon.job_now().state is JobState.FILED
     assert again.job == daemon.job_now()
+
+
+def _replayed_offers(daemon: Daemon) -> list[BatchId]:
+    """The batches whose offers a restarted daemon replays on the next hello."""
+    transport = RecordingTransport()
+    replay_events(
+        daemon.job.profile_id,
+        mode=HelloMode.FULL,
+        offers_ready=True,
+        store=daemon.store,
+        transport=transport,
+    )
+    return [
+        e.batch.batch_id
+        for e in transport.events_for(daemon.job.profile_id)
+        if isinstance(e, BatchOffered)
+    ]
+
+
+@pytest.mark.parametrize("receipt", [_applied, _partial], ids=["applied", "partial"])
+def test_a_kill_mid_receipt_leaves_the_offer_to_replay(
+    receipt: Callable[[Daemon], BatchReceipt],
+) -> None:
+    """Given the daemon was killed after a receipt's batch row was recorded and
+    before its job changed, When it restarts and replays on the next hello,
+    Then the batch's offer is re-sent, so the extension answers it again from
+    its cursor instead of the job staying PLACED with nothing to replay."""
+    daemon = _killed_mid_receipt(receipt)
+
+    assert daemon.batch.batch_id in _replayed_offers(daemon)
 
 
 def test_a_partial_receipt_resent_after_a_kill_fails_the_job_with_one_inverse() -> None:
