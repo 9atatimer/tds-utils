@@ -1,6 +1,7 @@
 """A daemon's job loop over faked ports, shared by the run_job suites."""
 
 from dynomark_daemon.app.ingest import ingest
+from dynomark_daemon.app.loop import due_jobs
 from dynomark_daemon.app.run import run_job
 from dynomark_daemon.domain.bookmark import Enrichment
 from dynomark_daemon.domain.ids import ProfileId
@@ -38,8 +39,13 @@ ENRICHMENT = Enrichment(summary="An async runtime.", tags=("rust",))
 class Loop:
     """One daemon's ports, faked, and the job loop's step over them."""
 
-    def __init__(self, completion: ScriptedCompletion, tree: Snapshot | None) -> None:
-        self.store = InMemoryCorpusStore()
+    def __init__(
+        self,
+        completion: ScriptedCompletion,
+        tree: Snapshot | None,
+        store: InMemoryCorpusStore | None = None,
+    ) -> None:
+        self.store = store or InMemoryCorpusStore()
         self.completion = completion
         self.clock, self.ids = FakeClock(start_ms=1_000), SequentialIds()
         if tree is not None:
@@ -78,6 +84,11 @@ class Loop:
             ids=self.ids,
             conflict=conflict,
         )
+
+    def run_due(self) -> list[Job]:
+        """What a restarted daemon's loop does: run every job due now."""
+        schedule = due_jobs(POLICY, self.clock.now_ms(), store=self.store)
+        return [self.run(job) for job in schedule.due]
 
     def events(self) -> list[object]:
         return [p.event for p in self.store.unacked_events(PROFILE)]
