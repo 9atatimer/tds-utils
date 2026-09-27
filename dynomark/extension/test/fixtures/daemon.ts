@@ -1,7 +1,8 @@
 // daemon.ts -- a scripted daemon end for FakeTransport: answers every request
 // the way a contract v1 daemon would for the connection lifecycle (hello,
 // tree.snapshot, events.replay, events.ack, index.pull, batch.receipt,
-// ingest, move.observed), with the hello.result a test chooses.
+// ingest, move.observed, status, writer.status with no conflict), with the
+// hello.result a test chooses.
 
 import type { HostRole, ConnectionMode } from '../../src/domain/roles.js';
 import type { OwnedRoots } from '../../src/domain/tree.js';
@@ -59,6 +60,17 @@ export function scriptedDaemon(hello: HelloAnswer = {}): (r: RequestMessage) => 
         };
       case 'search':
         return { v: 1, type: 'search.result', re: r.id, hits: [], next_cursor: null };
+      case 'writer.status':
+        return {
+          v: 1,
+          type: 'writer.status.result',
+          re: r.id,
+          role: hello.role ?? 'writer',
+          host_id: hello.host_id ?? 'mbp',
+          own_marker: true,
+          other_writers: [],
+          conflict: false,
+        };
       case 'ingest': {
         const job = {
           job_id: `job-${r.bookmark.node_id}`,

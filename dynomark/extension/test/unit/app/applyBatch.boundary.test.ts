@@ -173,6 +173,19 @@ describe('Ownership boundary -- what is admitted', () => {
     expect(await w.tree.getNode(ids.usersOwn)).toMatchObject({ parent_id: ids.rust });
   });
 
+  it('Given the daemon reported a writer conflict, When a batch arrives with no marker in the tree, Then it is still REJECTED writer_conflict', async () => {
+    const { w } = await world();
+    const before = await w.tree.readTree();
+    const receipt = await applyBatch(
+      batch([{ op: 'create_folder', index: 0, parent: DYNOMARK, title: 'Go' }]),
+      { ...CONTEXT, writer_conflict: true },
+      w.worker(),
+    );
+    expect(receipt).toMatchObject({ state: 'REJECTED', reason: 'writer_conflict' });
+    expect(await w.tree.readTree()).toEqual(before);
+    expect(await w.storage.loadCursor()).toBeUndefined();
+  });
+
   it("Given this host's own writer marker in Dynomark, When a batch arrives, Then it is applied", async () => {
     const { w, ids } = await world();
     await w.tree.createFolder(ids.dynomark, 'dynomark-writer:mbp');
