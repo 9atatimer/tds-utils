@@ -240,6 +240,32 @@ def test_knn_candidates_placed_only_skips_unplaced_entries(
     assert [c.identity.value for c in found] == ["https://placed.example/"]
 
 
+def _nearest(store: CorpusStorePort, *, placed_only: bool = False) -> list[str]:
+    found = store.knn_candidates((1.0, 0.0), limit=5, placed_only=placed_only)
+    return [c.identity.value for c in found]
+
+
+def test_knn_candidates_follow_every_write_immediately(
+    store: CorpusStorePort,
+) -> None:
+    """Given KNN already asked once, When an entry is added, a vector replaced
+    and an entry placed, Then each next KNN reflects that write at once."""
+    a, b, c = "https://a.example/", "https://b.example/", "https://c.example/"
+    store.put_entry(make_entry(a, vector=(1.0, 0.0)))
+    store.put_entry(make_entry(b, vector=(0.6, 0.8)))
+    assert _nearest(store) == [a, b]
+
+    store.put_entry(make_entry(a, vector=(0.0, 1.0)))
+    assert _nearest(store) == [b, a]
+
+    store.put_entry(make_entry(c, vector=(1.0, 0.0)))
+    assert _nearest(store) == [c, b, a]
+    assert _nearest(store, placed_only=True) == []
+
+    store.put_placement(make_placement(a))
+    assert _nearest(store, placed_only=True) == [a]
+
+
 # --- Jobs ---
 
 

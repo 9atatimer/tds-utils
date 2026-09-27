@@ -148,6 +148,84 @@ def test_vectors_are_kept_at_float32_precision(tmp_path: Path) -> None:
     assert nearest.identity == entry.identity and round(nearest.score, 6) == 1.0
 
 
+def _traced_store(db: Path, statements: list[str]) -> SqliteCorpusStore:
+    """A store over a connection whose every statement lands in ``statements``."""
+    SqliteCorpusStore.open(db).close()
+    connection = sqlite3.connect(db, isolation_level=None, check_same_thread=False)
+    connection.set_trace_callback(statements.append)
+    return SqliteCorpusStore(connection, db, read_only=False)
+
+
+def _nearest(store: SqliteCorpusStore, *, placed_only: bool = False) -> list[str]:
+    found = store.knn_candidates((1.0, 0.0), limit=5, placed_only=placed_only)
+    return [c.identity.value for c in found]
+
+
+def test_knn_reads_the_vectors_from_the_file_only_once(tmp_path: Path) -> None:
+    """Given KNN asked once, When it is asked again (placed or not) and after a
+    write, Then no statement reads a vector blob back from the file (Goal 4
+    tier 2: the fetch and unpack of every vector is not paid per query)."""
+    statements: list[str] = []
+    store = _traced_store(tmp_path / "corpus.sqlite3", statements)
+    store.put_entry(make_entry("https://a.example/", vector=(1.0, 0.0)))
+    store.put_placement(make_placement("https://a.example/"))
+    _nearest(store)
+    statements.clear()
+
+    store.put_entry(make_entry("https://b.example/", vector=(0.6, 0.8)))
+    statements.clear()
+    unplaced, placed = _nearest(store), _nearest(store, placed_only=True)
+
+    assert (unplaced, placed) == (
+        ["https://a.example/", "https://b.example/"],
+        ["https://a.example/"],
+    )
+    assert not [s for s in statements if "vector" in s.lower()]
+
+
+def test_knn_follows_writes_made_through_another_connection(tmp_path: Path) -> None:
+    """Given a read-only store that has answered KNN, When another connection
+    replaces a vector, deletes an entry and places one, Then the reader's next
+    KNN reflects each change (the check command beside a running daemon)."""
+    db = tmp_path / "corpus.sqlite3"
+    writer = SqliteCorpusStore.open(db)
+    writer.put_entry(make_entry("https://a.example/", vector=(1.0, 0.0)))
+    writer.put_entry(make_entry("https://b.example/", vector=(0.6, 0.8)))
+    reader = SqliteCorpusStore.open(db, read_only=True)
+    assert _nearest(reader) == ["https://a.example/", "https://b.example/"]
+
+    writer.put_entry(make_entry("https://a.example/", vector=(0.0, 1.0)))
+    assert _nearest(reader) == ["https://b.example/", "https://a.example/"]
+
+    with sqlite3.connect(db) as raw:
+        raw.execute("DELETE FROM entries WHERE identity = 'https://b.example/'")
+    assert _nearest(reader) == ["https://a.example/"]
+    assert _nearest(reader, placed_only=True) == []
+
+    writer.put_placement(make_placement("https://a.example/"))
+    assert _nearest(reader, placed_only=True) == ["https://a.example/"]
+
+
+def test_a_failed_replace_leaves_knn_on_the_committed_vector(tmp_path: Path) -> None:
+    """Given KNN asked once, When replacing an entry's vector fails inside its
+    transaction, Then KNN still ranks by the vector that was committed."""
+    db = tmp_path / "corpus.sqlite3"
+    store = SqliteCorpusStore.open(db)
+    store.put_entry(make_entry("https://a.example/", vector=(1.0, 0.0)))
+    store.put_entry(make_entry("https://b.example/", vector=(0.6, 0.8)))
+    assert _nearest(store) == ["https://a.example/", "https://b.example/"]
+    with sqlite3.connect(db) as raw:
+        raw.execute(
+            "CREATE TRIGGER refuse AFTER UPDATE ON entries"
+            " BEGIN SELECT RAISE(ABORT, 'refused'); END"
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="refused"):
+        store.put_entry(make_entry("https://a.example/", vector=(0.0, 1.0)))
+
+    assert _nearest(store) == ["https://a.example/", "https://b.example/"]
+
+
 def test_health_counts_entries_and_jobs_and_checks_integrity(tmp_path: Path) -> None:
     """Given a store with one entry and two jobs, When its health is read, Then
     it reports the schema version, the counts and an ok integrity check."""
