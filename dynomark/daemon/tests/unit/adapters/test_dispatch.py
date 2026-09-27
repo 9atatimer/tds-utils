@@ -39,8 +39,10 @@ from tests._factories import (
     make_capture,
     make_config,
     make_entry,
+    make_node,
     make_path,
     make_roots,
+    make_tree,
 )
 
 A = ProfileId("profile-a")
@@ -268,25 +270,6 @@ def test_a_foreign_cursor_is_stale() -> None:
     )
 
     assert _error(reply) == ("p-1", "stale_cursor")
-
-
-@pytest.mark.parametrize(
-    ("message_type", "fields"),
-    [
-        ("writer.status", {}),
-    ],
-)
-def test_a_request_this_daemon_does_not_serve_yet_is_invalid(
-    message_type: str, fields: dict[str, object]
-) -> None:
-    """Given a full connection, When an MVP request arrives, Then it is still
-    answered: error invalid naming what is not served."""
-    harness = Harness()
-    harness.hello()
-
-    reply = harness.send(wire.body(message_type, "x-1", **fields))
-
-    assert _error(reply) == ("x-1", "invalid")
 
 
 class _BrokenStore(InMemoryCorpusStore):
@@ -596,3 +579,79 @@ def test_folder_flags_set_on_a_reader_connection_is_not_writer() -> None:
     )
 
     assert _error(reply) == ("f-1", "not_writer")
+
+
+# --- Writer marker (task-030) ---
+
+OTHER_MARKER = make_tree(
+    *[n for n in wire.TREE.nodes[3:] if n.node_id != "13"],
+    make_node("15", "11", "dynomark-writer:work-laptop", index=1),
+)
+
+
+def test_the_first_snapshot_of_a_fresh_tree_offers_the_writer_marker() -> None:
+    """Given a writer connection, When its first snapshot has no Dynomark, Then
+    a batch creating Dynomark and this host's marker is offered."""
+    harness = Harness()
+    harness.hello()
+
+    harness.send(
+        wire.tree_snapshot("t-1", make_tree(make_node("10", "1", "Follow Up")))
+    )
+
+    (offer,) = [
+        e for e in harness.transport.events_for(A) if isinstance(e, BatchOffered)
+    ]
+    titles = [getattr(op, "title", None) for op in offer.batch.operations]
+    assert titles == ["Dynomark", "dynomark-writer:mbp"]
+
+
+def test_writer_status_reports_another_hosts_marker_as_a_conflict() -> None:
+    """Given a writer whose tree holds another host's marker, When writer.status
+    arrives, Then the answer names it and says conflict."""
+    harness = Harness()
+    harness.hello()
+    harness.send(wire.tree_snapshot("t-1", OTHER_MARKER))
+
+    reply = harness.send(wire.body("writer.status", "w-1"))
+
+    assert isinstance(reply, m.WriterStatusResult)
+    assert (reply.role, reply.host_id, reply.own_marker) == ("writer", "mbp", False)
+    assert (reply.other_writers, reply.conflict) == (["work-laptop"], True)
+
+
+@pytest.mark.parametrize(
+    ("message_type", "fields"),
+    [
+        ("undo", {"batch_id": "batch-1"}),
+        ("diff.accept", {"item_id": "item-1"}),
+        ("folder.flags.set", {"node_id": "14", "locked": True}),
+    ],
+)
+def test_a_writer_in_conflict_refuses_writes_with_writer_conflict(
+    message_type: str, fields: dict[str, object]
+) -> None:
+    """Given a writer that sees another host's marker, When undo, diff.accept or
+    folder.flags.set arrives, Then it is answered writer_conflict."""
+    harness = Harness()
+    harness.hello()
+    harness.send(wire.tree_snapshot("t-1", OTHER_MARKER))
+
+    reply = harness.send(wire.body(message_type, "x-1", **fields))
+
+    assert _error(reply) == ("x-1", "writer_conflict")
+
+
+def test_a_writer_in_conflict_offers_no_batch() -> None:
+    """Given a filed job's batch waiting, When the connection's snapshot holds
+    another host's marker, Then no batch.offer is sent."""
+    harness = Harness()
+    harness.hello()
+    harness.store.put_tree_snapshot(wire.TREE)
+    harness.ingest()
+    _placed_job(harness)
+
+    harness.send(wire.tree_snapshot("t-1", OTHER_MARKER))
+
+    offers = [e for e in harness.transport.events_for(A) if isinstance(e, BatchOffered)]
+    assert offers == []

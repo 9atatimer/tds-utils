@@ -25,8 +25,10 @@ TREE: Final = make_tree(
     make_node("11", "1", "Dynomark", index=1),
     make_node("12", "1", "Graveyard", index=2),
     make_node("14", "11", "Rust"),
+    make_node("13", "11", "dynomark-writer:mbp", index=1),
     make_node("42", "10", "Tokio tutorial", url=URL),
 )
+"""An established writer's tree: host ``mbp``'s marker is in Dynomark."""
 
 
 def body(message_type: str, request_id: str, **fields: object) -> bytes:

@@ -7,6 +7,7 @@ from dynomark_daemon.domain.ids import ProfileId
 from dynomark_daemon.domain.job import Job, RetryPolicy
 from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.domain.tree import FolderPath, Snapshot
+from dynomark_daemon.domain.writer import WriterConflict
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.completion import ScriptedCompletion
 from dynomark_daemon.testing.content import FakeFetch
@@ -55,7 +56,13 @@ class Loop:
             ids=self.ids,
         )
 
-    def run(self, job: Job, role: HostRole = HostRole.WRITER) -> Job:
+    def run(
+        self,
+        job: Job,
+        role: HostRole = HostRole.WRITER,
+        *,
+        conflict: WriterConflict | None = None,
+    ) -> Job:
         current = self.store.get_job(job.job_id)
         assert current is not None
         return run_job(
@@ -69,6 +76,7 @@ class Loop:
             completion=self.completion,
             clock=self.clock,
             ids=self.ids,
+            conflict=conflict,
         )
 
     def events(self) -> list[object]:
