@@ -54,3 +54,8 @@ export type PageResponse =
   | { readonly ok: true; readonly kind: 'job.list'; readonly jobs: readonly Job[]; readonly next_cursor: Cursor | null }
   | { readonly ok: true; readonly kind: 'job.retry'; readonly job: Job }
   | { readonly ok: false; readonly error: string; readonly code?: ErrorCode };
+
+/** How a page asks the background. */
+export interface PageClient {
+  request(request: PageRequest): Promise<PageResponse>;
+}

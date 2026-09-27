@@ -45,7 +45,8 @@ const LEGACY_ROOT_IDS: RootIds = { bar: '1', other: '2', mobile: '3' };
 
 // --- Pure helpers ---
 
-function toSnapshotNode(node: ChromeBookmarkNode): SnapshotNode {
+/** One chrome.bookmarks node as the domain's SnapshotNode (whole-ms date_added; a url makes it a bookmark). */
+export function toSnapshotNode(node: ChromeBookmarkNode): SnapshotNode {
   const base = {
     id: node.id,
     parent_id: node.parentId ?? null,
