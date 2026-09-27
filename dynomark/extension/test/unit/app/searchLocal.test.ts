@@ -2,8 +2,9 @@
 // search_local(query, index, frecency) -> list[Hit]. Title matches form a
 // hard tier above path, tag and summary matches; within a tier, fuzzy score
 // then frecency (design, "The extension"); an entry filed under the owned
-// Dynomark folder gets a bonus (task-024); no transport call. Given 10,000
-// entries, the call is within Goal 4's tier-1 bound (20 ms P95).
+// Dynomark folder gets a bonus (task-024); no transport call. Goal 4's
+// tier-1 bound (20 ms P95 at 10,000 entries) is timed in test/perf, a tier
+// run serially after this one.
 
 import { describe, expect, it } from 'vitest';
 import { searchLocal } from '../../../src/app/searchLocal.js';
@@ -111,59 +112,5 @@ describe('Behavior: Tier-1 search -- searchLocal(query, index, frecency)', () =>
     const hits = searchLocal('rust', index, frecency, { limit: 5 });
     expect(hits).toHaveLength(5);
     expect(hits[0]?.identity).toBe('https://e7.example/');
-  });
-});
-
-// --- Goal 4 bound ---
-
-const ENTRIES = 10_000;
-const BUDGET_MS = 20;
-const RUNS = 21;
-/** A fixed CPU workload this runner must finish within its budget for the perf claim to be meaningful here. */
-const CALIBRATION_BUDGET_MS = 25;
-
-function bigIndex(): LocalIndexRow[] {
-  const words = ['async', 'rust', 'tokio', 'serde', 'python', 'kernel', 'bookmarks', 'design', 'review', 'garden', 'cloud', 'budget'];
-  return Array.from({ length: ENTRIES }, (_, i) => {
-    const w = (k: number) => words[(i * 7 + k * 3) % words.length] ?? 'x';
-    return row(`e${i}.example`, `${w(0)} ${w(1)} notes ${i}`, {
-      path: i % 2 === 0 ? FILED : ELSEWHERE,
-      tags: [w(2), w(3)],
-      summary: `A page about ${w(4)} and ${w(5)} with ${w(6)}; entry ${i} of the corpus, kept for later reading.`.repeat(3),
-    });
-  });
-}
-
-function calibrationMs(): number {
-  const text = 'the quick brown fox jumps over the lazy dog '.repeat(50_000);
-  const start = performance.now();
-  let found = 0;
-  for (let i = 0; i < 10; i += 1) found += text.toLowerCase().indexOf(`zebra${i}`);
-  if (found === 0) throw new Error('unreachable: calibration result is used');
-  return performance.now() - start;
-}
-
-function p95(samples: number[]): number {
-  const sorted = [...samples].sort((a, b) => a - b);
-  return sorted[Math.ceil(sorted.length * 0.95) - 1] ?? Number.POSITIVE_INFINITY;
-}
-
-describe('Goal 4: tier-1 suggestions within 20 ms (P95) at 10,000 entries', () => {
-  it('Given 10,000 entries, When queried repeatedly, Then the P95 call time is within the budget (skipped on a runner too slow to measure it)', (ctx) => {
-    const index = bigIndex();
-    const frecency: Frecency = new Map(index.slice(0, 2000).map((r, i) => [r.identity, i]));
-    const queries = ['tokio', 'async rust', 'serde notes', 'kernl', 'budget cloud', 'garden 42', 'bookmarks design'];
-    // Warm-up: one pass over every query, so the JIT has compiled the path being measured (steady state, as on every keystroke).
-    for (const q of [...queries, ...queries]) searchLocal(q, index, frecency, { owned_roots: ROOTS });
-    const samples = Array.from({ length: RUNS }, (_, i) => {
-      const start = performance.now();
-      searchLocal(queries[i % queries.length] ?? 'rust', index, frecency, { owned_roots: ROOTS });
-      return performance.now() - start;
-    });
-    const observed = p95(samples);
-    if (observed > BUDGET_MS && calibrationMs() > CALIBRATION_BUDGET_MS) {
-      ctx.skip(`runner too slow to measure Goal 4: P95 ${observed.toFixed(1)} ms, calibration over ${CALIBRATION_BUDGET_MS} ms`);
-    }
-    expect(observed).toBeLessThanOrEqual(BUDGET_MS);
   });
 });

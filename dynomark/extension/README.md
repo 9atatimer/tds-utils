@@ -68,7 +68,8 @@ npm run typecheck && npm run format:check && npm test && npm run build && npm ru
 
 | Tier        | Where                                     | Runs                                                                                               |
 | ----------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| unit        | `test/unit`, `test/contract`, `test/arch` | `npm test`: fakes and small chrome.* stubs, no I/O                                                 |
+| unit        | `test/unit`, `test/contract`, `test/arch` | `npm test` (first, shuffled): fakes and small chrome.* stubs, no I/O                               |
+| perf        | `test/perf`                               | `npm test` (then, one file at a time): Goal 4's tier-1 bound                                       |
 | integration | `test/integration`                        | `npm run e2e` (first half): the port contract suites against the real chrome adapters in Chromium  |
 | e2e         | `e2e/`                                    | `npm run e2e` (second half, Playwright): the built extension against a fake native host and daemon |
 

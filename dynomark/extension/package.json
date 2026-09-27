@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/postbuild.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --sequence.shuffle",
+    "test": "vitest run --sequence.shuffle && vitest run --config vitest.perf.config.ts",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
     "e2e": "vitest run --config vitest.integration.config.ts && playwright test"
