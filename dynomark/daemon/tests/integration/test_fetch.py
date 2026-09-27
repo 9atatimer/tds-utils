@@ -5,6 +5,7 @@ Security Considerations, "Daemon-side fetch"). A local ``http.server`` on
 """
 
 import threading
+import time
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -21,6 +22,8 @@ pytestmark = pytest.mark.integration
 
 PAGES = Path(__file__).resolve().parents[1] / "fixtures" / "pages"
 RELEASE_TIMEOUT_S = 5.0
+DRIP_S = 0.1
+DRIP_BYTES = 60
 
 
 class _Site(BaseHTTPRequestHandler):
@@ -63,6 +66,7 @@ class _Site(BaseHTTPRequestHandler):
                 "text/html; charset=iso-8859-1",
             ),
             "/stall": self._stall,
+            "/drip": self._drip,
         }
         route = routes.get(self.path)
         if route is not None:
@@ -76,6 +80,18 @@ class _Site(BaseHTTPRequestHandler):
 
     def _stall(self) -> None:
         type(self).release.wait(RELEASE_TIMEOUT_S)
+
+    def _drip(self) -> None:
+        """A page that never stalls long enough to time out one read: a byte
+        every ``DRIP_S`` for ``DRIP_BYTES`` bytes."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
+        self.end_headers()
+        for _ in range(DRIP_BYTES):
+            if type(self).release.wait(DRIP_S):
+                return
+            self.wfile.write(b"x")
+            self.wfile.flush()
 
 
 class _Server(ThreadingHTTPServer):
@@ -172,6 +188,19 @@ def test_fetch_times_out_on_a_silent_server(site: str) -> None:
         _fetch(timeout_s=0.2).read(make_bookmark(f"{site}/stall"))
 
     assert raised.value.retryable is True
+
+
+def test_fetch_gives_up_on_a_page_that_trickles_past_its_timeout(site: str) -> None:
+    """Given a server that sends a byte every 0.1 s for 6 s, When read with a
+    0.5 s timeout, Then ContentUnavailable (retryable) well before the page
+    ends: the timeout bounds the whole fetch, not each read."""
+    started = time.monotonic()
+    with pytest.raises(ContentUnavailable) as raised:
+        _fetch(timeout_s=0.5, max_bytes=1_000).read(make_bookmark(f"{site}/drip"))
+    elapsed = time.monotonic() - started
+
+    assert raised.value.retryable is True
+    assert elapsed < DRIP_S * DRIP_BYTES / 2
 
 
 def test_fetch_reads_at_most_max_bytes(site: str) -> None:
