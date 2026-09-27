@@ -184,15 +184,16 @@ If NEW is switched before the old marker is gone, it reports the conflict
   Migrations are versioned in code (`MIGRATIONS`, `PRAGMA user_version`);
   a newer schema is refused. `index.pull` pages by entry position (kept
   on replace), so its cursor is compact and survives data changes.
-- Transport: asyncio, one loop; the use cases stay synchronous. The job
-  loop is a thread that wakes on ingest, retry and snapshot, and asks the
-  server to deliver events. Frames: 32 MiB in, 1 MiB out (pages shrink to
-  fit; an oversize answer becomes `error` `internal`).
+- Transport: asyncio, one loop that only moves bytes; the use cases stay
+  synchronous and run off it. One lane thread serves every frame and every
+  event delivery in arrival order (a connection's answers stay in order);
+  `ask`, `search` and `diff.propose` are admitted on the lane and then run
+  on a small model pool, so a slow completion delays only its own answer.
+  The job loop is a thread that wakes on ingest, retry and snapshot, and
+  asks the server to deliver events. Frames: 32 MiB in, 1 MiB out (pages
+  shrink to fit; an oversize answer becomes `error` `internal`).
 - Fetch: urllib with no cookie handler and no proxy, http(s) only (also on
   redirect), size-capped; readable text via `html.parser` (article, then
   main, then body; no script, style, nav, header, footer).
 - Ollama: `/api/embed`, `/api/generate` with `format: json`; strict
   parsing, an unparseable answer is a retryable error.
-- Model calls on the socket: `ask`, `diff.propose` and `search` call the
-  models from the socket's event loop, so a slow completion delays other
-  connections' answers and event delivery until it returns.

@@ -16,6 +16,7 @@ recorded on it, and then every unacknowledged event is re-sent once.
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Final, TypeVar, cast
 
 import structlog
@@ -121,6 +122,11 @@ log = structlog.get_logger("dynomark.transport")
 
 V: Final = CONTRACT_VERSION
 MAX_DETAIL: Final = 4096
+MODEL_REQUESTS: Final = frozenset({"ask", "search", "diff.propose"})
+"""Requests whose answer waits on a model call. They change no connection
+state and nothing a later request on the connection depends on, so the
+transport may answer them concurrently with everything else (contract v1:
+responses may arrive in any order)."""
 
 
 # --- Connection standing ---
@@ -150,13 +156,16 @@ class Session:
 
 @dataclass(frozen=True, slots=True)
 class Outcome:
-    """The answer to one frame. ``reply`` ``None`` closes the connection;
+    """The answer to one frame. ``reply`` ``None`` closes the connection --
+    unless ``deferred`` is set: then the answer is ``deferred()``, a model
+    call the transport runs apart from the connection's other requests;
     ``register`` makes this connection its profile's (superseding an older
     one); ``deliver`` asks for ``Dispatcher.deliver`` after the reply."""
 
     reply: m.AnyMessage | None
     register: bool = False
     deliver: bool = False
+    deferred: "Callable[[], Outcome] | None" = None
 
 
 @dataclass
@@ -322,8 +331,12 @@ class Dispatcher:
 
     # --- Entry points ---
 
-    def handle(self, body: bytes, session: Session) -> Outcome:
-        """Answer one frame body received on ``session``'s connection."""
+    def handle(
+        self, body: bytes, session: Session, *, defer_models: bool = False
+    ) -> Outcome:
+        """Answer one frame body received on ``session``'s connection. With
+        ``defer_models``, a request of ``MODEL_REQUESTS`` that passes
+        admission is answered by the returned outcome's ``deferred``."""
         try:
             envelope = peek_envelope(body)
         except MalformedBody as error:
@@ -341,6 +354,8 @@ class Dispatcher:
             return Outcome(_error(error.re, "invalid", str(error)))
         if message.type not in REQUESTS:
             return Outcome(_error(None, "invalid", f"{message.type} is not a request"))
+        if defer_models and message.type in MODEL_REQUESTS:
+            return Outcome(reply=None, deferred=partial(self._serve, message, session))
         return self._serve(message, session)
 
     def deliver(self, session: Session) -> None:

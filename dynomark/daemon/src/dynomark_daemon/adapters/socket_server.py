@@ -2,12 +2,22 @@
 README: Framing, Endpoint; Design: Security Considerations, "the daemon's
 unix socket is owner-only; no TCP port").
 
-asyncio, one event loop: every frame read on a connection is answered by
-the ``Dispatcher`` before the next is read, so a connection's answers go
-out in order and an ``events.replay`` answer follows the events it
-replays. The use cases stay synchronous. The job loop runs on another
-thread and calls ``notify`` when jobs moved; delivery then happens on the
-loop, so events are pushed from one thread only.
+asyncio, one event loop that only moves bytes: no use case, store read or
+model call runs on it, so no connection waits on another's work.
+
+- The lane: one worker thread runs the ``Dispatcher`` for every frame and
+  every event delivery, in arrival order. A connection's next frame is read
+  only after its previous one was answered, so its answers go out in order
+  and an ``events.replay`` answer follows the events it replays.
+- The model pool: a request that waits on a model (``MODEL_REQUESTS``:
+  ``ask``, ``search``, ``diff.propose``) is admitted on the lane, then runs
+  on a pool thread while the connection's later frames are served; its
+  answer goes out when it is ready (contract v1: responses may arrive in any
+  order).
+
+The job loop runs on its own thread and calls ``notify`` when jobs moved;
+delivery then runs on the lane. Frames are written on the loop only: a
+``Connection.send`` from a worker thread is handed to the loop.
 
 Endpoint: the socket's directory is created 0700 when missing, the socket
 is 0600. A socket another daemon still answers on is never taken over; a
@@ -18,12 +28,16 @@ import asyncio
 import os
 import socket
 import stat
+import threading
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
-from typing import Final
+from typing import Final, TypeVar
 
 import structlog
 
-from dynomark_daemon.adapters.dispatch import Dispatcher, Session
+from dynomark_daemon.adapters.dispatch import Dispatcher, Outcome, Session
 from dynomark_daemon.adapters.framing import (
     MAX_INBOUND,
     MAX_OUTBOUND,
@@ -44,6 +58,10 @@ log = structlog.get_logger("dynomark.transport")
 
 DIR_MODE: Final = 0o700
 SOCKET_MODE: Final = 0o600
+MODEL_THREADS: Final = 4
+"""Model-backed requests answered at once; more wait for a free thread."""
+
+T = TypeVar("T")
 
 
 class SocketUnavailable(RuntimeError):
@@ -96,13 +114,18 @@ def _is_response(message: m.AnyMessage) -> bool:
 class Connection:
     """One extension connection: its session and its outgoing frames."""
 
-    def __init__(self, writer: asyncio.StreamWriter) -> None:
+    def __init__(
+        self, writer: asyncio.StreamWriter, loop: asyncio.AbstractEventLoop
+    ) -> None:
         self.session = Session()
         self._writer = writer
+        self._loop = loop
+        self._loop_thread = threading.get_ident()
 
     def send(self, message: m.AnyMessage) -> None:
-        """Queue one frame; a frame over 1 MiB is never sent (an answer is
-        replaced by ``error`` ``internal``, an event is dropped and logged)."""
+        """Queue one frame, from any thread (it is written on the loop); a
+        frame over 1 MiB is never sent (an answer is replaced by ``error``
+        ``internal``, an event is dropped and logged)."""
         if self._writer.is_closing():
             return
         body = encode_message(message)
@@ -123,7 +146,14 @@ class Connection:
                     )
                 )
             )
-        self._writer.write(data)
+        if threading.get_ident() == self._loop_thread:
+            self._write(data)
+        elif not self._loop.is_closed():
+            self._loop.call_soon_threadsafe(self._write, data)
+
+    def _write(self, data: bytes) -> None:
+        if not self._writer.is_closing():
+            self._writer.write(data)
 
     async def drain(self) -> None:
         await self._writer.drain()
@@ -175,6 +205,9 @@ class SocketServer:
         self._server: asyncio.Server | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._open: set[Connection] = set()
+        self._lane: ThreadPoolExecutor | None = None
+        self._models: ThreadPoolExecutor | None = None
+        self._answering: set[asyncio.Task[None]] = set()
 
     @property
     def path(self) -> Path:
@@ -188,6 +221,10 @@ class SocketServer:
             SocketUnavailable: the OS refuses the path (too long, no access).
         """
         self._loop = asyncio.get_running_loop()
+        self._lane = ThreadPoolExecutor(1, thread_name_prefix="dynomark-lane")
+        self._models = ThreadPoolExecutor(
+            MODEL_THREADS, thread_name_prefix="dynomark-models"
+        )
         try:
             _claim(self._path)
             self._server = await asyncio.start_unix_server(
@@ -206,20 +243,41 @@ class SocketServer:
         self._server.close()
         for connection in list(self._open):
             connection.close()
+        for task in list(self._answering):
+            task.cancel()
         await self._server.wait_closed()
         self._server = None
+        if self._models is not None:
+            self._models.shutdown(wait=False, cancel_futures=True)
+        if self._lane is not None:
+            await asyncio.to_thread(self._lane.shutdown, wait=True)
         if self._path.exists() and stat.S_ISSOCK(self._path.lstat().st_mode):
             self._path.unlink()
         log.info("server.closed", socket=str(self._path))
 
     def notify(self) -> None:
         """Deliver pending events to every connection; safe from any thread."""
-        if self._loop is not None and not self._loop.is_closed():
-            self._loop.call_soon_threadsafe(self._deliver_all)
+        if self._lane is None:
+            return
+        try:
+            self._lane.submit(self._deliver_all)
+        except RuntimeError:
+            return  # shutting down: the next connection replays them
+
+    async def _on(self, pool: ThreadPoolExecutor | None, work: Callable[[], T]) -> T:
+        """Run ``work`` on ``pool`` (the lane or the model pool), off the loop."""
+        if pool is None or self._loop is None:
+            raise RuntimeError("the server is not started")
+        return await self._loop.run_in_executor(pool, work)
 
     def _deliver_all(self) -> None:
         for connection in self._sessions.connections():
-            self._dispatcher.deliver(connection.session)
+            try:
+                self._dispatcher.deliver(connection.session)
+            except Exception:
+                # Submitted from the job thread, nobody awaits this: log with
+                # the trace, and the connection's next replay re-sends.
+                log.exception("events.deliver_failed")
 
     def _supersede(self, connection: Connection) -> None:
         previous = self._sessions.register(connection)
@@ -239,7 +297,7 @@ class SocketServer:
     async def _serve_connection(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
-        connection = Connection(writer)
+        connection = Connection(writer, asyncio.get_running_loop())
         self._open.add(connection)
         try:
             await self._converse(reader, connection)
@@ -261,12 +319,44 @@ class SocketServer:
                 return
             if body is None:
                 return
-            outcome = self._dispatcher.handle(body, connection.session)
-            if outcome.reply is None:
+            outcome = await self._on(
+                self._lane,
+                partial(
+                    self._dispatcher.handle,
+                    body,
+                    connection.session,
+                    defer_models=True,
+                ),
+            )
+            if outcome.deferred is not None:
+                task = asyncio.create_task(self._answer_later(connection, outcome))
+                self._answering.add(task)
+                task.add_done_callback(self._answering.discard)
+                continue
+            if not await self._reply(connection, outcome):
                 return
-            connection.send(outcome.reply)
-            if outcome.register:
-                self._supersede(connection)
-            if outcome.deliver:
-                self._dispatcher.deliver(connection.session)
-            await connection.drain()
+
+    async def _answer_later(self, connection: Connection, admitted: Outcome) -> None:
+        """Run an admitted model-backed request on the model pool and send its
+        answer when it is ready."""
+        if admitted.deferred is None:
+            return
+        try:
+            outcome = await self._on(self._models, admitted.deferred)
+            await self._reply(connection, outcome)
+        except ConnectionError as error:
+            log.info("connection.lost", detail=str(error))
+
+    async def _reply(self, connection: Connection, outcome: Outcome) -> bool:
+        """Send ``outcome``; whether the connection stays open."""
+        if outcome.reply is None:
+            return False
+        connection.send(outcome.reply)
+        if outcome.register:
+            self._supersede(connection)
+        if outcome.deliver:
+            await self._on(
+                self._lane, partial(self._dispatcher.deliver, connection.session)
+            )
+        await connection.drain()
+        return True
