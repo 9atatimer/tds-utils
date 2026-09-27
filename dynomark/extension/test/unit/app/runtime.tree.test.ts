@@ -240,6 +240,18 @@ describe('An ingest answered with a retryable code on a live link', () => {
     await runtime.idle();
     expect(sentOf(w, 'ingest').filter((r) => r.bookmark.node_id === node.id)).toHaveLength(2);
   });
+
+  it('Given a busy save was resubmitted by a later event and answered, When the backoff passes, Then the pending retry sends nothing more', async () => {
+    const { w, ids, runtime } = await busyOnce();
+    const node = await created(w, runtime, ids.followUp, 'Serde', SERDE_URL);
+    await deliver(runtime, { kind: 'created', node });
+    expect(sentOf(w, 'ingest').filter((r) => r.bookmark.node_id === node.id)).toHaveLength(2);
+
+    await w.timer().advance(10 * RECONNECT_BACKOFF.max_ms);
+    await runtime.idle();
+
+    expect(sentOf(w, 'ingest').filter((r) => r.bookmark.node_id === node.id)).toHaveLength(2);
+  });
 });
 
 describe('Move origin -- only the moves the extension itself issued are origin extension', () => {

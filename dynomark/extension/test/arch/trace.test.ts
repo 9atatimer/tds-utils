@@ -26,6 +26,7 @@ import type { Clock } from '../../src/ports/clock.js';
 import type { ContentSourcePort } from '../../src/ports/contentSource.js';
 import type { IdSource } from '../../src/ports/idSource.js';
 import type { StoragePort } from '../../src/ports/storage.js';
+import type { Timer } from '../../src/ports/timer.js';
 import type { TransportPort } from '../../src/ports/transport.js';
 
 // --- The table, as types ---
@@ -41,7 +42,11 @@ const ROWS = {
     2,
   ],
   'A save is submitted': [
-    submitSave satisfies (bookmark: Bookmark, capture: Capture, deps: Talk & { readonly saves: SubmittedSaves }) => Promise<RequestId>,
+    submitSave satisfies (
+      bookmark: Bookmark,
+      capture: Capture,
+      deps: Talk & { readonly saves: SubmittedSaves; readonly timer: Timer; track(work: Promise<unknown>): void },
+    ) => Promise<RequestId>,
     3,
   ],
   'Tier-1 search': [searchLocal satisfies (query: Query, index: LocalIndex, frecency: Frecency) => Hit[], 3],

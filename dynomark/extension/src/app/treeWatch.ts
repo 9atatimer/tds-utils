@@ -159,7 +159,7 @@ export class TreeWatch {
     }
     const submitted = this.deps.saves.get(bookmark.node_id, bookmark.url)?.outcome !== undefined;
     const content = submitted ? NO_CAPTURE : await this.captureOf(bookmark, options.background);
-    await submitSave(bookmark, content, this.deps);
+    await submitSave(bookmark, content, { ...this.deps, track: (work) => this.context.track(work) });
   }
 
   /** The capture chain the settings and role allow: open tab (setting), background tab (writer, setting), else none. */

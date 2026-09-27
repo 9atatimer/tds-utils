@@ -7,11 +7,13 @@
 
 import { describe, expect, it } from 'vitest';
 import { DaemonError } from '../../../src/app/errors.js';
-import { SubmittedSaves, UrlTooLong, submitSave } from '../../../src/app/submitSave.js';
+import { SubmittedSaves, UrlTooLong, submitSave, type SaveDeps } from '../../../src/app/submitSave.js';
 import type { Capture } from '../../../src/domain/capture.js';
 import type { Bookmark } from '../../../src/domain/tree.js';
 import { IngestSchema, type RequestMessage, type ResponseMessage } from '../../../src/wire/messages.js';
 import { FakeTransport } from '../../fakes/FakeTransport.js';
+import { FakeClock } from '../../fakes/FakeClock.js';
+import { FakeTimer } from '../../fakes/FakeTimer.js';
 import { SequentialIdSource } from '../../fakes/SequentialIdSource.js';
 
 // --- Builders ---
@@ -51,6 +53,17 @@ function jobKeepingDaemon(): { readonly jobs: Map<string, string>; readonly resp
   return { jobs, respond };
 }
 
+/** submitSave's deps over `transport`: fresh ids and saves, a timer on fake time that no test here advances. */
+function saveDeps(transport: FakeTransport): SaveDeps {
+  return {
+    transport,
+    ids: new SequentialIdSource(),
+    saves: new SubmittedSaves(),
+    timer: new FakeTimer(new FakeClock(0)),
+    track: (work) => void work.catch(() => undefined),
+  };
+}
+
 function distinctIds(sent: readonly RequestMessage[]): string[] {
   return [...new Set(sent.map((r) => r.id))];
 }
@@ -62,7 +75,7 @@ describe('Behavior: A save is submitted -- submitSave(bookmark, capture, { trans
     const transport = new FakeTransport();
     const daemon = jobKeepingDaemon();
     transport.autoAnswer(daemon.respond);
-    const deps = { transport, ids: new SequentialIdSource(), saves: new SubmittedSaves() };
+    const deps = saveDeps(transport);
     const first = await submitSave(bookmark(), TAB, deps);
     const second = await submitSave(bookmark(), TAB, deps);
     expect(second).toBe(first);
@@ -73,7 +86,7 @@ describe('Behavior: A save is submitted -- submitSave(bookmark, capture, { trans
   it('Given a submission still in flight, When the same node is submitted again, Then no second frame is sent and both resolve to its id', async () => {
     const transport = new FakeTransport();
     const daemon = jobKeepingDaemon();
-    const deps = { transport, ids: new SequentialIdSource(), saves: new SubmittedSaves() };
+    const deps = saveDeps(transport);
     const first = submitSave(bookmark(), TAB, deps);
     const second = submitSave(bookmark(), { source: 'none', text: '' }, deps);
     const request = await transport.daemon.nextRequest();
@@ -86,7 +99,7 @@ describe('Behavior: A save is submitted -- submitSave(bookmark, capture, { trans
   it('Given two different nodes, When each is submitted, Then each gets its own request id', async () => {
     const transport = new FakeTransport();
     transport.autoAnswer(jobKeepingDaemon().respond);
-    const deps = { transport, ids: new SequentialIdSource(), saves: new SubmittedSaves() };
+    const deps = saveDeps(transport);
     const a = await submitSave(bookmark(), TAB, deps);
     const b = await submitSave(bookmark({ node_id: '43', url: 'https://serde.rs/' }), TAB, deps);
     expect(a).not.toBe(b);
@@ -96,7 +109,7 @@ describe('Behavior: A save is submitted -- submitSave(bookmark, capture, { trans
   it('Given a bookmark and a tab capture, When submitted, Then the frame is a valid contract v1 ingest carrying both, backfill false', async () => {
     const transport = new FakeTransport();
     transport.autoAnswer(jobKeepingDaemon().respond);
-    await submitSave(bookmark(), TAB, { transport, ids: new SequentialIdSource(), saves: new SubmittedSaves() });
+    await submitSave(bookmark(), TAB, saveDeps(transport));
     const frame = IngestSchema.parse(transport.sent[0]);
     expect(frame).toMatchObject({ bookmark: bookmark(), capture: TAB, backfill: false });
   });
@@ -105,7 +118,7 @@ describe('Behavior: A save is submitted -- submitSave(bookmark, capture, { trans
     const transport = new FakeTransport();
     transport.autoAnswer(jobKeepingDaemon().respond);
     const raw = bookmark({ title: 'x'.repeat(5000) + '\uD83E', path: { root: 'bar', names: ['Follow \uDD80Up'] } });
-    await submitSave(raw, TAB, { transport, ids: new SequentialIdSource(), saves: new SubmittedSaves() });
+    await submitSave(raw, TAB, saveDeps(transport));
     const frame = IngestSchema.parse(transport.sent[0]);
     expect(frame.bookmark.title).toBe('x'.repeat(4096));
     expect(frame.bookmark.path.names).toEqual(['Follow �Up']);
@@ -114,15 +127,13 @@ describe('Behavior: A save is submitted -- submitSave(bookmark, capture, { trans
   it('Given a URL over the 65,536 code point cap, When submitted, Then it is not ingested: UrlTooLong and nothing is sent', async () => {
     const transport = new FakeTransport();
     const raw = bookmark({ url: 'https://example.com/' + 'a'.repeat(65_536) });
-    await expect(submitSave(raw, TAB, { transport, ids: new SequentialIdSource(), saves: new SubmittedSaves() })).rejects.toBeInstanceOf(
-      UrlTooLong,
-    );
+    await expect(submitSave(raw, TAB, saveDeps(transport))).rejects.toBeInstanceOf(UrlTooLong);
     expect(transport.sent).toEqual([]);
   });
 
   it('Given the daemon answers error busy, When the node is submitted again, Then it is re-sent with the same request id and body (busy: retry, same id)', async () => {
     const transport = new FakeTransport();
-    const deps = { transport, ids: new SequentialIdSource(), saves: new SubmittedSaves() };
+    const deps = saveDeps(transport);
     transport.autoAnswer((r) => ({ v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' }));
     await expect(submitSave(bookmark(), TAB, deps)).rejects.toMatchObject({ code: 'busy' });
     transport.autoAnswer(jobKeepingDaemon().respond);
@@ -135,7 +146,7 @@ describe('Behavior: A save is submitted -- submitSave(bookmark, capture, { trans
   it('Given the daemon answers error invalid, When submitted, Then it rejects with a DaemonError naming the code', async () => {
     const transport = new FakeTransport();
     transport.autoAnswer((r) => ({ v: 1, type: 'error', re: r.id, code: 'invalid', message: 'bad body' }));
-    const result = submitSave(bookmark(), TAB, { transport, ids: new SequentialIdSource(), saves: new SubmittedSaves() });
+    const result = submitSave(bookmark(), TAB, saveDeps(transport));
     await expect(result).rejects.toBeInstanceOf(DaemonError);
     await expect(result).rejects.toMatchObject({ code: 'invalid' });
   });
