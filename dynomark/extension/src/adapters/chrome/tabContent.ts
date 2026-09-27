@@ -42,7 +42,7 @@ export interface ScriptingApi {
 // --- Constants ---
 
 /** UTF-16 units read from the page: enough for the contract's code-point cap; the domain cuts exactly. */
-const MAX_PAGE_UNITS = MAX_CAPTURE_TEXT * 2;
+export const MAX_PAGE_UNITS = MAX_CAPTURE_TEXT * 2;
 
 // --- Injected (runs in the page; must stay self-contained) ---
 
@@ -55,7 +55,8 @@ export function readPage(maxUnits: number): PageText {
 
 // --- Predicates ---
 
-function isPageText(value: unknown): value is PageText {
+/** True when an injected reader's result has the PageText shape. */
+export function isPageText(value: unknown): value is PageText {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
   return typeof v['title'] === 'string' && typeof v['text'] === 'string';

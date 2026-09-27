@@ -4,6 +4,7 @@
 import { SystemClock } from '../clock.js';
 import { CryptoIdSource } from '../idSource.js';
 import { SystemTimer } from '../timer.js';
+import { ChromeBackgroundTab } from './backgroundTab.js';
 import { ChromeBookmarkTree } from './bookmarkTree.js';
 import { ChromeChatSurface } from './chatSurface.js';
 import { ChromeHistory } from './history.js';
@@ -18,8 +19,7 @@ export function chromePorts() {
     tree: new ChromeBookmarkTree(),
     history: new ChromeHistory(),
     content: new ChromeTabContent(),
-    // The background-tab adapter is not built yet: nothing is opened, the daemon fetches.
-    background: { readTab: () => Promise.resolve(undefined) },
+    background: new ChromeBackgroundTab(),
     storage: new ChromeStorage(),
     transport: new NativeMessagingTransport(),
     clock: new SystemClock(),

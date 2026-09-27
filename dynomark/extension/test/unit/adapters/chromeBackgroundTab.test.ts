@@ -37,6 +37,7 @@ describe('ChromeBackgroundTab', () => {
     const { stub, timer, source } = adapter();
     stub.serve(URL, 'never-loads');
     const read = source.readTab(URL);
+    await timer.advance(0);
     await timer.advance(BACKGROUND_LOAD_TIMEOUT_MS);
     expect(await read).toBeUndefined();
     expect(stub.log).toEqual([`open ${URL} focused=false state=minimized`, `close ${URL}`]);
