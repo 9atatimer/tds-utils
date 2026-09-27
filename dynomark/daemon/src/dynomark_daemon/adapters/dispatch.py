@@ -13,8 +13,15 @@ the session's own ``TransportPort`` (its connection, never a newer one of the
 profile).
 A connection gets a ``batch.offer`` only once a ``tree.snapshot`` was
 recorded on it, and then every unacknowledged event is re-sent once.
+
+A ``diff.propose`` runs on a model-pool thread and is not cancelled when its
+connection drops, so its same-id re-send can arrive while it still runs. One
+id proposes on one thread at a time: the re-send is answered ``busy`` (the
+contract's retry with the same id after backoff), and once the first run
+stored its diff a repeat returns that diff.
 """
 
+import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from functools import partial
@@ -313,6 +320,8 @@ class Dispatcher:
         self._transport = transport
         self._wake = wake
         self._timing = _Timing()
+        self._proposing: set[RequestId] = set()
+        self._proposing_lock = threading.Lock()
         self._handlers: dict[str, Handler] = dict(
             [
                 _on(m.Hello, self._hello),
@@ -783,16 +792,25 @@ class Dispatcher:
     # --- Diffs ---
 
     def _diff_propose(self, message: m.DiffPropose, session: Session) -> Outcome:
-        diff = request_diff(
-            RequestId(message.id),
-            DiffKind(message.kind),
-            session.role,
-            _roots(session),
-            store=self._store,
-            completion=self._completion,
-            clock=self._clock,
-            ids=self._ids,
-        )
+        request_id = RequestId(message.id)
+        with self._proposing_lock:
+            if request_id in self._proposing:
+                raise Busy(f"diff.propose {request_id} is still being proposed")
+            self._proposing.add(request_id)
+        try:
+            diff = request_diff(
+                request_id,
+                DiffKind(message.kind),
+                session.role,
+                _roots(session),
+                store=self._store,
+                completion=self._completion,
+                clock=self._clock,
+                ids=self._ids,
+            )
+        finally:
+            with self._proposing_lock:
+                self._proposing.discard(request_id)
         return Outcome(
             m.DiffProposeResult(
                 v=V,
