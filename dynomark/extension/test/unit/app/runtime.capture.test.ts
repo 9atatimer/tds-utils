@@ -149,6 +149,29 @@ describe('Background-tab capture on the writer', () => {
     expect(w.backgroundTabs.opened).toEqual([URL]);
   });
 
+  it('Given a writer whose save the daemon answered internal, When the same worker re-sends it after the backoff and the daemon takes it, Then the next worker opens no background tab for it', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    let refused = false;
+    const internalOnce = (r: RequestMessage): ResponseMessage | undefined => {
+      if (r.type !== 'ingest' || r.bookmark.url !== URL || refused) return undefined;
+      refused = true;
+      return { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
+    };
+    scriptDaemon(w, { role: 'writer' }, internalOnce);
+    const ids = await seedOwnedTree(w.tree);
+    w.backgroundTabs.serve(URL, PAGE);
+    const runtime = await startRuntime(w);
+    await save(w, runtime, ids.followUp);
+    await w.timer().advance(RECONNECT_BACKOFF.base_ms);
+    await runtime.idle();
+    expect(sentOf(w, 'ingest').filter((r) => r.bookmark.url === URL)).toHaveLength(2);
+    w.restart();
+    scriptDaemon(w, { role: 'writer' });
+    await startRuntime(w);
+    expect(w.backgroundTabs.opened).toEqual([URL]);
+    expect(sentOf(w, 'ingest').find((r) => r.bookmark.url === URL)?.capture).toEqual({ source: 'none', text: '' });
+  });
+
   it('Given a pending save the next worker re-sent and the daemon took, When a later worker says hello, Then the backlog sends it with a fresh request and no stored capture', async () => {
     const w = new FakeExtensionWorld({ flavor: 'chrome' });
     let refused = false;
