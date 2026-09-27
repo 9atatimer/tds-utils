@@ -11,3 +11,8 @@ class UseCaseError(Exception):
 
 class UnknownRecord(UseCaseError, LookupError):
     """The request names a job, batch or other record the store does not hold."""
+
+
+class TreeNotReady(UseCaseError):
+    """No ``tree.snapshot`` holds what the use case must resolve yet; it runs
+    again after the next one."""

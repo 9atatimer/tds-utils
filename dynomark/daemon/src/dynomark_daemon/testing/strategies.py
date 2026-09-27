@@ -16,6 +16,7 @@ from dynomark_daemon.domain.batch import (
     Operation,
     OpMove,
     OpRemove,
+    Revert,
     UndoDrop,
     UndoDropReason,
     WriteBatch,
@@ -86,11 +87,20 @@ def operations(draw: st.DrawFn, max_size: int = 5) -> tuple[Operation, ...]:
     return tuple(draw(_operation(i)) for i in range(count))
 
 
+reverts = st.lists(
+    st.builds(
+        Revert,
+        of_index=st.integers(min_value=0, max_value=999),
+        back_to=st.none() | folder_paths,
+    ),
+    max_size=5,
+).map(tuple)
+
 write_batches = st.builds(
     WriteBatch,
     batch_id=ids.map(BatchId),
     operations=operations(),
-    inverse=operations(),
+    inverse=reverts,
     diff_item_id=st.none() | ids.map(ItemId),
 )
 
@@ -134,6 +144,7 @@ batch_records = st.builds(
     batch=write_batches,
     state=st.sampled_from(BatchState),
     created_at=EPOCH_MS,
+    profile_id=ids.map(ProfileId),
     job_id=st.none() | ids.map(JobId),
     identity=st.none() | identities,
     undoes=st.none() | ids.map(BatchId),

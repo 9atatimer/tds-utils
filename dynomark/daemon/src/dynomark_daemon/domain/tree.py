@@ -35,6 +35,10 @@ class FolderPath:
     def child(self, name: str) -> "FolderPath":
         return FolderPath(root=self.root, names=(*self.names, name))
 
+    def prefix(self, depth: int) -> "FolderPath":
+        """The ancestor-or-self holding the first ``depth`` names."""
+        return FolderPath(root=self.root, names=self.names[:depth])
+
 
 @dataclass(frozen=True, slots=True)
 class OwnedRoots:
@@ -43,6 +47,17 @@ class OwnedRoots:
     follow_up: FolderPath
     dynomark: FolderPath
     graveyard: FolderPath
+
+    def all(self) -> tuple[FolderPath, FolderPath, FolderPath]:
+        return (self.follow_up, self.dynomark, self.graveyard)
+
+    def contains(self, path: FolderPath) -> bool:
+        """``path`` is an owned root or lies inside one (contract v1, Boundary:
+        a syntactic test on paths)."""
+        return any(path.is_inside(root) for root in self.all())
+
+    def is_root(self, path: FolderPath) -> bool:
+        return path in self.all()
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,3 +125,29 @@ class Snapshot:
     taken_at: int
     root_ids: RootIds
     nodes: tuple[SnapshotNode, ...]
+
+    def node(self, node_id: NodeId) -> SnapshotNode | None:
+        return next((n for n in self.nodes if n.node_id == node_id), None)
+
+    def children(self, node_id: NodeId) -> list[SnapshotNode]:
+        """The node's children by index."""
+        found = [n for n in self.nodes if n.parent_id == node_id]
+        return sorted(found, key=lambda n: n.index)
+
+    def resolve(self, path: FolderPath) -> NodeId | None:
+        """The folder ``path`` names (contract v1, Write batches, Paths): from
+        the root's node, at each level the child folder with the lowest index
+        whose title equals the name exactly."""
+        current: NodeId | None = getattr(self.root_ids, path.root.value)
+        for name in path.names:
+            if current is None:
+                return None
+            current = next(
+                (
+                    child.node_id
+                    for child in self.children(current)
+                    if child.kind is NodeKind.FOLDER and child.title == name
+                ),
+                None,
+            )
+        return current

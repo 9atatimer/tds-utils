@@ -78,6 +78,10 @@ class Job:
             updated_at=at,
         )
 
+    def filed_by(self, batch_id: BatchId, *, at: int) -> Self:
+        """The latest batch that files this job's node."""
+        return replace(self, batch_id=batch_id, seq=self.seq + 1, updated_at=at)
+
     def attempt_failed(
         self, error: str, *, retryable: bool, policy: "RetryPolicy", at: int
     ) -> Self:

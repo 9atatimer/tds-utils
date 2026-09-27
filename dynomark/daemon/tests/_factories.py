@@ -6,6 +6,7 @@ from dynomark_daemon.domain.batch import (
     Expect,
     Operation,
     OpMove,
+    Revert,
     WriteBatch,
 )
 from dynomark_daemon.domain.bookmark import (
@@ -145,12 +146,18 @@ def make_batch(
     state: BatchState = BatchState.PROPOSED,
     created_at: int = 1_790_000_003_000,
     operations: tuple[Operation, ...] | None = None,
+    profile_id: str = "profile-a",
 ) -> BatchRecord:
     ops = operations or (make_move_op(),)
     return BatchRecord(
-        batch=WriteBatch(batch_id=BatchId(batch_id), operations=ops, inverse=ops),
+        batch=WriteBatch(
+            batch_id=BatchId(batch_id),
+            operations=ops,
+            inverse=tuple(Revert(op.index) for op in reversed(ops)),
+        ),
         state=state,
         created_at=created_at,
+        profile_id=ProfileId(profile_id),
     )
 
 
