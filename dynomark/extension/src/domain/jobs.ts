@@ -19,3 +19,15 @@ export interface Job {
   readonly last_error?: string;
   readonly batch_id?: BatchId;
 }
+
+// --- Predicates ---
+
+/** True when `incoming` is newer than what is kept for its job: of two copies of one job, the higher seq wins. */
+export function isNewerJob(incoming: Job, kept: Job | undefined): boolean {
+  return kept === undefined || incoming.seq > kept.seq;
+}
+
+/** True when a job in this state changed the corpus the LocalIndex is built from (contract v1, Index freshness). */
+export function refreshesIndex(state: JobState): boolean {
+  return state === 'FILED' || state === 'INDEXED';
+}
