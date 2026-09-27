@@ -23,21 +23,21 @@ export class IssuedMoves implements BookmarkTreePort {
 
   /** True, once, when the browser reports a move of `node_id` into `parent_id` that this extension issued. */
   consume(node_id: NodeId, parent_id: NodeId): boolean {
-    const parents = this.issued.get(node_id) ?? [];
-    const at = parents.indexOf(parent_id);
-    if (at < 0) return false;
-    const rest = parents.filter((_, i) => i !== at);
-    if (rest.length === 0) this.issued.delete(node_id);
-    else this.issued.set(node_id, rest);
-    return true;
+    return this.forget(node_id, parent_id);
   }
 
+  /** Remembered before the call (the browser can report the move first); forgotten if the browser refuses it, as no report will come. */
   async move(nodeId: NodeId, parentId: NodeId): Promise<SnapshotNode> {
     const parents = this.issued.get(nodeId) ?? [];
     this.issued.delete(nodeId);
     this.issued.set(nodeId, [...parents, parentId]);
     if (this.issued.size > MAX_REMEMBERED) this.issued.delete(this.issued.keys().next().value ?? nodeId);
-    return this.inner.move(nodeId, parentId);
+    try {
+      return await this.inner.move(nodeId, parentId);
+    } catch (error) {
+      this.forget(nodeId, parentId);
+      throw error;
+    }
   }
 
   readTree(): Promise<TreeRead> {
@@ -62,5 +62,16 @@ export class IssuedMoves implements BookmarkTreePort {
 
   createBookmark(parentId: NodeId, title: Title, url: Url): Promise<SnapshotNode> {
     return this.inner.createBookmark(parentId, title, url);
+  }
+
+  /** Drop one remembered move of `node_id` into `parent_id`; false when there is none. */
+  private forget(node_id: NodeId, parent_id: NodeId): boolean {
+    const parents = this.issued.get(node_id) ?? [];
+    const at = parents.indexOf(parent_id);
+    if (at < 0) return false;
+    const rest = parents.filter((_, i) => i !== at);
+    if (rest.length === 0) this.issued.delete(node_id);
+    else this.issued.set(node_id, rest);
+    return true;
   }
 }
