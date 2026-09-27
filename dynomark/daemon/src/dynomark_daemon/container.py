@@ -31,6 +31,8 @@ from dynomark_daemon.adapters.ollama import (
 )
 from dynomark_daemon.adapters.socket_server import Sessions, SocketServer
 from dynomark_daemon.adapters.sqlite_store import SqliteCorpusStore
+from dynomark_daemon.app.diffs import propose_scheduled_rebuild
+from dynomark_daemon.app.errors import TreeNotReady
 from dynomark_daemon.app.hello import owned_roots_for
 from dynomark_daemon.app.loop import Schedule, due_jobs
 from dynomark_daemon.app.run import run_job
@@ -42,6 +44,7 @@ from dynomark_daemon.ports.clock import Clock, IdSource
 from dynomark_daemon.ports.completion import CompletionPort
 from dynomark_daemon.ports.content import ContentSourcePort
 from dynomark_daemon.ports.embedding import EmbeddingPort
+from dynomark_daemon.ports.errors import PortError
 from dynomark_daemon.ports.store import CorpusStorePort
 from dynomark_daemon.settings import Settings
 
@@ -158,8 +161,35 @@ class JobLoop:
                 last_error=after.last_error,
             )
 
+    def _rebuild(self) -> bool:
+        """Propose the rebuild the cadence makes due, if any; whether one was."""
+        ports, config = self._ports, self._config
+        profile = ports.store.writer_profile()
+        if config.rebuild_cadence_ms is None or profile is None:
+            return False
+        roots = owned_roots_for(profile, config, store=ports.store)
+        role = served_role(config.role, profile, profile)
+        try:
+            diff = propose_scheduled_rebuild(
+                config.rebuild_cadence_ms,
+                role,
+                config.host_id,
+                roots,
+                store=ports.store,
+                completion=ports.completion,
+                clock=ports.clock,
+                ids=ports.ids,
+            )
+        except (PortError, TreeNotReady) as error:
+            log.warning("rebuild.skipped", detail=str(error))
+            return False
+        if diff is not None:
+            log.info("rebuild.proposed", diff_id=diff.diff_id, items=len(diff.items))
+        return diff is not None
+
     def run_once(self) -> Schedule:
-        """Run every job due now; tell the server when any ran."""
+        """Run every job due now and a due rebuild; tell the server when any
+        ran."""
         schedule = due_jobs(
             self._config.retry, self._ports.clock.now_ms(), store=self._ports.store
         )
@@ -170,7 +200,8 @@ class JobLoop:
                 # One job's unexpected failure must not stop the others; it
                 # is logged with its trace and the job is tried again later.
                 log.exception("job.crashed", job_id=job.job_id)
-        if schedule.due:
+        rebuilt = self._rebuild()
+        if schedule.due or rebuilt:
             self._on_progress()
         return schedule
 
