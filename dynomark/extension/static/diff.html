@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Dynomark diffs</title>
+    <link rel="stylesheet" href="pages.css" />
+    <script type="module" src="diff.js"></script>
+  </head>
+  <body>
+    <h1>Dynomark diffs</h1>
+    <div id="writer-conflict" class="banner" hidden></div>
+    <p>
+      <button id="propose-audit" type="button">Propose audit</button>
+      <button id="propose-rebuild" type="button">Propose rebuild</button>
+      <button id="refresh" type="button">Refresh</button>
+      <span id="message"></span>
+    </p>
+    <p class="muted">
+      Suggest-only: nothing changes until you accept an item, and each accepted item is its own batch. An audit item may touch your own bar;
+      undo it from the history page.
+    </p>
+
+    <h2>Diffs</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Proposed</th>
+          <th>Kind</th>
+          <th>Items</th>
+          <th>Unaccepted</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="diffs"></tbody>
+    </table>
+    <p><button id="diffs-more" type="button" hidden>More</button></p>
+
+    <h2 id="items-title">Items</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Action</th>
+          <th>Description</th>
+          <th>Operations</th>
+          <th>Batch</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="items"></tbody>
+    </table>
+    <p><button id="items-more" type="button" hidden>More</button></p>
+
+    <h2>Owned folders</h2>
+    <p class="muted">
+      Pinned: never moved by an audit or rebuild, still a placement target. Locked: never a placement target, never moved.
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th>Folder</th>
+          <th>Bookmarks</th>
+          <th>Pinned</th>
+          <th>Locked</th>
+        </tr>
+      </thead>
+      <tbody id="outline"></tbody>
+    </table>
+    <p><button id="outline-more" type="button" hidden>More</button></p>
+  </body>
+</html>

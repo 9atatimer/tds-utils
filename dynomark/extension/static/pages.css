@@ -53,3 +53,58 @@ th {
 #daemon-error {
   color: var(--muted);
 }
+
+.muted {
+  color: var(--muted);
+}
+.banner {
+  border: 2px solid #c62828;
+  background: color-mix(in srgb, #c62828 12%, var(--bg));
+  padding: 8px 12px;
+  margin: 8px 0;
+  font-weight: 600;
+}
+nav {
+  margin: 4px 0 8px;
+}
+.chat {
+  min-width: 360px;
+}
+#log .question {
+  font-weight: 600;
+  margin-top: 16px;
+}
+.answer {
+  border-left: 3px solid var(--line);
+  padding-left: 10px;
+}
+.answer ul {
+  padding-left: 18px;
+}
+.answer li {
+  margin: 4px 0;
+}
+button.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  text-align: left;
+}
+.tag {
+  font-size: 11px;
+  border: 1px solid var(--muted);
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-right: 6px;
+  color: var(--muted);
+}
+.reason {
+  margin: 4px 0 4px 12px;
+}
+#question {
+  width: 100%;
+  box-sizing: border-box;
+}

@@ -8,6 +8,8 @@
   </head>
   <body>
     <h1>Dynomark</h1>
+    <div id="writer-conflict" class="banner" hidden></div>
+    <nav><a href="chat.html">Ask</a> | <a href="diff.html">Diffs</a> | <a href="history.html">History</a></nav>
     <p><button id="refresh" type="button">Refresh</button> <span id="message"></span></p>
 
     <h2>Transport</h2>
@@ -33,6 +35,16 @@
     </dl>
     <p id="daemon-error"></p>
 
+    <h2>Writer</h2>
+    <dl>
+      <dt>Writer marker</dt>
+      <dd id="writer">-</dd>
+    </dl>
+    <p class="muted">
+      One host files. To move filing to another host: delete this host's dynomark-writer folder from Dynomark and make it a reader, then
+      make the other host the writer.
+    </p>
+
     <h2>Follow Up</h2>
     <dl>
       <dt>Watched folder</dt>
@@ -44,6 +56,17 @@
       ><input id="capture" type="checkbox" /> Capture a saved page from an open tab (otherwise the daemon fetches it, without
       cookies)</label
     >
+    <br />
+    <label
+      ><input id="capture-background" type="checkbox" /> On the writer, open a save no tab shows (made on a phone or another laptop) in a
+      background tab and capture it, so signed-in pages keep their content</label
+    >
+
+    <h2>Backfill</h2>
+    <p><button id="backfill" type="button">Backfill existing bookmarks</button> <span id="backfill-progress">-</span></p>
+    <p class="muted">
+      Makes every bookmark you already have searchable and askable. Nothing is moved; the daemon fetches each page, a few per second.
+    </p>
 
     <h2>Problems</h2>
     <ul id="problems"></ul>

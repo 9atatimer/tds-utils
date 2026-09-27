@@ -17,7 +17,7 @@ export const test = base.extend<{ ext: Launched }>({
   ext: async ({}, use) => {
     const ext = await launchExtension();
     await ext.context.route(
-      (url) => url.hostname !== '127.0.0.1',
+      (url) => /^(https?|wss?):$/.test(url.protocol) && url.hostname !== '127.0.0.1',
       (route) => route.abort('internetdisconnected'),
     );
     await use(ext);
