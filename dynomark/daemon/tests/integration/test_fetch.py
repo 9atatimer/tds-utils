@@ -8,12 +8,13 @@ import threading
 import time
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from ipaddress import ip_address
 from pathlib import Path
 from typing import ClassVar
 
 import pytest
 
-from dynomark_daemon.adapters.fetch import FetchContentSource
+from dynomark_daemon.adapters.fetch import FetchContentSource, IPAddress, is_public
 from dynomark_daemon.domain.bookmark import CaptureSource
 from dynomark_daemon.ports.content import ContentSourcePort, ContentUnavailable
 from tests._factories import make_bookmark
@@ -67,6 +68,12 @@ class _Site(BaseHTTPRequestHandler):
             ),
             "/stall": self._stall,
             "/drip": self._drip,
+            "/to-loopback6": lambda: self._send(
+                302,
+                b"",
+                "text/html",
+                Location=f"http://[::1]:{self.server.server_address[1]}/article.html",
+            ),
         }
         route = routes.get(self.path)
         if route is not None:
@@ -119,10 +126,18 @@ def site() -> Iterator[str]:
         server.server_close()
 
 
+def _stands_in_for_the_internet(address: IPAddress) -> bool:
+    """The hermetic site's own address plays a public one; every other
+    non-public address stays refused."""
+    return address == ip_address("127.0.0.1") or is_public(address)
+
+
 def _fetch(**overrides: float | int) -> ContentSourcePort:
     settings = {"timeout_s": 2.0, "max_bytes": 5_000_000, **overrides}
     return FetchContentSource(
-        timeout_s=float(settings["timeout_s"]), max_bytes=int(settings["max_bytes"])
+        timeout_s=float(settings["timeout_s"]),
+        max_bytes=int(settings["max_bytes"]),
+        address_allowed=_stands_in_for_the_internet,
     )
 
 
@@ -165,6 +180,59 @@ def test_fetch_refuses_a_redirect_off_http(site: str) -> None:
     ContentUnavailable (the redirect is never followed)."""
     with pytest.raises(ContentUnavailable):
         _fetch().read(make_bookmark(f"{site}/to-file"))
+
+
+def test_fetch_by_default_refuses_a_loopback_page_without_a_request(
+    site: str,
+) -> None:
+    """Given the production policy and a page on 127.0.0.1, When read, Then
+    ContentUnavailable (not retryable) and no request reached the server:
+    the fetch never reaches a loopback, link-local or private address."""
+    fetch = FetchContentSource(timeout_s=2.0, max_bytes=100_000)
+
+    with pytest.raises(ContentUnavailable) as raised:
+        fetch.read(make_bookmark(f"{site}/article.html"))
+
+    assert raised.value.retryable is False
+    assert _Site.seen == []
+
+
+def test_fetch_refuses_a_redirect_into_a_non_public_address(site: str) -> None:
+    """Given a public page (the site stands in for one) that redirects to
+    [::1], When read, Then ContentUnavailable (not retryable): the redirect is
+    checked like the first request and never followed."""
+    with pytest.raises(ContentUnavailable) as raised:
+        _fetch().read(make_bookmark(f"{site}/to-loopback6"))
+
+    assert raised.value.retryable is False
+    assert len(_Site.seen) == 1
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "127.0.0.1",
+        "10.1.2.3",
+        "192.168.1.1",
+        "169.254.169.254",
+        "::1",
+        "fe80::1",
+        "0.0.0.0",
+        "::ffff:127.0.0.1",
+        "224.0.0.1",
+    ],
+)
+def test_the_production_policy_refuses_every_non_public_address(address: str) -> None:
+    """Given a loopback, private, link-local, unspecified, mapped or multicast
+    address, When the production policy judges it, Then it is refused."""
+    assert is_public(ip_address(address)) is False
+
+
+def test_the_production_policy_allows_a_public_address() -> None:
+    """Given a public address, When judged, Then it is allowed (the guard lets
+    the internet through)."""
+    assert is_public(ip_address("93.184.215.14")) is True
+    assert is_public(ip_address("2606:4700:4700::1111")) is True
 
 
 @pytest.mark.parametrize(
