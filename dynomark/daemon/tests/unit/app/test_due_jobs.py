@@ -17,8 +17,16 @@ from tests._factories import make_job
 POLICY = RetryPolicy(attempts=3, initial_backoff_ms=1_000, max_backoff_ms=60_000)
 
 
-def _job(n: int, state: JobState, **changes: object) -> Job:
-    return replace(make_job(f"job-{n}", node_id=str(n), state=state), **changes)
+def _job(
+    n: int,
+    state: JobState,
+    *,
+    attempts: int = 0,
+    updated_at: int = 0,
+    batch_id: BatchId | None = None,
+) -> Job:
+    job = make_job(f"job-{n}", node_id=str(n), state=state)
+    return replace(job, attempts=attempts, updated_at=updated_at, batch_id=batch_id)
 
 
 def _store(*jobs: Job) -> InMemoryCorpusStore:

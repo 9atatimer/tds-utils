@@ -76,3 +76,26 @@ def paginate(
         items=items,
         next_cursor=mint_cursor(kind, params, key(items[-1])) if more else None,
     )
+
+
+def offset_page(
+    rows: Sequence[T], *, kind: str, params: str, cursor: str | None, limit: int
+) -> Page[T]:
+    """Up to ``limit`` rows after the cursor's offset into ``rows``: for a list
+    recomputed on each request (a ranking), whose rows have no short key.
+
+    Raises:
+        StaleCursor: the cursor is foreign or does not name an offset.
+    """
+    start = 0
+    if cursor is not None:
+        key = read_cursor(cursor, kind, params)
+        if not key.isdecimal():
+            raise StaleCursor(f"{kind} cursor does not name an offset")
+        start = int(key)
+    items = tuple(rows[start : start + limit])
+    end = start + len(items)
+    return Page(
+        items=items,
+        next_cursor=mint_cursor(kind, params, str(end)) if end < len(rows) else None,
+    )
