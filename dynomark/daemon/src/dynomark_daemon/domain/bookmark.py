@@ -122,6 +122,12 @@ def normalize_url(url: str) -> str:
     return identity
 
 
+def is_fetchable(url: str) -> bool:
+    """Only http(s) pages are ever captured (Security Considerations)."""
+    match = _SCHEME.fullmatch(url)
+    return match is not None and match.group(1).lower() in _DEFAULT_PORTS
+
+
 @dataclass(frozen=True, slots=True)
 class Identity:
     """The normalized URL: the cross-host identity of a bookmark.
@@ -162,6 +168,11 @@ class Capture:
     source: CaptureSource
     text: str
     title: str | None = None
+
+    @classmethod
+    def none(cls) -> Self:
+        """No content: nothing could be read."""
+        return cls(source=CaptureSource.NONE, text="")
 
 
 @dataclass(frozen=True, slots=True)
