@@ -6,9 +6,11 @@
 // the in-flight batch names are origin extension.
 
 import { describe, expect, it } from 'vitest';
-import { observeMove } from '../../../src/app/observeMove.js';
+import { ReportedMoves, observeMove } from '../../../src/app/observeMove.js';
 import { MoveObservedSchema, type RequestMessage, type ResponseMessage } from '../../../src/wire/messages.js';
 import { FakeClock } from '../../fakes/FakeClock.js';
+import { FakeStorage } from '../../fakes/FakeStorage.js';
+import { FakeTimer } from '../../fakes/FakeTimer.js';
 import { FakeTransport } from '../../fakes/FakeTransport.js';
 import { SequentialIdSource } from '../../fakes/SequentialIdSource.js';
 import { ROOTS } from '../../fixtures/ownedTree.js';
@@ -27,12 +29,14 @@ function acknowledging(r: RequestMessage): ResponseMessage {
 function deps() {
   const transport = new FakeTransport();
   transport.autoAnswer(acknowledging);
-  return { transport, ids: new SequentialIdSource(), clock: new FakeClock(NOW) };
+  const clock = new FakeClock(NOW);
+  const moves = new ReportedMoves(new FakeStorage());
+  return { transport, ids: new SequentialIdSource(), clock, moves, timer: new FakeTimer(clock), track: () => undefined };
 }
 
 // --- Tests ---
 
-describe('Behavior: A user move becomes feedback -- observeMove(observed, role, context, { transport, ids, clock })', () => {
+describe('Behavior: A user move becomes feedback -- observeMove(observed, role, context, { transport, ids, clock, moves, timer, track })', () => {
   it('Given the user moves a node between owned folders on the writer, When observed, Then feedback exists and move.observed carries origin user', async () => {
     const d = deps();
     const feedback = await observeMove(

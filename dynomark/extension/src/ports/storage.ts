@@ -3,10 +3,13 @@
 // extension"), plus backfill progress (Open Question 3; resumable across
 // worker restarts) and the Follow Up saves still owed a background capture
 // (bounded by Follow Up's size), and the saves sent and not yet answered
-// (bounded in count and text; domain/pendingSaves.ts). Values, not references.
+// (bounded in count and text; domain/pendingSaves.ts), and the move reports
+// sent and not yet answered (bounded in count; domain/pendingMoves.ts).
+// Values, not references.
 
 import type { BackfillProgress } from '../domain/backfill.js';
 import type { BatchCursor } from '../domain/batch.js';
+import type { PendingMove } from '../domain/pendingMoves.js';
 import type { PendingSave } from '../domain/pendingSaves.js';
 import type { LocalIndex } from '../domain/search.js';
 import type { Settings } from '../domain/settings.js';
@@ -29,4 +32,7 @@ export interface StoragePort {
   /** Follow Up saves sent and not yet answered ingest.result: a later worker re-sends each unchanged. */
   loadPendingSaves(): Promise<readonly PendingSave[] | undefined>;
   savePendingSaves(saves: readonly PendingSave[]): Promise<void>;
+  /** Move reports sent and not yet answered move.observed.result: a later worker re-sends each unchanged after a full hello. */
+  loadPendingMoves(): Promise<readonly PendingMove[] | undefined>;
+  savePendingMoves(moves: readonly PendingMove[]): Promise<void>;
 }

@@ -25,7 +25,7 @@ import type { Timer } from '../ports/timer.js';
 import type { TransportPort } from '../ports/transport.js';
 import { capture } from './capture.js';
 import type { HelloOutcome } from './connection.js';
-import { observeMove } from './observeMove.js';
+import { observeMove, resendMoves, type ReportedMoves } from './observeMove.js';
 import { sendTreeSnapshot } from './onConnected.js';
 import { submitSave, type SubmittedSaves } from './submitSave.js';
 
@@ -51,6 +51,7 @@ export interface TreeWatchDeps {
   readonly clock: Clock;
   readonly timer: Timer;
   readonly saves: SubmittedSaves;
+  readonly moves: ReportedMoves;
   readonly storage: StoragePort;
 }
 
@@ -138,6 +139,11 @@ export class TreeWatch {
     for (const node of children) await this.save(node, { background: owed.has(node.id) });
   }
 
+  /** Re-send the move reports left unanswered, by this worker or an earlier one (after a full hello). */
+  resendMoves(): Promise<void> {
+    return resendMoves({ ...this.deps, track: (work) => this.context.track(work) });
+  }
+
   // --- Flow ---
 
   private async moved(tree: TreeRead, node_id: NodeId, parent_id: NodeId, old_parent_id: NodeId): Promise<void> {
@@ -159,7 +165,7 @@ export class TreeWatch {
       { node_id: node.id, ...(node.kind === 'bookmark' ? { url: node.url } : {}), from, to },
       outcome.role,
       { owned_roots: outcome.owned_roots, in_flight },
-      this.deps,
+      { ...this.deps, track: (work) => this.context.track(work) },
     );
   }
 

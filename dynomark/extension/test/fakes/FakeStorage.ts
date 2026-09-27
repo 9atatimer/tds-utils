@@ -5,6 +5,7 @@
 
 import type { BackfillProgress } from '../../src/domain/backfill.js';
 import type { BatchCursor } from '../../src/domain/batch.js';
+import type { PendingMove } from '../../src/domain/pendingMoves.js';
 import type { PendingSave } from '../../src/domain/pendingSaves.js';
 import type { LocalIndex } from '../../src/domain/search.js';
 import type { Settings } from '../../src/domain/settings.js';
@@ -60,6 +61,14 @@ export class FakeStorage implements StoragePort {
 
   savePendingSaves(saves: readonly PendingSave[]): Promise<void> {
     return Promise.resolve(this.write('pending_saves', saves));
+  }
+
+  loadPendingMoves(): Promise<readonly PendingMove[] | undefined> {
+    return Promise.resolve(this.read<PendingMove[]>('pending_moves'));
+  }
+
+  savePendingMoves(moves: readonly PendingMove[]): Promise<void> {
+    return Promise.resolve(this.write('pending_moves', moves));
   }
 
   clearCursor(): Promise<void> {

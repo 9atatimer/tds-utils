@@ -56,6 +56,8 @@ export class IndexCache {
       saveOwedCaptures: (ids) => storage.saveOwedCaptures(ids),
       loadPendingSaves: () => storage.loadPendingSaves(),
       savePendingSaves: (saves) => storage.savePendingSaves(saves),
+      loadPendingMoves: () => storage.loadPendingMoves(),
+      savePendingMoves: (moves) => storage.savePendingMoves(moves),
     };
   }
 

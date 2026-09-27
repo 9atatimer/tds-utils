@@ -7,7 +7,8 @@
 // On start: settings (a profile id generated once), Follow Up (created under
 // the bar when missing; extra ones reported), the LocalIndex from storage,
 // then one Connection whose every hello runs the connect routine (snapshot,
-// replay, index pull) and, when full, re-ingests the Follow Up backlog.
+// replay, index pull) and, when full, re-ingests the Follow Up backlog and
+// re-sends the move reports left unanswered.
 // Daemon events go to DaemonEvents (batch offers to the BatchLane); bookmark
 // events to the TreeWatch; a lost link is reconnected with backoff. Every
 // step is short and repeatable: the worker can die between any two events.
@@ -36,6 +37,7 @@ import { DaemonEvents } from './daemonEvents.js';
 import { openFollowUp, type FollowUpFolder } from './followUp.js';
 import { IndexCache } from './indexCache.js';
 import { IssuedMoves } from './issuedMoves.js';
+import { ReportedMoves } from './observeMove.js';
 import { OmniboxSession, type Suggest } from './omnibox.js';
 import { onConnected } from './onConnected.js';
 import { answerPage } from './pages.js';
@@ -88,6 +90,7 @@ export class ExtensionRuntime {
   private readonly issued: IssuedMoves;
   private readonly omnibox: OmniboxSession;
   private readonly saves: SubmittedSaves;
+  private readonly moves: ReportedMoves;
   private readonly acceptance = new DiffAcceptance();
   private readonly writer = new WriterWatch();
   /** Offers pass here in the order they arrived, each after any writer conflict is re-checked. */
@@ -99,6 +102,7 @@ export class ExtensionRuntime {
   constructor(private readonly ports: RuntimePorts) {
     this.ready = new Promise((resolve) => (this.resolveReady = resolve));
     this.saves = new SubmittedSaves(ports.storage);
+    this.moves = new ReportedMoves(ports.storage);
     this.index = new IndexCache(ports, (work) => this.track(work));
     this.issued = new IssuedMoves(ports.tree);
     this.omnibox = new OmniboxSession({
@@ -122,7 +126,7 @@ export class ExtensionRuntime {
     await this.index.load();
     const connection = this.connect(settings, followUp);
     const watch = new TreeWatch(
-      { ...this.ports, transport: connection, saves: this.saves },
+      { ...this.ports, transport: connection, saves: this.saves, moves: this.moves },
       {
         followUp: () => this.state?.followUp.path,
         outcome: () => connection.outcome(),
@@ -243,6 +247,7 @@ export class ExtensionRuntime {
   private afterConnect(outcome: HelloOutcome, connection: Connection): void {
     if (outcome.mode !== 'full') return;
     this.track(this.ready.then((s) => s.watch.submitBacklog()));
+    this.track(this.ready.then((s) => s.watch.resendMoves()));
     this.track(this.ready.then((s) => s.backfill.resume()));
     this.track(
       this.writer

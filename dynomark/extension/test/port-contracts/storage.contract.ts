@@ -2,13 +2,15 @@
 // durable state is settings, the rebuildable LocalIndex and the in-flight
 // batch cursor (design, "The extension"), plus backfill progress (Open
 // Question 3, resumable across worker restarts), the saves owed a
-// background capture and the saves sent and not yet answered; storage is the only
+// background capture, the saves sent and not yet answered and the move
+// reports sent and not yet answered; storage is the only
 // thing besides the browser's own data that survives a service-worker
 // restart, and it stores values, not references.
 
 import { describe, expect, it } from 'vitest';
 import type { BackfillProgress } from '../../src/domain/backfill.js';
 import type { BatchCursor } from '../../src/domain/batch.js';
+import type { PendingMove } from '../../src/domain/pendingMoves.js';
 import type { PendingSave } from '../../src/domain/pendingSaves.js';
 import type { LocalIndex } from '../../src/domain/search.js';
 import type { Settings } from '../../src/domain/settings.js';
@@ -28,6 +30,18 @@ const PENDING: PendingSave = {
     date_added: 1_790_000_000_000,
   },
   capture: { source: 'background_tab', text: 'Full text visible only when signed in.', title: 'Story' },
+};
+
+const MOVE: PendingMove = {
+  id: 'req-0008',
+  move: {
+    node_id: '42',
+    url: 'https://news.example/story',
+    from: { root: 'bar', names: ['Follow Up'] },
+    to: { root: 'bar', names: ['Dynomark', 'News'] },
+    origin: 'user',
+    observed_at: 1_790_000_000_000,
+  },
 };
 
 const SETTINGS: Settings = { profile_id: '00000000-0000-4000-8000-00000000abcd', transport: 'native_messaging' };
@@ -115,6 +129,15 @@ export function describeStorageContract(name: string, make: () => StoragePort): 
       expect(await storage.loadPendingSaves()).toEqual([PENDING]);
       await storage.savePendingSaves([]);
       expect(await storage.loadPendingSaves()).toEqual([]);
+    });
+
+    it('Given move reports sent and not yet answered, When saved, loaded, and saved again, Then they round-trip and the later list replaces the earlier', async () => {
+      const storage = make();
+      expect(await storage.loadPendingMoves()).toBeUndefined();
+      await storage.savePendingMoves([MOVE]);
+      expect(await storage.loadPendingMoves()).toEqual([MOVE]);
+      await storage.savePendingMoves([]);
+      expect(await storage.loadPendingMoves()).toEqual([]);
     });
 
     it('Given all three values saved, When the cursor is cleared, Then only the cursor is gone', async () => {

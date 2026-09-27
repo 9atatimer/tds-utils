@@ -10,6 +10,7 @@ import type { Page } from '@playwright/test';
 import type { BackfillProgress } from '../../src/domain/backfill.js';
 import type { BatchCursor } from '../../src/domain/batch.js';
 import type { TabContent } from '../../src/domain/capture.js';
+import type { PendingMove } from '../../src/domain/pendingMoves.js';
 import type { PendingSave } from '../../src/domain/pendingSaves.js';
 import type { LocalIndex, Visit } from '../../src/domain/search.js';
 import type { Settings } from '../../src/domain/settings.js';
@@ -188,6 +189,14 @@ export class RemoteStorage implements StoragePort {
 
   savePendingSaves(saves: readonly PendingSave[]): Promise<void> {
     return this.call('savePendingSaves', saves) as Promise<void>;
+  }
+
+  loadPendingMoves(): Promise<readonly PendingMove[] | undefined> {
+    return this.call('loadPendingMoves') as Promise<readonly PendingMove[] | undefined>;
+  }
+
+  savePendingMoves(moves: readonly PendingMove[]): Promise<void> {
+    return this.call('savePendingMoves', moves) as Promise<void>;
   }
 
   private call(method: string, ...args: unknown[]): Promise<unknown> {
