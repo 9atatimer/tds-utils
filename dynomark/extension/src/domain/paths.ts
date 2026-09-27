@@ -3,7 +3,7 @@
 // its fake resolve through it, and so will the boundary check.
 
 import { toWellFormed } from './text.js';
-import type { FolderPath, SnapshotNode, TreeRead } from './tree.js';
+import { ROOT_KEYS, type FolderPath, type RootKey, type SnapshotNode, type TreeRead } from './tree.js';
 import type { NodeId, Title } from './values.js';
 
 // --- Predicates ---
@@ -30,6 +30,25 @@ export function resolveFolderPath(tree: TreeRead, path: FolderPath): NodeId | un
     current = pickChildFolder(tree.nodes, current, name)?.id;
   }
   return current;
+}
+
+/** The RootKey whose top-level folder is `id`, if any. */
+function rootKeyOf(tree: TreeRead, id: NodeId): RootKey | undefined {
+  return ROOT_KEYS.find((key) => tree.root_ids[key] === id);
+}
+
+/** The FolderPath naming folder `id` (root key, then each title downward); undefined for a non-folder, the browser root, or a folder outside every root_ids folder. */
+export function folderPathOf(tree: TreeRead, id: NodeId): FolderPath | undefined {
+  const byId = new Map(tree.nodes.map((n) => [n.id, n] as const));
+  if (byId.get(id)?.kind !== 'folder') return undefined;
+  const names: string[] = [];
+  for (let at: SnapshotNode | undefined = byId.get(id); at !== undefined; at = at.parent_id === null ? undefined : byId.get(at.parent_id)) {
+    const root = rootKeyOf(tree, at.id);
+    if (root !== undefined) return { root, names: names.reverse() };
+    if (names.length > tree.nodes.length) return undefined;
+    names.push(at.title);
+  }
+  return undefined;
 }
 
 // --- Containment ---
