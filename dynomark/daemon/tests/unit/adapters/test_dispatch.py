@@ -562,3 +562,37 @@ def test_diff_page_of_an_unknown_diff_is_not_found() -> None:
     reply = harness.send(wire.body("diff.page", "d-1", diff_id="diff-404"))
 
     assert _error(reply) == ("d-1", "not_found")
+
+
+# --- Folder flags ---
+
+
+def test_folder_flags_set_answers_the_folder_and_outline_get_shows_it() -> None:
+    """Given a writer connection with a tree, When the Rust folder is locked,
+    Then the answer is the folder with its flags, and outline.get shows it."""
+    harness = Harness()
+    harness.hello()
+    harness.send(wire.tree_snapshot("t-1"))
+
+    reply = harness.send(
+        wire.body("folder.flags.set", "f-1", node_id="14", locked=True)
+    )
+    outline = harness.send(wire.body("outline.get", "o-1"))
+
+    assert isinstance(reply, m.FolderFlagsSetResult)
+    assert (reply.folder.node_id, reply.folder.locked) == ("14", True)
+    assert isinstance(outline, m.OutlineGetResult)
+    assert [f.locked for f in outline.outline if f.node_id == "14"] == [True]
+
+
+def test_folder_flags_set_on_a_reader_connection_is_not_writer() -> None:
+    """Given a reader daemon, When folder.flags.set arrives, Then it is answered
+    not_writer."""
+    harness = Harness(HostRole.READER)
+    harness.hello()
+
+    reply = harness.send(
+        wire.body("folder.flags.set", "f-1", node_id="14", pinned=True)
+    )
+
+    assert _error(reply) == ("f-1", "not_writer")
