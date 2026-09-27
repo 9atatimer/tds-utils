@@ -123,6 +123,16 @@ class Job:
         receipt, or a filing op the extension skipped."""
         return replace(self.moved_to(JobState.FAILED, at=at), last_error=error)
 
+    def retried(self, *, at: int) -> Self:
+        """FAILED -> QUEUED: the user retries; the job starts afresh."""
+        return replace(
+            self.moved_to(JobState.QUEUED, at=at),
+            attempts=0,
+            last_error=None,
+            batch_id=None,
+            capture_source=None,
+        )
+
     def filed_by(self, batch_id: BatchId, *, at: int) -> Self:
         """The latest batch that files this job's node."""
         return replace(self, batch_id=batch_id, seq=self.seq + 1, updated_at=at)
