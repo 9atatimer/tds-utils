@@ -21,6 +21,7 @@ from dynomark_daemon.domain.ids import (
     JobId,
     NodeId,
     ProfileId,
+    RequestId,
     SnapshotId,
 )
 from dynomark_daemon.domain.job import Job, JobState
@@ -188,3 +189,11 @@ class CorpusStorePort(Protocol):
         ...
 
     def follow_up_of(self, profile_id: ProfileId) -> FolderPath | None: ...
+
+    # --- Request-id memory ---
+
+    def put_request(self, request_id: RequestId, fingerprint: str) -> None:
+        """Remember the body fingerprint a request id arrived with."""
+        ...
+
+    def get_request(self, request_id: RequestId) -> str | None: ...

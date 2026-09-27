@@ -24,6 +24,7 @@ from dynomark_daemon.domain.ids import (
     JobId,
     NodeId,
     ProfileId,
+    RequestId,
     SnapshotId,
 )
 from dynomark_daemon.domain.job import Job, JobState
@@ -91,6 +92,7 @@ class InMemoryCorpusStore:
         self._flags: dict[NodeId, FolderFlags] = {}
         self._writer_profile: ProfileId | None = None
         self._follow_ups: dict[ProfileId, FolderPath] = {}
+        self._requests: dict[RequestId, str] = {}
 
     # --- Entries ---
 
@@ -278,3 +280,11 @@ class InMemoryCorpusStore:
 
     def follow_up_of(self, profile_id: ProfileId) -> FolderPath | None:
         return self._follow_ups.get(profile_id)
+
+    # --- Request-id memory ---
+
+    def put_request(self, request_id: RequestId, fingerprint: str) -> None:
+        self._requests[request_id] = fingerprint
+
+    def get_request(self, request_id: RequestId) -> str | None:
+        return self._requests.get(request_id)
