@@ -336,7 +336,11 @@ def test_backfill_ask_and_a_diff_round_through_the_socket(tmp_path: Path) -> Non
     assert isinstance(inverse_batch, dict)
     assert inverse_batch["batch_id"] == undone["batch_id"]
     assert inverse_batch["diff_item_id"] == item_id
-    assert [op["op"] for op in inverse_batch["operations"]] == ["move", "remove"]
+    assert [op["op"] for op in inverse_batch["operations"]] == [
+        "create_folder",
+        "move",
+        "remove",
+    ]
 
 
 # --- MVP: writer conflict (task-030) ---

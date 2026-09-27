@@ -10,6 +10,8 @@ all-dropped answer is not recorded. ``undo`` also takes OwnedRoots (the
 inverse of a remove needs the graveyard).
 """
 
+from dataclasses import replace
+
 import pytest
 
 from dynomark_daemon.app.errors import Busy, InvalidRequest
@@ -18,6 +20,7 @@ from dynomark_daemon.app.undo import Undone, undo
 from dynomark_daemon.domain.batch import (
     BatchState,
     Expect,
+    OpCreateFolder,
     OpMove,
     OpRemove,
     ReceiptApplied,
@@ -34,14 +37,16 @@ from tests.unit.app._filed import ASYNC, CREATED, MOVED, RUST, TREE, Daemon
 FOLLOW_UP = make_path("Follow Up")
 BASE = TREE.nodes[3:6]  # Follow Up 10, Dynomark 11, Rust 14
 URL = "https://tokio.rs/tokio/tutorial"
+CREATE_GRAVEYARD = OpCreateFolder(index=0, parent=make_path(), title="Graveyard")
+"""Every inverse that removes creates Graveyard first (path-idempotent)."""
 MOVE_BACK = OpMove(
-    index=0,
+    index=1,
     node_id=NodeId("42"),
     to=FOLLOW_UP,
     expect=Expect(parent_id=NodeId("16"), parent_path=ASYNC),
 )
 REMOVE_ASYNC = OpRemove(
-    index=1,
+    index=2,
     node_id=NodeId("16"),
     expect=Expect(parent_id=NodeId("14"), parent_path=RUST, empty=True),
 )
@@ -97,7 +102,7 @@ def test_undo_reverts_every_operation_and_not_a_later_user_edit() -> None:
 
     assert isinstance(result, Undone)
     assert result.batch is not None
-    assert result.batch.operations == (MOVE_BACK, REMOVE_ASYNC)
+    assert result.batch.operations == (CREATE_GRAVEYARD, MOVE_BACK, REMOVE_ASYNC)
     assert result.dropped == ()
     targets = {
         op.node_id
@@ -126,7 +131,8 @@ def test_undo_drops_and_reports_a_node_the_user_moved_since() -> None:
     assert isinstance(result, Undone) and result.batch is not None
     assert result.dropped == (UndoDrop(index=1, reason=UndoDropReason.NODE_MOVED),)
     assert result.batch.operations == (
-        OpRemove(index=0, node_id=NodeId("16"), expect=REMOVE_ASYNC.expect),
+        CREATE_GRAVEYARD,
+        OpRemove(index=1, node_id=NodeId("16"), expect=REMOVE_ASYNC.expect),
     )
     record = daemon.store.get_batch(result.batch.batch_id)
     assert record is not None and record.report == result.dropped
@@ -158,7 +164,7 @@ def test_undo_leaves_a_created_folder_that_now_holds_other_items() -> None:
     result = _undo(daemon)
 
     assert isinstance(result, Undone) and result.batch is not None
-    assert result.batch.operations == (MOVE_BACK,)
+    assert result.batch.operations == (replace(MOVE_BACK, index=0),)
     assert result.dropped == (UndoDrop(index=0, reason=UndoDropReason.NOT_EMPTY),)
 
 

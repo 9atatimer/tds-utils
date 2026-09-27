@@ -16,6 +16,7 @@ from dynomark_daemon.domain.batch import (
     BatchState,
     Expect,
     FailReason,
+    OpCreateFolder,
     OpFailed,
     OpRemove,
     OpSkipped,
@@ -28,6 +29,7 @@ from dynomark_daemon.domain.batch import (
 from dynomark_daemon.domain.events import JobUpdated
 from dynomark_daemon.domain.ids import BatchId, NodeId
 from dynomark_daemon.domain.job import JobState
+from tests._factories import make_path
 from tests.unit.app._filed import CREATED, MOVED, RUST, TREE, Daemon
 
 
@@ -53,8 +55,9 @@ def _partial(daemon: Daemon) -> ReceiptPartial:
     )
 
 
+CREATE_GRAVEYARD = OpCreateFolder(index=0, parent=make_path(), title="Graveyard")
 REMOVE_CREATED = OpRemove(
-    index=0,
+    index=1,
     node_id=NodeId("16"),
     expect=Expect(parent_id=NodeId("14"), parent_path=RUST, empty=True),
 )
@@ -97,7 +100,7 @@ def test_receive_a_partial_receipt_fails_the_job_and_offers_the_prefix_inverse()
 
     assert daemon.job_now().state is JobState.FAILED
     assert recorded.inverse is not None
-    assert recorded.inverse.operations == (REMOVE_CREATED,)
+    assert recorded.inverse.operations == (CREATE_GRAVEYARD, REMOVE_CREATED)
     inverse = daemon.store.get_batch(recorded.inverse.batch_id)
     original = daemon.store.get_batch(daemon.batch.batch_id)
     assert inverse is not None and original is not None
@@ -125,7 +128,7 @@ def test_receive_an_applied_receipt_whose_filing_op_was_skipped_fails_the_job() 
     assert job.state is JobState.FAILED
     assert job.last_error is not None and "parent_mismatch" in job.last_error
     assert recorded.inverse is not None
-    assert recorded.inverse.operations == (REMOVE_CREATED,)
+    assert recorded.inverse.operations == (CREATE_GRAVEYARD, REMOVE_CREATED)
 
 
 def test_receive_a_rejected_receipt_fails_the_job_with_no_inverse() -> None:

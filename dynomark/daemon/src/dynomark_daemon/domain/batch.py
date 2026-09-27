@@ -331,19 +331,28 @@ def filing_operations(
     return (*creates, move)
 
 
-def parking_operations(
-    roots: OwnedRoots, *, node_id: NodeId, expect: Expect
+def with_graveyard(
+    operations: Sequence[Operation], roots: OwnedRoots
 ) -> tuple[Operation, ...]:
-    """Make sure ``Graveyard`` exists (path-idempotent), then remove the node."""
+    """``operations`` renumbered, preceded by a path-idempotent create of
+    ``Graveyard`` when any of them removes (a ``remove`` into a graveyard that
+    does not resolve fails its batch); unchanged when none does."""
     graveyard = roots.graveyard
-    if not graveyard.names:
-        return (OpRemove(index=0, node_id=node_id, expect=expect),)
+    if not graveyard.names or not any(isinstance(op, OpRemove) for op in operations):
+        return tuple(operations)
     create = OpCreateFolder(
         index=0,
         parent=graveyard.prefix(len(graveyard.names) - 1),
         title=graveyard.names[-1],
     )
-    return (create, OpRemove(index=1, node_id=node_id, expect=expect))
+    return (create, *(replace(op, index=i + 1) for i, op in enumerate(operations)))
+
+
+def parking_operations(
+    roots: OwnedRoots, *, node_id: NodeId, expect: Expect
+) -> tuple[Operation, ...]:
+    """Make sure ``Graveyard`` exists (path-idempotent), then remove the node."""
+    return with_graveyard((OpRemove(index=0, node_id=node_id, expect=expect),), roots)
 
 
 def _revert(op: Operation, roots: OwnedRoots) -> Revert | None:
@@ -486,7 +495,7 @@ def _invert(
             continue
         ops.append(step)
         leaving.add(inverting.moved_node(op))
-    return tuple(ops), tuple(drops)
+    return with_graveyard(ops, roots), tuple(drops)
 
 
 def invert(
@@ -496,8 +505,9 @@ def invert(
     roots: OwnedRoots,
 ) -> tuple[Operation, ...]:
     """The inverse of the ops ``applied`` with ``changed`` true, last first: a
-    created node goes to ``Graveyard`` (a folder only if empty), a moved or
-    removed node goes back. Node ids a create minted come from ``applied``,
+    created node goes to ``Graveyard`` (a folder only if empty; ``Graveyard``
+    itself is created first when the inverse removes), a moved or removed
+    node goes back. Node ids a create minted come from ``applied``,
     every other folder id from ``tree``. Unguarded (a ``PARTIAL`` prefix):
     the extension re-checks each ``Expect`` when it applies it."""
     return _invert(batch, applied, tree, roots, guarded=False)[0]
