@@ -148,7 +148,8 @@ export async function launchExtension(options: LaunchOptions = {}): Promise<Laun
   const executablePath = chromiumPath();
   const context = await chromium.launchPersistentContext(userDataDir, {
     headless: true,
-    ...(executablePath === undefined ? {} : { executablePath }),
+    // Playwright's own build: channel chromium, because plain headless means the headless shell, which loads no extension.
+    ...(executablePath === undefined ? { channel: 'chromium' } : { executablePath }),
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
   });
   const firstWorker = async (): Promise<Worker> => context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
