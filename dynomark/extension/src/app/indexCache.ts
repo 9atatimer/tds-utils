@@ -22,9 +22,10 @@ export class IndexCache {
     private readonly track: (work: Promise<unknown>) => void,
   ) {}
 
-  /** Load the stored index (if any) and derive its frecency. */
+  /** Load the stored index (if any); its frecency is derived in the background, so a worker's start never waits on history. */
   async load(): Promise<void> {
-    await this.replace((await this.deps.storage.loadLocalIndex()) ?? []);
+    const stored = (await this.deps.storage.loadLocalIndex()) ?? [];
+    this.track(this.replace(stored));
   }
 
   index(): LocalIndex {
