@@ -520,3 +520,141 @@ def test_a_request_fingerprint_is_remembered_by_id(store: CorpusStorePort) -> No
 
     assert store.get_request(RequestId("req-1")) == "sha256:abc"
     assert store.get_request(RequestId("req-2")) is None
+
+
+# --- Units of work: a use case's writes commit together or not at all ---
+
+
+class _Killed(Exception):
+    """The process died inside a unit of work, before it completed."""
+
+
+def _state(store: CorpusStorePort) -> object:
+    """Everything the tests below write, as the store reads it back."""
+    return (
+        [s.entry for s in store.list_entries(limit=10)],
+        [c.identity for c in store.text_candidates(Query("tokio"), limit=10)],
+        [c.identity for c in store.knn_candidates((1.0, 0.0), limit=10)],
+        [
+            c.identity
+            for c in store.knn_candidates((1.0, 0.0), limit=10, placed_only=True)
+        ],
+        store.get_placement(Identity("https://tokio.rs/tokio/tutorial")),
+        store.list_jobs(),
+        store.list_batches(),
+        store.unacked_events(PROFILE_A),
+        store.list_diffs(),
+        store.latest_tree_snapshot(),
+        store.get_snapshot(SnapshotId("snap-1")),
+        store.folder_flags(),
+        store.writer_profile(),
+        store.get_request(RequestId("req-1")),
+    )
+
+
+def _write_everything(store: CorpusStorePort) -> None:
+    store.put_entry(make_entry(text="tokio"))
+    store.put_placement(make_placement())
+    store.put_job(make_job("job-2"))
+    store.put_batch(make_batch("batch-1", state=BatchState.APPLIED))
+    store.put_batch(make_batch("batch-2"))
+    store.ack_events(PROFILE_A, [EventId("evt-1")])
+    store.put_event(PROFILE_A, _job_event("evt-2"))
+    store.put_diff(make_diff("diff-2"))
+    store.put_tree_snapshot(make_snapshot(taken_at=2_000_000_000_000))
+    store.put_snapshot(SnapshotId("snap-1"), make_snapshot())
+    store.put_folder_flags(NodeId("14"), FolderFlags(pinned=True, locked=True))
+    store.bind_writer_profile(PROFILE_A)
+    store.put_request(RequestId("req-1"), "sha256:abc")
+
+
+def _seed(store: CorpusStorePort) -> None:
+    store.put_job(make_job("job-1"))
+    store.put_batch(make_batch("batch-1"))
+    store.put_event(PROFILE_A, _job_event("evt-1"))
+    store.put_diff(make_diff("diff-1"))
+    store.put_tree_snapshot(make_snapshot())
+
+
+def test_writes_in_a_unit_of_work_that_completes_are_all_kept(
+    store: CorpusStorePort,
+) -> None:
+    """Given a seeded store, When a unit of work writes to every kind of record
+    and completes, Then every write reads back as if it had been made alone."""
+    alone = InMemoryCorpusStore()
+    _seed(alone)
+    _write_everything(alone)
+    _seed(store)
+
+    with store.atomic():
+        _write_everything(store)
+
+    assert _state(store) == _state(alone)
+
+
+def test_a_unit_of_work_that_raises_keeps_none_of_its_writes(
+    store: CorpusStorePort,
+) -> None:
+    """Given a seeded store whose KNN was already read, When a unit of work
+    writes to every kind of record and then raises (a crash before it
+    completes), Then the store reads exactly as before, KNN and full-text
+    included, and it keeps taking writes afterwards."""
+    _seed(store)
+    before = _state(store)
+
+    with pytest.raises(_Killed), store.atomic():
+        _write_everything(store)
+        raise _Killed
+
+    assert _state(store) == before
+    store.put_job(make_job("job-3"))
+    assert [j.job_id for j in store.list_jobs()] == ["job-1", "job-3"]
+
+
+def test_a_unit_inside_a_unit_commits_only_with_the_outer_one(
+    store: CorpusStorePort,
+) -> None:
+    """Given a unit of work that completes inside another, When the outer one
+    raises, Then the inner one's writes are gone too."""
+    with pytest.raises(_Killed), store.atomic():
+        with store.atomic():
+            store.put_job(make_job("job-1"))
+        store.put_batch(make_batch("batch-1"))
+        raise _Killed
+
+    assert (store.list_jobs(), store.list_batches()) == ([], [])
+
+
+def test_a_unit_inside_a_unit_that_raises_undoes_only_its_own_writes(
+    store: CorpusStorePort,
+) -> None:
+    """Given an inner unit of work that raises and is caught by the outer one,
+    When the outer one completes, Then its own writes are kept and the inner
+    one's are not."""
+    with store.atomic():
+        store.put_job(make_job("job-1"))
+        with pytest.raises(_Killed), store.atomic():
+            store.put_batch(make_batch("batch-1"))
+            store.put_entry(make_entry())
+            raise _Killed
+        store.put_event(PROFILE_A, _job_event("evt-1"))
+
+    assert [j.job_id for j in store.list_jobs()] == ["job-1"]
+    assert store.list_batches() == []
+    assert store.list_entries(limit=10) == []
+    assert store.knn_candidates((1.0, 0.0), limit=10) == []
+    assert [p.event.event_id for p in store.unacked_events(PROFILE_A)] == ["evt-1"]
+
+
+def test_a_failed_write_inside_a_unit_leaves_the_unit_usable(
+    store: CorpusStorePort,
+) -> None:
+    """Given a unit of work in which one write is refused (NotFound) and the
+    refusal is handled, When the unit completes, Then its other writes are
+    kept."""
+    with store.atomic():
+        with pytest.raises(NotFound):
+            store.put_diff_item(make_diff_item("item-9", diff_id="diff-9"))
+        store.put_job(make_job("job-1"))
+
+    assert [j.job_id for j in store.list_jobs()] == ["job-1"]

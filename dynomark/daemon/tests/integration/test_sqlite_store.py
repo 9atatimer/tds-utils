@@ -298,3 +298,41 @@ def test_a_read_only_open_reads_but_never_writes(tmp_path: Path) -> None:
     assert reader.get_entry(entry.identity) == entry
     with pytest.raises(StoreError):
         reader.put_job(make_job())
+
+
+def test_a_unit_of_work_is_not_on_disk_until_it_completes(tmp_path: Path) -> None:
+    """Given a unit of work that has written a job and its event, When another
+    connection reads the file before the unit completes, Then neither is
+    there (a crash now loses both); once it completes, both are."""
+    db = tmp_path / "corpus.sqlite3"
+    store = SqliteCorpusStore.open(db)
+    try:
+        with store.atomic():
+            store.put_job(make_job())
+            store.put_event(A, JobUpdated(event_id=EventId("evt-1"), job=make_job()))
+            reader = SqliteCorpusStore.open(db, read_only=True)
+            try:
+                assert (reader.list_jobs(), reader.unacked_events(A)) == ([], [])
+            finally:
+                reader.close()
+        reader = SqliteCorpusStore.open(db, read_only=True)
+        try:
+            assert [j.job_id for j in reader.list_jobs()] == ["job-1"]
+            assert len(reader.unacked_events(A)) == 1
+        finally:
+            reader.close()
+    finally:
+        store.close()
+
+
+def test_a_read_only_store_refuses_a_unit_of_work(tmp_path: Path) -> None:
+    """Given a store opened read-only, When a unit of work is opened, Then it is
+    refused like any write."""
+    db = tmp_path / "corpus.sqlite3"
+    SqliteCorpusStore.open(db).close()
+    reader = SqliteCorpusStore.open(db, read_only=True)
+    try:
+        with pytest.raises(StoreError), reader.atomic():
+            pass
+    finally:
+        reader.close()
