@@ -19,7 +19,11 @@ from dynomark_daemon.domain.batch import OutsideOwnedRoots
 from dynomark_daemon.domain.events import JobUpdated
 from dynomark_daemon.domain.ids import EventId
 from dynomark_daemon.domain.job import Job, JobState, RetryPolicy, is_duplicate
-from dynomark_daemon.domain.placement import NoAdmissibleFolder
+from dynomark_daemon.domain.placement import (
+    NoAdmissibleFolder,
+    Placement,
+    PlacementReason,
+)
 from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.domain.tree import OwnedRoots, TreeOutline, outline_of
 from dynomark_daemon.ports.clock import Clock, IdSource
@@ -31,6 +35,9 @@ from dynomark_daemon.ports.store import CorpusStorePort
 
 FEEDBACK_EXAMPLES: Final = 20
 """How many recent ``MoveFeedback`` examples a placement is shown."""
+
+BACKFILL_MODEL: Final = "backfill"
+"""The ``model_id`` of a placement no model chose: a backfill found in place."""
 
 
 def current_outline(roots: OwnedRoots, *, store: CorpusStorePort) -> TreeOutline:
@@ -69,6 +76,38 @@ def _is_duplicate(job: Job, *, store: CorpusStorePort) -> bool:
     return is_duplicate(job, filed, store.latest_tree_snapshot())
 
 
+def _backfill(
+    job: Job, role: HostRole, roots: OwnedRoots, *, store: CorpusStorePort, clock: Clock
+) -> Job:
+    """A backfill is never offered a batch (contract v1, Jobs: Backfill): on the
+    writer, one already inside ``Dynomark`` is recorded as filed where it is;
+    every other ends INDEXED."""
+    save = store.get_save(job.job_id)
+    if save is None:
+        raise UnknownRecord(f"job {job.job_id} has no save")
+    now = clock.now_ms()
+    if role is HostRole.READER or not save.bookmark.path.is_inside(roots.dynomark):
+        indexed = job.indexed(at=now)
+        store.put_job(indexed)
+        return indexed
+    store.put_placement(
+        Placement(
+            identity=job.identity,
+            reason=PlacementReason(
+                folder=save.bookmark.path,
+                neighbours=(),
+                rationale="backfill: already filed here",
+                feedback_ids=(),
+                model_id=BACKFILL_MODEL,
+            ),
+            created_at=now,
+        )
+    )
+    filed = job.placed(at=now).filed(at=now)
+    store.put_job(filed)
+    return filed
+
+
 def _place_job(
     job: Job,
     role: HostRole,
@@ -80,6 +119,8 @@ def _place_job(
     completion: CompletionPort,
     clock: Clock,
 ) -> Job:
+    if job.backfill:
+        return _backfill(job, role, roots, store=store, clock=clock)
     if role is HostRole.READER:
         indexed = job.indexed(at=clock.now_ms())
         store.put_job(indexed)
