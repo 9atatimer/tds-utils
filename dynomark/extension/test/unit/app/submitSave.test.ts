@@ -139,7 +139,4 @@ describe('Behavior: A save is submitted -- submitSave(bookmark, capture, { trans
     await expect(result).rejects.toBeInstanceOf(DaemonError);
     await expect(result).rejects.toMatchObject({ code: 'invalid' });
   });
-    await expect(submitSave(bookmark(), TAB, deps)).rejects.toBeInstanceOf(DaemonError);
-    expect(transport.sent).toHaveLength(2);
-  });
 });
