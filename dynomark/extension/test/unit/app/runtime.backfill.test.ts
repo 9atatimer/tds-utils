@@ -136,6 +136,23 @@ describe('Backfill -- resumable across worker restarts', () => {
     expect(backfilled(w).map((r) => r.bookmark.node_id)).toEqual(candidates.slice(BACKFILL_CHUNK));
   });
 
+  it('Given an ingest answered busy, When the worker is terminated during the backoff, Then the next worker re-sends that frame with the same id', async () => {
+    const busyOnce = (r: RequestMessage): ResponseMessage | undefined =>
+      r.type === 'ingest' && r.bookmark.url === 'https://b3.example/'
+        ? { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' }
+        : undefined;
+    const { w, runtime } = await setup(busyOnce);
+    await runtime.page({ kind: 'backfill.start' });
+    await runtime.idle();
+    const first = backfilled(w).find((r) => r.bookmark.url === 'https://b3.example/');
+    expect(first).toBeDefined();
+    w.restart();
+    scriptDaemon(w);
+    await drain(w, await startRuntime(w));
+    const again = backfilled(w).filter((r) => r.bookmark.url === 'https://b3.example/');
+    expect(again.map((r) => r.id)).toEqual([first?.id]);
+  });
+
   it('Given a finished backfill, When a new worker says hello, Then nothing is backfilled again', async () => {
     const { w, runtime } = await setup();
     await runtime.page({ kind: 'backfill.start' });
