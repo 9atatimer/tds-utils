@@ -30,7 +30,7 @@ from dynomark_daemon.domain.diff import (
     vet,
     violations,
 )
-from dynomark_daemon.domain.ids import BatchId, NodeId
+from dynomark_daemon.domain.ids import NodeId
 from dynomark_daemon.domain.tree import FolderPath, RootKey, TreeOutline
 from tests._factories import (
     make_diff_item,
@@ -262,7 +262,7 @@ def test_an_accepted_item_becomes_a_batch_referencing_it() -> None:
     batch holds its operations, an inverse, and the item's reference."""
     item = make_diff_item(accepted_at=5)
 
-    batch = item_batch(item, DiffKind.REBUILD, make_roots(), batch_id=BatchId("b-1"))
+    batch = item_batch(item, DiffKind.REBUILD, make_roots())
 
     assert batch.diff_item_id == item.item_id
     assert batch.operations == item.operations and batch.inverse
@@ -272,9 +272,7 @@ def test_an_unaccepted_item_raises_before_a_batch_exists() -> None:
     """Given an item with accepted_at unset, When its batch is built, Then it
     raises."""
     with pytest.raises(NotAccepted):
-        item_batch(
-            make_diff_item(), DiffKind.AUDIT, make_roots(), batch_id=BatchId("b-1")
-        )
+        item_batch(make_diff_item(), DiffKind.AUDIT, make_roots())
 
 
 def test_an_accepted_rebuild_item_outside_the_owned_roots_raises() -> None:
@@ -291,5 +289,5 @@ def test_an_accepted_rebuild_item_outside_the_owned_roots_raises() -> None:
     )
 
     with pytest.raises(OutsideOwnedRoots):
-        item_batch(crossing, DiffKind.REBUILD, make_roots(), batch_id=BatchId("b"))
-    assert item_batch(crossing, DiffKind.AUDIT, make_roots(), batch_id=BatchId("b"))
+        item_batch(crossing, DiffKind.REBUILD, make_roots())
+    assert item_batch(crossing, DiffKind.AUDIT, make_roots())

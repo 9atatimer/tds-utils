@@ -22,6 +22,12 @@ import structlog
 
 from dynomark_daemon.adapters.framing import MAX_OUTBOUND
 from dynomark_daemon.app.ask import ask
+from dynomark_daemon.app.diffs import (
+    accept_diff,
+    diff_items_page,
+    list_diffs_page,
+    request_diff,
+)
 from dynomark_daemon.app.errors import (
     Busy,
     InvalidRequest,
@@ -45,7 +51,16 @@ from dynomark_daemon.domain.bookmark import Capture, Identity
 from dynomark_daemon.domain.chat import Question
 from dynomark_daemon.domain.config import Config
 from dynomark_daemon.domain.connection import HelloMode
-from dynomark_daemon.domain.ids import BatchId, EventId, JobId, ProfileId
+from dynomark_daemon.domain.diff import DiffKind
+from dynomark_daemon.domain.ids import (
+    BatchId,
+    DiffId,
+    EventId,
+    ItemId,
+    JobId,
+    ProfileId,
+    RequestId,
+)
 from dynomark_daemon.domain.job import JobState
 from dynomark_daemon.domain.roles import HostRole, NotWriter
 from dynomark_daemon.domain.search import Query
@@ -73,6 +88,7 @@ from dynomark_daemon.wire.mapping import (
     bookmark_from_wire,
     capture_from_wire,
     corpus_hit_to_wire,
+    diff_item_to_wire,
     folder_path_from_wire,
     job_to_wire,
     local_index_row_to_wire,
@@ -83,6 +99,7 @@ from dynomark_daemon.wire.mapping import (
     placement_to_wire,
     receipt_from_wire,
     snapshot_from_wire,
+    tree_diff_to_wire,
     turn_from_wire,
     undo_drop_to_wire,
 )
@@ -97,10 +114,6 @@ V: Final = CONTRACT_VERSION
 MAX_DETAIL: Final = 4096
 UNSERVED: Final = frozenset(
     {
-        "diff.propose",
-        "diff.list",
-        "diff.page",
-        "diff.accept",
         "folder.flags.set",
         "writer.status",
     }
@@ -350,6 +363,14 @@ class Dispatcher:
                 return self._placement_explain(message)
             case m.Ask():
                 return self._ask(message)
+            case m.DiffPropose():
+                return self._diff_propose(message, session)
+            case m.DiffList():
+                return self._diff_list(message)
+            case m.DiffPage():
+                return self._diff_page(message)
+            case m.DiffAccept():
+                return self._diff_accept(message, session)
             case m.OutlineGet():
                 return self._outline_get(message, session)
             case _:
@@ -665,6 +686,90 @@ class Dispatcher:
             reason=placement_to_wire(placement),
         )
         return Outcome(_fit_explanation(reply))
+
+    # --- Diffs ---
+
+    def _diff_propose(self, message: m.DiffPropose, session: Session) -> Outcome:
+        diff = request_diff(
+            RequestId(message.id),
+            DiffKind(message.kind),
+            session.role,
+            _roots(session),
+            store=self._store,
+            completion=self._completion,
+            clock=self._clock,
+            ids=self._ids,
+        )
+        return Outcome(
+            m.DiffProposeResult(
+                v=V,
+                type="diff.propose.result",
+                re=message.id,
+                diff=tree_diff_to_wire(diff),
+            )
+        )
+
+    def _diff_list(self, message: m.DiffList) -> Outcome:
+        reply = _fit_page(
+            lambda limit: list_diffs_page(message.cursor, limit, store=self._store),
+            lambda diffs, cursor: m.DiffListResult(
+                v=V,
+                type="diff.list.result",
+                re=message.id,
+                diffs=[tree_diff_to_wire(diff) for diff in diffs],
+                next_cursor=cursor,
+            ),
+            message.limit or m.SMALL_PAGE,
+        )
+        return Outcome(reply)
+
+    def _diff_page(self, message: m.DiffPage) -> Outcome:
+        diff_id = DiffId(message.diff_id)
+        diff, _ = diff_items_page(diff_id, message.cursor, 1, store=self._store)
+        reply = _fit_page(
+            lambda limit: diff_items_page(
+                diff_id, message.cursor, limit, store=self._store
+            )[1],
+            lambda views, cursor: m.DiffPageResult(
+                v=V,
+                type="diff.page.result",
+                re=message.id,
+                diff=tree_diff_to_wire(diff),
+                items=[
+                    diff_item_to_wire(view.item, batch_state=view.batch_state)
+                    for view in views
+                ],
+                next_cursor=cursor,
+            ),
+            message.limit or m.SMALL_PAGE,
+        )
+        return Outcome(reply)
+
+    def _diff_accept(self, message: m.DiffAccept, session: Session) -> Outcome:
+        accepted = accept_diff(
+            ItemId(message.item_id),
+            session.role,
+            _roots(session),
+            _profile(session),
+            store=self._store,
+            clock=self._clock,
+            ids=self._ids,
+        )
+        if isinstance(accepted, NotWriter):
+            return Outcome(_error(message.id, "not_writer", "this host is a reader"))
+        if accepted.accepted_at is None or accepted.batch_id is None:
+            raise InvalidRequest(f"item {message.item_id} was not accepted")
+        return Outcome(
+            m.DiffAcceptResult(
+                v=V,
+                type="diff.accept.result",
+                re=message.id,
+                item_id=accepted.item_id,
+                accepted_at=accepted.accepted_at,
+                batch_id=accepted.batch_id,
+            ),
+            deliver=True,
+        )
 
     def _outline_get(self, message: m.OutlineGet, session: Session) -> Outcome:
         outline = current_outline(_roots(session), store=self._store)

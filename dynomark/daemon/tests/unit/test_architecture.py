@@ -46,6 +46,8 @@ MVP_USE_CASES = {
     "accept_diff_item": "diffs",
     "explain_placement": "explain",
 }
+PORTLESS = {"accept_diff_item"}
+"""Use cases the design's table lists with no port ("none")."""
 
 
 def _imports(source: str) -> list[str]:
@@ -91,4 +93,4 @@ def test_each_use_case_is_one_app_function_with_keyword_only_ports(
 
     ports = [p for p in parameters if p.name in PORT_PARAMETERS]
     assert all(p.kind is inspect.Parameter.KEYWORD_ONLY for p in ports)
-    assert ports, f"{name} takes no port"
+    assert ports or name in PORTLESS, f"{name} takes no port"

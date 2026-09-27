@@ -227,3 +227,15 @@ def outline_of(
     return TreeOutline(
         root=root, folders=tuple(_outline_folders(snapshot, root_id, root, flags))
     )
+
+
+def bar_outline(
+    snapshot: Snapshot, roots: OwnedRoots, flags: Mapping[NodeId, FolderFlags]
+) -> TreeOutline:
+    """The user's own bar: every folder of the bookmarks bar (the bar itself
+    included) that is not an owned root or inside one; an audit compares it
+    with the ``Dynomark`` outline."""
+    bar = FolderPath(root=RootKey.BAR, names=())
+    whole = outline_of(snapshot, bar, flags)
+    own = tuple(f for f in whole.folders if not roots.contains(f.path))
+    return TreeOutline(root=bar, folders=own)

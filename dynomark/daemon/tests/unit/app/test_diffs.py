@@ -254,7 +254,6 @@ def test_accept_diff_item_with_accepted_at_is_a_batch_referencing_it() -> None:
         DiffKind.REBUILD,
         make_roots(),
         HostRole.WRITER,
-        ids=SequentialIds(),
     )
 
     assert isinstance(batch, WriteBatch) and batch.diff_item_id == "item-1"
@@ -264,7 +263,6 @@ def test_accept_diff_item_with_accepted_at_is_a_batch_referencing_it() -> None:
             DiffKind.REBUILD,
             make_roots(),
             HostRole.WRITER,
-            ids=SequentialIds(),
         )
 
 
@@ -276,7 +274,6 @@ def test_accept_diff_item_on_a_reader_is_not_writer() -> None:
         DiffKind.REBUILD,
         make_roots(),
         HostRole.READER,
-        ids=SequentialIds(),
     )
 
     assert isinstance(result, NotWriter)
