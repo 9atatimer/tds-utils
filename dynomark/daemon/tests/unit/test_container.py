@@ -28,7 +28,14 @@ from dynomark_daemon.testing.content import FakeFetch
 from dynomark_daemon.testing.embedding import HashingEmbedding
 from dynomark_daemon.testing.store import InMemoryCorpusStore
 from tests import _wire as wire
-from tests._factories import make_bookmark, make_capture, make_config, make_path
+from tests._factories import (
+    make_bookmark,
+    make_capture,
+    make_config,
+    make_node,
+    make_path,
+    make_tree,
+)
 
 A = ProfileId("profile-a")
 ENRICHMENT = Enrichment(summary="An async runtime.", tags=("rust",))
@@ -168,3 +175,24 @@ def test_a_reader_daemon_indexes_and_never_files() -> None:
 
     (job,) = ports.store.list_jobs()
     assert (job.state, job.batch_id) == (JobState.INDEXED, None)
+
+
+def test_the_job_loop_fails_saves_of_a_writer_in_conflict() -> None:
+    """Given a writer whose tree holds another host's marker, When the job loop
+    runs a save, Then the job is indexed and ends FAILED naming the conflict,
+    with no batch (contract v1, Writer marker)."""
+    completion = ScriptedCompletion(enrich=[ENRICHMENT], choose_folder=[RUST])
+    ports = _ports(completion)
+    ports.store.put_tree_snapshot(
+        make_tree(
+            *[n for n in wire.TREE.nodes[3:] if n.node_id != "13"],
+            make_node("15", "11", "dynomark-writer:work-laptop", index=1),
+        )
+    )
+    _save(ports, "42")
+
+    JobLoop(make_config(), ports).run_once()
+
+    (job,) = ports.store.list_jobs()
+    assert (job.state, job.batch_id) == (JobState.FAILED, None)
+    assert job.last_error == "writer_conflict: marker of host work-laptop present"
