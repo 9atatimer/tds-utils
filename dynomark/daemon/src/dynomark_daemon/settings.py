@@ -59,13 +59,17 @@ HOST_ID: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 NOT_HOST_ID: Final = re.compile(r"[^A-Za-z0-9._-]+")
 
 SCHEMA: Final[Mapping[str, frozenset[str]]] = {
-    "": frozenset({"host_id", "role", "models", "store", "socket", "retry", "capture"}),
+    "": frozenset(
+        {"host_id", "role", "models", "store", "socket", "retry", "capture", "diffs"}
+    ),
     "models": frozenset({"embedding", "completion", "timeout_s"}),
     "store": frozenset({"path"}),
     "socket": frozenset({"path"}),
     "retry": frozenset({"attempts", "initial_backoff_ms", "max_backoff_ms"}),
     "capture": frozenset({"fetch_timeout_s", "max_bytes"}),
+    "diffs": frozenset({"rebuild_every_hours"}),
 }
+HOUR_MS: Final = 3_600_000
 
 
 class ConfigError(ValueError):
@@ -229,6 +233,18 @@ def _capture(document: Mapping[str, object]) -> CaptureSettings:
     )
 
 
+def _rebuild_cadence_ms(document: Mapping[str, object]) -> int | None:
+    """``[diffs] rebuild_every_hours``; absent: rebuilds are manual only
+    (design Open Question 2)."""
+    table = _table(document, "diffs")
+    if "rebuild_every_hours" not in table:
+        return None
+    hours = _value(
+        table, "diffs.rebuild_every_hours", "rebuild_every_hours", 0.0, _is_seconds
+    )
+    return int(float(hours) * HOUR_MS)
+
+
 def _path_setting(
     document: Mapping[str, object], table_name: str, default: Path, home: Path
 ) -> Path:
@@ -279,6 +295,7 @@ def parse_settings(
             completion_model=ModelInfo(model_id=f"ollama:{completion}", local=local),
             store_path=_path_setting(document, "store", state / STORE_NAME, home),
             retry=_retry(document),
+            rebuild_cadence_ms=_rebuild_cadence_ms(document),
         ),
         config_path=found_at or config_path(env, home=home),
         config_found=found,

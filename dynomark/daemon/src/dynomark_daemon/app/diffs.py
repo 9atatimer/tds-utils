@@ -36,10 +36,18 @@ from dynomark_daemon.domain.diff import (
     vet,
     violations,
 )
-from dynomark_daemon.domain.ids import DiffId, ItemId, ProfileId, RequestId
+from dynomark_daemon.domain.events import DiffProposed
+from dynomark_daemon.domain.ids import (
+    DiffId,
+    EventId,
+    HostId,
+    ItemId,
+    ProfileId,
+    RequestId,
+)
 from dynomark_daemon.domain.roles import HostRole, NotWriter
 from dynomark_daemon.domain.tree import OwnedRoots, TreeOutline, bar_outline
-from dynomark_daemon.domain.writer import WriterConflict
+from dynomark_daemon.domain.writer import WriterConflict, writer_standing
 from dynomark_daemon.ports.clock import Clock, IdSource
 from dynomark_daemon.ports.completion import CompletionPort
 from dynomark_daemon.ports.store import CorpusStorePort
@@ -156,6 +164,54 @@ def request_diff(
         ids=ids,
     ).with_id(diff_id)
     store.put_diff(diff)
+    return diff
+
+
+def propose_scheduled_rebuild(
+    cadence_ms: int | None,
+    role: HostRole,
+    host_id: HostId,
+    roots: OwnedRoots,
+    *,
+    store: CorpusStorePort,
+    completion: CompletionPort,
+    clock: Clock,
+    ids: IdSource,
+) -> TreeDiff | None:
+    """A rebuild the daemon proposes on its own once ``cadence_ms`` has passed
+    since the last one (Config rebuild cadence), stored and announced to the
+    writer's profile by a ``diff.proposed`` event; ``None`` when none is due
+    (manual only, a reader, no bound profile or tree, or a writer conflict).
+
+    Raises:
+        CompletionError: the completion could not propose.
+    """
+    profile = store.writer_profile()
+    tree = store.latest_tree_snapshot()
+    if cadence_ms is None or role is HostRole.READER or profile is None or not tree:
+        return None
+    if writer_standing(tree, roots, host_id, role).conflict:
+        return None
+    now = clock.now_ms()
+    last = max(
+        (d.proposed_at for d in store.list_diffs() if d.kind is DiffKind.REBUILD),
+        default=None,
+    )
+    if last is not None and now - last < cadence_ms:
+        return None
+    scope = diff_scope(DiffKind.REBUILD, roots, store=store)
+    diff = propose_diff(
+        DiffKind.REBUILD,
+        scope.outline,
+        scope.own_bar,
+        roots,
+        completion=completion,
+        clock=clock,
+        ids=ids,
+    )
+    store.put_diff(diff)
+    event = DiffProposed(event_id=EventId(ids.new_id("event")), diff=diff)
+    store.put_event(profile, event)
     return diff
 
 
