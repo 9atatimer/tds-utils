@@ -6,7 +6,8 @@
 // answered with a receipt; the omnibox handler and the pages work against
 // the daemon.
 
-import type { RequestMessage } from '../src/wire/messages.js';
+import type { Job } from '../src/domain/jobs.js';
+import type { RequestMessage, ResponseMessage } from '../src/wire/messages.js';
 import { PINNED_EXTENSION_ID } from '../test/support/browser.js';
 import { FAKE_HOST_ID } from '../test/support/fakeDaemon.js';
 import { expect, followUpId, ofType, test } from './fixtures.js';
@@ -19,7 +20,41 @@ const ARTICLE_HTML = `<!doctype html><title>Async Rust | Article</title>
 <footer>Copyright</footer></body>`;
 
 type Ingest = Extract<RequestMessage, { type: 'ingest' }>;
+type JobList = Extract<RequestMessage, { type: 'job.list' }>;
 type Receipt = Extract<RequestMessage, { type: 'batch.receipt' }>;
+
+/** A FAILED job whose page is `n`.example. */
+function failedJob(n: number): Job {
+  return {
+    job_id: `job-${n}`,
+    node_id: String(40 + n),
+    identity: `https://${n}.example/`,
+    state: 'FAILED',
+    seq: 1,
+    attempts: 3,
+    backfill: false,
+    last_error: 'timeout',
+  };
+}
+
+/**
+ * job.list over two pages, oldest failures first: job-1, then job-2 behind cursor jobs-2. The first request for the
+ * second page is answered stale_cursor (the FAILED list changed between pages).
+ */
+function twoJobPages(): (r: RequestMessage) => ResponseMessage | undefined {
+  let stale = true;
+  return (r) => {
+    if (r.type !== 'job.list') return undefined;
+    const { cursor } = r as JobList;
+    if (cursor !== undefined && stale) {
+      stale = false;
+      return { v: 1, type: 'error', re: r.id, code: 'stale_cursor', message: 'the FAILED list changed' };
+    }
+    return cursor === undefined
+      ? { v: 1, type: 'job.list.result', re: r.id, jobs: [failedJob(1)], next_cursor: 'jobs-2' }
+      : { v: 1, type: 'job.list.result', re: r.id, jobs: [failedJob(2)], next_cursor: null };
+  };
+}
 
 // --- Tests ---
 
@@ -200,4 +235,33 @@ test('Given an APPLIED batch and a FAILED job, When the history page offers Undo
   await page.locator('button[data-job="job-9"]').click();
   expect(await ext.daemon.waitFor(ofType('job.retry'))).toMatchObject({ job_id: 'job-9' });
   await expect(page.locator('#message')).toContainText('queued');
+});
+
+test('Given FAILED jobs over two pages, When the history page pages through them (restarting on a stale cursor), Then the newer failure can be retried too', async ({
+  ext,
+}) => {
+  ext.daemon.extra = twoJobPages();
+  await ext.daemon.waitFor(ofType('index.pull'));
+  const page = await ext.extensionPage('history.html');
+  await expect(page.locator('button[data-job="job-1"]')).toBeVisible();
+  await expect(page.locator('button[data-job="job-2"]')).toHaveCount(0);
+  await expect(page.locator('#jobs-more')).toBeVisible();
+
+  await page.locator('#jobs-more').click();
+  await expect(page.locator('#jobs-more')).toBeVisible();
+  await page.locator('#jobs-more').click();
+
+  await expect(page.locator('button[data-job="job-2"]')).toBeVisible();
+  await expect(page.locator('button[data-job="job-1"]')).toHaveCount(1);
+  await expect(page.locator('#jobs-more')).toBeHidden();
+});
+
+test('Given FAILED jobs over two pages, When the chat surface opens (a page cursor going stale once), Then its attention list shows both', async ({
+  ext,
+}) => {
+  ext.daemon.extra = twoJobPages();
+  await ext.daemon.waitFor(ofType('index.pull'));
+  const chat = await ext.extensionPage('chat.html');
+  await expect(chat.locator('button[data-job="job-2"]')).toBeVisible();
+  await expect(chat.locator('button[data-job="job-1"]')).toHaveCount(1);
 });
