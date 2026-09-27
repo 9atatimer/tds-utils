@@ -12,6 +12,7 @@ import { SNAPSHOT_DEBOUNCE_MS } from '../../../src/app/runtime.js';
 import { RECONNECT_BACKOFF } from '../../../src/domain/backoff.js';
 import type { ExtensionRuntime } from '../../../src/app/runtime.js';
 import type { BookmarkEvent } from '../../../src/ports/bookmarkEvents.js';
+import type { RequestMessage, ResponseMessage } from '../../../src/wire/messages.js';
 import { FakeExtensionWorld } from '../../fakes/FakeExtensionWorld.js';
 import { DYNOMARK, RUST, seedOwnedTree, type Seeded } from '../../fixtures/ownedTree.js';
 import { scriptDaemon, sentOf, startRuntime } from '../../fixtures/runtime.js';
@@ -103,6 +104,51 @@ describe('Record feedback -- owned moves are reported with their origin', () => 
   it('Given a move out of the owned roots, When seen, Then nothing is reported', async () => {
     const { w, ids, runtime } = await setup();
     await moved(w, runtime, ids.saved, ids.bar);
+    expect(sentOf(w, 'move.observed')).toEqual([]);
+  });
+});
+
+describe('Record feedback -- a move report survives busy answers and worker restarts', () => {
+  async function busyOnce(): Promise<{ w: FakeExtensionWorld; ids: Seeded; runtime: ExtensionRuntime }> {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    let refused = false;
+    const busy = (r: RequestMessage): ResponseMessage | undefined => {
+      if (r.type !== 'move.observed' || refused) return undefined;
+      refused = true;
+      return { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
+    };
+    scriptDaemon(w, {}, busy);
+    const ids = await seedOwnedTree(w.tree);
+    return { w, ids, runtime: await startRuntime(w) };
+  }
+
+  it('Given the daemon answers a move report busy on a link that stays up, When the backoff passes, Then the identical frame is re-sent', async () => {
+    const { w, ids, runtime } = await busyOnce();
+    await moved(w, runtime, ids.saved, ids.rust);
+    const first = sentOf(w, 'move.observed');
+    expect(first).toHaveLength(1);
+    await w.timer().advance(RECONNECT_BACKOFF.base_ms);
+    await runtime.idle();
+    expect(sentOf(w, 'move.observed')).toEqual([first[0], first[0]]);
+  });
+
+  it('Given a move report answered busy, When the worker is terminated during the backoff, Then the next worker re-sends the identical frame after its hello', async () => {
+    const { w, ids, runtime } = await busyOnce();
+    await moved(w, runtime, ids.saved, ids.rust);
+    const [first] = sentOf(w, 'move.observed');
+    w.restart();
+    scriptDaemon(w);
+    await startRuntime(w);
+    expect(sentOf(w, 'move.observed')).toEqual([first]);
+  });
+
+  it('Given a move report the daemon recorded, When a later worker says hello, Then it is not sent again', async () => {
+    const { w, ids, runtime } = await setup();
+    await moved(w, runtime, ids.saved, ids.rust);
+    expect(sentOf(w, 'move.observed')).toHaveLength(1);
+    w.restart();
+    scriptDaemon(w);
+    await startRuntime(w);
     expect(sentOf(w, 'move.observed')).toEqual([]);
   });
 });
