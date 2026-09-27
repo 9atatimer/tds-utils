@@ -51,13 +51,23 @@ PORTLESS = {"accept_diff_item"}
 """Use cases the design's table lists with no port ("none")."""
 
 
-def _imports(source: str) -> list[str]:
+def _absolute(node: ast.ImportFrom, *, package: str) -> str:
+    """The module a from-import names, a relative one resolved in ``package``."""
+    if node.level == 0:
+        return node.module or ""
+    parts = package.split(".")
+    base = parts[: len(parts) - (node.level - 1)]
+    return ".".join([*base, node.module] if node.module else base)
+
+
+def _imports(source: str, *, package: str) -> list[str]:
+    """Every module ``source`` (a module of ``package``) imports."""
     found: list[str] = []
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
             found.extend(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            found.append(node.module)
+        elif isinstance(node, ast.ImportFrom):
+            found.append(_absolute(node, package=package))
     return found
 
 
