@@ -12,6 +12,8 @@ import select
 import socket
 import subprocess
 import sys
+import threading
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -71,6 +73,69 @@ def test_pipe_copies_bytes_both_ways_and_ends_when_the_browser_closes() -> None:
         received += daemon_side.recv(65536)
     assert received == request
     assert _read_all(stdout_read) == answer
+
+
+def _pump(target: Callable[[], None]) -> threading.Thread:
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    return thread
+
+
+def test_pipe_keeps_reading_the_daemon_while_the_browser_sends_a_large_frame() -> None:
+    """Given a daemon that writes a large answer before it reads its next frame
+    (it drains each answer first), When the browser sends a large frame right
+    behind the request, Then the pipe carries both ways and nothing waits on
+    the other: the answer reaches stdout whole, the frame reaches the daemon
+    whole, and the pipe ends when both sides are done."""
+    stdin_read, stdin_write = os.pipe()
+    stdout_read, stdout_write = os.pipe()
+    host_side, daemon_side = socket.socketpair()
+    answer = _frame(b"a" * 4_000_000)
+    request = _frame(b"s" * 4_000_000)
+    received = bytearray()
+    delivered = bytearray()
+
+    def daemon() -> None:
+        daemon_side.sendall(answer)
+        while len(received) < len(request):
+            chunk = daemon_side.recv(65536)
+            if not chunk:
+                return
+            received.extend(chunk)
+        daemon_side.close()
+
+    def browser_writes() -> None:
+        view = memoryview(request)
+        while view:
+            view = view[os.write(stdin_write, view) :]
+
+    def browser_reads() -> None:
+        while len(delivered) < len(answer):
+            chunk = os.read(stdout_read, 65536)
+            if not chunk:
+                return
+            delivered.extend(chunk)
+
+    threads = [_pump(daemon), _pump(browser_writes), _pump(browser_reads)]
+    piping = _pump(lambda: pipe(stdin_read, stdout_write, host_side))
+    piping.join(TIMEOUT_S * 2)
+    stuck = piping.is_alive()
+    if stuck:  # unwedge every blocked side so the suite goes on
+        daemon_side.shutdown(socket.SHUT_RDWR)
+        host_side.shutdown(socket.SHUT_RDWR)
+        os.close(stdin_write)
+        os.close(stdout_read)
+    for thread in threads:
+        thread.join(TIMEOUT_S)
+    if not stuck:
+        for fd in (stdin_write, stdout_read):
+            os.close(fd)
+    for fd in (stdin_read, stdout_write):
+        os.close(fd)
+
+    assert not stuck, "the host and the daemon wait on each other"
+    assert bytes(delivered) == answer
+    assert bytes(received) == request
 
 
 def test_pipe_ends_when_the_daemon_closes() -> None:
