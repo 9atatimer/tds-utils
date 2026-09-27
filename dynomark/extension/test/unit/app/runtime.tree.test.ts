@@ -260,4 +260,34 @@ describe('Move origin -- only the moves the extension itself issued are origin e
     await deliver(runtime, { kind: 'moved', node_id: ids.saved, parent_id: ids.dynomark, old_parent_id: ids.rust });
     expect(sentOf(w, 'move.observed').map((r) => r.move.origin)).toEqual(['extension', 'extension']);
   });
+
+  it('Given the browser refused a move the batch issued, When the user later makes that same move, Then move.observed carries origin user', async () => {
+    const { w, ids, runtime } = await setup();
+    const go = await w.tree.createFolder(ids.dynomark, 'Go');
+    const inner = await w.tree.createFolder(go.id, 'Inner');
+    await w.daemon().emit({
+      v: 1,
+      type: 'batch.offer',
+      event_id: 'evt-cycle',
+      batch: {
+        batch_id: 'batch-cycle',
+        operations: [
+          {
+            op: 'move',
+            index: 0,
+            node_id: go.id,
+            to: { root: 'bar', names: ['Dynomark', 'Go', 'Inner'] },
+            expect: { parent_id: ids.dynomark },
+          },
+        ],
+      },
+    });
+    await runtime.idle();
+    expect((await w.tree.getNode(go.id))?.parent_id).toBe(ids.dynomark);
+    expect(sentOf(w, 'batch.receipt').at(-1)?.receipt.batch_id).toBe('batch-cycle');
+
+    await moved(w, runtime, inner.id, ids.dynomark);
+    await moved(w, runtime, go.id, inner.id);
+    expect(sentOf(w, 'move.observed').at(-1)?.move).toMatchObject({ node_id: go.id, origin: 'user' });
+  });
 });
