@@ -9,13 +9,14 @@ Pagination).
 import pytest
 
 from dynomark_daemon.app.errors import UnknownRecord
-from dynomark_daemon.app.jobs import retry_job
+from dynomark_daemon.app.jobs import list_batches_page, list_jobs_page, retry_job
+from dynomark_daemon.app.pages import StaleCursor
 from dynomark_daemon.domain.events import JobUpdated
 from dynomark_daemon.domain.ids import BatchId, JobId, ProfileId
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.store import InMemoryCorpusStore
-from tests._factories import make_job
+from tests._factories import make_batch, make_job
 
 A = ProfileId("profile-a")
 
@@ -80,3 +81,60 @@ def test_retry_an_unknown_or_another_profiles_job_is_not_found() -> None:
         _retry(store, JobId("job-unknown"))
     with pytest.raises(UnknownRecord):
         _retry(store, failed.job_id, ProfileId("profile-b"))
+
+
+# --- job.list and batch.list (contract v1, Delivery and replay: Pagination) ---
+
+
+def _jobs_store() -> InMemoryCorpusStore:
+    store = InMemoryCorpusStore()
+    states = [JobState.FAILED, JobState.QUEUED, JobState.FAILED, JobState.FAILED]
+    for n, state in enumerate(states):
+        store.put_job(make_job(f"job-{n}", node_id=str(n), state=state))
+    store.put_job(make_job("job-b", profile_id="profile-b", state=JobState.FAILED))
+    return store
+
+
+def test_job_list_pages_one_profiles_jobs_in_one_state() -> None:
+    """Given FAILED and QUEUED jobs of two profiles, When profile A lists FAILED
+    two at a time, Then the pages hold A's FAILED jobs in order and the last
+    page has no cursor."""
+    store = _jobs_store()
+
+    first = list_jobs_page(A, JobState.FAILED, None, 2, store=store)
+    second = list_jobs_page(A, JobState.FAILED, first.next_cursor, 2, store=store)
+
+    assert [j.job_id for j in first.items] == ["job-0", "job-2"]
+    assert [j.job_id for j in second.items] == ["job-3"]
+    assert first.next_cursor is not None and second.next_cursor is None
+
+
+def test_a_cursor_is_stale_with_other_parameters_or_another_list() -> None:
+    """Given a job.list cursor minted for state FAILED, When it is presented
+    with another state, to batch.list, or garbled, Then it raises StaleCursor."""
+    store = _jobs_store()
+    cursor = list_jobs_page(A, JobState.FAILED, None, 1, store=store).next_cursor
+    assert cursor is not None
+
+    with pytest.raises(StaleCursor):
+        list_jobs_page(A, None, cursor, 1, store=store)
+    with pytest.raises(StaleCursor):
+        list_batches_page(A, cursor, 1, store=store)
+    with pytest.raises(StaleCursor):
+        list_jobs_page(A, JobState.FAILED, "not-a-cursor", 1, store=store)
+
+
+def test_batch_list_pages_one_profiles_batches_newest_first() -> None:
+    """Given batches of two profiles, When profile A lists them two at a time,
+    Then the pages hold A's batches newest first."""
+    store = InMemoryCorpusStore()
+    for n, created_at in enumerate([10, 30, 20]):
+        store.put_batch(make_batch(f"batch-{n}", created_at=created_at))
+    store.put_batch(make_batch("batch-b", created_at=40, profile_id="profile-b"))
+
+    first = list_batches_page(A, None, 2, store=store)
+    second = list_batches_page(A, first.next_cursor, 2, store=store)
+
+    assert [b.batch.batch_id for b in first.items] == ["batch-1", "batch-2"]
+    assert [b.batch.batch_id for b in second.items] == ["batch-0"]
+    assert second.next_cursor is None
