@@ -3,6 +3,7 @@
 // which is both the path-idempotence test and the post-condition of a create
 // whose browser call may have happened before the worker died.
 
+import type { Expect, SkipReason } from './batch.js';
 import { pickChildFolder } from './paths.js';
 import type { SnapshotNode } from './tree.js';
 import type { NodeId, Title, Url } from './values.js';
@@ -19,4 +20,25 @@ export function existingBookmark(children: readonly SnapshotNode[], parentId: No
   return children
     .filter((n) => n.parent_id === parentId && n.kind === 'bookmark' && n.url === url)
     .reduce<SnapshotNode | undefined>((best, n) => (best === undefined || n.index < best.index ? n : best), undefined);
+}
+
+// --- Preconditions ---
+
+/** The facts a move or remove's `expect` is checked against, read from the tree before the op. */
+export interface ExpectFacts {
+  /** The node's parent now. */
+  readonly parent_id: NodeId | null;
+  /** The folder `expect.parent_path` resolves to, when the clause is present. */
+  readonly parent_path_id?: NodeId | undefined;
+  /** The node's kind and child count, for `expect.empty`. */
+  readonly is_folder: boolean;
+  readonly child_count: number;
+}
+
+/** The first `expect` clause that fails, as a SkipReason; undefined when every clause holds. */
+export function expectFailure(expect: Expect, facts: ExpectFacts): SkipReason | undefined {
+  if (facts.parent_id !== expect.parent_id) return 'parent_mismatch';
+  if (expect.parent_path !== undefined && facts.parent_path_id !== facts.parent_id) return 'parent_mismatch';
+  if (expect.empty === true && (!facts.is_folder || facts.child_count > 0)) return 'not_empty';
+  return undefined;
 }
