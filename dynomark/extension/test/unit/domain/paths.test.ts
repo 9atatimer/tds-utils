@@ -4,7 +4,7 @@
 // equals the name exactly; names [] is the top-level folder itself.
 
 import { describe, expect, it } from 'vitest';
-import { resolveFolderPath } from '../../../src/domain/paths.js';
+import { folderPathOf, resolveFolderPath } from '../../../src/domain/paths.js';
 import type { NodeKind, SnapshotNode, TreeRead } from '../../../src/domain/tree.js';
 
 // --- Builders ---
@@ -83,5 +83,36 @@ describe('resolveFolderPath', () => {
   it('Given a folder title cut mid-emoji, When resolved by its well-formed name, Then the well-formed titles match', () => {
     const tree = chromeTree([node('40', '11', 1, 'folder', 'Notes \uD83D')]);
     expect(resolveFolderPath(tree, { root: 'bar', names: ['Dynomark', 'Notes �'] })).toBe('40');
+  });
+});
+
+describe('folderPathOf', () => {
+  it('Given a nested folder, When its path is taken, Then it names the root key and each folder title downward', () => {
+    expect(folderPathOf(chromeTree(), '14')).toEqual({ root: 'bar', names: ['Dynomark', 'Rust'] });
+  });
+
+  it('Given a top-level folder root_ids names, When its path is taken, Then names is []', () => {
+    expect(folderPathOf(chromeTree(), '2')).toEqual({ root: 'other', names: [] });
+  });
+
+  it('Given the browser root, a bookmark, or an unknown id, When a path is taken, Then there is none', () => {
+    const tree = chromeTree([node('30', '1', 2, 'bookmark', 'Mail')]);
+    expect(folderPathOf(tree, '0')).toBeUndefined();
+    expect(folderPathOf(tree, '30')).toBeUndefined();
+    expect(folderPathOf(tree, 'nope')).toBeUndefined();
+  });
+
+  it('Given a folder under a top-level folder root_ids does not name (a local-only copy), When its path is taken, Then there is none', () => {
+    const tree: TreeRead = {
+      root_ids: { bar: '4', other: '5' },
+      nodes: [
+        node('0', null, 0, 'folder', ''),
+        node('1', '0', 0, 'folder', 'Bookmarks bar'),
+        node('4', '0', 1, 'folder', 'Bookmarks bar'),
+        node('5', '0', 2, 'folder', 'Other bookmarks'),
+        node('9', '1', 0, 'folder', 'Follow Up'),
+      ],
+    };
+    expect(folderPathOf(tree, '9')).toBeUndefined();
   });
 });
