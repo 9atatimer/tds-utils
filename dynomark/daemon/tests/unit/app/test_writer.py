@@ -7,6 +7,8 @@ README, Writer marker: no offers, ``undo``, ``diff.accept`` and
 its job indexed then ``FAILED`` naming the conflict).
 """
 
+import pytest
+
 from dynomark_daemon.app.diffs import accept_diff
 from dynomark_daemon.app.flags import set_folder_flags
 from dynomark_daemon.app.undo import undo
@@ -26,6 +28,7 @@ from dynomark_daemon.domain.writer import WriterConflict
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.completion import ScriptedCompletion
 from dynomark_daemon.testing.store import InMemoryCorpusStore
+from tests._crash import DyingStore
 from tests._factories import make_node, make_roots, make_tree
 from tests.unit.app._loop import ENRICHMENT, RUST, TREE, Loop
 
@@ -180,3 +183,27 @@ def test_a_save_on_a_writer_in_conflict_is_indexed_then_failed() -> None:
     assert job.last_error == "writer_conflict: marker of host work-laptop present"
     assert loop.store.get_entry(job.identity) is not None
     assert loop.store.list_batches() == []
+
+
+def _is_an_offer(value: object) -> bool:
+    return isinstance(value, BatchOffered)
+
+
+def test_a_marker_killed_before_its_offer_is_offered_on_the_next_snapshot() -> None:
+    """Given the daemon was killed after the marker batch was stored and before
+    its offer was, When markers are ensured again (the next tree.snapshot),
+    Then the marker batch is offered, not held back as pending forever."""
+    store = DyingStore()
+    store.put_tree_snapshot(FRESH)
+    store.kill_at("put_event", _is_an_offer)
+    with pytest.raises(SystemExit):
+        _ensure(store)
+
+    again = _ensure(store)
+
+    offers = [
+        p.event.batch.batch_id
+        for p in store.unacked_events(A)
+        if isinstance(p.event, BatchOffered)
+    ]
+    assert again is not None and offers == [again]

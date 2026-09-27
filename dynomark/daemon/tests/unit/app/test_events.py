@@ -7,6 +7,8 @@ batch at a time; Connection lifecycle, the read-only and refused modes).
 from collections.abc import Callable
 from dataclasses import replace
 
+import pytest
+
 from dynomark_daemon.app.events import (
     ack_events,
     deliver,
@@ -26,6 +28,7 @@ from dynomark_daemon.domain.job import JobState
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.store import InMemoryCorpusStore
 from dynomark_daemon.testing.transport import RecordingTransport
+from tests._crash import DyingStore
 from tests._factories import make_batch, make_diff, make_job
 
 A, B = ProfileId("profile-a"), ProfileId("profile-b")
@@ -208,3 +211,39 @@ def test_offers_that_fit_are_left_alone() -> None:
 
     assert failed == []
     assert transport.events_for(A) == [_offer(1)]
+
+
+def test_an_oversize_offer_withdrawn_when_the_daemon_is_killed_fails_its_job() -> None:
+    """Given the daemon was killed while withdrawing an oversize offer, after
+    the offer's event was acknowledged and before its batch was REJECTED,
+    When the restarted daemon withdraws oversize offers again, Then the job
+    is FAILED and the batch REJECTED instead of the job waiting forever on a
+    batch nothing offers."""
+    job = replace(make_job(state=JobState.PLACED), batch_id=BatchId("batch-1"))
+    store = DyingStore()
+    store.put_event(A, _offer(1))
+    store.put_job(job)
+    store.put_batch(replace(make_batch("batch-1"), job_id=job.job_id))
+    transport = RecordingTransport(fits=_fits_unless("batch-1"))
+
+    def withdraw() -> None:
+        fail_oversize_offers(
+            A,
+            store=store,
+            transport=transport,
+            clock=FakeClock(start_ms=5),
+            ids=SequentialIds(),
+        )
+
+    store.kill_at("put_batch")
+    with pytest.raises(SystemExit):
+        withdraw()
+    withdraw()
+
+    after = store.get_job(job.job_id)
+    assert after is not None and after.state is JobState.FAILED
+    record = store.get_batch(BatchId("batch-1"))
+    assert record is not None and record.state is BatchState.REJECTED
+    assert [p.event for p in store.unacked_events(A)] == [
+        JobUpdated(event_id=EventId("event-1"), job=after)
+    ]

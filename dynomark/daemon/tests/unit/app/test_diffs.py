@@ -50,6 +50,7 @@ from dynomark_daemon.domain.writer import WriterConflict
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.completion import ProposeDiffCall, ScriptedCompletion
 from dynomark_daemon.testing.store import InMemoryCorpusStore
+from tests._crash import DyingStore
 from tests._factories import (
     make_diff_item,
     make_node,
@@ -105,8 +106,12 @@ ASYNC_TO_READING = DiffProposal(
 class Writer:
     """A writer daemon's store over fakes, holding TREE with Pinned pinned."""
 
-    def __init__(self, *proposals: tuple[DiffProposal, ...]) -> None:
-        self.store = InMemoryCorpusStore()
+    def __init__(
+        self,
+        *proposals: tuple[DiffProposal, ...],
+        store: InMemoryCorpusStore | None = None,
+    ) -> None:
+        self.store = store or InMemoryCorpusStore()
         self.store.put_tree_snapshot(TREE)
         self.store.put_folder_flags(
             NodeId("17"), FolderFlags(pinned=True, locked=False)
@@ -485,3 +490,58 @@ def test_no_scheduled_rebuild_when_manual_unbound_or_in_conflict() -> None:
     assert _scheduled(manual, None) is None
     assert _scheduled(unbound) is None
     assert _scheduled(conflicted) is None
+
+
+# --- Killed part-way ---
+
+
+def _is_an_offer(value: object) -> bool:
+    return isinstance(value, BatchOffered)
+
+
+def _is_a_diff_announcement(value: object) -> bool:
+    return isinstance(value, DiffProposed)
+
+
+def test_an_accept_killed_before_its_offer_is_offered_by_the_repeat() -> None:
+    """Given the daemon was killed while accepting an item, after its batch was
+    stored and before the batch's offer was, When the accept is repeated,
+    Then the batch is offered once."""
+    store = DyingStore()
+    writer = Writer((ASYNC_TO_CONCURRENCY,), store=store)
+    item = writer.propose(DiffKind.REBUILD)
+    store.kill_at("put_event", _is_an_offer)
+    with pytest.raises(SystemExit):
+        writer.accept(item)
+
+    accepted = writer.accept(item)
+
+    assert isinstance(accepted, DiffItem) and accepted.batch_id is not None
+    offers = [
+        p.event.batch.batch_id
+        for p in store.unacked_events(A)
+        if isinstance(p.event, BatchOffered)
+    ]
+    assert offers == [accepted.batch_id]
+
+
+def test_a_scheduled_rebuild_killed_before_its_announcement_is_announced() -> None:
+    """Given the daemon was killed after a scheduled rebuild was stored and
+    before its diff.proposed was, When the loop looks for a due rebuild
+    again, Then the writer profile is sent a diff.proposed for a rebuild."""
+    store = DyingStore()
+    writer = Writer((ASYNC_TO_CONCURRENCY,), (ASYNC_TO_CONCURRENCY,), store=store)
+    store.bind_writer_profile(A)
+    store.kill_at("put_event", _is_a_diff_announcement)
+    with pytest.raises(SystemExit):
+        _scheduled(writer)
+
+    _scheduled(writer)
+
+    announced = [
+        p.event.diff.diff_id
+        for p in store.unacked_events(A)
+        if isinstance(p.event, DiffProposed)
+    ]
+    assert announced == [d.diff_id for d in store.list_diffs()]
+    assert len(announced) == 1
