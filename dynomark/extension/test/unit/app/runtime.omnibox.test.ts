@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { TIER2_DEBOUNCE_MS } from '../../../src/app/omnibox.js';
-import type { ExtensionRuntime } from '../../../src/app/runtime.js';
+import { ExtensionRuntime } from '../../../src/app/runtime.js';
 import { askRowContent, type OmniboxRows } from '../../../src/domain/omnibox.js';
 import type { LocalIndexRow } from '../../../src/domain/search.js';
 import type { RequestMessage, ResponseMessage } from '../../../src/wire/messages.js';
@@ -147,6 +147,28 @@ describe('Omnibox bm -- Enter navigates to the hit identity', () => {
     type(runtime, 'serde');
     await runtime.omniboxEnter('https://serde.rs/', 'currentTab');
     expect(w.navigator.opened).toEqual([{ url: 'https://serde.rs/', disposition: 'currentTab' }]);
+  });
+
+  it('Given the worker restarted between the keystrokes and Enter, When the picked hit comes back, Then it still opens (a picked row hands back its identity)', async () => {
+    const { w, runtime } = await setup();
+    type(runtime, 'serde');
+    w.restart();
+    scriptDaemon(w, {}, answers);
+    const fresh = new ExtensionRuntime(w.worker());
+    void fresh.start();
+    await fresh.omniboxEnter('https://serde.rs/', 'currentTab');
+    expect(w.navigator.opened).toEqual([{ url: 'https://serde.rs/', disposition: 'currentTab' }]);
+    expect(w.surface.opened).toEqual([]);
+  });
+
+  it('Given a tier-2 hit was picked on a worker that is gone, When entered on a fresh one, Then its identity opens rather than being asked as a question', async () => {
+    const { w } = await setup();
+    w.restart();
+    scriptDaemon(w, {}, answers);
+    const fresh = await startRuntime(w);
+    await fresh.omniboxEnter(CORPUS_HIT.identity, 'currentTab');
+    expect(w.navigator.opened).toEqual([{ url: CORPUS_HIT.identity, disposition: 'currentTab' }]);
+    expect(w.surface.opened).toEqual([]);
   });
 
   it('Given plain text with a tier-1 hit, When entered, Then the best hit opens', async () => {
