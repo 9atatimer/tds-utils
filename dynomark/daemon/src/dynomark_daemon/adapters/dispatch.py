@@ -37,6 +37,7 @@ from dynomark_daemon.app.errors import (
 from dynomark_daemon.app.events import ack_events, deliver, replay_events
 from dynomark_daemon.app.explain import explain_placement
 from dynomark_daemon.app.feedback import record_feedback
+from dynomark_daemon.app.flags import set_folder_flags
 from dynomark_daemon.app.hello import hello, status
 from dynomark_daemon.app.index import local_index_page
 from dynomark_daemon.app.ingest import ingest
@@ -58,6 +59,7 @@ from dynomark_daemon.domain.ids import (
     EventId,
     ItemId,
     JobId,
+    NodeId,
     ProfileId,
     RequestId,
 )
@@ -114,7 +116,6 @@ V: Final = CONTRACT_VERSION
 MAX_DETAIL: Final = 4096
 UNSERVED: Final = frozenset(
     {
-        "folder.flags.set",
         "writer.status",
     }
 )
@@ -373,6 +374,8 @@ class Dispatcher:
                 return self._diff_accept(message, session)
             case m.OutlineGet():
                 return self._outline_get(message, session)
+            case m.FolderFlagsSet():
+                return self._folder_flags_set(message, session)
             case _:
                 request_id = getattr(message, "id", None)
                 why = "yet (MVP)" if message.type in UNSERVED else "here"
@@ -791,3 +794,24 @@ class Dispatcher:
             message.limit or m.LARGE_PAGE,
         )
         return Outcome(reply)
+
+    def _folder_flags_set(self, message: m.FolderFlagsSet, session: Session) -> Outcome:
+        folder = set_folder_flags(
+            NodeId(message.node_id),
+            None if message.path is None else folder_path_from_wire(message.path),
+            message.pinned,
+            message.locked,
+            session.role,
+            _roots(session),
+            store=self._store,
+        )
+        if isinstance(folder, NotWriter):
+            return Outcome(_error(message.id, "not_writer", "this host is a reader"))
+        return Outcome(
+            m.FolderFlagsSetResult(
+                v=V,
+                type="folder.flags.set.result",
+                re=message.id,
+                folder=outline_folder_to_wire(folder),
+            )
+        )
