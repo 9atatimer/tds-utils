@@ -46,6 +46,19 @@ export function scriptedDaemon(hello: HelloAnswer = {}): (r: RequestMessage) => 
         return { v: 1, type: 'batch.receipt.result', re: r.id };
       case 'move.observed':
         return { v: 1, type: 'move.observed.result', re: r.id };
+      case 'status':
+        return {
+          v: 1,
+          type: 'status.result',
+          re: r.id,
+          role: hello.role ?? 'writer',
+          host_id: hello.host_id ?? 'mbp',
+          contract_version: 1,
+          models: { embedding: { id: 'nomic-embed-text', local: true }, completion: { id: 'llama3.1:8b', local: true } },
+          queue_depth: 2,
+        };
+      case 'search':
+        return { v: 1, type: 'search.result', re: r.id, hits: [], next_cursor: null };
       case 'ingest': {
         const job = {
           job_id: `job-${r.bookmark.node_id}`,

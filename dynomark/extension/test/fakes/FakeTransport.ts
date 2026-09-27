@@ -5,14 +5,14 @@
 // retries included, so a test can assert on exactly what reached the wire.
 
 import type { ErrorMessage, EventMessage, RequestMessage, ResponseMessage, ResultOf } from '../../src/wire/messages.js';
-import { TransportLost, type LossReason, type TransportPort } from '../../src/ports/transport.js';
+import { TransportLost, type LinkState, type LossReason, type TransportLink, type TransportPort } from '../../src/ports/transport.js';
 
 interface Pending {
   resolve(response: ResponseMessage): void;
   reject(error: TransportLost): void;
 }
 
-export class FakeTransport implements TransportPort {
+export class FakeTransport implements TransportPort, TransportLink {
   /** Every request frame sent, in order, retries included. */
   readonly sent: RequestMessage[] = [];
   /** How many connections have been opened (a send after a drop opens a new one). */
@@ -20,11 +20,14 @@ export class FakeTransport implements TransportPort {
 
   private open = false;
   private superseded = false;
+  private down = false;
   private responder: ((request: RequestMessage) => ResponseMessage) | undefined;
   private readonly pending = new Map<string, Pending>();
   private readonly listeners = new Set<(event: EventMessage) => void>();
   private readonly arrivals: RequestMessage[] = [];
   private readonly waiters: ((request: RequestMessage) => void)[] = [];
+  private link: LinkState = { state: 'idle' };
+  private readonly linkListeners = new Set<(state: LinkState) => void>();
 
   /** The daemon end of the connection, shaped as the port contract's harness expects. */
   readonly daemon = {
@@ -36,10 +39,16 @@ export class FakeTransport implements TransportPort {
 
   send<R extends RequestMessage>(request: R): Promise<ResultOf<R['type']> | ErrorMessage> {
     if (this.superseded) return Promise.reject(new TransportLost('superseded'));
+    if (this.down) {
+      this.sent.push(request);
+      this.setLink({ state: 'disconnected', detail: 'Specified native messaging host not found.' });
+      return Promise.reject(new TransportLost('disconnected'));
+    }
     if (this.pending.has(request.id)) throw new Error(`FakeTransport: request ${request.id} is already in flight on this connection`);
     if (!this.open) {
       this.open = true;
       this.connections += 1;
+      this.setLink({ state: 'connected' });
     }
     this.sent.push(request);
     const reply = new Promise<ResponseMessage>((resolve, reject) => this.pending.set(request.id, { resolve, reject }));
@@ -52,6 +61,20 @@ export class FakeTransport implements TransportPort {
   onEvent(listener: (event: EventMessage) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  linkState(): LinkState {
+    return this.link;
+  }
+
+  onLink(listener: (state: LinkState) => void): () => void {
+    this.linkListeners.add(listener);
+    return () => this.linkListeners.delete(listener);
+  }
+
+  /** The daemon is unreachable: every later send is lost at once (a host that fails to start), until reachable again. */
+  unreachable(down: boolean): void {
+    this.down = down;
   }
 
   /** Answer every later request at once with `respond`'s frame; undefined returns to manual answering. */
@@ -90,5 +113,11 @@ export class FakeTransport implements TransportPort {
     this.pending.clear();
     this.arrivals.length = 0;
     inFlight.forEach((p) => p.reject(new TransportLost(reason)));
+    this.setLink(reason === 'superseded' ? { state: 'superseded' } : { state: 'disconnected', detail: 'Native host has exited.' });
+  }
+
+  private setLink(state: LinkState): void {
+    this.link = state;
+    [...this.linkListeners].forEach((listener) => listener(state));
   }
 }

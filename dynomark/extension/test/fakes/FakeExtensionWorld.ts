@@ -16,12 +16,16 @@ import type { ContentSourcePort } from '../../src/ports/contentSource.js';
 import type { HistoryPort } from '../../src/ports/history.js';
 import type { IdSource } from '../../src/ports/idSource.js';
 import type { StoragePort } from '../../src/ports/storage.js';
-import type { TransportPort } from '../../src/ports/transport.js';
+import type { Navigator } from '../../src/ports/navigator.js';
+import type { Timer } from '../../src/ports/timer.js';
+import type { TransportLink, TransportPort } from '../../src/ports/transport.js';
 import { FakeBookmarkTree } from './FakeBookmarkTree.js';
 import { FakeClock } from './FakeClock.js';
 import { FakeHistory } from './FakeHistory.js';
+import { FakeNavigator } from './FakeNavigator.js';
 import { FakeStorage } from './FakeStorage.js';
 import { FakeTabs } from './FakeTabs.js';
+import { FakeTimer } from './FakeTimer.js';
 import { FakeTransport } from './FakeTransport.js';
 import { SequentialIdSource } from './SequentialIdSource.js';
 import { WorkerTerminated } from './WorkerTerminated.js';
@@ -31,7 +35,7 @@ import { WorkerTerminated } from './WorkerTerminated.js';
 const DEFAULT_START: EpochMs = 1_790_000_000_000;
 
 /** Methods that return a value rather than a promise: a dead worker's call throws instead of rejecting. */
-const SYNC_METHODS: ReadonlySet<PropertyKey> = new Set(['now', 'next', 'onEvent']);
+const SYNC_METHODS: ReadonlySet<PropertyKey> = new Set(['now', 'next', 'onEvent', 'after', 'onLink', 'linkState']);
 
 // --- Types ---
 
@@ -41,9 +45,11 @@ export interface WorkerPorts {
   readonly history: HistoryPort;
   readonly content: ContentSourcePort;
   readonly storage: StoragePort;
-  readonly transport: TransportPort;
+  readonly transport: TransportPort & TransportLink;
   readonly clock: Clock;
   readonly ids: IdSource;
+  readonly timer: Timer;
+  readonly navigator: Navigator;
 }
 
 export interface FakeExtensionWorldOptions {
@@ -55,6 +61,7 @@ export interface FakeExtensionWorldOptions {
 interface Worker {
   alive: boolean;
   readonly connection: FakeTransport;
+  readonly timer: FakeTimer;
   readonly ports: WorkerPorts;
 }
 
@@ -67,6 +74,8 @@ export class FakeExtensionWorld {
   readonly tabs = new FakeTabs();
   readonly storage = new FakeStorage();
   readonly ids = new SequentialIdSource();
+  /** Every navigation any worker asked for (the browser's tabs outlive workers). */
+  readonly navigator = new FakeNavigator();
   private current: Worker;
 
   constructor(options: FakeExtensionWorldOptions) {
@@ -89,6 +98,11 @@ export class FakeExtensionWorld {
     return this.current.connection;
   }
 
+  /** The live worker's timers; advancing them moves the shared clock. */
+  timer(): FakeTimer {
+    return this.current.timer;
+  }
+
   /** The daemon end of the live worker's connection. */
   daemon(): FakeTransport['daemon'] {
     return this.current.connection.daemon;
@@ -98,6 +112,7 @@ export class FakeExtensionWorld {
   terminate(): void {
     if (!this.current.alive) return;
     this.current.alive = false;
+    this.current.timer.clear();
     void this.current.connection.daemon.drop('disconnected');
   }
 
@@ -110,6 +125,7 @@ export class FakeExtensionWorld {
 
   private spawn(): Worker {
     const connection = new FakeTransport();
+    const timer = new FakeTimer(this.clock);
     const partial: { alive: boolean } = { alive: true };
     const bind = <T extends object>(target: T): T => this.bind(target, partial);
     const ports: WorkerPorts = {
@@ -117,11 +133,13 @@ export class FakeExtensionWorld {
       history: bind<HistoryPort>(this.history),
       content: bind<ContentSourcePort>(this.tabs),
       storage: bind<StoragePort>(this.storage),
-      transport: bind<TransportPort>(connection),
+      transport: bind<TransportPort & TransportLink>(connection),
       clock: bind<Clock>(this.clock),
       ids: bind<IdSource>(this.ids),
+      timer: bind<Timer>(timer),
+      navigator: bind<Navigator>(this.navigator),
     };
-    return Object.assign(partial, { connection, ports });
+    return Object.assign(partial, { connection, timer, ports });
   }
 
   /** Wrap a port so each call first checks the worker is alive, and a WorkerTerminated from inside kills it. */
