@@ -123,13 +123,16 @@ export type OpOutcome = ({ readonly outcome: 'applied' } & OpApplied) | ({ reado
  * The in-flight batch cursor: durable extension state that survives a
  * service-worker restart. `outcomes` covers ops 0..next_index-1 in order;
  * `started` names an op whose browser call began but whose outcome was not
- * recorded (it is re-evaluated on resume, never blindly repeated).
+ * recorded (it is re-evaluated on resume, never blindly repeated);
+ * `failed` names the op at `next_index` that failed on the last attempt, so
+ * that attempt's PARTIAL receipt can be derived again after a restart.
  */
 export interface BatchCursor {
   readonly batch_id: BatchId;
   readonly next_index: number;
   readonly outcomes: readonly OpOutcome[];
   readonly started?: number;
+  readonly failed?: OpFailed;
 }
 
 // --- Receipt construction ---
@@ -140,6 +143,18 @@ function appliedOf(outcomes: readonly OpOutcome[]): OpApplied[] {
 
 function skippedOf(outcomes: readonly OpOutcome[]): OpSkipped[] {
   return outcomes.filter((o) => o.outcome === 'skipped').map(({ index, reason }) => ({ index, reason }));
+}
+
+/** PARTIAL: `applied` and `skipped` partition 0..failed.index-1; later ops were not tried. */
+export function partialReceipt(
+  batch_id: BatchId,
+  outcomes: readonly OpOutcome[],
+  failed: OpFailed,
+  snapshot: Snapshot,
+  pre_batch: boolean,
+): ReceiptPartial {
+  const ordered = [...outcomes].filter((o) => o.index < failed.index).sort((a, b) => a.index - b.index);
+  return { state: 'PARTIAL', batch_id, snapshot, pre_batch, applied: appliedOf(ordered), skipped: skippedOf(ordered), failed };
 }
 
 /** APPLIED: `applied` and `skipped` partition every op index, each ascending. */
@@ -163,6 +178,11 @@ export function withStarted(cursor: BatchCursor, index: number): BatchCursor {
 /** The cursor with the next op's outcome recorded and nothing marked started. */
 export function withOutcome(cursor: BatchCursor, outcome: OpOutcome): BatchCursor {
   return { batch_id: cursor.batch_id, next_index: outcome.index + 1, outcomes: [...cursor.outcomes, outcome] };
+}
+
+/** The cursor with op `failed.index` recorded as failed on this attempt; nothing marked started. */
+export function withFailed(cursor: BatchCursor, failed: OpFailed): BatchCursor {
+  return { batch_id: cursor.batch_id, next_index: failed.index, outcomes: cursor.outcomes, failed };
 }
 
 /** True when an op of the cursor's batch may already have changed the tree (so a snapshot read now is not pre-batch). */

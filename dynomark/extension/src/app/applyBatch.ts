@@ -12,10 +12,13 @@ import {
   appliedReceipt,
   freshCursor,
   hasChangedTree,
+  partialReceipt,
+  withFailed,
   withOutcome,
   withStarted,
   type BatchCursor,
   type BatchReceipt,
+  type OpFailed,
   type OpOutcome,
   type Operation,
   type WriteBatch,
@@ -24,7 +27,8 @@ import { existingBookmark, existingFolder } from '../domain/ops.js';
 import { toSnapshot } from '../domain/snapshot.js';
 import type { FolderPath, OwnedRoots, SnapshotNode } from '../domain/tree.js';
 import type { BatchId, HostId, NodeId } from '../domain/values.js';
-import type { BookmarkTreePort } from '../ports/bookmarkTree.js';
+import { MAX_DETAIL, fitText } from '../domain/limits.js';
+import { BrowserRefused, type BookmarkTreePort } from '../ports/bookmarkTree.js';
 import type { Clock } from '../ports/clock.js';
 import type { StoragePort } from '../ports/storage.js';
 
@@ -89,17 +93,29 @@ async function postCondition(op: Operation, target: NodeId, tree: BookmarkTreePo
   return (await tree.getNode(op.node_id))?.parent_id === target ? op.node_id : undefined;
 }
 
+/** Where one op leaves the batch: the cursor with its outcome recorded, or the reason it failed. */
+type Step = { readonly cursor: BatchCursor } | { readonly failed: OpFailed };
+
 /** Run one op under the cursor: mark it started, make the browser call, record the outcome. */
-async function stepOp(op: Operation, cursor: BatchCursor, context: BatchContext, deps: ApplyDeps): Promise<BatchCursor> {
+async function stepOp(op: Operation, cursor: BatchCursor, context: BatchContext, deps: ApplyDeps): Promise<Step> {
   const target = await deps.tree.resolveFolder(targetOf(op, context.owned_roots));
-  if (target === undefined) throw new Error(`op ${op.index}: target folder does not resolve`);
+  if (target === undefined) return { failed: { index: op.index, reason: 'parent_missing' } };
   if (cursor.started === op.index) {
     const done = await postCondition(op, target, deps.tree);
-    if (done !== undefined) return record(cursor, { outcome: 'applied', index: op.index, node_id: done, changed: true }, deps.storage);
+    if (done !== undefined) return { cursor: await record(cursor, applied(op, done), deps.storage) };
   }
   await deps.storage.saveCursor(withStarted(cursor, op.index));
-  const node = await call(op, target, deps.tree);
-  return record(cursor, { outcome: 'applied', index: op.index, node_id: node.id, changed: true }, deps.storage);
+  try {
+    const node = await call(op, target, deps.tree);
+    return { cursor: await record(cursor, applied(op, node.id), deps.storage) };
+  } catch (error) {
+    if (!(error instanceof BrowserRefused)) throw error;
+    return { failed: { index: op.index, reason: 'browser_error', detail: fitText(error.message, MAX_DETAIL).text } };
+  }
+}
+
+function applied(op: Operation, node_id: NodeId): OpOutcome {
+  return { outcome: 'applied', index: op.index, node_id, changed: true };
 }
 
 async function record(cursor: BatchCursor, outcome: OpOutcome, storage: StoragePort): Promise<BatchCursor> {
@@ -120,6 +136,13 @@ export async function applyBatch(batch: WriteBatch, context: BatchContext, deps:
   let cursor = held ?? freshCursor(batch.batch_id);
   const pre_batch = !hasChangedTree(cursor);
   if (held === undefined) await deps.storage.saveCursor(cursor);
-  for (const op of batch.operations.slice(cursor.next_index)) cursor = await stepOp(op, cursor, context, deps);
+  for (const op of batch.operations.slice(cursor.next_index)) {
+    const step = await stepOp(op, cursor, context, deps);
+    if ('failed' in step) {
+      await deps.storage.saveCursor(withFailed(cursor, step.failed));
+      return partialReceipt(batch.batch_id, cursor.outcomes, step.failed, snapshot, pre_batch);
+    }
+    cursor = step.cursor;
+  }
   return appliedReceipt(batch.batch_id, cursor.outcomes, snapshot, pre_batch);
 }

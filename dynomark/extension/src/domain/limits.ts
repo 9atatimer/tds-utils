@@ -15,6 +15,8 @@ export const MAX_URL = 65_536;
 export const MAX_CAPTURE_TEXT = 1_048_576;
 /** `search.query`: code points. */
 export const MAX_QUERY = 1024;
+/** Free-text `detail` and `message` fields: code points. */
+export const MAX_DETAIL = 4096;
 /** A `LocalIndexRow` as compact UTF-8 JSON: bytes. */
 export const MAX_INDEX_ROW_BYTES = 512;
 
