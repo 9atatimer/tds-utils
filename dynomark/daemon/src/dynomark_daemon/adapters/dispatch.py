@@ -21,6 +21,7 @@ from typing import Final, TypeVar, cast
 import structlog
 
 from dynomark_daemon.adapters.framing import MAX_OUTBOUND
+from dynomark_daemon.app.ask import ask
 from dynomark_daemon.app.errors import (
     Busy,
     InvalidRequest,
@@ -41,6 +42,7 @@ from dynomark_daemon.app.search import search_page
 from dynomark_daemon.app.tree import record_tree_snapshot
 from dynomark_daemon.app.undo import undo
 from dynomark_daemon.domain.bookmark import Capture, Identity
+from dynomark_daemon.domain.chat import Question
 from dynomark_daemon.domain.config import Config
 from dynomark_daemon.domain.connection import HelloMode
 from dynomark_daemon.domain.ids import BatchId, EventId, JobId, ProfileId
@@ -51,6 +53,7 @@ from dynomark_daemon.domain.tree import OwnedRoots
 from dynomark_daemon.ports.clock import Clock, IdSource
 from dynomark_daemon.ports.completion import CompletionPort
 from dynomark_daemon.ports.embedding import EmbeddingPort
+from dynomark_daemon.ports.errors import PortError
 from dynomark_daemon.ports.store import CorpusStorePort
 from dynomark_daemon.ports.transport import TransportPort
 from dynomark_daemon.wire import messages as m
@@ -65,6 +68,7 @@ from dynomark_daemon.wire.codec import (
     peek_envelope,
 )
 from dynomark_daemon.wire.mapping import (
+    answer_to_wire,
     batch_summary_to_wire,
     bookmark_from_wire,
     capture_from_wire,
@@ -79,6 +83,7 @@ from dynomark_daemon.wire.mapping import (
     placement_to_wire,
     receipt_from_wire,
     snapshot_from_wire,
+    turn_from_wire,
     undo_drop_to_wire,
 )
 
@@ -92,7 +97,6 @@ V: Final = CONTRACT_VERSION
 MAX_DETAIL: Final = 4096
 UNSERVED: Final = frozenset(
     {
-        "ask",
         "diff.propose",
         "diff.list",
         "diff.page",
@@ -193,6 +197,20 @@ def _fit_explanation(reply: m.PlacementExplainResult) -> m.PlacementExplainResul
     return reply
 
 
+def _fit_answer(reply: m.AskResult) -> m.AskResult:
+    """Drop trailing citations, then external urls, until the frame fits."""
+    answer = reply.answer
+    while not _fits(reply) and (answer.citations or answer.external_urls):
+        if answer.citations:
+            answer = answer.model_copy(update={"citations": answer.citations[:-1]})
+        else:
+            answer = answer.model_copy(
+                update={"external_urls": answer.external_urls[:-1]}
+            )
+        reply = reply.model_copy(update={"answer": answer})
+    return reply
+
+
 def _profile(session: Session) -> ProfileId:
     """The connection's profile; admission guarantees a hello came first."""
     if session.profile_id is None:
@@ -285,6 +303,12 @@ class Dispatcher:
             return Outcome(_error(request_id, "busy", str(error)))
         except StaleCursor as error:
             return Outcome(_error(request_id, "stale_cursor", str(error)))
+        except PortError as error:
+            # A model or embedding call failed: busy when trying again may
+            # help (a model loading), else internal.
+            code: w.ErrorCode = "busy" if error.retryable else "internal"
+            log.warning("request.port_failed", type=message.type, detail=str(error))
+            return Outcome(_error(request_id, code, str(error)))
         except Exception as error:
             # Every request is answered (contract v1, Envelope): an unexpected
             # failure is logged with its trace and answered internal, which
@@ -324,6 +348,8 @@ class Dispatcher:
                 return self._search(message)
             case m.PlacementExplain():
                 return self._placement_explain(message)
+            case m.Ask():
+                return self._ask(message)
             case m.OutlineGet():
                 return self._outline_get(message, session)
             case _:
@@ -611,6 +637,19 @@ class Dispatcher:
             message.limit or m.SMALL_PAGE,
         )
         return Outcome(reply)
+
+    def _ask(self, message: m.Ask) -> Outcome:
+        answer = ask(
+            Question(message.question),
+            [turn_from_wire(turn) for turn in message.history],
+            store=self._store,
+            embedding=self._embedding,
+            completion=self._completion,
+        )
+        reply = m.AskResult(
+            v=V, type="ask.result", re=message.id, answer=answer_to_wire(answer)
+        )
+        return Outcome(_fit_answer(reply))
 
     def _placement_explain(self, message: m.PlacementExplain) -> Outcome:
         identity = (
