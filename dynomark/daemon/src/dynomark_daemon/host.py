@@ -19,6 +19,8 @@ from typing import Final
 from dynomark_daemon.settings import ConfigError, load_settings, socket_path
 
 CHUNK: Final = 65536
+UPSTREAM_HIGH_WATER: Final = 1 << 20
+"""Browser bytes held for the daemon before the host stops reading stdin."""
 HEADER: Final = 4
 NO_DAEMON: Final = "the dynomark daemon is not running"
 
@@ -64,23 +66,58 @@ def _busy_frame(re: str | None) -> bytes:
 # --- Flows ---
 
 
+def _interest(upstream: bytearray) -> int:
+    """What to wait for on the daemon socket: always its answers, and room to
+    write while browser bytes wait to go up."""
+    return selectors.EVENT_READ | (selectors.EVENT_WRITE if upstream else 0)
+
+
 def pipe(stdin_fd: int, stdout_fd: int, daemon: socket.socket) -> None:
-    """Copy stdin -> daemon and daemon -> stdout until either side closes."""
+    """Copy stdin -> daemon and daemon -> stdout until either side closes.
+
+    The daemon is never left unread: it drains each answer before it reads
+    the next frame, so a host blocked writing a large browser frame to it
+    while it waits to write a large answer would stall both for good.
+    Browser bytes wait in a buffer (at most ``UPSTREAM_HIGH_WATER``; stdin
+    is not read past it) and go up as the socket takes them; the daemon's
+    bytes go to stdout as they come. Once the browser closes, what it sent
+    is still delivered before the pipe returns.
+    """
+    daemon.setblocking(False)
+    upstream = bytearray()
+    browser_open = True
     with selectors.DefaultSelector() as selector:
-        selector.register(stdin_fd, selectors.EVENT_READ, "browser")
-        selector.register(daemon, selectors.EVENT_READ, "daemon")
-        while True:
-            for key, _ in selector.select():
+        selector.register(daemon, _interest(upstream), "daemon")
+        while browser_open or upstream:
+            reading = browser_open and len(upstream) < UPSTREAM_HIGH_WATER
+            if reading and stdin_fd not in selector.get_map():
+                selector.register(stdin_fd, selectors.EVENT_READ, "browser")
+            elif not reading and stdin_fd in selector.get_map():
+                selector.unregister(stdin_fd)
+            selector.modify(daemon, _interest(upstream), "daemon")
+            for key, events in selector.select():
                 if key.data == "browser":
                     data = os.read(stdin_fd, CHUNK)
-                    if not data:
+                    if data:
+                        upstream += data
+                    else:
+                        browser_open = False
+                    continue
+                if events & selectors.EVENT_READ:
+                    try:
+                        answer = daemon.recv(CHUNK)
+                    except BlockingIOError:
+                        answer = None
+                    if answer == b"":
                         return
-                    daemon.sendall(data)
-                else:
-                    data = daemon.recv(CHUNK)
-                    if not data:
-                        return
-                    _write_all(stdout_fd, data)
+                    if answer:
+                        _write_all(stdout_fd, answer)
+                if events & selectors.EVENT_WRITE and upstream:
+                    try:
+                        sent = daemon.send(upstream)
+                    except BlockingIOError:
+                        sent = 0
+                    del upstream[:sent]
 
 
 def answer_unavailable(stdin_fd: int, stdout_fd: int) -> None:
