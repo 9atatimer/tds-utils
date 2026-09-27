@@ -28,6 +28,13 @@ class FolderPath:
     root: RootKey
     names: tuple[str, ...]
 
+    def is_inside(self, other: "FolderPath") -> bool:
+        """``other`` is this path or one of its ancestors (a syntactic test)."""
+        return self.root == other.root and self.names[: len(other.names)] == other.names
+
+    def child(self, name: str) -> "FolderPath":
+        return FolderPath(root=self.root, names=(*self.names, name))
+
 
 @dataclass(frozen=True, slots=True)
 class OwnedRoots:
@@ -51,9 +58,25 @@ class OutlineFolder:
 
 @dataclass(frozen=True, slots=True)
 class TreeOutline:
-    """The folder skeleton of the owned subtree."""
+    """The folder skeleton of the ``Dynomark`` subtree rooted at ``root``."""
 
+    root: FolderPath
     folders: tuple[OutlineFolder, ...]
+
+    def folder_at(self, path: FolderPath) -> OutlineFolder | None:
+        return next((f for f in self.folders if f.path == path), None)
+
+    def children_of(self, path: FolderPath) -> tuple[OutlineFolder, ...]:
+        depth = len(path.names) + 1
+        return tuple(
+            f
+            for f in self.folders
+            if len(f.path.names) == depth and f.path.is_inside(path)
+        )
+
+    def is_locked(self, path: FolderPath) -> bool:
+        """``path`` is a locked folder or lies inside one."""
+        return any(f.locked and path.is_inside(f.path) for f in self.folders)
 
 
 @dataclass(frozen=True, slots=True)
