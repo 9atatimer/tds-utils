@@ -4,25 +4,21 @@ replaced by the ``testing`` fakes, answering from a script the e2e writes.
 
 It is test support, not a production option: ``dynomark-daemon`` and its
 config file cannot select a fake model. These tests pin what the e2e relies
-on: the script is read into the scripted completion in order, a bad script
-is refused by name, and the composed ports are the real store and fetch
-with the fake models.
+on: the script is read into the scripted completion in order, and a bad
+script is refused by name. That the composed ports are the real store and
+fetch with the fake models opens a SQLite file, so it lives in
+tests/integration/test_e2e_ports.py.
 """
-
-from pathlib import Path
 
 import pytest
 
-from dynomark_daemon.adapters.fetch import FetchContentSource
-from dynomark_daemon.adapters.sqlite_store import SqliteCorpusStore
 from dynomark_daemon.domain.batch import OpCreateFolder
 from dynomark_daemon.domain.bookmark import Identity
 from dynomark_daemon.domain.chat import Question
 from dynomark_daemon.domain.diff import DiffAction, DiffKind
-from dynomark_daemon.settings import SCHEMA, parse_settings
+from dynomark_daemon.settings import SCHEMA
 from dynomark_daemon.testing.completion import ScriptedCompletion, ScriptExhausted
-from dynomark_daemon.testing.e2e import ScriptError, e2e_ports, load_script
-from dynomark_daemon.testing.embedding import HashingEmbedding
+from dynomark_daemon.testing.e2e import ScriptError, load_script
 from tests._factories import make_bookmark, make_capture, make_outline, make_path
 
 URL = "http://127.0.0.1:4321/tokio"
@@ -82,32 +78,6 @@ def test_load_script_refuses_an_unknown_method_by_name() -> None:
     Then it is refused with an error that names the key."""
     with pytest.raises(ScriptError, match="summarize"):
         load_script({"summarize": []})
-
-
-def test_e2e_ports_are_the_production_store_and_fetch_with_fake_models(
-    tmp_path: Path,
-) -> None:
-    """Given settings, When the e2e ports are composed, Then the store is the
-    SQLite store at the configured path, the fetch is the real one, and only
-    the models are the testing fakes."""
-    settings = parse_settings(
-        {"role": "writer", "host_id": "mbp"},
-        {"XDG_STATE_HOME": str(tmp_path / "state")},
-        home=tmp_path,
-        hostname="mbp",
-    )
-    Path(settings.config.store_path).parent.mkdir(parents=True)
-    ports = e2e_ports(settings, load_script({}))
-    store = ports.store
-    try:
-        assert isinstance(store, SqliteCorpusStore)
-        assert isinstance(ports.content, FetchContentSource)
-        assert isinstance(ports.embedding, HashingEmbedding)
-        assert isinstance(ports.completion, ScriptedCompletion)
-        assert Path(settings.config.store_path).exists()
-    finally:
-        if isinstance(store, SqliteCorpusStore):
-            store.close()
 
 
 def test_no_config_key_selects_a_fake_model() -> None:
