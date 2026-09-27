@@ -101,6 +101,27 @@ describe('Backfill -- every existing bookmark, once, as backfill', () => {
     expect(page.ok && page.kind === 'overview' ? page.overview.problems.join('\n') : '').toContain('https://b3.example/');
     expect(page).toMatchObject({ ok: true, overview: { backfill: { done: candidates.length } } });
   });
+
+  it('Given the daemon answers one ingest busy on a link that stays up, When backfilling, Then that frame is re-sent with the same id after a backoff and the backfill still finishes', async () => {
+    let refused = false;
+    const busyOnce = (r: RequestMessage): ResponseMessage | undefined => {
+      if (r.type !== 'ingest' || r.bookmark.url !== 'https://b3.example/' || refused) return undefined;
+      refused = true;
+      return { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
+    };
+    const { w, candidates, runtime } = await setup(busyOnce);
+    await runtime.page({ kind: 'backfill.start' });
+    await runtime.idle();
+    await drain(w, runtime);
+    const sent = backfilled(w);
+    const b3 = sent.filter((r) => r.bookmark.url === 'https://b3.example/');
+    expect(b3).toHaveLength(2);
+    expect(b3[1]?.id).toBe(b3[0]?.id);
+    expect(new Set(sent.map((r) => r.bookmark.node_id))).toEqual(new Set(candidates));
+    expect(sent).toHaveLength(candidates.length + 1);
+    const page = await runtime.page({ kind: 'overview' });
+    expect(page).toMatchObject({ ok: true, overview: { backfill: { total: candidates.length, done: candidates.length, running: false } } });
+  });
 });
 
 describe('Backfill -- resumable across worker restarts', () => {
