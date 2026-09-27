@@ -208,17 +208,21 @@ def test_knn_follows_writes_made_through_another_connection(tmp_path: Path) -> N
 
 def test_a_failed_replace_leaves_knn_on_the_committed_vector(tmp_path: Path) -> None:
     """Given KNN asked once, When replacing an entry's vector fails inside its
-    transaction, Then KNN still ranks by the vector that was committed."""
+    transaction, Then KNN still ranks by the vector that was committed.
+
+    The trigger is created before the first KNN: a commit through another
+    connection after it would move ``data_version`` and reload the cache from
+    the table, hiding whatever ``put_entry`` did to the cache."""
     db = tmp_path / "corpus.sqlite3"
     store = SqliteCorpusStore.open(db)
     store.put_entry(make_entry("https://a.example/", vector=(1.0, 0.0)))
     store.put_entry(make_entry("https://b.example/", vector=(0.6, 0.8)))
-    assert _nearest(store) == ["https://a.example/", "https://b.example/"]
     with sqlite3.connect(db) as raw:
         raw.execute(
             "CREATE TRIGGER refuse AFTER UPDATE ON entries"
             " BEGIN SELECT RAISE(ABORT, 'refused'); END"
         )
+    assert _nearest(store) == ["https://a.example/", "https://b.example/"]
 
     with pytest.raises(sqlite3.IntegrityError, match="refused"):
         store.put_entry(make_entry("https://a.example/", vector=(0.0, 1.0)))
