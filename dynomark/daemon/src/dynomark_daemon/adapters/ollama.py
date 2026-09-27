@@ -17,6 +17,7 @@ import urllib.request
 from collections.abc import Sequence
 from typing import Final
 
+from dynomark_daemon.domain.batch import Operation
 from dynomark_daemon.domain.bookmark import (
     Bookmark,
     Capture,
@@ -27,9 +28,15 @@ from dynomark_daemon.domain.bookmark import (
 )
 from dynomark_daemon.domain.chat import DraftAnswer, Question, Turn
 from dynomark_daemon.domain.config import ModelInfo
-from dynomark_daemon.domain.diff import DiffKind, DiffProposal
+from dynomark_daemon.domain.diff import (
+    DiffAction,
+    DiffKind,
+    DiffProposal,
+    folder_add,
+    folder_move,
+)
 from dynomark_daemon.domain.placement import EntryRef, FolderChoice, MoveFeedback
-from dynomark_daemon.domain.tree import FolderPath, TreeOutline
+from dynomark_daemon.domain.tree import FolderPath, OutlineFolder, TreeOutline
 from dynomark_daemon.ports.completion import CompletionError
 from dynomark_daemon.ports.embedding import EmbeddingError
 
@@ -41,6 +48,8 @@ MAX_TAGS: Final = 8
 MAX_TAG: Final = 64
 """A tag's longest form (contract v1 ``Tag``)."""
 MAX_CONTEXT_TEXT: Final = 2_000
+MAX_DIFF_ITEMS: Final = 50
+"""Items one proposal keeps; the rest of the model's answer is ignored."""
 OPTIONS: Final = {"temperature": 0}
 
 ENRICH_SYSTEM: Final = (
@@ -60,6 +69,29 @@ ANSWER_SYSTEM: Final = (
     'one JSON object only: {"text": "<answer>", "cited": ["<identity of each '
     'page you used>"], "urls": ["<any other URL you mention>"]}.'
 )
+
+
+DIFF_SYSTEM: Final = (
+    "You tidy a bookmark folder tree. Folders are written as names from the "
+    "top of the bookmarks bar, separated by /. Never move a folder marked "
+    "(pinned) or (locked), and never put anything into a (locked) folder. "
+    "Answer with one JSON object only: "
+    '{"items": [{"action": "move", "folder": ["<names of the folder to move>"], '
+    '"to": ["<names of its new parent folder>"], "description": "<why>"}, '
+    '{"action": "add", "folder": ["<names of a new folder>"], '
+    '"description": "<why>"}]}. Propose at most 10 items; an empty list is fine.'
+)
+DIFF_TASK: Final = {
+    DiffKind.REBUILD: (
+        "Reorganize the Dynomark folders: group related folders and move "
+        "misplaced ones. Every folder you name must stay under Dynomark."
+    ),
+    DiffKind.AUDIT: (
+        "Compare the Dynomark folders with the user's own bar folders. Suggest "
+        "moving a Dynomark folder into a matching folder of the user's, or "
+        "adding a folder to the user's bar that Dynomark shows is missing."
+    ),
+}
 
 
 class OllamaError(RuntimeError):
@@ -89,6 +121,64 @@ def _outline_lines(outline: TreeOutline) -> str:
         for folder in outline.folders
     ]
     return "\n".join(lines) or _path(outline.root)
+
+
+def _flagged_lines(outline: TreeOutline) -> list[str]:
+    """Every folder but a browser root, with its flags."""
+    return [
+        _path(folder.path)
+        + (" (pinned)" if folder.pinned else "")
+        + (" (locked)" if folder.locked else "")
+        for folder in outline.folders
+        if folder.path.names
+    ]
+
+
+def _names(value: object) -> tuple[str, ...] | None:
+    if not isinstance(value, list) or not value:
+        return None
+    if not all(isinstance(v, str) and v.strip() for v in value):
+        return None
+    return tuple(str(v).strip() for v in value)
+
+
+def _diff_item(
+    raw: object, outlines: tuple[TreeOutline, TreeOutline]
+) -> DiffProposal | None:
+    """One answered item as a proposal built from the outlines; ``None`` when
+    it is malformed, names no known folder, or is a merge (merge rules are
+    undefined, design Open Question 1)."""
+    if not isinstance(raw, dict):
+        return None
+    action, description = raw.get("action"), raw.get("description")
+    names = _names(raw.get("folder"))
+    if not isinstance(description, str) or names is None:
+        return None
+    root = outlines[1].root.root
+    path = FolderPath(root=root, names=names)
+    operations: tuple[Operation, ...] | None = None
+    if action == DiffAction.ADD.value:
+        operations = folder_add(path, outlines) or None
+    elif action == DiffAction.MOVE.value:
+        to = _names(raw.get("to"))
+        folder = _known_folder(path, outlines)
+        if to is not None and folder is not None:
+            operations = folder_move(folder, FolderPath(root=root, names=to), outlines)
+    if operations is None:
+        return None
+    return DiffProposal(
+        action=DiffAction(str(action)), description=description, operations=operations
+    )
+
+
+def _known_folder(
+    path: FolderPath, outlines: tuple[TreeOutline, TreeOutline]
+) -> OutlineFolder | None:
+    for outline in outlines:
+        found = outline.folder_at(path)
+        if found is not None:
+            return found
+    return None
 
 
 def _json_object(text: str) -> dict[str, object]:
@@ -324,8 +414,23 @@ class OllamaCompletion:
     def propose_diff(
         self, kind: DiffKind, *, outline: TreeOutline, own_bar: TreeOutline
     ) -> tuple[DiffProposal, ...]:
-        """Diffs are MVP (task-029); this adapter proposes none yet."""
-        raise CompletionError(
-            f"{kind.value} diffs are not proposed by the Ollama adapter yet",
-            retryable=False,
+        """Moves and adds of folders, built from the two outlines (the model
+        names folders by path; node ids and preconditions come from the
+        outlines). The use case vets every proposal against the rules."""
+        prompt = "\n".join(
+            [
+                DIFF_TASK[kind],
+                "",
+                "Dynomark folders:",
+                *(_flagged_lines(outline) or ["(none)"]),
+                "",
+                "The user's own bar folders:",
+                *(_flagged_lines(own_bar) or ["(none)"]),
+            ]
         )
+        document = self._generate(DIFF_SYSTEM, prompt)
+        items = document.get("items")
+        if not isinstance(items, list):
+            raise CompletionError("model answer has no items list", retryable=True)
+        built = (_diff_item(raw, (outline, own_bar)) for raw in items)
+        return tuple(p for p in built if p is not None)[:MAX_DIFF_ITEMS]
