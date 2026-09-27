@@ -129,6 +129,8 @@ export type OpOutcome = ({ readonly outcome: 'applied' } & OpApplied) | ({ reado
  */
 export interface BatchCursor {
   readonly batch_id: BatchId;
+  /** How many ops the batch has, so a restarted worker can tell a complete cursor from a partial one without the batch. */
+  readonly op_count: number;
   readonly next_index: number;
   readonly outcomes: readonly OpOutcome[];
   readonly started?: number;
@@ -177,8 +179,8 @@ export function withoutSnapshot(receipt: BatchReceipt): BatchReceipt {
 // --- Cursor transitions ---
 
 /** The cursor of a batch no op of which has been recorded. */
-export function freshCursor(batch_id: BatchId): BatchCursor {
-  return { batch_id, next_index: 0, outcomes: [] };
+export function freshCursor(batch_id: BatchId, op_count: number): BatchCursor {
+  return { batch_id, op_count, next_index: 0, outcomes: [] };
 }
 
 /** The cursor with op `index` marked started: its browser call may have happened. */
@@ -188,15 +190,27 @@ export function withStarted(cursor: BatchCursor, index: number): BatchCursor {
 
 /** The cursor with the next op's outcome recorded and nothing marked started. */
 export function withOutcome(cursor: BatchCursor, outcome: OpOutcome): BatchCursor {
-  return { batch_id: cursor.batch_id, next_index: outcome.index + 1, outcomes: [...cursor.outcomes, outcome] };
+  return { batch_id: cursor.batch_id, op_count: cursor.op_count, next_index: outcome.index + 1, outcomes: [...cursor.outcomes, outcome] };
 }
 
 /** The cursor with op `failed.index` recorded as failed on this attempt; nothing marked started. */
 export function withFailed(cursor: BatchCursor, failed: OpFailed): BatchCursor {
-  return { batch_id: cursor.batch_id, next_index: failed.index, outcomes: cursor.outcomes, failed };
+  return { batch_id: cursor.batch_id, op_count: cursor.op_count, next_index: failed.index, outcomes: cursor.outcomes, failed };
 }
 
 /** True when an op of the cursor's batch may already have changed the tree (so a snapshot read now is not pre-batch). */
 export function hasChangedTree(cursor: BatchCursor): boolean {
   return cursor.started !== undefined || cursor.outcomes.some((o) => o.outcome === 'applied' && o.changed);
+}
+
+/**
+ * The receipt the cursor alone can give again, with a snapshot read now:
+ * PARTIAL when its last attempt failed, APPLIED when every op is recorded;
+ * undefined for a batch still in progress (only its re-offer can finish it).
+ */
+export function receiptFromCursor(cursor: BatchCursor, snapshot: Snapshot): BatchReceipt | undefined {
+  const pre_batch = !hasChangedTree(cursor);
+  if (cursor.failed !== undefined) return partialReceipt(cursor.batch_id, cursor.outcomes, cursor.failed, snapshot, pre_batch);
+  if (cursor.next_index >= cursor.op_count) return appliedReceipt(cursor.batch_id, cursor.outcomes, snapshot, pre_batch);
+  return undefined;
 }

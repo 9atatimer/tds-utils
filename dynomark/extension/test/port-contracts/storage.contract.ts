@@ -26,6 +26,7 @@ const INDEX: LocalIndex = [
 
 const CURSOR: BatchCursor = {
   batch_id: 'batch-0101',
+  op_count: 3,
   next_index: 2,
   outcomes: [
     { outcome: 'applied', index: 0, node_id: '16', changed: true },
@@ -67,8 +68,8 @@ export function describeStorageContract(name: string, make: () => StoragePort): 
     it('Given a saved cursor, When saved again, Then the later value replaces the earlier', async () => {
       const storage = make();
       await storage.saveCursor(CURSOR);
-      await storage.saveCursor({ batch_id: 'batch-0102', next_index: 0, outcomes: [] });
-      expect(await storage.loadCursor()).toEqual({ batch_id: 'batch-0102', next_index: 0, outcomes: [] });
+      await storage.saveCursor({ batch_id: 'batch-0102', op_count: 2, next_index: 0, outcomes: [] });
+      expect(await storage.loadCursor()).toEqual({ batch_id: 'batch-0102', op_count: 2, next_index: 0, outcomes: [] });
     });
 
     it('Given all three values saved, When the cursor is cleared, Then only the cursor is gone', async () => {

@@ -40,7 +40,7 @@ function receipt(batch_id = 'batch-0101'): BatchReceipt {
 }
 
 function cursorFor(batch_id: string): BatchCursor {
-  return { batch_id, next_index: 1, outcomes: [{ outcome: 'applied', index: 0, node_id: '16', changed: true }] };
+  return { batch_id, op_count: 1, next_index: 1, outcomes: [{ outcome: 'applied', index: 0, node_id: '16', changed: true }] };
 }
 
 /** A daemon that records the first receipt per batch_id and answers every one batch.receipt.result. */

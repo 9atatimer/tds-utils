@@ -90,6 +90,7 @@ describe('Behavior: A batch resumes after termination -- applyBatch re-offered a
     const ids = await seedOwnedTree(w.tree);
     await w.storage.saveCursor({
       batch_id: 'batch-other',
+      op_count: 1,
       next_index: 1,
       outcomes: [{ outcome: 'applied', index: 0, node_id: ids.rust, changed: true }],
     });

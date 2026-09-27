@@ -207,7 +207,7 @@ export async function applyBatch(batch: WriteBatch, context: BatchContext, deps:
     const rejection = rejectionOf(batch, context.owned_roots, context.host_id, read);
     if (rejection !== undefined) return rejectedReceipt(batch.batch_id, rejection, snapshot);
   }
-  let cursor = held ?? freshCursor(batch.batch_id);
+  let cursor = held ?? freshCursor(batch.batch_id, batch.operations.length);
   const pre_batch = !hasChangedTree(cursor);
   if (held === undefined) await deps.storage.saveCursor(cursor);
   for (const op of batch.operations.slice(cursor.next_index)) {

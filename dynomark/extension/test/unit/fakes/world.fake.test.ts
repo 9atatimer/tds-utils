@@ -16,6 +16,7 @@ import { WorkerTerminated } from '../../fakes/WorkerTerminated.js';
 
 const CURSOR: BatchCursor = {
   batch_id: 'batch-1',
+  op_count: 3,
   next_index: 1,
   outcomes: [{ outcome: 'applied', index: 0, node_id: '4', changed: true }],
 };
