@@ -162,3 +162,36 @@ def test_the_installed_host_pipes_a_hello_to_the_daemon_and_back(
 
     assert (answer["type"], answer["re"]) == ("hello.result", "h-1")
     assert code == 0
+
+
+def test_the_host_finds_the_socket_the_config_file_names(tmp_path: Path) -> None:
+    """Given no $DYNOMARK_SOCKET and a config.toml naming the socket, When the
+    host runs, Then it reaches the daemon listening there."""
+    path = tmp_path / "custom.sock"
+    config = tmp_path / "config" / "dynomark"
+    config.mkdir(parents=True)
+    (config / "config.toml").write_text(f'[socket]\npath = "{path}"\n')
+    env = {k: v for k, v in os.environ.items() if k != "DYNOMARK_SOCKET"}
+    env["XDG_CONFIG_HOME"] = str(tmp_path / "config")
+    with running(build_server(path)):
+        host = subprocess.Popen(
+            [sys.executable, "-m", "dynomark_daemon.host"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
+        assert host.stdin is not None and host.stdout is not None
+        try:
+            host.stdin.write(_frame(wire.hello("h-2")))
+            host.stdin.flush()
+            out = host.stdout.fileno()
+            length = int.from_bytes(_read_within(out, 4), "little")
+            answer = json.loads(_read_within(out, length))
+            host.stdin.close()
+            host.wait(timeout=TIMEOUT_S)
+        finally:
+            host.kill()
+            host.wait(timeout=TIMEOUT_S)
+
+    assert answer["type"] == "hello.result"
