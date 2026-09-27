@@ -16,10 +16,14 @@ from dynomark_daemon.adapters.ollama import (
     OllamaEmbedding,
     OllamaError,
 )
+from dynomark_daemon.domain.batch import Expect, OpCreateFolder, OpMove
 from dynomark_daemon.domain.bookmark import Identity
 from dynomark_daemon.domain.chat import Question
 from dynomark_daemon.domain.config import ModelInfo
+from dynomark_daemon.domain.diff import DiffAction, DiffKind
+from dynomark_daemon.domain.ids import NodeId
 from dynomark_daemon.domain.placement import EntryRef
+from dynomark_daemon.domain.tree import FolderPath, RootKey, TreeOutline
 from dynomark_daemon.ports.completion import CompletionError, CompletionPort
 from dynomark_daemon.ports.embedding import EmbeddingError, EmbeddingPort
 from tests._factories import (
@@ -213,6 +217,112 @@ def test_a_folder_choice_without_the_root_is_placed_under_it() -> None:
         )
 
     assert choice.folder == make_path("Dynomark", "Rust")
+
+
+# --- Completion: diffs ---
+
+BAR = FolderPath(root=RootKey.BAR, names=())
+DIFF_OUTLINE = make_outline(
+    make_outline_folder("Dynomark", "Rust", node_id="14"),
+    make_outline_folder("Dynomark", "Rust", "Async", node_id="16", pinned=True),
+    make_outline_folder("Dynomark", "Private", node_id="18", locked=True),
+)
+OWN_BAR = TreeOutline(
+    root=BAR,
+    folders=(
+        make_outline_folder(node_id="1"),
+        make_outline_folder("Reading", node_id="30"),
+    ),
+)
+
+
+def test_propose_diff_shows_both_outlines_and_builds_operations() -> None:
+    """Given the Dynomark outline (pinned and locked marked) and the user's own
+    bar, When an audit is proposed, Then the prompt lists both, and a move
+    and an add in the answer become operations built from the outlines."""
+    answer = json.dumps(
+        {
+            "items": [
+                {
+                    "action": "move",
+                    "folder": ["Dynomark", "Rust"],
+                    "to": ["Reading", "Languages"],
+                    "description": "Rust belongs with your reading",
+                },
+                {
+                    "action": "add",
+                    "folder": ["Reading", "Async"],
+                    "description": "An Async folder in your bar",
+                },
+            ]
+        }
+    )
+    script = Script(responses=[answer])
+    with fake_ollama(script) as base:
+        proposals = _completion(base).propose_diff(
+            DiffKind.AUDIT, outline=DIFF_OUTLINE, own_bar=OWN_BAR
+        )
+
+    prompt = str(script.requests[0][1]["prompt"])
+    assert "Dynomark/Rust/Async (pinned)" in prompt
+    assert "Dynomark/Private (locked)" in prompt and "Reading" in prompt
+    move, add = proposals
+    assert (move.action, move.description) == (
+        DiffAction.MOVE,
+        "Rust belongs with your reading",
+    )
+    assert move.operations == (
+        OpCreateFolder(index=0, parent=make_path("Reading"), title="Languages"),
+        OpMove(
+            index=1,
+            node_id=NodeId("14"),
+            to=make_path("Reading", "Languages"),
+            expect=Expect(
+                parent_id=NodeId("n-Dynomark"), parent_path=make_path("Dynomark")
+            ),
+        ),
+    )
+    assert add.operations == (
+        OpCreateFolder(index=0, parent=make_path("Reading"), title="Async"),
+    )
+
+
+def test_propose_diff_skips_items_it_cannot_build() -> None:
+    """Given items naming no known folder, a merge (rules undefined, Open
+    Question 1) and a malformed one, When proposed, Then each is skipped."""
+    answer = json.dumps(
+        {
+            "items": [
+                {
+                    "action": "move",
+                    "folder": ["Nope"],
+                    "to": ["Reading"],
+                    "description": "x",
+                },
+                {"action": "merge", "folder": ["Dynomark", "Rust"], "description": "x"},
+                {"action": "add", "folder": "Reading/New", "description": "x"},
+                "not an object",
+            ]
+        }
+    )
+    with fake_ollama(Script(responses=[answer])) as base:
+        proposals = _completion(base).propose_diff(
+            DiffKind.REBUILD, outline=DIFF_OUTLINE, own_bar=OWN_BAR
+        )
+
+    assert proposals == ()
+
+
+def test_propose_diff_without_an_item_list_is_retryable() -> None:
+    """Given an answer that has no items list, When proposed, Then
+    CompletionError is retryable."""
+    with fake_ollama(Script(responses=[json.dumps({"items": "none"})])) as base:
+        with pytest.raises(CompletionError) as raised:
+            _completion(base).propose_diff(
+                DiffKind.REBUILD, outline=DIFF_OUTLINE, own_bar=OWN_BAR
+            )
+
+    assert raised.value.retryable is True
 
 
 # --- Completion: chat draft, model, availability ---
