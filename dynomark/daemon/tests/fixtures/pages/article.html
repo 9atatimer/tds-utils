@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Tokio tutorial &amp; guide</title>
+  <style>body { color: red; } .nav-secret { display: none; }</style>
+  <script>var trackingSecret = "do-not-capture";</script>
+</head>
+<body>
+  <header><a href="/">Site header menu</a></header>
+  <nav><ul><li>Navigation link one</li><li>Navigation link two</li></ul></nav>
+  <main>
+    <p>Main preamble outside the article.</p>
+    <article>
+      <h1>Tokio is an asynchronous runtime</h1>
+      <p>It schedules <em>tasks</em> cooperatively.<br>Cancellation happens at await points.</p>
+      <script>console.log("inline script in article");</script>
+      <ul><li>select! macro</li><li>JoinSet</li></ul>
+    </article>
+  </main>
+  <footer>Copyright footer text</footer>
+</body>
+</html>
