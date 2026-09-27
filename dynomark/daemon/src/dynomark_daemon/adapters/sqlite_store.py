@@ -204,9 +204,12 @@ else:
 def _cosine(
     query: Sequence[float], query_norm: float, vector: Sequence[float], norm: float
 ) -> float:
+    """0.0 where there is no finite answer: a component past float32 is stored
+    as inf, inf/inf is NaN, and one NaN score leaves ``sorted`` unordered."""
     if len(vector) != len(query) or query_norm == 0.0 or norm == 0.0:
         return 0.0
-    return _dot(query, vector) / (query_norm * norm)
+    score = _dot(query, vector) / (query_norm * norm)
+    return score if math.isfinite(score) else 0.0
 
 
 @dataclass(slots=True)
