@@ -52,11 +52,14 @@ export function describeBookmarkTreeContract(name: string, make: () => BookmarkT
       expect((await tree.readTree()).nodes.filter((n) => n.id === made.id)).toHaveLength(1);
     });
 
-    it('Given a bookmark created with a raw URL, When read back, Then the URL is exactly as given (never normalized)', async () => {
+    // The browser canonicalizes a URL as it stores it (Chrome lower-cases the host); that is not the
+    // normalization Identity is. A URL the browser reported -- the only kind the contract lets a batch
+    // carry -- round-trips exactly, query and fragment included.
+    it('Given a bookmark created with a browser-reported URL, When read back, Then the URL is exactly as given (never normalized)', async () => {
       const tree = make();
       const { root_ids } = await tree.readTree();
       const folder = await tree.createFolder(root_ids.other, 'Follow Up');
-      const url = 'https://Tokio.rs/tokio/tutorial?utm_source=x#intro';
+      const url = 'https://tokio.rs/tokio/tutorial?utm_source=x#intro';
       const made = await tree.createBookmark(folder.id, 'Tokio tutorial', url);
       expect(await tree.getChildren(folder.id)).toEqual([made]);
       expect(made).toMatchObject({ kind: 'bookmark', title: 'Tokio tutorial', url, parent_id: folder.id, index: 0 });
