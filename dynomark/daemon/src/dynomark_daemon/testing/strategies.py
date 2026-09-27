@@ -153,3 +153,47 @@ events = st.one_of(
     st.builds(BatchOffered, event_id=ids.map(EventId), batch=write_batches),
     st.builds(DiffProposed, event_id=ids.map(EventId), diff=tree_diffs),
 )
+
+
+# --- Raw URLs (Identity normalization, domain/bookmark.py) ---
+
+_PCHARS = "abcXYZ019-._~!$&'()*+,;=:@"
+_HEX = "0123456789abcdefABCDEF"
+
+
+def _random_case(text: str) -> st.SearchStrategy[str]:
+    return st.lists(st.booleans(), min_size=len(text), max_size=len(text)).map(
+        lambda flips: "".join(
+            c.upper() if flip else c.lower()
+            for c, flip in zip(text, flips, strict=True)
+        )
+    )
+
+
+_percent = st.tuples(st.sampled_from(_HEX), st.sampled_from(_HEX)).map(
+    lambda pair: "%" + pair[0] + pair[1]
+)
+_segment = st.lists(st.one_of(st.sampled_from(_PCHARS), _percent), max_size=6).map(
+    "".join
+) | st.sampled_from([".", "..", "%2E", "%2e%2E"])
+_host = st.from_regex(
+    r"[a-zA-Z0-9]([a-zA-Z0-9-]{0,8}[a-zA-Z0-9])?(\.[a-zA-Z]{2,4}){0,2}", fullmatch=True
+)
+
+
+@st.composite
+def http_urls(draw: st.DrawFn) -> str:
+    """Absolute http(s) URLs in varied but equivalent spellings: scheme and
+    host case, explicit/empty/default ports, percent-encoding, dot segments."""
+    scheme = draw(st.sampled_from(["http", "https"]).flatmap(_random_case))
+    host = draw(_host)
+    port = draw(st.sampled_from(["", ":", ":80", ":443", ":8080"]))
+    path = "".join("/" + s for s in draw(st.lists(_segment, max_size=4)))
+    query = draw(st.none() | st.lists(_segment, max_size=3).map("&".join))
+    fragment = draw(st.none() | _segment)
+    url = f"{scheme}://{host}{port}{path}"
+    if query is not None:
+        url += "?" + query
+    if fragment is not None:
+        url += "#" + fragment
+    return url
