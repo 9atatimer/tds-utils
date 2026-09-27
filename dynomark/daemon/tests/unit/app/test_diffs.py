@@ -19,6 +19,7 @@ from dynomark_daemon.app.diffs import (
     diff_items_page,
     list_diffs_page,
     propose_diff,
+    propose_scheduled_rebuild,
     request_diff,
 )
 from dynomark_daemon.app.errors import InvalidRequest, TreeNotReady, UnknownRecord
@@ -39,9 +40,10 @@ from dynomark_daemon.domain.diff import (
     DiffKind,
     DiffProposal,
     NotAccepted,
+    TreeDiff,
 )
-from dynomark_daemon.domain.events import BatchOffered
-from dynomark_daemon.domain.ids import DiffId, NodeId, ProfileId, RequestId
+from dynomark_daemon.domain.events import BatchOffered, DiffProposed
+from dynomark_daemon.domain.ids import DiffId, HostId, NodeId, ProfileId, RequestId
 from dynomark_daemon.domain.roles import HostRole, NotWriter
 from dynomark_daemon.domain.tree import FolderFlags, FolderPath, RootKey, TreeOutline
 from dynomark_daemon.domain.writer import WriterConflict
@@ -421,3 +423,65 @@ def test_diffs_are_listed_newest_first() -> None:
     page = list_diffs_page(None, 100, store=writer.store)
 
     assert [d.diff_id for d in page.items] == [second.diff_id, first.diff_id]
+
+
+# --- The rebuild cadence (Config; diff.proposed) ---
+
+DAY = 86_400_000
+
+
+def _scheduled(writer: Writer, cadence: int | None = DAY) -> TreeDiff | None:
+    return propose_scheduled_rebuild(
+        cadence,
+        HostRole.WRITER,
+        HostId("mbp"),
+        make_roots(),
+        store=writer.store,
+        completion=writer.completion,
+        clock=writer.clock,
+        ids=writer.ids,
+    )
+
+
+def test_a_due_rebuild_is_proposed_and_announced_to_the_writer_profile() -> None:
+    """Given a writer bound to a profile and a daily cadence, When the loop
+    finds no rebuild yet, Then a rebuild diff is stored and a diff.proposed
+    event awaits that profile; a day later the next one is due, not before."""
+    writer = Writer((ASYNC_TO_CONCURRENCY,), (ASYNC_TO_CONCURRENCY,))
+    writer.store.bind_writer_profile(A)
+
+    first = _scheduled(writer)
+    writer.clock.advance(DAY - 1)
+    early = _scheduled(writer)
+    writer.clock.advance(1)
+    second = _scheduled(writer)
+
+    assert first is not None and early is None and second is not None
+    assert first.kind is DiffKind.REBUILD
+    announced = [
+        p.event.diff.diff_id
+        for p in writer.store.unacked_events(A)
+        if isinstance(p.event, DiffProposed)
+    ]
+    assert announced == [first.diff_id, second.diff_id]
+
+
+def test_no_scheduled_rebuild_when_manual_unbound_or_in_conflict() -> None:
+    """Given no cadence, no bound writer profile, or another host's marker,
+    When the loop checks, Then nothing is proposed and no model is asked."""
+    manual = Writer()
+    manual.store.bind_writer_profile(A)
+    unbound = Writer()
+    conflicted = Writer()
+    conflicted.store.bind_writer_profile(A)
+    conflicted.store.put_tree_snapshot(
+        make_tree(
+            *TREE.nodes[3:],
+            make_node("19", "11", "dynomark-writer:work-laptop", index=2),
+            taken_at=TREE.taken_at + 1,
+        )
+    )
+
+    assert _scheduled(manual, None) is None
+    assert _scheduled(unbound) is None
+    assert _scheduled(conflicted) is None

@@ -151,3 +151,14 @@ def test_a_hostname_that_is_no_host_id_is_made_into_one() -> None:
     assert _parse(None, hostname="_Ada's MacBook Pro").config.host_id == (
         "Ada-s-MacBook-Pro"
     )
+
+
+def test_rebuild_is_manual_unless_a_cadence_is_configured() -> None:
+    """Given no [diffs] table, When parsed, Then there is no rebuild cadence
+    (design Open Question 2: manual by default); Given rebuild_every_hours,
+    Then the cadence is that many hours in milliseconds."""
+    assert _parse(None).config.rebuild_cadence_ms is None
+    configured = _parse("[diffs]\nrebuild_every_hours = 24")
+    assert configured.config.rebuild_cadence_ms == 86_400_000
+    with pytest.raises(ConfigError, match=r"diffs\.rebuild_every_hours"):
+        _parse("[diffs]\nrebuild_every_hours = 0")
