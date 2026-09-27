@@ -27,7 +27,11 @@ const MAX_OPS_PER_DIFF_ITEM = 100;
 
 // --- Helpers ---
 
-/** A string whose length lies in [min, max]. */
+/**
+ * A string whose length in code points lies in [min, max]. zod 4 counts code
+ * points for string min/max (not UTF-16 units), as the contract requires;
+ * test/unit/wire/code-points.test.ts pins that.
+ */
 export function text(bounds: { readonly min?: number; readonly max: number }): z.ZodString {
   return z
     .string()
