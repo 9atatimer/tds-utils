@@ -54,6 +54,8 @@ export class IndexCache {
       saveBackfill: (p) => storage.saveBackfill(p),
       loadOwedCaptures: () => storage.loadOwedCaptures(),
       saveOwedCaptures: (ids) => storage.saveOwedCaptures(ids),
+      loadPendingSaves: () => storage.loadPendingSaves(),
+      savePendingSaves: (saves) => storage.savePendingSaves(saves),
     };
   }
 

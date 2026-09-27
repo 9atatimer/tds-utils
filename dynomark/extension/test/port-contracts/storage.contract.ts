@@ -1,14 +1,15 @@
 // storage.contract.ts -- what every StoragePort must do. The extension's
 // durable state is settings, the rebuildable LocalIndex and the in-flight
 // batch cursor (design, "The extension"), plus backfill progress (Open
-// Question 3, resumable across worker restarts) and the saves owed a
-// background capture; storage is the only
+// Question 3, resumable across worker restarts), the saves owed a
+// background capture and the saves sent and not yet answered; storage is the only
 // thing besides the browser's own data that survives a service-worker
 // restart, and it stores values, not references.
 
 import { describe, expect, it } from 'vitest';
 import type { BackfillProgress } from '../../src/domain/backfill.js';
 import type { BatchCursor } from '../../src/domain/batch.js';
+import type { PendingSave } from '../../src/domain/pendingSaves.js';
 import type { LocalIndex } from '../../src/domain/search.js';
 import type { Settings } from '../../src/domain/settings.js';
 import type { StoragePort } from '../../src/ports/storage.js';
@@ -16,6 +17,18 @@ import type { StoragePort } from '../../src/ports/storage.js';
 // --- Builders ---
 
 const BACKFILL: BackfillProgress = { started_at: 1_790_000_000_000, node_ids: ['15', '16', '17'], next_index: 1 };
+
+const PENDING: PendingSave = {
+  id: 'req-0007',
+  bookmark: {
+    node_id: '42',
+    url: 'https://news.example/story',
+    title: 'Story',
+    path: { root: 'bar', names: ['Follow Up'] },
+    date_added: 1_790_000_000_000,
+  },
+  capture: { source: 'background_tab', text: 'Full text visible only when signed in.', title: 'Story' },
+};
 
 const SETTINGS: Settings = { profile_id: '00000000-0000-4000-8000-00000000abcd', transport: 'native_messaging' };
 
@@ -93,6 +106,15 @@ export function describeStorageContract(name: string, make: () => StoragePort): 
       expect(await storage.loadOwedCaptures()).toEqual(['41', '42']);
       await storage.saveOwedCaptures(['42']);
       expect(await storage.loadOwedCaptures()).toEqual(['42']);
+    });
+
+    it('Given saves sent and not yet answered, When saved, loaded, and saved again, Then they round-trip and the later list replaces the earlier', async () => {
+      const storage = make();
+      expect(await storage.loadPendingSaves()).toBeUndefined();
+      await storage.savePendingSaves([PENDING]);
+      expect(await storage.loadPendingSaves()).toEqual([PENDING]);
+      await storage.savePendingSaves([]);
+      expect(await storage.loadPendingSaves()).toEqual([]);
     });
 
     it('Given all three values saved, When the cursor is cleared, Then only the cursor is gone', async () => {

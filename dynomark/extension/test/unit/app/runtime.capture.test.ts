@@ -110,6 +110,29 @@ describe('Background-tab capture on the writer', () => {
     expect(w.backgroundTabs.opened).toEqual([URL]);
   });
 
+  it('Given a pending save the next worker re-sent and the daemon took, When a later worker says hello, Then the backlog sends it with a fresh request and no stored capture', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    let refused = false;
+    const internalOnce = (r: RequestMessage): ResponseMessage | undefined => {
+      if (r.type !== 'ingest' || r.bookmark.url !== URL || refused) return undefined;
+      refused = true;
+      return { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
+    };
+    scriptDaemon(w, { role: 'writer' }, internalOnce);
+    const ids = await seedOwnedTree(w.tree);
+    w.backgroundTabs.serve(URL, PAGE);
+    const first = await save(w, await startRuntime(w), ids.followUp);
+    w.restart();
+    scriptDaemon(w, { role: 'writer' });
+    await startRuntime(w);
+    w.restart();
+    scriptDaemon(w, { role: 'writer' });
+    await startRuntime(w);
+    const later = sentOf(w, 'ingest').find((r) => r.bookmark.url === URL);
+    expect(later?.id).not.toBe(first?.id);
+    expect(later?.capture).toEqual({ source: 'none', text: '' });
+  });
+
   it('Given a reader host, When a save no tab shows arrives, Then no background tab is opened and ingest carries source none', async () => {
     const { w, ids, runtime } = await setup('reader');
     expect((await save(w, runtime, ids.followUp))?.capture).toEqual({ source: 'none', text: '' });

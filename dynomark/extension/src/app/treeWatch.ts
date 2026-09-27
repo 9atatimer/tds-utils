@@ -174,7 +174,9 @@ export class TreeWatch {
       return this.storeOwed(owed);
     }
     const submitted = this.deps.saves.get(bookmark.node_id, bookmark.url)?.outcome !== undefined;
-    const content = submitted ? NO_CAPTURE : await this.captureOf(bookmark, options.background);
+    // A frame an earlier worker left unanswered is re-sent as it was: its capture is not taken again.
+    const kept = submitted ? undefined : await this.deps.saves.recall(bookmark.node_id, bookmark.url);
+    const content = submitted ? NO_CAPTURE : (kept ?? (await this.captureOf(bookmark, options.background)));
     await submitSave(bookmark, content, { ...this.deps, track: (work) => this.context.track(work) });
     // Paid only once the daemon has the save: a worker that dies first owes it still.
     const owed = await this.owedSet();

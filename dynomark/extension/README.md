@@ -67,13 +67,14 @@ Everything the service worker keeps across a restart goes through the
 `StoragePort` (`src/ports/storage.ts`), on `chrome.storage.local`. The rest
 is in memory and is rebuilt, or re-sent, after the next full hello.
 
-| Key             | What                                                                       | Bound                              |
-| --------------- | -------------------------------------------------------------------------- | ---------------------------------- |
-| `settings`      | profile id, transport, the two capture settings                            | one record                         |
-| `local_index`   | the rebuildable LocalIndex the omnibox searches                            | the daemon's index                 |
-| `batch_cursor`  | the in-flight batch: how far it got, each op's outcome                     | one batch                          |
-| `backfill`      | backfill candidates and how far it got (design, Open Question 3)           | the tree when it started           |
-| `owed_captures` | Follow Up saves made while the role was unknown, owed a background capture | Follow Up's children, at most 1000 |
+| Key             | What                                                                                                  | Bound                                                                   |
+| --------------- | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `settings`      | profile id, transport, the two capture settings                                                       | one record                                                              |
+| `local_index`   | the rebuildable LocalIndex the omnibox searches                                                       | the daemon's index                                                      |
+| `batch_cursor`  | the in-flight batch: how far it got, each op's outcome                                                | one batch                                                               |
+| `backfill`      | backfill candidates and how far it got (design, Open Question 3)                                      | the tree when it started                                                |
+| `owed_captures` | Follow Up saves made while the role was unknown, owed a background capture                            | Follow Up's children, at most 1000                                      |
+| `pending_saves` | ingest frames sent and not yet answered (id, bookmark, capture), re-sent unchanged by the next worker | 16 frames and 1,048,576 characters of capture text; the oldest go first |
 
 ## Test
 

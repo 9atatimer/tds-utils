@@ -9,13 +9,20 @@
 // will re-send it (contract v1: busy and internal are retried with the same
 // id after backoff): the identical frame is re-sent after a backoff, unless a
 // resubmission comes first. A lost link is the reconnect backlog's.
+//
+// A frame is kept in storage from before it is first sent until it is answered
+// ingest.result or refused for good, so a worker that dies in between (in
+// flight, or waiting out a backoff) leaves it for the next: that worker's
+// backlog adopts it and re-sends it unchanged, captured text included.
 
 import { backoffDelay } from '../domain/backoff.js';
 import { fitBookmark } from '../domain/limits.js';
-import { isExtensionCapture, type Capture } from '../domain/capture.js';
+import { isExtensionCapture, type Capture, type ExtensionCapture } from '../domain/capture.js';
+import { pendingFor, withPending, withoutPending, type PendingSave } from '../domain/pendingSaves.js';
 import type { Bookmark } from '../domain/tree.js';
 import type { NodeId, RequestId, Url } from '../domain/values.js';
 import type { IdSource } from '../ports/idSource.js';
+import type { StoragePort } from '../ports/storage.js';
 import type { Timer } from '../ports/timer.js';
 import type { TransportPort } from '../ports/transport.js';
 import type { MessageOf } from '../wire/messages.js';
@@ -56,9 +63,17 @@ export class UrlTooLong extends Error {
   }
 }
 
-/** This worker's submissions, keyed by node and url (the daemon's idempotency key). In memory: not durable state. */
+/**
+ * This worker's submissions, keyed by node and url (the daemon's idempotency
+ * key), in memory; and the frames not yet answered, in storage (read once per
+ * worker, then written through in call order).
+ */
 export class SubmittedSaves {
   private readonly entries = new Map<string, SaveEntry>();
+  private pending: readonly PendingSave[] | undefined;
+  private loading: Promise<readonly PendingSave[]> | undefined;
+
+  constructor(private readonly storage: StoragePort) {}
 
   get(node_id: NodeId, url: Url): SaveEntry | undefined {
     return this.entries.get(saveKey(node_id, url));
@@ -67,12 +82,65 @@ export class SubmittedSaves {
   put(entry: SaveEntry): void {
     this.entries.set(saveKey(entry.frame.bookmark.node_id, entry.frame.bookmark.url), entry);
   }
+
+  /** The capture of a frame an earlier worker left unanswered for this node and url; the frame is adopted, so a submission re-sends it unchanged. */
+  async recall(node_id: NodeId, url: Url): Promise<ExtensionCapture | undefined> {
+    await this.load();
+    const kept = pendingFor(this.pending ?? [], node_id, url);
+    if (kept === undefined || this.get(node_id, url) !== undefined) return undefined;
+    this.put({ frame: frameOf(kept), outcome: undefined, attempt: 0, cancelRetry: undefined });
+    return kept.capture;
+  }
+
+  /** Keep `frame` until it is answered. */
+  async hold(frame: IngestFrame): Promise<void> {
+    const save = pendingOf(frame);
+    await this.load();
+    const current = this.pending ?? [];
+    if (save === undefined || pendingFor(current, save.bookmark.node_id, save.bookmark.url)?.id === save.id) return;
+    await this.store(withPending(current, save));
+  }
+
+  /** Forget `frame`: it was answered, or refused for good. */
+  async release(frame: IngestFrame): Promise<void> {
+    await this.load();
+    const current = this.pending ?? [];
+    if (current.some((save) => save.id === frame.id)) await this.store(withoutPending(current, frame.id));
+  }
+
+  private async load(): Promise<void> {
+    if (this.pending !== undefined) return;
+    this.loading ??= this.storage.loadPendingSaves().then(
+      (saves) => saves ?? [],
+      (error: unknown) => {
+        this.loading = undefined;
+        throw error;
+      },
+    );
+    const stored = await this.loading;
+    this.pending ??= stored;
+  }
+
+  private store(saves: readonly PendingSave[]): Promise<void> {
+    this.pending = saves;
+    return this.storage.savePendingSaves(saves);
+  }
 }
 
 // --- Pure helpers ---
 
 function saveKey(node_id: NodeId, url: Url): string {
   return `${node_id}\n${url}`;
+}
+
+function frameOf(save: PendingSave): IngestFrame {
+  return { v: CONTRACT_VERSION, type: 'ingest', id: save.id, bookmark: save.bookmark, capture: save.capture, backfill: false };
+}
+
+function pendingOf(frame: IngestFrame): PendingSave | undefined {
+  const capture = frame.capture;
+  if (capture === undefined || !isExtensionCapture(capture)) return undefined;
+  return { id: frame.id, bookmark: frame.bookmark, capture };
 }
 
 function sameBody(a: IngestFrame, b: IngestFrame): boolean {
@@ -83,13 +151,16 @@ function sameBody(a: IngestFrame, b: IngestFrame): boolean {
 
 async function deliver(entry: SaveEntry, deps: SaveDeps): Promise<RequestId> {
   try {
+    await deps.saves.hold(entry.frame);
     resultOrThrow(await deps.transport.send(entry.frame));
-    return entry.frame.id;
   } catch (error) {
     entry.outcome = undefined;
     if (error instanceof DaemonError && isRetryable(error.code)) retryLater(entry, deps);
+    else if (error instanceof DaemonError) await deps.saves.release(entry.frame);
     throw error;
   }
+  await deps.saves.release(entry.frame);
+  return entry.frame.id;
 }
 
 /** Re-send the entry's frame, unchanged, after the next backoff. */

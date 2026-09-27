@@ -13,6 +13,7 @@ import type { Bookmark } from '../../../src/domain/tree.js';
 import { IngestSchema, type RequestMessage, type ResponseMessage } from '../../../src/wire/messages.js';
 import { FakeTransport } from '../../fakes/FakeTransport.js';
 import { FakeClock } from '../../fakes/FakeClock.js';
+import { FakeStorage } from '../../fakes/FakeStorage.js';
 import { FakeTimer } from '../../fakes/FakeTimer.js';
 import { SequentialIdSource } from '../../fakes/SequentialIdSource.js';
 
@@ -58,7 +59,7 @@ function saveDeps(transport: FakeTransport): SaveDeps {
   return {
     transport,
     ids: new SequentialIdSource(),
-    saves: new SubmittedSaves(),
+    saves: new SubmittedSaves(new FakeStorage()),
     timer: new FakeTimer(new FakeClock(0)),
     track: (work) => void work.catch(() => undefined),
   };

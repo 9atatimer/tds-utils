@@ -1,12 +1,14 @@
 /// <reference types="chrome" />
 // storage.ts -- the StoragePort on chrome.storage.local: the extension's
 // durable state (settings, the LocalIndex, the in-flight batch cursor,
-// backfill progress, the saves owed a background capture) survives a service-worker restart there. The browser serializes values, so
+// backfill progress, the saves owed a background capture, the saves sent and
+// not yet answered) survives a service-worker restart there. The browser serializes values, so
 // each load is a fresh copy. `prefix` namespaces the keys (the integration
 // suite runs beside a live extension's own state).
 
 import type { BackfillProgress } from '../../domain/backfill.js';
 import type { BatchCursor } from '../../domain/batch.js';
+import type { PendingSave } from '../../domain/pendingSaves.js';
 import type { LocalIndex } from '../../domain/search.js';
 import type { Settings } from '../../domain/settings.js';
 import type { NodeId } from '../../domain/values.js';
@@ -23,7 +25,14 @@ export interface StorageAreaApi {
 
 // --- Constants ---
 
-const KEYS = { settings: 'settings', index: 'local_index', cursor: 'batch_cursor', backfill: 'backfill', owed: 'owed_captures' } as const;
+const KEYS = {
+  settings: 'settings',
+  index: 'local_index',
+  cursor: 'batch_cursor',
+  backfill: 'backfill',
+  owed: 'owed_captures',
+  pending: 'pending_saves',
+} as const;
 
 // --- The adapter ---
 
@@ -79,6 +88,14 @@ export class ChromeStorage implements StoragePort {
 
   saveOwedCaptures(node_ids: readonly NodeId[]): Promise<void> {
     return this.write(KEYS.owed, node_ids);
+  }
+
+  loadPendingSaves(): Promise<readonly PendingSave[] | undefined> {
+    return this.read<PendingSave[]>(KEYS.pending);
+  }
+
+  savePendingSaves(saves: readonly PendingSave[]): Promise<void> {
+    return this.write(KEYS.pending, saves);
   }
 
   private async read<T>(key: string): Promise<T | undefined> {

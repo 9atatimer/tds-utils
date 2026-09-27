@@ -87,7 +87,7 @@ export class ExtensionRuntime {
   private readonly index: IndexCache;
   private readonly issued: IssuedMoves;
   private readonly omnibox: OmniboxSession;
-  private readonly saves = new SubmittedSaves();
+  private readonly saves: SubmittedSaves;
   private readonly acceptance = new DiffAcceptance();
   private readonly writer = new WriterWatch();
   /** Offers pass here in the order they arrived, each after any writer conflict is re-checked. */
@@ -98,6 +98,7 @@ export class ExtensionRuntime {
 
   constructor(private readonly ports: RuntimePorts) {
     this.ready = new Promise((resolve) => (this.resolveReady = resolve));
+    this.saves = new SubmittedSaves(ports.storage);
     this.index = new IndexCache(ports, (work) => this.track(work));
     this.issued = new IssuedMoves(ports.tree);
     this.omnibox = new OmniboxSession({
