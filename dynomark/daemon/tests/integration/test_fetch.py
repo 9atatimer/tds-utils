@@ -68,12 +68,7 @@ class _Site(BaseHTTPRequestHandler):
             ),
             "/stall": self._stall,
             "/drip": self._drip,
-            "/to-loopback6": lambda: self._send(
-                302,
-                b"",
-                "text/html",
-                Location=f"http://[::1]:{self.server.server_address[1]}/article.html",
-            ),
+            "/to-loopback6": self._to_loopback6,
         }
         route = routes.get(self.path)
         if route is not None:
@@ -87,6 +82,11 @@ class _Site(BaseHTTPRequestHandler):
 
     def _stall(self) -> None:
         type(self).release.wait(RELEASE_TIMEOUT_S)
+
+    def _to_loopback6(self) -> None:
+        port = self.headers.get("Host", "").rsplit(":", 1)[-1]
+        location = f"http://[::1]:{port}/article.html"
+        self._send(302, b"", "text/html", Location=location)
 
     def _drip(self) -> None:
         """A page that never stalls long enough to time out one read: a byte
