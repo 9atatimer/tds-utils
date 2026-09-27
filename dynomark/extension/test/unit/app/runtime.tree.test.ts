@@ -205,3 +205,59 @@ describe('A batch receipt answered with a retryable code on a live link', () => 
     expect(await w.storage.loadCursor()).toBeUndefined();
   });
 });
+
+describe('Move origin -- only the moves the extension itself issued are origin extension', () => {
+  const SERDE = { root: 'bar' as const, names: ['Dynomark', 'Serde'] };
+
+  it('Given the open batch moved the save and its receipt failed, When the user then moves the save elsewhere, Then move.observed carries origin user', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    let receipts = 0;
+    scriptDaemon(w, {}, (r) =>
+      r.type === 'batch.receipt' && (receipts += 1) === 1
+        ? { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' }
+        : undefined,
+    );
+    const ids = await seedOwnedTree(w.tree);
+    const runtime = await startRuntime(w);
+    await w.daemon().emit({
+      v: 1,
+      type: 'batch.offer',
+      event_id: 'evt-serde',
+      batch: {
+        batch_id: 'batch-serde',
+        operations: [
+          { op: 'create_folder', index: 0, parent: DYNOMARK, title: 'Serde' },
+          { op: 'move', index: 1, node_id: ids.saved, to: SERDE, expect: { parent_id: ids.followUp } },
+        ],
+      },
+    });
+    await runtime.idle();
+    const serde = (await w.tree.resolveFolder(SERDE)) ?? '';
+    await deliver(runtime, { kind: 'moved', node_id: ids.saved, parent_id: serde, old_parent_id: ids.followUp });
+    expect(sentOf(w, 'move.observed').at(-1)?.move.origin).toBe('extension');
+
+    await moved(w, runtime, ids.saved, ids.rust);
+    expect(sentOf(w, 'move.observed').at(-1)?.move).toMatchObject({ node_id: ids.saved, from: SERDE, to: RUST, origin: 'user' });
+  });
+
+  it('Given one batch moves the same node twice, When the browser reports both moves after the batch closed, Then both are origin extension', async () => {
+    const { w, ids, runtime } = await setup();
+    await w.daemon().emit({
+      v: 1,
+      type: 'batch.offer',
+      event_id: 'evt-twice',
+      batch: {
+        batch_id: 'batch-twice',
+        operations: [
+          { op: 'move', index: 0, node_id: ids.saved, to: RUST, expect: { parent_id: ids.followUp } },
+          { op: 'move', index: 1, node_id: ids.saved, to: DYNOMARK, expect: { parent_id: ids.rust } },
+        ],
+      },
+    });
+    await runtime.idle();
+    expect((await w.tree.getNode(ids.saved))?.parent_id).toBe(ids.dynomark);
+    await deliver(runtime, { kind: 'moved', node_id: ids.saved, parent_id: ids.rust, old_parent_id: ids.followUp });
+    await deliver(runtime, { kind: 'moved', node_id: ids.saved, parent_id: ids.dynomark, old_parent_id: ids.rust });
+    expect(sentOf(w, 'move.observed').map((r) => r.move.origin)).toEqual(['extension', 'extension']);
+  });
+});
