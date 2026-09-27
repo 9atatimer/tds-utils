@@ -12,12 +12,20 @@ import type { FolderPath, NodeKind, RootIds, SnapshotNode, TreeRead } from '../.
 import type { EpochMs, NodeId, Title, Url } from '../../src/domain/values.js';
 import { BrowserRefused, type BookmarkTreePort } from '../../src/ports/bookmarkTree.js';
 import type { Clock } from '../../src/ports/clock.js';
+import { WorkerTerminated } from './WorkerTerminated.js';
 
 // --- Constants ---
 
 const FIRST_DATE_ADDED: EpochMs = 1_789_990_000_000;
 
 type Flavor = 'chrome' | 'firefox';
+
+/**
+ * How an armed mutating call fails: `refuse` (the browser refuses; tree
+ * unchanged), `terminate-before` (the worker dies before the browser acts) or
+ * `terminate-after` (the browser acts, then the worker dies before hearing).
+ */
+export type MutationFault = 'refuse' | 'terminate-before' | 'terminate-after';
 
 export interface FakeBookmarkTreeOptions {
   readonly flavor: Flavor;
@@ -82,6 +90,8 @@ export class FakeBookmarkTree implements BookmarkTreePort {
   private readonly nodes = new Map<NodeId, StoredNode>();
   private readonly children = new Map<NodeId, NodeId[]>();
   private created = 0;
+  private mutations = 0;
+  private fault: { readonly at: number; readonly mode: MutationFault } | undefined;
 
   constructor(options: FakeBookmarkTreeOptions) {
     this.flavor = options.flavor;
@@ -118,28 +128,24 @@ export class FakeBookmarkTree implements BookmarkTreePort {
   }
 
   createFolder(parentId: NodeId, title: Title): Promise<SnapshotNode> {
-    return this.attempt(() => this.view(this.append(parentId, 'folder', title)));
+    return this.attempt(() => this.mutate(() => this.view(this.append(parentId, 'folder', title))));
   }
 
   createBookmark(parentId: NodeId, title: Title, url: Url): Promise<SnapshotNode> {
-    return this.attempt(() => this.view(this.append(parentId, 'bookmark', title, url)));
+    return this.attempt(() => this.mutate(() => this.view(this.append(parentId, 'bookmark', title, url))));
   }
 
   move(nodeId: NodeId, parentId: NodeId): Promise<SnapshotNode> {
-    return this.attempt(() => {
-      const node = this.nodes.get(nodeId);
-      if (node === undefined) throw new BrowserRefused(`no node ${nodeId}`);
-      if (this.isProtected(nodeId)) throw new BrowserRefused(`cannot move the root or a top-level folder (${nodeId})`);
-      this.requireWritableFolder(parentId);
-      if (this.isSelfOrAncestor(nodeId, parentId)) throw new BrowserRefused(`cannot move ${nodeId} into itself or a descendant`);
-      this.detach(nodeId);
-      node.parent_id = parentId;
-      this.children.get(parentId)?.push(nodeId);
-      return this.view(nodeId);
-    });
+    return this.attempt(() => this.mutate(() => this.moveNow(nodeId, parentId)));
   }
 
   // --- Fake-only arrangement ---
+
+  /** Make the `at`-th mutating port call from now (1-based: createFolder, createBookmark, move) fail as `mode` says, once. */
+  failOnMutation(at: number, mode: MutationFault): void {
+    this.mutations = 0;
+    this.fault = { at, mode };
+  }
 
   /** Firefox only: seed a separator as the folder's last child. */
   addSeparator(parentId: NodeId): NodeId {
@@ -161,6 +167,30 @@ export class FakeBookmarkTree implements BookmarkTreePort {
   }
 
   // --- Internals ---
+
+  /** Count one mutating call and apply the armed fault, if this is its call. */
+  private mutate<T>(call: () => T): T {
+    this.mutations += 1;
+    const fault = this.fault?.at === this.mutations ? this.fault : undefined;
+    if (fault !== undefined) this.fault = undefined;
+    if (fault?.mode === 'refuse') throw new BrowserRefused(`refused at mutation ${this.mutations} (injected)`);
+    if (fault?.mode === 'terminate-before') throw new WorkerTerminated();
+    const result = call();
+    if (fault?.mode === 'terminate-after') throw new WorkerTerminated();
+    return result;
+  }
+
+  private moveNow(nodeId: NodeId, parentId: NodeId): SnapshotNode {
+    const node = this.nodes.get(nodeId);
+    if (node === undefined) throw new BrowserRefused(`no node ${nodeId}`);
+    if (this.isProtected(nodeId)) throw new BrowserRefused(`cannot move the root or a top-level folder (${nodeId})`);
+    this.requireWritableFolder(parentId);
+    if (this.isSelfOrAncestor(nodeId, parentId)) throw new BrowserRefused(`cannot move ${nodeId} into itself or a descendant`);
+    this.detach(nodeId);
+    node.parent_id = parentId;
+    this.children.get(parentId)?.push(nodeId);
+    return this.view(nodeId);
+  }
 
   /** Run one browser call: a thrown refusal becomes a rejected promise, as the real API reports it. */
   private attempt<T>(call: () => T): Promise<T> {
