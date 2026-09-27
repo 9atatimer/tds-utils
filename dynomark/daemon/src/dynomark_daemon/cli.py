@@ -32,7 +32,7 @@ from dynomark_daemon.adapters.host_manifest import (
     install_manifests,
 )
 from dynomark_daemon.adapters.ollama import OllamaClient, OllamaError, has_model
-from dynomark_daemon.adapters.socket_server import DaemonAlreadyRunning
+from dynomark_daemon.adapters.socket_server import SocketUnavailable
 from dynomark_daemon.adapters.sqlite_store import SqliteCorpusStore, StoreError
 from dynomark_daemon.container import Daemon, build_ports
 from dynomark_daemon.logs import configure_logging
@@ -203,7 +203,7 @@ def serve() -> None:
     ports = build_ports(settings)
     try:
         asyncio.run(_serve(Daemon(settings, ports)))
-    except DaemonAlreadyRunning as error:
+    except SocketUnavailable as error:
         raise click.ClickException(str(error)) from error
     finally:
         store = ports.store

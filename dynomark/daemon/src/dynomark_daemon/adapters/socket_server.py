@@ -46,7 +46,11 @@ DIR_MODE: Final = 0o700
 SOCKET_MODE: Final = 0o600
 
 
-class DaemonAlreadyRunning(RuntimeError):
+class SocketUnavailable(RuntimeError):
+    """The daemon cannot listen on its socket path."""
+
+
+class DaemonAlreadyRunning(SocketUnavailable):
     """The socket path is served by a live daemon, or is not a socket."""
 
 
@@ -181,12 +185,17 @@ class SocketServer:
 
         Raises:
             DaemonAlreadyRunning: the path is served or is not a socket.
+            SocketUnavailable: the OS refuses the path (too long, no access).
         """
         self._loop = asyncio.get_running_loop()
-        _claim(self._path)
-        self._server = await asyncio.start_unix_server(
-            self._serve_connection, path=str(self._path)
-        )
+        try:
+            _claim(self._path)
+            self._server = await asyncio.start_unix_server(
+                self._serve_connection, path=str(self._path)
+            )
+        except OSError as error:
+            why = f"cannot listen on {self._path}: {error}"
+            raise SocketUnavailable(why) from error
         os.chmod(self._path, SOCKET_MODE)
         log.info("server.listening", socket=str(self._path))
 

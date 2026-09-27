@@ -218,7 +218,7 @@ class Daemon:
         """Listen on the socket, then start the job loop.
 
         Raises:
-            DaemonAlreadyRunning: the socket is served, or is not a socket.
+            SocketUnavailable: the socket is served, not a socket, or refused.
         """
         await self._server.start()
         self._thread = threading.Thread(
