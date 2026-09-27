@@ -1,8 +1,9 @@
 """CorpusStorePort contract: one suite, every implementation.
 
 STORES names each implementation by a factory taking a per-test temporary
-directory; the in-memory fake is here now, and the SQLite adapter
-(task-025) registers beside it and must pass the same tests unchanged.
+directory: the in-memory fake, and the SQLite adapter (task-025), which
+runs the same tests unchanged against a temp-file database and so carries
+the ``integration`` marker as well.
 
 Design: Data Model ("one corpus_entry per identity"), Seams ("Corpus
 store ... SQLite with FTS5 and a vector extension / in-memory fake"), Key
@@ -19,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from dynomark_daemon.adapters.sqlite_store import SqliteCorpusStore
 from dynomark_daemon.domain.batch import BatchState
 from dynomark_daemon.domain.bookmark import Identity, Save
 from dynomark_daemon.domain.events import JobUpdated, PendingEvent
@@ -59,10 +61,17 @@ PROFILE_A, PROFILE_B = ProfileId("profile-a"), ProfileId("profile-b")
 
 STORES: dict[str, Callable[[Path], CorpusStorePort]] = {
     "memory": lambda _tmp: InMemoryCorpusStore(),
+    "sqlite": lambda tmp: SqliteCorpusStore.open(tmp / "state" / "corpus.sqlite3"),
 }
+REAL_IO = {"sqlite"}
 
 
-@pytest.fixture(params=sorted(STORES))
+@pytest.fixture(
+    params=[
+        pytest.param(name, marks=[pytest.mark.integration] if name in REAL_IO else [])
+        for name in sorted(STORES)
+    ]
+)
 def store(request: pytest.FixtureRequest, tmp_path: Path) -> CorpusStorePort:
     return STORES[request.param](tmp_path)
 
