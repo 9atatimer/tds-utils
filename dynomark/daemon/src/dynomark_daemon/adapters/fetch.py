@@ -6,16 +6,19 @@ ingest's capture is ``none``; carries no cookies; skips non-http(s) URLs
 built from the handlers it needs and nothing else: no cookie processor, no
 proxies, no file/ftp/data handlers, redirects followed only to http(s) and
 at most ``MAX_REDIRECTS`` times. At most ``max_bytes`` of the body are
-read; readable text comes from ``readable.py``.
+read, and the fetch gives up once ``timeout_s`` has passed since it began
+(one more read may still take up to ``timeout_s``); readable text comes
+from ``readable.py``.
 """
 
 import re
 import ssl
+import time
 import urllib.error
 import urllib.request
 from email.message import Message
 from http.client import HTTPMessage
-from typing import IO, Final
+from typing import IO, Final, Protocol
 from urllib.parse import urlsplit
 
 from dynomark_daemon.adapters.readable import readable
@@ -28,6 +31,7 @@ MAX_REDIRECTS: Final = 5
 USER_AGENT: Final = "dynomark/0.1 (local bookmark capture; no cookies)"
 META_CHARSET: Final = re.compile(rb"""<meta[^>]+charset=["']?([A-Za-z0-9._-]+)""", re.I)
 SNIFF_BYTES: Final = 4096
+READ_CHUNK: Final = 65536
 
 
 # --- Helpers ---
@@ -85,6 +89,25 @@ def _unavailable(url: str, why: str, *, retryable: bool) -> ContentUnavailable:
     return ContentUnavailable(f"cannot fetch {url}: {why}", retryable=retryable)
 
 
+class _Body(Protocol):
+    def read1(self, size: int = ..., /) -> bytes: ...
+
+
+def _read_body(body: _Body, url: str, *, max_bytes: int, deadline: float) -> bytes:
+    """At most ``max_bytes`` of ``body``, read as it arrives; a page still
+    arriving at ``deadline`` is given up on (a trickle never times out a
+    single read)."""
+    raw = bytearray()
+    while len(raw) < max_bytes:
+        if time.monotonic() >= deadline:
+            raise _unavailable(url, "the page took too long to arrive", retryable=True)
+        chunk = body.read1(min(READ_CHUNK, max_bytes - len(raw)))
+        if not chunk:
+            break
+        raw += chunk
+    return bytes(raw)
+
+
 # --- The adapter ---
 
 
@@ -105,6 +128,7 @@ class FetchContentSource:
                 non-text page, or no readable text.
         """
         url = bookmark.url
+        deadline = time.monotonic() + self._timeout_s
         if urlsplit(url).scheme.lower() not in SCHEMES:
             raise _unavailable(url, "only http(s) is fetched", retryable=False)
         request = urllib.request.Request(
@@ -116,7 +140,9 @@ class FetchContentSource:
                 content_type = headers.get_content_type()
                 if content_type not in TEXT_TYPES:
                     raise _unavailable(url, content_type, retryable=False)
-                raw = response.read(self._max_bytes)
+                raw = _read_body(
+                    response, url, max_bytes=self._max_bytes, deadline=deadline
+                )
         except urllib.error.HTTPError as error:
             raise _unavailable(url, str(error), retryable=error.code >= 500) from error
         except (urllib.error.URLError, TimeoutError, OSError) as error:
