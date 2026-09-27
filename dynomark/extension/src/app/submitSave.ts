@@ -83,11 +83,17 @@ export class SubmittedSaves {
     this.entries.set(saveKey(entry.frame.bookmark.node_id, entry.frame.bookmark.url), entry);
   }
 
-  /** The capture of a frame an earlier worker left unanswered for this node and url; the frame is adopted, so a submission re-sends it unchanged. */
+  /**
+   * The capture of a frame sent for this node and url and not answered: this
+   * worker's, or one an earlier worker left (adopted, so a submission re-sends
+   * it unchanged).
+   */
   async recall(node_id: NodeId, url: Url): Promise<ExtensionCapture | undefined> {
+    const known = this.get(node_id, url)?.frame.capture;
+    if (known !== undefined) return isExtensionCapture(known) ? known : undefined;
     await this.load();
     const kept = pendingFor(this.pending ?? [], node_id, url);
-    if (kept === undefined || this.get(node_id, url) !== undefined) return undefined;
+    if (kept === undefined) return undefined;
     this.put({ frame: frameOf(kept), outcome: undefined, attempt: 0, cancelRetry: undefined });
     return kept.capture;
   }

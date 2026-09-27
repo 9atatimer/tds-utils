@@ -6,7 +6,9 @@
 // schedules one debounced tree.snapshot. Every step is short and repeatable:
 // the worker can die between any two events, and ingest is idempotent. The
 // saves owed a background capture are stored, so a worker that dies before
-// the hello that pays them does not lose the debt.
+// the hello that pays them does not lose the debt; a save is owed one from
+// before its background tab opens until the daemon has it, so a worker that
+// dies while the page loads leaves the capture to the next hello's backlog.
 
 import { capturesFromTab, capturesInBackground, type Settings } from '../domain/settings.js';
 import { NO_CAPTURE, type ExtensionCapture } from '../domain/capture.js';
@@ -166,15 +168,9 @@ export class TreeWatch {
     const bookmark = path === undefined ? undefined : bookmarkOf(node, path);
     if (bookmark === undefined) return;
     // No hello yet: the role that decides the chain is unknown, and the full hello's backlog will submit it.
-    if (options.background && this.context.outcome() === undefined) {
-      const owed = await this.owedSet();
-      if (owed.has(bookmark.node_id)) return;
-      owed.add(bookmark.node_id);
-      for (const oldest of [...owed].slice(0, Math.max(0, owed.size - MAX_OWED_CAPTURES))) owed.delete(oldest);
-      return this.storeOwed(owed);
-    }
+    if (options.background && this.context.outcome() === undefined) return this.owe(bookmark.node_id);
     const submitted = this.deps.saves.get(bookmark.node_id, bookmark.url)?.outcome !== undefined;
-    // A frame an earlier worker left unanswered is re-sent as it was: its capture is not taken again.
+    // A frame already sent and not answered is re-sent as it was: its capture is not taken again.
     const kept = submitted ? undefined : await this.deps.saves.recall(bookmark.node_id, bookmark.url);
     const content = submitted ? NO_CAPTURE : (kept ?? (await this.captureOf(bookmark, options.background)));
     await submitSave(bookmark, content, { ...this.deps, track: (work) => this.context.track(work) });
@@ -195,19 +191,35 @@ export class TreeWatch {
     return this.owed;
   }
 
+  /** Owe `node_id` a background capture, durably; the oldest debt is dropped past the bound. */
+  private async owe(node_id: NodeId): Promise<void> {
+    const owed = await this.owedSet();
+    if (owed.has(node_id)) return;
+    owed.add(node_id);
+    for (const oldest of [...owed].slice(0, Math.max(0, owed.size - MAX_OWED_CAPTURES))) owed.delete(oldest);
+    return this.storeOwed(owed);
+  }
+
   /** Store the owed set as it is now: writes go out in call order, each carrying the whole set. */
   private storeOwed(owed: ReadonlySet<NodeId>): Promise<void> {
     return this.deps.storage.saveOwedCaptures([...owed]);
   }
 
-  /** The capture chain the settings and role allow: open tab (setting), background tab (writer, setting), else none. */
+  /**
+   * The capture chain the settings and role allow: open tab (setting),
+   * background tab (writer, setting), else none. When the chain may reach a
+   * background tab the save is owed its capture first (paid once the daemon
+   * has the save): a worker that dies while the page loads leaves it owed.
+   */
   private async captureOf(bookmark: Bookmark, allowBackground: boolean): Promise<ExtensionCapture> {
     const settings = this.context.settings();
     const writer = this.context.outcome()?.role === 'writer';
     const background = allowBackground && writer && capturesInBackground(settings) ? this.deps.background : undefined;
     const content = capturesFromTab(settings) ? this.deps.content : NOTHING_OPEN;
     if (content === NOTHING_OPEN && background === undefined) return NO_CAPTURE;
-    return capture(bookmark, { content, ...(background === undefined ? {} : { background }) });
+    if (background === undefined) return capture(bookmark, { content });
+    await this.owe(bookmark.node_id);
+    return capture(bookmark, { content, background });
   }
 
   /** Schedule one tree.snapshot when any of these folders lies under an owned root (full connections only). */

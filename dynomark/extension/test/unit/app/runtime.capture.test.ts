@@ -103,6 +103,31 @@ describe('Background-tab capture on the writer', () => {
     expect(w.backgroundTabs.opened).toEqual([URL, URL]);
   });
 
+  it('Given a writer whose save the daemon answered busy twice, When the link drops and the same worker reconnects before the next retry, Then the backlog re-sends the identical frame without opening another tab', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    let refusals = 0;
+    const busyTwice = (r: RequestMessage): ResponseMessage | undefined => {
+      if (r.type !== 'ingest' || r.bookmark.url !== URL || refusals >= 2) return undefined;
+      refusals += 1;
+      return { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
+    };
+    scriptDaemon(w, { role: 'writer' }, busyTwice);
+    const ids = await seedOwnedTree(w.tree);
+    w.backgroundTabs.serve(URL, PAGE);
+    const runtime = await startRuntime(w);
+    const first = await save(w, runtime, ids.followUp);
+    await w.timer().advance(RECONNECT_BACKOFF.base_ms);
+    await runtime.idle();
+    expect(refusals).toBe(2);
+    await w.daemon().drop('disconnected');
+    await w.timer().advance(RECONNECT_BACKOFF.base_ms);
+    await runtime.idle();
+    const sent = sentOf(w, 'ingest').filter((r) => r.bookmark.url === URL);
+    expect(sent.length).toBeGreaterThan(1);
+    expect(sent.every((r) => JSON.stringify(r) === JSON.stringify(first))).toBe(true);
+    expect(w.backgroundTabs.opened).toEqual([URL]);
+  });
+
   it('Given a writer whose save the daemon answered internal, When the worker is terminated during the backoff, Then the next worker re-sends the identical frame (same id and capture) without opening another tab', async () => {
     const w = new FakeExtensionWorld({ flavor: 'chrome' });
     let refused = false;
