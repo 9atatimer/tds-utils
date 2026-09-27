@@ -1,10 +1,12 @@
 # Dynomark extension
 
 The MV3 browser extension of Dynomark (`docs/design/DYNOMARK.DESIGN.md`):
-watches `Follow Up`, captures a saved page from its open tab, applies the
-daemon's write batches to the native bookmark tree, and serves the `bm`
-omnibox keyword. It talks to the daemon only through native messaging
-(host `tds.dynomark`, contract `../contract/v1/`).
+watches `Follow Up`, captures a saved page from its open tab (and, on the
+writer, from a background tab when no tab shows it), applies the daemon's
+write batches to the native bookmark tree, and serves the `bm` omnibox
+keyword. MVP pages: the chat surface, the diff view, and the writer-marker
+status and backfill on the settings page. It talks to the daemon only
+through native messaging (host `tds.dynomark`, contract `../contract/v1/`).
 
 ## Extension id
 
@@ -40,11 +42,23 @@ and fails the build if any bare specifier is left.
    `tds.dynomark.json` to
    `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/`.
 4. Options page (right-click the toolbar icon -> Options): native link,
-   hello outcome, daemon role, host id, models, queue depth; the capture
-   setting. The toolbar popup is the history page: Undo per APPLIED batch,
-   Retry per FAILED job.
+   hello outcome, daemon role, host id, models, queue depth; the writer
+   marker (a red banner while another host's marker is in `Dynomark`: no
+   batch is applied until it is cleared); the two capture settings (open
+   tab; background tab on the writer, default on); Backfill existing
+   bookmarks (ten ingests a second, resumes after a worker restart). The
+   toolbar popup is the history page: Undo per APPLIED batch, Retry per
+   FAILED job.
 5. Save a page into `Follow Up` with Ctrl+D (created under the bookmarks bar
-   on first start). Search with `bm <words>` in the address bar.
+   on first start). Search with `bm <words>` in the address bar; the last row
+   is always `Ask: <words>`, and Enter with no hit asks too.
+6. Chat: the Ask row, or Alt+Shift+K (chrome://extensions/shortcuts to
+   change), opens `chat.html` in a popup window. A citation opens in one
+   click; "why here" shows the placement reason; an external URL can be
+   filed into `Follow Up`.
+7. Diffs: `diff.html` (linked from the settings page). Propose an audit or
+   a rebuild, open it, accept one item at a time; each accepted item is a
+   batch whose state shows on its row. Pin or lock owned folders there.
 
 ## Test
 
@@ -71,9 +85,12 @@ export DYNOMARK_CHROMIUM="$(ls -d ~/.cache/dynomark-cft/chrome/mac_arm-*/chrome-
 
 Hermetic: a temp profile whose `NativeMessagingHosts/` registers the host
 (Chromium reads per-user host manifests from the user data dir), a temp unix
-socket, and routed pages; no network. The omnibox cannot be typed into
+socket, and routed pages; no network: every web request not to 127.0.0.1 is
+aborted unless a test routes it, and the background-tab test loads its page
+from a throw-away HTTP server on 127.0.0.1. The omnibox cannot be typed into
 headless, so e2e drives its handler through `globalThis.dynomark`, the
-diagnostic handle the service worker exposes on its own global scope.
+diagnostic handle the service worker exposes on its own global scope; the
+keyboard command is covered by unit tests only.
 
 ## Layout
 
@@ -84,5 +101,5 @@ diagnostic handle the service worker exposes on its own global scope.
 | `src/ports/`                                            | seams: tree, history, content, storage, transport, clock, ids, timer, navigator, pages |
 | `src/app/`                                              | use cases and the background workflow (`runtime.ts`)                                   |
 | `src/adapters/`                                         | chrome.* adapters (the only code that names a browser API)                             |
-| `src/ui/`                                               | the options and history page views                                                     |
-| `src/background.ts`, `src/options.ts`, `src/history.ts` | entry points / composition roots                                                       |
+| `src/ui/`                                               | the options, history, chat and diff page views                                         |
+| `src/background.ts`, `src/options.ts`, `src/history.ts` | entry points / composition roots (also `src/chat.ts`, `src/diff.ts`)                   |
