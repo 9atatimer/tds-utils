@@ -50,6 +50,8 @@ export interface SaveDeps {
   readonly timer: Timer;
   /** Handed each retry this schedules (the caller reports its failure). */
   track(work: Promise<unknown>): void;
+  /** The daemon has this node's save: called on the `ingest.result` answer, whichever send of the frame (first or a retry) got it. */
+  taken?(node_id: NodeId): Promise<void>;
 }
 
 /** A bookmark whose url is over the contract's cap is not ingested; the extension reports it locally. */
@@ -166,6 +168,7 @@ async function deliver(entry: SaveEntry, deps: SaveDeps): Promise<RequestId> {
     throw error;
   }
   await deps.saves.release(entry.frame);
+  await deps.taken?.(entry.frame.bookmark.node_id);
   return entry.frame.id;
 }
 

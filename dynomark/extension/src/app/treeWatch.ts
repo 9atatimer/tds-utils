@@ -179,10 +179,23 @@ export class TreeWatch {
     // A frame already sent and not answered is re-sent as it was: its capture is not taken again.
     const kept = submitted ? undefined : await this.deps.saves.recall(bookmark.node_id, bookmark.url);
     const content = submitted ? NO_CAPTURE : (kept ?? (await this.captureOf(bookmark, options.background)));
-    await submitSave(bookmark, content, { ...this.deps, track: (work) => this.context.track(work) });
-    // Paid only once the daemon has the save: a worker that dies first owes it still.
+    await submitSave(bookmark, content, {
+      ...this.deps,
+      track: (work) => this.context.track(work),
+      taken: (node_id) => this.pay(node_id),
+    });
+    // A save the daemon had before this one was owed (answered earlier in this worker) is paid here, not by `taken`.
+    await this.pay(bookmark.node_id);
+  }
+
+  /**
+   * The daemon has the save: its background-capture debt is paid. Called on
+   * every answer that gives the daemon the save -- a retry after a busy
+   * answer included -- never before, so a worker that dies first owes it still.
+   */
+  private async pay(node_id: NodeId): Promise<void> {
     const owed = await this.owedSet();
-    if (owed.delete(bookmark.node_id)) await this.storeOwed(owed);
+    if (owed.delete(node_id)) await this.storeOwed(owed);
   }
 
   /** The saves owed a background capture, read from storage once per worker; every caller mutates this one set in place. */
