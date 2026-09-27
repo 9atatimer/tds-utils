@@ -13,14 +13,18 @@ Assess on the tech radar, so it is not used until it is promoted.
 
 KNN reads its vectors from ``_VectorCache``, not the file: every vector
 unpacked with its norm, and the placed identities, loaded on first use.
-This connection's writes update it after they commit; a commit through any
-other connection (another store, the check command, a hand edit) changes
-``PRAGMA data_version``, and the cache is reloaded. Migrations run in
-``open``, before any cache exists. At 10,000 x 768 it holds about 30 MB.
+This connection's writes update it once written, and a rollback drops it;
+a commit through any other connection (another store, the check command,
+a hand edit) changes ``PRAGMA data_version``, and the cache is reloaded.
+Migrations run in ``open``, before any cache exists. At 10,000 x 768 it
+holds about 30 MB.
 
 Thread-safe: one connection, every method under one lock, each write one
-transaction. Schema migrations are versioned in code (``MIGRATIONS``,
-recorded in ``PRAGMA user_version``); a file from a newer schema is refused.
+transaction. ``atomic`` holds the lock and one transaction for a whole unit
+of work; a write or unit inside it is a savepoint, and any rollback drops
+the vector cache (it may hold what was rolled back). Schema migrations are
+versioned in code (``MIGRATIONS``, recorded in ``PRAGMA user_version``); a
+file from a newer schema is refused.
 """
 
 import array
@@ -301,6 +305,8 @@ class SqliteCorpusStore:
         self._read_only = read_only
         self._lock = threading.RLock()
         self._vectors: _VectorCache | None = None
+        self._depth = 0
+        """Open writes and units of work, nested; only read under the lock."""
 
     @classmethod
     def open(cls, path: Path, *, read_only: bool = False) -> Self:
@@ -345,17 +351,35 @@ class SqliteCorpusStore:
 
     @contextmanager
     def _write(self) -> Iterator[sqlite3.Connection]:
-        """One transaction, committed on success, rolled back on error."""
+        """One transaction, committed on success, rolled back on error; inside
+        another, a savepoint, released on success and rolled back to on
+        error, so only the outermost commits."""
         if self._read_only:
             raise StoreError(f"{self._path} is open read-only")
         with self._lock:
-            self._db.execute("BEGIN IMMEDIATE")
+            outermost = self._depth == 0
+            self._db.execute("BEGIN IMMEDIATE" if outermost else "SAVEPOINT unit")
+            self._depth += 1
             try:
                 yield self._db
             except BaseException:
-                self._db.execute("ROLLBACK")
+                self._vectors = None  # it may hold a write rolled back here
+                if outermost:
+                    self._db.execute("ROLLBACK")
+                else:
+                    self._db.execute("ROLLBACK TO unit")
+                    self._db.execute("RELEASE unit")
                 raise
-            self._db.execute("COMMIT")
+            finally:
+                self._depth -= 1
+            self._db.execute("COMMIT" if outermost else "RELEASE unit")
+
+    # --- Units of work ---
+
+    @contextmanager
+    def atomic(self) -> Iterator[None]:
+        with self._write():
+            yield
 
     def _one(
         self, sql: str, params: Sequence[object] = ()
@@ -425,7 +449,7 @@ class SqliteCorpusStore:
                         entry.capture.text,
                     ),
                 )
-            if self._vectors is not None:  # committed: now KNN may see it
+            if self._vectors is not None:  # written: KNN on this connection sees it
                 self._vectors.vectors[entry.identity.value] = (_unpack(blob), norm)
 
     def get_entry(self, identity: Identity) -> CorpusEntry | None:
@@ -495,7 +519,7 @@ class SqliteCorpusStore:
                     "INSERT OR REPLACE INTO placements (identity, doc) VALUES (?, ?)",
                     (placement.identity.value, dump_record(placement)),
                 )
-            if self._vectors is not None:  # committed: now KNN may see it
+            if self._vectors is not None:  # written: KNN on this connection sees it
                 self._vectors.placed.add(placement.identity.value)
 
     def get_placement(self, identity: Identity) -> Placement | None:

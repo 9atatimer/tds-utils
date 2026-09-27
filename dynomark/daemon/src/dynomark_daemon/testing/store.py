@@ -4,11 +4,17 @@ Full-text candidates: an entry matches when every query word (``\\w+``,
 lower-cased) occurs among the words of its title, summary, tags and
 captured text; the score is the share of the entry's words that are query
 words. KNN candidates: cosine similarity. Ties break by identity.
+
+A unit of work copies every table on entry and puts the copies back when
+it raises, so a test that kills a use case inside one (an exception from
+the Nth write) sees what a crash before the commit would leave.
 """
 
+import copy
 import math
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from typing import Final
 
 from dynomark_daemon.domain.batch import BatchRecord
@@ -35,6 +41,24 @@ from dynomark_daemon.ports.errors import NotFound
 from dynomark_daemon.ports.store import StoredEntry
 
 WORD: Final = re.compile(r"\w+")
+TABLES: Final = (
+    "_entries",
+    "_positions",
+    "_placements",
+    "_jobs",
+    "_saves",
+    "_batches",
+    "_latest_tree",
+    "_snapshots",
+    "_feedback",
+    "_diffs",
+    "_events",
+    "_flags",
+    "_writer_profile",
+    "_follow_ups",
+    "_requests",
+)
+"""Every attribute holding stored state; a unit of work restores these."""
 
 
 # --- Helpers ---
@@ -94,6 +118,19 @@ class InMemoryCorpusStore:
         self._writer_profile: ProfileId | None = None
         self._follow_ups: dict[ProfileId, FolderPath] = {}
         self._requests: dict[RequestId, str] = {}
+
+    # --- Units of work ---
+
+    @contextmanager
+    def atomic(self) -> Iterator[None]:
+        saved = {name: copy.copy(getattr(self, name)) for name in TABLES}
+        saved["_events"] = {p: dict(e) for p, e in self._events.items()}
+        try:
+            yield
+        except BaseException:
+            for name, value in saved.items():
+                setattr(self, name, value)
+            raise
 
     # --- Entries ---
 

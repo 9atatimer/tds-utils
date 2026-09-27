@@ -4,9 +4,14 @@ Everything durable the daemon keeps: entries, the two candidate lists
 hybrid search fuses, placements, jobs, batches, snapshots, feedback and
 diffs. Orderings are part of the contract so the fake and the SQLite
 adapter can run one suite (tests/contract/ports/test_store_contract.py).
+
+Each write is durable on its own. A use case that makes several writes
+whose partial completion would be observable after a crash makes them in
+one ``atomic()`` unit of work, so a crash between two of them loses both.
 """
 
 from collections.abc import Iterable, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -42,6 +47,19 @@ class StoredEntry:
 
 
 class CorpusStorePort(Protocol):
+    # --- Units of work ---
+
+    def atomic(self) -> AbstractContextManager[None]:
+        """A unit of work: the writes made inside commit together when the
+        block completes, and none of them does when it raises (a crash
+        before it completes is the same). A unit opened inside another
+        commits only with the outermost one; one that raises undoes only
+        its own writes. Reads inside see the unit's writes. No other
+        caller writes while a unit is open, so a unit holds no I/O but the
+        store's: never a model, fetch or transport call.
+        """
+        ...
+
     # --- Entries ---
 
     def put_entry(self, entry: CorpusEntry) -> None:
