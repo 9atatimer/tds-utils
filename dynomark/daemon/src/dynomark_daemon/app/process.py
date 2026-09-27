@@ -19,6 +19,7 @@ from dynomark_daemon.ports.clock import Clock
 from dynomark_daemon.ports.completion import CompletionPort
 from dynomark_daemon.ports.content import ContentSourcePort
 from dynomark_daemon.ports.embedding import EmbeddingPort
+from dynomark_daemon.ports.errors import PortError
 from dynomark_daemon.ports.store import CorpusStorePort
 
 
@@ -59,8 +60,15 @@ def process_job(
         job = job.picked_up(at=clock.now_ms())
         store.put_job(job)
     save = _resolve_capture(job, save, store=store, content=content)
-    enrichment = completion.enrich(save.bookmark, save.capture)
-    vector = embedding.embed(embedding_text(save.bookmark, enrichment))
+    try:
+        enrichment = completion.enrich(save.bookmark, save.capture)
+        vector = embedding.embed(embedding_text(save.bookmark, enrichment))
+    except PortError as error:
+        failed = job.attempt_failed(
+            str(error), retryable=error.retryable, policy=policy, at=clock.now_ms()
+        )
+        store.put_job(failed)
+        return failed
     entry = CorpusEntry(
         identity=job.identity,
         bookmark=save.bookmark,

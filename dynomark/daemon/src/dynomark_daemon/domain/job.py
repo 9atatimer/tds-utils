@@ -78,6 +78,22 @@ class Job:
             updated_at=at,
         )
 
+    def attempt_failed(
+        self, error: str, *, retryable: bool, policy: "RetryPolicy", at: int
+    ) -> Self:
+        """Count a failed attempt: FAILED once ``policy`` is spent or the error
+        is not retryable; otherwise the job stays where it is for a retry."""
+        attempts = self.attempts + 1
+        exhausted = not retryable or attempts >= policy.attempts
+        return replace(
+            self,
+            state=JobState.FAILED if exhausted else self.state,
+            attempts=attempts,
+            last_error=error,
+            seq=self.seq + 1,
+            updated_at=at,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:
@@ -86,3 +102,9 @@ class RetryPolicy:
     attempts: int
     initial_backoff_ms: int
     max_backoff_ms: int
+
+    def backoff_ms(self, failed: int) -> int:
+        """The delay before the retry that follows ``failed`` failed attempts:
+        doubling from ``initial_backoff_ms``, capped at ``max_backoff_ms``."""
+        doublings = min(max(failed - 1, 0), 62)
+        return min(self.initial_backoff_ms << doublings, self.max_backoff_ms)
