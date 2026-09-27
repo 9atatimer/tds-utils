@@ -114,7 +114,8 @@ export async function launchBrowser(home: string): Promise<Browser> {
   const context = await chromium.launchPersistentContext(userDataDir, {
     headless: true,
     env: homeEnv(home),
-    ...(executablePath === undefined ? {} : { executablePath }),
+    // Playwright's own build: channel chromium, because plain headless means the headless shell, which loads no extension.
+    ...(executablePath === undefined ? { channel: 'chromium' } : { executablePath }),
     args: [`--disable-extensions-except=${EXTENSION_DIST}`, `--load-extension=${EXTENSION_DIST}`],
   });
   // No network: only the 127.0.0.1 test server is reachable.
