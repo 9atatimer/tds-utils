@@ -191,10 +191,10 @@ class JobLoop:
 
     def run_once(self) -> Schedule:
         """Run every job due now and a due rebuild; tell the server when any
-        ran."""
-        schedule = due_jobs(
-            self._config.retry, self._ports.clock.now_ms(), store=self._ports.store
-        )
+        ran. The schedule after the pass: when the next retry falls due,
+        counting the jobs that failed in it."""
+        ports, retry = self._ports, self._config.retry
+        schedule = due_jobs(retry, ports.clock.now_ms(), store=ports.store)
         for job in schedule.due:
             try:
                 self._run(job)
@@ -205,7 +205,7 @@ class JobLoop:
         rebuilt = self._rebuild()
         if schedule.due or rebuilt:
             self._on_progress()
-        return schedule
+        return due_jobs(retry, ports.clock.now_ms(), store=ports.store)
 
     def run(self, stop: threading.Event) -> None:
         """Loop until ``stop`` is set (``wake`` makes it look at once)."""
