@@ -8,13 +8,14 @@
 // next chunk after a pause. A busy or internal answer comes on a link that
 // stays up, so no reconnect will resume it (contract v1: busy and internal are
 // retried with the same id after backoff): the step stores progress up to that
-// bookmark and the next step, after a backoff, re-sends the identical frame.
-// A worker restart loses only the schedule and the retained frame: the next
-// full hello resumes from the stored progress, and a repeated ingest is a
-// no-op on the daemon.
+// bookmark, with the frame's id, and the next step, after a backoff, re-sends
+// the identical frame. A worker restart loses only the schedule: the next
+// full hello resumes from the stored progress, re-sending a stored frame
+// with its id (a request re-sent after a reconnect), and a repeated ingest is
+// a no-op on the daemon.
 
 import { backoffDelay } from '../domain/backoff.js';
-import { backfillBookmark, backfillCandidates, isBackfillDone, type BackfillProgress } from '../domain/backfill.js';
+import { backfillBookmark, backfillCandidates, isBackfillDone, type BackfillProgress, type BackfillRetry } from '../domain/backfill.js';
 import { fitBookmark } from '../domain/limits.js';
 import type { Bookmark, FolderPath } from '../domain/tree.js';
 import type { BookmarkTreePort } from '../ports/bookmarkTree.js';
@@ -38,13 +39,6 @@ export const BACKFILL_PAUSE_MS = 1000;
 // --- Types ---
 
 type IngestFrame = MessageOf<'ingest'>;
-
-/** A frame the daemon answered busy or internal: re-sent unchanged by the next step. In memory only. */
-interface Retry {
-  readonly frame: IngestFrame;
-  /** Retryable answers so far: the backoff attempt of the next retry. */
-  readonly attempt: number;
-}
 
 /** How far a step got: the progress to store, and the backoff to wait when it stopped on a retryable answer. */
 interface Sent {
@@ -70,15 +64,24 @@ export interface BackfillContext {
 
 // --- Pure helpers ---
 
+function frameOf(retry: BackfillRetry): IngestFrame {
+  return { v: CONTRACT_VERSION, type: 'ingest', id: retry.id, bookmark: retry.bookmark, backfill: true };
+}
+
 function sameBody(a: IngestFrame, b: IngestFrame): boolean {
   return JSON.stringify({ ...a, id: '' }) === JSON.stringify({ ...b, id: '' });
+}
+
+/** `progress` moved to `next_index`, keeping `retry` only when given (it names the ingest at that index). */
+function advanced(progress: BackfillProgress, next_index: number, retry?: BackfillRetry): BackfillProgress {
+  const { retry: _done, ...rest } = progress;
+  return { ...rest, next_index, ...(retry === undefined ? {} : { retry }) };
 }
 
 // --- The backfill ---
 
 export class Backfill {
   private running = false;
-  private retry: Retry | undefined;
 
   constructor(
     private readonly deps: BackfillDeps,
@@ -132,28 +135,30 @@ export class Backfill {
     const tree = await this.deps.tree.readTree();
     for (const [offset, node_id] of chunk.entries()) {
       const bookmark = backfillBookmark(tree, node_id, skip);
-      const backoff = bookmark === undefined ? undefined : await this.ingest(bookmark);
-      if (backoff !== undefined) return { progress: { ...progress, next_index: progress.next_index + offset }, backoff };
+      const kept = offset === 0 ? progress.retry : undefined;
+      const retry = bookmark === undefined ? undefined : await this.ingest(bookmark, kept);
+      if (retry !== undefined) {
+        return { progress: advanced(progress, progress.next_index + offset, retry), backoff: backoffDelay(retry.attempt - 1) };
+      }
     }
-    return { progress: { ...progress, next_index: progress.next_index + chunk.length }, backoff: undefined };
+    return { progress: advanced(progress, progress.next_index + chunk.length), backoff: undefined };
   }
 
   /**
-   * Send one bookmark as a backfill ingest (the retained frame, when this is
-   * the one last answered busy or internal). A non-retryable refusal is
-   * reported and skipped; a retryable one is retained and its backoff returned;
+   * Send one bookmark as a backfill ingest (the kept frame, when this is the
+   * one last answered busy or internal). A non-retryable refusal is reported
+   * and skipped; a retryable one is returned, to be kept with the progress;
    * anything else stops the step.
    */
-  private async ingest(bookmark: Bookmark): Promise<number | undefined> {
+  private async ingest(bookmark: Bookmark, kept: BackfillRetry | undefined): Promise<BackfillRetry | undefined> {
     const fitted = fitBookmark(bookmark);
     if (fitted === undefined) {
       this.context.problem(`backfill: bookmark ${bookmark.node_id}: url over the contract's cap; not ingested`);
       return undefined;
     }
     const draft: IngestFrame = { v: CONTRACT_VERSION, type: 'ingest', id: '', bookmark: fitted, backfill: true };
-    const retry = this.retry !== undefined && sameBody(this.retry.frame, draft) ? this.retry : undefined;
-    const frame = retry?.frame ?? { ...draft, id: this.deps.ids.next() };
-    this.retry = undefined;
+    const retry = kept !== undefined && sameBody(frameOf(kept), draft) ? kept : undefined;
+    const frame = retry === undefined ? { ...draft, id: this.deps.ids.next() } : frameOf(retry);
     try {
       resultOrThrow(await this.deps.transport.send(frame));
     } catch (error) {
@@ -162,9 +167,7 @@ export class Backfill {
         this.context.problem(`backfill: ${bookmark.url}: ${error.message}`);
         return undefined;
       }
-      const attempt = retry?.attempt ?? 0;
-      this.retry = { frame, attempt: attempt + 1 };
-      return backoffDelay(attempt);
+      return { id: frame.id, bookmark: fitted, attempt: (retry?.attempt ?? 0) + 1 };
     }
     return undefined;
   }

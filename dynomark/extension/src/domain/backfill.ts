@@ -5,14 +5,24 @@
 // bookmarks outside the folders given to skip (Follow Up: those are ordinary
 // saves; Graveyard: removed). Progress is a list fixed at the start plus how
 // far along it the backfill is, so a restarted worker resumes, and a repeat
-// is harmless (ingest is idempotent on node and url).
+// is harmless (ingest is idempotent on node and url). A frame the daemon
+// answered busy or internal is kept with it (one at most), so the worker that
+// retries it -- this one or the next -- re-sends the same id.
 
 import { isCapturableUrl } from './capture.js';
 import { isPathInside } from './paths.js';
 import { ROOT_KEYS, type Bookmark, type FolderPath, type SnapshotNode, type TreeRead } from './tree.js';
-import type { EpochMs, NodeId } from './values.js';
+import type { EpochMs, NodeId, RequestId } from './values.js';
 
 // --- Types ---
+
+/** The ingest at `next_index` as last sent, answered busy or internal: re-sent with this id while its bookmark is unchanged. */
+export interface BackfillRetry {
+  readonly id: RequestId;
+  readonly bookmark: Bookmark;
+  /** Retryable answers so far: the backoff attempt of the next retry. */
+  readonly attempt: number;
+}
 
 export interface BackfillProgress {
   readonly started_at: EpochMs;
@@ -20,6 +30,7 @@ export interface BackfillProgress {
   readonly node_ids: readonly NodeId[];
   /** How many of them have been sent (and answered). */
   readonly next_index: number;
+  readonly retry?: BackfillRetry;
 }
 
 // --- Pure helpers ---
