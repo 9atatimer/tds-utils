@@ -152,6 +152,8 @@ export class ExtensionRuntime {
     return answerPage(request, {
       transport: started.connection,
       ids: this.ports.ids,
+      tree: this.ports.tree,
+      navigator: this.ports.navigator,
       link: () => this.ports.transport.linkState(),
       outcome: () => started.connection.outcome(),
       settings: () => this.state?.settings ?? started.settings,

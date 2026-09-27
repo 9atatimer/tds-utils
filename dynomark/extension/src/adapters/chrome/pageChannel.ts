@@ -30,7 +30,18 @@ export interface PageClientApi {
 // --- Constants ---
 
 const ENVELOPE = 'dynomark_page';
-const KINDS: ReadonlySet<string> = new Set(['overview', 'settings.set', 'batch.list', 'undo', 'job.list', 'job.retry']);
+const KINDS: ReadonlySet<string> = new Set([
+  'overview',
+  'settings.set',
+  'batch.list',
+  'undo',
+  'job.list',
+  'job.retry',
+  'ask',
+  'explain',
+  'open',
+  'file',
+]);
 
 // --- Predicates ---
 

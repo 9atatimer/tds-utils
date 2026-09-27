@@ -11,7 +11,9 @@ import type { ResultOf } from '../wire/messages.js';
 import type { LinkState } from './transport.js';
 import type { ConnectionMode, HostRole } from '../domain/roles.js';
 import type { Job } from '../domain/jobs.js';
-import type { UndoDrop } from '../domain/diff.js';
+import type { PlacementReason, UndoDrop } from '../domain/diff.js';
+import type { Answer, Question, Turn } from '../domain/chat.js';
+import type { Identity, NodeId, Title, Url } from '../domain/values.js';
 
 // --- Requests ---
 
@@ -21,7 +23,11 @@ export type PageRequest =
   | { readonly kind: 'batch.list'; readonly cursor?: Cursor }
   | { readonly kind: 'undo'; readonly batch_id: BatchId }
   | { readonly kind: 'job.list'; readonly cursor?: Cursor }
-  | { readonly kind: 'job.retry'; readonly job_id: JobId };
+  | { readonly kind: 'job.retry'; readonly job_id: JobId }
+  | { readonly kind: 'ask'; readonly question: Question; readonly history: readonly Turn[] }
+  | { readonly kind: 'explain'; readonly identity: Identity }
+  | { readonly kind: 'open'; readonly url: Url }
+  | { readonly kind: 'file'; readonly url: Url; readonly title: Title };
 
 // --- Answers ---
 
@@ -53,6 +59,10 @@ export type PageResponse =
   | { readonly ok: true; readonly kind: 'undo'; readonly batch_id: BatchId | null; readonly dropped: readonly UndoDrop[] }
   | { readonly ok: true; readonly kind: 'job.list'; readonly jobs: readonly Job[]; readonly next_cursor: Cursor | null }
   | { readonly ok: true; readonly kind: 'job.retry'; readonly job: Job }
+  | { readonly ok: true; readonly kind: 'ask'; readonly answer: Answer }
+  | { readonly ok: true; readonly kind: 'explain'; readonly reason: PlacementReason }
+  | { readonly ok: true; readonly kind: 'open' }
+  | { readonly ok: true; readonly kind: 'file'; readonly node_id: NodeId; readonly created: boolean }
   | { readonly ok: false; readonly error: string; readonly code?: ErrorCode };
 
 /** How a page asks the background. */

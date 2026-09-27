@@ -1,16 +1,22 @@
 // pages.ts -- answering the extension pages (design, "Settings"; "A batch is
-// undone"; State Machine, FAILED -> QUEUED on a user retry). The options page
-// reads the overview and edits the capture setting; the history page lists
-// batches (Undo) and FAILED jobs (Retry). Every daemon request goes through
-// the runtime's one Connection; a refusal is answered ok: false with its code.
+// undone"; State Machine, FAILED -> QUEUED on a user retry; "Chat surface").
+// The options page reads the overview and edits the capture setting; the
+// history page lists batches (Undo) and FAILED jobs (Retry); the chat page
+// asks, explains, opens a citation and files a URL. Every daemon request goes
+// through the runtime's one Connection; a refusal is answered ok: false with
+// its code.
 
 import type { Settings } from '../domain/settings.js';
 import { capturesFromTab } from '../domain/settings.js';
+import { isOpenable } from '../domain/search.js';
 import type { FolderPath } from '../domain/tree.js';
+import type { BookmarkTreePort } from '../ports/bookmarkTree.js';
 import type { IdSource } from '../ports/idSource.js';
+import type { Navigator } from '../ports/navigator.js';
 import type { Overview, PageRequest, PageResponse } from '../ports/pages.js';
 import type { LinkState, TransportPort } from '../ports/transport.js';
 import { CONTRACT_VERSION } from '../wire/messages.js';
+import { askQuestion, explainPlacement, fileThis } from './chat.js';
 import type { HelloOutcome } from './connection.js';
 import { DaemonError, resultOrThrow } from './errors.js';
 
@@ -19,6 +25,8 @@ import { DaemonError, resultOrThrow } from './errors.js';
 export interface PageContext {
   readonly transport: TransportPort;
   readonly ids: IdSource;
+  readonly tree: BookmarkTreePort;
+  readonly navigator: Navigator;
   link(): LinkState;
   outcome(): HelloOutcome | undefined;
   settings(): Settings;
@@ -86,6 +94,19 @@ async function ask(request: Exclude<PageRequest, { kind: 'overview' | 'settings.
     case 'job.retry': {
       const r = resultOrThrow(await context.transport.send({ v, type: 'job.retry', id, job_id: request.job_id }));
       return { ok: true, kind: 'job.retry', job: r.job };
+    }
+    case 'ask':
+      return { ok: true, kind: 'ask', answer: await askQuestion(request.question, request.history, context) };
+    case 'explain':
+      return { ok: true, kind: 'explain', reason: await explainPlacement(request.identity, context) };
+    case 'open':
+      if (!isOpenable(request.url)) return { ok: false, error: 'only http(s) URLs are opened' };
+      await context.navigator.open(request.url, 'newForegroundTab');
+      return { ok: true, kind: 'open' };
+    case 'file': {
+      const followUp = context.followUp();
+      if (followUp === undefined) return { ok: false, error: 'no Follow Up folder is watched' };
+      return { ok: true, kind: 'file', ...(await fileThis(request.url, request.title, followUp, context)) };
     }
   }
 }

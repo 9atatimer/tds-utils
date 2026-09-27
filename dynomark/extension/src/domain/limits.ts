@@ -15,6 +15,12 @@ export const MAX_URL = 65_536;
 export const MAX_CAPTURE_TEXT = 1_048_576;
 /** `search.query`: code points. */
 export const MAX_QUERY = 1024;
+/** `ask.question` and `Turn.question`: code points. */
+export const MAX_QUESTION = 8192;
+/** `Turn.answer` (and `Answer.text`): code points. */
+export const MAX_ANSWER_TEXT = 65_536;
+/** `ask.history`: turns. */
+export const MAX_HISTORY_TURNS = 50;
 /** Free-text `detail` and `message` fields: code points. */
 export const MAX_DETAIL = 4096;
 /** A `LocalIndexRow` as compact UTF-8 JSON: bytes. */
