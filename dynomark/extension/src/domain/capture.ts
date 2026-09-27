@@ -1,6 +1,10 @@
-// capture.ts -- page content for a bookmark (design, "Capture").
+// capture.ts -- page content for a bookmark (design, "Capture"), and the rules
+// for turning what an open tab shows into one.
 
-import type { Title } from './values.js';
+import { MAX_CAPTURE_TEXT, MAX_TITLE, fitText } from './limits.js';
+import type { Title, Url } from './values.js';
+
+// --- Types ---
 
 /** Where a capture's text came from. `fetch` is the daemon's alone; the extension sends `tab`, `background_tab` or `none`. */
 export type CaptureSource = 'tab' | 'background_tab' | 'fetch' | 'none';
@@ -16,4 +20,26 @@ export interface Capture {
 export interface TabContent {
   readonly title: Title;
   readonly text: string;
+}
+
+// --- Constants ---
+
+/** No content was read: the daemon falls back to fetch. */
+export const NO_CAPTURE: Capture = { source: 'none', text: '' };
+
+const CAPTURABLE_SCHEME = /^https?:/i;
+
+// --- Predicates ---
+
+/** True only for http(s) URLs: nothing else is ever read from a page (design, Security). */
+export function isCapturableUrl(url: Url): boolean {
+  return CAPTURABLE_SCHEME.test(url);
+}
+
+// --- Pure helpers ---
+
+/** A `tab` capture of what the tab shows, within the caps and well-formed; `NO_CAPTURE` when it has no readable text. */
+export function captureFromTab(tab: TabContent): Capture {
+  if (tab.text.trim() === '') return NO_CAPTURE;
+  return { source: 'tab', text: fitText(tab.text, MAX_CAPTURE_TEXT).text, title: fitText(tab.title, MAX_TITLE).text };
 }
