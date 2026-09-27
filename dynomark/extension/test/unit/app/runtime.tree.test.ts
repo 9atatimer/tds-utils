@@ -246,6 +246,37 @@ describe("Batch offers -- a batch move is the extension's across a worker restar
     await deliver(next, { kind: 'moved', node_id: ids.saved, parent_id: serde, old_parent_id: ids.followUp });
     expect(sentOf(w, 'move.observed').map((r) => r.move.origin)).toEqual(['extension']);
   });
+
+  it('Given a batch moved the save twice and the worker was terminated, When the next worker hears both moves at once, Then nothing is left remembered and a later user move is origin user', async () => {
+    const { w, ids, runtime } = await setup();
+    w.tree.failOnMutation(2, 'terminate-after');
+    await w.daemon().emit({
+      v: 1,
+      type: 'batch.offer',
+      event_id: 'evt-twice',
+      batch: {
+        batch_id: 'batch-twice',
+        operations: [
+          { op: 'move', index: 0, node_id: ids.saved, to: RUST, expect: { parent_id: ids.followUp } },
+          { op: 'move', index: 1, node_id: ids.saved, to: DYNOMARK, expect: { parent_id: ids.rust } },
+        ],
+      },
+    });
+    await runtime.idle();
+    expect((await w.tree.getNode(ids.saved))?.parent_id).toBe(ids.dynomark);
+    w.restart();
+    scriptDaemon(w);
+    const next = await startRuntime(w);
+
+    next.onBookmarkEvent({ kind: 'moved', node_id: ids.saved, parent_id: ids.rust, old_parent_id: ids.followUp });
+    next.onBookmarkEvent({ kind: 'moved', node_id: ids.saved, parent_id: ids.dynomark, old_parent_id: ids.rust });
+    await next.idle();
+
+    expect(sentOf(w, 'move.observed').map((r) => r.move.origin)).toEqual(['extension', 'extension']);
+    expect(await w.storage.loadIssuedMoves()).toEqual([]);
+    await moved(w, next, ids.saved, ids.rust);
+    expect(sentOf(w, 'move.observed').at(-1)?.move).toMatchObject({ node_id: ids.saved, to: RUST, origin: 'user' });
+  });
 });
 
 describe('A batch receipt answered with a retryable code on a live link', () => {
