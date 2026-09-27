@@ -545,3 +545,28 @@ def test_a_scheduled_rebuild_killed_before_its_announcement_is_announced() -> No
     ]
     assert announced == [d.diff_id for d in store.list_diffs()]
     assert len(announced) == 1
+
+
+def _records_an_acceptance(value: object) -> bool:
+    return isinstance(value, DiffItem) and value.batch_id is not None
+
+
+def test_an_accept_killed_before_the_item_names_its_batch_offers_nothing() -> None:
+    """Given the daemon was killed while accepting an item, after its batch was
+    offered and before the item recorded it, Then no batch is offered for an
+    item that reads as unaccepted (a repeat refused because a folder was
+    locked since would otherwise leave that batch applied and unaccounted
+    for)."""
+    store = DyingStore()
+    writer = Writer((ASYNC_TO_CONCURRENCY,), store=store)
+    item = writer.propose(DiffKind.REBUILD)
+    store.kill_at("put_diff_item", _records_an_acceptance)
+    with pytest.raises(SystemExit):
+        writer.accept(item)
+
+    stored = store.get_diff_item(item.item_id)
+    assert stored is not None and stored.batch_id is None
+    assert store.list_batches() == []
+    assert [
+        p for p in store.unacked_events(A) if isinstance(p.event, BatchOffered)
+    ] == []
