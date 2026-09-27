@@ -89,6 +89,20 @@ describe('Background-tab capture on the writer', () => {
     expect(w.backgroundTabs.opened).toEqual([URL]);
   });
 
+  it("Given a writer and a save no tab shows, When the worker is terminated while its background tab loads, Then the next worker's hello sends it with a background_tab capture", async () => {
+    const { w, ids, runtime } = await setup();
+    w.backgroundTabs.terminateOnNextRead();
+    const node = await w.tree.createBookmark(ids.followUp, 'Story', URL);
+    runtime.onBookmarkEvent({ kind: 'created', node });
+    await runtime.idle();
+    expect(sentOf(w, 'ingest').find((r) => r.bookmark.node_id === node.id)).toBeUndefined();
+    w.restart();
+    scriptDaemon(w, { role: 'writer' });
+    await startRuntime(w);
+    expect(sentOf(w, 'ingest').find((r) => r.bookmark.node_id === node.id)?.capture).toEqual({ source: 'background_tab', ...PAGE });
+    expect(w.backgroundTabs.opened).toEqual([URL, URL]);
+  });
+
   it('Given a writer whose save the daemon answered internal, When the worker is terminated during the backoff, Then the next worker re-sends the identical frame (same id and capture) without opening another tab', async () => {
     const w = new FakeExtensionWorld({ flavor: 'chrome' });
     let refused = false;
