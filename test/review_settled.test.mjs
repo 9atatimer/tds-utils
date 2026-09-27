@@ -123,3 +123,61 @@ test('clamp keeps descriptions within GitHub\'s 140 characters', () => {
   assert.equal(clamp('x'.repeat(141)).length, 140);
   assert.ok(clamp('x'.repeat(200)).endsWith('...'));
 });
+
+// --- any-of groups: "a|b" is satisfied by a review on head from either ---
+
+const CODEX = 'chatgpt-codex-connector';
+const EITHER = `${COPILOT}|${CODEX}`;
+
+test('parseReviewers keeps an a|b group as one normalized entry', () => {
+  assert.deepEqual(parseReviewers('Copilot-Pull-Request-Reviewer[bot]|chatgpt-codex-connector[bot], other'),
+    [EITHER, 'other']);
+  assert.deepEqual(parseReviewers(`${COPILOT}|${COPILOT}`), [COPILOT]);
+});
+
+test('any-of group: a review on head from the second member settles it', () => {
+  const v = settle({ headSha: HEAD, reviews: [review({ author: `${CODEX}[bot]` })], threads: [], reviewers: [EITHER] });
+  assert.equal(v.state, 'success');
+});
+
+test('any-of group: no review from any member -> failure naming every member', () => {
+  const v = settle({ headSha: HEAD, reviews: [], threads: [], reviewers: [EITHER] });
+  assert.equal(v.state, 'failure');
+  assert.match(v.description, /no review from copilot-pull-request-reviewer or chatgpt-codex-connector yet/);
+});
+
+test('any-of group: only stale reviews -> failure naming the newest stale reviewer', () => {
+  const v = settle({
+    headSha: HEAD,
+    reviews: [
+      review({ commit: OLD, submittedAt: '2026-09-18T20:00:00Z' }),
+      review({ author: CODEX, commit: OLD, submittedAt: '2026-09-19T20:00:00Z' }),
+    ],
+    threads: [],
+    reviewers: [EITHER],
+  });
+  assert.equal(v.state, 'failure');
+  assert.match(v.description, /newest review by chatgpt-codex-connector is on bbbbbbb; head is aaaaaaa/);
+});
+
+test('any-of group: one member on head settles it even if the other is stale', () => {
+  const v = settle({
+    headSha: HEAD,
+    reviews: [review({ commit: OLD }), review({ author: CODEX })],
+    threads: [],
+    reviewers: [EITHER],
+  });
+  assert.equal(v.state, 'success');
+});
+
+test('any-of group still composes with all-of: a|b, c needs c too', () => {
+  const v = settle({ headSha: HEAD, reviews: [review({ author: CODEX })], threads: [], reviewers: [EITHER, 'human'] });
+  assert.equal(v.state, 'failure');
+  assert.match(v.description, /no review from human yet/);
+});
+
+test('any-of group: open threads still block', () => {
+  const v = settle({ headSha: HEAD, reviews: [review({ author: CODEX })], threads: [{ isResolved: false }], reviewers: [EITHER] });
+  assert.equal(v.state, 'failure');
+  assert.match(v.description, /1 unresolved review thread/);
+});
