@@ -38,3 +38,31 @@ export interface Visit {
 
 /** Identity -> visit boost derived from history. */
 export type Frecency = ReadonlyMap<Identity, number>;
+
+// --- Frecency ---
+
+const DAY_MS = 86_400_000;
+
+/** Visit weight by age, newest bucket first (the shape of Firefox's frecency buckets). */
+const AGE_WEIGHTS: readonly (readonly [maxAgeMs: number, weight: number])[] = [
+  [4 * DAY_MS, 100],
+  [14 * DAY_MS, 70],
+  [31 * DAY_MS, 50],
+  [90 * DAY_MS, 30],
+];
+const OLDEST_WEIGHT = 10;
+/** Only the most recent visits count, so a long history cannot drown recency. */
+const SAMPLED_VISITS = 10;
+
+function visitWeight(visit: Visit, now: EpochMs): number {
+  const age = Math.max(0, now - visit.visited_at);
+  return AGE_WEIGHTS.find(([maxAge]) => age <= maxAge)?.[1] ?? OLDEST_WEIGHT;
+}
+
+/** The boost of one identity: the age-weighted sum over its most recent visits; 0 with none. */
+export function frecencyOf(visits: readonly Visit[], now: EpochMs): number {
+  return [...visits]
+    .sort((a, b) => b.visited_at - a.visited_at)
+    .slice(0, SAMPLED_VISITS)
+    .reduce((sum, v) => sum + visitWeight(v, now), 0);
+}
