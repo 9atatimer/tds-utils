@@ -372,7 +372,18 @@ class SqliteCorpusStore:
                 raise
             finally:
                 self._depth -= 1
-            self._db.execute("COMMIT" if outermost else "RELEASE unit")
+            try:
+                self._db.execute("COMMIT" if outermost else "RELEASE unit")
+            except BaseException:
+                # A failed COMMIT (a full or failing disk) is rolled back by
+                # SQLite, or left open; either way the cache may hold writes
+                # that are not on disk. An open one is rolled back here, or
+                # every later BEGIN IMMEDIATE fails. A failed RELEASE is left
+                # to the enclosing unit, which rolls back on this error.
+                self._vectors = None
+                if outermost and self._db.in_transaction:
+                    self._db.execute("ROLLBACK")
+                raise
 
     # --- Units of work ---
 
