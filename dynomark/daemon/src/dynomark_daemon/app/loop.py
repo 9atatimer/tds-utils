@@ -22,9 +22,10 @@ class Schedule:
 
 
 def _retry_at(job: Job, policy: RetryPolicy) -> int | None:
-    """When a job waiting on a retry may run again; ``None`` if it does not
-    wait (a job interrupted before any failed attempt is due at once)."""
-    if job.state is JobState.CAPTURING and job.attempts > 0:
+    """When a job waiting on a retry -- of its capture or of its placement --
+    may run again; ``None`` if it does not wait (a job interrupted before any
+    failed attempt is due at once)."""
+    if job.state in (JobState.CAPTURING, JobState.ENRICHED) and job.attempts > 0:
         return job.updated_at + policy.backoff_ms(job.attempts)
     return None
 

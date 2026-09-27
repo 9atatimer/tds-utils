@@ -102,9 +102,10 @@ class Job:
         return self.moved_to(JobState.CAPTURING, at=at)
 
     def enriched(self, source: CaptureSource, *, at: int) -> Self:
-        """CAPTURING -> ENRICHED: capture resolved and the entry enriched."""
+        """CAPTURING -> ENRICHED: capture resolved and the entry enriched. The
+        placement that follows starts with the whole attempt budget."""
         moved = self.moved_to(JobState.ENRICHED, at=at)
-        return replace(moved, capture_source=source, last_error=None)
+        return replace(moved, capture_source=source, last_error=None, attempts=0)
 
     def indexed(self, *, at: int) -> Self:
         """ENRICHED -> INDEXED: searchable here, never filed (a reader host)."""
