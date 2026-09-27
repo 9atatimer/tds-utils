@@ -18,6 +18,7 @@ from dynomark_daemon.domain.job import JobState
 from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.domain.tree import OwnedRoots, RootKey
 from dynomark_daemon.testing.store import InMemoryCorpusStore
+from dynomark_daemon.wire.base import CONTRACT_VERSION
 from tests._factories import make_config, make_job, make_path
 
 A, B = ProfileId("profile-a"), ProfileId("profile-b")
@@ -134,3 +135,9 @@ def test_status_reports_role_host_version_models_and_queue_depth() -> None:
         config.completion_model,
     )
     assert report.queue_depth == 3
+
+
+def test_the_daemon_speaks_the_contract_version_of_its_wire_models() -> None:
+    """Given the domain's contract version and the wire models', When compared,
+    Then they are one number (hello and status report what the codec speaks)."""
+    assert DAEMON_CONTRACT_VERSION == CONTRACT_VERSION

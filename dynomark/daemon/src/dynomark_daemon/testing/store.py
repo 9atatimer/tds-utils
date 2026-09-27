@@ -29,7 +29,7 @@ from dynomark_daemon.domain.ids import (
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.domain.placement import MoveFeedback, Placement
 from dynomark_daemon.domain.search import Candidate, Query
-from dynomark_daemon.domain.tree import FolderFlags, Snapshot
+from dynomark_daemon.domain.tree import FolderFlags, FolderPath, Snapshot
 from dynomark_daemon.ports.errors import NotFound
 
 WORD: Final = re.compile(r"\w+")
@@ -89,6 +89,8 @@ class InMemoryCorpusStore:
         self._diffs: dict[DiffId, TreeDiff] = {}
         self._events: dict[ProfileId, dict[EventId, PendingEvent]] = {}
         self._flags: dict[NodeId, FolderFlags] = {}
+        self._writer_profile: ProfileId | None = None
+        self._follow_ups: dict[ProfileId, FolderPath] = {}
 
     # --- Entries ---
 
@@ -261,3 +263,18 @@ class InMemoryCorpusStore:
 
     def folder_flags(self) -> dict[NodeId, FolderFlags]:
         return dict(self._flags)
+
+    # --- Profiles ---
+
+    def writer_profile(self) -> ProfileId | None:
+        return self._writer_profile
+
+    def bind_writer_profile(self, profile_id: ProfileId) -> None:
+        if self._writer_profile is None:
+            self._writer_profile = profile_id
+
+    def put_follow_up(self, profile_id: ProfileId, path: FolderPath) -> None:
+        self._follow_ups[profile_id] = path
+
+    def follow_up_of(self, profile_id: ProfileId) -> FolderPath | None:
+        return self._follow_ups.get(profile_id)

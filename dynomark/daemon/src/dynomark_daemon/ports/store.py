@@ -26,7 +26,7 @@ from dynomark_daemon.domain.ids import (
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.domain.placement import MoveFeedback, Placement
 from dynomark_daemon.domain.search import Candidate, Query
-from dynomark_daemon.domain.tree import FolderFlags, Snapshot
+from dynomark_daemon.domain.tree import FolderFlags, FolderPath, Snapshot
 
 
 class CorpusStorePort(Protocol):
@@ -172,3 +172,19 @@ class CorpusStorePort(Protocol):
         ...
 
     def folder_flags(self) -> dict[NodeId, FolderFlags]: ...
+
+    # --- Profiles ---
+
+    def writer_profile(self) -> ProfileId | None:
+        """The profile this store files for, once bound."""
+        ...
+
+    def bind_writer_profile(self, profile_id: ProfileId) -> None:
+        """Bind the store to ``profile_id`` unless it is already bound."""
+        ...
+
+    def put_follow_up(self, profile_id: ProfileId, path: FolderPath) -> None:
+        """Keep the ``Follow Up`` folder the profile's extension resolved."""
+        ...
+
+    def follow_up_of(self, profile_id: ProfileId) -> FolderPath | None: ...
