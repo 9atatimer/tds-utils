@@ -14,13 +14,15 @@ from structlog.testing import capture_logs
 
 from dynomark_daemon.adapters.dispatch import Dispatcher, Session
 from dynomark_daemon.app.run import run_job
-from dynomark_daemon.domain.bookmark import Enrichment
+from dynomark_daemon.domain.bookmark import Enrichment, Identity
+from dynomark_daemon.domain.chat import DraftAnswer
 from dynomark_daemon.domain.connection import HelloMode
 from dynomark_daemon.domain.events import BatchOffered, JobUpdated
 from dynomark_daemon.domain.ids import EventId, JobId, ProfileId
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.domain.placement import FolderChoice
 from dynomark_daemon.domain.roles import HostRole
+from dynomark_daemon.ports.completion import CompletionError
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.completion import ScriptedCompletion
 from dynomark_daemon.testing.content import FakeFetch
@@ -46,8 +48,14 @@ MIB = 1_048_576
 class Harness:
     """A dispatcher over fakes and one connection's session."""
 
-    def __init__(self, role: HostRole = HostRole.WRITER) -> None:
+    def __init__(
+        self,
+        role: HostRole = HostRole.WRITER,
+        *,
+        completion: ScriptedCompletion | None = None,
+    ) -> None:
         self.store = InMemoryCorpusStore()
+        self.completion = completion or ScriptedCompletion()
         self.transport = RecordingTransport()
         self.clock, self.ids = FakeClock(start_ms=1_000), SequentialIds()
         self.wakes = 0
@@ -55,7 +63,7 @@ class Harness:
             make_config(role=role),
             store=self.store,
             embedding=HashingEmbedding(),
-            completion=ScriptedCompletion(),
+            completion=self.completion,
             clock=self.clock,
             ids=self.ids,
             transport=self.transport,
@@ -263,7 +271,6 @@ def test_a_foreign_cursor_is_stale() -> None:
 @pytest.mark.parametrize(
     ("message_type", "fields"),
     [
-        ("ask", {"question": "why?", "history": []}),
         ("diff.propose", {"kind": "audit"}),
         ("writer.status", {}),
     ],
@@ -391,3 +398,73 @@ def test_a_search_page_is_shortened_to_fit_one_mebibyte() -> None:
     assert isinstance(reply, m.SearchResult)
     assert len(encode_message(reply)) <= MIB
     assert 0 < len(reply.hits) < 20 and reply.next_cursor is not None
+
+
+# --- Chat (ask) ---
+
+
+def test_ask_is_answered_with_citations_on_a_read_only_connection() -> None:
+    """Given an entry in the corpus and an extension newer than the daemon, When
+    it asks, Then ask.result carries the grounded answer (chat continues in
+    read_only)."""
+    url = "https://tokio.rs/tokio/tutorial"
+    completion = ScriptedCompletion(
+        answer=[
+            DraftAnswer(
+                text="Use select!.",
+                cited=(Identity(url),),
+                urls=("https://rust-lang.github.io/async-book/",),
+            )
+        ]
+    )
+    harness = Harness(completion=completion)
+    harness.store.put_entry(make_entry(url, text="tokio cancellation"))
+    harness.hello(v=2)
+
+    reply = harness.send(
+        wire.body(
+            "ask",
+            "a-1",
+            question="how is cancellation done?",
+            history=[{"question": "tokio?", "answer": "a runtime"}],
+        )
+    )
+
+    assert isinstance(reply, m.AskResult) and reply.re == "a-1"
+    assert [c.identity for c in reply.answer.citations] == [url]
+    assert reply.answer.external_urls == ["https://rust-lang.github.io/async-book/"]
+
+
+def test_ask_while_the_model_is_loading_is_busy() -> None:
+    """Given a completion that fails retryably, When asked, Then the answer is
+    error busy, which the extension retries with the same id."""
+    completion = ScriptedCompletion(
+        answer=[CompletionError("model loading", retryable=True)]
+    )
+    harness = Harness(completion=completion)
+    harness.hello()
+
+    reply = harness.send(wire.body("ask", "a-2", question="why?", history=[]))
+
+    assert _error(reply) == ("a-2", "busy")
+
+
+def test_an_ask_answer_is_cut_to_fit_one_mebibyte() -> None:
+    """Given retrieved entries whose identities are huge and all cited, When
+    asked, Then trailing citations are dropped until the frame fits 1 MiB."""
+    identities = [f"https://example.org/{c * 60_000}" for c in "abcdefghijklmnopqrst"]
+    completion = ScriptedCompletion(
+        answer=[
+            DraftAnswer(text="x", cited=tuple(Identity(i) for i in identities), urls=())
+        ]
+    )
+    harness = Harness(completion=completion)
+    for identity in identities:
+        harness.store.put_entry(make_entry(identity, text="tokio"))
+    harness.hello()
+
+    reply = harness.send(wire.body("ask", "a-3", question="tokio", history=[]))
+
+    assert isinstance(reply, m.AskResult)
+    assert len(encode_message(reply)) <= MIB
+    assert 0 < len(reply.answer.citations) < len(identities)
