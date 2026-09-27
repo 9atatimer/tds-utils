@@ -8,8 +8,9 @@ is served by its use case and answered by exactly one frame: its result or
 an ``error`` of the closed code set. Nothing here is a rule of the design;
 it maps wire values to use cases and back.
 
-Events: use cases record them in the store; ``deliver`` pushes them to the
-connection through the ``TransportPort`` (the socket server's sessions).
+Events: use cases record them in the store; ``deliver`` pushes them through
+the session's own ``TransportPort`` (its connection, never a newer one of the
+profile).
 A connection gets a ``batch.offer`` only once a ``tree.snapshot`` was
 recorded on it, and then every unacknowledged event is re-sent once.
 """
@@ -139,7 +140,10 @@ responses may arrive in any order)."""
 
 @dataclass
 class Session:
-    """One connection's standing, set by its first ``hello``."""
+    """One connection's standing, set by its first ``hello``. ``transport``
+    reaches that connection alone: the events this standing chooses go there,
+    never to a newer connection of the profile (``None``: the dispatcher's
+    profile-wide transport)."""
 
     profile_id: ProfileId | None = None
     mode: HelloMode | None = None
@@ -149,6 +153,7 @@ class Session:
     replay_pending: bool = False
     greeting: m.HelloResult | None = None
     """The answer to the first ``hello``; a repeat is answered with it."""
+    transport: TransportPort | None = None
 
     def offers_ready(self, *, conflict: bool) -> bool:
         """Full mode, served writer, not in writer conflict, and a
@@ -379,8 +384,12 @@ class Dispatcher:
             mode=mode,
             offers_ready=self._offers_ready(session),
             store=self._store,
-            transport=self._transport,
+            transport=self._sender(session),
         )
+
+    def _sender(self, session: Session) -> TransportPort:
+        """Where events chosen by ``session``'s standing go: its connection."""
+        return session.transport or self._transport
 
     def _withdraw_oversize(self, profile_id: ProfileId) -> None:
         for job in fail_oversize_offers(
@@ -689,7 +698,7 @@ class Dispatcher:
             mode=cast(HelloMode, session.mode),
             offers_ready=self._offers_ready(session),
             store=self._store,
-            transport=self._transport,
+            transport=self._sender(session),
         )
         return Outcome(
             m.EventsReplayResult(

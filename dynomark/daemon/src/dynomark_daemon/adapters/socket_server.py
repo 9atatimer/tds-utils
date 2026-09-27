@@ -112,12 +112,14 @@ def _is_response(message: m.AnyMessage) -> bool:
 
 
 class Connection:
-    """One extension connection: its session and its outgoing frames."""
+    """One extension connection: its session and its outgoing frames. The
+    session's transport is this connection, so events its standing chooses
+    reach no other connection of the profile."""
 
     def __init__(
         self, writer: asyncio.StreamWriter, loop: asyncio.AbstractEventLoop
     ) -> None:
-        self.session = Session()
+        self.session = Session(transport=_ToConnection(self))
         self._writer = writer
         self._loop = loop
         self._loop_thread = threading.get_ident()
@@ -161,6 +163,19 @@ class Connection:
     def close(self) -> None:
         if not self._writer.is_closing():
             self._writer.close()
+
+
+class _ToConnection:
+    """The ``TransportPort`` of one connection: a push goes to it alone."""
+
+    def __init__(self, connection: Connection) -> None:
+        self._connection = connection
+
+    def push(self, profile_id: ProfileId, event: Event) -> None:
+        self._connection.send(event_to_wire(event))
+
+    def fits(self, event: Event) -> bool:
+        return len(encode_message(event_to_wire(event))) <= MAX_OUTBOUND
 
 
 class Sessions:
