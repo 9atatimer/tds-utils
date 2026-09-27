@@ -148,6 +148,24 @@ class Snapshot:
         found = [n for n in self.nodes if n.parent_id == node_id]
         return sorted(found, key=lambda n: n.index)
 
+    def path_of(self, folder_id: NodeId) -> FolderPath | None:
+        """The path of a folder: titles up to the root node it hangs from."""
+        roots = {
+            getattr(self.root_ids, key.value): key
+            for key in RootKey
+            if getattr(self.root_ids, key.value) is not None
+        }
+        names: list[str] = []
+        current = self.node(folder_id)
+        while current is not None and current.node_id not in roots:
+            names.append(current.title)
+            current = (
+                None if current.parent_id is None else self.node(current.parent_id)
+            )
+        if current is None:
+            return None
+        return FolderPath(root=roots[current.node_id], names=tuple(reversed(names)))
+
     def resolve(self, path: FolderPath) -> NodeId | None:
         """The folder ``path`` names (contract v1, Write batches, Paths): from
         the root's node, at each level the child folder with the lowest index

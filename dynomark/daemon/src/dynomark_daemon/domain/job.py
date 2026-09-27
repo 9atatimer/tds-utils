@@ -84,6 +84,21 @@ class Job:
         """ENRICHED -> PLACED: the placement is recorded (writer only)."""
         return replace(self, state=JobState.PLACED, seq=self.seq + 1, updated_at=at)
 
+    def filed(self, *, at: int) -> Self:
+        """PLACED -> FILED: the ``APPLIED`` receipt of its batch."""
+        return replace(self, state=JobState.FILED, seq=self.seq + 1, updated_at=at)
+
+    def failed(self, error: str, *, at: int) -> Self:
+        """-> FAILED without counting an attempt: a ``PARTIAL`` or ``REJECTED``
+        receipt, or a filing op the extension skipped."""
+        return replace(
+            self,
+            state=JobState.FAILED,
+            last_error=error,
+            seq=self.seq + 1,
+            updated_at=at,
+        )
+
     def filed_by(self, batch_id: BatchId, *, at: int) -> Self:
         """The latest batch that files this job's node."""
         return replace(self, batch_id=batch_id, seq=self.seq + 1, updated_at=at)

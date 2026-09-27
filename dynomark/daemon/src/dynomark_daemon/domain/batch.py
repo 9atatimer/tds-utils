@@ -1,7 +1,9 @@
 """Write batches: path-idempotent operations, their inverse, and receipts."""
 
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from enum import StrEnum
+from typing import Self
 
 from dynomark_daemon.domain.bookmark import Identity
 from dynomark_daemon.domain.ids import (
@@ -200,6 +202,57 @@ class BatchRecord:
     undone_by: BatchId | None = None
     report: tuple[UndoDrop, ...] = ()
 
+    def with_receipt(
+        self, receipt: BatchReceipt, snapshot_id: SnapshotId | None
+    ) -> Self:
+        """The batch once its first receipt is recorded."""
+        return replace(
+            self, state=receipt_state(receipt), receipt=receipt, snapshot_id=snapshot_id
+        )
+
+
+# --- Receipts (contract v1, Jobs: Receipt -> job) ---
+
+
+def receipt_state(receipt: BatchReceipt) -> BatchState:
+    match receipt:
+        case ReceiptApplied():
+            return BatchState.APPLIED
+        case ReceiptPartial():
+            return BatchState.PARTIAL
+        case ReceiptRejected():
+            return BatchState.REJECTED
+
+
+def applied_ops(receipt: BatchReceipt) -> tuple[OpApplied, ...]:
+    return () if isinstance(receipt, ReceiptRejected) else receipt.applied
+
+
+def filing_failure(
+    batch: WriteBatch, receipt: BatchReceipt, node_id: NodeId | None
+) -> str | None:
+    """Why the batch did not complete: rejected, failed midway, or (for the
+    job's ``node_id``) its filing op -- the move or remove of that node --
+    skipped. ``None`` when it did."""
+    match receipt:
+        case ReceiptRejected():
+            return f"batch rejected: {receipt.reason.value}"
+        case ReceiptPartial():
+            failed = receipt.failed
+            return f"batch failed at op {failed.index}: {failed.reason.value}"
+        case ReceiptApplied():
+            filing = {
+                op.index
+                for op in batch.operations
+                if isinstance(op, OpMove | OpRemove) and op.node_id == node_id
+            }
+            skipped = [s for s in receipt.skipped if s.index in filing]
+            if skipped:
+                return (
+                    f"filing op {skipped[0].index} skipped: {skipped[0].reason.value}"
+                )
+            return None
+
 
 # --- Building batches (DYNOMARK.DESIGN.md, "Place and file", "Duplicate
 # identity"; Goal 8) ---
@@ -307,3 +360,79 @@ def plan_inverse(
     created is kept: an undo never removes ``Dynomark`` or ``Graveyard``."""
     reverts = (_revert(op, roots) for op in reversed(operations))
     return tuple(r for r in reverts if r is not None)
+
+
+# --- Inverting an applied batch ---
+
+
+def _inverse_op(
+    op: Operation,
+    revert: Revert,
+    applied: OpApplied,
+    *,
+    index: int,
+    folder_id: dict[FolderPath, NodeId],
+    tree: Snapshot,
+    roots: OwnedRoots,
+) -> Operation | None:
+    def id_of(path: FolderPath) -> NodeId | None:
+        return folder_id.get(path) or tree.resolve(path)
+
+    match op:
+        case OpCreateFolder() | OpCreate():
+            parent_id = id_of(op.parent)
+            if parent_id is None:
+                return None
+            expect = Expect(
+                parent_id=parent_id,
+                parent_path=op.parent,
+                empty=isinstance(op, OpCreateFolder),
+            )
+            return OpRemove(index=index, node_id=applied.node_id, expect=expect)
+        case OpMove() | OpRemove():
+            left_in = op.to if isinstance(op, OpMove) else roots.graveyard
+            back = revert.back_to or tree.path_of(op.expect.parent_id)
+            left_id = id_of(left_in)
+            if back is None or left_id is None:
+                return None
+            return OpMove(
+                index=index,
+                node_id=op.node_id,
+                to=back,
+                expect=Expect(parent_id=left_id, parent_path=left_in),
+            )
+
+
+def invert(
+    batch: WriteBatch,
+    applied: Sequence[OpApplied],
+    tree: Snapshot,
+    roots: OwnedRoots,
+) -> tuple[Operation, ...]:
+    """The concrete inverse of the ops ``applied`` with ``changed`` true, last
+    first: a created node goes to ``Graveyard`` (a folder only if empty), a
+    moved or removed node goes back. Node ids a create minted come from
+    ``applied``; every other folder id from ``tree``. A step whose folder
+    cannot be resolved is left out."""
+    changed = {a.index: a for a in applied if a.changed}
+    folder_id = {
+        op.parent.child(op.title): changed[op.index].node_id
+        for op in batch.operations
+        if isinstance(op, OpCreateFolder) and op.index in changed
+    }
+    ops: list[Operation] = []
+    for revert in batch.inverse:
+        if revert.of_index not in changed:
+            continue
+        op = _inverse_op(
+            batch.operations[revert.of_index],
+            revert,
+            changed[revert.of_index],
+            index=len(ops),
+            folder_id=folder_id,
+            tree=tree,
+            roots=roots,
+        )
+        if op is not None:
+            ops.append(op)
+    return tuple(ops)

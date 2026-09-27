@@ -6,12 +6,15 @@ before anything is stored; the batch is stored ``PROPOSED`` and offered
 (a ``batch.offer`` event in the outbox), and the job points at it.
 """
 
+from dataclasses import replace
+
 from dynomark_daemon.app.errors import TreeNotReady, UnknownRecord
 from dynomark_daemon.domain.batch import (
     BatchRecord,
     BatchState,
     Expect,
     Operation,
+    UndoDrop,
     WriteBatch,
     admit,
     filing_operations,
@@ -19,7 +22,7 @@ from dynomark_daemon.domain.batch import (
     plan_inverse,
 )
 from dynomark_daemon.domain.events import BatchOffered
-from dynomark_daemon.domain.ids import BatchId, EventId
+from dynomark_daemon.domain.ids import BatchId, EventId, SnapshotId
 from dynomark_daemon.domain.job import Job
 from dynomark_daemon.domain.placement import Placement
 from dynomark_daemon.domain.roles import HostRole, NotWriter
@@ -44,6 +47,54 @@ def saved_node_expect(job: Job, *, store: CorpusStorePort) -> Expect:
     return Expect(parent_id=parent_id, parent_path=save.bookmark.path)
 
 
+def offer(record: BatchRecord, *, store: CorpusStorePort, ids: IdSource) -> WriteBatch:
+    """Store ``record`` and its ``batch.offer`` event (the outbox); the batch
+    also keeps the latest tree as its fallback export until a receipt
+    brings the pre-batch one."""
+    tree = store.latest_tree_snapshot()
+    if tree is not None and record.snapshot_id is None:
+        snapshot_id = SnapshotId(f"tree-{tree.taken_at}")
+        store.put_snapshot(snapshot_id, tree)
+        record = replace(record, snapshot_id=snapshot_id)
+    store.put_batch(record)
+    event = BatchOffered(event_id=EventId(ids.new_id("event")), batch=record.batch)
+    store.put_event(record.profile_id, event)
+    return record.batch
+
+
+def propose_inverse(
+    original: BatchRecord,
+    operations: tuple[Operation, ...],
+    roots: OwnedRoots,
+    *,
+    report: tuple[UndoDrop, ...] = (),
+    store: CorpusStorePort,
+    clock: Clock,
+    ids: IdSource,
+) -> WriteBatch:
+    """Store and offer ``operations`` as the one recorded inverse of
+    ``original``; it carries the original's ``DiffItem`` reference."""
+    if original.batch.diff_item_id is None:
+        admit(operations, roots)
+    batch = WriteBatch(
+        batch_id=BatchId(ids.new_id("batch")),
+        operations=operations,
+        inverse=plan_inverse(operations, roots),
+        diff_item_id=original.batch.diff_item_id,
+    )
+    record = BatchRecord(
+        batch=batch,
+        state=BatchState.PROPOSED,
+        created_at=clock.now_ms(),
+        profile_id=original.profile_id,
+        undoes=original.batch.batch_id,
+        report=report,
+    )
+    offered = offer(record, store=store, ids=ids)
+    store.put_batch(replace(original, undone_by=batch.batch_id))
+    return offered
+
+
 def propose(
     operations: tuple[Operation, ...],
     job: Job,
@@ -66,18 +117,15 @@ def propose(
         operations=operations,
         inverse=plan_inverse(operations, roots),
     )
-    store.put_batch(
-        BatchRecord(
-            batch=batch,
-            state=BatchState.PROPOSED,
-            created_at=now,
-            profile_id=job.profile_id,
-            job_id=job.job_id,
-            identity=job.identity,
-        )
+    record = BatchRecord(
+        batch=batch,
+        state=BatchState.PROPOSED,
+        created_at=now,
+        profile_id=job.profile_id,
+        job_id=job.job_id,
+        identity=job.identity,
     )
-    offer = BatchOffered(event_id=EventId(ids.new_id("event")), batch=batch)
-    store.put_event(job.profile_id, offer)
+    offer(record, store=store, ids=ids)
     store.put_job(job.filed_by(batch.batch_id, at=now))
     return batch
 
