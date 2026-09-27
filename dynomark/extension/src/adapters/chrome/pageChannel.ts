@@ -47,6 +47,7 @@ const KINDS: ReadonlySet<string> = new Set([
   'diff.accept',
   'outline',
   'folder.flags',
+  'backfill.start',
 ]);
 
 // --- Predicates ---

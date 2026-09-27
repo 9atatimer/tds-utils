@@ -46,6 +46,8 @@ export class IndexCache {
       loadCursor: () => storage.loadCursor(),
       saveCursor: (c) => storage.saveCursor(c),
       clearCursor: () => storage.clearCursor(),
+      loadBackfill: () => storage.loadBackfill(),
+      saveBackfill: (p) => storage.saveBackfill(p),
     };
   }
 

@@ -20,6 +20,7 @@ import { CONTRACT_VERSION } from '../wire/messages.js';
 import { askQuestion, explainPlacement, fileThis } from './chat.js';
 import type { HelloOutcome } from './connection.js';
 import type { WriterWatch } from './writerWatch.js';
+import type { Backfill } from './backfill.js';
 import { listDiffs, proposeDiff, readDiffPage, readOutline, setFolderFlags, type DiffAcceptance } from './diffs.js';
 import { DaemonError, resultOrThrow } from './errors.js';
 
@@ -33,6 +34,7 @@ export interface PageContext {
   readonly clock: Clock;
   readonly acceptance: DiffAcceptance;
   readonly writer: WriterWatch;
+  readonly backfill: Backfill;
   link(): LinkState;
   outcome(): HelloOutcome | undefined;
   settings(): Settings;
@@ -81,6 +83,7 @@ async function overview(context: PageContext): Promise<Overview> {
   const followUp = context.followUp();
   const daemon = await daemonSection(context);
   const writer = await writerSection(context);
+  const backfill = await context.backfill.view();
   const now = context.outcome();
   return {
     settings: {
@@ -92,6 +95,7 @@ async function overview(context: PageContext): Promise<Overview> {
     ...(followUp === undefined ? {} : { follow_up: followUp }),
     ...daemon,
     ...writer,
+    ...(backfill === undefined ? {} : { backfill }),
     link: context.link(),
     ...(now === undefined ? {} : { connection: { v: now.v, mode: now.mode, role: now.role, host_id: now.host_id } }),
   };
@@ -148,6 +152,8 @@ async function ask(request: Exclude<PageRequest, { kind: 'overview' | 'settings.
       };
       return { ok: true, kind: 'folder.flags', folder: await setFolderFlags(request, flags, context) };
     }
+    case 'backfill.start':
+      return { ok: true, kind: 'backfill.start', backfill: await context.backfill.start() };
   }
 }
 

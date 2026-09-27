@@ -1,10 +1,12 @@
 /// <reference types="chrome" />
 // storage.ts -- the StoragePort on chrome.storage.local: the extension's
-// durable state (settings, the LocalIndex, the in-flight batch cursor)
+// durable state (settings, the LocalIndex, the in-flight batch cursor,
+// backfill progress)
 // survives a service-worker restart there. The browser serializes values, so
 // each load is a fresh copy. `prefix` namespaces the keys (the integration
 // suite runs beside a live extension's own state).
 
+import type { BackfillProgress } from '../../domain/backfill.js';
 import type { BatchCursor } from '../../domain/batch.js';
 import type { LocalIndex } from '../../domain/search.js';
 import type { Settings } from '../../domain/settings.js';
@@ -21,7 +23,7 @@ export interface StorageAreaApi {
 
 // --- Constants ---
 
-const KEYS = { settings: 'settings', index: 'local_index', cursor: 'batch_cursor' } as const;
+const KEYS = { settings: 'settings', index: 'local_index', cursor: 'batch_cursor', backfill: 'backfill' } as const;
 
 // --- The adapter ---
 
@@ -61,6 +63,14 @@ export class ChromeStorage implements StoragePort {
 
   clearCursor(): Promise<void> {
     return this.area.remove(this.prefix + KEYS.cursor);
+  }
+
+  loadBackfill(): Promise<BackfillProgress | undefined> {
+    return this.read<BackfillProgress>(KEYS.backfill);
+  }
+
+  saveBackfill(progress: BackfillProgress): Promise<void> {
+    return this.write(KEYS.backfill, progress);
   }
 
   private async read<T>(key: string): Promise<T | undefined> {

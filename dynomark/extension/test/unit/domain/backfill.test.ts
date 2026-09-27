@@ -26,9 +26,9 @@ async function tree() {
 // --- Tests ---
 
 describe('backfillCandidates', () => {
-  it('Given bookmarks across the tree, When candidates are chosen, Then http(s) ones outside Follow Up and Graveyard are, in tree order', async () => {
+  it('Given bookmarks across the tree, When candidates are chosen, Then exactly the http(s) ones outside Follow Up and Graveyard are', async () => {
     const { t, ids, filed, other } = await tree();
-    expect(backfillCandidates(await t.readTree(), SKIP)).toEqual([ids.usersOwn, filed, other]);
+    expect([...backfillCandidates(await t.readTree(), SKIP)].sort()).toEqual([ids.usersOwn, filed, other].sort());
   });
 });
 

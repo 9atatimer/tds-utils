@@ -40,7 +40,15 @@ export type PageRequest =
       readonly path: FolderPath;
       readonly pinned?: boolean;
       readonly locked?: boolean;
-    };
+    }
+  | { readonly kind: 'backfill.start' };
+
+/** How far the backfill of existing bookmarks got. */
+export interface BackfillView {
+  readonly total: number;
+  readonly done: number;
+  readonly running: boolean;
+}
 
 // --- Answers ---
 
@@ -57,6 +65,8 @@ export interface Overview {
   /** The writer marker as the daemon last reported it; `conflict` is shown prominently. */
   readonly writer?: WriterStatus;
   readonly writer_error?: string;
+  /** The backfill of existing bookmarks; absent when none was ever started. */
+  readonly backfill?: BackfillView;
   readonly settings: { readonly profile_id: string; readonly capture_from_tab: boolean; readonly capture_in_background: boolean };
   readonly follow_up?: FolderPath;
   /** Things the user should know (extra Follow Up folders, failed background work), newest last. */
@@ -91,6 +101,7 @@ export type PageResponse =
   | { readonly ok: true; readonly kind: 'diff.accept'; readonly item_id: Id; readonly accepted_at: EpochMs; readonly batch_id: BatchId }
   | { readonly ok: true; readonly kind: 'outline'; readonly folders: readonly OutlineFolder[]; readonly next_cursor: Cursor | null }
   | { readonly ok: true; readonly kind: 'folder.flags'; readonly folder: OutlineFolder }
+  | { readonly ok: true; readonly kind: 'backfill.start'; readonly backfill: BackfillView }
   | { readonly ok: false; readonly error: string; readonly code?: ErrorCode };
 
 /** How a page asks the background. */

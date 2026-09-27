@@ -28,6 +28,7 @@ import type { Timer } from '../ports/timer.js';
 import type { LinkState, TransportLink, TransportPort } from '../ports/transport.js';
 import type { WriteBatch } from '../domain/batch.js';
 import type { BatchContext } from './applyBatch.js';
+import { Backfill } from './backfill.js';
 import { BatchLane } from './batchLane.js';
 import { Connection, type HelloOutcome } from './connection.js';
 import { DiffAcceptance } from './diffs.js';
@@ -75,6 +76,7 @@ interface Started {
   readonly followUp: FollowUpFolder;
   readonly connection: Connection;
   readonly watch: TreeWatch;
+  readonly backfill: Backfill;
 }
 
 // --- The runtime ---
@@ -131,7 +133,19 @@ export class ExtensionRuntime {
         snapshotSent: () => this.track(this.writer.confirm({ transport: connection, ids: this.ports.ids })),
       },
     );
-    this.state = { settings, followUp, connection, watch };
+    const backfill = new Backfill(
+      { ...this.ports, transport: connection },
+      {
+        skip: () => {
+          const outcome = connection.outcome();
+          if (outcome?.mode !== 'full') return undefined;
+          return [followUp.path, outcome.owned_roots.follow_up, outcome.owned_roots.graveyard];
+        },
+        track: (work) => this.track(work),
+        problem: (message) => this.problem(message),
+      },
+    );
+    this.state = { settings, followUp, connection, watch, backfill };
     this.resolveReady(this.state);
   }
 
@@ -168,6 +182,7 @@ export class ExtensionRuntime {
       clock: this.ports.clock,
       acceptance: this.acceptance,
       writer: this.writer,
+      backfill: started.backfill,
       link: () => this.ports.transport.linkState(),
       outcome: () => started.connection.outcome(),
       settings: () => this.state?.settings ?? started.settings,
@@ -211,6 +226,7 @@ export class ExtensionRuntime {
     await onConnected(outcome, { ...this.ports, tree: this.issued, storage, transport: connection });
     if (outcome.mode !== 'full') return;
     this.track(this.ready.then((s) => s.watch.submitBacklog()));
+    this.track(this.ready.then((s) => s.backfill.resume()));
     this.track(
       this.writer
         .refresh({ transport: connection, ids: this.ports.ids })
