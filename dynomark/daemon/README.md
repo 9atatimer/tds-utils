@@ -3,8 +3,10 @@
 The daemon runtime of Dynomark (`docs/design/DYNOMARK.DESIGN.md`, APPROVED):
 it ingests saves from the extension, captures, enriches and embeds them,
 places and files them through write batches the extension applies, and
-serves tier-2 search and undo. It speaks transport contract v1
-(`dynomark/contract/v1/`) over an owner-only unix socket.
+serves tier-2 search, undo, grounded chat (`ask`), audit and rebuild diffs,
+pin/lock flags and the writer marker. It speaks transport contract v1
+(`dynomark/contract/v1/`, every request type served) over an owner-only
+unix socket.
 
 ## Layout
 
@@ -101,6 +103,9 @@ max_backoff_ms = 300000
 [capture]                       # the fetch fallback
 fetch_timeout_s = 15
 max_bytes = 5000000
+
+[diffs]                         # absent: rebuilds are proposed on request only
+rebuild_every_hours = 168       # the job loop proposes a rebuild this often
 ```
 
 Environment: `XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `DYNOMARK_SOCKET` (wins
@@ -125,6 +130,50 @@ between; join on `job_id` with `ingest.received` then).
 jq -r 'select(.event == "job.applied") | .interval_ms' ~/.local/state/dynomark/daemon.log
 ```
 
+## MVP behaviour
+
+- Chat (`ask`): the question retrieves the top 8 entries by the same hybrid
+  search tier 2 uses; the completion answers from them; only retrieved
+  identities become citations (invented ones are dropped), and each
+  mentioned http(s) URL outside the corpus is listed as external.
+- Diffs: `diff.propose` (kind `audit` or `rebuild`) reads the latest tree
+  snapshot and shows the model the `Dynomark` outline and the user's own
+  bar folders. A proposed item is kept only if it moves no pinned folder,
+  touches nothing locked, moves only folders the outlines hold (never a
+  root or an owned root), names no writer marker, creates no non-http(s)
+  bookmark, and -- for `rebuild` -- stays inside the owned roots. Nothing
+  is applied until `diff.accept`: that records `accepted_at` and offers
+  the item's own batch (re-checked against the current flags); an undo of
+  it carries the same item reference. The Ollama adapter proposes folder
+  moves and adds only; merge rules are undefined (design Open Question 1).
+- Flags: `folder.flags.set` pins or locks an owned folder by node id; a
+  lock keeps placement out of that folder and its subtree.
+- Writer marker: a writer keeps an empty folder `dynomark-writer:<host_id>`
+  directly in `Dynomark`, created by an ordinary batch after the first
+  snapshot that lacks it. A writer that sees another host's marker is in
+  conflict: it offers no batches, answers `undo`, `diff.accept` and
+  `folder.flags.set` with `writer_conflict`, and ends new jobs `FAILED`
+  (`last_error` names the other host) after indexing them.
+  `writer.status` reports it.
+- Backfill: an `ingest` with `backfill` true is never offered a batch; on
+  the writer, one already inside `Dynomark` is recorded as filed there
+  (`FILED`, no batch), every other ends `INDEXED`.
+
+### Changing writers
+
+Two writers are never arbitrated automatically. To move the writer role
+from host OLD to host NEW:
+
+1. On OLD: set `role = "reader"` in `config.toml` and restart the daemon
+   (`launchctl kickstart -k gui/$(id -u)/tds.dynomark.daemon`).
+2. In the browser (any device; it syncs): delete the folder
+   `Dynomark/dynomark-writer:<OLD host_id>`.
+3. On NEW: set `role = "writer"` and restart. Its first snapshot creates
+   its own marker. Undo does not cross a writer change.
+
+If NEW is switched before the old marker is gone, it reports the conflict
+(`writer.status`, the settings page) and files nothing until it is.
+
 ## Adapter notes
 
 - Store: SQLite with FTS5 (`bm25`) for full-text candidates; vectors as
@@ -144,5 +193,6 @@ jq -r 'select(.event == "job.applied") | .interval_ms' ~/.local/state/dynomark/d
   main, then body; no script, style, nav, header, footer).
 - Ollama: `/api/embed`, `/api/generate` with `format: json`; strict
   parsing, an unparseable answer is a retryable error.
-- Not served yet (answered `error` `invalid`): `ask`, `diff.*`,
-  `folder.flags.set`, `writer.status` (MVP tasks 028-030).
+- Model calls on the socket: `ask`, `diff.propose` and `search` call the
+  models from the socket's event loop, so a slow completion delays other
+  connections' answers and event delivery until it returns.
