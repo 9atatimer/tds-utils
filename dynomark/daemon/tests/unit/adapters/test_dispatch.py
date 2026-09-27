@@ -145,6 +145,31 @@ def test_a_second_hello_is_answered_and_changes_nothing() -> None:
     assert harness.session.mode is HelloMode.FULL
 
 
+def test_a_second_hello_answers_the_first_standing_and_writes_nothing() -> None:
+    """Given a read_only connection (a newer extension) on an unbound writer,
+    When hello arrives again at the daemon's version naming another Follow
+    Up, Then the answer repeats the connection's standing (read_only, reader,
+    the first Follow Up), the store stays unbound and the profile keeps its
+    Follow Up."""
+    harness = Harness()
+    harness.hello(v=2)
+    again = json.loads(wire.hello("h-2"))
+    again["follow_up"] = {"root": "bar", "names": ["Elsewhere"]}
+
+    outcome = harness.dispatcher.handle(json.dumps(again).encode(), harness.session)
+
+    reply = outcome.reply
+    assert isinstance(reply, m.HelloResult) and not outcome.register
+    assert (reply.re, reply.mode, reply.role) == ("h-2", "read_only", "reader")
+    assert reply.owned_roots.follow_up.names == ["Follow Up"]
+    assert harness.store.writer_profile() is None
+    assert harness.store.follow_up_of(A) == make_path("Follow Up")
+    assert (harness.session.mode, harness.session.role) == (
+        HelloMode.READ_ONLY,
+        HostRole.READER,
+    )
+
+
 def test_a_non_frozen_message_of_another_version_is_a_version_mismatch() -> None:
     """Given a full connection, When a status request says v 2, Then it is
     answered version_mismatch before the schema runs."""
