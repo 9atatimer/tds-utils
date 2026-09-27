@@ -6,7 +6,7 @@ from dynomark_daemon.domain.bookmark import Enrichment
 from dynomark_daemon.domain.ids import ProfileId
 from dynomark_daemon.domain.job import Job, RetryPolicy
 from dynomark_daemon.domain.roles import HostRole
-from dynomark_daemon.domain.tree import Snapshot
+from dynomark_daemon.domain.tree import FolderPath, Snapshot
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.completion import ScriptedCompletion
 from dynomark_daemon.testing.content import FakeFetch
@@ -44,11 +44,12 @@ class Loop:
         if tree is not None:
             self.store.put_tree_snapshot(tree)
 
-    def save(self) -> Job:
+    def save(self, path: FolderPath | None = None, *, backfill: bool = False) -> Job:
         return ingest(
-            make_bookmark(path=make_path("Follow Up")),
+            make_bookmark(path=path or make_path("Follow Up")),
             make_capture("Tokio schedules tasks"),
             PROFILE,
+            backfill=backfill,
             store=self.store,
             clock=self.clock,
             ids=self.ids,

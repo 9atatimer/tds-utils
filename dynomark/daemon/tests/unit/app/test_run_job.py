@@ -18,6 +18,7 @@ from dynomark_daemon.domain.events import BatchOffered, JobUpdated
 from dynomark_daemon.domain.ids import NodeId
 from dynomark_daemon.domain.job import JobState
 from dynomark_daemon.domain.placement import FolderChoice, Placement
+from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.ports.completion import CompletionError
 from dynomark_daemon.testing.completion import EnrichCall, ScriptedCompletion
 from tests._factories import (
@@ -146,3 +147,35 @@ def test_run_job_files_again_an_identity_whose_filed_node_is_gone() -> None:
     record = loop.store.get_batch(job.batch_id)
     assert record is not None
     assert not any(isinstance(op, OpRemove) for op in record.batch.operations)
+
+
+# --- Backfill (contract v1, Jobs: Backfill; design Open Question 3) ---
+
+
+def test_run_job_backfill_already_in_dynomark_is_filed_in_place() -> None:
+    """Given a writer backfilling a bookmark already inside Dynomark, When run,
+    Then its placement is recorded at that folder and the job is FILED with no
+    batch (how a new writer learns what is already filed)."""
+    loop = Loop(ScriptedCompletion(enrich=[ENRICHMENT]), TREE)
+
+    job = loop.run(loop.save(RUST, backfill=True))
+
+    assert (job.state, job.batch_id) == (JobState.FILED, None)
+    placement = loop.store.get_placement(job.identity)
+    assert placement is not None and placement.folder == RUST
+    assert loop.store.list_batches() == []
+    assert [type(c) for c in loop.completion.calls] == [EnrichCall]
+
+
+def test_run_job_backfill_elsewhere_or_on_a_reader_is_only_indexed() -> None:
+    """Given a backfill outside Dynomark on the writer, or any backfill on a
+    reader, When run, Then the job is INDEXED: searchable, never filed."""
+    writer = Loop(ScriptedCompletion(enrich=[ENRICHMENT]), TREE)
+    reader = Loop(ScriptedCompletion(enrich=[ENRICHMENT]), TREE)
+
+    outside = writer.run(writer.save(make_path("Recipes"), backfill=True))
+    on_reader = reader.run(reader.save(RUST, backfill=True), HostRole.READER)
+
+    assert (outside.state, on_reader.state) == (JobState.INDEXED, JobState.INDEXED)
+    assert writer.store.list_batches() == [] == reader.store.list_batches()
+    assert writer.store.get_placement(outside.identity) is None
