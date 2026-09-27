@@ -14,7 +14,7 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { DAEMON_DIR } from './paths.js';
 
 // --- Types ---
@@ -112,7 +112,9 @@ let uvCache: string | undefined;
 
 /** uv's own cache, kept outside the throw-away home so `uv run` does not re-resolve there. */
 function uvCacheDir(): string {
-  uvCache ??= execFileSync('uv', ['cache', 'dir'], { cwd: DAEMON_DIR, encoding: 'utf8' }).trim();
+  // --color never: the Playwright runner sets FORCE_COLOR, and a colored path would be taken as a relative one.
+  uvCache ??= execFileSync('uv', ['--color', 'never', 'cache', 'dir'], { cwd: DAEMON_DIR, encoding: 'utf8' }).trim();
+  if (!isAbsolute(uvCache)) throw new Error(`uv cache dir is not an absolute path: ${JSON.stringify(uvCache)}`);
   return uvCache;
 }
 
