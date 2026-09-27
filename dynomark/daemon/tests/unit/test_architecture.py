@@ -19,6 +19,7 @@ import pytest
 import dynomark_daemon.app as app_package
 
 APP_DIR = Path(app_package.__file__).parent
+APP_PACKAGE = "dynomark_daemon.app"
 ALLOWED = ("dynomark_daemon.domain", "dynomark_daemon.ports", "dynomark_daemon.app")
 PORT_PARAMETERS = {
     "store",
@@ -74,9 +75,35 @@ def test_application_imports_only_stdlib_domain_ports_and_itself() -> None:
     leaks = {
         path.name: bad
         for path in sources
-        if (bad := [m for m in _imports(path.read_text("utf-8")) if not _is_allowed(m)])
+        if (
+            bad := [
+                m
+                for m in _imports(path.read_text("utf-8"), package=APP_PACKAGE)
+                if not _is_allowed(m)
+            ]
+        )
     }
     assert leaks == {}
+
+
+def test_the_arrow_guard_reports_relative_imports_of_adapters_and_wire() -> None:
+    """Given an app module importing an adapter and the wire format by
+    relative imports, When the guard walks it, Then both are reported -- the
+    guard can fail -- while relative imports of the domain, the ports and
+    app itself pass."""
+    source = (
+        "from ..adapters.sqlite_store import SqliteCorpusStore\n"
+        "from ..wire import codec\n"
+        "from ..domain.job import Job\n"
+        "from ..ports.store import CorpusStorePort\n"
+        "from .errors import Busy\n"
+        "from . import loop\n"
+    )
+
+    imported = _imports(source, package="dynomark_daemon.app")
+
+    leaks = [module for module in imported if not _is_allowed(module)]
+    assert leaks == ["dynomark_daemon.adapters.sqlite_store", "dynomark_daemon.wire"]
 
 
 @pytest.mark.parametrize(
