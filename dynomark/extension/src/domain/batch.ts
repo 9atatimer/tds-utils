@@ -147,3 +147,25 @@ export function appliedReceipt(batch_id: BatchId, outcomes: readonly OpOutcome[]
   const ordered = [...outcomes].sort((a, b) => a.index - b.index);
   return { state: 'APPLIED', batch_id, snapshot, pre_batch, applied: appliedOf(ordered), skipped: skippedOf(ordered) };
 }
+
+// --- Cursor transitions ---
+
+/** The cursor of a batch no op of which has been recorded. */
+export function freshCursor(batch_id: BatchId): BatchCursor {
+  return { batch_id, next_index: 0, outcomes: [] };
+}
+
+/** The cursor with op `index` marked started: its browser call may have happened. */
+export function withStarted(cursor: BatchCursor, index: number): BatchCursor {
+  return { ...cursor, started: index };
+}
+
+/** The cursor with the next op's outcome recorded and nothing marked started. */
+export function withOutcome(cursor: BatchCursor, outcome: OpOutcome): BatchCursor {
+  return { batch_id: cursor.batch_id, next_index: outcome.index + 1, outcomes: [...cursor.outcomes, outcome] };
+}
+
+/** True when an op of the cursor's batch may already have changed the tree (so a snapshot read now is not pre-batch). */
+export function hasChangedTree(cursor: BatchCursor): boolean {
+  return cursor.started !== undefined || cursor.outcomes.some((o) => o.outcome === 'applied' && o.changed);
+}

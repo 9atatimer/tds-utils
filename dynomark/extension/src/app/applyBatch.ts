@@ -8,12 +8,25 @@
 // graveyard every remove targets, and the host id) and the clock that stamps
 // the snapshot.
 
-import { appliedReceipt, type BatchReceipt, type OpOutcome, type Operation, type WriteBatch } from '../domain/batch.js';
+import {
+  appliedReceipt,
+  freshCursor,
+  hasChangedTree,
+  withOutcome,
+  withStarted,
+  type BatchCursor,
+  type BatchReceipt,
+  type OpOutcome,
+  type Operation,
+  type WriteBatch,
+} from '../domain/batch.js';
+import { existingBookmark, existingFolder } from '../domain/ops.js';
 import { toSnapshot } from '../domain/snapshot.js';
 import type { FolderPath, OwnedRoots, SnapshotNode } from '../domain/tree.js';
-import type { HostId, NodeId } from '../domain/values.js';
+import type { BatchId, HostId, NodeId } from '../domain/values.js';
 import type { BookmarkTreePort } from '../ports/bookmarkTree.js';
 import type { Clock } from '../ports/clock.js';
+import type { StoragePort } from '../ports/storage.js';
 
 // --- Types ---
 
@@ -25,7 +38,19 @@ export interface BatchContext {
 
 export interface ApplyDeps {
   readonly tree: BookmarkTreePort;
+  readonly storage: StoragePort;
   readonly clock: Clock;
+}
+
+/** The one durable cursor names another batch: no other batch starts until that one's receipt is acknowledged. */
+export class CursorHeld extends Error {
+  readonly held: BatchId;
+
+  constructor(held: BatchId, offered: BatchId) {
+    super(`cursor held by batch ${held}; batch ${offered} must wait for its receipt result`);
+    this.name = 'CursorHeld';
+    this.held = held;
+  }
 }
 
 // --- Pure helpers ---
@@ -57,17 +82,44 @@ async function call(op: Operation, target: NodeId, tree: BookmarkTreePort): Prom
   }
 }
 
-async function runOp(op: Operation, context: BatchContext, tree: BookmarkTreePort): Promise<OpOutcome> {
-  const target = await tree.resolveFolder(targetOf(op, context.owned_roots));
-  if (target === undefined) throw new Error(`op ${op.index}: target folder does not resolve`);
-  const node = await call(op, target, tree);
-  return { outcome: 'applied', index: op.index, node_id: node.id, changed: true };
+/** The op's post-condition: the node it would have produced or moved, when that already holds. */
+async function postCondition(op: Operation, target: NodeId, tree: BookmarkTreePort): Promise<NodeId | undefined> {
+  if (op.op === 'create_folder') return existingFolder(await tree.getChildren(target), target, op.title)?.id;
+  if (op.op === 'create') return existingBookmark(await tree.getChildren(target), target, op.url)?.id;
+  return (await tree.getNode(op.node_id))?.parent_id === target ? op.node_id : undefined;
 }
 
-/** Apply one offered batch and answer it with a receipt. */
+/** Run one op under the cursor: mark it started, make the browser call, record the outcome. */
+async function stepOp(op: Operation, cursor: BatchCursor, context: BatchContext, deps: ApplyDeps): Promise<BatchCursor> {
+  const target = await deps.tree.resolveFolder(targetOf(op, context.owned_roots));
+  if (target === undefined) throw new Error(`op ${op.index}: target folder does not resolve`);
+  if (cursor.started === op.index) {
+    const done = await postCondition(op, target, deps.tree);
+    if (done !== undefined) return record(cursor, { outcome: 'applied', index: op.index, node_id: done, changed: true }, deps.storage);
+  }
+  await deps.storage.saveCursor(withStarted(cursor, op.index));
+  const node = await call(op, target, deps.tree);
+  return record(cursor, { outcome: 'applied', index: op.index, node_id: node.id, changed: true }, deps.storage);
+}
+
+async function record(cursor: BatchCursor, outcome: OpOutcome, storage: StoragePort): Promise<BatchCursor> {
+  const next = withOutcome(cursor, outcome);
+  await storage.saveCursor(next);
+  return next;
+}
+
+/**
+ * Apply one offered batch and answer it with a receipt. Resumes from the
+ * durable cursor when it names this batch; recorded ops are reported, never
+ * repeated. The cursor stays until the receipt's result is acknowledged.
+ */
 export async function applyBatch(batch: WriteBatch, context: BatchContext, deps: ApplyDeps): Promise<BatchReceipt> {
+  const held = await deps.storage.loadCursor();
+  if (held !== undefined && held.batch_id !== batch.batch_id) throw new CursorHeld(held.batch_id, batch.batch_id);
   const snapshot = toSnapshot(await deps.tree.readTree(), deps.clock.now());
-  const outcomes: OpOutcome[] = [];
-  for (const op of batch.operations) outcomes.push(await runOp(op, context, deps.tree));
-  return appliedReceipt(batch.batch_id, outcomes, snapshot, true);
+  let cursor = held ?? freshCursor(batch.batch_id);
+  const pre_batch = !hasChangedTree(cursor);
+  if (held === undefined) await deps.storage.saveCursor(cursor);
+  for (const op of batch.operations.slice(cursor.next_index)) cursor = await stepOp(op, cursor, context, deps);
+  return appliedReceipt(batch.batch_id, cursor.outcomes, snapshot, pre_batch);
 }
