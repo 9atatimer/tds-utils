@@ -25,7 +25,7 @@ import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from functools import partial
-from typing import Final, TypeVar, cast
+from typing import Final, cast
 
 import structlog
 
@@ -127,8 +127,6 @@ from dynomark_daemon.wire.mapping import (
 )
 from dynomark_daemon.wire.messages import MESSAGE_MODELS
 
-T = TypeVar("T")
-
 # --- Constants ---
 
 log = structlog.get_logger("dynomark.transport")
@@ -209,7 +207,7 @@ def _fits(message: m.AnyMessage) -> bool:
     return len(encode_message(message)) <= MAX_OUTBOUND
 
 
-def _fit_page(
+def _fit_page[T](
     page_at: Callable[[int], Page[T]],
     render: Callable[[Sequence[T], str | None], m.AnyMessage],
     limit: int,
@@ -278,13 +276,14 @@ def _roots(session: Session) -> OwnedRoots:
 # --- Handlers ---
 
 Handler = Callable[[m.AnyMessage, Session], Outcome]
-R = TypeVar("R", bound=m.AnyMessage)
 _TYPE_OF: Final[dict[type[object], str]] = {
     model: name for name, model in MESSAGE_MODELS.items()
 }
 
 
-def _on(model: type[R], handle: Callable[[R, Session], Outcome]) -> tuple[str, Handler]:
+def _on[R: m.AnyMessage](
+    model: type[R], handle: Callable[[R, Session], Outcome]
+) -> tuple[str, Handler]:
     """``handle`` registered for ``model``'s message type."""
 
     def run(message: m.AnyMessage, session: Session) -> Outcome:

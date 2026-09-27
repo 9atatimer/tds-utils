@@ -182,8 +182,11 @@ If NEW is switched before the old marker is gone, it reports the conflict
 ## Adapter notes
 
 - Store: SQLite with FTS5 (`bm25`) for full-text candidates; vectors as
-  float32 blobs, KNN by brute-force cosine in Python (about 0.27 s at
-  10,000 x 768 on Python 3.11, a few ms on 3.12+ via `math.sumprod`).
+  float32 blobs, KNN by brute-force cosine in Python over an in-memory
+  vector cache kept consistent with the table. The dot products cost about
+  0.21 s at 10,000 x 768 with `math.sumprod` and about 0.29 s without it,
+  which is why the daemon requires Python 3.12+: tier-2 P95 measured
+  283-306 ms on 3.12 against Goal 4's 500 ms, and 374-448 ms on 3.11.
   `sqlite-vec` is Assess on the tech radar (`lmde/TECH_RADAR.md`); it is
   the planned accelerator once promoted, and is not used until then.
   Migrations are versioned in code (`MIGRATIONS`, `PRAGMA user_version`);

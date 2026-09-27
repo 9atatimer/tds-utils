@@ -15,9 +15,7 @@ import json
 import types
 import typing
 from collections.abc import Mapping
-from typing import Final, TypeVar
-
-T = TypeVar("T")
+from typing import Final
 
 TAG: Final = "$t"
 
@@ -158,14 +156,14 @@ def dump_record(value: object) -> str:
 
 
 @typing.overload
-def load_record(text: str, hint: type[T]) -> T: ...
+def load_record[T](text: str, hint: type[T]) -> T: ...
 
 
 @typing.overload
-def load_record(text: str, hint: object, types_: tuple[type[T], ...]) -> T: ...
+def load_record[T](text: str, hint: object, types_: tuple[type[T], ...]) -> T: ...
 
 
-def load_record(text: str, hint: object, types_: tuple[type[T], ...] = ()) -> T:
+def load_record[T](text: str, hint: object, types_: tuple[type[T], ...] = ()) -> T:
     """The value of ``hint`` a document holds; for a union alias, ``types_``
     names the classes the result may be (a class ``hint`` needs none).
 

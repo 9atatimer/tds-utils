@@ -9,7 +9,7 @@ words. KNN candidates: cosine similarity. Ties break by identity.
 import math
 import re
 from collections.abc import Iterable, Sequence
-from typing import Final, TypeVar
+from typing import Final
 
 from dynomark_daemon.domain.batch import BatchRecord
 from dynomark_daemon.domain.bookmark import CorpusEntry, Identity, Save
@@ -35,7 +35,6 @@ from dynomark_daemon.ports.errors import NotFound
 from dynomark_daemon.ports.store import StoredEntry
 
 WORD: Final = re.compile(r"\w+")
-T = TypeVar("T")
 
 
 # --- Helpers ---
@@ -69,7 +68,7 @@ def _best_first(candidates: list[Candidate], limit: int) -> list[Candidate]:
     return ranked[:limit]
 
 
-def _newest_first(rows: list[T], key: list[int]) -> list[T]:
+def _newest_first[T](rows: list[T], key: list[int]) -> list[T]:
     """Sort by ``key`` descending; equal keys newest-inserted first."""
     order = sorted(range(len(rows)), key=lambda i: (key[i], i), reverse=True)
     return [rows[i] for i in order]

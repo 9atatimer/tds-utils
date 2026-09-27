@@ -9,7 +9,6 @@ order; an error is raised when its turn comes. Every call is recorded in
 from collections import deque
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Generic, TypeVar
 
 from dynomark_daemon.domain.bookmark import Bookmark, Capture, CorpusEntry, Enrichment
 from dynomark_daemon.domain.chat import DraftAnswer, Question, Turn
@@ -18,8 +17,6 @@ from dynomark_daemon.domain.diff import DiffKind, DiffProposal
 from dynomark_daemon.domain.placement import EntryRef, FolderChoice, MoveFeedback
 from dynomark_daemon.domain.tree import TreeOutline
 from dynomark_daemon.ports.completion import CompletionError
-
-T = TypeVar("T")
 
 
 class ScriptExhausted(AssertionError):
@@ -57,7 +54,7 @@ class ProposeDiffCall:
 CompletionCall = EnrichCall | ChooseFolderCall | AnswerCall | ProposeDiffCall
 
 
-class _Script(Generic[T]):
+class _Script[T]:
     def __init__(self, method: str, steps: Iterable[T | CompletionError]) -> None:
         self._method = method
         self._steps: deque[T | CompletionError] = deque(steps)

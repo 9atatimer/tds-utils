@@ -25,11 +25,9 @@ recorded in ``PRAGMA user_version``); a file from a newer schema is refused.
 
 import array
 import math
-import operator
 import os
 import re
 import sqlite3
-import sys
 import threading
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
@@ -193,12 +191,9 @@ def _unpack(blob: bytes) -> "array.array[float]":
     return vector
 
 
-if sys.version_info >= (3, 12):
-    from math import sumprod as _dot
-else:
-
-    def _dot(a: Sequence[float], b: Sequence[float]) -> float:
-        return float(sum(map(operator.mul, a, b)))
+# math.sumprod (3.12+) is why requires-python is >=3.12: Goal 4's tier-2
+# budget is not met reliably without it (tests/integration/test_runtime_floor.py).
+_dot = math.sumprod
 
 
 def _cosine(

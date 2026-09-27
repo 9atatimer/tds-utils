@@ -2,12 +2,10 @@
 
 from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
-from typing import Final, TypeVar
+from typing import Final
 
 from dynomark_daemon.domain.bookmark import Identity, is_fetchable
 from dynomark_daemon.domain.tree import FolderPath
-
-T = TypeVar("T")
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +58,7 @@ MAX_URL: Final = 65_536
 """A ``Url``'s longest form, in code points."""
 
 
-def _unique(items: Iterable[T]) -> list[T]:
+def _unique[T](items: Iterable[T]) -> list[T]:
     return list(dict.fromkeys(items))
 
 

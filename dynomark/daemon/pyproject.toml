@@ -2,7 +2,7 @@
 name = "dynomark-daemon"
 version = "0.1.0"
 description = "Dynomark daemon runtime: live AI filing for native bookmarks (docs/design/DYNOMARK.DESIGN.md)"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2.8",
     "click>=8.1",
@@ -36,7 +36,7 @@ markers = [
 
 [tool.mypy]
 strict = true
-python_version = "3.11"
+python_version = "3.12"
 packages = ["dynomark_daemon", "tests"]
 mypy_path = "src"
 plugins = ["pydantic.mypy"]
@@ -48,7 +48,7 @@ warn_required_dynamic_aliases = true
 
 [tool.ruff]
 line-length = 88
-target-version = "py311"
+target-version = "py312"
 src = ["src", "."]
 
 [tool.ruff.lint]

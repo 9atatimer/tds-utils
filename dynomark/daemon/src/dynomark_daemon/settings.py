@@ -20,7 +20,7 @@ import tomllib
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, TypeVar
+from typing import Final
 from urllib.parse import urlsplit
 
 from dynomark_daemon.domain.config import Config, ModelInfo
@@ -28,8 +28,6 @@ from dynomark_daemon.domain.ids import HostId
 from dynomark_daemon.domain.job import RetryPolicy
 from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.domain.tree import FolderPath, OwnedRoots, RootKey
-
-T = TypeVar("T")
 
 # --- Constants ---
 
@@ -156,7 +154,7 @@ def _check_keys(document: Mapping[str, object]) -> None:
                 raise ConfigError(f"{where}: unknown key")
 
 
-def _value(
+def _value[T](
     table: Mapping[str, object],
     where: str,
     key: str,

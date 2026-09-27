@@ -7,11 +7,9 @@ request parameters that minted it; presented with others it is stale.
 import hashlib
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Final, Generic, TypeVar
+from typing import Final
 
 from dynomark_daemon.app.errors import UseCaseError
-
-T = TypeVar("T")
 
 _SEPARATOR: Final = "~"
 
@@ -21,7 +19,7 @@ class StaleCursor(UseCaseError):
 
 
 @dataclass(frozen=True, slots=True)
-class Page(Generic[T]):
+class Page[T]:
     """One page of a list; ``next_cursor`` is ``None`` on the last page."""
 
     items: tuple[T, ...]
@@ -49,7 +47,7 @@ def read_cursor(cursor: str, kind: str, params: str) -> str:
     return parts[2]
 
 
-def paginate(
+def paginate[T](
     rows: Sequence[T],
     key: Callable[[T], str],
     *,
@@ -78,7 +76,7 @@ def paginate(
     )
 
 
-def offset_page(
+def offset_page[T](
     rows: Sequence[T], *, kind: str, params: str, cursor: str | None, limit: int
 ) -> Page[T]:
     """Up to ``limit`` rows after the cursor's offset into ``rows``: for a list
