@@ -1,7 +1,8 @@
 # Dynomark -- live AI filing for native browser bookmarks
 
-> **Status:** DRAFT
+> **Status:** APPROVED
 > **Date:** 2026-09-26
+> **Approved:** 2026-09-27 (Todd; rulings folded, see Key Decisions). Body frozen.
 > **Authors:** Todd + Claude
 > **Depends on:** [WIP.TECH_RADAR.DESIGN.md](./WIP.TECH_RADAR.DESIGN.md)
 > **Origin:** "Dynomark -- Product Proposal" (2026-09-25, PDF, not in repo);
@@ -25,6 +26,12 @@ bookmarks, a phone saves into it and browses it with nothing installed.
 ---
 
 ## Goals
+
+Scope is cut in two. **PoC** is the live loop on one laptop: ingest,
+capture, place, file, tier-1 and tier-2 search, undo. **MVP** adds chat,
+diffs (audit and rebuild), writer-conflict detection, background-tab
+capture and Firefox. Goals 5 and the diff parts of 3 and 8 are MVP; the
+rest are PoC.
 
 1. **Zero-friction capture** -- saving into `Follow Up` with the native
    bookmark dialog is the entire ingest gesture, from any signed-in device
@@ -70,8 +77,9 @@ bookmarks, a phone saves into it and browses it with nothing installed.
   deferred.
 - **Replacing orgmarks' batch export/import workflow** -- orgmarks is not
   modified by this record; its retirement is a separate decision.
-- **Arbitrating two hosts both configured as writer** -- configuration
-  error, detected and reported (Open Questions), not resolved.
+- **Arbitrating two hosts both configured as writer** -- never resolved
+  automatically. PoC: a `HostRole` flag and no detection. MVP: refuse on
+  a writer marker in the owned tree (Key Decisions).
 
 ---
 
@@ -212,7 +220,7 @@ batch cursor (batch id plus applied operation index).
 | Durable jobs | One `Job` per (`NodeId`, `Identity`), persisted before acknowledgement; retried per `RetryPolicy` on a retryable error; `NotWriter` is not retryable and not counted. |
 | Capture fallback | `capture` with the fetch adapter, only when the request's capture has `source` `none`; carries no cookies; skips non-http(s) URLs. |
 | Enrich and index | Summary, tags and embedding through the ports; full-text and vector indexing through `CorpusStorePort`. Hybrid fusion runs in the domain over the two candidate lists the store returns. |
-| Place and file | `place` chooses a folder and records the reason; `file` turns the placement into a `WriteBatch` (with inverse) that the boundary policy has admitted, stores it `PROPOSED`, and offers it to the extension. |
+| Place and file | `place` chooses a folder and records the reason; `file` turns the placement into a `WriteBatch` (with inverse) that the boundary policy has admitted, stores it `PROPOSED`, and offers it to the extension. The batch's move consumes the `Follow Up` node; nothing remains there. |
 | Duplicate identity | An ingest whose `Identity` already has a `FILED` entry files nothing new: the new node is moved to `Graveyard` by a batch whose reason names the existing placement. |
 | Receipts | `APPLIED`: store node ids and the snapshot, job `FILED`. `PARTIAL`: store the snapshot, offer the inverse of the applied prefix as a new batch, job `FAILED`. `REJECTED`: job `FAILED`. |
 | Undo | `undo` returns the inverse `WriteBatch` of an `APPLIED` batch, guarded: an inverse operation is kept only if its node is still at the path the batch left it, and a folder removal only if the folder is empty; the rest are dropped and listed in the batch's report. The inverse carries the same `DiffItem` reference if the original had one. |
@@ -466,7 +474,11 @@ local corpus store, and are not exported to any fleet ledger.
 | Multi-device | one shared `Dynomark` folder, one `writer` host | per-host folders duplicate the hierarchy on every device and force a claiming protocol; one writer needs neither |
 | Phone | a consumer: saves into `Follow Up`, reads `Dynomark` via sync | mobile browsers run no extension; this gives capture and browse with zero mobile software |
 | Corpus locality | one corpus per daemon; only the writer files | local search and chat on every laptop without a corpus sync problem |
-| Tab capture locality | tab capture only where the save happened; the writer fetches saves made elsewhere | there is no cross-host channel; logged-in content from other devices is a known loss (Open Questions) |
+| Tab capture locality | tab capture only where the save happened; the writer fetches saves made elsewhere | there is no cross-host channel; the logged-in loss for saves made on a reader device or phone is accepted for PoC; the MVP answer is a background-tab capture adapter on the writer (Future Considerations) |
+| `Follow Up` semantics | consumed on filing: the batch moves the node into `Dynomark`; the filed copy is the record | a queue, not a to-do; to-do states (new, read, done) were the alternative and are not built |
+| Two writers | PoC: `HostRole` is a config flag with no detection; MVP: refuse on a writer marker in the owned tree | concurrency is not a PoC problem; refusing beats last-wins because a silent second writer is the conflict the design removes |
+| Scope | PoC = ingest, capture, place, file, tier-1/tier-2 search, undo; MVP = chat, diffs, writer-conflict detection, background-tab capture, Firefox | get the live loop working on one laptop before any concurrency or reach work |
+| Approval | APPROVED 2026-09-27 | rulings 1-3 of the 2026-09-27 review folded above; body frozen from this commit |
 | Transport | `TransportPort`; native-messaging shim over a unix socket first | no TCP port, no pasted token, the browser launches the shim; a phone adapter is a second implementation |
 | Daemon language | unconstrained; the contract is a versioned schema artifact | any process that validates against the schema is the daemon; hot-swappable |
 | Content capture | all-sites host permission, daemon fetch as fallback | the only way to capture logged-in pages at save time |
@@ -486,20 +498,13 @@ local corpus store, and are not exported to any fleet ledger.
 
 ## Open Questions
 
-1. **`Follow Up` semantics after filing** -- consume the item, or keep it as
-   a to-do with states (new, processed, read, done) and resurfacing?
-2. **Two hosts configured as writer** -- detect via a marker the writer
-   leaves in the owned tree and refuse, or last-configured wins?
-3. **Logged-in content saved on a non-writer device** -- accept the fetch
-   loss, or let a reader host forward its tab capture to the writer over a
-   future remote transport?
-4. **Merge rules for audit** -- undefined for v1 by intent; learned from use.
-5. **Rebuild cadence** -- manual only, or a slow default schedule?
-6. **Backfill** -- run the existing tree through capture and indexing at
+1. **Merge rules for audit** -- undefined for v1 by intent; learned from use.
+2. **Rebuild cadence** -- manual only, or a slow default schedule?
+3. **Backfill** -- run the existing tree through capture and indexing at
    first install (searchable, not re-filed), and at what rate?
-7. **Default models** -- which local embedding and completion models ship
+4. **Default models** -- which local embedding and completion models ship
    as defaults.
-8. **Firefox timing** -- after which phase the second browser adapters are
+5. **Firefox timing** -- after which phase the second browser adapters are
    worth building.
 
 ---
@@ -564,9 +569,16 @@ local corpus store, and are not exported to any fleet ledger.
 
 ## Future Considerations
 
+- **Background-tab capture (MVP)** -- a third `ContentSourcePort` adapter
+  on the writer's extension: open the saved URL in a background tab in a
+  non-focused window, capture as from any tab, close. Writer chain becomes
+  matching tab -> background tab -> fetch, behind a setting. Recovers
+  logged-in content for saves made on a reader device or a phone, because
+  the writer's browser is usually signed in to the same sites.
+- **Writer marker (MVP)** -- the writer leaves a marker in the owned tree;
+  a second host configured `writer` sees it and refuses to file.
 - **Phone search and chat** -- a second `TransportPort` adapter over HTTPS
-  behind the fleet's Access gate, its own design record; also the channel
-  a reader host could use to forward tab captures (Open Question 3).
+  behind the fleet's Access gate, its own design record.
 - **Firefox** -- second `BookmarkTreePort` and `HistoryPort` adapters; the
   sidebar is the natural chat surface there.
 - **Extra keywords** -- site-search shortcuts to the extension's search
