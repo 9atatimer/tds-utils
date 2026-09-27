@@ -212,8 +212,9 @@ export class ExtensionRuntime {
     const lane = new BatchLane(() => this.batchContext(connection.outcome()), laneDeps);
     this.lane = lane;
     const events = new DaemonEvents(
-      { transport: connection, ids: this.ports.ids, storage },
+      { transport: connection, ids: this.ports.ids, storage, timer: this.ports.timer },
       { offer: (batch) => this.admit(batch, lane, connection) },
+      (work) => this.track(work),
     );
     connection.onEvent((event) => this.track(events.handle(event)));
     const reconnector = new Reconnector(() => connection.connect(), { timer: this.ports.timer, track: (work) => this.track(work) });
