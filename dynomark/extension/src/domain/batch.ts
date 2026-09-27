@@ -163,6 +163,11 @@ export function appliedReceipt(batch_id: BatchId, outcomes: readonly OpOutcome[]
   return { state: 'APPLIED', batch_id, snapshot, pre_batch, applied: appliedOf(ordered), skipped: skippedOf(ordered) };
 }
 
+/** REJECTED: nothing was touched. */
+export function rejectedReceipt(batch_id: BatchId, reason: RejectReason, snapshot: Snapshot): ReceiptRejected {
+  return { state: 'REJECTED', batch_id, snapshot, pre_batch: true, reason };
+}
+
 /** The receipt with its snapshot left out (`snapshot_omitted`), for a frame that would not fit. */
 export function withoutSnapshot(receipt: BatchReceipt): BatchReceipt {
   const { snapshot: _omitted, ...rest } = receipt;

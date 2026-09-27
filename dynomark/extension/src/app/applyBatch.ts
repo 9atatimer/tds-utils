@@ -13,6 +13,7 @@ import {
   freshCursor,
   hasChangedTree,
   partialReceipt,
+  rejectedReceipt,
   withFailed,
   withOutcome,
   withStarted,
@@ -26,6 +27,7 @@ import {
   type SkipReason,
   type WriteBatch,
 } from '../domain/batch.js';
+import { rejectionOf } from '../domain/boundary.js';
 import { existingBookmark, existingFolder, expectFailure } from '../domain/ops.js';
 import { toSnapshot } from '../domain/snapshot.js';
 import type { FolderPath, OwnedRoots, SnapshotNode } from '../domain/tree.js';
@@ -189,14 +191,22 @@ async function stepOp(op: Operation, cursor: BatchCursor, context: BatchContext,
 // --- Entry: the use case ---
 
 /**
- * Apply one offered batch and answer it with a receipt. Resumes from the
- * durable cursor when it names this batch; recorded ops are reported, never
- * repeated. The cursor stays until the receipt's result is acknowledged.
+ * Apply one offered batch and answer it with a receipt. A batch is admitted
+ * (op indices, writer marker, ownership boundary) once, before its first op
+ * and before its cursor exists; a REJECTED batch touches nothing and leaves
+ * no cursor. Resumes from the durable cursor when it names this batch;
+ * recorded ops are reported, never repeated. The cursor stays until the
+ * receipt's result is acknowledged.
  */
 export async function applyBatch(batch: WriteBatch, context: BatchContext, deps: ApplyDeps): Promise<BatchReceipt> {
   const held = await deps.storage.loadCursor();
   if (held !== undefined && held.batch_id !== batch.batch_id) throw new CursorHeld(held.batch_id, batch.batch_id);
-  const snapshot = toSnapshot(await deps.tree.readTree(), deps.clock.now());
+  const read = await deps.tree.readTree();
+  const snapshot = toSnapshot(read, deps.clock.now());
+  if (held === undefined) {
+    const rejection = rejectionOf(batch, context.owned_roots, context.host_id, read);
+    if (rejection !== undefined) return rejectedReceipt(batch.batch_id, rejection, snapshot);
+  }
   let cursor = held ?? freshCursor(batch.batch_id);
   const pre_batch = !hasChangedTree(cursor);
   if (held === undefined) await deps.storage.saveCursor(cursor);
