@@ -206,6 +206,42 @@ describe('A batch receipt answered with a retryable code on a live link', () => 
   });
 });
 
+describe('An ingest answered with a retryable code on a live link', () => {
+  const SERDE_URL = 'https://serde.rs/';
+
+  /** A runtime whose daemon answers the first ingest of SERDE_URL `busy` and every later one normally. */
+  async function busyOnce(): Promise<{ w: FakeExtensionWorld; ids: Seeded; runtime: ExtensionRuntime }> {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    let answered = 0;
+    scriptDaemon(w, {}, (r) => {
+      if (r.type === 'ingest' && r.bookmark.url === SERDE_URL && (answered += 1) === 1)
+        return { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
+      return undefined;
+    });
+    const ids = await seedOwnedTree(w.tree);
+    return { w, ids, runtime: await startRuntime(w) };
+  }
+
+  it('Given the daemon answers a new save busy and the link stays up, When the backoff passes, Then the identical frame is sent again with no reconnect and no recapture', async () => {
+    const { w, ids, runtime } = await busyOnce();
+    w.tabs.open(SERDE_URL, PAGE);
+    const node = await created(w, runtime, ids.followUp, 'Serde', SERDE_URL);
+    w.tabs.open(SERDE_URL, { ...PAGE, text: 'The page changed after the save.' });
+    const hellos = sentOf(w, 'hello').length;
+
+    await w.timer().advance(RECONNECT_BACKOFF.max_ms);
+    await runtime.idle();
+
+    const ingests = sentOf(w, 'ingest').filter((r) => r.bookmark.node_id === node.id);
+    expect(ingests).toHaveLength(2);
+    expect(ingests[1]).toEqual(ingests[0]);
+    expect(sentOf(w, 'hello')).toHaveLength(hellos);
+    await w.timer().advance(10 * RECONNECT_BACKOFF.max_ms);
+    await runtime.idle();
+    expect(sentOf(w, 'ingest').filter((r) => r.bookmark.node_id === node.id)).toHaveLength(2);
+  });
+});
+
 describe('Move origin -- only the moves the extension itself issued are origin extension', () => {
   const SERDE = { root: 'bar' as const, names: ['Dynomark', 'Serde'] };
 
