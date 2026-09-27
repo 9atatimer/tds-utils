@@ -61,6 +61,33 @@ describe('Background-tab capture on the writer', () => {
     expect(w.backgroundTabs.opened).toEqual([URL]);
   });
 
+  it("Given a writer whose link just dropped, When a save no tab shows arrives and the worker is terminated before the reconnect, Then the next worker's hello still sends it with a background_tab capture", async () => {
+    const { w, ids, runtime } = await setup();
+    await w.daemon().drop('disconnected');
+    const node = await w.tree.createBookmark(ids.followUp, 'Story', URL);
+    runtime.onBookmarkEvent({ kind: 'created', node });
+    await runtime.idle();
+    w.restart();
+    scriptDaemon(w, { role: 'writer' });
+    await startRuntime(w);
+    expect(sentOf(w, 'ingest').find((r) => r.bookmark.node_id === node.id)?.capture).toEqual({ source: 'background_tab', ...PAGE });
+    expect(w.backgroundTabs.opened).toEqual([URL]);
+  });
+
+  it('Given a background capture owed from before a restart, When a later hello re-sends the backlog, Then no background tab is opened again', async () => {
+    const { w, ids, runtime } = await setup();
+    await w.daemon().drop('disconnected');
+    runtime.onBookmarkEvent({ kind: 'created', node: await w.tree.createBookmark(ids.followUp, 'Story', URL) });
+    await runtime.idle();
+    w.restart();
+    scriptDaemon(w, { role: 'writer' });
+    await startRuntime(w);
+    w.restart();
+    scriptDaemon(w, { role: 'writer' });
+    await startRuntime(w);
+    expect(w.backgroundTabs.opened).toEqual([URL]);
+  });
+
   it('Given a reader host, When a save no tab shows arrives, Then no background tab is opened and ingest carries source none', async () => {
     const { w, ids, runtime } = await setup('reader');
     expect((await save(w, runtime, ids.followUp))?.capture).toEqual({ source: 'none', text: '' });
