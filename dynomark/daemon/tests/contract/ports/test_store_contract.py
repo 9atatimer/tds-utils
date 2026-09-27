@@ -422,3 +422,28 @@ def test_folder_flags_are_kept_per_node_and_replaced(store: CorpusStorePort) -> 
         NodeId("14"): FolderFlags(pinned=False, locked=True),
         NodeId("21"): FolderFlags(pinned=False, locked=True),
     }
+
+
+# --- Profiles (contract v1, Connection lifecycle: the writer's profile) ---
+
+
+def test_the_writer_profile_is_bound_once(store: CorpusStorePort) -> None:
+    """Given no bound profile, When one is bound and another bind is tried,
+    Then the first stays bound (rebinding is a user action outside the
+    contract)."""
+    assert store.writer_profile() is None
+
+    store.bind_writer_profile(PROFILE_A)
+    store.bind_writer_profile(PROFILE_B)
+
+    assert store.writer_profile() == PROFILE_A
+
+
+def test_a_profiles_follow_up_folder_is_remembered(store: CorpusStorePort) -> None:
+    """Given a profile's resolved Follow Up folder, When read back, Then it is
+    the latest one kept; an unknown profile has none."""
+    store.put_follow_up(PROFILE_A, make_path("Follow Up"))
+    store.put_follow_up(PROFILE_A, make_path("Inbox", "Follow Up"))
+
+    assert store.follow_up_of(PROFILE_A) == make_path("Inbox", "Follow Up")
+    assert store.follow_up_of(PROFILE_B) is None

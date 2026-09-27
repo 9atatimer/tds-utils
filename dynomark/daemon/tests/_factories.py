@@ -1,5 +1,7 @@
 """Builder functions for domain values (testing-python skill, Test Data)."""
 
+from pathlib import PurePath
+
 from dynomark_daemon.domain.batch import (
     BatchRecord,
     BatchState,
@@ -17,22 +19,25 @@ from dynomark_daemon.domain.bookmark import (
     Embedding,
     Identity,
 )
+from dynomark_daemon.domain.config import Config, ModelInfo
 from dynomark_daemon.domain.diff import DiffAction, DiffItem, DiffKind, TreeDiff
 from dynomark_daemon.domain.ids import (
     BatchId,
     DiffId,
     FeedbackId,
+    HostId,
     ItemId,
     JobId,
     NodeId,
     ProfileId,
 )
-from dynomark_daemon.domain.job import Job, JobState
+from dynomark_daemon.domain.job import Job, JobState, RetryPolicy
 from dynomark_daemon.domain.placement import (
     MoveFeedback,
     Placement,
     PlacementReason,
 )
+from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.domain.tree import (
     FolderPath,
     NodeKind,
@@ -282,4 +287,16 @@ def make_roots() -> OwnedRoots:
         follow_up=make_path("Follow Up"),
         dynomark=make_path("Dynomark"),
         graveyard=make_path("Graveyard"),
+    )
+
+
+def make_config(*, role: HostRole = HostRole.WRITER) -> Config:
+    return Config(
+        host_id=HostId("mbp"),
+        role=role,
+        owned_roots=make_roots(),
+        embedding_model=ModelInfo(model_id="ollama:nomic-embed-text", local=True),
+        completion_model=ModelInfo(model_id="anthropic:claude-haiku", local=False),
+        store_path=PurePath("/state/dynomark/corpus.sqlite"),
+        retry=RetryPolicy(attempts=3, initial_backoff_ms=1_000, max_backoff_ms=60_000),
     )
