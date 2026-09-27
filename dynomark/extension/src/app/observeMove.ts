@@ -5,7 +5,7 @@
 // The browser adapter turns parent ids into FolderPaths before calling this.
 
 import { fitPath } from '../domain/limits.js';
-import { isOwnedMove, moveOrigin, recordMove, type Move, type MoveFeedback } from '../domain/move.js';
+import { isOwnedMove, moveOrigin, type Move, type MoveFeedback } from '../domain/move.js';
 import type { HostRole } from '../domain/roles.js';
 import type { FolderPath, OwnedRoots } from '../domain/tree.js';
 import type { NodeId, Url } from '../domain/values.js';
@@ -14,6 +14,7 @@ import type { IdSource } from '../ports/idSource.js';
 import type { TransportPort } from '../ports/transport.js';
 import { CONTRACT_VERSION } from '../wire/messages.js';
 import { resultOrThrow } from './errors.js';
+import { recordMove } from './recordMove.js';
 
 // --- Types ---
 

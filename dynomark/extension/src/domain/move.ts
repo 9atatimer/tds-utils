@@ -36,7 +36,8 @@ export function isOwnedMove(from: FolderPath, to: FolderPath, roots: OwnedRoots)
   return isOwnedPath(from, roots) && isOwnedPath(to, roots);
 }
 
-function isFeedback(move: Move, role: HostRole): move is MoveFeedback {
+/** True when a move is placement feedback: origin user, observed on the writer. */
+export function isFeedback(move: Move, role: HostRole): move is MoveFeedback {
   return move.origin === 'user' && role === 'writer';
 }
 
@@ -50,9 +51,4 @@ export function inFlightNodes(batch: WriteBatch): Set<NodeId> {
 /** `extension` for a node the in-flight batch names, else `user`. */
 export function moveOrigin(node_id: NodeId, inFlight: ReadonlySet<NodeId>): MoveOrigin {
   return inFlight.has(node_id) ? 'extension' : 'user';
-}
-
-/** record_move: a user move on the writer is feedback; an extension move, or any move on a reader, is none. */
-export function recordMove(move: Move, role: HostRole): MoveFeedback | undefined {
-  return isFeedback(move, role) ? move : undefined;
 }

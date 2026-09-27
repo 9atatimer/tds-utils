@@ -1,12 +1,13 @@
-// move.test.ts -- design Behaviors row "A user move becomes feedback", the
-// domain rule: record_move(move, role) -> MoveFeedback or none. Given a Move
+// recordMove.test.ts -- design Behaviors row "A user move becomes feedback", the
+// use case: record_move(move, role) -> MoveFeedback or none. Given a Move
 // of origin user between owned folders on the writer, Then feedback exists;
 // Given origin extension or role reader, Then none. The origin comes from the
 // batch operations the extension itself issued (design glossary, "Move").
 
 import { describe, expect, it } from 'vitest';
 import type { WriteBatch } from '../../../src/domain/batch.js';
-import { inFlightNodes, isOwnedMove, moveOrigin, recordMove, type Move } from '../../../src/domain/move.js';
+import { recordMove } from '../../../src/app/recordMove.js';
+import { inFlightNodes, isOwnedMove, moveOrigin, type Move } from '../../../src/domain/move.js';
 import type { OwnedRoots } from '../../../src/domain/tree.js';
 
 // --- Builders ---
