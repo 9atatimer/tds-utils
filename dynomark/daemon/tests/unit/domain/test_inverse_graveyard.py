@@ -98,3 +98,15 @@ def test_an_inverse_that_removes_nothing_creates_no_graveyard() -> None:
     operations, _ = guarded_inverse(batch, applied, AFTER, make_roots())
 
     assert [type(op) for op in operations] == [OpMove]
+
+
+def test_the_prefix_inverse_leaves_a_locked_folder_where_it_is() -> None:
+    """Given a batch that created a folder now locked, When the unguarded
+    inverse of its applied prefix is built, Then the bookmark goes back and
+    the locked folder is not removed (locked: never moved by any batch)."""
+    operations = invert(
+        FILING, APPLIED, AFTER, make_roots(), locked=frozenset({NodeId("16")})
+    )
+
+    assert [type(op) for op in operations] == [OpMove]
+    assert operations[0].node_id == NodeId("42")

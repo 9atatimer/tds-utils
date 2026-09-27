@@ -15,6 +15,7 @@ from dataclasses import replace
 import pytest
 
 from dynomark_daemon.app.errors import Busy, InvalidRequest
+from dynomark_daemon.app.flags import set_folder_flags
 from dynomark_daemon.app.tree import record_tree_snapshot
 from dynomark_daemon.app.undo import Undone, undo
 from dynomark_daemon.domain.batch import (
@@ -114,6 +115,34 @@ def test_undo_reverts_every_operation_and_not_a_later_user_edit() -> None:
     assert record is not None
     assert (record.state, record.undoes) == (BatchState.PROPOSED, daemon.batch.batch_id)
     assert [o.batch for o in daemon.offers()] == [result.batch]
+
+
+def test_undo_never_moves_a_folder_the_user_has_locked_since() -> None:
+    """Given the folder the batch created was since locked (Glossary: locked
+    is "never moved, renamed or merged by any batch"), When undone, Then the
+    bookmark still goes back but the folder's removal is dropped and
+    reported as locked."""
+    daemon = _applied_daemon(
+        _after(
+            make_node("16", "14", "Async"),
+            make_node("42", "16", "Tokio tutorial", url=URL),
+        )
+    )
+    set_folder_flags(
+        NodeId("16"),
+        None,
+        None,
+        True,
+        HostRole.WRITER,
+        make_roots(),
+        store=daemon.store,
+    )
+
+    result = _undo(daemon)
+
+    assert isinstance(result, Undone) and result.batch is not None
+    assert result.batch.operations == (replace(MOVE_BACK, index=0),)
+    assert result.dropped == (UndoDrop(0, UndoDropReason.LOCKED),)
 
 
 def test_undo_drops_and_reports_a_node_the_user_moved_since() -> None:
