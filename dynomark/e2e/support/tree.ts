@@ -62,6 +62,14 @@ export class Tree {
     );
   }
 
+  /** Move node `id` to the end of folder `to` (a drag in the bookmark manager). */
+  async move(id: string, to: string): Promise<void> {
+    await this.page.evaluate(async ({ node, parentId }) => void (await chrome.bookmarks.move(node, { parentId })), {
+      node: id,
+      parentId: to,
+    });
+  }
+
   /** Every node whose url is `url`. */
   withUrl(url: string): Promise<string[]> {
     return this.page.evaluate(async (u) => (await chrome.bookmarks.search({ url: u })).map((n) => n.id), url);

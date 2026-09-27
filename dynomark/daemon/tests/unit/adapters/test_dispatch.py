@@ -655,3 +655,37 @@ def test_a_writer_in_conflict_offers_no_batch() -> None:
 
     offers = [e for e in harness.transport.events_for(A) if isinstance(e, BatchOffered)]
     assert offers == []
+
+
+def test_an_observed_move_is_logged_with_whether_it_became_feedback() -> None:
+    """Given a writer connection, When a user move between owned folders and an
+    extension move arrive, Then each is logged move.observed with its node,
+    origin and whether it was recorded as feedback (the week-of-use repair log
+    and the integration e2e read it)."""
+    harness = Harness()
+    harness.hello()
+    move = {
+        "node_id": "15",
+        "url": "https://doc.rust-lang.org/book/",
+        "from": {"root": "bar", "names": ["Dynomark", "Rust"]},
+        "to": {"root": "bar", "names": ["Dynomark", "Reading"]},
+        "origin": "user",
+        "observed_at": 1_790_000_005_000,
+    }
+
+    with capture_logs() as logs:
+        harness.send(wire.body("move.observed", "mv-1", move=move))
+        harness.send(
+            wire.body(
+                "move.observed",
+                "mv-2",
+                move={**move, "origin": "extension", "observed_at": 1_790_000_006_000},
+            )
+        )
+
+    observed = [
+        (e["node_id"], e["origin"], e["feedback"])
+        for e in logs
+        if e["event"] == "move.observed"
+    ]
+    assert observed == [("15", "user", True), ("15", "extension", False)]

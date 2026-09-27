@@ -66,7 +66,13 @@ export class World {
   async start(options: DaemonOptions): Promise<void> {
     await this.current?.stop();
     this.current = await RealDaemon.start(this.home, this.socket, options);
-    this.started ??= await launchBrowser(this.home);
+    if (this.started === undefined) {
+      this.started = await launchBrowser(this.home);
+      if (process.env['DM_DEBUG']) {
+        const w = await this.started.serviceWorker();
+        w.on('console', (m) => console.log('SW', m.type(), m.text().slice(0, 400)));
+      }
+    }
   }
 
   /** Stop the running daemon (SIGTERM), leaving the browser up. */
@@ -118,6 +124,13 @@ export class World {
     return node;
   }
 
+  /** Ask the background what an extension page asks it (the pages' runtime-message channel); the raw answer. */
+  async pageRequest(request: Readonly<Record<string, unknown>>): Promise<Record<string, unknown>> {
+    if (this.treePage === undefined || this.treePage.isClosed()) await this.tree();
+    const page = this.treePage as Page;
+    return page.evaluate(async (r) => (await chrome.runtime.sendMessage({ dynomark_page: r })) as Record<string, unknown>, request);
+  }
+
   /** Feed `text` to the omnibox handler (headless has no address bar) and collect what it suggests within `settleMs`. */
   async omnibox(text: string, settleMs = 1_500): Promise<Suggestion[]> {
     const worker = await this.worker();
@@ -157,7 +170,30 @@ export class World {
     return intervals;
   }
 
+  /**
+   * What went wrong between the runtimes without failing a scenario's own
+   * assertions: the extension's reported problems (settings page) and every
+   * daemon log event at warning or above.
+   */
+  async interopProblems(): Promise<string[]> {
+    const found: string[] = [];
+    if (this.started !== undefined) {
+      const options = await this.started.extensionPage('options.html');
+      await expect(options.locator('#link')).toHaveText('connected');
+      found.push(...(await options.locator('#problems li').allTextContents()).map((p) => `extension: ${p}`));
+      await options.close();
+    }
+    for (const event of this.current?.log() ?? []) {
+      if (event['level'] !== 'info' && event['level'] !== 'debug') found.push(`daemon: ${JSON.stringify(event)}`);
+    }
+    return found;
+  }
+
   async close(): Promise<void> {
+    if (process.env['DM_DEBUG']) {
+      for (const e of this.current?.log() ?? []) if (e['level'] !== 'info') console.log('DAEMON', JSON.stringify(e).slice(0, 600));
+      for (const e of this.current?.log() ?? []) if (e.event === 'job.ran') console.log('JOB', JSON.stringify(e).slice(0, 300));
+    }
     await this.started?.close().catch(() => undefined);
     await this.current?.stop();
     await this.server?.close();
@@ -174,6 +210,7 @@ export const test = base.extend<{ world: World }>({
     const world = new World(info);
     try {
       await use(world);
+      if (info.status === info.expectedStatus) expect(await world.interopProblems()).toEqual([]);
     } finally {
       await world.close();
     }
