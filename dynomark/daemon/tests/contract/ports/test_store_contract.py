@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from dynomark_daemon.domain.batch import BatchState
-from dynomark_daemon.domain.bookmark import Identity
+from dynomark_daemon.domain.bookmark import Identity, Save
 from dynomark_daemon.domain.ids import (
     BatchId,
     DiffId,
@@ -34,6 +34,8 @@ from dynomark_daemon.ports.store import CorpusStorePort
 from dynomark_daemon.testing.store import InMemoryCorpusStore
 from tests._factories import (
     make_batch,
+    make_bookmark,
+    make_capture,
     make_diff,
     make_diff_item,
     make_entry,
@@ -224,6 +226,19 @@ def test_put_job_replaces_by_job_id_and_list_filters_by_state(
     assert store.list_jobs(state=JobState.FAILED) == [failed]
     assert store.get_job(JobId("job-2")) == failed
     assert store.get_job(JobId("job-9")) is None
+
+
+def test_get_save_returns_the_save_ingested_with_the_job(
+    store: CorpusStorePort,
+) -> None:
+    """Given a job's save (bookmark and capture) is put, When read by job id,
+    Then it is the same value; an unknown job has none (Durable jobs:
+    persisted before acknowledgement)."""
+    save = Save(bookmark=make_bookmark(), capture=make_capture("Tokio text"))
+    store.put_save(JobId("job-1"), save)
+
+    assert store.get_save(JobId("job-1")) == save
+    assert store.get_save(JobId("job-2")) is None
 
 
 # --- Batches ---
