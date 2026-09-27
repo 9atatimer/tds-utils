@@ -6,15 +6,17 @@ diffs. Orderings are part of the contract so the fake and the SQLite
 adapter can run one suite (tests/contract/ports/test_store_contract.py).
 """
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Protocol
 
 from dynomark_daemon.domain.batch import BatchRecord
 from dynomark_daemon.domain.bookmark import CorpusEntry, Identity, Save
 from dynomark_daemon.domain.diff import DiffItem, TreeDiff
+from dynomark_daemon.domain.events import Event, PendingEvent
 from dynomark_daemon.domain.ids import (
     BatchId,
     DiffId,
+    EventId,
     ItemId,
     JobId,
     NodeId,
@@ -144,3 +146,21 @@ class CorpusStorePort(Protocol):
         ...
 
     def get_diff_item(self, item_id: ItemId) -> DiffItem | None: ...
+
+    # --- Events: durable per profile until acknowledged ---
+
+    def put_event(self, profile_id: ProfileId, event: Event) -> None:
+        """Append ``event`` for ``profile_id``; a known ``event_id`` is a no-op."""
+        ...
+
+    def unacked_events(self, profile_id: ProfileId) -> list[PendingEvent]:
+        """The profile's unacknowledged events, oldest first."""
+        ...
+
+    def mark_pushed(self, profile_id: ProfileId, event_ids: Iterable[EventId]) -> None:
+        """Record that these events went out live; unknown ids are ignored."""
+        ...
+
+    def ack_events(self, profile_id: ProfileId, event_ids: Iterable[EventId]) -> None:
+        """Acknowledge these events of the profile; unknown ids are ignored."""
+        ...

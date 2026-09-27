@@ -8,15 +8,17 @@ words. KNN candidates: cosine similarity. Ties break by identity.
 
 import math
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Final, TypeVar
 
 from dynomark_daemon.domain.batch import BatchRecord
 from dynomark_daemon.domain.bookmark import CorpusEntry, Identity, Save
 from dynomark_daemon.domain.diff import DiffItem, TreeDiff
+from dynomark_daemon.domain.events import Event, PendingEvent
 from dynomark_daemon.domain.ids import (
     BatchId,
     DiffId,
+    EventId,
     FeedbackId,
     ItemId,
     JobId,
@@ -85,6 +87,7 @@ class InMemoryCorpusStore:
         self._snapshots: dict[SnapshotId, Snapshot] = {}
         self._feedback: dict[FeedbackId, MoveFeedback] = {}
         self._diffs: dict[DiffId, TreeDiff] = {}
+        self._events: dict[ProfileId, dict[EventId, PendingEvent]] = {}
 
     # --- Entries ---
 
@@ -229,3 +232,23 @@ class InMemoryCorpusStore:
     def get_diff_item(self, item_id: ItemId) -> DiffItem | None:
         items = (i for d in self._diffs.values() for i in d.items)
         return next((i for i in items if i.item_id == item_id), None)
+
+    # --- Events ---
+
+    def put_event(self, profile_id: ProfileId, event: Event) -> None:
+        events = self._events.setdefault(profile_id, {})
+        events.setdefault(event.event_id, PendingEvent(event, pushed=False))
+
+    def unacked_events(self, profile_id: ProfileId) -> list[PendingEvent]:
+        return list(self._events.get(profile_id, {}).values())
+
+    def mark_pushed(self, profile_id: ProfileId, event_ids: Iterable[EventId]) -> None:
+        events = self._events.get(profile_id, {})
+        for event_id in event_ids:
+            if event_id in events:
+                events[event_id] = PendingEvent(events[event_id].event, pushed=True)
+
+    def ack_events(self, profile_id: ProfileId, event_ids: Iterable[EventId]) -> None:
+        events = self._events.get(profile_id, {})
+        for event_id in event_ids:
+            events.pop(event_id, None)
