@@ -61,7 +61,7 @@ export interface TreeWatchContext {
   outcome(): HelloOutcome | undefined;
   settings(): Settings;
   /** True when the browser's report of this move is of a move the extension itself made (consumed). */
-  isOwnMove(node_id: NodeId, parent_id: NodeId): boolean;
+  isOwnMove(node_id: NodeId, parent_id: NodeId): Promise<boolean>;
   track(work: Promise<unknown>): void;
   /** A debounced tree.snapshot was recorded by the daemon (it re-reads writer markers from it). */
   snapshotSent(): void;
@@ -157,7 +157,7 @@ export class TreeWatch {
     const outcome = this.context.outcome();
     const from = folderPathOf(tree, old_parent_id);
     const to = folderPathOf(tree, parent_id);
-    const own = node !== undefined && this.context.isOwnMove(node.id, parent_id);
+    const own = node !== undefined && (await this.context.isOwnMove(node.id, parent_id));
     if (outcome?.mode !== 'full' || node === undefined || from === undefined || to === undefined) return;
     // The node and its destination, not the node alone: a user move of a node the open batch names is still the user's.
     const in_flight = new Set<NodeId>(own ? [node.id] : []);

@@ -2,8 +2,9 @@
 // durable state is settings, the rebuildable LocalIndex and the in-flight
 // batch cursor (design, "The extension"), plus backfill progress (Open
 // Question 3, resumable across worker restarts), the saves owed a
-// background capture, the saves sent and not yet answered and the move
-// reports sent and not yet answered; storage is the only
+// background capture, the saves sent and not yet answered, the move reports
+// sent and not yet answered and the moves made and not yet reported; storage
+// is the only
 // thing besides the browser's own data that survives a service-worker
 // restart, and it stores values, not references.
 
@@ -138,6 +139,15 @@ export function describeStorageContract(name: string, make: () => StoragePort): 
       expect(await storage.loadPendingMoves()).toEqual([MOVE]);
       await storage.savePendingMoves([]);
       expect(await storage.loadPendingMoves()).toEqual([]);
+    });
+
+    it('Given moves made and not yet reported, When saved, loaded, and saved again, Then they round-trip and the later list replaces the earlier', async () => {
+      const storage = make();
+      expect(await storage.loadIssuedMoves()).toBeUndefined();
+      await storage.saveIssuedMoves([{ node_id: '42', parent_id: '17' }]);
+      expect(await storage.loadIssuedMoves()).toEqual([{ node_id: '42', parent_id: '17' }]);
+      await storage.saveIssuedMoves([]);
+      expect(await storage.loadIssuedMoves()).toEqual([]);
     });
 
     it('Given all three values saved, When the cursor is cleared, Then only the cursor is gone', async () => {

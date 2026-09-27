@@ -104,7 +104,7 @@ export class ExtensionRuntime {
     this.saves = new SubmittedSaves(ports.storage);
     this.moves = new ReportedMoves(ports.storage);
     this.index = new IndexCache(ports, (work) => this.track(work));
-    this.issued = new IssuedMoves(ports.tree);
+    this.issued = new IssuedMoves(ports.tree, ports.storage);
     this.omnibox = new OmniboxSession({
       transport: { send: (r) => this.connection().then((c) => c.send(r)), onEvent: () => () => undefined },
       ids: ports.ids,

@@ -77,6 +77,7 @@ rest is in memory and is rebuilt, or re-sent, after the next full hello.
 | `owed_captures`  | Follow Up saves owed a background capture: made while the role was unknown, or whose capture may open a background tab, until the daemon has them | Follow Up's children, at most 1000                                      |
 | `pending_saves`  | ingest frames sent and not yet answered (id, bookmark, capture), re-sent unchanged by the next worker                                             | 16 frames and 1,048,576 characters of capture text; the oldest go first |
 | `pending_moves`  | move.observed frames sent and not yet answered (id, move), re-sent unchanged after a backoff or by the next full hello                            | 64 frames; the oldest go first                                          |
+| `issued_moves`   | tree moves a batch made that the browser has not reported yet (node, destination), so the report is origin extension on any worker                | 256 moves; the oldest go first                                          |
 | `capture_window` | the minimized window a background capture has open (window and tab id); the next worker's start closes it if still that window                    | one window                                                              |
 
 ## Test

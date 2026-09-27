@@ -4,11 +4,13 @@
 // worker restarts) and the Follow Up saves still owed a background capture
 // (bounded by Follow Up's size), and the saves sent and not yet answered
 // (bounded in count and text; domain/pendingSaves.ts), and the move reports
-// sent and not yet answered (bounded in count; domain/pendingMoves.ts).
-// Values, not references.
+// sent and not yet answered (bounded in count; domain/pendingMoves.ts), and
+// the tree moves the extension made that the browser has not reported yet
+// (bounded in count; domain/issuedMoves.ts). Values, not references.
 
 import type { BackfillProgress } from '../domain/backfill.js';
 import type { BatchCursor } from '../domain/batch.js';
+import type { IssuedMove } from '../domain/issuedMoves.js';
 import type { PendingMove } from '../domain/pendingMoves.js';
 import type { PendingSave } from '../domain/pendingSaves.js';
 import type { LocalIndex } from '../domain/search.js';
@@ -35,4 +37,7 @@ export interface StoragePort {
   /** Move reports sent and not yet answered move.observed.result: a later worker re-sends each unchanged after a full hello. */
   loadPendingMoves(): Promise<readonly PendingMove[] | undefined>;
   savePendingMoves(moves: readonly PendingMove[]): Promise<void>;
+  /** Tree moves the extension made and the browser has not reported: a later worker still knows the report as the extension's. */
+  loadIssuedMoves(): Promise<readonly IssuedMove[] | undefined>;
+  saveIssuedMoves(moves: readonly IssuedMove[]): Promise<void>;
 }
