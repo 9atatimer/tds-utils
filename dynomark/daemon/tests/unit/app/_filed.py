@@ -43,8 +43,8 @@ MOVED = OpApplied(index=1, node_id=NodeId("42"), changed=True)
 class Daemon:
     """A writer that has filed one job into a new folder, Dynomark/Rust/Async."""
 
-    def __init__(self) -> None:
-        self.store = InMemoryCorpusStore()
+    def __init__(self, store: InMemoryCorpusStore | None = None) -> None:
+        self.store = store or InMemoryCorpusStore()
         self.clock, self.ids = FakeClock(start_ms=1_000), SequentialIds()
         self.job = make_job(state=JobState.PLACED)
         self.store.put_job(self.job)
