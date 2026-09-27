@@ -25,7 +25,7 @@ import type { Disposition, Navigator } from '../ports/navigator.js';
 import type { PageRequest, PageResponse } from '../ports/pages.js';
 import type { StoragePort } from '../ports/storage.js';
 import type { Timer } from '../ports/timer.js';
-import type { LinkState, TransportLink, TransportPort } from '../ports/transport.js';
+import { TransportLost, type LinkState, type TransportLink, type TransportPort } from '../ports/transport.js';
 import type { WriteBatch } from '../domain/batch.js';
 import type { BatchContext } from './applyBatch.js';
 import { Backfill } from './backfill.js';
@@ -222,8 +222,25 @@ export class ExtensionRuntime {
     return connection;
   }
 
+  /**
+   * The connect routine, then (full mode) the Follow Up backlog, backfill and
+   * writer status. A routine step that fails for any reason but a lost link
+   * is reported and does not hold those back; the failure still reaches the
+   * Connection, which runs the routine again at the reconnector's next try.
+   */
   private async onReady(outcome: HelloOutcome, connection: Connection, storage: StoragePort): Promise<void> {
-    await onConnected(outcome, { ...this.ports, tree: this.issued, storage, transport: connection });
+    try {
+      await onConnected(outcome, { ...this.ports, tree: this.issued, storage, transport: connection });
+    } catch (error) {
+      if (error instanceof TransportLost) throw error;
+      this.problem(`connect routine: ${error instanceof Error ? error.message : String(error)}`);
+      this.afterConnect(outcome, connection);
+      throw error;
+    }
+    this.afterConnect(outcome, connection);
+  }
+
+  private afterConnect(outcome: HelloOutcome, connection: Connection): void {
     if (outcome.mode !== 'full') return;
     this.track(this.ready.then((s) => s.watch.submitBacklog()));
     this.track(this.ready.then((s) => s.backfill.resume()));

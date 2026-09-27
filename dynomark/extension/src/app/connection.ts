@@ -61,10 +61,13 @@ export class ContractViolation extends Error {
   }
 }
 
+/** Where the connect routine stands on an 'up' connection: running, done, or failed and due to run again. */
+type Routine = 'running' | 'done' | 'failed';
+
 type State =
   | { readonly kind: 'down' }
   | { readonly kind: 'connecting'; readonly ready: Promise<HelloOutcome> }
-  | { readonly kind: 'up'; readonly outcome: HelloOutcome }
+  | { readonly kind: 'up'; readonly outcome: HelloOutcome; readonly routine: Routine }
   | { readonly kind: 'broken'; readonly error: Error };
 
 // --- Predicates ---
@@ -79,6 +82,10 @@ function isHelloRequired(response: { readonly type: string }): boolean {
 
 function isDisconnect(error: unknown): boolean {
   return error instanceof TransportLost && error.reason === 'disconnected';
+}
+
+function isLinkError(error: unknown): boolean {
+  return error instanceof TransportLost;
 }
 
 // --- Pure helpers ---
@@ -114,8 +121,23 @@ export class Connection implements TransportPort {
     return this.state.kind === 'up' ? this.state.outcome : undefined;
   }
 
-  /** Say hello on the current connection if it has not been said, then run the connect routine. */
+  /**
+   * Say hello on the current connection if it has not been said, then run the
+   * connect routine; on a connection whose routine failed (with anything but
+   * a lost link), run the routine again. The reconnector calls this after its
+   * backoff, so a failed routine is retried like a failed connect.
+   */
   connect(): Promise<HelloOutcome> {
+    if (this.state.kind === 'up' && this.state.routine === 'failed') {
+      const { outcome } = this.state;
+      this.state = { kind: 'up', outcome, routine: 'running' };
+      return this.runRoutine(outcome, this.generation);
+    }
+    return this.open();
+  }
+
+  /** The current connection's outcome, saying hello first when it has not been said. */
+  private open(): Promise<HelloOutcome> {
     switch (this.state.kind) {
       case 'broken':
         return Promise.reject(this.state.error);
@@ -136,7 +158,7 @@ export class Connection implements TransportPort {
     for (let attempt = 0; ; attempt += 1) {
       let generation = this.generation;
       try {
-        const outcome = await this.connect();
+        const outcome = await this.open();
         generation = this.generation;
         if (!isPermitted(outcome.mode, request.type)) throw new ModeRefused(outcome.mode, request.type);
         const response = await this.deps.transport.send(request);
@@ -166,21 +188,39 @@ export class Connection implements TransportPort {
       profile_id: this.identity.profile_id,
       follow_up: fitPath(this.identity.follow_up),
     } as const;
+    let outcome: HelloOutcome;
     try {
       const response = await this.deps.transport.send(hello);
       if (response.type === 'error') throw new DaemonError(response);
-      const outcome = helloOutcome(response, this.identity);
-      if (outcome instanceof ContractViolation) {
-        this.state = { kind: 'broken', error: outcome };
-        throw outcome;
+      const decided = helloOutcome(response, this.identity);
+      if (decided instanceof ContractViolation) {
+        this.state = { kind: 'broken', error: decided };
+        throw decided;
       }
-      this.state = { kind: 'up', outcome };
-      await this.onReady(outcome);
-      return outcome;
+      outcome = decided;
+      this.state = { kind: 'up', outcome, routine: 'running' };
     } catch (error) {
       this.noteFailure(error, generation);
       throw error;
     }
+    return this.runRoutine(outcome, generation);
+  }
+
+  /** Run the connect routine on the 'up' connection of `generation`; a failure other than a lost link leaves it due to run again. */
+  private async runRoutine(outcome: HelloOutcome, generation: number): Promise<HelloOutcome> {
+    try {
+      await this.onReady(outcome);
+    } catch (error) {
+      if (isLinkError(error)) this.noteFailure(error, generation);
+      else this.settleRoutine(generation, 'failed');
+      throw error;
+    }
+    this.settleRoutine(generation, 'done');
+    return outcome;
+  }
+
+  private settleRoutine(generation: number, routine: Routine): void {
+    if (generation === this.generation && this.state.kind === 'up') this.state = { ...this.state, routine };
   }
 
   /** A superseded connection is over for good; a disconnect (or a failed hello) returns to down so the next send says hello again. */
