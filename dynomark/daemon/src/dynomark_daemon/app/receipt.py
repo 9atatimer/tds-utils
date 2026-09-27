@@ -2,8 +2,10 @@
 Interfaces; The daemon, "Receipts"; contract/v1 README, Jobs: Receipt -> job,
 and Write batches: Receipts, Inverses).
 
-The first receipt recorded for a batch wins; a repeat records nothing. A
-receipt acknowledges the batch's offer, so the next batch can be offered.
+The first receipt recorded for a batch wins; a repeat records nothing new,
+but finishes what a daemon stopped mid-receipt left undone for a job still
+waiting on the batch. A receipt acknowledges the batch's offer, so the next
+batch can be offered.
 """
 
 from dataclasses import dataclass
@@ -68,6 +70,15 @@ def _needs_inverse(receipt: BatchReceipt, failure: str | None) -> bool:
     return not isinstance(receipt, ReceiptApplied) or failure is not None
 
 
+def _awaits(job: Job | None, record: BatchRecord) -> bool:
+    """The job still waits on this batch's receipt."""
+    return (
+        job is not None
+        and job.state is JobState.PLACED
+        and job.batch_id == record.batch.batch_id
+    )
+
+
 def receive_receipt(
     receipt: BatchReceipt,
     roots: OwnedRoots,
@@ -78,6 +89,11 @@ def receive_receipt(
 ) -> ReceiptRecorded:
     """Record the extension's answer for a batch, once.
 
+    The steps after the batch row -- the offer's ack, the prefix inverse,
+    the job change -- are finished by a repeat of the receipt when a daemon
+    stopped between them: a repeat whose job still waits on this batch
+    completes them from the receipt recorded first.
+
     Raises:
         UnknownRecord: no batch has ``receipt.batch_id`` (``not_found``).
     """
@@ -85,28 +101,32 @@ def receive_receipt(
     if record is None:
         raise UnknownRecord(f"no batch {receipt.batch_id}")
     job = None if record.job_id is None else store.get_job(record.job_id)
-    if record.receipt is not None:
+    first = record.receipt is None
+    recorded = record.receipt
+    if recorded is None:
+        record = record.with_receipt(receipt, _archive(receipt, record, store=store))
+        store.put_batch(record)
+        recorded = receipt
+    elif not _awaits(job, record):
         return ReceiptRecorded(first=False, job=job, inverse=None)
-    record = record.with_receipt(receipt, _archive(receipt, record, store=store))
-    store.put_batch(record)
     _acknowledge_offer(record, store=store)
     failure = filing_failure(
-        record.batch, receipt, job.node_id if job is not None else None
+        record.batch, recorded, job.node_id if job is not None else None
     )
     inverse = None
-    tree = receipt.snapshot or store.latest_tree_snapshot()
-    if _needs_inverse(receipt, failure) and tree is not None:
-        operations = invert(record.batch, applied_ops(receipt), tree, roots)
+    tree = recorded.snapshot or store.latest_tree_snapshot()
+    if (
+        _needs_inverse(recorded, failure)
+        and record.undone_by is None
+        and tree is not None
+    ):
+        operations = invert(record.batch, applied_ops(recorded), tree, roots)
         if operations:
             inverse = propose_inverse(
                 record, operations, roots, store=store, clock=clock, ids=ids
             )
-    if (
-        job is not None
-        and job.state is JobState.PLACED
-        and job.batch_id == record.batch.batch_id
-    ):
+    if job is not None and _awaits(job, record):
         now = clock.now_ms()
         job = job.filed(at=now) if failure is None else job.failed(failure, at=now)
         record_job_change(job, store=store, ids=ids)
-    return ReceiptRecorded(first=True, job=job, inverse=inverse)
+    return ReceiptRecorded(first=first, job=job, inverse=inverse)
