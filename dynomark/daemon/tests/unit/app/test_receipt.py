@@ -9,6 +9,7 @@ job like PARTIAL, and a receipt delivered twice is recorded once
 """
 
 from collections.abc import Callable, Iterable
+from dataclasses import replace
 
 import pytest
 
@@ -347,3 +348,38 @@ def test_a_partial_receipt_resent_after_a_kill_before_the_link_offers_one_invers
     original = store.get_batch(daemon.batch.batch_id)
     assert original is not None and original.undone_by == again.inverse.batch_id
     assert daemon.job_now().state is JobState.FAILED
+
+
+def _is_an_inverse(value: object) -> bool:
+    """The write that stores an inverse batch."""
+    return isinstance(value, BatchRecord) and value.undoes is not None
+
+
+def _jobless(store: DyingStore) -> Daemon:
+    """A daemon whose offered batch has no job, as a diff, undo, inverse or
+    writer-marker batch has none."""
+    daemon = Daemon(store)
+    record = store.get_batch(daemon.batch.batch_id)
+    assert record is not None
+    store.put_batch(replace(record, job_id=None))
+    return daemon
+
+
+def test_a_jobless_partial_receipt_resent_after_a_kill_offers_its_inverse() -> None:
+    """Given a batch with no job whose PARTIAL receipt was being recorded, and
+    the daemon was killed before the prefix inverse was stored, When the
+    receipt is re-sent, Then the inverse is stored, linked and offered, and
+    the batch's own offer is acknowledged."""
+    store = DyingStore()
+    daemon = _jobless(store)
+    store.kill_at("put_batch", _is_an_inverse)
+    with pytest.raises(SystemExit):
+        daemon.receive(_partial(daemon))
+
+    again = daemon.receive(_partial(daemon))
+
+    assert again.inverse is not None
+    assert again.inverse.operations == (CREATE_GRAVEYARD, REMOVE_CREATED)
+    original = store.get_batch(daemon.batch.batch_id)
+    assert original is not None and original.undone_by == again.inverse.batch_id
+    assert [o.batch for o in daemon.offers()] == [again.inverse]
