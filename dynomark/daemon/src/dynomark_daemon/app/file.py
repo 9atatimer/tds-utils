@@ -48,17 +48,18 @@ def saved_node_expect(job: Job, *, store: CorpusStorePort) -> Expect:
 
 
 def offer(record: BatchRecord, *, store: CorpusStorePort, ids: IdSource) -> WriteBatch:
-    """Store ``record`` and its ``batch.offer`` event (the outbox); the batch
-    also keeps the latest tree as its fallback export until a receipt
-    brings the pre-batch one."""
-    tree = store.latest_tree_snapshot()
-    if tree is not None and record.snapshot_id is None:
-        snapshot_id = SnapshotId(f"tree-{tree.taken_at}")
-        store.put_snapshot(snapshot_id, tree)
-        record = replace(record, snapshot_id=snapshot_id)
-    store.put_batch(record)
-    event = BatchOffered(event_id=EventId(ids.new_id("event")), batch=record.batch)
-    store.put_event(record.profile_id, event)
+    """Store ``record`` and its ``batch.offer`` event (the outbox), in one unit
+    of work; the batch also keeps the latest tree as its fallback export
+    until a receipt brings the pre-batch one."""
+    with store.atomic():
+        tree = store.latest_tree_snapshot()
+        if tree is not None and record.snapshot_id is None:
+            snapshot_id = SnapshotId(f"tree-{tree.taken_at}")
+            store.put_snapshot(snapshot_id, tree)
+            record = replace(record, snapshot_id=snapshot_id)
+        store.put_batch(record)
+        event = BatchOffered(event_id=EventId(ids.new_id("event")), batch=record.batch)
+        store.put_event(record.profile_id, event)
     return record.batch
 
 
@@ -73,7 +74,10 @@ def propose_inverse(
     ids: IdSource,
 ) -> WriteBatch:
     """Store and offer ``operations`` as the one recorded inverse of
-    ``original``; it carries the original's ``DiffItem`` reference."""
+    ``original``, and link it as ``original.undone_by``, in one unit of
+    work: callers make an inverse only while ``undone_by`` is unset, so an
+    offered inverse without that link would be offered again. It carries
+    the original's ``DiffItem`` reference."""
     if original.batch.diff_item_id is None:
         admit(operations, roots)
     batch = WriteBatch(
@@ -90,8 +94,9 @@ def propose_inverse(
         undoes=original.batch.batch_id,
         report=report,
     )
-    offered = offer(record, store=store, ids=ids)
-    store.put_batch(replace(original, undone_by=batch.batch_id))
+    with store.atomic():
+        offered = offer(record, store=store, ids=ids)
+        store.put_batch(replace(original, undone_by=batch.batch_id))
     return offered
 
 

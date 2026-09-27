@@ -44,7 +44,9 @@ def undo(
     ids: IdSource,
 ) -> Undone | NotWriter | WriterConflict:
     """The guarded inverse of an ``APPLIED`` batch, stored and offered once;
-    a writer in ``conflict`` refuses.
+    a writer in ``conflict`` refuses. One unit of work: the check that no
+    inverse is recorded and the inverse's creation cannot interleave with
+    another undo, and a crash leaves either both or neither.
 
     Raises:
         UnknownRecord: no such batch (``not_found``).
@@ -55,6 +57,18 @@ def undo(
         return NotWriter(use_case="undo")
     if conflict is not None:
         return conflict
+    with store.atomic():
+        return _undo(batch_id, roots, store=store, clock=clock, ids=ids)
+
+
+def _undo(
+    batch_id: BatchId,
+    roots: OwnedRoots,
+    *,
+    store: CorpusStorePort,
+    clock: Clock,
+    ids: IdSource,
+) -> Undone:
     record = store.get_batch(batch_id)
     if record is None:
         raise UnknownRecord(f"no batch {batch_id}")
