@@ -129,7 +129,11 @@ test('Given the pulled index, When the omnibox handler gets "tokio" (through the
       if ((seen[0] ?? []).length > 1) break;
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    // Wait for the tier-2 round itself (bounded), not a fixed time.
+    const deadline = Date.now() + 10_000;
+    while (!seen.some((round) => round.some((row) => row.startsWith('corpus '))) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     return seen;
   });
   expect(rounds[0]).toEqual(['local https://tokio.rs/tokio/tutorial', 'ask tokio']);
