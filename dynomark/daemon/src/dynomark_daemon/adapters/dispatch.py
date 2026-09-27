@@ -111,6 +111,7 @@ from dynomark_daemon.wire.mapping import (
     turn_from_wire,
     undo_drop_to_wire,
 )
+from dynomark_daemon.wire.messages import MESSAGE_MODELS
 
 T = TypeVar("T")
 
@@ -246,6 +247,26 @@ def _roots(session: Session) -> OwnedRoots:
     return session.roots
 
 
+# --- Handlers ---
+
+Handler = Callable[[m.AnyMessage, Session], Outcome]
+R = TypeVar("R", bound=m.AnyMessage)
+_TYPE_OF: Final[dict[type[object], str]] = {
+    model: name for name, model in MESSAGE_MODELS.items()
+}
+
+
+def _on(model: type[R], handle: Callable[[R, Session], Outcome]) -> tuple[str, Handler]:
+    """``handle`` registered for ``model``'s message type."""
+
+    def run(message: m.AnyMessage, session: Session) -> Outcome:
+        if not isinstance(message, model):
+            raise InvalidRequest(f"{message.type} is not a {_TYPE_OF[model]}")
+        return handle(message, session)
+
+    return _TYPE_OF[model], run
+
+
 # --- The dispatcher ---
 
 
@@ -271,6 +292,33 @@ class Dispatcher:
         self._transport = transport
         self._wake = wake
         self._timing = _Timing()
+        self._handlers: dict[str, Handler] = dict(
+            [
+                _on(m.Hello, self._hello),
+                _on(m.Status, self._status),
+                _on(m.Ingest, self._ingest),
+                _on(m.JobRetry, self._job_retry),
+                _on(m.JobList, self._job_list),
+                _on(m.TreeSnapshot, self._tree_snapshot),
+                _on(m.MoveObserved, self._move_observed),
+                _on(m.BatchReceiptMessage, self._batch_receipt),
+                _on(m.BatchList, self._batch_list),
+                _on(m.Undo, self._undo),
+                _on(m.EventsReplay, self._events_replay),
+                _on(m.EventsAck, self._events_ack),
+                _on(m.IndexPull, self._index_pull),
+                _on(m.Search, self._search),
+                _on(m.Ask, self._ask),
+                _on(m.PlacementExplain, self._placement_explain),
+                _on(m.DiffPropose, self._diff_propose),
+                _on(m.DiffList, self._diff_list),
+                _on(m.DiffPage, self._diff_page),
+                _on(m.DiffAccept, self._diff_accept),
+                _on(m.OutlineGet, self._outline_get),
+                _on(m.FolderFlagsSet, self._folder_flags_set),
+                _on(m.WriterStatus, self._writer_status),
+            ]
+        )
 
     # --- Entry points ---
 
@@ -350,58 +398,17 @@ class Dispatcher:
             log.exception("request.failed", type=message.type, request_id=request_id)
             return Outcome(_error(request_id, "internal", type(error).__name__))
 
+    def handled_types(self) -> frozenset[str]:
+        """The request types this dispatcher has a handler for."""
+        return frozenset(self._handlers)
+
     def _route(self, message: m.AnyMessage, session: Session) -> Outcome:
-        match message:
-            case m.Hello():
-                return self._hello(message, session)
-            case m.Status():
-                return self._status(message, session)
-            case m.Ingest():
-                return self._ingest(message, session)
-            case m.JobRetry():
-                return self._job_retry(message, session)
-            case m.JobList():
-                return self._job_list(message, session)
-            case m.TreeSnapshot():
-                return self._tree_snapshot(message, session)
-            case m.MoveObserved():
-                return self._move_observed(message, session)
-            case m.BatchReceiptMessage():
-                return self._batch_receipt(message, session)
-            case m.BatchList():
-                return self._batch_list(message, session)
-            case m.Undo():
-                return self._undo(message, session)
-            case m.EventsReplay():
-                return self._events_replay(message, session)
-            case m.EventsAck():
-                return self._events_ack(message, session)
-            case m.IndexPull():
-                return self._index_pull(message)
-            case m.Search():
-                return self._search(message)
-            case m.PlacementExplain():
-                return self._placement_explain(message)
-            case m.Ask():
-                return self._ask(message)
-            case m.DiffPropose():
-                return self._diff_propose(message, session)
-            case m.DiffList():
-                return self._diff_list(message)
-            case m.DiffPage():
-                return self._diff_page(message)
-            case m.DiffAccept():
-                return self._diff_accept(message, session)
-            case m.OutlineGet():
-                return self._outline_get(message, session)
-            case m.FolderFlagsSet():
-                return self._folder_flags_set(message, session)
-            case m.WriterStatus():
-                return self._writer_status(message, session)
-            case _:
-                request_id = getattr(message, "id", None)
-                detail = f"{message.type} is not a request this daemon serves"
-                return Outcome(_error(request_id, "invalid", detail))
+        handler = self._handlers.get(message.type)
+        if handler is None:
+            request_id = getattr(message, "id", None)
+            detail = f"{message.type} is not a request this daemon serves"
+            return Outcome(_error(request_id, "invalid", detail))
+        return handler(message, session)
 
     # --- Connection ---
 
@@ -659,7 +666,7 @@ class Dispatcher:
 
     # --- Index, search, placement, outline ---
 
-    def _index_pull(self, message: m.IndexPull) -> Outcome:
+    def _index_pull(self, message: m.IndexPull, session: Session) -> Outcome:
         reply = _fit_page(
             lambda limit: local_index_page(message.cursor, limit, store=self._store),
             lambda rows, cursor: m.IndexPullResult(
@@ -673,7 +680,7 @@ class Dispatcher:
         )
         return Outcome(reply)
 
-    def _search(self, message: m.Search) -> Outcome:
+    def _search(self, message: m.Search, session: Session) -> Outcome:
         reply = _fit_page(
             lambda limit: search_page(
                 Query(message.query),
@@ -693,7 +700,7 @@ class Dispatcher:
         )
         return Outcome(reply)
 
-    def _ask(self, message: m.Ask) -> Outcome:
+    def _ask(self, message: m.Ask, session: Session) -> Outcome:
         answer = ask(
             Question(message.question),
             [turn_from_wire(turn) for turn in message.history],
@@ -706,7 +713,9 @@ class Dispatcher:
         )
         return Outcome(_fit_answer(reply))
 
-    def _placement_explain(self, message: m.PlacementExplain) -> Outcome:
+    def _placement_explain(
+        self, message: m.PlacementExplain, session: Session
+    ) -> Outcome:
         identity = (
             Identity(message.identity)
             if message.identity is not None
@@ -743,7 +752,7 @@ class Dispatcher:
             )
         )
 
-    def _diff_list(self, message: m.DiffList) -> Outcome:
+    def _diff_list(self, message: m.DiffList, session: Session) -> Outcome:
         reply = _fit_page(
             lambda limit: list_diffs_page(message.cursor, limit, store=self._store),
             lambda diffs, cursor: m.DiffListResult(
@@ -757,7 +766,7 @@ class Dispatcher:
         )
         return Outcome(reply)
 
-    def _diff_page(self, message: m.DiffPage) -> Outcome:
+    def _diff_page(self, message: m.DiffPage, session: Session) -> Outcome:
         diff_id = DiffId(message.diff_id)
         diff, _ = diff_items_page(diff_id, message.cursor, 1, store=self._store)
         reply = _fit_page(
