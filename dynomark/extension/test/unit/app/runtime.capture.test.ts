@@ -42,6 +42,12 @@ describe('Background-tab capture on the writer', () => {
     expect(w.backgroundTabs.opened).toEqual([URL]);
   });
 
+  it('Given a save already in Follow Up at a full hello (the backlog re-sent on every hello), When it is re-sent, Then no background tab is opened for it', async () => {
+    const { w, ids } = await setup();
+    expect(sentOf(w, 'ingest').map((r) => r.bookmark.node_id)).toEqual([ids.saved]);
+    expect(w.backgroundTabs.opened).toEqual([]);
+  });
+
   it('Given a reader host, When a save no tab shows arrives, Then no background tab is opened and ingest carries source none', async () => {
     const { w, ids, runtime } = await setup('reader');
     expect((await save(w, runtime, ids.followUp))?.capture).toEqual({ source: 'none', text: '' });

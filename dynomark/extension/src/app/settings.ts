@@ -3,7 +3,7 @@
 // secret). The profile id is generated once and kept (contract v1 README,
 // "Connection lifecycle", step 1).
 
-import { newSettings, type Settings } from '../domain/settings.js';
+import { newSettings, withChange, type Settings, type SettingsChange } from '../domain/settings.js';
 import type { IdSource } from '../ports/idSource.js';
 import type { StoragePort } from '../ports/storage.js';
 
@@ -18,13 +18,13 @@ export async function ensureSettings(deps: { readonly storage: StoragePort; read
   return fresh;
 }
 
-/** Turn capture from an open tab on or off; returns the settings as stored. */
-export async function setCaptureFromTab(
+/** Change the Follow Up behaviour settings (open-tab and background-tab capture); returns the settings as stored. */
+export async function changeSettings(
   settings: Settings,
-  capture_from_tab: boolean,
+  change: SettingsChange,
   deps: { readonly storage: StoragePort },
 ): Promise<Settings> {
-  const next = { ...settings, capture_from_tab };
+  const next = withChange(settings, change);
   await deps.storage.saveSettings(next);
   return next;
 }

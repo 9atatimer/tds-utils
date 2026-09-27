@@ -51,8 +51,16 @@ export function isExtensionCapture(capture: Capture): capture is ExtensionCaptur
 
 // --- Pure helpers ---
 
-/** A `tab` capture of what the tab shows, within the caps and well-formed; `NO_CAPTURE` when it has no readable text. */
+/** Where a page the extension read was showing: a tab the user had open, or one the writer opened in the background. */
+export type PageSource = Extract<CaptureSource, 'tab' | 'background_tab'>;
+
+/** A capture of what a page shows, within the caps and well-formed; `NO_CAPTURE` when it has no readable text. */
+export function captureFromPage(page: TabContent, source: PageSource): ExtensionCapture {
+  if (page.text.trim() === '') return NO_CAPTURE;
+  return { source, text: fitText(page.text, MAX_CAPTURE_TEXT).text, title: fitText(page.title, MAX_TITLE).text };
+}
+
+/** A `tab` capture of what an open tab shows. */
 export function captureFromTab(tab: TabContent): ExtensionCapture {
-  if (tab.text.trim() === '') return NO_CAPTURE;
-  return { source: 'tab', text: fitText(tab.text, MAX_CAPTURE_TEXT).text, title: fitText(tab.title, MAX_TITLE).text };
+  return captureFromPage(tab, 'tab');
 }

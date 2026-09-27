@@ -7,7 +7,7 @@
 // its code.
 
 import type { Settings } from '../domain/settings.js';
-import { capturesFromTab } from '../domain/settings.js';
+import { capturesFromTab, capturesInBackground, type SettingsChange } from '../domain/settings.js';
 import { isOpenable } from '../domain/search.js';
 import type { FolderPath } from '../domain/tree.js';
 import type { BookmarkTreePort } from '../ports/bookmarkTree.js';
@@ -36,7 +36,7 @@ export interface PageContext {
   link(): LinkState;
   outcome(): HelloOutcome | undefined;
   settings(): Settings;
-  setCaptureFromTab(value: boolean): Promise<Settings>;
+  changeSettings(change: SettingsChange): Promise<Settings>;
   followUp(): FolderPath | undefined;
   problems(): readonly string[];
 }
@@ -83,7 +83,11 @@ async function overview(context: PageContext): Promise<Overview> {
   const writer = await writerSection(context);
   const now = context.outcome();
   return {
-    settings: { profile_id: settings.profile_id, capture_from_tab: capturesFromTab(settings) },
+    settings: {
+      profile_id: settings.profile_id,
+      capture_from_tab: capturesFromTab(settings),
+      capture_in_background: capturesInBackground(settings),
+    },
     problems: context.problems(),
     ...(followUp === undefined ? {} : { follow_up: followUp }),
     ...daemon,
@@ -152,8 +156,14 @@ export async function answerPage(request: PageRequest, context: PageContext): Pr
   try {
     if (request.kind === 'overview') return { ok: true, kind: 'overview', overview: await overview(context) };
     if (request.kind === 'settings.set') {
-      const settings = await context.setCaptureFromTab(request.capture_from_tab);
-      return { ok: true, kind: 'settings.set', capture_from_tab: capturesFromTab(settings) };
+      const { kind: _kind, ...change } = request;
+      const settings = await context.changeSettings(change);
+      return {
+        ok: true,
+        kind: 'settings.set',
+        capture_from_tab: capturesFromTab(settings),
+        capture_in_background: capturesInBackground(settings),
+      };
     }
     return await ask(request, context);
   } catch (error) {

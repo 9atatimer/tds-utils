@@ -12,7 +12,7 @@
 // events to the TreeWatch; a lost link is reconnected with backoff. Every
 // step is short and repeatable: the worker can die between any two events.
 
-import type { Settings } from '../domain/settings.js';
+import type { Settings, SettingsChange } from '../domain/settings.js';
 import { isOpenable } from '../domain/search.js';
 import type { BookmarkTreePort } from '../ports/bookmarkTree.js';
 import type { BookmarkEvent } from '../ports/bookmarkEvents.js';
@@ -39,7 +39,7 @@ import { OmniboxSession, type Suggest } from './omnibox.js';
 import { onConnected } from './onConnected.js';
 import { answerPage } from './pages.js';
 import { Reconnector } from './reconnect.js';
-import { ensureSettings, setCaptureFromTab } from './settings.js';
+import { changeSettings, ensureSettings } from './settings.js';
 import { SubmittedSaves } from './submitSave.js';
 import { TreeWatch } from './treeWatch.js';
 import { WriterWatch } from './writerWatch.js';
@@ -58,6 +58,8 @@ export interface RuntimePorts {
   readonly tree: BookmarkTreePort;
   readonly history: HistoryPort;
   readonly content: ContentSourcePort;
+  /** Opens a URL in a background tab and reads it (the writer's third ContentSourcePort adapter). */
+  readonly background: ContentSourcePort;
   readonly storage: StoragePort;
   readonly transport: TransportPort & TransportLink;
   readonly clock: Clock;
@@ -169,7 +171,7 @@ export class ExtensionRuntime {
       link: () => this.ports.transport.linkState(),
       outcome: () => started.connection.outcome(),
       settings: () => this.state?.settings ?? started.settings,
-      setCaptureFromTab: (value) => this.updateCapture(value),
+      changeSettings: (change) => this.updateSettings(change),
       followUp: () => this.state?.followUp.path,
       problems: () => [...this.problemLog],
     });
@@ -243,9 +245,9 @@ export class ExtensionRuntime {
     return (await this.ready).connection;
   }
 
-  private async updateCapture(value: boolean): Promise<Settings> {
+  private async updateSettings(change: SettingsChange): Promise<Settings> {
     const started = await this.ready;
-    const next = await setCaptureFromTab(this.state?.settings ?? started.settings, value, this.ports);
+    const next = await changeSettings(this.state?.settings ?? started.settings, change, this.ports);
     this.state = { ...(this.state ?? started), settings: next };
     return next;
   }

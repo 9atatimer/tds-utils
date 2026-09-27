@@ -18,6 +18,8 @@ export function chromePorts() {
     tree: new ChromeBookmarkTree(),
     history: new ChromeHistory(),
     content: new ChromeTabContent(),
+    // The background-tab adapter is not built yet: nothing is opened, the daemon fetches.
+    background: { readTab: () => Promise.resolve(undefined) },
     storage: new ChromeStorage(),
     transport: new NativeMessagingTransport(),
     clock: new SystemClock(),

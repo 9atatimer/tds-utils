@@ -6,8 +6,8 @@
 // schedules one debounced tree.snapshot. Every step is short and repeatable:
 // the worker can die between any two events, and ingest is idempotent.
 
-import { capturesFromTab, type Settings } from '../domain/settings.js';
-import { NO_CAPTURE } from '../domain/capture.js';
+import { capturesFromTab, capturesInBackground, type Settings } from '../domain/settings.js';
+import { NO_CAPTURE, type ExtensionCapture } from '../domain/capture.js';
 import { folderPathOf, isPathInside, resolveFolderPath } from '../domain/paths.js';
 import type { Bookmark, FolderPath, OwnedRoots, SnapshotNode, TreeRead } from '../domain/tree.js';
 import type { NodeId } from '../domain/values.js';
@@ -29,11 +29,15 @@ import { submitSave, type SubmittedSaves } from './submitSave.js';
 /** Quiet time after the last change under the owned roots before tree.snapshot is sent. */
 export const SNAPSHOT_DEBOUNCE_MS = 2000;
 
+/** Open-tab capture is off: no tab is read. */
+const NOTHING_OPEN: ContentSourcePort = { readTab: () => Promise.resolve(undefined) };
+
 // --- Types ---
 
 export interface TreeWatchDeps {
   readonly tree: BookmarkTreePort;
   readonly content: ContentSourcePort;
+  readonly background: ContentSourcePort;
   readonly transport: TransportPort;
   readonly ids: IdSource;
   readonly clock: Clock;
@@ -104,13 +108,18 @@ export class TreeWatch {
     }
   }
 
-  /** Ingest every bookmark now in Follow Up (after a full hello: repeats are no-ops on the daemon). */
+  /**
+   * Ingest every bookmark now in Follow Up (after a full hello: repeats are
+   * no-ops on the daemon). Open tabs only: the backlog is re-sent on every
+   * hello, and a worker says hello often, so a background tab here would
+   * reopen every waiting save each time; the created event carries the chain.
+   */
   async submitBacklog(): Promise<void> {
     const path = this.context.followUp();
     if (path === undefined) return;
     const id = await this.deps.tree.resolveFolder(path);
     if (id === undefined) return;
-    for (const node of await this.deps.tree.getChildren(id)) await this.save(node);
+    for (const node of await this.deps.tree.getChildren(id)) await this.save(node, { background: false });
   }
 
   // --- Flow ---
@@ -137,12 +146,23 @@ export class TreeWatch {
     );
   }
 
-  private async save(node: SnapshotNode): Promise<void> {
+  private async save(node: SnapshotNode, options: { readonly background: boolean } = { background: true }): Promise<void> {
     const path = this.context.followUp();
     const bookmark = path === undefined ? undefined : bookmarkOf(node, path);
     if (bookmark === undefined) return;
-    const content = capturesFromTab(this.context.settings()) ? await capture(bookmark, this.deps) : NO_CAPTURE;
+    const submitted = this.deps.saves.get(bookmark.node_id, bookmark.url)?.outcome !== undefined;
+    const content = submitted ? NO_CAPTURE : await this.captureOf(bookmark, options.background);
     await submitSave(bookmark, content, this.deps);
+  }
+
+  /** The capture chain the settings and role allow: open tab (setting), background tab (writer, setting), else none. */
+  private async captureOf(bookmark: Bookmark, allowBackground: boolean): Promise<ExtensionCapture> {
+    const settings = this.context.settings();
+    const writer = this.context.outcome()?.role === 'writer';
+    const background = allowBackground && writer && capturesInBackground(settings) ? this.deps.background : undefined;
+    const content = capturesFromTab(settings) ? this.deps.content : NOTHING_OPEN;
+    if (content === NOTHING_OPEN && background === undefined) return NO_CAPTURE;
+    return capture(bookmark, { content, ...(background === undefined ? {} : { background }) });
   }
 
   /** Schedule one tree.snapshot when any of these folders lies under an owned root (full connections only). */

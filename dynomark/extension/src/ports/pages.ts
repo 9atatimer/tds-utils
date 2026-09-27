@@ -20,7 +20,7 @@ import type { EpochMs, Id, Identity, NodeId, Title, Url } from '../domain/values
 
 export type PageRequest =
   | { readonly kind: 'overview' }
-  | { readonly kind: 'settings.set'; readonly capture_from_tab: boolean }
+  | { readonly kind: 'settings.set'; readonly capture_from_tab?: boolean; readonly capture_in_background?: boolean }
   | { readonly kind: 'batch.list'; readonly cursor?: Cursor }
   | { readonly kind: 'undo'; readonly batch_id: BatchId }
   | { readonly kind: 'job.list'; readonly cursor?: Cursor }
@@ -57,7 +57,7 @@ export interface Overview {
   /** The writer marker as the daemon last reported it; `conflict` is shown prominently. */
   readonly writer?: WriterStatus;
   readonly writer_error?: string;
-  readonly settings: { readonly profile_id: string; readonly capture_from_tab: boolean };
+  readonly settings: { readonly profile_id: string; readonly capture_from_tab: boolean; readonly capture_in_background: boolean };
   readonly follow_up?: FolderPath;
   /** Things the user should know (extra Follow Up folders, failed background work), newest last. */
   readonly problems: readonly string[];
@@ -65,7 +65,7 @@ export interface Overview {
 
 export type PageResponse =
   | { readonly ok: true; readonly kind: 'overview'; readonly overview: Overview }
-  | { readonly ok: true; readonly kind: 'settings.set'; readonly capture_from_tab: boolean }
+  | { readonly ok: true; readonly kind: 'settings.set'; readonly capture_from_tab: boolean; readonly capture_in_background: boolean }
   | {
       readonly ok: true;
       readonly kind: 'batch.list';
