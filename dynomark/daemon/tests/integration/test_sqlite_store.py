@@ -230,6 +230,32 @@ def test_a_failed_replace_leaves_knn_on_the_committed_vector(tmp_path: Path) -> 
     assert _nearest(store) == ["https://a.example/", "https://b.example/"]
 
 
+@pytest.mark.parametrize("placed_only", [False, True])
+def test_a_vector_beyond_float32_ranks_as_unrelated_not_unordered(
+    tmp_path: Path, placed_only: bool
+) -> None:
+    """Given a placed entry whose vector overflows float32 (stored as inf, so
+    its cosine is inf/inf), When KNN ranks every placed entry, Then it scores
+    0.0 and the rest keep their order (a NaN score breaks ``sorted``, and the
+    placed rows come out of a set, so the top-k varied with the hash seed)."""
+    store = SqliteCorpusStore.open(tmp_path / "corpus.sqlite3")
+    for url, vector in (
+        ("https://a.example/", (1.0, 0.0)),
+        ("https://b.example/", (1e39, 1.0)),
+        ("https://c.example/", (1.0, 1.0)),
+    ):
+        store.put_entry(make_entry(url, vector=vector))
+        store.put_placement(make_placement(url))
+
+    found = store.knn_candidates((1.0, 0.0), limit=5, placed_only=placed_only)
+
+    assert [(c.identity.value, round(c.score, 3)) for c in found] == [
+        ("https://a.example/", 1.0),
+        ("https://c.example/", 0.707),
+        ("https://b.example/", 0.0),
+    ]
+
+
 def test_health_counts_entries_and_jobs_and_checks_integrity(tmp_path: Path) -> None:
     """Given a store with one entry and two jobs, When its health is read, Then
     it reports the schema version, the counts and an ok integrity check."""
