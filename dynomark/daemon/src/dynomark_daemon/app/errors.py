@@ -16,3 +16,11 @@ class UnknownRecord(UseCaseError, LookupError):
 class TreeNotReady(UseCaseError):
     """No ``tree.snapshot`` holds what the use case must resolve yet; it runs
     again after the next one."""
+
+
+class InvalidRequest(UseCaseError):
+    """A well-formed request the daemon cannot act on (``invalid``)."""
+
+
+class Busy(UseCaseError):
+    """Temporarily unable; the same request succeeds later (``busy``)."""

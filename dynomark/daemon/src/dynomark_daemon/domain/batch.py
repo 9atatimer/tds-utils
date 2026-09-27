@@ -201,6 +201,9 @@ class BatchRecord:
     undoes: BatchId | None = None
     undone_by: BatchId | None = None
     report: tuple[UndoDrop, ...] = ()
+    tree_since_receipt: bool = False
+    """A ``tree.snapshot`` was recorded after the receipt: the undo guard may
+    run (contract v1, Undo guard)."""
 
     def with_receipt(
         self, receipt: BatchReceipt, snapshot_id: SnapshotId | None
@@ -362,38 +365,84 @@ def plan_inverse(
     return tuple(r for r in reverts if r is not None)
 
 
-# --- Inverting an applied batch ---
+# --- Inverting an applied batch (Goal 6; The daemon, "Undo") ---
 
 
-def _inverse_op(
-    op: Operation,
-    revert: Revert,
-    applied: OpApplied,
-    *,
-    index: int,
-    folder_id: dict[FolderPath, NodeId],
-    tree: Snapshot,
-    roots: OwnedRoots,
+@dataclass(frozen=True, slots=True)
+class _Inverting:
+    """What inverting one batch knows: the ops it changed, the folders it
+    created, and the tree read after it."""
+
+    batch: WriteBatch
+    changed: dict[int, OpApplied]
+    created: dict[FolderPath, NodeId]
+    tree: Snapshot
+    roots: OwnedRoots
+
+    def folder_id(self, path: FolderPath) -> NodeId | None:
+        return self.created.get(path) or self.tree.resolve(path)
+
+    def left_in(self, op: Operation) -> FolderPath:
+        """The folder the op left its node in."""
+        match op:
+            case OpCreateFolder() | OpCreate():
+                return op.parent
+            case OpMove():
+                return op.to
+            case OpRemove():
+                return self.roots.graveyard
+
+    def moved_node(self, op: Operation) -> NodeId:
+        match op:
+            case OpCreateFolder() | OpCreate():
+                return self.changed[op.index].node_id
+            case OpMove() | OpRemove():
+                return op.node_id
+
+
+def _guard(
+    op: Operation, inverting: _Inverting, leaving: set[NodeId]
+) -> UndoDropReason | None:
+    """Why the undo guard drops the step reverting ``op``: its node is gone,
+    is no longer where the batch left it, or is a created folder that other
+    items (not moved out by earlier steps) now fill."""
+    node_id = inverting.moved_node(op)
+    node = inverting.tree.node(node_id)
+    if node is None:
+        return UndoDropReason.NODE_MISSING
+    if node.parent_id != inverting.folder_id(inverting.left_in(op)):
+        return UndoDropReason.NODE_MOVED
+    if isinstance(op, OpCreateFolder):
+        others = [
+            c for c in inverting.tree.children(node_id) if c.node_id not in leaving
+        ]
+        if others:
+            return UndoDropReason.NOT_EMPTY
+    return None
+
+
+def _step(
+    op: Operation, revert: Revert, inverting: _Inverting, *, index: int
 ) -> Operation | None:
-    def id_of(path: FolderPath) -> NodeId | None:
-        return folder_id.get(path) or tree.resolve(path)
-
+    """The concrete op reverting ``op``, or ``None`` when a folder it needs
+    no longer resolves."""
+    left_in = inverting.left_in(op)
+    left_id = inverting.folder_id(left_in)
+    if left_id is None:
+        return None
     match op:
         case OpCreateFolder() | OpCreate():
-            parent_id = id_of(op.parent)
-            if parent_id is None:
-                return None
             expect = Expect(
-                parent_id=parent_id,
-                parent_path=op.parent,
+                parent_id=left_id,
+                parent_path=left_in,
                 empty=isinstance(op, OpCreateFolder),
             )
-            return OpRemove(index=index, node_id=applied.node_id, expect=expect)
+            return OpRemove(
+                index=index, node_id=inverting.moved_node(op), expect=expect
+            )
         case OpMove() | OpRemove():
-            left_in = op.to if isinstance(op, OpMove) else roots.graveyard
-            back = revert.back_to or tree.path_of(op.expect.parent_id)
-            left_id = id_of(left_in)
-            if back is None or left_id is None:
+            back = revert.back_to or inverting.tree.path_of(op.expect.parent_id)
+            if back is None:
                 return None
             return OpMove(
                 index=index,
@@ -403,36 +452,65 @@ def _inverse_op(
             )
 
 
+def _invert(
+    batch: WriteBatch,
+    applied: Sequence[OpApplied],
+    tree: Snapshot,
+    roots: OwnedRoots,
+    *,
+    guarded: bool,
+) -> tuple[tuple[Operation, ...], tuple[UndoDrop, ...]]:
+    changed = {a.index: a for a in applied if a.changed}
+    inverting = _Inverting(
+        batch=batch,
+        changed=changed,
+        created={
+            op.parent.child(op.title): changed[op.index].node_id
+            for op in batch.operations
+            if isinstance(op, OpCreateFolder) and op.index in changed
+        },
+        tree=tree,
+        roots=roots,
+    )
+    ops: list[Operation] = []
+    drops: list[UndoDrop] = []
+    leaving: set[NodeId] = set()
+    for revert in batch.inverse:
+        if revert.of_index not in changed:
+            continue
+        op = batch.operations[revert.of_index]
+        reason = _guard(op, inverting, leaving) if guarded else None
+        step = None if reason else _step(op, revert, inverting, index=len(ops))
+        if step is None:
+            drops.append(UndoDrop(op.index, reason or UndoDropReason.NODE_MOVED))
+            continue
+        ops.append(step)
+        leaving.add(inverting.moved_node(op))
+    return tuple(ops), tuple(drops)
+
+
 def invert(
     batch: WriteBatch,
     applied: Sequence[OpApplied],
     tree: Snapshot,
     roots: OwnedRoots,
 ) -> tuple[Operation, ...]:
-    """The concrete inverse of the ops ``applied`` with ``changed`` true, last
-    first: a created node goes to ``Graveyard`` (a folder only if empty), a
-    moved or removed node goes back. Node ids a create minted come from
-    ``applied``; every other folder id from ``tree``. A step whose folder
-    cannot be resolved is left out."""
-    changed = {a.index: a for a in applied if a.changed}
-    folder_id = {
-        op.parent.child(op.title): changed[op.index].node_id
-        for op in batch.operations
-        if isinstance(op, OpCreateFolder) and op.index in changed
-    }
-    ops: list[Operation] = []
-    for revert in batch.inverse:
-        if revert.of_index not in changed:
-            continue
-        op = _inverse_op(
-            batch.operations[revert.of_index],
-            revert,
-            changed[revert.of_index],
-            index=len(ops),
-            folder_id=folder_id,
-            tree=tree,
-            roots=roots,
-        )
-        if op is not None:
-            ops.append(op)
-    return tuple(ops)
+    """The inverse of the ops ``applied`` with ``changed`` true, last first: a
+    created node goes to ``Graveyard`` (a folder only if empty), a moved or
+    removed node goes back. Node ids a create minted come from ``applied``,
+    every other folder id from ``tree``. Unguarded (a ``PARTIAL`` prefix):
+    the extension re-checks each ``Expect`` when it applies it."""
+    return _invert(batch, applied, tree, roots, guarded=False)[0]
+
+
+def guarded_inverse(
+    batch: WriteBatch,
+    applied: Sequence[OpApplied],
+    tree: Snapshot,
+    roots: OwnedRoots,
+) -> tuple[tuple[Operation, ...], tuple[UndoDrop, ...]]:
+    """The undo of an applied batch against the tree read after its receipt:
+    ``invert`` keeping only the steps whose node is still where the batch left
+    it, and a folder removal only if nothing else fills the folder. The rest
+    are dropped and reported, by the original op's index."""
+    return _invert(batch, applied, tree, roots, guarded=True)
