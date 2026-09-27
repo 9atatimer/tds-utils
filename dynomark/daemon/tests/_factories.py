@@ -35,10 +35,12 @@ from dynomark_daemon.domain.placement import (
 from dynomark_daemon.domain.tree import (
     FolderPath,
     NodeKind,
+    OutlineFolder,
     RootIds,
     RootKey,
     Snapshot,
     SnapshotNode,
+    TreeOutline,
 )
 
 
@@ -207,4 +209,28 @@ def make_diff(
         kind=DiffKind.REBUILD,
         proposed_at=proposed_at,
         items=items if items is not None else (make_diff_item(diff_id=diff_id),),
+    )
+
+
+def make_outline_folder(
+    *names: str,
+    node_id: str | None = None,
+    locked: bool = False,
+    pinned: bool = False,
+    item_count: int = 0,
+) -> OutlineFolder:
+    return OutlineFolder(
+        node_id=NodeId(node_id or "n-" + "-".join(names)),
+        path=make_path(*names),
+        pinned=pinned,
+        locked=locked,
+        item_count=item_count,
+    )
+
+
+def make_outline(*folders: OutlineFolder) -> TreeOutline:
+    """The Dynomark subtree: ``Dynomark`` itself plus ``folders``."""
+    return TreeOutline(
+        root=make_path("Dynomark"),
+        folders=(make_outline_folder("Dynomark"), *folders),
     )

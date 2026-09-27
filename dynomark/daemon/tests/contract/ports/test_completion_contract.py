@@ -25,7 +25,7 @@ from tests._factories import make_bookmark, make_capture, make_entry, make_path
 
 pytestmark = pytest.mark.contract
 
-EMPTY = TreeOutline(folders=())
+EMPTY = TreeOutline(root=make_path("Dynomark"), folders=())
 RUST = FolderChoice(folder=make_path("Dynomark", "Rust"), rationale="neighbours")
 
 
