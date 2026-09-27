@@ -5,6 +5,7 @@ import { SystemClock } from '../clock.js';
 import { CryptoIdSource } from '../idSource.js';
 import { SystemTimer } from '../timer.js';
 import { ChromeBookmarkTree } from './bookmarkTree.js';
+import { ChromeChatSurface } from './chatSurface.js';
 import { ChromeHistory } from './history.js';
 import { NativeMessagingTransport } from './nativeTransport.js';
 import { ChromeNavigator } from './navigator.js';
@@ -23,5 +24,6 @@ export function chromePorts() {
     ids: new CryptoIdSource(),
     timer: new SystemTimer(),
     navigator: new ChromeNavigator(),
+    surface: new ChromeChatSurface(),
   };
 }

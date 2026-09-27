@@ -15,6 +15,7 @@
 
 import { z } from 'zod';
 import { listenBookmarkEvents } from './adapters/chrome/bookmarkEvents.js';
+import { OPEN_CHAT_COMMAND, listenCommands } from './adapters/chrome/commands.js';
 import { listenOmnibox } from './adapters/chrome/omnibox.js';
 import { servePages } from './adapters/chrome/pageChannel.js';
 import { chromePorts } from './adapters/chrome/ports.js';
@@ -31,6 +32,7 @@ listenOmnibox({
   enter: (text, disposition) => void runtime.omniboxEnter(text, disposition),
 });
 servePages((request) => runtime.page(request));
+listenCommands({ [OPEN_CHAT_COMMAND]: () => void runtime.openChat() });
 
 (globalThis as { dynomark?: ExtensionRuntime }).dynomark = runtime;
 

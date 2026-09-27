@@ -132,8 +132,8 @@ test('Given the pulled index, When the omnibox handler gets "tokio" (through the
     await new Promise((resolve) => setTimeout(resolve, 1_000));
     return seen;
   });
-  expect(rounds[0]).toEqual(['local https://tokio.rs/tokio/tutorial']);
-  expect(rounds.at(-1)).toEqual(['local https://tokio.rs/tokio/tutorial', 'corpus https://without.boats/blog/pin/']);
+  expect(rounds[0]).toEqual(['local https://tokio.rs/tokio/tutorial', 'ask tokio']);
+  expect(rounds.at(-1)).toEqual(['local https://tokio.rs/tokio/tutorial', 'corpus https://without.boats/blog/pin/', 'ask tokio']);
   expect(ext.daemon.of('search').map((r) => r.query)).toEqual(['tokio']);
   await worker.evaluate(() =>
     (globalThis as unknown as { dynomark: { omniboxEnter(t: string, d: string): Promise<void> } }).dynomark.omniboxEnter(

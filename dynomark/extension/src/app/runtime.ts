@@ -16,6 +16,7 @@ import type { Settings } from '../domain/settings.js';
 import { isOpenable } from '../domain/search.js';
 import type { BookmarkTreePort } from '../ports/bookmarkTree.js';
 import type { BookmarkEvent } from '../ports/bookmarkEvents.js';
+import type { ChatSurfacePort } from '../ports/chatSurface.js';
 import type { Clock } from '../ports/clock.js';
 import type { ContentSourcePort } from '../ports/contentSource.js';
 import type { HistoryPort } from '../ports/history.js';
@@ -59,6 +60,7 @@ export interface RuntimePorts {
   readonly ids: IdSource;
   readonly timer: Timer;
   readonly navigator: Navigator;
+  readonly surface: ChatSurfacePort;
 }
 
 /** What start() established; the rest of the runtime waits for it. */
@@ -132,11 +134,16 @@ export class ExtensionRuntime {
     this.omnibox.input(text, suggest);
   }
 
-  /** Omnibox Enter: open the chosen hit's identity (http(s) only). */
+  /** Omnibox Enter: open the chosen hit's identity (http(s) only), or open the chat surface with the question. */
   async omniboxEnter(text: string, disposition: Disposition): Promise<void> {
-    const identity = this.omnibox.target(text);
-    if (identity === undefined || !isOpenable(identity)) return;
-    await this.ports.navigator.open(identity, disposition);
+    const action = this.omnibox.enter(text);
+    if (action.kind === 'ask') await this.ports.surface.open(action.question);
+    else if (action.kind === 'open' && isOpenable(action.identity)) await this.ports.navigator.open(action.identity, disposition);
+  }
+
+  /** The keyboard command: open the chat surface empty. */
+  async openChat(): Promise<void> {
+    await this.ports.surface.open(undefined);
   }
 
   /** Answer an extension page. */

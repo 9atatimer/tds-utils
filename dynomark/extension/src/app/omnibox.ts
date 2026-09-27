@@ -2,13 +2,14 @@
 // search, Tier-2 search; Goal 4). Each keystroke is answered at once from the
 // LocalIndex (search_local, no transport call). When tier 1 is under the
 // named thresholds, search_remote runs after a debounce and its hits are
-// appended below tier 1 -- unless a newer keystroke arrived meanwhile. Enter
-// opens the hit's identity; which hit is decided here, the opening is the
-// runtime's.
+// appended below tier 1 -- unless a newer keystroke arrived meanwhile. The
+// Ask row always comes last (design, "Ask fall-through"). What Enter does is
+// decided here (the domain's enterAction); opening a page or the chat surface
+// is the runtime's.
 
+import { enterAction, omniboxRows, type EnterAction, type OmniboxRows } from '../domain/omnibox.js';
 import { appendTier2, shouldRequestTier2, type Frecency, type Hit, type LocalIndex, type Query } from '../domain/search.js';
 import type { OwnedRoots } from '../domain/tree.js';
-import type { Identity } from '../domain/values.js';
 import type { IdSource } from '../ports/idSource.js';
 import type { Timer } from '../ports/timer.js';
 import type { TransportPort } from '../ports/transport.js';
@@ -19,8 +20,8 @@ import { searchRemote } from './searchRemote.js';
 
 /** Quiet time after the last keystroke before tier 2 is asked. */
 export const TIER2_DEBOUNCE_MS = 250;
-/** Suggestions shown at most (the address bar shows a handful). */
-export const OMNIBOX_LIMIT = 8;
+/** Hits shown at most: with the Ask row, eight rows (the address bar shows a handful). */
+export const OMNIBOX_HIT_LIMIT = 7;
 
 // --- Types ---
 
@@ -35,7 +36,7 @@ export interface OmniboxDeps {
   track(work: Promise<unknown>): void;
 }
 
-export type Suggest = (hits: readonly Hit[]) => void;
+export type Suggest = (rows: OmniboxRows) => void;
 
 // --- The session ---
 
@@ -46,28 +47,28 @@ export class OmniboxSession {
 
   constructor(private readonly deps: OmniboxDeps) {}
 
-  /** Answer one keystroke: tier 1 now, tier 2 appended after the debounce when tier 1 is not enough. */
+  /** Answer one keystroke: tier 1 now, tier 2 appended after the debounce when tier 1 is not enough; the Ask row last. */
   input(text: Query, suggest: Suggest): void {
     this.current = text;
     this.cancelTier2?.();
     this.cancelTier2 = undefined;
     const tier1 = this.local(text);
     this.shown = tier1;
-    suggest(tier1);
+    suggest(omniboxRows(text, tier1));
     if (text.trim() === '' || !shouldRequestTier2(tier1)) return;
     this.cancelTier2 = this.deps.timer.after(TIER2_DEBOUNCE_MS, () => this.deps.track(this.tier2(text, tier1, suggest)));
   }
 
-  /** The identity Enter opens: the picked suggestion (its content is its identity), else the best tier-1 hit. */
-  target(text: string): Identity | undefined {
-    const picked = this.shown.find((h) => h.identity === text);
-    return picked?.identity ?? this.local(text)[0]?.identity;
+  /** What Enter on `text` does: the picked row, else the best hit (tier 1, or what is shown for this text), else ask. */
+  enter(text: string): EnterAction {
+    const best = this.local(text)[0] ?? (text === this.current ? this.shown[0] : undefined);
+    return enterAction(text, this.shown, best);
   }
 
   private local(text: Query): Hit[] {
     const roots = this.deps.roots();
     return searchLocal(text, this.deps.index(), this.deps.frecency(), {
-      limit: OMNIBOX_LIMIT,
+      limit: OMNIBOX_HIT_LIMIT,
       ...(roots === undefined ? {} : { owned_roots: roots }),
     });
   }
@@ -80,7 +81,7 @@ export class OmniboxSession {
       return;
     }
     if (text !== this.current) return;
-    this.shown = appendTier2(tier1, corpus).slice(0, OMNIBOX_LIMIT);
-    suggest(this.shown);
+    this.shown = appendTier2(tier1, corpus).slice(0, OMNIBOX_HIT_LIMIT);
+    suggest(omniboxRows(text, this.shown));
   }
 }
