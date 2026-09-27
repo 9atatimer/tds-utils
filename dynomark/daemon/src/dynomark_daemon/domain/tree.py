@@ -1,9 +1,14 @@
 """The bookmark tree as the daemon sees it: paths, owned roots, outline, snapshot."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Final
 
 from dynomark_daemon.domain.ids import NodeId
+
+WRITER_MARKER_PREFIX: Final = "dynomark-writer:"
+"""The title prefix of a writer's marker folder (contract v1, Writer marker)."""
 
 
 class RootKey(StrEnum):
@@ -58,6 +63,15 @@ class OwnedRoots:
 
     def is_root(self, path: FolderPath) -> bool:
         return path in self.all()
+
+
+@dataclass(frozen=True, slots=True)
+class FolderFlags:
+    """``pinned``: immune to rebuild and audit moves. ``locked``: never a
+    placement candidate, never moved, renamed or merged by any batch."""
+
+    pinned: bool
+    locked: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,3 +165,47 @@ class Snapshot:
                 None,
             )
         return current
+
+
+# --- The outline of the Dynomark subtree ---
+
+
+def _outline_folders(
+    snapshot: Snapshot,
+    node_id: NodeId,
+    path: FolderPath,
+    flags: Mapping[NodeId, FolderFlags],
+) -> list[OutlineFolder]:
+    children = snapshot.children(node_id)
+    own = flags.get(node_id, FolderFlags(pinned=False, locked=False))
+    folder = OutlineFolder(
+        node_id=node_id,
+        path=path,
+        pinned=own.pinned,
+        locked=own.locked,
+        item_count=sum(child.kind is NodeKind.BOOKMARK for child in children),
+    )
+    below = [
+        found
+        for child in children
+        if child.kind is NodeKind.FOLDER
+        and not child.title.startswith(WRITER_MARKER_PREFIX)
+        for found in _outline_folders(
+            snapshot, child.node_id, path.child(child.title), flags
+        )
+    ]
+    return [folder, *below]
+
+
+def outline_of(
+    snapshot: Snapshot, root: FolderPath, flags: Mapping[NodeId, FolderFlags]
+) -> TreeOutline:
+    """The ``TreeOutline`` of the subtree ``root`` resolves to in ``snapshot``:
+    every folder but writer markers, with its flags and bookmark count;
+    empty when ``root`` does not resolve."""
+    root_id = snapshot.resolve(root)
+    if root_id is None:
+        return TreeOutline(root=root, folders=())
+    return TreeOutline(
+        root=root, folders=tuple(_outline_folders(snapshot, root_id, root, flags))
+    )

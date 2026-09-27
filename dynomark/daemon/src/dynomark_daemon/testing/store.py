@@ -29,7 +29,7 @@ from dynomark_daemon.domain.ids import (
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.domain.placement import MoveFeedback, Placement
 from dynomark_daemon.domain.search import Candidate, Query
-from dynomark_daemon.domain.tree import Snapshot
+from dynomark_daemon.domain.tree import FolderFlags, Snapshot
 from dynomark_daemon.ports.errors import NotFound
 
 WORD: Final = re.compile(r"\w+")
@@ -88,6 +88,7 @@ class InMemoryCorpusStore:
         self._feedback: dict[FeedbackId, MoveFeedback] = {}
         self._diffs: dict[DiffId, TreeDiff] = {}
         self._events: dict[ProfileId, dict[EventId, PendingEvent]] = {}
+        self._flags: dict[NodeId, FolderFlags] = {}
 
     # --- Entries ---
 
@@ -252,3 +253,11 @@ class InMemoryCorpusStore:
         events = self._events.get(profile_id, {})
         for event_id in event_ids:
             events.pop(event_id, None)
+
+    # --- Owned-folder flags ---
+
+    def put_folder_flags(self, node_id: NodeId, flags: FolderFlags) -> None:
+        self._flags[node_id] = flags
+
+    def folder_flags(self) -> dict[NodeId, FolderFlags]:
+        return dict(self._flags)

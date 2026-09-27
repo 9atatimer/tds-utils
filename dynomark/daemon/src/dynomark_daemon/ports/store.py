@@ -26,7 +26,7 @@ from dynomark_daemon.domain.ids import (
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.domain.placement import MoveFeedback, Placement
 from dynomark_daemon.domain.search import Candidate, Query
-from dynomark_daemon.domain.tree import Snapshot
+from dynomark_daemon.domain.tree import FolderFlags, Snapshot
 
 
 class CorpusStorePort(Protocol):
@@ -164,3 +164,11 @@ class CorpusStorePort(Protocol):
     def ack_events(self, profile_id: ProfileId, event_ids: Iterable[EventId]) -> None:
         """Acknowledge these events of the profile; unknown ids are ignored."""
         ...
+
+    # --- Owned-folder flags ---
+
+    def put_folder_flags(self, node_id: NodeId, flags: FolderFlags) -> None:
+        """Set the flags of an owned folder (by this host's node id)."""
+        ...
+
+    def folder_flags(self) -> dict[NodeId, FolderFlags]: ...
