@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "type": "ingest",
+  "id": "req-0006",
+  "bookmark": {
+    "node_id": "15",
+    "url": "https://doc.rust-lang.org/book/",
+    "title": "The Rust Book",
+    "path": {
+      "root": "bar",
+      "names": [
+        "Reading"
+      ]
+    },
+    "date_added": 1789999500000
+  },
+  "backfill": true
+}

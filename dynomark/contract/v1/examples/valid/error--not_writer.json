@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "type": "error",
+  "re": "req-0025",
+  "code": "not_writer",
+  "message": "this host's role is reader"
+}

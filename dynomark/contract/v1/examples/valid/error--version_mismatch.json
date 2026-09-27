@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "type": "error",
+  "re": "req-0040",
+  "code": "version_mismatch",
+  "message": "message v 2, daemon speaks 1"
+}

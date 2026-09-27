@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "type": "diff.propose.result",
+  "re": "req-0027",
+  "diff": {
+    "diff_id": "diff-0002",
+    "kind": "audit",
+    "proposed_at": 1790000090000,
+    "item_count": 2
+  }
+}

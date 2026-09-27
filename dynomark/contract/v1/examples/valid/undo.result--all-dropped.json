@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "type": "undo.result",
+  "re": "req-0026",
+  "batch_id": null,
+  "undoes": "batch-0101",
+  "dropped": [
+    {
+      "index": 0,
+      "reason": "not_empty"
+    },
+    {
+      "index": 1,
+      "reason": "node_moved"
+    }
+  ]
+}

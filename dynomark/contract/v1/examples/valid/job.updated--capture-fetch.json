@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "type": "job.updated",
+  "event_id": "evt-0303",
+  "job": {
+    "job_id": "job-7f3b",
+    "node_id": "47",
+    "identity": "https://example.com/phone-save",
+    "state": "INDEXED",
+    "attempts": 1,
+    "backfill": false,
+    "capture_source": "fetch"
+  }
+}

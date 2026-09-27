@@ -1,0 +1,47 @@
+{
+  "v": 1,
+  "type": "placement.explain.result",
+  "re": "req-0023",
+  "reason": {
+    "identity": "https://tokio.rs/tokio/tutorial",
+    "folder": {
+      "root": "bar",
+      "names": [
+        "Dynomark",
+        "Rust",
+        "Async"
+      ]
+    },
+    "neighbours": [
+      {
+        "identity": "https://docs.rs/tokio/latest/tokio/",
+        "title": "tokio - Rust",
+        "path": {
+          "root": "bar",
+          "names": [
+            "Dynomark",
+            "Rust",
+            "Async"
+          ]
+        }
+      },
+      {
+        "identity": "https://doc.rust-lang.org/book/",
+        "title": "The Rust Book",
+        "path": {
+          "root": "bar",
+          "names": [
+            "Dynomark",
+            "Rust"
+          ]
+        }
+      }
+    ],
+    "rationale": "Nearest neighbours are Rust async runtime docs; proposed new leaf Async under Rust.",
+    "feedback_ids": [
+      "fb-0009"
+    ],
+    "model_id": "ollama:qwen2.5:7b-instruct",
+    "created_at": 1790000030000
+  }
+}

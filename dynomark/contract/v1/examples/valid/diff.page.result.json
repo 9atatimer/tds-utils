@@ -1,0 +1,75 @@
+{
+  "v": 1,
+  "type": "diff.page.result",
+  "re": "req-0029",
+  "diff": {
+    "diff_id": "diff-0002",
+    "kind": "audit",
+    "proposed_at": 1790000090000,
+    "item_count": 2
+  },
+  "items": [
+    {
+      "item_id": "item-0003",
+      "diff_id": "diff-0002",
+      "action": "add",
+      "description": "Add The Rust Book to your bar folder Reading",
+      "operations": [
+        {
+          "op": "create_folder",
+          "index": 0,
+          "parent": {
+            "root": "bar",
+            "names": []
+          },
+          "title": "Reading"
+        },
+        {
+          "op": "create",
+          "index": 1,
+          "parent": {
+            "root": "bar",
+            "names": [
+              "Reading"
+            ]
+          },
+          "title": "The Rust Book",
+          "url": "https://doc.rust-lang.org/book/"
+        }
+      ],
+      "accepted_at": null
+    },
+    {
+      "item_id": "item-0004",
+      "diff_id": "diff-0002",
+      "action": "move",
+      "description": "Move Dynomark/Rust/Async under Dynomark/Rust/Concurrency",
+      "operations": [
+        {
+          "op": "move",
+          "index": 0,
+          "node_id": "16",
+          "to": {
+            "root": "bar",
+            "names": [
+              "Dynomark",
+              "Rust",
+              "Concurrency"
+            ]
+          },
+          "expect": {
+            "parent_path": {
+              "root": "bar",
+              "names": [
+                "Dynomark",
+                "Rust"
+              ]
+            }
+          }
+        }
+      ],
+      "accepted_at": 1790000120000
+    }
+  ],
+  "next_cursor": null
+}

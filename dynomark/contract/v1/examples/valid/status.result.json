@@ -1,0 +1,19 @@
+{
+  "v": 1,
+  "type": "status.result",
+  "re": "req-0036",
+  "role": "writer",
+  "host_id": "mbp",
+  "contract_version": 1,
+  "models": {
+    "embedding": {
+      "id": "ollama:nomic-embed-text",
+      "local": true
+    },
+    "completion": {
+      "id": "anthropic:claude-haiku",
+      "local": false
+    }
+  },
+  "queue_depth": 3
+}

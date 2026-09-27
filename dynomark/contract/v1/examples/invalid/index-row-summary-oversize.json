@@ -1,0 +1,41 @@
+{
+  "v": 1,
+  "type": "index.pull.result",
+  "re": "req-0018",
+  "rows": [
+    {
+      "identity": "https://tokio.rs/tokio/tutorial",
+      "title": "Tokio tutorial",
+      "path": {
+        "root": "bar",
+        "names": [
+          "Dynomark",
+          "Rust",
+          "Async"
+        ]
+      },
+      "tags": [
+        "rust",
+        "async",
+        "runtime"
+      ],
+      "summary": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+    },
+    {
+      "identity": "https://doc.rust-lang.org/book/",
+      "title": "The Rust Book",
+      "path": {
+        "root": "bar",
+        "names": [
+          "Dynomark",
+          "Rust"
+        ]
+      },
+      "tags": [
+        "rust"
+      ],
+      "summary": "The official Rust book."
+    }
+  ],
+  "next_cursor": "rev:88/off:1000"
+}

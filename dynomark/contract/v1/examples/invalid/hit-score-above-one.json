@@ -1,0 +1,22 @@
+{
+  "v": 1,
+  "type": "search.result",
+  "re": "req-0020",
+  "hits": [
+    {
+      "identity": "https://tokio.rs/tokio/tutorial",
+      "title": "Tokio tutorial",
+      "path": {
+        "root": "bar",
+        "names": [
+          "Dynomark",
+          "Rust",
+          "Async"
+        ]
+      },
+      "score": 1.5,
+      "tier": "corpus"
+    }
+  ],
+  "next_cursor": "q:5d1c/off:20"
+}

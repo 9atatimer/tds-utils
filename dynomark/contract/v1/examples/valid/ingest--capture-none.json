@@ -1,0 +1,22 @@
+{
+  "v": 1,
+  "type": "ingest",
+  "id": "req-0004",
+  "bookmark": {
+    "node_id": "44",
+    "url": "https://example.org/",
+    "title": "Example",
+    "path": {
+      "root": "bar",
+      "names": [
+        "Follow Up"
+      ]
+    },
+    "date_added": 1790000000000
+  },
+  "capture": {
+    "source": "none",
+    "text": ""
+  },
+  "backfill": false
+}

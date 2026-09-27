@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "type": "batch.receipt",
+  "id": "req-0012",
+  "receipt": {
+    "state": "APPLIED",
+    "batch_id": "batch-0101",
+    "applied": [
+      {
+        "index": 0,
+        "node_id": "16"
+      },
+      {
+        "index": 1,
+        "node_id": "42"
+      }
+    ],
+    "skipped": []
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "type": "ingest",
+  "id": "req-0005",
+  "bookmark": {
+    "node_id": "45",
+    "url": "https://example.net/",
+    "title": "Example net",
+    "path": {
+      "root": "bar",
+      "names": [
+        "Follow Up"
+      ]
+    },
+    "date_added": 1790000000000
+  },
+  "backfill": false
+}

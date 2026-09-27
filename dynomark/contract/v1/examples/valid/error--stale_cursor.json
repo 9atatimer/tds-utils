@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "type": "error",
+  "re": "req-0019",
+  "code": "stale_cursor",
+  "message": "index changed; restart from the first page"
+}

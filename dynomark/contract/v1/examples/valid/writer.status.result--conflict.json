@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "type": "writer.status.result",
+  "re": "req-0035",
+  "role": "writer",
+  "host_id": "mbp",
+  "own_marker": true,
+  "other_writers": [
+    "work-laptop"
+  ],
+  "conflict": true
+}

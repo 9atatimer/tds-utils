@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "type": "folder.flags.set.result",
+  "re": "req-0032",
+  "folder": {
+    "node_id": "14",
+    "path": {
+      "root": "bar",
+      "names": [
+        "Dynomark",
+        "Rust"
+      ]
+    },
+    "pinned": false,
+    "locked": true,
+    "item_count": 1
+  }
+}

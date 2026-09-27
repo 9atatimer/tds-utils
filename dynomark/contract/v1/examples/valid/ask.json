@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "type": "ask",
+  "id": "req-0022",
+  "question": "Which of my bookmarks explain async cancellation?",
+  "history": [
+    {
+      "question": "What did I save about Tokio?",
+      "answer": "One tutorial, filed under Rust/Async."
+    }
+  ]
+}

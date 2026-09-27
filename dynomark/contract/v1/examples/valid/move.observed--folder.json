@@ -1,0 +1,23 @@
+{
+  "v": 1,
+  "type": "move.observed",
+  "id": "req-0011",
+  "move": {
+    "node_id": "14",
+    "from": {
+      "root": "bar",
+      "names": [
+        "Dynomark"
+      ]
+    },
+    "to": {
+      "root": "bar",
+      "names": [
+        "Dynomark",
+        "Languages"
+      ]
+    },
+    "origin": "user",
+    "observed_at": 1790000007000
+  }
+}

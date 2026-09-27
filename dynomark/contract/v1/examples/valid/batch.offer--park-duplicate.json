@@ -1,0 +1,32 @@
+{
+  "v": 1,
+  "type": "batch.offer",
+  "event_id": "evt-0202",
+  "batch": {
+    "batch_id": "batch-0102",
+    "operations": [
+      {
+        "op": "create_folder",
+        "index": 0,
+        "parent": {
+          "root": "bar",
+          "names": []
+        },
+        "title": "Graveyard"
+      },
+      {
+        "op": "remove",
+        "index": 1,
+        "node_id": "46",
+        "expect": {
+          "parent_path": {
+            "root": "bar",
+            "names": [
+              "Follow Up"
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

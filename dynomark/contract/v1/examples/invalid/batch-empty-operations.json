@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "type": "batch.offer",
+  "event_id": "evt-0201",
+  "batch": {
+    "batch_id": "batch-0101",
+    "operations": []
+  }
+}

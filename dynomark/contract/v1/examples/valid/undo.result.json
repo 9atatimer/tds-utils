@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "type": "undo.result",
+  "re": "req-0025",
+  "batch_id": "batch-0103",
+  "undoes": "batch-0101",
+  "dropped": []
+}

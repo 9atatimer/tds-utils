@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "type": "job.updated",
+  "event_id": "evt-0302",
+  "job": {
+    "job_id": "job-7f3a",
+    "node_id": "42",
+    "identity": "https://tokio.rs/tokio/tutorial",
+    "state": "FAILED",
+    "attempts": 3,
+    "backfill": false,
+    "last_error": "completion: connection refused",
+    "capture_source": "tab"
+  }
+}
