@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { SNAPSHOT_DEBOUNCE_MS } from '../../../src/app/runtime.js';
+import { RECONNECT_BACKOFF } from '../../../src/domain/backoff.js';
 import type { ExtensionRuntime } from '../../../src/app/runtime.js';
 import type { BookmarkEvent } from '../../../src/ports/bookmarkEvents.js';
 import { FakeExtensionWorld } from '../../fakes/FakeExtensionWorld.js';
@@ -170,5 +171,37 @@ describe('Batch offers -- a batch.offer event is applied and answered', () => {
     expect(sentOf(w, 'batch.receipt').at(-1)?.receipt).toMatchObject({ state: 'APPLIED', batch_id: 'batch-1' });
     await deliver(runtime, { kind: 'moved', node_id: ids.saved, parent_id: serde ?? '', old_parent_id: ids.followUp });
     expect(sentOf(w, 'move.observed').at(-1)?.move.origin).toBe('extension');
+  });
+});
+
+describe('A batch receipt answered with a retryable code on a live link', () => {
+  it('Given the daemon answers the first receipt internal and stays up, When the backoff passes, Then the extension asks for a replay and answers the re-offered batch from its cursor', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const offer = {
+      v: 1 as const,
+      type: 'batch.offer' as const,
+      event_id: 'evt-go',
+      batch: { batch_id: 'batch-go', operations: [{ op: 'create_folder' as const, index: 0, parent: DYNOMARK, title: 'Go' }] },
+    };
+    let receipts = 0;
+    let replays = 0;
+    scriptDaemon(w, {}, (r) => {
+      if (r.type === 'batch.receipt' && (receipts += 1) === 1)
+        return { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
+      if (r.type === 'events.replay' && (replays += 1) > 1) void w.daemon().emit(offer);
+      return undefined;
+    });
+    await seedOwnedTree(w.tree);
+    const runtime = await startRuntime(w);
+
+    await w.daemon().emit(offer);
+    await runtime.idle();
+    expect(sentOf(w, 'batch.receipt')).toHaveLength(1);
+    await w.timer().advance(RECONNECT_BACKOFF.max_ms);
+    await runtime.idle();
+
+    expect(sentOf(w, 'events.replay')).toHaveLength(2);
+    expect(sentOf(w, 'batch.receipt').map((r) => r.receipt.batch_id)).toEqual(['batch-go', 'batch-go']);
+    expect(await w.storage.loadCursor()).toBeUndefined();
   });
 });

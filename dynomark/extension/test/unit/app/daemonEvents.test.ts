@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { BatchLane } from '../../../src/app/batchLane.js';
 import { DaemonEvents } from '../../../src/app/daemonEvents.js';
+import { RECONNECT_BACKOFF } from '../../../src/domain/backoff.js';
 import type { Job, JobState } from '../../../src/domain/jobs.js';
 import type { EventMessage, RequestMessage, ResponseMessage } from '../../../src/wire/messages.js';
 import { FakeExtensionWorld } from '../../fakes/FakeExtensionWorld.js';
@@ -199,5 +200,29 @@ describe('Daemon events -- DaemonEvents(deps, lane).handle(event)', () => {
       }),
     ).resolves.toBeUndefined();
     expect(sentOf(w.connection(), 'batch.receipt')).toHaveLength(1);
+  });
+});
+
+describe('A retryable answer on a live link -- the daemon is asked to replay after a backoff', () => {
+  it('Given the daemon answers an events.ack internal and the link stays up, When the backoff passes, Then events.replay is sent, and its replayed copy is acknowledged', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    let acks = 0;
+    const lifecycle = scriptedDaemon({});
+    w.connection().autoAnswer((r) => {
+      if (r.type === 'events.ack' && (acks += 1) === 1)
+        return { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
+      if (r.type === 'events.replay') void events.handle(jobUpdated('evt-1', 'FILED', 3));
+      return lifecycle(r);
+    });
+    const events = new DaemonEvents(w.worker(), NO_BATCHES);
+
+    await events.handle(jobUpdated('evt-1', 'FILED', 3));
+    expect(sentOf(w.connection(), 'events.replay')).toEqual([]);
+    await w.timer().advance(RECONNECT_BACKOFF.base_ms);
+    await events.idle();
+
+    expect(sentOf(w.connection(), 'events.replay')).toHaveLength(1);
+    expect(acked(w.connection())).toEqual(['evt-1', 'evt-1']);
+    expect(events.jobs().get('job-1')).toMatchObject({ state: 'FILED', seq: 3 });
   });
 });
