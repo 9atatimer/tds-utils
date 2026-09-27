@@ -72,3 +72,18 @@ def test_a_job_waiting_on_a_retry_is_due_after_its_backoff() -> None:
 
     assert (before.due, before.next_retry_at) == ([], due_at)
     assert [j.job_id for j in after.due] == ["job-1"]
+
+
+def test_a_job_whose_placement_failed_waits_its_backoff_too() -> None:
+    """Given an ENRICHED job whose placement attempt failed at t, When the
+    schedule is read before and after t + backoff(1), Then it is not due and
+    then due: a retry while placing backs off like one while capturing."""
+    failed_at = 1_000
+    store = _store(_job(1, JobState.ENRICHED, attempts=1, updated_at=failed_at))
+    due_at = failed_at + POLICY.backoff_ms(1)
+
+    before = due_jobs(POLICY, due_at - 1, store=store)
+    after = due_jobs(POLICY, due_at, store=store)
+
+    assert (before.due, before.next_retry_at) == ([], due_at)
+    assert [j.job_id for j in after.due] == ["job-1"]

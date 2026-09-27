@@ -95,6 +95,26 @@ def test_run_job_whose_placement_errors_counts_an_attempt() -> None:
     assert loop.store.list_batches() == []
 
 
+def test_run_job_places_with_a_fresh_attempt_budget_after_enrichment() -> None:
+    """Given an enrichment that failed once and then worked, When the placement
+    that follows fails, Then that is the placement's first attempt: failures
+    while capturing do not use up the tries left for placing."""
+    loop = Loop(
+        ScriptedCompletion(
+            enrich=[CompletionError("model loading", retryable=True), ENRICHMENT],
+            choose_folder=[CompletionError("model loading", retryable=True)],
+        ),
+        TREE,
+    )
+    job = loop.save()
+
+    capturing = loop.run(job)
+    placing = loop.run(job)
+
+    assert (capturing.state, capturing.attempts) == (JobState.CAPTURING, 1)
+    assert (placing.state, placing.attempts) == (JobState.ENRICHED, 1)
+
+
 def _with_filed_original(loop: Loop, *, node_id: str) -> Placement:
     """An earlier save of the same URL, FILED at node ``node_id`` in Rust."""
     original = make_job("job-original", node_id=node_id, state=JobState.FILED)
