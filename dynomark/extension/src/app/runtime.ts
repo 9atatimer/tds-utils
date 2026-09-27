@@ -95,7 +95,6 @@ export class ExtensionRuntime {
   private readonly ready: Promise<Started>;
   private resolveReady: (started: Started) => void = () => undefined;
   private state: Started | undefined;
-  private lane: BatchLane | undefined;
 
   constructor(private readonly ports: RuntimePorts) {
     this.ready = new Promise((resolve) => (this.resolveReady = resolve));
@@ -128,7 +127,6 @@ export class ExtensionRuntime {
         outcome: () => connection.outcome(),
         settings: () => this.state?.settings ?? settings,
         isOwnMove: (node_id, parent_id) => this.issued.consume(node_id, parent_id),
-        inFlight: () => this.lane?.inFlight() ?? new Set(),
         track: (work) => this.track(work),
         snapshotSent: () => this.track(this.writer.confirm({ transport: connection, ids: this.ports.ids })),
       },
@@ -211,7 +209,6 @@ export class ExtensionRuntime {
     );
     const laneDeps = { ...this.ports, tree: this.issued, storage, transport: connection };
     const lane = new BatchLane(() => this.batchContext(connection.outcome()), laneDeps);
-    this.lane = lane;
     const events = new DaemonEvents(
       { transport: connection, ids: this.ports.ids, storage, timer: this.ports.timer },
       { offer: (batch) => this.admit(batch, lane, connection) },

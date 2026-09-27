@@ -28,7 +28,7 @@ export interface ObservedMove {
 
 export interface MoveContext {
   readonly owned_roots: OwnedRoots;
-  /** The nodes the batch whose cursor is open names (inFlightNodes); empty when none is. */
+  /** The nodes whose reported move the extension itself issued (to that destination); empty when none is. */
   readonly in_flight: ReadonlySet<NodeId>;
 }
 

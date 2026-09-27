@@ -16,20 +16,26 @@ const MAX_REMEMBERED = 1000;
 // --- The decorator ---
 
 export class IssuedMoves implements BookmarkTreePort {
-  private readonly issued = new Map<NodeId, NodeId>();
+  /** Per node, the destinations issued and not yet reported, oldest first (one batch can move a node twice). */
+  private readonly issued = new Map<NodeId, readonly NodeId[]>();
 
   constructor(private readonly inner: BookmarkTreePort) {}
 
   /** True, once, when the browser reports a move of `node_id` into `parent_id` that this extension issued. */
   consume(node_id: NodeId, parent_id: NodeId): boolean {
-    if (this.issued.get(node_id) !== parent_id) return false;
-    this.issued.delete(node_id);
+    const parents = this.issued.get(node_id) ?? [];
+    const at = parents.indexOf(parent_id);
+    if (at < 0) return false;
+    const rest = parents.filter((_, i) => i !== at);
+    if (rest.length === 0) this.issued.delete(node_id);
+    else this.issued.set(node_id, rest);
     return true;
   }
 
   async move(nodeId: NodeId, parentId: NodeId): Promise<SnapshotNode> {
+    const parents = this.issued.get(nodeId) ?? [];
     this.issued.delete(nodeId);
-    this.issued.set(nodeId, parentId);
+    this.issued.set(nodeId, [...parents, parentId]);
     if (this.issued.size > MAX_REMEMBERED) this.issued.delete(this.issued.keys().next().value ?? nodeId);
     return this.inner.move(nodeId, parentId);
   }

@@ -52,8 +52,6 @@ export interface TreeWatchContext {
   settings(): Settings;
   /** True when the browser's report of this move is of a move the extension itself made (consumed). */
   isOwnMove(node_id: NodeId, parent_id: NodeId): boolean;
-  /** The nodes the open batch names. */
-  inFlight(): ReadonlySet<NodeId>;
   track(work: Promise<unknown>): void;
   /** A debounced tree.snapshot was recorded by the daemon (it re-reads writer markers from it). */
   snapshotSent(): void;
@@ -140,7 +138,8 @@ export class TreeWatch {
     const to = folderPathOf(tree, parent_id);
     const own = node !== undefined && this.context.isOwnMove(node.id, parent_id);
     if (outcome?.mode !== 'full' || node === undefined || from === undefined || to === undefined) return;
-    const in_flight = new Set([...this.context.inFlight(), ...(own ? [node.id] : [])]);
+    // The node and its destination, not the node alone: a user move of a node the open batch names is still the user's.
+    const in_flight = new Set<NodeId>(own ? [node.id] : []);
     await observeMove(
       { node_id: node.id, ...(node.kind === 'bookmark' ? { url: node.url } : {}), from, to },
       outcome.role,
