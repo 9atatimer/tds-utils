@@ -4,7 +4,16 @@ acknowledged; on connect the extension asks for everything unacknowledged"
 batch at a time; Connection lifecycle, the read-only and refused modes).
 """
 
-from dynomark_daemon.app.events import ack_events, deliver, replay_events
+from collections.abc import Callable
+from dataclasses import replace
+
+from dynomark_daemon.app.events import (
+    ack_events,
+    deliver,
+    fail_oversize_offers,
+    replay_events,
+)
+from dynomark_daemon.domain.batch import BatchState
 from dynomark_daemon.domain.connection import HelloMode
 from dynomark_daemon.domain.events import (
     BatchOffered,
@@ -12,7 +21,9 @@ from dynomark_daemon.domain.events import (
     Event,
     JobUpdated,
 )
-from dynomark_daemon.domain.ids import EventId, ProfileId
+from dynomark_daemon.domain.ids import BatchId, EventId, ProfileId
+from dynomark_daemon.domain.job import JobState
+from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.store import InMemoryCorpusStore
 from dynomark_daemon.testing.transport import RecordingTransport
 from tests._factories import make_batch, make_diff, make_job
@@ -131,3 +142,69 @@ def test_events_go_only_to_the_profile_they_belong_to() -> None:
 
     assert transport.events_for(B) == []
     assert transport.events_for(A) == [job]
+
+
+# --- A batch that cannot fit one frame (contract v1, Size limits) ---
+
+
+def _fits_unless(batch_id: str) -> Callable[[Event], bool]:
+    def fits(event: Event) -> bool:
+        return not (
+            isinstance(event, BatchOffered) and event.batch.batch_id == batch_id
+        )
+
+    return fits
+
+
+def test_an_offer_that_cannot_fit_a_frame_fails_its_job_and_the_next_is_offered() -> (
+    None
+):
+    """Given the oldest offered batch does not fit the 1 MiB frame, When offers
+    are delivered, Then it is never sent, its job is FAILED with a last_error
+    saying so (and a job.updated is sent), the batch is REJECTED, and the next
+    batch is offered instead."""
+    job = replace(make_job(state=JobState.PLACED), batch_id=BatchId("batch-1"))
+    store = _store_with(_offer(1), _offer(2))
+    store.put_job(job)
+    store.put_batch(replace(make_batch("batch-1"), job_id=job.job_id))
+    store.put_batch(make_batch("batch-2"))
+    transport = RecordingTransport(fits=_fits_unless("batch-1"))
+
+    failed = fail_oversize_offers(
+        A,
+        store=store,
+        transport=transport,
+        clock=FakeClock(start_ms=5),
+        ids=SequentialIds(),
+    )
+    deliver(A, mode=FULL, offers_ready=True, store=store, transport=transport)
+
+    after = store.get_job(job.job_id)
+    assert after is not None and after.state is JobState.FAILED
+    assert after.last_error is not None and "1 MiB" in after.last_error
+    assert failed == [after]
+    record = store.get_batch(BatchId("batch-1"))
+    assert record is not None and record.state is BatchState.REJECTED
+    pushed = transport.events_for(A)
+    offered = [e.batch.batch_id for e in pushed if isinstance(e, BatchOffered)]
+    assert offered == ["batch-2"]
+    assert [e.job for e in pushed if isinstance(e, JobUpdated)] == [after]
+
+
+def test_offers_that_fit_are_left_alone() -> None:
+    """Given an offered batch that fits, When oversize offers are failed, Then
+    nothing changes and it is still offered."""
+    store, transport = _store_with(_offer(1)), RecordingTransport()
+    store.put_batch(make_batch("batch-1"))
+
+    failed = fail_oversize_offers(
+        A,
+        store=store,
+        transport=transport,
+        clock=FakeClock(start_ms=5),
+        ids=SequentialIds(),
+    )
+    deliver(A, mode=FULL, offers_ready=True, store=store, transport=transport)
+
+    assert failed == []
+    assert transport.events_for(A) == [_offer(1)]

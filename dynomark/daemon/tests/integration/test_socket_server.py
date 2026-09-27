@@ -8,6 +8,7 @@ import json
 import socket
 import stat
 import threading
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -16,15 +17,21 @@ from dynomark_daemon.adapters.socket_server import (
     DaemonAlreadyRunning,
     SocketUnavailable,
 )
+from dynomark_daemon.domain.batch import OpCreateFolder, WriteBatch
 from dynomark_daemon.domain.bookmark import Embedding
 from dynomark_daemon.domain.chat import DraftAnswer
 from dynomark_daemon.domain.config import ModelInfo
 from dynomark_daemon.domain.diff import DiffKind, DiffProposal
+from dynomark_daemon.domain.events import BatchOffered
+from dynomark_daemon.domain.ids import BatchId, EventId, ProfileId
+from dynomark_daemon.domain.job import JobState
 from dynomark_daemon.domain.tree import TreeOutline
 from dynomark_daemon.testing.completion import ScriptedCompletion
 from dynomark_daemon.testing.embedding import HashingEmbedding
+from dynomark_daemon.testing.store import InMemoryCorpusStore
 from tests import _client as client
 from tests import _wire as wire
+from tests._factories import make_batch, make_job, make_path
 from tests._server import build_server, running
 from tests.contract.golden import load_object, valid_files
 
@@ -306,3 +313,59 @@ def test_a_slow_model_call_does_not_stall_other_connections_or_later_requests(
         "status.result",
     )
     assert answer["type"] == f"{kind}.result"
+
+
+# --- A batch over the 1 MiB frame limit fails its job (contract v1, Size limits) ---
+
+
+def test_a_batch_that_cannot_fit_a_frame_is_not_offered_and_its_job_fails(
+    tmp_path: Path,
+) -> None:
+    """Given a proposed batch whose offer frame would exceed 1 MiB, When a
+    writer connection becomes ready for offers, Then no batch.offer is sent,
+    and a job.updated reports its job FAILED with a last_error saying the
+    batch is over the frame limit."""
+    path = _socket(tmp_path)
+    store = InMemoryCorpusStore()
+    job = replace(
+        make_job(profile_id="profile-a", state=JobState.PLACED),
+        batch_id=BatchId("batch-huge"),
+    )
+    store.put_job(job)
+    huge = tuple(
+        OpCreateFolder(
+            index=i, parent=make_path("Dynomark"), title=f"{i:04}" + "x" * 4000
+        )
+        for i in range(300)
+    )
+    store.put_batch(
+        replace(make_batch("batch-huge", operations=huge), job_id=job.job_id)
+    )
+    store.put_event(
+        ProfileId("profile-a"),
+        BatchOffered(
+            event_id=EventId("evt-huge"),
+            batch=WriteBatch(
+                batch_id=BatchId("batch-huge"), operations=huge, inverse=()
+            ),
+        ),
+    )
+
+    with running(build_server(path, store=store)), client.connect(path) as conn:
+        client.send(conn, wire.hello())
+        client.answer_to(conn, "h-1")
+        client.send(conn, wire.tree_snapshot("t-1"))
+        _, pushed = client.answer_to(conn, "t-1")
+        client.send(conn, wire.body("events.replay", "r-1"))
+        _, replayed = client.answer_to(conn, "r-1")
+
+    events = pushed + replayed
+    assert [e for e in events if e["type"] == "batch.offer"] == []
+    failed = [
+        e["job"]
+        for e in events
+        if e["type"] == "job.updated"
+        and isinstance(e["job"], dict)
+        and e["job"]["state"] == "FAILED"
+    ]
+    assert failed and "1 MiB" in str(failed[0]["last_error"])
