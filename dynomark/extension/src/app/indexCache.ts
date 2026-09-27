@@ -14,6 +14,8 @@ import { buildFrecency } from './buildFrecency.js';
 export class IndexCache {
   private rows: LocalIndex = [];
   private boost: Frecency = new Map();
+  /** Counts replacements, so only the newest one installs its frecency. */
+  private generation = 0;
 
   constructor(
     private readonly deps: { readonly storage: StoragePort; readonly history: HistoryPort; readonly clock: Clock },
@@ -52,8 +54,11 @@ export class IndexCache {
     };
   }
 
+  /** The rows at once; the frecency once built, unless a newer index replaced them meanwhile. */
   private async replace(index: LocalIndex): Promise<void> {
+    const generation = (this.generation += 1);
     this.rows = index;
-    this.boost = await buildFrecency(index, this.deps);
+    const boost = await buildFrecency(index, this.deps);
+    if (generation === this.generation) this.boost = boost;
   }
 }
