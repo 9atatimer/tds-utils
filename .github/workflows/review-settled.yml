@@ -37,8 +37,10 @@ on:
       reviewers:
         description: >-
           Reviewer logins that must each have reviewed the head, comma or
-          space separated, with or without a [bot] suffix. Copilot by
-          default; add chatgpt-codex-connector where Codex is required.
+          space separated, with or without a [bot] suffix. An entry "a|b"
+          is an any-of group, satisfied by a review on the head from either
+          member. Copilot by default; add chatgpt-codex-connector where
+          Codex is required, or use a group where either will do.
         type: string
         required: false
         default: copilot-pull-request-reviewer

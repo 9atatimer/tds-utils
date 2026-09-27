@@ -481,11 +481,12 @@ This repo lands PRs through the tedium merge bot; the rules are in
   ruleset requires `gate` and a PR; only the tedium App may bypass it.
 - **No review gate while Copilot has no quota (2026-09-26).**
   `review-settled` (the commit status from
-  `.github/workflows/review-settled.yml`: Copilot's newest review is on
-  the head and every thread is resolved) still posts, but neither
-  `pr_status` nor the ruleset requires it: with no quota it can never go
-  green. Tedium therefore lands a green PR on a reviewer's `r+` with no
-  review at all. Restore it in `pr_status` when Copilot reviews again.
+  `.github/workflows/review-settled.yml`: the newest review from Copilot
+  OR Codex is on the head and every thread is resolved; the any-of group
+  is `reviewers` in `review-settled-caller.yml`) still posts, but neither `pr_status` nor
+  the ruleset requires it. Tedium therefore lands a green PR on a
+  reviewer's `r+` with no review at all. Summon Codex with an `@codex`
+  PR comment. Restore it in `pr_status` when a reviewer has quota again.
 - **Reviewers** (who may `r+`) are the repo's direct collaborators with
   push, synced by tedium. An agent acting under a reviewer's token is a
   reviewer.
