@@ -89,3 +89,36 @@ def test_moves_that_are_not_user_feedback_on_the_writer_record_nothing() -> None
 
     assert results == [None, None, None, None]
     assert store.recent_feedback(limit=10) == []
+
+
+def test_an_older_move_recorded_late_leaves_the_placement_at_the_newer() -> None:
+    """Given a filed bookmark the user moved twice, the newer move recorded
+    first (the older one's report was answered busy and re-sent later), When
+    the older move is recorded, Then both are feedback, and the placement
+    stays in the folder of the newer move, where the bookmark is."""
+    store = InMemoryCorpusStore()
+    store.put_placement(make_placement(URL, folder=RUST))
+    web = make_path("Dynomark", "Web")
+    older = Move(
+        node_id=NodeId("42"),
+        from_path=RUST,
+        to_path=ASYNC,
+        origin=MoveOrigin.USER,
+        observed_at=1_790_000_050_000,
+        url=URL,
+    )
+    newer = Move(
+        node_id=NodeId("42"),
+        from_path=ASYNC,
+        to_path=web,
+        origin=MoveOrigin.USER,
+        observed_at=1_790_000_060_000,
+        url=URL,
+    )
+
+    _record(store, newer)
+    _record(store, older)
+
+    assert len(store.recent_feedback(limit=10)) == 2
+    placement = store.get_placement(Identity(URL))
+    assert placement is not None and placement.folder == web
