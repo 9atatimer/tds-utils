@@ -1,7 +1,7 @@
 // runtime.ts -- an ExtensionRuntime on one fake worker, its daemon scripted:
 // the lifecycle answers of scriptedDaemon plus whatever `extra` answers first.
 
-import { ExtensionRuntime, type RuntimeOptions } from '../../src/app/runtime.js';
+import { ExtensionRuntime } from '../../src/app/runtime.js';
 import type { RequestMessage, ResponseMessage } from '../../src/wire/messages.js';
 import { FakeExtensionWorld } from '../fakes/FakeExtensionWorld.js';
 import { scriptedDaemon, type HelloAnswer } from './daemon.js';
@@ -20,8 +20,8 @@ export function scriptDaemon(w: FakeExtensionWorld, hello: HelloAnswer = {}, ext
 }
 
 /** A runtime on the live worker, started, and settled. */
-export async function startRuntime(w: FakeExtensionWorld, options: Partial<RuntimeOptions> = {}): Promise<ExtensionRuntime> {
-  const runtime = new ExtensionRuntime(w.worker(), options);
+export async function startRuntime(w: FakeExtensionWorld): Promise<ExtensionRuntime> {
+  const runtime = new ExtensionRuntime(w.worker());
   await runtime.start();
   await runtime.idle();
   return runtime;

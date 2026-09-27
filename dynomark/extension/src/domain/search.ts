@@ -68,6 +68,15 @@ export function frecencyOf(visits: readonly Visit[], now: EpochMs): number {
     .reduce((sum, v) => sum + visitWeight(v, now), 0);
 }
 
+// --- Opening a hit ---
+
+const OPENABLE_SCHEME = /^https?:\/\//i;
+
+/** True for an identity the extension may navigate a tab to: http(s) only (never javascript:, data: or file:). */
+export function isOpenable(identity: Identity): boolean {
+  return OPENABLE_SCHEME.test(identity);
+}
+
 // --- Tier 2 ---
 
 /** When tier 1 is not enough: fewer hits than `tier2_min_hits`, or a best score under `tier2_min_score`. */
