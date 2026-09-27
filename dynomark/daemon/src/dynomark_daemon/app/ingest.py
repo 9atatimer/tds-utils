@@ -39,6 +39,9 @@ def ingest(
         backfill=backfill,
         at=clock.now_ms(),
     )
+    # No unit of work: a kill between these leaves a save no job names (saves
+    # are read by job id only), the ingest goes unanswered, and its re-send
+    # finds no job and queues one with its own save.
     store.put_save(job.job_id, Save(bookmark=bookmark, capture=capture))
     store.put_job(job)
     return job

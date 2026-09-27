@@ -27,6 +27,9 @@ def record_feedback(
     feedback = feedback_of(move, role, roots)
     if feedback is None:
         return None
+    # No unit of work: a kill after the feedback leaves ``move.observed``
+    # unanswered; its re-send (contract v1: requests are at-least-once)
+    # records the feedback once (by ``feedback_id``) and moves the placement.
     store.put_feedback(feedback)
     placed = store.get_placement(feedback.identity)
     if placed is not None and feedback.to_path.is_inside(roots.dynomark):

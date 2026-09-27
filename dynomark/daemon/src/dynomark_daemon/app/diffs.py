@@ -148,6 +148,9 @@ def request_diff(
     if role is HostRole.READER:
         raise InvalidRequest("a reader keeps no tree to propose a diff from")
     body = json.dumps({"type": "diff.propose", "kind": kind.value}, sort_keys=True)
+    # The completion call below sits between remembering the id and storing
+    # the diff, so no unit of work spans them: a kill between leaves the id
+    # known and no diff, and its re-send (a REPEAT with no diff) proposes.
     recall = recall_request(request_id, body, store=store)
     diff_id = _request_diff_id(request_id)
     known = store.get_diff(diff_id)

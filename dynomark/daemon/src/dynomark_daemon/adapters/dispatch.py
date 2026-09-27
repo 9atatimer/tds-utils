@@ -588,6 +588,8 @@ class Dispatcher:
     # --- Tree, moves, batches ---
 
     def _tree_snapshot(self, message: m.TreeSnapshot, session: Session) -> Outcome:
+        # Two use cases, two units: a kill between them leaves the snapshot
+        # unanswered, and its re-send runs both again (each is idempotent).
         record_tree_snapshot(
             snapshot_from_wire(message.snapshot), session.role, store=self._store
         )

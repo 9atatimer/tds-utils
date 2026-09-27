@@ -68,6 +68,10 @@ def hello(
     role its profile is served with. The first profile to complete a full
     hello on a writer daemon binds the store."""
     mode = negotiate(version, DAEMON_CONTRACT_VERSION)
+    # No unit of work: both writes are idempotent and every connection's
+    # hello makes them again. A kill between them leaves the profile's
+    # Follow Up unknown, which reads as Config's (as before its first hello)
+    # until the reconnecting extension's hello keeps it.
     if mode is HelloMode.FULL and config.role is HostRole.WRITER:
         store.bind_writer_profile(profile_id)
     store.put_follow_up(profile_id, follow_up)

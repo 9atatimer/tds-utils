@@ -24,6 +24,10 @@ def record_tree_snapshot(
     """
     if role is HostRole.READER:
         return
+    # No unit of work: a kill part-way leaves ``tree.snapshot`` unanswered and
+    # its re-send (same ``taken_at``) is kept again as the latest, so the
+    # loop below runs again over every batch still not marked; every later
+    # snapshot does the same.
     store.put_tree_snapshot(snapshot)
     if store.latest_tree_snapshot() != snapshot:
         return

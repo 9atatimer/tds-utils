@@ -40,6 +40,8 @@ def _send(
         store.unacked_events(profile_id), mode, offers_ready=offers_ready
     )
     to_send = [p.event for p in pending if not (only_new and p.pushed)]
+    # A kill after a push and before it is marked pushes it again later; the
+    # extension de-duplicates by event_id and answers every offer frame.
     for event in to_send:
         transport.push(profile_id, event)
     store.mark_pushed(profile_id, [event.event_id for event in to_send])
