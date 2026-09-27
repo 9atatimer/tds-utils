@@ -3,6 +3,7 @@
 // what is stored. Keep one instance across a simulated service-worker
 // restart: it is the only extension state that survives one.
 
+import type { BackfillProgress } from '../../src/domain/backfill.js';
 import type { BatchCursor } from '../../src/domain/batch.js';
 import type { LocalIndex } from '../../src/domain/search.js';
 import type { Settings } from '../../src/domain/settings.js';
@@ -33,6 +34,14 @@ export class FakeStorage implements StoragePort {
 
   saveCursor(cursor: BatchCursor): Promise<void> {
     return Promise.resolve(this.write('batch_cursor', cursor));
+  }
+
+  loadBackfill(): Promise<BackfillProgress | undefined> {
+    return Promise.resolve(this.read<BackfillProgress>('backfill'));
+  }
+
+  saveBackfill(progress: BackfillProgress): Promise<void> {
+    return Promise.resolve(this.write('backfill', progress));
   }
 
   clearCursor(): Promise<void> {

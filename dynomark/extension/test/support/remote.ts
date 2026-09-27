@@ -7,6 +7,7 @@
 // TransportLost) so the suites' instanceof checks hold.
 
 import type { Page } from '@playwright/test';
+import type { BackfillProgress } from '../../src/domain/backfill.js';
 import type { BatchCursor } from '../../src/domain/batch.js';
 import type { TabContent } from '../../src/domain/capture.js';
 import type { LocalIndex, Visit } from '../../src/domain/search.js';
@@ -162,6 +163,14 @@ export class RemoteStorage implements StoragePort {
 
   clearCursor(): Promise<void> {
     return this.call('clearCursor') as Promise<void>;
+  }
+
+  loadBackfill(): Promise<BackfillProgress | undefined> {
+    return this.call('loadBackfill') as Promise<BackfillProgress | undefined>;
+  }
+
+  saveBackfill(progress: BackfillProgress): Promise<void> {
+    return this.call('saveBackfill', progress) as Promise<void>;
   }
 
   private call(method: string, ...args: unknown[]): Promise<unknown> {
