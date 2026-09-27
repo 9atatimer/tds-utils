@@ -220,6 +220,34 @@ describe('Batch offers -- a batch.offer event is applied and answered', () => {
   });
 });
 
+describe("Batch offers -- a batch move is the extension's across a worker restart", () => {
+  it('Given the worker is terminated right after the browser made a batch move, When the next worker, after its hello, hears of that move, Then move.observed carries origin extension', async () => {
+    const { w, ids, runtime } = await setup();
+    const serdePath = { root: 'bar' as const, names: ['Dynomark', 'Serde'] };
+    w.tree.failOnMutation(2, 'terminate-after');
+    await w.daemon().emit({
+      v: 1,
+      type: 'batch.offer',
+      event_id: 'evt-offer-1',
+      batch: {
+        batch_id: 'batch-1',
+        operations: [
+          { op: 'create_folder', index: 0, parent: DYNOMARK, title: 'Serde' },
+          { op: 'move', index: 1, node_id: ids.saved, to: serdePath, expect: { parent_id: ids.followUp } },
+        ],
+      },
+    });
+    await runtime.idle();
+    const serde = (await w.tree.resolveFolder(serdePath)) ?? '';
+    expect((await w.tree.getNode(ids.saved))?.parent_id).toBe(serde);
+    w.restart();
+    scriptDaemon(w);
+    const next = await startRuntime(w);
+    await deliver(next, { kind: 'moved', node_id: ids.saved, parent_id: serde, old_parent_id: ids.followUp });
+    expect(sentOf(w, 'move.observed').map((r) => r.move.origin)).toEqual(['extension']);
+  });
+});
+
 describe('A batch receipt answered with a retryable code on a live link', () => {
   it('Given the daemon answers the first receipt internal and stays up, When the backoff passes, Then the extension asks for a replay and answers the re-offered batch from its cursor', async () => {
     const w = new FakeExtensionWorld({ flavor: 'chrome' });
