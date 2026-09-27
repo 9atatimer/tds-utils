@@ -26,6 +26,8 @@ import type { PageRequest, PageResponse } from '../ports/pages.js';
 import type { StoragePort } from '../ports/storage.js';
 import type { Timer } from '../ports/timer.js';
 import type { LinkState, TransportLink, TransportPort } from '../ports/transport.js';
+import type { WriteBatch } from '../domain/batch.js';
+import type { BatchContext } from './applyBatch.js';
 import { BatchLane } from './batchLane.js';
 import { Connection, type HelloOutcome } from './connection.js';
 import { DiffAcceptance } from './diffs.js';
@@ -40,6 +42,7 @@ import { Reconnector } from './reconnect.js';
 import { ensureSettings, setCaptureFromTab } from './settings.js';
 import { SubmittedSaves } from './submitSave.js';
 import { TreeWatch } from './treeWatch.js';
+import { WriterWatch } from './writerWatch.js';
 
 export { SNAPSHOT_DEBOUNCE_MS } from './treeWatch.js';
 
@@ -82,6 +85,9 @@ export class ExtensionRuntime {
   private readonly omnibox: OmniboxSession;
   private readonly saves = new SubmittedSaves();
   private readonly acceptance = new DiffAcceptance();
+  private readonly writer = new WriterWatch();
+  /** Offers pass here in the order they arrived, each after any writer conflict is re-checked. */
+  private admission: Promise<void> = Promise.resolve();
   private readonly ready: Promise<Started>;
   private resolveReady: (started: Started) => void = () => undefined;
   private state: Started | undefined;
@@ -120,6 +126,7 @@ export class ExtensionRuntime {
         isOwnMove: (node_id, parent_id) => this.issued.consume(node_id, parent_id),
         inFlight: () => this.lane?.inFlight() ?? new Set(),
         track: (work) => this.track(work),
+        snapshotSent: () => this.track(this.writer.confirm({ transport: connection, ids: this.ports.ids })),
       },
     );
     this.state = { settings, followUp, connection, watch };
@@ -151,13 +158,14 @@ export class ExtensionRuntime {
   /** Answer an extension page. */
   async page(request: PageRequest): Promise<PageResponse> {
     const started = await this.ready;
-    return answerPage(request, {
+    const response = await answerPage(request, {
       transport: started.connection,
       ids: this.ports.ids,
       tree: this.ports.tree,
       navigator: this.ports.navigator,
       clock: this.ports.clock,
       acceptance: this.acceptance,
+      writer: this.writer,
       link: () => this.ports.transport.linkState(),
       outcome: () => started.connection.outcome(),
       settings: () => this.state?.settings ?? started.settings,
@@ -165,6 +173,8 @@ export class ExtensionRuntime {
       followUp: () => this.state?.followUp.path,
       problems: () => [...this.problemLog],
     });
+    if (!response.ok && response.code === 'writer_conflict') this.writer.noteRefusal();
+    return response;
   }
 
   /** Resolves once no background work (event handling, pulls, debounced sends already due) is running. */
@@ -184,7 +194,10 @@ export class ExtensionRuntime {
     const laneDeps = { ...this.ports, tree: this.issued, storage, transport: connection };
     const lane = new BatchLane(() => this.batchContext(connection.outcome()), laneDeps);
     this.lane = lane;
-    const events = new DaemonEvents({ transport: connection, ids: this.ports.ids, storage }, lane);
+    const events = new DaemonEvents(
+      { transport: connection, ids: this.ports.ids, storage },
+      { offer: (batch) => this.admit(batch, lane, connection) },
+    );
     connection.onEvent((event) => this.track(events.handle(event)));
     const reconnector = new Reconnector(() => connection.connect(), { timer: this.ports.timer, track: (work) => this.track(work) });
     this.ports.transport.onLink((link) => this.onLink(link, connection, reconnector));
@@ -194,7 +207,20 @@ export class ExtensionRuntime {
 
   private async onReady(outcome: HelloOutcome, connection: Connection, storage: StoragePort): Promise<void> {
     await onConnected(outcome, { ...this.ports, tree: this.issued, storage, transport: connection });
-    if (outcome.mode === 'full') this.track(this.ready.then((s) => s.watch.submitBacklog()));
+    if (outcome.mode !== 'full') return;
+    this.track(this.ready.then((s) => s.watch.submitBacklog()));
+    this.track(
+      this.writer
+        .refresh({ transport: connection, ids: this.ports.ids })
+        .catch((error: unknown) => this.problem(`writer.status: ${String(error)}`)),
+    );
+  }
+
+  /** Hand an offer to the lane in arrival order, once a reported writer conflict has been asked about again. */
+  private admit(batch: WriteBatch, lane: BatchLane, connection: Connection): Promise<void> {
+    const admitted = this.admission.then(() => this.writer.confirm({ transport: connection, ids: this.ports.ids }));
+    this.admission = admitted;
+    return admitted.then(() => lane.offer(batch));
   }
 
   private onLink(link: LinkState, connection: Connection, reconnector: Reconnector): void {
@@ -208,8 +234,9 @@ export class ExtensionRuntime {
     }
   }
 
-  private batchContext(outcome: HelloOutcome | undefined) {
-    return outcome === undefined ? undefined : { owned_roots: outcome.owned_roots, host_id: outcome.host_id };
+  private batchContext(outcome: HelloOutcome | undefined): BatchContext | undefined {
+    if (outcome === undefined) return undefined;
+    return { owned_roots: outcome.owned_roots, host_id: outcome.host_id, writer_conflict: this.writer.conflict() };
   }
 
   private async connection(): Promise<Connection> {

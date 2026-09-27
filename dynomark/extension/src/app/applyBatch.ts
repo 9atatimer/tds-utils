@@ -43,6 +43,8 @@ import type { StoragePort } from '../ports/storage.js';
 export interface BatchContext {
   readonly owned_roots: OwnedRoots;
   readonly host_id: HostId;
+  /** The daemon reported a writer conflict (writer.status, or a writer_conflict refusal): no batch is applied. */
+  readonly writer_conflict?: boolean;
 }
 
 export interface ApplyDeps {
@@ -204,7 +206,7 @@ export async function applyBatch(batch: WriteBatch, context: BatchContext, deps:
   const read = await deps.tree.readTree();
   const snapshot = toSnapshot(read, deps.clock.now());
   if (held === undefined) {
-    const rejection = rejectionOf(batch, context.owned_roots, context.host_id, read);
+    const rejection = rejectionOf(batch, context.owned_roots, context.host_id, read, context.writer_conflict === true);
     if (rejection !== undefined) return rejectedReceipt(batch.batch_id, rejection, snapshot);
   }
   let cursor = held ?? freshCursor(batch.batch_id, batch.operations.length);

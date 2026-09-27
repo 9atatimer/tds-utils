@@ -51,6 +51,8 @@ export interface TreeWatchContext {
   /** The nodes the open batch names. */
   inFlight(): ReadonlySet<NodeId>;
   track(work: Promise<unknown>): void;
+  /** A debounced tree.snapshot was recorded by the daemon (it re-reads writer markers from it). */
+  snapshotSent(): void;
 }
 
 // --- Pure helpers ---
@@ -150,7 +152,7 @@ export class TreeWatch {
     this.cancelSnapshot?.();
     this.cancelSnapshot = this.deps.timer.after(SNAPSHOT_DEBOUNCE_MS, () => {
       this.cancelSnapshot = undefined;
-      this.context.track(sendTreeSnapshot(this.deps));
+      this.context.track(sendTreeSnapshot(this.deps).then(() => this.context.snapshotSent()));
     });
   }
 

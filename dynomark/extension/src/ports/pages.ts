@@ -11,6 +11,7 @@ import type { ResultOf } from '../wire/messages.js';
 import type { LinkState } from './transport.js';
 import type { ConnectionMode, HostRole } from '../domain/roles.js';
 import type { Job } from '../domain/jobs.js';
+import type { WriterStatus } from '../domain/writer.js';
 import type { DiffItem, DiffKind, OutlineFolder, PlacementReason, TreeDiff, UndoDrop } from '../domain/diff.js';
 import type { Answer, Question, Turn } from '../domain/chat.js';
 import type { EpochMs, Id, Identity, NodeId, Title, Url } from '../domain/values.js';
@@ -53,6 +54,9 @@ export interface Overview {
   /** The daemon's own status (role, host id, models, queue depth); absent when it could not be asked. */
   readonly daemon?: Pick<StatusResult, 'role' | 'host_id' | 'contract_version' | 'models' | 'queue_depth'>;
   readonly daemon_error?: string;
+  /** The writer marker as the daemon last reported it; `conflict` is shown prominently. */
+  readonly writer?: WriterStatus;
+  readonly writer_error?: string;
   readonly settings: { readonly profile_id: string; readonly capture_from_tab: boolean };
   readonly follow_up?: FolderPath;
   /** Things the user should know (extra Follow Up folders, failed background work), newest last. */

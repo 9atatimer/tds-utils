@@ -19,6 +19,7 @@ import type { LinkState, TransportPort } from '../ports/transport.js';
 import { CONTRACT_VERSION } from '../wire/messages.js';
 import { askQuestion, explainPlacement, fileThis } from './chat.js';
 import type { HelloOutcome } from './connection.js';
+import type { WriterWatch } from './writerWatch.js';
 import { listDiffs, proposeDiff, readDiffPage, readOutline, setFolderFlags, type DiffAcceptance } from './diffs.js';
 import { DaemonError, resultOrThrow } from './errors.js';
 
@@ -31,6 +32,7 @@ export interface PageContext {
   readonly navigator: Navigator;
   readonly clock: Clock;
   readonly acceptance: DiffAcceptance;
+  readonly writer: WriterWatch;
   link(): LinkState;
   outcome(): HelloOutcome | undefined;
   settings(): Settings;
@@ -48,34 +50,47 @@ function failure(error: unknown): PageResponse {
 
 // --- Flow ---
 
-async function overview(context: PageContext): Promise<Overview> {
-  const outcome = context.outcome();
-  const settings = context.settings();
-  const followUp = context.followUp();
-  const base = {
-    settings: { profile_id: settings.profile_id, capture_from_tab: capturesFromTab(settings) },
-    problems: context.problems(),
-    ...(followUp === undefined ? {} : { follow_up: followUp }),
-  };
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function daemonSection(context: PageContext): Promise<Pick<Overview, 'daemon' | 'daemon_error'>> {
   try {
     const status = resultOrThrow(await context.transport.send({ v: CONTRACT_VERSION, type: 'status', id: context.ids.next() }));
     const { role, host_id, contract_version, models, queue_depth } = status;
-    const now = context.outcome() ?? outcome;
-    return {
-      ...base,
-      link: context.link(),
-      daemon: { role, host_id, contract_version, models, queue_depth },
-      ...(now === undefined ? {} : { connection: { v: now.v, mode: now.mode, role: now.role, host_id: now.host_id } }),
-    };
+    return { daemon: { role, host_id, contract_version, models, queue_depth } };
   } catch (error) {
-    const now = context.outcome();
-    return {
-      ...base,
-      link: context.link(),
-      daemon_error: error instanceof Error ? error.message : String(error),
-      ...(now === undefined ? {} : { connection: { v: now.v, mode: now.mode, role: now.role, host_id: now.host_id } }),
-    };
+    return { daemon_error: message(error) };
   }
+}
+
+/** The writer status, asked afresh on a full connection (writer.status is not in the read-only set); else the last one known. */
+async function writerSection(context: PageContext): Promise<Pick<Overview, 'writer' | 'writer_error'>> {
+  const known = context.writer.status();
+  const last = known === undefined ? {} : { writer: known };
+  if (context.outcome()?.mode !== 'full') return last;
+  try {
+    return { writer: await context.writer.refresh(context) };
+  } catch (error) {
+    return { ...last, writer_error: message(error) };
+  }
+}
+
+async function overview(context: PageContext): Promise<Overview> {
+  const settings = context.settings();
+  const followUp = context.followUp();
+  const daemon = await daemonSection(context);
+  const writer = await writerSection(context);
+  const now = context.outcome();
+  return {
+    settings: { profile_id: settings.profile_id, capture_from_tab: capturesFromTab(settings) },
+    problems: context.problems(),
+    ...(followUp === undefined ? {} : { follow_up: followUp }),
+    ...daemon,
+    ...writer,
+    link: context.link(),
+    ...(now === undefined ? {} : { connection: { v: now.v, mode: now.mode, role: now.role, host_id: now.host_id } }),
+  };
 }
 
 async function ask(request: Exclude<PageRequest, { kind: 'overview' | 'settings.set' }>, context: PageContext): Promise<PageResponse> {

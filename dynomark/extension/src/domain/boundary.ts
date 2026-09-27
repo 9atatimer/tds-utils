@@ -88,10 +88,21 @@ export function crossesBoundary(batch: WriteBatch, roots: OwnedRoots, tree: Tree
   return batch.operations.some((op) => !admitsOp(op, roots, byId, ownedIds));
 }
 
-/** Why the batch must be REJECTED before its first op, or undefined when it is admitted. */
-export function rejectionOf(batch: WriteBatch, roots: OwnedRoots, host_id: HostId, tree: TreeRead): RejectReason | undefined {
+/**
+ * Why the batch must be REJECTED before its first op, or undefined when it is
+ * admitted. `conflict_reported`: the daemon's writer.status (or a
+ * writer_conflict refusal) says this writer is in conflict -- no batch is
+ * applied then, marker in this tree or not (task-030).
+ */
+export function rejectionOf(
+  batch: WriteBatch,
+  roots: OwnedRoots,
+  host_id: HostId,
+  tree: TreeRead,
+  conflict_reported = false,
+): RejectReason | undefined {
   if (!hasValidIndices(batch)) return 'invalid';
-  if (hasForeignWriterMarker(tree, roots, host_id)) return 'writer_conflict';
+  if (conflict_reported || hasForeignWriterMarker(tree, roots, host_id)) return 'writer_conflict';
   if (crossesBoundary(batch, roots, tree)) return 'boundary';
   return undefined;
 }

@@ -57,6 +57,8 @@ export class FakeDaemon {
   batches: ResultOf<'batch.list'>['batches'][number][] = [];
   /** What job.list returns (one page). */
   failedJobs: Job[] = [];
+  /** What writer.status reports. */
+  writer: { own_marker: boolean; other_writers: string[]; conflict: boolean } = { own_marker: true, other_writers: [], conflict: false };
   /** Answers tried before the built-in ones; undefined falls through. */
   extra: Answer = () => undefined;
 
@@ -245,6 +247,8 @@ export class FakeDaemon {
         return { v: 1, type: 'batch.list.result', re: r.id, batches: this.batches, next_cursor: null };
       case 'job.list':
         return { v: 1, type: 'job.list.result', re: r.id, jobs: this.failedJobs, next_cursor: null };
+      case 'writer.status':
+        return { v: 1, type: 'writer.status.result', re: r.id, role: 'writer', host_id: FAKE_HOST_ID, ...this.writer };
       default:
         return { v: 1, type: 'error', re: r.id, code: 'internal', message: `fake daemon has no answer for ${r.type}` };
     }
