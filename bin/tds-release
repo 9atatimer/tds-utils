@@ -157,6 +157,11 @@ docker_drift_files() {
     git -C "${wt}" status --porcelain | while IFS= read -r line; do
         [ "${line:0:3}" = " M " ] || continue
         path="${line:3}"
+        # Byte-exact or nothing: cmp sees content only, so a mode change riding
+        # along would be restored away, and awk always ends on a newline, so a
+        # HEAD blob without one would let an added final newline through.
+        [ -z "$(git -C "${wt}" diff --summary -- "${path}")" ] || continue
+        [ -z "$(git -C "${wt}" show "HEAD:${path}" 2>/dev/null | tail -c1)" ] || continue
         # awk fails when HEAD has no guarded line, so a mode-only change never
         # passes as Docker's.
         if git -C "${wt}" show "HEAD:${path}" 2>/dev/null \
@@ -190,8 +195,11 @@ EOT
 # check_worktree_clean <worktree> <docker-drift> -- refuse on any dirt other
 # than the Docker rewrites already identified.
 check_worktree_clean() {
-    local wt="$1" drift="$2" dirt
-    dirt="$(worktree_dirt "${wt}" \
+    local wt="$1" drift="$2" status dirt
+    # Separately, so a failing git status dies here instead of reading as clean
+    # through the filter's `|| true`.
+    status="$(worktree_dirt "${wt}")"
+    dirt="$(printf '%s\n' "${status}" | sed '/^$/d' \
             | grep -vxF "$(printf '%s\n' "${drift}" | sed '/^$/d; s/^/ M /')" || true)"
     [ -z "${dirt}" ] || die "release worktree has uncommitted changes -- refusing:
 $(git -C "${wt}" status --short | sed 's/^/  /')
@@ -386,6 +394,8 @@ apply_plan() {
 $1
 EOT
     restore_docker_drift "${wt}" 0
+    # The tree may have moved since the plan; never advance a dirty one.
+    check_worktree_clean "${wt}" ""
     [ "${release_sha}" != "${target_sha}" ] || return 0
     advance_release "${wt}" "${release_sha}" "${target_sha}"
     note "${unit}: released to $(describe "${wt}" HEAD)"

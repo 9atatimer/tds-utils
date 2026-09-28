@@ -451,15 +451,20 @@ case_a_later_units_sentry_moves_nothing() {
 
 # The guarded line the repo commits, and the unguarded absolute-$HOME line
 # Docker Desktop writes back over it through the dotfile symlinks.
+# shellcheck disable=SC2016  # literal file content, not expansions
 DOCKER_GUARDED='[[ -d "$HOME/.docker/bin" ]] && export PATH="$PATH:$HOME/.docker/bin"'
+# shellcheck disable=SC2016  # $PATH stays literal, as Docker writes it
 docker_rewrite() { printf 'export PATH="$PATH:%s/.docker/bin"\n' "${HOME}"; }
 
-# make_docker_repo <name> -- make_repo, plus a dot.zprofile carrying the
-# guarded line on BOTH release and master, with master one commit ahead.
+# make_docker_repo <name> [nofinalnl] -- make_repo, plus a dot.zprofile
+# carrying the guarded line on BOTH release and master, with master one commit
+# ahead. With nofinalnl the committed file has no trailing newline.
 make_docker_repo() {
-    local name="$1" root wt
+    local name="$1" last='export X=1\n' root wt
+    [ "${2:-}" != nofinalnl ] || last='export X=1'
     root="$(make_repo "${name}")"; wt="$(release_wt "${name}")"
-    { echo '# Docker Desktop section'; printf '%s\n' "${DOCKER_GUARDED}"; echo 'export X=1'; } \
+    # shellcheck disable=SC2059  # last is a format on purpose
+    { echo '# Docker Desktop section'; printf '%s\n' "${DOCKER_GUARDED}"; printf "${last}"; } \
         > "${root}/dot.zprofile"
     git -C "${root}" add dot.zprofile
     git -C "${root}" commit -qm "add dot.zprofile"
@@ -528,6 +533,30 @@ case_docker_drift_plus_same_file_edit_refused() {
     assert "edit left in place"       "grep -q 'export MINE=1' '${wt}/dot.zprofile'"
 }
 
+case_docker_drift_plus_mode_change_refused() {
+    bold "case: Docker's rewrite plus a mode change refuses"; echo
+    local root wt rc before
+    root="$(make_docker_repo dockmode)"; wt="$(release_wt dockmode)"
+    before="$(head_of "${wt}")"
+    docker_drift "${wt}/dot.zprofile"
+    chmod +x "${wt}/dot.zprofile"
+    run_release "${root}" master && rc=0 || rc=$?
+    assert "exits non-zero"           "[ ${rc} -ne 0 ]"
+    assert "release unchanged"        "[ \"$(head_of "${wt}")\" = \"${before}\" ]"
+    assert "mode left in place"       "[ -x '${wt}/dot.zprofile' ]"
+}
+
+case_docker_drift_plus_final_newline_refused() {
+    bold "case: Docker's rewrite plus an added final newline refuses"; echo
+    local root wt rc before
+    root="$(make_docker_repo docknl nofinalnl)"; wt="$(release_wt docknl)"
+    before="$(head_of "${wt}")"
+    docker_drift "${wt}/dot.zprofile"   # awk also appends the missing newline
+    run_release "${root}" master && rc=0 || rc=$?
+    assert "exits non-zero"           "[ ${rc} -ne 0 ]"
+    assert "release unchanged"        "[ \"$(head_of "${wt}")\" = \"${before}\" ]"
+}
+
 case_docker_drift_dry_run() {
     bold "case: -n reports Docker's rewrite and changes nothing"; echo
     local root wt rc before
@@ -572,6 +601,8 @@ main() {
     case_docker_drift_restored_when_current
     case_docker_drift_plus_other_edit_refused
     case_docker_drift_plus_same_file_edit_refused
+    case_docker_drift_plus_mode_change_refused
+    case_docker_drift_plus_final_newline_refused
     case_docker_drift_dry_run
     echo
     printf 'ran %d, passed %d, failed %d\n' "${TESTS_RUN}" "${TESTS_PASSED}" "${TESTS_FAILED}"
