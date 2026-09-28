@@ -103,6 +103,10 @@ jobs:
       - name: Smoketest bin/tds-release-link
         run: /bin/bash test/smoketest_release_link.sh
 
+      # Hermetic: fake gh/op on PATH; nothing reaches GitHub or 1Password.
+      - name: Smoketest bin/seed-ci-magic
+        run: /bin/bash test/smoketest_seed_ci_magic.sh
+
       # Node suite: the review-settled decision (lib/) + CLI usage checks.
       - name: Smoketest bin/review-settled
         run: /bin/bash test/smoketest_review_settled.sh
