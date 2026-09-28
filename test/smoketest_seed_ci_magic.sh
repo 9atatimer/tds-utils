@@ -61,6 +61,8 @@ repo_dir() { printf '%s/repos/%s\n' "${state}" "$1"; }
 case "${args}" in
     *"search/code"*)
         # q='user:<owner> path:.github/workflows ci-magic'
+        printf 'search %s\n' "${args}" >> "${state}/log"
+        [ -e "${state}/search-fails" ] && { echo "gh: API rate limit exceeded (HTTP 403)" >&2; exit 1; }
         owner=$(printf '%s' "${args}" | sed -n 's/.*user:\([^ ]*\).*/\1/p')
         for m in "${state}/repos/${owner}"/*/match; do
             [ -e "${m}" ] || continue
@@ -69,11 +71,13 @@ case "${args}" in
     *"contents/.github/workflows/ci-magic.yml"*)
         repo=$(printf '%s' "${args}" | sed -n 's|.*repos/\([^/]*/[^/]*\)/contents.*|\1|p')
         f="$(repo_dir "${repo}")/workflow"
+        [ -e "$(repo_dir "${repo}")/workflow-error" ] && { echo "gh: API rate limit exceeded (HTTP 403)" >&2; exit 1; }
         [ -f "${f}" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
         base64 < "${f}" ;;
     *"actions/secrets/"*)
         repo=$(printf '%s' "${args}" | sed -n 's|.*repos/\([^/]*/[^/]*\)/actions.*|\1|p')
         f="$(repo_dir "${repo}")/secret"
+        [ -e "$(repo_dir "${repo}")/secret-error" ] && { echo "gh: API rate limit exceeded (HTTP 403)" >&2; exit 1; }
         [ -f "${f}" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
         cat "${f}" ;;
     "run list"*)
@@ -187,7 +191,7 @@ case_dry_run_touches_nothing() {
     local s; s=$(fixture dry1)
     run "${s}" -n seed
     assert "dry run exits 0" "[ \"\${RUN_RC}\" -eq 0 ]"
-    assert "no op read, no secret set" "[ ! -s '${s}/log' ]"
+    assert "no op read, no secret set" "! grep -q 'secret set\|op read' '${s}/log'"
     assert "the plan names the repos it would seed" "printf '%s' \"\${RUN_OUT}\" | grep -q 'jengris' && printf '%s' \"\${RUN_OUT}\" | grep -q 'sounddating'"
     assert "the plan does not include the comment-only match" "! printf '%s' \"\${RUN_OUT}\" | grep -q 'Skills'"
 }
@@ -216,6 +220,49 @@ case_usage_on_bad_input() {
     assert "-h -> exit 0 with usage on stdout" "[ \"\${RUN_RC}\" -eq 0 ] && printf '%s' \"\${RUN_OUT}\" | grep -qi 'usage'"
 }
 
+# Codex review on PR #346: an API failure must never read as "ready" or
+# as "not a consumer". Discovery failing, or a lookup failing for any
+# reason other than 404, is exit 2 ("could not determine"), distinct
+# from exit 1 ("determined: not ready").
+
+case_discovery_failure_is_not_success() {
+    bold "discovery failure: status and seed exit 2, nothing is seeded"; echo
+    local s; s=$(fixture disc1)
+    : > "${s}/search-fails"
+    run "${s}" status
+    assert "status exits 2 when the code search fails" "[ \"\${RUN_RC}\" -eq 2 ]"
+    assert "the gh error reaches stderr" "printf '%s' \"\${RUN_ERR}\" | grep -q 'HTTP 403'"
+    run "${s}" seed
+    assert "seed exits 2 when the code search fails" "[ \"\${RUN_RC}\" -eq 2 ]"
+    assert "seed set nothing and read no token" "! grep -q 'secret set\|op read' '${s}/log'"
+}
+
+case_lookup_error_is_not_absence() {
+    bold "lookup error: a non-404 failure is reported as error, not as none/unseeded"; echo
+    local s; s=$(fixture look1)
+    : > "${s}/repos/9atatimer/sounddating/workflow-error"
+    printf 'steps:\n  - uses: 9atatimer/ci-magic@main\n' > "${s}/repos/9atatimer/sounddating/workflow"
+    echo "2026-09-28T05:10:00Z" > "${s}/repos/9atatimer/sounddating/secret"
+    run "${s}" status
+    assert "status exits 2 on a workflow lookup error" "[ \"\${RUN_RC}\" -eq 2 ]"
+    assert "the repo's WORKFLOW column reads error, not none" "printf '%s' \"\${RUN_OUT}\" | grep -E 'sounddating' | grep -q 'error'"
+    assert "jengris, unaffected, is still reported" "printf '%s' \"\${RUN_OUT}\" | grep -E 'jengris' | grep -q 'mirror'"
+    run "${s}" seed
+    assert "seed exits 2 rather than silently omitting the repo" "[ \"\${RUN_RC}\" -eq 2 ]"
+    assert "seed set nothing (an incomplete target set is not acted on)" "! grep -q 'secret set' '${s}/log'"
+    local t; t=$(fixture look2)
+    : > "${t}/repos/9atatimer/jengris/secret-error"
+    run "${t}" status
+    assert "a secret lookup error also exits 2 and reads error" "[ \"\${RUN_RC}\" -eq 2 ] && printf '%s' \"\${RUN_OUT}\" | grep -E 'jengris' | grep -q 'error'"
+}
+
+case_search_is_paginated() {
+    bold "discovery asks gh for every page of the code search"; echo
+    local s; s=$(fixture page1)
+    run "${s}" -n seed
+    assert "the search request carries --paginate" "grep -q '^search .*--paginate' '${s}/log'"
+}
+
 # --- Main ------------------------------------------------------------------
 
 main() {
@@ -228,6 +275,9 @@ main() {
     case_dry_run_touches_nothing
     case_flags_override_defaults
     case_usage_on_bad_input
+    case_discovery_failure_is_not_success
+    case_lookup_error_is_not_absence
+    case_search_is_paginated
     echo
     printf 'ran %d, passed %d, failed %d\n' "${TESTS_RUN}" "${TESTS_PASSED}" "${TESTS_FAILED}"
     [ "${TESTS_FAILED}" -eq 0 ]

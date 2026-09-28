@@ -44,22 +44,37 @@ usage() {
     sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
-# Every repo under OWNER whose workflows mention ci-magic, one per line. A
-# match can be a comment (9atatimer/Skills), so this is the candidate set,
-# not the consumer set; has_workflow() decides.
+# Every repo under OWNER whose workflows mention ci-magic, one per line,
+# every page. A match can be a comment (9atatimer/Skills), so this is the
+# candidate set, not the consumer set; fetch_workflow() decides. Fails when
+# the search fails (auth, rate limit, outage): an empty answer must never
+# be mistaken for "no consumers".
 discover_repos() {
-    local owner="$1"
-    gh api -X GET search/code \
+    local owner="$1" out
+    out=$(gh api -X GET --paginate search/code \
         -f q="user:${owner} path:.github/workflows ci-magic" \
-        --jq '.items[].repository.full_name' | sort -u
+        --jq '.items[].repository.full_name' 2>&1) || {
+        printf '%s\n' "${out}" >&2
+        return 1
+    }
+    printf '%s\n' "${out}" | sort -u | sed '/^$/d'
 }
 
-# The repo's ci-magic.yml, decoded, or failure when it has none.
+# The repo's ci-magic.yml, decoded. Returns ABSENT (4) on a 404 -- the repo
+# has no such file -- and 1 on any other failure (permission, rate limit,
+# outage), with gh's message on stderr. The two are different facts: the
+# first is "not a consumer", the second is "could not tell", and only the
+# first may be read as a verdict.
+ABSENT=4
 fetch_workflow() {
-    local repo="$1"
-    # base64 complains on the empty input a 404 leaves behind; pipefail
-    # already carries gh's failure, so its noise is just noise.
-    gh api "repos/${repo}/contents/${WORKFLOW_PATH}" --jq .content 2>/dev/null | base64 -d 2>/dev/null
+    local repo="$1" out
+    out=$(gh api "repos/${repo}/contents/${WORKFLOW_PATH}" --jq .content 2>&1) || {
+        case "${out}" in
+            *"HTTP 404"*) return "${ABSENT}" ;;
+            *) printf '%s\n' "${out}" >&2; return 1 ;;
+        esac
+    }
+    printf '%s' "${out}" | base64 -d 2>/dev/null
 }
 
 # The action target of the ci-magic `uses:` line in a workflow body.
@@ -84,10 +99,19 @@ classify_ref() {
     fi
 }
 
-# When the secret was last set on REPO, or "-" when it is absent.
+# When the secret was last set on REPO; "-" when it is absent (404); and
+# "error" with gh's message on stderr for any other failure, so a rate
+# limit is never read as "unseeded".
 secret_updated() {
-    local repo="$1" secret="$2"
-    gh api "repos/${repo}/actions/secrets/${secret}" --jq .updated_at 2>/dev/null || echo "-"
+    local repo="$1" secret="$2" out
+    out=$(gh api "repos/${repo}/actions/secrets/${secret}" --jq .updated_at 2>&1) || {
+        case "${out}" in
+            *"HTTP 404"*) echo "-" ;;
+            *) printf '%s\n' "${out}" >&2; echo "error" ;;
+        esac
+        return 0
+    }
+    printf '%s\n' "${out}"
 }
 
 # "<conclusion> <createdAt>" of the newest ci.magic run, or "-".
@@ -107,28 +131,43 @@ set_secret() {
 
 # --- Flow functions --------------------------------------------------------
 
-# One line per candidate repo; exit 1 unless every real consumer is on the
-# mirror and seeded.
+# One line per candidate repo. Exit 0 when every real consumer is on the
+# mirror and seeded; 1 when one is not; 2 when that could not be
+# determined (discovery or a lookup failed for a reason other than 404).
+# Discovery is captured before the loop, not read through a process
+# substitution, so its failure is seen (codex review on PR #346).
 cmd_status() {
     local owner="$1" secret="$2"
-    local repo body target ref updated run wf not_ready=0
+    local repos repo body target ref updated run wf rc not_ready=0 errors=0
+    repos=$(discover_repos "${owner}") || {
+        echo "seed-ci-magic: could not discover repositories under ${owner}" >&2
+        return 2
+    }
     printf '%-32s %-9s %-9s %-21s %s\n' REPO WORKFLOW USES SECRET LAST-RUN
     while IFS= read -r repo; do
         [ -n "${repo}" ] || continue
-        if body=$(fetch_workflow "${repo}"); then
+        rc=0; body=$(fetch_workflow "${repo}") || rc=$?
+        if [ "${rc}" -eq 0 ]; then
             wf=yes
             target=$(printf '%s\n' "${body}" | workflow_uses)
             ref=$(classify_ref "${owner}" "${target}")
-        else
+        elif [ "${rc}" -eq "${ABSENT}" ]; then
             wf=none; ref="-"
+        else
+            wf=error; ref="-"; errors=$((errors + 1))
         fi
         updated=$(secret_updated "${repo}" "${secret}")
+        [ "${updated}" = error ] && errors=$((errors + 1))
         run=$(last_run "${repo}")
         printf '%-32s %-9s %-9s %-21s %s\n' "${repo}" "${wf}" "${ref}" "${updated}" "${run}"
         if [ "${wf}" = yes ] && { [ "${ref}" != mirror ] || [ "${updated}" = "-" ]; }; then
             not_ready=$((not_ready + 1))
         fi
-    done < <(discover_repos "${owner}")
+    done <<< "${repos}"
+    if [ "${errors}" -gt 0 ]; then
+        echo "seed-ci-magic: ${errors} lookup(s) failed; readiness could not be determined" >&2
+        return 2
+    fi
     if [ "${not_ready}" -gt 0 ]; then
         echo "seed-ci-magic: ${not_ready} consumer(s) not ready (USES must be mirror, SECRET must be set)" >&2
         return 1
@@ -136,23 +175,36 @@ cmd_status() {
 }
 
 # The repos `seed` acts on: the named ones verbatim, else every candidate
-# that carries a real workflow.
+# that carries a real workflow. Fails (nothing printed) when discovery or
+# any lookup fails for a reason other than 404: an incomplete target set
+# would silently leave a consumer unseeded, so it is not acted on.
 seed_targets() {
     local owner="$1"; shift
     if [ "$#" -gt 0 ]; then
         printf '%s\n' "$@"
         return 0
     fi
-    local repo
+    local repos repo rc targets=""
+    repos=$(discover_repos "${owner}") || return 1
     while IFS= read -r repo; do
         [ -n "${repo}" ] || continue
-        fetch_workflow "${repo}" >/dev/null 2>&1 && printf '%s\n' "${repo}"
-    done < <(discover_repos "${owner}")
+        rc=0; fetch_workflow "${repo}" >/dev/null || rc=$?
+        case "${rc}" in
+            0) targets="${targets}${repo}"$'\n' ;;
+            "${ABSENT}") ;;
+            *) return 1 ;;
+        esac
+    done <<< "${repos}"
+    printf '%s' "${targets}"
 }
 
 cmd_seed() {
     local owner="$1" secret="$2" op_ref="$3" dry_run="$4"; shift 4
-    local repo count=0
+    local targets repo count=0
+    targets=$(seed_targets "${owner}" "$@") || {
+        echo "seed-ci-magic: could not determine the consumer set under ${owner}; nothing seeded" >&2
+        return 2
+    }
     while IFS= read -r repo; do
         [ -n "${repo}" ] || continue
         if [ "${dry_run}" = 1 ]; then
@@ -162,7 +214,7 @@ cmd_seed() {
             echo "seeded ${secret} on ${repo}"
         fi
         count=$((count + 1))
-    done < <(seed_targets "${owner}" "$@")
+    done <<< "${targets}"
     [ "${count}" -gt 0 ] || echo "seed-ci-magic: no consumer repositories under ${owner}" >&2
 }
 
