@@ -207,6 +207,16 @@ instructions.
 Read the repo's `CLAUDE.md` / `AGENT.md` before working in it. Repo
 instructions load alongside these global ones and win on specificity.
 
+## Load a skill by reading it whole, never by grepping it
+
+At a phase boundary, read the skill's full body. Grep a skill only to
+re-find a rule you have already read. A grep returns the lines that match
+the question you already had, never the rule you did not know to ask
+about: the tmux-herd design reached review without the designomatic panel
+the design skill mandates, because the mandate sat between the grepped
+section names, and Copilot then spent three rounds and 12 findings doing
+the panel's job.
+
 ## Don't reach for the auto-memory system
 
 The project-scoped auto-memory at `~/.claude/projects/<encoded>/memory/` is
