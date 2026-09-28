@@ -3,12 +3,15 @@
 //
 // Green iff the newest review from each required reviewer is on the
 // current head commit and every review thread is resolved; red otherwise,
-// with the first reason in the status description. The decision itself
+// with the first reason in the status description. A reviewer named in
+// --fail-open, or whose newest post is its quota notice, is not required
+// (FAIL-OPEN, tds-internal#93; see lib/review-settled.mjs). The decision itself
 // is lib/review-settled.mjs (pure, unit-tested); this file is the I/O:
 // one GraphQL read, one REST write.
 //
 // Usage:
-//   review-settled --repo OWNER/NAME --pr N [--reviewers a,b] [--dry-run]
+//   review-settled --repo OWNER/NAME --pr N [--reviewers a,b]
+//                  [--fail-open a,b --fail-open-reason TEXT] [--dry-run]
 //   env: GITHUB_TOKEN (statuses:write, pull-requests:read)
 //        GITHUB_API_URL (optional, default https://api.github.com)
 //        GITHUB_SERVER_URL + GITHUB_RUN_ID (optional; sets target_url)
@@ -31,7 +34,7 @@ const DEFAULT_REVIEWERS = 'copilot-pull-request-reviewer';
 // --- Arguments --------------------------------------------------------------
 
 function parseArgs(argv) {
-  const out = { reviewers: DEFAULT_REVIEWERS, dryRun: false };
+  const out = { reviewers: DEFAULT_REVIEWERS, failOpen: '', failOpenReason: '', dryRun: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const next = () => {
@@ -42,6 +45,8 @@ function parseArgs(argv) {
     if (arg === '--repo') out.repo = next();
     else if (arg === '--pr') out.pr = Number(next());
     else if (arg === '--reviewers') out.reviewers = next();
+    else if (arg === '--fail-open') out.failOpen = next();
+    else if (arg === '--fail-open-reason') out.failOpenReason = next();
     else if (arg === '--dry-run') out.dryRun = true;
     else throw new Error(`unknown argument: ${arg}`);
   }
@@ -71,7 +76,7 @@ query($owner: String!, $name: String!, $number: Int!, $reviewsAfter: String, $th
       isCrossRepository
       reviews(first: 100, after: $reviewsAfter) {
         pageInfo { hasNextPage endCursor }
-        nodes { author { login } state submittedAt commit { oid } }
+        nodes { author { login } state submittedAt commit { oid } body }
       }
       reviewThreads(first: 100, after: $threadsAfter) {
         pageInfo { hasNextPage endCursor }
@@ -122,6 +127,7 @@ export async function readPullRequest(token, owner, name, number) {
         state: node.state,
         submittedAt: node.submittedAt,
         commit: node.commit?.oid ?? '',
+        body: node.body ?? '',
       })),
     );
     threads.push(...pr.reviewThreads.nodes);
@@ -197,7 +203,12 @@ async function main() {
     console.log(`${CONTEXT}: ${owner}/${name}#${args.pr} is a fork PR -- no status posted`);
     return;
   }
-  const verdict = settle({ ...facts, reviewers });
+  const verdict = settle({
+    ...facts,
+    reviewers,
+    failOpen: parseReviewers(args.failOpen),
+    failOpenReason: args.failOpenReason,
+  });
   console.log(`${CONTEXT}: ${verdict.state} on ${facts.headSha.slice(0, 7)} -- ${verdict.description}`);
   if (args.dryRun) return;
   await postStatus(token, owner, name, facts.headSha, verdict);

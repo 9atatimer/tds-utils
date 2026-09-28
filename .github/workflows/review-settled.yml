@@ -3,7 +3,14 @@
 #
 # Green iff the newest review from each required reviewer is on the
 # current head commit AND every review thread is resolved; red otherwise
-# with the reason in the status description. It is the mechanical form of
+# with the reason in the status description.
+#
+# FAIL-OPEN, deliberately (tds-internal#93): a reviewer named in
+# `fail_open_reviewers`, or whose newest post is its quota notice, is not
+# required -- threads still are -- and the status then reads
+# "FAIL-OPEN: <reviewer> not required (<reason>)", never "reviewed". A
+# reviewer that will never review must not hold every PR forever; the
+# status text keeps the unreviewed head visible. It is the mechanical form of
 # the fleet's "zero unreviewed code" rule, and the status a repo's ruleset
 # requires (tds-internal ops/terraform/github) and tedium checks in
 # `pr_status` before it batches a PR.
@@ -42,6 +49,19 @@ on:
         type: string
         required: false
         default: copilot-pull-request-reviewer
+      fail_open_reviewers:
+        description: >-
+          Required reviewers that do NOT block (e.g. Copilot while it has no
+          quota), comma or space separated. Threads must still be resolved.
+          Empty = none.
+        type: string
+        required: false
+        default: ''
+      fail_open_reason:
+        description: Why the fail-open is in force; shown in the status description.
+        type: string
+        required: false
+        default: ''
       tools_ref:
         description: The tds-utils ref to run the checker from (pin to a sha to freeze it).
         type: string
@@ -89,8 +109,12 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ inputs.pr }}
           REVIEWERS: ${{ inputs.reviewers }}
+          FAIL_OPEN: ${{ inputs.fail_open_reviewers }}
+          FAIL_OPEN_REASON: ${{ inputs.fail_open_reason }}
         run: |
           node .review-settled/bin/review-settled \
             --repo "$REPO" \
             --pr "$PR" \
-            --reviewers "$REVIEWERS"
+            --reviewers "$REVIEWERS" \
+            --fail-open "$FAIL_OPEN" \
+            --fail-open-reason "$FAIL_OPEN_REASON"

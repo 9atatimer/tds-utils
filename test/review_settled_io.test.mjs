@@ -152,3 +152,31 @@ test('a failed status write is an error, so the run goes red instead of lying', 
     stub.restore();
   }
 });
+
+test('review bodies are read, so a quota notice can be told from a review', async () => {
+  const stub = stubFetch(() =>
+    ok(
+      prPage({
+        reviews: {
+          pageInfo: { hasNextPage: false, endCursor: null },
+          nodes: [
+            {
+              author: { login: 'copilot-pull-request-reviewer' },
+              state: 'COMMENTED',
+              submittedAt: '2026-09-18T20:00:00Z',
+              commit: { oid: HEAD },
+              body: 'quota text',
+            },
+          ],
+        },
+      }),
+    ),
+  );
+  try {
+    const facts = await readPullRequest('t', 'o', 'n', 1);
+    assert.equal(facts.reviews[0].body, 'quota text');
+    assert.match(stub.calls[0].body.query, /\bbody\b/, 'the query asks for review bodies');
+  } finally {
+    stub.restore();
+  }
+});

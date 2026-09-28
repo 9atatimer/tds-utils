@@ -483,9 +483,16 @@ This repo lands PRs through the tedium merge bot; the rules are in
   `review-settled` (the commit status from
   `.github/workflows/review-settled.yml`: Copilot's newest review is on
   the head and every thread is resolved) still posts, but neither
-  `pr_status` nor the ruleset requires it: with no quota it can never go
-  green. Tedium therefore lands a green PR on a reviewer's `r+` with no
-  review at all. Restore it in `pr_status` when Copilot reviews again.
+  `pr_status` nor the ruleset requires it. Tedium therefore lands a green
+  PR on a reviewer's `r+` with no review at all. Restore it in
+  `pr_status` when Copilot reviews again.
+- **`review-settled` fails open on Copilot, on purpose (tds-internal#93).**
+  `review-settled-caller.yml` names Copilot in `fail_open_reviewers`, so
+  the status goes green once every thread is resolved and reads
+  `FAIL-OPEN: copilot-pull-request-reviewer not required (...)` -- never
+  "reviewed". A Copilot quota notice as its newest post fails open the
+  same way in any repo that calls the checker. Remove the two
+  `fail_open_*` lines from the caller when Copilot reviews again.
 - **Reviewers** (who may `r+`) are the repo's direct collaborators with
   push, synced by tedium. An agent acting under a reviewer's token is a
   reviewer.
