@@ -2,7 +2,7 @@
 
 > **Status:** APPROVED (2026-09-14, by Todd Stumpf's delegation to the drafting session; see Key Decisions "Approval authority")
 > **Date:** 2026-09-14
-> **Authors:** Todd Stumpf (intent, `docs/concepts/lmde-tasks/`), Claude (design, on Todd's delegated authority)
+> **Authors:** Todd Stumpf (intent, `docs/concepts/lmde-chores/`), Claude (design, on Todd's delegated authority)
 > **Depends on:** [LMDE.DESIGN.md](./LMDE.DESIGN.md) (platform contract), [MACOS-APPS.DESIGN.md](./MACOS-APPS.DESIGN.md) (Dock launcher), [AGENT-NOTIFICATIONS.DESIGN.md](./AGENT-NOTIFICATIONS.DESIGN.md) (notification precedent, DRAFT)
 
 ---
@@ -602,7 +602,7 @@ rows.
 - [LMDE.DESIGN.md](./LMDE.DESIGN.md) -- platform contract; `op` and Ollama are Adopted components
 - [MACOS-APPS.DESIGN.md](./MACOS-APPS.DESIGN.md) -- the Dock launcher this reuses, and the terminal-first rule
 - [AGENT-NOTIFICATIONS.DESIGN.md](./AGENT-NOTIFICATIONS.DESIGN.md) -- notification precedent; this design uses only its fallback path
-- `docs/concepts/lmde-tasks/` -- the phase 1 concept this converts (non-binding)
+- `docs/concepts/lmde-chores/` -- the phase 1 concept this converts (non-binding)
 - tds-internal `ops/claude-code/routines/README.md` -- the cloud sibling's spec shape
 - template-tools `docs/design/ARCHITECTURE.DATA-WAREHOUSE.md` -- the ledger shape this mirrors
 - template-tools `TODO_PLAN.md` lessons 19-21 -- headless CLI agent isolation, env inheritance, subprocess timeouts
