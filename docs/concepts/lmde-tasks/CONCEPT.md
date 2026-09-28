@@ -142,3 +142,12 @@ Out of scope for v1: cloud tasks. Everything is laptop-local for now.
 - A notification sink the dashboard reads.
 - Any TUI or GUI framework, scheduler, or local database on the tech
   radar (`lmde/TECH_RADAR.md`).
+
+**UX (2026-09-27):** a clean-room UX proposal -- the brief, the
+designer's answer, a manual and interactive prototypes -- is in `ux/`
+(see `ux/README.md`).
+
+**Settled 2026-09-28 (Todd's words, paraphrased):** a dashboard icon
+keeps you abreast of chores; from it you launch a GUI or a TUI, or take
+other quick actions. The GUI and the TUI give equivalent information in
+different presentations.

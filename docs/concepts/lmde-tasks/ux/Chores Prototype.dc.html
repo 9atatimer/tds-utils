@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/nocturne-7af560d0-910b-498a-a804-f8b9401f9e53/styles.css">
+  <script src="_ds/nocturne-7af560d0-910b-498a-a804-f8b9401f9e53/_ds_bundle.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+  <style>
+    html, body { margin: 0; background: var(--color-bg); color: var(--color-text); font-family: var(--font-body); }
+    a { color: var(--color-accent-300); text-decoration: none; }
+    a:hover { color: var(--color-accent-200); text-decoration: underline; }
+  </style>
+</helmet>
+<div style="min-height: 100vh; display: flex; flex-direction: column; background: radial-gradient(120% 90% at 70% 0%, var(--color-surface) 0%, var(--color-bg) 60%); user-select: none;">
+  <div style="height: 26px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; background: color-mix(in srgb, var(--color-neutral-900) 88%, transparent); box-shadow: 0 1px 0 var(--color-neutral-800); font-size: 13px; position: relative; z-index: 30;">
+    <div style="display: flex; gap: 18px; align-items: center; color: var(--color-neutral-300);">
+      <i class="ph-fill ph-circle" style="font-size: 12px; color: var(--color-neutral-400);"></i>
+      <span style="font-weight: 600; color: var(--color-text);">Terminal</span>
+      <span>Shell</span><span>Edit</span><span>View</span><span>Window</span>
+    </div>
+    <div style="display: flex; gap: 16px; align-items: center; color: var(--color-neutral-300);">
+      <div style="position: relative;">
+        <div onClick="{{ toggleMenu }}" style="{{ menuBtnStyle }}">
+          <i class="{{ menuIcon }}" style="font-size: 15px;"></i>
+          <span style="font-variant-numeric: tabular-nums; font-weight: 500;">{{ menuTitle }}</span>
+        </div>
+        <sc-if value="{{ menuOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="position: absolute; top: 24px; right: 0; width: 340px; padding: 5px 0; background: color-mix(in srgb, var(--color-surface) 96%, transparent); border-radius: var(--radius-md); box-shadow: var(--shadow-md); font-size: 13px; color: var(--color-text);">
+            <sc-for list="{{ menuItems }}" as="m" hint-placeholder-count="8">
+              <sc-if value="{{ m.isSep }}"><div style="height: 1px; margin: 4px 10px; background: var(--color-neutral-800);"></div></sc-if>
+              <sc-if value="{{ m.isHeader }}"><div style="padding: 2px 14px; min-height: 18px; color: var(--color-neutral-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ m.text }}</div></sc-if>
+              <sc-if value="{{ m.isItem }}">
+                <div onMouseEnter="{{ m.enter }}" onClick="{{ m.click }}" style="{{ m.st }}">
+                  <span style="white-space: pre; overflow: hidden; text-overflow: ellipsis;">{{ m.text }}</span>
+                  <span style="color: var(--color-neutral-500); flex-shrink: 0;">{{ m.right }}</span>
+                </div>
+              </sc-if>
+            </sc-for>
+            <sc-if value="{{ subOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="{{ subStyle }}">
+                <sc-for list="{{ subItems }}" as="m" hint-placeholder-count="3">
+                  <sc-if value="{{ m.isSep }}"><div style="height: 1px; margin: 4px 10px; background: var(--color-neutral-800);"></div></sc-if>
+                  <sc-if value="{{ m.isHeader }}"><div style="padding: 2px 14px; color: var(--color-neutral-500); white-space: normal;">{{ m.text }}</div></sc-if>
+                  <sc-if value="{{ m.isItem }}"><div onClick="{{ m.click }}" style="padding: 3px 14px; cursor: default; border-radius: 4px; margin: 0 5px;" style-hover="background: var(--color-accent-700); color: var(--color-accent-100);">{{ m.text }}</div></sc-if>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+      </div>
+      <i class="ph ph-wifi-high" style="font-size: 15px;"></i>
+      <span style="font-variant-numeric: tabular-nums;">{{ clock }}</span>
+    </div>
+  </div>
+
+  <div onClick="{{ closeMenu }}" style="flex: 1; display: flex; gap: 28px; padding: 28px; align-items: flex-start; min-height: 0;">
+    <div style="width: 270px; flex-shrink: 0; display: flex; flex-direction: column; gap: 18px; font-size: 13px; color: var(--color-neutral-300);">
+      <div style="display: flex; flex-direction: column; gap: 6px;">
+        <div style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-accent-300);">chores - prototype</div>
+        <div style="font-size: 22px; font-weight: 500; color: var(--color-text); line-height: 1.2;">One snapshot, four surfaces</div>
+        <div style="line-height: 1.5; text-wrap: pretty;">The terminal is the dashboard. The menu-bar item and Dock tile are live. Keys go to the terminal; press <span style="color: var(--color-accent-300);">?</span> for all of them.</div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-neutral-500);">State</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+          <sc-for list="{{ scenarioBtns }}" as="b" hint-placeholder-count="8">
+            <button class="{{ b.cls }}" onClick="{{ b.click }}" style="font-size: 12px; padding: 4px 9px;">{{ b.label }}</button>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-neutral-500);">Terminal size and laptop</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+          <sc-for list="{{ envBtns }}" as="b" hint-placeholder-count="4">
+            <button class="{{ b.cls }}" onClick="{{ b.click }}" style="font-size: 12px; padding: 4px 9px;">{{ b.label }}</button>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px; line-height: 1.45;">
+        <div style="font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-neutral-500);">Try</div>
+        <div><span style="color: var(--color-accent-300);">Enter</span> on the pr-digest row opens its run transcript</div>
+        <div><span style="color: var(--color-accent-300);">r</span> on pr-digest: ceiling refusal, not forceable</div>
+        <div><span style="color: var(--color-accent-300);">r</span> on log-brand-sweep: overlap, <span style="color: var(--color-accent-300);">F</span> forces</div>
+        <div><span style="color: var(--color-accent-300);">K</span> kills, <span style="color: var(--color-accent-300);">P</span> pauses all, <span style="color: var(--color-accent-300);">u</span> resumes</div>
+        <div><span style="color: var(--color-accent-300);">q</span> quits; the Dock tile relaunches</div>
+      </div>
+      <a href="chores-ux-design.md">Design spec (chores-ux-design.md)</a>
+    </div>
+
+    <div style="flex: 1; min-width: 0; overflow: auto; padding-bottom: 90px;">
+      <sc-if value="{{ open }}" hint-placeholder-val="{{ true }}">
+        <div style="display: inline-block; border-radius: 10px; overflow: hidden; box-shadow: var(--shadow-lg); background: var(--color-bg);">
+          <div style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--color-neutral-900); box-shadow: 0 1px 0 var(--color-neutral-800);">
+            <div onClick="{{ quitTerm }}" style="width: 12px; height: 12px; border-radius: 50%; background: var(--color-neutral-600); cursor: pointer;" style-hover="background: var(--color-accent-400);"></div>
+            <div style="width: 12px; height: 12px; border-radius: 50%; background: var(--color-neutral-700);"></div>
+            <div style="width: 12px; height: 12px; border-radius: 50%; background: var(--color-neutral-700);"></div>
+            <div style="flex: 1; text-align: center; font-size: 12px; color: var(--color-neutral-400); margin-right: 52px;">{{ termTitle }}</div>
+          </div>
+          <div style="{{ termStyle }}">
+            <sc-for list="{{ lines }}" as="ln" hint-placeholder-count="24">
+              <div style="{{ ln.st }}"><sc-for list="{{ ln.segs }}" as="g"><span onClick="{{ g.onClick }}" style="{{ g.st }}">{{ g.t }}</span></sc-for></div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ closed }}" hint-placeholder-val="{{ false }}">
+        <div style="padding: 40px 0; color: var(--color-neutral-500); font-size: 13px;">Dashboard closed. Click the chores tile in the Dock to launch it.</div>
+      </sc-if>
+    </div>
+  </div>
+
+  <div style="position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; gap: 10px; padding: 8px 10px; border-radius: var(--radius-lg); background: color-mix(in srgb, var(--color-neutral-900) 80%, transparent); box-shadow: var(--shadow-md); z-index: 20;">
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+      <div style="width: 48px; height: 48px; border-radius: 12px; background: var(--color-neutral-800); display: flex; align-items: center; justify-content: center; font-size: 26px; color: var(--color-neutral-300);"><i class="ph ph-terminal-window"></i></div>
+      <div style="width: 4px; height: 4px; border-radius: 50%; background: var(--color-neutral-400);"></div>
+    </div>
+    <div onClick="{{ dockClick }}" title="chores" style="display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: pointer;">
+      <div style="{{ dockTileStyle }}"><i class="ph ph-list-checks"></i></div>
+      <div style="{{ dockDotStyle }}"></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;scenario&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;sample&quot;, &quot;options&quot;: [&quot;sample&quot;, &quot;paused&quot;, &quot;stale&quot;, &quot;off&quot;, &quot;ledger&quot;, &quot;ceiling&quot;, &quot;snapfail&quot;, &quot;zero&quot;], &quot;tsType&quot;: &quot;string&quot;}, &quot;size&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;80&quot;, &quot;options&quot;: [&quot;80&quot;, &quot;160&quot;], &quot;tsType&quot;: &quot;string&quot;}}">
+const T0 = 14 * 3600 + 5 * 60 + 12;
+const DAY = 86400;
+const p2 = n => String(n).padStart(2, '0');
+const T = str => { const a = str.split(':').map(Number); return a[0] * 3600 + a[1] * 60 + (a[2] || 0); };
+const hms = s => { s = ((Math.floor(s) % DAY) + DAY) % DAY; return p2(Math.floor(s / 3600)) + ':' + p2(Math.floor(s % 3600 / 60)) + ':' + p2(s % 60); };
+const dur = s => { s = Math.max(0, Math.floor(s)); return s < 60 ? s + 's' : s < 3600 ? Math.floor(s / 60) + 'm' + p2(s % 60) + 's' : Math.floor(s / 3600) + 'h' + p2(Math.floor(s % 3600 / 60)) + 'm'; };
+const fit = (v, w) => { let s = v == null ? '' : String(v); if (w <= 0) return ''; if (s.length > w) s = w > 3 ? s.slice(0, w - 2) + '..' : s.slice(0, w); return s.padEnd(w); };
+const rfit = (v, w) => { const s = v == null ? '' : String(v); return s.length >= w ? s.slice(0, w) : s.padStart(w); };
+const num = n => n == null ? '--' : Number(n).toLocaleString('en-US');
+const wrap = (text, w) => { const out = []; let cur = ''; String(text).split(' ').forEach(word => { if ((cur ? cur + ' ' + word : word).length > w) { if (cur) out.push(cur); cur = word; } else cur = cur ? cur + ' ' + word : word; }); if (cur) out.push(cur); return out.length ? out : ['']; };
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const short = at => { if (!at) return '--'; if (/^\d\d:\d\d/.test(at)) return at.slice(0, 5); const p = at.split(' '); return p[0].length === 3 ? p[0] + ' ' + p[1].slice(0, 5) : p[0]; };
+
+const ST = {
+  txt: { color: 'var(--color-text)' }, dim: { color: 'var(--color-neutral-500)' }, faint: { color: 'var(--color-neutral-700)' },
+  hi: { color: 'var(--color-neutral-100)' }, alert: { color: 'var(--color-accent-400)', fontWeight: 700 }, warn: { color: 'var(--color-accent-200)' },
+  acc: { color: 'var(--color-accent-300)' }, key: { color: 'var(--color-accent-400)' },
+  rev: { background: 'var(--color-neutral-200)', color: 'var(--color-bg)' },
+  ban: { background: 'var(--color-accent-700)', color: 'var(--color-accent-100)' },
+  box: { background: 'var(--color-neutral-900)', color: 'var(--color-text)' },
+  boxdim: { background: 'var(--color-neutral-900)', color: 'var(--color-neutral-500)' },
+  boxkey: { background: 'var(--color-neutral-900)', color: 'var(--color-accent-300)' },
+  boxalert: { background: 'var(--color-neutral-900)', color: 'var(--color-accent-400)', fontWeight: 700 },
+  add: { color: 'var(--color-accent-300)' }, del: { color: 'var(--color-neutral-400)', textDecoration: 'line-through' }
+};
+const BG = { cur: 'var(--color-neutral-800)' };
+const LVK = { '!!': 'alert', '!': 'alert', '~': 'warn', 'i': 'dim' };
+const BAD = ['FAILED', 'TIMED_OUT', 'BUDGET_EXCEEDED', 'INTERRUPTED'];
+const SKIPS = ['MISSED', 'SKIPPED_OVERLAP', 'SKIPPED_PAUSED', 'SKIPPED_CEILING', 'SKIPPED_OFFLINE', 'DEFERRED_BATTERY'];
+const s = (t, k, o) => Object.assign({ t: String(t), k: k || 'txt' }, o || {});
+function L(W, parts, o) {
+  o = o || {}; const segs = []; let n = 0;
+  for (const p of parts) { if (!p) continue; let t = p.t; if (n + t.length > W) t = t.slice(0, W - n); if (t) { segs.push(Object.assign({}, p, { t })); n += t.length; } if (n >= W) break; }
+  if (n < W) segs.push(s(' '.repeat(W - n), 'txt'));
+  segs.forEach(g => { if (o.bg && !g.b) g.b = o.bg; if (o.onClick && !g.onClick) g.onClick = o.onClick; });
+  return { segs };
+}
+const txt = (W, t, k, o) => L(W, [s(t, k)], o);
+function slice(line, a, b) { const out = []; let pos = 0; for (const g of line.segs) { const s0 = pos, e0 = pos + g.t.length; pos = e0; const x = Math.max(a, s0), y = Math.min(b, e0); if (y > x) out.push(Object.assign({}, g, { t: g.t.slice(x - s0, y - s0) })); } return out; }
+function hcat(A, B, lw, rw, n) { const out = []; for (let i = 0; i < n; i++) { const a = A[i] || L(lw, []), b = B[i] || L(rw, []); out.push({ segs: [...a.segs, s('|', 'faint'), ...b.segs] }); } return out; }
+const winStart = (cur, len, h) => clamp(cur - Math.floor(h / 2), 0, Math.max(0, len - h));
+
+const RUNS = () => [
+  { uid: 'r1', chore: 'notes-summarize', kind: 'prompt', st: 'INVALID', sort: T('14:04:31'), at: '14:04:31', reason: 'budget lacks usd; backend gateway has a usd ceiling', backend: 'gateway' },
+  { uid: 'r2', chore: 'log-brand-sweep', kind: 'command', st: 'RUNNING', sort: T('14:00:02'), at: '14:00:02', since: T('14:00:02') },
+  { uid: 'r3', chore: 'log-brand-sweep', kind: 'command', st: 'SUCCEEDED', sort: T('13:30:01'), at: '13:30:01', wall: '41s' },
+  { uid: 'r4', chore: 'release-notes-draft', kind: 'prompt', st: 'SKIPPED_CEILING', sort: T('13:00:01'), at: '13:00:01', reason: 'usd 1.84 + 1.50 would cross gateway ceiling 3.00', backend: 'gateway' },
+  { uid: 'r5', chore: 'inbox-triage', kind: 'agent', st: 'TIMED_OUT', sort: T('12:00:00'), at: '12:00:00', wall: '600s', turns: 7, backend: 'agent-cli', reason: 'wall-clock timeout; process group killed' },
+  { uid: 'r6', id: 'pr-digest-20260926T154500Z-k3f9', chore: 'pr-digest', kind: 'agent', st: 'BUDGET_EXCEEDED', sort: T('08:45:00'), at: '08:45:00', ended: '08:52:09', wall: '429s', tin: 44100, tout: 8200, tok: 52300, turns: 18, cpu: '12.4s', disk: '1.8 MB', exit: 0, rev: 'a41c9e2-dirty', backend: 'agent-cli', model: 'backend default', billing: 'subscription', trunc: false, reason: 'tokens 52,300 > budget 50,000', full: true },
+  { uid: 'r7', chore: 'inbox-triage', kind: 'agent', st: 'SUCCEEDED', sort: T('08:00:00'), at: '08:00:00', backend: 'agent-cli' },
+  { uid: 'r8', chore: 'workspace-gc', kind: 'command', st: 'MISSED', count: 2, sort: T('07:55:00'), at: '07:55', reason: 'asleep 01:10-07:55; catch_up off -- not replayed' },
+  { uid: 'r9', chore: 'daily-local-smoke', kind: 'prompt', st: 'SUCCEEDED', sort: T('04:00:03'), at: '04:00:03', wall: '1.9s', tok: 212, backend: 'local' },
+  { uid: 'r10', chore: 'pr-digest', kind: 'agent', st: 'SUCCEEDED', sort: -DAY + T('08:45:00'), at: 'Fri 08:45', backend: 'agent-cli' },
+  { uid: 'r11', chore: 'release-notes-draft', kind: 'prompt', st: 'SUCCEEDED', sort: -2 * DAY + T('13:00:00'), at: 'Thu 13:00', backend: 'gateway' },
+  { uid: 'r12', chore: 'workspace-gc', kind: 'command', st: 'SUCCEEDED', sort: -2 * DAY + T('03:00:00'), at: 'Thu 03:00' },
+  { uid: 'r13', chore: 'notes-summarize', kind: 'prompt', st: 'SUCCEEDED', sort: -3 * DAY + T('18:15:00'), at: 'Wed 18:15', backend: 'gateway' },
+  { uid: 'r14', chore: 'weekly-gateway-smoke', kind: 'prompt', st: 'OFFLINE', sort: -5 * DAY + T('09:00:04'), at: 'Mon 09:00:04', reason: 'backend gateway unreachable', backend: 'gateway' },
+  { uid: 'r15', chore: 'weekly-gateway-smoke', kind: 'prompt', st: 'SUCCEEDED', sort: -12 * DAY + T('09:00:00'), at: '2026-09-14 09:00', backend: 'gateway' },
+  { uid: 'r16', chore: 'repo-cleanup', kind: 'command', st: 'SUCCEEDED', sort: -27 * DAY + T('05:00:00'), at: '2026-08-30 05:00' }
+];
+const CHORES = () => [
+  { name: 'daily-local-smoke', kind: 'prompt', backend: 'local', schedule: '0 4 * * *', enabled: true, last: 'r9', ok: 'r9', bad: null, next: 'Sun 04:00' },
+  { name: 'weekly-gateway-smoke', kind: 'prompt', backend: 'gateway', schedule: '0 9 * * 1', enabled: true, last: 'r14', ok: 'r15', bad: 'r14', next: 'Mon 09:00', net: true },
+  { name: 'log-brand-sweep', kind: 'command', backend: null, schedule: '*/30 * * * *', enabled: true, last: 'r3', ok: 'r3', bad: null, next: '14:30', running: { since: T('14:00:02'), run: 'r2' }, usual: 41 },
+  { name: 'inbox-triage', kind: 'agent', backend: 'agent-cli', schedule: '0 * * * *', enabled: true, last: 'r5', ok: 'r7', bad: 'r5', next: '15:00', paused: { by: 'breaker', reason: '3 consecutive failures' } },
+  { name: 'pr-digest', kind: 'agent', backend: 'agent-cli', schedule: '45 8 * * *', enabled: true, last: 'r6', ok: 'r10', bad: 'r6', next: 'Sun 08:45', ceil: 'chore pr-digest tokens: 52,300 used + 50,000 budget would cross 60,000', budget: 'tokens 50,000' },
+  { name: 'workspace-gc', kind: 'command', backend: null, schedule: '0 3 * * *', enabled: true, last: 'r8', ok: 'r12', bad: null, next: 'Sun 03:00', battery: true },
+  { name: 'notes-summarize', kind: 'prompt', backend: 'gateway', schedule: '15 */2 * * *', enabled: true, last: 'r1', ok: 'r13', bad: null, next: '--', invalid: ['budget lacks usd; backend gateway has a usd ceiling'], net: true },
+  { name: 'release-notes-draft', kind: 'prompt', backend: 'gateway', schedule: '0 13 * * 1-5', enabled: true, last: 'r4', ok: 'r11', bad: null, next: 'Mon 13:00', net: true, ceil: 'backend gateway usd: 1.84 used + 1.50 budget would cross 3.00' },
+  { name: 'repo-cleanup', kind: 'command', backend: null, schedule: '0 5 * * 0', enabled: false, last: 'r16', ok: 'r16', bad: null, next: 'disabled' }
+];
+const NOTIFS = () => [
+  { id: 'n-0412', at: '12:00:01', level: 'alert', chore: 'inbox-triage', text: 'paused by breaker after 3 consecutive failures (TIMED_OUT, TIMED_OUT, FAILED)', read: false, run: 'r5' },
+  { id: 'n-0409', at: '08:52:10', level: 'alert', chore: 'pr-digest', text: 'BUDGET_EXCEEDED: tokens 52,300 > budget 50,000', read: false, run: 'r6' },
+  { id: 'n-0408', at: '08:51:57', level: 'info', chore: 'pr-digest', text: '3 PRs need your review', read: false, run: 'r6', byChore: true },
+  { id: 'n-0391', at: 'Mon 09:00', level: 'info', chore: 'weekly-gateway-smoke', text: 'OFFLINE: backend gateway unreachable', read: true, run: 'r14' }
+];
+const USAGE = scn => scn === 'zero' ? [{ scope: 'global', tok: [0, 500000], usd: [0, null], turns: [0, 200] }] : [
+  { scope: 'global', tok: [182400, 500000], usd: [1.84, null], turns: [41, 200] },
+  { scope: 'local', tok: [96100, null], usd: 'unpriced', turns: null },
+  { scope: 'gateway', tok: [40300, 100000], usd: [1.84, 3.0], turns: null },
+  { scope: 'agent-cli', tok: [46000, null], usd: 'subscription', turns: [41, 150] },
+  { scope: 'pr-digest', chore: true, tok: [52300, 60000], usd: null, turns: [scn === 'ceiling' ? 20 : 18, 20] }
+];
+const TREND = [
+  ['global tokens', 182400, 151000, 139000, '.:-=-:+'],
+  ['gateway usd', 1.84, 1.10, 0.95, ':-.:=-+'],
+  ['agent-cli turns', 41, 38, 35, '-=-=:-='],
+  ['pr-digest tokens', 52300, 21800, 20400, '..:.:.#'],
+  ['daily-local-smoke tokens', 212, 205, 210, '======='],
+];
+let TRANSCRIPT = null;
+function transcript() {
+  if (TRANSCRIPT) return TRANSCRIPT;
+  const tools = ['gh.pr_list', 'gh.pr_view', 'gh.pr_diff', 'notify']; const out = [];
+  for (let i = 1; i <= 1240; i++) {
+    const turn = Math.min(18, Math.floor((i - 1) / 69) + 1); const m = i % 3; let o;
+    if (i === 1) o = { type: 'start', chore: 'pr-digest', backend: 'agent-cli', budget: { tokens: 50000 } };
+    else if (i === 1240) o = { type: 'stop', reason: 'budget', tokens: 52300, budget: 50000 };
+    else if (m === 0) o = { turn, type: 'assistant', text: 'Reviewing PR #' + (400 + (i % 37)) + ' for the digest' };
+    else if (m === 1) o = { turn, type: 'tool_call', tool: tools[i % 4], args: { pr: 400 + (i % 37) } };
+    else o = { turn, type: 'tool_result', tool: tools[(i - 1) % 4], bytes: 800 + (i * 37) % 4000 };
+    out.push(JSON.stringify(o));
+  }
+  return (TRANSCRIPT = out);
+}
+const TABS = ['Transcript', 'Errors', 'Stdout', 'Stderr', 'Definition', 'Compare'];
+const SCN = [['sample', 'Sample'], ['paused', 'Global pause'], ['stale', 'Scheduler stale'], ['off', 'Not installed'], ['ledger', 'Ledger shrank'], ['ceiling', 'Ceiling hit'], ['snapfail', 'Snapshot failed'], ['zero', 'Zero chores']];
+
+function initState(scn, keep) {
+  keep = keep || {};
+  const zero = scn === 'zero';
+  return {
+    scn, t: keep.t || 0, open: true, launching: false, flash: false, size: keep.size || '80', battery: keep.battery || false, offline: keep.offline || false,
+    screen: 'needs', root: 'needs', stack: [], cur: { needs: 0, chores: 0, runs: 0, usage: 0, inbox: 0, system: 0, chore: 0 },
+    chore: null, run: null, tab: 0, tab2: 1, pscroll: 0, pcur: 0, expanded: {}, expandAll: false,
+    modal: null, msg: '', typing: null, filter: '', search: '', sort: 0, runsQ: '24h', trendW: 7,
+    ch: zero ? [] : CHORES(), runs: zero ? [] : RUNS(), notifs: zero ? [] : NOTIFS(), usage: USAGE(scn),
+    gpause: scn === 'paused' ? { reason: 'on a flight', since: '06:40' } : null,
+    sched: scn === 'stale' ? 'stale' : scn === 'off' ? 'off' : 'ok',
+    warns: scn === 'ledger' ? ['ledger shrank from 4210 rows to 3900 since the last tick'] : [],
+    snapfail: scn === 'snapfail', menu: false, menuHover: -1, seq: 0
+  };
+}
+
+class Component extends DCLogic {
+  state = initState('sample');
+  componentDidMount() {
+    const sc = this.props.scenario; if (sc && sc !== 'sample') this.setState(initState(sc));
+    if (this.props.size === '160') this.setState({ size: '160' });
+    this.t0 = Date.now() - this.state.t * 1000; this.iv = setInterval(() => this.setState({ t: Math.floor((Date.now() - this.t0) / 1000) }), 500);
+    this.onKey = e => this.key(e); window.addEventListener('keydown', this.onKey);
+  }
+  componentWillUnmount() { clearInterval(this.iv); window.removeEventListener('keydown', this.onKey); }
+
+  now() { return T0 + this.state.t; }
+  runBy(uid) { return this.state.runs.find(r => r.uid === uid); }
+  chBy(name) { return this.state.ch.find(c => c.name === name); }
+  updChore(name, fn) { this.setState(st => ({ ch: st.ch.map(c => c.name === name ? fn(Object.assign({}, c)) : c) })); }
+  updRun(uid, fn) { this.setState(st => ({ runs: st.runs.map(r => r.uid === uid ? fn(Object.assign({}, r)) : r) })); }
+  say(msg) { this.setState({ msg }); }
+  lastTick() { const n = this.now(); return this.state.sched === 'stale' ? T('09:12:04') : n - ((n - (T0 - 41)) % 60); }
+
+  pct(u) { return u && Array.isArray(u) && u[1] ? u[0] / u[1] : null; }
+  attn() {
+    const S = this.state, n = this.now(), it = [];
+    const add = (lv, chore, what, since, go, x) => it.push(Object.assign({ lv, chore, what, since, go }, x || {}));
+    const unread = name => S.notifs.find(x => !x.read && x.chore === name && x.level === 'alert');
+    if (S.sched === 'off') add('!!', 'scheduler', 'NOT INSTALLED -- nothing fires on schedule. System > install', '--', 'system', { sys: true });
+    if (S.sched === 'stale') add('!!', 'scheduler', 'STALE -- no tick for ' + Math.floor((n - T('09:12:04')) / 60) + ' intervals (60s). Install again', '09:12', 'system', { sys: true });
+    S.warns.forEach(w => add('!!', 'warning', w, 'tick', 'system', { sys: true }));
+    S.ch.forEach(c => { if (c.paused && c.paused.by === 'breaker') add('!', c.name, 'PAUSED by breaker: ' + c.paused.reason, '12:00', 'run', { c, run: c.last, notif: unread(c.name) }); });
+    S.usage.forEach(u => [['tokens', u.tok], ['usd', u.usd], ['turns', u.turns]].forEach(([d, v]) => { const p = this.pct(v); if (p != null && p >= 1) add('!', u.scope, 'AT CEILING: ' + d + ' ' + num(v[0]) + ' / ' + num(v[1]), 'now', 'usage', { scope: u.scope }); }));
+    S.ch.forEach(c => { if (c.paused && c.paused.by === 'breaker') return; const r = this.runBy(c.last); if (r && BAD.includes(r.st)) add('!', c.name, r.st + ' ' + (r.reason || ''), short(r.at), 'run', { c, run: r.uid, notif: unread(c.name) }); });
+    S.ch.forEach(c => { if (c.invalid) add('!', c.name, 'INVALID ' + c.invalid[0], short(this.runBy(c.last).at), 'chore', { c }); });
+    S.ch.forEach(c => { if (c.running && c.usual) { const el = n - c.running.since; if (el > 3 * c.usual && el > 60) add('~', c.name, 'RUNNING ' + dur(el) + '; usual ' + c.usual + 's' + (c.running.kill ? ' (kill sent)' : ''), hms(c.running.since).slice(0, 5), 'run', { c, run: c.running.run }); } });
+    S.usage.forEach(u => { const near = [['turns', u.turns], ['tokens', u.tok], ['usd', u.usd]].filter(([d, v]) => { const p = this.pct(v); return p != null && p >= 0.8 && p < 1; }); if (near.length) add('~', u.scope, 'ceiling near: ' + near.map(([d, v]) => d + ' ' + num(v[0]) + '/' + num(v[1]) + ' ' + Math.round(this.pct(v) * 100) + '%').join(', '), 'now', 'usage', { scope: u.scope }); });
+    S.ch.forEach(c => { const r = this.runBy(c.last); if (r && SKIPS.includes(r.st)) add('~', c.name, r.st + (r.count ? ' x' + r.count : '') + ' ' + (r.reason || ''), short(r.at), 'run', { c, run: r.uid }); });
+    S.ch.forEach(c => { const r = this.runBy(c.last); if (r && (r.st === 'OFFLINE' || r.st === 'KILLED')) add('~', c.name, r.st + ' ' + (r.reason || '') + (r.st === 'OFFLINE' ? ' -- no network, not a fault' : ''), short(r.at), 'run', { c, run: r.uid }); });
+    S.notifs.forEach(x => { if (x.read) return; if (x.level === 'info') add('i', x.chore || '-', '"' + x.text + '"', short(x.at), 'inbox', { notif: x, run: x.run }); else if (!it.some(i => i.notif === x)) add('!', x.chore || '-', x.text, short(x.at), 'inbox', { notif: x, run: x.run }); });
+    const ord = { '!!': 0, '!': 1, '~': 2, 'i': 3 };
+    return it.map((x, i) => Object.assign(x, { i })).sort((a, b) => ord[a.lv] - ord[b.lv] || a.i - b.i);
+  }
+  counts(items) { const c = { '!!': 0, '!': 0, '~': 0, 'i': 0 }; items.forEach(i => c[i.lv]++); return c; }
+
+  admission(c) {
+    const S = this.state, out = [];
+    if (S.gpause) out.push({ k: 'global pause', t: 'global pause "' + S.gpause.reason + '" since ' + S.gpause.since, f: false, next: 'U resume all' });
+    if (!c.enabled) out.push({ k: 'disabled', t: 'disabled in git', f: false, next: 'enable it in git' });
+    if (c.invalid) c.invalid.forEach(v => out.push({ k: 'invalid', t: v, f: false, next: 'fix in git; v validate' }));
+    if (c.paused) out.push({ k: c.paused.by === 'breaker' ? 'breaker' : 'paused', t: (c.paused.by === 'breaker' ? 'paused by breaker: ' : 'paused by you: ') + c.paused.reason, f: false, next: 'u resume' });
+    if (c.ceil && S.scn !== 'zero') out.push({ k: 'ceiling', t: c.ceil, f: false, next: 't dry run' });
+    if (c.running) out.push({ k: 'overlap', t: 'previous run still RUNNING since ' + hms(c.running.since) + ' (' + dur(this.now() - c.running.since) + ')', f: true });
+    if (S.battery && c.battery) out.push({ k: 'battery', t: 'on battery; defer_on_battery is set', f: true });
+    if (S.offline && c.net) out.push({ k: 'offline', t: 'backend ' + c.backend + ' unreachable -- a forced run will likely end OFFLINE', f: true });
+    return out;
+  }
+
+  ctxChore() {
+    const S = this.state;
+    if (S.screen === 'needs') { const it = this.attn()[S.cur.needs]; return it && it.c ? it.c : it ? this.chBy(it.chore) : null; }
+    if (S.screen === 'chores') return this.choreList()[S.cur.chores] || null;
+    if (S.screen === 'chore') return this.chBy(S.chore);
+    if (S.screen === 'run') { const r = this.runBy(S.run); return r ? this.chBy(r.chore) : null; }
+    if (S.screen === 'runs') { const r = this.runList()[S.cur.runs]; return r ? this.chBy(r.chore) : null; }
+    if (S.screen === 'usage') { const u = S.usage[S.cur.usage]; return u ? this.chBy(u.scope) : null; }
+    if (S.screen === 'inbox') { const x = S.notifs[S.cur.inbox]; return x ? this.chBy(x.chore) : null; }
+    return null;
+  }
+  choreList() {
+    const S = this.state; let l = S.ch.slice(); const f = S.filter.trim();
+    if (f) f.split(/\s+/).forEach(tok => {
+      const [k, v] = tok.includes(':') ? tok.split(':') : [null, tok];
+      l = l.filter(c => {
+        if (!k) return c.name.includes(v);
+        if (k === 'kind') return c.kind === v; if (k === 'backend') return c.backend === v;
+        if (k === 'state') return v === 'paused' ? !!c.paused : v === 'invalid' ? !!c.invalid : v === 'disabled' ? !c.enabled : v === 'running' ? !!c.running : true;
+        if (k === 'last') { const r = this.runBy(c.last); return r && v.split(',').includes(r.st); }
+        return true;
+      });
+    });
+    const rank = c => { if (!c.enabled) return 9; if (c.paused && c.paused.by === 'breaker') return 0; if (c.invalid) return 1; const r = this.runBy(c.last); if (r && BAD.includes(r.st)) return 2; if (c.running) return 3; if (r && r.st.startsWith('SKIPPED')) return 4; if (r && SKIPS.includes(r.st)) return 5; if (r && (r.st === 'OFFLINE' || r.st === 'KILLED')) return 6; return 7; };
+    const sorts = [(a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name), (a, b) => a.name.localeCompare(b.name), (a, b) => (!a.enabled) - (!b.enabled) || String(a.next).localeCompare(String(b.next)), (a, b) => (!a.enabled) - (!b.enabled) || this.runBy(b.last).sort - this.runBy(a.last).sort];
+    return l.sort(sorts[S.sort]);
+  }
+  runList() {
+    const S = this.state, n = this.now(); const q = S.runsQ;
+    const win = q === 'F2' || q === 'F3' ? 30 * DAY : DAY;
+    const sts = q === 'F2' ? ['FAILED', 'TIMED_OUT', 'BUDGET_EXCEEDED', 'INTERRUPTED', 'OFFLINE', 'KILLED'] : q === 'F3' ? ['BUDGET_EXCEEDED', 'TIMED_OUT'] : q === 'F4' ? SKIPS.concat(['INVALID']) : null;
+    return S.runs.filter(r => r.sort > n - win && (!sts || sts.includes(r.st))).sort((a, b) => b.sort - a.sort);
+  }
+  chRuns(name) { return this.state.runs.filter(r => r.chore === name).sort((a, b) => b.sort - a.sort); }
+
+  // navigation
+  push(patch) { this.setState(st => Object.assign({ stack: st.stack.concat([{ screen: st.screen, chore: st.chore, run: st.run, tab: st.tab }]), msg: '' }, patch)); }
+  back() { const S = this.state; if (!S.stack.length) return; const p = S.stack[S.stack.length - 1]; this.setState({ stack: S.stack.slice(0, -1), screen: p.screen, chore: p.chore, run: p.run, tab: p.tab, pscroll: 0, pcur: 0, typing: null }); }
+  goTop(screen) { this.setState({ screen, root: screen, stack: [], typing: null, msg: '' }); }
+  openChore(name) { if (!this.chBy(name)) return; this.push({ screen: 'chore', chore: name, root: this.state.root === 'runs' ? 'runs' : 'chores' }); this.setState(st => ({ cur: Object.assign({}, st.cur, { chore: 0 }) })); }
+  openRun(uid, tab) { if (!this.runBy(uid)) return; this.push({ screen: 'run', run: uid, tab: tab || 0, tab2: 1, pscroll: 0, pcur: 0, expanded: {}, expandAll: false }); }
+  openItem(it) {
+    if (!it) return;
+    if (it.go === 'system') return this.push({ screen: 'system', root: 'system' });
+    if (it.go === 'usage') { const i = this.state.usage.findIndex(u => u.scope === it.scope); return this.push({ screen: 'usage', root: 'usage', cur: Object.assign({}, this.state.cur, { usage: Math.max(0, i) }) }); }
+    if (it.run && this.runBy(it.run)) return this.openRun(it.run, 0);
+    if (it.chore) this.openChore(it.chore);
+  }
+  setCur(k, v) { this.setState(st => ({ cur: Object.assign({}, st.cur, { [k]: v }) })); }
+  clickRow(k, i, open) { if (this.state.cur[k] === i) open(); else this.setCur(k, i); }
+
+  // actions
+  guardSnap() { if (this.state.snapfail) { this.say('refused: no current snapshot -- actions need current state'); return true; } return false; }
+  runNow(c, force) {
+    if (!c || this.guardSnap()) return;
+    const causes = this.admission(c);
+    if (causes.length && !force) {
+      const allF = causes.every(x => x.f);
+      const body = [];
+      causes.forEach(x => { body.push({ t: fit(x.k, 12) + wrap(x.t, 44)[0], k: 'box' }); wrap(x.t, 44).slice(1).forEach(l => body.push({ t: ' '.repeat(12) + l, k: 'box' })); body.push({ t: ' '.repeat(12) + (x.f ? 'can force [F]' : 'cannot force'), k: x.f ? 'boxkey' : 'boxalert' }); });
+      body.push({ t: '', k: 'box' });
+      if (!allF) body.push({ t: causes.some(x => x.k === 'ceiling') ? 'Ceilings are never forced. Usage returns as runs age out of the 24h window.' : 'Only overlap, battery and offline can be forced.', k: 'boxdim' });
+      else if (causes.some(x => x.k === 'overlap')) body.push({ t: 'Forcing starts a second, concurrent run.', k: 'boxdim' });
+      const btn = [];
+      if (allF) btn.push({ key: 'F', label: 'force run', fn: () => { this.setState({ modal: null }); this.runNow(c, true); } });
+      if (causes.some(x => x.k === 'overlap')) btn.push({ key: 'K', label: 'kill the running one', fn: () => { this.setState({ modal: null }); this.kill(c); } });
+      if (causes.some(x => x.k === 'breaker' || x.k === 'paused')) btn.push({ key: 'u', label: 'resume', fn: () => { this.setState({ modal: null }); this.resume(c); } });
+      if (causes.some(x => x.k === 'global pause')) btn.push({ key: 'U', label: 'resume all', fn: () => { this.setState({ modal: null }); this.resumeAll(); } });
+      btn.push({ key: 't', label: 'dry run', fn: () => this.dry(c) });
+      btn.push({ key: 'Esc', label: 'close', fn: () => this.setState({ modal: null }) });
+      this.setState({ modal: { title: 'Run now refused: ' + c.name, body, btn } });
+      this.say('refused: run now ' + c.name + ' -- ' + causes.map(x => x.k).join(', '));
+      return;
+    }
+    const start = this.now(), seq = this.state.seq + 1, uid = 'p' + seq;
+    const id = c.name + '-20260926T' + hms(start + 7 * 3600).replace(/:/g, '') + 'Z-' + Math.random().toString(36).slice(2, 6);
+    const run = { uid, id, chore: c.name, kind: c.kind, st: 'PENDING', sort: start, at: hms(start), since: start, backend: c.backend, model: c.backend ? 'backend default' : null, rev: 'a41c9e2', trunc: false, sim: true };
+    const overlap = !!c.running;
+    this.setState(st => ({ seq, runs: [run].concat(st.runs), msg: '... admitting ' + c.name + (force ? ' (forced)' : '') }));
+    if (!overlap) this.updChore(c.name, x => Object.assign(x, { running: { since: start, run: uid } }));
+    setTimeout(() => { this.updRun(uid, r => Object.assign(r, { st: 'RUNNING' })); this.say('ok: started ' + id + ' (PENDING -> RUNNING)'); }, 700);
+    const secs = c.name === 'daily-local-smoke' ? 2 : c.kind === 'agent' ? 6 : 4;
+    setTimeout(() => {
+      const offline = this.state.offline && c.net; const st = offline ? 'OFFLINE' : 'SUCCEEDED';
+      this.updRun(uid, r => r.st === 'KILLED' ? r : Object.assign(r, { st, ended: hms(start + secs), wall: secs + 's', reason: offline ? 'backend ' + c.backend + ' unreachable' : undefined }));
+      const cur = this.runBy(uid); if (cur && cur.st === 'KILLED') return;
+      this.updChore(c.name, x => Object.assign(x, { last: uid, ok: offline ? x.ok : uid, bad: offline ? uid : x.bad, running: x.running && x.running.run === uid ? null : x.running }));
+      this.say((offline ? 'failed: ' : 'ok: ') + id + ' ended ' + st);
+    }, 700 + secs * 1000);
+  }
+  kill(c) {
+    if (!c || this.guardSnap()) return;
+    if (!c.running) { const r = this.runBy(c.last); return this.say('refused: nothing running for ' + c.name + (r ? ' -- last run ended ' + r.st : '')); }
+    const el = dur(this.now() - c.running.since);
+    this.setState({ modal: { title: 'Kill ' + c.name + '?', body: [{ t: 'Running ' + el + '. The process group is signalled; the run ends KILLED.', k: 'box' }, { t: 'This cannot be undone.', k: 'boxdim' }], btn: [{ key: 'K', label: 'kill', alt: 'y', fn: () => this.doKill(c) }, { key: 'Esc', label: 'cancel', fn: () => this.setState({ modal: null }) }] } });
+  }
+  doKill(c) {
+    const uid = c.running.run; this.setState({ modal: null, msg: '... kill sent to ' + c.name });
+    this.updChore(c.name, x => Object.assign(x, { running: Object.assign({}, x.running, { kill: true }) }));
+    setTimeout(() => {
+      const n = this.now(); const r = this.runBy(uid);
+      this.updRun(uid, x => Object.assign(x, { st: 'KILLED', reason: 'killed by operator', ended: hms(n), wall: dur(n - (r ? r.since : n)) }));
+      this.updChore(c.name, x => Object.assign(x, { running: null, last: uid, bad: uid }));
+      this.say('ok: ' + c.name + ' ended KILLED');
+    }, 1500);
+  }
+  pauseChore(c) {
+    if (!c || this.guardSnap()) return;
+    if (c.paused) return this.say('refused: ' + c.name + ' already paused (' + c.paused.reason + ') -- u to resume');
+    this.setState({ modal: { title: 'Pause ' + c.name, prompt: true, value: '', body: [{ t: 'This chore stops being admitted until you resume it.', k: 'box' }].concat(c.running ? [{ t: 'Running now: ' + c.name + ' continues (K to kill).', k: 'boxdim' }] : []), submit: v => { this.updChore(c.name, x => Object.assign(x, { paused: { by: 'you', reason: v } })); this.setState({ modal: null, msg: 'ok: paused ' + c.name + ' ("' + v + '")' }); } } });
+  }
+  resume(c) {
+    if (!c || this.guardSnap()) return;
+    if (!c.paused) return this.say('refused: ' + c.name + ' is not paused');
+    const done = () => { this.updChore(c.name, x => Object.assign(x, { paused: null })); this.setState({ modal: null, msg: 'ok: resumed ' + c.name + ' -- next slot ' + c.next + ' will be admitted' }); };
+    if (c.paused.by !== 'breaker') return done();
+    this.setState({ modal: { title: 'Resume ' + c.name + '?', body: [{ t: 'Paused by breaker: ' + c.paused.reason + ' (TIMED_OUT, TIMED_OUT, FAILED).', k: 'box' }, { t: 'Next slot ' + c.next + ' will be admitted.', k: 'box' }], btn: [{ key: 'y', label: 'resume', fn: done }, { key: 't', label: 'dry run first', fn: () => this.dry(c) }, { key: 'Esc', label: 'cancel', fn: () => this.setState({ modal: null }) }] } });
+  }
+  pauseAll() {
+    if (this.guardSnap()) return;
+    const S = this.state; if (S.gpause) return this.say('refused: already paused "' + S.gpause.reason + '" since ' + S.gpause.since + ' -- U to resume');
+    const running = S.ch.filter(c => c.running);
+    this.setState({ menu: false, modal: { title: 'Pause everything', prompt: true, value: '', killToggle: running.length ? false : null, body: [{ t: 'Nothing will start, by schedule or by hand, until you resume.', k: 'box' }].concat(running.length ? [{ t: 'Running now: ' + running.map(c => c.name + ' (' + dur(this.now() - c.running.since) + ')').join(', '), k: 'boxdim' }] : []), submit: (v, kill) => { this.setState({ gpause: { reason: v, since: hms(this.now()).slice(0, 5) }, modal: null, msg: 'ok: paused "' + v + '"' + (kill ? '; killing ' + running.length + ' running' : '') }); if (kill) running.forEach(c => this.doKill(this.chBy(c.name))); } } });
+  }
+  resumeAll(noConfirm) {
+    const S = this.state; if (!S.gpause) return this.say('refused: no global pause in effect');
+    const done = () => this.setState({ gpause: null, modal: null, msg: 'ok: resumed all' });
+    if (noConfirm) return done();
+    const next = S.ch.filter(c => c.enabled && !c.paused && !c.invalid && c.next && c.next !== '--').slice(0, 3).map(c => c.name + ' ' + c.next).join(', ');
+    this.setState({ modal: { title: 'Resume all?', body: [{ t: 'Paused "' + S.gpause.reason + '" since ' + S.gpause.since + '.', k: 'box' }, { t: 'Next due: ' + next, k: 'boxdim' }], btn: [{ key: 'y', label: 'resume all', fn: done }, { key: 'Esc', label: 'cancel', fn: () => this.setState({ modal: null }) }] } });
+  }
+  dismiss(x) {
+    if (!x) return this.say('refused: nothing to dismiss here');
+    if (x.read) return this.say('refused: ' + x.id + ' already read');
+    this.setState(st => ({ notifs: st.notifs.map(n => n.id === x.id ? Object.assign({}, n, { read: true }) : n), msg: 'ok: dismissed ' + x.id }));
+  }
+  dry(c) {
+    if (!c) return;
+    const S = this.state, causes = this.admission(c);
+    const bk = { local: 'local (local model, metered, unpriced)', gateway: 'gateway (cloud, metered, priced)', 'agent-cli': 'agent-cli (subscription)' };
+    const body = [
+      { t: fit('backend', 10) + (c.backend ? bk[c.backend] : 'none (command)') + (c.backend ? '   model backend default' : ''), k: 'box' },
+      { t: fit('cwd', 10) + '<from plan -- not in sample>', k: 'boxdim' },
+      { t: fit('env', 10) + '<names only -- not in sample>', k: 'boxdim' },
+      { t: fit('secrets', 10) + '<names only; values never shown>', k: 'boxdim' },
+      { t: fit('budget', 10) + (c.budget || '<from plan -- not in sample>'), k: c.budget ? 'box' : 'boxdim' }
+    ];
+    const scopes = S.usage.filter(u => u.scope === 'global' || u.scope === c.backend || u.scope === c.name);
+    scopes.forEach((u, i) => { const d = [['tokens', u.tok], ['usd', u.usd], ['turns', u.turns]].filter(([k, v]) => Array.isArray(v) && v[1]).map(([k, v]) => k + ' ' + num(v[0]) + '/' + num(v[1])).join('  '); if (d) body.push({ t: fit(i ? '' : 'ceilings', 10) + fit(u.scope, 12) + d, k: 'box' }); });
+    body.push({ t: '', k: 'box' });
+    if (!causes.length) body.push({ t: fit('verdict', 10) + 'ADMIT', k: 'boxkey' });
+    else causes.forEach((x, i) => wrap((i ? '' : 'REFUSE -- ') + x.k + ': ' + x.t + (x.f ? ' (forceable)' : ''), 54).forEach((l, j) => body.push({ t: fit(i || j ? '' : 'verdict', 10) + l, k: 'boxalert' })));
+    this.setState({ modal: { title: 'Dry run: ' + c.name + ' -- nothing was executed', body, btn: [{ key: 'Esc', label: 'close', fn: () => this.setState({ modal: null }) }] } });
+  }
+  sysAction(i) {
+    const S = this.state; if (this.guardSnap()) return;
+    const act = ['validate', 'install', 'uninstall', 'prune', 'pause all'][i];
+    if (act === 'validate') { this.say('... validating ' + S.ch.length + ' definitions'); setTimeout(() => { const bad = S.ch.filter(c => c.invalid); this.setState({ msg: bad.length ? 'ok: ' + bad.length + ' invalid of ' + S.ch.length : 'ok: all ' + S.ch.length + ' definitions valid', modal: bad.length ? { title: 'Validate: ' + bad.length + ' invalid of ' + S.ch.length, body: [].concat(...bad.map(c => [{ t: c.name, k: 'boxalert' }].concat(c.invalid.map(v => ({ t: '  - ' + v, k: 'box' }))))), btn: [{ key: 'Esc', label: 'close', fn: () => this.setState({ modal: null }) }] } : null }); }, 800); }
+    if (act === 'install') { this.setState({ sched: 'ok', msg: 'ok: installed; waiting for first tick (<= 60s)' }); }
+    if (act === 'uninstall') this.setState({ modal: { title: 'Uninstall the tick?', body: [{ t: 'Nothing will fire on schedule until install.', k: 'box' }], btn: [{ key: 'y', label: 'uninstall', fn: () => this.setState({ sched: 'off', modal: null, msg: 'ok: uninstalled' }) }, { key: 'Esc', label: 'cancel', fn: () => this.setState({ modal: null }) }] } });
+    if (act === 'prune') this.setState({ modal: { title: 'Prune run directories?', body: [{ t: 'Deletes run directories older than the retention window. The ledger and notifications are kept; artifacts of those runs are gone.', k: 'box' }], btn: [{ key: 'y', label: 'prune', fn: () => this.setState({ modal: null, msg: 'ok: pruned; state dir size before/after is re-queried (not in sample)' }) }, { key: 'Esc', label: 'cancel', fn: () => this.setState({ modal: null }) }] } });
+    if (act === 'pause all') this.pauseAll();
+  }
+  help() {
+    const rows = [['1-6', 'screens'], ['j k / Up Down', 'move'], ['g G / Home End', 'top / bottom'], ['Enter l / Esc h', 'open / back'], ['Tab S-Tab', 'run: artifact tabs'], ['/  n N', 'filter or search'], ['c  o', 'chore / its last run'], ['r  t', 'run now / dry run'], ['p  u', 'pause / resume chore'], ['K', 'kill running run'], ['P  U', 'pause all / resume all'], ['d  D', 'dismiss / all shown'], ['s  w  =', 'sort / trend window / compare'], ['z  v  y', 'expand all / pager / yank id'], ['F2 F3 F4', 'runs presets'], ['Ctrl-r', 'poll now'], ['q', 'quit']];
+    this.setState({ modal: { title: 'Keys', body: rows.map(([k, l]) => ({ t: fit(k, 18) + l, k: 'box' })), btn: [{ key: 'Esc', label: 'close', fn: () => this.setState({ modal: null }) }] } });
+  }
+
+  // keyboard
+  key(e) {
+    const S = this.state; if (!S.open || S.launching) return;
+    const k = e.key, ctrl = e.ctrlKey;
+    if (e.metaKey || e.altKey) return;
+    if (S.menu && k === 'Escape') { e.preventDefault(); return this.setState({ menu: false }); }
+    const handled = () => e.preventDefault();
+    if (S.modal) {
+      handled(); const m = S.modal;
+      if (m.prompt) {
+        if (k === 'Escape') return this.setState({ modal: null, msg: 'cancelled' });
+        if (k === 'Enter') { if (!m.value.trim()) return this.say('reason required'); return m.submit(m.value.trim(), m.killToggle); }
+        if (k === 'Tab' && m.killToggle != null) return this.setState({ modal: Object.assign({}, m, { killToggle: !m.killToggle }) });
+        if (k === 'Backspace') return this.setState({ modal: Object.assign({}, m, { value: m.value.slice(0, -1) }) });
+        if (k.length === 1) return this.setState({ modal: Object.assign({}, m, { value: (m.value + k).slice(0, 40) }) });
+        return;
+      }
+      if (k === 'Escape' || k === 'q') return this.setState({ modal: null });
+      const b = (m.btn || []).find(b => b.key === k || b.alt === k || (k === 'Enter' && b.key === 'y'));
+      if (b) b.fn();
+      return;
+    }
+    if (S.typing) {
+      handled(); const f = S.typing;
+      if (k === 'Escape') return this.setState({ typing: null, [f]: '' });
+      if (k === 'Enter') { this.setState({ typing: null }); if (f === 'search') this.findNext(1); return; }
+      if (k === 'Backspace') return this.setState({ [f]: S[f].slice(0, -1) });
+      if (k.length === 1) return this.setState({ [f]: S[f] + k, cur: Object.assign({}, S.cur, { chores: 0 }) });
+      return;
+    }
+    const scr = S.screen;
+    const tops = { '1': 'needs', '2': 'chores', '3': 'runs', '4': 'usage', '5': 'inbox', '6': 'system' };
+    if (tops[k]) { handled(); return this.goTop(tops[k]); }
+    if (ctrl && k === 'r') { handled(); return this.say(S.snapfail ? 'failed: snapshot still failing -- retrying every 2s' : 'ok: polled snapshot ' + hms(this.now())); }
+    if (k === '?') { handled(); return this.help(); }
+    if (k === 'q') { handled(); return this.setState({ open: false, modal: null }); }
+    if (k === 'P') { handled(); return this.pauseAll(); }
+    if (k === 'U') { handled(); return this.resumeAll(); }
+    const listKey = { needs: 'needs', chores: 'chores', runs: 'runs', usage: 'usage', inbox: 'inbox', system: 'system', chore: 'chore' }[scr];
+    const listLen = () => scr === 'needs' ? this.attn().length : scr === 'chores' ? this.choreList().length : scr === 'runs' ? this.runList().length : scr === 'usage' ? S.usage.length : scr === 'inbox' ? S.notifs.length : scr === 'system' ? 5 : scr === 'chore' ? this.chRuns(S.chore).length : 0;
+    const H = S.size === '80' ? 24 : 48;
+    let delta = null;
+    if (k === 'j' || k === 'ArrowDown') delta = 1; else if (k === 'k' || k === 'ArrowUp') delta = -1;
+    else if (k === 'g' || k === 'Home') delta = -1e9; else if (k === 'G' || k === 'End') delta = 1e9;
+    else if (k === 'PageDown' || (ctrl && k === 'd')) delta = Math.floor(H / 2); else if (k === 'PageUp' || (ctrl && k === 'u')) delta = -Math.floor(H / 2);
+    if (delta != null) {
+      handled();
+      if (scr === 'run') { const r = this.runBy(S.run); const n = this.paneLen(r, S.size === '160' ? 0 : S.tab); return this.setState({ pcur: clamp(S.pcur + delta, 0, Math.max(0, n - 1)) }); }
+      if (listKey) return this.setCur(listKey, clamp(S.cur[listKey] + delta, 0, Math.max(0, listLen() - 1)));
+      return;
+    }
+    if (k === 'Enter' || k === 'l' || k === 'ArrowRight') {
+      handled();
+      if (scr === 'run') { if ((S.size === '160' || S.tab === 0) && this.runBy(S.run).full) this.setState({ expanded: Object.assign({}, S.expanded, { [S.pcur]: !S.expanded[S.pcur] }) }); return; }
+      return this.openSelected();
+    }
+    if (k === 'Escape' || k === 'h' || k === 'ArrowLeft' || k === 'Backspace') { handled(); if (scr === 'chores' && S.filter) return this.setState({ filter: '' }); if (scr === 'runs' && S.runsQ !== '24h') return this.setState({ runsQ: '24h' }); return this.back(); }
+    if (k === 'Tab' && scr === 'run') { handled(); const d = e.shiftKey ? -1 : 1; if (S.size === '160') return this.setState({ tab2: ((S.tab2 - 1 + d + 5) % 5) + 1 }); return this.setState({ tab: (S.tab + d + 6) % 6, pcur: 0 }); }
+    if (k === '/') { handled(); if (scr === 'chores') return this.setState({ typing: 'filter' }); if (scr === 'run') return this.setState({ typing: 'search', search: '' }); return this.say('filter: available on Chores and in Run panes'); }
+    if ((k === 'n' || k === 'N') && scr === 'run') { handled(); return this.findNext(k === 'n' ? 1 : -1); }
+    if (['F2', 'F3', 'F4'].includes(k) && scr === 'runs') { handled(); return this.setState({ runsQ: k, cur: Object.assign({}, S.cur, { runs: 0 }) }); }
+    const c = this.ctxChore();
+    const map = {
+      c: () => c ? this.openChore(c.name) : this.say('no chore here'),
+      o: () => c ? this.openRun(c.last, 0) : this.say('no chore here'),
+      r: () => c ? this.runNow(c) : this.say('no chore selected'),
+      t: () => c ? this.dry(c) : this.say('no chore selected'),
+      p: () => c ? this.pauseChore(c) : this.say('no chore selected'),
+      u: () => c ? this.resume(c) : this.say('no chore selected'),
+      K: () => c ? this.kill(c) : this.say('no chore selected'),
+      d: () => { if (scr === 'inbox') return this.dismiss(S.notifs[S.cur.inbox]); if (scr === 'needs') { const it = this.attn()[S.cur.needs]; return this.dismiss(it && it.notif); } this.say('dismiss: on Needs and Inbox'); },
+      D: () => { if (scr !== 'inbox') return; const n = S.notifs.filter(x => !x.read).length; this.setState(st => ({ notifs: st.notifs.map(x => Object.assign({}, x, { read: true })), msg: 'ok: dismissed ' + n })); },
+      s: () => scr === 'chores' && this.setState({ sort: (S.sort + 1) % 4 }),
+      w: () => scr === 'usage' && this.setState({ trendW: S.trendW === 7 ? 28 : 7 }),
+      z: () => scr === 'run' && this.setState({ expandAll: !S.expandAll, expanded: {} }),
+      '=': () => scr === 'run' ? this.setState({ tab: 5, tab2: 5 }) : scr === 'chore' ? this.say('= compare: open a run first') : null,
+      v: () => scr === 'run' && this.say('opens ' + ['transcript.jsonl', 'errors.log', 'stdout.log', 'stderr.log', 'definition.md', 'definition.md'][S.tab] + ' in $PAGER (not simulated)'),
+      y: () => { const r = scr === 'run' ? this.runBy(S.run) : scr === 'runs' ? this.runList()[S.cur.runs] : null; this.say(r && r.id ? 'ok: copied ' + r.id + ' (OSC 52)' : 'refused: run id not in sample'); }
+    };
+    if (map[k]) { handled(); map[k](); }
+  }
+  openSelected() {
+    const S = this.state, scr = S.screen;
+    if (scr === 'needs') return this.openItem(this.attn()[S.cur.needs]);
+    if (scr === 'chores') { const c = this.choreList()[S.cur.chores]; return c && this.openChore(c.name); }
+    if (scr === 'chore') { const r = this.chRuns(S.chore)[S.cur.chore]; return r && this.openRun(r.uid); }
+    if (scr === 'runs') { const r = this.runList()[S.cur.runs]; return r && this.openRun(r.uid); }
+    if (scr === 'usage') { const u = S.usage[S.cur.usage]; return u && u.chore ? this.openChore(u.scope) : this.say('backend and global scopes have no detail view; t dry run shows how they apply'); }
+    if (scr === 'inbox') { const x = S.notifs[S.cur.inbox]; if (!x) return; return x.run && this.runBy(x.run) ? this.openRun(x.run) : this.openChore(x.chore); }
+    if (scr === 'system') return this.sysAction(S.cur.system);
+  }
+  findNext(d) {
+    const S = this.state, q = S.search; if (!q) return; const r = this.runBy(S.run); if (!r || !r.full) return this.say('search: no content in sample');
+    const lines = transcript(); let i = S.pcur;
+    for (let n = 0; n < lines.length; n++) { i = (i + d + lines.length) % lines.length; if (lines[i].includes(q)) { const total = lines.filter(l => l.includes(q)).length; return this.setState({ pcur: i, msg: '/' + q + ' -- line ' + (i + 1) + ' (' + total + ' matches)' }); } }
+    this.say('/' + q + ' -- no match');
+  }
+
+  // menu
+  openAt(fn) {
+    const S = this.state;
+    const go = () => { this.setState({ menu: false, flash: true }); setTimeout(() => this.setState({ flash: false }), 700); fn && fn(); };
+    if (!S.open) { this.setState({ open: true, launching: true, menu: false, screen: 'needs', root: 'needs', stack: [] }); setTimeout(() => { this.setState({ launching: false }); fn && fn(); }, 450); }
+    else go();
+  }
+  menuTitle(items) {
+    const S = this.state, c = this.counts(items.filter(i => !(i.sys && i.chore === 'scheduler')));
+    if (S.snapfail) return { icon: 'ph ph-question', text: '?' };
+    const word = S.sched === 'off' ? 'OFF' : S.sched === 'stale' ? 'STALE' : S.gpause ? 'PAUSED' : '';
+    const cnt = c['!!'] ? '!!' + c['!!'] : c['!'] ? '!' + c['!'] : c['~'] ? '~' + c['~'] : c['i'] ? String(c['i']) : '';
+    const icon = S.sched === 'off' ? 'ph ph-prohibit' : S.sched === 'stale' ? 'ph ph-clock-countdown' : S.gpause ? 'ph ph-pause' : (c['!!'] || c['!']) ? 'ph-fill ph-seal-warning' : 'ph ph-list-checks';
+    return { icon, text: [word, cnt].filter(Boolean).join(' ') };
+  }
+  buildMenu(items) {
+    const S = this.state, M = [], n = this.now();
+    const H = t => M.push({ kind: 'header', text: t }), SEP = () => M.push({ kind: 'sep' }), I = (text, o) => M.push(Object.assign({ kind: 'item', text }, o || {}));
+    const openDash = () => this.openAt();
+    if (S.snapfail) { H('Status unavailable'); H('snapshot failed: state directory unreadable'); H('Last good snapshot 14:05:12 (' + dur(182 + S.t) + ' ago)'); SEP(); I('Open Dashboard', { right: 'Cmd-D', act: openDash }); I('Quit chores Menu', { right: 'Cmd-Q', act: () => this.setState({ menu: false }) }); return M; }
+    if (S.gpause) { H('PAUSED: "' + S.gpause.reason + '"  since ' + S.gpause.since); H('Nothing starts until you resume.'); SEP(); I('Resume All', { act: () => { this.setState({ menu: false }); this.resumeAll(true); } }); SEP(); }
+    if (S.sched !== 'ok') { H(S.sched === 'off' ? 'Scheduler NOT INSTALLED' : 'Scheduler STALE'); H(S.sched === 'off' ? 'Nothing fires on schedule.' : 'Last tick 09:12:04 -- ' + dur(n - T('09:12:04')) + ' ago.'); H('Fix: chores install'); SEP(); I('Open System in Dashboard', { act: () => this.openAt(() => this.push({ screen: 'system', root: 'system', cur: Object.assign({}, this.state.cur, { system: 1 }) })) }); SEP(); }
+    const list = items.filter(i => !(i.sys && i.chore === 'scheduler')); const c = this.counts(list);
+    if (!list.length) H('All quiet');
+    else H([c['!!'] + c['!'] ? (c['!!'] + c['!']) + ' need you' : '', c['~'] ? c['~'] + ' warnings' : '', c['i'] ? c['i'] + ' message' + (c['i'] > 1 ? 's' : '') : ''].filter(Boolean).join('  -  '));
+    H('Snapshot ' + hms(n - (S.t % 2)) + '  -  last tick ' + hms(this.lastTick()));
+    SEP();
+    list.filter(i => i.lv === '!!' || i.lv === '!').forEach(it => {
+      const lbl = it.sys ? 'warning' : it.what.startsWith('PAUSED') ? 'paused by breaker' : it.what.split(' ')[0];
+      const sub = [{ kind: 'header', text: it.what }, { kind: 'sep' }, { kind: 'item', text: it.go === 'run' && !it.what.startsWith('PAUSED') ? 'Open Run in Dashboard' : 'Open in Dashboard', act: () => this.openAt(() => this.openItem(it)) }];
+      if (it.notif) sub.push({ kind: 'item', text: 'Dismiss alert ' + it.notif.id, act: () => { this.dismiss(it.notif); this.setState({ menu: false }); } });
+      I(it.lv + ' ' + fit(it.chore, 20) + ' ' + lbl, { sub });
+    });
+    const warns = list.filter(i => i.lv === '~');
+    if (warns.length) I('~ ' + warns.length + ' warning' + (warns.length > 1 ? 's' : ''), { sub: warns.map(it => ({ kind: 'item', text: it.chore + '  ' + it.what.slice(0, 34), act: () => this.openAt(() => this.openItem(it)) })) });
+    list.filter(i => i.lv === 'i').forEach(it => I('i ' + it.chore + ': ' + it.notif.text, { sub: [{ kind: 'header', text: it.notif.at }, { kind: 'item', text: 'Open in Dashboard', act: () => this.openAt(() => this.openItem(it)) }, { kind: 'item', text: 'Dismiss', act: () => { this.dismiss(it.notif); this.setState({ menu: false }); } }] }));
+    if (list.length) SEP();
+    const running = S.ch.filter(x => x.running);
+    if (running.length) { H('Running'); running.forEach(x => { const el = n - x.running.since; I('    ' + fit(x.name, 18) + dur(el) + (x.usual && el > 3 * x.usual ? ' (usual ' + x.usual + 's)' : ''), { sub: [{ kind: 'item', text: 'Open in Dashboard', act: () => this.openAt(() => this.openRun(x.running.run)) }, { kind: 'item', text: 'Kill in Dashboard...', act: () => this.openAt(() => this.kill(this.chBy(x.name))) }] }); }); SEP(); }
+    const usub = []; S.usage.forEach(u => [['tokens', u.tok], ['usd', u.usd], ['turns', u.turns]].forEach(([d, v]) => { const p = this.pct(v); if (p != null) usub.push({ kind: 'header', text: u.scope + ' ' + d + ' ' + num(v[0]) + ' / ' + num(v[1]) + ' (' + Math.round(p * 100) + '%)' + (p >= 1 ? ' !' : p >= 0.8 ? ' ~' : '') }); }));
+    I('Usage 24h', { sub: usub }); SEP();
+    I('Open Dashboard', { right: 'Cmd-D', act: openDash });
+    if (S.notifs.some(x => !x.read)) I('Mark All Messages Read', { act: () => this.setState(st => ({ menu: false, notifs: st.notifs.map(x => Object.assign({}, x, { read: true })) })) });
+    if (!S.gpause) I('Pause All...', { act: () => this.openAt(() => this.pauseAll()) });
+    SEP(); I('Quit chores Menu', { right: 'Cmd-Q', act: () => this.setState({ menu: false }) });
+    return M;
+  }
+
+  // TUI
+  stateText(c) {
+    const S = this.state;
+    let t = !c.enabled ? 'DISABLED (in git)' : c.invalid ? 'INVALID -- will not run until fixed in git' : c.paused ? (c.paused.by === 'breaker' ? 'PAUSED by breaker: "' : 'PAUSED by you: "') + c.paused.reason + '"' : c.running ? 'enabled; RUNNING since ' + hms(c.running.since) + ' (' + dur(this.now() - c.running.since) + ')' : 'enabled';
+    if (S.gpause && c.enabled) t += '  (global pause)';
+    return t;
+  }
+  nextText(c) { const S = this.state; if (!c.enabled) return 'disabled'; if (S.sched === 'off') return '(not inst.)'; if (S.gpause) return 'paused'; if (c.paused) return 'paused'; if (c.invalid) return '--'; return c.next; }
+  runBrief(r) { if (!r) return '--'; return [r.st + (r.count ? ' x' + r.count : ''), r.at, r.wall, r.turns != null ? r.turns + ' turns' : null, r.tok != null ? num(r.tok) + ' tok' : null].filter(Boolean).join('   '); }
+  detail(it, w, big) {
+    const out = [], S = this.state;
+    if (!it) return out;
+    if (it.sys || !this.chBy(it.chore)) {
+      out.push(txt(w, '-- ' + it.chore + ' ' + '-'.repeat(Math.max(0, w - it.chore.length - 5)), 'faint'));
+      wrap(it.what, w - 2).forEach(l => out.push(txt(w, ' ' + l, it.lv === 'i' ? 'txt' : LVK[it.lv])));
+      if (it.chore === 'scheduler') { out.push(txt(w, ' installed ' + (S.sched === 'off' ? 'false' : 'true') + '   tick 60s   last tick ' + (S.sched === 'off' ? '--' : hms(this.lastTick())), 'dim')); out.push(txt(w, ' Enter opens System; install repairs it.', 'dim')); }
+      if (it.scope) { const u = S.usage.find(x => x.scope === it.scope); out.push(txt(w, ' Enter opens Usage at ' + it.scope + '.', 'dim')); }
+      if (it.notif) out.push(txt(w, ' ' + it.notif.id + ' ' + it.notif.level + ' at ' + it.notif.at + '   d dismiss', 'dim'));
+      return out;
+    }
+    const c = this.chBy(it.chore), kb = c.kind + (c.backend ? ' / ' + c.backend : '');
+    out.push(txt(w, '-- ' + c.name + ' ' + '-'.repeat(Math.max(0, w - c.name.length - kb.length - 9)) + ' ' + kb + ' --', 'faint'));
+    out.push(L(w, [s(' state     ', 'dim'), s(this.stateText(c), c.paused || c.invalid ? 'alert' : 'txt')]));
+    if (c.paused && c.paused.by === 'breaker') { const nn = S.notifs.find(x => x.chore === c.name && x.level === 'alert'); out.push(L(w, [s('           TIMED_OUT, TIMED_OUT, FAILED', 'txt'), s(nn ? (nn.read ? '       alert ' + nn.id + ' read' : '       * unread alert ' + nn.id) : '', 'acc')])); }
+    else if (it.notif) out.push(L(w, [s('           ', 'dim'), s((it.notif.read ? '' : '* unread ') + it.notif.level + ' ' + it.notif.id, 'acc')]));
+    if (c.invalid) c.invalid.forEach(v => out.push(txt(w, '             - ' + v, 'txt')));
+    out.push(L(w, [s(' last run  ', 'dim'), s(this.runBrief(this.runBy(c.last)))]));
+    out.push(L(w, [s(' last ok   ', 'dim'), s(fit(this.runBy(c.ok) ? this.runBy(c.ok).at : '--', 22)), s('  next due  ', 'dim'), s(this.nextText(c))]));
+    out.push(L(w, [s(' schedule  ', 'dim'), s(c.schedule)]));
+    if (big) {
+      out.push(txt(w, ''));
+      const ns = S.notifs.filter(x => x.chore === c.name);
+      if (ns.length) { out.push(txt(w, ' notifications', 'dim')); ns.forEach(x => wrap(x.text, w - 30).forEach((l, j) => out.push(txt(w, j ? ' '.repeat(28) + l : '  ' + (x.read ? ' ' : '*') + ' ' + fit(x.id, 7) + fit(x.at, 10) + fit(x.level, 7) + l, x.read ? 'dim' : 'txt')))); out.push(txt(w, '')); }
+      out.push(txt(w, ' runs (newest first)', 'dim'));
+      this.chRuns(c.name).slice(0, 6).forEach(r => out.push(txt(w, '    ' + fit(r.at, 18) + fit(r.st + (r.count ? ' x' + r.count : ''), 17) + fit(r.wall || '', 7) + (r.turns != null ? r.turns + ' turns' : ''), BAD.includes(r.st) ? 'warn' : 'txt')));
+      out.push(txt(w, '    (older rows from the run query)', 'faint'));
+      out.push(txt(w, ''));
+      out.push(txt(w, ' actions', 'dim'));
+      const acts = []; if (c.paused) acts.push(['u', 'resume' + (c.paused.by === 'breaker' ? ' (clears breaker pause)' : '')]); if (c.running) acts.push(['K', 'kill running run']); acts.push(['r', 'run now'], ['t', 'dry run'], ['o', 'open last run (' + (this.runBy(c.last) || {}).st + ')']); if (it.notif && !it.notif.read) acts.push(['d', 'dismiss ' + it.notif.id]);
+      acts.forEach(([k, l]) => out.push(L(w, [s('    '), s(fit(k, 3), 'key'), s(l)])));
+    }
+    return out;
+  }
+  scrNeeds(W, CH) {
+    const S = this.state, items = this.attn(), cur = clamp(S.cur.needs, 0, Math.max(0, items.length - 1)), out = [];
+    if (!items.length) {
+      out.push(txt(W, ' Nothing needs you.', 'hi'));
+      if (!S.ch.length) { out.push(txt(W, ' No chores defined. Definitions live in git; add one there, then run', 'dim')); out.push(txt(W, '   chores validate', 'acc')); return out; }
+      const run = S.ch.filter(c => c.running);
+      out.push(txt(W, ' ' + S.ch.length + ' chores - ' + run.length + ' running' + (run.length ? ' (' + run.map(c => c.name + ' since ' + hms(c.running.since)).join(', ') + ')' : ''), 'dim'));
+      return out;
+    }
+    const big = W >= 160, LW = big ? 96 : W, wLv = 4, wCh = 21, wSn = big ? 10 : 9, wWh = LW - 1 - wLv - wCh - 1 - wSn - 1;
+    const list = [txt(LW, ' ' + fit('LV', wLv) + fit('CHORE', wCh) + ' ' + fit('WHAT', wWh) + ' ' + fit('SINCE', wSn), 'dim')];
+    const detail = this.detail(items[cur], big ? W - LW - 1 : W, big);
+    const maxRows = big ? CH - 1 : Math.max(3, CH - 1 - Math.min(detail.length, 8));
+    const st = winStart(cur, items.length, maxRows);
+    items.slice(st, st + maxRows).forEach((it, j) => { const i = st + j; list.push(L(LW, [s(i === cur ? '>' : ' ', 'hi'), s(fit(it.lv, wLv), LVK[it.lv]), s(fit(it.chore, wCh), 'hi'), s(' '), s(fit(it.what, wWh)), s(' '), s(fit(it.since, wSn), 'dim')], { bg: i === cur ? 'cur' : null, onClick: () => this.clickRow('needs', i, () => this.openItem(it)) })); });
+    if (big) return hcat(list, detail, LW, W - LW - 1, CH);
+    return list.concat(detail.slice(0, CH - list.length));
+  }
+  scrChores(W, CH) {
+    const S = this.state, l = this.choreList(), cur = clamp(S.cur.chores, 0, Math.max(0, l.length - 1)), big = W >= 160, out = [];
+    if (!S.ch.length) return [txt(W, ' No chores.', 'hi'), txt(W, ' Definitions live in git; add one there, then run chores validate.', 'dim')];
+    const cols = big ? [3, 22, 17, 17, 18, 11, 18, 14] : [2, 20, 16, 15, 10];
+    const hd = big ? ['ST', 'NAME', 'KIND/BACKEND', 'LAST', 'AT', 'NEXT', 'LAST OK', 'SCHEDULE', 'REASON'] : ['ST', 'NAME', 'KIND/BACKEND', 'LAST', 'AT', 'NEXT'];
+    const used = cols.reduce((a, b) => a + b + 1, 0); const rest = W - used - 1;
+    const row = vals => ' ' + vals.map((v, i) => i < cols.length ? fit(v, cols[i]) + ' ' : fit(v, Math.max(rest, 10))).join('');
+    out.push(txt(W, row(hd), 'dim'));
+    const maxRows = CH - 1 - (l.length < CH - 5 ? 3 : 0);
+    const st = winStart(cur, l.length, maxRows);
+    l.slice(st, st + maxRows).forEach((c, j) => {
+      const i = st + j, r = this.runBy(c.last), ok = this.runBy(c.ok);
+      const g = c.running ? '*' : c.paused ? (c.paused.by === 'breaker' ? 'B' : 'P') : c.invalid ? 'X' : !c.enabled ? '-' : ' ';
+      const last = c.running ? 'RUNNING' : r.st + (r.count ? ' x' + r.count : '');
+      const at = c.running ? hms(c.running.since) : r.at.length > 11 ? r.at.slice(0, 10) : r.at;
+      const vals = [g, c.name, c.kind + (c.backend ? '/' + c.backend : ''), last, at, this.nextText(c)].concat(big ? [ok ? ok.at : '--', c.schedule, c.invalid ? c.invalid[0] : r.reason || ''] : []);
+      const line = row(vals);
+      const k = !c.enabled ? 'faint' : 'txt';
+      const a0 = 2 + cols[0], a1 = a0 + cols[1] + cols[2] + 2, a2 = a1 + cols[3] + 1;
+      const segs = [s(i === cur ? '>' : ' ', 'hi'), s(line.slice(1, a0), g === 'B' || g === 'X' ? 'alert' : g === '*' ? 'acc' : 'dim'), s(line.slice(a0, a1), k), s(line.slice(a1, a2), !c.enabled ? 'faint' : BAD.includes(last) || last === 'INVALID' ? 'warn' : c.running ? 'acc' : 'txt'), s(line.slice(a2), k)];
+      out.push(L(W, segs, { bg: i === cur ? 'cur' : null, onClick: () => this.clickRow('chores', i, () => this.openChore(c.name)) }));
+    });
+    if (l.length < CH - 5) { out.push(txt(W, '')); out.push(txt(W, ' ST:  * running   B paused by breaker   P paused by you   X invalid', 'faint')); out.push(txt(W, '      - disabled in git   (blank) enabled', 'faint')); }
+    return out;
+  }
+  scrChore(W, CH) {
+    const S = this.state, c = this.chBy(S.chore); if (!c) return [txt(W, ' chore not found')];
+    const out = [], rs = this.chRuns(c.name), cur = clamp(S.cur.chore, 0, Math.max(0, rs.length - 1)), big = W >= 160;
+    const kb = c.kind + ' / ' + (c.backend || 'no backend') + (c.backend ? ' / backend default model' : '');
+    out.push(L(W, [s(' ' + fit(c.name, 37), 'hi'), s(kb, 'dim')]));
+    out.push(L(W, [s(' state     ', 'dim'), s(fit(this.stateText(c), 27), c.paused || c.invalid ? 'alert' : 'txt'), s('schedule  ', 'dim'), s(fit(c.schedule, 13)), s('next  ', 'dim'), s(this.nextText(c))]));
+    if (c.invalid) c.invalid.forEach(v => out.push(txt(W, '             - ' + v, 'warn')));
+    else out.push(L(W, [s(' limits    ', 'dim'), c.budget ? s('budget ' + c.budget + '       ') : s('budget: t dry run to resolve', 'dim'), c.budget ? s('(from last run\'s definition, a41c9e2-dirty)', 'faint') : s(' (not in the chore snapshot)', 'faint')]));
+    const u = S.usage.find(x => x.scope === c.name);
+    if (u) out.push(L(W, [s(' 24h       ', 'dim'), s([['tokens', u.tok], ['turns', u.turns]].map(([d, v]) => { const p = this.pct(v); return d + ' ' + num(v[0]) + ' / ' + num(v[1]) + ' ' + Math.round(p * 100) + '%' + (p >= 1 ? ' !' : p >= 0.8 ? ' ~' : ''); }).join('   '), 'warn')]));
+    const ok = this.runBy(c.ok), bad = this.runBy(c.bad);
+    out.push(L(W, [s(' last ok   ', 'dim'), s(ok ? fit(ok.st, 17) + ok.at : '--')], { onClick: () => ok && this.openRun(ok.uid) }));
+    out.push(L(W, [s(' last bad  ', 'dim'), s(bad ? fit(bad.st, 17) + fit(bad.at, 11) + (bad.reason || '') : '--', bad ? 'warn' : 'txt')], { onClick: () => bad && this.openRun(bad.uid) }));
+    out.push(txt(W, ' ' + '-'.repeat(W - 2), 'faint'));
+    const hdr = big ? '   ' + fit('STARTED', 18) + fit('STATUS', 17) + fit('WALL', 7) + rfit('TOK IN', 8) + rfit('TOK OUT', 9) + rfit('TURNS', 7) + '  ' + fit('CPU', 7) + fit('DISK', 8) + fit('REV', 15) + 'REASON' : '   ' + fit('STARTED', 11) + fit('STATUS', 17) + fit('WALL', 7) + rfit('TOKENS', 7) + rfit('TURNS', 7) + '  REV';
+    out.push(txt(W, hdr, 'dim'));
+    const avail = CH - out.length - 1; const st = winStart(cur, rs.length, avail);
+    rs.slice(st, st + avail).forEach((r, j) => { const i = st + j; const line = big ? fit(r.at, 18) + fit(r.st + (r.count ? ' x' + r.count : ''), 17) + fit(r.wall || '-', 7) + rfit(r.tin != null ? num(r.tin) : '-', 8) + rfit(r.tout != null ? num(r.tout) : '-', 9) + rfit(r.turns != null ? r.turns : '-', 7) + '  ' + fit(r.cpu || '-', 7) + fit(r.disk || '-', 8) + fit(r.rev || '-', 15) + (r.reason || '') : fit(r.at.length > 10 ? r.at.slice(0, 10) : r.at, 11) + fit(r.st + (r.count ? ' x' + r.count : ''), 17) + fit(r.wall || '-', 7) + rfit(r.tok != null ? num(r.tok) : '-', 7) + rfit(r.turns != null ? r.turns : '-', 7) + '  ' + (r.rev || '-'); out.push(L(W, [s(i === cur ? '>  ' : '   ', 'hi'), s(line, BAD.includes(r.st) ? 'warn' : r.st === 'RUNNING' || r.st === 'PENDING' ? 'acc' : 'txt')], { bg: i === cur ? 'cur' : null, onClick: () => this.clickRow('chore', i, () => this.openRun(r.uid)) })); });
+    while (out.length < CH - 1) out.push(txt(W, ''));
+    out.push(L(W, [s(' filter: all statuses, 30 days' + ' '.repeat(Math.max(1, W - 40)), 'dim'), s(rs.length + ' runs', 'dim')]));
+    return out;
+  }
+  scrRuns(W, CH) {
+    const S = this.state, l = this.runList(), cur = clamp(S.cur.runs, 0, Math.max(0, l.length - 1)), big = W >= 160, out = [];
+    const q = { '24h': 'window 24h  status all', F2: 'window 30d  status FAILED,TIMED_OUT,BUDGET_EXCEEDED,INTERRUPTED,OFFLINE,KILLED', F3: 'window 30d  status BUDGET_EXCEEDED,TIMED_OUT', F4: 'window 24h  status non-runs (MISSED, SKIPPED_*, DEFERRED, INVALID)' }[S.runsQ];
+    out.push(L(W, [s(' ' + q + '  chore all', 'acc'), s('   ' + l.length + ' runs', 'dim')]));
+    out.push(txt(W, '   ' + fit('STARTED', 11) + fit('CHORE', 22) + fit('STATUS', 17) + rfit('WALL', 6) + rfit('TOKENS', 8) + rfit('TURNS', 7) + (big ? '  ' + fit('BACKEND', 11) + fit('REV', 15) + 'REASON' : ''), 'dim'));
+    const avail = CH - 4; const st = winStart(cur, l.length, avail);
+    if (!l.length) out.push(txt(W, '   No runs match.', 'dim'));
+    l.slice(st, st + avail).forEach((r, j) => { const i = st + j; const line = fit(r.at.length > 10 ? r.at.slice(0, 10) : r.at, 11) + fit(r.chore, 22) + fit(r.st + (r.count ? ' x' + r.count : ''), 17) + rfit(r.st === 'RUNNING' ? dur(this.now() - r.since) : r.wall || '-', 6) + rfit(r.tok != null ? num(r.tok) : '-', 8) + rfit(r.turns != null ? r.turns : '-', 7) + (big ? '  ' + fit(r.backend || '-', 11) + fit(r.rev || '-', 15) + (r.reason || '') : ''); out.push(L(W, [s(i === cur ? '>  ' : '   ', 'hi'), s(line, BAD.includes(r.st) ? 'warn' : r.st === 'RUNNING' ? 'acc' : 'txt')], { bg: i === cur ? 'cur' : null, onClick: () => this.clickRow('runs', i, () => this.openRun(r.uid)) })); });
+    while (out.length < CH - 1) out.push(txt(W, ''));
+    out.push(L(W, [s(' presets: ', 'dim'), s('F2', 'key', { onClick: () => this.setState({ runsQ: 'F2' }) }), s(' failures 30d   ', 'dim'), s('F3', 'key', { onClick: () => this.setState({ runsQ: 'F3' }) }), s(' budget+timeout 30d   ', 'dim'), s('F4', 'key', { onClick: () => this.setState({ runsQ: 'F4' }) }), s(' non-runs 24h', 'dim')]));
+    return out;
+  }
+  scrUsage(W, CH) {
+    const S = this.state, out = [], cur = S.cur.usage;
+    const cell = (v, w, word) => { if (v == null) return fit('--', w); if (typeof v === 'string') return fit('-- (' + v + ')', w); const p = this.pct(v); return fit((word ? '' : '') + num(v[0]) + '/' + (v[1] ? num(v[1]) : '--') + (p != null ? ' ' + Math.round(p * 100) + '%' + (p >= 1 ? ' !' : p >= 0.8 ? ' ~' : '') : ''), w); };
+    out.push(txt(W, ' rolling 24h to ' + hms(this.now()) + '          near >= 80%   ~ near   ! at ceiling', 'dim'));
+    out.push(txt(W, '  ' + fit('SCOPE', 13) + fit('TOKENS', 25) + fit('USD', 21) + 'TURNS', 'dim'));
+    S.usage.forEach((u, i) => { const worst = Math.max(...[u.tok, u.usd, u.turns].map(v => this.pct(v) || 0)); out.push(L(W, [s(i === cur ? '>' : ' ', 'hi'), s(worst >= 1 ? '!' : worst >= 0.8 ? '~' : ' ', worst >= 1 ? 'alert' : 'warn'), s(fit(u.scope, 13), 'hi'), s(cell(u.tok, 25)), s(cell(typeof u.usd === 'string' ? u.usd : u.usd ? [u.usd[0].toFixed(2), u.usd[1] ? u.usd[1].toFixed(2) : null].map((x, j) => j ? x : x) && u.usd : null, 21)), s(cell(u.turns, 20), worst >= 0.8 ? 'warn' : 'txt')], { bg: i === cur ? 'cur' : null, onClick: () => this.clickRow('usage', i, () => u.chore && this.openChore(u.scope)) })); });
+    out.push(txt(W, ' ' + '-'.repeat(W - 2), 'faint'));
+    const wd = S.trendW;
+    out.push(L(W, [s(' vs own last ' + wd + ' days (from run records)', 'txt'), s('   illustrative -- sample has no prior-day runs', 'faint')]));
+    out.push(txt(W, '   ' + fit('SCOPE / DIMENSION', 27) + rfit('today', 10) + rfit(wd + 'd median', 12) + rfit('x', 7) + (W >= 160 ? '    last 7 days' : ''), 'dim'));
+    const rows = S.scn === 'zero' ? [] : TREND.map(t => ({ t, x: t[1] / (wd === 7 ? t[2] : t[3]) })).sort((a, b) => b.x - a.x);
+    rows.slice(0, Math.max(0, CH - out.length - 3)).forEach(({ t, x }) => { const f = x > 2; const fmt = v => v < 10 ? v.toFixed(2) : num(v); out.push(L(W, [s(f ? ' ~ ' : '   ', 'warn'), s(fit(t[0], 27), f ? 'hi' : 'txt'), s(rfit(fmt(t[1]), 10)), s(rfit(fmt(wd === 7 ? t[2] : t[3]), 12), 'dim'), s(rfit(x.toFixed(1) + 'x', 7), f ? 'warn' : 'dim'), s(W >= 160 ? '    [' + t[4] + ']' : '', 'acc')])); });
+    while (out.length < CH - 1) out.push(txt(W, ''));
+    out.push(txt(W, ' "--" = no ceiling, or not billed in that dimension (subscription: tokens and turns only)', 'faint'));
+    return out;
+  }
+  scrInbox(W, CH) {
+    const S = this.state, out = [], cur = clamp(S.cur.inbox, 0, Math.max(0, S.notifs.length - 1));
+    if (!S.notifs.length) return [txt(W, ' No notifications.', 'dim')];
+    out.push(txt(W, ' ' + S.notifs.filter(x => !x.read).length + ' unread  ' + S.notifs.filter(x => x.read).length + ' read', 'dim'));
+    out.push(txt(W, '  ' + fit('U', 2) + fit('LV', 4) + fit('AT', 11) + fit('CHORE', 22) + 'TEXT', 'dim'));
+    const tw = W - 41;
+    S.notifs.forEach((x, i) => { const k = x.read ? 'faint' : 'txt'; wrap(x.text + (x.byChore ? '  (from chore)' : ''), tw).forEach((l, j) => out.push(L(W, j ? [s(' '.repeat(40)), s(l, k)] : [s(i === cur ? '>' : ' ', 'hi'), s(fit(x.read ? '' : '*', 2), 'acc'), s(fit(x.level === 'alert' ? '!' : 'i', 4), x.level === 'alert' && !x.read ? 'alert' : 'dim'), s(fit(x.at, 11), 'dim'), s(fit(x.chore, 22), k), s(l, k)], { bg: i === cur ? 'cur' : null, onClick: () => this.clickRow('inbox', i, () => this.openSelected()) }))); });
+    return out;
+  }
+  scrSystem(W, CH) {
+    const S = this.state, out = [], cur = S.cur.system;
+    out.push(L(W, [s(' scheduler   ', 'dim'), S.sched === 'off' ? s('NOT INSTALLED', 'alert') : s('installed   tick 60s   last tick ' + hms(this.lastTick()) + ' (' + dur(this.now() - this.lastTick()) + ' ago)   ', 'txt'), s(S.sched === 'stale' ? 'STALE' : S.sched === 'ok' ? 'ok' : '', S.sched === 'stale' ? 'alert' : 'acc')]));
+    out.push(L(W, [s(' ledger      ', 'dim'), s(S.warns.length ? '3,900 rows' : '4,210 rows')]));
+    out.push(L(W, [s(' state dir   ', 'dim'), s(S.snapfail ? 'unreadable' : '(size queried on open; not in sample)', S.snapfail ? 'alert' : 'dim')]));
+    out.push(L(W, [s(' pause       ', 'dim'), s(S.gpause ? 'ON "' + S.gpause.reason + '" since ' + S.gpause.since : 'none', S.gpause ? 'warn' : 'txt')]));
+    if (!S.warns.length) out.push(L(W, [s(' warnings    ', 'dim'), s('none')]));
+    else S.warns.forEach((w, i) => out.push(L(W, [s(i ? '             ' : ' warnings    ', 'dim'), s('!! ' + w, 'alert')])));
+    out.push(txt(W, ' ' + '-'.repeat(W - 2), 'faint'));
+    out.push(txt(W, ' actions', 'dim'));
+    [['validate', 'check every definition, list every violation'], ['install', 'put the 60s tick into the OS scheduler (re-run to repair)'], ['uninstall', 'remove the tick -- nothing fires until install'], ['prune', 'delete run directories older than the retention window'], ['pause all', 'same as P from anywhere']].forEach(([a, d], i) => out.push(L(W, [s(i === cur ? '> ' : '  ', 'hi'), s(' ' + fit(a, 13), 'hi'), s(d, 'dim')], { bg: i === cur ? 'cur' : null, onClick: () => this.clickRow('system', i, () => this.sysAction(i)) })));
+    return out;
+  }
+  paneLen(r, tab) { if (!r || !r.full) return 1; return [1240, 2, 4, 1, 8, 12][tab]; }
+  pane(r, tab, w, h, active) {
+    const S = this.state, out = [], NS = '(content not in sample -- only line counts are given)';
+    if (!r.full) { const lines = r.sim ? { 0: ['{"type":"start","chore":"' + r.chore + '"}', r.st === 'RUNNING' || r.st === 'PENDING' ? '(following -- G to re-follow)' : '{"type":"stop","status":"' + r.st + '"}'], 1: ['(empty)'], 2: ['(empty)'], 3: ['(empty)'], 4: ['(definition.md snapshot -- not in sample)'], 5: ['(no second snapshot to compare in sample)'] }[tab] : [r.full ? '' : NS]; lines.forEach(l => out.push(txt(w, ' ' + l, 'dim'))); return out; }
+    if (tab === 0) {
+      const L0 = transcript(), cur = active ? S.pcur : 0;
+      let start = clamp(cur - Math.floor(h / 3), 0, L0.length - 1);
+      out.push(txt(w, ' transcript.jsonl  1240 lines   (illustrative content)' + (S.search ? '   /' + S.search : ''), 'faint'));
+      for (let i = start; i < L0.length && out.length < h - 1; i++) {
+        const exp = S.expandAll || S.expanded[i]; const sel = i === cur;
+        out.push(L(w, [s(sel ? '>' : ' ', 'hi'), s(rfit(i + 1, 5) + ' ', 'dim'), s(fit((exp ? '- ' : '+ ') + L0[i], w - 8), S.search && L0[i].includes(S.search) ? 'acc' : 'txt')], { bg: sel ? 'cur' : null, onClick: () => this.setState(st => st.pcur === i ? { expanded: Object.assign({}, st.expanded, { [i]: !st.expanded[i] }) } : { pcur: i }) }));
+        if (exp) JSON.stringify(JSON.parse(L0[i]), null, 2).split('\n').forEach(pl => { if (out.length < h - 1) out.push(txt(w, '         ' + pl, 'acc')); });
+      }
+      while (out.length < h - 1) out.push(txt(w, ''));
+      out.push(txt(w, rfit('line ' + (cur + 1) + ' / 1240', w - 1), 'dim'));
+      return out;
+    }
+    const content = {
+      1: [['errors.log  1 line   (illustrative)', 'faint'], ['    1  budget exceeded: tokens 52,300 > budget 50,000; run stopped', 'txt']],
+      2: [['stdout.log  3 lines   (illustrative)', 'faint'], ['    1  pr-digest: scanning open PRs', 'txt'], ['    2  pr-digest: 3 PRs need review; notified', 'txt'], ['    3  pr-digest: drafting digest', 'txt']],
+      3: [['stderr.log', 'faint'], ['(empty)', 'dim']],
+      4: [['definition.md @ a41c9e2-dirty   (excerpt: the fields the sample gives)', 'faint'], ['name: pr-digest', 'txt'], ['kind: agent', 'txt'], ['backend: agent-cli', 'txt'], ['schedule: "45 8 * * *"', 'txt'], ['budget: {tokens: 50000}', 'txt'], ['ceiling: {tokens: 60000, turns: 20}', 'txt'], ['...', 'dim']],
+      5: [['Compare definition.md', 'hi'], ['  this run   pr-digest-20260926T154500Z-k3f9   a41c9e2-dirty   BUDGET_EXCEEDED', 'txt'], ['  other      pr-digest  Fri 08:45 (last success)  <rev>   SUCCEEDED', 'txt'], ['  1 line differs', 'dim'], ['-'.repeat(Math.min(72, w - 2)), 'faint'], ['  kind: agent', 'dim'], ['  backend: agent-cli', 'dim'], ['  schedule: "45 8 * * *"', 'dim'], ['- budget: {tokens: 60000}', 'del'], ['+ budget: {tokens: 50000}', 'add'], ['  ceiling: {tokens: 60000, turns: 20}', 'dim'], ['-'.repeat(Math.min(72, w - 2)), 'faint']]
+    }[tab];
+    content.forEach(([t, k]) => wrap(t, w - 2).forEach(l => out.push(txt(w, ' ' + l, k))));
+    return out;
+  }
+  scrRun(W, CH) {
+    const S = this.state, r = this.runBy(S.run); if (!r) return [txt(W, ' run not found')];
+    const out = [], big = W >= 160, n = this.now();
+    const bad = BAD.includes(r.st);
+    const st = r.st === 'RUNNING' ? 'RUNNING ' + dur(n - r.since) : r.st + (r.count ? ' x' + r.count : '');
+    out.push(L(W, [s(' ' + st, bad ? 'alert' : r.st === 'RUNNING' ? 'acc' : 'hi'), s('  ' + (r.reason || (r.st === 'SUCCEEDED' ? '' : '')), 'txt')]));
+    const u = x => x == null ? '-' : x;
+    out.push(txt(W, ' ' + r.at + ' -> ' + u(r.ended) + ' (' + u(r.wall) + ')   ' + u(r.kind) + '   ' + u(r.backend) + ' / ' + u(r.model) + ' / ' + u(r.billing), 'txt'));
+    out.push(txt(W, ' tokens ' + (r.tin != null ? num(r.tin) + ' in  ' + num(r.tout) + ' out' : u(r.tok)) + '   turns ' + u(r.turns) + '   cpu ' + u(r.cpu) + '   disk ' + u(r.disk) + '   exit ' + u(r.exit) + (r.billing === 'subscription' ? '   usd -- (subscription)' : ''), 'txt'));
+    out.push(L(W, [s(' rev ' + u(r.rev) + (r.rev && r.rev.endsWith('-dirty') ? ' (uncommitted changes)' : '') + '   truncated ' + (r.trunc ? 'YES' : r.trunc === false ? 'no' : '-'), 'txt'), s(r.full || r.sim ? '' : '    (fields marked - are not in the sample)', 'faint')]));
+    const cnt = r.full ? [' 1240', ' 1', ' 3', ' 0', '', ''] : ['', '', '', '', '', ''];
+    const tabSegs = (active, from) => { const segs = [s(' ')]; TABS.forEach((t, i) => { if (i < from) return; const on = i === active; segs.push(s(on ? '[' + t + cnt[i] + ']' : ' ' + t + cnt[i] + ' ', on ? 'rev' : cnt[i] === ' 0' ? 'faint' : 'dim', { onClick: () => this.setState(big ? (i ? { tab2: i } : {}) : { tab: i, pcur: 0 }) })); segs.push(s(' ')); }); return segs; };
+    const ph = CH - out.length - 1;
+    if (!big) { out.push(L(W, tabSegs(S.tab, 0))); return out.concat(this.pane(r, S.tab, W, ph, true)); }
+    const lw = 88, rw = W - lw - 1;
+    const left = [L(lw, [s(' '), s('[Transcript' + cnt[0] + ']', 'rev')])].concat(this.pane(r, 0, lw, ph, true));
+    const right = [L(rw, tabSegs(S.tab2, 1))].concat(this.pane(r, S.tab2, rw, ph, false));
+    return out.concat(hcat(left, right, lw, rw, ph + 1));
+  }
+  modalLines(W, H, base) {
+    const m = this.state.modal; if (!m) return base;
+    const bw = Math.min(W - 4, 74), iw = bw - 6, x = Math.floor((W - bw) / 2);
+    const rows = [];
+    const title = '+-- ' + m.title + ' ';
+    rows.push([s(fit(title, bw - 1).replace(/ +$/, m => '-'.repeat(m.length)) + '+', 'boxdim')]);
+    const push = (t, k) => rows.push([s('|  ', 'boxdim'), s(fit(t, iw), k || 'box'), s('  |', 'boxdim')]);
+    push('');
+    m.body.forEach(b => (b.t.length > iw ? wrap(b.t, iw) : [b.t]).forEach(l => push(l, b.k)));
+    if (m.prompt) { push(''); push('reason: ' + m.value + '_', 'boxkey'); if (m.killToggle != null) push('[Tab] also kill running runs: ' + (m.killToggle ? 'ON' : 'off'), m.killToggle ? 'boxalert' : 'box'); }
+    push('');
+    const btn = m.prompt ? [{ key: 'Enter', label: 'confirm', fn: () => m.value.trim() && m.submit(m.value.trim(), m.killToggle) }, { key: 'Esc', label: 'cancel', fn: () => this.setState({ modal: null }) }] : m.btn;
+    let bsegs = [s('|  ', 'boxdim')], used = 0;
+    const flush = () => { bsegs.push(s(' '.repeat(Math.max(0, iw - used)), 'box'), s('  |', 'boxdim')); rows.push(bsegs); bsegs = [s('|  ', 'boxdim')]; used = 0; };
+    btn.forEach(b => { const t1 = '[' + b.key + ']', t2 = ' ' + b.label + '    '; if (used && used + t1.length + t2.length > iw) flush(); used += t1.length + t2.length; bsegs.push(s(t1, 'boxkey', { onClick: b.fn }), s(t2, 'box', { onClick: b.fn })); });
+    flush();
+    rows.push([s('+' + '-'.repeat(bw - 2) + '+', 'boxdim')]);
+    const y0 = clamp(Math.floor((H - rows.length) / 2) - 1, 1, H - rows.length);
+    const out = base.slice();
+    rows.forEach((segs, i) => { const y = y0 + i; if (y >= H) return; const b = out[y]; out[y] = { segs: [...slice(b, 0, x), ...segs, ...slice(b, x + bw, W)] }; });
+    return out;
+  }
+  frame() {
+    const S = this.state, W = S.size === '80' ? 24 * 0 + 80 : 160, H = S.size === '80' ? 24 : 48, CH = H - 4, n = this.now();
+    const items = this.attn(), cnt = this.counts(items);
+    const lines = [];
+    const tabs = [['needs', '1 Needs' + (S.launching ? ' ..' : cnt['!!'] ? ' !!' + cnt['!!'] : cnt['!'] ? ' !' + cnt['!'] : cnt['~'] ? ' ~' + cnt['~'] : cnt['i'] ? ' ' + cnt['i'] : '')], ['chores', '2 Chores' + (S.launching ? ' ..' : ' ' + S.ch.length)], ['runs', '3 Runs'], ['usage', '4 Usage'], ['inbox', '5 Inbox' + (S.launching ? '' : S.notifs.filter(x => !x.read).length ? ' ' + S.notifs.filter(x => !x.read).length : '')], ['system', '6 System']];
+    const hs = [s('chores ', 'hi')];
+    tabs.forEach(([k, l]) => { const on = S.root === k; hs.push(s(on ? '[' + l + ']' : l, on ? 'rev' : 'dim', { onClick: () => this.goTop(k) })); hs.push(s(' ')); });
+    const clock = S.snapfail ? 'DATA OLD +' + dur(182 + S.t) : S.launching ? 'reading...' : hms(n - (S.t % 2)) + ' +' + (S.t % 2) + 's';
+    const hlen = hs.reduce((a, g) => a + g.t.length, 0);
+    hs.push(s(' '.repeat(Math.max(1, W - hlen - clock.length)), 'txt'), s(clock, S.snapfail ? 'rev' : 'dim'));
+    lines.push(L(W, hs, { bg: S.flash ? 'cur' : null }));
+    // row 2
+    let r2;
+    if (S.launching) r2 = txt(W, 'reading status...', 'dim');
+    else if (S.snapfail) r2 = txt(W, '!! SNAPSHOT FAILED: state directory unreadable. Showing 14:05:12. Retrying every 2s.', 'ban');
+    else if (S.sched === 'off') r2 = txt(W, '!! SCHEDULER NOT INSTALLED -- nothing fires on schedule.  6 System > install', 'ban');
+    else if (S.sched === 'stale') r2 = txt(W, '!! SCHEDULER STALE -- last tick 09:12:04 (' + dur(n - T('09:12:04')) + '). Nothing is firing.  6 System', 'ban');
+    else if (S.gpause) r2 = txt(W, '|| GLOBAL PAUSE "' + S.gpause.reason + '" since ' + S.gpause.since + ' -- nothing starts.  U resume', 'ban');
+    else if (S.typing === 'filter' || (S.screen === 'chores' && S.filter)) r2 = L(W, [s('filter: ', 'dim'), s(S.filter + (S.typing ? '_' : ''), 'acc'), s('   (' + this.choreList().length + ' of ' + S.ch.length + ')   name, state:paused|invalid|disabled|running, kind:, backend:', 'dim')]);
+    else if (S.typing === 'search') r2 = L(W, [s('search: /', 'dim'), s(S.search + '_', 'acc')]);
+    else if (S.screen === 'chore') r2 = txt(W, 'Chores > ' + S.chore, 'dim');
+    else if (S.screen === 'run') { const r = this.runBy(S.run); r2 = txt(W, (S.root === 'runs' ? 'Runs > ' : 'Chores > ') + r.chore + ' > ' + (r.id || '(run id not in sample) ' + r.at), 'dim'); }
+    else if (S.screen === 'needs') r2 = txt(W, cnt['!!'] + cnt['!'] + ' alert  ' + cnt['~'] + ' warn  ' + cnt['i'] + ' info   -   tick ' + hms(this.lastTick()) + ' ok   -   no pause', 'dim');
+    else if (S.screen === 'chores') { const c = S.ch; r2 = txt(W, c.length + ' chores  ' + c.filter(x => x.running).length + ' running  ' + c.filter(x => x.paused).length + ' paused  ' + c.filter(x => x.invalid).length + ' invalid  ' + c.filter(x => !x.enabled).length + ' disabled     sort: ' + ['attention', 'name', 'next due', 'last run'][S.sort], 'dim'); }
+    else r2 = txt(W, { runs: 'Runs', usage: 'Usage', inbox: 'Inbox', system: 'System' }[S.screen], 'dim');
+    lines.push(r2);
+    let content = [];
+    if (!S.launching) content = ({ needs: () => this.scrNeeds(W, CH), chores: () => this.scrChores(W, CH), chore: () => this.scrChore(W, CH), runs: () => this.scrRuns(W, CH), usage: () => this.scrUsage(W, CH), inbox: () => this.scrInbox(W, CH), system: () => this.scrSystem(W, CH), run: () => this.scrRun(W, CH) })[S.screen]();
+    content = content.slice(0, CH); while (content.length < CH) content.push(txt(W, ''));
+    if (S.snapfail) content.forEach(l => l.dim = true);
+    lines.push(...content);
+    const m = S.msg; const mk = m.startsWith('refused') || m.startsWith('failed') ? 'alert' : m.startsWith('ok') ? 'acc' : 'dim';
+    lines.push(txt(W, m, mk));
+    const keys = { needs: [['Enter', 'open'], ['u', 'resume'], ['c', 'chore'], ['r', 'run'], ['t', 'dry run'], ['d', 'dismiss'], ['?', 'keys']], chores: [['Enter', 'chore'], ['o', 'last run'], ['r', 'run now'], ['t', 'dry run'], ['p', 'pause'], ['/', 'filter'], ['s', 'sort']], chore: [['Enter', 'open run'], ['r', 'run now'], ['t', 'dry run'], ['p', 'pause'], ['u', 'resume'], ['Esc', 'back']], run: [['Tab', 'next tab'], ['Enter', 'expand'], ['z', 'all'], ['/', 'search'], ['=', 'compare'], ['K', 'kill'], ['Esc', 'back']], runs: [['Enter', 'open run'], ['F2-F4', 'presets'], ['c', 'chore'], ['y', 'yank id'], ['Esc', 'clear']], usage: [['Enter', 'chore'], ['w', 'trend ' + (S.trendW === 7 ? '28d' : '7d')], ['t', 'dry run'], ['?', 'keys']], inbox: [['Enter', 'open linked'], ['d', 'dismiss'], ['D', 'all shown'], ['c', 'chore'], ['?', 'keys']], system: [['Enter', 'run action'], ['?', 'keys']] }[S.screen];
+    const ks = []; (S.modal ? [] : keys).forEach(([k, l]) => { ks.push(s(k, 'key'), s(' ' + l + '  ', 'dim')); }); if (!S.modal && W >= 160) ks.push(s('Ctrl-r', 'key'), s(' refresh  ', 'dim'), s('q', 'key'), s(' quit', 'dim'));
+    lines.push(L(W, ks));
+    return this.modalLines(W, H, lines);
+  }
+  toView(lines) {
+    return lines.map(l => ({ st: Object.assign({ whiteSpace: 'pre', height: this.state.size === '80' ? '19px' : '15px' }, l.dim ? { opacity: 0.5 } : {}), segs: l.segs.map(g => ({ t: g.t, onClick: g.onClick, st: Object.assign({}, ST[g.k] || ST.txt, g.b ? { background: BG[g.b] } : {}, g.onClick ? { cursor: 'pointer' } : {}) })) }));
+  }
+
+  renderVals() {
+    const S = this.state, items = this.attn(), mt = this.menuTitle(items);
+    const menu = S.menu ? this.buildMenu(items) : [];
+    let y = 5, subTop = 0;
+    const menuItems = menu.map((m, i) => { const top = y; y += m.kind === 'sep' ? 9 : m.kind === 'header' ? 22 : 24; if (i === S.menuHover) subTop = top; return { isSep: m.kind === 'sep', isHeader: m.kind === 'header', isItem: m.kind === 'item', text: m.text, right: m.sub ? '>' : m.right || '', enter: () => this.setState({ menuHover: i }), click: e => { e && e.stopPropagation && e.stopPropagation(); if (m.act) m.act(); }, st: { display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '3px 14px', margin: '0 5px', borderRadius: '4px', cursor: 'default', background: i === S.menuHover ? 'var(--color-accent-700)' : 'transparent', color: i === S.menuHover ? 'var(--color-accent-100)' : 'var(--color-text)' } }; });
+    const hov = menu[S.menuHover]; const sub = hov && hov.sub ? hov.sub : null;
+    const W = S.size === '80' ? 80 : 160;
+    return {
+      menuTitle: mt.text, menuIcon: mt.icon, menuOpen: S.menu,
+      menuBtnStyle: { display: 'flex', alignItems: 'center', gap: '5px', padding: '1px 7px', borderRadius: '4px', cursor: 'default', color: 'var(--color-text)', background: S.menu ? 'var(--color-neutral-700)' : 'transparent' },
+      toggleMenu: e => { e.stopPropagation(); this.setState({ menu: !S.menu, menuHover: -1 }); },
+      closeMenu: () => S.menu && this.setState({ menu: false }),
+      menuItems, subOpen: !!sub, subItems: (sub || []).map(m => ({ isSep: m.kind === 'sep', isHeader: m.kind === 'header', isItem: m.kind === 'item', text: m.text, click: e => { e && e.stopPropagation && e.stopPropagation(); m.act && m.act(); } })),
+      subStyle: { position: 'absolute', right: '100%', marginRight: '2px', top: subTop + 'px', width: '300px', padding: '5px 0', background: 'var(--color-surface)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-md)' },
+      clock: 'Sat 26 Sep  ' + hms(this.now()).slice(0, 5),
+      scenarioBtns: SCN.map(([k, l]) => ({ label: l, cls: 'btn ' + (S.scn === k ? 'btn-primary' : 'btn-ghost'), click: () => this.setState(initState(k, { size: S.size, battery: S.battery, offline: S.offline, t: S.t })) })),
+      envBtns: [
+        { label: '80x24', cls: 'btn ' + (S.size === '80' ? 'btn-primary' : 'btn-ghost'), click: () => this.setState({ size: '80' }) },
+        { label: '160x48', cls: 'btn ' + (S.size === '160' ? 'btn-primary' : 'btn-ghost'), click: () => this.setState({ size: '160' }) },
+        { label: S.battery ? 'On battery' : 'On AC', cls: 'btn ' + (S.battery ? 'btn-primary' : 'btn-ghost'), click: () => this.setState({ battery: !S.battery, msg: S.battery ? '' : 'battery: workspace-gc (assumed defer_on_battery) is held' }) },
+        { label: S.offline ? 'Offline' : 'Online', cls: 'btn ' + (S.offline ? 'btn-primary' : 'btn-ghost'), click: () => this.setState({ offline: !S.offline }) }
+      ],
+      open: S.open, closed: !S.open,
+      quitTerm: () => this.setState({ open: false, modal: null }),
+      termTitle: 'chores dash -- ' + (S.size === '80' ? '80x24' : '160x48'),
+      termStyle: { padding: '10px 12px', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: S.size === '80' ? '14px' : '11.5px', lineHeight: S.size === '80' ? '19px' : '15px', color: 'var(--color-text)', cursor: 'default' },
+      lines: S.open ? this.toView(this.frame()) : [],
+      dockClick: () => this.openAt(),
+      dockTileStyle: { width: '48px', height: '48px', borderRadius: '12px', background: 'var(--color-accent-900)', boxShadow: '0 0 0 1px var(--color-accent-700)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '26px', color: 'var(--color-accent-300)', transform: S.launching ? 'translateY(-10px)' : 'none', transition: 'transform 200ms ease' },
+      dockDotStyle: { width: '4px', height: '4px', borderRadius: '50%', background: S.open ? 'var(--color-neutral-400)' : 'transparent' }
+    };
+  }
+}
+</script>
+</body>
+</html>
