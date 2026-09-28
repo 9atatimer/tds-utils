@@ -5,12 +5,13 @@
 # current head commit AND every review thread is resolved; red otherwise
 # with the reason in the status description.
 #
-# FAIL-OPEN, deliberately (tds-internal#93): a reviewer named in
-# `fail_open_reviewers`, or whose newest post is its quota notice, is not
-# required -- threads still are -- and the status then reads
-# "FAIL-OPEN: <reviewer> not required (<reason>)", never "reviewed". A
-# reviewer that will never review must not hold every PR forever; the
-# status text keeps the unreviewed head visible. It is the mechanical form of
+# FAIL-OPEN on quota, deliberately (tds-internal#93), and only on quota: a
+# reviewer whose newest post is its "reached their quota limit" notice
+# will never review, so it is not waited for -- threads still are -- and
+# the status reads "FAIL-OPEN: <reviewer> is out of quota", never
+# "reviewed". Any other "unable to review" notice stays red. GitHub runs
+# no workflow on Copilot's own reviews, so the checker waits up to
+# `wait_seconds` for the reviewer's answer before it posts. It is the mechanical form of
 # the fleet's "zero unreviewed code" rule, and the status a repo's ruleset
 # requires (tds-internal ops/terraform/github) and tedium checks in
 # `pr_status` before it batches a PR.
@@ -49,19 +50,15 @@ on:
         type: string
         required: false
         default: copilot-pull-request-reviewer
-      fail_open_reviewers:
+      wait_seconds:
         description: >-
-          Required reviewers that do NOT block (e.g. Copilot while it has no
-          quota), comma or space separated. Threads must still be resolved.
-          Empty = none.
-        type: string
+          How long to wait for a required reviewer's answer on the head
+          (a review, or its quota notice) before posting. GitHub does not
+          re-run this workflow when Copilot posts, so without a wait its
+          answer is only seen on the next unrelated event.
+        type: number
         required: false
-        default: ''
-      fail_open_reason:
-        description: Why the fail-open is in force; shown in the status description.
-        type: string
-        required: false
-        default: ''
+        default: 180
       tools_ref:
         description: The tds-utils ref to run the checker from (pin to a sha to freeze it).
         type: string
@@ -109,12 +106,10 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ inputs.pr }}
           REVIEWERS: ${{ inputs.reviewers }}
-          FAIL_OPEN: ${{ inputs.fail_open_reviewers }}
-          FAIL_OPEN_REASON: ${{ inputs.fail_open_reason }}
+          WAIT_SECONDS: ${{ inputs.wait_seconds }}
         run: |
           node .review-settled/bin/review-settled \
             --repo "$REPO" \
             --pr "$PR" \
             --reviewers "$REVIEWERS" \
-            --fail-open "$FAIL_OPEN" \
-            --fail-open-reason "$FAIL_OPEN_REASON"
+            --wait "$WAIT_SECONDS"

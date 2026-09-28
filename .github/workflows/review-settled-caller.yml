@@ -69,10 +69,5 @@ jobs:
       contents: read
     with:
       reviewers: copilot-pull-request-reviewer
-      # Copilot has no review quota and will not review (tds-internal#93):
-      # it does not block, and the status says FAIL-OPEN. Delete these two
-      # lines when Copilot reviews again.
-      fail_open_reviewers: copilot-pull-request-reviewer
-      fail_open_reason: Copilot out of quota, tds-internal#93
       pr: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
       tools_ref: ${{ github.event.pull_request.head.sha || 'master' }}

@@ -3,15 +3,21 @@
 //
 // Green iff the newest review from each required reviewer is on the
 // current head commit and every review thread is resolved; red otherwise,
-// with the first reason in the status description. A reviewer named in
-// --fail-open, or whose newest post is its quota notice, is not required
-// (FAIL-OPEN, tds-internal#93; see lib/review-settled.mjs). The decision itself
+// with the first reason in the status description. A reviewer whose
+// newest post is its quota notice is not required (FAIL-OPEN, and only on
+// quota: tds-internal#93; see lib/review-settled.mjs).
+//
+// GitHub runs no workflow on Copilot's own reviews, so its answer to a
+// review request (a review, or its quota notice) never re-runs this
+// check. --wait SECONDS re-reads the PR while the only thing missing is a
+// reviewer's answer on the head, and posts once it arrives or time runs
+// out. The decision itself
 // is lib/review-settled.mjs (pure, unit-tested); this file is the I/O:
 // one GraphQL read, one REST write.
 //
 // Usage:
 //   review-settled --repo OWNER/NAME --pr N [--reviewers a,b]
-//                  [--fail-open a,b --fail-open-reason TEXT] [--dry-run]
+//                  [--wait SECONDS] [--dry-run]
 //   env: GITHUB_TOKEN (statuses:write, pull-requests:read)
 //        GITHUB_API_URL (optional, default https://api.github.com)
 //        GITHUB_SERVER_URL + GITHUB_RUN_ID (optional; sets target_url)
@@ -34,7 +40,7 @@ const DEFAULT_REVIEWERS = 'copilot-pull-request-reviewer';
 // --- Arguments --------------------------------------------------------------
 
 function parseArgs(argv) {
-  const out = { reviewers: DEFAULT_REVIEWERS, failOpen: '', failOpenReason: '', dryRun: false };
+  const out = { reviewers: DEFAULT_REVIEWERS, wait: 0, dryRun: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const next = () => {
@@ -45,13 +51,13 @@ function parseArgs(argv) {
     if (arg === '--repo') out.repo = next();
     else if (arg === '--pr') out.pr = Number(next());
     else if (arg === '--reviewers') out.reviewers = next();
-    else if (arg === '--fail-open') out.failOpen = next();
-    else if (arg === '--fail-open-reason') out.failOpenReason = next();
+    else if (arg === '--wait') out.wait = Number(next());
     else if (arg === '--dry-run') out.dryRun = true;
     else throw new Error(`unknown argument: ${arg}`);
   }
   if (!out.repo || !/^[^/]+\/[^/]+$/.test(out.repo)) throw new Error('--repo OWNER/NAME is required');
   if (!Number.isInteger(out.pr) || out.pr <= 0) throw new Error('--pr N is required');
+  if (!Number.isInteger(out.wait) || out.wait < 0) throw new Error('--wait SECONDS must be a whole number');
   return out;
 }
 
@@ -158,6 +164,32 @@ export async function postStatus(token, owner, name, sha, verdict) {
   if (!res.ok) throw new Error(`status POST HTTP ${res.status}: ${await res.text()}`);
 }
 
+// --- Decide (with a bounded wait) -------------------------------------------
+
+const POLL_MS = 15_000;
+const realClock = {
+  now: () => Date.now(),
+  sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+};
+
+/**
+ * Read and decide; while the verdict is `pending` (a reviewer has not
+ * answered on this head) and the wait has not run out, sleep and re-read.
+ * A verdict waiting cannot change -- an open thread, a failure notice, a
+ * success -- is returned at once. `clock` is injectable for tests.
+ */
+export async function decide(token, owner, name, number, reviewers, waitSeconds, clock = realClock) {
+  const deadline = clock.now() + waitSeconds * 1000;
+  for (;;) {
+    const facts = await readPullRequest(token, owner, name, number);
+    if (facts.isCrossRepository) return { facts, verdict: null };
+    const verdict = settle({ ...facts, reviewers });
+    const left = deadline - clock.now();
+    if (!verdict.pending || left <= 0) return { facts, verdict };
+    await clock.sleep(Math.min(POLL_MS, left));
+  }
+}
+
 // --- Main -------------------------------------------------------------------
 
 /**
@@ -194,21 +226,15 @@ async function main() {
   const [owner, name] = args.repo.split('/');
   const reviewers = parseReviewers(args.reviewers);
 
-  const facts = await readPullRequest(token, owner, name, args.pr);
+  const { facts, verdict } = await decide(token, owner, name, args.pr, reviewers, args.wait);
   // A fork PR is not a landing candidate: its head is untrusted and it is
   // human-merge, so it never carries this status. Decided here, on the
   // API's answer, because a caller cannot tell from every event it runs
   // on (issue_comment carries no pull_request payload).
-  if (facts.isCrossRepository) {
+  if (verdict === null) {
     console.log(`${CONTEXT}: ${owner}/${name}#${args.pr} is a fork PR -- no status posted`);
     return;
   }
-  const verdict = settle({
-    ...facts,
-    reviewers,
-    failOpen: parseReviewers(args.failOpen),
-    failOpenReason: args.failOpenReason,
-  });
   console.log(`${CONTEXT}: ${verdict.state} on ${facts.headSha.slice(0, 7)} -- ${verdict.description}`);
   if (args.dryRun) return;
   await postStatus(token, owner, name, facts.headSha, verdict);

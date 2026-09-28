@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   clamp,
+  isFailureNotice,
   isQuotaNotice,
   newestReviewBy,
   normalizeLogin,
@@ -131,34 +132,62 @@ test('clamp keeps descriptions within GitHub\'s 140 characters', () => {
   assert.ok(clamp('x'.repeat(200)).endsWith('...'));
 });
 
-// --- Fail-open (tds-internal#93): a reviewer that will never review must
-// not block, and the status must say so rather than claim a review.
+// --- Fail-open on quota, and only on quota (tds-internal#93). Copilot
+// out of quota will never review, so its quota notice is a go: the head
+// does not wait for it. Any other Copilot failure notice is not a review
+// and not a go. Silence is not a go either.
 
 const QUOTA =
   'Copilot was unable to review this pull request because the user who requested the review has reached their quota limit.';
-const REASON = 'Copilot out of quota, tds-internal#93';
+const ERROR =
+  'Copilot encountered an error and was unable to review this pull request. You can try again by re-requesting a review.';
 
-test('isQuotaNotice matches Copilot\'s quota notice and nothing else', () => {
+test('isQuotaNotice matches the quota notice and nothing else', () => {
   assert.equal(isQuotaNotice(review({ body: QUOTA })), true);
+  assert.equal(isQuotaNotice(review({ body: ERROR })), false);
   assert.equal(isQuotaNotice(review({ body: 'Looks good; one nit below.' })), false);
   assert.equal(isQuotaNotice(review({})), false);
 });
 
-test('a quota notice is never counted as a review on head', () => {
-  const v = settle({ headSha: HEAD, reviews: [review({ body: QUOTA })], threads: [], reviewers: [COPILOT] });
-  assert.doesNotMatch(v.description, /reviewed on head/);
+test('isFailureNotice matches any unable-to-review notice', () => {
+  assert.equal(isFailureNotice(review({ body: QUOTA })), true);
+  assert.equal(isFailureNotice(review({ body: ERROR })), true);
+  assert.equal(isFailureNotice(review({ body: 'Reviewed.' })), false);
 });
 
 test('a quota notice on head fails open, and says so', () => {
   const v = settle({ headSha: HEAD, reviews: [review({ body: QUOTA })], threads: [], reviewers: [COPILOT] });
   assert.equal(v.state, 'success');
-  assert.match(v.description, /^FAIL-OPEN: copilot-pull-request-reviewer not required \(quota notice\)/);
+  assert.equal(v.description, 'FAIL-OPEN: copilot-pull-request-reviewer is out of quota; all threads resolved');
+  assert.equal(v.pending, false);
 });
 
-test('a quota notice on an older commit still fails open: the reviewer is out, a re-review will not come', () => {
+test('a quota notice on an older commit still fails open: nothing since says otherwise', () => {
   const v = settle({ headSha: HEAD, reviews: [review({ body: QUOTA, commit: OLD })], threads: [], reviewers: [COPILOT] });
   assert.equal(v.state, 'success');
   assert.match(v.description, /^FAIL-OPEN/);
+});
+
+test('a quota notice never reads as a review', () => {
+  const v = settle({ headSha: HEAD, reviews: [review({ body: QUOTA })], threads: [], reviewers: [COPILOT] });
+  assert.doesNotMatch(v.description, /reviewed on head/);
+});
+
+test('any other failure notice is not a go, and not a review', () => {
+  const v = settle({ headSha: HEAD, reviews: [review({ body: ERROR })], threads: [], reviewers: [COPILOT] });
+  assert.equal(v.state, 'failure');
+  assert.match(v.description, /copilot-pull-request-reviewer could not review/);
+  assert.doesNotMatch(v.description, /reviewed on head|FAIL-OPEN/);
+  assert.equal(v.pending, false, 'an error notice is an answer: waiting will not change it');
+});
+
+test('an error notice after a real review on head still blocks: the newest post decides', () => {
+  const reviews = [
+    review({ body: 'Reviewed.', submittedAt: '2026-09-18T19:00:00Z' }),
+    review({ body: ERROR, submittedAt: '2026-09-18T20:00:00Z' }),
+  ];
+  const v = settle({ headSha: HEAD, reviews, threads: [], reviewers: [COPILOT] });
+  assert.equal(v.state, 'failure');
 });
 
 test('a real review after a quota notice is judged as a review again', () => {
@@ -171,83 +200,41 @@ test('a real review after a quota notice is judged as a review again', () => {
   assert.match(v.description, /re-review needed/);
 });
 
-test('the explicit switch fails open with no review at all, naming the reason', () => {
-  const v = settle({
-    headSha: HEAD,
-    reviews: [],
-    threads: [{ isResolved: true }],
-    reviewers: [COPILOT],
-    failOpen: [COPILOT],
-    failOpenReason: REASON,
-  });
-  assert.equal(v.state, 'success');
-  assert.equal(
-    v.description,
-    'FAIL-OPEN: copilot-pull-request-reviewer not required (Copilot out of quota, tds-internal#93); all threads resolved',
-  );
+test('silence is not a go: no post at all stays red and pending', () => {
+  const v = settle({ headSha: HEAD, reviews: [], threads: [], reviewers: [COPILOT] });
+  assert.equal(v.state, 'failure');
+  assert.equal(v.pending, true);
 });
 
-test('the explicit switch skips a stale review too', () => {
-  const v = settle({
-    headSha: HEAD,
-    reviews: [review({ commit: OLD })],
-    threads: [],
-    reviewers: [COPILOT],
-    failOpen: [COPILOT],
-    failOpenReason: REASON,
-  });
-  assert.equal(v.state, 'success');
-  assert.match(v.description, /^FAIL-OPEN/);
+test('a stale review is pending; open threads are not', () => {
+  assert.equal(
+    settle({ headSha: HEAD, reviews: [review({ commit: OLD })], threads: [], reviewers: [COPILOT] }).pending,
+    true,
+  );
+  assert.equal(
+    settle({ headSha: HEAD, reviews: [review()], threads: [{ isResolved: false }], reviewers: [COPILOT] }).pending,
+    false,
+  );
 });
 
 test('fail-open never waives an unresolved thread', () => {
   const v = settle({
     headSha: HEAD,
-    reviews: [],
+    reviews: [review({ body: QUOTA })],
     threads: [{ isResolved: false }],
     reviewers: [COPILOT],
-    failOpen: [COPILOT],
-    failOpenReason: REASON,
   });
   assert.equal(v.state, 'failure');
   assert.equal(v.description, '1 unresolved review thread');
 });
 
-test('fail-open for one reviewer does not excuse another', () => {
+test('one reviewer out of quota does not excuse another', () => {
   const v = settle({
     headSha: HEAD,
-    reviews: [],
+    reviews: [review({ body: QUOTA })],
     threads: [],
     reviewers: [COPILOT, 'chatgpt-codex-connector'],
-    failOpen: [COPILOT],
-    failOpenReason: REASON,
   });
   assert.equal(v.state, 'failure');
   assert.match(v.description, /no review from chatgpt-codex-connector/);
-});
-
-test('fail-open logins are normalized like reviewers', () => {
-  const v = settle({
-    headSha: HEAD,
-    reviews: [],
-    threads: [],
-    reviewers: [COPILOT],
-    failOpen: parseReviewers(`${COPILOT}[bot]`),
-    failOpenReason: '',
-  });
-  assert.equal(v.state, 'success');
-  assert.match(v.description, /^FAIL-OPEN: copilot-pull-request-reviewer not required \(fail-open configured\)/);
-});
-
-test('a fail-open description fits 140 characters even with a long reason', () => {
-  const v = settle({
-    headSha: HEAD,
-    reviews: [],
-    threads: [],
-    reviewers: [COPILOT],
-    failOpen: [COPILOT],
-    failOpenReason: 'x'.repeat(300),
-  });
-  assert.ok(v.description.length <= 140);
-  assert.match(v.description, /^FAIL-OPEN/);
 });
