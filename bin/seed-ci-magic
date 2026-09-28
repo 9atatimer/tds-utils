@@ -11,8 +11,10 @@
 #     personal account has no org-secret tier. Without it the action runs
 #     and posts "skipped: missing credential" -- a green skip, not a review.
 #
-# `status` shows both for every repo whose workflows mention ci-magic;
-# `seed` sets the secret on every real consumer (or the repos you name),
+# `status` shows both for every repo of the owner that carries a
+# .github/workflows/ci-magic.yml (found by listing the owner's repos, never
+# by code search -- tds-utils#348);
+# `seed` sets the secret on every such consumer (or the repos you name),
 # reading the value from 1Password and never printing it. Seeding is
 # idempotent, so the same command is the re-seed after a rotation.
 #
@@ -44,16 +46,19 @@ usage() {
     sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
-# Every repo under OWNER whose workflows mention ci-magic, one per line,
-# every page. A match can be a comment (9atatimer/Skills), so this is the
-# candidate set, not the consumer set; fetch_workflow() decides. Fails when
-# the search fails (auth, rate limit, outage): an empty answer must never
-# be mistaken for "no consumers".
+# Every non-archived repo under OWNER, one per line: the candidate set,
+# complete by construction. fetch_workflow() then decides which are
+# consumers. This is deliberately NOT code search (tds-utils#348): search
+# is an eventually-consistent index that dropped a real consumer minutes
+# after its workflow changed (total_count 4, items 3), and a candidate set
+# with a silent hole makes `status` lie and `seed` skip. Fails when the
+# listing fails (auth, rate limit, outage): an empty answer must never be
+# mistaken for "no consumers".
+REPO_LIST_LIMIT=1000
 discover_repos() {
     local owner="$1" out
-    out=$(gh api -X GET --paginate search/code \
-        -f q="user:${owner} path:.github/workflows ci-magic" \
-        --jq '.items[].repository.full_name' 2>&1) || {
+    out=$(gh repo list "${owner}" --limit "${REPO_LIST_LIMIT}" --no-archived \
+        --json nameWithOwner --jq '.[].nameWithOwner' 2>&1) || {
         printf '%s\n' "${out}" >&2
         return 1
     }
@@ -152,7 +157,7 @@ cmd_status() {
             target=$(printf '%s\n' "${body}" | workflow_uses)
             ref=$(classify_ref "${owner}" "${target}")
         elif [ "${rc}" -eq "${ABSENT}" ]; then
-            wf=none; ref="-"
+            continue   # not a consumer; the candidate set is every repo the owner has
         else
             wf=error; ref="-"; errors=$((errors + 1))
         fi

@@ -41,8 +41,8 @@ trap cleanup EXIT INT TERM HUP
 
 # --- Fixture ---------------------------------------------------------------
 #
-# ${FAKE_STATE}/repos/<owner>/<repo>/ holds per-repo facts:
-#   match      present -> the repo appears in the code-search result
+# ${FAKE_STATE}/repos/<owner>/<repo>/ holds per-repo facts; the directory
+# itself is the repo's existence (`gh repo list <owner>` enumerates them):
 #   workflow   the repo's .github/workflows/ci-magic.yml (absent -> 404)
 #   secret     the secret's updated_at (absent -> 404)
 #   lastrun    "<conclusion> <createdAt>" of the newest ci.magic run
@@ -60,13 +60,18 @@ args="$*"
 repo_dir() { printf '%s/repos/%s\n' "${state}" "$1"; }
 case "${args}" in
     *"search/code"*)
-        # q='user:<owner> path:.github/workflows ci-magic'
+        # Code search is an eventually-consistent index, not an inventory
+        # (tds-utils#348): the tool must not use it for discovery.
         printf 'search %s\n' "${args}" >> "${state}/log"
-        [ -e "${state}/search-fails" ] && { echo "gh: API rate limit exceeded (HTTP 403)" >&2; exit 1; }
-        owner=$(printf '%s' "${args}" | sed -n 's/.*user:\([^ ]*\).*/\1/p')
-        for m in "${state}/repos/${owner}"/*/match; do
-            [ -e "${m}" ] || continue
-            printf '%s/%s\n' "${owner}" "$(basename "$(dirname "${m}")")"
+        echo "fake gh: code search must not be used for discovery" >&2; exit 99 ;;
+    "repo list"*)
+        # gh repo list <owner> ... -> every repo directory under the owner
+        owner=$(printf '%s' "${args}" | awk '{print $3}')
+        printf '%s\n' "${args}" >> "${state}/log"
+        [ -e "${state}/list-fails" ] && { echo "gh: API rate limit exceeded (HTTP 403)" >&2; exit 1; }
+        for d in "${state}/repos/${owner}"/*/; do
+            [ -d "${d}" ] || continue
+            printf '%s/%s\n' "${owner}" "$(basename "${d}")"
         done ;;
     *"contents/.github/workflows/ci-magic.yml"*)
         repo=$(printf '%s' "${args}" | sed -n 's|.*repos/\([^/]*/[^/]*\)/contents.*|\1|p')
@@ -105,16 +110,20 @@ EOF
     chmod +x "${bin}/gh" "${bin}/op"
 }
 
-# fixture <name> -- a fresh FAKE_STATE with three 9atatimer repos:
+# fixture <name> -- a fresh FAKE_STATE with four 9atatimer repos:
 #   jengris      real workflow on the mirror, seeded, last run green
 #   sounddating  real workflow still on the org path, unseeded, last run red
-#   Skills       code-search match only (a comment), no workflow, unseeded
+#   Skills       no workflow (mentions ci-magic only in a comment), unseeded
+#   iae          real workflow on the mirror, seeded -- the repo code search
+#                dropped while reindexing (tds-utils#348)
 fixture() {
     local name="$1"
     local state="${WORKROOT}/${name}"
     local r="${state}/repos/9atatimer"
-    mkdir -p "${r}/jengris" "${r}/sounddating" "${r}/Skills"
-    : > "${r}/jengris/match"; : > "${r}/sounddating/match"; : > "${r}/Skills/match"
+    mkdir -p "${r}/jengris" "${r}/sounddating" "${r}/Skills" "${r}/iae"
+    printf 'steps:\n  - uses: 9atatimer/ci-magic@main\n' > "${r}/iae/workflow"
+    echo "2026-09-28T07:26:58Z" > "${r}/iae/secret"
+    echo "success 2026-09-28T07:28:15Z" > "${r}/iae/lastrun"
     printf 'name: ci.magic\njobs:\n  ci-magic:\n    steps:\n      - uses: 9atatimer/ci-magic@main\n' > "${r}/jengris/workflow"
     echo "2026-09-28T05:10:00Z" > "${r}/jengris/secret"
     echo "success 2026-09-28T05:30:00Z" > "${r}/jengris/lastrun"
@@ -147,8 +156,11 @@ case_status_reports_each_repo() {
         "printf '%s' \"\${RUN_OUT}\" | grep -E '9atatimer/sounddating' | grep -q 'org-path'"
     assert "sounddating: missing secret shows as such" \
         "printf '%s' \"\${RUN_OUT}\" | grep -E '9atatimer/sounddating' | grep -q -- '-'"
-    assert "Skills: no workflow (a comment-only match) is reported, not mistaken for a consumer" \
-        "printf '%s' \"\${RUN_OUT}\" | grep -E '9atatimer/Skills' | grep -q 'none'"
+    assert "Skills: a repo with no ci-magic.yml is not a consumer and is not listed" \
+        "! printf '%s' \"\${RUN_OUT}\" | grep -q '9atatimer/Skills'"
+    assert "iae: found by enumeration, not by search (tds-utils#348)" \
+        "printf '%s' \"\${RUN_OUT}\" | grep -E '9atatimer/iae' | grep -q 'mirror'"
+    assert "discovery never touched code search" "! grep -q '^search' '${s}/log'"
     assert "status exits 1 while a real consumer is misreferenced or unseeded" "[ \"\${RUN_RC}\" -eq 1 ]"
     assert "stderr carries only the not-ready summary (no base64/gh noise from the 404s)" \
         "[ \"\$(printf '%s\n' \"\${RUN_ERR}\" | grep -c .)\" -eq 1 ] && printf '%s' \"\${RUN_ERR}\" | grep -q 'not ready'"
@@ -228,12 +240,12 @@ case_usage_on_bad_input() {
 case_discovery_failure_is_not_success() {
     bold "discovery failure: status and seed exit 2, nothing is seeded"; echo
     local s; s=$(fixture disc1)
-    : > "${s}/search-fails"
+    : > "${s}/list-fails"
     run "${s}" status
-    assert "status exits 2 when the code search fails" "[ \"\${RUN_RC}\" -eq 2 ]"
+    assert "status exits 2 when the repository listing fails" "[ \"\${RUN_RC}\" -eq 2 ]"
     assert "the gh error reaches stderr" "printf '%s' \"\${RUN_ERR}\" | grep -q 'HTTP 403'"
     run "${s}" seed
-    assert "seed exits 2 when the code search fails" "[ \"\${RUN_RC}\" -eq 2 ]"
+    assert "seed exits 2 when the repository listing fails" "[ \"\${RUN_RC}\" -eq 2 ]"
     assert "seed set nothing and read no token" "! grep -q 'secret set\|op read' '${s}/log'"
 }
 
@@ -256,11 +268,20 @@ case_lookup_error_is_not_absence() {
     assert "a secret lookup error also exits 2 and reads error" "[ \"\${RUN_RC}\" -eq 2 ] && printf '%s' \"\${RUN_OUT}\" | grep -E 'jengris' | grep -q 'error'"
 }
 
-case_search_is_paginated() {
-    bold "discovery asks gh for every page of the code search"; echo
-    local s; s=$(fixture page1)
+# tds-utils#348: code search is an eventually-consistent index. It dropped
+# iae minutes after iae's ci-magic.yml changed (total_count 4, items 3),
+# so a search-based candidate set silently omits a real consumer. The
+# candidate set is the owner's repository list, which is complete by
+# construction; the fake gh refuses code search outright.
+case_enumeration_is_authoritative() {
+    bold "discovery enumerates the owner's repos; a consumer absent from code search is still found"; echo
+    local s; s=$(fixture enum1)
     run "${s}" -n seed
-    assert "the search request carries --paginate" "grep -q '^search .*--paginate' '${s}/log'"
+    assert "the plan includes iae" "printf '%s' \"\${RUN_OUT}\" | grep -q '9atatimer/iae'"
+    assert "the plan still excludes Skills (no workflow)" "! printf '%s' \"\${RUN_OUT}\" | grep -q 'Skills'"
+    assert "discovery listed the owner's repositories" "grep -q '^repo list 9atatimer' '${s}/log'"
+    assert "discovery asked for every repository, not the CLI's default 30" "grep -q '^repo list .*--limit' '${s}/log'"
+    assert "code search was never called" "! grep -q '^search' '${s}/log'"
 }
 
 # --- Main ------------------------------------------------------------------
@@ -277,7 +298,7 @@ main() {
     case_usage_on_bad_input
     case_discovery_failure_is_not_success
     case_lookup_error_is_not_absence
-    case_search_is_paginated
+    case_enumeration_is_authoritative
     echo
     printf 'ran %d, passed %d, failed %d\n' "${TESTS_RUN}" "${TESTS_PASSED}" "${TESTS_FAILED}"
     [ "${TESTS_FAILED}" -eq 0 ]
