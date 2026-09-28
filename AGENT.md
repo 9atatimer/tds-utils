@@ -171,6 +171,11 @@ Three refusals are worth knowing before you hit them:
   already-current shortcut. A dirty release tree is a live-config problem
   whether or not `HEAD` happens to sit on the commit you asked for, so
   `tds-release` reports it rather than saying "up to date" over the top of it.
+  One exception: Docker Desktop rewrites its guarded PATH line in
+  `macos/dot.profile` / `macos/dot.zprofile` to an unguarded absolute-`$HOME`
+  form every time it starts. A file whose only change is that rewrite is
+  restored to `HEAD` (`-n` says it would) instead of refused; any other edit
+  still refuses (issue #262).
 
 One failure that is not a refusal and reads like a bug: `tds-release: fetch
 failed`, preceded by `Permission denied (publickey)`. That is the 1Password SSH

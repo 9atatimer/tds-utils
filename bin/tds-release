@@ -41,7 +41,9 @@
 #     reason.
 #   - the release worktree must be clean, checked BEFORE the already-current
 #     shortcut -- a dirty tree is a live-config problem whether or not HEAD
-#     happens to sit on the requested commit.
+#     happens to sit on the requested commit. One exception, recognized
+#     exactly and nothing else: Docker Desktop's rewrite of its PATH line
+#     (issue #262) is restored rather than refused.
 #
 # Env (used by test/smoketest_release.sh; not for daily use):
 #   TDS_RELEASE_REPO   repo to operate on (default: the repo holding this script)
@@ -59,6 +61,12 @@ SENTRY_FILE="NO.RELEASE"
 # script lives in); the private one is a known location, overridable for tests.
 UNITS="public private"
 PRIVATE_REPO_DEFAULT="${HOME}/workplace/tds-internal"
+
+# The Docker Desktop PATH line as the repo commits it (guarded), which Docker
+# Desktop rewrites, through the dotfile symlinks, to an unguarded absolute-$HOME
+# form every time it starts (issue #262).
+# shellcheck disable=SC2016  # literal: this is file content, not an expansion
+DOCKER_GUARDED='[[ -d "$HOME/.docker/bin" ]] && export PATH="$PATH:$HOME/.docker/bin"'
 
 die()  { echo "tds-release: $*" >&2; exit 1; }
 note() { echo "tds-release: $*"; }
@@ -137,11 +145,54 @@ is_ancestor() { git -C "$1" merge-base --is-ancestor "$2" "$3"; }
 
 worktree_dirt() { git -C "$1" status --porcelain; }
 
+# docker_drift_files <worktree> -- tracked files whose ONLY change from HEAD is
+# Docker Desktop's rewrite of the guarded PATH line. A file matches when HEAD,
+# with that one line swapped for Docker's form, is byte-identical to the
+# working copy; any other edit, in that file or as an untracked file, is not
+# Docker's and is left for the dirty-tree refusal.
+docker_drift_files() {
+    local wt="$1" rewrite line path
+    # shellcheck disable=SC2016  # $PATH stays literal; $HOME is what Docker expands
+    rewrite='export PATH="$PATH:'"${HOME}"'/.docker/bin"'
+    git -C "${wt}" status --porcelain | while IFS= read -r line; do
+        [ "${line:0:3}" = " M " ] || continue
+        path="${line:3}"
+        # awk fails when HEAD has no guarded line, so a mode-only change never
+        # passes as Docker's.
+        if git -C "${wt}" show "HEAD:${path}" 2>/dev/null \
+            | awk -v g="${DOCKER_GUARDED}" -v d="${rewrite}" \
+                '$0 == g { print d; found = 1; next } { print } END { exit !found }' \
+            | cmp -s - "${wt}/${path}"; then
+            printf '%s\n' "${path}"
+        fi
+    done
+}
+
+# restore_docker_drift <worktree> <dry-run> -- put Docker's rewrites back to
+# HEAD, or with dry-run say which it would.
+restore_docker_drift() {
+    local wt="$1" dry_run="$2" path
+    while IFS= read -r path; do
+        [ -n "${path}" ] || continue
+        if [ "${dry_run}" -eq 1 ]; then
+            note "  would restore Docker Desktop PATH rewrite in ${path}"
+        else
+            git -C "${wt}" restore -- "${path}"
+            note "restored Docker Desktop PATH rewrite in ${path}"
+        fi
+    done <<EOT
+$(docker_drift_files "${wt}")
+EOT
+}
+
 # --- Flow functions ---
 
+# check_worktree_clean <worktree> <docker-drift> -- refuse on any dirt other
+# than the Docker rewrites already identified.
 check_worktree_clean() {
-    local wt="$1" dirt
-    dirt="$(worktree_dirt "${wt}")"
+    local wt="$1" drift="$2" dirt
+    dirt="$(worktree_dirt "${wt}" \
+            | grep -vxF "$(printf '%s\n' "${drift}" | sed '/^$/d; s/^/ M /')" || true)"
     [ -z "${dirt}" ] || die "release worktree has uncommitted changes -- refusing:
 $(git -C "${wt}" status --short | sed 's/^/  /')
   a release into a dirty tree would apply on top of unfinished edits, and a
@@ -273,7 +324,7 @@ skip_or_die() {
 # lines into the plan.
 plan_unit() {
     local unit="$1" target="$2" plan_file="$3"
-    local repo wt release_sha target_sha
+    local repo wt release_sha target_sha drift
 
     repo="$(unit_repo "${unit}")"
     if ! { [ -n "${repo}" ] && [ -d "${repo}" ] \
@@ -309,16 +360,20 @@ plan_unit() {
 
     # Before the already-current shortcut on purpose: a dirty tree is a
     # live-config problem regardless of where HEAD sits.
-    check_worktree_clean "${wt}"
+    drift="$(docker_drift_files "${wt}")"
+    check_worktree_clean "${wt}" "${drift}"
     check_target_reviewed "${wt}" "${target_sha}"
     check_target_releasable "${wt}" "${target_sha}"
 
     if [ "${target_sha}" = "${release_sha}" ]; then
         note "${unit}: release is already up to date at $(describe "${wt}" HEAD)"
-        return 0
+        # Still planned when Docker's rewrite needs restoring; the apply pass
+        # restores it and skips the advance.
+        [ -n "${drift}" ] || return 0
     fi
 
-    check_fast_forward "${wt}" "${release_sha}" "${target_sha}" "${force}"
+    [ "${target_sha}" = "${release_sha}" ] \
+        || check_fast_forward "${wt}" "${release_sha}" "${target_sha}" "${force}"
 
     printf '%s\t%s\t%s\t%s\t%s\n' \
         "${unit}" "${wt}" "${release_sha}" "${target_sha}" "${target}" >> "${plan_file}"
@@ -330,6 +385,8 @@ apply_plan() {
     IFS=$'\t' read -r unit wt release_sha target_sha target <<EOT
 $1
 EOT
+    restore_docker_drift "${wt}" 0
+    [ "${release_sha}" != "${target_sha}" ] || return 0
     advance_release "${wt}" "${release_sha}" "${target_sha}"
     note "${unit}: released to $(describe "${wt}" HEAD)"
     push_release "${wt}" "${force}"
@@ -369,7 +426,8 @@ run_units() {
 ${line}
 EOT
             note "${unit_name}:"
-            report_dry_run "${w}" "${r}" "${s}" "${tgt}"
+            restore_docker_drift "${w}" 1
+            [ "${r}" = "${s}" ] || report_dry_run "${w}" "${r}" "${s}" "${tgt}"
         else
             apply_plan "${line}"
         fi
