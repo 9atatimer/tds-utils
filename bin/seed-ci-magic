@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+# seed-ci-magic -- report and seed ci.magic adoption across one owner's repos.
+#
+# ci.magic needs two things on a repository owned by a personal account, and
+# GitHub gives neither for free (template-tools#741, tds-utils#345):
+#
+#   - a `uses:` reference that resolves: `<owner>/ci-magic@...`, the mirror
+#     of the private fleet action, since the action's own repo is visible
+#     only inside its org and a `uses:` line is resolved before any step;
+#   - the CI_MAGIC_OP_SA_TOKEN Actions secret, per repository, since a
+#     personal account has no org-secret tier. Without it the action runs
+#     and posts "skipped: missing credential" -- a green skip, not a review.
+#
+# `status` shows both for every repo whose workflows mention ci-magic;
+# `seed` sets the secret on every real consumer (or the repos you name),
+# reading the value from 1Password and never printing it. Seeding is
+# idempotent, so the same command is the re-seed after a rotation.
+#
+# Usage:
+#   seed-ci-magic [-o OWNER] [-s SECRET] [-r OPREF] [-n] status
+#   seed-ci-magic [-o OWNER] [-s SECRET] [-r OPREF] [-n] seed [OWNER/REPO ...]
+#
+#   -o OWNER   GitHub owner to scan (default: 9atatimer)
+#   -s SECRET  Actions secret name (default: CI_MAGIC_OP_SA_TOKEN)
+#   -r OPREF   op:// reference of the CI-Magic service-account token
+#              (default: the item recorded in tds-internal's credential
+#              registry, "ci.magic reviewer")
+#   -n         dry run: print the plan, read nothing, set nothing
+#   -h         this help
+#
+# Needs `gh` (authenticated) and, for `seed`, `op` with 1Password unlocked.
+
+set -euo pipefail
+
+DEFAULT_OWNER="9atatimer"
+DEFAULT_SECRET="CI_MAGIC_OP_SA_TOKEN"
+DEFAULT_OP_REF="op://Development/btnk55jxtturjjmkyat5emf2wu/credential"
+ORG_ACTION_PATH="template-tools/packages/naatm-ci-magic"
+WORKFLOW_PATH=".github/workflows/ci-magic.yml"
+
+# --- Action functions ------------------------------------------------------
+
+usage() {
+    sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+# Every repo under OWNER whose workflows mention ci-magic, one per line. A
+# match can be a comment (9atatimer/Skills), so this is the candidate set,
+# not the consumer set; has_workflow() decides.
+discover_repos() {
+    local owner="$1"
+    gh api -X GET search/code \
+        -f q="user:${owner} path:.github/workflows ci-magic" \
+        --jq '.items[].repository.full_name' | sort -u
+}
+
+# The repo's ci-magic.yml, decoded, or failure when it has none.
+fetch_workflow() {
+    local repo="$1"
+    # base64 complains on the empty input a 404 leaves behind; pipefail
+    # already carries gh's failure, so its noise is just noise.
+    gh api "repos/${repo}/contents/${WORKFLOW_PATH}" --jq .content 2>/dev/null | base64 -d 2>/dev/null
+}
+
+# The action target of the ci-magic `uses:` line in a workflow body.
+workflow_uses() {
+    sed -n 's/^[[:space:]]*-\{0,1\}[[:space:]]*uses:[[:space:]]*//p' | grep -i 'ci-magic' | head -1 | tr -d '"'"'"
+}
+
+# mirror | org-path | other | none, for a uses target under OWNER.
+classify_ref() {
+    local owner="$1" target="$2"
+    local lower_target lower_owner
+    lower_target=$(printf '%s' "${target}" | tr '[:upper:]' '[:lower:]')
+    lower_owner=$(printf '%s' "${owner}" | tr '[:upper:]' '[:lower:]')
+    if [ -z "${target}" ]; then
+        echo none
+    elif [ "${lower_target#"${lower_owner}"/ci-magic@}" != "${lower_target}" ]; then
+        echo mirror
+    elif [ "${lower_target#*"$(printf '%s' "${ORG_ACTION_PATH}" | tr '[:upper:]' '[:lower:]')"}" != "${lower_target}" ]; then
+        echo org-path
+    else
+        echo other
+    fi
+}
+
+# When the secret was last set on REPO, or "-" when it is absent.
+secret_updated() {
+    local repo="$1" secret="$2"
+    gh api "repos/${repo}/actions/secrets/${secret}" --jq .updated_at 2>/dev/null || echo "-"
+}
+
+# "<conclusion> <createdAt>" of the newest ci.magic run, or "-".
+last_run() {
+    local repo="$1" out
+    out=$(gh run list -R "${repo}" --workflow=ci-magic.yml --limit 1 \
+        --json conclusion,createdAt --jq '.[0] | select(.) | "\(.conclusion) \(.createdAt)"' 2>/dev/null || true)
+    printf '%s\n' "${out:--}"
+}
+
+# Read the token from 1Password and set it on REPO. The value crosses a pipe
+# and nothing else: never a variable, never an argument, never printed.
+set_secret() {
+    local repo="$1" secret="$2" op_ref="$3"
+    op read "${op_ref}" | gh secret set "${secret}" -R "${repo}"
+}
+
+# --- Flow functions --------------------------------------------------------
+
+# One line per candidate repo; exit 1 unless every real consumer is on the
+# mirror and seeded.
+cmd_status() {
+    local owner="$1" secret="$2"
+    local repo body target ref updated run wf not_ready=0
+    printf '%-32s %-9s %-9s %-21s %s\n' REPO WORKFLOW USES SECRET LAST-RUN
+    while IFS= read -r repo; do
+        [ -n "${repo}" ] || continue
+        if body=$(fetch_workflow "${repo}"); then
+            wf=yes
+            target=$(printf '%s\n' "${body}" | workflow_uses)
+            ref=$(classify_ref "${owner}" "${target}")
+        else
+            wf=none; ref="-"
+        fi
+        updated=$(secret_updated "${repo}" "${secret}")
+        run=$(last_run "${repo}")
+        printf '%-32s %-9s %-9s %-21s %s\n' "${repo}" "${wf}" "${ref}" "${updated}" "${run}"
+        if [ "${wf}" = yes ] && { [ "${ref}" != mirror ] || [ "${updated}" = "-" ]; }; then
+            not_ready=$((not_ready + 1))
+        fi
+    done < <(discover_repos "${owner}")
+    if [ "${not_ready}" -gt 0 ]; then
+        echo "seed-ci-magic: ${not_ready} consumer(s) not ready (USES must be mirror, SECRET must be set)" >&2
+        return 1
+    fi
+}
+
+# The repos `seed` acts on: the named ones verbatim, else every candidate
+# that carries a real workflow.
+seed_targets() {
+    local owner="$1"; shift
+    if [ "$#" -gt 0 ]; then
+        printf '%s\n' "$@"
+        return 0
+    fi
+    local repo
+    while IFS= read -r repo; do
+        [ -n "${repo}" ] || continue
+        fetch_workflow "${repo}" >/dev/null 2>&1 && printf '%s\n' "${repo}"
+    done < <(discover_repos "${owner}")
+}
+
+cmd_seed() {
+    local owner="$1" secret="$2" op_ref="$3" dry_run="$4"; shift 4
+    local repo count=0
+    while IFS= read -r repo; do
+        [ -n "${repo}" ] || continue
+        if [ "${dry_run}" = 1 ]; then
+            echo "would seed ${secret} on ${repo} from ${op_ref}"
+        else
+            set_secret "${repo}" "${secret}" "${op_ref}"
+            echo "seeded ${secret} on ${repo}"
+        fi
+        count=$((count + 1))
+    done < <(seed_targets "${owner}" "$@")
+    [ "${count}" -gt 0 ] || echo "seed-ci-magic: no consumer repositories under ${owner}" >&2
+}
+
+# --- Main ------------------------------------------------------------------
+
+main() {
+    local owner="${DEFAULT_OWNER}" secret="${DEFAULT_SECRET}" op_ref="${DEFAULT_OP_REF}" dry_run=0
+    local opt
+    while getopts "o:s:r:nh" opt; do
+        case "${opt}" in
+            o) owner="${OPTARG}" ;;
+            s) secret="${OPTARG}" ;;
+            r) op_ref="${OPTARG}" ;;
+            n) dry_run=1 ;;
+            h) usage; exit 0 ;;
+            *) usage >&2; exit 2 ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+    local cmd="${1:-}"
+    [ -n "${cmd}" ] && shift
+    case "${cmd}" in
+        status) cmd_status "${owner}" "${secret}" ;;
+        seed)   cmd_seed "${owner}" "${secret}" "${op_ref}" "${dry_run}" "$@" ;;
+        *)      usage >&2; exit 2 ;;
+    esac
+}
+
+main "$@"
