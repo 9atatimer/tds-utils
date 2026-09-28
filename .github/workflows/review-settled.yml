@@ -3,7 +3,15 @@
 #
 # Green iff the newest review from each required reviewer is on the
 # current head commit AND every review thread is resolved; red otherwise
-# with the reason in the status description. It is the mechanical form of
+# with the reason in the status description.
+#
+# FAIL-OPEN on quota, deliberately (tds-internal#93), and only on quota: a
+# reviewer whose newest post is its "reached their quota limit" notice
+# will never review, so it is not waited for -- threads still are -- and
+# the status reads "FAIL-OPEN: <reviewer> is out of quota", never
+# "reviewed". Any other "unable to review" notice stays red. GitHub runs
+# no workflow on Copilot's own reviews, so the checker waits up to
+# `wait_seconds` for the reviewer's answer before it posts. It is the mechanical form of
 # the fleet's "zero unreviewed code" rule, and the status a repo's ruleset
 # requires (tds-internal ops/terraform/github) and tedium checks in
 # `pr_status` before it batches a PR.
@@ -42,6 +50,15 @@ on:
         type: string
         required: false
         default: copilot-pull-request-reviewer
+      wait_seconds:
+        description: >-
+          How long to wait for a required reviewer's answer on the head
+          (a review, or its quota notice) before posting. GitHub does not
+          re-run this workflow when Copilot posts, so without a wait its
+          answer is only seen on the next unrelated event.
+        type: number
+        required: false
+        default: 180
       tools_ref:
         description: The tds-utils ref to run the checker from (pin to a sha to freeze it).
         type: string
@@ -89,8 +106,10 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ inputs.pr }}
           REVIEWERS: ${{ inputs.reviewers }}
+          WAIT_SECONDS: ${{ inputs.wait_seconds }}
         run: |
           node .review-settled/bin/review-settled \
             --repo "$REPO" \
             --pr "$PR" \
-            --reviewers "$REVIEWERS"
+            --reviewers "$REVIEWERS" \
+            --wait "$WAIT_SECONDS"
