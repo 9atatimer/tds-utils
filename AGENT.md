@@ -483,10 +483,24 @@ This repo lands PRs through the tedium merge bot; the rules are in
   `review-settled` (the commit status from
   `.github/workflows/review-settled.yml`: the newest review from Copilot
   OR Codex is on the head and every thread is resolved; the any-of group
-  is `reviewers` in `review-settled-caller.yml`) still posts, but neither `pr_status` nor
-  the ruleset requires it. Tedium therefore lands a green PR on a
-  reviewer's `r+` with no review at all. Summon Codex with an `@codex`
-  PR comment. Restore it in `pr_status` when a reviewer has quota again.
+  is `reviewers` in `review-settled-caller.yml`) still posts, but neither
+  `pr_status` nor the ruleset requires it. Tedium therefore lands a green
+  PR on a reviewer's `r+` with no review at all. Summon Codex with an
+  `@codex review` PR comment. Restore it in `pr_status` when a reviewer
+  has quota again.
+- **`review-settled` fails open on a quota notice, and only on it
+  (tds-internal#93).** When a required reviewer's newest post on a PR is
+  "unable to review ... reached their quota limit", it will never review,
+  so the status goes green once every thread is resolved and reads
+  `FAIL-OPEN: <reviewer> is out of quota` -- never "reviewed". In the
+  Copilot-or-Codex group it fails open only when both are out of quota;
+  one reviewer's notice waits for the other. Any other failure notice
+  stays red, as does silence. The checker waits up to `wait_seconds`
+  (default 180) for the answer, because GitHub runs no workflow when
+  Copilot posts. When the answer lands AFTER that window the status stays
+  at "no review yet" until something re-runs the workflow (issue #353);
+  the fallback is `gh run rerun <id>` on the latest review-settled run for
+  the PR, after which it reads the notice and fails open.
 - **Reviewers** (who may `r+`) are the repo's direct collaborators with
   push, synced by tedium. An agent acting under a reviewer's token is a
   reviewer.

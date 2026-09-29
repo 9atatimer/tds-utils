@@ -1,4 +1,4 @@
-# LMDE Tasks
+# LMDE Chores
 
 > **Phase:** 1 -- CONCEPT. Unfunded, non-binding, not a design record.
 > **Date:** 2026-09-13  **Author:** Todd Stumpf (captured with AI assistance)
@@ -81,12 +81,12 @@ Out of scope for v1: cloud tasks. Everything is laptop-local for now.
 - Network loss and battery exhaustion are expected conditions, not
   failures to be surprised by.
 
+- Name (2026-09-28): `lmde-chores` for the concept, `chores` for the tool.
+  "Tasks" collided with the todo-plan skill's `tasks/` directory and with
+  `gadmin task`. The stories below still say "task"; read it as "chore".
+
 **Still open (nobody's yet):**
 
-- The name. "Tasks" collides with the todo-plan skill's `tasks/` work-item
-  directory and with `gadmin task` (template-tools
-  `docs/design/DESIGN.GADMIN-TASK.md`). This directory is `lmde-tasks` as
-  a working label only.
 - Crontab porcelain over an existing extensible crontab TUI, or roll our
   own. Recorded as Todd said it: use one if it exists, otherwise roll our
   own. Fact for the next phase: nothing in tds-utils or template-tools
@@ -142,3 +142,12 @@ Out of scope for v1: cloud tasks. Everything is laptop-local for now.
 - A notification sink the dashboard reads.
 - Any TUI or GUI framework, scheduler, or local database on the tech
   radar (`lmde/TECH_RADAR.md`).
+
+**UX (2026-09-27):** a clean-room UX proposal -- the brief, the
+designer's answer, a manual and interactive prototypes -- is in `ux/`
+(see `ux/README.md`).
+
+**Settled 2026-09-28 (Todd's words, paraphrased):** a dashboard icon
+keeps you abreast of chores; from it you launch a GUI or a TUI, or take
+other quick actions. The GUI and the TUI give equivalent information in
+different presentations.

@@ -1,7 +1,7 @@
 # chores -- laptop-local herd of LLM-adjacent scheduled jobs
 
 Design record: `docs/design/CHORES.DESIGN.md` (APPROVED). Concept:
-`docs/concepts/lmde-tasks/`.
+`docs/concepts/lmde-chores/`.
 
 ## Try it
 

@@ -9,7 +9,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { postStatus, readPullRequest } from '../bin/review-settled';
+import { decide, postStatus, readPullRequest } from '../bin/review-settled';
 
 const HEAD = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
@@ -148,6 +148,114 @@ test('a failed status write is an error, so the run goes red instead of lying', 
       () => postStatus('t', 'o', 'n', HEAD, { state: 'success', description: 'x' }),
       /status POST HTTP 403/,
     );
+  } finally {
+    stub.restore();
+  }
+});
+
+test('review bodies are read, so a quota notice can be told from a review', async () => {
+  const stub = stubFetch(() =>
+    ok(
+      prPage({
+        reviews: {
+          pageInfo: { hasNextPage: false, endCursor: null },
+          nodes: [
+            {
+              author: { login: 'copilot-pull-request-reviewer' },
+              state: 'COMMENTED',
+              submittedAt: '2026-09-18T20:00:00Z',
+              commit: { oid: HEAD },
+              body: 'quota text',
+            },
+          ],
+        },
+      }),
+    ),
+  );
+  try {
+    const facts = await readPullRequest('t', 'o', 'n', 1);
+    assert.equal(facts.reviews[0].body, 'quota text');
+    assert.match(stub.calls[0].body.query, /\bbody\b/, 'the query asks for review bodies');
+  } finally {
+    stub.restore();
+  }
+});
+
+// GitHub runs no workflow on Copilot's reviews, so the checker waits a
+// bounded time for the reviewer's answer before it posts.
+const COPILOT_NODE = (commit, body) => ({
+  author: { login: 'copilot-pull-request-reviewer' },
+  state: 'COMMENTED',
+  submittedAt: '2026-09-18T20:00:00Z',
+  commit: { oid: commit },
+  body,
+});
+
+function clock() {
+  let t = 0;
+  return { now: () => t, sleep: async (ms) => { t += ms; } };
+}
+
+test('decide waits while the reviewer has not answered, and posts its answer', async () => {
+  const quota =
+    'Copilot was unable to review this pull request because the user who requested the review has reached their quota limit.';
+  const stub = stubFetch((n) =>
+    ok(
+      prPage({
+        reviews: {
+          pageInfo: { hasNextPage: false, endCursor: null },
+          nodes: n < 3 ? [] : [COPILOT_NODE(HEAD, quota)],
+        },
+      }),
+    ),
+  );
+  const c = clock();
+  try {
+    const { verdict } = await decide('t', 'o', 'n', 1, ['copilot-pull-request-reviewer'], 180, c);
+    assert.equal(verdict.state, 'success');
+    assert.match(verdict.description, /^FAIL-OPEN/);
+    assert.equal(stub.calls.length, 3, 'read, waited, re-read until the notice arrived');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('decide gives up at the deadline and posts red', async () => {
+  const stub = stubFetch(() => ok(prPage({})));
+  const c = clock();
+  try {
+    const { verdict } = await decide('t', 'o', 'n', 1, ['copilot-pull-request-reviewer'], 60, c);
+    assert.equal(verdict.state, 'failure');
+    assert.ok(c.now() <= 60_000 + 15_000, 'never waits past the deadline by more than one poll');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('decide does not wait on an answer that waiting cannot change', async () => {
+  const stub = stubFetch(() =>
+    ok(
+      prPage({
+        reviews: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [COPILOT_NODE(HEAD, 'Reviewed.')] },
+        reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [{ isResolved: false }] },
+      }),
+    ),
+  );
+  const c = clock();
+  try {
+    await decide('t', 'o', 'n', 1, ['copilot-pull-request-reviewer'], 180, c);
+    assert.equal(stub.calls.length, 1, 'an open thread is a human matter: no polling');
+    assert.equal(c.now(), 0);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('decide with no wait reads once', async () => {
+  const stub = stubFetch(() => ok(prPage({})));
+  try {
+    await decide('t', 'o', 'n', 1, ['copilot-pull-request-reviewer'], 0, clock());
+    assert.equal(stub.calls.length, 1);
   } finally {
     stub.restore();
   }

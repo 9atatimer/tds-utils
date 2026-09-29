@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/nocturne-7af560d0-910b-498a-a804-f8b9401f9e53/styles.css">
+  <script src="_ds/nocturne-7af560d0-910b-498a-a804-f8b9401f9e53/_ds_bundle.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+  <style>
+    html, body { margin: 0; background: var(--color-bg); color: var(--color-text); font-family: var(--font-body); }
+    a { color: var(--color-accent-300); text-decoration: none; }
+    a:hover { color: var(--color-accent-200); text-decoration: underline; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</helmet>
+<template id="__bundler_thumbnail"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#2b2741"></rect><g fill="none" stroke="#b5abfc" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><path d="M32 38l5 5 9-10"></path><path d="M32 58l5 5 9-10"></path><path d="M54 40h16"></path><path d="M54 60h16"></path></g></svg></template>
+<div onClick="{{ closePopups }}" style="min-height: 100vh; display: flex; flex-direction: column; background: radial-gradient(110% 80% at 30% 0%, var(--color-surface) 0%, var(--color-bg) 65%); font-size: 13px;">
+
+  <div style="height: 26px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; background: color-mix(in srgb, var(--color-neutral-900) 88%, transparent); box-shadow: 0 1px 0 var(--color-neutral-800); z-index: 40;">
+    <div style="display: flex; gap: 18px; align-items: center; color: var(--color-neutral-300);">
+      <i class="ph-fill ph-circle" style="font-size: 12px; color: var(--color-neutral-400);"></i>
+      <span style="font-weight: 600; color: var(--color-text);">chores</span>
+      <span>File</span><span>Edit</span><span>View</span><span>Chore</span><span>Window</span><span>Help</span>
+    </div>
+    <div style="display: flex; gap: 16px; align-items: center; color: var(--color-neutral-300);">
+      <div title="chores menu-bar item (the Glance)" style="display: flex; align-items: center; gap: 5px; padding: 1px 7px; border-radius: 4px; color: var(--color-text);">
+        <i class="{{ glanceIcon }}" style="font-size: 15px;"></i>
+        <span style="font-weight: 500; font-variant-numeric: tabular-nums;">{{ glanceText }}</span>
+      </div>
+      <i class="ph ph-wifi-high" style="font-size: 15px;"></i>
+      <span style="font-variant-numeric: tabular-nums;">{{ clock }}</span>
+    </div>
+  </div>
+
+  <div style="flex: 1; display: flex; justify-content: center; padding: 22px 22px 96px; min-height: 0;">
+    <sc-if value="{{ appOpen }}" hint-placeholder-val="{{ true }}">
+    <div style="{{ winStyle }}">
+
+      <div style="grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; padding: 0 14px; background: var(--color-neutral-900); box-shadow: 0 1px 0 var(--color-neutral-800);">
+        <div style="display: flex; gap: 8px; width: 190px;">
+          <div onClick="{{ closeApp }}" style="width: 12px; height: 12px; border-radius: 50%; background: var(--color-neutral-600); cursor: pointer;" style-hover="background: var(--color-accent-400);"></div>
+          <div style="width: 12px; height: 12px; border-radius: 50%; background: var(--color-neutral-700);"></div>
+          <div style="width: 12px; height: 12px; border-radius: 50%; background: var(--color-neutral-700);"></div>
+        </div>
+        <div style="display: flex; flex-direction: column; min-width: 0;">
+          <div style="font-size: 14px; font-weight: 500;">{{ viewTitle }}</div>
+          <div style="font-size: 11px; color: var(--color-neutral-500);">{{ viewSub }}</div>
+        </div>
+        <div style="flex: 1;"></div>
+        <div style="{{ freshStyle }}">
+          <i class="{{ freshIcon }}" style="font-size: 14px;"></i>
+          <span>{{ freshText }}</span>
+        </div>
+        <button class="{{ pauseBtnCls }}" onClick="{{ pauseBtn }}" style="display: flex; align-items: center; gap: 6px;"><i class="{{ pauseBtnIcon }}"></i><span>{{ pauseBtnLabel }}</span></button>
+      </div>
+
+      <div style="background: color-mix(in srgb, var(--color-neutral-900) 55%, var(--color-bg)); box-shadow: 1px 0 0 var(--color-neutral-800); padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; overflow: auto;">
+        <sc-for list="{{ nav }}" as="n" hint-placeholder-count="6">
+          <div onClick="{{ n.click }}" style="{{ n.st }}" style-hover="background: var(--color-neutral-800);">
+            <i class="{{ n.icon }}" style="font-size: 16px; width: 18px;"></i>
+            <span style="flex: 1;">{{ n.label }}</span>
+            <span style="{{ n.badgeSt }}">{{ n.badge }}</span>
+          </div>
+        </sc-for>
+        <div style="margin: 16px 10px 6px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-neutral-500);">Backends, 24h</div>
+        <sc-for list="{{ backends }}" as="b" hint-placeholder-count="3">
+          <div style="padding: 6px 10px; display: flex; flex-direction: column; gap: 5px;">
+            <div style="display: flex; justify-content: space-between; gap: 8px;"><span>{{ b.name }}</span><span style="color: var(--color-neutral-500); font-variant-numeric: tabular-nums;">{{ b.val }}</span></div>
+            <div style="height: 4px; border-radius: 2px; background: var(--color-neutral-800); position: relative;"><div style="{{ b.fill }}"></div></div>
+            <div style="font-size: 11px; color: var(--color-neutral-500);">{{ b.note }}</div>
+          </div>
+        </sc-for>
+        <div style="flex: 1;"></div>
+        <div style="padding: 10px; font-size: 11px; line-height: 1.5; color: var(--color-neutral-500);">Definitions are read-only here. Edit them in git.</div>
+      </div>
+
+      <div style="overflow: auto; min-width: 0; display: flex; flex-direction: column;">
+        <sc-for list="{{ banners }}" as="bn" hint-placeholder-count="0">
+          <div style="display: flex; align-items: center; gap: 12px; padding: 10px 22px; background: var(--color-accent-900); box-shadow: inset 0 -1px 0 var(--color-accent-800); color: var(--color-accent-100);">
+            <i class="{{ bn.icon }}" style="font-size: 18px; color: var(--color-accent-300);"></i>
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 2px;"><span style="font-weight: 500;">{{ bn.title }}</span><span style="color: var(--color-accent-200); font-size: 12px;">{{ bn.text }}</span></div>
+            <sc-if value="{{ bn.hasAct }}"><button class="btn btn-primary" onClick="{{ bn.act }}">{{ bn.actLabel }}</button></sc-if>
+          </div>
+        </sc-for>
+
+        <sc-if value="{{ isNeeds }}" hint-placeholder-val="{{ true }}">
+          <div style="padding: 22px 22px 28px; display: flex; flex-direction: column; gap: 22px;">
+            <sc-if value="{{ quiet }}">
+              <div style="padding: 28px 0 6px; display: flex; flex-direction: column; gap: 6px;">
+                <div style="font-size: 26px; font-weight: 500;">Nothing needs you.</div>
+                <div style="color: var(--color-neutral-400);">{{ quietLine }}</div>
+              </div>
+            </sc-if>
+            <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+              <div style="display: flex; flex-direction: column; gap: 6px;">
+                <div style="display: flex; align-items: baseline; gap: 10px; padding: 0 2px 4px;">
+                  <span style="font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-neutral-400);">{{ g.title }}</span>
+                  <span style="font-size: 11px; color: var(--color-neutral-600);">{{ g.sub }}</span>
+                </div>
+                <sc-for list="{{ g.items }}" as="it" hint-placeholder-count="3">
+                  <div onClick="{{ it.click }}" style="{{ it.st }}" style-hover="background: var(--color-neutral-900);">
+                    <i class="{{ it.icon }}" style="{{ it.icSt }}"></i>
+                    <div style="display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1;">
+                      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <span style="font-weight: 500; color: var(--color-neutral-100);">{{ it.chore }}</span>
+                        <span class="tag tag-neutral" style="font-size: 11px;">{{ it.status }}</span>
+                        <sc-if value="{{ it.unread }}"><span class="tag tag-accent" style="font-size: 11px;">unread alert</span></sc-if>
+                      </div>
+                      <div style="color: var(--color-neutral-300); text-wrap: pretty;">{{ it.what }}</div>
+                    </div>
+                    <span style="color: var(--color-neutral-500); font-variant-numeric: tabular-nums; white-space: nowrap;">{{ it.since }}</span>
+                    <sc-if value="{{ it.hasAct }}"><button class="btn btn-secondary" onClick="{{ it.act }}" style="white-space: nowrap; font-size: 12px;">{{ it.actLabel }}</button></sc-if>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+
+            <sc-if value="{{ hasChores }}">
+            <div style="display: flex; flex-direction: column; gap: 10px; padding-top: 6px;">
+              <div style="display: flex; align-items: baseline; gap: 10px;">
+                <span style="font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-neutral-400);">Today</span>
+                <span style="font-size: 11px; color: var(--color-neutral-600);">every chore, 00:00 to 24:00. Click a mark to open the run.</span>
+              </div>
+              <div style="display: grid; grid-template-columns: 170px minmax(0, 1fr); row-gap: 2px;">
+                <div></div>
+                <div style="position: relative; height: 18px;">
+                  <sc-for list="{{ hours }}" as="h" hint-placeholder-count="9"><span style="{{ h.st }}">{{ h.label }}</span></sc-for>
+                </div>
+                <sc-for list="{{ lanes }}" as="ln" hint-placeholder-count="9">
+                  <div onClick="{{ ln.click }}" style="{{ ln.nameSt }}">{{ ln.name }}</div>
+                  <div style="position: relative; height: 26px; border-radius: 4px; background: var(--color-neutral-900); overflow: hidden;">
+                    <div style="{{ ln.sleepSt }}"></div>
+                    <sc-if value="{{ ln.hasBand }}"><div style="{{ ln.bandSt }}"></div></sc-if>
+                    <sc-for list="{{ ln.marks }}" as="mk"><div onClick="{{ mk.click }}" title="{{ mk.title }}" style="{{ mk.st }}"></div></sc-for>
+                    <div style="{{ nowSt }}"></div>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; gap: 16px; padding-left: 170px; font-size: 11px; color: var(--color-neutral-500);">
+                <span style="display: flex; align-items: center; gap: 5px;"><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--color-neutral-400);"></span>succeeded</span>
+                <span style="display: flex; align-items: center; gap: 5px;"><span style="width: 10px; height: 10px; border-radius: 2px; background: var(--color-accent-400); transform: rotate(45deg);"></span>stopped / failed</span>
+                <span style="display: flex; align-items: center; gap: 5px;"><span style="width: 8px; height: 8px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--color-neutral-300);"></span>did not run</span>
+                <span style="display: flex; align-items: center; gap: 5px;"><span style="width: 14px; height: 6px; border-radius: 3px; background: var(--color-accent-500);"></span>running</span>
+                <span style="display: flex; align-items: center; gap: 5px;"><span style="width: 2px; height: 10px; background: var(--color-neutral-600);"></span>due later</span>
+                <span style="display: flex; align-items: center; gap: 5px;"><span style="width: 14px; height: 8px; background: repeating-linear-gradient(135deg, var(--color-neutral-800) 0 3px, transparent 3px 6px);"></span>laptop asleep</span>
+                <span>history before the sample's last runs is illustrative</span>
+              </div>
+            </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isChores }}" hint-placeholder-val="{{ false }}">
+          <div style="padding: 18px 22px; display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+              <input class="input" placeholder="Filter by name, kind or backend" value="{{ filter }}" onChange="{{ onFilter }}" style="width: 280px;">
+              <div class="seg" style="flex-wrap: wrap;">
+                <sc-for list="{{ segs }}" as="sg" hint-placeholder-count="5"><label class="seg-opt"><input type="radio" name="chore-seg" checked="{{ sg.on }}" onChange="{{ sg.click }}">{{ sg.label }}</label></sc-for>
+              </div>
+              <span style="color: var(--color-neutral-500);">{{ choreCount }}</span>
+            </div>
+            <div style="overflow-x: auto;"><table class="table" style="width: 100%; min-width: 620px;">
+              <thead><tr><th style="width: 28px;"></th><th>Chore</th><th>Kind / backend</th><th>Last run</th><th>Last success</th><th>Next</th></tr></thead>
+              <tbody>
+                <sc-for list="{{ choreRows }}" as="r" hint-placeholder-count="9">
+                  <tr onClick="{{ r.click }}" style="{{ r.st }}">
+                    <td><i class="{{ r.icon }}" title="{{ r.stateTitle }}" style="{{ r.icSt }}"></i></td>
+                    <td><div style="display: flex; flex-direction: column; gap: 2px;"><span style="font-weight: 500;">{{ r.name }}</span><span style="font-size: 11px; color: var(--color-neutral-500);">{{ r.state }}</span></div></td>
+                    <td style="color: var(--color-neutral-300);">{{ r.kind }}</td>
+                    <td><div style="display: flex; align-items: center; gap: 6px;"><i class="{{ r.lastIcon }}" style="{{ r.lastIcSt }}"></i><span>{{ r.last }}</span><span style="color: var(--color-neutral-500);">{{ r.lastAt }}</span></div></td>
+                    <td style="color: var(--color-neutral-400);">{{ r.ok }}</td>
+                    <td style="color: var(--color-neutral-300); font-variant-numeric: tabular-nums;">{{ r.next }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table></div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isRun }}" hint-placeholder-val="{{ false }}">
+          <div style="padding: 18px 22px 28px; display: flex; flex-direction: column; gap: 18px;">
+            <div style="display: flex; align-items: center; gap: 8px; color: var(--color-neutral-400);">
+              <button class="btn btn-ghost" onClick="{{ back }}" style="display: flex; align-items: center; gap: 4px; padding: 3px 8px;"><i class="ph ph-caret-left"></i><span>Back</span></button>
+              <span>{{ run.chore }}</span><i class="ph ph-caret-right" style="font-size: 11px;"></i>
+              <span style="font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--color-neutral-300);">{{ run.idText }}</span>
+            </div>
+            <div style="display: flex; gap: 16px; align-items: flex-start;">
+              <i class="{{ run.icon }}" style="font-size: 34px; color: var(--color-accent-400);"></i>
+              <div style="display: flex; flex-direction: column; gap: 4px;">
+                <div style="font-size: 24px; font-weight: 500;">{{ run.st }}</div>
+                <div style="color: var(--color-neutral-300); font-size: 14px;">{{ run.reason }}</div>
+              </div>
+            </div>
+            <sc-if value="{{ run.hasBudget }}">
+              <div style="display: flex; flex-direction: column; gap: 6px; max-width: 560px;">
+                <div style="display: flex; justify-content: space-between; color: var(--color-neutral-400); font-size: 12px;"><span>Tokens against the per-run budget</span><span style="font-variant-numeric: tabular-nums;">52,300 used / 50,000 budget</span></div>
+                <div style="position: relative; height: 8px; border-radius: 4px; background: var(--color-neutral-800);">
+                  <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 100%; border-radius: 4px; background: var(--color-accent-500);"></div>
+                  <div style="position: absolute; left: 95.6%; top: -4px; bottom: -4px; width: 2px; background: var(--color-text);"></div>
+                </div>
+                <div style="font-size: 11px; color: var(--color-neutral-500);">The mark is the budget (50,000). The run crossed it at turn 18 and was stopped.</div>
+              </div>
+            </sc-if>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px 22px;">
+              <sc-for list="{{ run.facts }}" as="f" hint-placeholder-count="10">
+                <div style="display: flex; flex-direction: column; gap: 3px;"><span style="font-size: 11px; color: var(--color-neutral-500);">{{ f.k }}</span><span style="font-variant-numeric: tabular-nums;">{{ f.v }}</span></div>
+              </sc-for>
+            </div>
+            <div class="seg" style="align-self: flex-start; flex-wrap: wrap; max-width: 100%;">
+              <sc-for list="{{ runTabs }}" as="tb" hint-placeholder-count="6"><label class="seg-opt"><input type="radio" name="run-tab" checked="{{ tb.on }}" onChange="{{ tb.click }}">{{ tb.label }}</label></sc-for>
+            </div>
+            <sc-if value="{{ tabTranscript }}">
+              <div style="display: flex; flex-direction: column; gap: 10px;">
+                <div style="display: flex; gap: 10px; align-items: center;">
+                  <input class="input" placeholder="Search 1,240 lines" value="{{ tq }}" onChange="{{ onTq }}" style="width: 260px;">
+                  <span style="color: var(--color-neutral-500); font-size: 12px;">{{ tqInfo }}</span>
+                  <div style="flex: 1;"></div>
+                  <button class="btn btn-ghost" onClick="{{ toggleAllTurns }}" style="font-size: 12px;">{{ allTurnsLabel }}</button>
+                </div>
+                <div style="font-size: 11px; color: var(--color-neutral-600);">JSON lines grouped by their turn key. The line contents are illustrative; the sample gives only the count.</div>
+                <div style="display: flex; flex-direction: column; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); overflow: hidden;">
+                  <sc-for list="{{ turns }}" as="tn" hint-placeholder-count="6">
+                    <div onClick="{{ tn.click }}" style="display: flex; align-items: center; gap: 10px; padding: 7px 12px; background: var(--color-neutral-900); box-shadow: inset 0 -1px 0 var(--color-neutral-800); cursor: pointer;">
+                      <i class="{{ tn.caret }}" style="font-size: 12px; color: var(--color-neutral-500);"></i>
+                      <span style="font-weight: 500; width: 64px;">{{ tn.label }}</span>
+                      <span style="color: var(--color-neutral-500); font-size: 12px;">{{ tn.meta }}</span>
+                    </div>
+                    <sc-if value="{{ tn.open }}">
+                      <div style="padding: 4px 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.6;">
+                        <sc-for list="{{ tn.lines }}" as="tl">
+                          <div style="display: flex; gap: 12px; padding: 0 12px;" style-hover="background: var(--color-neutral-900);">
+                            <span style="width: 40px; text-align: right; color: var(--color-neutral-600); flex-shrink: 0;">{{ tl.n }}</span>
+                            <span style="{{ tl.typeSt }}">{{ tl.type }}</span>
+                            <span style="color: var(--color-neutral-300); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ tl.text }}</span>
+                          </div>
+                        </sc-for>
+                      </div>
+                    </sc-if>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ tabPlain }}">
+              <div style="border-radius: var(--radius-md); box-shadow: var(--shadow-sm); padding: 10px 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.7;">
+                <sc-for list="{{ plainLines }}" as="pl" hint-placeholder-count="3">
+                  <div style="{{ pl.st }}"><span style="width: 40px; text-align: right; color: var(--color-neutral-600); flex-shrink: 0;">{{ pl.n }}</span><span style="white-space: pre-wrap;">{{ pl.t }}</span></div>
+                </sc-for>
+              </div>
+              <div style="font-size: 11px; color: var(--color-neutral-600);">{{ plainNote }}</div>
+            </sc-if>
+            <sc-if value="{{ tabCompare }}">
+              <div style="display: flex; flex-direction: column; gap: 10px;">
+                <div style="color: var(--color-neutral-400);">Compared with the last successful run: <span style="color: var(--color-text);">1 line differs</span>. <a href="#" onClick="{{ noop }}">Pick another run</a></div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); overflow: hidden; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.7;">
+                  <div style="padding: 8px 12px; background: var(--color-neutral-900); color: var(--color-neutral-400); font-family: var(--font-body);">Fri 08:45, SUCCEEDED</div>
+                  <div style="padding: 8px 12px; background: var(--color-neutral-900); color: var(--color-neutral-400); font-family: var(--font-body); box-shadow: inset 1px 0 0 var(--color-neutral-800);">This run, a41c9e2-dirty, BUDGET_EXCEEDED</div>
+                  <sc-for list="{{ diff }}" as="d" hint-placeholder-count="6">
+                    <div style="{{ d.lSt }}">{{ d.l }}</div>
+                    <div style="{{ d.rSt }}">{{ d.r }}</div>
+                  </sc-for>
+                </div>
+                <div style="font-size: 11px; color: var(--color-neutral-600);">Excerpt: only the fields the sample gives.</div>
+              </div>
+            </sc-if>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isUsage }}" hint-placeholder-val="{{ false }}">
+          <div style="padding: 18px 22px 28px; display: flex; flex-direction: column; gap: 22px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px;">
+              <sc-for list="{{ scopes }}" as="sc" hint-placeholder-count="5">
+                <div class="card" onClick="{{ sc.click }}" style="display: flex; flex-direction: column; gap: 12px; cursor: pointer;">
+                  <div style="display: flex; justify-content: space-between; align-items: baseline; gap: 8px;">
+                    <span style="font-weight: 500; font-size: 14px;">{{ sc.name }}</span>
+                    <span style="font-size: 11px; color: var(--color-neutral-500);">{{ sc.kind }}</span>
+                  </div>
+                  <sc-for list="{{ sc.dims }}" as="dm">
+                    <div style="display: flex; flex-direction: column; gap: 5px;">
+                      <div style="display: flex; justify-content: space-between; font-size: 12px;"><span style="color: var(--color-neutral-400);">{{ dm.label }}</span><span style="font-variant-numeric: tabular-nums;">{{ dm.val }}</span></div>
+                      <sc-if value="{{ dm.hasBar }}">
+                        <div style="position: relative; height: 6px; border-radius: 3px; background: var(--color-neutral-800);">
+                          <div style="{{ dm.fill }}"></div>
+                          <div style="position: absolute; left: 80%; top: -3px; bottom: -3px; width: 1px; background: var(--color-neutral-500);"></div>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+              <div style="display: flex; align-items: baseline; gap: 10px;">
+                <span style="font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-neutral-400);">Against your usual</span>
+                <span style="font-size: 11px; color: var(--color-neutral-600);">last 24h compared with the same window on each of the previous 7 days, from run records. Values are illustrative.</span>
+              </div>
+              <sc-for list="{{ trend }}" as="tr" hint-placeholder-count="5">
+                <div style="display: grid; grid-template-columns: minmax(120px, 220px) 104px minmax(0, 1fr) 80px; gap: 16px; align-items: center; padding: 8px 12px; border-radius: var(--radius-md);" style-hover="background: var(--color-neutral-900);">
+                  <span style="font-weight: 500;">{{ tr.label }}</span>
+                  <div style="display: flex; align-items: flex-end; gap: 3px; height: 26px;">
+                    <sc-for list="{{ tr.bars }}" as="bb"><div style="{{ bb.st }}"></div></sc-for>
+                  </div>
+                  <span style="color: var(--color-neutral-400); font-variant-numeric: tabular-nums;">{{ tr.text }}</span>
+                  <span style="{{ tr.xSt }}">{{ tr.x }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isInbox }}" hint-placeholder-val="{{ false }}">
+          <div style="padding: 18px 22px; display: flex; flex-direction: column; gap: 4px;">
+            <div style="display: flex; justify-content: flex-end; padding-bottom: 6px;"><button class="btn btn-ghost" onClick="{{ markAll }}">Mark all read</button></div>
+            <sc-for list="{{ inbox }}" as="nt" hint-placeholder-count="4">
+              <div onClick="{{ nt.click }}" style="{{ nt.st }}" style-hover="background: var(--color-neutral-900);">
+                <span style="{{ nt.dotSt }}"></span>
+                <i class="{{ nt.icon }}" style="{{ nt.icSt }}"></i>
+                <div style="flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+                  <span style="{{ nt.textSt }}">{{ nt.text }}</span>
+                  <span style="font-size: 12px; color: var(--color-neutral-500);">{{ nt.meta }}</span>
+                </div>
+                <sc-if value="{{ nt.unread }}"><button class="btn btn-ghost" onClick="{{ nt.dismiss }}" style="font-size: 12px;">Dismiss</button></sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isSystem }}" hint-placeholder-val="{{ false }}">
+          <div style="padding: 18px 22px; display: flex; flex-direction: column; gap: 18px; max-width: 760px;">
+            <div style="display: grid; grid-template-columns: 140px 1fr; gap: 10px 18px;">
+              <sc-for list="{{ sysFacts }}" as="sf" hint-placeholder-count="5">
+                <span style="color: var(--color-neutral-500);">{{ sf.k }}</span><span style="{{ sf.st }}">{{ sf.v }}</span>
+              </sc-for>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <sc-for list="{{ sysActs }}" as="sa" hint-placeholder-count="4">
+                <div style="display: flex; align-items: center; gap: 14px; padding: 10px 12px; border-radius: var(--radius-md); box-shadow: var(--shadow-sm);">
+                  <div style="flex: 1; display: flex; flex-direction: column; gap: 2px;"><span style="font-weight: 500;">{{ sa.label }}</span><span style="color: var(--color-neutral-500); font-size: 12px;">{{ sa.desc }}</span></div>
+                  <button class="btn btn-secondary" onClick="{{ sa.click }}">{{ sa.btn }}</button>
+                </div>
+              </sc-for>
+            </div>
+            <a href="Chores Prototype.dc.html" style="display: flex; align-items: center; gap: 6px;"><i class="ph ph-terminal-window"></i>Open the terminal dashboard (TUI)</a>
+          </div>
+        </sc-if>
+      </div>
+
+      <div style="{{ inspStyle }}">
+        <sc-if value="{{ narrow }}"><div style="display: flex; justify-content: flex-end; padding: 8px 10px 0;"><button class="btn btn-ghost" onClick="{{ closeInsp }}" style="padding: 3px 8px;"><i class="ph ph-x"></i></button></div></sc-if>
+        <sc-if value="{{ hasSel }}" hint-placeholder-val="{{ true }}">
+          <div style="padding: 18px; display: flex; flex-direction: column; gap: 18px;">
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <div style="display: flex; align-items: center; gap: 8px;"><i class="{{ sel.icon }}" style="{{ sel.icSt }}"></i><span style="font-size: 17px; font-weight: 500;">{{ sel.name }}</span></div>
+              <div style="color: var(--color-neutral-400);">{{ sel.kind }}</div>
+              <div style="display: flex; gap: 6px; flex-wrap: wrap; padding-top: 2px;">
+                <sc-for list="{{ sel.tags }}" as="tg"><span class="{{ tg.cls }}" style="font-size: 11px;">{{ tg.t }}</span></sc-for>
+              </div>
+            </div>
+            <sc-if value="{{ sel.hasViol }}">
+              <div style="display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: var(--radius-md); background: var(--color-accent-900);">
+                <span style="font-size: 11px; color: var(--color-accent-200);">Validation fails. This chore will not run until it is fixed in git.</span>
+                <sc-for list="{{ sel.viol }}" as="v"><span style="color: var(--color-accent-100);">{{ v }}</span></sc-for>
+              </div>
+            </sc-if>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <sc-for list="{{ sel.actions }}" as="a" hint-placeholder-count="3"><button class="{{ a.cls }}" onClick="{{ a.click }}" style="display: flex; align-items: center; gap: 6px;"><i class="{{ a.icon }}"></i><span>{{ a.label }}</span></button></sc-for>
+            </div>
+            <div style="display: grid; grid-template-columns: 96px 1fr; gap: 8px 12px;">
+              <sc-for list="{{ sel.facts }}" as="f" hint-placeholder-count="4"><span style="color: var(--color-neutral-500);">{{ f.k }}</span><span>{{ f.v }}</span></sc-for>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <sc-for list="{{ sel.pins }}" as="pn" hint-placeholder-count="2">
+                <div onClick="{{ pn.click }}" style="display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); cursor: pointer;" style-hover="background: var(--color-neutral-900);">
+                  <i class="{{ pn.icon }}" style="{{ pn.icSt }}"></i>
+                  <div style="flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0;"><span style="font-size: 11px; color: var(--color-neutral-500);">{{ pn.k }}</span><span>{{ pn.v }}</span></div>
+                  <i class="ph ph-caret-right" style="color: var(--color-neutral-600);"></i>
+                </div>
+              </sc-for>
+            </div>
+            <sc-if value="{{ sel.hasUsage }}">
+              <div style="display: flex; flex-direction: column; gap: 10px;">
+                <span style="font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-neutral-500);">Ceiling, rolling 24h</span>
+                <sc-for list="{{ sel.dims }}" as="dm">
+                  <div style="display: flex; flex-direction: column; gap: 5px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 12px;"><span style="color: var(--color-neutral-400);">{{ dm.label }}</span><span style="font-variant-numeric: tabular-nums;">{{ dm.val }}</span></div>
+                    <div style="position: relative; height: 6px; border-radius: 3px; background: var(--color-neutral-800);"><div style="{{ dm.fill }}"></div><div style="position: absolute; left: 80%; top: -3px; bottom: -3px; width: 1px; background: var(--color-neutral-500);"></div></div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+              <span style="font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-neutral-500); padding-bottom: 4px;">Runs</span>
+              <sc-for list="{{ sel.runs }}" as="r" hint-placeholder-count="4">
+                <div onClick="{{ r.click }}" style="display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: var(--radius-sm); cursor: pointer;" style-hover="background: var(--color-neutral-900);">
+                  <i class="{{ r.icon }}" style="{{ r.icSt }}"></i>
+                  <span style="flex: 1;">{{ r.st }}</span>
+                  <span style="color: var(--color-neutral-500); font-variant-numeric: tabular-nums;">{{ r.at }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="font-size: 11px; color: var(--color-neutral-600); line-height: 1.5;">{{ sel.foot }}</div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ noSel }}" hint-placeholder-val="{{ false }}">
+          <div style="padding: 24px 18px; color: var(--color-neutral-500);">Select a chore to see its detail.</div>
+        </sc-if>
+      </div>
+
+      <sc-if value="{{ hasSheet }}" hint-placeholder-val="{{ false }}">
+        <div onClick="{{ closeSheet }}" style="position: absolute; inset: 52px 0 0 0; background: color-mix(in srgb, var(--color-bg) 55%, transparent); display: flex; justify-content: center; align-items: flex-start; z-index: 10;">
+          <div onClick="{{ stop }}" style="margin-top: 0; width: 460px; max-width: calc(100% - 40px); padding: 18px 20px; border-radius: 0 0 var(--radius-lg) var(--radius-lg); background: var(--color-surface); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: flex; align-items: center; gap: 10px;"><i class="{{ sheet.icon }}" style="font-size: 20px; color: var(--color-accent-300);"></i><span style="font-size: 15px; font-weight: 500;">{{ sheet.title }}</span></div>
+            <sc-for list="{{ sheet.rows }}" as="sr" hint-placeholder-count="2">
+              <div style="display: grid; grid-template-columns: 88px 1fr; gap: 10px; align-items: baseline;">
+                <span style="color: var(--color-neutral-500); font-size: 12px;">{{ sr.k }}</span>
+                <div style="display: flex; flex-direction: column; gap: 4px;"><span>{{ sr.v }}</span><sc-if value="{{ sr.hasTag }}"><span class="{{ sr.tagCls }}" style="align-self: flex-start; font-size: 11px;">{{ sr.tag }}</span></sc-if></div>
+              </div>
+            </sc-for>
+            <sc-if value="{{ sheet.hasNote }}"><div style="color: var(--color-neutral-400); font-size: 12px; line-height: 1.5;">{{ sheet.note }}</div></sc-if>
+            <sc-if value="{{ sheet.hasInput }}">
+              <div class="field"><label>Reason</label><input class="input" autofocus placeholder="on a flight" value="{{ reason }}" onChange="{{ onReason }}"></div>
+            </sc-if>
+            <sc-if value="{{ sheet.hasKill }}">
+              <label style="display: flex; align-items: center; gap: 8px; color: var(--color-neutral-300); cursor: pointer;"><input type="checkbox" checked="{{ killToo }}" onChange="{{ onKillToo }}">{{ sheet.killLabel }}</label>
+            </sc-if>
+            <div style="display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px;">
+              <sc-for list="{{ sheet.btns }}" as="b" hint-placeholder-count="2"><button class="{{ b.cls }}" onClick="{{ b.click }}">{{ b.label }}</button></sc-for>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ hasToast }}" hint-placeholder-val="{{ false }}">
+        <div style="position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); padding: 8px 14px; border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-md); display: flex; gap: 8px; align-items: center; z-index: 12;"><i class="{{ toastIcon }}" style="color: var(--color-accent-300);"></i><span>{{ toast }}</span></div>
+      </sc-if>
+    </div>
+    </sc-if>
+    <sc-if value="{{ appClosed }}" hint-placeholder-val="{{ false }}">
+      <div style="align-self: center; color: var(--color-neutral-500);">chores is closed. Click the Dock tile to open it; right-click it for more options.</div>
+    </sc-if>
+  </div>
+
+  <div style="position: fixed; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; gap: 10px; padding: 8px 10px; border-radius: var(--radius-lg); background: color-mix(in srgb, var(--color-neutral-900) 80%, transparent); box-shadow: var(--shadow-md); z-index: 30;">
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+      <div style="width: 48px; height: 48px; border-radius: 12px; background: var(--color-neutral-800); display: flex; align-items: center; justify-content: center; font-size: 26px; color: var(--color-neutral-300);"><i class="ph ph-terminal-window"></i></div>
+      <div style="width: 4px; height: 4px;"></div>
+    </div>
+    <div style="position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+      <div onClick="{{ dockClick }}" onContextMenu="{{ dockRight }}" title="chores. Right-click for more." style="position: relative; width: 48px; height: 48px; border-radius: 12px; background: var(--color-accent-900); box-shadow: 0 0 0 1px var(--color-accent-700); display: flex; align-items: center; justify-content: center; font-size: 26px; color: var(--color-accent-300); cursor: pointer;">
+        <i class="ph ph-list-checks"></i>
+      </div>
+      <div style="{{ dockDot }}"></div>
+      <sc-if value="{{ dockMenu }}" hint-placeholder-val="{{ false }}">
+        <div onClick="{{ stop }}" style="position: absolute; bottom: 64px; left: 50%; transform: translateX(-50%); width: 260px; padding: 5px 0; border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-md); font-size: 13px;">
+          <sc-for list="{{ dockItems }}" as="d" hint-placeholder-count="6">
+            <sc-if value="{{ d.isSep }}"><div style="height: 1px; margin: 4px 10px; background: var(--color-neutral-800);"></div></sc-if>
+            <sc-if value="{{ d.isHeader }}"><div style="padding: 2px 14px; color: var(--color-neutral-500);">{{ d.text }}</div></sc-if>
+            <sc-if value="{{ d.isItem }}"><div onClick="{{ d.click }}" style="padding: 3px 14px; margin: 0 5px; border-radius: 4px; cursor: default; display: flex; justify-content: space-between;" style-hover="background: var(--color-accent-700); color: var(--color-accent-100);"><span>{{ d.text }}</span><span style="color: var(--color-neutral-500);">{{ d.right }}</span></div></sc-if>
+          </sc-for>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;scenario&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;sample&quot;, &quot;options&quot;: [&quot;sample&quot;, &quot;paused&quot;, &quot;stale&quot;, &quot;off&quot;, &quot;ledger&quot;, &quot;snapfail&quot;, &quot;zero&quot;], &quot;tsType&quot;: &quot;string&quot;}}">
+const T0 = 14 * 3600 + 5 * 60 + 12, DAY = 86400;
+const p2 = n => String(n).padStart(2, '0');
+const T = str => { const a = str.split(':').map(Number); return a[0] * 3600 + a[1] * 60 + (a[2] || 0); };
+const hms = s => { s = ((Math.floor(s) % DAY) + DAY) % DAY; return p2(Math.floor(s / 3600)) + ':' + p2(Math.floor(s % 3600 / 60)) + ':' + p2(s % 60); };
+const dur = s => { s = Math.max(0, Math.floor(s)); return s < 60 ? s + 's' : s < 3600 ? Math.floor(s / 60) + 'm ' + p2(s % 60) + 's' : Math.floor(s / 3600) + 'h ' + p2(Math.floor(s % 3600 / 60)) + 'm'; };
+const num = n => n == null ? '--' : Number(n).toLocaleString('en-US');
+const BAD = ['FAILED', 'TIMED_OUT', 'BUDGET_EXCEEDED', 'INTERRUPTED'];
+const SKIPS = ['MISSED', 'SKIPPED_OVERLAP', 'SKIPPED_PAUSED', 'SKIPPED_CEILING', 'SKIPPED_OFFLINE', 'DEFERRED_BATTERY'];
+const ICON = { SUCCEEDED: 'ph ph-check-circle', FAILED: 'ph-fill ph-x-circle', TIMED_OUT: 'ph-fill ph-timer', BUDGET_EXCEEDED: 'ph-fill ph-coins', KILLED: 'ph ph-hand-palm', OFFLINE: 'ph ph-wifi-slash', INTERRUPTED: 'ph ph-lightning-slash', RUNNING: 'ph ph-circle-notch', PENDING: 'ph ph-hourglass', MISSED: 'ph ph-moon', SKIPPED_OVERLAP: 'ph ph-stack', SKIPPED_PAUSED: 'ph ph-pause-circle', SKIPPED_CEILING: 'ph ph-gauge', SKIPPED_OFFLINE: 'ph ph-wifi-slash', DEFERRED_BATTERY: 'ph ph-battery-warning', INVALID: 'ph-fill ph-file-x' };
+const tone = st => BAD.includes(st) || st === 'INVALID' ? 'alert' : st === 'RUNNING' || st === 'PENDING' ? 'run' : st === 'SUCCEEDED' ? 'ok' : 'warn';
+const TONE = { alert: 'var(--color-accent-400)', run: 'var(--color-accent-300)', warn: 'var(--color-neutral-300)', ok: 'var(--color-neutral-500)', info: 'var(--color-neutral-400)' };
+const icSt = (st, size) => Object.assign({ fontSize: (size || 16) + 'px', color: TONE[tone(st)], flexShrink: 0 }, st === 'RUNNING' ? { animation: 'spin 1.4s linear infinite', display: 'inline-block' } : {});
+
+const RUNS = () => [
+  { uid: 'r1', chore: 'notes-summarize', st: 'INVALID', sort: T('14:04:31'), at: '14:04:31', reason: 'budget lacks usd; backend gateway has a usd ceiling' },
+  { uid: 'r2', chore: 'log-brand-sweep', st: 'RUNNING', sort: T('14:00:02'), at: '14:00:02', since: T('14:00:02') },
+  { uid: 'r3', chore: 'log-brand-sweep', st: 'SUCCEEDED', sort: T('13:30:01'), at: '13:30:01', wall: '41s' },
+  { uid: 'r4', chore: 'release-notes-draft', st: 'SKIPPED_CEILING', sort: T('13:00:01'), at: '13:00:01', reason: 'usd 1.84 + 1.50 would cross gateway ceiling 3.00' },
+  { uid: 'r5', chore: 'inbox-triage', st: 'TIMED_OUT', sort: T('12:00:00'), at: '12:00:00', wall: '600s', turns: 7, reason: 'wall-clock timeout (600s); process group killed' },
+  { uid: 'r6', id: 'pr-digest-20260926T154500Z-k3f9', chore: 'pr-digest', st: 'BUDGET_EXCEEDED', sort: T('08:45:00'), at: '08:45:00', ended: '08:52:09', wall: '429s', tin: 44100, tout: 8200, turns: 18, cpu: '12.4 s', disk: '1.8 MB', exit: 0, rev: 'a41c9e2-dirty', backend: 'agent-cli', model: 'backend default', billing: 'subscription', reason: 'tokens 52,300 > budget 50,000', full: true },
+  { uid: 'r7', chore: 'inbox-triage', st: 'SUCCEEDED', sort: T('08:00:00'), at: '08:00:00' },
+  { uid: 'r8', chore: 'workspace-gc', st: 'MISSED', count: 2, sort: T('03:00:00'), at: '03:00', reason: 'missed x2 while asleep 01:10 to 07:55; catch_up off, so not replayed' },
+  { uid: 'r9', chore: 'daily-local-smoke', st: 'SUCCEEDED', sort: T('04:00:03'), at: '04:00:03', wall: '1.9s', tok: 212 },
+  { uid: 'r10', chore: 'pr-digest', st: 'SUCCEEDED', sort: -DAY + T('08:45:00'), at: 'Fri 08:45' },
+  { uid: 'r11', chore: 'release-notes-draft', st: 'SUCCEEDED', sort: -2 * DAY + T('13:00:00'), at: 'Thu 13:00' },
+  { uid: 'r12', chore: 'workspace-gc', st: 'SUCCEEDED', sort: -2 * DAY + T('03:00:00'), at: 'Thu 03:00' },
+  { uid: 'r13', chore: 'notes-summarize', st: 'SUCCEEDED', sort: -3 * DAY + T('18:15:00'), at: 'Wed 18:15' },
+  { uid: 'r14', chore: 'weekly-gateway-smoke', st: 'OFFLINE', sort: -5 * DAY + T('09:00:04'), at: 'Mon 09:00', reason: 'backend gateway unreachable' },
+  { uid: 'r15', chore: 'weekly-gateway-smoke', st: 'SUCCEEDED', sort: -12 * DAY + T('09:00:00'), at: '2026-09-14 09:00' },
+  { uid: 'r16', chore: 'repo-cleanup', st: 'SUCCEEDED', sort: -27 * DAY + T('05:00:00'), at: '2026-08-30 05:00' },
+  { uid: 'h1', chore: 'inbox-triage', st: 'FAILED', sort: T('10:00:00'), at: '10:00:00', reason: 'illustrative', ill: true },
+  { uid: 'h2', chore: 'inbox-triage', st: 'TIMED_OUT', sort: T('11:00:00'), at: '11:00:00', reason: 'illustrative', ill: true }
+].concat(['08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30', '12:00', '12:30', '13:00'].map((t, i) => ({ uid: 'hl' + i, chore: 'log-brand-sweep', st: 'SUCCEEDED', sort: T(t + ':01'), at: t + ':01', ill: true })));
+const CHORES = () => [
+  { name: 'daily-local-smoke', kind: 'prompt', backend: 'local', schedule: '0 4 * * *', enabled: true, last: 'r9', ok: 'r9', bad: null, next: 'Sun 04:00' },
+  { name: 'weekly-gateway-smoke', kind: 'prompt', backend: 'gateway', schedule: '0 9 * * 1', enabled: true, last: 'r14', ok: 'r15', bad: 'r14', next: 'Mon 09:00', net: true },
+  { name: 'log-brand-sweep', kind: 'command', backend: null, schedule: '*/30 * * * *', enabled: true, last: 'r3', ok: 'r3', bad: null, next: '14:30', running: { since: T('14:00:02'), run: 'r2' }, usual: 41, every: 1800 },
+  { name: 'inbox-triage', kind: 'agent', backend: 'agent-cli', schedule: '0 * * * *', enabled: true, last: 'r5', ok: 'r7', bad: 'r5', next: '15:00', paused: { by: 'breaker', reason: '3 consecutive failures' }, every: 3600 },
+  { name: 'pr-digest', kind: 'agent', backend: 'agent-cli', schedule: '45 8 * * *', enabled: true, last: 'r6', ok: 'r10', bad: 'r6', next: 'Sun 08:45', ceil: 'chore pr-digest tokens: 52,300 used + 50,000 budget would cross 60,000', budget: 'tokens 50,000' },
+  { name: 'workspace-gc', kind: 'command', backend: null, schedule: '0 3 * * *', enabled: true, last: 'r8', ok: 'r12', bad: null, next: 'Sun 03:00' },
+  { name: 'notes-summarize', kind: 'prompt', backend: 'gateway', schedule: '15 */2 * * *', enabled: true, last: 'r1', ok: 'r13', bad: null, next: '--', invalid: ['budget lacks usd; backend gateway has a usd ceiling'], every: 7200, offset: 900 },
+  { name: 'release-notes-draft', kind: 'prompt', backend: 'gateway', schedule: '0 13 * * 1-5', enabled: true, last: 'r4', ok: 'r11', bad: null, next: 'Mon 13:00', ceil: 'backend gateway usd: 1.84 used + 1.50 budget would cross 3.00' },
+  { name: 'repo-cleanup', kind: 'command', backend: null, schedule: '0 5 * * 0', enabled: false, last: 'r16', ok: 'r16', bad: null, next: 'disabled' }
+];
+const NOTIFS = () => [
+  { id: 'n-0412', at: '12:00:01', level: 'alert', chore: 'inbox-triage', text: 'Paused by breaker after 3 consecutive failures (TIMED_OUT, TIMED_OUT, FAILED)', read: false, run: 'r5' },
+  { id: 'n-0409', at: '08:52:10', level: 'alert', chore: 'pr-digest', text: 'BUDGET_EXCEEDED: tokens 52,300 > budget 50,000', read: false, run: 'r6' },
+  { id: 'n-0408', at: '08:51:57', level: 'info', chore: 'pr-digest', text: '3 PRs need your review', read: false, run: 'r6', byChore: true },
+  { id: 'n-0391', at: 'Mon 09:00', level: 'info', chore: 'weekly-gateway-smoke', text: 'OFFLINE: backend gateway unreachable', read: true, run: 'r14' }
+];
+const USAGE = () => [
+  { scope: 'global', kind: 'all backends', tok: [182400, 500000], usd: [1.84, null], turns: [41, 200] },
+  { scope: 'local', kind: 'local model, metered, unpriced', tok: [96100, null] },
+  { scope: 'gateway', kind: 'cloud gateway, metered', tok: [40300, 100000], usd: [1.84, 3.0] },
+  { scope: 'agent-cli', kind: 'subscription CLI agent', tok: [46000, null], turns: [41, 150] },
+  { scope: 'pr-digest', kind: 'chore ceiling', chore: true, tok: [52300, 60000], turns: [18, 20] }
+];
+const TREND = [
+  { label: 'pr-digest tokens', days: [19800, 22400, 20100, 21800, 23900, 21000, 22600], today: 52300 },
+  { label: 'gateway usd', days: [1.02, 1.21, 0.88, 1.10, 1.34, 0.97, 1.15], today: 1.84 },
+  { label: 'global tokens', days: [141000, 156000, 149000, 151000, 162000, 138000, 155000], today: 182400 },
+  { label: 'agent-cli turns', days: [36, 40, 35, 38, 42, 37, 39], today: 41 },
+  { label: 'daily-local-smoke tokens', days: [205, 210, 198, 212, 207, 204, 209], today: 212 }
+];
+let TR = null;
+const transcript = () => { if (TR) return TR; const tools = ['gh.pr_list', 'gh.pr_view', 'gh.pr_diff', 'notify']; TR = []; for (let i = 1; i <= 1240; i++) { const turn = Math.min(18, Math.floor((i - 1) / 69) + 1), m = i % 3; let o; if (i === 1) o = { turn: 1, type: 'start', chore: 'pr-digest', backend: 'agent-cli', budget: { tokens: 50000 } }; else if (i === 1240) o = { turn: 18, type: 'stop', reason: 'budget', tokens: 52300, budget: 50000 }; else if (m === 0) o = { turn, type: 'assistant', text: 'Reviewing PR #' + (400 + i % 37) + ' for the digest' }; else if (m === 1) o = { turn, type: 'tool_call', tool: tools[i % 4], args: { pr: 400 + i % 37 } }; else o = { turn, type: 'tool_result', tool: tools[(i - 1) % 4], bytes: 800 + (i * 37) % 4000 }; TR.push(o); } return TR; };
+
+function init(scn) {
+  const zero = scn === 'zero';
+  return {
+    scn, t: 0, open: true, view: 'needs', sel: zero ? null : 'inbox-triage', run: null, back: 'needs', runTab: 'Transcript', openTurns: { 1: true, 18: true }, tq: '',
+    filter: '', seg: 'All', sheet: null, reason: '', killToo: false, toast: '', dockMenu: false, seq: 0,
+    ch: zero ? [] : CHORES(), runs: zero ? [] : RUNS(), notifs: zero ? [] : NOTIFS(), usage: zero ? [USAGE()[0]] : USAGE(),
+    gpause: scn === 'paused' ? { reason: 'on a flight', since: '06:40' } : null,
+    sched: scn === 'stale' ? 'stale' : scn === 'off' ? 'off' : 'ok',
+    warns: scn === 'ledger' ? ['Ledger shrank from 4,210 rows to 3,900 since the last tick'] : [],
+    snapfail: scn === 'snapfail'
+  };
+}
+
+class Component extends DCLogic {
+  state = init('sample');
+  componentDidMount() {
+    this.onRz = () => this.forceUpdate(); window.addEventListener('resize', this.onRz); this.onRz();
+    if (this.props.scenario && this.props.scenario !== 'sample') this.setState(init(this.props.scenario));
+    this.t0 = Date.now(); this.iv = setInterval(() => this.setState({ t: Math.floor((Date.now() - this.t0) / 1000) }), 1000);
+  }
+  componentDidUpdate(pp) { if ((pp.scenario || 'sample') !== (this.props.scenario || 'sample')) this.setState(init(this.props.scenario || 'sample')); }
+  componentWillUnmount() { clearInterval(this.iv); window.removeEventListener('resize', this.onRz); }
+  now() { return T0 + this.state.t; }
+  runBy(u) { return this.state.runs.find(r => r.uid === u); }
+  chBy(n) { return this.state.ch.find(c => c.name === n); }
+  upd(name, fn) { this.setState(s => ({ ch: s.ch.map(c => c.name === name ? fn(Object.assign({}, c)) : c) })); }
+  updRun(uid, fn) { this.setState(s => ({ runs: s.runs.map(r => r.uid === uid ? fn(Object.assign({}, r)) : r) })); }
+  toast(msg, icon) { clearTimeout(this.tt); this.setState({ toast: msg, toastIcon: icon || 'ph ph-check' }); this.tt = setTimeout(() => this.setState({ toast: '' }), 3200); }
+  pct(v) { return Array.isArray(v) && v[1] ? v[0] / v[1] : null; }
+
+  attn() {
+    const S = this.state, n = this.now(), it = [];
+    const add = (lv, x) => it.push(Object.assign({ lv }, x));
+    const unread = name => S.notifs.find(x => !x.read && x.chore === name && x.level === 'alert');
+    S.warns.forEach(w => add('sys', { chore: 'Warning', status: 'SYSTEM', what: w, since: 'last tick', icon: 'ph-fill ph-warning', go: 'system' }));
+    S.ch.forEach(c => { if (c.paused && c.paused.by === 'breaker') add('alert', { chore: c.name, status: 'PAUSED BY BREAKER', what: 'Stopped after ' + c.paused.reason + ': TIMED_OUT, TIMED_OUT, FAILED. Nothing runs until you resume it.', since: '12:00', icon: 'ph-fill ph-pause-circle', c, notif: unread(c.name), act: 'Resume' }); });
+    S.usage.forEach(u => [['tokens', u.tok], ['usd', u.usd], ['turns', u.turns]].forEach(([d, v]) => { const p = this.pct(v); if (p != null && p >= 1) add('alert', { chore: u.scope, status: 'AT CEILING', what: d + ' ' + num(v[0]) + ' of ' + num(v[1]) + ' used in the last 24h. Nothing that needs it will start.', since: 'now', icon: 'ph-fill ph-gauge', go: 'usage' }); }));
+    S.ch.forEach(c => { if (c.paused && c.paused.by === 'breaker') return; const r = this.runBy(c.last); if (r && BAD.includes(r.st)) add('alert', { chore: c.name, status: r.st.replace('_', ' '), what: r.reason, since: r.at.slice(0, 5), icon: ICON[r.st], c, run: r.uid, notif: unread(c.name), act: 'Open run' }); });
+    S.ch.forEach(c => { if (c.invalid) add('alert', { chore: c.name, status: 'INVALID', what: 'Definition fails validation: ' + c.invalid[0] + '. Fix it in git.', since: '14:04', icon: ICON.INVALID, c }); });
+    S.ch.forEach(c => { if (c.running && c.usual) { const el = n - c.running.since; if (el > 3 * c.usual && el > 60) add('warn', { chore: c.name, status: 'RUNNING LONG', what: 'Running for ' + dur(el) + '. It usually takes about ' + c.usual + 's.', since: hms(c.running.since).slice(0, 5), icon: ICON.RUNNING, c, run: c.running.run, act: 'Kill...' }); } });
+    S.usage.forEach(u => { const near = [['turns', u.turns], ['tokens', u.tok], ['usd', u.usd]].filter(([d, v]) => { const p = this.pct(v); return p != null && p >= 0.8 && p < 1; }); if (near.length) add('warn', { chore: u.scope, status: 'CEILING NEAR', what: near.map(([d, v]) => d + ' ' + num(v[0]) + ' / ' + num(v[1]) + ' (' + Math.round(this.pct(v) * 100) + '%)').join(', '), since: 'now', icon: 'ph ph-gauge', c: this.chBy(u.scope), go: 'usage' }); });
+    S.ch.forEach(c => { const r = this.runBy(c.last); if (r && SKIPS.includes(r.st)) add('warn', { chore: c.name, status: r.st.replace('_', ' ') + (r.count ? ' x' + r.count : ''), what: r.reason, since: r.at.slice(0, 5), icon: ICON[r.st], c, run: r.uid }); });
+    S.ch.forEach(c => { const r = this.runBy(c.last); if (r && (r.st === 'OFFLINE' || r.st === 'KILLED')) add('warn', { chore: c.name, status: r.st, what: r.st === 'OFFLINE' ? 'The gateway was unreachable, so it failed fast. There was no network; nothing is wrong with the chore.' : 'You killed it.', since: r.at, icon: ICON[r.st], c, run: r.uid }); });
+    S.notifs.forEach(x => { if (!x.read && x.level === 'info') add('info', { chore: x.chore, status: x.byChore ? 'MESSAGE FROM CHORE' : 'INFO', what: x.text, since: x.at.slice(0, 5), icon: 'ph ph-chat-text', c: this.chBy(x.chore), notif: x, act: 'Dismiss' }); });
+    return it;
+  }
+  admission(c) {
+    const S = this.state, o = [];
+    if (S.snapfail) o.push({ k: 'no snapshot', t: 'Status could not be read, so nothing can be admitted safely.', f: false });
+    if (S.gpause) o.push({ k: 'global pause', t: 'Paused "' + S.gpause.reason + '" since ' + S.gpause.since + '.', f: false });
+    if (!c.enabled) o.push({ k: 'disabled', t: 'Disabled in git.', f: false });
+    if (c.invalid) c.invalid.forEach(v => o.push({ k: 'invalid', t: v, f: false }));
+    if (c.paused) o.push({ k: c.paused.by === 'breaker' ? 'breaker' : 'paused', t: (c.paused.by === 'breaker' ? 'Paused by breaker: ' : 'Paused by you: ') + c.paused.reason + '.', f: false });
+    if (c.ceil) o.push({ k: 'ceiling', t: c.ceil + '.', f: false });
+    if (c.running) o.push({ k: 'overlap', t: 'The previous run has been going since ' + hms(c.running.since) + ' (' + dur(this.now() - c.running.since) + ').', f: true });
+    return o;
+  }
+
+  // actions
+  select(name) { this.setState({ sel: name, inspOpen: true }); }
+  openRun(uid) { const r = this.runBy(uid); if (!r) return; this.setState(s => ({ view: 'run', run: uid, sel: r.chore, back: s.view === 'run' ? s.back : s.view, runTab: 'Transcript', tq: '' })); }
+  runNow(c, force) {
+    const causes = this.admission(c);
+    if (causes.length && !force) return this.setState({ sheet: { type: 'refuse', c, causes } });
+    const start = this.now(), seq = this.state.seq + 1, uid = 'p' + seq;
+    const id = c.name + '-20260926T' + hms(start + 7 * 3600).replace(/:/g, '') + 'Z-' + Math.random().toString(36).slice(2, 6);
+    const overlap = !!c.running;
+    this.setState(s => ({ seq, sheet: null, runs: [{ uid, id, chore: c.name, st: 'PENDING', sort: start, at: hms(start), since: start }].concat(s.runs) }));
+    if (!overlap) this.upd(c.name, x => Object.assign(x, { running: { since: start, run: uid } }));
+    this.toast('Started ' + c.name + (force ? ' (forced)' : ''), 'ph ph-play');
+    setTimeout(() => this.updRun(uid, r => Object.assign(r, { st: 'RUNNING' })), 700);
+    const secs = c.name === 'daily-local-smoke' ? 2 : c.kind === 'agent' ? 6 : 4;
+    setTimeout(() => { const r = this.runBy(uid); if (!r || r.st === 'KILLED') return; this.updRun(uid, x => Object.assign(x, { st: 'SUCCEEDED', wall: secs + 's' })); this.upd(c.name, x => Object.assign(x, { last: uid, ok: uid, running: x.running && x.running.run === uid ? null : x.running })); this.toast(c.name + ' succeeded in ' + secs + 's'); }, 700 + secs * 1000);
+  }
+  kill(c) { if (!c.running) return this.toast('Nothing is running for ' + c.name, 'ph ph-info'); this.setState({ sheet: { type: 'kill', c } }); }
+  doKill(c) {
+    const uid = c.running.run; this.setState({ sheet: null }); this.toast('Kill signal sent to ' + c.name, 'ph ph-hand-palm');
+    setTimeout(() => { const n = this.now(); this.updRun(uid, x => Object.assign(x, { st: 'KILLED', reason: 'Killed by operator', wall: dur(n - (x.since || n)) })); this.upd(c.name, x => Object.assign(x, { running: null, last: uid, bad: uid })); this.toast(c.name + ' ended KILLED'); }, 1200);
+  }
+  resume(c) {
+    if (c.paused && c.paused.by === 'breaker') return this.setState({ sheet: { type: 'resume', c } });
+    this.upd(c.name, x => Object.assign(x, { paused: null })); this.toast('Resumed ' + c.name);
+  }
+  doResume(c) { this.upd(c.name, x => Object.assign(x, { paused: null })); this.setState({ sheet: null }); this.toast('Resumed ' + c.name + '. The ' + c.next + ' slot will be admitted.'); }
+  dismiss(x) { if (!x || x.read) return; this.setState(s => ({ notifs: s.notifs.map(n => n.id === x.id ? Object.assign({}, n, { read: true }) : n) })); this.toast('Dismissed ' + x.id); }
+  pauseAll() { if (this.state.gpause) return this.setState({ sheet: { type: 'resumeAll' } }); this.setState({ sheet: { type: 'pauseAll' }, reason: '', killToo: false, dockMenu: false }); }
+  doPauseAll() {
+    const S = this.state, v = S.reason.trim(); if (!v) return this.toast('A reason is required', 'ph ph-warning');
+    const running = S.ch.filter(c => c.running);
+    this.setState({ gpause: { reason: v, since: hms(this.now()).slice(0, 5) }, sheet: null });
+    this.toast('Paused everything: "' + v + '"', 'ph ph-pause');
+    if (S.killToo) running.forEach(c => this.doKill(c));
+  }
+  pauseChore(c) { this.setState({ sheet: { type: 'pauseChore', c }, reason: '' }); }
+
+  sheetVals() {
+    const S = this.state, sh = S.sheet; if (!sh) return null;
+    const cancel = { label: 'Cancel', cls: 'btn btn-ghost', click: () => this.setState({ sheet: null }) };
+    const base = { rows: [], hasNote: false, note: '', hasInput: false, hasKill: false, killLabel: '', btns: [cancel] };
+    if (sh.type === 'refuse') {
+      const allF = sh.causes.every(x => x.f);
+      return Object.assign(base, { icon: 'ph-fill ph-prohibit', title: 'Can\'t run ' + sh.c.name + ' now', rows: sh.causes.map(x => ({ k: x.k, v: x.t, hasTag: true, tag: x.f ? 'can be forced' : 'cannot be forced', tagCls: x.f ? 'tag tag-outline' : 'tag tag-accent' })), hasNote: true, note: allF ? 'Forcing starts a second run alongside the one already going.' : sh.causes.some(x => x.k === 'ceiling') ? 'Ceilings are never forced. Usage frees up as runs age out of the 24h window.' : 'Only overlap, battery and offline can be forced.', btns: [cancel, { label: 'Dry run', cls: 'btn btn-ghost', click: () => this.setState({ sheet: { type: 'dry', c: sh.c } }) }].concat(allF ? [{ label: 'Force run', cls: 'btn btn-primary', click: () => this.runNow(sh.c, true) }] : sh.causes.some(x => x.k === 'breaker') ? [{ label: 'Resume...', cls: 'btn btn-primary', click: () => this.setState({ sheet: { type: 'resume', c: sh.c } }) }] : []) });
+    }
+    if (sh.type === 'dry') {
+      const c = sh.c, causes = this.admission(c);
+      const scopes = S.usage.filter(u => u.scope === 'global' || u.scope === c.backend || u.scope === c.name).map(u => ({ k: u.scope, v: [['tokens', u.tok], ['usd', u.usd], ['turns', u.turns]].filter(([k, v]) => Array.isArray(v) && v[1]).map(([k, v]) => k + ' ' + num(v[0]) + ' / ' + num(v[1])).join(', ') || 'no ceiling', hasTag: false }));
+      return Object.assign(base, { icon: 'ph ph-flask', title: 'Dry run: ' + c.name, rows: [{ k: 'backend', v: c.backend ? c.backend + ', backend default model' : 'none (command)' }, { k: 'budget', v: c.budget || 'resolved by the plan (not in sample)' }, { k: 'secrets', v: 'names only; values are never shown' }].concat(scopes).concat([{ k: 'verdict', v: causes.length ? 'Would be refused: ' + causes.map(x => x.k).join(', ') : 'Would be admitted', hasTag: true, tag: causes.length ? 'refuse' : 'admit', tagCls: causes.length ? 'tag tag-accent' : 'tag tag-outline' }]), hasNote: true, note: 'Nothing was executed. cwd, env names and secret names come from the plan; the sample doesn\'t include them.', btns: [{ label: 'Close', cls: 'btn btn-primary', click: () => this.setState({ sheet: null }) }] });
+    }
+    if (sh.type === 'kill') return Object.assign(base, { icon: 'ph ph-hand-palm', title: 'Kill ' + sh.c.name + '?', rows: [{ k: 'running', v: dur(this.now() - sh.c.running.since) + ' since ' + hms(sh.c.running.since) }, { k: 'result', v: 'The process group is signalled and the run ends KILLED.' }], btns: [cancel, { label: 'Kill run', cls: 'btn btn-primary', click: () => this.doKill(sh.c) }] });
+    if (sh.type === 'resume') return Object.assign(base, { icon: 'ph ph-play-circle', title: 'Resume ' + sh.c.name + '?', rows: [{ k: 'paused by', v: 'the breaker, after 3 consecutive failures (TIMED_OUT, TIMED_OUT, FAILED)' }, { k: 'next', v: 'The ' + sh.c.next + ' slot will be admitted.' }], btns: [cancel, { label: 'Dry run first', cls: 'btn btn-ghost', click: () => this.setState({ sheet: { type: 'dry', c: sh.c } }) }, { label: 'Resume', cls: 'btn btn-primary', click: () => this.doResume(sh.c) }] });
+    if (sh.type === 'pauseAll') { const running = S.ch.filter(c => c.running); return Object.assign(base, { icon: 'ph ph-pause-circle', title: 'Pause everything', hasNote: true, note: 'Nothing starts, on schedule or by hand, until you resume.', hasInput: true, hasKill: running.length > 0, killLabel: 'Also kill what is running now (' + running.map(c => c.name).join(', ') + ')', btns: [cancel, { label: 'Pause all', cls: 'btn btn-primary', click: () => this.doPauseAll() }] }); }
+    if (sh.type === 'resumeAll') return Object.assign(base, { icon: 'ph ph-play-circle', title: 'Resume everything?', rows: [{ k: 'paused', v: '"' + S.gpause.reason + '" since ' + S.gpause.since }, { k: 'next due', v: 'log-brand-sweep 14:30, workspace-gc Sun 03:00' }], btns: [cancel, { label: 'Resume all', cls: 'btn btn-primary', click: () => { this.setState({ gpause: null, sheet: null }); this.toast('Resumed everything'); } }] });
+    if (sh.type === 'pauseChore') return Object.assign(base, { icon: 'ph ph-pause', title: 'Pause ' + sh.c.name, hasNote: true, note: 'This chore stops being admitted until you resume it.' + (sh.c.running ? ' The run in progress continues.' : ''), hasInput: true, btns: [cancel, { label: 'Pause', cls: 'btn btn-primary', click: () => { const v = S.reason.trim(); if (!v) return this.toast('A reason is required', 'ph ph-warning'); this.upd(sh.c.name, x => Object.assign(x, { paused: { by: 'you', reason: v } })); this.setState({ sheet: null }); this.toast('Paused ' + sh.c.name); } }] });
+    if (sh.type === 'confirm') return Object.assign(base, { icon: sh.icon, title: sh.title, hasNote: true, note: sh.note, btns: [cancel, { label: sh.yes, cls: 'btn btn-primary', click: () => { this.setState({ sheet: null }); sh.fn(); } }] });
+    return base;
+  }
+
+  lanes() {
+    const S = this.state, n = this.now() % DAY, P = s => (s / DAY * 100).toFixed(3) + '%';
+    const order = ['inbox-triage', 'pr-digest', 'notes-summarize', 'log-brand-sweep', 'release-notes-draft', 'workspace-gc', 'weekly-gateway-smoke', 'daily-local-smoke', 'repo-cleanup'];
+    const chs = S.ch.slice().sort((a, b) => (order.indexOf(a.name) + 99) % 99 - (order.indexOf(b.name) + 99) % 99);
+    return chs.map(c => {
+      const marks = [];
+      this.state.runs.filter(r => r.chore === c.name && r.sort >= 0 && r.sort < DAY).forEach(r => {
+        const x = r.sort; const tn = tone(r.st);
+        if (r.st === 'RUNNING' || r.st === 'PENDING') { marks.push({ st: { position: 'absolute', left: P(x), width: 'max(' + P(Math.max(60, n - x)) + ', 6px)', top: '10px', height: '6px', borderRadius: '3px', background: 'var(--color-accent-500)', cursor: 'pointer' }, title: c.name + ' RUNNING since ' + r.at, click: () => this.openRun(r.uid) }); return; }
+        const base = { position: 'absolute', left: P(x), top: '50%', cursor: 'pointer', transform: 'translate(-50%, -50%)' };
+        const st = tn === 'alert' ? Object.assign(base, { width: '10px', height: '10px', borderRadius: '2px', background: 'var(--color-accent-400)', transform: 'translate(-50%, -50%) rotate(45deg)' }) : tn === 'ok' ? Object.assign(base, { width: '8px', height: '8px', borderRadius: '50%', background: 'var(--color-neutral-400)' }) : Object.assign(base, { width: '9px', height: '9px', borderRadius: '50%', boxShadow: 'inset 0 0 0 1.5px var(--color-neutral-300)' });
+        marks.push({ st, title: c.name + ' ' + r.st + ' ' + r.at + (r.ill ? ' (illustrative)' : ''), click: () => this.openRun(r.uid) });
+      });
+      if (c.every && c.enabled) { for (let s = (c.offset || 0); s < DAY; s += c.every) if (s > n + 60) marks.push({ st: { position: 'absolute', left: P(s), top: '8px', height: '10px', width: '2px', background: c.paused || c.invalid || S.gpause ? 'var(--color-neutral-800)' : 'var(--color-neutral-600)' }, title: c.name + ' due ' + hms(s).slice(0, 5) + (c.invalid ? ' (will not run: invalid)' : c.paused ? ' (paused)' : '') }); }
+      const band = c.paused ? { position: 'absolute', left: P(T('12:00:00')), right: 0, top: 0, bottom: 0, background: 'repeating-linear-gradient(90deg, transparent 0 6px, color-mix(in srgb, var(--color-accent-700) 35%, transparent) 6px 7px)' } : null;
+      return { name: c.name, click: () => this.select(c.name), nameSt: { display: 'flex', alignItems: 'center', height: '26px', paddingRight: '10px', cursor: 'pointer', color: !c.enabled ? 'var(--color-neutral-600)' : S.sel === c.name ? 'var(--color-accent-200)' : 'var(--color-neutral-300)', fontWeight: S.sel === c.name ? 500 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: !c.enabled ? 'line-through' : 'none' }, sleepSt: { position: 'absolute', left: P(T('01:10:00')), width: P(T('07:55:00') - T('01:10:00')), top: 0, bottom: 0, background: 'repeating-linear-gradient(135deg, var(--color-neutral-800) 0 3px, transparent 3px 6px)' }, hasBand: !!band, bandSt: band, marks };
+    });
+  }
+
+  selVals() {
+    const S = this.state, c = this.chBy(S.sel); if (!c) return null;
+    const last = this.runBy(c.last), ok = this.runBy(c.ok), bad = this.runBy(c.bad);
+    const tags = [];
+    if (!c.enabled) tags.push({ t: 'Disabled in git', cls: 'tag tag-neutral' });
+    else if (c.invalid) tags.push({ t: 'Invalid', cls: 'tag tag-accent' });
+    else if (c.paused) tags.push({ t: c.paused.by === 'breaker' ? 'Paused by breaker' : 'Paused by you', cls: 'tag tag-accent' });
+    else if (c.running) tags.push({ t: 'Running ' + dur(this.now() - c.running.since), cls: 'tag tag-outline' });
+    else tags.push({ t: 'Enabled', cls: 'tag tag-neutral' });
+    if (S.gpause && c.enabled) tags.push({ t: 'Global pause', cls: 'tag tag-outline' });
+    const acts = [];
+    if (c.running) acts.push({ label: 'Kill', icon: 'ph ph-hand-palm', cls: 'btn btn-primary', click: () => this.kill(c) });
+    if (c.paused) acts.push({ label: 'Resume', icon: 'ph ph-play', cls: 'btn btn-primary', click: () => this.resume(c) });
+    acts.push({ label: 'Run now', icon: 'ph ph-play', cls: c.running || c.paused ? 'btn btn-secondary' : 'btn btn-primary', click: () => this.runNow(c) });
+    acts.push({ label: 'Dry run', icon: 'ph ph-flask', cls: 'btn btn-ghost', click: () => this.setState({ sheet: { type: 'dry', c } }) });
+    if (!c.paused && c.enabled) acts.push({ label: 'Pause', icon: 'ph ph-pause', cls: 'btn btn-ghost', click: () => this.pauseChore(c) });
+    const u = S.usage.find(x => x.scope === c.name);
+    const dims = u ? [['Tokens', u.tok], ['Turns', u.turns]].filter(([k, v]) => v).map(([k, v]) => this.dim(k, v)) : [];
+    const runs = this.state.runs.filter(r => r.chore === c.name).sort((a, b) => b.sort - a.sort).slice(0, 7).map(r => ({ icon: ICON[r.st], icSt: icSt(r.st, 15), st: r.st === 'RUNNING' ? 'Running ' + dur(this.now() - r.since) : r.st.replace(/_/g, ' ').toLowerCase().replace(/^./, m => m.toUpperCase()) + (r.count ? ' x' + r.count : ''), at: r.at, click: () => this.openRun(r.uid) }));
+    const stIcon = c.paused ? 'ph-fill ph-pause-circle' : c.invalid ? ICON.INVALID : c.running ? ICON.RUNNING : last ? ICON[last.st] : 'ph ph-circle';
+    return {
+      name: c.name, kind: c.kind + (c.backend ? ' on ' + c.backend : ', no LLM') + '  -  ' + c.schedule, icon: stIcon, icSt: icSt(c.paused || c.invalid ? 'FAILED' : c.running ? 'RUNNING' : last ? last.st : 'SUCCEEDED', 18), tags,
+      hasViol: !!c.invalid, viol: c.invalid || [], actions: acts,
+      facts: [{ k: 'Next due', v: !c.enabled ? 'never (disabled)' : c.invalid ? 'will not run' : c.paused || S.gpause ? 'held (paused)' : c.next }, { k: 'Budget', v: c.budget ? c.budget + ' per run' : 'shown in dry run' }].concat(c.running ? [{ k: 'Running', v: 'since ' + hms(c.running.since) }] : []),
+      pins: [ok && { k: 'Last success', v: ok.at + (ok.wall ? ', ' + ok.wall : ''), icon: ICON.SUCCEEDED, icSt: icSt('SUCCEEDED', 18), click: () => this.openRun(ok.uid) }, bad && { k: 'Last failure', v: bad.st.replace(/_/g, ' ') + ', ' + bad.at, icon: ICON[bad.st], icSt: icSt(bad.st, 18), click: () => this.openRun(bad.uid) }].filter(Boolean),
+      hasUsage: dims.length > 0, dims, runs,
+      foot: 'The definition is read-only here; edit it in git. Every run keeps a snapshot of the definition it ran.'
+    };
+  }
+  dim(label, v) { const p = this.pct(v); return { label, val: num(v[0]) + (v[1] ? ' / ' + num(v[1]) : '') + (p != null ? '  ' + Math.round(p * 100) + '%' : ''), hasBar: p != null, fill: { position: 'absolute', left: 0, top: 0, bottom: 0, width: Math.min(100, (p || 0) * 100) + '%', borderRadius: '3px', background: p >= 0.8 ? 'var(--color-accent-400)' : 'var(--color-neutral-500)' } }; }
+
+  runVals() {
+    const S = this.state, r = this.runBy(S.run); if (!r) return { run: {}, runTabs: [] };
+    const c = this.chBy(r.chore), u = v => v == null ? '--' : v;
+    const facts = [['Started', r.at], ['Ended', r.ended], ['Wall time', r.st === 'RUNNING' ? dur(this.now() - r.since) : r.wall], ['Backend', r.backend || (c && c.backend) || (c && c.kind === 'command' ? 'none (command)' : null)], ['Model', r.model], ['Billing', r.billing], ['Tokens in / out', r.tin != null ? num(r.tin) + ' / ' + num(r.tout) : r.tok != null ? num(r.tok) + ' total' : null], ['Turns', r.turns], ['CPU', r.cpu], ['Disk', r.disk], ['Exit code', r.exit], ['Definition rev', r.rev ? r.rev + (r.rev.endsWith('-dirty') ? ' (uncommitted)' : '') : null], ['Truncated', r.full ? 'no' : null]].map(([k, v]) => ({ k, v: u(v) }));
+    const counts = r.full ? { Transcript: '1,240', Errors: '1', Stdout: '3', Stderr: '0' } : {};
+    const tabs = ['Transcript', 'Errors', 'Stdout', 'Stderr', 'Definition', 'Compare'].map(t => ({ label: t + (counts[t] ? ' ' + counts[t] : ''), on: S.runTab === t, click: () => this.setState({ runTab: t }) }));
+    let turns = [], tqInfo = '', plain = [], plainNote = '';
+    if (S.runTab === 'Transcript') {
+      if (r.full) {
+        const all = transcript(), q = S.tq.trim().toLowerCase();
+        const lines = all.map((o, i) => ({ o, i })).filter(({ o }) => !q || JSON.stringify(o).toLowerCase().includes(q));
+        tqInfo = q ? lines.length + ' matching lines' : '18 turns, 1,240 lines';
+        for (let t = 1; t <= 18; t++) {
+          const ls = lines.filter(x => x.o.turn === t); if (!ls.length) continue;
+          const calls = ls.filter(x => x.o.type === 'tool_call').length; const open = q ? true : !!S.openTurns[t];
+          turns.push({ label: 'Turn ' + t, meta: ls.length + ' lines, ' + calls + ' tool calls' + (t === 18 ? ', crossed budget, stopped' : ''), caret: open ? 'ph ph-caret-down' : 'ph ph-caret-right', open, click: () => this.setState(s => ({ openTurns: Object.assign({}, s.openTurns, { [t]: !s.openTurns[t] }) })), lines: open ? ls.slice(0, q ? 40 : 69).map(({ o, i }) => { const rest = Object.assign({}, o); delete rest.turn; delete rest.type; return { n: i + 1, type: o.type, typeSt: { width: '84px', flexShrink: 0, color: o.type === 'tool_call' ? 'var(--color-accent-300)' : o.type === 'assistant' ? 'var(--color-neutral-200)' : o.type === 'stop' ? 'var(--color-accent-400)' : 'var(--color-neutral-500)' }, text: JSON.stringify(rest) }; }) : [] });
+        }
+      } else { plain = [{ n: '', t: r.sim ? 'Live transcript streams here while the run is going.' : 'The sample gives no transcript for this run.', st: {} }]; }
+    }
+    const pl = (arr, note) => { plain = arr.map((t, i) => ({ n: i + 1, t, st: { display: 'flex', gap: '12px', padding: '0 12px' } })); plainNote = note; };
+    const na = 'The sample gives no artifacts for this run.';
+    if (S.runTab === 'Errors') r.full ? pl(['budget exceeded: tokens 52,300 > budget 50,000; run stopped'], 'errors.log, 1 line (illustrative content)') : pl([], na);
+    if (S.runTab === 'Stdout') r.full ? pl(['pr-digest: scanning open PRs', 'pr-digest: 3 PRs need review; notified', 'pr-digest: drafting digest'], 'stdout.log, 3 lines (illustrative content)') : pl([], na);
+    if (S.runTab === 'Stderr') r.full ? (plain = [{ n: '', t: 'Empty', st: { display: 'flex', gap: '12px', padding: '0 12px', color: 'var(--color-neutral-500)' } }], plainNote = 'stderr.log') : pl([], na);
+    if (S.runTab === 'Definition') r.full ? pl(['name: pr-digest', 'kind: agent', 'backend: agent-cli', 'schedule: "45 8 * * *"', 'budget: {tokens: 50000}', 'ceiling: {tokens: 60000, turns: 20}'], 'definition.md at a41c9e2-dirty. Excerpt: only the fields the sample gives.') : pl([], na);
+    const same = { background: 'transparent' };
+    const dl = (l, r2, ch) => ({ l, r: r2, lSt: Object.assign({ padding: '0 12px', whiteSpace: 'pre' }, ch ? { background: 'var(--color-neutral-900)', color: 'var(--color-neutral-400)', textDecoration: 'line-through' } : { color: 'var(--color-neutral-400)' }), rSt: Object.assign({ padding: '0 12px', whiteSpace: 'pre', boxShadow: 'inset 1px 0 0 var(--color-neutral-800)' }, ch ? { background: 'var(--color-accent-900)', color: 'var(--color-accent-100)' } : { color: 'var(--color-neutral-400)' }) });
+    const diff = r.full ? [dl('name: pr-digest', 'name: pr-digest'), dl('kind: agent', 'kind: agent'), dl('backend: agent-cli', 'backend: agent-cli'), dl('schedule: "45 8 * * *"', 'schedule: "45 8 * * *"'), dl('budget: {tokens: 60000}', 'budget: {tokens: 50000}', true), dl('ceiling: {tokens: 60000, turns: 20}', 'ceiling: {tokens: 60000, turns: 20}')] : [dl('The sample has no definition snapshot for this run.', '')];
+    return {
+      run: { chore: r.chore, idText: r.id || 'run ' + r.at + (r.ill ? ' (illustrative)' : ''), icon: ICON[r.st], st: r.st === 'RUNNING' ? 'Running for ' + dur(this.now() - r.since) : r.st, reason: r.reason || (r.st === 'SUCCEEDED' ? 'Finished within budget.' : ''), hasBudget: !!r.full, facts },
+      runTabs: tabs, tabTranscript: S.runTab === 'Transcript' && r.full, tabPlain: (S.runTab !== 'Transcript' && S.runTab !== 'Compare') || (S.runTab === 'Transcript' && !r.full), tabCompare: S.runTab === 'Compare',
+      turns, tqInfo, plainLines: plain, plainNote, diff,
+      allTurnsLabel: Object.values(S.openTurns).filter(Boolean).length >= 18 ? 'Collapse all' : 'Expand all'
+    };
+  }
+
+  renderVals() {
+    const S = this.state, n = this.now(), items = this.attn();
+    const cnt = { sys: 0, alert: 0, warn: 0, info: 0 }; items.forEach(i => cnt[i.lv]++);
+    const need = cnt.sys + cnt.alert;
+    const unread = S.notifs.filter(x => !x.read).length;
+    const lastTick = S.sched === 'stale' ? T('09:12:04') : n - ((n - (T0 - 41)) % 60);
+    // glance
+    const word = S.snapfail ? '?' : S.sched === 'off' ? 'OFF' : S.sched === 'stale' ? 'STALE' : S.gpause ? 'PAUSED' : '';
+    const count = S.snapfail ? '' : cnt.sys ? '!!' + cnt.sys : cnt.alert ? '!' + cnt.alert : cnt.warn ? '~' + cnt.warn : cnt.info ? String(cnt.info) : '';
+    const glanceIcon = S.snapfail ? 'ph ph-question' : S.sched === 'off' ? 'ph ph-prohibit' : S.sched === 'stale' ? 'ph ph-clock-countdown' : S.gpause ? 'ph ph-pause' : need ? 'ph-fill ph-seal-warning' : 'ph ph-list-checks';
+    // nav
+    const navDef = [['needs', 'Needs you', 'ph ph-bell-ringing', need ? String(need) : cnt.warn ? String(cnt.warn) : '', need > 0], ['chores', 'All chores', 'ph ph-list-checks', String(S.ch.length), false], ['usage', 'Usage', 'ph ph-gauge', '', false], ['inbox', 'Inbox', 'ph ph-tray', unread ? String(unread) : '', unread > 0], ['system', 'System', 'ph ph-gear-six', S.sched !== 'ok' || S.warns.length ? '!' : '', S.sched !== 'ok' || S.warns.length > 0]];
+    const activeNav = S.view === 'run' ? S.back : S.view;
+    const nav = navDef.map(([k, l, ic, b, hot]) => ({ label: l, icon: ic, badge: b, click: () => this.setState({ view: k }), st: { display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 10px', borderRadius: 'var(--radius-sm)', cursor: 'pointer', background: activeNav === k ? 'var(--color-neutral-800)' : 'transparent', color: activeNav === k ? 'var(--color-text)' : 'var(--color-neutral-300)' }, badgeSt: { fontSize: '11px', fontVariantNumeric: 'tabular-nums', padding: b ? '0 6px' : 0, borderRadius: '8px', background: hot ? 'var(--color-accent-800)' : 'transparent', color: hot ? 'var(--color-accent-100)' : 'var(--color-neutral-500)' } }));
+    const backends = S.usage.filter(u => ['local', 'gateway', 'agent-cli'].includes(u.scope)).map(u => { const d = u.usd && u.usd[1] ? ['usd', u.usd] : u.turns && u.turns[1] ? ['turns', u.turns] : ['tokens', u.tok]; const p = this.pct(d[1]); return { name: u.scope, val: d[0] === 'usd' ? '$' + d[1][0].toFixed(2) + ' / $' + d[1][1].toFixed(2) : num(d[1][0]) + (d[1][1] ? ' / ' + num(d[1][1]) : ''), note: d[0] + (p == null ? ', no ceiling' : ', ' + Math.round(p * 100) + '% of ceiling'), fill: { position: 'absolute', left: 0, top: 0, bottom: 0, borderRadius: '2px', width: (p == null ? 100 : Math.min(100, p * 100)) + '%', background: p == null ? 'var(--color-neutral-700)' : p >= 0.8 ? 'var(--color-accent-400)' : 'var(--color-neutral-500)' } }; });
+    // banners
+    const banners = [];
+    if (S.snapfail) banners.push({ icon: 'ph-fill ph-warning', title: 'Status could not be read', text: 'state directory unreadable. Showing data from 14:05:12 (' + dur(182 + S.t) + ' ago). Retrying every 2s. Actions are held.', hasAct: false });
+    if (S.sched === 'off') banners.push({ icon: 'ph-fill ph-prohibit', title: 'The scheduler is not installed', text: 'Nothing fires on schedule until you install the 60-second tick.', hasAct: true, actLabel: 'Install', act: () => { this.setState({ sched: 'ok' }); this.toast('Installed. Waiting for the first tick (up to 60s).'); } });
+    if (S.sched === 'stale') banners.push({ icon: 'ph-fill ph-clock-countdown', title: 'The scheduler has stopped ticking', text: 'Last tick 09:12:04, ' + dur(n - T('09:12:04')) + ' ago. Nothing has fired since then.', hasAct: true, actLabel: 'Reinstall', act: () => { this.setState({ sched: 'ok' }); this.toast('Reinstalled. Waiting for the first tick.'); } });
+    if (S.gpause) banners.push({ icon: 'ph-fill ph-pause-circle', title: 'Everything is paused: "' + S.gpause.reason + '"', text: 'Since ' + S.gpause.since + '. Nothing starts, on schedule or by hand.', hasAct: true, actLabel: 'Resume all', act: () => this.setState({ sheet: { type: 'resumeAll' } }) });
+    // needs groups
+    const mkItem = it => ({ chore: it.chore, status: it.status, what: it.what, since: it.since, icon: it.icon, icSt: Object.assign({ fontSize: '20px', marginTop: '1px', flexShrink: 0, color: it.lv === 'alert' || it.lv === 'sys' ? 'var(--color-accent-400)' : it.lv === 'warn' ? 'var(--color-neutral-300)' : 'var(--color-neutral-500)' }, it.status === 'RUNNING LONG' ? { animation: 'spin 1.4s linear infinite', display: 'inline-block' } : {}), unread: !!it.notif && it.lv === 'alert',
+      st: { display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '11px 12px', borderRadius: 'var(--radius-md)', cursor: 'pointer', background: S.sel === it.chore ? 'var(--color-neutral-900)' : 'transparent', boxShadow: S.sel === it.chore ? 'inset 0 0 0 1px var(--color-neutral-800)' : 'none' },
+      click: () => { if (it.go === 'system') return this.setState({ view: 'system' }); if (it.go === 'usage' && !it.c) return this.setState({ view: 'usage' }); if (it.c) this.select(it.c.name); },
+      hasAct: !!it.act, actLabel: it.act, act: e => { e.stopPropagation(); if (it.act === 'Resume') this.resume(it.c); else if (it.act === 'Open run') this.openRun(it.run); else if (it.act === 'Kill...') this.kill(it.c); else if (it.act === 'Dismiss') this.dismiss(it.notif); } });
+    const groups = [['Stopped until you act', 'alerts', items.filter(i => i.lv === 'sys' || i.lv === 'alert')], ['Did not happen, or heading for a limit', 'these clear on their own', items.filter(i => i.lv === 'warn')], ['Messages', 'posted by chores', items.filter(i => i.lv === 'info')]].filter(g => g[2].length).map(([title, sub, l]) => ({ title, sub, items: l.map(mkItem) }));
+    const running = S.ch.filter(c => c.running);
+    // hours
+    const hours = [0, 3, 6, 9, 12, 15, 18, 21, 24].map(h => ({ label: p2(h % 24) + ':00', st: { position: 'absolute', left: (h / 24 * 100) + '%', transform: h === 0 ? 'none' : h === 24 ? 'translateX(-100%)' : 'translateX(-50%)', fontSize: '11px', color: 'var(--color-neutral-600)', fontVariantNumeric: 'tabular-nums' } }));
+    // chores table
+    const sg = S.seg, q = S.filter.trim().toLowerCase();
+    const rows = S.ch.filter(c => (!q || (c.name + ' ' + c.kind + ' ' + (c.backend || '')).includes(q)) && (sg === 'All' || (sg === 'Attention' && items.some(i => i.c && i.c.name === c.name && i.lv !== 'info')) || (sg === 'Running' && c.running) || (sg === 'Paused' && c.paused) || (sg === 'Disabled' && !c.enabled)))
+      .map(c => { const r = this.runBy(c.last), ok = this.runBy(c.ok); const g = c.running ? 'RUNNING' : c.paused ? 'FAILED' : c.invalid ? 'INVALID' : null; return { name: c.name, state: !c.enabled ? 'disabled in git' : c.invalid ? 'invalid' : c.paused ? (c.paused.by === 'breaker' ? 'paused by breaker' : 'paused by you') : c.running ? 'running ' + dur(n - c.running.since) : 'enabled', stateTitle: c.name, icon: !c.enabled ? 'ph ph-minus-circle' : c.paused ? 'ph-fill ph-pause-circle' : c.invalid ? ICON.INVALID : c.running ? ICON.RUNNING : 'ph ph-circle', icSt: !c.enabled ? { fontSize: '16px', color: 'var(--color-neutral-600)' } : g ? icSt(g, 16) : { fontSize: '16px', color: 'var(--color-neutral-700)' }, kind: c.kind + (c.backend ? ' / ' + c.backend : ''), last: r.st.replace(/_/g, ' ') + (r.count ? ' x' + r.count : ''), lastAt: r.at, lastIcon: ICON[r.st], lastIcSt: icSt(r.st, 14), ok: ok ? ok.at : '--', next: !c.enabled ? 'never' : c.invalid ? 'will not run' : c.paused || S.gpause ? 'held' : c.next, click: () => this.select(c.name), st: { cursor: 'pointer', opacity: c.enabled ? 1 : 0.55, background: S.sel === c.name ? 'var(--color-neutral-900)' : undefined } }; });
+    // usage
+    const scopes = S.usage.map(u => ({ name: u.scope, kind: u.kind, click: () => u.chore && this.select(u.scope), dims: [['Tokens', u.tok], ['USD', u.usd], ['Turns', u.turns]].filter(([k, v]) => v).map(([k, v]) => k === 'USD' ? Object.assign(this.dim(k, v), { val: '$' + v[0].toFixed(2) + (v[1] ? ' / $' + v[1].toFixed(2) + '  ' + Math.round(v[0] / v[1] * 100) + '%' : '') }) : this.dim(k, v)).concat(u.scope === 'agent-cli' ? [{ label: 'USD', val: 'subscription, not billed per call', hasBar: false, fill: {} }] : u.scope === 'local' ? [{ label: 'USD', val: 'unpriced', hasBar: false, fill: {} }] : []) }));
+    const trend = S.scn === 'zero' ? [] : TREND.map(t => { const sorted = t.days.slice().sort((a, b) => a - b), med = sorted[3], x = t.today / med, mx = Math.max(...t.days, t.today); const f = v => v < 10 ? '$' + v.toFixed(2) : num(v); return { label: t.label, x: x.toFixed(1) + 'x usual', xSt: { justifySelf: 'end', fontVariantNumeric: 'tabular-nums', color: x > 2 ? 'var(--color-accent-300)' : 'var(--color-neutral-500)', fontWeight: x > 2 ? 500 : 400 }, text: f(t.today) + ' today, median ' + f(med), bars: t.days.concat([t.today]).map((v, i) => ({ st: { width: '11px', height: Math.max(2, v / mx * 26) + 'px', borderRadius: '2px', background: i === 7 ? (x > 2 ? 'var(--color-accent-400)' : 'var(--color-neutral-300)') : 'var(--color-neutral-700)' } })), sortX: x }; }).sort((a, b) => b.sortX - a.sortX);
+    // inbox
+    const inbox = S.notifs.map(x => ({ text: x.text, meta: x.chore + '  -  ' + x.at + (x.byChore ? '  -  posted by the chore' : '') + '  -  ' + x.id, unread: !x.read, icon: x.level === 'alert' ? 'ph-fill ph-warning-circle' : 'ph ph-chat-text', icSt: { fontSize: '18px', color: x.level === 'alert' && !x.read ? 'var(--color-accent-400)' : 'var(--color-neutral-500)' }, dotSt: { width: '7px', height: '7px', borderRadius: '50%', flexShrink: 0, background: x.read ? 'transparent' : 'var(--color-accent-400)' }, textSt: { color: x.read ? 'var(--color-neutral-500)' : 'var(--color-text)', fontWeight: x.read ? 400 : 500 }, st: { display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', borderRadius: 'var(--radius-md)', cursor: 'pointer' }, click: () => x.run && this.runBy(x.run) ? this.openRun(x.run) : this.select(x.chore), dismiss: e => { e.stopPropagation(); this.dismiss(x); } }));
+    // system
+    const sysFacts = [{ k: 'Scheduler', v: S.sched === 'off' ? 'Not installed' : S.sched === 'stale' ? 'Installed, but STALE: last tick 09:12:04' : 'Installed, 60-second tick, last tick ' + hms(lastTick) }, { k: 'Ledger', v: S.warns.length ? '3,900 rows' : '4,210 rows' }, { k: 'State directory', v: S.snapfail ? 'Unreadable' : 'Size shown here (not in sample)' }, { k: 'Global pause', v: S.gpause ? '"' + S.gpause.reason + '" since ' + S.gpause.since : 'None' }, { k: 'Warnings', v: S.warns.length ? S.warns.join('; ') : 'None' }].map(f => Object.assign(f, { st: { color: /STALE|Not installed|Unreadable|shrank/.test(f.v) ? 'var(--color-accent-300)' : 'var(--color-text)' } }));
+    const sysActs = [['Validate definitions', 'Checks every definition and lists every violation.', 'Validate', () => { const bad = S.ch.filter(c => c.invalid); this.toast(bad.length ? bad.length + ' of ' + S.ch.length + ' invalid: ' + bad.map(c => c.name).join(', ') : 'All definitions are valid', bad.length ? 'ph ph-warning' : 'ph ph-check'); }], ['Install the tick', 'Puts the 60-second tick into launchd. Run it again to repair.', 'Install', () => { this.setState({ sched: 'ok' }); this.toast('Installed. Waiting for the first tick.'); }], ['Uninstall the tick', 'Nothing fires on schedule until you install again.', 'Uninstall...', () => this.setState({ sheet: { type: 'confirm', icon: 'ph ph-prohibit', title: 'Uninstall the tick?', note: 'Nothing will fire on schedule until you install it again.', yes: 'Uninstall', fn: () => this.setState({ sched: 'off' }) } })], ['Prune old runs', 'Deletes run directories older than the retention window. The ledger and notifications are kept.', 'Prune...', () => this.setState({ sheet: { type: 'confirm', icon: 'ph ph-trash', title: 'Prune run directories?', note: 'Artifacts of runs older than the retention window are deleted. The ledger and notifications are kept, so history still lists those runs.', yes: 'Prune', fn: () => this.toast('Pruned old run directories') } })]].map(([label, desc, btn, click]) => ({ label, desc, btn, click }));
+    // titles
+    const titles = { needs: ['Needs you', need ? need + ' need you, ' + cnt.warn + ' warnings, ' + cnt.info + ' message' + (cnt.info === 1 ? '' : 's') : 'All quiet'], chores: ['All chores', S.ch.length + ' chores, ' + running.length + ' running'], usage: ['Usage', 'rolling 24 hours'], inbox: ['Inbox', unread + ' unread'], system: ['System', 'scheduler and maintenance'], run: ['Run', ''] };
+    const [vt, vs] = titles[S.view];
+    const fresh = S.snapfail ? ['ph-fill ph-warning', 'Data from 14:05:12. Status unreadable', true] : S.sched === 'off' ? ['ph ph-prohibit', 'Scheduler not installed', true] : S.sched === 'stale' ? ['ph ph-clock-countdown', 'Last tick ' + dur(n - T('09:12:04')) + ' ago', true] : ['ph ph-check-circle', 'Updated ' + (S.t % 2) + 's ago  -  tick ' + (n - lastTick) + 's ago', false];
+    const sheet = this.sheetVals();
+    const dockItems = [{ kind: 'header', text: need ? need + ' need you' : 'All quiet' }, { kind: 'sep' }, { kind: 'item', text: 'Open chores', click: () => this.setState({ open: true, dockMenu: false }) }, { kind: 'item', text: 'Open in Terminal (TUI)', right: '', click: () => { window.location.href = 'Chores Prototype.dc.html'; } }, { kind: 'sep' }, S.gpause ? { kind: 'item', text: 'Resume All', click: () => this.setState({ gpause: null, dockMenu: false }) } : { kind: 'item', text: 'Pause All...', click: () => { this.setState({ open: true }); this.pauseAll(); } }, { kind: 'item', text: 'Validate Definitions', click: () => { this.setState({ dockMenu: false }); sysActs[0].click(); } }, { kind: 'sep' }, { kind: 'item', text: 'Quit', click: () => this.setState({ open: false, dockMenu: false }) }].map(d => ({ isSep: d.kind === 'sep', isHeader: d.kind === 'header', isItem: d.kind === 'item', text: d.text, right: d.right || '', click: e => { e && e.stopPropagation && e.stopPropagation(); d.click(); } }));
+    const sel = this.selVals();
+    const narrow = window.innerWidth < 1220, showInsp = !narrow || (S.inspOpen && !!sel);
+    return Object.assign({
+      narrow, closeInsp: () => this.setState({ inspOpen: false }),
+      winStyle: { position: 'relative', width: '100%', maxWidth: '1480px', height: 'max(720px, calc(100vh - 150px))', display: 'grid', gridTemplateColumns: narrow ? '188px minmax(0, 1fr)' : '216px minmax(0, 1fr) 330px', gridTemplateRows: '52px minmax(0, 1fr)', borderRadius: '12px', overflow: 'hidden', background: 'var(--color-bg)', boxShadow: 'var(--shadow-lg)' },
+      inspStyle: Object.assign({ overflow: 'auto', background: narrow ? 'var(--color-surface)' : 'color-mix(in srgb, var(--color-neutral-900) 35%, var(--color-bg))', boxShadow: narrow ? 'var(--shadow-lg)' : '-1px 0 0 var(--color-neutral-800)' }, narrow ? { position: 'absolute', top: '52px', right: 0, bottom: 0, width: '320px', zIndex: 8, display: showInsp ? 'block' : 'none' } : {}),
+      glanceIcon, glanceText: [word, count].filter(Boolean).join(' '), clock: 'Sat 26 Sep  ' + hms(n).slice(0, 5),
+      appOpen: S.open, appClosed: !S.open, closeApp: () => this.setState({ open: false }),
+      viewTitle: vt, viewSub: vs,
+      freshIcon: fresh[0], freshText: fresh[1], freshStyle: { display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '12px', fontSize: '12px', background: fresh[2] ? 'var(--color-accent-900)' : 'transparent', color: fresh[2] ? 'var(--color-accent-200)' : 'var(--color-neutral-500)', boxShadow: fresh[2] ? 'inset 0 0 0 1px var(--color-accent-800)' : 'none' },
+      pauseBtnCls: S.gpause ? 'btn btn-primary' : 'btn btn-secondary', pauseBtnIcon: S.gpause ? 'ph ph-play' : 'ph ph-pause', pauseBtnLabel: S.gpause ? 'Resume all' : 'Pause all', pauseBtn: () => this.pauseAll(),
+      nav, backends, banners,
+      isNeeds: S.view === 'needs', isChores: S.view === 'chores', isRun: S.view === 'run', isUsage: S.view === 'usage', isInbox: S.view === 'inbox', isSystem: S.view === 'system',
+      quiet: !items.length, quietLine: !S.ch.length ? 'No chores are defined yet. Add a definition in git; it appears here on the next tick.' : S.ch.length + ' chores  -  ' + running.length + ' running  -  next: log-brand-sweep 14:30',
+      groups, hasChores: S.ch.length > 0, hours, lanes: this.lanes(), nowSt: { position: 'absolute', left: ((n % DAY) / DAY * 100) + '%', top: 0, bottom: 0, width: '1px', background: 'var(--color-accent-300)' },
+      filter: S.filter, onFilter: e => this.setState({ filter: e.target.value }), segs: ['All', 'Attention', 'Running', 'Paused', 'Disabled'].map(l => ({ label: l, on: S.seg === l, click: () => this.setState({ seg: l }) })), choreRows: rows, choreCount: rows.length + ' of ' + S.ch.length,
+      back: () => this.setState({ view: S.back || 'needs' }), tq: S.tq, onTq: e => this.setState({ tq: e.target.value }), toggleAllTurns: () => { const all = Object.values(S.openTurns).filter(Boolean).length >= 18; const o = {}; for (let i = 1; i <= 18; i++) o[i] = !all; this.setState({ openTurns: o }); }, noop: e => e.preventDefault(),
+      scopes, trend, inbox, markAll: () => this.setState(s => ({ notifs: s.notifs.map(x => Object.assign({}, x, { read: true })) })),
+      sysFacts, sysActs,
+      hasSel: !!sel, noSel: !sel, sel: sel || { tags: [], actions: [], facts: [], pins: [], dims: [], runs: [], viol: [] },
+      hasSheet: !!sheet, sheet: sheet || { rows: [], btns: [] }, closeSheet: () => this.setState({ sheet: null }), stop: e => e.stopPropagation(), reason: S.reason, onReason: e => this.setState({ reason: e.target.value }), killToo: S.killToo, onKillToo: e => this.setState({ killToo: e.target.checked }),
+      hasToast: !!S.toast, toast: S.toast, toastIcon: S.toastIcon || 'ph ph-check',
+      dockMenu: S.dockMenu, dockItems, dockClick: e => { e.stopPropagation(); this.setState({ open: true, dockMenu: false }); if (S.open) this.toast('chores is already open'); }, dockRight: e => { e.preventDefault(); e.stopPropagation(); this.setState({ dockMenu: !S.dockMenu }); }, dockDot: { width: '4px', height: '4px', borderRadius: '50%', background: S.open ? 'var(--color-neutral-400)' : 'transparent' },
+      closePopups: () => S.dockMenu && this.setState({ dockMenu: false })
+    }, S.view === 'run' ? this.runVals() : { run: {}, runTabs: [], turns: [], plainLines: [], diff: [] });
+  }
+}
+</script>
+</body>
+</html>

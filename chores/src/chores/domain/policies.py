@@ -10,10 +10,10 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 
-from chores.domain.budget import Ceiling, Usage
+from chores.domain.budget import Budget, Ceiling, Usage
 from chores.domain.chore import BackendSpec, Chore
 from chores.domain.kinds import Kind
-from chores.domain.run import Billing, RunStatus
+from chores.domain.run import Billing, RunRecord, RunStatus
 
 
 class Decision(Enum):
@@ -35,12 +35,94 @@ class LedgerUsage:
     backend: str | None
     billing: Billing | None
     usage: Usage
+    unbounded: frozenset[str] = frozenset()
+    """Dimensions an in-flight run can spend in but set no bound on (a run
+    admitted before a ceiling capped that dimension): its spend there is
+    unknown, not zero."""
 
 
 @dataclass(frozen=True, slots=True)
 class CeilingVerdict:
     decision: Decision
     reason: str | None = None
+
+
+def _spendable(kind: Kind, billing: Billing | None) -> frozenset[str]:
+    """The dimensions a ceiling-bound run can spend in: tokens always, USD
+    unless its backend is free, turns only for an agent run."""
+    out = {"tokens"}
+    if billing is not Billing.NONE:
+        out.add("usd")
+    if kind is Kind.AGENT:
+        out.add("turns")
+    return frozenset(out)
+
+
+def reservation(
+    chore: str,
+    budget: Budget,
+    *,
+    backend: str | None,
+    billing: Billing | None,
+    kind: Kind,
+) -> LedgerUsage:
+    """An admitted run's declared budget as a ledger row: what it holds
+    against the ceilings until its real row lands (issue #283). A dimension
+    the run can spend in but whose budget sets no bound is ``unbounded``:
+    tokens for every ceiling-bound run, USD unless its backend is free,
+    turns for an agent run."""
+    return LedgerUsage(
+        chore=chore,
+        backend=backend,
+        billing=billing,
+        unbounded=_spendable(kind, billing) - budget.declared_dimensions(),
+        usage=Usage(
+            tokens_in=budget.tokens or 0,
+            tokens_out=0,
+            seconds=0.0,
+            usd=None if billing is Billing.NONE else budget.usd,
+            turns=budget.turns,
+        ),
+    )
+
+
+def held(record: RunRecord, *, ledgered: bool) -> LedgerUsage | None:
+    """What one record holds against the ceilings beyond the ledger rows.
+
+    A PENDING or RUNNING run holds its declared budget (issue #283). A
+    finished run whose ledger row has not landed holds its recorded usage:
+    the terminal write and the row are two writes, and an admission (or a
+    crash) can fall between them. A command run holds nothing -- commands
+    are exempt from ceilings -- and so does everything else.
+    """
+    if record.kind is Kind.COMMAND:
+        return None
+    if not record.status.is_terminal:
+        if record.budget is None:
+            # Written before records carried a budget (the upgrade window):
+            # its spend is unknown in every dimension it can spend in.
+            return LedgerUsage(
+                chore=record.chore,
+                backend=record.backend,
+                billing=record.billing,
+                usage=Usage(tokens_in=0, tokens_out=0, seconds=0.0),
+                unbounded=_spendable(record.kind, record.billing),
+            )
+        return reservation(
+            record.chore,
+            record.budget,
+            backend=record.backend,
+            billing=record.billing,
+            kind=record.kind,
+        )
+    if ledgered or record.usage is None:
+        return None
+    return LedgerUsage(
+        chore=record.chore,
+        backend=record.backend,
+        billing=record.billing,
+        usage=record.usage,
+    )
 
 
 def _spent(
@@ -87,12 +169,36 @@ def ceiling_policy(
             (
                 "backend",
                 backend.ceiling,
-                [r for r in rows if r.backend == backend.name],
+                # a held run on an unknown backend could be on this one
+                [
+                    r
+                    for r in rows
+                    if r.backend == backend.name or (r.backend is None and r.unbounded)
+                ],
             ),
         )
     for scope, ceiling, scoped in scopes:
         for dimension in sorted(ceiling.dimensions()):
             cap = float(getattr(ceiling, dimension))
+            blind = next(
+                (
+                    r
+                    for r in scoped
+                    if dimension in r.unbounded
+                    and not (
+                        dimension == "usd"
+                        and r.billing is Billing.SUBSCRIPTION
+                        and not count_subscription_usd
+                    )
+                ),
+                None,
+            )
+            if blind is not None:
+                return CeilingVerdict(
+                    Decision.REFUSE,
+                    f"{scope} {dimension} ceiling {cap:g}: {blind.chore} is in "
+                    f"flight with no {dimension} bound",
+                )
             spent = _spent(
                 scoped,
                 dimension=dimension,

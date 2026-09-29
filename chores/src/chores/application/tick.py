@@ -13,11 +13,13 @@ from chores.application.context import (
     Artifacts,
     Context,
     Host,
+    Launched,
     admit,
     apply_breaker,
     binding_errors,
     ensure_ledgered,
     invalid_record_name,
+    launch_reservation,
     load_context,
     mint_run_id,
     post,
@@ -265,7 +267,10 @@ def _consider(
     report: TickReport,
     *,
     previous_tick: TickMark | None,
+    launched: dict[str, Launched],
 ) -> None:
+    """``launched`` holds the reservations of the runs this pass has already
+    launched; an admission here adds to it."""
     if not chore.enabled:
         return
     errors = binding_errors(ctx, chore, forbidden=deps.paths.forbidden_for_cwd())
@@ -312,10 +317,13 @@ def _consider(
         due_now = verdict.fire is not None
     if not due_now:
         return
-    admission, _spec = admit(ctx, chore, host)
+    admission, spec = admit(ctx, chore, host, launched=launched)
     if admission.decision is Decision.ADMIT:
+        held = launch_reservation(deps.store, chore, spec)  # before the child writes
         report.fired.append(chore.name)
         deps.launch(chore.name)
+        if held is not None:
+            launched[chore.name] = held
         return
     if admission.record_status is None:
         return
@@ -368,9 +376,18 @@ def tick(deps: TickDeps) -> TickReport:
                 reason=invalid.error,
             )
         _interrupt_dead_runs(deps, ctx, report)
+        launched: dict[str, Launched] = {}
         for chore in ctx.definitions.chores:
             try:
-                _consider(deps, ctx, host, chore, report, previous_tick=previous_tick)
+                _consider(
+                    deps,
+                    ctx,
+                    host,
+                    chore,
+                    report,
+                    previous_tick=previous_tick,
+                    launched=launched,
+                )
             except DomainError as e:  # a rule violated: the definition is wrong
                 _record_invalid(
                     deps, ctx, report, name=chore.name, kind=chore.kind, reason=str(e)

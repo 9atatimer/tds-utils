@@ -13,15 +13,19 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 The chores build (`docs/design/CHORES.DESIGN.md`, APPROVED) is implemented
 through task-013; the retrospective ran 2026-09-14/17 and cut drift as
-tasks 015-019 (issues #283-#287). Order:
+tasks 015-019 (issues #283-#287); the 2026-09-18 adversarial review's
+bugs are tasks 033-035 (issues #296-#298). Order:
 
-- task-015 -- ceilings vs N admissions in one tick; the only drift that
-  can spend money.
+- task-035 -- tick closes a finished run; loses usage (ceilings undercount)
+  and books false breaker failures. Needs a design call first.
+- task-033 -- KILLED resets the breaker streak; a hanging chore never
+  pauses.
 - task-016 -- due-detection edge cases; the degrading stories depend on it.
 - task-018 -- Todd's decisions on the built-but-not-designed rows; unblocks
   the design's status transition.
 - task-017 -- status drift (size, remaining, shrink warning, perf goal).
 - task-019 -- notification ids and the store contract gap.
+- task-034 -- cap backend error text before it reaches the ledger.
 - task-014 -- as-built at release, then APPROVED -> IMPLEMENTED (Todd).
 
 tmux-herd (`docs/design/TMUX-HERD.DESIGN.md`, DRAFT, merged in PR #305):
@@ -53,7 +57,8 @@ this section; issue #289 owns the migration into `tasks/`.
   Click (issue #288) -- human-maintained file; the code already depends on
   them. Unblock: Todd lands the rows or refuses a ring.
 - 2026-09-17: the design's APPROVED -> IMPLEMENTED transition waits on
-  release (`bin/tds-release`) plus tasks 015-019; only Todd moves it.
+  release (`bin/tds-release`) plus tasks 015-019 and 033-035; only Todd
+  moves it.
 - 2026-09-19: `TMUX-HERD.DESIGN.md` DRAFT -> APPROVED is Todd's call; the
   implementer (a different, cheaper model) must not start task-020 before
   it.
@@ -65,22 +70,6 @@ this section; issue #289 owns the migration into `tasks/`.
   host manifest, Ollama, launchd); no cloud session can run it.
 
 ## Lessons Learned (unsettled)
-
-### A skill read by grep is a skill not loaded
-
-about: global
-
-The tmux-herd design went to PR without the reviewer panel the design
-skill mandates ("Run the panel before you ask a human", designomatic).
-The skill was grepped for section names, and the mandate sat between the
-matches. Copilot then took three rounds and 12 findings to do what one
-panel run would have done before the human saw it. Mechanism: grepping a
-skill returns the lines that match the question you already had, never
-the rule you did not know to ask about. Belongs in the global agent
-instructions (org-managed, not editable from this repo): load a skill's
-full body at the phase boundary, grep only to re-find a rule you have
-already read.
-
 
 ### Fake-driven CLI tests never exercised the composition root
 

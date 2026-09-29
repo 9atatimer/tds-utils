@@ -130,6 +130,13 @@ class RunStorePort(Protocol):
         cannot both see "nothing live" and both start."""
         ...
 
+    def admission_lock(self) -> AbstractContextManager[None]:
+        """Blocking store-wide lock around a ceiling-bound admission: the
+        ceiling check and the PENDING write (which reserves the declared
+        budget) happen under it, so two different chores cannot both read
+        the same headroom before either reserves it (issue #283)."""
+        ...
+
     def artifacts(self, run_id: str) -> Iterator[Artifact]: ...
 
     def delete_run(self, run_id: str) -> bool:

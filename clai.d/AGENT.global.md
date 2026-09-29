@@ -207,6 +207,16 @@ instructions.
 Read the repo's `CLAUDE.md` / `AGENT.md` before working in it. Repo
 instructions load alongside these global ones and win on specificity.
 
+## Load a skill by reading it whole, never by grepping it
+
+At a phase boundary, read the skill's full body. Grep a skill only to
+re-find a rule you have already read. A grep returns the lines that match
+the question you already had, never the rule you did not know to ask
+about: the tmux-herd design reached review without the designomatic panel
+the design skill mandates, because the mandate sat between the grepped
+section names, and Copilot then spent three rounds and 12 findings doing
+the panel's job.
+
 ## Don't reach for the auto-memory system
 
 The project-scoped auto-memory at `~/.claude/projects/<encoded>/memory/` is
@@ -361,14 +371,23 @@ When 1Password is locked, `ssh-add -l` still *lists* keys but *signing* fails
   tracking refs go stale until an SSH fetch succeeds, so `git status` may show a
   bogus "ahead N" -- verify against GitHub before assuming unpushed work.)
 
-## Always disambiguate PRs and issues by full URL
+## Always disambiguate PRs and issues with a linked, repo-qualified reference
 
 The human works in multiple terminal windows on multiple repos at once, so a
-bare `#34` or "the PR" is ambiguous. When reporting on a GitHub PR, issue, or
-check run, include the **full URL** (e.g.
-`https://github.com/<owner>/<repo>/pull/<n>`) in the first line of the update.
-The repo's `gh` config or the branch's upstream remote tells you the
-owner/repo; never guess from memory.
+bare `#34`, a bare `PR#34`, or "the PR" is ambiguous. **Every** mention of a
+GitHub PR or issue in chat is a link whose text names owner, repo, kind, and
+number:
+
+```
+[<owner>/<repo> PR#34](https://github.com/<owner>/<repo>/pull/34)
+[<owner>/<repo> Issue#35](https://github.com/<owner>/<repo>/issues/35)
+```
+
+Not a naked URL, and not only in the first line. A check run gets the same
+treatment: its URL behind text that names the repo. The github-workflow
+skill's "Naming issues and PRs" section is canonical (commit-message and
+`Closes #N` forms included). The repo's `gh` config or the branch's upstream
+remote tells you the owner/repo; never guess from memory.
 
 ## Prefer ast-mcp for Markdown/HTML when its tools are connected
 

@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from chores.adapters.fs_store import FsRunStore
-from chores.domain.budget import Usage
+from chores.domain.budget import Budget, Usage
 from chores.domain.kinds import Kind
 from chores.domain.run import Billing, RunRecord, RunStatus, to_ledger_row
 from chores.ports.store import RunStorePort, TickMark
@@ -55,6 +55,35 @@ def test_record_round_trips_through_every_status(store: RunStorePort) -> None:
     store.write_record(done)
     assert store.read_record("c-1") == done
     assert store.read_record("missing") is None
+
+
+def test_the_admitted_budget_round_trips_on_an_unfinished_record(
+    store: RunStorePort,
+) -> None:
+    """The ceilings read an in-flight run's reservation back off its record
+    (issue #283), so the budget, backend and billing written at PENDING must
+    survive the store."""
+    r = RunRecord.pending(
+        run_id="c-1",
+        chore="c",
+        kind=Kind.AGENT,
+        definition_rev="abc",
+        started=T0,
+        budget=Budget(seconds=60, tokens=1000, usd=0.25, turns=4),
+        backend="b",
+        billing=Billing.SUBSCRIPTION,
+    )
+    store.write_record(r)
+    assert store.read_record("c-1") == r
+
+
+def test_admission_lock_can_be_taken_again_once_released(store: RunStorePort) -> None:
+    """A released admission lock can be taken again (it is blocking, so a
+    held one is never probed here)."""
+    with store.admission_lock():
+        pass
+    with store.admission_lock():
+        pass
 
 
 def test_records_filter_by_chore_and_since_newest_first(store: RunStorePort) -> None:
