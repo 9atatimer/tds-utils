@@ -190,6 +190,7 @@ def declared_reservation(chore: Chore, spec: BackendSpec | None) -> LedgerUsage 
         chore.budget,
         backend=spec.name if spec else None,
         billing=spec.billing if spec else None,
+        kind=chore.kind,
     )
 
 

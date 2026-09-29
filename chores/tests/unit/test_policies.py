@@ -435,3 +435,67 @@ def test_a_command_run_holds_nothing() -> None:
         budget=Budget(seconds=60, usd=0.9),
     )
     assert held(pending, ledgered=False) is None
+
+
+def _unbounded(kind: Kind, billing: Billing | None, **budget: float) -> LedgerUsage:
+    from chores.domain.policies import reservation
+
+    return reservation(
+        "d",
+        Budget(seconds=60, **budget),  # type: ignore[arg-type]
+        backend="gw",
+        billing=billing,
+        kind=kind,
+    )
+
+
+def test_an_in_flight_run_with_no_bound_in_a_capped_dimension_blocks() -> None:
+    """Given a run admitted before a USD ceiling existed, so its budget sets
+    no USD bound, When another chore is admitted under that ceiling, Then it
+    is refused: the in-flight run's USD spend is unknown, not zero."""
+    verdict = ceiling_policy(
+        [_unbounded(Kind.PROMPT, Billing.METERED, tokens=100)],
+        chore=chore(usd=0.1, tokens=10),
+        backend=BACKEND,
+        global_ceiling=Ceiling(),
+        count_subscription_usd=False,
+    )
+    assert verdict.decision is Decision.REFUSE
+    assert "no usd bound" in (verdict.reason or "")
+
+
+def test_an_unbounded_dimension_that_cannot_be_spent_does_not_block() -> None:
+    """The accept side: a prompt run has no turns, and a subscription run's
+    USD does not count when subscription USD is not counted, so neither
+    blocks admission when it leaves that dimension unbounded."""
+    turns_capped = BackendSpec(
+        name="gw",
+        port=ExecutionPort.COMPLETION,
+        default_model="m",
+        requires_network=True,
+        priced=True,
+        ceiling=Ceiling(turns=10),
+        read_only_tools=frozenset(),
+    )
+    prompt = _unbounded(Kind.PROMPT, Billing.METERED, tokens=100, usd=0.1)
+    assert (
+        ceiling_policy(
+            [prompt],
+            chore=chore(usd=0.1, tokens=10),
+            backend=turns_capped,
+            global_ceiling=Ceiling(),
+            count_subscription_usd=False,
+        ).decision
+        is Decision.ADMIT
+    )
+    subscription = _unbounded(Kind.AGENT, Billing.SUBSCRIPTION, tokens=100, turns=3)
+    assert (
+        ceiling_policy(
+            [subscription],
+            chore=chore(usd=0.1, tokens=10),
+            backend=BACKEND,
+            global_ceiling=Ceiling(),
+            count_subscription_usd=False,
+        ).decision
+        is Decision.ADMIT
+    )

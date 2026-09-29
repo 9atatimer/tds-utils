@@ -35,6 +35,10 @@ class LedgerUsage:
     backend: str | None
     billing: Billing | None
     usage: Usage
+    unbounded: frozenset[str] = frozenset()
+    """Dimensions an in-flight run can spend in but set no bound on (a run
+    admitted before a ceiling capped that dimension): its spend there is
+    unknown, not zero."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,14 +48,25 @@ class CeilingVerdict:
 
 
 def reservation(
-    chore: str, budget: Budget, *, backend: str | None, billing: Billing | None
+    chore: str,
+    budget: Budget,
+    *,
+    backend: str | None,
+    billing: Billing | None,
+    kind: Kind,
 ) -> LedgerUsage:
     """An admitted run's declared budget as a ledger row: what it holds
-    against the ceilings until its real row lands (issue #283)."""
+    against the ceilings until its real row lands (issue #283). A dimension
+    the run can spend in but whose budget sets no bound is ``unbounded``:
+    tokens and USD for every ceiling-bound run, turns for an agent run."""
+    spendable = {"tokens", "usd"} | ({"turns"} if kind is Kind.AGENT else set())
     return LedgerUsage(
         chore=chore,
         backend=backend,
         billing=billing,
+        unbounded=frozenset(
+            d for d in spendable if d not in budget.declared_dimensions()
+        ),
         usage=Usage(
             tokens_in=budget.tokens or 0,
             tokens_out=0,
@@ -81,6 +96,7 @@ def held(record: RunRecord, *, ledgered: bool) -> LedgerUsage | None:
             record.budget,
             backend=record.backend,
             billing=record.billing,
+            kind=record.kind,
         )
     if ledgered or record.usage is None:
         return None
@@ -142,6 +158,25 @@ def ceiling_policy(
     for scope, ceiling, scoped in scopes:
         for dimension in sorted(ceiling.dimensions()):
             cap = float(getattr(ceiling, dimension))
+            blind = next(
+                (
+                    r
+                    for r in scoped
+                    if dimension in r.unbounded
+                    and not (
+                        dimension == "usd"
+                        and r.billing is Billing.SUBSCRIPTION
+                        and not count_subscription_usd
+                    )
+                ),
+                None,
+            )
+            if blind is not None:
+                return CeilingVerdict(
+                    Decision.REFUSE,
+                    f"{scope} {dimension} ceiling {cap:g}: {blind.chore} is in "
+                    f"flight with no {dimension} bound",
+                )
             spent = _spent(
                 scoped,
                 dimension=dimension,
