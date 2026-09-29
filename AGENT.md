@@ -509,6 +509,11 @@ This repo lands PRs through the tedium merge bot; the rules are in
   a human owner's approval before tedium lands a change to them.
 - **`tedium/merge` and `tedium/try` are the bot's build branches**: never
   protect them, never commit to them, never base work on them.
+- **Closing keywords do not fire when tedium lands.** `Closes #N` in the
+  PR body links the issue (`closed_by_pull_requests` lists the merged PR),
+  but the issue stays open: observed on PRs #356 and #357, 2026-09-29.
+  After tedium merges, close the issue by hand with a comment naming the
+  PR.
 - Merging to `master` deploys nothing here -- `bin/tds-release` is the
   human step -- which is why this repo is first in the go-live rollout.
 

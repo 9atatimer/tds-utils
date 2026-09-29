@@ -16,14 +16,12 @@ through task-013; the retrospective ran 2026-09-14/17 and cut drift as
 tasks 015-019 (issues #283-#287); the 2026-09-18 adversarial review's
 bugs are tasks 033-035 (issues #296-#298). Order:
 
-- task-033 -- KILLED resets the breaker streak; a hanging chore never
-  pauses.
 - task-016 -- due-detection edge cases; the degrading stories depend on it.
-- task-018 -- Todd's decisions on the built-but-not-designed rows; unblocks
-  the design's status transition.
+- task-018 -- Todd's decisions on the built-but-not-designed rows (issue
+  #286, now including the seven from PRs #356/#357); unblocks the design's
+  status transition.
 - task-017 -- status drift (size, remaining, shrink warning, perf goal).
 - task-019 -- notification ids and the store contract gap.
-- task-034 -- cap backend error text before it reaches the ledger.
 - task-014 -- as-built at release, then APPROVED -> IMPLEMENTED (Todd).
 
 tmux-herd (`docs/design/TMUX-HERD.DESIGN.md`, DRAFT, merged in PR #305):
@@ -75,6 +73,33 @@ this section; issue #289 owns the migration into `tasks/`.
   host manifest, Ollama, launchd); no cloud session can run it.
 
 ## Lessons Learned (unsettled)
+
+### A retrospective cut tasks for bugs its own PR had already fixed
+
+about: skill:todo-plan
+
+Tasks 033 and 034 (issues #296, #297) were cut on 2026-09-28 from open
+issues and sat in Now for a day. Both bugs had been fixed and tested inside
+PR #290, the PR whose adversarial review filed them, but the fix commits
+named no closing keyword, so the issues stayed open and read as live work.
+Mechanism: an open issue says nothing was closed, not that nothing was
+fixed. Before cutting a task from an open issue, grep master for the issue
+number. The todo-plan skill lives in template-tools, which this session
+could not reach; this stays here until it is routed there.
+
+### An accounting invariant across concurrent writers needs its state table first
+
+about: wip
+
+Task-015's first cut counted PENDING/RUNNING budgets. Codex review then
+found eleven gaps, one or two per round: the terminal-write-to-row gap, a
+fast child counted twice, command exemption, legacy budgetless records,
+unbounded dimensions, free backends, then task-035's tick/runner
+interleavings. Each fix was local, and each exposed the next cell of a
+table nobody had drawn: record status x ledgered x in-window x kind x
+billing x budget declared, crossed with every writer and the order of its
+writes. Unsettled: whether that table belongs in the coding skill as a
+pre-code gate for concurrent accounting, or is chores-specific.
 
 ### Fake-driven CLI tests never exercised the composition root
 
