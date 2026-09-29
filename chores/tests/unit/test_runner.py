@@ -561,16 +561,23 @@ def test_runner_that_loses_the_start_race_stops_and_writes_nothing(
     )
 
 
-def test_runner_that_loses_the_finish_race_keeps_the_ticks_record(
+def test_runner_that_loses_the_finish_race_still_records_its_outcome(
     tmp_path: Path,
 ) -> None:
+    """Given a store double that lets the tick's INTERRUPTED land before the
+    runner's own finish, Then the runner wins (issue #298): the record and
+    the ledger carry the true SUCCEEDED, and errors.log says why."""
     h = FullHarness(tmp_path, chores={"tidy": COMMAND})
     h.store = TickWinsTheFinish()  # type: ignore[assignment]
     outcome = run_chore("tidy", h.deps().as_run_deps())
     assert outcome.record is not None
-    assert outcome.record.status is RunStatus.INTERRUPTED
-    assert h.store.ledger_rows() == []
-    assert "not recorded" in h.store.read_artifact(outcome.record.run_id, "errors.log")
+    assert outcome.record.status is RunStatus.SUCCEEDED
+    stored = h.store.read_record(outcome.record.run_id)
+    assert stored is not None and stored.status is RunStatus.SUCCEEDED
+    assert [r["status"] for r in h.store.ledger_rows()] == ["SUCCEEDED"]
+    assert "recorded over the tick's INTERRUPTED" in h.store.read_artifact(
+        outcome.record.run_id, "errors.log"
+    )
     assert h.notifier.alerts == []
 
 
@@ -939,3 +946,90 @@ def test_a_manual_run_admitted_beside_the_tick_keeps_the_ceiling(
     child = run_chore("a", h.deps().as_run_deps()).record  # the tick's child
     assert child and child.status is RunStatus.SKIPPED_CEILING
     assert "backend usd" in (child.reason or "")
+
+
+def test_the_runner_wins_a_finish_race_the_tick_took_first(tmp_path: Path) -> None:
+    """Given a run mid-call whose recorded pid reads as dead, so a tick closes
+    it as INTERRUPTED (a zero-usage row, and with failure_threshold 1 a
+    breaker pause), When the runner then finishes SUCCEEDED, Then the runner
+    wins (issue #298): the record carries its true status and usage, the
+    ledger carries a row with the real spend, and the breaker pause the false
+    INTERRUPTED caused is lifted."""
+    ticked: list[bool] = []
+
+    class TickMidCall(FakeCompletion):
+        def complete(self, request: CompletionRequest) -> CompletionResponse:
+            if not ticked:
+                ticked.append(True)
+                tick(h.deps().as_tick_deps())  # pid 100 is not alive: it closes us
+                assert h.store.chore_paused("brand") is not None  # the false trip
+            return super().complete(request)
+
+    h = FullHarness(
+        tmp_path,
+        chores={"brand": PROMPT},
+        config="failure_threshold: 1\n",
+        completion=TickMidCall(),
+    )
+    r = run_chore("brand", h.deps().as_run_deps()).record
+    assert ticked
+    assert r and r.status is RunStatus.SUCCEEDED
+    assert r.usage is not None and r.usage.usd == 0.001
+    stored = h.store.read_record(r.run_id)
+    assert stored is not None and stored.status is RunStatus.SUCCEEDED
+    rows = [row for row in h.store.ledger_rows() if row["run_id"] == r.run_id]
+    assert [row["status"] for row in rows] == ["INTERRUPTED", "SUCCEEDED"]
+    assert rows[-1]["usd"] == 0.001
+    assert h.store.chore_paused("brand") is None
+
+
+def _race_the_tick(
+    tmp_path: Path, *, error: BackendError | None = None
+) -> tuple[FullHarness, RunRecord | None]:
+    """Run brand with failure_threshold 1 while a tick, mid-call, closes it
+    as INTERRUPTED (pid 100 reads as dead)."""
+
+    class TickMidCall(FakeCompletion):
+        def complete(self, request: CompletionRequest) -> CompletionResponse:
+            tick(h.deps().as_tick_deps())
+            return super().complete(request)
+
+    h = FullHarness(
+        tmp_path,
+        chores={"brand": PROMPT},
+        config="failure_threshold: 1\n",
+        completion=TickMidCall(error=error),
+    )
+    return h, run_chore("brand", h.deps().as_run_deps()).record
+
+
+def test_winning_the_race_never_lifts_an_operators_pause(tmp_path: Path) -> None:
+    """Given an operator paused brand while it ran, When the runner wins the
+    finish race, Then the operator's pause stands: only the breaker's own
+    pause is lifted."""
+
+    class PauseThenTick(FakeCompletion):
+        def complete(self, request: CompletionRequest) -> CompletionResponse:
+            g.store.pause_chore("brand", "maintenance")
+            tick(g.deps().as_tick_deps())
+            return super().complete(request)
+
+    g = FullHarness(
+        tmp_path,
+        chores={"brand": PROMPT},
+        config="failure_threshold: 1\n",
+        completion=PauseThenTick(),
+    )
+    r = run_chore("brand", g.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.SUCCEEDED
+    assert g.store.chore_paused("brand") == "maintenance"
+
+
+def test_a_run_that_really_failed_keeps_the_breaker_pause(tmp_path: Path) -> None:
+    """Given the runner wins the race with a real FAILED, Then the breaker
+    pause stands: the amended history still trips it, and no "resumed"
+    notice is posted for a pause that never lifted."""
+    h, r = _race_the_tick(tmp_path, error=BackendError("boom"))
+    assert r and r.status is RunStatus.FAILED
+    assert h.store.chore_paused("brand") is not None
+    assert not any("resumed" in n.text for n in h.store.notifications())

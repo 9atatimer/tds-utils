@@ -19,6 +19,7 @@ from chores.domain.policies import (
     Decision,
     LedgerUsage,
     admission_policy,
+    breaker_reason,
     ceiling_policy,
     circuit_breaker,
     held,
@@ -406,6 +407,40 @@ def apply_breaker(
             ),
             chore=chore.name,
         )
+
+
+def lift_false_breaker(
+    store: RunStorePort,
+    notifier: NotifierPort,
+    chore: Chore,
+    *,
+    threshold: int,
+    at: datetime,
+) -> None:
+    """Resume a chore the breaker paused when its history, as it now stands,
+    no longer trips it: a run the tick closed as INTERRUPTED turned out to
+    have finished (issue #298). An operator's pause is never lifted."""
+    if store.chore_paused(chore.name) != breaker_reason(threshold):
+        return
+    recent = [
+        r.status
+        for r in reversed(store.records(chore=chore.name))
+        if r.status.is_run_terminal
+    ]
+    if circuit_breaker(recent, threshold=threshold).decision is Decision.PAUSE:
+        return
+    store.resume_chore(chore.name)
+    post(
+        store,
+        notifier,
+        at=at,
+        level="info",
+        text=(
+            f"{chore.name} resumed: the INTERRUPTED that tripped the breaker "
+            "was a run that finished"
+        ),
+        chore=chore.name,
+    )
 
 
 def mint_run_id(chore: str, clock: ClockPort, suffix: Callable[[], str]) -> str:

@@ -19,6 +19,7 @@ from chores.application.context import (
     binding_errors,
     find_chore,
     invalid_record_name,
+    lift_false_breaker,
     load_context,
     mint_run_id,
     post,
@@ -461,16 +462,33 @@ def _finish(
         record.run_id, expected=RunStatus.RUNNING, then=lambda _current: final
     )
     if done is None:
-        # The tick already recorded INTERRUPTED (its process check lost to our
-        # exit); that terminal record and its ledger row stand.
+        current = deps.store.read_record(record.run_id)
+        if current is None or current.status is not RunStatus.INTERRUPTED:
+            return current if current is not None else record
+        # The tick closed this run on liveness alone: the child had exited and
+        # the runner was still finishing. The runner holds the true outcome, so
+        # it wins (issue #298). The real row goes first, so the spend is never
+        # uncounted; it supersedes the tick's zero-usage INTERRUPTED row.
+        deps.store.append_ledger(to_ledger_row(record))
+        deps.store.transition(
+            record.run_id,
+            expected=RunStatus.INTERRUPTED,
+            then=lambda _current: final,
+        )
         artifacts.append(
             "errors.log",
-            f"outcome {status.value} not recorded: the tick had already closed "
-            "this run as INTERRUPTED\n",
+            f"outcome {status.value} recorded over the tick's INTERRUPTED: the "
+            "child exited before the runner finished\n",
         )
-        current = deps.store.read_record(record.run_id)
-        return current if current is not None else record
-    deps.store.append_ledger(to_ledger_row(record))
+        lift_false_breaker(
+            deps.store,
+            deps.notifier,
+            chore,
+            threshold=ctx.definitions.config.failure_threshold,
+            at=ended,
+        )
+    else:
+        deps.store.append_ledger(to_ledger_row(record))
     if status in chore.notify_on:
         level = "alert" if status is RunStatus.BUDGET_EXCEEDED else "info"
         post(
