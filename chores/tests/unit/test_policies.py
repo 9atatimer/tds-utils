@@ -465,9 +465,10 @@ def test_an_in_flight_run_with_no_bound_in_a_capped_dimension_blocks() -> None:
 
 
 def test_an_unbounded_dimension_that_cannot_be_spent_does_not_block() -> None:
-    """The accept side: a prompt run has no turns, and a subscription run's
-    USD does not count when subscription USD is not counted, so neither
-    blocks admission when it leaves that dimension unbounded."""
+    """The accept side: a prompt run has no turns, a free backend's run has
+    no USD, and a subscription run's USD does not count when subscription
+    USD is not counted, so none blocks admission when it leaves that
+    dimension unbounded."""
     turns_capped = BackendSpec(
         name="gw",
         port=ExecutionPort.COMPLETION,
@@ -492,6 +493,17 @@ def test_an_unbounded_dimension_that_cannot_be_spent_does_not_block() -> None:
     assert (
         ceiling_policy(
             [subscription],
+            chore=chore(usd=0.1, tokens=10),
+            backend=BACKEND,
+            global_ceiling=Ceiling(),
+            count_subscription_usd=False,
+        ).decision
+        is Decision.ADMIT
+    )
+    free = _unbounded(Kind.PROMPT, Billing.NONE, tokens=100)
+    assert (
+        ceiling_policy(
+            [free],
             chore=chore(usd=0.1, tokens=10),
             backend=BACKEND,
             global_ceiling=Ceiling(),

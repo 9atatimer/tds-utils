@@ -58,8 +58,13 @@ def reservation(
     """An admitted run's declared budget as a ledger row: what it holds
     against the ceilings until its real row lands (issue #283). A dimension
     the run can spend in but whose budget sets no bound is ``unbounded``:
-    tokens and USD for every ceiling-bound run, turns for an agent run."""
-    spendable = {"tokens", "usd"} | ({"turns"} if kind is Kind.AGENT else set())
+    tokens for every ceiling-bound run, USD unless its backend is free,
+    turns for an agent run."""
+    spendable = {"tokens"}
+    if billing is not Billing.NONE:
+        spendable.add("usd")
+    if kind is Kind.AGENT:
+        spendable.add("turns")
     return LedgerUsage(
         chore=chore,
         backend=backend,
