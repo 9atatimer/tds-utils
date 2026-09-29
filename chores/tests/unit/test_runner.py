@@ -979,8 +979,12 @@ def test_the_runner_wins_a_finish_race_the_tick_took_first(tmp_path: Path) -> No
     stored = h.store.read_record(r.run_id)
     assert stored is not None and stored.status is RunStatus.SUCCEEDED
     rows = [row for row in h.store.ledger_rows() if row["run_id"] == r.run_id]
-    assert [row["status"] for row in rows] == ["INTERRUPTED", "SUCCEEDED"]
-    assert rows[-1]["usd"] == 0.001
+    assert sorted(str(row["status"]) for row in rows) == ["INTERRUPTED", "SUCCEEDED"]
+    # the amending row says so itself: row order is not the tie-breaker, as
+    # the tick's own row may land after it
+    real = [row for row in rows if row.get("amends") == "INTERRUPTED"]
+    assert len(real) == 1 and real[0]["status"] == "SUCCEEDED"
+    assert real[0]["usd"] == 0.001
     assert h.store.chore_paused("brand") is not None
     assert any(
         "was a run that finished" in n.text and "chores resume brand" in n.text

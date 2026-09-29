@@ -468,8 +468,9 @@ def _finish(
         # The tick closed this run on liveness alone: the child had exited and
         # the runner was still finishing. The runner holds the true outcome, so
         # it wins (issue #298). The real row goes first, so the spend is never
-        # uncounted; it supersedes the tick's zero-usage INTERRUPTED row.
-        deps.store.append_ledger(to_ledger_row(record))
+        # uncounted; it names the tick's zero-usage INTERRUPTED row it
+        # supersedes, because the tick's row may still land after it.
+        deps.store.append_ledger(to_ledger_row(record, amends=RunStatus.INTERRUPTED))
         deps.store.transition(
             record.run_id,
             expected=RunStatus.INTERRUPTED,
