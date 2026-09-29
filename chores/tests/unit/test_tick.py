@@ -541,3 +541,55 @@ def test_a_corrupt_ledger_stops_admission_and_is_reported(tmp_path: Path) -> Non
     assert mark is not None and mark.ledger_rows == 2  # liveness kept, no shrink
     view = status(h.deps())
     assert any("ledger unreadable" in p for p in view.problems)
+
+
+def _gw_prompt(name: str, usd: float) -> str:
+    return (
+        f"---\nname: {name}\nschedule: '0 * * * *'\nkind: prompt\nbackend: gw\n"
+        f"budget: {{usd: {usd}, tokens: 100}}\n---\nHi.\n"
+    )
+
+
+def test_one_tick_never_admits_more_than_the_ceiling_holds(tmp_path: Path) -> None:
+    """Given two chores due in the same tick whose declared budgets together
+    cross the backend's USD ceiling (gw caps 1.0; 0.6 each), When the tick
+    runs, Then it launches exactly one and records SKIPPED_CEILING for the
+    other: the budget it admitted earlier in the pass counts as spent, before
+    that run has written anything (issue #283)."""
+    h = Harness(tmp_path, chores={"a": _gw_prompt("a", 0.6), "b": _gw_prompt("b", 0.6)})
+    report = tick(h.deps())
+    assert len(h.launched) == 1 and report.fired == h.launched
+    refused = "b" if h.launched == ["a"] else "a"
+    assert h.statuses(refused) == [RunStatus.SKIPPED_CEILING]
+    assert "backend usd" in report.skipped[refused]
+
+
+def test_one_tick_admits_every_run_the_ceiling_holds(tmp_path: Path) -> None:
+    """The accept side: two due chores whose budgets together fit under the
+    ceiling (0.4 each against 1.0) both launch in the same tick."""
+    h = Harness(tmp_path, chores={"a": _gw_prompt("a", 0.4), "b": _gw_prompt("b", 0.4)})
+    assert sorted(tick(h.deps()).fired) == ["a", "b"]
+
+
+def test_a_tick_counts_a_run_already_in_flight(tmp_path: Path) -> None:
+    """Given a manual run of one chore is still RUNNING (no ledger row yet)
+    with a declared budget of 0.6 on gw, When the tick finds another gw
+    chore due, Then it is SKIPPED_CEILING rather than launched."""
+    from chores.domain.budget import Budget
+
+    h = Harness(tmp_path, chores={"b": _gw_prompt("b", 0.6)})
+    h.store.write_record(
+        RunRecord.pending(
+            run_id="a-1",
+            chore="a",
+            kind=Kind.PROMPT,
+            definition_rev="r",
+            started=h.clock.now_utc(),
+            budget=Budget(seconds=60, usd=0.6, tokens=100),
+            backend="gw",
+        ).start(pid=4242, pgid=4242, process_start=0.0)
+    )
+    h.process.alive_pids.add(4242)  # alive: the tick must not interrupt it
+    report = tick(h.deps())
+    assert h.launched == [] and h.statuses("b") == [RunStatus.SKIPPED_CEILING]
+    assert "backend usd" in report.skipped["b"]

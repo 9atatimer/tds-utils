@@ -12,7 +12,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
 
-from chores.domain.budget import Usage
+from chores.domain.budget import Budget, Usage
 from chores.domain.errors import DomainError
 from chores.domain.kinds import Kind
 
@@ -117,6 +117,9 @@ class RunRecord:
     usage: Usage | None = None
     exit_code: int | None = None
     truncated: bool = False
+    budget: Budget | None = None
+    """The declared budget the run was admitted with: until its ledger row
+    lands, it is what the run holds against the ceilings (issue #283)."""
 
     @classmethod
     def pending(
@@ -127,6 +130,9 @@ class RunRecord:
         kind: Kind,
         definition_rev: str,
         started: datetime,
+        budget: Budget | None = None,
+        backend: str | None = None,
+        billing: Billing | None = None,
     ) -> RunRecord:
         return cls(
             run_id=run_id,
@@ -135,6 +141,9 @@ class RunRecord:
             definition_rev=definition_rev,
             status=RunStatus.PENDING,
             started=started,
+            budget=budget,
+            backend=backend,
+            billing=billing,
         )
 
     @classmethod

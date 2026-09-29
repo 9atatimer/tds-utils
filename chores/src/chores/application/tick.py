@@ -21,13 +21,14 @@ from chores.application.context import (
     load_context,
     mint_run_id,
     post,
+    reservation_for,
     write_outcome,
 )
 from chores.application.paths import Paths
 from chores.domain.chore import Chore
 from chores.domain.errors import ChoresError, DomainError, InfrastructureError
 from chores.domain.kinds import Kind
-from chores.domain.policies import Decision
+from chores.domain.policies import Decision, LedgerUsage
 from chores.domain.run import RunRecord, RunStatus, to_ledger_row
 from chores.domain.schedule import due_policy
 from chores.ports.backends import BackendCatalogPort
@@ -265,7 +266,10 @@ def _consider(
     report: TickReport,
     *,
     previous_tick: TickMark | None,
+    carried: dict[str, LedgerUsage],
 ) -> None:
+    """``carried`` holds the reservations of the runs this pass has already
+    launched; an admission here adds to it."""
     if not chore.enabled:
         return
     errors = binding_errors(ctx, chore, forbidden=deps.paths.forbidden_for_cwd())
@@ -312,10 +316,11 @@ def _consider(
         due_now = verdict.fire is not None
     if not due_now:
         return
-    admission, _spec = admit(ctx, chore, host)
+    admission, spec = admit(ctx, chore, host, carried=carried)
     if admission.decision is Decision.ADMIT:
         report.fired.append(chore.name)
         deps.launch(chore.name)
+        carried[chore.name] = reservation_for(chore, spec)
         return
     if admission.record_status is None:
         return
@@ -368,9 +373,18 @@ def tick(deps: TickDeps) -> TickReport:
                 reason=invalid.error,
             )
         _interrupt_dead_runs(deps, ctx, report)
+        carried: dict[str, LedgerUsage] = {}
         for chore in ctx.definitions.chores:
             try:
-                _consider(deps, ctx, host, chore, report, previous_tick=previous_tick)
+                _consider(
+                    deps,
+                    ctx,
+                    host,
+                    chore,
+                    report,
+                    previous_tick=previous_tick,
+                    carried=carried,
+                )
             except DomainError as e:  # a rule violated: the definition is wrong
                 _record_invalid(
                     deps, ctx, report, name=chore.name, kind=chore.kind, reason=str(e)

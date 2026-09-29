@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from chores.domain.budget import Ceiling, Usage
+from chores.domain.budget import Budget, Ceiling, Usage
 from chores.domain.chore import BackendSpec, Chore, ExecutionPort
+from chores.domain.kinds import Kind
 from chores.domain.policies import (
     AdmissionFacts,
     Decision,
@@ -12,8 +13,9 @@ from chores.domain.policies import (
     ceiling_policy,
     circuit_breaker,
     redact,
+    reserved,
 )
-from chores.domain.run import Billing, RunStatus
+from chores.domain.run import Billing, RunRecord, RunStatus
 
 BACKEND = BackendSpec(
     name="gw",
@@ -354,3 +356,41 @@ def test_a_disabled_chore_cannot_be_forced() -> None:
     )
     verdict = admission_policy(facts)
     assert verdict.decision is Decision.SKIP and verdict.reason == "disabled"
+
+
+def test_an_unfinished_run_holds_its_declared_budget_against_the_ceilings() -> None:
+    """Given a PENDING record that carries the budget it was admitted with,
+    Then it reserves that budget on its backend; once RUNNING it still does;
+    once terminal its ledger row speaks for it and it reserves nothing
+    (issue #283)."""
+    from datetime import datetime
+
+    at = datetime(2026, 3, 2, 10, 0)
+    pending = RunRecord.pending(
+        run_id="d-1",
+        chore="d",  # another chore: only the backend ceiling is shared
+        kind=Kind.PROMPT,
+        definition_rev="r",
+        started=at,
+        budget=Budget(seconds=60, tokens=1000, usd=0.4),
+        backend="gw",
+        billing=Billing.METERED,
+    )
+    held = reserved(pending)
+    assert held is not None
+    assert (held.chore, held.backend, held.billing) == ("d", "gw", Billing.METERED)
+    assert (held.usage.tokens, held.usage.usd, held.usage.turns) == (1000, 0.4, None)
+    running = pending.start(pid=1, pgid=1, process_start=0.0)
+    assert reserved(running) == held
+    done = running.finish(RunStatus.FAILED, ended=at, reason="x")
+    assert reserved(done) is None
+    verdict = ceiling_policy(
+        [held, held],
+        chore=chore(usd=0.3, tokens=10),
+        backend=BACKEND,
+        global_ceiling=Ceiling(),
+        count_subscription_usd=False,
+    )
+    assert verdict.decision is Decision.REFUSE and "backend usd" in (
+        verdict.reason or ""
+    )

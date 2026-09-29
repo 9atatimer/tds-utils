@@ -24,7 +24,7 @@ from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime
 from pathlib import Path
 
-from chores.domain.budget import Usage
+from chores.domain.budget import Budget, Usage
 from chores.domain.errors import InfrastructureError
 from chores.domain.kinds import Kind
 from chores.domain.run import Billing, RunRecord, RunStatus
@@ -156,6 +156,14 @@ def record_to_json(record: RunRecord) -> dict[str, object]:
         },
         "exit_code": record.exit_code,
         "truncated": record.truncated,
+        "budget": None
+        if record.budget is None
+        else {
+            "seconds": record.budget.seconds,
+            "tokens": record.budget.tokens,
+            "usd": record.budget.usd,
+            "turns": record.budget.turns,
+        },
     }
 
 
@@ -171,6 +179,15 @@ def record_from_json(data: Mapping[str, object]) -> RunRecord:
             turns=_opt_int(raw_usage.get("turns")),
             cpu_seconds=float(str(raw_usage.get("cpu_seconds", 0.0))),
             disk_bytes=int(str(raw_usage.get("disk_bytes", 0))),
+        )
+    raw_budget = data.get("budget")
+    budget = None
+    if isinstance(raw_budget, Mapping):
+        budget = Budget(
+            seconds=int(str(raw_budget["seconds"])),
+            tokens=_opt_int(raw_budget.get("tokens")),
+            usd=_opt_float(raw_budget.get("usd")),
+            turns=_opt_int(raw_budget.get("turns")),
         )
     billing = data.get("billing")
     return RunRecord(
@@ -191,6 +208,7 @@ def record_from_json(data: Mapping[str, object]) -> RunRecord:
         usage=usage,
         exit_code=_opt_int(data.get("exit_code")),
         truncated=bool(data.get("truncated", False)),
+        budget=budget,
     )
 
 
@@ -554,6 +572,9 @@ class FsRunStore:
 
     def tick_lock(self) -> AbstractContextManager[bool]:
         return self._flock(self.root / "tick.lock")
+
+    def admission_lock(self) -> AbstractContextManager[None]:
+        return self._blocking_flock(self.root / "admission.lock")
 
     def chore_lock(self, name: str) -> AbstractContextManager[None]:
         chore_dir = self.runs / check_chore_name(name)

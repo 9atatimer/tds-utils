@@ -15,6 +15,7 @@ from chores.application.run import RunDeps, run_chore
 from chores.application.tick import tick
 from chores.domain.kinds import Kind
 from chores.domain.run import RunRecord, RunStatus
+from chores.ports.completion import CompletionRequest, CompletionResponse
 from chores.ports.errors import BackendError, BackendTimeout, ProcessError, Unreachable
 from chores.ports.store import ARTIFACTS, TickMark
 
@@ -758,3 +759,56 @@ def test_output_truncated_by_the_agent_marks_the_run(tmp_path: Path) -> None:
     h = FullHarness(tmp_path, chores={"rev": AGENT}, agent=agent)
     r = run_chore("rev", h.deps().as_run_deps()).record
     assert r and r.status is RunStatus.SUCCEEDED and r.truncated is True
+
+
+def _gw_prompt(name: str, usd: float) -> str:
+    return (
+        f"---\nname: {name}\nschedule: '0 3 * * *'\nkind: prompt\nbackend: gw\n"
+        f"budget: {{usd: {usd}, tokens: 100}}\n---\nHi.\n"
+    )
+
+
+def test_a_concurrent_run_sees_the_in_flight_declared_budget(tmp_path: Path) -> None:
+    """Given run a (0.6 USD declared on gw, whose ceiling is 1.0) is mid-call
+    with no ledger row yet, When `chores run b` (0.6 USD) is admitted
+    concurrently, Then b is SKIPPED_CEILING: a RUNNING record's declared
+    budget counts as spent until its row lands (issue #283)."""
+    seen: list[RunRecord | None] = []
+
+    class Reentrant(FakeCompletion):
+        def complete(self, request: CompletionRequest) -> CompletionResponse:
+            if not seen:  # only a's call races b; b's own call does not
+                seen.append(run_chore("b", h.deps().as_run_deps()).record)
+            return super().complete(request)
+
+    h = FullHarness(
+        tmp_path,
+        chores={"a": _gw_prompt("a", 0.6), "b": _gw_prompt("b", 0.6)},
+        completion=Reentrant(),
+    )
+    a = run_chore("a", h.deps().as_run_deps()).record
+    assert a and a.status is RunStatus.SUCCEEDED
+    assert seen and seen[0] and seen[0].status is RunStatus.SKIPPED_CEILING
+    assert "backend usd" in (seen[0].reason or "")
+    h.clock.advance(60)  # a finished: its small real spend frees the headroom
+    b = run_chore("b", h.deps().as_run_deps()).record
+    assert b and b.status is RunStatus.SUCCEEDED
+
+
+def test_ceiling_admission_is_serialised_across_chores(tmp_path: Path) -> None:
+    """The ceiling check and the PENDING write of a ceiling-bound chore sit
+    under one store-wide lock inside the per-chore one, so two different
+    chores cannot both read the same headroom before either reserves it.
+    Command chores, exempt from ceilings, do not take it."""
+    h = FullHarness(tmp_path, chores={"brand": PROMPT})
+    run_chore("brand", h.deps().as_run_deps())
+    assert h.store.events[:5] == [
+        "lock brand",
+        "lock <admission>",
+        "write PENDING",
+        "unlock <admission>",
+        "unlock brand",
+    ]
+    cmd = FullHarness(tmp_path / "c", chores={"tidy": COMMAND})
+    run_chore("tidy", cmd.deps().as_run_deps())
+    assert "lock <admission>" not in cmd.store.events

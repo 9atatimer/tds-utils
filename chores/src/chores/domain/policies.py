@@ -10,10 +10,10 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 
-from chores.domain.budget import Ceiling, Usage
+from chores.domain.budget import Budget, Ceiling, Usage
 from chores.domain.chore import BackendSpec, Chore
 from chores.domain.kinds import Kind
-from chores.domain.run import Billing, RunStatus
+from chores.domain.run import Billing, RunRecord, RunStatus
 
 
 class Decision(Enum):
@@ -41,6 +41,35 @@ class LedgerUsage:
 class CeilingVerdict:
     decision: Decision
     reason: str | None = None
+
+
+def reservation(
+    chore: str, budget: Budget, *, backend: str | None, billing: Billing | None
+) -> LedgerUsage:
+    """An admitted run's declared budget as a ledger row: what it holds
+    against the ceilings until its real row lands (issue #283)."""
+    return LedgerUsage(
+        chore=chore,
+        backend=backend,
+        billing=billing,
+        usage=Usage(
+            tokens_in=budget.tokens or 0,
+            tokens_out=0,
+            seconds=0.0,
+            usd=budget.usd,
+            turns=budget.turns,
+        ),
+    )
+
+
+def reserved(record: RunRecord) -> LedgerUsage | None:
+    """The reservation a PENDING or RUNNING record holds; None once it is
+    terminal, when its ledger row speaks for it."""
+    if record.status.is_terminal or record.budget is None:
+        return None
+    return reservation(
+        record.chore, record.budget, backend=record.backend, billing=record.billing
+    )
 
 
 def _spent(

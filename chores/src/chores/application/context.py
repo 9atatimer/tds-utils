@@ -22,6 +22,8 @@ from chores.domain.policies import (
     ceiling_policy,
     circuit_breaker,
     redact,
+    reservation,
+    reserved,
 )
 from chores.domain.run import Billing, RunRecord, RunStatus, new_run_id, to_ledger_row
 from chores.ports.backends import BackendCatalogPort
@@ -131,6 +133,31 @@ def ledger_window(store: RunStorePort, *, now_utc: datetime) -> list[LedgerUsage
     return rows
 
 
+def in_flight(
+    store: RunStorePort, *, carried: Mapping[str, LedgerUsage]
+) -> list[LedgerUsage]:
+    """What admitted-but-unfinished runs hold against the ceilings: each
+    PENDING or RUNNING record's declared budget, plus ``carried`` -- runs a
+    caller admitted but whose record may not exist yet (a tick's own
+    launches). A carried chore's record, once written, is the same run, so it
+    is not counted twice."""
+    rows = [
+        held
+        for record in store.records()
+        if record.chore not in carried and (held := reserved(record)) is not None
+    ]
+    return [*rows, *carried.values()]
+
+
+def reservation_for(chore: Chore, spec: BackendSpec | None) -> LedgerUsage:
+    return reservation(
+        chore.name,
+        chore.budget,
+        backend=spec.name if spec else None,
+        billing=spec.billing if spec else None,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class Host:
     store: RunStorePort
@@ -141,9 +168,16 @@ class Host:
 
 
 def admit(
-    ctx: Context, chore: Chore, host: Host, *, force: bool = False
+    ctx: Context,
+    chore: Chore,
+    host: Host,
+    *,
+    force: bool = False,
+    carried: Mapping[str, LedgerUsage] | None = None,
 ) -> tuple[AdmissionVerdict, BackendSpec | None]:
-    """Gather the admission facts for one chore and decide."""
+    """Gather the admission facts for one chore and decide. The ceilings see
+    the ledger window plus every in-flight reservation (issue #283)."""
+    now = host.clock.now_utc()
     spec = ctx.catalog.spec(chore.backend) if chore.backend else None
     offline = False
     if chore.needs_network(spec) and chore.backend:
@@ -151,7 +185,10 @@ def admit(
         if url is not None:
             offline = not host.network.reachable(url, timeout_sec=PROBE_TIMEOUT_SEC)
     ceiling = ceiling_policy(
-        ledger_window(host.store, now_utc=host.clock.now_utc()),
+        [
+            *ledger_window(host.store, now_utc=now),
+            *in_flight(host.store, carried=carried or {}),
+        ],
         chore=chore,
         backend=spec,
         global_ceiling=ctx.definitions.config.ceiling,
