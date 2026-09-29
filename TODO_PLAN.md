@@ -16,8 +16,6 @@ through task-013; the retrospective ran 2026-09-14/17 and cut drift as
 tasks 015-019 (issues #283-#287); the 2026-09-18 adversarial review's
 bugs are tasks 033-035 (issues #296-#298). Order:
 
-- task-035 -- tick closes a finished run; loses usage (ceilings undercount)
-  and books false breaker failures. Needs a design call first.
 - task-033 -- KILLED resets the breaker streak; a hanging chore never
   pauses.
 - task-016 -- due-detection edge cases; the degrading stories depend on it.

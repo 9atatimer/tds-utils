@@ -230,8 +230,12 @@ class RunRecord:
         return replace(self, truncated=True)
 
 
-def to_ledger_row(record: RunRecord) -> dict[str, str | int | float | bool | None]:
-    """Flatten a terminal record into one ledger row (no prompt content)."""
+def to_ledger_row(
+    record: RunRecord, *, amends: RunStatus | None = None
+) -> dict[str, str | int | float | bool | None]:
+    """Flatten a terminal record into one ledger row (no prompt content).
+    ``amends`` names the status of an earlier row for the same run this row
+    supersedes, whatever order the two land in (issue #298)."""
     usage = record.usage
     return {
         "schema": LEDGER_SCHEMA,
@@ -255,4 +259,5 @@ def to_ledger_row(record: RunRecord) -> dict[str, str | int | float | bool | Non
         "disk_bytes": usage.disk_bytes if usage else 0,
         "exit_code": record.exit_code,
         "truncated": record.truncated,
+        "amends": amends.value if amends else None,
     }

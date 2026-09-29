@@ -236,8 +236,14 @@ def circuit_breaker(recent: Sequence[RunStatus], *, threshold: int) -> BreakerVe
     considered = [s for s in recent if s.is_run_terminal and s not in transparent]
     tail = considered[-threshold:] if threshold > 0 else []
     if threshold > 0 and len(tail) == threshold and all(s.is_failure for s in tail):
-        return BreakerVerdict(Decision.PAUSE, f"{threshold} consecutive failures")
+        return BreakerVerdict(Decision.PAUSE, breaker_reason(threshold))
     return BreakerVerdict(Decision.KEEP)
+
+
+def breaker_reason(threshold: int) -> str:
+    """The pause reason the breaker writes: how a breaker pause is told apart
+    from an operator's `chores pause`."""
+    return f"{threshold} consecutive failures"
 
 
 # --- admission ---------------------------------------------------------------
