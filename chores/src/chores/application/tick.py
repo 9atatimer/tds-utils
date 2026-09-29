@@ -142,6 +142,12 @@ def _interrupt_dead_runs(deps: TickDeps, ctx: Context, report: TickReport) -> No
         artifacts.prepare()
         artifacts.append("errors.log", reason + "\n")
         deps.store.append_ledger(to_ledger_row(done))
+        current = deps.store.read_record(record.run_id)
+        if current is None or current.status is not RunStatus.INTERRUPTED:
+            # The runner finished after all and amended the record (issue
+            # #298): its row supersedes ours, and nothing more is published
+            # about an interruption that did not happen.
+            continue
         report.interrupted.append(record.run_id)
         chore = by_name.get(record.chore)
         if chore is not None:

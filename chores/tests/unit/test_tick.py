@@ -644,3 +644,46 @@ def test_a_launched_command_chore_reserves_nothing(tmp_path: Path) -> None:
         config="ceiling: {usd: 1.0}\n",
     )
     assert tick(h.deps()).fired == ["a", "b"]
+
+
+class RunnerAmendsAfterTheTick(FakeRunStore):
+    """The tick's RUNNING->INTERRUPTED transition lands, and the runner wins
+    the race (issue #298) before the tick publishes anything else."""
+
+    def transition(self, run_id, *, expected, then):  # type: ignore[no-untyped-def]
+        done = super().transition(run_id, expected=expected, then=then)
+        if done is not None and done.status is RunStatus.INTERRUPTED:
+            from dataclasses import replace
+
+            self.write_record(replace(done, status=RunStatus.SUCCEEDED, reason=None))
+        return done
+
+
+def test_the_tick_publishes_nothing_for_a_run_the_runner_amended(
+    tmp_path: Path,
+) -> None:
+    """Given the tick closes a dead-looking run as INTERRUPTED and the runner
+    amends it to SUCCEEDED straight after, Then the tick does not report it
+    interrupted, posts no INTERRUPTED notification and books no breaker
+    failure: the record it would publish about no longer says so."""
+    chore = HOURLY.replace(
+        "command: ['true']\n", "command: ['true']\nnotify_on: [INTERRUPTED]\n"
+    )
+    h = Harness(tmp_path, chores={"hourly": chore}, config="failure_threshold: 1\n")
+    h.store = RunnerAmendsAfterTheTick()
+    h.store.mark_tick(
+        TickMark(at=h.clock.now_utc() - timedelta(seconds=60), ledger_rows=0)
+    )
+    h.store.write_record(
+        RunRecord.pending(
+            run_id="hourly-r",
+            chore="hourly",
+            kind=Kind.COMMAND,
+            definition_rev="r",
+            started=h.clock.now_utc() - timedelta(seconds=30),
+        ).start(pid=4242, pgid=4242, process_start=0.0)
+    )  # pid 4242 is not alive
+    report = tick(h.deps())
+    assert "hourly-r" not in report.interrupted
+    assert not any("INTERRUPTED" in n.text for n in h.store.notifications())
+    assert h.store.chore_paused("hourly") is None
