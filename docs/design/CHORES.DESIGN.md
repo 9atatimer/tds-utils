@@ -2,7 +2,7 @@
 
 > **Status:** APPROVED (2026-09-14, by Todd Stumpf's delegation to the drafting session; see Key Decisions "Approval authority")
 > **Date:** 2026-09-14
-> **Authors:** Todd Stumpf (intent, `docs/concepts/lmde-tasks/`), Claude (design, on Todd's delegated authority)
+> **Authors:** Todd Stumpf (intent, `docs/concepts/lmde-chores/`), Claude (design, on Todd's delegated authority)
 > **Depends on:** [LMDE.DESIGN.md](./LMDE.DESIGN.md) (platform contract), [MACOS-APPS.DESIGN.md](./MACOS-APPS.DESIGN.md) (Dock launcher), [AGENT-NOTIFICATIONS.DESIGN.md](./AGENT-NOTIFICATIONS.DESIGN.md) (notification precedent, DRAFT)
 
 ---
@@ -515,6 +515,7 @@ rows.
 | In-flight runs hold their declared budget (2026-09-29; issue #283) | `ceiling_policy` sees the ledger window plus a reservation for every PENDING or RUNNING record (the record carries the budget, backend and billing it was admitted with) and for every run the current tick pass has launched; a ceiling-bound runner's admission and PENDING write sit under one store-wide `admission_lock` inside the per-chore lock | ledger rows land only at finish, so N admissions in one tick, or a tick plus a manual run, each saw the same headroom and a ceiling was crossed by up to N budgets; command chores skip the store-wide lock, being exempt from ceilings |
 | First sight opens at the previous tick (2026-09-14; issue #284) | a chore with no records has its window opened at the previous tick, not "that tick" as Subsystem 2 says | recorded as drift, not amended; the divergence bites only after a long sleep |
 | Per-chore sentry dir is `paused.d/` (2026-09-17, review round; PR #290) | the state root holds `PAUSED` and `paused.d/<chore>`, not `paused/<chore>` as Architecture Overview and Data Model say | the default macOS filesystem folds case, so `paused/` and `PAUSED` were one entry and `chores pause` failed on every Mac; recorded as drift, not amended; `adapters/fs_store.py` and `tests/unit/test_fs_store.py` carry the rule that no two state-root names may fold to the same string |
+| Concept path renamed (2026-09-28; tds-utils issue #347) | the Authors line and Related Documents cite `docs/concepts/lmde-chores/`, not `lmde-tasks/` | Todd settled the name `lmde-chores`; path only, content unchanged; the edit to frozen sections awaits Todd's ruling on #347 |
 
 ---
 
@@ -603,7 +604,7 @@ rows.
 - [LMDE.DESIGN.md](./LMDE.DESIGN.md) -- platform contract; `op` and Ollama are Adopted components
 - [MACOS-APPS.DESIGN.md](./MACOS-APPS.DESIGN.md) -- the Dock launcher this reuses, and the terminal-first rule
 - [AGENT-NOTIFICATIONS.DESIGN.md](./AGENT-NOTIFICATIONS.DESIGN.md) -- notification precedent; this design uses only its fallback path
-- `docs/concepts/lmde-tasks/` -- the phase 1 concept this converts (non-binding)
+- `docs/concepts/lmde-chores/` -- the phase 1 concept this converts (non-binding)
 - tds-internal `ops/claude-code/routines/README.md` -- the cloud sibling's spec shape
 - template-tools `docs/design/ARCHITECTURE.DATA-WAREHOUSE.md` -- the ledger shape this mirrors
 - template-tools `TODO_PLAN.md` lessons 19-21 -- headless CLI agent isolation, env inheritance, subprocess timeouts

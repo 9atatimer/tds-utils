@@ -3,7 +3,7 @@ id: task-014
 kind: task
 title: "chores: as-built entry at release, then the status transition"
 created: 2026-09-14
-blocked_by: [task-015, task-016, task-017, task-018, task-019]
+blocked_by: [task-015, task-016, task-017, task-018, task-019, task-033, task-034, task-035]
 implements: docs/design/CHORES.DESIGN.md
 ---
 
