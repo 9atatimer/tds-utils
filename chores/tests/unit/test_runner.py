@@ -954,7 +954,8 @@ def test_the_runner_wins_a_finish_race_the_tick_took_first(tmp_path: Path) -> No
     breaker pause), When the runner then finishes SUCCEEDED, Then the runner
     wins (issue #298): the record carries its true status and usage, the
     ledger carries a row with the real spend, and the breaker pause the false
-    INTERRUPTED caused is lifted."""
+    INTERRUPTED caused stands -- a pause is never deleted automatically --
+    with a notice that names the command to clear it."""
     ticked: list[bool] = []
 
     class TickMidCall(FakeCompletion):
@@ -980,7 +981,11 @@ def test_the_runner_wins_a_finish_race_the_tick_took_first(tmp_path: Path) -> No
     rows = [row for row in h.store.ledger_rows() if row["run_id"] == r.run_id]
     assert [row["status"] for row in rows] == ["INTERRUPTED", "SUCCEEDED"]
     assert rows[-1]["usd"] == 0.001
-    assert h.store.chore_paused("brand") is None
+    assert h.store.chore_paused("brand") is not None
+    assert any(
+        "was a run that finished" in n.text and "chores resume brand" in n.text
+        for n in h.store.notifications()
+    )
 
 
 def _race_the_tick(
@@ -1003,10 +1008,12 @@ def _race_the_tick(
     return h, run_chore("brand", h.deps().as_run_deps()).record
 
 
-def test_winning_the_race_never_lifts_an_operators_pause(tmp_path: Path) -> None:
+def test_winning_the_race_says_nothing_of_an_operators_pause(
+    tmp_path: Path,
+) -> None:
     """Given an operator paused brand while it ran, When the runner wins the
-    finish race, Then the operator's pause stands: only the breaker's own
-    pause is lifted."""
+    finish race, Then the pause stands and no breaker notice is posted: the
+    pause was never the breaker's."""
 
     class PauseThenTick(FakeCompletion):
         def complete(self, request: CompletionRequest) -> CompletionResponse:
@@ -1023,13 +1030,14 @@ def test_winning_the_race_never_lifts_an_operators_pause(tmp_path: Path) -> None
     r = run_chore("brand", g.deps().as_run_deps()).record
     assert r and r.status is RunStatus.SUCCEEDED
     assert g.store.chore_paused("brand") == "maintenance"
+    assert not any("was a run that finished" in n.text for n in g.store.notifications())
 
 
 def test_a_run_that_really_failed_keeps_the_breaker_pause(tmp_path: Path) -> None:
     """Given the runner wins the race with a real FAILED, Then the breaker
-    pause stands: the amended history still trips it, and no "resumed"
-    notice is posted for a pause that never lifted."""
+    pause stands and no notice calls it false: the amended history still
+    trips it."""
     h, r = _race_the_tick(tmp_path, error=BackendError("boom"))
     assert r and r.status is RunStatus.FAILED
     assert h.store.chore_paused("brand") is not None
-    assert not any("resumed" in n.text for n in h.store.notifications())
+    assert not any("was a run that finished" in n.text for n in h.store.notifications())

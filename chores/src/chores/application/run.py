@@ -19,9 +19,9 @@ from chores.application.context import (
     binding_errors,
     find_chore,
     invalid_record_name,
-    lift_false_breaker,
     load_context,
     mint_run_id,
+    note_false_breaker,
     post,
     write_outcome,
 )
@@ -480,7 +480,7 @@ def _finish(
             f"outcome {status.value} recorded over the tick's INTERRUPTED: the "
             "child exited before the runner finished\n",
         )
-        lift_false_breaker(
+        note_false_breaker(
             deps.store,
             deps.notifier,
             chore,

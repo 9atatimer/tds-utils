@@ -409,7 +409,7 @@ def apply_breaker(
         )
 
 
-def lift_false_breaker(
+def note_false_breaker(
     store: RunStorePort,
     notifier: NotifierPort,
     chore: Chore,
@@ -417,9 +417,11 @@ def lift_false_breaker(
     threshold: int,
     at: datetime,
 ) -> None:
-    """Resume a chore the breaker paused when its history, as it now stands,
-    no longer trips it: a run the tick closed as INTERRUPTED turned out to
-    have finished (issue #298). An operator's pause is never lifted."""
+    """Say so when a breaker pause rests on a run the tick closed as
+    INTERRUPTED that turned out to have finished, and the history as it now
+    stands no longer trips the breaker (issue #298). The pause itself is
+    never deleted here: an operator may have paused the chore too, so only
+    a human clears it."""
     if store.chore_paused(chore.name) != breaker_reason(threshold):
         return
     recent = [
@@ -429,15 +431,15 @@ def lift_false_breaker(
     ]
     if circuit_breaker(recent, threshold=threshold).decision is Decision.PAUSE:
         return
-    store.resume_chore(chore.name)
     post(
         store,
         notifier,
         at=at,
         level="info",
         text=(
-            f"{chore.name} resumed: the INTERRUPTED that tripped the breaker "
-            "was a run that finished"
+            f"{chore.name} stays paused, but the INTERRUPTED that tripped the "
+            f"breaker was a run that finished: `chores resume {chore.name}` "
+            "to clear"
         ),
         chore=chore.name,
     )
