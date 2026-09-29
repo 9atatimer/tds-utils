@@ -494,6 +494,10 @@ This repo lands PRs through the tedium merge bot; the rules are in
   "reviewed". Any other Copilot failure notice stays red, as does
   silence. The checker waits up to `wait_seconds` (default 180) for
   Copilot's answer, because GitHub runs no workflow when Copilot posts.
+  When the answer lands AFTER that window the status stays at "no review
+  yet" until something re-runs the workflow (issue #353); the fallback is
+  `gh run rerun <id>` on the latest review-settled run for the PR, after
+  which it reads the notice and fails open.
 - **Reviewers** (who may `r+`) are the repo's direct collaborators with
   push, synced by tedium. An agent acting under a reviewer's token is a
   reviewer.
