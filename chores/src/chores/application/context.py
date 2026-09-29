@@ -152,12 +152,15 @@ def in_flight(
     since: datetime,
     ledgered: frozenset[str],
     launched: Mapping[str, Launched],
+    declared: Mapping[str, LedgerUsage],
 ) -> list[LedgerUsage]:
     """What runs hold against the ceilings beyond the ledger window: every
     unfinished record's declared budget, every finished record in the window
     whose row is not in ``ledgered``, and each ``launched`` reservation until
     its chore shows a run id it did not have at launch -- from then on that
-    run's own record (or row) speaks for it (issue #283)."""
+    run's own record (or row) speaks for it (issue #283). An unfinished
+    record written before records carried a budget holds its chore's current
+    reservation from ``declared`` rather than nothing."""
     rows: list[LedgerUsage] = []
     visible: set[str] = set()
     for record in store.records():
@@ -167,6 +170,8 @@ def in_flight(
         if record.status.is_terminal and record.started < since:
             continue  # outside the window, like its row would be
         h = held(record, ledgered=record.run_id in ledgered)
+        if h is None and not record.status.is_terminal and record.budget is None:
+            h = declared.get(record.chore)  # legacy record: no budget stored
         if h is not None:
             rows.append(h)
     rows.extend(
@@ -175,21 +180,29 @@ def in_flight(
     return rows
 
 
-def launch_reservation(
-    store: RunStorePort, chore: Chore, spec: BackendSpec | None
-) -> Launched | None:
-    """The reservation a tick carries for a run it launches; None for a
+def declared_reservation(chore: Chore, spec: BackendSpec | None) -> LedgerUsage | None:
+    """What one run of ``chore`` holds by its current definition; None for a
     command chore, which is exempt from ceilings."""
     if chore.kind is Kind.COMMAND:
         return None
+    return reservation(
+        chore.name,
+        chore.budget,
+        backend=spec.name if spec else None,
+        billing=spec.billing if spec else None,
+    )
+
+
+def launch_reservation(
+    store: RunStorePort, chore: Chore, spec: BackendSpec | None
+) -> Launched | None:
+    """The reservation a tick carries for a run it launches."""
+    reserved = declared_reservation(chore, spec)
+    if reserved is None:
+        return None
     return Launched(
         known=frozenset(r.run_id for r in store.records(chore=chore.name)),
-        reservation=reservation(
-            chore.name,
-            chore.budget,
-            backend=spec.name if spec else None,
-            billing=spec.billing if spec else None,
-        ),
+        reservation=reserved,
     )
 
 
@@ -233,6 +246,16 @@ def admit(
                 since=since,
                 ledgered=frozenset(str(r.get("run_id")) for r in window),
                 launched=launched or {},
+                declared={
+                    c.name: h
+                    for c in ctx.definitions.chores
+                    if (
+                        h := declared_reservation(
+                            c, ctx.catalog.spec(c.backend) if c.backend else None
+                        )
+                    )
+                    is not None
+                },
             ),
         ],
         chore=chore,

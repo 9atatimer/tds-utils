@@ -869,3 +869,27 @@ def test_a_run_finished_before_the_window_counts_nowhere(tmp_path: Path) -> None
     h.store.append_ledger(to_ledger_row(old))
     b = run_chore("b", h.deps().as_run_deps()).record
     assert b and b.status is RunStatus.SUCCEEDED
+
+
+def test_a_legacy_in_flight_run_holds_its_current_declared_budget(
+    tmp_path: Path,
+) -> None:
+    """Given a RUNNING record written by the version before budgets were
+    recorded (no budget, no backend) for chore a (0.6 USD on gw), When b
+    (0.6 USD) is admitted during the upgrade, Then b is SKIPPED_CEILING: the
+    legacy run holds a's current declared budget, never zero."""
+    h = FullHarness(
+        tmp_path, chores={"a": _gw_prompt("a", 0.6), "b": _gw_prompt("b", 0.6)}
+    )
+    h.store.write_record(
+        RunRecord.pending(
+            run_id="a-legacy",
+            chore="a",
+            kind=Kind.PROMPT,
+            definition_rev="r",
+            started=h.clock.now_utc(),
+        ).start(pid=4242, pgid=4242, process_start=0.0)
+    )
+    b = run_chore("b", h.deps().as_run_deps()).record
+    assert b and b.status is RunStatus.SKIPPED_CEILING
+    assert "backend usd" in (b.reason or "")
