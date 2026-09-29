@@ -13,6 +13,7 @@ from chores.adapters.definitions import DefinitionsLoader
 from chores.application.paths import Paths
 from chores.application.run import RunDeps, run_chore
 from chores.application.tick import tick
+from chores.domain.budget import Budget
 from chores.domain.kinds import Kind
 from chores.domain.run import RunRecord, RunStatus
 from chores.ports.completion import CompletionRequest, CompletionResponse
@@ -348,12 +349,23 @@ def test_invalid_or_unknown_chore_is_reported(tmp_path: Path) -> None:
     assert run_chore("nope", h.deps()).record is None
 
 
+# What a record of PROMPT's chore carries since issue #283: the declared
+# budget it was admitted with. A budgetless one is a pre-upgrade record.
+_BRAND_BUDGET = Budget(seconds=60, usd=0.10, tokens=4000)
+
+
 def test_overlap_skips_when_a_live_run_exists(tmp_path: Path) -> None:
     h = Harness(tmp_path, chores={"brand": PROMPT})
     first = run_chore("brand", h.deps()).record
     assert first
     running = first.__class__.pending(
-        run_id="brand-x", chore="brand", kind=first.kind, definition_rev="r", started=T0
+        run_id="brand-x",
+        chore="brand",
+        kind=first.kind,
+        definition_rev="r",
+        started=T0,
+        budget=_BRAND_BUDGET,
+        backend="gw",
     ).start(pid=555, pgid=555, process_start=1.0)
     h.store.write_record(running)
     h.process.alive_pids.add(555)
@@ -466,6 +478,8 @@ def test_a_young_pending_record_counts_as_live_for_overlap(tmp_path: Path) -> No
         kind=Kind.PROMPT,
         definition_rev="r",
         started=h.clock.now_utc() - timedelta(seconds=5),
+        budget=_BRAND_BUDGET,
+        backend="gw",
     )
     h.store.write_record(young)
     grace = timedelta(seconds=60)
@@ -480,6 +494,8 @@ def test_a_young_pending_record_counts_as_live_for_overlap(tmp_path: Path) -> No
         kind=Kind.PROMPT,
         definition_rev="r",
         started=h.clock.now_utc() - timedelta(minutes=10),
+        budget=_BRAND_BUDGET,
+        backend="gw",
     )
     h.store.write_record(stale)
     h.store.delete_run("brand-a")
@@ -871,16 +887,14 @@ def test_a_run_finished_before_the_window_counts_nowhere(tmp_path: Path) -> None
     assert b and b.status is RunStatus.SUCCEEDED
 
 
-def test_a_legacy_in_flight_run_holds_its_current_declared_budget(
-    tmp_path: Path,
-) -> None:
+def test_a_legacy_in_flight_run_blocks_until_it_finishes(tmp_path: Path) -> None:
     """Given a RUNNING record written by the version before budgets were
-    recorded (no budget, no backend) for chore a (0.6 USD on gw), When b
-    (0.6 USD) is admitted during the upgrade, Then b is SKIPPED_CEILING: the
-    legacy run holds a's current declared budget, never zero."""
-    h = FullHarness(
-        tmp_path, chores={"a": _gw_prompt("a", 0.6), "b": _gw_prompt("b", 0.6)}
-    )
+    recorded (no budget, no backend) for chore a, whose definition has since
+    been deleted, When b (0.6 USD on gw) is admitted during the upgrade, Then
+    b is SKIPPED_CEILING: the legacy run's spend is unknown in every
+    dimension and on every backend, never zero and never today's
+    definition."""
+    h = FullHarness(tmp_path, chores={"b": _gw_prompt("b", 0.6)})
     h.store.write_record(
         RunRecord.pending(
             run_id="a-legacy",
@@ -892,7 +906,7 @@ def test_a_legacy_in_flight_run_holds_its_current_declared_budget(
     )
     b = run_chore("b", h.deps().as_run_deps()).record
     assert b and b.status is RunStatus.SKIPPED_CEILING
-    assert "backend usd" in (b.reason or "")
+    assert "a is in flight with no usd bound" in (b.reason or "")
 
 
 def test_a_manual_run_admitted_beside_the_tick_keeps_the_ceiling(

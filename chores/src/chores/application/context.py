@@ -152,15 +152,12 @@ def in_flight(
     since: datetime,
     ledgered: frozenset[str],
     launched: Mapping[str, Launched],
-    declared: Mapping[str, LedgerUsage],
 ) -> list[LedgerUsage]:
     """What runs hold against the ceilings beyond the ledger window: every
     unfinished record's declared budget, every finished record in the window
     whose row is not in ``ledgered``, and each ``launched`` reservation until
     its chore shows a run id it did not have at launch -- from then on that
-    run's own record (or row) speaks for it (issue #283). An unfinished
-    record written before records carried a budget holds its chore's current
-    reservation from ``declared`` rather than nothing."""
+    run's own record (or row) speaks for it (issue #283)."""
     rows: list[LedgerUsage] = []
     visible: set[str] = set()
     for record in store.records():
@@ -170,8 +167,6 @@ def in_flight(
         if record.status.is_terminal and record.started < since:
             continue  # outside the window, like its row would be
         h = held(record, ledgered=record.run_id in ledgered)
-        if h is None and not record.status.is_terminal and record.budget is None:
-            h = declared.get(record.chore)  # legacy record: no budget stored
         if h is not None:
             rows.append(h)
     rows.extend(
@@ -247,16 +242,6 @@ def admit(
                 since=since,
                 ledgered=frozenset(str(r.get("run_id")) for r in window),
                 launched=launched or {},
-                declared={
-                    c.name: h
-                    for c in ctx.definitions.chores
-                    if (
-                        h := declared_reservation(
-                            c, ctx.catalog.spec(c.backend) if c.backend else None
-                        )
-                    )
-                    is not None
-                },
             ),
         ],
         chore=chore,

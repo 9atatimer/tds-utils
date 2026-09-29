@@ -47,6 +47,17 @@ class CeilingVerdict:
     reason: str | None = None
 
 
+def _spendable(kind: Kind, billing: Billing | None) -> frozenset[str]:
+    """The dimensions a ceiling-bound run can spend in: tokens always, USD
+    unless its backend is free, turns only for an agent run."""
+    out = {"tokens"}
+    if billing is not Billing.NONE:
+        out.add("usd")
+    if kind is Kind.AGENT:
+        out.add("turns")
+    return frozenset(out)
+
+
 def reservation(
     chore: str,
     budget: Budget,
@@ -60,18 +71,11 @@ def reservation(
     the run can spend in but whose budget sets no bound is ``unbounded``:
     tokens for every ceiling-bound run, USD unless its backend is free,
     turns for an agent run."""
-    spendable = {"tokens"}
-    if billing is not Billing.NONE:
-        spendable.add("usd")
-    if kind is Kind.AGENT:
-        spendable.add("turns")
     return LedgerUsage(
         chore=chore,
         backend=backend,
         billing=billing,
-        unbounded=frozenset(
-            d for d in spendable if d not in budget.declared_dimensions()
-        ),
+        unbounded=_spendable(kind, billing) - budget.declared_dimensions(),
         usage=Usage(
             tokens_in=budget.tokens or 0,
             tokens_out=0,
@@ -95,7 +99,15 @@ def held(record: RunRecord, *, ledgered: bool) -> LedgerUsage | None:
         return None
     if not record.status.is_terminal:
         if record.budget is None:
-            return None
+            # Written before records carried a budget (the upgrade window):
+            # its spend is unknown in every dimension it can spend in.
+            return LedgerUsage(
+                chore=record.chore,
+                backend=record.backend,
+                billing=record.billing,
+                usage=Usage(tokens_in=0, tokens_out=0, seconds=0.0),
+                unbounded=_spendable(record.kind, record.billing),
+            )
         return reservation(
             record.chore,
             record.budget,
@@ -157,7 +169,12 @@ def ceiling_policy(
             (
                 "backend",
                 backend.ceiling,
-                [r for r in rows if r.backend == backend.name],
+                # a held run on an unknown backend could be on this one
+                [
+                    r
+                    for r in rows
+                    if r.backend == backend.name or (r.backend is None and r.unbounded)
+                ],
             ),
         )
     for scope, ceiling, scoped in scopes:
