@@ -13,8 +13,10 @@ from chores.adapters.definitions import DefinitionsLoader
 from chores.application.paths import Paths
 from chores.application.run import RunDeps, run_chore
 from chores.application.tick import tick
+from chores.domain.budget import Budget
 from chores.domain.kinds import Kind
 from chores.domain.run import RunRecord, RunStatus
+from chores.ports.completion import CompletionRequest, CompletionResponse
 from chores.ports.errors import BackendError, BackendTimeout, ProcessError, Unreachable
 from chores.ports.store import ARTIFACTS, TickMark
 
@@ -347,12 +349,23 @@ def test_invalid_or_unknown_chore_is_reported(tmp_path: Path) -> None:
     assert run_chore("nope", h.deps()).record is None
 
 
+# What a record of PROMPT's chore carries since issue #283: the declared
+# budget it was admitted with. A budgetless one is a pre-upgrade record.
+_BRAND_BUDGET = Budget(seconds=60, usd=0.10, tokens=4000)
+
+
 def test_overlap_skips_when_a_live_run_exists(tmp_path: Path) -> None:
     h = Harness(tmp_path, chores={"brand": PROMPT})
     first = run_chore("brand", h.deps()).record
     assert first
     running = first.__class__.pending(
-        run_id="brand-x", chore="brand", kind=first.kind, definition_rev="r", started=T0
+        run_id="brand-x",
+        chore="brand",
+        kind=first.kind,
+        definition_rev="r",
+        started=T0,
+        budget=_BRAND_BUDGET,
+        backend="gw",
     ).start(pid=555, pgid=555, process_start=1.0)
     h.store.write_record(running)
     h.process.alive_pids.add(555)
@@ -465,6 +478,8 @@ def test_a_young_pending_record_counts_as_live_for_overlap(tmp_path: Path) -> No
         kind=Kind.PROMPT,
         definition_rev="r",
         started=h.clock.now_utc() - timedelta(seconds=5),
+        budget=_BRAND_BUDGET,
+        backend="gw",
     )
     h.store.write_record(young)
     grace = timedelta(seconds=60)
@@ -479,6 +494,8 @@ def test_a_young_pending_record_counts_as_live_for_overlap(tmp_path: Path) -> No
         kind=Kind.PROMPT,
         definition_rev="r",
         started=h.clock.now_utc() - timedelta(minutes=10),
+        budget=_BRAND_BUDGET,
+        backend="gw",
     )
     h.store.write_record(stale)
     h.store.delete_run("brand-a")
@@ -758,3 +775,167 @@ def test_output_truncated_by_the_agent_marks_the_run(tmp_path: Path) -> None:
     h = FullHarness(tmp_path, chores={"rev": AGENT}, agent=agent)
     r = run_chore("rev", h.deps().as_run_deps()).record
     assert r and r.status is RunStatus.SUCCEEDED and r.truncated is True
+
+
+def _gw_prompt(name: str, usd: float) -> str:
+    return (
+        f"---\nname: {name}\nschedule: '0 3 * * *'\nkind: prompt\nbackend: gw\n"
+        f"budget: {{usd: {usd}, tokens: 100}}\n---\nHi.\n"
+    )
+
+
+def test_a_concurrent_run_sees_the_in_flight_declared_budget(tmp_path: Path) -> None:
+    """Given run a (0.6 USD declared on gw, whose ceiling is 1.0) is mid-call
+    with no ledger row yet, When `chores run b` (0.6 USD) is admitted
+    concurrently, Then b is SKIPPED_CEILING: a RUNNING record's declared
+    budget counts as spent until its row lands (issue #283)."""
+    seen: list[RunRecord | None] = []
+
+    class Reentrant(FakeCompletion):
+        def complete(self, request: CompletionRequest) -> CompletionResponse:
+            if not seen:  # only a's call races b; b's own call does not
+                seen.append(run_chore("b", h.deps().as_run_deps()).record)
+            return super().complete(request)
+
+    h = FullHarness(
+        tmp_path,
+        chores={"a": _gw_prompt("a", 0.6), "b": _gw_prompt("b", 0.6)},
+        completion=Reentrant(),
+    )
+    a = run_chore("a", h.deps().as_run_deps()).record
+    assert a and a.status is RunStatus.SUCCEEDED
+    assert seen and seen[0] and seen[0].status is RunStatus.SKIPPED_CEILING
+    assert "backend usd" in (seen[0].reason or "")
+    h.clock.advance(60)  # a finished: its small real spend frees the headroom
+    b = run_chore("b", h.deps().as_run_deps()).record
+    assert b and b.status is RunStatus.SUCCEEDED
+
+
+def test_ceiling_admission_is_serialised_across_chores(tmp_path: Path) -> None:
+    """The ceiling check and the PENDING write of a ceiling-bound chore sit
+    under one store-wide lock inside the per-chore one, so two different
+    chores cannot both read the same headroom before either reserves it.
+    Command chores, exempt from ceilings, do not take it."""
+    h = FullHarness(tmp_path, chores={"brand": PROMPT})
+    run_chore("brand", h.deps().as_run_deps())
+    assert h.store.events[:5] == [
+        "lock brand",
+        "lock <admission>",
+        "write PENDING",
+        "unlock <admission>",
+        "unlock brand",
+    ]
+    cmd = FullHarness(tmp_path / "c", chores={"tidy": COMMAND})
+    run_chore("tidy", cmd.deps().as_run_deps())
+    assert "lock <admission>" not in cmd.store.events
+
+
+def test_a_finished_run_without_its_ledger_row_still_counts(tmp_path: Path) -> None:
+    """Given run a finished (0.6 USD spent on gw) but its ledger row has not
+    landed -- the terminal write and the row are two writes, and a crash can
+    fall between them -- When b (0.6 USD declared) is admitted, Then b is
+    SKIPPED_CEILING: a's recorded spend still counts."""
+    from chores.domain.budget import Usage
+    from chores.domain.run import Billing
+
+    h = FullHarness(tmp_path, chores={"b": _gw_prompt("b", 0.6)})
+    h.store.write_record(
+        RunRecord.pending(
+            run_id="a-1",
+            chore="a",
+            kind=Kind.PROMPT,
+            definition_rev="r",
+            started=h.clock.now_utc(),
+            backend="gw",
+            billing=Billing.METERED,
+        )
+        .start(pid=1, pgid=1, process_start=0.0)
+        .with_usage(Usage(tokens_in=10, tokens_out=10, seconds=1.0, usd=0.6))
+        .finish(RunStatus.SUCCEEDED, ended=h.clock.now_utc(), reason=None)
+    )
+    b = run_chore("b", h.deps().as_run_deps()).record
+    assert b and b.status is RunStatus.SKIPPED_CEILING
+    assert "backend usd" in (b.reason or "")
+
+
+def test_a_run_finished_before_the_window_counts_nowhere(tmp_path: Path) -> None:
+    """Given a finished run from 25h ago that spent 0.9 of gw's 1.0 USD, its
+    ledger row landed long since, When b (0.6 USD) is admitted, Then b runs:
+    the rolling window has dropped that spend, row and record alike."""
+    from chores.domain.budget import Usage
+    from chores.domain.run import Billing, to_ledger_row
+
+    h = FullHarness(tmp_path, chores={"b": _gw_prompt("b", 0.6)})
+    then = h.clock.now_utc() - timedelta(hours=25)
+    old = (
+        RunRecord.pending(
+            run_id="a-old",
+            chore="a",
+            kind=Kind.PROMPT,
+            definition_rev="r",
+            started=then,
+            backend="gw",
+            billing=Billing.METERED,
+        )
+        .start(pid=1, pgid=1, process_start=0.0)
+        .with_usage(Usage(tokens_in=10, tokens_out=10, seconds=1.0, usd=0.9))
+        .finish(RunStatus.SUCCEEDED, ended=then, reason=None)
+    )
+    h.store.write_record(old)
+    h.store.append_ledger(to_ledger_row(old))
+    b = run_chore("b", h.deps().as_run_deps()).record
+    assert b and b.status is RunStatus.SUCCEEDED
+
+
+def test_a_legacy_in_flight_run_blocks_until_it_finishes(tmp_path: Path) -> None:
+    """Given a RUNNING record written by the version before budgets were
+    recorded (no budget, no backend) for chore a, whose definition has since
+    been deleted, When b (0.6 USD on gw) is admitted during the upgrade, Then
+    b is SKIPPED_CEILING: the legacy run's spend is unknown in every
+    dimension and on every backend, never zero and never today's
+    definition."""
+    h = FullHarness(tmp_path, chores={"b": _gw_prompt("b", 0.6)})
+    h.store.write_record(
+        RunRecord.pending(
+            run_id="a-legacy",
+            chore="a",
+            kind=Kind.PROMPT,
+            definition_rev="r",
+            started=h.clock.now_utc(),
+        ).start(pid=4242, pgid=4242, process_start=0.0)
+    )
+    b = run_chore("b", h.deps().as_run_deps()).record
+    assert b and b.status is RunStatus.SKIPPED_CEILING
+    assert "a is in flight with no usd bound" in (b.reason or "")
+
+
+def test_a_manual_run_admitted_beside_the_tick_keeps_the_ceiling(
+    tmp_path: Path,
+) -> None:
+    """Given the tick admits a (0.6 USD on gw, ceiling 1.0) and a manual
+    `chores run b` (0.6 USD) is admitted before a's child starts, When the
+    tick's child re-admits a, Then it is SKIPPED_CEILING: the tick's
+    admission is advisory, and the child's own admission under the
+    store-wide lock sees b's reservation, so the ceiling holds (issue #283)."""
+    from chores.domain.budget import Budget
+
+    due_a = _gw_prompt("a", 0.6).replace("'0 3 * * *'", "'0 * * * *'")
+    h = FullHarness(tmp_path, chores={"a": due_a, "b": _gw_prompt("b", 0.6)})
+    h.store.mark_tick(
+        TickMark(at=h.clock.now_utc() - timedelta(seconds=60), ledger_rows=0)
+    )
+    tick(h.deps().as_tick_deps())
+    assert h.launched == ["a"]
+    b = RunRecord.pending(
+        run_id="b-manual",
+        chore="b",
+        kind=Kind.PROMPT,
+        definition_rev="r",
+        started=h.clock.now_utc(),
+        budget=Budget(seconds=60, usd=0.6, tokens=100),
+        backend="gw",
+    )
+    h.store.write_record(b)  # the manual `chores run b` won the lock first
+    child = run_chore("a", h.deps().as_run_deps()).record  # the tick's child
+    assert child and child.status is RunStatus.SKIPPED_CEILING
+    assert "backend usd" in (child.reason or "")

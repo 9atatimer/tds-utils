@@ -542,10 +542,15 @@ def run_chore(
     assert isinstance(chore, Chore)
     # Admission and the PENDING write are one critical section per chore:
     # two runners of the same chore serialise here, so the second sees the
-    # first's young PENDING record as live and is SKIPPED_OVERLAP.
+    # first's young PENDING record as live and is SKIPPED_OVERLAP. A
+    # ceiling-bound chore also takes the store-wide lock: the PENDING record
+    # carries the declared budget, and a runner of another chore must not
+    # read the headroom before it is reserved (issue #283).
     with ExitStack() as reservation:
         if not dry_run:
             reservation.enter_context(deps.store.chore_lock(name))
+            if chore.kind is not Kind.COMMAND:
+                reservation.enter_context(deps.store.admission_lock())
         verdict, spec = admit(ctx, chore, host, force=force)
         cwd = (
             _cwd(chore, deps)
@@ -612,6 +617,9 @@ def run_chore(
             kind=chore.kind,
             definition_rev=ctx.definitions.revision,
             started=started_utc,
+            budget=chore.budget,
+            backend=spec.name if spec else None,
+            billing=spec.billing if spec else None,
         )
         deps.store.write_record(record)
 

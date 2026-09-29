@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from chores.domain.budget import Ceiling, Usage
+from chores.domain.budget import Budget, Ceiling, Usage
 from chores.domain.chore import BackendSpec, Chore, ExecutionPort
+from chores.domain.kinds import Kind
 from chores.domain.policies import (
     AdmissionFacts,
     Decision,
@@ -11,9 +12,10 @@ from chores.domain.policies import (
     admission_policy,
     ceiling_policy,
     circuit_breaker,
+    held,
     redact,
 )
-from chores.domain.run import Billing, RunStatus
+from chores.domain.run import Billing, RunRecord, RunStatus
 
 BACKEND = BackendSpec(
     name="gw",
@@ -354,3 +356,175 @@ def test_a_disabled_chore_cannot_be_forced() -> None:
     )
     verdict = admission_policy(facts)
     assert verdict.decision is Decision.SKIP and verdict.reason == "disabled"
+
+
+def test_an_unfinished_run_holds_its_declared_budget_against_the_ceilings() -> None:
+    """Given a PENDING record that carries the budget it was admitted with,
+    Then it holds that budget on its backend; once RUNNING it still does
+    (issue #283)."""
+    from datetime import datetime
+
+    at = datetime(2026, 3, 2, 10, 0)
+    pending = RunRecord.pending(
+        run_id="d-1",
+        chore="d",  # another chore: only the backend ceiling is shared
+        kind=Kind.PROMPT,
+        definition_rev="r",
+        started=at,
+        budget=Budget(seconds=60, tokens=1000, usd=0.4),
+        backend="gw",
+        billing=Billing.METERED,
+    )
+    h = held(pending, ledgered=False)
+    assert h is not None
+    assert (h.chore, h.backend, h.billing) == ("d", "gw", Billing.METERED)
+    assert (h.usage.tokens, h.usage.usd, h.usage.turns) == (1000, 0.4, None)
+    running = pending.start(pid=1, pgid=1, process_start=0.0)
+    assert held(running, ledgered=False) == h
+    verdict = ceiling_policy(
+        [h, h],
+        chore=chore(usd=0.3, tokens=10),
+        backend=BACKEND,
+        global_ceiling=Ceiling(),
+        count_subscription_usd=False,
+    )
+    assert verdict.decision is Decision.REFUSE and "backend usd" in (
+        verdict.reason or ""
+    )
+
+
+def test_a_finished_run_holds_its_usage_until_its_ledger_row_lands() -> None:
+    """The terminal record and its ledger row are two writes. Between them
+    (or after a crash between them) the run holds its recorded usage, not
+    its budget; once the row exists the row speaks for it."""
+    from datetime import datetime
+
+    at = datetime(2026, 3, 2, 10, 0)
+    done = (
+        RunRecord.pending(
+            run_id="d-1",
+            chore="d",
+            kind=Kind.PROMPT,
+            definition_rev="r",
+            started=at,
+            budget=Budget(seconds=60, tokens=1000, usd=0.4),
+            backend="gw",
+            billing=Billing.METERED,
+        )
+        .start(pid=1, pgid=1, process_start=0.0)
+        .with_usage(Usage(tokens_in=7, tokens_out=3, seconds=1.0, usd=0.02))
+        .finish(RunStatus.SUCCEEDED, ended=at, reason=None)
+    )
+    h = held(done, ledgered=False)
+    assert h is not None and (h.usage.tokens, h.usage.usd) == (10, 0.02)
+    assert h.backend == "gw"
+    assert held(done, ledgered=True) is None
+
+
+def test_a_command_run_holds_nothing() -> None:
+    """Command chores are exempt from ceilings, so a budget one declares
+    must never count against an LLM chore's admission."""
+    from datetime import datetime
+
+    pending = RunRecord.pending(
+        run_id="t-1",
+        chore="t",
+        kind=Kind.COMMAND,
+        definition_rev="r",
+        started=datetime(2026, 3, 2, 10, 0),
+        budget=Budget(seconds=60, usd=0.9),
+    )
+    assert held(pending, ledgered=False) is None
+
+
+def _unbounded(kind: Kind, billing: Billing | None, **budget: float) -> LedgerUsage:
+    from chores.domain.policies import reservation
+
+    return reservation(
+        "d",
+        Budget(seconds=60, **budget),  # type: ignore[arg-type]
+        backend="gw",
+        billing=billing,
+        kind=kind,
+    )
+
+
+def test_an_in_flight_run_with_no_bound_in_a_capped_dimension_blocks() -> None:
+    """Given a run admitted before a USD ceiling existed, so its budget sets
+    no USD bound, When another chore is admitted under that ceiling, Then it
+    is refused: the in-flight run's USD spend is unknown, not zero."""
+    verdict = ceiling_policy(
+        [_unbounded(Kind.PROMPT, Billing.METERED, tokens=100)],
+        chore=chore(usd=0.1, tokens=10),
+        backend=BACKEND,
+        global_ceiling=Ceiling(),
+        count_subscription_usd=False,
+    )
+    assert verdict.decision is Decision.REFUSE
+    assert "no usd bound" in (verdict.reason or "")
+
+
+def test_an_unbounded_dimension_that_cannot_be_spent_does_not_block() -> None:
+    """The accept side: a prompt run has no turns, a free backend's run has
+    no USD, and a subscription run's USD does not count when subscription
+    USD is not counted, so none blocks admission when it leaves that
+    dimension unbounded."""
+    turns_capped = BackendSpec(
+        name="gw",
+        port=ExecutionPort.COMPLETION,
+        default_model="m",
+        requires_network=True,
+        priced=True,
+        ceiling=Ceiling(turns=10),
+        read_only_tools=frozenset(),
+    )
+    prompt = _unbounded(Kind.PROMPT, Billing.METERED, tokens=100, usd=0.1)
+    assert (
+        ceiling_policy(
+            [prompt],
+            chore=chore(usd=0.1, tokens=10),
+            backend=turns_capped,
+            global_ceiling=Ceiling(),
+            count_subscription_usd=False,
+        ).decision
+        is Decision.ADMIT
+    )
+    subscription = _unbounded(Kind.AGENT, Billing.SUBSCRIPTION, tokens=100, turns=3)
+    assert (
+        ceiling_policy(
+            [subscription],
+            chore=chore(usd=0.1, tokens=10),
+            backend=BACKEND,
+            global_ceiling=Ceiling(),
+            count_subscription_usd=False,
+        ).decision
+        is Decision.ADMIT
+    )
+    free = _unbounded(Kind.PROMPT, Billing.NONE, tokens=100)
+    assert (
+        ceiling_policy(
+            [free],
+            chore=chore(usd=0.1, tokens=10),
+            backend=BACKEND,
+            global_ceiling=Ceiling(),
+            count_subscription_usd=False,
+        ).decision
+        is Decision.ADMIT
+    )
+
+
+def test_a_free_run_reserves_no_usd_whatever_its_budget_declares() -> None:
+    """A free backend cannot incur USD, so a USD budget its chore declares
+    is not held against a metered chore's USD ceiling."""
+    free = _unbounded(Kind.PROMPT, Billing.NONE, tokens=100, usd=0.9)
+    assert free.usage.usd is None
+    assert (
+        ceiling_policy(
+            [free],
+            chore=chore(usd=0.3, tokens=10),
+            backend=BACKEND,
+            global_ceiling=Ceiling(),
+            count_subscription_usd=False,
+        ).decision
+        is Decision.ADMIT
+    )

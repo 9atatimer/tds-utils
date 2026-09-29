@@ -361,6 +361,9 @@ class FakeRunStore:
     def chore_lock(self, name: str) -> AbstractContextManager[None]:
         return self._chore_lock(name)
 
+    def admission_lock(self) -> AbstractContextManager[None]:
+        return self._chore_lock("<admission>")
+
     @contextmanager
     def _chore_lock(self, name: str) -> Iterator[None]:
         self.events.append(f"lock {name}")

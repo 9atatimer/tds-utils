@@ -204,6 +204,24 @@ def test_no_state_file_is_ever_read_or_written_through_a_symlink(
     assert store.run_dir_bytes(run_id) > 0  # counts real files only
 
 
+def test_fs_admission_lock_lives_at_the_root_and_is_no_follow(
+    tmp_path: Path,
+) -> None:
+    from chores.adapters.fs_store import FsRunStore, UnsafeStatePath
+
+    store = FsRunStore(tmp_path / "s")
+    with store.admission_lock():
+        assert (store.root / "admission.lock").is_file()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (store.root / "admission.lock").unlink()
+    (store.root / "admission.lock").symlink_to(outside / "lock")
+    with pytest.raises(UnsafeStatePath):
+        with store.admission_lock():
+            pass
+    assert not (outside / "lock").exists()
+
+
 def test_fs_chore_lock_lives_in_the_chore_dir_and_is_no_follow(tmp_path: Path) -> None:
     from chores.adapters.fs_store import FsRunStore, UnsafeStatePath
 
