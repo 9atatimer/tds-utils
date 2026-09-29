@@ -76,7 +76,7 @@ def reservation(
             tokens_in=budget.tokens or 0,
             tokens_out=0,
             seconds=0.0,
-            usd=budget.usd,
+            usd=None if billing is Billing.NONE else budget.usd,
             turns=budget.turns,
         ),
     )

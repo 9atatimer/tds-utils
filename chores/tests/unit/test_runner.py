@@ -893,3 +893,35 @@ def test_a_legacy_in_flight_run_holds_its_current_declared_budget(
     b = run_chore("b", h.deps().as_run_deps()).record
     assert b and b.status is RunStatus.SKIPPED_CEILING
     assert "backend usd" in (b.reason or "")
+
+
+def test_a_manual_run_admitted_beside_the_tick_keeps_the_ceiling(
+    tmp_path: Path,
+) -> None:
+    """Given the tick admits a (0.6 USD on gw, ceiling 1.0) and a manual
+    `chores run b` (0.6 USD) is admitted before a's child starts, When the
+    tick's child re-admits a, Then it is SKIPPED_CEILING: the tick's
+    admission is advisory, and the child's own admission under the
+    store-wide lock sees b's reservation, so the ceiling holds (issue #283)."""
+    from chores.domain.budget import Budget
+
+    due_a = _gw_prompt("a", 0.6).replace("'0 3 * * *'", "'0 * * * *'")
+    h = FullHarness(tmp_path, chores={"a": due_a, "b": _gw_prompt("b", 0.6)})
+    h.store.mark_tick(
+        TickMark(at=h.clock.now_utc() - timedelta(seconds=60), ledger_rows=0)
+    )
+    tick(h.deps().as_tick_deps())
+    assert h.launched == ["a"]
+    b = RunRecord.pending(
+        run_id="b-manual",
+        chore="b",
+        kind=Kind.PROMPT,
+        definition_rev="r",
+        started=h.clock.now_utc(),
+        budget=Budget(seconds=60, usd=0.6, tokens=100),
+        backend="gw",
+    )
+    h.store.write_record(b)  # the manual `chores run b` won the lock first
+    child = run_chore("a", h.deps().as_run_deps()).record  # the tick's child
+    assert child and child.status is RunStatus.SKIPPED_CEILING
+    assert "backend usd" in (child.reason or "")

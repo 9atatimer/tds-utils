@@ -511,3 +511,20 @@ def test_an_unbounded_dimension_that_cannot_be_spent_does_not_block() -> None:
         ).decision
         is Decision.ADMIT
     )
+
+
+def test_a_free_run_reserves_no_usd_whatever_its_budget_declares() -> None:
+    """A free backend cannot incur USD, so a USD budget its chore declares
+    is not held against a metered chore's USD ceiling."""
+    free = _unbounded(Kind.PROMPT, Billing.NONE, tokens=100, usd=0.9)
+    assert free.usage.usd is None
+    assert (
+        ceiling_policy(
+            [free],
+            chore=chore(usd=0.3, tokens=10),
+            backend=BACKEND,
+            global_ceiling=Ceiling(),
+            count_subscription_usd=False,
+        ).decision
+        is Decision.ADMIT
+    )
