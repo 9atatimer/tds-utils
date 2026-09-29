@@ -13,22 +13,23 @@ from chores.application.context import (
     Artifacts,
     Context,
     Host,
+    Launched,
     admit,
     apply_breaker,
     binding_errors,
     ensure_ledgered,
     invalid_record_name,
+    launch_reservation,
     load_context,
     mint_run_id,
     post,
-    reservation_for,
     write_outcome,
 )
 from chores.application.paths import Paths
 from chores.domain.chore import Chore
 from chores.domain.errors import ChoresError, DomainError, InfrastructureError
 from chores.domain.kinds import Kind
-from chores.domain.policies import Decision, LedgerUsage
+from chores.domain.policies import Decision
 from chores.domain.run import RunRecord, RunStatus, to_ledger_row
 from chores.domain.schedule import due_policy
 from chores.ports.backends import BackendCatalogPort
@@ -266,9 +267,9 @@ def _consider(
     report: TickReport,
     *,
     previous_tick: TickMark | None,
-    carried: dict[str, LedgerUsage],
+    launched: dict[str, Launched],
 ) -> None:
-    """``carried`` holds the reservations of the runs this pass has already
+    """``launched`` holds the reservations of the runs this pass has already
     launched; an admission here adds to it."""
     if not chore.enabled:
         return
@@ -316,11 +317,13 @@ def _consider(
         due_now = verdict.fire is not None
     if not due_now:
         return
-    admission, spec = admit(ctx, chore, host, carried=carried)
+    admission, spec = admit(ctx, chore, host, launched=launched)
     if admission.decision is Decision.ADMIT:
+        held = launch_reservation(deps.store, chore, spec)  # before the child writes
         report.fired.append(chore.name)
         deps.launch(chore.name)
-        carried[chore.name] = reservation_for(chore, spec)
+        if held is not None:
+            launched[chore.name] = held
         return
     if admission.record_status is None:
         return
@@ -373,7 +376,7 @@ def tick(deps: TickDeps) -> TickReport:
                 reason=invalid.error,
             )
         _interrupt_dead_runs(deps, ctx, report)
-        carried: dict[str, LedgerUsage] = {}
+        launched: dict[str, Launched] = {}
         for chore in ctx.definitions.chores:
             try:
                 _consider(
@@ -383,7 +386,7 @@ def tick(deps: TickDeps) -> TickReport:
                     chore,
                     report,
                     previous_tick=previous_tick,
-                    carried=carried,
+                    launched=launched,
                 )
             except DomainError as e:  # a rule violated: the definition is wrong
                 _record_invalid(

@@ -593,3 +593,54 @@ def test_a_tick_counts_a_run_already_in_flight(tmp_path: Path) -> None:
     report = tick(h.deps())
     assert h.launched == [] and h.statuses("b") == [RunStatus.SKIPPED_CEILING]
     assert "backend usd" in report.skipped["b"]
+
+
+def test_a_child_that_finishes_inside_the_pass_counts_once(tmp_path: Path) -> None:
+    """Given a (0.6 USD declared) is launched and its child finishes, spending
+    0.001 and landing its ledger row, before the tick reaches b (0.6), Then b
+    launches too: a's carried reservation retires once its run is visible,
+    so the real row is not counted on top of the declared budget."""
+    import dataclasses
+
+    from chores.domain.budget import Usage
+    from chores.domain.run import to_ledger_row
+
+    h = Harness(tmp_path, chores={"a": _gw_prompt("a", 0.6), "b": _gw_prompt("b", 0.6)})
+
+    def launch_and_finish(name: str) -> None:
+        h.launched.append(name)
+        now = h.clock.now_utc()
+        done = (
+            RunRecord.pending(
+                run_id=f"{name}-child",
+                chore=name,
+                kind=Kind.PROMPT,
+                definition_rev="r",
+                started=now,
+                backend="gw",
+            )
+            .start(pid=1, pgid=1, process_start=0.0)
+            .with_usage(Usage(tokens_in=10, tokens_out=5, seconds=0.1, usd=0.001))
+            .finish(RunStatus.SUCCEEDED, ended=now, reason=None)
+        )
+        h.store.write_record(done)
+        h.store.append_ledger(to_ledger_row(done))
+
+    report = tick(dataclasses.replace(h.deps(), launch=launch_and_finish))
+    assert report.fired == ["a", "b"]
+
+
+def test_a_launched_command_chore_reserves_nothing(tmp_path: Path) -> None:
+    """Command chores are exempt from ceilings, so a USD budget one declares
+    is not carried against a later prompt chore under a global USD ceiling
+    in the same pass."""
+    cmd = (
+        "---\nname: a\nschedule: '0 * * * *'\nkind: command\ncommand: ['true']\n"
+        "budget: {usd: 0.9}\n---\n"
+    )
+    h = Harness(
+        tmp_path,
+        chores={"a": cmd, "b": _gw_prompt("b", 0.6)},
+        config="ceiling: {usd: 1.0}\n",
+    )
+    assert tick(h.deps()).fired == ["a", "b"]

@@ -21,9 +21,9 @@ from chores.domain.policies import (
     admission_policy,
     ceiling_policy,
     circuit_breaker,
+    held,
     redact,
     reservation,
-    reserved,
 )
 from chores.domain.run import Billing, RunRecord, RunStatus, new_run_id, to_ledger_row
 from chores.ports.backends import BackendCatalogPort
@@ -110,11 +110,11 @@ def live_running(
     return None
 
 
-def ledger_window(store: RunStorePort, *, now_utc: datetime) -> list[LedgerUsage]:
-    rows: list[LedgerUsage] = []
-    for row in store.ledger_rows(since=now_utc - CEILING_WINDOW):
+def _ledger_usage(rows: Sequence[Mapping[str, object]]) -> list[LedgerUsage]:
+    out: list[LedgerUsage] = []
+    for row in rows:
         billing = row.get("billing")
-        rows.append(
+        out.append(
             LedgerUsage(
                 chore=str(row.get("chore")),
                 backend=None if row.get("backend") is None else str(row.get("backend")),
@@ -130,31 +130,66 @@ def ledger_window(store: RunStorePort, *, now_utc: datetime) -> list[LedgerUsage
                 ),
             )
         )
-    return rows
+    return out
+
+
+def ledger_window(store: RunStorePort, *, now_utc: datetime) -> list[LedgerUsage]:
+    return _ledger_usage(store.ledger_rows(since=now_utc - CEILING_WINDOW))
+
+
+@dataclass(frozen=True, slots=True)
+class Launched:
+    """A run a caller has launched but may not see yet: the chore's run ids
+    known at launch, and the reservation it holds until a new one appears."""
+
+    known: frozenset[str]
+    reservation: LedgerUsage
 
 
 def in_flight(
-    store: RunStorePort, *, carried: Mapping[str, LedgerUsage]
+    store: RunStorePort,
+    *,
+    since: datetime,
+    ledgered: frozenset[str],
+    launched: Mapping[str, Launched],
 ) -> list[LedgerUsage]:
-    """What admitted-but-unfinished runs hold against the ceilings: each
-    PENDING or RUNNING record's declared budget, plus ``carried`` -- runs a
-    caller admitted but whose record may not exist yet (a tick's own
-    launches). A carried chore's record, once written, is the same run, so it
-    is not counted twice."""
-    rows = [
-        held
-        for record in store.records()
-        if record.chore not in carried and (held := reserved(record)) is not None
-    ]
-    return [*rows, *carried.values()]
+    """What runs hold against the ceilings beyond the ledger window: every
+    unfinished record's declared budget, every finished record in the window
+    whose row is not in ``ledgered``, and each ``launched`` reservation until
+    its chore shows a run id it did not have at launch -- from then on that
+    run's own record (or row) speaks for it (issue #283)."""
+    rows: list[LedgerUsage] = []
+    visible: set[str] = set()
+    for record in store.records():
+        pending = launched.get(record.chore)
+        if pending is not None and record.run_id not in pending.known:
+            visible.add(record.chore)
+        if record.status.is_terminal and record.started < since:
+            continue  # outside the window, like its row would be
+        h = held(record, ledgered=record.run_id in ledgered)
+        if h is not None:
+            rows.append(h)
+    rows.extend(
+        entry.reservation for name, entry in launched.items() if name not in visible
+    )
+    return rows
 
 
-def reservation_for(chore: Chore, spec: BackendSpec | None) -> LedgerUsage:
-    return reservation(
-        chore.name,
-        chore.budget,
-        backend=spec.name if spec else None,
-        billing=spec.billing if spec else None,
+def launch_reservation(
+    store: RunStorePort, chore: Chore, spec: BackendSpec | None
+) -> Launched | None:
+    """The reservation a tick carries for a run it launches; None for a
+    command chore, which is exempt from ceilings."""
+    if chore.kind is Kind.COMMAND:
+        return None
+    return Launched(
+        known=frozenset(r.run_id for r in store.records(chore=chore.name)),
+        reservation=reservation(
+            chore.name,
+            chore.budget,
+            backend=spec.name if spec else None,
+            billing=spec.billing if spec else None,
+        ),
     )
 
 
@@ -173,7 +208,7 @@ def admit(
     host: Host,
     *,
     force: bool = False,
-    carried: Mapping[str, LedgerUsage] | None = None,
+    launched: Mapping[str, Launched] | None = None,
 ) -> tuple[AdmissionVerdict, BackendSpec | None]:
     """Gather the admission facts for one chore and decide. The ceilings see
     the ledger window plus every in-flight reservation (issue #283)."""
@@ -184,10 +219,21 @@ def admit(
         url = ctx.catalog.probe_url(chore.backend)
         if url is not None:
             offline = not host.network.reachable(url, timeout_sec=PROBE_TIMEOUT_SEC)
+    # The ledger is read BEFORE the records. A run finishes by writing its
+    # terminal record and then its row, so a run whose row is in this read
+    # is terminal in the next one (counted once, by its row), and a run whose
+    # row is not is counted by its record: budget if unfinished, usage if not.
+    since = now - CEILING_WINDOW
+    window = host.store.ledger_rows(since=since)
     ceiling = ceiling_policy(
         [
-            *ledger_window(host.store, now_utc=now),
-            *in_flight(host.store, carried=carried or {}),
+            *_ledger_usage(window),
+            *in_flight(
+                host.store,
+                since=since,
+                ledgered=frozenset(str(r.get("run_id")) for r in window),
+                launched=launched or {},
+            ),
         ],
         chore=chore,
         backend=spec,

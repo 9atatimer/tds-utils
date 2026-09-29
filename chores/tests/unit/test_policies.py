@@ -12,8 +12,8 @@ from chores.domain.policies import (
     admission_policy,
     ceiling_policy,
     circuit_breaker,
+    held,
     redact,
-    reserved,
 )
 from chores.domain.run import Billing, RunRecord, RunStatus
 
@@ -360,8 +360,7 @@ def test_a_disabled_chore_cannot_be_forced() -> None:
 
 def test_an_unfinished_run_holds_its_declared_budget_against_the_ceilings() -> None:
     """Given a PENDING record that carries the budget it was admitted with,
-    Then it reserves that budget on its backend; once RUNNING it still does;
-    once terminal its ledger row speaks for it and it reserves nothing
+    Then it holds that budget on its backend; once RUNNING it still does
     (issue #283)."""
     from datetime import datetime
 
@@ -376,16 +375,14 @@ def test_an_unfinished_run_holds_its_declared_budget_against_the_ceilings() -> N
         backend="gw",
         billing=Billing.METERED,
     )
-    held = reserved(pending)
-    assert held is not None
-    assert (held.chore, held.backend, held.billing) == ("d", "gw", Billing.METERED)
-    assert (held.usage.tokens, held.usage.usd, held.usage.turns) == (1000, 0.4, None)
+    h = held(pending, ledgered=False)
+    assert h is not None
+    assert (h.chore, h.backend, h.billing) == ("d", "gw", Billing.METERED)
+    assert (h.usage.tokens, h.usage.usd, h.usage.turns) == (1000, 0.4, None)
     running = pending.start(pid=1, pgid=1, process_start=0.0)
-    assert reserved(running) == held
-    done = running.finish(RunStatus.FAILED, ended=at, reason="x")
-    assert reserved(done) is None
+    assert held(running, ledgered=False) == h
     verdict = ceiling_policy(
-        [held, held],
+        [h, h],
         chore=chore(usd=0.3, tokens=10),
         backend=BACKEND,
         global_ceiling=Ceiling(),
@@ -394,3 +391,47 @@ def test_an_unfinished_run_holds_its_declared_budget_against_the_ceilings() -> N
     assert verdict.decision is Decision.REFUSE and "backend usd" in (
         verdict.reason or ""
     )
+
+
+def test_a_finished_run_holds_its_usage_until_its_ledger_row_lands() -> None:
+    """The terminal record and its ledger row are two writes. Between them
+    (or after a crash between them) the run holds its recorded usage, not
+    its budget; once the row exists the row speaks for it."""
+    from datetime import datetime
+
+    at = datetime(2026, 3, 2, 10, 0)
+    done = (
+        RunRecord.pending(
+            run_id="d-1",
+            chore="d",
+            kind=Kind.PROMPT,
+            definition_rev="r",
+            started=at,
+            budget=Budget(seconds=60, tokens=1000, usd=0.4),
+            backend="gw",
+            billing=Billing.METERED,
+        )
+        .start(pid=1, pgid=1, process_start=0.0)
+        .with_usage(Usage(tokens_in=7, tokens_out=3, seconds=1.0, usd=0.02))
+        .finish(RunStatus.SUCCEEDED, ended=at, reason=None)
+    )
+    h = held(done, ledgered=False)
+    assert h is not None and (h.usage.tokens, h.usage.usd) == (10, 0.02)
+    assert h.backend == "gw"
+    assert held(done, ledgered=True) is None
+
+
+def test_a_command_run_holds_nothing() -> None:
+    """Command chores are exempt from ceilings, so a budget one declares
+    must never count against an LLM chore's admission."""
+    from datetime import datetime
+
+    pending = RunRecord.pending(
+        run_id="t-1",
+        chore="t",
+        kind=Kind.COMMAND,
+        definition_rev="r",
+        started=datetime(2026, 3, 2, 10, 0),
+        budget=Budget(seconds=60, usd=0.9),
+    )
+    assert held(pending, ledgered=False) is None

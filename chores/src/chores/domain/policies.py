@@ -62,13 +62,33 @@ def reservation(
     )
 
 
-def reserved(record: RunRecord) -> LedgerUsage | None:
-    """The reservation a PENDING or RUNNING record holds; None once it is
-    terminal, when its ledger row speaks for it."""
-    if record.status.is_terminal or record.budget is None:
+def held(record: RunRecord, *, ledgered: bool) -> LedgerUsage | None:
+    """What one record holds against the ceilings beyond the ledger rows.
+
+    A PENDING or RUNNING run holds its declared budget (issue #283). A
+    finished run whose ledger row has not landed holds its recorded usage:
+    the terminal write and the row are two writes, and an admission (or a
+    crash) can fall between them. A command run holds nothing -- commands
+    are exempt from ceilings -- and so does everything else.
+    """
+    if record.kind is Kind.COMMAND:
         return None
-    return reservation(
-        record.chore, record.budget, backend=record.backend, billing=record.billing
+    if not record.status.is_terminal:
+        if record.budget is None:
+            return None
+        return reservation(
+            record.chore,
+            record.budget,
+            backend=record.backend,
+            billing=record.billing,
+        )
+    if ledgered or record.usage is None:
+        return None
+    return LedgerUsage(
+        chore=record.chore,
+        backend=record.backend,
+        billing=record.billing,
+        usage=record.usage,
     )
 
 

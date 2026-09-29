@@ -812,3 +812,60 @@ def test_ceiling_admission_is_serialised_across_chores(tmp_path: Path) -> None:
     cmd = FullHarness(tmp_path / "c", chores={"tidy": COMMAND})
     run_chore("tidy", cmd.deps().as_run_deps())
     assert "lock <admission>" not in cmd.store.events
+
+
+def test_a_finished_run_without_its_ledger_row_still_counts(tmp_path: Path) -> None:
+    """Given run a finished (0.6 USD spent on gw) but its ledger row has not
+    landed -- the terminal write and the row are two writes, and a crash can
+    fall between them -- When b (0.6 USD declared) is admitted, Then b is
+    SKIPPED_CEILING: a's recorded spend still counts."""
+    from chores.domain.budget import Usage
+    from chores.domain.run import Billing
+
+    h = FullHarness(tmp_path, chores={"b": _gw_prompt("b", 0.6)})
+    h.store.write_record(
+        RunRecord.pending(
+            run_id="a-1",
+            chore="a",
+            kind=Kind.PROMPT,
+            definition_rev="r",
+            started=h.clock.now_utc(),
+            backend="gw",
+            billing=Billing.METERED,
+        )
+        .start(pid=1, pgid=1, process_start=0.0)
+        .with_usage(Usage(tokens_in=10, tokens_out=10, seconds=1.0, usd=0.6))
+        .finish(RunStatus.SUCCEEDED, ended=h.clock.now_utc(), reason=None)
+    )
+    b = run_chore("b", h.deps().as_run_deps()).record
+    assert b and b.status is RunStatus.SKIPPED_CEILING
+    assert "backend usd" in (b.reason or "")
+
+
+def test_a_run_finished_before_the_window_counts_nowhere(tmp_path: Path) -> None:
+    """Given a finished run from 25h ago that spent 0.9 of gw's 1.0 USD, its
+    ledger row landed long since, When b (0.6 USD) is admitted, Then b runs:
+    the rolling window has dropped that spend, row and record alike."""
+    from chores.domain.budget import Usage
+    from chores.domain.run import Billing, to_ledger_row
+
+    h = FullHarness(tmp_path, chores={"b": _gw_prompt("b", 0.6)})
+    then = h.clock.now_utc() - timedelta(hours=25)
+    old = (
+        RunRecord.pending(
+            run_id="a-old",
+            chore="a",
+            kind=Kind.PROMPT,
+            definition_rev="r",
+            started=then,
+            backend="gw",
+            billing=Billing.METERED,
+        )
+        .start(pid=1, pgid=1, process_start=0.0)
+        .with_usage(Usage(tokens_in=10, tokens_out=10, seconds=1.0, usd=0.9))
+        .finish(RunStatus.SUCCEEDED, ended=then, reason=None)
+    )
+    h.store.write_record(old)
+    h.store.append_ledger(to_ledger_row(old))
+    b = run_chore("b", h.deps().as_run_deps()).record
+    assert b and b.status is RunStatus.SUCCEEDED
