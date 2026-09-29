@@ -1045,3 +1045,46 @@ def test_a_run_that_really_failed_keeps_the_breaker_pause(tmp_path: Path) -> Non
     assert r and r.status is RunStatus.FAILED
     assert h.store.chore_paused("brand") is not None
     assert not any("was a run that finished" in n.text for n in h.store.notifications())
+
+
+def test_the_runner_amends_under_its_chore_lock(tmp_path: Path) -> None:
+    """The runner's amending row and its INTERRUPTED->final transition happen
+    under the chore's lock, the one the tick holds while it closes a run and
+    publishes its side effects (issue #298)."""
+    from contextlib import contextmanager
+
+    class Audit(TickWinsTheFinish):
+        def __init__(self) -> None:
+            super().__init__()
+            self.held: set[str] = set()
+            self.unlocked: list[str] = []
+
+        def chore_lock(self, name):  # type: ignore[no-untyped-def]
+            @contextmanager
+            def held():  # type: ignore[no-untyped-def]
+                self.held.add(name)
+                try:
+                    yield
+                finally:
+                    self.held.discard(name)
+
+            return held()
+
+        def append_ledger(self, row):  # type: ignore[no-untyped-def]
+            if row.get("amends") and row["chore"] not in self.held:
+                self.unlocked.append("amending row")
+            super().append_ledger(row)
+
+        def transition(self, run_id, *, expected, then):  # type: ignore[no-untyped-def]
+            if expected is RunStatus.INTERRUPTED:
+                current = self.read_record(run_id)
+                if current is not None and current.chore not in self.held:
+                    self.unlocked.append("amending transition")
+            return super().transition(run_id, expected=expected, then=then)
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND})
+    store = Audit()
+    h.store = store  # type: ignore[assignment]
+    r = run_chore("tidy", h.deps().as_run_deps()).record
+    assert r and r.status is RunStatus.SUCCEEDED
+    assert store.unlocked == []

@@ -462,20 +462,24 @@ def _finish(
         record.run_id, expected=RunStatus.RUNNING, then=lambda _current: final
     )
     if done is None:
-        current = deps.store.read_record(record.run_id)
-        if current is None or current.status is not RunStatus.INTERRUPTED:
-            return current if current is not None else record
         # The tick closed this run on liveness alone: the child had exited and
         # the runner was still finishing. The runner holds the true outcome, so
-        # it wins (issue #298). The real row goes first, so the spend is never
-        # uncounted; it names the tick's zero-usage INTERRUPTED row it
-        # supersedes, because the tick's row may still land after it.
-        deps.store.append_ledger(to_ledger_row(record, amends=RunStatus.INTERRUPTED))
-        deps.store.transition(
-            record.run_id,
-            expected=RunStatus.INTERRUPTED,
-            then=lambda _current: final,
-        )
+        # it wins (issue #298). Under the chore's lock, which the tick holds
+        # while it closes a run and publishes about it, so the amendment lands
+        # wholly after that. The real row goes first, so the spend is never
+        # uncounted, and it names the zero-usage INTERRUPTED row it supersedes.
+        with deps.store.chore_lock(chore.name):
+            current = deps.store.read_record(record.run_id)
+            if current is None or current.status is not RunStatus.INTERRUPTED:
+                return current if current is not None else record
+            deps.store.append_ledger(
+                to_ledger_row(record, amends=RunStatus.INTERRUPTED)
+            )
+            deps.store.transition(
+                record.run_id,
+                expected=RunStatus.INTERRUPTED,
+                then=lambda _current: final,
+            )
         artifacts.append(
             "errors.log",
             f"outcome {status.value} recorded over the tick's INTERRUPTED: the "

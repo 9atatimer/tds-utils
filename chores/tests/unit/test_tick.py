@@ -646,33 +646,58 @@ def test_a_launched_command_chore_reserves_nothing(tmp_path: Path) -> None:
     assert tick(h.deps()).fired == ["a", "b"]
 
 
-class RunnerAmendsAfterTheTick(FakeRunStore):
-    """The tick's RUNNING->INTERRUPTED transition lands, and the runner wins
-    the race (issue #298) before the tick publishes anything else."""
+class LockAudit(FakeRunStore):
+    """Records, for every INTERRUPTED transition, ledger row and notification,
+    whether its chore's lock was held when it was written."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.held: set[str] = set()
+        self.unlocked: list[str] = []
+
+    def chore_lock(self, name):  # type: ignore[no-untyped-def]
+        from contextlib import contextmanager
+
+        @contextmanager
+        def held():  # type: ignore[no-untyped-def]
+            self.held.add(name)
+            try:
+                yield
+            finally:
+                self.held.discard(name)
+
+        return held()
 
     def transition(self, run_id, *, expected, then):  # type: ignore[no-untyped-def]
         done = super().transition(run_id, expected=expected, then=then)
-        if done is not None and done.status is RunStatus.INTERRUPTED:
-            from dataclasses import replace
-
-            self.write_record(replace(done, status=RunStatus.SUCCEEDED, reason=None))
+        if done is not None and done.chore not in self.held:
+            self.unlocked.append(f"transition {done.status.value}")
         return done
 
+    def append_ledger(self, row):  # type: ignore[no-untyped-def]
+        if row["chore"] not in self.held:
+            self.unlocked.append(f"row {row['status']}")
+        super().append_ledger(row)
 
-def test_the_tick_publishes_nothing_for_a_run_the_runner_amended(
-    tmp_path: Path,
-) -> None:
-    """Given the tick closes a dead-looking run as INTERRUPTED and the runner
-    amends it to SUCCEEDED straight after, Then the tick does not report it
-    interrupted, posts no INTERRUPTED notification and books no breaker
-    failure: the record it would publish about no longer says so."""
+    def notify(self, **kw):  # type: ignore[no-untyped-def]
+        if kw.get("chore") is not None and kw["chore"] not in self.held:
+            self.unlocked.append(f"notify {kw['text']}")
+        return super().notify(**kw)
+
+
+def test_the_tick_closes_a_dead_run_under_its_chore_lock(tmp_path: Path) -> None:
+    """The tick's INTERRUPTED transition, its row and every side effect it
+    publishes happen under the chore's lock, the lock the runner takes to
+    amend a run it finished (issue #298): an amendment lands wholly before
+    or wholly after them, never between."""
     chore = HOURLY.replace(
         "command: ['true']\n", "command: ['true']\nnotify_on: [INTERRUPTED]\n"
     )
     h = Harness(tmp_path, chores={"hourly": chore}, config="failure_threshold: 1\n")
-    h.store = RunnerAmendsAfterTheTick()
+    store = LockAudit()
+    h.store = store
     h.store.mark_tick(
-        TickMark(at=h.clock.now_utc() - timedelta(seconds=60), ledger_rows=0)
+        TickMark(at=h.clock.now_utc() - timedelta(minutes=5), ledger_rows=0)
     )
     h.store.write_record(
         RunRecord.pending(
@@ -684,6 +709,5 @@ def test_the_tick_publishes_nothing_for_a_run_the_runner_amended(
         ).start(pid=4242, pgid=4242, process_start=0.0)
     )  # pid 4242 is not alive
     report = tick(h.deps())
-    assert "hourly-r" not in report.interrupted
-    assert not any("INTERRUPTED" in n.text for n in h.store.notifications())
-    assert h.store.chore_paused("hourly") is None
+    assert report.interrupted == ["hourly-r"]
+    assert store.unlocked == []

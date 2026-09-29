@@ -5,7 +5,7 @@ Stateless: everything it knows comes from the store and the clock.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -128,46 +128,66 @@ def _interrupt_dead_runs(deps: TickDeps, ctx: Context, report: TickReport) -> No
         def interrupt(cur: RunRecord, *, why: str = reason) -> RunRecord:
             return cur.finish(RunStatus.INTERRUPTED, ended=now, reason=why)
 
-        done = deps.store.transition(
-            record.run_id, expected=record.status, then=interrupt
-        )
-        if done is None:
-            continue  # the runner finished between the scan and this check
-        # A runner that died before Artifacts.prepare() (resolving a secret,
-        # say) left a bare record: the five artifacts and the reason are
-        # written here so an INTERRUPTED run dir reads like any other.
-        artifacts = Artifacts(
-            deps.store, done.run_id, (), ctx.definitions.config.max_run_dir_bytes
-        )
-        artifacts.prepare()
-        artifacts.append("errors.log", reason + "\n")
-        deps.store.append_ledger(to_ledger_row(done))
-        current = deps.store.read_record(record.run_id)
-        if current is None or current.status is not RunStatus.INTERRUPTED:
-            # The runner finished after all and amended the record (issue
-            # #298): its row supersedes ours, and nothing more is published
-            # about an interruption that did not happen.
-            continue
-        report.interrupted.append(record.run_id)
-        chore = by_name.get(record.chore)
-        if chore is not None:
-            apply_breaker(
-                deps.store,
-                deps.notifier,
-                chore,
-                threshold=ctx.definitions.config.failure_threshold,
-                at=now,
+        # Under the chore's lock, the one a runner takes to amend a run it did
+        # finish (issue #298): the amendment lands wholly before this close,
+        # which then fails its check-and-set, or wholly after everything it
+        # publishes.
+        with deps.store.chore_lock(record.chore):
+            _close_interrupted(
+                deps,
+                ctx,
+                report,
+                record,
+                by_name,
+                now=now,
+                reason=reason,
+                interrupt=interrupt,
             )
-        if chore is not None and RunStatus.INTERRUPTED in chore.notify_on:
-            post(
-                deps.store,
-                deps.notifier,
-                at=now,
-                level="info",
-                text=f"{record.chore}: INTERRUPTED: {reason}",
-                run_id=record.run_id,
-                chore=record.chore,
-            )
+
+
+def _close_interrupted(
+    deps: TickDeps,
+    ctx: Context,
+    report: TickReport,
+    record: RunRecord,
+    by_name: Mapping[str, Chore],
+    *,
+    now: datetime,
+    reason: str,
+    interrupt: Callable[[RunRecord], RunRecord],
+) -> None:
+    done = deps.store.transition(record.run_id, expected=record.status, then=interrupt)
+    if done is None:
+        return  # the runner finished between the scan and this check
+    # A runner that died before Artifacts.prepare() (resolving a secret,
+    # say) left a bare record: the five artifacts and the reason are
+    # written here so an INTERRUPTED run dir reads like any other.
+    artifacts = Artifacts(
+        deps.store, done.run_id, (), ctx.definitions.config.max_run_dir_bytes
+    )
+    artifacts.prepare()
+    artifacts.append("errors.log", reason + "\n")
+    deps.store.append_ledger(to_ledger_row(done))
+    report.interrupted.append(record.run_id)
+    chore = by_name.get(record.chore)
+    if chore is not None:
+        apply_breaker(
+            deps.store,
+            deps.notifier,
+            chore,
+            threshold=ctx.definitions.config.failure_threshold,
+            at=now,
+        )
+    if chore is not None and RunStatus.INTERRUPTED in chore.notify_on:
+        post(
+            deps.store,
+            deps.notifier,
+            at=now,
+            level="info",
+            text=f"{record.chore}: INTERRUPTED: {reason}",
+            run_id=record.run_id,
+            chore=record.chore,
+        )
 
 
 def _record_invalid(
