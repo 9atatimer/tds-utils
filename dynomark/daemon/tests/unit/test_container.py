@@ -4,7 +4,7 @@ adapter faked"), and the in-process job loop (Design, Rejections: "A
 scheduler port -- an in-process loop with RetryPolicy as a value").
 """
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
 
@@ -17,15 +17,15 @@ from dynomark_daemon.domain.chat import DraftAnswer, Question, Turn
 from dynomark_daemon.domain.config import ModelInfo
 from dynomark_daemon.domain.diff import DiffKind, DiffProposal
 from dynomark_daemon.domain.events import DiffProposed, JobUpdated
-from dynomark_daemon.domain.ids import ProfileId
-from dynomark_daemon.domain.job import JobState
+from dynomark_daemon.domain.ids import JobId, ProfileId
+from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.domain.placement import EntryRef, FolderChoice, MoveFeedback
 from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.domain.tree import TreeOutline
 from dynomark_daemon.ports.completion import CompletionError, CompletionPort
 from dynomark_daemon.settings import parse_settings
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
-from dynomark_daemon.testing.completion import ScriptedCompletion
+from dynomark_daemon.testing.completion import EnrichCall, ScriptedCompletion
 from dynomark_daemon.testing.content import FakeFetch
 from dynomark_daemon.testing.embedding import HashingEmbedding
 from dynomark_daemon.testing.store import InMemoryCorpusStore
@@ -225,6 +225,103 @@ def test_an_unexpected_failure_counts_an_attempt_and_backs_off_until_failed() ->
         if isinstance(p.event, JobUpdated)
     ]
     assert [u.attempts for u in updates] == list(range(1, policy.attempts + 1))
+
+
+class _SavesDuringFirstEnrich(ScriptedCompletion):
+    """Runs ``arrive`` inside the first enrich call: a save the lane ingests
+    while the job loop is busy with a job."""
+
+    def __init__(
+        self,
+        arrive: Callable[[], None],
+        *,
+        enrich: Sequence[Enrichment],
+        choose_folder: Sequence[FolderChoice],
+    ) -> None:
+        super().__init__(enrich=enrich, choose_folder=choose_folder)
+        self._arrive: Callable[[], None] | None = arrive
+
+    def enrich(self, bookmark: Bookmark, capture: Capture) -> Enrichment:
+        arrive, self._arrive = self._arrive, None
+        if arrive is not None:
+            arrive()
+        return super().enrich(bookmark, capture)
+
+
+def test_a_live_save_ingested_mid_pass_runs_next_ahead_of_the_backfill() -> None:
+    """Given three backfill jobs queued, When a live save into Follow Up is
+    ingested while the first is being enriched, Then the same pass runs the
+    live save next, before the rest of the backfill (Goal 2 during a
+    first-install backfill)."""
+    ports = _ports(ScriptedCompletion())
+
+    def live_save() -> None:
+        ingest(
+            make_bookmark("https://live.example/", node_id="42"),
+            make_capture("live"),
+            A,
+            store=ports.store,
+            clock=ports.clock,
+            ids=ports.ids,
+        )
+
+    completion = _SavesDuringFirstEnrich(
+        live_save, enrich=[ENRICHMENT] * 4, choose_folder=[RUST]
+    )
+    ports = replace(ports, completion=completion)
+    ports.store.bind_writer_profile(A)
+    ports.store.put_tree_snapshot(wire.TREE)
+    for n in range(3):
+        ingest(
+            make_bookmark(
+                f"https://old.example/{n}", node_id=f"b{n}", path=make_path("Other")
+            ),
+            make_capture("old"),
+            A,
+            backfill=True,
+            store=ports.store,
+            clock=ports.clock,
+            ids=ports.ids,
+        )
+
+    JobLoop(make_config(), ports).run_once()
+
+    enriched = [
+        call.bookmark.node_id
+        for call in completion.calls
+        if isinstance(call, EnrichCall)
+    ]
+    assert enriched == ["b0", "42", "b1", "b2"]
+
+
+class _BoundedStore(InMemoryCorpusStore):
+    """Fails the test instead of hanging when a pass never ends."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.reads = 0
+
+    def get_job(self, job_id: JobId) -> Job | None:
+        self.reads += 1
+        if self.reads > 50:
+            raise AssertionError("the pass keeps running the same job")
+        return super().get_job(job_id)
+
+
+def test_a_job_still_due_after_its_run_waits_for_the_next_pass() -> None:
+    """Given a writer with no tree snapshot yet, When the job loop runs a save,
+    Then it is PLACED without a batch (waiting for a snapshot) and the pass
+    ends rather than running it again and again."""
+    ports = _ports(
+        ScriptedCompletion(enrich=[ENRICHMENT], choose_folder=[RUST]),
+        store=_BoundedStore(),
+    )
+    _save(ports, "42")
+
+    JobLoop(make_config(), ports).run_once()
+
+    (job,) = ports.store.list_jobs()
+    assert (job.state, job.batch_id) == (JobState.PLACED, None)
 
 
 def test_a_reader_daemon_indexes_and_never_files() -> None:

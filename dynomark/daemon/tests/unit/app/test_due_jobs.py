@@ -24,9 +24,16 @@ def _job(
     attempts: int = 0,
     updated_at: int = 0,
     batch_id: BatchId | None = None,
+    backfill: bool = False,
 ) -> Job:
     job = make_job(f"job-{n}", node_id=str(n), state=state)
-    return replace(job, attempts=attempts, updated_at=updated_at, batch_id=batch_id)
+    return replace(
+        job,
+        attempts=attempts,
+        updated_at=updated_at,
+        batch_id=batch_id,
+        backfill=backfill,
+    )
 
 
 def _store(*jobs: Job) -> InMemoryCorpusStore:
@@ -87,3 +94,49 @@ def test_a_job_whose_placement_failed_waits_its_backoff_too() -> None:
 
     assert (before.due, before.next_retry_at) == ([], due_at)
     assert [j.job_id for j in after.due] == ["job-1"]
+
+
+def test_live_saves_are_due_before_backfill_in_first_queued_order() -> None:
+    """Given backfill jobs queued before and among live saves, When the
+    schedule is read, Then every live save comes before every backfill job,
+    each class in first-queued order: a save made during a first-install
+    backfill is filed next, not after thousands of old bookmarks (Goal 2)."""
+    store = _store(
+        _job(1, JobState.QUEUED, backfill=True),
+        _job(2, JobState.CAPTURING, backfill=True),
+        _job(3, JobState.QUEUED),
+        _job(4, JobState.QUEUED, backfill=True),
+        _job(5, JobState.ENRICHED),
+    )
+
+    schedule = due_jobs(POLICY, 1_790_000_000_000, store=store)
+
+    assert [j.job_id for j in schedule.due] == [
+        "job-3",
+        "job-5",
+        "job-1",
+        "job-2",
+        "job-4",
+    ]
+
+
+class _UnfinishedOnly(InMemoryCorpusStore):
+    """A store on which listing every job fails the test."""
+
+    def list_jobs(self, *, state: JobState | None = None) -> list[Job]:
+        if state is None:
+            raise AssertionError("the schedule read every job ever ingested")
+        return super().list_jobs(state=state)
+
+
+def test_the_schedule_reads_only_unfinished_jobs() -> None:
+    """Given finished and unfinished jobs, When the schedule is read, Then it
+    never lists every job: it is read after each job the loop runs, so its
+    cost must follow the unfinished work, not the history."""
+    store = _UnfinishedOnly()
+    for job in (_job(1, JobState.FILED), _job(2, JobState.QUEUED)):
+        store.put_job(job)
+
+    schedule = due_jobs(POLICY, 1_790_000_000_000, store=store)
+
+    assert [j.job_id for j in schedule.due] == ["job-2"]

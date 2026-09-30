@@ -295,6 +295,25 @@ def test_put_job_replaces_by_job_id_and_list_filters_by_state(
     assert store.get_job(JobId("job-9")) is None
 
 
+def test_list_jobs_in_states_keeps_first_insertion_order_across_states(
+    store: CorpusStorePort,
+) -> None:
+    """Given jobs in several states, one moved state after insertion, When the
+    jobs in a set of states are listed, Then they are exactly those, in
+    first-insertion order across the states (the job loop's schedule reads
+    only the unfinished jobs, not every job ever ingested)."""
+    store.put_job(make_job("job-1", node_id="1", state=JobState.ENRICHED))
+    store.put_job(make_job("job-2", node_id="2", state=JobState.FILED))
+    store.put_job(make_job("job-3", node_id="3"))
+    store.put_job(make_job("job-4", node_id="4", state=JobState.CAPTURING))
+    store.put_job(make_job("job-1", node_id="1", state=JobState.CAPTURING))
+
+    listed = store.list_jobs_in((JobState.QUEUED, JobState.CAPTURING))
+
+    assert [j.job_id for j in listed] == ["job-1", "job-3", "job-4"]
+    assert store.list_jobs_in(()) == []
+
+
 def test_get_save_returns_the_save_ingested_with_the_job(
     store: CorpusStorePort,
 ) -> None:
