@@ -107,13 +107,21 @@ export class BatchLane {
     else this.open = { batch_id, batch, acks: 1 };
   }
 
-  /** Deliver a receipt; on its result close the batch, send tree.snapshot, then let held offers through. */
+  /**
+   * Deliver a receipt; on its result close the batch, send tree.snapshot, then
+   * let held offers through. When it fails and no other receipt of the open
+   * batch is in flight, nothing is left to release the held offers, so they
+   * fail with the same error: the caller (DaemonEvents) asks for a replay
+   * after a backoff on busy or internal, or leaves it to the reconnect's on
+   * a lost link, and the re-offer is answered from the cursor first.
+   */
   private async acknowledge(receipt: BatchReceipt, frame: Frame | undefined): Promise<void> {
     try {
       await ackBatch(receipt, this.deps);
     } catch (error) {
       if (this.open?.batch_id === receipt.batch_id) this.open.acks -= 1;
       frame?.reject(error);
+      if ((this.open?.acks ?? 0) === 0) for (const held of this.held.splice(0)) held.reject(error);
       return;
     }
     if (this.open?.batch_id === receipt.batch_id) this.open = undefined;
