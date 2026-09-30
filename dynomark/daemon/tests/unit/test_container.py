@@ -251,8 +251,9 @@ class _SavesDuringFirstEnrich(ScriptedCompletion):
 def test_a_live_save_ingested_mid_pass_runs_next_ahead_of_the_backfill() -> None:
     """Given three backfill jobs queued, When a live save into Follow Up is
     ingested while the first is being enriched, Then the same pass runs the
-    live save next, before the rest of the backfill (Goal 2 during a
-    first-install backfill)."""
+    live save next, before the rest of the backfill, and the server is told
+    to deliver its offer right after it, not at the end of the pass (Goal 2
+    during a first-install backfill)."""
     ports = _ports(ScriptedCompletion())
 
     def live_save() -> None:
@@ -284,14 +285,20 @@ def test_a_live_save_ingested_mid_pass_runs_next_ahead_of_the_backfill() -> None
             ids=ports.ids,
         )
 
-    JobLoop(make_config(), ports).run_once()
+    def enriched() -> list[str]:
+        return [
+            call.bookmark.node_id
+            for call in completion.calls
+            if isinstance(call, EnrichCall)
+        ]
 
-    enriched = [
-        call.bookmark.node_id
-        for call in completion.calls
-        if isinstance(call, EnrichCall)
-    ]
-    assert enriched == ["b0", "42", "b1", "b2"]
+    delivered_after: list[list[str]] = []
+    JobLoop(
+        make_config(), ports, on_progress=lambda: delivered_after.append(enriched())
+    ).run_once()
+
+    assert enriched() == ["b0", "42", "b1", "b2"]
+    assert ["b0", "42"] in delivered_after  # its offer goes out before the rest
 
 
 class _BoundedStore(InMemoryCorpusStore):
