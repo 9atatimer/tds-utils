@@ -71,7 +71,8 @@ for the shepherd).
 
 | File | Purpose |
 |------|---------|
-| `tmux.conf` | tmux hooks — symlink to `~/.tmux.conf` |
+| `tmux.conf` | tmux hooks and TPM plugins (resurrect, continuum) -- symlink to `~/.tmux.conf` |
+| `bin/tmux-launch` | Called by `dot.zshrc` per terminal: creates session `main` or adds a window to it, then attaches |
 | `tmux_logging.sh` | Opens pipe-pane at pane creation |
 | `tmux_shepherd.sh` | Archives logs on exit; sweeps orphans; delegates branding to cron |
 | `log_brander` | Stub — samples log, calls local LLM, writes `slug.txt` |

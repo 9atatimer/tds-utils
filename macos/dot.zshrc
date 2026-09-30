@@ -199,10 +199,15 @@ fi
 
 # --- Main (must stay last: exec replaces this shell) ---
 
-# log-hoarder: auto-launch tmux for each new terminal window.
+# log-hoarder: put each new terminal window in the one shared tmux session,
+# as a new window (bin/tmux-launch). Without it on PATH -- a machine that has
+# not been released yet -- fall back to a session per terminal.
 # NOTHING BELOW THIS BLOCK RUNS in a normal terminal. tmux's shell is login
 # AND interactive, so .zshenv -> path_helper -> .zprofile -> .zshrc all run a
 # second time; that is why tds_path_apply has to be idempotent.
 if [[ -o interactive ]] && [[ -z "$TMUX" ]]; then
+    if (( $+commands[tmux-launch] )); then
+        exec tmux-launch
+    fi
     exec tmux new-session
 fi
