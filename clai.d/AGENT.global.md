@@ -292,6 +292,11 @@ git -C ~/workplace/<repo> worktree add \
     ~/workplace/.worktrees/<repo>-<topic> -b <branch> origin/<default>
 ```
 
+This relies on `branch.autoSetupMerge=simple` and `push.autoSetupRemote=true`
+(provisioned in `git-config/dot.gitconfig`): without them the new branch
+tracks `origin/<default>`, and a bare push is refused -- or, following git's
+hint, lands on the default branch.
+
 A worktree is cheap, it is isolated, and `git worktree remove` cleans it up.
 Branch from `origin/<default>` explicitly rather than from whatever the
 shared clone's HEAD happens to be -- in a shared clone that is not

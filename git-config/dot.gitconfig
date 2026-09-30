@@ -8,6 +8,13 @@
 	editor = /Applications/Emacs.app/Contents/MacOS/bin/emacsclient -c -a=''
 [pull]
 	ff = only
+[branch]
+	# Track the start ref only when its name matches the new branch, so
+	# `-b feat/x origin/main` sets no upstream (tds-utils #359).
+	autoSetupMerge = simple
+[push]
+	# First plain `git push` creates origin/<branch> and tracks it.
+	autoSetupRemote = true
 [filter "lfs"]
 	clean = git-lfs clean -- %f
 	smudge = git-lfs smudge -- %f
