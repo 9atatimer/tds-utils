@@ -260,17 +260,22 @@ class FetchContentSource:
         """The page's readable text, ``source`` ``fetch``.
 
         Raises:
-            ContentUnavailable: not http(s), an HTTP error, a timeout, a
-                non-text page, or no readable text.
+            ContentUnavailable: not http(s), a url ``http.client`` cannot use,
+                an HTTP error, a server breaking HTTP, a timeout, a non-text
+                page, or no readable text.
         """
         url = bookmark.url
         deadline = time.monotonic() + self._timeout_s
-        if urlsplit(url).scheme.lower() not in SCHEMES:
-            raise _unavailable(url, "only http(s) is fetched", retryable=False)
-        request = urllib.request.Request(
-            url, headers={"User-Agent": self._user_agent, "Accept": "text/html"}
-        )
         try:
+            scheme = urlsplit(url).scheme.lower()
+        except ValueError as error:
+            raise _unavailable(url, str(error), retryable=False) from error
+        if scheme not in SCHEMES:
+            raise _unavailable(url, "only http(s) is fetched", retryable=False)
+        try:
+            request = urllib.request.Request(
+                url, headers={"User-Agent": self._user_agent, "Accept": "text/html"}
+            )
             with self._opener.open(request, timeout=self._timeout_s) as response:
                 headers: Message = response.headers
                 content_type = headers.get_content_type()
@@ -286,6 +291,17 @@ class FetchContentSource:
             raise _unavailable(url, str(error.reason), retryable=not refused) from error
         except (TimeoutError, OSError) as error:
             raise _unavailable(url, str(error), retryable=True) from error
+        except http.client.InvalidURL as error:
+            raise _unavailable(url, str(error), retryable=False) from error
+        except http.client.HTTPException as error:
+            # urllib does not wrap these: a garbage status line, a truncated
+            # body (IncompleteRead), an over-long header line.
+            detail = f"{type(error).__name__}: {error}"
+            raise _unavailable(url, detail, retryable=True) from error
+        except ValueError as error:
+            # A url no request can be made for: an IDNA-refused host label
+            # (UnicodeError), a malformed netloc.
+            raise _unavailable(url, str(error), retryable=False) from error
         text = _decode(raw, _charset(headers, raw))
         if content_type == "text/plain":
             return Capture(source=CaptureSource.FETCH, text=text.strip())

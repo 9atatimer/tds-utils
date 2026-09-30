@@ -30,7 +30,8 @@ def _retry_at(job: Job, policy: RetryPolicy) -> int | None:
     return None
 
 
-def _unfinished(job: Job) -> bool:
+def unfinished(job: Job) -> bool:
+    """The loop still has work for ``job`` (it is not waiting on a receipt)."""
     if job.state is JobState.PLACED:
         return job.batch_id is None
     return job.state in (JobState.QUEUED, JobState.CAPTURING, JobState.ENRICHED)
@@ -41,7 +42,7 @@ def due_jobs(policy: RetryPolicy, now: int, *, store: CorpusStorePort) -> Schedu
     on a retry or on its batch's receipt."""
     due: list[Job] = []
     waits: list[int] = []
-    for job in filter(_unfinished, store.list_jobs()):
+    for job in filter(unfinished, store.list_jobs()):
         retry_at = _retry_at(job, policy)
         if retry_at is not None and retry_at > now:
             waits.append(retry_at)

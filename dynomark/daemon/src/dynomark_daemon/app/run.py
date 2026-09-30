@@ -24,6 +24,7 @@ from typing import Final
 from dynomark_daemon.app.errors import TreeNotReady, UnknownRecord
 from dynomark_daemon.app.file import file, park
 from dynomark_daemon.app.jobs import record_job_change
+from dynomark_daemon.app.loop import unfinished
 from dynomark_daemon.app.place import place
 from dynomark_daemon.app.process import process_job
 from dynomark_daemon.domain.batch import OutsideOwnedRoots
@@ -296,3 +297,33 @@ def run_job(
         if job != start:
             record_job_change(job, store=store, ids=ids)
     return job
+
+
+def count_crashed_attempt(
+    job: Job,
+    error: Exception,
+    policy: RetryPolicy,
+    *,
+    store: CorpusStorePort,
+    clock: Clock,
+    ids: IdSource,
+) -> Job | None:
+    """Count an error no port names, raised while running ``job``, as a failed
+    retryable attempt with its ``job.updated``: the job backs off like any
+    other retry and ends FAILED once ``policy`` is spent, so no adapter
+    defect leaves it due again at attempts 0 on every pass. A QUEUED job is
+    picked up first, so its retry waits the backoff too. ``None`` when the
+    job is gone or has nothing left to run."""
+    stored = store.get_job(job.job_id)
+    if stored is None or not unfinished(stored):
+        return None
+    now = clock.now_ms()
+    if stored.state is JobState.QUEUED:
+        stored = stored.picked_up(at=now)
+    failed = stored.attempt_failed(
+        f"unexpected error: {type(error).__name__}: {error}",
+        retryable=True,
+        policy=policy,
+        at=now,
+    )
+    return record_job_change(failed, store=store, ids=ids)

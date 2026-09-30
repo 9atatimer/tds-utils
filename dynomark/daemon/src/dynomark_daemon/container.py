@@ -41,7 +41,7 @@ from dynomark_daemon.app.diffs import propose_scheduled_rebuild
 from dynomark_daemon.app.errors import TreeNotReady
 from dynomark_daemon.app.hello import owned_roots_for
 from dynomark_daemon.app.loop import Schedule, due_jobs
-from dynomark_daemon.app.run import run_job
+from dynomark_daemon.app.run import count_crashed_attempt, run_job
 from dynomark_daemon.app.writer import writer_conflict
 from dynomark_daemon.domain.config import Config
 from dynomark_daemon.domain.connection import served_role
@@ -175,6 +175,20 @@ class JobLoop:
                 last_error=after.last_error,
             )
 
+    def _count_crash(self, job: Job, error: Exception) -> None:
+        ports = self._ports
+        try:
+            count_crashed_attempt(
+                job,
+                error,
+                self._config.retry,
+                store=ports.store,
+                clock=ports.clock,
+                ids=ports.ids,
+            )
+        except Exception:
+            log.exception("job.crash_uncounted", job_id=job.job_id)
+
     def _rebuild(self) -> bool:
         """Propose the rebuild the cadence makes due, if any; whether one was."""
         ports, config = self._ports, self._config
@@ -210,10 +224,12 @@ class JobLoop:
         for job in schedule.due:
             try:
                 self._run(job)
-            except Exception:
+            except Exception as error:
                 # One job's unexpected failure must not stop the others; it
-                # is logged with its trace and the job is tried again later.
+                # is logged with its trace and counted as a failed attempt,
+                # so the job backs off and is not pinned at attempts 0.
                 log.exception("job.crashed", job_id=job.job_id)
+                self._count_crash(job, error)
         rebuilt = self._rebuild()
         if schedule.due or rebuilt:
             self._on_progress()
