@@ -9,20 +9,32 @@ import array
 import sqlite3
 import stat
 from collections.abc import Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
 import pytest
 
+from dynomark_daemon.adapters.records import dump_record
 from dynomark_daemon.adapters.sqlite_store import (
+    MIGRATIONS,
     SCHEMA_VERSION,
     SqliteCorpusStore,
     StoreError,
 )
+from dynomark_daemon.domain.batch import BatchRecord, BatchState, ReceiptApplied
 from dynomark_daemon.domain.bookmark import Save
 from dynomark_daemon.domain.events import JobUpdated
-from dynomark_daemon.domain.ids import EventId, JobId, NodeId, ProfileId, RequestId
-from dynomark_daemon.domain.tree import FolderFlags
+from dynomark_daemon.domain.ids import (
+    BatchId,
+    EventId,
+    JobId,
+    NodeId,
+    ProfileId,
+    RequestId,
+    SnapshotId,
+)
+from dynomark_daemon.domain.tree import FolderFlags, Snapshot
 from tests._factories import (
     make_batch,
     make_bookmark,
@@ -389,3 +401,113 @@ def test_a_read_only_store_refuses_a_unit_of_work(tmp_path: Path) -> None:
             pass
     finally:
         reader.close()
+
+
+# --- Batches: the tree.snapshot path reads by key ---
+
+
+def _receipted(batch_id: str, tree: Snapshot) -> BatchRecord:
+    receipt = ReceiptApplied(
+        batch_id=BatchId(batch_id),
+        applied=(),
+        skipped=(),
+        pre_batch=True,
+        snapshot=tree,
+    )
+    return make_batch(batch_id).with_receipt(receipt, SnapshotId(f"receipt-{batch_id}"))
+
+
+def _plans(db: Path, statements: list[str]) -> list[str]:
+    """The query plan of every traced read of the batches table."""
+    with sqlite3.connect(db) as raw:
+        return [
+            " ".join(str(row[-1]) for row in raw.execute(f"EXPLAIN QUERY PLAN {sql}"))
+            for sql in statements
+            if sql.lstrip().upper().startswith("SELECT") and "batches" in sql
+        ]
+
+
+def test_the_batches_a_tree_snapshot_needs_are_read_by_index(tmp_path: Path) -> None:
+    """Given receipted and PROPOSED batches, When the batches awaiting a tree
+    and one profile's PROPOSED batches are read, Then every read of the
+    batches table searches an index rather than scanning it: the cost of a
+    ``tree.snapshot`` follows what it acts on, not every filing on record."""
+    db = tmp_path / "corpus.sqlite3"
+    statements: list[str] = []
+    store = _traced_store(db, statements)
+    store.put_batch(_receipted("receipted", make_snapshot()))
+    store.put_batch(make_batch("pending"))
+    statements.clear()
+
+    awaiting = store.batches_awaiting_tree()
+    proposed = store.batches_in_state(A, BatchState.PROPOSED)
+
+    assert [r.batch.batch_id for r in awaiting] == ["receipted"]
+    assert [r.batch.batch_id for r in proposed] == ["pending"]
+    plans = _plans(db, statements)
+    assert len(plans) == 2
+    assert all("SCAN" not in plan and "INDEX" in plan for plan in plans), plans
+
+
+def test_a_batch_row_does_not_hold_its_receipts_tree(tmp_path: Path) -> None:
+    """Given a receipt carrying the pre-batch tree, When its batch is stored,
+    Then the row's document holds none of the tree's nodes (the tree lives
+    once, in the archive the batch names)."""
+    db = tmp_path / "corpus.sqlite3"
+    store = SqliteCorpusStore.open(db)
+    store.put_batch(_receipted("batch-1", make_snapshot(title="Unmistakable Bar")))
+    store.close()
+
+    with sqlite3.connect(db) as raw:
+        (doc,) = raw.execute("SELECT doc FROM batches").fetchone()
+
+    assert "Unmistakable Bar" not in doc
+    assert "SnapshotNode" not in doc
+
+
+def test_a_version_1_file_is_migrated_off_trees_in_batch_rows(tmp_path: Path) -> None:
+    """Given a schema-1 file whose receipted batch row holds the receipt's
+    tree, an archived receipt tree the batch names and an offer-time tree
+    none names, When opened, Then the row keeps the receipt without its tree,
+    the batch awaits a tree snapshot by key, the named archive is kept and
+    the orphan is gone."""
+    db = tmp_path / "corpus.sqlite3"
+    tree = make_snapshot(title="Unmistakable Bar")
+    receipt = ReceiptApplied(
+        batch_id=BatchId("batch-1"),
+        applied=(),
+        skipped=(),
+        pre_batch=True,
+        snapshot=tree,
+    )
+    record = replace(
+        make_batch("batch-1"),
+        state=BatchState.APPLIED,
+        receipt=receipt,
+        snapshot_id=SnapshotId("receipt-batch-1"),
+    )
+    with sqlite3.connect(db, isolation_level=None) as raw:
+        raw.executescript(MIGRATIONS[0])
+        raw.execute("PRAGMA user_version = 1")
+        raw.execute(
+            "INSERT INTO batches (batch_id, created_at, doc) VALUES (?, ?, ?)",
+            ("batch-1", record.created_at, dump_record(record)),
+        )
+        for snapshot_id in ("receipt-batch-1", "tree-1"):
+            raw.execute(
+                "INSERT INTO snapshots (snapshot_id, doc) VALUES (?, ?)",
+                (snapshot_id, dump_record(tree)),
+            )
+    raw.close()
+
+    store = SqliteCorpusStore.open(db)
+
+    migrated = store.get_batch(BatchId("batch-1"))
+    assert migrated == replace(record, receipt=replace(receipt, snapshot=None))
+    assert [r.batch.batch_id for r in store.batches_awaiting_tree()] == ["batch-1"]
+    assert store.get_snapshot(SnapshotId("receipt-batch-1")) == tree
+    assert store.get_snapshot(SnapshotId("tree-1")) is None
+    store.close()
+    with sqlite3.connect(db) as raw:
+        (doc,) = raw.execute("SELECT doc FROM batches").fetchone()
+    assert "Unmistakable Bar" not in doc

@@ -16,12 +16,13 @@ points) does not.
 """
 
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from dynomark_daemon.adapters.sqlite_store import SqliteCorpusStore
-from dynomark_daemon.domain.batch import BatchState
+from dynomark_daemon.domain.batch import BatchRecord, BatchState, ReceiptApplied
 from dynomark_daemon.domain.bookmark import Identity, Save
 from dynomark_daemon.domain.events import JobUpdated, PendingEvent
 from dynomark_daemon.domain.ids import (
@@ -331,6 +332,82 @@ def test_list_batches_is_newest_first(store: CorpusStorePort) -> None:
     listed = [r.batch.batch_id for r in store.list_batches()]
 
     assert listed == ["new", "tie-b", "tie-a", "old"]
+
+
+def _receipted(
+    batch_id: str, *, created_at: int, profile_id: str = "profile-a"
+) -> BatchRecord:
+    record = make_batch(batch_id, created_at=created_at, profile_id=profile_id)
+    receipt = ReceiptApplied(
+        batch_id=BatchId(batch_id),
+        applied=(),
+        skipped=(),
+        pre_batch=True,
+        snapshot=make_snapshot(),
+    )
+    return record.with_receipt(receipt, None)
+
+
+def test_batches_awaiting_tree_are_the_receipted_ones_not_yet_resnapshotted(
+    store: CorpusStorePort,
+) -> None:
+    """Given receipted batches, one already re-snapshotted, and a PROPOSED one,
+    When the batches awaiting a tree are read, Then they are exactly the
+    receipted, unmarked ones, oldest first; marking one takes it out (the
+    undo guard's readiness, read by key rather than by listing every
+    batch)."""
+    store.put_batch(_receipted("late", created_at=3))
+    store.put_batch(_receipted("early", created_at=1))
+    store.put_batch(replace(_receipted("done", created_at=2), tree_since_receipt=True))
+    store.put_batch(make_batch("pending", created_at=4))
+
+    awaiting = store.batches_awaiting_tree()
+
+    assert [r.batch.batch_id for r in awaiting] == ["early", "late"]
+    store.put_batch(replace(awaiting[0], tree_since_receipt=True))
+    assert [r.batch.batch_id for r in store.batches_awaiting_tree()] == ["late"]
+
+
+def test_batches_in_state_are_one_profiles_batches_in_that_state(
+    store: CorpusStorePort,
+) -> None:
+    """Given PROPOSED batches in two profiles and an APPLIED one, When one
+    profile's PROPOSED batches are read, Then they are exactly its PROPOSED
+    ones, oldest first, and a batch stored again APPLIED leaves the list."""
+    store.put_batch(make_batch("a-2", created_at=2))
+    store.put_batch(make_batch("a-1", created_at=1))
+    store.put_batch(make_batch("b-1", created_at=1, profile_id="profile-b"))
+    store.put_batch(make_batch("a-applied", state=BatchState.APPLIED))
+
+    proposed = store.batches_in_state(PROFILE_A, BatchState.PROPOSED)
+
+    assert [r.batch.batch_id for r in proposed] == ["a-1", "a-2"]
+    store.put_batch(replace(proposed[0], state=BatchState.APPLIED))
+    assert [
+        r.batch.batch_id for r in store.batches_in_state(PROFILE_A, BatchState.PROPOSED)
+    ] == ["a-2"]
+    applied = store.batches_in_state(PROFILE_A, BatchState.APPLIED)
+    assert [r.batch.batch_id for r in applied] == ["a-1", "a-applied"]
+
+
+def test_a_released_snapshot_is_deleted_only_once_no_batch_names_it(
+    store: CorpusStorePort,
+) -> None:
+    """Given an archived snapshot named by two batches, When it is released
+    while one still names it, Then it is kept; once no batch names it, a
+    release deletes it (a superseded offer-time tree is not left behind)."""
+    shared = SnapshotId("tree-1")
+    store.put_snapshot(shared, tree := make_snapshot())
+    store.put_batch(replace(make_batch("one"), snapshot_id=shared))
+    store.put_batch(replace(make_batch("two"), snapshot_id=shared))
+
+    store.put_batch(replace(make_batch("one"), snapshot_id=SnapshotId("receipt-1")))
+    store.release_snapshot(shared)
+    assert store.get_snapshot(shared) == tree
+
+    store.put_batch(replace(make_batch("two"), snapshot_id=SnapshotId("receipt-2")))
+    store.release_snapshot(shared)
+    assert store.get_snapshot(shared) is None
 
 
 # --- Snapshots ---

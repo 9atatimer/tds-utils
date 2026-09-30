@@ -15,6 +15,7 @@ import pytest
 
 from dynomark_daemon.app.errors import UnknownRecord
 from dynomark_daemon.app.events import replay_events
+from dynomark_daemon.app.file import offer
 from dynomark_daemon.app.receipt import ReceiptRecorded
 from dynomark_daemon.domain.batch import (
     BatchReceipt,
@@ -38,7 +39,7 @@ from dynomark_daemon.domain.ids import BatchId, NodeId
 from dynomark_daemon.domain.job import JobState
 from dynomark_daemon.testing.transport import RecordingTransport
 from tests._crash import DyingStore
-from tests._factories import make_path
+from tests._factories import make_batch, make_path
 from tests.unit.app._filed import CREATED, MOVED, RUST, TREE, Daemon
 
 
@@ -85,7 +86,10 @@ def test_receive_an_applied_receipt_files_the_job_and_stores_the_snapshot() -> N
     assert daemon.job_now().state is JobState.FILED
     record = daemon.store.get_batch(daemon.batch.batch_id)
     assert record is not None
-    assert (record.state, record.receipt) == (BatchState.APPLIED, receipt)
+    assert (record.state, record.receipt) == (
+        BatchState.APPLIED,
+        replace(receipt, snapshot=None),
+    )
     assert record.snapshot_id is not None
     assert daemon.store.get_snapshot(record.snapshot_id) == TREE
     assert daemon.offers() == []
@@ -95,6 +99,47 @@ def test_receive_an_applied_receipt_files_the_job_and_stores_the_snapshot() -> N
         if isinstance(p.event, JobUpdated)
     ]
     assert updates == [daemon.job_now()]
+
+
+def test_a_recorded_receipt_keeps_its_tree_only_in_the_archive() -> None:
+    """Given a filing batch offered against the latest tree, When its APPLIED
+    receipt arrives with the pre-batch tree, Then the batch row's receipt
+    keeps its applied and skipped ops but no tree, the tree is archived once
+    under the batch's snapshot id, and the offer-time copy it supersedes,
+    which no other batch names, is gone (a filing does not grow the store
+    by whole trees)."""
+    daemon = Daemon()
+    offered = daemon.store.get_batch(daemon.batch.batch_id)
+    assert offered is not None and offered.snapshot_id is not None
+    offer_copy = offered.snapshot_id
+
+    daemon.receive(_applied(daemon))
+
+    record = daemon.store.get_batch(daemon.batch.batch_id)
+    assert record is not None and isinstance(record.receipt, ReceiptApplied)
+    assert record.receipt.snapshot is None
+    assert (record.receipt.applied, record.receipt.skipped) == ((CREATED, MOVED), ())
+    assert record.snapshot_id not in (None, offer_copy)
+    assert daemon.store.get_snapshot(record.snapshot_id) == TREE
+    assert daemon.store.get_snapshot(offer_copy) is None
+
+
+def test_an_offer_time_tree_another_batch_names_outlives_one_receipt() -> None:
+    """Given two batches offered against the same latest tree, When the first
+    one's receipt archives its own pre-batch tree, Then the shared offer-time
+    copy is kept: the second batch still names it as its fallback export."""
+    daemon = Daemon()
+    other = offer(
+        make_batch("batch-other", profile_id=daemon.job.profile_id),
+        store=daemon.store,
+        ids=daemon.ids,
+    )
+    kept = daemon.store.get_batch(other.batch_id)
+    assert kept is not None and kept.snapshot_id is not None
+
+    daemon.receive(_applied(daemon))
+
+    assert daemon.store.get_snapshot(kept.snapshot_id) == TREE
 
 
 def test_receive_a_partial_receipt_fails_the_job_and_offers_the_prefix_inverse() -> (
