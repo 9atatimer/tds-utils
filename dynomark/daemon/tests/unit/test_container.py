@@ -380,6 +380,48 @@ def test_the_job_loop_proposes_a_due_rebuild_and_reports_progress() -> None:
     assert [type(e) for e in events] == [DiffProposed] and progress == [1]
 
 
+def test_a_failed_scheduled_rebuild_backs_off_instead_of_asking_every_pass() -> None:
+    """Given a writer with a weekly rebuild cadence whose rebuild completion
+    keeps failing, When the job loop runs pass after pass, Then the model is
+    asked again only after RetryPolicy's backoff, and once the attempts are
+    spent only after the cadence: a failing rebuild never blocks the job
+    thread on every pass."""
+    cadence = 7 * 86_400_000
+    completion = ScriptedCompletion(
+        propose_diff=[CompletionError("timed out", retryable=True)] * 5
+    )
+    clock = FakeClock(start_ms=1_000)
+    ports = replace(_ports(completion), clock=clock)
+    ports.store.bind_writer_profile(A)
+    ports.store.put_tree_snapshot(wire.TREE)
+    config = replace(make_config(), rebuild_cadence_ms=cadence)
+    policy = config.retry
+    loop = JobLoop(config, ports)
+
+    def asked() -> int:
+        return len(completion.calls)
+
+    for _ in range(5):
+        loop.run_once()
+    assert asked() == 1
+
+    for failed in range(1, policy.attempts):
+        clock.advance(policy.backoff_ms(failed) - 1)
+        loop.run_once()
+        assert asked() == failed
+        clock.advance(1)
+        loop.run_once()
+        assert asked() == failed + 1
+
+    clock.advance(policy.max_backoff_ms)
+    loop.run_once()
+    assert asked() == policy.attempts
+
+    clock.advance(cadence - policy.max_backoff_ms)
+    loop.run_once()
+    assert asked() == policy.attempts + 1
+
+
 def test_run_once_reports_the_retry_a_job_failing_in_this_pass_waits_for() -> None:
     """Given a queued save whose enrichment fails with a retryable error, When
     the job loop runs once, Then the schedule it reports (what the loop sleeps
