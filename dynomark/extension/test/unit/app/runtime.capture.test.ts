@@ -284,6 +284,21 @@ describe('Background-tab capture on the writer', () => {
     expect((await save(w, runtime, ids.followUp))?.capture).toMatchObject({ source: 'background_tab' });
   });
 
+  it('Given two settings changes sent at once (one per checkbox), When both are answered, Then each builds on the other and both are kept', async () => {
+    const { w, runtime } = await setup();
+    const [first, second] = await Promise.all([
+      runtime.page({ kind: 'settings.set', capture_from_tab: false }),
+      runtime.page({ kind: 'settings.set', capture_in_background: false }),
+    ]);
+    expect(first).toMatchObject({ ok: true, capture_from_tab: false });
+    expect(second).toMatchObject({ ok: true, capture_from_tab: false, capture_in_background: false });
+    expect(await w.storage.loadSettings()).toMatchObject({ capture_from_tab: false, capture_in_background: false });
+    expect(await runtime.page({ kind: 'overview' })).toMatchObject({
+      ok: true,
+      overview: { settings: { capture_from_tab: false, capture_in_background: false } },
+    });
+  });
+
   it('Given fresh settings, When the overview is read, Then background capture shows as on', async () => {
     const { runtime } = await setup();
     expect(await runtime.page({ kind: 'overview' })).toMatchObject({ ok: true, overview: { settings: { capture_in_background: true } } });
