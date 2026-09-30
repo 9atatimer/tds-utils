@@ -12,6 +12,7 @@ record ``model().model_id`` (``app/place.py``).
 """
 
 import json
+import re
 import urllib.error
 import urllib.request
 from collections.abc import Sequence
@@ -51,6 +52,12 @@ MAX_CONTEXT_TEXT: Final = 2_000
 MAX_DIFF_ITEMS: Final = 50
 """Items one proposal keeps; the rest of the model's answer is ignored."""
 OPTIONS: Final = {"temperature": 0}
+PINNED_FLAG: Final = "(pinned)"
+LOCKED_FLAG: Final = "(locked)"
+FLAGS: Final = re.compile(
+    rf"(?:\s*(?:{re.escape(PINNED_FLAG)}|{re.escape(LOCKED_FLAG)}))+\s*$"
+)
+"""The flags the prompts append to a folder's line, however many, at its end."""
 
 ENRICH_SYSTEM: Final = (
     "You summarize saved web pages for a personal bookmark index. Answer with "
@@ -117,7 +124,7 @@ def _path(path: FolderPath) -> str:
 
 def _outline_lines(outline: TreeOutline) -> str:
     lines = [
-        _path(folder.path) + (" (locked)" if folder.locked else "")
+        _path(folder.path) + (f" {LOCKED_FLAG}" if folder.locked else "")
         for folder in outline.folders
     ]
     return "\n".join(lines) or _path(outline.root)
@@ -127,20 +134,28 @@ def _flagged_lines(outline: TreeOutline) -> list[str]:
     """Every folder but a browser root, with its flags."""
     return [
         _path(folder.path)
-        + (" (pinned)" if folder.pinned else "")
-        + (" (locked)" if folder.locked else "")
+        + (f" {PINNED_FLAG}" if folder.pinned else "")
+        + (f" {LOCKED_FLAG}" if folder.locked else "")
         for folder in outline.folders
         if folder.path.names
     ]
 
 
+def _unflagged(name: str) -> str:
+    """``name`` without the trailing flags the prompts write after a folder
+    (`` (pinned)``, `` (locked)``): a line copied verbatim names that
+    folder, and a lock then keeps placement out of it as designed. A title
+    that itself ends in such a mark cannot be told from a flag either."""
+    return FLAGS.sub("", name).strip()
+
+
 def _split_names(values: list[str]) -> tuple[str, ...]:
     """Folder names as the prompts write paths: an answered element that is a
-    /-joined line (copied from the prompt) is split into its names. A title
-    with a / in it cannot be told from a path in the prompt either."""
-    return tuple(
-        part.strip() for value in values for part in value.split("/") if part.strip()
-    )
+    /-joined line (copied from the prompt) is split into its names, each
+    without the flags the prompt appended. A title with a / in it cannot be
+    told from a path in the prompt either."""
+    names = (_unflagged(part) for value in values for part in value.split("/"))
+    return tuple(name for name in names if name)
 
 
 def _names(value: object) -> tuple[str, ...] | None:
