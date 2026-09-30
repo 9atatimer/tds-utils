@@ -343,6 +343,53 @@ describe('A batch receipt answered with a retryable code on a live link', () => 
     expect(sentOf(w, 'batch.receipt').map((r) => r.receipt.batch_id)).toEqual(['batch-go', 'batch-go']);
     expect(await w.storage.loadCursor()).toBeUndefined();
   });
+
+  /** True once the runtime is idle, false when it is still busy after many macrotask turns (a wedged offer never settles). */
+  async function settles(runtime: ExtensionRuntime): Promise<boolean> {
+    const turns = async (): Promise<boolean> => {
+      for (let k = 0; k < 200; k++) await new Promise((resolve) => setTimeout(resolve, 0));
+      return false;
+    };
+    return Promise.race([runtime.idle().then(() => true), turns()]);
+  }
+
+  for (const code of ['busy', 'internal'] as const) {
+    it(`Given an earlier worker's open cursor, When its re-sent receipt is answered ${code} while a new offer is held, Then the extension asks for a replay, answers the old batch, and applies the held one`, async () => {
+      const w = new FakeExtensionWorld({ flavor: 'chrome' });
+      const offer = {
+        v: 1 as const,
+        type: 'batch.offer' as const,
+        event_id: 'evt-new',
+        batch: { batch_id: 'batch-new', operations: [{ op: 'create_folder' as const, index: 0, parent: DYNOMARK, title: 'Go' }] },
+      };
+      let receipts = 0;
+      let replays = 0;
+      scriptDaemon(w, {}, (r) => {
+        if (r.type === 'batch.receipt' && (receipts += 1) === 1)
+          return { v: 1, type: 'error', re: r.id, code, message: 'database is locked' };
+        if (r.type === 'events.replay' && (replays += 1) > 1) void w.daemon().emit(offer);
+        return undefined;
+      });
+      const ids = await seedOwnedTree(w.tree);
+      await w.storage.saveCursor({
+        batch_id: 'batch-old',
+        op_count: 1,
+        next_index: 1,
+        outcomes: [{ outcome: 'applied', index: 0, node_id: ids.rust, changed: true }],
+      });
+      const runtime = await startRuntime(w);
+
+      await w.daemon().emit(offer);
+      expect(await settles(runtime)).toBe(true);
+      await w.timer().advance(RECONNECT_BACKOFF.max_ms);
+      expect(await settles(runtime)).toBe(true);
+
+      expect(sentOf(w, 'events.replay')).toHaveLength(2);
+      expect(sentOf(w, 'batch.receipt').map((r) => r.receipt.batch_id)).toEqual(['batch-old', 'batch-old', 'batch-new']);
+      expect(await w.tree.resolveFolder({ root: 'bar', names: ['Dynomark', 'Go'] })).toBeDefined();
+      expect(await w.storage.loadCursor()).toBeUndefined();
+    });
+  }
 });
 
 describe('An ingest answered with a retryable code on a live link', () => {
