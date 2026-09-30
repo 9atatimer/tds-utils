@@ -430,6 +430,34 @@ test_logging_suppressed_without_tds_log_dir() {
     rm -f "${diag}"
 }
 
+# TPM only sees @plugin lines that precede its own `run`, so a `run` above
+# them loads nothing and says nothing. And the run must not fail a server
+# start on a machine where TPM has not been cloned yet.
+test_plugins_are_declared_before_tpm_runs() {
+    bold "\nTest: tmux.conf declares its plugins above the TPM run line\n"
+
+    local plugin
+    for plugin in tmux-plugins/tpm tmux-plugins/tmux-resurrect tmux-plugins/tmux-continuum; do
+        assert "declares ${plugin}" "grep -q \"^set -g @plugin '${plugin}'\" '${REPO_TMUX_CONF}'"
+    done
+    assert_eq "continuum restores on server start" "on" \
+        "$(sed -n "s/^set -g @continuum-restore '\(.*\)'/\1/p" "${REPO_TMUX_CONF}")"
+
+    local runline lastplugin
+    runline=$(grep -n 'plugins/tpm/tpm' "${REPO_TMUX_CONF}" | tail -1 | cut -d: -f1)
+    lastplugin=$(grep -n "^set -g @plugin" "${REPO_TMUX_CONF}" | tail -1 | cut -d: -f1)
+    assert "the TPM run line exists"          "[[ -n '${runline}' ]]"
+    assert "the TPM run line is after every @plugin" "(( ${runline:-0} > ${lastplugin:-999999} ))"
+    assert "the TPM run line is the last command in the file" \
+        "[[ \$(grep -v '^[[:space:]]*\\(#\\|\$\\)' '${REPO_TMUX_CONF}' | tail -1) == *plugins/tpm/tpm* ]]"
+
+    # HOME is a scratch dir with no ~/.tmux/plugins, on its own server.
+    local fresh_home
+    fresh_home=$(mktemp -d "${TEST_TDS_LOG_DIR}/nohome.XXXXXX")
+    HOME="${fresh_home}" tmux -L "${SOCKET}-b" -f "${TEST_TDS_LOG_DIR}/tmux.conf" new-session -d -s no-tpm-yet
+    assert "a server still starts with TPM not cloned" "tmux -L '${SOCKET}-b' has-session -t no-tpm-yet"
+}
+
 # --- Main ---
 
 main() {
@@ -450,6 +478,7 @@ main() {
     test_id_shaped_session_name_is_not_read_as_an_id
     test_cron_brands_unbranded_pane_dirs
     test_logging_suppressed_without_tds_log_dir
+    test_plugins_are_declared_before_tpm_runs
 
     print ""
     bold "═══ Results: ${TESTS_PASSED}/${TESTS_RUN} passed"

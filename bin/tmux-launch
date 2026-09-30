@@ -1,0 +1,86 @@
+#!/bin/zsh
+# tmux-launch -- put this terminal in the ONE shared tmux session, in a new window
+#
+# Called by macos/dot.zshrc for every interactive shell outside tmux. The first
+# terminal creates session "main"; every later one adds a window to it and
+# attaches. One session means one tmux server with one thing to save and
+# restore (tmux-resurrect / tmux-continuum), instead of a session per terminal
+# window left behind whenever a terminal is closed.
+#
+# Terminals attached to the same session share its current window, so opening a
+# terminal switches the others to the new window. A session GROUP would give
+# each terminal its own view, but log-hoarder keys a pane's log tree on the
+# session that created it (tmux_logging.sh), and a group member that dies
+# leaves the shepherd archiving a log whose pane is still alive.
+#
+# Env:
+#   TDS_TMUX_SESSION     session name (default: main)
+#   TDS_TMUX_SOCKET      tmux -L socket name (default: tmux's own default;
+#                        the smoke test points this at a private server)
+#   TDS_TMUX_NO_ATTACH   non-empty: do everything except attach (tests only --
+#                        attaching needs a terminal)
+
+set -euo pipefail
+
+# --- Action functions ---
+
+# zsh does not word-split an unquoted expansion, so the optional -L pair has
+# to be an array, not a ${VAR:+-L "$VAR"} string.
+socket_args() {
+    reply=()
+    [[ -n "${TDS_TMUX_SOCKET:-}" ]] && reply=(-L "${TDS_TMUX_SOCKET}")
+    return 0
+}
+
+tmux_cmd() {
+    socket_args
+    tmux "${reply[@]}" "$@"
+}
+
+session_name() {
+    print -r -- "${TDS_TMUX_SESSION:-main}"
+}
+
+session_exists() {
+    tmux_cmd has-session -t "=$(session_name)" 2>/dev/null
+}
+
+create_session() {
+    tmux_cmd new-session -d -s "$(session_name)" -c "${PWD}"
+}
+
+add_window() {
+    tmux_cmd new-window -t "=$(session_name):" -c "${PWD}"
+}
+
+attach_session() {
+    socket_args
+    exec tmux "${reply[@]}" attach-session -t "=$(session_name)"
+}
+
+# --- Flow functions ---
+
+# Join the running session with a new window, or start the session. Two
+# terminals opening at once can both find no session; the loser's create fails
+# on the duplicate name and it joins instead.
+ensure_window() {
+    if session_exists; then
+        add_window
+    elif ! create_session 2>/dev/null; then
+        add_window
+    fi
+}
+
+run_launch() {
+    ensure_window
+    [[ -n "${TDS_TMUX_NO_ATTACH:-}" ]] && return 0
+    attach_session
+}
+
+# --- Main ---
+
+main() {
+    run_launch
+}
+
+main "$@"

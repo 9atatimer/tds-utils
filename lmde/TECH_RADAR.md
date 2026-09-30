@@ -74,6 +74,12 @@ documents the recommended approach so it isn't reinvented per repo.
   `lmde acquire` rail; no version pin, no fleet deployment. Unrelated to
   `@nine-at-a-time-media/skills` (this org's own inert skills-tree data
   package) despite the shared name.
+- **TPM** (`tmux-plugins/tpm`), **tmux-resurrect**, **tmux-continuum**: tmux
+  plugin manager plus session save/restore and autosave, declared in
+  `log-hoarder/tmux.conf`. Installed by `git clone` (TPM) and `prefix + I`,
+  which is unsigned code; hence Trial, cloned by hand and never implicitly.
+  Exit criterion: a Homebrew or otherwise signed install path, or a
+  restore-by-hand replacement.
 
 ---
 
@@ -98,6 +104,10 @@ documents the recommended approach so it isn't reinvented per repo.
 ---
 
 ## Decisions Log
+
+- **2026-09-30**: Added `TPM`, `tmux-resurrect` and `tmux-continuum` to Trial
+  at Todd's request, so log-hoarder terminals share one tmux session that
+  survives a server restart.
 
 - **2026-09-17**: Added `Docling` and `Marker` to Assess at Todd's request
   ("both seem interesting"); no consumer yet.
