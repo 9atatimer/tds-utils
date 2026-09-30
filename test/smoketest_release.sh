@@ -447,6 +447,129 @@ case_a_later_units_sentry_moves_nothing() {
     assert "prints the reason"   "grep -q 'mid-migration' '${WORKROOT}/out'"
 }
 
+# --- Docker Desktop's PATH rewrite (issue #262) ----------------------------
+
+# The guarded line the repo commits, and the unguarded absolute-$HOME line
+# Docker Desktop writes back over it through the dotfile symlinks.
+# shellcheck disable=SC2016  # literal file content, not expansions
+DOCKER_GUARDED='[[ -d "$HOME/.docker/bin" ]] && export PATH="$PATH:$HOME/.docker/bin"'
+# shellcheck disable=SC2016  # $PATH stays literal, as Docker writes it
+docker_rewrite() { printf 'export PATH="$PATH:%s/.docker/bin"\n' "${HOME}"; }
+
+# make_docker_repo <name> [nofinalnl] -- make_repo, plus a dot.zprofile
+# carrying the guarded line on BOTH release and master, with master one commit
+# ahead. With nofinalnl the committed file has no trailing newline.
+make_docker_repo() {
+    local name="$1" last='export X=1\n' root wt
+    [ "${2:-}" != nofinalnl ] || last='export X=1'
+    root="$(make_repo "${name}")"; wt="$(release_wt "${name}")"
+    # shellcheck disable=SC2059  # last is a format on purpose
+    { echo '# Docker Desktop section'; printf '%s\n' "${DOCKER_GUARDED}"; printf "${last}"; } \
+        > "${root}/dot.zprofile"
+    git -C "${root}" add dot.zprofile
+    git -C "${root}" commit -qm "add dot.zprofile"
+    git -C "${wt}" merge -q --ff-only master
+    echo three > "${root}/f"
+    git -C "${root}" commit -qam three
+    printf '%s\n' "${root}"
+}
+
+# docker_drift <file> -- what Docker Desktop does to it.
+docker_drift() {
+    local file="$1" rewrite
+    rewrite="$(docker_rewrite)"
+    awk -v g="${DOCKER_GUARDED}" -v d="${rewrite}" '$0 == g { print d; next } { print }' \
+        "${file}" > "${file}.tmp" && mv "${file}.tmp" "${file}"
+}
+
+has_docker_rewrite() { grep -qF "$(docker_rewrite)" "$1"; }
+
+case_docker_drift_restored() {
+    bold "case: Docker Desktop's PATH rewrite is restored, then released"; echo
+    local root wt rc
+    root="$(make_docker_repo dock)"; wt="$(release_wt dock)"
+    docker_drift "${wt}/dot.zprofile"
+    run_release "${root}" master && rc=0 || rc=$?
+    assert "exits 0"                  "[ ${rc} -eq 0 ]"
+    assert "release advanced"         "[ \"$(head_of "${wt}")\" = \"$(git -C "${root}" rev-parse master)\" ]"
+    assert "tree is clean"            "[ -z \"\$(git -C '${wt}' status --porcelain)\" ]"
+    assert "names what it restored"   "grep -q 'Docker Desktop.*dot.zprofile' '${WORKROOT}/out'"
+}
+
+case_docker_drift_restored_when_current() {
+    bold "case: Docker's rewrite is restored even when release is current"; echo
+    local root wt rc
+    root="$(make_docker_repo dockcur)"; wt="$(release_wt dockcur)"
+    run_release "${root}" master
+    docker_drift "${wt}/dot.zprofile"
+    run_release "${root}" master && rc=0 || rc=$?
+    assert "exits 0"                  "[ ${rc} -eq 0 ]"
+    assert "tree is clean"            "[ -z \"\$(git -C '${wt}' status --porcelain)\" ]"
+}
+
+case_docker_drift_plus_other_edit_refused() {
+    bold "case: Docker's rewrite plus any other edit still refuses"; echo
+    local root wt rc before
+    root="$(make_docker_repo dockother)"; wt="$(release_wt dockother)"
+    before="$(head_of "${wt}")"
+    docker_drift "${wt}/dot.zprofile"
+    echo scribble >> "${wt}/f"
+    run_release "${root}" master && rc=0 || rc=$?
+    assert "exits non-zero"           "[ ${rc} -ne 0 ]"
+    assert "release unchanged"        "[ \"$(head_of "${wt}")\" = \"${before}\" ]"
+    assert "rewrite left in place"    "has_docker_rewrite '${wt}/dot.zprofile'"
+}
+
+case_docker_drift_plus_same_file_edit_refused() {
+    bold "case: Docker's rewrite plus another edit in the same file refuses"; echo
+    local root wt rc before
+    root="$(make_docker_repo docksame)"; wt="$(release_wt docksame)"
+    before="$(head_of "${wt}")"
+    docker_drift "${wt}/dot.zprofile"
+    echo 'export MINE=1' >> "${wt}/dot.zprofile"
+    run_release "${root}" master && rc=0 || rc=$?
+    assert "exits non-zero"           "[ ${rc} -ne 0 ]"
+    assert "release unchanged"        "[ \"$(head_of "${wt}")\" = \"${before}\" ]"
+    assert "edit left in place"       "grep -q 'export MINE=1' '${wt}/dot.zprofile'"
+}
+
+case_docker_drift_plus_mode_change_refused() {
+    bold "case: Docker's rewrite plus a mode change refuses"; echo
+    local root wt rc before
+    root="$(make_docker_repo dockmode)"; wt="$(release_wt dockmode)"
+    before="$(head_of "${wt}")"
+    docker_drift "${wt}/dot.zprofile"
+    chmod +x "${wt}/dot.zprofile"
+    run_release "${root}" master && rc=0 || rc=$?
+    assert "exits non-zero"           "[ ${rc} -ne 0 ]"
+    assert "release unchanged"        "[ \"$(head_of "${wt}")\" = \"${before}\" ]"
+    assert "mode left in place"       "[ -x '${wt}/dot.zprofile' ]"
+}
+
+case_docker_drift_plus_final_newline_refused() {
+    bold "case: Docker's rewrite plus an added final newline refuses"; echo
+    local root wt rc before
+    root="$(make_docker_repo docknl nofinalnl)"; wt="$(release_wt docknl)"
+    before="$(head_of "${wt}")"
+    docker_drift "${wt}/dot.zprofile"   # awk also appends the missing newline
+    run_release "${root}" master && rc=0 || rc=$?
+    assert "exits non-zero"           "[ ${rc} -ne 0 ]"
+    assert "release unchanged"        "[ \"$(head_of "${wt}")\" = \"${before}\" ]"
+}
+
+case_docker_drift_dry_run() {
+    bold "case: -n reports Docker's rewrite and changes nothing"; echo
+    local root wt rc before
+    root="$(make_docker_repo dockdry)"; wt="$(release_wt dockdry)"
+    before="$(head_of "${wt}")"
+    docker_drift "${wt}/dot.zprofile"
+    run_release "${root}" -n master && rc=0 || rc=$?
+    assert "exits 0"                  "[ ${rc} -eq 0 ]"
+    assert "release unchanged"        "[ \"$(head_of "${wt}")\" = \"${before}\" ]"
+    assert "rewrite left in place"    "has_docker_rewrite '${wt}/dot.zprofile'"
+    assert "says it would restore"    "grep -q 'would restore.*dot.zprofile' '${WORKROOT}/out'"
+}
+
 main() {
     [ -x "${RELEASER}" ] || { red "FAIL"; printf ' missing or non-executable: %s\n' "${RELEASER}"; exit 1; }
     WORKROOT="$(mktemp -d "${TMPDIR:-/tmp}/release-test.XXXXXX")"
@@ -474,6 +597,13 @@ main() {
     case_unit_selection_limits_the_run
     case_a_later_units_refusal_moves_nothing
     case_a_later_units_sentry_moves_nothing
+    case_docker_drift_restored
+    case_docker_drift_restored_when_current
+    case_docker_drift_plus_other_edit_refused
+    case_docker_drift_plus_same_file_edit_refused
+    case_docker_drift_plus_mode_change_refused
+    case_docker_drift_plus_final_newline_refused
+    case_docker_drift_dry_run
     echo
     printf 'ran %d, passed %d, failed %d\n' "${TESTS_RUN}" "${TESTS_PASSED}" "${TESTS_FAILED}"
     [ "${TESTS_FAILED}" -eq 0 ]
