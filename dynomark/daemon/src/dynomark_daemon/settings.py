@@ -339,3 +339,14 @@ def load_settings(env: Mapping[str, str], *, home: Path, hostname: str) -> Setti
     except tomllib.TOMLDecodeError as error:
         raise ConfigError(f"{path}: {error}") from error
     return parse_settings(document, env, home=home, hostname=hostname, found_at=path)
+
+
+def host_socket_path(env: Mapping[str, str], *, home: Path) -> Path:
+    """The socket ``dynomark-host`` connects to from ``env``: its config's, or
+    the default when the config cannot be read (the daemon then refuses to
+    start anyway). The browser starts the host without the user's shell
+    environment, so ``{}`` is what it sees on a Mac."""
+    try:
+        return load_settings(env, home=home, hostname="").socket_path
+    except ConfigError:
+        return socket_path(env, home=home)

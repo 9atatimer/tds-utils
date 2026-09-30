@@ -72,7 +72,7 @@ read-only and only probes the socket). Stop the agent with
 | `dynomark-daemon serve` | socket server + job loop until SIGTERM/SIGINT/SIGHUP |
 | `dynomark-daemon check` | config, store health, socket, Ollama reachability and models |
 | `dynomark-daemon install-host-manifest --extension-id ID [--browser chrome\|chromium\|all] [--host-path P]` | writes `tds.dynomark.json` for Chrome and Chromium (macOS and Linux per-user dirs), `allowed_origins` = that one extension |
-| `dynomark-daemon launchd-plist [--program P]` | prints a user LaunchAgent (`RunAtLoad`, `KeepAlive`) running `serve` |
+| `dynomark-daemon launchd-plist [--program P]` | prints a user LaunchAgent (`RunAtLoad`, `KeepAlive`) running `serve`; refuses when the daemon's socket would not be the one `dynomark-host` connects to (see Config) |
 | `dynomark-host` | started by the browser; pipes stdio frames to the socket unchanged; with no daemon it answers the first frame `error` `busy` and exits |
 
 ## Config
@@ -114,8 +114,14 @@ rebuild_every_hours = 168       # the job loop proposes a rebuild this often
 Environment: `XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `DYNOMARK_SOCKET` (wins
 over `[socket]`), `OLLAMA_HOST` (default `http://127.0.0.1:11434`; models
 count as local only on a loopback host). The browser starts
-`dynomark-host` without your shell environment, so keep the socket at a
-path the config file names, not only in `DYNOMARK_SOCKET`.
+`dynomark-host` without your shell environment: it reads only
+`~/.config/dynomark/config.toml` and otherwise connects to
+`~/.local/state/dynomark/daemon.sock`. `launchd-plist` passes these
+variables to the daemon, and refuses (exit 1, printing no plist) when the
+socket the daemon would then listen on is not the one the host connects
+to. To move the socket, name it as `[socket] path` in
+`~/.config/dynomark/config.toml`, and run `launchd-plist` from a shell
+whose `XDG_CONFIG_HOME` and `DYNOMARK_SOCKET` do not point elsewhere.
 
 ## Files
 

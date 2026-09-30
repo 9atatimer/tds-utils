@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 from typing import Final
 
-from dynomark_daemon.settings import ConfigError, load_settings, socket_path
+from dynomark_daemon.settings import host_socket_path
 
 CHUNK: Final = 65536
 UPSTREAM_HIGH_WATER: Final = 1 << 20
@@ -153,11 +153,7 @@ def run_host(path: Path, *, stdin_fd: int = 0, stdout_fd: int = 1) -> int:
 def daemon_socket() -> Path:
     """The socket the daemon listens on: its config's, or the default when the
     config cannot be read (the daemon then refuses to start anyway)."""
-    home = Path.home()
-    try:
-        return load_settings(os.environ, home=home, hostname="").socket_path
-    except ConfigError:
-        return socket_path(os.environ, home=home)
+    return host_socket_path(os.environ, home=Path.home())
 
 
 def main() -> None:

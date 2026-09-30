@@ -34,7 +34,13 @@ from dynomark_daemon.adapters.socket_server import SocketUnavailable
 from dynomark_daemon.adapters.sqlite_store import SqliteCorpusStore, StoreError
 from dynomark_daemon.container import build_ports, private_state_dir
 from dynomark_daemon.container import serve as serve_daemon
-from dynomark_daemon.settings import ConfigError, Settings, load_settings
+from dynomark_daemon.settings import (
+    ConfigError,
+    Settings,
+    config_path,
+    host_socket_path,
+    load_settings,
+)
 
 # --- Constants ---
 
@@ -156,6 +162,11 @@ def run_check(settings: Settings) -> list[CheckLine]:
     ]
 
 
+def passed_env(env: Mapping[str, str]) -> dict[str, str]:
+    """What the LaunchAgent hands the daemon from the installing shell."""
+    return {k: env[k] for k in PASSED_ENV if env.get(k)}
+
+
 def launchd_plist(program: Path, settings: Settings, env: Mapping[str, str]) -> bytes:
     """A user LaunchAgent running ``<program> serve`` at load, kept alive."""
     document: dict[str, object] = {
@@ -165,7 +176,7 @@ def launchd_plist(program: Path, settings: Settings, env: Mapping[str, str]) -> 
         "KeepAlive": True,
         "StandardOutPath": str(settings.state_dir / "launchd.out.log"),
         "StandardErrorPath": str(settings.state_dir / "launchd.err.log"),
-        "EnvironmentVariables": {k: env[k] for k in PASSED_ENV if env.get(k)},
+        "EnvironmentVariables": passed_env(env),
     }
     return plistlib.dumps(document)
 
@@ -242,8 +253,25 @@ def install_host_manifest(
     help="The dynomark-daemon executable (default: the installed one).",
 )
 def launchd_plist_command(program: Path | None) -> None:
-    """Print a user LaunchAgent plist that runs `dynomark-daemon serve`."""
+    """Print a user LaunchAgent plist that runs `dynomark-daemon serve`.
+
+    Refuses (exit 1) when the daemon it starts would listen on another socket
+    than the one dynomark-host, started by the browser without this shell's
+    environment, connects to."""
     settings = _settings(os.environ)
+    home = Path.home()
+    daemon_env = passed_env(os.environ)
+    listens = _settings(daemon_env).socket_path
+    connects = host_socket_path({}, home=home)
+    if listens != connects:
+        raise click.ClickException(
+            f"the daemon would listen on {listens}, but dynomark-host, which "
+            f"the browser starts without this shell's environment, connects "
+            f"to {connects}. Name the socket in {config_path({}, home=home)} "
+            f'([socket] path = "..."), the config file the host reads, and '
+            f"run launchd-plist again from a shell whose XDG_CONFIG_HOME, "
+            f"XDG_STATE_HOME and DYNOMARK_SOCKET do not point elsewhere."
+        )
     plist = launchd_plist(
         program or _installed("dynomark-daemon"), settings, os.environ
     )
