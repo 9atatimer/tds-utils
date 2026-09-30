@@ -22,7 +22,7 @@ from dynomark_daemon.domain.chat import Question
 from dynomark_daemon.domain.config import ModelInfo
 from dynomark_daemon.domain.diff import DiffAction, DiffKind
 from dynomark_daemon.domain.ids import NodeId
-from dynomark_daemon.domain.placement import EntryRef
+from dynomark_daemon.domain.placement import EntryRef, admit_folder
 from dynomark_daemon.domain.tree import FolderPath, RootKey, TreeOutline
 from dynomark_daemon.ports.completion import CompletionError, CompletionPort
 from dynomark_daemon.ports.embedding import EmbeddingError, EmbeddingPort
@@ -233,6 +233,39 @@ def test_a_folder_choice_copied_from_a_prompt_line_names_that_folder() -> None:
     assert choice.folder == make_path("Dynomark", "Rust")
 
 
+@pytest.mark.parametrize(
+    "folder",
+    [
+        pytest.param(["Dynomark/Rust (locked)"], id="prompt-line"),
+        pytest.param(["Dynomark", "Rust (locked)"], id="names"),
+        pytest.param(["Rust  (locked)"], id="leaf-only"),
+    ],
+)
+def test_a_locked_folder_copied_with_its_annotation_names_the_locked_folder(
+    folder: list[str],
+) -> None:
+    """Given the prompt marks a folder "(locked)" and the model, disobeying,
+    answers that folder with the mark copied, When choosing and admitting,
+    Then the choice names the locked folder itself (not a new folder titled
+    "Rust (locked)"), and placement's lock rule falls back to the
+    neighbours' folder as designed (Placement respects a lock)."""
+    outline = make_outline(
+        make_outline_folder("Dynomark", "Rust", locked=True),
+        make_outline_folder("Dynomark", "Python"),
+    )
+    answer = json.dumps({"folder": folder, "rationale": "rust"})
+    script = Script(responses=[answer])
+    with fake_ollama(script) as base:
+        choice = _completion(base).choose_folder(
+            make_entry(), neighbours=(), outline=outline, feedback=()
+        )
+
+    assert "Dynomark/Rust (locked)" in str(script.requests[0][1]["prompt"])
+    assert choice.folder == make_path("Dynomark", "Rust")
+    python = make_path("Dynomark", "Python")
+    assert admit_folder(choice.folder, outline, [python]) == python
+
+
 # --- Completion: diffs ---
 
 BAR = FolderPath(root=RootKey.BAR, names=())
@@ -330,6 +363,43 @@ def test_propose_diff_reads_slash_joined_names_as_the_prompt_writes_them() -> No
             parent_id=NodeId("n-Dynomark"), parent_path=make_path("Dynomark")
         ),
     )
+
+
+def test_propose_diff_reads_folders_copied_with_their_flags() -> None:
+    """Given the diff prompt marks folders "(pinned)" and "(locked)", When an
+    item names a folder with its marks copied, Then it is built on that
+    folder (the rules then judge the pinned or locked folder), not skipped
+    as naming no known folder."""
+    answer = json.dumps(
+        {
+            "items": [
+                {
+                    "action": "move",
+                    "folder": ["Dynomark/Rust/Async (pinned)"],
+                    "to": ["Reading"],
+                    "description": "x",
+                },
+                {
+                    "action": "move",
+                    "folder": ["Dynomark", "Private (pinned) (locked)"],
+                    "to": ["Reading"],
+                    "description": "y",
+                },
+            ]
+        }
+    )
+    with fake_ollama(Script(responses=[answer])) as base:
+        pinned, locked = _completion(base).propose_diff(
+            DiffKind.AUDIT, outline=DIFF_OUTLINE, own_bar=OWN_BAR
+        )
+
+    moved = [
+        op.node_id
+        for proposal in (pinned, locked)
+        for op in proposal.operations
+        if isinstance(op, OpMove)
+    ]
+    assert moved == [NodeId("16"), NodeId("18")]
 
 
 def test_propose_diff_skips_items_it_cannot_build() -> None:
