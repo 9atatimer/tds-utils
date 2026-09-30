@@ -95,6 +95,8 @@ export class ExtensionRuntime {
   private readonly writer = new WriterWatch();
   /** Offers pass here in the order they arrived, each after any writer conflict is re-checked. */
   private admission: Promise<void> = Promise.resolve();
+  /** Settings changes run one at a time, in arrival order, each on the settings the last one stored. */
+  private settling: Promise<unknown> = Promise.resolve();
   private readonly ready: Promise<Started>;
   private resolveReady: (started: Started) => void = () => undefined;
   private state: Started | undefined;
@@ -283,11 +285,15 @@ export class ExtensionRuntime {
     return (await this.ready).connection;
   }
 
-  private async updateSettings(change: SettingsChange): Promise<Settings> {
-    const started = await this.ready;
-    const next = await changeSettings(this.state?.settings ?? started.settings, change, this.ports);
-    this.state = { ...(this.state ?? started), settings: next };
-    return next;
+  private updateSettings(change: SettingsChange): Promise<Settings> {
+    const changed = this.settling.then(async () => {
+      const started = await this.ready;
+      const next = await changeSettings(this.state?.settings ?? started.settings, change, this.ports);
+      this.state = { ...(this.state ?? started), settings: next };
+      return next;
+    });
+    this.settling = changed.catch(() => undefined);
+    return changed;
   }
 
   // --- Bookkeeping ---
