@@ -124,6 +124,8 @@ export class TreeWatch {
    * hello, and a worker says hello often, so a background tab here would
    * reopen every waiting save each time; the created event carries the chain,
    * or, when it came while the role was unknown, this backlog does, once.
+   * Each save stands alone: one that fails is reported (a retryable answer
+   * still retries itself) and the saves after it are still sent.
    */
   async submitBacklog(): Promise<void> {
     const path = this.context.followUp();
@@ -136,7 +138,11 @@ export class TreeWatch {
     const gone = [...owed].filter((node_id) => !waiting.has(node_id));
     for (const node_id of gone) owed.delete(node_id);
     if (gone.length > 0) await this.storeOwed(owed);
-    for (const node of children) await this.save(node, { background: owed.has(node.id) });
+    for (const node of children) {
+      const saved = this.save(node, { background: owed.has(node.id) });
+      this.context.track(saved);
+      await saved.catch(() => undefined);
+    }
   }
 
   /** Re-send the move reports left unanswered, by this worker or an earlier one (after a full hello). */
