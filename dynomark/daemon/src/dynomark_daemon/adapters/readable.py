@@ -58,6 +58,31 @@ BLOCKS: Final = frozenset(
         "table",
     }
 )
+HEAD_CONTENT: Final = frozenset(
+    {
+        "html",
+        "head",
+        "base",
+        "basefont",
+        "bgsound",
+        "link",
+        "meta",
+        "title",
+        "noscript",
+        "noframes",
+        "style",
+        "script",
+        "template",
+    }
+)
+"""Start tags the HTML5 tree builder keeps in an open ``head`` ("in head"
+insertion mode); any other start tag ends the head, and so does text."""
+HEAD_ENDING_END_TAGS: Final = frozenset({"head", "body", "html", "br"})
+HEAD_TEXT_HOLDERS: Final = frozenset(
+    {"noscript", "noframes", "style", "script", "template"}
+)
+"""Head content whose text is its own: text inside one does not end the head
+(the void ``meta``, ``link`` and ``base`` hold none)."""
 SPACES: Final = re.compile(r"\s+")
 
 
@@ -99,14 +124,24 @@ class _Extractor(HTMLParser):
         if self._depth("article"):
             self.text.article.append(run)
 
+    def _end_head(self) -> None:
+        """End an open ``head`` whose end tag was omitted, as the HTML5 tree
+        builder does: everything still open was opened inside it (an
+        unclosed ``noscript`` too), so only ``html`` stays open."""
+        self.open = {"html": self._depth("html")}
+
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if self._depth("head") and tag not in HEAD_CONTENT:
+            self._end_head()
         if tag in BLOCKS:
             self._break()
         if tag != "br" and tag != "hr":
             self.open[tag] = self._depth(tag) + 1
 
     def handle_endtag(self, tag: str) -> None:
-        if self._depth(tag):
+        if tag in HEAD_ENDING_END_TAGS and self._depth("head"):
+            self._end_head()
+        elif self._depth(tag):
             self.open[tag] -= 1
         if tag in BLOCKS:
             self._break()
@@ -114,8 +149,15 @@ class _Extractor(HTMLParser):
     def handle_data(self, data: str) -> None:
         if self._depth("title"):
             self.title.append(data)
-        elif not self._skipping():
+            return
+        if self._depth("head") and data.strip() and not self._in_head_content():
+            self._end_head()
+        if not self._skipping():
             self._add(SPACES.sub(" ", data))
+
+    def _in_head_content(self) -> bool:
+        """Inside an element of the head whose text is its own (a script)."""
+        return any(self._depth(tag) for tag in HEAD_TEXT_HOLDERS)
 
 
 def _lines(runs: list[str]) -> str:
