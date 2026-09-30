@@ -195,6 +195,70 @@ describe('Background-tab capture on the writer', () => {
     expect(later?.capture).toEqual({ source: 'none', text: '' });
   });
 
+  /** Three worker restarts, each a full hello whose backlog re-sends Follow Up; `extra` answers first on every worker. */
+  async function restartThrice(w: FakeExtensionWorld, extra?: (r: RequestMessage) => ResponseMessage | undefined): Promise<void> {
+    for (let i = 0; i < 3; i++) {
+      w.restart();
+      scriptDaemon(w, { role: 'writer' }, extra);
+      await startRuntime(w);
+    }
+  }
+
+  it('Given a writer whose save the daemon refuses for good, When later workers say hello, Then no further background tab is opened for it', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const refuse = (r: RequestMessage): ResponseMessage | undefined =>
+      r.type === 'ingest' && r.bookmark.url === URL
+        ? { v: 1, type: 'error', re: r.id, code: 'invalid', message: 'cannot act on it' }
+        : undefined;
+    scriptDaemon(w, { role: 'writer' }, refuse);
+    const ids = await seedOwnedTree(w.tree);
+    w.backgroundTabs.serve(URL, PAGE);
+    const runtime = await startRuntime(w);
+    await save(w, runtime, ids.followUp);
+    await restartThrice(w, refuse);
+    expect(w.backgroundTabs.opened).toEqual([URL]);
+    expect(await w.storage.loadOwedCaptures()).toEqual([]);
+  });
+
+  it('Given a writer whose save is answered busy and its retry refused for good, When later workers say hello, Then no further background tab is opened for it', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    let answered = 0;
+    const busyThenRefuse = (r: RequestMessage): ResponseMessage | undefined => {
+      if (r.type !== 'ingest' || r.bookmark.url !== URL) return undefined;
+      answered += 1;
+      if (answered === 1) return { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
+      return { v: 1, type: 'error', re: r.id, code: 'invalid', message: 'cannot act on it' };
+    };
+    scriptDaemon(w, { role: 'writer' }, busyThenRefuse);
+    const ids = await seedOwnedTree(w.tree);
+    w.backgroundTabs.serve(URL, PAGE);
+    const runtime = await startRuntime(w);
+    await save(w, runtime, ids.followUp);
+    await w.timer().advance(RECONNECT_BACKOFF.max_ms);
+    await runtime.idle();
+    expect(answered).toBe(2);
+    await restartThrice(w, busyThenRefuse);
+    expect(w.backgroundTabs.opened).toEqual([URL]);
+    expect(await w.storage.loadOwedCaptures()).toEqual([]);
+  });
+
+  it('Given a writer and a save whose url is over the cap, When it arrives and later workers say hello, Then no background tab is ever opened for it and it is reported', async () => {
+    const big = 'https://big.example/?' + 'q'.repeat(70_000);
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    scriptDaemon(w, { role: 'writer' });
+    const ids = await seedOwnedTree(w.tree);
+    w.backgroundTabs.serve(big, PAGE);
+    const runtime = await startRuntime(w);
+    const node = await w.tree.createBookmark(ids.followUp, 'Big', big);
+    runtime.onBookmarkEvent({ kind: 'created', node });
+    await runtime.idle();
+    const page = await runtime.page({ kind: 'overview' });
+    expect(page.ok && page.kind === 'overview' ? page.overview.problems.join('\n') : '').toContain(`bookmark ${node.id}: url over`);
+    await restartThrice(w);
+    expect(w.backgroundTabs.opened).toEqual([]);
+    expect(await w.storage.loadOwedCaptures()).toEqual([]);
+  });
+
   it('Given a reader host, When a save no tab shows arrives, Then no background tab is opened and ingest carries source none', async () => {
     const { w, ids, runtime } = await setup('reader');
     expect((await save(w, runtime, ids.followUp))?.capture).toEqual({ source: 'none', text: '' });
