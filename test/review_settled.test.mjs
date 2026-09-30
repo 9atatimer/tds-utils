@@ -317,15 +317,111 @@ test('any-of group: one member out of quota waits for the other', () => {
   assert.match(v.description, /no review from chatgpt-codex-connector yet/);
 });
 
+// Codex's quota notice is NOT a PR review: it is an ISSUE comment on the
+// PR, in its own words (verbatim from tds-utils PR#343). The REST login
+// carries `[bot]`; GraphQL's author.login does not.
+const CODEX_QUOTA =
+  'You have reached your Codex usage limits for code reviews. You can see your limits in the ' +
+  '[Codex usage dashboard](https://chatgpt.com/codex/cloud/settings/usage).\n' +
+  'To continue using code reviews, you can upgrade your account or add credits to your account and ' +
+  'enable them for code reviews in your [settings](https://chatgpt.com/codex/cloud/settings/code-review).';
+
+const comment = (over) => ({
+  author: CODEX,
+  createdAt: '2026-09-18T20:30:00Z',
+  body: CODEX_QUOTA,
+  ...over,
+});
+
+test('isQuotaNotice matches Codex\'s own quota text', () => {
+  assert.equal(isQuotaNotice(comment({})), true);
+  assert.equal(isFailureNotice(comment({})), true, 'a quota notice is never a review');
+});
+
+test('a review quoting Codex\'s quota text in passing is not a quota notice', () => {
+  const body =
+    'One nit. Note the fallback path: when Codex answers "You have reached your Codex usage limits for code reviews" ' +
+    'the checker should fail open.';
+  assert.equal(isQuotaNotice(review({ author: CODEX, body })), false);
+  assert.equal(isFailureNotice(review({ author: CODEX, body })), false);
+});
+
 test('any-of group: every member out of quota -> fail-open naming both', () => {
   const v = settle({
     headSha: HEAD,
-    reviews: [review({ body: QUOTA }), review({ author: CODEX, body: QUOTA })],
+    reviews: [review({ body: QUOTA })],
+    comments: [comment({ author: `${CODEX}[bot]` })],
     threads: [],
     reviewers: [EITHER],
   });
   assert.equal(v.state, 'success');
+  assert.equal(v.pending, false);
   assert.match(v.description, /^FAIL-OPEN: copilot-pull-request-reviewer, chatgpt-codex-connector are out of quota/);
+});
+
+test('any-of group: only Codex out of quota waits for Copilot', () => {
+  const v = settle({ headSha: HEAD, reviews: [], comments: [comment({})], threads: [], reviewers: [EITHER] });
+  assert.equal(v.state, 'failure');
+  assert.equal(v.pending, true);
+  assert.match(v.description, /no review from copilot-pull-request-reviewer yet/);
+});
+
+test('a Codex quota notice older than a newer Codex review is not quota', () => {
+  const v = settle({
+    headSha: HEAD,
+    reviews: [
+      review({ body: QUOTA }),
+      review({ author: CODEX, commit: OLD, body: 'Reviewed.', submittedAt: '2026-09-18T21:00:00Z' }),
+    ],
+    comments: [comment({ createdAt: '2026-09-18T20:30:00Z' })],
+    threads: [],
+    reviewers: [EITHER],
+  });
+  assert.equal(v.state, 'failure');
+  assert.doesNotMatch(v.description, /FAIL-OPEN/);
+  assert.match(v.description, /newest review by chatgpt-codex-connector is on bbbbbbb/);
+});
+
+test('a Codex quota notice newer than its last review is quota: posts order by time across kinds', () => {
+  const v = settle({
+    headSha: HEAD,
+    reviews: [
+      review({ body: QUOTA }),
+      review({ author: CODEX, commit: OLD, body: 'Reviewed.', submittedAt: '2026-09-18T19:00:00Z' }),
+    ],
+    comments: [comment({ createdAt: '2026-09-18T20:30:00Z' })],
+    threads: [],
+    reviewers: [EITHER],
+  });
+  assert.equal(v.state, 'success');
+  assert.match(v.description, /^FAIL-OPEN/);
+});
+
+test('an ordinary comment by a reviewer is neither a review nor a notice', () => {
+  const v = settle({
+    headSha: HEAD,
+    reviews: [review({ author: CODEX, submittedAt: '2026-09-18T19:00:00Z' })],
+    comments: [comment({ body: 'Thanks, taking a look.', createdAt: '2026-09-18T20:30:00Z' })],
+    threads: [],
+    reviewers: [EITHER],
+  });
+  assert.equal(v.state, 'success');
+  assert.match(v.description, /^reviewed on head/);
+  const alone = settle({ headSha: HEAD, reviews: [], comments: [comment({ body: 'Reviewed.' })], threads: [], reviewers: [CODEX] });
+  assert.equal(alone.state, 'failure');
+  assert.match(alone.description, /no review from chatgpt-codex-connector yet/);
+});
+
+test('a comment by someone else is not the reviewer\'s notice', () => {
+  const v = settle({
+    headSha: HEAD,
+    reviews: [review({ body: QUOTA })],
+    comments: [comment({ author: 'human' })],
+    threads: [],
+    reviewers: [EITHER],
+  });
+  assert.equal(v.state, 'failure');
+  assert.match(v.description, /no review from chatgpt-codex-connector yet/);
 });
 
 test('any-of group: a member error notice with the other out of quota stays red', () => {

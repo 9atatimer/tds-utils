@@ -38,6 +38,7 @@ const prPage = (over) => ({
       isCrossRepository: false,
       reviews: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
       reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
+      comments: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
       ...over,
     },
   },
@@ -256,6 +257,73 @@ test('decide with no wait reads once', async () => {
   try {
     await decide('t', 'o', 'n', 1, ['copilot-pull-request-reviewer'], 0, clock());
     assert.equal(stub.calls.length, 1);
+  } finally {
+    stub.restore();
+  }
+});
+
+// Codex answers a review request out of quota with an ISSUE comment on
+// the PR, not a review, so the read must page the PR's comments too.
+const CODEX_QUOTA =
+  'You have reached your Codex usage limits for code reviews. You can see your limits in the ' +
+  '[Codex usage dashboard](https://chatgpt.com/codex/cloud/settings/usage).';
+
+const commentNode = (body, createdAt = '2026-09-18T20:30:00Z') => ({
+  author: { login: 'chatgpt-codex-connector' },
+  createdAt,
+  body,
+});
+
+test('issue comments are paged and read with author, time and body', async () => {
+  const stub = stubFetch((n) =>
+    ok(
+      prPage({
+        reviews: {
+          pageInfo: { hasNextPage: false, endCursor: 'r1' },
+          nodes: n === 1 ? [COPILOT_NODE(HEAD, 'Reviewed.')] : [],
+        },
+        comments:
+          n === 1
+            ? { pageInfo: { hasNextPage: true, endCursor: 'c1' }, nodes: [commentNode('hello', '2026-09-18T19:00:00Z')] }
+            : { pageInfo: { hasNextPage: false, endCursor: 'c2' }, nodes: [commentNode(CODEX_QUOTA)] },
+      }),
+    ),
+  );
+  try {
+    const facts = await readPullRequest('t', 'o', 'n', 1);
+    assert.match(stub.calls[0].body.query, /comments\(first: 100, after: \$commentsAfter\)/);
+    assert.match(stub.calls[0].body.query, /createdAt/);
+    assert.equal(stub.calls.length, 2);
+    assert.equal(stub.calls[1].body.variables.commentsAfter, 'c1', 'the comments cursor is passed on');
+    assert.deepEqual(facts.comments, [
+      { author: 'chatgpt-codex-connector', createdAt: '2026-09-18T19:00:00Z', body: 'hello' },
+      { author: 'chatgpt-codex-connector', createdAt: '2026-09-18T20:30:00Z', body: CODEX_QUOTA },
+    ]);
+    assert.equal(facts.reviews.length, 1, 'a finished connection is not re-collected while another pages on');
+  } finally {
+    stub.restore();
+  }
+});
+
+test('decide: Copilot quota review plus Codex quota comment fails open without waiting', async () => {
+  const quota =
+    'Copilot was unable to review this pull request because the user who requested the review has reached their quota limit.';
+  const stub = stubFetch(() =>
+    ok(
+      prPage({
+        reviews: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [COPILOT_NODE(HEAD, quota)] },
+        comments: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [commentNode(CODEX_QUOTA)] },
+      }),
+    ),
+  );
+  const c = clock();
+  try {
+    const { verdict } = await decide(
+      't', 'o', 'n', 1, ['copilot-pull-request-reviewer|chatgpt-codex-connector'], 180, c,
+    );
+    assert.equal(verdict.state, 'success');
+    assert.match(verdict.description, /^FAIL-OPEN: copilot-pull-request-reviewer, chatgpt-codex-connector are out of quota/);
+    assert.equal(stub.calls.length, 1, 'both answered: nothing to wait for');
   } finally {
     stub.restore();
   }
