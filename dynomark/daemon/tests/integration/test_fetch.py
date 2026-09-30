@@ -4,9 +4,10 @@ Security Considerations, "Daemon-side fetch"). A local ``http.server`` on
 127.0.0.1 only; no network.
 """
 
+import socket
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import ip_address
 from pathlib import Path
@@ -247,6 +248,83 @@ def test_fetch_failures_are_content_unavailable(
         _fetch().read(make_bookmark(f"{site}{path}"))
 
     assert raised.value.retryable is retryable
+
+
+@pytest.fixture
+def raw_reply() -> Iterator[Callable[[bytes], str]]:
+    """Serve one scripted byte string, whatever the request, on 127.0.0.1: a
+    server that breaks HTTP in ways ``http.server`` never would."""
+    listeners: list[socket.socket] = []
+
+    def serve(reply: bytes) -> str:
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        listener.settimeout(RELEASE_TIMEOUT_S)
+        listeners.append(listener)
+
+        def answer() -> None:
+            try:
+                client, _ = listener.accept()
+            except OSError:
+                return
+            with client:
+                client.recv(65_536)
+                client.sendall(reply)
+
+        threading.Thread(target=answer, daemon=True).start()
+        return f"http://127.0.0.1:{listener.getsockname()[1]}/"
+
+    try:
+        yield serve
+    finally:
+        for listener in listeners:
+            listener.close()
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        pytest.param(b"HELLO\r\n\r\n", id="BadStatusLine"),
+        pytest.param(
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n100\r\n<p>short",
+            id="IncompleteRead",
+        ),
+        pytest.param(
+            b"HTTP/1.1 200 OK\r\nX-Long: " + b"a" * 70_000 + b"\r\n\r\n",
+            id="LineTooLong",
+        ),
+    ],
+)
+def test_a_server_breaking_http_is_content_unavailable(
+    raw_reply: Callable[[bytes], str], reply: bytes
+) -> None:
+    """Given a server that answers with a garbage status line, a truncated
+    chunked body or an over-long header line, When read, Then
+    ContentUnavailable -- not the ``http.client.HTTPException`` urllib lets
+    through, which would escape the capture fallback and stall the job."""
+    with pytest.raises(ContentUnavailable):
+        _fetch().read(make_bookmark(raw_reply(reply)))
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("http://127.0.0.1:12ab/", id="InvalidURL"),
+        pytest.param("http://" + "a" * 64 + ".example/", id="UnicodeError-idna"),
+        pytest.param("http://[::1/", id="ValueError-urlsplit"),
+    ],
+)
+def test_a_url_http_client_cannot_use_is_content_unavailable(url: str) -> None:
+    """Given a url with a non-numeric port, a host label IDNA refuses, or an
+    unclosed IPv6 bracket, When read, Then ContentUnavailable (not retryable)
+    rather than the ``InvalidURL`` or ``ValueError`` raised before any
+    request is made."""
+    with pytest.raises(ContentUnavailable) as raised:
+        _fetch().read(make_bookmark(url))
+
+    assert raised.value.retryable is False
 
 
 def test_fetch_times_out_on_a_silent_server(site: str) -> None:

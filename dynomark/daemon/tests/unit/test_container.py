@@ -16,7 +16,7 @@ from dynomark_daemon.domain.bookmark import Bookmark, Capture, CorpusEntry, Enri
 from dynomark_daemon.domain.chat import DraftAnswer, Question, Turn
 from dynomark_daemon.domain.config import ModelInfo
 from dynomark_daemon.domain.diff import DiffKind, DiffProposal
-from dynomark_daemon.domain.events import DiffProposed
+from dynomark_daemon.domain.events import DiffProposed, JobUpdated
 from dynomark_daemon.domain.ids import ProfileId
 from dynomark_daemon.domain.job import JobState
 from dynomark_daemon.domain.placement import EntryRef, FolderChoice, MoveFeedback
@@ -165,6 +165,66 @@ def test_an_unexpected_failure_of_one_job_does_not_stop_the_others() -> None:
     states = [job.state for job in ports.store.list_jobs()]
     assert states[1] is JobState.PLACED
     assert any(e["event"] == "job.crashed" for e in logs)
+
+
+class _BrokenFetch:
+    """A ContentSourcePort with a bug: every read raises what no port names."""
+
+    def read(self, bookmark: Bookmark) -> Capture:
+        raise RuntimeError(f"adapter bug reading {bookmark.url}")
+
+
+def test_an_unexpected_failure_counts_an_attempt_and_backs_off_until_failed() -> None:
+    """Given a capture-less save whose fetch adapter raises an unexpected
+    error, When the job loop runs, Then each crash counts a failed attempt
+    with its last_error and a job.updated, the job is not due again before
+    its RetryPolicy backoff, and it ends FAILED once the attempts are spent:
+    no adapter bug pins a job CAPTURING at attempts 0."""
+    clock = FakeClock(start_ms=1_000)
+    ports = replace(
+        _ports(ScriptedCompletion(enrich=[ENRICHMENT])),
+        content=_BrokenFetch(),
+        clock=clock,
+    )
+    ports.store.bind_writer_profile(A)
+    ingest(
+        make_bookmark("https://example.org/42"),
+        Capture.none(),
+        A,
+        store=ports.store,
+        clock=clock,
+        ids=ports.ids,
+    )
+    config = make_config()
+    policy = config.retry
+    loop = JobLoop(config, ports)
+
+    with capture_logs() as logs:
+        schedule = loop.run_once()
+
+    (job,) = ports.store.list_jobs()
+    assert (job.state, job.attempts) == (JobState.CAPTURING, 1)
+    assert job.last_error is not None and "adapter bug" in job.last_error
+    assert schedule.due == []
+    assert schedule.next_retry_at == job.updated_at + policy.backoff_ms(1)
+    assert any(e["event"] == "job.crashed" for e in logs)
+
+    loop.run_once()
+    (job,) = ports.store.list_jobs()
+    assert job.attempts == 1
+
+    for _ in range(policy.attempts - 1):
+        clock.advance(policy.max_backoff_ms)
+        loop.run_once()
+
+    (job,) = ports.store.list_jobs()
+    assert (job.state, job.attempts) == (JobState.FAILED, policy.attempts)
+    updates = [
+        p.event.job
+        for p in ports.store.unacked_events(A)
+        if isinstance(p.event, JobUpdated)
+    ]
+    assert [u.attempts for u in updates] == list(range(1, policy.attempts + 1))
 
 
 def test_a_reader_daemon_indexes_and_never_files() -> None:
