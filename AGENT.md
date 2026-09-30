@@ -493,8 +493,13 @@ This repo lands PRs through the tedium merge bot; the rules are in
   "unable to review ... reached their quota limit", it will never review,
   so the status goes green once every thread is resolved and reads
   `FAIL-OPEN: <reviewer> is out of quota` -- never "reviewed". In the
-  Copilot-or-Codex group it fails open only when both are out of quota;
-  one reviewer's notice waits for the other. Any other failure notice
+  Copilot-or-Codex group it fails open only when both are out of quota
+  (Copilot's notice is a review; Codex's is a PR comment, "You have
+  reached your Codex usage limits for code reviews", read from the PR's
+  issue comments); one reviewer's notice waits for the other. A clean
+  Codex pass is a thumbs-up reaction with no review, and it does not
+  settle the group: a reaction carries no commit, so the status stays red
+  until a review lands on the head. Any other failure notice
   stays red, as does silence. The checker waits up to `wait_seconds`
   (default 180) for the answer, because GitHub runs no workflow when
   Copilot posts. When the answer lands AFTER that window the status stays
