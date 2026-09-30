@@ -478,3 +478,40 @@ describe('Move origin -- only the moves the extension itself issued are origin e
     expect(sentOf(w, 'move.observed').at(-1)?.move).toMatchObject({ node_id: go.id, origin: 'user' });
   });
 });
+
+describe('The Follow Up backlog -- a save that fails does not hold back the saves after it', () => {
+  it('Given the daemon answers the first backlog save busy, When the full hello re-sends Follow Up, Then the later saves go at this hello and the busy one is retried after the backoff', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    let answered = 0;
+    scriptDaemon(w, { role: 'reader' }, (r) =>
+      r.type === 'ingest' && r.bookmark.url.startsWith('https://tokio.rs/') && (answered += 1) === 1
+        ? { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' }
+        : undefined,
+    );
+    const ids = await seedOwnedTree(w.tree);
+    const later = await w.tree.createBookmark(ids.followUp, 'Later', 'https://later.example/');
+    const runtime = await startRuntime(w);
+
+    expect(sentOf(w, 'ingest').map((r) => r.bookmark.node_id)).toEqual([ids.saved, later.id]);
+    await w.timer().advance(RECONNECT_BACKOFF.max_ms);
+    await runtime.idle();
+    expect(sentOf(w, 'ingest').map((r) => r.bookmark.node_id)).toEqual([ids.saved, later.id, ids.saved]);
+    expect(sentOf(w, 'hello')).toHaveLength(1);
+  });
+
+  it('Given an over-cap url at the head of Follow Up, When the full hello re-sends Follow Up, Then the saves after it are sent and the over-cap one is reported', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    scriptDaemon(w, { role: 'reader' });
+    const bar = (await w.tree.readTree()).root_ids.bar;
+    const followUp = (await w.tree.createFolder(bar, 'Follow Up')).id;
+    await w.tree.createFolder(bar, 'Dynomark');
+    await w.tree.createFolder(bar, 'Graveyard');
+    const huge = await w.tree.createBookmark(followUp, 'Huge', 'https://huge.example/?' + 'a'.repeat(70_000));
+    const later = await w.tree.createBookmark(followUp, 'Later', 'https://later.example/');
+    const runtime = await startRuntime(w);
+
+    expect(sentOf(w, 'ingest').map((r) => r.bookmark.node_id)).toEqual([later.id]);
+    const page = await runtime.page({ kind: 'overview' });
+    expect(page.ok && page.kind === 'overview' ? page.overview.problems.join('\n') : '').toContain(`bookmark ${huge.id}: url over`);
+  });
+});
