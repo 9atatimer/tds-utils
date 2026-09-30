@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "type": "job.updated",
+  "job": {
+    "job_id": "job-7f3a",
+    "node_id": "42",
+    "identity": "https://tokio.rs/tokio/tutorial",
+    "state": "FILED",
+    "seq": 6,
+    "attempts": 1,
+    "backfill": false,
+    "capture_source": "tab",
+    "batch_id": "batch-0101"
+  }
+}

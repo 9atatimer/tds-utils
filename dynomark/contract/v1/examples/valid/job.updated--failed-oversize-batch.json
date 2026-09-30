@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "type": "job.updated",
+  "event_id": "evt-0306",
+  "job": {
+    "job_id": "job-7f3c",
+    "node_id": "48",
+    "identity": "https://example.com/huge",
+    "state": "FAILED",
+    "seq": 5,
+    "attempts": 1,
+    "backfill": false,
+    "capture_source": "fetch",
+    "last_error": "batch over the 1 MiB frame limit; not offered"
+  }
+}

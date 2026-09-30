@@ -1,0 +1,297 @@
+{
+  "ask-history-turn-extra-field.json": {
+    "keyword": "additionalProperties",
+    "path": "/history/0/citations",
+    "rule": "Turn is question + answer text"
+  },
+  "batch-empty-operations.json": {
+    "keyword": "minItems",
+    "path": "/batch/operations",
+    "rule": "a batch has at least one op"
+  },
+  "bookmark-carries-identity.json": {
+    "keyword": "additionalProperties",
+    "path": "/bookmark/identity",
+    "rule": "identity is computed only by the daemon"
+  },
+  "capture-none-with-text.json": {
+    "keyword": "maxLength",
+    "path": "/capture/text",
+    "rule": "source none carries empty text"
+  },
+  "capture-source-fetch-from-extension.json": {
+    "keyword": "not",
+    "path": "/capture/source",
+    "rule": "fetch is daemon-only"
+  },
+  "capture-source-unknown.json": {
+    "keyword": "enum",
+    "path": "/capture/source",
+    "rule": "Capture.source enum"
+  },
+  "create-folder-with-expect.json": {
+    "keyword": "additionalProperties",
+    "path": "/batch/operations/0/expect",
+    "rule": "create ops carry no precondition"
+  },
+  "cursor-with-space.json": {
+    "keyword": "pattern",
+    "path": "/cursor",
+    "rule": "cursors are printable ASCII without space"
+  },
+  "diff-accept-carries-accepted-at.json": {
+    "keyword": "additionalProperties",
+    "path": "/accepted_at",
+    "rule": "acceptance is recorded by the daemon; accept carries item_id only"
+  },
+  "diff-kind-unknown.json": {
+    "keyword": "enum",
+    "path": "/kind",
+    "rule": "DiffKind enum"
+  },
+  "error-code-unknown.json": {
+    "keyword": "enum",
+    "path": "/code",
+    "rule": "ErrorCode is closed"
+  },
+  "event-missing-event-id.json": {
+    "keyword": "required",
+    "path": "/event_id",
+    "rule": "events carry event_id"
+  },
+  "events-ack-empty.json": {
+    "keyword": "minItems",
+    "path": "/event_ids",
+    "rule": "ack names at least one event"
+  },
+  "expect-empty-false.json": {
+    "keyword": "const",
+    "path": "/batch/operations/1/expect/empty",
+    "rule": "expect.empty is only ever true"
+  },
+  "expect-empty-object.json": {
+    "keyword": "minProperties",
+    "path": "/batch/operations/1/expect",
+    "rule": "an expect states at least one clause"
+  },
+  "extra-envelope-field.json": {
+    "keyword": "additionalProperties",
+    "path": "/ts",
+    "rule": "additionalProperties false on every message"
+  },
+  "folder-flags-set-no-flag.json": {
+    "keyword": "anyOf",
+    "path": "",
+    "rule": "flags.set changes at least one flag"
+  },
+  "folder-path-root-unknown.json": {
+    "keyword": "enum",
+    "path": "/follow_up/root",
+    "rule": "RootKey enum"
+  },
+  "hello-missing-profile-id.json": {
+    "keyword": "required",
+    "path": "/profile_id",
+    "rule": "hello names the browser profile"
+  },
+  "hello-mode-unknown.json": {
+    "keyword": "enum",
+    "path": "/mode",
+    "rule": "HelloMode enum"
+  },
+  "hello-v-zero.json": {
+    "keyword": "minimum",
+    "path": "/v",
+    "rule": "contract versions start at 1"
+  },
+  "hit-score-above-one.json": {
+    "keyword": "maximum",
+    "path": "/hits/0/score",
+    "rule": "score in [0, 1]"
+  },
+  "host-id-bad-charset.json": {
+    "keyword": "pattern",
+    "path": "/host_id",
+    "rule": "host ids start alphanumeric"
+  },
+  "host-role-unknown.json": {
+    "keyword": "enum",
+    "path": "/role",
+    "rule": "HostRole enum"
+  },
+  "index-row-summary-oversize.json": {
+    "keyword": "maxLength",
+    "path": "/rows/0/summary",
+    "rule": "LocalIndex summary at most 512"
+  },
+  "ingest-missing-backfill.json": {
+    "keyword": "required",
+    "path": "/backfill",
+    "rule": "backfill flag is explicit"
+  },
+  "job-missing-seq.json": {
+    "keyword": "required",
+    "path": "/job/seq",
+    "rule": "a Job carries its per-job seq so replayed copies can be ordered"
+  },
+  "job-state-unknown.json": {
+    "keyword": "enum",
+    "path": "/job/state",
+    "rule": "JobState enum"
+  },
+  "missing-v.json": {
+    "keyword": "required",
+    "path": "/v",
+    "rule": "every message carries v"
+  },
+  "move-expect-without-parent-id.json": {
+    "keyword": "required",
+    "path": "/batch/operations/1/expect/parent_id",
+    "rule": "every move/remove carries expect.parent_id"
+  },
+  "move-origin-unknown.json": {
+    "keyword": "enum",
+    "path": "/move/origin",
+    "rule": "MoveOrigin enum"
+  },
+  "operation-index-over-999.json": {
+    "keyword": "maximum",
+    "path": "/batch/operations/1/index",
+    "rule": "a batch has at most 1000 ops"
+  },
+  "operation-missing-index.json": {
+    "keyword": "required",
+    "path": "/batch/operations/1/index",
+    "rule": "every op carries its stable index"
+  },
+  "operation-unknown-op.json": {
+    "keyword": "oneOf",
+    "path": "/batch/operations/1",
+    "rule": "no hard delete: op is one of four"
+  },
+  "placement-explain-both-keys.json": {
+    "keyword": "oneOf",
+    "path": "",
+    "rule": "explain takes identity xor url"
+  },
+  "receipt-applied-missing-changed.json": {
+    "keyword": "required",
+    "path": "/receipt/applied/0/changed",
+    "rule": "an applied op says whether it changed the tree"
+  },
+  "receipt-applied-with-failed.json": {
+    "keyword": "additionalProperties",
+    "path": "/receipt/failed",
+    "rule": "APPLIED has no failing op"
+  },
+  "receipt-partial-missing-failed.json": {
+    "keyword": "required",
+    "path": "/receipt/failed",
+    "rule": "PARTIAL names its failing op"
+  },
+  "receipt-rejected-reason-unknown.json": {
+    "keyword": "enum",
+    "path": "/receipt/reason",
+    "rule": "RejectReason enum"
+  },
+  "receipt-snapshot-omitted-false.json": {
+    "keyword": "const",
+    "path": "/receipt/snapshot_omitted",
+    "rule": "a receipt carries snapshot, or snapshot_omitted true only"
+  },
+  "receipt-state-lowercase.json": {
+    "keyword": "oneOf",
+    "path": "/receipt",
+    "rule": "ReceiptState is upper case"
+  },
+  "request-id-bad-charset.json": {
+    "keyword": "pattern",
+    "path": "/id",
+    "rule": "ids are [A-Za-z0-9._:-]{1,128}"
+  },
+  "request-id-trailing-newline.json": {
+    "keyword": "pattern",
+    "path": "/job_id",
+    "rule": "Id patterns are anchored at end of input; a trailing newline does not match (Python: fullmatch, never re.match with $)"
+  },
+  "request-missing-id.json": {
+    "keyword": "required",
+    "path": "/id",
+    "rule": "requests carry id"
+  },
+  "response-with-id-instead-of-re.json": {
+    "keyword": "required",
+    "path": "/re",
+    "rule": "responses carry re, not id"
+  },
+  "search-hit-tier-local.json": {
+    "keyword": "const",
+    "path": "/hits/0/tier",
+    "rule": "wire hits are tier corpus"
+  },
+  "search-limit-zero.json": {
+    "keyword": "minimum",
+    "path": "/limit",
+    "rule": "page limit at least 1"
+  },
+  "search-query-empty.json": {
+    "keyword": "minLength",
+    "path": "/query",
+    "rule": "query is non-empty"
+  },
+  "search-query-oversize.json": {
+    "keyword": "maxLength",
+    "path": "/query",
+    "rule": "query at most 1024 code points"
+  },
+  "skip-reason-unknown.json": {
+    "keyword": "enum",
+    "path": "/receipt/skipped/0/reason",
+    "rule": "SkipReason enum"
+  },
+  "snapshot-folder-with-url.json": {
+    "keyword": "not",
+    "path": "/snapshot/nodes/9",
+    "rule": "only kind bookmark carries url"
+  },
+  "snapshot-missing-root-ids.json": {
+    "keyword": "required",
+    "path": "/snapshot/root_ids",
+    "rule": "snapshot maps RootKey to node ids"
+  },
+  "snapshot-node-missing-kind.json": {
+    "keyword": "required",
+    "path": "/snapshot/nodes/10/kind",
+    "rule": "every snapshot node states its kind"
+  },
+  "snapshot-node-negative-index.json": {
+    "keyword": "minimum",
+    "path": "/snapshot/nodes/1/index",
+    "rule": "sibling index is non-negative"
+  },
+  "status-negative-queue-depth.json": {
+    "keyword": "minimum",
+    "path": "/queue_depth",
+    "rule": "queue depth is a count"
+  },
+  "undo-result-missing-undoes.json": {
+    "keyword": "required",
+    "path": "/undoes",
+    "rule": "undo.result names the batch it undoes"
+  },
+  "unknown-type.json": {
+    "keyword": "oneOf",
+    "path": "",
+    "rule": "type must be a known message type"
+  },
+  "v-mismatch-on-versioned-message.json": {
+    "keyword": "const",
+    "path": "/v",
+    "rule": "non-frozen messages pin v to CONTRACT_VERSION"
+  },
+  "writer-status-duplicate-writers.json": {
+    "keyword": "uniqueItems",
+    "path": "/other_writers/1",
+    "rule": "other_writers is a set"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "type": "search",
+  "id": "req-0021",
+  "query": "mini-redis",
+  "cursor": "q:5d1c/off:20",
+  "limit": 20
+}

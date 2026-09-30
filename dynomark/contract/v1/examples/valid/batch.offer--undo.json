@@ -1,0 +1,48 @@
+{
+  "v": 1,
+  "type": "batch.offer",
+  "event_id": "evt-0203",
+  "batch": {
+    "batch_id": "batch-0103",
+    "operations": [
+      {
+        "op": "move",
+        "index": 0,
+        "node_id": "42",
+        "to": {
+          "root": "bar",
+          "names": [
+            "Follow Up"
+          ]
+        },
+        "expect": {
+          "parent_path": {
+            "root": "bar",
+            "names": [
+              "Dynomark",
+              "Rust",
+              "Async"
+            ]
+          },
+          "parent_id": "16"
+        }
+      },
+      {
+        "op": "remove",
+        "index": 1,
+        "node_id": "16",
+        "expect": {
+          "parent_path": {
+            "root": "bar",
+            "names": [
+              "Dynomark",
+              "Rust"
+            ]
+          },
+          "empty": true,
+          "parent_id": "14"
+        }
+      }
+    ]
+  }
+}

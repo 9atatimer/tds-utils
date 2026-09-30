@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "type": "job.updated",
+  "event_id": "evt-0305",
+  "job": {
+    "job_id": "job-7f3a",
+    "node_id": "42",
+    "identity": "https://tokio.rs/tokio/tutorial",
+    "state": "FAILED",
+    "seq": 7,
+    "attempts": 1,
+    "backfill": false,
+    "capture_source": "tab",
+    "last_error": "filing op 1 of batch-0101 skipped: node_missing",
+    "batch_id": "batch-0101"
+  }
+}

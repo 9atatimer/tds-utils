@@ -1,0 +1,30 @@
+{
+  "v": 1,
+  "type": "batch.offer",
+  "event_id": "evt-0205",
+  "batch": {
+    "batch_id": "batch-0100",
+    "operations": [
+      {
+        "op": "create_folder",
+        "index": 0,
+        "parent": {
+          "root": "bar",
+          "names": []
+        },
+        "title": "Dynomark"
+      },
+      {
+        "op": "create_folder",
+        "index": 1,
+        "parent": {
+          "root": "bar",
+          "names": [
+            "Dynomark"
+          ]
+        },
+        "title": "dynomark-writer:mbp"
+      }
+    ]
+  }
+}

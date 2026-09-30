@@ -33,24 +33,16 @@ the design shipped, no code did. Retrospective ran 2026-09-19. Order:
   first, and task-021 before it can rename on this machine.
 
 Dynomark (`docs/design/DYNOMARK.DESIGN.md`, APPROVED 2026-09-27): live AI
-filing of native bookmarks, the successor to orgmarks. PoC first, on one
-laptop; MVP tasks 028-032 are blocked behind it. Order:
+filing of native bookmarks, the successor to orgmarks. Code is under
+`dynomark/` (contract, daemon, extension, e2e; `dynomark/README.md` has the
+gates and the mbp install sequence). Tasks 022-026 and 028-031 are built
+and closed: every gate green in a cloud sandbox with fake models, plus a
+real-daemon-to-real-extension e2e in Chromium. Umbrella: issue #342. Order:
 
-- task-022 -- scaffold, versioned contract schema, one fake per port; the
-  stack decision (Python daemon, TypeScript extension) is recorded there.
-- task-023 -- daemon domain and use cases over the fakes (ingest through
-  undo); the Behaviors table is the test list.
-- task-024 -- extension domain and use cases over the fakes; runs in
-  parallel with task-023.
-- task-025 -- daemon adapters (SQLite + FTS5 + sqlite-vec, unix socket,
-  fetch, Ollama); the sqlite-vec Trial row is proposed when it starts.
-- task-026 -- extension adapters and the MV3 shell, e2e in
-  Chrome-for-Testing.
-- task-027 -- mbp integration and the PoC acceptance run; the only phase
-  that needs the laptop.
-
-Tasks 022-026 run in a cloud sandbox with fakes and the pre-installed
-Chromium; nothing before task-027 touches a real profile.
+- task-027 -- mbp integration and the MVP acceptance run (real Chrome
+  profile, Ollama, launchd, phone save, a week of use); the only thing left
+  that needs the laptop, and the retrospective waits on it.
+- task-032 -- Firefox adapters; last, or a follow-up if Firefox is absent.
 
 `ls tasks/` is the index. This file is still the legacy mono-file below
 this section; issue #289 owns the migration into `tasks/`.
@@ -66,9 +58,10 @@ this section; issue #289 owns the migration into `tasks/`.
 - 2026-09-19: `TMUX-HERD.DESIGN.md` DRAFT -> APPROVED is Todd's call; the
   implementer (a different, cheaper model) must not start task-020 before
   it.
-- 2026-09-27: `lmde/TECH_RADAR.md` row for `sqlite-vec` (Assess -> Trial)
-  before task-025 adds the dependency; human-maintained file. Unblock: Todd
-  lands the row or refuses the ring.
+- 2026-09-27: `sqlite-vec` is Assess, so the daemon's KNN is brute-force
+  cosine in Python (about 0.3 s at 10k x 768 on Python 3.11; tier-2 P95
+  about 350 ms in the sandbox). Promoting it to Trial lets the store adapter
+  use it; human-maintained file. Unblock: Todd lands the row or refuses it.
 - 2026-09-27: task-027 needs the mbp (real Chrome profile, native-messaging
   host manifest, Ollama, launchd); no cloud session can run it.
 

@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "type": "job.updated",
+  "event_id": "evt-0307",
+  "job": {
+    "job_id": "job-7f3d",
+    "node_id": "15",
+    "identity": "https://doc.rust-lang.org/book/",
+    "state": "FILED",
+    "seq": 4,
+    "attempts": 1,
+    "backfill": true,
+    "capture_source": "fetch"
+  }
+}

@@ -1,0 +1,114 @@
+{
+  "v": 1,
+  "type": "batch.receipt",
+  "id": "req-0046",
+  "receipt": {
+    "state": "APPLIED",
+    "batch_id": "batch-0101",
+    "snapshot": {
+      "taken_at": 1790000001000,
+      "root_ids": {
+        "bar": "1",
+        "other": "2",
+        "mobile": "3"
+      },
+      "nodes": [
+        {
+          "id": "0",
+          "parent_id": null,
+          "index": 0,
+          "kind": "folder",
+          "title": "",
+          "date_added": 1789991000000
+        },
+        {
+          "id": "1",
+          "parent_id": "0",
+          "index": 0,
+          "kind": "folder",
+          "title": "Bookmarks bar",
+          "date_added": 1789991000000
+        },
+        {
+          "id": "2",
+          "parent_id": "0",
+          "index": 1,
+          "kind": "folder",
+          "title": "Other bookmarks",
+          "date_added": 1789991000000
+        },
+        {
+          "id": "3",
+          "parent_id": "0",
+          "index": 2,
+          "kind": "folder",
+          "title": "Mobile bookmarks",
+          "date_added": 1789991000000
+        },
+        {
+          "id": "10",
+          "parent_id": "1",
+          "index": 0,
+          "kind": "folder",
+          "title": "Follow Up",
+          "date_added": 1789999200000
+        },
+        {
+          "id": "11",
+          "parent_id": "1",
+          "index": 1,
+          "kind": "folder",
+          "title": "Dynomark",
+          "date_added": 1789999200000
+        },
+        {
+          "id": "12",
+          "parent_id": "1",
+          "index": 2,
+          "kind": "folder",
+          "title": "Graveyard",
+          "date_added": 1789999200000
+        },
+        {
+          "id": "13",
+          "parent_id": "11",
+          "index": 0,
+          "kind": "folder",
+          "title": "dynomark-writer:mbp",
+          "date_added": 1789999300000
+        },
+        {
+          "id": "14",
+          "parent_id": "11",
+          "index": 1,
+          "kind": "folder",
+          "title": "Rust",
+          "date_added": 1789999400000
+        },
+        {
+          "id": "15",
+          "parent_id": "14",
+          "index": 0,
+          "kind": "bookmark",
+          "title": "The Rust Book",
+          "url": "https://doc.rust-lang.org/book/",
+          "date_added": 1789999500000
+        }
+      ]
+    },
+    "pre_batch": true,
+    "applied": [
+      {
+        "index": 0,
+        "node_id": "16",
+        "changed": true
+      }
+    ],
+    "skipped": [
+      {
+        "index": 1,
+        "reason": "node_missing"
+      }
+    ]
+  }
+}

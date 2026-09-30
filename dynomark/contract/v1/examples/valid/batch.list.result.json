@@ -1,0 +1,28 @@
+{
+  "v": 1,
+  "type": "batch.list.result",
+  "re": "req-0042",
+  "batches": [
+    {
+      "batch_id": "batch-0104",
+      "state": "PARTIAL",
+      "created_at": 1790000125000,
+      "diff_item_id": "item-0003"
+    },
+    {
+      "batch_id": "batch-0103",
+      "state": "APPLIED",
+      "created_at": 1790000100000,
+      "undoes": "batch-0101"
+    },
+    {
+      "batch_id": "batch-0101",
+      "state": "APPLIED",
+      "created_at": 1790000002000,
+      "job_id": "job-7f3a",
+      "identity": "https://tokio.rs/tokio/tutorial",
+      "undone_by": "batch-0103"
+    }
+  ],
+  "next_cursor": "batch:batch-0101"
+}

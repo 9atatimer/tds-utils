@@ -1,0 +1,23 @@
+{
+  "v": 1,
+  "type": "ingest",
+  "id": "req-0002",
+  "bookmark": {
+    "node_id": "42",
+    "url": "https://tokio.rs/tokio/tutorial?utm_source=x",
+    "title": "Tokio tutorial",
+    "path": {
+      "root": "bar",
+      "names": [
+        "Follow Up"
+      ]
+    },
+    "date_added": 1790000000000
+  },
+  "capture": {
+    "source": "none",
+    "title": "Tutorial | Tokio",
+    "text": "Tokio is an asynchronous runtime for Rust..."
+  },
+  "backfill": false
+}

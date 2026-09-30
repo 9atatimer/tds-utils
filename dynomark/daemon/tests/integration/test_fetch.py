@@ -1,0 +1,384 @@
+"""The daemon's fetch ContentSourcePort (DYNOMARK.DESIGN.md, The daemon,
+"Capture fallback ... carries no cookies; skips non-http(s) URLs";
+Security Considerations, "Daemon-side fetch"). A local ``http.server`` on
+127.0.0.1 only; no network.
+"""
+
+import socket
+import threading
+import time
+from collections.abc import Callable, Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from ipaddress import ip_address
+from pathlib import Path
+from typing import ClassVar
+
+import pytest
+
+from dynomark_daemon.adapters.fetch import FetchContentSource, IPAddress, is_public
+from dynomark_daemon.domain.bookmark import CaptureSource
+from dynomark_daemon.ports.content import ContentSourcePort, ContentUnavailable
+from tests._factories import make_bookmark
+
+pytestmark = pytest.mark.integration
+
+PAGES = Path(__file__).resolve().parents[1] / "fixtures" / "pages"
+RELEASE_TIMEOUT_S = 5.0
+DRIP_S = 0.1
+DRIP_BYTES = 60
+
+
+class _Site(BaseHTTPRequestHandler):
+    """Serves the fixture pages and a few scripted routes; records headers."""
+
+    seen: ClassVar[list[dict[str, str]]] = []
+    release: ClassVar[threading.Event] = threading.Event()
+
+    def log_message(self, format: str, *args: object) -> None:
+        return None
+
+    def _send(self, code: int, body: bytes, content_type: str, **headers: str) -> None:
+        self.send_response(code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        for name, value in headers.items():
+            self.send_header(name.replace("_", "-"), value)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self) -> None:
+        type(self).seen.append({k.lower(): v for k, v in self.headers.items()})
+        routes = {
+            "/set-cookie": lambda: self._send(
+                302, b"", "text/html", Location="/article.html", Set_Cookie="s=1"
+            ),
+            "/to-file": lambda: self._send(
+                302, b"", "text/html", Location="file:///etc/passwd"
+            ),
+            "/missing": lambda: self._send(404, b"no", "text/html"),
+            "/down": lambda: self._send(503, b"later", "text/html"),
+            "/pdf": lambda: self._send(200, b"%PDF-1.4", "application/pdf"),
+            "/plain": lambda: self._send(200, b"just text", "text/plain"),
+            "/huge": lambda: self._send(
+                200, b"<p>" + b"word " * 400_000 + b"</p>", "text/html"
+            ),
+            "/latin1": lambda: self._send(
+                200,
+                (PAGES / "latin1.html").read_bytes(),
+                "text/html; charset=iso-8859-1",
+            ),
+            "/stall": self._stall,
+            "/drip": self._drip,
+            "/to-loopback6": self._to_loopback6,
+        }
+        route = routes.get(self.path)
+        if route is not None:
+            route()
+            return
+        page = PAGES / self.path.lstrip("/")
+        if page.is_file():
+            self._send(200, page.read_bytes(), "text/html; charset=utf-8")
+        else:
+            self._send(404, b"", "text/html")
+
+    def _stall(self) -> None:
+        type(self).release.wait(RELEASE_TIMEOUT_S)
+
+    def _to_loopback6(self) -> None:
+        port = self.headers.get("Host", "").rsplit(":", 1)[-1]
+        location = f"http://[::1]:{port}/article.html"
+        self._send(302, b"", "text/html", Location=location)
+
+    def _drip(self) -> None:
+        """A page that never stalls long enough to time out one read: a byte
+        every ``DRIP_S`` for ``DRIP_BYTES`` bytes."""
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
+        self.end_headers()
+        for _ in range(DRIP_BYTES):
+            if type(self).release.wait(DRIP_S):
+                return
+            self.wfile.write(b"x")
+            self.wfile.flush()
+
+
+class _Server(ThreadingHTTPServer):
+    daemon_threads = True
+
+    def handle_error(self, request: object, client_address: object) -> None:
+        """A client that stops reading (the byte cap, the timeout) is expected."""
+        return None
+
+
+@pytest.fixture
+def site() -> Iterator[str]:
+    _Site.seen = []
+    _Site.release = threading.Event()
+    server = _Server(("127.0.0.1", 0), _Site)
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+    )
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        _Site.release.set()
+        server.shutdown()
+        server.server_close()
+
+
+def _stands_in_for_the_internet(address: IPAddress) -> bool:
+    """The hermetic site's own address plays a public one; every other
+    non-public address stays refused."""
+    return address == ip_address("127.0.0.1") or is_public(address)
+
+
+def _fetch(**overrides: float | int) -> ContentSourcePort:
+    settings = {"timeout_s": 2.0, "max_bytes": 5_000_000, **overrides}
+    return FetchContentSource(
+        timeout_s=float(settings["timeout_s"]),
+        max_bytes=int(settings["max_bytes"]),
+        address_allowed=_stands_in_for_the_internet,
+    )
+
+
+def test_fetch_captures_the_readable_article_text(site: str) -> None:
+    """Given an article page, When read, Then the capture is source fetch with
+    the page title and the article text, without navigation or scripts."""
+    capture = _fetch().read(make_bookmark(f"{site}/article.html"))
+
+    assert capture.source is CaptureSource.FETCH
+    assert capture.title == "Tokio tutorial & guide"
+    assert "Cancellation happens at await points." in capture.text
+    for chrome in ("Navigation link", "Site header", "footer", "trackingSecret"):
+        assert chrome not in capture.text
+
+
+def test_fetch_sends_no_cookie_even_when_one_is_set(site: str) -> None:
+    """Given a site that sets a cookie and redirects, When read, Then the page
+    is captured and no request carried a Cookie header."""
+    capture = _fetch().read(make_bookmark(f"{site}/set-cookie"))
+
+    assert "asynchronous runtime" in capture.text
+    assert len(_Site.seen) == 2
+    assert all("cookie" not in headers for headers in _Site.seen)
+
+
+@pytest.mark.parametrize(
+    "url", ["file:///etc/passwd", "ftp://127.0.0.1/x", "javascript:alert(1)"]
+)
+def test_fetch_refuses_non_http_urls_without_a_request(url: str, site: str) -> None:
+    """Given a non-http(s) url, When read, Then ContentUnavailable and no
+    request was made."""
+    with pytest.raises(ContentUnavailable):
+        _fetch().read(make_bookmark(url))
+
+    assert _Site.seen == []
+
+
+def test_fetch_refuses_a_redirect_off_http(site: str) -> None:
+    """Given an http page redirecting to file://, When read, Then
+    ContentUnavailable (the redirect is never followed)."""
+    with pytest.raises(ContentUnavailable):
+        _fetch().read(make_bookmark(f"{site}/to-file"))
+
+
+def test_fetch_by_default_refuses_a_loopback_page_without_a_request(
+    site: str,
+) -> None:
+    """Given the production policy and a page on 127.0.0.1, When read, Then
+    ContentUnavailable (not retryable) and no request reached the server:
+    the fetch never reaches a loopback, link-local or private address."""
+    fetch = FetchContentSource(timeout_s=2.0, max_bytes=100_000)
+
+    with pytest.raises(ContentUnavailable) as raised:
+        fetch.read(make_bookmark(f"{site}/article.html"))
+
+    assert raised.value.retryable is False
+    assert _Site.seen == []
+
+
+def test_fetch_refuses_a_redirect_into_a_non_public_address(site: str) -> None:
+    """Given a public page (the site stands in for one) that redirects to
+    [::1], When read, Then ContentUnavailable (not retryable): the redirect is
+    checked like the first request and never followed."""
+    with pytest.raises(ContentUnavailable) as raised:
+        _fetch().read(make_bookmark(f"{site}/to-loopback6"))
+
+    assert raised.value.retryable is False
+    assert len(_Site.seen) == 1
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "127.0.0.1",
+        "10.1.2.3",
+        "192.168.1.1",
+        "169.254.169.254",
+        "::1",
+        "fe80::1",
+        "0.0.0.0",
+        "::ffff:127.0.0.1",
+        "224.0.0.1",
+    ],
+)
+def test_the_production_policy_refuses_every_non_public_address(address: str) -> None:
+    """Given a loopback, private, link-local, unspecified, mapped or multicast
+    address, When the production policy judges it, Then it is refused."""
+    assert is_public(ip_address(address)) is False
+
+
+def test_the_production_policy_allows_a_public_address() -> None:
+    """Given a public address, When judged, Then it is allowed (the guard lets
+    the internet through)."""
+    assert is_public(ip_address("93.184.215.14")) is True
+    assert is_public(ip_address("2606:4700:4700::1111")) is True
+
+
+@pytest.mark.parametrize(
+    ("path", "retryable"), [("/missing", False), ("/down", True), ("/pdf", False)]
+)
+def test_fetch_failures_are_content_unavailable(
+    site: str, path: str, retryable: bool
+) -> None:
+    """Given a 404, a 503 or a non-text page, When read, Then ContentUnavailable
+    says whether trying again could help."""
+    with pytest.raises(ContentUnavailable) as raised:
+        _fetch().read(make_bookmark(f"{site}{path}"))
+
+    assert raised.value.retryable is retryable
+
+
+@pytest.fixture
+def raw_reply() -> Iterator[Callable[[bytes], str]]:
+    """Serve one scripted byte string, whatever the request, on 127.0.0.1: a
+    server that breaks HTTP in ways ``http.server`` never would."""
+    listeners: list[socket.socket] = []
+
+    def serve(reply: bytes) -> str:
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        listener.settimeout(RELEASE_TIMEOUT_S)
+        listeners.append(listener)
+
+        def answer() -> None:
+            try:
+                client, _ = listener.accept()
+            except OSError:
+                return
+            with client:
+                client.recv(65_536)
+                client.sendall(reply)
+
+        threading.Thread(target=answer, daemon=True).start()
+        return f"http://127.0.0.1:{listener.getsockname()[1]}/"
+
+    try:
+        yield serve
+    finally:
+        for listener in listeners:
+            listener.close()
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        pytest.param(b"HELLO\r\n\r\n", id="BadStatusLine"),
+        pytest.param(
+            b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n"
+            b"Transfer-Encoding: chunked\r\n\r\n100\r\n<p>short",
+            id="IncompleteRead",
+        ),
+        pytest.param(
+            b"HTTP/1.1 200 OK\r\nX-Long: " + b"a" * 70_000 + b"\r\n\r\n",
+            id="LineTooLong",
+        ),
+    ],
+)
+def test_a_server_breaking_http_is_content_unavailable(
+    raw_reply: Callable[[bytes], str], reply: bytes
+) -> None:
+    """Given a server that answers with a garbage status line, a truncated
+    chunked body or an over-long header line, When read, Then
+    ContentUnavailable -- not the ``http.client.HTTPException`` urllib lets
+    through, which would escape the capture fallback and stall the job."""
+    with pytest.raises(ContentUnavailable):
+        _fetch().read(make_bookmark(raw_reply(reply)))
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("http://127.0.0.1:12ab/", id="InvalidURL"),
+        pytest.param("http://" + "a" * 64 + ".example/", id="UnicodeError-idna"),
+        pytest.param("http://[::1/", id="ValueError-urlsplit"),
+    ],
+)
+def test_a_url_http_client_cannot_use_is_content_unavailable(url: str) -> None:
+    """Given a url with a non-numeric port, a host label IDNA refuses, or an
+    unclosed IPv6 bracket, When read, Then ContentUnavailable (not retryable)
+    rather than the ``InvalidURL`` or ``ValueError`` raised before any
+    request is made."""
+    with pytest.raises(ContentUnavailable) as raised:
+        _fetch().read(make_bookmark(url))
+
+    assert raised.value.retryable is False
+
+
+def test_fetch_times_out_on_a_silent_server(site: str) -> None:
+    """Given a server that never answers, When read with a short timeout, Then
+    ContentUnavailable (retryable) instead of a hang."""
+    with pytest.raises(ContentUnavailable) as raised:
+        _fetch(timeout_s=0.2).read(make_bookmark(f"{site}/stall"))
+
+    assert raised.value.retryable is True
+
+
+def test_fetch_gives_up_on_a_page_that_trickles_past_its_timeout(site: str) -> None:
+    """Given a server that sends a byte every 0.1 s for 6 s, When read with a
+    0.5 s timeout, Then ContentUnavailable (retryable) well before the page
+    ends: the timeout bounds the whole fetch, not each read."""
+    started = time.monotonic()
+    with pytest.raises(ContentUnavailable) as raised:
+        _fetch(timeout_s=0.5, max_bytes=1_000).read(make_bookmark(f"{site}/drip"))
+    elapsed = time.monotonic() - started
+
+    assert raised.value.retryable is True
+    assert elapsed < DRIP_S * DRIP_BYTES / 2
+
+
+def test_fetch_reads_at_most_max_bytes(site: str) -> None:
+    """Given a 2 MB page and a 64 KiB cap, When read, Then the capture holds
+    only text from the first 64 KiB."""
+    capture = _fetch(max_bytes=65_536).read(make_bookmark(f"{site}/huge"))
+
+    assert 0 < len(capture.text) <= 65_536
+
+
+def test_fetch_decodes_the_declared_charset_and_plain_text(site: str) -> None:
+    """Given an iso-8859-1 page and a text/plain page, When read, Then both are
+    decoded to the right characters."""
+    latin = _fetch().read(make_bookmark(f"{site}/latin1"))
+    plain = _fetch().read(make_bookmark(f"{site}/plain"))
+
+    assert (latin.title, latin.text) == ("Café", "crème brûlée")
+    assert plain.text == "just text"
+
+
+@pytest.mark.parametrize(
+    ("page", "expected", "absent"),
+    [
+        ("main.html", "Roses need pruning in late winter.", "Sidebar"),
+        ("plain-body.html", "Second paragraph.", "footer words"),
+    ],
+)
+def test_fetch_falls_back_to_main_then_body(
+    site: str, page: str, expected: str, absent: str
+) -> None:
+    """Given pages without an article, When read, Then main, else the body,
+    is captured without the page chrome."""
+    capture = _fetch().read(make_bookmark(f"{site}/{page}"))
+
+    assert expected in capture.text and absent not in capture.text

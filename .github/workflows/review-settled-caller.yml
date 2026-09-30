@@ -68,6 +68,8 @@ jobs:
       pull-requests: read
       contents: read
     with:
-      reviewers: copilot-pull-request-reviewer
+      # Any-of group: a review on head from Copilot OR Codex settles it
+      # (Copilot has no quota; owner ruling 2026-09-27).
+      reviewers: 'copilot-pull-request-reviewer|chatgpt-codex-connector'
       pr: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
       tools_ref: ${{ github.event.pull_request.head.sha || 'master' }}

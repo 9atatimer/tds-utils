@@ -1,0 +1,25 @@
+{
+  "v": 1,
+  "type": "move.observed",
+  "id": "req-0010",
+  "move": {
+    "node_id": "42",
+    "url": "https://tokio.rs/tokio/tutorial?utm_source=x",
+    "from": {
+      "root": "bar",
+      "names": [
+        "Follow Up"
+      ]
+    },
+    "to": {
+      "root": "bar",
+      "names": [
+        "Dynomark",
+        "Rust",
+        "Async"
+      ]
+    },
+    "origin": "extension",
+    "observed_at": 1790000006000
+  }
+}

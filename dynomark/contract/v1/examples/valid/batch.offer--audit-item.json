@@ -1,0 +1,46 @@
+{
+  "v": 1,
+  "type": "batch.offer",
+  "event_id": "evt-0204",
+  "batch": {
+    "batch_id": "batch-0104",
+    "diff_item_id": "item-0003",
+    "operations": [
+      {
+        "op": "create_folder",
+        "index": 0,
+        "parent": {
+          "root": "bar",
+          "names": []
+        },
+        "title": "Reading"
+      },
+      {
+        "op": "create",
+        "index": 1,
+        "parent": {
+          "root": "bar",
+          "names": [
+            "Reading"
+          ]
+        },
+        "title": "The Rust Book",
+        "url": "https://doc.rust-lang.org/book/"
+      },
+      {
+        "op": "move",
+        "index": 2,
+        "node_id": "77",
+        "to": {
+          "root": "bar",
+          "names": [
+            "Reading"
+          ]
+        },
+        "expect": {
+          "parent_id": "2"
+        }
+      }
+    ]
+  }
+}

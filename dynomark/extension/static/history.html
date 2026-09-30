@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Dynomark history</title>
+    <link rel="stylesheet" href="pages.css" />
+    <script type="module" src="history.js"></script>
+  </head>
+  <body>
+    <h1>Dynomark history</h1>
+    <nav><a href="options.html">Settings</a> | <a href="chat.html">Ask</a> | <a href="diff.html">Diffs</a></nav>
+    <p><button id="refresh" type="button">Refresh</button> <span id="message"></span></p>
+
+    <h2>Write batches</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>When</th>
+          <th>Batch</th>
+          <th>State</th>
+          <th>What</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="batches"></tbody>
+    </table>
+    <p><button id="batches-more" type="button" hidden>More</button></p>
+
+    <h2>Failed jobs</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Page</th>
+          <th>Error</th>
+          <th>Attempts</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="jobs"></tbody>
+    </table>
+    <p><button id="jobs-more" type="button" hidden>More</button></p>
+  </body>
+</html>

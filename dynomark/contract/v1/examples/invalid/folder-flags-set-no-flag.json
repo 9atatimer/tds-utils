@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "type": "folder.flags.set",
+  "id": "req-0032",
+  "node_id": "14",
+  "path": {
+    "root": "bar",
+    "names": [
+      "Dynomark",
+      "Rust"
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "type": "error",
+  "re": "req-0030",
+  "code": "writer_conflict",
+  "message": "marker of host work-laptop present"
+}

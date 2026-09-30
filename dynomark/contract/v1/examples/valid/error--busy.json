@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "type": "error",
+  "re": "req-0022",
+  "code": "busy",
+  "message": "completion model loading"
+}

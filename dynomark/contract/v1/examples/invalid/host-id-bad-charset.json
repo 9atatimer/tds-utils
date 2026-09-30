@@ -1,0 +1,28 @@
+{
+  "v": 1,
+  "type": "hello.result",
+  "re": "req-0001",
+  "host_id": "-mbp",
+  "role": "writer",
+  "mode": "full",
+  "owned_roots": {
+    "follow_up": {
+      "root": "bar",
+      "names": [
+        "Follow Up"
+      ]
+    },
+    "dynomark": {
+      "root": "bar",
+      "names": [
+        "Dynomark"
+      ]
+    },
+    "graveyard": {
+      "root": "bar",
+      "names": [
+        "Graveyard"
+      ]
+    }
+  }
+}

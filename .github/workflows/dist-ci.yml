@@ -1,6 +1,7 @@
-# dist-ci.yml -- CI gate for the ENV-DISTRIBUTION toolchain (issue #206).
+# dist-ci.yml -- the repo's CI gate: the ENV-DISTRIBUTION toolchain (issue
+# #206), chores, and Dynomark.
 #
-# Two jobs:
+# Jobs:
 #
 #   smoketests -- runs test/syntax_sweep.sh (the same parse gate developers
 #     run locally: /bin/bash -n for bash files, zsh -n for zsh files and the
@@ -22,7 +23,25 @@
 #     yet, and widening the net here would turn the gate red for reasons
 #     unrelated to the dist toolchain.
 #
-# Dependencies (runner package manager only, per the issue):
+#   dynomark-contract -- dynomark/contract/check.py, the zero-dependency
+#     self-check of the transport contract both runtimes build against
+#     (docs/design/DYNOMARK.DESIGN.md).
+#
+#   dynomark-daemon -- the daemon's gate (ruff, format, strict mypy, pytest)
+#     on ubuntu-latest AND macos-latest: the daemon lives on a Mac, and unix
+#     socket addresses are shorter there (104 bytes vs 108).
+#
+#   dynomark-extension -- the extension's gate (typecheck, format, unit
+#     tests, build, then its Chromium tiers against a fake daemon). One
+#     ubuntu leg; the browser is what varies, and CI installs Playwright's
+#     Chromium (`--load-extension` needs an unbranded build).
+#
+#   dynomark-e2e -- the integration e2e (dynomark/e2e): the built extension,
+#     the real native host and the real daemon with fake models, driven
+#     together in Chromium on ubuntu. It prints the measured ingest ->
+#     APPLIED interval (design Goal 2) in its log.
+#
+# Dependencies of the dist jobs (runner package manager only, per the issue):
 #   ubuntu: zsh (not preinstalled; syntax sweep needs it) and gnupg
 #     (publish suite signs artifacts).
 #   macos: gnupg via brew, guarded by `command -v gpg` -- runner images
@@ -177,6 +196,137 @@ jobs:
       - name: Unit tests (pytest)
         run: uv run pytest
 
+  dynomark-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Contract self-check
+        run: python3 dynomark/contract/check.py
+
+  dynomark-daemon:
+    strategy:
+      # Unix socket address limits differ (macOS 104 bytes, Linux 108);
+      # both legs report.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: dynomark/daemon
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Sync the project (dev group)
+        run: uv sync --frozen
+
+      - name: Lint (ruff check)
+        run: uv run ruff check .
+
+      - name: Format (ruff format --check)
+        run: uv run ruff format --check .
+
+      - name: Types (mypy --strict)
+        run: uv run mypy
+
+      - name: Tests (pytest)
+        run: uv run pytest
+
+  dynomark-extension:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: dynomark/extension
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The version package-lock.json pins; --with-deps adds its apt libraries.
+      - name: Install Playwright's Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Format (prettier --check)
+        run: npm run format:check
+
+      - name: Unit tests (vitest)
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Browser tiers (adapters in Chromium, e2e against a fake daemon)
+        run: npm run e2e
+
+  dynomark-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      # The e2e's global setup builds the extension and syncs the daemon;
+      # each needs its own dependencies first.
+      - name: Install the extension's dependencies
+        working-directory: dynomark/extension
+        run: npm ci
+
+      - name: Install the e2e's dependencies
+        working-directory: dynomark/e2e
+        run: npm ci
+
+      # @playwright/test is pinned exactly in dynomark/e2e/package.json.
+      - name: Install Playwright's Chromium
+        working-directory: dynomark/e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Typecheck
+        working-directory: dynomark/e2e
+        run: npm run typecheck
+
+      - name: Format (prettier --check)
+        working-directory: dynomark/e2e
+        run: npm run format:check
+
+      - name: Integration e2e (extension + real host + real daemon)
+        working-directory: dynomark/e2e
+        run: npm run e2e
+
   # The required check. Add every new job to `needs`; a job left out is a
   # job that cannot block a landing. `if: always()` so a failed or
   # cancelled dependency still produces this check (red), never an absent
@@ -186,7 +336,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     if: always()
-    needs: [smoketests, shellcheck, chores]
+    needs:
+      - smoketests
+      - shellcheck
+      - chores
+      - dynomark-contract
+      - dynomark-daemon
+      - dynomark-extension
+      - dynomark-e2e
     permissions: {}
     steps:
       - name: Every needed job succeeded

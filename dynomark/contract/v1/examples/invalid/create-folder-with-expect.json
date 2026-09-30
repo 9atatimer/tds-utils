@@ -1,0 +1,53 @@
+{
+  "v": 1,
+  "type": "batch.offer",
+  "event_id": "evt-0201",
+  "batch": {
+    "batch_id": "batch-0101",
+    "operations": [
+      {
+        "op": "create_folder",
+        "index": 0,
+        "parent": {
+          "root": "bar",
+          "names": [
+            "Dynomark",
+            "Rust"
+          ]
+        },
+        "title": "Async",
+        "expect": {
+          "parent_path": {
+            "root": "bar",
+            "names": [
+              "Dynomark",
+              "Rust"
+            ]
+          }
+        }
+      },
+      {
+        "op": "move",
+        "index": 1,
+        "node_id": "42",
+        "to": {
+          "root": "bar",
+          "names": [
+            "Dynomark",
+            "Rust",
+            "Async"
+          ]
+        },
+        "expect": {
+          "parent_path": {
+            "root": "bar",
+            "names": [
+              "Follow Up"
+            ]
+          },
+          "parent_id": "10"
+        }
+      }
+    ]
+  }
+}

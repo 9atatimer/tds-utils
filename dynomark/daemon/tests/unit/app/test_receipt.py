@@ -1,0 +1,412 @@
+"""Behaviors row: A receipt is processed (DYNOMARK.DESIGN.md, Behaviors and
+Interfaces; The daemon, "Receipts") -- ``receive_receipt(receipt, *, store)
+-> Job or WriteBatch``: "Given APPLIED, Then the job is FILED and the
+snapshot stored; Given PARTIAL, Then the job is FAILED and a PROPOSED
+inverse of the prefix exists"; REJECTED -> FAILED (State Machine). With
+contract v1's rows (Jobs, Receipt -> job): a skipped filing op fails the
+job like PARTIAL, and a receipt delivered twice is recorded once
+(``receipt.batch_id`` is the idempotency key; "A receipt is delivered").
+"""
+
+from collections.abc import Callable
+from dataclasses import replace
+
+import pytest
+
+from dynomark_daemon.app.errors import UnknownRecord
+from dynomark_daemon.app.events import replay_events
+from dynomark_daemon.app.file import offer
+from dynomark_daemon.app.receipt import ReceiptRecorded
+from dynomark_daemon.domain.batch import (
+    BatchReceipt,
+    BatchRecord,
+    BatchState,
+    Expect,
+    FailReason,
+    OpCreateFolder,
+    OpFailed,
+    OpRemove,
+    OpSkipped,
+    ReceiptApplied,
+    ReceiptPartial,
+    ReceiptRejected,
+    RejectReason,
+    SkipReason,
+)
+from dynomark_daemon.domain.connection import HelloMode
+from dynomark_daemon.domain.events import BatchOffered, JobUpdated
+from dynomark_daemon.domain.ids import BatchId, NodeId
+from dynomark_daemon.domain.job import JobState
+from dynomark_daemon.testing.transport import RecordingTransport
+from tests._crash import DyingStore
+from tests._factories import make_batch, make_path
+from tests.unit.app._filed import CREATED, MOVED, RUST, TREE, Daemon
+
+
+def _applied(daemon: Daemon, *, skipped: tuple[OpSkipped, ...] = ()) -> ReceiptApplied:
+    applied = (CREATED,) if skipped else (CREATED, MOVED)
+    return ReceiptApplied(
+        batch_id=daemon.batch.batch_id,
+        applied=applied,
+        skipped=skipped,
+        pre_batch=True,
+        snapshot=TREE,
+    )
+
+
+def _partial(daemon: Daemon) -> ReceiptPartial:
+    return ReceiptPartial(
+        batch_id=daemon.batch.batch_id,
+        applied=(CREATED,),
+        skipped=(),
+        failed=OpFailed(index=1, reason=FailReason.BROWSER_ERROR),
+        pre_batch=True,
+        snapshot=TREE,
+    )
+
+
+CREATE_GRAVEYARD = OpCreateFolder(index=0, parent=make_path(), title="Graveyard")
+REMOVE_CREATED = OpRemove(
+    index=1,
+    node_id=NodeId("16"),
+    expect=Expect(parent_id=NodeId("14"), parent_path=RUST, empty=True),
+)
+
+
+def test_receive_an_applied_receipt_files_the_job_and_stores_the_snapshot() -> None:
+    """Given a PROPOSED filing batch, When its APPLIED receipt arrives, Then the
+    job is FILED, the batch APPLIED with its receipt and snapshot stored, and
+    the offer acknowledged."""
+    daemon = Daemon()
+    receipt = _applied(daemon)
+
+    recorded = daemon.receive(receipt)
+
+    assert recorded == ReceiptRecorded(first=True, job=daemon.job_now(), inverse=None)
+    assert daemon.job_now().state is JobState.FILED
+    record = daemon.store.get_batch(daemon.batch.batch_id)
+    assert record is not None
+    assert (record.state, record.receipt) == (
+        BatchState.APPLIED,
+        replace(receipt, snapshot=None),
+    )
+    assert record.snapshot_id is not None
+    assert daemon.store.get_snapshot(record.snapshot_id) == TREE
+    assert daemon.offers() == []
+    updates = [
+        p.event.job
+        for p in daemon.store.unacked_events(daemon.job.profile_id)
+        if isinstance(p.event, JobUpdated)
+    ]
+    assert updates == [daemon.job_now()]
+
+
+def test_a_recorded_receipt_keeps_its_tree_only_in_the_archive() -> None:
+    """Given a filing batch offered against the latest tree, When its APPLIED
+    receipt arrives with the pre-batch tree, Then the batch row's receipt
+    keeps its applied and skipped ops but no tree, the tree is archived once
+    under the batch's snapshot id, and the offer-time copy it supersedes,
+    which no other batch names, is gone (a filing does not grow the store
+    by whole trees)."""
+    daemon = Daemon()
+    offered = daemon.store.get_batch(daemon.batch.batch_id)
+    assert offered is not None and offered.snapshot_id is not None
+    offer_copy = offered.snapshot_id
+
+    daemon.receive(_applied(daemon))
+
+    record = daemon.store.get_batch(daemon.batch.batch_id)
+    assert record is not None and isinstance(record.receipt, ReceiptApplied)
+    assert record.receipt.snapshot is None
+    assert (record.receipt.applied, record.receipt.skipped) == ((CREATED, MOVED), ())
+    assert record.snapshot_id not in (None, offer_copy)
+    assert daemon.store.get_snapshot(record.snapshot_id) == TREE
+    assert daemon.store.get_snapshot(offer_copy) is None
+
+
+def test_an_offer_time_tree_another_batch_names_outlives_one_receipt() -> None:
+    """Given two batches offered against the same latest tree, When the first
+    one's receipt archives its own pre-batch tree, Then the shared offer-time
+    copy is kept: the second batch still names it as its fallback export."""
+    daemon = Daemon()
+    other = offer(
+        make_batch("batch-other", profile_id=daemon.job.profile_id),
+        store=daemon.store,
+        ids=daemon.ids,
+    )
+    kept = daemon.store.get_batch(other.batch_id)
+    assert kept is not None and kept.snapshot_id is not None
+
+    daemon.receive(_applied(daemon))
+
+    assert daemon.store.get_snapshot(kept.snapshot_id) == TREE
+
+
+def test_receive_a_partial_receipt_fails_the_job_and_offers_the_prefix_inverse() -> (
+    None
+):
+    """Given a filing batch whose move failed after its folder was created, When
+    the PARTIAL receipt arrives, Then the job is FAILED and a PROPOSED inverse
+    removing the created folder exists and is offered."""
+    daemon = Daemon()
+
+    recorded = daemon.receive(_partial(daemon))
+
+    assert daemon.job_now().state is JobState.FAILED
+    assert recorded.inverse is not None
+    assert recorded.inverse.operations == (CREATE_GRAVEYARD, REMOVE_CREATED)
+    inverse = daemon.store.get_batch(recorded.inverse.batch_id)
+    original = daemon.store.get_batch(daemon.batch.batch_id)
+    assert inverse is not None and original is not None
+    assert (inverse.state, inverse.undoes) == (
+        BatchState.PROPOSED,
+        original.batch.batch_id,
+    )
+    assert (original.state, original.undone_by) == (
+        BatchState.PARTIAL,
+        inverse.batch.batch_id,
+    )
+    assert [o.batch for o in daemon.offers()] == [inverse.batch]
+
+
+def test_receive_an_applied_receipt_whose_filing_op_was_skipped_fails_the_job() -> None:
+    """Given an APPLIED receipt that skipped the filing move (the node was moved
+    away), When processed, Then the job is FAILED naming the skip, and the
+    created folder is offered back as an inverse."""
+    daemon = Daemon()
+    skip = OpSkipped(index=1, reason=SkipReason.PARENT_MISMATCH)
+
+    recorded = daemon.receive(_applied(daemon, skipped=(skip,)))
+
+    job = daemon.job_now()
+    assert job.state is JobState.FAILED
+    assert job.last_error is not None and "parent_mismatch" in job.last_error
+    assert recorded.inverse is not None
+    assert recorded.inverse.operations == (CREATE_GRAVEYARD, REMOVE_CREATED)
+
+
+def test_receive_a_rejected_receipt_fails_the_job_with_no_inverse() -> None:
+    """Given a REJECTED receipt, When processed, Then the job is FAILED and
+    nothing is offered back (nothing was touched)."""
+    daemon = Daemon()
+    receipt = ReceiptRejected(
+        batch_id=daemon.batch.batch_id,
+        reason=RejectReason.BOUNDARY,
+        pre_batch=True,
+        snapshot=TREE,
+    )
+
+    recorded = daemon.receive(receipt)
+
+    assert daemon.job_now().state is JobState.FAILED
+    assert recorded.inverse is None
+    record = daemon.store.get_batch(daemon.batch.batch_id)
+    assert record is not None and record.state is BatchState.REJECTED
+    assert daemon.offers() == []
+
+
+def test_receive_a_receipt_twice_records_it_once() -> None:
+    """Given a receipt already recorded, When it is delivered again, Then
+    nothing new is recorded: no second inverse, no second job change."""
+    daemon = Daemon()
+    first = daemon.receive(_partial(daemon))
+    events_after_first = daemon.store.unacked_events(daemon.job.profile_id)
+
+    again = daemon.receive(_partial(daemon))
+
+    assert (first.first, again.first) == (True, False)
+    assert len(daemon.store.list_batches()) == 2
+    assert daemon.store.unacked_events(daemon.job.profile_id) == events_after_first
+
+
+def test_receive_a_receipt_for_an_unknown_batch_is_not_found() -> None:
+    """Given no batch with the receipt's id, When it arrives, Then it raises
+    UnknownRecord (error not_found)."""
+    daemon = Daemon()
+    receipt = ReceiptRejected(
+        batch_id=BatchId("batch-unknown"),
+        reason=RejectReason.INVALID,
+        pre_batch=True,
+        snapshot=TREE,
+    )
+
+    with pytest.raises(UnknownRecord):
+        daemon.receive(receipt)
+
+
+def _killed_mid_receipt(receipt: Callable[[Daemon], BatchReceipt]) -> Daemon:
+    """A daemon killed at its job write while recording ``receipt``, after the
+    batch row and any inverse were written in the same unit of work."""
+    store = DyingStore()
+    daemon = Daemon(store)
+    store.kill_at("put_job")
+    with pytest.raises(SystemExit):
+        daemon.receive(receipt(daemon))
+    return daemon
+
+
+def test_a_kill_mid_receipt_records_none_of_it() -> None:
+    """Given the daemon was killed at the job change of a PARTIAL receipt,
+    after its batch row and inverse were written, Then none of it is
+    recorded: no receipt, no inverse, the job still PLACED."""
+    daemon = _killed_mid_receipt(_partial)
+
+    record = daemon.store.get_batch(daemon.batch.batch_id)
+    assert record is not None
+    assert (record.receipt, record.undone_by) == (None, None)
+    assert len(daemon.store.list_batches()) == 1
+    assert daemon.job_now().state is JobState.PLACED
+
+
+def test_a_receipt_resent_after_a_kill_mid_recording_files_the_job() -> None:
+    """Given the daemon was killed while recording an APPLIED receipt, When the
+    extension re-sends the receipt (at-least-once), Then it is recorded as
+    the first and the job is FILED instead of stranded PLACED."""
+    daemon = _killed_mid_receipt(_applied)
+    assert daemon.job_now().state is JobState.PLACED
+
+    again = daemon.receive(_applied(daemon))
+
+    assert again.first is True
+    assert daemon.job_now().state is JobState.FILED
+    assert again.job == daemon.job_now()
+
+
+def _replayed_offers(daemon: Daemon) -> list[BatchId]:
+    """The batches whose offers a restarted daemon replays on the next hello."""
+    transport = RecordingTransport()
+    replay_events(
+        daemon.job.profile_id,
+        mode=HelloMode.FULL,
+        offers_ready=True,
+        store=daemon.store,
+        transport=transport,
+    )
+    return [
+        e.batch.batch_id
+        for e in transport.events_for(daemon.job.profile_id)
+        if isinstance(e, BatchOffered)
+    ]
+
+
+@pytest.mark.parametrize("receipt", [_applied, _partial], ids=["applied", "partial"])
+def test_a_kill_mid_receipt_leaves_the_offer_to_replay(
+    receipt: Callable[[Daemon], BatchReceipt],
+) -> None:
+    """Given the daemon was killed after a receipt's batch row was recorded and
+    before its job changed, When it restarts and replays on the next hello,
+    Then the batch's offer is re-sent, so the extension answers it again from
+    its cursor instead of the job staying PLACED with nothing to replay."""
+    daemon = _killed_mid_receipt(receipt)
+
+    assert daemon.batch.batch_id in _replayed_offers(daemon)
+
+
+def test_a_replayed_offer_answered_again_after_a_kill_files_the_job() -> None:
+    """Given the daemon was killed after an APPLIED receipt's batch row was
+    recorded and before its job changed, When the replayed offer is answered
+    with the same receipt, Then the job is FILED and the offer acknowledged."""
+    daemon = _killed_mid_receipt(_applied)
+    assert daemon.batch.batch_id in _replayed_offers(daemon)
+
+    daemon.receive(_applied(daemon))
+
+    assert daemon.job_now().state is JobState.FILED
+    assert _replayed_offers(daemon) == []
+
+
+def test_a_kill_at_the_offer_ack_is_finished_by_the_repeat() -> None:
+    """Given the daemon was killed at the offer's acknowledgement, the last
+    write of an APPLIED receipt, When the replayed offer is answered again,
+    Then the job is FILED and the offer acknowledged (it no longer holds
+    back the next batch)."""
+    store = DyingStore()
+    daemon = Daemon(store)
+    store.kill_at("ack_events")
+    with pytest.raises(SystemExit):
+        daemon.receive(_applied(daemon))
+    assert daemon.job_now().state is JobState.PLACED
+    assert daemon.batch.batch_id in _replayed_offers(daemon)
+
+    again = daemon.receive(_applied(daemon))
+
+    assert again.first is True
+    assert _replayed_offers(daemon) == []
+    assert daemon.job_now().state is JobState.FILED
+
+
+def test_a_partial_receipt_resent_after_a_kill_fails_the_job_with_one_inverse() -> None:
+    """Given the daemon was killed at the job change of a PARTIAL receipt, after
+    its inverse was offered in the same unit of work, When the receipt is
+    re-sent, Then the job is FAILED and the inverse is not offered twice."""
+    daemon = _killed_mid_receipt(_partial)
+
+    daemon.receive(_partial(daemon))
+
+    assert daemon.job_now().state is JobState.FAILED
+    assert len(daemon.offers()) == 1
+    assert len(daemon.store.list_batches()) == 2
+
+
+def _links_an_inverse(value: object) -> bool:
+    """The write that records ``original.undone_by``."""
+    return isinstance(value, BatchRecord) and value.undone_by is not None
+
+
+def test_a_partial_receipt_resent_after_a_kill_before_the_link_offers_one_inverse() -> (
+    None
+):
+    """Given the daemon was killed after a PARTIAL receipt's inverse was stored
+    and offered and before the original recorded ``undone_by``, When the
+    receipt is re-sent, Then exactly one inverse is offered, the original
+    names it, and the job is FAILED."""
+    store = DyingStore()
+    daemon = Daemon(store)
+    store.kill_at("put_batch", _links_an_inverse)
+    with pytest.raises(SystemExit):
+        daemon.receive(_partial(daemon))
+
+    again = daemon.receive(_partial(daemon))
+
+    assert again.inverse is not None
+    inverses = [r for r in store.list_batches() if r.undoes == daemon.batch.batch_id]
+    assert [r.batch for r in inverses] == [again.inverse]
+    assert [o.batch for o in daemon.offers()] == [again.inverse]
+    original = store.get_batch(daemon.batch.batch_id)
+    assert original is not None and original.undone_by == again.inverse.batch_id
+    assert daemon.job_now().state is JobState.FAILED
+
+
+def _is_an_inverse(value: object) -> bool:
+    """The write that stores an inverse batch."""
+    return isinstance(value, BatchRecord) and value.undoes is not None
+
+
+def _jobless(store: DyingStore) -> Daemon:
+    """A daemon whose offered batch has no job, as a diff, undo, inverse or
+    writer-marker batch has none."""
+    daemon = Daemon(store)
+    record = store.get_batch(daemon.batch.batch_id)
+    assert record is not None
+    store.put_batch(replace(record, job_id=None))
+    return daemon
+
+
+def test_a_jobless_partial_receipt_resent_after_a_kill_offers_its_inverse() -> None:
+    """Given a batch with no job whose PARTIAL receipt was being recorded, and
+    the daemon was killed before the prefix inverse was stored, When the
+    receipt is re-sent, Then the inverse is stored, linked and offered, and
+    the batch's own offer is acknowledged."""
+    store = DyingStore()
+    daemon = _jobless(store)
+    store.kill_at("put_batch", _is_an_inverse)
+    with pytest.raises(SystemExit):
+        daemon.receive(_partial(daemon))
+
+    again = daemon.receive(_partial(daemon))
+
+    assert again.inverse is not None
+    assert again.inverse.operations == (CREATE_GRAVEYARD, REMOVE_CREATED)
+    original = store.get_batch(daemon.batch.batch_id)
+    assert original is not None and original.undone_by == again.inverse.batch_id
+    assert [o.batch for o in daemon.offers()] == [again.inverse]

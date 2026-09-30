@@ -1,0 +1,47 @@
+{
+  "v": 1,
+  "type": "outline.get.result",
+  "re": "req-0031",
+  "outline": [
+    {
+      "node_id": "11",
+      "path": {
+        "root": "bar",
+        "names": [
+          "Dynomark"
+        ]
+      },
+      "pinned": false,
+      "locked": false,
+      "item_count": 0
+    },
+    {
+      "node_id": "14",
+      "path": {
+        "root": "bar",
+        "names": [
+          "Dynomark",
+          "Rust"
+        ]
+      },
+      "pinned": false,
+      "locked": false,
+      "item_count": 1
+    },
+    {
+      "node_id": "16",
+      "path": {
+        "root": "bar",
+        "names": [
+          "Dynomark",
+          "Rust",
+          "Async"
+        ]
+      },
+      "pinned": true,
+      "locked": false,
+      "item_count": 1
+    }
+  ],
+  "next_cursor": null
+}

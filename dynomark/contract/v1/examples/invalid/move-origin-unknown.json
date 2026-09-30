@@ -1,0 +1,25 @@
+{
+  "v": 1,
+  "type": "move.observed",
+  "id": "req-0009",
+  "move": {
+    "node_id": "15",
+    "url": "https://doc.rust-lang.org/book/",
+    "from": {
+      "root": "bar",
+      "names": [
+        "Dynomark",
+        "Rust"
+      ]
+    },
+    "to": {
+      "root": "bar",
+      "names": [
+        "Dynomark",
+        "Reading"
+      ]
+    },
+    "origin": "sync",
+    "observed_at": 1790000005000
+  }
+}

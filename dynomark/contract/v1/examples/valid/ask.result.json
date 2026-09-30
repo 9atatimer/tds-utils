@@ -1,0 +1,25 @@
+{
+  "v": 1,
+  "type": "ask.result",
+  "re": "req-0022",
+  "answer": {
+    "text": "The Tokio tutorial covers cancellation in its select! chapter. The async book also discusses it.",
+    "citations": [
+      {
+        "identity": "https://tokio.rs/tokio/tutorial",
+        "title": "Tokio tutorial",
+        "path": {
+          "root": "bar",
+          "names": [
+            "Dynomark",
+            "Rust",
+            "Async"
+          ]
+        }
+      }
+    ],
+    "external_urls": [
+      "https://rust-lang.github.io/async-book/"
+    ]
+  }
+}

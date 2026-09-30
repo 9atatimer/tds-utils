@@ -1,0 +1,22 @@
+{
+  "v": 1,
+  "type": "ingest",
+  "id": "req-0003",
+  "bookmark": {
+    "node_id": "43",
+    "url": "https://news.example.com/paywalled/story",
+    "title": "Story",
+    "path": {
+      "root": "bar",
+      "names": [
+        "Follow Up"
+      ]
+    },
+    "date_added": 1790000000000
+  },
+  "capture": {
+    "source": "background_tab",
+    "text": "Full text visible only when signed in..."
+  },
+  "backfill": false
+}

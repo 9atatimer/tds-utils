@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "type": "ingest.result",
+  "re": "req-0002",
+  "job": {
+    "job_id": "job-7f3a",
+    "node_id": "42",
+    "identity": "https://tokio.rs/tokio/tutorial",
+    "state": "QUEUED",
+    "seq": 1,
+    "attempts": 0,
+    "backfill": false
+  }
+}

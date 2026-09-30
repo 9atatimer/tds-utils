@@ -4,8 +4,9 @@
 // Green iff the newest review from each required reviewer is on the
 // current head commit and every review thread is resolved; red otherwise,
 // with the first reason in the status description. A reviewer whose
-// newest post is its quota notice is not required (FAIL-OPEN, and only on
-// quota: tds-internal#93; see lib/review-settled.mjs).
+// newest post (review or PR issue comment) is its quota notice is not
+// required (FAIL-OPEN, and only on quota: tds-internal#93; see
+// lib/review-settled.mjs).
 //
 // GitHub runs no workflow on Copilot's own reviews, so its answer to a
 // review request (a review, or its quota notice) never re-runs this
@@ -16,8 +17,9 @@
 // one GraphQL read, one REST write.
 //
 // Usage:
-//   review-settled --repo OWNER/NAME --pr N [--reviewers a,b]
+//   review-settled --repo OWNER/NAME --pr N [--reviewers a,b|c]
 //                  [--wait SECONDS] [--dry-run]
+//   (reviewer entries are all-of; "b|c" is one any-of group)
 //   env: GITHUB_TOKEN (statuses:write, pull-requests:read)
 //        GITHUB_API_URL (optional, default https://api.github.com)
 //        GITHUB_SERVER_URL + GITHUB_RUN_ID (optional; sets target_url)
@@ -75,7 +77,8 @@ function authHeaders(token) {
 }
 
 const PR_QUERY = `
-query($owner: String!, $name: String!, $number: Int!, $reviewsAfter: String, $threadsAfter: String) {
+query($owner: String!, $name: String!, $number: Int!, $reviewsAfter: String, $threadsAfter: String,
+      $commentsAfter: String) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
       headRefOid
@@ -87,6 +90,10 @@ query($owner: String!, $name: String!, $number: Int!, $reviewsAfter: String, $th
       reviewThreads(first: 100, after: $threadsAfter) {
         pageInfo { hasNextPage endCursor }
         nodes { isResolved }
+      }
+      comments(first: 100, after: $commentsAfter) {
+        pageInfo { hasNextPage endCursor }
+        nodes { author { login } createdAt body }
       }
     }
   }
@@ -105,45 +112,65 @@ async function graphql(token, query, variables) {
 }
 
 /**
- * Read head, reviews and every review thread, paging BOTH connections.
+ * Read head, reviews, every review thread and every PR issue comment,
+ * paging ALL THREE connections.
  *
  * Reviews are paged, not taken as one `last: 100` window: a long-lived
  * PR under this bot-driven flow accumulates a review per round, and once
  * the window overflows the required reviewer's newest review can fall
  * outside it -- which reads as "not reviewed yet" and blocks the landing.
- * An exhausted connection just returns an empty page, so looping while
- * either has a next page is safe.
+ * Issue comments are read because Codex answers out of quota with one,
+ * not with a review. Each connection is collected until its own last
+ * page; while another still pages on, a finished one is re-requested at
+ * its last cursor and its nodes are ignored, so nothing is counted twice.
  */
 export async function readPullRequest(token, owner, name, number) {
-  let reviewsAfter = null;
-  let threadsAfter = null;
+  const cursors = { reviewsAfter: null, threadsAfter: null, commentsAfter: null };
+  const done = { reviews: false, reviewThreads: false, comments: false };
   let headSha = null;
   let isCrossRepository = false;
   const reviews = [];
   const threads = [];
+  const comments = [];
   for (;;) {
-    const data = await graphql(token, PR_QUERY, { owner, name, number, reviewsAfter, threadsAfter });
+    const data = await graphql(token, PR_QUERY, { owner, name, number, ...cursors });
     const pr = data.repository?.pullRequest;
     if (!pr) throw new Error(`no pull request ${owner}/${name}#${number}`);
     headSha = pr.headRefOid;
     isCrossRepository = pr.isCrossRepository === true;
-    reviews.push(
-      ...pr.reviews.nodes.map((node) => ({
-        author: node.author?.login ?? '',
-        state: node.state,
-        submittedAt: node.submittedAt,
-        commit: node.commit?.oid ?? '',
-        body: node.body ?? '',
-      })),
-    );
-    threads.push(...pr.reviewThreads.nodes);
-    const moreReviews = pr.reviews.pageInfo.hasNextPage;
-    const moreThreads = pr.reviewThreads.pageInfo.hasNextPage;
-    if (!moreReviews && !moreThreads) break;
-    if (moreReviews) reviewsAfter = pr.reviews.pageInfo.endCursor;
-    if (moreThreads) threadsAfter = pr.reviewThreads.pageInfo.endCursor;
+    if (!done.reviews) {
+      reviews.push(
+        ...pr.reviews.nodes.map((node) => ({
+          author: node.author?.login ?? '',
+          state: node.state,
+          submittedAt: node.submittedAt,
+          commit: node.commit?.oid ?? '',
+          body: node.body ?? '',
+        })),
+      );
+    }
+    if (!done.reviewThreads) threads.push(...pr.reviewThreads.nodes);
+    if (!done.comments) {
+      comments.push(
+        ...(pr.comments?.nodes ?? []).map((node) => ({
+          author: node.author?.login ?? '',
+          createdAt: node.createdAt,
+          body: node.body ?? '',
+        })),
+      );
+    }
+    const advance = (key, cursorKey) => {
+      if (done[key]) return;
+      const info = pr[key]?.pageInfo;
+      if (info?.hasNextPage) cursors[cursorKey] = info.endCursor;
+      else done[key] = true;
+    };
+    advance('reviews', 'reviewsAfter');
+    advance('reviewThreads', 'threadsAfter');
+    advance('comments', 'commentsAfter');
+    if (done.reviews && done.reviewThreads && done.comments) break;
   }
-  return { headSha, isCrossRepository, reviews, threads };
+  return { headSha, isCrossRepository, reviews, threads, comments };
 }
 
 export async function postStatus(token, owner, name, sha, verdict) {

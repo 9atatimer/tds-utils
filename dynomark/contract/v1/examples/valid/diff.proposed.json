@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "type": "diff.proposed",
+  "event_id": "evt-0401",
+  "diff": {
+    "diff_id": "diff-0003",
+    "kind": "rebuild",
+    "proposed_at": 1790086400000,
+    "item_count": 5,
+    "unaccepted_count": 5
+  }
+}
