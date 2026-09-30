@@ -12,6 +12,7 @@
 
 import { capturesFromTab, capturesInBackground, type Settings } from '../domain/settings.js';
 import { NO_CAPTURE, type ExtensionCapture } from '../domain/capture.js';
+import { fitBookmark } from '../domain/limits.js';
 import { folderPathOf, isPathInside, resolveFolderPath } from '../domain/paths.js';
 import type { Bookmark, FolderPath, OwnedRoots, SnapshotNode, TreeRead } from '../domain/tree.js';
 import type { NodeId } from '../domain/values.js';
@@ -27,7 +28,7 @@ import { capture } from './capture.js';
 import type { HelloOutcome } from './connection.js';
 import { observeMove, resendMoves, type ReportedMoves } from './observeMove.js';
 import { sendTreeSnapshot } from './onConnected.js';
-import { submitSave, type SubmittedSaves } from './submitSave.js';
+import { submitSave, UrlTooLong, type SubmittedSaves } from './submitSave.js';
 
 // --- Constants ---
 
@@ -179,6 +180,11 @@ export class TreeWatch {
     const path = this.context.followUp();
     const bookmark = path === undefined ? undefined : bookmarkOf(node, path);
     if (bookmark === undefined) return;
+    // Over the cap: never ingested, so never captured (no background tab), and any debt it owes is dropped.
+    if (fitBookmark(bookmark) === undefined) {
+      await this.pay(bookmark.node_id);
+      throw new UrlTooLong(bookmark.node_id);
+    }
     // No hello yet: the role that decides the chain is unknown, and the full hello's backlog will submit it.
     if (options.background && this.context.outcome() === undefined) return this.owe(bookmark.node_id);
     const submitted = this.deps.saves.get(bookmark.node_id, bookmark.url)?.outcome !== undefined;
@@ -189,15 +195,17 @@ export class TreeWatch {
       ...this.deps,
       track: (work) => this.context.track(work),
       taken: (node_id) => this.pay(node_id),
+      refused: (node_id) => this.pay(node_id),
     });
     // A save the daemon had before this one was owed (answered earlier in this worker) is paid here, not by `taken`.
     await this.pay(bookmark.node_id);
   }
 
   /**
-   * The daemon has the save: its background-capture debt is paid. Called on
-   * every answer that gives the daemon the save -- a retry after a busy
-   * answer included -- never before, so a worker that dies first owes it still.
+   * The daemon has the save, or it is refused for good: its background-capture
+   * debt is paid. Called on every answer that settles the save -- a retry
+   * after a busy answer included -- never before, so a worker that dies
+   * first owes it still.
    */
   private async pay(node_id: NodeId): Promise<void> {
     const owed = await this.owedSet();

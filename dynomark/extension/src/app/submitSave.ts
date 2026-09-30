@@ -52,6 +52,8 @@ export interface SaveDeps {
   track(work: Promise<unknown>): void;
   /** The daemon has this node's save: called on the `ingest.result` answer, whichever send of the frame (first or a retry) got it. */
   taken?(node_id: NodeId): Promise<void>;
+  /** The daemon refused this node's save for good (a non-retryable code), whichever send of the frame got it. */
+  refused?(node_id: NodeId): Promise<void>;
 }
 
 /** A bookmark whose url is over the contract's cap is not ingested; the extension reports it locally. */
@@ -164,7 +166,10 @@ async function deliver(entry: SaveEntry, deps: SaveDeps): Promise<RequestId> {
   } catch (error) {
     entry.outcome = undefined;
     if (error instanceof DaemonError && isRetryable(error.code)) retryLater(entry, deps);
-    else if (error instanceof DaemonError) await deps.saves.release(entry.frame);
+    else if (error instanceof DaemonError) {
+      await deps.saves.release(entry.frame);
+      await deps.refused?.(entry.frame.bookmark.node_id);
+    }
     throw error;
   }
   await deps.saves.release(entry.frame);

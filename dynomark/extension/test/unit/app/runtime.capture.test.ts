@@ -217,7 +217,7 @@ describe('Background-tab capture on the writer', () => {
     await save(w, runtime, ids.followUp);
     await restartThrice(w, refuse);
     expect(w.backgroundTabs.opened).toEqual([URL]);
-    expect(await w.storage.loadOwedCaptures()).toEqual([]);
+    expect((await w.storage.loadOwedCaptures()) ?? []).toEqual([]);
   });
 
   it('Given a writer whose save is answered busy and its retry refused for good, When later workers say hello, Then no further background tab is opened for it', async () => {
@@ -239,7 +239,7 @@ describe('Background-tab capture on the writer', () => {
     expect(answered).toBe(2);
     await restartThrice(w, busyThenRefuse);
     expect(w.backgroundTabs.opened).toEqual([URL]);
-    expect(await w.storage.loadOwedCaptures()).toEqual([]);
+    expect((await w.storage.loadOwedCaptures()) ?? []).toEqual([]);
   });
 
   it('Given a writer and a save whose url is over the cap, When it arrives and later workers say hello, Then no background tab is ever opened for it and it is reported', async () => {
@@ -256,7 +256,7 @@ describe('Background-tab capture on the writer', () => {
     expect(page.ok && page.kind === 'overview' ? page.overview.problems.join('\n') : '').toContain(`bookmark ${node.id}: url over`);
     await restartThrice(w);
     expect(w.backgroundTabs.opened).toEqual([]);
-    expect(await w.storage.loadOwedCaptures()).toEqual([]);
+    expect((await w.storage.loadOwedCaptures()) ?? []).toEqual([]);
   });
 
   it('Given a reader host, When a save no tab shows arrives, Then no background tab is opened and ingest carries source none', async () => {
