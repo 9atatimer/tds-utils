@@ -10,7 +10,7 @@ whose partial completion would be observable after a crash makes them in
 one ``atomic()`` unit of work, so a crash between two of them loses both.
 """
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Protocol
@@ -110,6 +110,11 @@ class CorpusStorePort(Protocol):
 
     def list_jobs(self, *, state: JobState | None = None) -> list[Job]:
         """Jobs in first-insertion order, optionally in one state."""
+        ...
+
+    def list_jobs_in(self, states: Collection[JobState]) -> list[Job]:
+        """The jobs in any of ``states``, in first-insertion order; read by
+        state, at a cost that follows how many there are, not every job."""
         ...
 
     def put_save(self, job_id: JobId, save: Save) -> None:

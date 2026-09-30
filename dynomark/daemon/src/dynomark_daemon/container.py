@@ -45,6 +45,7 @@ from dynomark_daemon.app.run import count_crashed_attempt, run_job
 from dynomark_daemon.app.writer import writer_conflict
 from dynomark_daemon.domain.config import Config
 from dynomark_daemon.domain.connection import served_role
+from dynomark_daemon.domain.ids import JobId
 from dynomark_daemon.domain.job import Job
 from dynomark_daemon.logs import configure_logging
 from dynomark_daemon.ports.clock import Clock, IdSource
@@ -215,13 +216,24 @@ class JobLoop:
             log.info("rebuild.proposed", diff_id=diff.diff_id, items=len(diff.items))
         return diff is not None
 
+    def _next_due(self, ran: set[JobId]) -> Job | None:
+        """The first job due now that this pass has not run: the schedule is
+        read again after every job, so a live save ingested mid-pass runs
+        next, ahead of the backfill queued before it."""
+        ports = self._ports
+        schedule = due_jobs(self._config.retry, ports.clock.now_ms(), store=ports.store)
+        return next((job for job in schedule.due if job.job_id not in ran), None)
+
     def run_once(self) -> Schedule:
-        """Run every job due now and a due rebuild; tell the server when any
-        ran. The schedule after the pass: when the next retry falls due,
-        counting the jobs that failed in it."""
+        """Run every job due now, each at most once, and a due rebuild; tell
+        the server after each job and after a rebuild. A job still due after
+        its run (waiting for a snapshot) waits for the next pass. The
+        schedule after the pass: when the next retry falls due, counting the
+        jobs that failed in it."""
         ports, retry = self._ports, self._config.retry
-        schedule = due_jobs(retry, ports.clock.now_ms(), store=ports.store)
-        for job in schedule.due:
+        ran: set[JobId] = set()
+        while (job := self._next_due(ran)) is not None:
+            ran.add(job.job_id)
             try:
                 self._run(job)
             except Exception as error:
@@ -230,8 +242,9 @@ class JobLoop:
                 # so the job backs off and is not pinned at attempts 0.
                 log.exception("job.crashed", job_id=job.job_id)
                 self._count_crash(job, error)
-        rebuilt = self._rebuild()
-        if schedule.due or rebuilt:
+            # Its events (a batch offer) go out now, not after a long pass.
+            self._on_progress()
+        if self._rebuild():
             self._on_progress()
         return due_jobs(retry, ports.clock.now_ms(), store=ports.store)
 

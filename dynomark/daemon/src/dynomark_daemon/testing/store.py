@@ -13,7 +13,7 @@ the Nth write) sees what a crash before the commit would leave.
 import copy
 import math
 import re
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Collection, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Final
 
@@ -212,6 +212,9 @@ class InMemoryCorpusStore:
 
     def list_jobs(self, *, state: JobState | None = None) -> list[Job]:
         return [j for j in self._jobs.values() if state is None or j.state == state]
+
+    def list_jobs_in(self, states: Collection[JobState]) -> list[Job]:
+        return [j for j in self._jobs.values() if j.state in states]
 
     def put_save(self, job_id: JobId, save: Save) -> None:
         self._saves[job_id] = save

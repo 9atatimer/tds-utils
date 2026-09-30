@@ -33,7 +33,7 @@ import os
 import re
 import sqlite3
 import threading
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Collection, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -607,6 +607,16 @@ class SqliteCorpusStore:
             docs = self._docs(
                 "SELECT doc FROM jobs WHERE state = ? ORDER BY seq", (state.value,)
             )
+        return [load_record(doc, Job) for doc in docs]
+
+    def list_jobs_in(self, states: Collection[JobState]) -> list[Job]:
+        values = sorted({state.value for state in states})
+        if not values:
+            return []
+        marks = ", ".join("?" * len(values))
+        docs = self._docs(
+            f"SELECT doc FROM jobs WHERE state IN ({marks}) ORDER BY seq", values
+        )
         return [load_record(doc, Job) for doc in docs]
 
     def put_save(self, job_id: JobId, save: Save) -> None:
