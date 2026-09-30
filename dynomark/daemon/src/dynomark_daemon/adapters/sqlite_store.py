@@ -40,7 +40,7 @@ from pathlib import Path
 from typing import Final, Self
 
 from dynomark_daemon.adapters.records import dump_record, load_record
-from dynomark_daemon.domain.batch import BatchRecord
+from dynomark_daemon.domain.batch import BatchRecord, BatchState
 from dynomark_daemon.domain.bookmark import CorpusEntry, Embedding, Identity, Save
 from dynomark_daemon.domain.diff import DiffItem, TreeDiff
 from dynomark_daemon.domain.events import (
@@ -145,6 +145,33 @@ MIGRATIONS: Final = (
     CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE follow_ups (profile_id TEXT PRIMARY KEY, doc TEXT NOT NULL);
     CREATE TABLE requests (request_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL);
+    """,
+    # 2: a receipt's tree lives only in its archive, never in the batch row;
+    # the batches a tree.snapshot acts on are read by index, not by decoding
+    # every row; an archive no batch names is dropped.
+    """
+    ALTER TABLE batches ADD COLUMN profile_id TEXT NOT NULL DEFAULT '';
+    ALTER TABLE batches ADD COLUMN state TEXT NOT NULL DEFAULT '';
+    ALTER TABLE batches ADD COLUMN awaiting_tree INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE batches ADD COLUMN snapshot_id TEXT;
+    UPDATE batches SET
+        profile_id = json_extract(doc, '$.profile_id'),
+        state = json_extract(doc, '$.state'),
+        awaiting_tree = (
+            json_type(doc, '$.receipt') = 'object'
+            AND json_extract(doc, '$.tree_since_receipt') = 0
+        ),
+        snapshot_id = json_extract(doc, '$.snapshot_id'),
+        doc = CASE json_type(doc, '$.receipt')
+            WHEN 'object' THEN json_set(doc, '$.receipt.snapshot', NULL)
+            ELSE doc
+        END;
+    CREATE INDEX batches_by_state ON batches (profile_id, state, created_at);
+    CREATE INDEX batches_awaiting_tree ON batches (awaiting_tree, created_at);
+    CREATE INDEX batches_by_snapshot ON batches (snapshot_id);
+    DELETE FROM snapshots WHERE snapshot_id NOT IN (
+        SELECT snapshot_id FROM batches WHERE snapshot_id IS NOT NULL
+    );
     """,
 )
 SCHEMA_VERSION: Final = len(MIGRATIONS)
@@ -596,12 +623,24 @@ class SqliteCorpusStore:
     # --- Batches ---
 
     def put_batch(self, record: BatchRecord) -> None:
+        awaiting = record.receipt is not None and not record.tree_since_receipt
         with self._write() as db:
             db.execute(
-                "INSERT INTO batches (batch_id, created_at, doc) VALUES (?, ?, ?)"
+                "INSERT INTO batches (batch_id, created_at, profile_id, state,"
+                " awaiting_tree, snapshot_id, doc) VALUES (?, ?, ?, ?, ?, ?, ?)"
                 " ON CONFLICT (batch_id) DO UPDATE SET"
-                " created_at = excluded.created_at, doc = excluded.doc",
-                (record.batch.batch_id, record.created_at, dump_record(record)),
+                " created_at = excluded.created_at, profile_id = excluded.profile_id,"
+                " state = excluded.state, awaiting_tree = excluded.awaiting_tree,"
+                " snapshot_id = excluded.snapshot_id, doc = excluded.doc",
+                (
+                    record.batch.batch_id,
+                    record.created_at,
+                    record.profile_id,
+                    record.state.value,
+                    int(awaiting),
+                    record.snapshot_id,
+                    dump_record(record),
+                ),
             )
 
     def get_batch(self, batch_id: BatchId) -> BatchRecord | None:
@@ -610,6 +649,22 @@ class SqliteCorpusStore:
 
     def list_batches(self) -> list[BatchRecord]:
         docs = self._docs("SELECT doc FROM batches ORDER BY created_at DESC, seq DESC")
+        return [load_record(doc, BatchRecord) for doc in docs]
+
+    def batches_awaiting_tree(self) -> list[BatchRecord]:
+        docs = self._docs(
+            "SELECT doc FROM batches WHERE awaiting_tree = 1 ORDER BY created_at, seq"
+        )
+        return [load_record(doc, BatchRecord) for doc in docs]
+
+    def batches_in_state(
+        self, profile_id: ProfileId, state: BatchState
+    ) -> list[BatchRecord]:
+        docs = self._docs(
+            "SELECT doc FROM batches WHERE profile_id = ? AND state = ?"
+            " ORDER BY created_at, seq",
+            (profile_id, state.value),
+        )
         return [load_record(doc, BatchRecord) for doc in docs]
 
     # --- Snapshots ---
@@ -639,6 +694,14 @@ class SqliteCorpusStore:
             "SELECT doc FROM snapshots WHERE snapshot_id = ?", (snapshot_id,)
         )
         return None if doc is None else load_record(doc, Snapshot)
+
+    def release_snapshot(self, snapshot_id: SnapshotId) -> None:
+        with self._write() as db:
+            db.execute(
+                "DELETE FROM snapshots WHERE snapshot_id = ? AND NOT EXISTS"
+                " (SELECT 1 FROM batches WHERE snapshot_id = ?)",
+                (snapshot_id, snapshot_id),
+            )
 
     # --- Feedback ---
 

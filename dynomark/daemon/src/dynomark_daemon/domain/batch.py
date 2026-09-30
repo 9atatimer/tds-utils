@@ -211,9 +211,15 @@ class BatchRecord:
     def with_receipt(
         self, receipt: BatchReceipt, snapshot_id: SnapshotId | None
     ) -> Self:
-        """The batch once its first receipt is recorded."""
+        """The batch once its first receipt is recorded. The receipt is kept
+        without its tree: that is archived once, under ``snapshot_id``, and a
+        whole tree per filing in the batch row would make every read of the
+        row cost a tree."""
         return replace(
-            self, state=receipt_state(receipt), receipt=receipt, snapshot_id=snapshot_id
+            self,
+            state=receipt_state(receipt),
+            receipt=replace(receipt, snapshot=None),
+            snapshot_id=snapshot_id,
         )
 
 

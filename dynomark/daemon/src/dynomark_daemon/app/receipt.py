@@ -51,7 +51,9 @@ def _archive(
     receipt: BatchReceipt, record: BatchRecord, *, store: CorpusStorePort
 ) -> SnapshotId | None:
     """The batch's fallback export: the receipt's snapshot when it was read
-    before any op of the batch changed the tree, else the one kept at offer."""
+    before any op of the batch changed the tree, else the one kept at offer.
+    This is the one place the receipt's tree is kept; the batch row keeps
+    the receipt without it."""
     if not receipt.pre_batch or receipt.snapshot is None:
         return record.snapshot_id
     snapshot_id = SnapshotId(f"receipt-{record.batch.batch_id}")
@@ -117,8 +119,13 @@ def _record(
     job = None if record.job_id is None else store.get_job(record.job_id)
     if record.receipt is not None:
         return ReceiptRecorded(first=False, job=job, inverse=None)
+    offered_with = record.snapshot_id
     record = record.with_receipt(receipt, _archive(receipt, record, store=store))
     store.put_batch(record)
+    if offered_with is not None and offered_with != record.snapshot_id:
+        # The offer-time tree it no longer names; another batch offered
+        # against the same tree may still name it.
+        store.release_snapshot(offered_with)
     failure = filing_failure(
         record.batch, receipt, job.node_id if job is not None else None
     )

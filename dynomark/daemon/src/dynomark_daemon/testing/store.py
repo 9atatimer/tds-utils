@@ -17,7 +17,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import Final
 
-from dynomark_daemon.domain.batch import BatchRecord
+from dynomark_daemon.domain.batch import BatchRecord, BatchState
 from dynomark_daemon.domain.bookmark import CorpusEntry, Identity, Save
 from dynomark_daemon.domain.diff import DiffItem, TreeDiff
 from dynomark_daemon.domain.events import Event, PendingEvent
@@ -96,6 +96,11 @@ def _newest_first[T](rows: list[T], key: list[int]) -> list[T]:
     """Sort by ``key`` descending; equal keys newest-inserted first."""
     order = sorted(range(len(rows)), key=lambda i: (key[i], i), reverse=True)
     return [rows[i] for i in order]
+
+
+def _oldest_first(rows: list[BatchRecord]) -> list[BatchRecord]:
+    """By ``created_at``; equal times first-inserted first."""
+    return sorted(rows, key=lambda r: r.created_at)
 
 
 # --- The fake ---
@@ -226,6 +231,26 @@ class InMemoryCorpusStore:
         rows = list(self._batches.values())
         return _newest_first(rows, [r.created_at for r in rows])
 
+    def batches_awaiting_tree(self) -> list[BatchRecord]:
+        return _oldest_first(
+            [
+                r
+                for r in self._batches.values()
+                if r.receipt is not None and not r.tree_since_receipt
+            ]
+        )
+
+    def batches_in_state(
+        self, profile_id: ProfileId, state: BatchState
+    ) -> list[BatchRecord]:
+        return _oldest_first(
+            [
+                r
+                for r in self._batches.values()
+                if r.profile_id == profile_id and r.state is state
+            ]
+        )
+
     # --- Snapshots ---
 
     def put_tree_snapshot(self, snapshot: Snapshot) -> None:
@@ -241,6 +266,10 @@ class InMemoryCorpusStore:
 
     def get_snapshot(self, snapshot_id: SnapshotId) -> Snapshot | None:
         return self._snapshots.get(snapshot_id)
+
+    def release_snapshot(self, snapshot_id: SnapshotId) -> None:
+        if all(r.snapshot_id != snapshot_id for r in self._batches.values()):
+            self._snapshots.pop(snapshot_id, None)
 
     # --- Feedback ---
 

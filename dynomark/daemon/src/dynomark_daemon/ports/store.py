@@ -15,7 +15,7 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Protocol
 
-from dynomark_daemon.domain.batch import BatchRecord
+from dynomark_daemon.domain.batch import BatchRecord, BatchState
 from dynomark_daemon.domain.bookmark import CorpusEntry, Identity, Save
 from dynomark_daemon.domain.diff import DiffItem, TreeDiff
 from dynomark_daemon.domain.events import Event, PendingEvent
@@ -127,7 +127,22 @@ class CorpusStorePort(Protocol):
     def get_batch(self, batch_id: BatchId) -> BatchRecord | None: ...
 
     def list_batches(self) -> list[BatchRecord]:
-        """Newest ``created_at`` first; ties newest-inserted first."""
+        """Newest ``created_at`` first; ties newest-inserted first. Reads every
+        batch ever filed: for pages the user asks for, never on a path that
+        runs per ``tree.snapshot`` or per job."""
+        ...
+
+    def batches_awaiting_tree(self) -> list[BatchRecord]:
+        """The batches with a receipt and no tree snapshot recorded since
+        (``tree_since_receipt`` false), oldest ``created_at`` first; read by
+        key, at a cost that follows how many there are, not every batch."""
+        ...
+
+    def batches_in_state(
+        self, profile_id: ProfileId, state: BatchState
+    ) -> list[BatchRecord]:
+        """``profile_id``'s batches in ``state``, oldest ``created_at`` first;
+        read by key, like ``batches_awaiting_tree``."""
         ...
 
     # --- Snapshots ---
@@ -144,6 +159,11 @@ class CorpusStorePort(Protocol):
         ...
 
     def get_snapshot(self, snapshot_id: SnapshotId) -> Snapshot | None: ...
+
+    def release_snapshot(self, snapshot_id: SnapshotId) -> None:
+        """Delete the archived snapshot unless a batch still names it as its
+        ``snapshot_id``; a batch that moved to another archive released it."""
+        ...
 
     # --- Feedback ---
 

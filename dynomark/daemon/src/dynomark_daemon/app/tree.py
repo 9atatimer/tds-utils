@@ -27,10 +27,10 @@ def record_tree_snapshot(
     # No unit of work: a kill part-way leaves ``tree.snapshot`` unanswered and
     # its re-send (same ``taken_at``) is kept again as the latest, so the
     # loop below runs again over every batch still not marked; every later
-    # snapshot does the same.
+    # snapshot does the same. Only those batches are read: this runs on the
+    # lane after every receipt, so its cost must not grow with the filings.
     store.put_tree_snapshot(snapshot)
     if store.latest_tree_snapshot() != snapshot:
         return
-    for record in store.list_batches():
-        if record.receipt is not None and not record.tree_since_receipt:
-            store.put_batch(replace(record, tree_since_receipt=True))
+    for record in store.batches_awaiting_tree():
+        store.put_batch(replace(record, tree_since_receipt=True))

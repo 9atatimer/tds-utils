@@ -48,13 +48,9 @@ def _marker_pending(
     profile_id: ProfileId, title: str, *, store: CorpusStorePort
 ) -> bool:
     return any(
-        record.state is BatchState.PROPOSED
-        and record.profile_id == profile_id
-        and any(
-            isinstance(op, OpCreateFolder) and op.title == title
-            for op in record.batch.operations
-        )
-        for record in store.list_batches()
+        isinstance(op, OpCreateFolder) and op.title == title
+        for record in store.batches_in_state(profile_id, BatchState.PROPOSED)
+        for op in record.batch.operations
     )
 
 

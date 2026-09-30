@@ -127,3 +127,7 @@ class DyingStore(InMemoryCorpusStore):
     def put_request(self, request_id: RequestId, fingerprint: str) -> None:
         self._dies("put_request", request_id)
         super().put_request(request_id, fingerprint)
+
+    def release_snapshot(self, snapshot_id: SnapshotId) -> None:
+        self._dies("release_snapshot", snapshot_id)
+        super().release_snapshot(snapshot_id)
