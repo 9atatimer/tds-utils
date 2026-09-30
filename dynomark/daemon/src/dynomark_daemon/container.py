@@ -37,7 +37,7 @@ from dynomark_daemon.adapters.ollama import (
 )
 from dynomark_daemon.adapters.socket_server import Sessions, SocketServer
 from dynomark_daemon.adapters.sqlite_store import SqliteCorpusStore
-from dynomark_daemon.app.diffs import propose_scheduled_rebuild
+from dynomark_daemon.app.diffs import propose_scheduled_rebuild, rebuild_retry_at
 from dynomark_daemon.app.errors import TreeNotReady
 from dynomark_daemon.app.hello import owned_roots_for
 from dynomark_daemon.app.loop import Schedule, due_jobs
@@ -144,6 +144,9 @@ class JobLoop:
         self._ports = ports
         self._on_progress = on_progress
         self._wake = threading.Event()
+        self._rebuild_failures = 0
+        self._rebuild_retry_at: int | None = None
+        """When a failed scheduled rebuild may ask the model again."""
 
     def wake(self) -> None:
         """Run the due jobs soon (an ingest, a retry, a snapshot arrived)."""
@@ -194,13 +197,17 @@ class JobLoop:
         """Propose the rebuild the cadence makes due, if any; whether one was."""
         ports, config = self._ports, self._config
         profile = ports.store.writer_profile()
-        if config.rebuild_cadence_ms is None or profile is None:
+        cadence = config.rebuild_cadence_ms
+        if cadence is None or profile is None:
+            return False
+        now = ports.clock.now_ms()
+        if self._rebuild_retry_at is not None and now < self._rebuild_retry_at:
             return False
         roots = owned_roots_for(profile, config, store=ports.store)
         role = served_role(config.role, profile, profile)
         try:
             diff = propose_scheduled_rebuild(
-                config.rebuild_cadence_ms,
+                cadence,
                 role,
                 config.host_id,
                 roots,
@@ -209,9 +216,24 @@ class JobLoop:
                 clock=ports.clock,
                 ids=ports.ids,
             )
-        except (PortError, TreeNotReady) as error:
+        except PortError as error:
+            # Back off: every pass would otherwise ask the model again, and
+            # block the job thread for up to its timeout each time.
+            self._rebuild_failures += 1
+            self._rebuild_retry_at = rebuild_retry_at(
+                self._rebuild_failures, now, config.retry, cadence
+            )
+            log.warning(
+                "rebuild.failed",
+                detail=str(error),
+                failures=self._rebuild_failures,
+                retry_at=self._rebuild_retry_at,
+            )
+            return False
+        except TreeNotReady as error:
             log.warning("rebuild.skipped", detail=str(error))
             return False
+        self._rebuild_failures, self._rebuild_retry_at = 0, None
         if diff is not None:
             log.info("rebuild.proposed", diff_id=diff.diff_id, items=len(diff.items))
         return diff is not None

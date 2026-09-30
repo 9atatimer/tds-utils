@@ -45,6 +45,7 @@ from dynomark_daemon.domain.ids import (
     ProfileId,
     RequestId,
 )
+from dynomark_daemon.domain.job import RetryPolicy
 from dynomark_daemon.domain.roles import HostRole, NotWriter
 from dynomark_daemon.domain.tree import OwnedRoots, TreeOutline, bar_outline
 from dynomark_daemon.domain.writer import WriterConflict, writer_standing
@@ -168,6 +169,17 @@ def request_diff(
     ).with_id(diff_id)
     store.put_diff(diff)
     return diff
+
+
+def rebuild_retry_at(
+    failures: int, failed_at: int, policy: RetryPolicy, cadence_ms: int
+) -> int:
+    """When a scheduled rebuild that has failed ``failures`` times in a row,
+    last at ``failed_at``, may ask the model again: after ``policy``'s
+    backoff, and once its attempts are spent, after the cadence."""
+    if failures < policy.attempts:
+        return failed_at + policy.backoff_ms(failures)
+    return failed_at + cadence_ms
 
 
 def propose_scheduled_rebuild(
