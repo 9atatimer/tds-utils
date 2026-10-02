@@ -3,7 +3,7 @@
 > **Status:** REVIEW  
 > **Date:** 2026-10-02  
 > **Authors:** Todd Stumpf, Claude (Opus 5.5)  
-> **Depends on:** [LMDE](./LMDE.DESIGN.md); tds-internal `ops/terraform/ollama-gateway` (its own design record, written alongside this one; not yet written)  
+> **Depends on:** [LMDE](./LMDE.DESIGN.md); the tds-internal edge record `DESIGN.ollama-gateway-infra.md` (tds-internal PR #125), which owns `ops/terraform/ollama-gateway` and the 1Password item the connector's Keychain copy of the run token is seeded from  
 > **Origin:** [concept: ollama-gateway](../concepts/ollama-gateway/CONCEPT.md), issue #363
 
 ---
@@ -28,8 +28,9 @@ or anything else in the home directory outside an allow-listed tree.
   those models. A request the external ollama cannot start answering in
   time -- typically the first one after a cold model load, measured at
   1m48s for a ~23 GB model -- does not hang and does not time out at the
-  edge: the deadline proxy answers it with an HTTP 5xx before the edge's
-  time-to-first-byte limit, and the caller retries (Deadline proxy).
+  edge: the deadline proxy answers it before the edge's time-to-first-byte
+  limit with the deadline answer, the one response a caller retries
+  (Deadline proxy).
 - **G2 Nobody else gets in.** A request without a valid gateway credential
   is refused at the Cloudflare edge, whatever its path, and never reaches
   the laptop. The refusal is a redirect to the Access login page (HTTP 302)
@@ -57,8 +58,8 @@ or anything else in the home directory outside an allow-listed tree.
     criteria are:
     - a canary file under `$HOME`, outside both allow-listed trees, is
       unreadable;
-    - every means the launcher itself uses to retrieve the run token
-      fails.
+    - every means the connector's launcher uses to retrieve the run token,
+      including the Security framework and `/usr/bin/security`, fails.
   - Outside `$HOME`, the first-cut sandbox may be broad. Security
     Considerations names what that admits. Tightening it is a later
     hardening pass (Future Considerations).
@@ -80,8 +81,10 @@ or anything else in the home directory outside an allow-listed tree.
     item. It is not a separately minted credential.
 - **G7 Runs unattended.** The three laptop daemons (connector, deadline
   proxy, external ollama) start at login and restart after a crash. None
-  needs a human, and none needs 1Password to be unlocked. A failing G4 probe is not a crash: it holds the gateway
-  DEGRADED until a human acts (State Machine).
+  needs a human, and none needs 1Password to be unlocked. A failing G4
+  probe is not a crash: the launcher refuses to start the external ollama,
+  and the gateway stays DEGRADED until the probe passes. For a persistent
+  cause, that needs a human (State Machine).
 - **G8 The everyday ollama is untouched.** In normal operation, installing,
   running or removing the gateway leaves these unchanged:
   `127.0.0.1:11434`, its configuration, its LaunchAgent, its loaded models,
@@ -106,9 +109,11 @@ or anything else in the home directory outside an allow-listed tree.
 - **Model management through the gateway.** No pull, delete, create or
   copy. Models are added to the store by hand, using the everyday ollama.
 - **A nonprod tier.** There is one laptop and one model store, so a second
-  tier would point at the same hardware.
+  tier would point at the same hardware. Settled here; only the hostname
+  is open (Q1).
 - **Availability guarantees.** The gateway is up when the laptop is up.
-  There is no failover, no queueing at the edge, and no retries.
+  There is no failover, no queueing at the edge, and no retries at the
+  edge or gateway; retrying the deadline answer is the caller's.
 - **Rate limiting or quotas.** ollama's own request queue is the only cap
   in the PoC; request shaping is v2 (Future Considerations).
   What a credentialed caller can do to availability is stated in Security
@@ -159,8 +164,8 @@ or anything else in the home directory outside an allow-listed tree.
  IaC (tds-internal ops/terraform/ollama-gateway) declares everything in the
  Cloudflare box, plus the ingress rules and the credentials. tds-utils
  lmde/components/ declares everything in the laptop box. Dependencies point
- from the edges to the contract (host, credential headers, paths), never
- from a caller to Cloudflare specifics.
+ from the edges to the contract (host, credential headers, paths, retryable
+ status), never from a caller to Cloudflare specifics.
 ```
 
 ---
@@ -179,12 +184,12 @@ states only what the gateway relies on.
 | Responsibility | Guarantee the gateway relies on |
 |---|---|
 | Tunnel | Remotely managed: the ingress rules live in IaC, not in a file on the laptop |
-| Ingress allow-list | Exactly two rules route to `http://127.0.0.1:<proxy-port>`, each matching one allow-listed path exactly (no prefix or substring match), and a catch-all returns 404 (G3). The rules are declared in IaC and pushed to the connector, which evaluates them on the laptop. `<proxy-port>` is an input that must equal the laptop component's value (see Data Model) |
+| Ingress allow-list | Exactly two rules route to `http://127.0.0.1:<proxy-port>`, each matching one allow-listed path exactly (no prefix or substring match), and a catch-all returns 404 (G3). The rules are declared in IaC and pushed to the connector, which evaluates them on the laptop. `<proxy-port>` is an input that must equal the laptop component's value (see Data Model; drift is Q8) |
 | DNS | `<gateway-host>` routes to the tunnel |
 | Access application | Covers all of `<gateway-host>`, with no bypass paths. Evaluated at the edge, before any request reaches the connector |
 | Access policy | `decision = non_identity`, including exactly the named service tokens. Never `any_valid_service_token` |
 | Service tokens | One per consumer, from a `for_each` map. Dropping a key revokes that consumer |
-| Credentials at rest | Each service token's client id and secret, and the tunnel's run token, land in 1Password items, never directly in a GitHub secret |
+| Credentials at rest | Each service token's client id and secret, and the tunnel's run token, land in 1Password items, never directly in a GitHub secret. The run token's item is in a vault no caller's service account can read, so a caller's credentials never yield the run token (Security Considerations) |
 
 #### API / Interface
 
@@ -201,8 +206,9 @@ Responses, in evaluation order:
   5xx    connector not connected (laptop asleep/offline/connector stopped)
   404    any other path (ingress rules, applied by the connector)
   502    connector up, deadline proxy down
-  5xx    deadline proxy: external ollama down, or no first byte before
-         the deadline (e.g. cold load) -- retryable
+  5xx    deadline proxy: external ollama down
+  5xx    deadline proxy: the deadline answer -- no first byte before the
+         deadline (e.g. cold load). The only retryable response
   2xx    the external ollama's response, unmodified
 ```
 
@@ -216,6 +222,7 @@ lets owners be split later.
 | 1Password item | One per consumer; its title is named in the tds-internal record (this repo is public) |
 | Contents | The credential as header name/value pairs. Today the names are Cloudflare Access's client-id and client-secret headers. A caller sends whatever headers the item names, and never hardcodes them. The item's field layout is fixed by, and documented in, the tds-internal module's design record |
 | Vault | A headless vault, read by a read-only 1Password service account scoped to that vault |
+| Service-account credential | Where a caller holds the service account's own token, and how it authenticates to 1Password, is the caller's design (OCR on Demand) |
 | Consumers in the first cut | One: `gha`, shared by the 9atatimer and Nine-At-A-Time-Media owners |
 
 **The vault is the per-owner seam.**
@@ -233,6 +240,13 @@ Because the item carries the header names, the edge-vendor seam holds:
 swapping the edge changes the IaC, the connector and the items' contents,
 but not callers.
 
+**Retryable status.** A caller can identify the deadline answer from the
+status code alone, distinct from every other 5xx in the API listing,
+including the edge's and the connector's. It is the only response the
+gateway designates retryable; every other failure is terminal for that
+request. The code is chosen in the deadline proxy, verified distinct as a
+behavior, and is part of the caller contract.
+
 ### Connector daemon (tds-utils LMDE)
 
 #### Responsibilities
@@ -243,7 +257,7 @@ but not callers.
 | Enforce the path allow-list | Applies the ingress rules pushed from IaC, exact-path match (G3). This is the only layer keeping model-management paths off the road in the first cut |
 | Transport | Must work on this network. QUIC over IPv6 fails here (observed on an existing cloudflared tunnel on this laptop), so the transport is pinned to `http2` (Key Decisions) |
 | Start and restart | A LaunchAgent following the LMDE launchd pattern, restarting on crash |
-| Keep the run token out of sight | The token never appears on a process command line, in a LaunchAgent plist, or in a file under the repo. It is read from the macOS login Keychain at launch, seeded once from its 1Password item by a setup step (Key Decisions). The external ollama's sandbox cannot retrieve it by any means, and the G4 probe asserts that, including through the Security framework and `/usr/bin/security` |
+| Keep the run token out of sight | The token never appears on a process command line, in a LaunchAgent plist, or in a file under the repo. It is read from the macOS login Keychain at launch, seeded once from its 1Password item by a setup step (Key Decisions; what authenticates that step is Q9). The external ollama's sandbox cannot retrieve it by any means, and the G4 probe asserts that, including through the Security framework and `/usr/bin/security` |
 | Refuse to run half-configured | No token, no start: the launcher exits non-zero with a message naming what is missing |
 
 The connector is not sandboxed in the first cut. It is a trusted vendor
@@ -263,7 +277,7 @@ a 500").
 | Responsibility | Details |
 |---|---|
 | Always answer in time | For every request, returns either the external ollama's response (streamed through as it arrives) or an HTTP 5xx, and its first byte leaves before a deadline set below the edge's time-to-first-byte limit. The limit is believed to be ~100 s on this plan; it is verified, and the deadline set under it, as a behavior |
-| Say why | The 5xx distinguishes "ollama not listening" from "no first byte before the deadline", so a caller can treat the second as retryable warming |
+| Say why | The deadline answer ("no first byte before the deadline") is distinguishable by status code alone from "ollama not listening" and from every other 5xx a caller can see (Credential contract, Retryable status) |
 | Let the load finish | A deadline answer must not cancel the model load in progress, so the caller's retry finds the model warm. That ollama completes a load after the requesting connection closes is verified as a behavior; if it does not, the proxy holds the upstream request open past the deadline while answering the caller |
 | Loopback only | Listens on `127.0.0.1:<proxy-port>`, forwards to `127.0.0.1:<ollama-port>`, nothing else |
 | Start and restart | A LaunchAgent, LMDE pattern, restart on crash |
@@ -319,16 +333,23 @@ laptop daemons and the edge. The daemons themselves are launchd-managed: started
 at login and restarted after a crash. The states below are what a request
 meets.
 
+| State | Condition |
+|---|---|
+| UNREACHABLE | Connector not connected |
+| CONNECTED | Connector connected, deadline proxy listening, and external ollama listening |
+| DEGRADED | Connector connected, and the deadline proxy or the external ollama (or both) not listening |
+
 ```
-                  connector connects, ollama listening
+                 connector connects, proxy and ollama listening
  +-------------+ -----------------------------------> +-------------+
  | UNREACHABLE |                                      |  CONNECTED  |
  +-------------+ <----------------------------------- +-------------+
     ^      |       connector disconnects                 |       ^
-    |      |       (sleep, offline, crash)   ollama down |       | ollama up,
-    |      |                                             v       | probe passes
+    |      |       (sleep, offline, crash)      proxy or |       | proxy and ollama
+    |      |                                 ollama down |       | up (ollama only
+    |      |                                             v       | after probe passes)
     |      |  connector connects,                    +-------------+
-    |      |  ollama not listening                   |             |
+    |      |  proxy or ollama not listening          |             |
     |      +---------------------------------------> |  DEGRADED   |
     +----------------------------------------------- |             |
            connector disconnects                     +-------------+
@@ -337,23 +358,24 @@ meets.
 | State | Edge answers a credentialed request with | Within |
 |---|---|---|
 | UNREACHABLE | HTTP 5xx from Cloudflare (tunnel has no connector), whatever the path | 30 s for a stopped connector; sleep/offline unverified (Q6) |
-| CONNECTED | HTTP 404 for a non-allow-listed path; otherwise the external ollama's response, or the deadline proxy's retryable 5xx when no first byte arrives before its deadline (e.g. a cold load) | First byte always before the edge's limit |
+| CONNECTED | HTTP 404 for a non-allow-listed path; otherwise the external ollama's response, or the deadline answer (retryable) when no first byte arrives before the deadline (e.g. a cold load) | First byte always before the edge's limit |
 | DEGRADED | HTTP 404 for a non-allow-listed path; otherwise HTTP 5xx from the deadline proxy (ollama down) or 502 from the connector (proxy down) | 5 s |
 
 | From | To | Trigger |
 |---|---|---|
-| UNREACHABLE | CONNECTED | Connector establishes the tunnel and the external ollama is listening |
-| UNREACHABLE | DEGRADED | Connector establishes the tunnel and the external ollama is not listening, including when its launcher refuses to start it |
+| UNREACHABLE | CONNECTED | Connector establishes the tunnel, and the deadline proxy and external ollama are both listening |
+| UNREACHABLE | DEGRADED | Connector establishes the tunnel, and the deadline proxy or external ollama is not listening, including when the ollama launcher refuses to start it |
 | CONNECTED | UNREACHABLE | Laptop sleeps, goes offline, or the connector exits |
-| CONNECTED | DEGRADED | External ollama exits, stops listening, or is refused start by its launcher |
-| DEGRADED | CONNECTED | launchd restarts the external ollama and its probe passes |
+| CONNECTED | DEGRADED | Deadline proxy or external ollama exits or stops listening, or the ollama launcher refuses a start |
+| DEGRADED | CONNECTED | launchd has restarted whichever daemon was down, so both are listening; the external ollama listens only after its probe passes |
 | DEGRADED | UNREACHABLE | Connector disconnects |
 
-**A persistently failing probe holds DEGRADED.** If the probe keeps failing
-(for example, a macOS update weakens `sandbox-exec`), launchd keeps
-relaunching under its own throttling. Each attempt is refused, and the
-external ollama never starts unconfined. Recovery needs a human: fix the
-profile or plug in a successor mechanism at the probe seam.
+**A failing probe holds DEGRADED until it passes.** The launcher exits
+non-zero, launchd relaunches under its own throttling, and each attempt
+reruns the probe. The external ollama never starts unconfined. A transient
+cause clears on its own; a persistent one (for example, a macOS update
+weakens `sandbox-exec`) needs a human to fix the profile or plug in a
+successor mechanism at the probe seam.
 
 **The credential check (G2) applies in every state.** A request without a
 valid credential is refused at the edge (302 or 403), whether or not the
@@ -391,8 +413,9 @@ laptop component (tds-utils lmde/components/ollama-gateway)
 ```
 
 A mismatch between `proxy-port` and the ingress rules' input shows up as
-DEGRADED (502). Hand mirroring is the accepted first-cut answer (see
-Rejections).
+DEGRADED (502) only when nothing listens on the port the edge names; if
+something does, requests reach it instead (Security Considerations, Q8).
+Hand mirroring is the first-cut answer (see Rejections).
 
 ---
 
@@ -405,6 +428,9 @@ outcomes and error rates.
 One consequence is accepted: with one shared token and no gateway ledger,
 misuse cannot be attributed to an owner (Security Considerations).
 Per-owner tokens restore attribution (Future Considerations).
+
+Whether the connector or deadline proxy write request or response bodies
+to local logs is open (Q10).
 
 ---
 
@@ -454,6 +480,10 @@ Per-owner tokens restore attribution (Future Considerations).
   gateway credential and could exfiltrate it.
   - Whoever holds it can then get completions, but no more: G3 and G4
     still hold.
+  - The same holds for the caller's 1Password service-account token: it
+    reads only the consumer vault, never the run token's item (Edge,
+    Credentials at rest). Where the caller keeps that token is the
+    caller's design.
   - One shared token means one leak exposes the road for both owners.
   - One owner's compromised CI can act as the other owner's caller, and
     nothing distinguishes them. The edge sees one token and the gateway
@@ -467,6 +497,8 @@ Per-owner tokens restore attribution (Future Considerations).
   - It lives in 1Password (IaC) and in the macOS login Keychain (Todd's
     choice), never on a command line, in the repo, or in a LaunchAgent
     plist.
+  - What authenticates the one-time seeding step to 1Password, and that
+    nothing of it persists afterward, is Q9.
   - A Keychain item is not read by path. It is reached through the
     Security framework or `/usr/bin/security`, which the broad first-cut
     profile may admit. So the G4 probe attempts retrieval by those means
@@ -475,14 +507,19 @@ Per-owner tokens restore attribution (Future Considerations).
     the launcher refuses to start the external ollama (DEGRADED).
 - **The origin port is a trust boundary.** The edge routes allow-listed
   requests to `127.0.0.1:<proxy-port>`, mirrored by hand in the tds-internal
-  module. If the two drift and another local service listens on the port
-  the edge names, allow-listed requests reach that service and bypass the
-  sandbox. The laptop component therefore owns keeping `<proxy-port>` bound
-  by the deadline proxy, and `<ollama-port>` by the external ollama, and
-  nothing else; with nothing listening, drift shows only as DEGRADED (502).
+  module. The laptop component owns keeping `<proxy-port>` bound by the
+  deadline proxy, and `<ollama-port>` by the external ollama, and nothing
+  else. That does not cover drift: if the edge's value drifts, it names a
+  port the laptop component does not own.
+  - With nothing listening there, drift shows as DEGRADED (502).
+  - If another local service listens there, credentialed allow-listed
+    requests reach that service, bypassing the deadline proxy and the
+    sandbox (G4).
+  - Whether drift is detected, or accepted as a first-cut risk, is Q8.
 - **Prompt and completion contents.** They cross Cloudflare's edge, with
   TLS terminated there. This is acceptable for code under review in the
-  fleet's own repos. No other data is intended to use the road.
+  fleet's own repos. No other data is intended to use the road. Local
+  logging of contents is Q10.
 - **Crossing the LMDE "never routable" non-goal.** This is the one
   deliberate public ingress. It is bounded by G2, G3 and G4. It is recorded
   as a Key Decision here and as an appended Key Decisions row in
@@ -514,9 +551,10 @@ Per-owner tokens restore attribution (Future Considerations).
 | Per-owner axis of change | Seam = the vault a caller resolves from its own configuration; tokens are a `for_each` map | Splitting owners later needs no gateway or caller code change |
 | Caller isolation from the credential | Not in the first cut | Todd's ruling on codex review, PR #364; issue #365 |
 | Transport | `http2` | QUIC over IPv6 fails on this network |
-| Connector run token on the laptop | The macOS login Keychain, seeded once from 1Password; the sandbox profile denies retrieval through the Security framework and `/usr/bin/security`, and the G4 probe asserts it | Todd, 2026-10-02 (was Q2) |
-| Cold loads vs. the edge's time-to-first-byte limit | A local deadline proxy that always answers before the limit, with a retryable 5xx if ollama has not started answering; callers retry | Todd, 2026-10-02 (was Q5): "an nginx/haproxy that ensures it always returns something, even if it's a 500". Keeping the model resident would hold ~23 GB of RAM permanently |
-| Edge vendor axis | Seam = the caller contract (URL + paths + credential header names and values read from the 1Password item) | Callers never hardcode Cloudflare header names. Swapping the edge changes the IaC, the connector and the items' contents only |
+| Connector run token on the laptop | The macOS login Keychain, seeded once from 1Password; the sandbox profile denies retrieval through the Security framework and `/usr/bin/security`, and the G4 probe asserts it. Its 1Password item is in a vault no caller's service account reads | Todd, 2026-10-02 (was Q2). Vault separation keeps a caller's credentials from yielding the run token |
+| Cold loads vs. the edge's time-to-first-byte limit | A local deadline proxy that always answers before the limit, with a retryable deadline answer if ollama has not started answering; callers retry | Todd, 2026-10-02 (was Q5): "an nginx/haproxy that ensures it always returns something, even if it's a 500". Keeping the model resident would hold ~23 GB of RAM permanently |
+| Which failures a caller retries | Only the deadline answer, identifiable by status code alone; every other failure is terminal for that request | A caller must tell warming from outage without guessing; retrying every 5xx would mask outages |
+| Edge vendor axis | Seam = the caller contract (URL + paths + credential header names and values read from the 1Password item + retryable status) | Callers never hardcode Cloudflare header names. Swapping the edge changes the IaC, the connector and the items' contents only. The seam does not cover G3's enforcement point: a replacement edge must provide its own exact-path enforcement before the external ollama, and G3 is the guarantee it must meet |
 | Model choice | Not the gateway's: callers name a model; the gateway serves the store | The model is a caller detail (concept: "whatever gets it done") |
 | Radar: cloudflared | Propose Trial, in `lmde/TECH_RADAR.md` and tds-internal `docs/TECH_RADAR.md` | Todd (concept, settled). Exit: the gateway runs a month without a manual restart |
 | Radar: deadline proxy | Caddy if it meets the deadline requirement (already Adopt in `lmde/TECH_RADAR.md`); otherwise propose nginx or haproxy at Trial with the code | No new dependency when an adopted one suffices |
@@ -527,11 +565,12 @@ Per-owner tokens restore attribution (Future Considerations).
 
 ## Open Questions
 
-- **Q1 Hostname and tier.** *Blocks the IaC.* `<gateway-host>` is named
-  in the tds-internal record, not here: this repo is public, and the
-  concrete hostname, zone and account belong with the IaC.
-  - Proposed there: production tier only, bare `<service>.<zone>` per the
-    naming rule (see the "A nonprod tier" Non-Goal).
+- **Q1 Hostname.** *Blocks the IaC.* The tier scope is settled here
+  (production only; see Non-Goals). What remains is naming:
+  `<gateway-host>` is named in the tds-internal record, not here, because
+  this repo is public and the concrete hostname, zone and account belong
+  with the IaC.
+  - Proposed there: bare `<service>.<zone>` per the naming rule.
   - tds-internal's convention is that a request naming no tier means
     nonprod, so a production-only module is an explicit exception there.
   - Needs Todd's confirmation.
@@ -555,6 +594,24 @@ Per-owner tokens restore attribution (Future Considerations).
     compromise caveat is removed.
   - Todd's ruling defers all hardening.
   - Needs Todd's decision.
+- **Q8 Origin-port drift.** If the hand-mirrored ingress port drifts and
+  another local service listens on it, allow-listed requests bypass the
+  sandbox (Security Considerations). Two answers:
+  - (a) add a guarantee that drift is detected -- an allow-listed request
+    through the tunnel is verified to reach the deadline proxy -- leaving
+    the mechanism to code;
+  - (b) accept it as a named first-cut risk alongside the others.
+  - Needs Todd's decision. The Rejections row for cross-repo port wiring
+    stands or falls with it.
+- **Q9 Authenticating the run-token seeding step.** Settled by the
+  tds-internal record: the run token's item sits in a vault no service
+  account can read, so seeding is an interactive human session (the `op`
+  CLI unlocked through the desktop app), and no 1Password credential
+  persists on the laptop afterward. Todd to confirm.
+- **Q10 Local logging of contents.** Whether the connector or deadline
+  proxy write request or response bodies (code under review) to disk, and
+  if so their home and retention, is not yet stated. The likely answer is
+  that neither logs bodies.
 
 ---
 
@@ -597,8 +654,8 @@ Per-owner tokens restore attribution (Future Considerations).
   a signed vendor binary, and sees only what the tunnel routes.
 - **Cross-repo wiring to derive the ingress port from the laptop
   component.** One rarely changing value across two repos; the wiring
-  would be a single-implementation seam. A mismatch is visible as
-  DEGRADED (502).
+  would be a single-implementation seam. This rejection does not by itself
+  cover drift onto a port another service listens on; that is Q8.
 
 ---
 
@@ -639,17 +696,19 @@ Per-owner tokens restore attribution (Future Considerations).
 
 - [LMDE](./LMDE.DESIGN.md): the platform this is a sub-component of. Its
   "Public ingress" non-goal is crossed here for one endpoint.
-- tds-internal `ops/terraform/ollama-gateway` design record (not yet
-  written; written alongside this one): owns the edge module and the
-  1Password item's field layout. Callers such as OCR on Demand cannot be
-  built from the Credential contract until it exists.
+- tds-internal `DESIGN.ollama-gateway-infra.md` (tds-internal PR #125):
+  owns the edge module and the 1Password items' field layout. Callers such as OCR on Demand cannot be
+  built from the Credential contract until it exists, and neither can this
+  component's run-token seeding step, which reads an item whose layout that
+  record fixes.
 - [concept: ollama-gateway](../concepts/ollama-gateway/CONCEPT.md): origin
   (non-binding).
 - [concept: ocr-on-demand](../concepts/ocr-on-demand/CONCEPT.md): the
   first caller's concept.
 - OCR on Demand (`OCR-ON-DEMAND.DESIGN.md`, to be written): the first
-  caller. It owns vault resolution, handling of returned tool calls, and
-  review outcomes.
+  caller. It owns vault resolution, its service-account credential, retry
+  of the deadline answer, handling of returned tool calls, and review
+  outcomes.
 - tds-internal `ops/terraform/quillmap-smoketest`: the service-token
   pattern the edge follows.
 - tds-internal `docs/policy/CREDENTIALS.md`, `INFRASTRUCTURE.md`,
