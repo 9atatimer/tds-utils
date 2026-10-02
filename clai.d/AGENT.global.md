@@ -62,8 +62,8 @@ is back, request no Copilot review on any PR: the adversarial self-review
 (the self-review skill) is the whole review, and a re-review below means a
 self-review re-review. Codex stays human-summoned only.
 
-Request a Copilot review once per PR that is not documentation-only, and
-a re-review only when a push carries a load-bearing fix -- behavior, a
+Once quota is back: request a Copilot review once per PR that is not
+documentation-only, and a re-review only when a push carries a load-bearing fix -- behavior, a
 contract, security, a test's verdict, or what a rule an agent or gate
 executes says. Hygiene (wording, typos, comments, documentation accuracy) is
 fixed and pushed, never re-reviewed, in self-review as much as in Copilot
