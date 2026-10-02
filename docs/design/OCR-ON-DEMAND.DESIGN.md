@@ -29,7 +29,7 @@ did not review, or it says on the PR, loudly, why it did not.
   (agent use: Q3), reviews PR N. Every run that is not skipped ends with a
   summary comment on PR N stating its outcome -- including a failed or
   cancelled run, which names its cause. The one exception is `pr-not-open`
-  (Outcomes).
+  (State Machine).
 - **G2 Comment.** A PR comment whose body starts with `/ocr`, from an author
   whose association with the repo is OWNER, MEMBER or COLLABORATOR,
   reviews that PR with the configured model; the comment path cannot
@@ -66,9 +66,9 @@ did not review, or it says on the PR, loudly, why it did not.
   edge's tunnel-down 5xx), not by status code alone:
   - a refusal by Access (302 or 403) fails within 1 minute, cause
     `credential`;
-  - the edge's tunnel-down 5xx, the proxy's "ollama down" 5xx, or no HTTP
-    answer at all (DNS, TLS or connect failure) fails within 1 minute,
-    cause `gateway-down`;
+  - the edge's tunnel-down 5xx, the connector's 502 (deadline proxy down),
+    the proxy's "ollama down" 5xx, or no HTTP answer at all (DNS, TLS or
+    connect failure) fails within 1 minute, cause `gateway-down`;
   - a non-Access 4xx for the model (e.g. an unknown model from a dispatch
     override) fails within 1 minute, cause `model-not-found`;
   - the proxy's retryable "no first byte before the deadline" 5xx is
@@ -312,7 +312,10 @@ run record (JSON, one per run that is not skipped; job summary + artifact)
 +-- record_version                  schema version of this record
 +-- repo, pr, trigger               always present; trigger: dispatch | comment
 +-- head_sha, range                 null if the run ended before REVIEWING resolved them
-+-- model, ocr_version              null if the run ended before AUTHORIZED
++-- model                           null until resolved: null if the run ended
+                                    before AUTHORIZED, or on a `configuration`
+                                    failure that left it unresolved
++-- ocr_version                     null if the run ended before AUTHORIZED
 +-- outcome                         success | failure | cancelled
 +-- cause                           null | a cause from the State Machine
 +-- failing_step                    set only when cause is unexpected
