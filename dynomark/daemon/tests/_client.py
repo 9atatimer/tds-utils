@@ -73,6 +73,22 @@ def events_until(
             return seen
 
 
+def events_through(
+    client: socket.socket, predicate: "EventPredicate", early: list[JsonObject]
+) -> list[JsonObject]:
+    """``early`` -- the events that came before an answer -- up to the first
+    that ``predicate`` accepts, reading on only when none of them does.
+
+    Events interleave freely with answers (contract v1, Envelope), so the
+    event a request causes may arrive before that request's answer. Waiting
+    past ``early`` for it then waits for a second one that never comes
+    (issue #370)."""
+    for index, frame in enumerate(early):
+        if predicate(frame):
+            return early[: index + 1]
+    return early + events_until(client, predicate)
+
+
 class EventPredicate:
     """Matches an event by type and, optionally, a job state."""
 

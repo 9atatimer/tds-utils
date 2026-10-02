@@ -147,12 +147,13 @@ def test_a_save_is_filed_found_and_undone_through_the_socket(tmp_path: Path) -> 
         save = Capture(source=CaptureSource.TAB, text=CAPTURED, title="Tutorial")
         client.send(conn, wire.ingest("i-1", make_bookmark(wire.URL), save))
         ingested, early = client.answer_to(conn, "i-1")
-        events = early + client.events_until(conn, EventPredicate("batch.offer"))
-        offer = events[-1]
+        offer = client.events_through(conn, EventPredicate("batch.offer"), early)[-1]
 
         client.send(conn, _receipt_for(offer))
-        client.answer_to(conn, "r-1")
-        filed = client.events_until(conn, EventPredicate("job.updated", "FILED"))
+        _, early = client.answer_to(conn, "r-1")
+        filed = client.events_through(
+            conn, EventPredicate("job.updated", "FILED"), early
+        )
         client.send(conn, wire.tree_snapshot("t-2", AFTER_FILING))
         client.answer_to(conn, "t-2")
 
@@ -165,7 +166,9 @@ def test_a_save_is_filed_found_and_undone_through_the_socket(tmp_path: Path) -> 
         assert isinstance(batch, dict)
         client.send(conn, wire.body("undo", "u-1", batch_id=batch["batch_id"]))
         undone, before_undo = client.answer_to(conn, "u-1")
-        inverse = before_undo + client.events_until(conn, EventPredicate("batch.offer"))
+        inverse = client.events_through(
+            conn, EventPredicate("batch.offer"), before_undo
+        )
 
     assert (greeting["role"], greeting["mode"], replayed["count"]) == (
         "writer",
@@ -228,11 +231,15 @@ AFTER_DIFF = make_tree(
 )
 
 
-def _jobs_until(conn: socket.socket, wanted: dict[str, str]) -> None:
-    """Read events until each job id in ``wanted`` reached its state."""
+def _jobs_until(
+    conn: socket.socket, wanted: dict[str, str], early: list[JsonObject]
+) -> None:
+    """Read events until each job id in ``wanted`` reached its state,
+    counting ``early`` -- events that came before an answer -- first."""
     reached: set[str] = set()
+    pending = iter(early)
     while reached != set(wanted):
-        frame = client.receive(conn)
+        frame = next(pending, None) or client.receive(conn)
         assert frame is not None, "closed while waiting for jobs"
         job = frame.get("job")
         if frame.get("type") == "job.updated" and isinstance(job, dict):
@@ -240,14 +247,17 @@ def _jobs_until(conn: socket.socket, wanted: dict[str, str]) -> None:
                 reached.add(str(job["job_id"]))
 
 
-def _backfill(conn: socket.socket, request_id: str, bookmark: Bookmark) -> str:
+def _backfill(
+    conn: socket.socket, request_id: str, bookmark: Bookmark
+) -> tuple[str, list[JsonObject]]:
+    """The backfill's job id, and the events that came before its answer."""
     save = Capture(source=CaptureSource.TAB, text=CAPTURED, title=bookmark.title)
     body = json.loads(wire.ingest(request_id, bookmark, save))
     client.send(conn, json.dumps({**body, "backfill": True}).encode())
-    answer, _ = client.answer_to(conn, request_id)
+    answer, early = client.answer_to(conn, request_id)
     job = answer["job"]
     assert isinstance(job, dict)
-    return str(job["job_id"])
+    return str(job["job_id"]), early
 
 
 def test_backfill_ask_and_a_diff_round_through_the_socket(tmp_path: Path) -> None:
@@ -282,9 +292,10 @@ def test_backfill_ask_and_a_diff_round_through_the_socket(tmp_path: Path) -> Non
         client.answer_to(conn, "h-1")
         client.send(conn, wire.tree_snapshot("t-1"))
         client.answer_to(conn, "t-1")
-        filed_job = _backfill(conn, "b-1", filed_here)
-        indexed_job = _backfill(conn, "b-2", elsewhere)
-        _jobs_until(conn, {filed_job: "FILED", indexed_job: "INDEXED"})
+        filed_job, early = _backfill(conn, "b-1", filed_here)
+        indexed_job, later = _backfill(conn, "b-2", elsewhere)
+        wanted = {filed_job: "FILED", indexed_job: "INDEXED"}
+        _jobs_until(conn, wanted, early + later)
 
         client.send(
             conn,
@@ -305,16 +316,14 @@ def test_backfill_ask_and_a_diff_round_through_the_socket(tmp_path: Path) -> Non
         item_id = items[0]["item_id"]
         client.send(conn, wire.body("diff.accept", "d-3", item_id=item_id))
         accepted, early = client.answer_to(conn, "d-3")
-        offer = (early + client.events_until(conn, EventPredicate("batch.offer")))[-1]
+        offer = client.events_through(conn, EventPredicate("batch.offer"), early)[-1]
         client.send(conn, _receipt_for(offer))
         client.answer_to(conn, "r-1")
         client.send(conn, wire.tree_snapshot("t-2", AFTER_DIFF))
         client.answer_to(conn, "t-2")
         client.send(conn, wire.body("undo", "u-1", batch_id=accepted["batch_id"]))
         undone, before = client.answer_to(conn, "u-1")
-        inverse = (before + client.events_until(conn, EventPredicate("batch.offer")))[
-            -1
-        ]
+        inverse = client.events_through(conn, EventPredicate("batch.offer"), before)[-1]
 
     answer = asked["answer"]
     assert isinstance(answer, dict)
@@ -374,10 +383,12 @@ def test_a_writer_that_sees_another_hosts_marker_refuses_to_file(
 
         save = Capture(source=CaptureSource.TAB, text=CAPTURED, title="Tutorial")
         client.send(conn, wire.ingest("i-1", make_bookmark(wire.URL), save))
-        ingested, _ = client.answer_to(conn, "i-1")
+        ingested, early = client.answer_to(conn, "i-1")
         job = ingested["job"]
         assert isinstance(job, dict)
-        failed = client.events_until(conn, EventPredicate("job.updated", "FAILED"))
+        failed = client.events_through(
+            conn, EventPredicate("job.updated", "FAILED"), early
+        )
         client.send(conn, wire.body("undo", "u-1", batch_id="batch-1"))
         refused_undo, _ = client.answer_to(conn, "u-1")
         client.send(conn, wire.body("diff.accept", "d-1", item_id="item-1"))
@@ -399,4 +410,4 @@ def test_a_writer_that_sees_another_hosts_marker_refuses_to_file(
         "writer_conflict",
         "writer_conflict",
     )
-    assert "batch.offer" not in [e["type"] for e in failed + replayed]
+    assert "batch.offer" not in [e["type"] for e in early + failed + replayed]
