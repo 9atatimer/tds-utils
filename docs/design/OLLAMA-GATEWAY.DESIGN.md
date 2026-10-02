@@ -1,6 +1,6 @@
 # Ollama Gateway
 
-> **Status:** DRAFT  
+> **Status:** REVIEW  
 > **Date:** 2026-10-02  
 > **Authors:** Todd Stumpf, Claude (Opus 5.5)  
 > **Depends on:** [LMDE](./LMDE.DESIGN.md); tds-internal `ops/terraform/ollama-gateway` (its own design record, written alongside this one; not yet written)  
