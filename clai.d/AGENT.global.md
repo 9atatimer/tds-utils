@@ -36,9 +36,8 @@ the todo-plan skill. Then say in one line that it was filed, with the link.
 
 Request a Copilot review once per PR that is not documentation-only, and
 a re-review only when a push carries a load-bearing fix -- behavior, a
-contract, security, a test's verdict, what a rule an agent or gate
-executes says, or a step an agent will run from a runbook. Hygiene
-(wording, typos, comments, the accuracy of prose no agent executes) is
+contract, security, a test's verdict, or what a rule an agent or gate
+executes says. Hygiene (wording, typos, comments, documentation accuracy) is
 fixed and pushed, never re-reviewed, in self-review as much as in Copilot
 or Codex. Triage Copilot's output with backbone: fix what is
 genuinely broken, reject the rest on the thread in one line, and ignore
