@@ -3,7 +3,7 @@
 > **Status:** DRAFT  
 > **Date:** 2026-10-02  
 > **Authors:** Todd Stumpf, Claude (Opus 5.5)  
-> **Depends on:** [LMDE](./LMDE.DESIGN.md); tds-internal `ops/terraform/ollama-gateway` (its own design record, written alongside this one)  
+> **Depends on:** [LMDE](./LMDE.DESIGN.md); tds-internal `ops/terraform/ollama-gateway` (its own design record, written alongside this one; not yet written)  
 > **Origin:** [concept: ollama-gateway](../concepts/ollama-gateway/CONCEPT.md), issue #363
 
 ---
@@ -33,23 +33,30 @@ or anything else in the home directory outside an allow-listed tree.
   is refused at the Cloudflare edge with HTTP 403, whatever its path, and
   never reaches the laptop. The external ollama's request log shows no
   entry for it.
-- **G3 Completions only.** A credentialed request to any path other than
-  `/v1/chat/completions` and `/v1/models` gets HTTP 404 from the tunnel's
-  ingress rules and never reaches the external ollama. This includes
-  `/api/pull`, `/api/delete`, `/api/create`, `/api/push` and the rest. The
-  checks run in order: Access first (G2), then ingress.
+- **G3 Completions only.** A credentialed request reaches the external
+  ollama only if its path is exactly `/v1/chat/completions` or
+  `/v1/models`. No prefix or substring match is admitted. Any other path
+  gets HTTP 404 from the tunnel's ingress rules and never reaches the
+  external ollama. This includes `/api/pull`, `/api/delete`, `/api/create`,
+  `/api/push` and the rest. The checks run in order: Access first (G2),
+  then ingress.
 - **G4 The external ollama cannot read the user's credentials.**
   - It runs inside a macOS sandbox whose home-directory rule is an
     allow-list. The external ollama process, and every process it spawns,
     can read or write under `$HOME` only within the allow-listed trees: the
     gateway's own user config tree and the model store.
-  - Everything else under `$HOME` is denied. That covers `~/.ssh`, AI tool
-    credentials (`~/.claude`, `~/.codex`, `~/.config/gh`, and the like),
-    1Password data, ollama's own identity key `~/.ollama/id_ed25519`, and
-    the connector's run token (Q2).
-  - The denial is asserted by a smoketest probe that runs under the profile
-    and tries to read those paths. It is not inferred from the profile
-    text.
+  - Everything else under `$HOME` is denied. Key examples are `~/.ssh`, AI
+    tool credentials (`~/.claude`, `~/.codex`, `~/.config/gh`), 1Password
+    data and ollama's own identity key `~/.ollama/id_ed25519`.
+  - The connector's run token (Q2) is unreachable from inside the sandbox
+    by any means, not only by path.
+  - Both properties are asserted by a probe that runs under the profile.
+    They are not inferred from the profile text. The probe's acceptance
+    criteria are:
+    - a canary file under `$HOME`, outside both allow-listed trees, is
+      unreadable;
+    - every means the launcher itself uses to retrieve the run token
+      fails.
   - Outside `$HOME`, the first-cut sandbox may be broad. Security
     Considerations names what that admits. Tightening it is a later
     hardening pass (Future Considerations).
@@ -70,11 +77,15 @@ or anything else in the home directory outside an allow-listed tree.
     item. It is not a separately minted credential.
 - **G7 Runs unattended.** Both laptop daemons start at login and restart
   after a crash. Neither needs a human, and neither needs 1Password to be
-  unlocked.
-- **G8 The everyday ollama is untouched.** Installing, running or removing
-  the gateway leaves these unchanged: `127.0.0.1:11434`, its configuration,
-  its LaunchAgent, its loaded models, and the contents of the model store
-  it manages.
+  unlocked. A failing G4 probe is not a crash: it holds the gateway
+  DEGRADED until a human acts (State Machine).
+- **G8 The everyday ollama is untouched.** In normal operation, installing,
+  running or removing the gateway leaves these unchanged:
+  `127.0.0.1:11434`, its configuration, its LaunchAgent, its loaded models,
+  and the contents of the model store it manages. Under compromise of the
+  external engine, G8 is not guaranteed until the hardening pass denies
+  store writes and loopback reach to 11434. That is an accepted risk
+  (Security Considerations, Q7).
 
 ---
 
@@ -120,7 +131,7 @@ or anything else in the home directory outside an allow-listed tree.
 +------------------------------- laptop --------------------------------+
 |  connector daemon (cloudflared, LaunchAgent)                          |
 |    applies the pushed ingress rules  -- checked second: 404           |
-|      /v1/chat/completions, /v1/models -> http://127.0.0.1:<port>      |
+|      exactly /v1/chat/completions or /v1/models -> 127.0.0.1:<port>   |
 |      anything else                    -> 404                          |
 |        |  loopback only                                               |
 |        v                                                              |
@@ -159,7 +170,7 @@ states only what the gateway relies on.
 | Responsibility | Guarantee the gateway relies on |
 |---|---|
 | Tunnel | Remotely managed: the ingress rules live in IaC, not in a file on the laptop |
-| Ingress allow-list | Exactly two path rules route to `http://127.0.0.1:<port>`, and a catch-all returns 404 (G3). The rules are declared in IaC and pushed to the connector, which evaluates them on the laptop. `<port>` is an input that must equal the laptop component's value (see Data Model) |
+| Ingress allow-list | Exactly two rules route to `http://127.0.0.1:<port>`, each matching one allow-listed path exactly (no prefix or substring match), and a catch-all returns 404 (G3). The rules are declared in IaC and pushed to the connector, which evaluates them on the laptop. `<port>` is an input that must equal the laptop component's value (see Data Model) |
 | DNS | `<gateway-host>` routes to the tunnel |
 | Access application | Covers all of `<gateway-host>`, with no bypass paths. Evaluated at the edge, before any request reaches the connector |
 | Access policy | `decision = non_identity`, including exactly the named service tokens. Never `any_valid_service_token` |
@@ -218,15 +229,15 @@ but not callers.
 | Responsibility | Details |
 |---|---|
 | Hold the tunnel open | Runs `cloudflared` with the tunnel's run token, outbound only |
-| Enforce the path allow-list | Applies the ingress rules pushed from IaC (G3). This is the only layer keeping model-management paths off the road in the first cut |
-| Transport | `http2`. QUIC over IPv6 fails on this network (observed on the existing `foundry-isleofmist` tunnel), so the transport is pinned |
-| Start and restart | A LaunchAgent following the LMDE pattern (`macos/launchd/com.tds.<name>.plist` -> `bin/launch-<name>`, listed in a `packages/*.pkg` `SERVICES`, installed by `bin/tds-install -S`), with restart on crash |
-| Keep the run token out of sight | The token never appears on a process command line, in a LaunchAgent plist, or in a file under the repo. It is read from the laptop's credential store at launch (store: Q2). Whatever the store is, the external ollama's sandbox cannot read it (G4) |
+| Enforce the path allow-list | Applies the ingress rules pushed from IaC, exact-path match (G3). This is the only layer keeping model-management paths off the road in the first cut |
+| Transport | Must work on this network. QUIC over IPv6 fails here (observed on the existing `foundry-isleofmist` tunnel), so the transport is pinned to `http2` (Key Decisions) |
+| Start and restart | A LaunchAgent following the LMDE launchd pattern, restarting on crash |
+| Keep the run token out of sight | The token never appears on a process command line, in a LaunchAgent plist, or in a file under the repo. It is read from the laptop's credential store at launch (store: Q2). Whatever the store is, the external ollama's sandbox cannot retrieve it by any means, and the G4 probe asserts that |
 | Refuse to run half-configured | No token, no start: the launcher exits non-zero with a message naming what is missing |
 
 The connector is not sandboxed in the first cut. It is a trusted vendor
-binary installed by Homebrew, and it must reach the network. See Future
-Considerations.
+binary installed by Homebrew, and it must reach the network. See Key
+Decisions (connector trust boundary) and Future Considerations.
 
 ### External ollama (tds-utils LMDE)
 
@@ -236,7 +247,7 @@ Considerations.
 |---|---|
 | Serve completions | `ollama serve` bound to `127.0.0.1:<port>` only. `<port>` is distinct from the everyday 11434 |
 | Run sandboxed | Launched under the gateway's macOS sandbox profile (G4). The profile is a file in the component |
-| Refuse to run unconfined | Before every start, the launcher runs the G4 probe under the profile. If confinement is not in effect, or any `$HOME` denial fails, the launcher exits non-zero with a message and does not start ollama. It never falls back to running unsandboxed |
+| Refuse to run unconfined | Before every start, the launcher runs the G4 probe under the profile. If confinement is not in effect, the canary is readable, or the run token is retrievable, the launcher exits non-zero with a message and does not start ollama. It never falls back to running unsandboxed |
 | Own config tree | `HOME` is the gateway's user config tree under `~/.local/` (the exact path is code), not the user's home. So ollama never touches `~/.ollama/id_ed25519` (its ollama.com identity key) or `~/.ollama/history` |
 | Shared store, unmodified | `OLLAMA_MODELS` points at the everyday store, the second allow-listed tree. The external instance does not modify the store's contents; for example, ollama's startup pruning of unreferenced blobs is disabled (load-bearing for G8). Model management cannot reach the store over the road (G3). Enforcing read-only access in the sandbox is part of the hardening pass |
 | Bounded memory | Holds at most one model loaded at a time, so the external and everyday instances together cannot load an unbounded set into the laptop's 64 GB |
@@ -274,17 +285,18 @@ at login and restarted after a crash. The states below are what a request
 meets.
 
 ```
-                connector connects
- +-------------+ ---------------------> +-------------+
- | UNREACHABLE |                        |  CONNECTED  |
- +-------------+ <--------------------- +-------------+
-       ^          connector disconnects    |      ^
-       |          (sleep, offline, crash)  |      |
-       |                     ollama down   |      | ollama up
-       |                                   v      |
-       |                                +-------------+
-       +------------------------------- |  DEGRADED   |
-            connector disconnects       +-------------+
+                  connector connects, ollama listening
+ +-------------+ -----------------------------------> +-------------+
+ | UNREACHABLE |                                      |  CONNECTED  |
+ +-------------+ <----------------------------------- +-------------+
+    ^      |       connector disconnects                 |       ^
+    |      |       (sleep, offline, crash)   ollama down |       | ollama up,
+    |      |                                             v       | probe passes
+    |      |  connector connects,                    +-------------+
+    |      |  ollama not listening                   |             |
+    |      +---------------------------------------> |  DEGRADED   |
+    +----------------------------------------------- |             |
+           connector disconnects                     +-------------+
 ```
 
 | State | Edge answers a credentialed request with | Within |
@@ -296,10 +308,17 @@ meets.
 | From | To | Trigger |
 |---|---|---|
 | UNREACHABLE | CONNECTED | Connector establishes the tunnel and the external ollama is listening |
+| UNREACHABLE | DEGRADED | Connector establishes the tunnel and the external ollama is not listening, including when its launcher refuses to start it |
 | CONNECTED | UNREACHABLE | Laptop sleeps, goes offline, or the connector exits |
 | CONNECTED | DEGRADED | External ollama exits, stops listening, or is refused start by its launcher |
 | DEGRADED | CONNECTED | launchd restarts the external ollama and its probe passes |
 | DEGRADED | UNREACHABLE | Connector disconnects |
+
+**A persistently failing probe holds DEGRADED.** If the probe keeps failing
+(for example, a macOS update weakens `sandbox-exec`), launchd keeps
+relaunching under its own throttling. Each attempt is refused, and the
+external ollama never starts unconfined. Recovery needs a human: fix the
+profile or plug in a successor mechanism at the probe seam.
 
 **The credential check (G2) applies in every state.** A request without a
 valid credential gets 403 at the edge, whether or not the laptop is
@@ -328,14 +347,15 @@ laptop component (tds-utils lmde/components/ollama-gateway)
 +-- sandbox profile     the external ollama's policy file
 +-- probe               the G4 assertions; gates every start
 +-- port                external ollama's loopback port (not 11434);
-                         single source of truth, mirrored as an input to
-                         the tds-internal ingress rules
+                         single source of truth, mirrored by hand as an
+                         input to the tds-internal ingress rules
 +-- gateway config tree the external ollama's HOME, under ~/.local/
 +-- model store path    the everyday store; the other allow-listed tree
 ```
 
 A mismatch between the port and the ingress rules' input shows up as
-DEGRADED (502).
+DEGRADED (502). Hand mirroring is the accepted first-cut answer (see
+Rejections).
 
 ---
 
@@ -344,6 +364,10 @@ DEGRADED (502).
 Nothing is ledgered. The gateway is a pipe. What flowed through it, and how
 often reviews failed, is the caller's to record: OCR on Demand owns review
 outcomes and error rates.
+
+One consequence is accepted: with one shared token and no gateway ledger,
+misuse cannot be attributed to an owner (Security Considerations).
+Per-owner tokens restore attribution (Future Considerations).
 
 ---
 
@@ -354,8 +378,8 @@ outcomes and error rates.
   `any_valid_service_token` would admit every service token in the
   account, so it is forbidden.
 - **A credentialed caller trying to manage models.** The ingress rules
-  route only the two completion paths (G3), so `/api/pull`, `/api/delete`
-  and the rest never reach the external ollama.
+  route only the two completion paths, by exact match (G3), so
+  `/api/pull`, `/api/delete` and the rest never reach the external ollama.
   - Those rules are enforced by the connector on the laptop, not at the
     edge.
   - In the first cut, that is the only layer. Denying store writes in the
@@ -363,7 +387,8 @@ outcomes and error rates.
 - **A hostile prompt or model exploit in the inference engine.**
   - What the sandbox prevents: the `$HOME` allow-list keeps the user's
     credentials out of reach. That covers `~/.ssh`, AI tool credentials,
-    1Password data, ollama's identity key and the run token (G4).
+    1Password data and ollama's identity key. The run token is
+    unretrievable by any means the probe tests (G4).
   - What a compromised engine can still do until the hardening pass
     (accepted risk, by Todd's first-cut ruling):
     - make unrestricted outbound network connections;
@@ -372,33 +397,46 @@ outcomes and error rates.
     - read and write paths outside `$HOME`;
     - write the model store.
   - So, before hardening, a compromised engine could alter or delete store
-    contents, either directly or through 11434, which breaks G8. It could
-    not read what is worth stealing in the home directory. Whether
-    loopback and store denial move into the first cut is Q7.
+    contents, either directly or through 11434. That is why G8 is scoped
+    to normal operation. It could not read what is worth stealing in the
+    home directory. Whether loopback and store denial move into the first
+    cut is Q7.
 - **Availability abuse by a token holder.** Anyone holding the shared
   token can saturate the gateway with concurrent or very large requests.
   - The only caps are ollama's own request queue (excess requests are
     rejected, not held) and the one-loaded-model bound.
   - The laptop's everyday work can be slowed, but no data is exposed.
   - Accepted, per the Non-Goals. The response is revocation.
-- **Tool calls.** ollama returns a model's tool calls to the caller; it
-  never executes them. A caller's tools run on the caller's machine, never
-  on the laptop.
+- **Tool calls.** ollama is an inference server with no tool-execution
+  capability: it returns a model's tool calls to the caller as data.
+  - On the laptop, the gateway does not rely on that: whatever the engine
+    does runs inside the sandbox (G4).
+  - What a caller does with returned tool calls, including treating them
+    as untrusted output, is the caller's design (OCR on Demand).
 - **Credential theft by the caller.** In the first cut the caller holds the
   gateway credential and could exfiltrate it.
   - Whoever holds it can then get completions, but no more: G3 and G4
     still hold.
   - One shared token means one leak exposes the road for both owners.
-  - Accepted for the first cut; issue #365 tracks isolation.
-  - Revocation is dropping the consumer key and re-applying.
+  - One owner's compromised CI can act as the other owner's caller, and
+    nothing distinguishes them. The edge sees one token and the gateway
+    records nothing, so misuse cannot be attributed to an owner.
+  - Revocation is dropping the consumer key and re-applying. That cuts off
+    both owners at once.
+  - Accepted for the first cut; issue #365 tracks isolation, and per-owner
+    tokens (Future Considerations) restore attribution.
 - **The tunnel run token.** Whoever holds it can impersonate the laptop's
   connector.
   - It lives in 1Password (IaC) and in the laptop's credential store
     (Q2), never on a command line, in the repo, or in a LaunchAgent plist.
-  - Whichever store Q2 picks, it must be unreadable from inside the
-    external ollama's sandbox.
-  - A Keychain item and a mode-600 file under `$HOME` but outside the
-    allow-list would both meet that, and the G4 probe asserts it.
+  - Whichever store Q2 picks, it must be unretrievable from inside the
+    external ollama's sandbox, and the G4 probe must assert that.
+  - A mode-600 file under `$HOME` but outside the allow-list is covered by
+    the path denial and the canary check.
+  - A Keychain item is not read by path. It is reached through the
+    Security framework or `/usr/bin/security`, which the broad first-cut
+    profile may admit. It qualifies only if the probe's retrieval attempts
+    by those means fail under the profile.
 - **Prompt and completion contents.** They cross Cloudflare's edge, with
   TLS terminated there. This is acceptable for code under review in the
   fleet's own repos. No other data is intended to use the road.
@@ -408,8 +446,8 @@ outcomes and error rates.
   `LMDE.DESIGN.md`.
 - **sandbox-exec is deprecated by Apple** but works on this macOS. If a
   macOS update removes or weakens it, the probe fails and the launcher
-  refuses to start the external ollama. The gateway goes DEGRADED rather
-  than unconfined. See the radar row.
+  refuses to start the external ollama. The gateway stays DEGRADED rather
+  than unconfined (State Machine). See the radar row.
 
 ---
 
@@ -423,10 +461,11 @@ outcomes and error rates.
 | Which ollama is on the road | A second, external-facing instance, never the everyday one | Todd (concept, settled): the external ollama is a security domain; the everyday one keeps its identity key, history and network |
 | How the external ollama is confined | The basic macOS sandbox (`sandbox-exec` profile) | Todd (concept, settled): start with the basic Mac sandbox. Spike 2026-10-02 shows GPU inference works under it; Docker on macOS has no Metal GPU |
 | Confinement-mechanism axis | Seam = the G4 probe's assertions, which gate every start; no fallback to running unconfined | `sandbox-exec` is deprecated and will change; a successor only has to pass the same probe |
-| Sandbox policy scope, first cut | Load-bearing: `$HOME` is an allow-list (the gateway's user config tree under `~/.local/`, plus the model store). Everything else may be broad | Todd (2026-10-02): protect `~/.ssh`, AI creds and such with a whitelist of a user config tree; get it running in any sandbox first, and hand hardening to a smarter model after the POC works |
-| Model files | Shared everyday store, the external instance's second allow-listed tree; the external instance does not modify its contents | No second copy of tens of GB. G3 keeps model management off the road, G8 forbids local modification, and the hardening pass makes the store read-only |
+| Sandbox policy scope, first cut | Load-bearing: `$HOME` is an allow-list (the gateway's user config tree under `~/.local/`, plus the model store), and the run token is unretrievable. Everything else may be broad | Todd (2026-10-02): protect `~/.ssh`, AI creds and such with a whitelist of a user config tree; get it running in any sandbox first, and hand hardening to a smarter model after the POC works |
+| Connector trust boundary | Unsandboxed in the first cut; trusted as a signed vendor binary. The confinement boundary is drawn around the inference engine, which processes untrusted input, not around everything on the road | The connector parses only tunnel protocol and needs the network; the engine runs hostile prompts and models |
+| Model files | Shared everyday store, the external instance's second allow-listed tree; the external instance does not modify its contents | No second copy of tens of GB. G3 keeps model management off the road, G8 forbids local modification in normal operation, and the hardening pass makes the store read-only |
 | Tunnel config | Remotely managed, ingress in IaC | The path allow-list is a security control (G3) and belongs in reviewed IaC, not a laptop file |
-| Path exposure | Allow-list: `/v1/chat/completions`, `/v1/models`; 404 otherwise, enforced by the connector after Access | ollama has no auth and exposes model-management endpoints |
+| Path exposure | Allow-list by exact match: `/v1/chat/completions`, `/v1/models`; 404 otherwise, enforced by the connector after Access | ollama has no auth and exposes model-management endpoints; a prefix or substring match would widen the allow-list silently |
 | Access policy | `non_identity`, naming each token | Revocable per consumer; `any_valid_service_token` admits every token in the account |
 | Credentials for the first cut | One service token, one 1Password service account, shared by both GitHub owners | Todd's ruling (PR #364) |
 | Per-owner axis of change | Seam = the vault a caller resolves from its own configuration; tokens are a `for_each` map | Splitting owners later needs no gateway or caller code change |
@@ -449,11 +488,16 @@ outcomes and error rates.
   - Needs Todd's confirmation.
 - **Q2 Where the connector's run token lives on the laptop.** *Blocks
   APPROVED.* The daemon must start while 1Password is locked (G7), and the
-  store must be unreadable from the external ollama's sandbox (G4).
-  - Proposed: the macOS login Keychain, seeded once from the 1Password
-    item by a setup step and read at launch.
-  - Alternative: cloudflared's own credentials file, mode 600, under a
-    private directory outside the sandbox's `$HOME` allow-list.
+  token must be unretrievable from the external ollama's sandbox, as
+  asserted by the G4 probe.
+  - Option A: cloudflared's own credentials file, mode 600, under a
+    private directory outside the sandbox's `$HOME` allow-list. The path
+    denial and canary check cover it as specified.
+  - Option B: the macOS login Keychain, seeded once from the 1Password
+    item by a setup step and read at launch. It is reachable through the
+    Security framework and `/usr/bin/security`, not by path. It qualifies
+    only if the probe shows those routes fail under the first-cut profile,
+    which is not yet established.
 - **Q3 Memory contention.** Two ollama servers on one 64 GB laptop can each
   hold a large model.
   - Bounding the external instance to one loaded model (Design) caps it,
@@ -461,9 +505,7 @@ outcomes and error rates.
   - Is that enough, or should the external one also unload promptly after
     each review?
 - **Q4 The name.** "Ollama Gateway" is the working name from the concept.
-  This record's filename should follow the rubric:
-  `DESIGN.OLLAMA-GATEWAY.md`. Sibling links keep their current filenames
-  until those docs are renamed.
+  Confirm it or choose another.
 - **Q5 Cold loads vs. the edge's proxy timeout.** *Blocks APPROVED; G1
   depends on it.*
   - Cloudflare's proxied requests are believed to carry a ~100 s
@@ -476,15 +518,18 @@ outcomes and error rates.
       resident, or pre-warms it, so first byte is prompt;
     - (b) G1 is scoped to warm models, and callers treat 524 as retryable;
     - (c) both.
+  - The chosen option is recorded as a Key Decisions row, and G1 is
+    amended to match.
 - **Q6 Detection of a silent connector.** G5's 30 s bound is stated for a
   stopped connector. For a sleeping or offline laptop, the bound depends
   on Cloudflare's dead-connector detection. Verify it, then fix the bound
   or document the measured one.
 - **Q7 Loopback and store denial in the first cut.** Without them, a
   compromised engine can reach 11434 and alter the store (Security
-  Considerations), which breaks G8.
+  Considerations), so G8 holds only in normal operation.
   - The spike suggests network denial does not break inference, so
-    pulling these into the first cut may be cheap.
+    pulling these into the first cut may be cheap. If pulled forward, G8's
+    compromise caveat is removed.
   - Todd's ruling defers all hardening.
   - Needs Todd's decision.
 
@@ -527,6 +572,10 @@ outcomes and error rates.
   production tier does not.
 - **Sandboxing the connector in the first cut.** It needs the network, is
   a signed vendor binary, and sees only what the tunnel routes.
+- **Cross-repo wiring to derive the ingress port from the laptop
+  component.** One rarely changing value across two repos; the wiring
+  would be a single-implementation seam. A mismatch is visible as
+  DEGRADED (502).
 
 ---
 
@@ -541,10 +590,12 @@ outcomes and error rates.
   - system paths narrowed.
 
   The 2026-10-02 spike showed the network and home denials do not break
-  GPU inference. Q7 may pull part of this forward.
+  GPU inference. Q7 may pull part of this forward. Completing it lifts
+  G8's compromise caveat.
 - **Credential isolation from the caller.** Issue #365.
 - **Per-owner credentials.** One consumer key, vault and service account
-  per GitHub owner, once the first cut has proven the road.
+  per GitHub owner, once the first cut has proven the road. This also
+  restores per-owner attribution and revocation.
 - **Sandboxing the connector**, limiting it to its config and loopback.
 - **Gateway metrics in the LMDE observability stack.** Connector state and
   request counts, if review error rates point at the gateway.
@@ -559,12 +610,17 @@ outcomes and error rates.
 
 - [LMDE](./LMDE.DESIGN.md): the platform this is a sub-component of. Its
   "Public ingress" non-goal is crossed here for one endpoint.
+- tds-internal `ops/terraform/ollama-gateway` design record (not yet
+  written; written alongside this one): owns the edge module and the
+  1Password item's field layout. Callers such as OCR on Demand cannot be
+  built from the Credential contract until it exists.
 - [concept: ollama-gateway](../concepts/ollama-gateway/CONCEPT.md): origin
   (non-binding).
 - [concept: ocr-on-demand](../concepts/ocr-on-demand/CONCEPT.md): the
   first caller's concept.
 - OCR on Demand (`OCR-ON-DEMAND.DESIGN.md`, to be written): the first
-  caller. It owns vault resolution and review outcomes.
+  caller. It owns vault resolution, handling of returned tool calls, and
+  review outcomes.
 - tds-internal `ops/terraform/quillmap-smoketest`: the service-token
   pattern the edge follows.
 - tds-internal `docs/policy/CREDENTIALS.md`, `INFRASTRUCTURE.md`,
