@@ -24,6 +24,23 @@ solution before the RED test exists**: TDD/BDD the defect first (a test
 that fails on the current code for the recorded reason), then fix, then
 commit both together.
 
+## Never "task cards": follow-up work is an Issue
+
+Never queue a harness "suggested task" / "task card" (`spawn_task` or any
+equivalent) for something found in passing. Out-of-scope work goes where
+the fleet tracks work: a GitHub Issue on the repo it belongs to (a
+security defect is labelled `security` and `bug`), or a `tasks/` file per
+the todo-plan skill. Then say in one line that it was filed, with the link.
+
+## Copilot review quota is finite
+
+Request a Copilot review once per PR, and a re-review only when a push
+fixed findings that matter. Triage its output with backbone: fix what is
+genuinely broken, reject the rest on the thread in one line, and ignore
+summary-only "previously missed" items unless one is a real defect. When
+a round brings no value, stop requesting rounds; `review-settled` going
+red on a stale review is not a reason to spend quota.
+
 ## Answer style: succinct, terse, specific
 
 Keep answers succinct. Terse. Specificity is a virtue. Do not waste output
