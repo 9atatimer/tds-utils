@@ -14,6 +14,28 @@
 
 # Global Claude Code Instructions
 
+Every rule below is loaded into every session in every repo, so each one
+earns its place by a failure it prevents; the section under it says why.
+Mechanics that belong to one domain live in that domain's skill, and this
+file points there.
+
+## The hard rules, at a glance
+
+- Never ask with `AskUserQuestion` or a menu; ask in prose for the one value you lack.
+- Never set a timer, wakeup or schedule for yourself, and never poll on a clock.
+- Never `curl | sh` or run a fetched installer; install through signed package managers.
+- Never `cd`; scope tools with `-C` / `--directory` / `--filter`.
+- Never work on the default branch; work in a worktree under `~/workplace/.worktrees/`.
+- Never commit a defect fix before its RED test; cut the Issue first.
+- Never queue a "task card"; out-of-scope work is a GitHub Issue.
+- Never write auto-memory; durable context goes in the repo or this file.
+- Never write a numbered list or a non-ASCII character in Markdown.
+- Never name a tier `staging`; it is `nonprod`.
+- Answer tersely, and stop when the answer is done.
+- Link every PR and issue with repo and kind in the link text.
+- Read the repo's `AGENT.md`, and read a skill whole, before working.
+- Spend a review turn only on a load-bearing fix.
+
 ## Defects: cut the Issue first, tests red before commit
 
 When a defect is found (any repo, any severity), **cut a GitHub Issue
@@ -32,26 +54,30 @@ the fleet tracks work: a GitHub Issue on the repo it belongs to (a
 security defect is labelled `security` and `bug`), or a `tasks/` file per
 the todo-plan skill. Then say in one line that it was filed, with the link.
 
-## Copilot review quota is finite
+## Review turns are expensive: spend them on load-bearing fixes
 
 Request a Copilot review once per PR that is not documentation-only, and
 a re-review only when a push carries a load-bearing fix -- behavior, a
 contract, security, a test's verdict, or what a rule an agent or gate
 executes says. Hygiene (wording, typos, comments, documentation accuracy) is
 fixed and pushed, never re-reviewed, in self-review as much as in Copilot
-or Codex. Triage Copilot's output with backbone: fix what is
-genuinely broken, reject the rest on the thread in one line, and ignore
-summary-only "previously missed" items unless one is a real defect. When
-a round brings no value, stop requesting rounds; `review-settled` going
-red on a stale review is not a reason to spend quota.
+or Codex. When a round brings no value, stop requesting rounds;
+`review-settled` going red on a stale review is not a reason to spend
+quota.
 
 A documentation-only PR -- every changed file is human-read prose -- gets
 no Copilot and no Codex: the adversarial self-review is sufficient,
 except that design and architecture drafts in phases 2 and 3 get
 designomatic. Skills, personas, `AGENT.md`, prompts, CI workflows and
 gate configuration are operating rules, not documentation; a PR touching
-them takes the full review ladder (the gates skill, Spend Review Turns on
-Load-Bearing Fixes).
+them takes the full review ladder.
+
+Triage with backbone: fix what is genuinely broken and reject the rest on
+the thread in one line. Every finding gets a recorded disposition,
+including the body-only "Previously missed" ones that have no thread.
+After an accept or reject reply, resolve the thread too: the reply alone
+does not. The gates skill (Spend Review Turns on Load-Bearing Fixes,
+Reviewer Selection, Automated Review Response) owns the procedure.
 
 ## Answer style: succinct, terse, specific
 
@@ -84,16 +110,6 @@ transcript.** A session ends and is archived; nobody re-reads it. So:
 Writing it into a closing paragraph is the one option guaranteed to be
 lost. Put it in the durable place and say, in one line, that it was
 recorded there.
-
-## Resolve the review thread when you accept or reject it
-
-An accept/reject reply on a PR review comment is only half the job:
-`gadmin reply` does not touch GitHub's thread-resolved state. After every
-accept or reject reply, also resolve that sub-thread via the GraphQL
-`resolveReviewThread` mutation (thread node ids come from the
-`reviewThreads` query, matched by first comment `databaseId`). The
-github-workflow skill documents this mechanism for deferred threads; it
-applies to accepts and rejects too.
 
 ## Naming: "staging" is a verb, and a verb alone
 
@@ -186,7 +202,8 @@ fight it -- it is the right division of labor. The smooth flow: agent runs
 `plan -out=tfplan`, reviews the plan, then hands the human the exact
 `! op run ... terraform apply tfplan` line to run in-session, so the output
 lands in the conversation and work continues. Same handoff applies to any
-state-changing command the classifier refuses.
+state-changing command the classifier refuses. The iac skill owns the
+authority model; `/infra-handoff` writes the block.
 
 ## Never pull down and run a shell script
 
@@ -204,32 +221,19 @@ existing content.
 
 ## Bullet lists only -- never a numbered list
 
-Write `-`. Never `1.` `2.` `3.`. This holds in every document: design
-records, as-builts, `TODO_PLAN.md`, task files, `AGENT.md`, skills, PR and
-issue bodies, and answers in the terminal.
-
-Numbering claims a sequence the content usually does not have, and it
-renumbers under every insertion -- so a citation to "item 3" rots the moment
-someone inserts an item 2.
-
-**Bugs, todos and lessons are never a numbered sequence.** They are an
-unordered set that grows and shrinks, and numbering them invites the false
-reading that item 1 outranks item 9. Where order is genuinely load-bearing,
-say it in prose ("do this before that") or name the dependency -- a task
-file's `blocked_by` is the machine-readable form.
-
-Where you wanted *identity* rather than position, mint a stable identifier
-instead: a `task-NNN` id, a `D14` key-decision row, a `Q2` open question.
-Those are names that other documents cite, and they stay. The test: a number
-you can cite from elsewhere is an identifier; a number that shifts when you
-insert above it is a list, and lists get bullets.
+Write `-`, never `1.` `2.` `3.`, in every document and in terminal answers.
+Numbering claims a sequence the content rarely has and renumbers under every
+insertion, so a citation to "item 3" rots; bugs, todos and lessons are an
+unordered set. Where order matters, say it in prose or name the dependency
+(`blocked_by`); where you wanted identity, mint a stable id (`task-NNN`,
+`D14`, `Q2`). The sdlc skill, law 17, has the rest.
 
 ## Swarm-coding (`ultracode`) finishes at an open PR
 
 When told to swarm-code a solution (e.g. `ultracode`), automatically open a PR
 when the coding concludes -- do not wait to be asked -- and then automatically
-triage Copilot's review feedback according to the repo's `GITHUB.md`
-instructions.
+triage Copilot's review feedback per the gates skill (and the repo's
+`prompts/GITHUB.md` where one still exists).
 
 ## Always review the repo's own CLAUDE.md / AGENT.md
 
@@ -248,27 +252,13 @@ the panel's job.
 
 ## Don't reach for the auto-memory system
 
-The project-scoped auto-memory at `~/.claude/projects/<encoded>/memory/` is
-readable only by this Claude Code instance tied to that path. Other AI agents
-(opencode, codex, gemini, cursor, aider, etc.) cannot read those files. A
-fresh Claude session in a different working directory cannot either. Notes
-saved there are effectively private to one process.
-
-**Default: do not create new auto-memory entries.** When something is worth
-saving, prefer locations that other agents and future sessions can read:
-
-- `<repo>/CLAUDE.md` or `<repo>/AGENT.md` -- version-controlled with the
-  project, visible to every agent that walks the repo for instructions.
-- `clai.d/AGENT.global.md` in tds-utils (this file) -- the global agent
-  instructions, reaching every agent on this machine via the `release` worktree
-  and surviving every session. Edit on a branch, PR, then release to `release`.
-- A design doc in the repo (`docs/design/...`, `packages/*/docs/...`) -- for
-  durable decisions, with rationale, that anyone can read.
-
-Only fall back to the auto-memory system when the rule is genuinely
-Claude-Code-only, session-scoped, and inappropriate for any of the above --
-which is rare. If unsure, don't save. Smaller memory state is better than a
-sprawling private garden no one else can see.
+The auto-memory at `~/.claude/projects/<encoded>/memory/` is readable by one
+Claude Code instance at one path: no other agent (opencode, codex, gemini)
+and no session in another directory can see it. **Do not create entries.**
+Save durable context where everyone reads it: the repo's `AGENT.md`, a
+design doc, or this file (edit on a branch, PR, release). Fall back to
+auto-memory only for something Claude-Code-only and session-scoped, which is
+rare; if unsure, don't save.
 
 ## Never `cd` -- stay at the project root and target subdirs with flags
 
@@ -323,7 +313,7 @@ its next `git commit` reported "nothing to commit, working tree clean" on a
 branch it had never heard of. Both sessions were doing ordinary, correct
 things; the directory was the bug.
 
-So:
+So, from a fresh fetch, into `~/workplace/.worktrees/` (next section):
 
 ```
 git -C ~/workplace/<repo> fetch origin
@@ -356,11 +346,6 @@ share a prefix, so the human has to disambiguate on every single completion.
 directory, so it stays out of `ls` and out of completion entirely. The
 convention already exists there; follow it.
 
-```
-git -C ~/workplace/<repo> worktree add \
-    ~/workplace/.worktrees/<repo>-<topic> <branch>
-```
-
 Naming: `<repo>-<topic>` (e.g. `tds-internal-stream-relay`), so the worktree
 directory says which repo it belongs to once you are inside `.worktrees/`.
 
@@ -383,16 +368,17 @@ remote and usually **cannot see this screen** -- they may be jogging, driving,
 or away from the desk. A long silent pause while you run tools reads as "it
 broke," even when work is progressing fine.
 
-So, every time a channel message arrives:
+So, every time a channel message arrives, the acknowledgement comes first
+and the result comes last:
 
-1. **Before any other tool call, reply through the channel's reply tool** with
-   a one-line acknowledgement: what you understood + that you're starting. This
-   is the *first* action of the turn, no exceptions. Do not read files, grep,
-   or plan before sending it.
-2. Then do the work.
-3. When finished, send a **new** channel reply with the result -- not an edit.
-   Edits don't trigger a push notification; a fresh message makes their phone
-   ping. `edit_message` is only for optional mid-task progress nudges.
+- **Before any other tool call, reply through the channel's reply tool** with
+  a one-line acknowledgement: what you understood + that you're starting. This
+  is the *first* action of the turn, no exceptions. Do not read files, grep,
+  or plan before sending it.
+- Then do the work.
+- When finished, send a **new** channel reply with the result -- not an edit.
+  Edits don't trigger a push notification; a fresh message makes their phone
+  ping. `edit_message` is only for optional mid-task progress nudges.
 
 Keep channel replies short and skimmable -- a notification-reader app may read
 them aloud through earbuds. This applies in every repo, since the Telegram
@@ -428,37 +414,20 @@ number:
 ```
 
 Not a naked URL, and not only in the first line. A check run gets the same
-treatment: its URL behind text that names the repo. The github-workflow
-skill's "Naming issues and PRs" section is canonical (commit-message and
-`Closes #N` forms included). The repo's `gh` config or the branch's upstream
-remote tells you the owner/repo; never guess from memory.
+treatment. The github-workflow skill, Naming issues and PRs, is canonical
+(commit-message and `Closes #N` forms included); take owner/repo from the
+remote, never from memory.
 
 ## Prefer ast-mcp for Markdown/HTML when its tools are connected
 
-ast-mcp is a token-efficient navigation/RAG tool for Markdown and HTML, and as
-of 0.3.2 it is fully read **and** write capable (tds-utils#73 fixed in
-9atatimer/ai-tools#75; verified live 2026-07-11).
+When `mcp__ast-mcp__*` tools are loaded (they may be deferred; load via
+`ToolSearch`), read Markdown/HTML with `get_outline` then `read_node`
+instead of reading whole files. Two caveats for writes
+(`update_node`, `insert_node`, `update_section`, `delete_node`):
 
-When the `mcp__ast-mcp__*` tools are available this session:
-
-- **Read / navigate** with `get_outline`, then `read_node` for only the node(s)
-  you need, instead of `Read`-ing whole `.md`/`.html` files or `grep`-ing for
-  line ranges.
-- **Edit in place** with `update_node`, `insert_node`, `update_section`, and
-  `delete_node`.
-
-One caveat, empirically confirmed: **node IDs are document-state-derived and
-regenerate after every mutation.** Re-run `get_outline` before the next edit
-rather than reusing an ID from an earlier outline -- a stale anchor fails with
-`not found in RemarkAdapter`.
-
-A second caveat (2026-08-14, tds-utils#222): **a mutation re-serializes the
-WHOLE file in remark canonical style**, not just the edited node -- `---`
-becomes `***`, `_em_` becomes `*em*`, `-` bullets become `*`, literal
-brackets get escaped. On any file not already in that style the churn swamps
-the real change and violates repo formatting rules. Until fixed: use ast-mcp
-freely for READS, but check `git diff` after the first mutation on a file --
-if it churned untouched lines, revert and use plain `Edit` instead.
-
-When the tools aren't loaded (they may be deferred -- load via `ToolSearch`) or
-the file isn't Markdown/HTML, just use `Read`/`Edit`/`Write` as normal.
+- Node ids regenerate after every mutation; re-run `get_outline` before the
+  next edit, or the stale id fails with `not found in RemarkAdapter`.
+- A mutation re-serializes the WHOLE file in remark style (`---` -> `***`,
+  `-` -> `*`, escaped brackets; tds-utils#222). Check `git diff` after the
+  first mutation on a file; if untouched lines churned, revert and use
+  `Edit`.
