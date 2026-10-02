@@ -25,16 +25,16 @@ file points there.
 - Never set a timer, wakeup or schedule for yourself, and never poll on a clock.
 - Never `curl | sh` or run a fetched installer; install through signed package managers.
 - Never `cd`; scope tools with `-C` / `--directory` / `--filter`.
-- Never work on the default branch; work in a worktree under `~/workplace/.worktrees/`.
+- Never work on the default branch; prefer a worktree under `~/workplace/.worktrees/`.
 - Never commit a defect fix before its RED test; cut the Issue first.
 - Never queue a "task card"; out-of-scope work is a GitHub Issue.
-- Never write auto-memory; durable context goes in the repo or this file.
+- Don't write auto-memory; durable context goes in the repo or this file.
 - Never write a numbered list or a non-ASCII character in Markdown.
 - Never name a tier `staging`; it is `nonprod`.
 - Answer tersely, and stop when the answer is done.
 - Link every PR and issue with repo and kind in the link text.
 - Read the repo's `AGENT.md`, and read a skill whole, before working.
-- Spend a review turn only on a load-bearing fix.
+- Review each non-doc PR once; re-review only after a load-bearing fix.
 
 ## Defects: cut the Issue first, tests red before commit
 
@@ -75,9 +75,12 @@ them takes the full review ladder.
 Triage with backbone: fix what is genuinely broken and reject the rest on
 the thread in one line. Every finding gets a recorded disposition,
 including the body-only "Previously missed" ones that have no thread.
-After an accept or reject reply, resolve the thread too: the reply alone
-does not. The gates skill (Spend Review Turns on Load-Bearing Fixes,
-Reviewer Selection, Automated Review Response) owns the procedure.
+After an accept or reject reply, resolve the thread too: `gadmin reply`
+does not touch GitHub's thread-resolved state. The gates skill owns the
+procedure: Spend Review Turns on Load-Bearing Fixes and Automated Review
+Response for triage, and Feedback becomes pr-todo issues for the
+`resolveReviewThread` mechanism, which applies to accepts and rejects as
+well as deferrals.
 
 ## Answer style: succinct, terse, specific
 
