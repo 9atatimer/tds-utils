@@ -1,0 +1,53 @@
+# config.yaml -- Loki (single binary) configuration for LMDE logs and events.
+# Ingest is OTLP only: the collector's otlp_http/loki exporter posts to /otlp.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-conf
+  namespace: observability
+  labels:
+    app: loki
+data:
+  loki.yaml: |
+    auth_enabled: false
+
+    server:
+      http_listen_port: 3100
+      grpc_listen_port: 9096
+      log_level: warn
+
+    common:
+      instance_addr: 127.0.0.1
+      path_prefix: /var/loki
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+      storage:
+        filesystem:
+          chunks_directory: /var/loki/chunks
+          rules_directory: /var/loki/rules
+
+    schema_config:
+      configs:
+        - from: "2026-01-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+
+    limits_config:
+      # 14 days, matching Tempo's default block retention.
+      retention_period: 336h
+      allow_structured_metadata: true
+      volume_enabled: true
+
+    compactor:
+      working_directory: /var/loki/compactor
+      retention_enabled: true
+      delete_request_store: filesystem
+
+    analytics:
+      reporting_enabled: false

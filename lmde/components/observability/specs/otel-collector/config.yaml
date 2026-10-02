@@ -52,8 +52,14 @@ data:
         endpoint: "0.0.0.0:8889"
         resource_to_telemetry_conversion:
           enabled: true
-      file/blackhole:
-        path: /dev/null
+      # Logs (and OTLP events) to Loki's native OTLP ingest.
+      otlp_http/loki:
+        endpoint: http://loki.observability.svc.cluster.local:3100/otlp
+      # Raw spans to Tempo.
+      otlp_grpc/tempo:
+        endpoint: tempo.observability.svc.cluster.local:4317
+        tls:
+          insecure: true
 
     service:
       pipelines:
@@ -67,12 +73,13 @@ data:
           receivers: [sum]
           processors: [batch]
           exporters: [prometheus]
-        # Traces are consumed by the sum connector (token derivation). Raw spans
-        # are not otherwise stored -- there is no trace backend in LMDE.
+        # Traces fan out: stored in Tempo, and fed to the sum connector for
+        # token derivation.
         traces:
           receivers: [otlp]
           processors: [batch]
-          exporters: [sum]
+          exporters: [otlp_grpc/tempo, sum]
         logs:
           receivers: [otlp]
-          exporters: [file/blackhole]
+          processors: [batch]
+          exporters: [otlp_http/loki]

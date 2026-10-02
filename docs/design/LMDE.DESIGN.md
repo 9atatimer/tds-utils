@@ -34,6 +34,8 @@ One tool, one design doc. Anything an implementer needs to know about why
 | Platform contract + residency | ADOPTED | `lmde/LMDE.md` (contract text stays there) |
 | Artifact acquisition + the lmde/clai boundary | ADOPTED (Revisions 1 and 2 folded in) | `LMDE-CLAI-BOUNDARY.DESIGN.md` |
 | Observability stack | ADOPTED (deployed; ingress revision live) | `LMDE-OBSERVABILITY.DESIGN.md` |
+| Log and trace backends (Loki, Tempo) | REVIEW (built; laptop deploy pending) | This document, section 3.3; issue #380 |
+| Cloud ingest (OTLP from off the laptop) | DRAFT (designed, not implemented) | This document, section 3.4; issue #380 |
 | Host ingress pattern | ADOPTED | `LMDE-OBSERVABILITY.DESIGN.md` section 4 |
 | Backplane (NATS-in-kind) | DRAFT (designed, not implemented) | `LMDE-BACKPLANE.DESIGN.md` |
 | Skills-drift indicator (prompt + menu bar) | ADOPTED (implemented) | This document, section 6 |
@@ -71,7 +73,8 @@ One tool, one design doc. Anything an implementer needs to know about why
 6. **Data floats, executables are pinned** -- A skills merge reaches the
    next session on every surface with no human step beyond the merge;
    executable versions change only through a reviewed pin bump.
-7. **Persistent, hermetic observability** -- Metrics survive kind restarts
+7. **Persistent, hermetic observability** -- Metrics, logs, and traces
+   survive kind restarts
    and cluster recreation; every image is digest-pinned and served from a
    local registry.
 8. **Named host access** -- Every in-cluster UI is reachable at a stable
@@ -94,10 +97,14 @@ One tool, one design doc. Anything an implementer needs to know about why
   kind or NATS.
 - **Per-project browser automation.** Chrome for Testing is deliberately
   per-project (`~/.cache/<project>-cft/`), never LMDE.
-- **Log aggregation in the observability stack.** Structured OTLP events
-  are in scope; raw terminal logs stay `log-hoarder`'s.
+- **Terminal-log aggregation in the observability stack.** Structured
+  OTLP logs and events are in scope (Loki, section 3.3); raw terminal logs
+  stay `log-hoarder`'s.
 - **Multi-node scalability.** Single-user laptop scale.
-- **Public ingress.** The stack is strictly local, never routable.
+- **Public ingress to the UIs or query APIs.** Grafana, Prometheus, Loki,
+  and Tempo are strictly local, never routable. The one path in from off
+  the laptop is write-only OTLP/HTTP for logs and traces, behind
+  Cloudflare Access (section 3.4).
 - **Service mesh.** No mTLS, traffic-shaping, or east-west policy between
   components. Routing is north-south only (host -> cluster).
 - **A receipt / install manifest between lmde and clai.** Explicitly
@@ -133,8 +140,10 @@ One tool, one design doc. Anything an implementer needs to know about why
 |                                                                           |
 |   ingress-nginx --(Host: grafana.lmde.localhost)--> Grafana Service       |
 |                                                          |                |
-|   OTel Collector ----> Prometheus <----(PromQL)---- Grafana               |
-|                       (HostPath PV)                                       |
+|   OTel Collector -+--> Prometheus <----(PromQL)---- Grafana               |
+|     metrics,      +--> Loki (logs)  <----(LogQL)------+                   |
+|     logs, traces  +--> Tempo (traces) <--(TraceQL)----+                   |
+|                       (HostPath under /mnt/data)                          |
 |   NATS (planned)  <-- in-cluster clients via nats.default.svc             |
 +---------------------------------------------------------------------------+
 
@@ -374,6 +383,60 @@ agents and local services.
   1.0 and memory at 2Gi.
 - **Grafana Service:** `ClusterIP` only. Dashboards are provisioned from
   `specs/grafana/dashboards/`.
+- **Pipelines (collector):** metrics -> Prometheus; logs -> Loki's native
+  OTLP endpoint (`/otlp`); traces -> Tempo over OTLP gRPC AND -> the `sum`
+  connector, which still derives the `gen_ai` token metrics.
+- **Loki:** single binary, filesystem store, TSDB index, schema v13,
+  retention 14 days. OTLP resource attributes become labels
+  (`service_name`, ...); `trace_id` is structured metadata.
+- **Tempo:** monolithic (3.x runs without Kafka in this mode), local
+  backend, default 14-day block retention.
+- **Storage for Loki and Tempo:** `hostPath` subdirectories `/mnt/data/loki`
+  and `/mnt/data/tempo` of the cluster data mount. Both images are
+  distroless and run as uid `10001`; an init container from the already
+  pinned Prometheus image (busybox-based) chowns the directory, so no extra
+  image is pinned for it.
+- **Grafana data sources:** Prometheus, Loki (uid `loki`), Tempo (uid
+  `tempo`), cross-linked: a Loki `trace_id` opens the trace in Tempo, and a
+  span opens its logs in Loki.
+
+#### 3.4 Cloud ingest (OTLP from off the laptop)
+
+Cloud components (Workers, Cloud Run) export traces and logs to LMDE
+through a Cloudflare tunnel; the edge (tunnel, DNS, Access application,
+service tokens) is infra-repo terraform, specified in tds-internal
+`docs/design/DESIGN.otel-ingest-infra.md`, which also names the hostname.
+
+```
+Worker / Cloud Run --OTLP/HTTP + Access service token--> <ingest host>
+   --> Cloudflare Access (one non_identity policy per token)
+   --> tunnel ingress: /v1/traces, /v1/logs only; everything else 404
+   --> cloudflared on the laptop
+   --> LMDE proxy layer, OTLP route (throttle, max payload size)
+   --> 127.0.0.1:4318 (the collector)
+```
+
+- **Write-only, logs and traces only.** The tunnel routes exactly the two
+  OTLP/HTTP paths. `/v1/metrics` is not routed: cloud platforms already
+  keep metrics, and remote metric streams would add label cardinality
+  Prometheus has no budget for.
+- **Own tunnel.** Separate from the Ollama Gateway's tunnel, so the
+  connector credential for a telemetry sink can never route to an
+  inference endpoint, and neither edge waits on the other.
+- **Behind the LMDE proxy layer.** Every laptop service with a public port
+  sits behind the one LMDE proxy layer, which centralizes throttling and
+  maximum payload size (Todd, 2026-10-02; `OLLAMA-GATEWAY.DESIGN.md`,
+  Deadline proxy). OTLP ingest is a route on it with its own limits, in
+  front of the collector; the connector never reaches `:4318` directly.
+  The layer is not built yet (that design is in REVIEW), so cloud ingest
+  waits on it; local senders keep using `127.0.0.1:4318` unchanged.
+- **One service token per component per tier.** Revoking one sender never
+  touches another.
+- **Laptop off means dropped.** Exporters fail and drop; the platform's own
+  short-retention logs are the fallback. No queueing is designed in.
+- **`cloudflared`** runs on the laptop from Homebrew (signed), as a
+  LaunchAgent with the run token read from the Keychain, the same posture
+  as the Ollama Gateway connector.
 
 ### 4. Host ingress (`*.{cluster}.localhost`)
 
@@ -549,7 +612,7 @@ Registry --> Kind Cluster --> Ingress Controller --> Telemetry Stack --> Host Ro
 | Registry | Kind Cluster | Registry is healthy | `images.txt` is synced |
 | Kind Cluster | Ingress Controller | Cluster is Ready | `ingress-ready` node label present |
 | Ingress Controller | Telemetry Stack | `ingress-nginx` admission webhook Ready | HostPath dir exists |
-| Telemetry Stack | Host Routing | Grafana + Prometheus pods Running | Grafana Service has endpoints |
+| Telemetry Stack | Host Routing | Grafana, Prometheus, Loki, Tempo pods Running | Grafana Service has endpoints |
 | Host Routing | Readiness | `Ingress` applied + Caddy vhost registered | `curl grafana.lmde.localhost` returns 200 |
 
 ### Acquire, per package
@@ -585,7 +648,11 @@ Registry --> Kind Cluster --> Ingress Controller --> Telemetry Stack --> Host Ro
 - **Resource exhaustion.** Kubernetes `ResourceQuota` in the
   `observability` namespace.
 - **Data privacy.** All telemetry stays on local disk; no phone-home
-  analytics in Grafana or Prometheus.
+  analytics: Grafana, Loki, and Tempo have usage reporting (and Grafana its
+  update checks) disabled in their specs, and Prometheus has none.
+- **Cloud ingest exposure.** The only routable path in is the tunnel, and
+  it is write-only: two OTLP paths behind Access service tokens. Nothing
+  off the laptop can read telemetry back.
 - **Ingress exposure.** `ingress-nginx` is published only to host loopback
   via the kind `extraPortMapping` `listenAddress`; never bound to a routable
   interface.
@@ -646,6 +713,9 @@ deleted.
 | Vhost scheme | `*.{cluster}.localhost` (this cluster aliased `lmde`) | `.localhost` resolves to loopback with no dnsmasq config; a per-cluster wildcard keeps it to one Caddy route |
 | Registry | `Registry:2`, standalone container | Avoids the circular dependency where the cluster is needed to start the registry |
 | Deployment | Helm charts with local-registry images | Community config best-practice while keeping image control |
+| Log backend | Loki, single binary, plain manifests (no Helm) | Native OTLP ingest, Grafana-native; the Loki chart's simple-scalable defaults are far more than one laptop needs |
+| Trace backend | Tempo, monolithic, plain manifests | Grafana-native, OTLP gRPC ingest, trace-to-logs links with Loki; Jaeger would add a second UI |
+| Cloud ingest | Write-only OTLP/HTTP, logs and traces, through an Access-gated tunnel of its own | Off-laptop senders can push telemetry and do nothing else; see section 3.4 |
 
 ### Backplane
 
@@ -723,6 +793,11 @@ deleted.
 - **Dynamic provisioning (EBS/GCP volumes).** Not applicable to a local
   laptop.
 - **Local registry as a pod.** Circular dependency.
+- **Loki and Tempo Helm charts.** Each pulls in gateway, memcached, and
+  sidecar images to pin, for no benefit at single-node scale.
+- **Raw spans dropped, metrics only (the previous state).** Logs went to
+  `/dev/null` and spans were consumed only by the `sum` connector, so
+  nothing but metrics was debuggable after the fact (issue #380).
 
 ### Backplane
 
@@ -735,8 +810,8 @@ deleted.
 ## Future Considerations
 
 - **Alerting** -- macOS notifications via a custom exporter.
-- **Tracing** -- Tempo (or Jaeger) once traces matter as much as metrics;
-  the Loki events leg is the nearer-term addition.
+- **Span metrics and service graph** -- Tempo's metrics-generator writing
+  to Prometheus; off until a dashboard needs it.
 - **Generic cluster-ingress mechanism** -- the `*.{cluster}.localhost`
   pattern is implemented in `lmde/components/networking/` for the
   observability cluster. When a second LMDE cluster appears, promote it to a

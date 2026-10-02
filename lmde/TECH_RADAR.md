@@ -80,6 +80,13 @@ documents the recommended approach so it isn't reinvented per repo.
   which is unsigned code; hence Trial, cloned by hand and never implicitly.
   Exit criterion: a Homebrew or otherwise signed install path, or a
   restore-by-hand replacement.
+- **Loki** (Grafana): log and event store in the observability kind
+  cluster, fed OTLP logs by the collector. Single binary, digest-pinned in
+  `lmde/components/registry/images.txt`. Exit criterion to Adopt: a month
+  of local and cloud logs (issue #380) with retention holding the disk.
+- **Tempo** (Grafana): trace store in the observability kind cluster, fed
+  OTLP spans by the collector. Monolithic, digest-pinned beside Loki. Exit
+  criterion to Adopt: same as Loki.
 - **Decision models** (Jev, Clef and kin; Clef-flash is the recommended
   first model, not yet confirmed): a pretrained model reads a state once
   and a small head scores every option of typed questions -- yes/no,
@@ -113,6 +120,10 @@ documents the recommended approach so it isn't reinvented per repo.
 ---
 
 ## Decisions Log
+
+- **2026-10-02**: Added `Loki` and `Tempo` to Trial on Todd's approval
+  ("let's do it", issue #380): LMDE stored only metrics, so logs and
+  traces, local or cloud, were not debuggable after the fact.
 
 - **2026-10-02**: Added decision models to Trial at Todd's request, served
   locally by the decision arena (Issue#382). No installs or downloads yet.

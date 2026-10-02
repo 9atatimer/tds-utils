@@ -19,6 +19,12 @@ resources:
   limits:
     cpu: 200m
     memory: 512Mi
+# Hermetic: no usage reporting or update checks (Grafana defaults both on).
+grafana.ini:
+  analytics:
+    reporting_enabled: false
+    check_for_updates: false
+    check_for_plugin_updates: false
 datasources:
   datasources.yaml:
     apiVersion: 1
@@ -28,3 +34,27 @@ datasources:
       url: http://prometheus-server.observability.svc.cluster.local
       access: proxy
       isDefault: true
+    - name: Loki
+      type: loki
+      uid: loki
+      url: http://loki.observability.svc.cluster.local:3100
+      access: proxy
+      jsonData:
+        # OTLP ingest stores trace_id as structured metadata; link it to Tempo.
+        derivedFields:
+        - name: TraceID
+          matcherType: label
+          matcherRegex: trace_id
+          url: "$${__value.raw}"
+          datasourceUid: tempo
+    - name: Tempo
+      type: tempo
+      uid: tempo
+      url: http://tempo.observability.svc.cluster.local:3200
+      access: proxy
+      jsonData:
+        tracesToLogsV2:
+          datasourceUid: loki
+          filterByTraceID: true
+          spanStartTimeShift: "-5m"
+          spanEndTimeShift: "5m"

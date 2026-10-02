@@ -1,0 +1,92 @@
+# deployment.yaml -- Tempo monolithic, persisted on the node's /mnt/data.
+#
+# Storage is a hostPath subdirectory of the cluster data mount
+# (~/.local/share/tds-utils/observability/data/tempo on the host). The image
+# is distroless and runs as uid 10001, so an init container borrowed from the
+# already-pinned Prometheus image (it has a shell) hands the directory over.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tempo
+  namespace: observability
+  labels:
+    app: tempo
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: tempo
+  template:
+    metadata:
+      labels:
+        app: tempo
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3200"
+    spec:
+      initContainers:
+      - name: own-data-dir
+        image: localhost:5001/prometheus:v3.3.1
+        command: ["/bin/chown", "-R", "10001:10001", "/var/tempo"]
+        securityContext:
+          runAsUser: 0
+        volumeMounts:
+        - name: data
+          mountPath: /var/tempo
+      containers:
+      - name: tempo
+        image: localhost:5001/tempo:3.1.0
+        args:
+        - "-config.file=/etc/tempo/tempo.yaml"
+        securityContext:
+          runAsUser: 10001
+          runAsGroup: 10001
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        ports:
+        - containerPort: 3200
+          name: http
+        - containerPort: 4317
+          name: otlp-grpc
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3200
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        volumeMounts:
+        - name: config
+          mountPath: /etc/tempo
+        - name: data
+          mountPath: /var/tempo
+      volumes:
+      - name: config
+        configMap:
+          name: tempo-conf
+      - name: data
+        hostPath:
+          path: /mnt/data/tempo
+          type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tempo
+  namespace: observability
+  labels:
+    app: tempo
+spec:
+  type: ClusterIP
+  selector:
+    app: tempo
+  ports:
+  - name: http
+    port: 3200
+    targetPort: 3200
+  - name: otlp-grpc
+    port: 4317
+    targetPort: 4317
