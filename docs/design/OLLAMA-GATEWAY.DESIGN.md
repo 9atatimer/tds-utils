@@ -107,7 +107,8 @@ or anything else in the home directory outside an allow-listed tree.
   tier would point at the same hardware.
 - **Availability guarantees.** The gateway is up when the laptop is up.
   There is no failover, no queueing at the edge, and no retries.
-- **Rate limiting or quotas.** ollama's own request queue is the only cap.
+- **Rate limiting or quotas.** ollama's own request queue is the only cap
+  in the PoC; request shaping is v2 (Future Considerations).
   What a credentialed caller can do to availability is stated in Security
   Considerations.
 - **A public model API.** Only callers named in tds-internal get a
@@ -604,6 +605,13 @@ Per-owner tokens restore attribution (Future Considerations).
   The 2026-10-02 spike showed the network and home denials do not break
   GPU inference. Q7 may pull part of this forward. Completing it lifts
   G8's compromise caveat.
+- **Request shaping in front of the external ollama (v2).** A proxy on the
+  laptop (nginx or haproxy, between the connector and ollama), or a
+  Cloudflare Worker in front of the tunnel, to control request rates and
+  query sizes, and to rewrite the public paths to something other than
+  ollama's own. Not for the PoC; it is the planned answer to availability
+  abuse, and the place a PoC hurdle in this area gets deferred to (Todd,
+  PR #369).
 - **Credential isolation from the caller.** Issue #365.
 - **Per-owner credentials.** One consumer key, vault and service account
   per GitHub owner, once the first cut has proven the road. This also
