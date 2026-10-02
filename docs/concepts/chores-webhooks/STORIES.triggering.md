@@ -2,17 +2,11 @@
 
 > Part of [CONCEPT.md](CONCEPT.md). Phase 1 -- not acceptance criteria.
 
-- As Todd, I can push to a repo and see the chore that cares about that
-  repo run, without touching the laptop.
-- As Todd, I can say which repos, and which kinds of change in them, make a
-  given chore run.
-- As Todd, I can see a chore's runs that a repo change fired alongside its
-  scheduled runs, in the same history and on the same dashboard, and tell
-  which was which.
-- As Todd, I can see, for a run a change fired, which repo and which change
-  it was.
-- As Todd, I never have to remember to pull my skills again: the copy every
-  session loads keeps up with the repo by itself. (Todd to confirm this is
-  the first chore.)
-- As a chore, I can be told what changed, so I act on that change and not
-  on a guess.
+- As Todd, I can give a chore a webhook trigger instead of a schedule, and
+  a path of its own under the chores webhook endpoint.
+- As Todd, I can point a GitHub repo's webhook at that path and see the
+  chore run when the repo changes.
+- As Todd, I name a chore's key by its label; no key value is ever written
+  into a chore.
+- As Todd, I know a push without the proper key runs nothing.
+- As a chore, I am handed the webhook payload as my context.
