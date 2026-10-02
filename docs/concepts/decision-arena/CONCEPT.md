@@ -13,10 +13,10 @@ answers, and nothing is generated. It is BERT's shape with a modern
 multimodal LLM underneath, and it is fast and cheap.
 
 I want one of them running on my laptop, as a peer of my ollama: the
-**decision arena**. Any decision model we run sits in the arena, behind the
-same nginx/haproxy layer the Ollama Gateway puts in front of the laptop, so
-it can be reached locally and, through a cloudflared gateway, from off the
-laptop the way ollama is.
+**decision arena**. Any decision model we run sits in the arena, behind an
+nginx/haproxy layer -- the same LMDE proxy layer the Ollama Gateway puts in
+front of the laptop -- so it can be reached locally and, through a
+cloudflared gateway, from off the laptop the way ollama is.
 
 Pick one model to start -- whatever we can actually run that gives valuable
 results -- and prove it on real work. The first real work is the ocrinator:
