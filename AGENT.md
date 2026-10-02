@@ -495,9 +495,11 @@ This repo lands PRs through the tedium merge bot; the rules are in
   OR Codex is on the head and every thread is resolved; the any-of group
   is `reviewers` in `review-settled-caller.yml`) still posts, but neither
   `pr_status` nor the ruleset requires it. Tedium therefore lands a green
-  PR on a reviewer's `r+` with no review at all. Summon Codex with an
-  `@codex review` PR comment. Restore it in `pr_status` when a reviewer
-  has quota again.
+  PR on a reviewer's `r+` with no review at all. Codex is summoned by an
+  `@codex review` PR comment that a HUMAN posts; an agent never posts it
+  (gates skill, Reviewer Selection -- this line once read as an agent
+  instruction, and an agent followed it on PR #368). Restore it in
+  `pr_status` when a reviewer has quota again.
 - **`review-settled` fails open on a quota notice, and only on it
   (tds-internal#93).** When a required reviewer's newest post on a PR is
   "unable to review ... reached their quota limit", it will never review,
