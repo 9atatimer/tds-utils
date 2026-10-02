@@ -53,6 +53,10 @@ it makes -- can reach my user credentials or carry anything off the laptop.
   locked.
 - Which models the external ollama serves, and whether it shares model
   files with the everyday one.
+- Whether the first caller -- `ocr`, which is untrusted -- ever holds the
+  credential that opens the road. If it does, it can carry the credential
+  off, and then anyone holding it reaches the laptop, which the access
+  stories forbid. (Raised by codex review on PR #364.)
 - The name.
 
 **Leans on:** the Access service-token pattern in tds-internal
