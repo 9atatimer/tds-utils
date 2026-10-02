@@ -13,8 +13,8 @@
 The Ollama Gateway is an LMDE sub-component that lets an authorized caller
 off the laptop get completions from a model on the laptop. The first caller
 is a GitHub Actions run of Open Code Review. The gateway is a Cloudflare
-Access-protected cloudflared tunnel in front of a second, external-facing
-ollama. That ollama runs inside the macOS sandbox, so nothing arriving over
+Access-protected cloudflared tunnel, then a local deadline proxy, in front
+of a second, external-facing ollama. That ollama runs inside the macOS sandbox, so nothing arriving over
 the tunnel can read the user's credentials: `~/.ssh`, AI tool credentials,
 or anything else in the home directory outside an allow-listed tree.
 
@@ -25,10 +25,11 @@ or anything else in the home directory outside an allow-listed tree.
 - **G1 Authorized completions.** A caller presenting a valid gateway
   credential to `https://<gateway-host>/v1/chat/completions` gets a
   completion from a model in the laptop's store, and `GET /v1/models` lists
-  those models. This holds for any request whose first response byte
-  arrives within the edge's proxy time-to-first-byte limit. How a cold
-  model load that exceeds that limit is handled is Open Question Q5, and Q5
-  blocks APPROVED.
+  those models. A request the external ollama cannot start answering in
+  time -- typically the first one after a cold model load, measured at
+  1m48s for a ~23 GB model -- does not hang and does not time out at the
+  edge: the deadline proxy answers it with an HTTP 5xx before the edge's
+  time-to-first-byte limit, and the caller retries (Deadline proxy).
 - **G2 Nobody else gets in.** A request without a valid gateway credential
   is refused at the Cloudflare edge, whatever its path, and never reaches
   the laptop. The refusal is a redirect to the Access login page (HTTP 302)
@@ -49,7 +50,7 @@ or anything else in the home directory outside an allow-listed tree.
   - Everything else under `$HOME` is denied. Key examples are `~/.ssh`, AI
     tool credentials (`~/.claude`, `~/.codex`, `~/.config/gh`), 1Password
     data and ollama's own identity key `~/.ollama/id_ed25519`.
-  - The connector's run token (Q2) is unreachable from inside the sandbox
+  - The connector's run token (in the Keychain) is unreachable from inside the sandbox
     by any means, not only by path.
   - Both properties are asserted by a probe that runs under the profile.
     They are not inferred from the profile text. The probe's acceptance
@@ -66,7 +67,8 @@ or anything else in the home directory outside an allow-listed tree.
     HTTP 5xx within 30 seconds.
   - With the laptop asleep or offline, the bound depends on how fast the
     edge detects a silent connector. That bound is unverified (Q6).
-  - With the connector up but the external ollama down, the connector
+  - With the connector up but the external ollama down, the deadline proxy
+    answers HTTP 5xx within 5 seconds; with the proxy down, the connector
     answers HTTP 502 within 5 seconds.
 - **G6 Everything is IaC.** Every Cloudflare resource and every credential
   on the road is declared in tds-internal terraform. That means the tunnel,
@@ -76,9 +78,9 @@ or anything else in the home directory outside an allow-listed tree.
     cannot create (tds-internal `docs/policy/CREDENTIALS.md`).
   - The laptop's local copy of the run token is seeded from its 1Password
     item. It is not a separately minted credential.
-- **G7 Runs unattended.** Both laptop daemons start at login and restart
-  after a crash. Neither needs a human, and neither needs 1Password to be
-  unlocked. A failing G4 probe is not a crash: it holds the gateway
+- **G7 Runs unattended.** The three laptop daemons (connector, deadline
+  proxy, external ollama) start at login and restart after a crash. None
+  needs a human, and none needs 1Password to be unlocked. A failing G4 probe is not a crash: it holds the gateway
   DEGRADED until a human acts (State Machine).
 - **G8 The everyday ollama is untouched.** In normal operation, installing,
   running or removing the gateway leaves these unchanged:
@@ -133,12 +135,17 @@ or anything else in the home directory outside an allow-listed tree.
 +------------------------------- laptop --------------------------------+
 |  connector daemon (cloudflared, LaunchAgent)                          |
 |    applies the pushed ingress rules  -- checked second: 404           |
-|      exactly /v1/chat/completions or /v1/models -> 127.0.0.1:<port>   |
+|      exactly /v1/chat/completions or /v1/models                       |
+|                                         -> 127.0.0.1:<proxy-port>     |
 |      anything else                    -> 404                          |
 |        |  loopback only                                               |
 |        v                                                              |
+|  deadline proxy (LaunchAgent), 127.0.0.1:<proxy-port>                 |
+|    first byte from ollama before the deadline, or an HTTP 5xx         |
+|        |  loopback only                                               |
+|        v                                                              |
 |  +-------------------- macOS sandbox profile -----------------------+ |
-|  |  external ollama (LaunchAgent), 127.0.0.1:<port>                 | |
+|  |  external ollama (LaunchAgent), 127.0.0.1:<ollama-port>          | |
 |  |    HOME = gateway config tree                                    | |
 |  |    $HOME allow-list: gateway config tree + model store only      | |
 |  |    launcher refuses to start unless the probe passes             | |
@@ -172,7 +179,7 @@ states only what the gateway relies on.
 | Responsibility | Guarantee the gateway relies on |
 |---|---|
 | Tunnel | Remotely managed: the ingress rules live in IaC, not in a file on the laptop |
-| Ingress allow-list | Exactly two rules route to `http://127.0.0.1:<port>`, each matching one allow-listed path exactly (no prefix or substring match), and a catch-all returns 404 (G3). The rules are declared in IaC and pushed to the connector, which evaluates them on the laptop. `<port>` is an input that must equal the laptop component's value (see Data Model) |
+| Ingress allow-list | Exactly two rules route to `http://127.0.0.1:<proxy-port>`, each matching one allow-listed path exactly (no prefix or substring match), and a catch-all returns 404 (G3). The rules are declared in IaC and pushed to the connector, which evaluates them on the laptop. `<proxy-port>` is an input that must equal the laptop component's value (see Data Model) |
 | DNS | `<gateway-host>` routes to the tunnel |
 | Access application | Covers all of `<gateway-host>`, with no bypass paths. Evaluated at the edge, before any request reaches the connector |
 | Access policy | `decision = non_identity`, including exactly the named service tokens. Never `any_valid_service_token` |
@@ -193,8 +200,9 @@ Responses, in evaluation order:
   403    invalid credential (Access, at the edge)
   5xx    connector not connected (laptop asleep/offline/connector stopped)
   404    any other path (ingress rules, applied by the connector)
-  502    connector up, external ollama down
-  524    edge proxy time-to-first-byte limit exceeded (e.g. cold load; Q5)
+  502    connector up, deadline proxy down
+  5xx    deadline proxy: external ollama down, or no first byte before
+         the deadline (e.g. cold load) -- retryable
   2xx    the external ollama's response, unmodified
 ```
 
@@ -235,12 +243,36 @@ but not callers.
 | Enforce the path allow-list | Applies the ingress rules pushed from IaC, exact-path match (G3). This is the only layer keeping model-management paths off the road in the first cut |
 | Transport | Must work on this network. QUIC over IPv6 fails here (observed on an existing cloudflared tunnel on this laptop), so the transport is pinned to `http2` (Key Decisions) |
 | Start and restart | A LaunchAgent following the LMDE launchd pattern, restarting on crash |
-| Keep the run token out of sight | The token never appears on a process command line, in a LaunchAgent plist, or in a file under the repo. It is read from the laptop's credential store at launch (store: Q2). Whatever the store is, the external ollama's sandbox cannot retrieve it by any means, and the G4 probe asserts that |
+| Keep the run token out of sight | The token never appears on a process command line, in a LaunchAgent plist, or in a file under the repo. It is read from the macOS login Keychain at launch, seeded once from its 1Password item by a setup step (Key Decisions). The external ollama's sandbox cannot retrieve it by any means, and the G4 probe asserts that, including through the Security framework and `/usr/bin/security` |
 | Refuse to run half-configured | No token, no start: the launcher exits non-zero with a message naming what is missing |
 
 The connector is not sandboxed in the first cut. It is a trusted vendor
 binary installed by Homebrew, and it must reach the network. See Key
 Decisions (connector trust boundary) and Future Considerations.
+
+### Deadline proxy (tds-utils LMDE)
+
+A local reverse proxy between the connector and the external ollama. It
+exists so that a request the external ollama cannot start answering in
+time never reaches the edge's time-to-first-byte limit (Todd, 2026-10-02:
+"an nginx/haproxy that ensures it always returns something, even if it's
+a 500").
+
+#### Responsibilities
+
+| Responsibility | Details |
+|---|---|
+| Always answer in time | For every request, returns either the external ollama's response (streamed through as it arrives) or an HTTP 5xx, and its first byte leaves before a deadline set below the edge's time-to-first-byte limit. The limit is believed to be ~100 s on this plan; it is verified, and the deadline set under it, as a behavior |
+| Say why | The 5xx distinguishes "ollama not listening" from "no first byte before the deadline", so a caller can treat the second as retryable warming |
+| Let the load finish | A deadline answer must not cancel the model load in progress, so the caller's retry finds the model warm. That ollama completes a load after the requesting connection closes is verified as a behavior; if it does not, the proxy holds the upstream request open past the deadline while answering the caller |
+| Loopback only | Listens on `127.0.0.1:<proxy-port>`, forwards to `127.0.0.1:<ollama-port>`, nothing else |
+| Start and restart | A LaunchAgent, LMDE pattern, restart on crash |
+| Home for request shaping | Rate and size limits are v2 (Future Considerations) and land here |
+
+Which proxy is an implementation choice: Todd named nginx or haproxy;
+the LMDE's Caddy (already Adopt on `lmde/TECH_RADAR.md`) also qualifies and
+would avoid a new radar row. The proxy is a trusted Homebrew binary on
+loopback and is not sandboxed in the first cut.
 
 ### External ollama (tds-utils LMDE)
 
@@ -248,7 +280,7 @@ Decisions (connector trust boundary) and Future Considerations.
 
 | Responsibility | Details |
 |---|---|
-| Serve completions | `ollama serve` bound to `127.0.0.1:<port>` only. `<port>` is distinct from the everyday 11434 |
+| Serve completions | `ollama serve` bound to `127.0.0.1:<ollama-port>` only, distinct from the everyday 11434. Its only client is the deadline proxy |
 | Run sandboxed | Launched under the gateway's macOS sandbox profile (G4). The profile is a file in the component |
 | Refuse to run unconfined | Before every start, the launcher runs the G4 probe under the profile. If confinement is not in effect, the canary is readable, or the run token is retrievable, the launcher exits non-zero with a message and does not start ollama. It never falls back to running unsandboxed |
 | Own config tree | `HOME` is the gateway's user config tree under `~/.local/` (the exact path is code), not the user's home. So ollama never touches `~/.ollama/id_ed25519` (its ollama.com identity key) or `~/.ollama/history` |
@@ -282,8 +314,8 @@ probe, and the launcher gates on that probe.
 
 ## State Machine
 
-These are the gateway's states as a caller sees them, composed from the two
-daemons and the edge. The daemons themselves are launchd-managed: started
+These are the gateway's states as a caller sees them, composed from the three
+laptop daemons and the edge. The daemons themselves are launchd-managed: started
 at login and restarted after a crash. The states below are what a request
 meets.
 
@@ -305,8 +337,8 @@ meets.
 | State | Edge answers a credentialed request with | Within |
 |---|---|---|
 | UNREACHABLE | HTTP 5xx from Cloudflare (tunnel has no connector), whatever the path | 30 s for a stopped connector; sleep/offline unverified (Q6) |
-| CONNECTED | HTTP 404 for a non-allow-listed path; otherwise the external ollama's response, or 524 if the first byte exceeds the edge's proxy limit | Model-dependent. A cold load of a ~23 GB model was measured at 1m48s (Q5) |
-| DEGRADED | HTTP 404 for a non-allow-listed path; otherwise HTTP 502 from the connector | 5 s |
+| CONNECTED | HTTP 404 for a non-allow-listed path; otherwise the external ollama's response, or the deadline proxy's retryable 5xx when no first byte arrives before its deadline (e.g. a cold load) | First byte always before the edge's limit |
+| DEGRADED | HTTP 404 for a non-allow-listed path; otherwise HTTP 5xx from the deadline proxy (ollama down) or 502 from the connector (proxy down) | 5 s |
 
 | From | To | Trigger |
 |---|---|---|
@@ -349,14 +381,16 @@ consumers (tds-internal terraform for_each map)
 laptop component (tds-utils lmde/components/ollama-gateway)
 +-- sandbox profile     the external ollama's policy file
 +-- probe               the G4 assertions; gates every start
-+-- port                external ollama's loopback port (not 11434);
-                         single source of truth, mirrored by hand as an
-                         input to the tds-internal ingress rules
++-- proxy-port          deadline proxy's loopback port; single source of
+                         truth, mirrored by hand as an input to the
+                         tds-internal ingress rules
++-- ollama-port         external ollama's loopback port (not 11434);
+                         read only by the deadline proxy
 +-- gateway config tree the external ollama's HOME, under ~/.local/
 +-- model store path    the everyday store; the other allow-listed tree
 ```
 
-A mismatch between the port and the ingress rules' input shows up as
+A mismatch between `proxy-port` and the ingress rules' input shows up as
 DEGRADED (502). Hand mirroring is the accepted first-cut answer (see
 Rejections).
 
@@ -430,23 +464,22 @@ Per-owner tokens restore attribution (Future Considerations).
     tokens (Future Considerations) restore attribution.
 - **The tunnel run token.** Whoever holds it can impersonate the laptop's
   connector.
-  - It lives in 1Password (IaC) and in the laptop's credential store
-    (Q2), never on a command line, in the repo, or in a LaunchAgent plist.
-  - Whichever store Q2 picks, it must be unretrievable from inside the
-    external ollama's sandbox, and the G4 probe must assert that.
-  - A mode-600 file under `$HOME` but outside the allow-list is covered by
-    the path denial and the canary check.
+  - It lives in 1Password (IaC) and in the macOS login Keychain (Todd's
+    choice), never on a command line, in the repo, or in a LaunchAgent
+    plist.
   - A Keychain item is not read by path. It is reached through the
     Security framework or `/usr/bin/security`, which the broad first-cut
-    profile may admit. It qualifies only if the probe's retrieval attempts
-    by those means fail under the profile.
+    profile may admit. So the G4 probe attempts retrieval by those means
+    under the profile, and the profile must deny them -- that one denial is
+    part of the first cut, not the hardening pass. If it cannot be denied,
+    the launcher refuses to start the external ollama (DEGRADED).
 - **The origin port is a trust boundary.** The edge routes allow-listed
-  requests to `127.0.0.1:<port>`, mirrored by hand in the tds-internal
+  requests to `127.0.0.1:<proxy-port>`, mirrored by hand in the tds-internal
   module. If the two drift and another local service listens on the port
   the edge names, allow-listed requests reach that service and bypass the
-  sandbox. The laptop component therefore owns keeping `<port>` bound by
-  the external ollama and nothing else; with nothing listening, drift shows
-  only as DEGRADED (502).
+  sandbox. The laptop component therefore owns keeping `<proxy-port>` bound
+  by the deadline proxy, and `<ollama-port>` by the external ollama, and
+  nothing else; with nothing listening, drift shows only as DEGRADED (502).
 - **Prompt and completion contents.** They cross Cloudflare's edge, with
   TLS terminated there. This is acceptable for code under review in the
   fleet's own repos. No other data is intended to use the road.
@@ -481,9 +514,12 @@ Per-owner tokens restore attribution (Future Considerations).
 | Per-owner axis of change | Seam = the vault a caller resolves from its own configuration; tokens are a `for_each` map | Splitting owners later needs no gateway or caller code change |
 | Caller isolation from the credential | Not in the first cut | Todd's ruling on codex review, PR #364; issue #365 |
 | Transport | `http2` | QUIC over IPv6 fails on this network |
+| Connector run token on the laptop | The macOS login Keychain, seeded once from 1Password; the sandbox profile denies retrieval through the Security framework and `/usr/bin/security`, and the G4 probe asserts it | Todd, 2026-10-02 (was Q2) |
+| Cold loads vs. the edge's time-to-first-byte limit | A local deadline proxy that always answers before the limit, with a retryable 5xx if ollama has not started answering; callers retry | Todd, 2026-10-02 (was Q5): "an nginx/haproxy that ensures it always returns something, even if it's a 500". Keeping the model resident would hold ~23 GB of RAM permanently |
 | Edge vendor axis | Seam = the caller contract (URL + paths + credential header names and values read from the 1Password item) | Callers never hardcode Cloudflare header names. Swapping the edge changes the IaC, the connector and the items' contents only |
 | Model choice | Not the gateway's: callers name a model; the gateway serves the store | The model is a caller detail (concept: "whatever gets it done") |
 | Radar: cloudflared | Propose Trial, in `lmde/TECH_RADAR.md` and tds-internal `docs/TECH_RADAR.md` | Todd (concept, settled). Exit: the gateway runs a month without a manual restart |
+| Radar: deadline proxy | Caddy if it meets the deadline requirement (already Adopt in `lmde/TECH_RADAR.md`); otherwise propose nginx or haproxy at Trial with the code | No new dependency when an adopted one suffices |
 | Radar: macOS sandbox (`sandbox-exec`) | Propose Trial in `lmde/TECH_RADAR.md` | Apple-deprecated API; Trial until a supported replacement is chosen or it proves stable across a macOS major update |
 | LMDE "Public ingress" non-goal | Crossed for this one endpoint; append a Key Decisions row to `LMDE.DESIGN.md` citing this record and issue #363 | The LMDE record is frozen; its log is append-only |
 
@@ -499,18 +535,6 @@ Per-owner tokens restore attribution (Future Considerations).
   - tds-internal's convention is that a request naming no tier means
     nonprod, so a production-only module is an explicit exception there.
   - Needs Todd's confirmation.
-- **Q2 Where the connector's run token lives on the laptop.** *Blocks
-  APPROVED.* The daemon must start while 1Password is locked (G7), and the
-  token must be unretrievable from the external ollama's sandbox, as
-  asserted by the G4 probe.
-  - Option A: cloudflared's own credentials file, mode 600, under a
-    private directory outside the sandbox's `$HOME` allow-list. The path
-    denial and canary check cover it as specified.
-  - Option B: the macOS login Keychain, seeded once from the 1Password
-    item by a setup step and read at launch. It is reachable through the
-    Security framework and `/usr/bin/security`, not by path. It qualifies
-    only if the probe shows those routes fail under the first-cut profile,
-    which is not yet established.
 - **Q3 Memory contention.** Two ollama servers on one 64 GB laptop can each
   hold a large model.
   - Bounding the external instance to one loaded model (Design) caps it,
@@ -519,20 +543,6 @@ Per-owner tokens restore attribution (Future Considerations).
     each review?
 - **Q4 The name.** "Ollama Gateway" is the working name from the concept.
   Confirm it or choose another.
-- **Q5 Cold loads vs. the edge's proxy timeout.** *Blocks APPROVED; G1
-  depends on it.*
-  - Cloudflare's proxied requests are believed to carry a ~100 s
-    time-to-first-byte limit on non-Enterprise plans, after which the edge
-    returns 524. This needs verifying.
-  - A measured 1m48s cold load would exceed it, as could a long
-    non-streamed completion.
-  - Candidate guarantees:
-    - (a) callers stream, and the external instance keeps the model
-      resident, or pre-warms it, so first byte is prompt;
-    - (b) G1 is scoped to warm models, and callers treat 524 as retryable;
-    - (c) both.
-  - The chosen option is recorded as a Key Decisions row, and G1 is
-    amended to match.
 - **Q6 Detection of a silent connector.** G5's 30 s bound is stated for a
   stopped connector. For a sleeping or offline laptop, the bound depends
   on Cloudflare's dead-connector detection. Verify it, then fix the bound
@@ -605,11 +615,10 @@ Per-owner tokens restore attribution (Future Considerations).
   The 2026-10-02 spike showed the network and home denials do not break
   GPU inference. Q7 may pull part of this forward. Completing it lifts
   G8's compromise caveat.
-- **Request shaping in front of the external ollama (v2).** A proxy on the
-  laptop (nginx or haproxy, between the connector and ollama), or a
-  Cloudflare Worker in front of the tunnel, to control request rates and
-  query sizes, and to rewrite the public paths to something other than
-  ollama's own. Not for the PoC; it is the planned answer to availability
+- **Request shaping in front of the external ollama (v2).** In the
+  deadline proxy (or a Cloudflare Worker in front of the tunnel): control
+  request rates and query sizes, and rewrite the public paths to something
+  other than ollama's own. Not for the PoC; it is the planned answer to availability
   abuse, and the place a PoC hurdle in this area gets deferred to (Todd,
   PR #369).
 - **Credential isolation from the caller.** Issue #365.
