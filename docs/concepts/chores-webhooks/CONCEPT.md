@@ -44,6 +44,12 @@ LMDE.
   a local port off the internet.
 - Stay close to the pattern established for the Ollama Gateway, so the
   Cloudflare configuration is as DRY as possible.
+- A separate tunnel from the Ollama Gateway's -- "clearly".
+- The webhook endpoint sits behind a local proxy layer (nginx/haproxy, "if
+  we have one"). That proxy layer is part of the LMDE ecosystem, and
+  anything local that needs a public port plays nice with it, so
+  throttling, maximum payload sizes and the like are centralized in one
+  place.
 
 The stories were drafted by the agent from the points above and have not
 yet been read back; strike or reword any that are not yours.
@@ -62,10 +68,14 @@ default branch brings the local copy up to it (tds-utils issue #377).
   into: lost, recorded as missed (as a schedule slot is today), or caught
   up when the laptop wakes.
 - Whether many changes in a burst fire a chore many times or once.
-- How much of the Ollama Gateway's Cloudflare configuration this shares,
-  given "as DRY as possible": the same tunnel with another hostname or
-  path, or its own tunnel built the same way. The gateway's whole host sits
-  behind Access, and this endpoint does not.
+- How much of the Ollama Gateway's Cloudflare configuration a separate
+  tunnel can still share, given "as DRY as possible".
+- Whether the shared proxy layer is the Ollama Gateway's deadline proxy,
+  grown into the LMDE's one front door for public ports, or a new piece
+  that both sit behind. The gateway record (PR #369, in review) has the
+  deadline proxy as its own component, names nginx, haproxy or Caddy for
+  it, and already plans request shaping there as v2 -- so this idea
+  reaches into a record that is not settled yet.
 - Where the pre-shared key lives and how it reaches GitHub and the laptop,
   and whether one key serves every repo or each has its own.
 - Whether anything a change carries (branch names, commit messages, PR
