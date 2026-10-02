@@ -35,7 +35,13 @@ the todo-plan skill. Then say in one line that it was filed, with the link.
 ## Copilot review quota is finite
 
 Request a Copilot review once per PR, and a re-review only when a push
-fixed findings that matter. Triage its output with backbone: fix what is
+carries a load-bearing fix -- behavior, a contract, security, a test's
+verdict, or a rule an agent or gate executes. Hygiene (wording, typos,
+comments, documentation accuracy) is fixed and pushed, never re-reviewed,
+in self-review as much as in Copilot or Codex. A documentation-only PR
+gets no Copilot or Codex at all: the adversarial self-review is
+sufficient, except that design and architecture drafts in phases 2 and 3
+get designomatic. Triage its output with backbone: fix what is
 genuinely broken, reject the rest on the thread in one line, and ignore
 summary-only "previously missed" items unless one is a real defect. When
 a round brings no value, stop requesting rounds; `review-settled` going
