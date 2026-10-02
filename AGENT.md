@@ -544,7 +544,7 @@ This repo lands PRs through the tedium merge bot; the rules are in
   it. This is automatic; never wait to be told to load it.
 - When you AGREE with review feedback and push a load-bearing fix (it
   changes behavior, a contract, a security property, a test's verdict, or
-  a rule an agent or gate executes), kick off a Copilot re-review
+  what a rule an agent or gate executes says), kick off a Copilot re-review
   (`request_copilot_review` / `gh pr edit --add-reviewer @copilot`) so the
   next round fires. A hygiene-only push (wording, typos, comments,
   documentation accuracy) gets its SHA in the thread reply and NO

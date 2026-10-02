@@ -36,7 +36,7 @@ the todo-plan skill. Then say in one line that it was filed, with the link.
 
 Request a Copilot review once per PR, and a re-review only when a push
 carries a load-bearing fix -- behavior, a contract, security, a test's
-verdict, or a rule an agent or gate executes. Hygiene (wording, typos,
+verdict, or what a rule an agent or gate executes says. Hygiene (wording, typos,
 comments, documentation accuracy) is fixed and pushed, never re-reviewed,
 in self-review as much as in Copilot or Codex. A documentation-only PR
 gets no Copilot or Codex at all: the adversarial self-review is
