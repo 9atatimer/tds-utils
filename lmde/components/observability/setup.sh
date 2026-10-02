@@ -114,18 +114,30 @@ install_helm_charts() {
         -f "${SCRIPT_DIR}/specs/grafana/values.yaml"
 }
 
+# Apply a component's ConfigMap and Deployment. None of these components
+# reload their config file, and a ConfigMap change leaves the pod template
+# untouched, so a changed ConfigMap is followed by a rollout restart.
+apply_config_and_workload() {
+    local component="$1" deployment="$2"
+    local config_result
+    config_result=$(kubectl apply -f "${SCRIPT_DIR}/specs/${component}/config.yaml")
+    log "${config_result}"
+    kubectl apply -f "${SCRIPT_DIR}/specs/${component}/deployment.yaml"
+    if [[ "${config_result}" == *" configured"* ]]; then
+        log "Config changed; restarting ${deployment}..."
+        kubectl -n "${NAMESPACE}" rollout restart "deployment/${deployment}"
+    fi
+}
+
 deploy_log_trace_backends() {
     log "Deploying Loki (logs) and Tempo (traces)..."
-    kubectl apply -f "${SCRIPT_DIR}/specs/loki/config.yaml"
-    kubectl apply -f "${SCRIPT_DIR}/specs/loki/deployment.yaml"
-    kubectl apply -f "${SCRIPT_DIR}/specs/tempo/config.yaml"
-    kubectl apply -f "${SCRIPT_DIR}/specs/tempo/deployment.yaml"
+    apply_config_and_workload loki loki
+    apply_config_and_workload tempo tempo
 }
 
 deploy_otel_collector() {
     log "Deploying OTel Collector (Hardened)..."
-    kubectl apply -f "${SCRIPT_DIR}/specs/otel-collector/config.yaml"
-    kubectl apply -f "${SCRIPT_DIR}/specs/otel-collector/deployment.yaml"
+    apply_config_and_workload otel-collector otel-collector
 }
 
 deploy_dashboards() {

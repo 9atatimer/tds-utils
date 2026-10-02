@@ -1,5 +1,5 @@
 # config.yaml -- Tempo (monolithic) configuration for LMDE traces.
-# Ingest is OTLP gRPC only: the collector's otlp/tempo exporter sends here.
+# Ingest is OTLP gRPC only: the collector's otlp_grpc/tempo exporter sends here.
 # Block retention is left at Tempo's default, 14 days (336h).
 apiVersion: v1
 kind: ConfigMap

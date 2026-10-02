@@ -639,8 +639,8 @@ Registry --> Kind Cluster --> Ingress Controller --> Telemetry Stack --> Host Ro
 - **Resource exhaustion.** Kubernetes `ResourceQuota` in the
   `observability` namespace.
 - **Data privacy.** All telemetry stays on local disk; no phone-home
-  analytics in Grafana, Prometheus, Loki, or Tempo (each has reporting
-  disabled).
+  analytics: Grafana, Loki, and Tempo have usage reporting (and Grafana its
+  update checks) disabled in their specs, and Prometheus has none.
 - **Cloud ingest exposure.** The only routable path in is the tunnel, and
   it is write-only: two OTLP paths behind Access service tokens. Nothing
   off the laptop can read telemetry back.

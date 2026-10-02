@@ -48,6 +48,9 @@ assert_stack_deployed() {
     if ! kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
         skip "kind cluster '${CLUSTER_NAME}' not found -- run observability/setup.sh first"
     fi
+    if ! kubectl -n "${NAMESPACE}" get svc loki tempo >/dev/null 2>&1; then
+        skip "loki/tempo Services not found -- re-run observability/setup.sh"
+    fi
 }
 
 now_nanos() {
@@ -145,7 +148,12 @@ run_smoke() {
 main() {
     require_commands curl jq kind kubectl openssl python3
     assert_stack_deployed
-    trap cleanup EXIT INT TERM HUP
+    # A bash trap on a signal resumes the script afterwards; exit so the EXIT
+    # trap cleans up once and the polling does not run on against dead ports.
+    trap cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
     run_smoke
 }
 

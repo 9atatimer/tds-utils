@@ -1,5 +1,5 @@
 # config.yaml -- Loki (single binary) configuration for LMDE logs and events.
-# Ingest is OTLP only: the collector's otlphttp/loki exporter posts to /otlp.
+# Ingest is OTLP only: the collector's otlp_http/loki exporter posts to /otlp.
 apiVersion: v1
 kind: ConfigMap
 metadata:

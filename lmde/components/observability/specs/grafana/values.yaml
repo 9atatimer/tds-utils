@@ -19,6 +19,12 @@ resources:
   limits:
     cpu: 200m
     memory: 512Mi
+# Hermetic: no usage reporting or update checks (Grafana defaults both on).
+grafana.ini:
+  analytics:
+    reporting_enabled: false
+    check_for_updates: false
+    check_for_plugin_updates: false
 datasources:
   datasources.yaml:
     apiVersion: 1
