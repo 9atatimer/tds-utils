@@ -542,9 +542,19 @@ This repo lands PRs through the tedium merge bot; the rules are in
 - The moment ANY PR interaction starts -- opening, a review comment, CI, a
   reply -- ingest the github-workflow skill and triage strictly against
   it. This is automatic; never wait to be told to load it.
-- When you AGREE with review feedback and push a fix commit to the branch,
-  you MUST kick off a Copilot re-review (`request_copilot_review` /
-  `gh pr edit --add-reviewer @copilot`) so the next round fires.
+- When you AGREE with review feedback and push a load-bearing fix (it
+  changes behavior, a contract, a security property, a test's verdict, or
+  what a rule an agent or gate executes says), kick off a Copilot re-review
+  (`request_copilot_review` / `gh pr edit --add-reviewer @copilot`) so the
+  next round fires. A hygiene-only push (wording, typos, comments,
+  documentation accuracy) gets its SHA in the thread reply and NO
+  re-review. A documentation-only PR (every changed file is human-read
+  prose) gets the adversarial self-review alone -- no Copilot, no Codex;
+  a design or architecture draft in phases 2 and 3 gets designomatic
+  instead. Skills, personas, this file, `clai.d/AGENT.global.md`, prompts,
+  CI workflows and gate configuration are operating rules, not
+  documentation: a PR touching them takes the full ladder. The gates
+  skill, Spend Review Turns on Load-Bearing Fixes, has the rule.
 - Reply to each comment and RESOLVE the thread as you address it; reject
   ones you disagree with, on the thread, with a concrete reason.
 - Watch PRs via GitHub webhook EVENTS (the activity subscription), NEVER via
