@@ -1,6 +1,6 @@
 # Ollama Gateway
 
-> **Status:** REVIEW  
+> **Status:** APPROVED (owner, 2026-10-02)  
 > **Date:** 2026-10-02  
 > **Authors:** Todd Stumpf, Claude (Opus 5.5)  
 > **Depends on:** [LMDE](./LMDE.DESIGN.md); the tds-internal edge record `DESIGN.ollama-gateway-infra.md` (tds-internal PR #125), which owns `ops/terraform/ollama-gateway` and the 1Password item the connector's Keychain copy of the run token is seeded from  

@@ -725,6 +725,12 @@ deleted.
 | NATS host edge | Caddy TCP proxying, not `ingress-nginx` TCP snippets | Keeps one host edge; Caddy already owns `.localhost` TLS and DNS |
 | NATS persistence | kind `extraMounts` host bind-mount | JetStream data outlives the kind container lifecycle |
 
+### Public ingress
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| "Public ingress" non-goal | Crossed for the Ollama Gateway's endpoint: an Access-protected cloudflared tunnel to a sandboxed, external-facing ollama. Any other public endpoint needs its own design record and row | [OLLAMA-GATEWAY.DESIGN.md](./OLLAMA-GATEWAY.DESIGN.md), APPROVED 2026-10-02; issue #363. Bounded by Access, an exact-path allow-list and the sandbox; the rest of the stack stays strictly local |
+
 ---
 
 ## Open Questions

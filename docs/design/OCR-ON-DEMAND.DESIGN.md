@@ -1,6 +1,6 @@
 # OCR on Demand
 
-> **Status:** REVIEW  
+> **Status:** APPROVED (owner, 2026-10-02)  
 > **Date:** 2026-10-02  
 > **Authors:** Todd Stumpf, Claude (Opus 5.5)  
 > **Depends on:** [Ollama Gateway](./OLLAMA-GATEWAY.DESIGN.md) (PR #369; the road to the model); the tds-internal edge record it names  
