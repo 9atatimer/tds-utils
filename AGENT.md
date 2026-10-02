@@ -367,6 +367,11 @@ third-party/  Vendored external tools
   Grep `bin/` and `docs/design/` for the concept before naming a new one.
 - macOS-only config goes in **macos/**.
 - Dotfile configs use the **dot.** prefix convention (e.g., `dot.zshrc`).
+- This repo is public (`PUBLIC.REPO`). Naming tds-internal is fine; its
+  contents are not -- no account ids, 1Password item or vault names,
+  buckets, gateway paths, trigger ids. The pre-commit bleed guard refuses
+  denylisted strings (`docs/bleed-guard.md`); prose that describes private
+  contents is on you.
 
 ## Code Architecture
 

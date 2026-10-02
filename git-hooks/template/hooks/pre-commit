@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# pre-commit - branch-reuse guard.
+# pre-commit - bleed guard, then branch-reuse guard.
+#
+# Bleed guard (issue #366, docs/bleed-guard.md): in a repo carrying a
+# PUBLIC.REPO marker, `bleed-guard` refuses staged additions that contain a
+# string from the private denylist. It runs FIRST and on every branch, trunk
+# and detached HEAD included -- a leak is a leak wherever it is committed. The
+# checker is located like branch-merged-check (bleedguard.checkerPath -> PATH
+# -> home fallback); a missing checker is a one-line skip.
 #
 # Blocks a commit on a branch that already has a TERMINAL GitHub PR (MERGED or
 # CLOSED). Reusing such a branch name wastes work and pollutes history. This is
@@ -94,6 +101,34 @@ locate_checker() {
     fi
     [ -n "${checker}" ] && [ -x "${checker}" ] || return 1
     printf '%s\n' "${checker}"
+}
+
+# The bleed checker, located the same way. Prints the path; non-zero if none.
+locate_bleed_checker() {
+    local checker cand
+    checker="$(git config --type=path --get bleedguard.checkerPath 2>/dev/null || true)"
+    if [ -z "${checker}" ] || [ ! -x "${checker}" ]; then
+        checker="$(command -v bleed-guard 2>/dev/null || true)"
+    fi
+    if [ -z "${checker}" ] || [ ! -x "${checker}" ]; then
+        cand="${HOME:-}/.local/bin/bleed-guard"
+        [ -n "${HOME:-}" ] && [ -x "${cand}" ] && checker="${cand}"
+    fi
+    [ -n "${checker}" ] && [ -x "${checker}" ] || return 1
+    printf '%s\n' "${checker}"
+}
+
+# Run the bleed guard; exit 1 on its refusal. Only a public repo (PUBLIC.REPO
+# at the top level) needs the checker at all, so a private repo stays silent.
+run_bleed_guard() {
+    local top checker
+    top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+    [ -n "${top}" ] && [ -f "${top}/PUBLIC.REPO" ] || return 0
+    if ! checker="$(locate_bleed_checker)"; then
+        echo "pre-commit: bleed-guard not found (set git config bleedguard.checkerPath); skipping bleed guard." >&2
+        return 0
+    fi
+    "${checker}" || exit 1
 }
 
 # Atomically write content to a file: temp in the same dir, then mv. Prints
@@ -193,6 +228,8 @@ main() {
     local branch gitdir cachedir key deadfile
 
     operation_in_progress && exit 0
+
+    run_bleed_guard
 
     branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
     [ -n "${branch}" ] || exit 0          # detached HEAD
