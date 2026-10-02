@@ -1,0 +1,87 @@
+# deployment.yaml -- Loki single binary, persisted on the node's /mnt/data.
+#
+# Storage is a hostPath subdirectory of the cluster data mount
+# (~/.local/share/tds-utils/observability/data/loki on the host). The image
+# is distroless and runs as uid 10001, so an init container borrowed from the
+# already-pinned Prometheus image (it has a shell) hands the directory over.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: observability
+  labels:
+    app: loki
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: loki
+  template:
+    metadata:
+      labels:
+        app: loki
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3100"
+    spec:
+      initContainers:
+      - name: own-data-dir
+        image: localhost:5001/prometheus:v3.3.1
+        command: ["/bin/chown", "-R", "10001:10001", "/var/loki"]
+        securityContext:
+          runAsUser: 0
+        volumeMounts:
+        - name: data
+          mountPath: /var/loki
+      containers:
+      - name: loki
+        image: localhost:5001/loki:3.7.8
+        args:
+        - "-config.file=/etc/loki/loki.yaml"
+        securityContext:
+          runAsUser: 10001
+          runAsGroup: 10001
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1Gi
+        ports:
+        - containerPort: 3100
+          name: http
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3100
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        volumeMounts:
+        - name: config
+          mountPath: /etc/loki
+        - name: data
+          mountPath: /var/loki
+      volumes:
+      - name: config
+        configMap:
+          name: loki-conf
+      - name: data
+        hostPath:
+          path: /mnt/data/loki
+          type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki
+  namespace: observability
+  labels:
+    app: loki
+spec:
+  type: ClusterIP
+  selector:
+    app: loki
+  ports:
+  - name: http
+    port: 3100
+    targetPort: 3100

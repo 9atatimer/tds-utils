@@ -114,6 +114,14 @@ install_helm_charts() {
         -f "${SCRIPT_DIR}/specs/grafana/values.yaml"
 }
 
+deploy_log_trace_backends() {
+    log "Deploying Loki (logs) and Tempo (traces)..."
+    kubectl apply -f "${SCRIPT_DIR}/specs/loki/config.yaml"
+    kubectl apply -f "${SCRIPT_DIR}/specs/loki/deployment.yaml"
+    kubectl apply -f "${SCRIPT_DIR}/specs/tempo/config.yaml"
+    kubectl apply -f "${SCRIPT_DIR}/specs/tempo/deployment.yaml"
+}
+
 deploy_otel_collector() {
     log "Deploying OTel Collector (Hardened)..."
     kubectl apply -f "${SCRIPT_DIR}/specs/otel-collector/config.yaml"
@@ -158,6 +166,7 @@ main() {
     install_ingress_controller
     setup_namespaces
     install_helm_charts
+    deploy_log_trace_backends
     deploy_otel_collector
     deploy_dashboards
     deploy_ingress_routes
