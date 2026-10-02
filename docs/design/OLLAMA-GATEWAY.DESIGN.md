@@ -13,7 +13,9 @@
 The Ollama Gateway is an LMDE sub-component that lets an authorized caller
 off the laptop get completions from a model on the laptop. The first caller
 is a GitHub Actions run of Open Code Review. The gateway is a Cloudflare
-Access-protected cloudflared tunnel, then a local deadline proxy, in front
+Access-protected cloudflared tunnel, then the deadline proxy -- the
+gateway's route on the LMDE proxy layer, the one local front door that
+every laptop service with a public port sits behind -- in front
 of a second, external-facing ollama. That ollama runs inside the macOS sandbox, so nothing arriving over
 the tunnel can read the user's credentials: `~/.ssh`, AI tool credentials,
 or anything else in the home directory outside an allow-listed tree.
@@ -115,7 +117,9 @@ or anything else in the home directory outside an allow-listed tree.
   There is no failover, no queueing at the edge, and no retries at the
   edge or gateway; retrying the deadline answer is the caller's.
 - **Rate limiting or quotas.** ollama's own request queue is the only cap
-  in the PoC; request shaping is v2 (Future Considerations).
+  in the PoC unless Q12 sets first-cut limits on the LMDE proxy layer,
+  which is where any limit lives; finer request shaping is v2 (Future
+  Considerations).
   What a credentialed caller can do to availability is stated in Security
   Considerations.
 - **A public model API.** Only callers named in tds-internal get a
@@ -145,7 +149,8 @@ or anything else in the home directory outside an allow-listed tree.
 |      anything else                    -> 404                          |
 |        |  loopback only                                               |
 |        v                                                              |
-|  deadline proxy (LaunchAgent), 127.0.0.1:<proxy-port>                 |
+|  LMDE proxy layer (LaunchAgent): deadline proxy route,                |
+|    127.0.0.1:<proxy-port>; shared throttling and payload limits       |
 |    first byte from ollama before the deadline, or an HTTP 5xx         |
 |        |  loopback only                                               |
 |        v                                                              |
@@ -264,13 +269,22 @@ The connector is not sandboxed in the first cut. It is a trusted vendor
 binary installed by Homebrew, and it must reach the network. See Key
 Decisions (connector trust boundary) and Future Considerations.
 
-### Deadline proxy (tds-utils LMDE)
+### Deadline proxy (the gateway's route on the LMDE proxy layer)
 
-A local reverse proxy between the connector and the external ollama. It
-exists so that a request the external ollama cannot start answering in
-time never reaches the edge's time-to-first-byte limit (Todd, 2026-10-02:
-"an nginx/haproxy that ensures it always returns something, even if it's
-a 500").
+**The LMDE proxy layer** is one local reverse proxy, part of the LMDE
+ecosystem, that every laptop service needing a public port sits behind
+and plays nice with. It centralizes throttling, maximum payload sizes and
+the like, so no service grows its own (Todd, 2026-10-02). The gateway is
+its first tenant; the second is the chores webhook endpoint (concept:
+chores-webhooks, PR #379), which has its own tunnel. Each tenant is a
+route on the layer with its own limits; this record specifies only the
+gateway's route.
+
+**The deadline proxy** is that route: the layer's configuration between
+the connector and the external ollama. It exists so that a request the
+external ollama cannot start answering in time never reaches the edge's
+time-to-first-byte limit (Todd, 2026-10-02: "an nginx/haproxy that ensures
+it always returns something, even if it's a 500").
 
 #### Responsibilities
 
@@ -281,11 +295,13 @@ a 500").
 | Let the load finish | A deadline answer must not cancel the model load in progress, so the caller's retry finds the model warm. That ollama completes a load after the requesting connection closes is verified as a behavior; if it does not, the proxy holds the upstream request open past the deadline while answering the caller |
 | Loopback only | Listens on `127.0.0.1:<proxy-port>`, forwards to `127.0.0.1:<ollama-port>`, nothing else |
 | Start and restart | A LaunchAgent, LMDE pattern, restart on crash |
-| Home for request shaping | Rate and size limits are v2 (Future Considerations) and land here |
+| Limits live on the layer | Throttling and maximum payload size for the gateway's route are set on the LMDE proxy layer, beside every other tenant's, never in the external ollama or the connector. The first-cut values, and whether the first cut sets any, are Q12 |
+| Tenants stay apart | The gateway route's limits, deadline and upstream apply to the gateway's traffic only; another tenant's route never reaches `<ollama-port>`. How the layer tells routes apart is Q12 |
 
-Which proxy is an implementation choice: Todd named nginx or haproxy;
-the LMDE's Caddy (already Adopt on `lmde/TECH_RADAR.md`) also qualifies and
-would avoid a new radar row. The proxy is a trusted Homebrew binary on
+Which proxy the layer runs is an implementation choice: Todd named nginx
+or haproxy; the LMDE's Caddy (already Adopt on `lmde/TECH_RADAR.md`) also
+qualifies and would avoid a new radar row. The choice is made once, for
+the layer, not per tenant. The proxy is a trusted Homebrew binary on
 loopback and is not sandboxed in the first cut.
 
 ### External ollama (tds-utils LMDE)
@@ -558,6 +574,7 @@ to local logs is open (Q10).
 | Model choice | Not the gateway's: callers name a model; the gateway serves the store | The model is a caller detail (concept: "whatever gets it done") |
 | Radar: cloudflared | Propose Trial, in `lmde/TECH_RADAR.md` and tds-internal `docs/TECH_RADAR.md` | Todd (concept, settled). Exit: the gateway runs a month without a manual restart |
 | Radar: deadline proxy | Caddy if it meets the deadline requirement (already Adopt in `lmde/TECH_RADAR.md`); otherwise propose nginx or haproxy at Trial with the code | No new dependency when an adopted one suffices |
+| Where the deadline proxy lives | A route on the LMDE proxy layer: one local reverse proxy that every laptop service with a public port sits behind, centralizing throttling and maximum payload sizes | Todd, 2026-10-02 (chores-webhooks concept, PR #379): "We'd want that proxy layer to be part of the lmde ecosystem, and anything local that needs a public port should play nice with it." |
 | Radar: macOS sandbox (`sandbox-exec`) | Propose Trial in `lmde/TECH_RADAR.md` | Apple-deprecated API; Trial until a supported replacement is chosen or it proves stable across a macOS major update |
 | LMDE "Public ingress" non-goal | Crossed for this one endpoint; append a Key Decisions row to `LMDE.DESIGN.md` citing this record and issue #363 | The LMDE record is frozen; its log is append-only |
 
@@ -612,6 +629,14 @@ to local logs is open (Q10).
   proxy write request or response bodies (code under review) to disk, and
   if so their home and retention, is not yet stated. The likely answer is
   that neither logs bodies.
+- **Q12 The gateway's route on the LMDE proxy layer.** Two things are not
+  yet stated:
+  - the gateway route's first-cut throttling and maximum payload size, or
+    that the first cut sets none;
+  - how the layer tells tenants apart now that each has its own tunnel: a
+    loopback listener per route keeps each tunnel's `origin_port`
+    one-to-one with a route (and Q8's drift reasoning per port), while one
+    listener routing by hostname shares a port across tenants.
 
 ---
 
@@ -652,6 +677,9 @@ to local logs is open (Q10).
   production tier does not.
 - **Sandboxing the connector in the first cut.** It needs the network, is
   a signed vendor binary, and sees only what the tunnel routes.
+- **A gateway-only proxy.** Every laptop service with a public port would
+  grow its own throttling and size limits. Todd, 2026-10-02: one LMDE
+  proxy layer that anything local needing a public port plays nice with.
 - **Cross-repo wiring to derive the ingress port from the laptop
   component.** One rarely changing value across two repos; the wiring
   would be a single-implementation seam. This rejection does not by itself
@@ -672,10 +700,11 @@ to local logs is open (Q10).
   The 2026-10-02 spike showed the network and home denials do not break
   GPU inference. Q7 may pull part of this forward. Completing it lifts
   G8's compromise caveat.
-- **Request shaping in front of the external ollama (v2).** In the
-  deadline proxy (or a Cloudflare Worker in front of the tunnel): control
-  request rates and query sizes, and rewrite the public paths to something
-  other than ollama's own. Not for the PoC; it is the planned answer to availability
+- **Request shaping in front of the external ollama (v2).** On the LMDE
+  proxy layer's gateway route (or a Cloudflare Worker in front of the
+  tunnel): finer control of request rates and query sizes than Q12's
+  first-cut limits, and rewriting the public paths to something other than
+  ollama's own. Not for the PoC; it is the planned answer to availability
   abuse, and the place a PoC hurdle in this area gets deferred to (Todd,
   PR #369).
 - **Credential isolation from the caller.** Issue #365.
@@ -705,6 +734,8 @@ to local logs is open (Q10).
   (non-binding).
 - [concept: ocr-on-demand](../concepts/ocr-on-demand/CONCEPT.md): the
   first caller's concept.
+- concept: chores-webhooks (PR #379): the LMDE proxy layer's second
+  tenant, a chores webhook endpoint on its own tunnel.
 - OCR on Demand (`OCR-ON-DEMAND.DESIGN.md`, to be written): the first
   caller. It owns vault resolution, its service-account credential, retry
   of the deadline answer, handling of returned tool calls, and review
