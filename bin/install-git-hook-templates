@@ -7,12 +7,15 @@
 # post-clone hook, so we ride post-checkout). The same template ships the
 # pre-commit branch guard, which blocks commits to a branch whose GitHub PR is
 # already merged/closed (see docs/branch-guard.md); post-checkout also warns
-# when you check such a retired branch out.
+# when you check such a retired branch out. The same pre-commit runs the bleed
+# guard first: in a repo carrying PUBLIC.REPO it refuses private strings (see
+# docs/bleed-guard.md).
 #
 # The git config wiring is repo-location-independent -- it names only ~ paths:
 #   init.templateDir        = ~/.config/git/template
 #   audit.scannerPath       = ~/.local/bin/clone-audit         (hook reads it with --type=path)
 #   branchguard.checkerPath = ~/.local/bin/branch-merged-check (hook reads it with --type=path)
+#   bleedguard.checkerPath  = ~/.local/bin/bleed-guard          (hook reads it with --type=path)
 # and this installer symlinks those ~ paths to wherever THIS repo is checked
 # out. So the committed config is portable across machines (mac/LMDE) and
 # survives moving the repo -- just re-run this installer to repoint the links.
@@ -42,6 +45,7 @@ TEMPLATE_DIR="${REPO_DIR}/git-hooks/template"        # source (in-repo)
 HOOKS_DIR="${TEMPLATE_DIR}/hooks"
 SCANNER="${REPO_DIR}/bin/clone-audit"                # source (in-repo)
 CHECKER="${REPO_DIR}/bin/branch-merged-check"        # source (in-repo)
+BLEED="${REPO_DIR}/bin/bleed-guard"                  # source (in-repo)
 
 # Home-anchored link targets -- what the git config names. The symlinks created
 # below point them at the in-repo sources. Kept literally in sync with the
@@ -49,9 +53,11 @@ CHECKER="${REPO_DIR}/bin/branch-merged-check"        # source (in-repo)
 TEMPLATE_LINK="${HOME}/.config/git/template"
 SCANNER_LINK="${HOME}/.local/bin/clone-audit"
 CHECKER_LINK="${HOME}/.local/bin/branch-merged-check"
+BLEED_LINK="${HOME}/.local/bin/bleed-guard"
 TEMPLATE_CFG='~/.config/git/template'                # literal ~; git expands it
 SCANNER_CFG='~/.local/bin/clone-audit'
 CHECKER_CFG='~/.local/bin/branch-merged-check'
+BLEED_CFG='~/.local/bin/bleed-guard'
 
 MECHANISM="templateDir"
 DRY_RUN=false
@@ -75,6 +81,9 @@ verify_prereqs() {
     }
     [ -x "${CHECKER}" ] || {
         say "error: checker not found/executable: ${CHECKER}"; exit 1
+    }
+    [ -x "${BLEED}" ] || {
+        say "error: bleed checker not found/executable: ${BLEED}"; exit 1
     }
 }
 
@@ -109,6 +118,7 @@ set_git_config() {
 link_template() { link_into_home "${TEMPLATE_DIR}" "${TEMPLATE_LINK}"; }
 link_scanner()  { link_into_home "${SCANNER}" "${SCANNER_LINK}"; }
 link_checker()  { link_into_home "${CHECKER}" "${CHECKER_LINK}"; }
+link_bleed()    { link_into_home "${BLEED}" "${BLEED_LINK}"; }
 
 install_common_config() {
     link_scanner
@@ -117,6 +127,8 @@ install_common_config() {
     link_checker
     set_git_config "branchguard.checkerPath" "${CHECKER_CFG}"
     set_git_config "branchguard.enabled" "true"
+    link_bleed
+    set_git_config "bleedguard.checkerPath" "${BLEED_CFG}"
 }
 
 install_template_dir() {
@@ -140,6 +152,9 @@ print_verify() {
     say "  git clone <repo-url> /tmp/audit-check && rm -rf /tmp/audit-check"
     say "Opt out anytime: git config --global audit.enabled false  (or TDS_CLONE_AUDIT=0)"
     say "Branch guard opt-out: git config --global branchguard.enabled false  (or TDS_BRANCH_GUARD=0)"
+    say "Bleed guard opt-out:  git config --global bleedguard.enabled false  (or TDS_BLEED_GUARD=0)"
+    say "Existing clones keep the hook they were cloned with; copy the template's"
+    say "pre-commit into <clone>/.git/hooks/ to pick up the bleed guard there."
 }
 
 run_install() {

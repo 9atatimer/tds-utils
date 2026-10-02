@@ -44,6 +44,11 @@
 [audit]
 	scannerPath = ~/.local/bin/clone-audit
 	enabled = true
+# Bleed guard (docs/bleed-guard.md, issue #366): refuses private strings in a
+# repo carrying PUBLIC.REPO. The denylist itself is private and is NOT named
+# here; bleed-guard falls back to ~/workplace/tds-internal/ops/bleed-denylist.
+[bleedguard]
+	checkerPath = ~/.local/bin/bleed-guard
 [naatm "mirror"]
 	enabled = true
 	bucket = naatm-git-mirror-stumpf

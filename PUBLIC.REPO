@@ -1,0 +1,2 @@
+This repository is public. Its presence turns on the bleed guard (bin/bleed-guard,
+docs/bleed-guard.md): a commit that adds a string from the private denylist is refused.
