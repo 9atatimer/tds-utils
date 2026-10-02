@@ -174,6 +174,55 @@ case_survives_non_utf8() {
         '[ "${RC}" -ne 0 ] && contains "${OUT}" "config:2"'
 }
 
+case_redacts_file_name() {
+    local repo
+    repo="$(make_repo redact yes)"
+    printf 'x\n' > "${repo}/${SECRET}.txt"
+    git -C "${repo}" add -A
+    try_commit "${repo}" redact
+    assert "Given a denylisted file NAME, When the commit is refused, Then the refusal never echoes the string" \
+        '[ "${RC}" -ne 0 ] && ! contains "${OUT}" "${SECRET}"'
+}
+
+case_scans_lines_that_look_like_headers() {
+    local repo
+    repo="$(make_repo plusplus yes)"
+    # An added line "++ x" shows in the patch as "+++ x", the shape of a
+    # file header; it is content and must be scanned.
+    printf '++ %s\n' "${SECRET}" > "${repo}/config"
+    git -C "${repo}" add config
+    try_commit "${repo}" plusplus
+    assert "Given a staged line starting with '++ ', When it is denylisted, Then the commit is refused" \
+        '[ "${RC}" -ne 0 ]'
+}
+
+case_marker_read_from_index() {
+    local repo
+    repo="$(make_repo unstagedmarker yes)"
+    rm "${repo}/PUBLIC.REPO"
+    printf '%s\n' "${SECRET}" > "${repo}/config"
+    git -C "${repo}" add config
+    try_commit "${repo}" marker
+    assert "Given PUBLIC.REPO deleted only in the work tree, When a denylisted line is staged, Then the commit is still refused" \
+        '[ "${RC}" -ne 0 ]'
+}
+
+case_guards_merge_resolution() {
+    local repo
+    repo="$(make_repo merge yes)"
+    printf 'theirs\n' > "${repo}/README"
+    git -C "${repo}" commit -q --no-verify -am theirs
+    git -C "${repo}" checkout -q main
+    printf 'ours\n' > "${repo}/README"
+    git -C "${repo}" commit -q --no-verify -am ours
+    git -C "${repo}" merge -q feature >/dev/null 2>&1 || true
+    printf 'resolved %s\n' "${SECRET}" > "${repo}/README"
+    git -C "${repo}" add README
+    try_commit "${repo}" merge
+    assert "Given a conflicted merge, When the resolution stages a denylisted line, Then the merge commit is refused" \
+        '[ "${RC}" -ne 0 ]'
+}
+
 case_ignores_private_repo() {
     local repo
     repo="$(make_repo private no)"
@@ -242,6 +291,10 @@ main() {
     case_allows_removing_a_leak
     case_guards_trunk
     case_survives_non_utf8
+    case_redacts_file_name
+    case_scans_lines_that_look_like_headers
+    case_marker_read_from_index
+    case_guards_merge_resolution
     case_ignores_private_repo
     case_skips_without_denylist
     case_opt_out

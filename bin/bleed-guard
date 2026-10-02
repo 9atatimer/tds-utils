@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # bleed-guard -- refuse private strings in a public repo (issue #366).
 #
-# A public repo says so with a committed PUBLIC.REPO file at its root. In such
+# A public repo says so with a committed PUBLIC.REPO file at its root (read from
+# the index, so an unstaged deletion does not switch the guard off). In such
 # a repo this scans what is being added -- staged added lines, and the names of
 # added or renamed files -- for any entry of a private denylist, and exits 1
 # on a hit. Matching is fixed-string and case-insensitive. A hit is reported as
-# file:line plus the denylist entry's line number, NEVER the matched text: the
+# file:line plus the denylist entry's line number, NEVER the matched text --
+# a path that contains an entry is printed with it redacted -- because the
 # report itself must not bleed into a log, a transcript or a PR comment.
 #
 # The denylist is private by construction -- publishing it would be the leak --
@@ -44,7 +46,8 @@ is_disabled() {
     return 1
 }
 
-is_public_repo() { [ -f "$1/${MARKER_FILE}" ]; }
+# The marker as the commit will carry it: in the index, not the work tree.
+is_public_repo() { git cat-file -e ":${MARKER_FILE}" 2>/dev/null; }
 
 # --- Helpers ---
 
@@ -60,13 +63,16 @@ resolve_denylist() {
 # staged_records -- "path<TAB>line<TAB>text" for every added line in the index,
 # plus "path<TAB>0<TAB>path" for every added or renamed file (its name is
 # content too). Line numbers come from the new side of each -U0 hunk header.
+# "+++ " is a header only before a file's first hunk: inside a hunk it is an
+# added line that begins "++ ", and it gets scanned like any other.
 staged_records() {
     git -c core.quotepath=false diff --cached -U0 --no-color --no-ext-diff \
         --no-renames --diff-filter=ACMR \
         | awk '
-            /^\+\+\+ / { path = substr($0, 5); sub(/^b\//, "", path); next }
-            /^@@ /     { split($3, h, ","); line = substr(h[1], 2) + 0; next }
-            /^\+/      { printf "%s\t%d\t%s\n", path, line, substr($0, 2); line++ }
+            /^diff --git /                { inhunk = 0; next }
+            !inhunk && /^\+\+\+ /        { path = substr($0, 5); sub(/^b\//, "", path); next }
+            /^@@ /                        { inhunk = 1; split($3, h, ","); line = substr(h[1], 2) + 0; next }
+            inhunk && /^\+/               { printf "%s\t%d\t%s\n", path, line, substr($0, 2); line++ }
         '
     git -c core.quotepath=false diff --cached --name-only --diff-filter=AR \
         | awk '{ printf "%s\t0\t%s\n", $0, $0 }'
@@ -94,13 +100,26 @@ match_records() {
             }
             close(list)
         }
+        # redact(s) -- s with every entry, in any case, replaced by [redacted].
+        function redact(s,    i, low, at, out) {
+            for (i = 1; i <= n; i++) {
+                out = ""; low = tolower(s)
+                while ((at = index(low, entry[i])) > 0) {
+                    out = out substr(s, 1, at - 1) "[redacted]"
+                    s = substr(s, at + length(entry[i])); low = substr(low, at + length(entry[i]))
+                }
+                s = out s
+            }
+            return s
+        }
         {
             tab1 = index($0, "\t"); path = substr($0, 1, tab1 - 1); rest = substr($0, tab1 + 1)
             tab2 = index(rest, "\t"); line = substr(rest, 1, tab2 - 1); text = tolower(substr(rest, tab2 + 1))
+            shown = redact(path)
             for (i = 1; i <= n; i++) {
                 if (index(text, entry[i]) == 0) continue
-                if (line == 0) printf "%s: file name matches denylist entry at line %d\n", path, where[i]
-                else           printf "%s:%s: matches denylist entry at line %d\n", path, line, where[i]
+                if (line == 0) printf "%s: file name matches denylist entry at line %d\n", shown, where[i]
+                else           printf "%s:%s: matches denylist entry at line %d\n", shown, line, where[i]
             }
         }
     '
@@ -142,7 +161,7 @@ main() {
     cd "${root}"
 
     is_disabled && return 0
-    is_public_repo "${root}" || return 0
+    is_public_repo || return 0
 
     denylist="$(resolve_denylist)"
     if [ ! -r "${denylist}" ]; then

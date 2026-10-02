@@ -19,10 +19,15 @@ carries one. In such a repo every commit's staged additions -- added lines,
 and the names of added or renamed files -- are matched against a private
 denylist. Any hit refuses the commit and is reported as `file:line` plus
 the line of the denylist entry it matched. The matched text is never
-printed, so the refusal cannot itself leak into a log or transcript.
+printed -- a path containing an entry is shown with it as `[redacted]` --
+so the refusal cannot itself leak into a log or transcript.
 
-It runs on every branch, trunk and detached HEAD included. Removing a
-string is never refused: only additions are checked.
+It runs on every branch, trunk and detached HEAD included, and on the
+commit that concludes a merge or a conflicted rebase step. The marker is
+read from the index, so deleting it only in the work tree does not switch
+the guard off. Removing a string is never refused: only additions are
+checked. A merge that brings in a denylisted line from the other branch is
+refused too, because the staged diff is taken against `HEAD`.
 
 ## The denylist
 

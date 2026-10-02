@@ -3,8 +3,9 @@
 #
 # Bleed guard (issue #366, docs/bleed-guard.md): in a repo carrying a
 # PUBLIC.REPO marker, `bleed-guard` refuses staged additions that contain a
-# string from the private denylist. It runs FIRST and on every branch, trunk
-# and detached HEAD included -- a leak is a leak wherever it is committed. The
+# string from the private denylist. It runs FIRST -- before the in-progress
+# merge/rebase exemption, on every branch, trunk and detached HEAD included --
+# because a leak is a leak however it is committed. The
 # checker is located like branch-merged-check (bleedguard.checkerPath -> PATH
 # -> home fallback); a missing checker is a one-line skip.
 #
@@ -119,11 +120,11 @@ locate_bleed_checker() {
 }
 
 # Run the bleed guard; exit 1 on its refusal. Only a public repo (PUBLIC.REPO
-# at the top level) needs the checker at all, so a private repo stays silent.
+# in the index -- what the commit will carry) needs the checker at all, so a
+# private repo stays silent.
 run_bleed_guard() {
-    local top checker
-    top="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-    [ -n "${top}" ] && [ -f "${top}/PUBLIC.REPO" ] || return 0
+    local checker
+    git cat-file -e ":PUBLIC.REPO" 2>/dev/null || return 0
     if ! checker="$(locate_bleed_checker)"; then
         echo "pre-commit: bleed-guard not found (set git config bleedguard.checkerPath); skipping bleed guard." >&2
         return 0
@@ -227,9 +228,9 @@ Cut a fresh branch off your default branch. Bypass this one commit with: git com
 main() {
     local branch gitdir cachedir key deadfile
 
-    operation_in_progress && exit 0
-
     run_bleed_guard
+
+    operation_in_progress && exit 0
 
     branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
     [ -n "${branch}" ] || exit 0          # detached HEAD
