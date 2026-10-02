@@ -39,6 +39,11 @@ LMDE.
   the Ollama Gateway's: build on the cloudflared edge record (tds-internal
   `DESIGN.ollama-gateway-infra.md`, PR #125) and its tds-utils counterpart
   (`OLLAMA-GATEWAY.DESIGN.md`, PR #369).
+- No Access layer on the chores webhook endpoint: deliveries are
+  authenticated with a pre-shared key. cloudflared is still needed, to hang
+  a local port off the internet.
+- Stay close to the pattern established for the Ollama Gateway, so the
+  Cloudflare configuration is as DRY as possible.
 
 The stories were drafted by the agent from the points above and have not
 yet been read back; strike or reword any that are not yours.
@@ -57,14 +62,12 @@ default branch brings the local copy up to it (tds-utils issue #377).
   into: lost, recorded as missed (as a schedule slot is today), or caught
   up when the laptop wakes.
 - Whether many changes in a burst fire a chore many times or once.
-- Whether this road is the Ollama Gateway's road with a second path, or a
-  road of its own. The two have different callers: one is our own CI, the
-  other is GitHub itself.
-- How the far end knows a delivery really came from GitHub. The gateway's
-  edge admits only callers that present an Access service token, and
-  GitHub's webhook deliveries cannot be made to present one; GitHub signs
-  each delivery with a shared secret instead. So the gateway's admission
-  rule does not carry over unchanged.
+- How much of the Ollama Gateway's Cloudflare configuration this shares,
+  given "as DRY as possible": the same tunnel with another hostname or
+  path, or its own tunnel built the same way. The gateway's whole host sits
+  behind Access, and this endpoint does not.
+- Where the pre-shared key lives and how it reaches GitHub and the laptop,
+  and whether one key serves every repo or each has its own.
 - Whether anything a change carries (branch names, commit messages, PR
   text -- all written by whoever pushed) may reach a chore's prompt, given
   that a chore can spend money and act on the laptop.
