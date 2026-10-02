@@ -205,7 +205,7 @@ lets owners be split later.
 
 | Item | Value |
 |---|---|
-| 1Password item title | `ollama-gateway-<consumer>` |
+| 1Password item | One per consumer; its title is named in the tds-internal record (this repo is public) |
 | Contents | The credential as header name/value pairs. Today the names are Cloudflare Access's client-id and client-secret headers. A caller sends whatever headers the item names, and never hardcodes them. The item's field layout is fixed by, and documented in, the tds-internal module's design record |
 | Vault | A headless vault, read by a read-only 1Password service account scoped to that vault |
 | Consumers in the first cut | One: `gha`, shared by the 9atatimer and Nine-At-A-Time-Media owners |
@@ -343,7 +343,7 @@ consumers (tds-internal terraform for_each map)
 +-- key                 consumer name, e.g. "gha"; dropping it revokes
 +-- -> service token    one per key
 +-- -> Access policy    non_identity, includes only that token
-+-- -> 1Password item   ollama-gateway-<key>: credential header names
++-- -> 1Password item   one per key (title in tds-internal): credential header names
                          and values
 
 laptop component (tds-utils lmde/components/ollama-gateway)
