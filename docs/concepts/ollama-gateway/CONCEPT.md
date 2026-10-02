@@ -44,6 +44,10 @@ it makes -- can reach my user credentials or carry anything off the laptop.
   the owners can be split onto separate credentials later.
 - An outage -- tunnel down, internet off, laptop asleep on the road -- is
   normal, and the callers fail fast and loud on it.
+- The first cut goes as-is: the first caller, `ocr` -- untrusted -- holds
+  the service-account credentials that open the road, so it could carry
+  them off. Isolating the credential from the caller is deferred to issue
+  #365. (Raised by codex review on PR #364.)
 
 **Still open (nobody's yet):**
 
@@ -53,10 +57,6 @@ it makes -- can reach my user credentials or carry anything off the laptop.
   locked.
 - Which models the external ollama serves, and whether it shares model
   files with the everyday one.
-- Whether the first caller -- `ocr`, which is untrusted -- ever holds the
-  credential that opens the road. If it does, it can carry the credential
-  off, and then anyone holding it reaches the laptop, which the access
-  stories forbid. (Raised by codex review on PR #364.)
 - The name.
 
 **Leans on:** the Access service-token pattern in tds-internal
