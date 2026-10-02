@@ -87,6 +87,15 @@ documents the recommended approach so it isn't reinvented per repo.
 - **Tempo** (Grafana): trace store in the observability kind cluster, fed
   OTLP spans by the collector. Monolithic, digest-pinned beside Loki. Exit
   criterion to Adopt: same as Loki.
+- **Decision models** (Jev, Clef and kin; Clef-flash is the recommended
+  first model, not yet confirmed): a pretrained model reads a state once
+  and a small head scores every option of typed questions -- yes/no,
+  pick-one, rubric -- returning probabilities with no text generated. To be
+  served on the laptop by the decision arena, behind the LMDE proxy layer
+  and the Ollama Gateway's cloudflared road; none of it is built or
+  installed yet. First consumer: the ocrinator's page decisions. Exit
+  criterion: measured against a hand-adjudicated sample there, adopt or
+  drop (Issue#382).
 
 ---
 
@@ -115,6 +124,9 @@ documents the recommended approach so it isn't reinvented per repo.
 - **2026-10-02**: Added `Loki` and `Tempo` to Trial on Todd's approval
   ("let's do it", issue #380): LMDE stored only metrics, so logs and
   traces, local or cloud, were not debuggable after the fact.
+
+- **2026-10-02**: Added decision models to Trial at Todd's request, served
+  locally by the decision arena (Issue#382). No installs or downloads yet.
 
 - **2026-09-30**: Added `TPM`, `tmux-resurrect` and `tmux-continuum` to Trial
   at Todd's request, so log-hoarder terminals share one tmux session that

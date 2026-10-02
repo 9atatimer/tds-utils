@@ -411,7 +411,9 @@ service tokens) is infra-repo terraform, specified in tds-internal
 Worker / Cloud Run --OTLP/HTTP + Access service token--> <ingest host>
    --> Cloudflare Access (one non_identity policy per token)
    --> tunnel ingress: /v1/traces, /v1/logs only; everything else 404
-   --> cloudflared on the laptop --> 127.0.0.1:4318 (the collector)
+   --> cloudflared on the laptop
+   --> LMDE proxy layer, OTLP route (throttle, max payload size)
+   --> 127.0.0.1:4318 (the collector)
 ```
 
 - **Write-only, logs and traces only.** The tunnel routes exactly the two
@@ -421,6 +423,13 @@ Worker / Cloud Run --OTLP/HTTP + Access service token--> <ingest host>
 - **Own tunnel.** Separate from the Ollama Gateway's tunnel, so the
   connector credential for a telemetry sink can never route to an
   inference endpoint, and neither edge waits on the other.
+- **Behind the LMDE proxy layer.** Every laptop service with a public port
+  sits behind the one LMDE proxy layer, which centralizes throttling and
+  maximum payload size (Todd, 2026-10-02; `OLLAMA-GATEWAY.DESIGN.md`,
+  Deadline proxy). OTLP ingest is a route on it with its own limits, in
+  front of the collector; the connector never reaches `:4318` directly.
+  The layer is not built yet (that design is in REVIEW), so cloud ingest
+  waits on it; local senders keep using `127.0.0.1:4318` unchanged.
 - **One service token per component per tier.** Revoking one sender never
   touches another.
 - **Laptop off means dropped.** Exporters fail and drop; the platform's own
