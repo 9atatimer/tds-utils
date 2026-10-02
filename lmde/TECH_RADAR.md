@@ -80,6 +80,15 @@ documents the recommended approach so it isn't reinvented per repo.
   which is unsigned code; hence Trial, cloned by hand and never implicitly.
   Exit criterion: a Homebrew or otherwise signed install path, or a
   restore-by-hand replacement.
+- **Decision models** (Jev, Clef and kin; Clef-flash is the recommended
+  first model, not yet confirmed): a pretrained model reads a state once
+  and a small head scores every option of typed questions -- yes/no,
+  pick-one, rubric -- returning probabilities with no text generated. To be
+  served on the laptop by the decision arena, behind the LMDE proxy layer
+  and the Ollama Gateway's cloudflared road; none of it is built or
+  installed yet. First consumer: the ocrinator's page decisions. Exit
+  criterion: measured against a hand-adjudicated sample there, adopt or
+  drop (Issue#382).
 
 ---
 
@@ -104,6 +113,9 @@ documents the recommended approach so it isn't reinvented per repo.
 ---
 
 ## Decisions Log
+
+- **2026-10-02**: Added decision models to Trial at Todd's request, served
+  locally by the decision arena (Issue#382). No installs or downloads yet.
 
 - **2026-09-30**: Added `TPM`, `tmux-resurrect` and `tmux-continuum` to Trial
   at Todd's request, so log-hoarder terminals share one tmux session that
