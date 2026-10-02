@@ -262,6 +262,16 @@ absolute paths to it rather than `cd`-ing. Only reach for `cd` after confirming
 none of the above applies *and* that the command must run with that dir as
 cwd -- and in that case, ask first or expect to be interrupted.
 
+**`-C` changes where git looks, not where its printed paths are relative
+to.** `git -C ~/workplace/<repo> rev-parse --git-common-dir` (and
+`--git-dir`, `--git-path`) prints `.git`, relative to `<repo>` -- but the
+next command resolves it against the shell's cwd, which is some other
+project root. Observed 2026-10-02: a hook "installed" into tds-utils with
+`cp ... "$(git -C ~/workplace/tds-utils rev-parse --git-common-dir)/hooks/"`
+overwrote tds-internal's hook instead, and the guard it was meant to enable
+silently did not run. Ask for absolute output:
+`git -C <repo> rev-parse --path-format=absolute --git-common-dir`.
+
 ## Always work off a branch, and use a worktree whenever you can
 
 Two rules, the second stronger than it used to be.
