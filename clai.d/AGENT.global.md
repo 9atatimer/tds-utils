@@ -35,6 +35,7 @@ file points there.
 - Link every PR and issue with repo and kind in the link text.
 - Read the repo's `AGENT.md`, and read a skill whole, before working.
 - Review each non-doc PR once; re-review only after a load-bearing fix.
+- Copilot is out of quota: self-review is the whole review until the owner says otherwise.
 
 ## Defects: cut the Issue first, tests red before commit
 
@@ -55,6 +56,11 @@ security defect is labelled `security` and `bug`), or a `tasks/` file per
 the todo-plan skill. Then say in one line that it was filed, with the link.
 
 ## Review turns are expensive: spend them on load-bearing fixes
+
+**Copilot is out of quota (owner, 2026-10-02).** Until the owner says it
+is back, request no Copilot review on any PR: the adversarial self-review
+(the self-review skill) is the whole review, and a re-review below means a
+self-review re-review. Codex stays human-summoned only.
 
 Request a Copilot review once per PR that is not documentation-only, and
 a re-review only when a push carries a load-bearing fix -- behavior, a
