@@ -30,8 +30,9 @@ or anything else in the home directory outside an allow-listed tree.
   model load that exceeds that limit is handled is Open Question Q5, and Q5
   blocks APPROVED.
 - **G2 Nobody else gets in.** A request without a valid gateway credential
-  is refused at the Cloudflare edge with HTTP 403, whatever its path, and
-  never reaches the laptop. The external ollama's request log shows no
+  is refused at the Cloudflare edge, whatever its path, and never reaches
+  the laptop. The refusal is a redirect to the Access login page (HTTP 302)
+  or HTTP 403, never a 2xx. The external ollama's request log shows no
   entry for it.
 - **G3 Completions only.** A credentialed request reaches the external
   ollama only if its path is exactly `/v1/chat/completions` or
@@ -120,8 +121,8 @@ or anything else in the home directory outside an allow-listed tree.
  caller (e.g. ocr-on-demand on a GitHub runner)
    |  HTTPS to <gateway-host>, with the gateway credential as headers
    v
-+----------------------------- Cloudflare (api9 account) ---------------+
-|  Access application on <gateway-host>     -- checked first: 403       |
++----------------------------- Cloudflare ------------------------------+
+|  Access application on <gateway-host>     -- checked first: 302/403   |
 |    policy: non_identity, includes exactly the named service tokens    |
 |  Tunnel (remotely managed): ingress rules declared in tds-internal    |
 |    IaC and pushed by Cloudflare to the connector                      |
@@ -187,7 +188,8 @@ Request headers: the gateway credential, as header name/value pairs read
 from the consumer's 1Password item (see Credential contract)
 
 Responses, in evaluation order:
-  403    missing or invalid credential (Access, at the edge)
+  302    missing credential: redirect to the Access login (at the edge)
+  403    invalid credential (Access, at the edge)
   5xx    connector not connected (laptop asleep/offline/connector stopped)
   404    any other path (ingress rules, applied by the connector)
   502    connector up, external ollama down
@@ -230,7 +232,7 @@ but not callers.
 |---|---|
 | Hold the tunnel open | Runs `cloudflared` with the tunnel's run token, outbound only |
 | Enforce the path allow-list | Applies the ingress rules pushed from IaC, exact-path match (G3). This is the only layer keeping model-management paths off the road in the first cut |
-| Transport | Must work on this network. QUIC over IPv6 fails here (observed on the existing `foundry-isleofmist` tunnel), so the transport is pinned to `http2` (Key Decisions) |
+| Transport | Must work on this network. QUIC over IPv6 fails here (observed on an existing cloudflared tunnel on this laptop), so the transport is pinned to `http2` (Key Decisions) |
 | Start and restart | A LaunchAgent following the LMDE launchd pattern, restarting on crash |
 | Keep the run token out of sight | The token never appears on a process command line, in a LaunchAgent plist, or in a file under the repo. It is read from the laptop's credential store at launch (store: Q2). Whatever the store is, the external ollama's sandbox cannot retrieve it by any means, and the G4 probe asserts that |
 | Refuse to run half-configured | No token, no start: the launcher exits non-zero with a message naming what is missing |
@@ -321,8 +323,8 @@ external ollama never starts unconfined. Recovery needs a human: fix the
 profile or plug in a successor mechanism at the probe seam.
 
 **The credential check (G2) applies in every state.** A request without a
-valid credential gets 403 at the edge, whether or not the laptop is
-reachable.
+valid credential is refused at the edge (302 or 403), whether or not the
+laptop is reachable.
 
 **The path check (G3) runs in the connector.** It applies only when the
 connector is connected. In UNREACHABLE, a non-allow-listed path gets the
@@ -481,10 +483,13 @@ Per-owner tokens restore attribution (Future Considerations).
 
 ## Open Questions
 
-- **Q1 Hostname and tier.** *Blocks the IaC.*
-  - Proposed: `ollama.api9.com`, production tier only (bare
-    `<service>.<zone>` per the naming rule).
-  - `api9.com` is the zone of Todd's own account.
+- **Q1 Hostname and tier.** *Blocks the IaC.* `<gateway-host>` is named
+  in the tds-internal record, not here: this repo is public, and the
+  concrete hostname, zone and account belong with the IaC.
+  - Proposed there: production tier only, bare `<service>.<zone>` per the
+    naming rule (see the "A nonprod tier" Non-Goal).
+  - tds-internal's convention is that a request naming no tier means
+    nonprod, so a production-only module is an explicit exception there.
   - Needs Todd's confirmation.
 - **Q2 Where the connector's run token lives on the laptop.** *Blocks
   APPROVED.* The daemon must start while 1Password is locked (G7), and the
@@ -545,8 +550,8 @@ Per-owner tokens restore attribution (Future Considerations).
 - **Locally managed tunnel config (`~/.cloudflared/config.yml`).** It
   would put the path allow-list, a security control, in an unreviewed
   laptop file.
-- **Reuse the existing `foundry-isleofmist` tunnel.** It belongs to the
-  GammaGo Cloudflare account and another system. A new system gets its own
+- **Reuse the existing cloudflared tunnel on this laptop.** It belongs to
+  another Cloudflare account and another system. A new system gets its own
   credentials, never a borrowed one (tds-internal policy).
 - **`any_valid_service_token` in the Access policy.** It admits every
   service token in the account, and cannot revoke one consumer.
