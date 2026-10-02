@@ -34,18 +34,25 @@ the todo-plan skill. Then say in one line that it was filed, with the link.
 
 ## Copilot review quota is finite
 
-Request a Copilot review once per PR, and a re-review only when a push
-carries a load-bearing fix -- behavior, a contract, security, a test's
-verdict, or what a rule an agent or gate executes says. Hygiene (wording, typos,
-comments, documentation accuracy) is fixed and pushed, never re-reviewed,
-in self-review as much as in Copilot or Codex. A documentation-only PR
-gets no Copilot or Codex at all: the adversarial self-review is
-sufficient, except that design and architecture drafts in phases 2 and 3
-get designomatic. Triage its output with backbone: fix what is
+Request a Copilot review once per PR that is not documentation-only, and
+a re-review only when a push carries a load-bearing fix -- behavior, a
+contract, security, a test's verdict, what a rule an agent or gate
+executes says, or a step an agent will run from a runbook. Hygiene
+(wording, typos, comments, the accuracy of prose no agent executes) is
+fixed and pushed, never re-reviewed, in self-review as much as in Copilot
+or Codex. Triage Copilot's output with backbone: fix what is
 genuinely broken, reject the rest on the thread in one line, and ignore
 summary-only "previously missed" items unless one is a real defect. When
 a round brings no value, stop requesting rounds; `review-settled` going
 red on a stale review is not a reason to spend quota.
+
+A documentation-only PR -- every changed file is human-read prose -- gets
+no Copilot and no Codex: the adversarial self-review is sufficient,
+except that design and architecture drafts in phases 2 and 3 get
+designomatic. Skills, personas, `AGENT.md`, prompts, CI workflows and
+gate configuration are operating rules, not documentation; a PR touching
+them takes the full review ladder (the gates skill, Spend Review Turns on
+Load-Bearing Fixes).
 
 ## Answer style: succinct, terse, specific
 
