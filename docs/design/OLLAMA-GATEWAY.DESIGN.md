@@ -439,6 +439,13 @@ Per-owner tokens restore attribution (Future Considerations).
     Security framework or `/usr/bin/security`, which the broad first-cut
     profile may admit. It qualifies only if the probe's retrieval attempts
     by those means fail under the profile.
+- **The origin port is a trust boundary.** The edge routes allow-listed
+  requests to `127.0.0.1:<port>`, mirrored by hand in the tds-internal
+  module. If the two drift and another local service listens on the port
+  the edge names, allow-listed requests reach that service and bypass the
+  sandbox. The laptop component therefore owns keeping `<port>` bound by
+  the external ollama and nothing else; with nothing listening, drift shows
+  only as DEGRADED (502).
 - **Prompt and completion contents.** They cross Cloudflare's edge, with
   TLS terminated there. This is acceptable for code under review in the
   fleet's own repos. No other data is intended to use the road.
