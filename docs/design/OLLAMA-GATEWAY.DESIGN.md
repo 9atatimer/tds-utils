@@ -298,10 +298,9 @@ it always returns something, even if it's a 500").
 | Limits live on the layer | Throttling and maximum payload size for the gateway's route are set on the LMDE proxy layer, beside every other tenant's, never in the external ollama or the connector. The first-cut values, and whether the first cut sets any, are Q12 |
 | Tenants stay apart | The gateway route's limits, deadline and upstream apply to the gateway's traffic only; another tenant's route never reaches `<ollama-port>`. How the layer tells routes apart is Q12 |
 
-Which proxy the layer runs is an implementation choice: Todd named nginx
-or haproxy; the LMDE's Caddy (already Adopt on `lmde/TECH_RADAR.md`) also
-qualifies and would avoid a new radar row. The choice is made once, for
-the layer, not per tenant. The proxy is a trusted Homebrew binary on
+The layer runs HAProxy (`lmde/TECH_RADAR.md`, Adopt, 2026-10-03), chosen
+once for the layer, not per tenant: the Decision Arena's route needs a
+priority queue that open-source nginx and Caddy do not provide. The proxy is a trusted Homebrew binary on
 loopback and is not sandboxed in the first cut.
 
 ### External ollama (tds-utils LMDE)
@@ -317,8 +316,8 @@ component's.
 | Responsibility | Details |
 |---|---|
 | Serve completions | `ollama serve` bound to `127.0.0.1:<ollama-port>` only, distinct from the everyday 11434. Its only client is the deadline proxy |
-| Run sandboxed | Launched under the gateway's macOS sandbox profile (G4). The profile is a file in the component |
-| Refuse to run unconfined | Before every start, the launcher runs the G4 probe under the profile. If confinement is not in effect, the canary is readable, or the run token is retrievable, the launcher exits non-zero with a message and does not start ollama. It never falls back to running unsandboxed |
+| Run sandboxed | Launched by the Engine Sandbox under the external ollama's policy (G4) |
+| Refuse to run unconfined | The Engine Sandbox probes before every start; if confinement is not in effect, a protected tree is reachable, or the run token is retrievable, ollama is not started. It never falls back to running unsandboxed |
 | Own config tree | `HOME` is the gateway's user config tree under `~/.local/` (the exact path is code), not the user's home. So ollama never touches `~/.ollama/id_ed25519` (its ollama.com identity key) or `~/.ollama/history` |
 | Shared store, unmodified | `OLLAMA_MODELS` points at the everyday store, the second allow-listed tree. The external instance does not modify the store's contents; for example, ollama's startup pruning of unreferenced blobs is disabled (load-bearing for G8). Model management cannot reach the store over the road (G3). Enforcing read-only access in the sandbox is part of the hardening pass |
 | Bounded memory | Holds at most one model loaded at a time, so the external and everyday instances together cannot load an unbounded set into the laptop's 64 GB |
@@ -342,9 +341,8 @@ That is what keeps credentials out of reach.
 its exact text is code. Hardening it (network, store writes, system paths)
 is handed to a later pass once the POC runs.
 
-**Confinement-mechanism seam.** The seam is the probe's assertions, not
-`sandbox-exec` itself. A successor mechanism needs only to pass the same
-probe, and the launcher gates on that probe.
+**Confinement-mechanism seam.** The Engine Sandbox's: the probe's
+assertions, not `sandbox-exec` itself.
 
 ---
 
@@ -423,8 +421,8 @@ consumers (tds-internal terraform for_each map)
                          and values
 
 laptop component (tds-utils lmde/components/ollama-gateway)
-+-- sandbox profile     the external ollama's policy file
-+-- probe               the G4 assertions; gates every start
++-- sandbox policy      the external ollama's Engine Sandbox policy;
+                         the run token is in that component's baseline
 +-- proxy-port          deadline proxy's loopback port; single source of
                          truth, mirrored by hand as an input to the
                          tds-internal ingress rules
@@ -579,7 +577,7 @@ to local logs is open (Q10).
 | Edge vendor axis | Seam = the caller contract (URL + paths + credential header names and values read from the 1Password item + retryable status) | Callers never hardcode Cloudflare header names. Swapping the edge changes the IaC, the connector and the items' contents only. The seam does not cover G3's enforcement point: a replacement edge must provide its own exact-path enforcement before the external ollama, and G3 is the guarantee it must meet |
 | Model choice | Not the gateway's: callers name a model; the gateway serves the store | The model is a caller detail (concept: "whatever gets it done") |
 | Radar: cloudflared | Propose Trial, in `lmde/TECH_RADAR.md` and tds-internal `docs/TECH_RADAR.md` | Todd (concept, settled). Exit: the gateway runs a month without a manual restart |
-| Radar: deadline proxy | Caddy if it meets the deadline requirement (already Adopt in `lmde/TECH_RADAR.md`); otherwise propose nginx or haproxy at Trial with the code | No new dependency when an adopted one suffices |
+| Radar: deadline proxy | HAProxy, adopted for the whole LMDE proxy layer (`lmde/TECH_RADAR.md`, 2026-10-03) | Todd's ruling; the Decision Arena's priority queue needs it, and the layer runs one proxy |
 | Where the deadline proxy lives | A route on the LMDE proxy layer: one local reverse proxy that every laptop service with a public port sits behind, centralizing throttling and maximum payload sizes | Todd, 2026-10-02 (chores-webhooks concept, PR #379): "We'd want that proxy layer to be part of the lmde ecosystem, and anything local that needs a public port should play nice with it." |
 | Radar: macOS sandbox (`sandbox-exec`) | Propose Trial in `lmde/TECH_RADAR.md` | Apple-deprecated API; Trial until a supported replacement is chosen or it proves stable across a macOS major update |
 | LMDE "Public ingress" non-goal | Crossed for this one endpoint; append a Key Decisions row to `LMDE.DESIGN.md` citing this record and issue #363 | The LMDE record is frozen; its log is append-only |
