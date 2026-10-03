@@ -40,6 +40,7 @@ class Deps:
     launch: Callable[[str], None]
     scheduler_installed: Callable[[], bool | None]
     installer: object | None = None
+    launch_armed: Callable[[str, str], None] | None = None
 
     def as_run_deps(self) -> RunDeps:
         return RunDeps(
@@ -71,4 +72,5 @@ class Deps:
             paths=self.paths,
             launch=self.launch,
             run_id_suffix=self.run_id_suffix,
+            launch_armed=self.launch_armed,
         )

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import Enum
 
 from chores.domain.errors import DomainError
 
@@ -241,3 +242,37 @@ def due_policy(
     if catch_up:
         return DueVerdict(fire=newest, missed=len(slots), caught_up=True)
     return DueVerdict(fire=None, missed=len(slots))
+
+
+# --- one-time chores (CHORES-ONE-TIME.DESIGN.md) ----------------------------
+
+MANUAL = "manual"
+
+
+@dataclass(frozen=True, slots=True)
+class Manual:
+    """``schedule: manual``: the chore runs only when asked, never on a slot."""
+
+    expression: str = MANUAL
+
+
+Trigger = Schedule | Manual
+"""What a chore's ``schedule`` field parses to."""
+
+
+def parse_trigger(text: str) -> Trigger:
+    """``manual`` or a 5-field cron expression; raises :class:`InvalidSchedule`."""
+    if text.strip() == MANUAL:
+        return Manual()
+    return Schedule.parse(text)
+
+
+class ArmedVerdict(Enum):
+    FIRE = "FIRE"
+    WAIT = "WAIT"
+
+
+def armed_policy(start_at: datetime, *, now: datetime) -> ArmedVerdict:
+    """An armed run fires at the first tick at or after its start time, however
+    late; lateness never makes it MISSED (an ask is not a slot)."""
+    return ArmedVerdict.FIRE if now >= start_at else ArmedVerdict.WAIT
