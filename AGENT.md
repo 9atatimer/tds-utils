@@ -18,7 +18,9 @@ Two triggers are load-bearing enough to restate here:
 
 Repo-scoped radar data: `lmde/TECH_RADAR.md` (human-maintained -- audit
 and propose, never edit without approval). The provisioned tech-radar
-skill carries the fleet defaults and points here for LMDE specifics.
+skill carries the fleet defaults and points here for LMDE specifics. A
+row is one line saying what the tool is for, LMDE-wide; rationale and
+project specifics go in issues, `TODO_PLAN.md`, or a skill.
 
 ## What This Project Is
 

@@ -32,13 +32,7 @@ These technologies are the foundational components of the Local Managed Develope
 - **1Password CLI (op)**: Source of truth for secrets and identity.
 - **NATS**: Distributed message bus for local service inter-op. Standardized on `localhost:4222`.
 - **Caddy**: Local reverse proxy and TLS terminator.
-- **HAProxy**: The proxy the LMDE proxy layer runs -- the local front door
-  every laptop service with a public port sits behind
-  (`docs/design/OLLAMA-GATEWAY.DESIGN.md`, Deadline proxy). Chosen for its
-  backend request queue with priority classes (`maxconn`,
-  `http-request set-priority-class`, `timeout queue`), which the decision
-  arena needs so interactive callers jump ahead of batch work (Issue#382).
-  Not built or installed yet; the layer's design places it on loopback.
+- **HAProxy**: The LMDE proxy layer: front door, request queueing and limits for local services.
 - **dnsmasq**: Local DNS orchestration for `.localhost` and internal discovery.
 - **Local Registry**: Secure container mirror on `localhost:5001`.
 
@@ -94,15 +88,7 @@ documents the recommended approach so it isn't reinvented per repo.
 - **Tempo** (Grafana): trace store in the observability kind cluster, fed
   OTLP spans by the collector. Monolithic, digest-pinned beside Loki. Exit
   criterion to Adopt: same as Loki.
-- **Decision models** (Jev, Clef and kin; Clef-flash is the recommended
-  first model, not yet confirmed): a pretrained model reads a state once
-  and a small head scores every option of typed questions -- yes/no,
-  pick-one, rubric -- returning probabilities with no text generated. To be
-  served on the laptop by the decision arena, behind the LMDE proxy layer
-  and the Ollama Gateway's cloudflared road; none of it is built or
-  installed yet. First consumer: the ocrinator's page decisions. Exit
-  criterion: measured against a hand-adjudicated sample there, adopt or
-  drop (Issue#382).
+- **Decision models** (Jev, Clef and kin): typed yes/no, pick-one and rubric judgements returned as probabilities, served locally by the decision arena.
 
 ---
 
@@ -128,15 +114,7 @@ documents the recommended approach so it isn't reinvented per repo.
 
 ## Decisions Log
 
-- **2026-10-03**: Adopted `HAProxy` as the LMDE proxy layer, at Todd's
-  request ("I have ultimate confidence in it"). It settles the layer's
-  proxy choice that `OLLAMA-GATEWAY.DESIGN.md` left open between nginx,
-  haproxy and Caddy: only HAProxy queues requests to a busy backend with
-  priority, which open-source nginx and Caddy do not (Issue#382). This
-  adopts it directly, superseding that design's Key Decisions row
-  ("propose nginx or haproxy at Trial with the code"). Caddy's row is
-  unchanged; how the two divide the laptop's edge is the proxy layer's
-  design to state.
+- **2026-10-03**: Adopted `HAProxy` as the LMDE proxy layer at Todd's request.
 
 - **2026-10-02**: Added `Loki` and `Tempo` to Trial on Todd's approval
   ("let's do it", issue #380): LMDE stored only metrics, so logs and
