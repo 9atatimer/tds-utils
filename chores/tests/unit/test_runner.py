@@ -94,6 +94,7 @@ class Harness:
                 "PATH": "/usr/bin",
                 "HOME": "/home/t",
                 "LANG": "C",
+                "USER": "t",
                 "JUNK": "no",
             },
             run_id_suffix=lambda: "ab12",
@@ -178,6 +179,17 @@ def test_agent_run_passes_tools_turns_and_secret_names(tmp_path: Path) -> None:
         task.env["CHORES_BUDGET_TURNS"] == "5" and task.env["CHORES_SECRET_NAMES"] == ""
     )
     assert out.record.usage and out.record.usage.turns == 3
+
+
+def test_agent_run_env_carries_user_for_the_keychain_login(tmp_path: Path) -> None:
+    """Given the runner's USER, When an agent chore runs, Then the run env has
+    it -- the Claude CLI finds its subscription login in the macOS keychain by
+    user, and without USER reports "Not logged in" (issue #406) -- while
+    anything outside the allow-list still stays out."""
+    h = Harness(tmp_path, chores={"rev": AGENT})
+    run_chore("rev", h.deps())
+    task = h.catalog._agent.tasks[0]
+    assert task.env["USER"] == "t" and "JUNK" not in task.env
 
 
 @pytest.mark.parametrize(
