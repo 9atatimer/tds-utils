@@ -306,6 +306,12 @@ loopback and is not sandboxed in the first cut.
 
 ### External ollama (tds-utils LMDE)
 
+The sandbox described here is now the
+[Engine Sandbox](./ENGINE-SANDBOX.DESIGN.md), extracted so the Decision
+Arena shares it (issue #382). This section states the external ollama's
+policy and guarantees; the launcher, the probe and the mechanism are that
+component's.
+
 #### Responsibilities
 
 | Responsibility | Details |
@@ -744,5 +750,7 @@ to local logs is open (Q10).
   pattern the edge follows.
 - tds-internal `docs/policy/CREDENTIALS.md`, `INFRASTRUCTURE.md`,
   `TERRAFORM.md`: the rules the edge obeys.
+- [Engine Sandbox](./ENGINE-SANDBOX.DESIGN.md): the confinement the
+  external ollama runs under, shared with the Decision Arena.
 - [REMOLLAMA](./REMOLLAMA.DESIGN.md): the opposite direction (laptop
   reaching a rented GPU). Unrelated mechanism.
