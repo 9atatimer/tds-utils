@@ -55,6 +55,23 @@ def test_status_text_and_json_agree(tmp_path: Path) -> None:
     assert view["needs_attention"] is False and view["scheduler"]["installed"] is True
 
 
+def test_status_and_runs_show_every_time_in_local_wall_clock(tmp_path: Path) -> None:
+    """Given a laptop 7 hours behind UTC (local 10:00 is 17:00 UTC), When
+    the scheduler ticks and a chore runs, Then `status` and `runs` print the
+    tick and the run at 10:00 -- the zone the schedule column uses -- never
+    17:00 (issue #393: a fresh tick read as 7 hours off)."""
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND}, installed=True)
+    h.store.mark_tick(TickMark(at=h.clock.now_utc(), ledger_rows=0))
+    invoke(h, "run", "tidy")
+    _, status_out = invoke(h, "status")
+    tick_line = status_out.splitlines()[0]
+    assert "last tick 03-02 10:00" in tick_line, tick_line
+    assert "SUCCEEDED 03-02 10:00" in status_out
+    assert "17:00" not in status_out
+    _, runs_out = invoke(h, "runs")
+    assert "03-02 10:00" in runs_out and "17:00" not in runs_out
+
+
 def test_status_flags_stale_scheduler_and_failures(tmp_path: Path) -> None:
     h = FullHarness(
         tmp_path, chores={"tidy": COMMAND}, process=FakeProcess(exit_code=1)

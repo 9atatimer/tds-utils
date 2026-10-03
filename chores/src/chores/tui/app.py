@@ -65,14 +65,17 @@ class ChoresApp(App[None]):
         selected = table.cursor_row
         table.clear()
         for chore in view.chores:
-            table.add_row(*render._chore_row(chore), key=chore.name)
+            table.add_row(
+                *render._chore_row(chore, local=self._deps.clock.local_from_utc),
+                key=chore.name,
+            )
         if 0 <= selected < table.row_count:
             table.move_cursor(row=selected)
         banner = []
         if view.paused:
             banner.append(f"PAUSED: {view.paused}")
         sched = view.scheduler
-        tick = render._when(sched.last_tick)
+        tick = render._utc_when(sched.last_tick, self._deps.clock.local_from_utc)
         installed = {True: "installed", False: "NOT INSTALLED", None: "?"}[
             sched.installed
         ]
