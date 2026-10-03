@@ -8,6 +8,7 @@ import pytest
 from textual.widgets import DataTable, Static
 
 from chores.cli.main import main
+from chores.ports.store import TickMark
 from chores.tui.app import ChoresApp
 
 from ._harness import COMMAND, PROMPT, FullHarness
@@ -28,6 +29,28 @@ async def test_dashboard_lists_chores_and_refreshes(tmp_path: Path) -> None:
         assert "no notifications" in str(
             app.query_one("#notifications", Static).render()
         )
+
+
+async def test_dashboard_shows_tick_and_run_times_in_local_time(
+    tmp_path: Path,
+) -> None:
+    """Given a laptop 7 hours behind UTC (local 10:00 is 17:00 UTC), When the
+    scheduler has ticked and a chore has run, Then the dashboard's banner and
+    chore row show 10:00, never 17:00 (issue #393)."""
+    from click.testing import CliRunner
+
+    h = FullHarness(tmp_path, chores={"tidy": COMMAND}, installed=True)
+    h.store.mark_tick(TickMark(at=h.clock.now_utc(), ledger_rows=0))
+    CliRunner().invoke(main, ["run", "tidy"], obj=h.deps(), catch_exceptions=False)
+    app = ChoresApp(h.deps(), refresh_sec=60)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        banner = str(app.query_one("#banner", Static).render())
+        assert "last tick 03-02 10:00" in banner, banner
+        row = " ".join(
+            str(cell) for cell in app.query_one("#chores", DataTable).get_row_at(0)
+        )
+        assert "SUCCEEDED 03-02 10:00" in row and "17:00" not in row, row
 
 
 async def test_run_now_launches_the_selected_chore_detached(tmp_path: Path) -> None:

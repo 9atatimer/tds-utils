@@ -92,8 +92,13 @@ def validate(ctx: click.Context) -> None:
 @click.pass_context
 def status_cmd(ctx: click.Context, as_json: bool) -> None:
     """What is scheduled, running, spent and broken."""
-    view = queries.status(_deps(ctx))
-    click.echo(render.status_json(view) if as_json else render.status_text(view))
+    deps = _deps(ctx)
+    view = queries.status(deps)
+    click.echo(
+        render.status_json(view)
+        if as_json
+        else render.status_text(view, local=deps.clock.local_from_utc)
+    )
 
 
 @main.command("runs")
@@ -115,13 +120,18 @@ def runs_cmd(
     as_json: bool,
 ) -> None:
     """Past runs, newest first."""
+    deps = _deps(ctx)
     records = queries.runs(
-        _deps(ctx),
+        deps,
         chore=chore,
         since=timedelta(hours=since_hours) if since_hours is not None else None,
         statuses=[RunStatus(s) for s in statuses],
     )
-    click.echo(render.records_json(records) if as_json else render.runs_text(records))
+    click.echo(
+        render.records_json(records)
+        if as_json
+        else render.runs_text(records, local=deps.clock.local_from_utc)
+    )
 
 
 @main.command()
@@ -147,7 +157,7 @@ def show(ctx: click.Context, run_id: str, as_json: bool, artifact: str | None) -
     if as_json:
         click.echo(render.records_json([record]))
         return
-    click.echo(render.runs_text([record]))
+    click.echo(render.runs_text([record], local=deps.clock.local_from_utc))
     if record.reason:
         click.echo(f"reason: {record.reason}")
 

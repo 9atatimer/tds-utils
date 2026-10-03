@@ -1,9 +1,15 @@
-"""Rendering StatusView and records as tables or JSON (CLI and TUI share it)."""
+"""Rendering StatusView and records as tables or JSON (CLI and TUI share it).
+
+Times: records, ticks and notifications carry naive UTC (ports/host.py);
+only a chore's `next_due` is local. JSON keeps the stored values. The text
+surfaces print every time in local wall-clock time, so the caller passes
+the clock's `local_from_utc` as `local` (issue #393).
+"""
 
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from enum import Enum
@@ -11,6 +17,8 @@ from enum import Enum
 from chores.adapters.fs_store import record_to_json
 from chores.application.status import ChoreStatus, RunSummary, StatusView
 from chores.domain.run import RunRecord
+
+Localize = Callable[[datetime], datetime]
 
 
 def _jsonable(value: object) -> object:
@@ -39,13 +47,21 @@ def records_json(records: Sequence[RunRecord]) -> str:
 
 
 def _when(at: datetime | None) -> str:
+    """A local wall-clock time as the surfaces print it."""
     return "-" if at is None else at.strftime("%m-%d %H:%M")
 
 
-def _run_cell(summary: RunSummary | None) -> str:
+def _utc_when(at: datetime | None, local: Localize) -> str:
+    """A stored UTC time, printed in local wall-clock time."""
+    return "-" if at is None else _when(local(at))
+
+
+def _run_cell(summary: RunSummary | None, local: Localize) -> str:
     if summary is None:
         return "-"
-    return f"{summary.status.value} {_when(summary.ended or summary.started)}"
+    return (
+        f"{summary.status.value} {_utc_when(summary.ended or summary.started, local)}"
+    )
 
 
 def _usage_cell(summary: RunSummary | None) -> str:
@@ -67,7 +83,7 @@ def table(rows: Sequence[Sequence[str]], header: Sequence[str]) -> str:
     return "\n".join(lines)
 
 
-def _chore_row(c: ChoreStatus) -> list[str]:
+def _chore_row(c: ChoreStatus, *, local: Localize) -> list[str]:
     state = (
         "invalid"
         if c.invalid
@@ -80,13 +96,13 @@ def _chore_row(c: ChoreStatus) -> list[str]:
         state,
         c.schedule,
         _when(c.next_due),
-        _run_cell(c.last_run),
+        _run_cell(c.last_run, local),
         _usage_cell(c.last_run),
-        _run_cell(c.last_failure),
+        _run_cell(c.last_failure, local),
     ]
 
 
-def status_text(view: StatusView) -> str:
+def status_text(view: StatusView, *, local: Localize) -> str:
     out: list[str] = []
     if view.paused:
         out.append(f"PAUSED: {view.paused}")
@@ -94,7 +110,7 @@ def status_text(view: StatusView) -> str:
     installed = {True: "installed", False: "NOT INSTALLED", None: "install unknown"}[
         sched.installed
     ]
-    tick = _when(sched.last_tick)
+    tick = _utc_when(sched.last_tick, local)
     out.append(
         f"scheduler: {installed}; last tick {tick}{' (STALE)' if sched.stale else ''}; "
         f"ledger rows {sched.ledger_rows}"
@@ -102,7 +118,7 @@ def status_text(view: StatusView) -> str:
     out.append("")
     out.append(
         table(
-            [_chore_row(c) for c in view.chores],
+            [_chore_row(c, local=local) for c in view.chores],
             ["chore", "state", "schedule", "next", "last run", "usage", "last failure"],
         )
     )
@@ -126,17 +142,17 @@ def status_text(view: StatusView) -> str:
         out.append("")
         out.append("notifications:")
         for n in view.notifications:
-            out.append(f"  [{n.id}] {n.level} {_when(n.ts)} {n.text}")
+            out.append(f"  [{n.id}] {n.level} {_utc_when(n.ts, local)} {n.text}")
     return "\n".join(out)
 
 
-def runs_text(records: Sequence[RunRecord]) -> str:
+def runs_text(records: Sequence[RunRecord], *, local: Localize) -> str:
     rows = [
         [
             r.run_id,
             r.status.value,
-            _when(r.started),
-            _when(r.ended),
+            _utc_when(r.started, local),
+            _utc_when(r.ended, local),
             _usage_cell(RunSummary.of(r)),
             (r.reason or "")[:60],
         ]
