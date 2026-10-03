@@ -32,13 +32,13 @@ These technologies are the foundational components of the Local Managed Develope
 - **1Password CLI (op)**: Source of truth for secrets and identity.
 - **NATS**: Distributed message bus for local service inter-op. Standardized on `localhost:4222`.
 - **Caddy**: Local reverse proxy and TLS terminator.
-- **HAProxy**: The LMDE proxy layer -- the one local front door that every
-  laptop service with a public port, or a shared queue, sits behind
+- **HAProxy**: The proxy the LMDE proxy layer runs -- the local front door
+  every laptop service with a public port sits behind
   (`docs/design/OLLAMA-GATEWAY.DESIGN.md`, Deadline proxy). Chosen for its
   backend request queue with priority classes (`maxconn`,
   `http-request set-priority-class`, `timeout queue`), which the decision
   arena needs so interactive callers jump ahead of batch work (Issue#382).
-  Homebrew-installed, loopback only.
+  Not built or installed yet; the layer's design places it on loopback.
 - **dnsmasq**: Local DNS orchestration for `.localhost` and internal discovery.
 - **Local Registry**: Secure container mirror on `localhost:5001`.
 
@@ -132,8 +132,11 @@ documents the recommended approach so it isn't reinvented per repo.
   request ("I have ultimate confidence in it"). It settles the layer's
   proxy choice that `OLLAMA-GATEWAY.DESIGN.md` left open between nginx,
   haproxy and Caddy: only HAProxy queues requests to a busy backend with
-  priority, which open-source nginx and Caddy do not (Issue#382). Caddy
-  keeps its role as the `.localhost` TLS terminator.
+  priority, which open-source nginx and Caddy do not (Issue#382). This
+  adopts it directly, superseding that design's Key Decisions row
+  ("propose nginx or haproxy at Trial with the code"). Caddy's row is
+  unchanged; how the two divide the laptop's edge is the proxy layer's
+  design to state.
 
 - **2026-10-02**: Added `Loki` and `Tempo` to Trial on Todd's approval
   ("let's do it", issue #380): LMDE stored only metrics, so logs and
