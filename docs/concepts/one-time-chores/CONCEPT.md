@@ -30,13 +30,16 @@ for cron.
 - It is possible to define one-time chores, which only run manually.
 - A one-time chore can be given a start time, or start immediately.
 - The smoketest triggers some smoketest one-time chores to kick the tires.
+  "The smoketest" is THE smoketest: the LMDE/CLAI behavioural smoketest,
+  `test/smoketest_lmde_clai/` (Todd, 2026-10-03).
 - Carry it through concept, design, architecture, behaviours and
   implementation.
 
 **Still open (nobody's yet):**
 
-- Which smoketest triggers them: an existing `test/smoketest_*.sh`, a new
-  one for chores, or a `chores` verb of its own.
+- The smoketest also runs in a cloud session, which has no chores herd;
+  whether the chores probes are laptop-only there, as some of its checks
+  already are.
 - Whether "start time" means a one-time chore waits for the tick to reach
   it, or is started some other way, and what happens if the laptop is
   asleep at that time.
