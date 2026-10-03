@@ -32,6 +32,7 @@ These technologies are the foundational components of the Local Managed Develope
 - **1Password CLI (op)**: Source of truth for secrets and identity.
 - **NATS**: Distributed message bus for local service inter-op. Standardized on `localhost:4222`.
 - **Caddy**: Local reverse proxy and TLS terminator.
+- **HAProxy**: The LMDE proxy layer: front door, request queueing and limits for local services.
 - **dnsmasq**: Local DNS orchestration for `.localhost` and internal discovery.
 - **Local Registry**: Secure container mirror on `localhost:5001`.
 
@@ -87,15 +88,7 @@ documents the recommended approach so it isn't reinvented per repo.
 - **Tempo** (Grafana): trace store in the observability kind cluster, fed
   OTLP spans by the collector. Monolithic, digest-pinned beside Loki. Exit
   criterion to Adopt: same as Loki.
-- **Decision models** (Jev, Clef and kin; Clef-flash is the recommended
-  first model, not yet confirmed): a pretrained model reads a state once
-  and a small head scores every option of typed questions -- yes/no,
-  pick-one, rubric -- returning probabilities with no text generated. To be
-  served on the laptop by the decision arena, behind the LMDE proxy layer
-  and the Ollama Gateway's cloudflared road; none of it is built or
-  installed yet. First consumer: the ocrinator's page decisions. Exit
-  criterion: measured against a hand-adjudicated sample there, adopt or
-  drop (Issue#382).
+- **Decision models** (Jev, Clef and kin): typed yes/no, pick-one and rubric judgements returned as probabilities, served locally by the decision arena.
 
 ---
 
@@ -120,6 +113,8 @@ documents the recommended approach so it isn't reinvented per repo.
 ---
 
 ## Decisions Log
+
+- **2026-10-03**: Adopted `HAProxy` as the LMDE proxy layer at Todd's request.
 
 - **2026-10-02**: Added `Loki` and `Tempo` to Trial on Todd's approval
   ("let's do it", issue #380): LMDE stored only metrics, so logs and
