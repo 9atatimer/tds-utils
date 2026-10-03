@@ -54,7 +54,9 @@ from chores.ports.host import (
 from chores.ports.process import ProcessPort, ProcessRequest
 from chores.ports.store import RunStorePort, WorkspacesPort
 
-_INHERITED_KEYS = ("PATH", "HOME", "LANG")
+# USER: the Claude CLI looks its subscription login up in the macOS keychain
+# by user; with only HOME it reports "Not logged in" (issue #406).
+_INHERITED_KEYS = ("PATH", "HOME", "LANG", "USER")
 
 
 @dataclass(frozen=True, slots=True)
