@@ -16,7 +16,7 @@
 #   not rename it.
 #
 # Secret requirement:
-#   GH_AI_TOOLS_PAT -- a CLASSIC read:packages PAT (GitHub Packages npm
+#   GH_PAT_NAATM_PACKAGES_RO -- a CLASSIC read:packages PAT (GitHub Packages npm
 #   reads require the classic read:packages scope; fine-grained PATs have
 #   no Packages permission -- RD2). Post-#84 clai and ast-mcp install from
 #   GitHub Packages under nine-at-a-time-media and the skills/manifest live
@@ -76,10 +76,5 @@ jobs:
       - name: Provision agent tooling (pinned clai bootstrap + clai provision)
         run: bash sandbox/provision.sh
         env:
-          # Current name. Provision this on the Agents secrets surface.
+          # Provision this on the Agents secrets surface.
           GH_PAT_NAATM_PACKAGES_RO: ${{ secrets.GH_PAT_NAATM_PACKAGES_RO }}
-          # Deprecated predecessor, named for the retired ai-tools repo. Still
-          # passed so a workspace that has not been reprovisioned keeps working;
-          # provision.sh prefers the name above and warns when it falls back
-          # here. Remove once nothing reports using it.
-          GH_AI_TOOLS_PAT: ${{ secrets.GH_AI_TOOLS_PAT }}

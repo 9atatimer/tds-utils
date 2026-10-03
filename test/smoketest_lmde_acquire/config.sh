@@ -365,20 +365,13 @@ run_acquire() {
     local dir="$1"; shift || true
     local rc=0
     local -a envv
-    # Both credential names are set explicitly, the unused one to empty. `env`
-    # ADDS to the caller's environment rather than replacing it, so a real
-    # GH_AI_TOOLS_PAT on the developer's machine would otherwise satisfy the
-    # fallback and silently defeat every no-token scenario -- with a live token
-    # inside a test, at that. TEST_PAT_VAR selects which name carries the value.
-    local pat_var other_var
-    pat_var="${TEST_PAT_VAR:-GH_PAT_NAATM_PACKAGES_RO}"
-    if [[ "${pat_var}" == "GH_AI_TOOLS_PAT" ]]; then
-        other_var="GH_PAT_NAATM_PACKAGES_RO"
-    else
-        other_var="GH_AI_TOOLS_PAT"
-    fi
+    # The retired GH_AI_TOOLS_PAT is ALWAYS set explicitly, empty by default.
+    # `env` ADDS to the caller's environment rather than replacing it, so a
+    # real one still exported on the developer's machine would otherwise ride
+    # into every scenario -- a live token inside a test. TEST_DEPRECATED_PAT
+    # gives it a value, for the one scenario proving it is no longer read (23).
     # The THIRD credential source (a gh login) needs neutralizing for the same
-    # reason as the two PAT names above, and it did not get it when that source
+    # reason as the PAT names above, and it did not get it when that source
     # was added. `env` without -i keeps the caller's environment, and GH_TOKEN
     # beats the faked HOME -- so an ambient GH_TOKEN (direnv, devcontainer,
     # GitHub Actions) makes `gh auth token` succeed inside a scenario that is
@@ -387,7 +380,8 @@ run_acquire() {
     # PATH; on Linux gh is /usr/bin/gh, which IS on it, and they would quietly
     # stop testing the no-credential path.
     envv=("PATH=${dir}/bin:/usr/bin:/bin" "HOME=${dir}/home"
-          "${pat_var}=${TEST_PAT-faketoken-readpackages}" "${other_var}="
+          "GH_PAT_NAATM_PACKAGES_RO=${TEST_PAT-faketoken-readpackages}"
+          "GH_AI_TOOLS_PAT=${TEST_DEPRECATED_PAT:-}"
           "GH_TOKEN=" "GITHUB_TOKEN=" "GH_HOST=" "GH_CONFIG_DIR=${dir}/home/.config/gh")
     if [[ -n "${TEST_NPM_CONFIG_REGISTRY:-}" ]]; then
         envv+=("NPM_CONFIG_REGISTRY=${TEST_NPM_CONFIG_REGISTRY}")
@@ -405,17 +399,11 @@ run_acquire() {
 run_check() {
     local dir="$1"; shift || true
     local rc=0
-    local pat_var other_var
-    pat_var="${TEST_PAT_VAR:-GH_PAT_NAATM_PACKAGES_RO}"
-    if [[ "${pat_var}" == "GH_AI_TOOLS_PAT" ]]; then
-        other_var="GH_PAT_NAATM_PACKAGES_RO"
-    else
-        other_var="GH_AI_TOOLS_PAT"
-    fi
     # Same third-source neutralization as run_acquire above.
     env "PATH=${dir}/bin:/usr/bin:/bin" "HOME=${dir}/home" \
         "GH_TOKEN=" "GITHUB_TOKEN=" "GH_HOST=" "GH_CONFIG_DIR=${dir}/home/.config/gh" \
-        "${pat_var}=${TEST_PAT-faketoken-readpackages}" "${other_var}=" \
+        "GH_PAT_NAATM_PACKAGES_RO=${TEST_PAT-faketoken-readpackages}" \
+        "GH_AI_TOOLS_PAT=${TEST_DEPRECATED_PAT:-}" \
         bash "${LMDE_BIN}" acquire --check "$@" >"${dir}/stdout" 2>"${dir}/stderr" || rc=$?
     printf '%s\n' "${rc}"
 }
@@ -427,16 +415,10 @@ run_check() {
 run_latest() {
     local dir="$1" shortname="$2"
     local rc=0
-    local pat_var other_var
-    pat_var="${TEST_PAT_VAR:-GH_PAT_NAATM_PACKAGES_RO}"
-    if [[ "${pat_var}" == "GH_AI_TOOLS_PAT" ]]; then
-        other_var="GH_PAT_NAATM_PACKAGES_RO"
-    else
-        other_var="GH_AI_TOOLS_PAT"
-    fi
     env "PATH=${dir}/bin:/usr/bin:/bin" "HOME=${dir}/home" \
         "GH_TOKEN=" "GITHUB_TOKEN=" "GH_HOST=" "GH_CONFIG_DIR=${dir}/home/.config/gh" \
-        "${pat_var}=${TEST_PAT-faketoken-readpackages}" "${other_var}=" \
+        "GH_PAT_NAATM_PACKAGES_RO=${TEST_PAT-faketoken-readpackages}" \
+        "GH_AI_TOOLS_PAT=${TEST_DEPRECATED_PAT:-}" \
         bash "${LMDE_BIN}" acquire --latest "${shortname}" >"${dir}/stdout" 2>"${dir}/stderr" || rc=$?
     printf '%s\n' "${rc}"
 }

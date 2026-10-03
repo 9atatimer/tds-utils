@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Given no credential under either env var name, When `lmde acquire --check` runs,
+# Given no credential (token env var empty, no gh login), When `lmde acquire --check` runs,
 # Then it cannot query GitHub Packages: it prints nothing on stdout, warns on
 # stderr that the token is unset and the check was skipped, and exits 0.
 set -euo pipefail
@@ -16,16 +16,17 @@ main() {
 
     assert_eq "${rc}" "0" "advisory check always exits 0 without a token" || return 1
     assert_stdout_empty "${dir}" "no advisory without a token to query the registry" || return 1
-    # The message now names all THREE sources it tried, not just the PAT --
-    # on a machine whose only credential is a gh login, "GH_PAT... unset" alone
-    # would send the reader looking for a token they do not need. Assert each
-    # source is named rather than matching one brittle phrase.
-    assert_stderr_contains "${dir}" "GH_PAT_NAATM_PACKAGES_RO" "stderr names the current token env var" || return 1
-    assert_stderr_contains "${dir}" "GH_AI_TOOLS_PAT" "stderr names the deprecated env var" || return 1
+    # The message names BOTH sources it tried, not just the PAT -- on a machine
+    # whose only credential is a gh login, "GH_PAT... unset" alone would send
+    # the reader looking for a token they do not need. Assert each source is
+    # named rather than matching one brittle phrase.
+    assert_stderr_contains "${dir}" "GH_PAT_NAATM_PACKAGES_RO" "stderr names the token env var" || return 1
     assert_stderr_contains "${dir}" "gh auth token" "stderr names the gh login it also tried" || return 1
-    # The behavior under test, which the three substrings above do not pin:
-    # the deprecation warning also names both variables, so without this the
-    # scenario would pass on a run that skipped nothing.
+    # The retired name is gone from the ladder (tds-utils#303); naming it here
+    # would send the reader to provision a variable nothing reads.
+    assert_stderr_not_contains "${dir}" "GH_AI_TOOLS_PAT" "stderr no longer names the retired env var" || return 1
+    # The behavior under test, which the substrings above do not pin: without
+    # this the scenario would pass on a run that skipped nothing.
     assert_stderr_contains "${dir}" "advisory update check skipped" "stderr says the check was skipped" || return 1
 }
 main "$@"

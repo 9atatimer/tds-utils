@@ -144,21 +144,17 @@ EOF
 # stubs and /usr/bin:/bin (awk, sed, rm, mkdir, bash) are visible.
 run_provision() {
     local dir="$1" rc=0
-    # Both credential names are passed explicitly, the unused one empty: these
-    # assignments prefix a command rather than replacing the environment, so a
-    # real GH_AI_TOOLS_PAT on the developer's machine would otherwise satisfy
-    # provision.sh's fallback and leak a live token into the scenario.
-    # TEST_PAT_VAR routes the fake token to the other name.
-    local pat_var other_var
-    pat_var="${TEST_PAT_VAR:-GH_PAT_NAATM_PACKAGES_RO}"
-    if [[ "${pat_var}" == "GH_AI_TOOLS_PAT" ]]; then
-        other_var="GH_PAT_NAATM_PACKAGES_RO"
-    else
-        other_var="GH_AI_TOOLS_PAT"
-    fi
+    # The retired GH_AI_TOOLS_PAT is ALWAYS set explicitly, empty by default:
+    # `env` adds to the caller's environment rather than replacing it, so a
+    # real one still exported on the developer's machine would otherwise ride
+    # into the scenario -- a live token inside a test. TEST_PAT overrides the
+    # fake token (set it empty for a no-credential scenario);
+    # TEST_DEPRECATED_PAT gives the retired name a value, for the one scenario
+    # proving provision.sh no longer reads it (07).
     env "PATH=${dir}/bin:/usr/bin:/bin" "HOME=${dir}/home" \
         "CLAI_PREFIX=${dir}/prefix" \
-        "${pat_var}=faketoken-readpackages" "${other_var}=" \
+        "GH_PAT_NAATM_PACKAGES_RO=${TEST_PAT-faketoken-readpackages}" \
+        "GH_AI_TOOLS_PAT=${TEST_DEPRECATED_PAT:-}" \
         bash "${dir}/provision.sh" >/dev/null 2>"${dir}/stderr" || rc=$?
     printf '%s\n' "${rc}"
 }
@@ -223,8 +219,20 @@ assert_stderr_contains() {
     fi
 }
 
+# assert_stderr_not_contains <dir> <needle> <msg>
+assert_stderr_not_contains() {
+    local dir="$1" needle="$2" msg="$3"
+    if grep -qF "${needle}" "${dir}/stderr" 2>/dev/null; then
+        echo "FAIL: ${msg}"
+        echo "  expected stderr NOT to contain: ${needle}"
+        echo "--- stderr ---"; cat "${dir}/stderr" 2>/dev/null
+        return 1
+    fi
+}
+
 export -f require_provision scenario_dir write_pins \
     clai_stub_text make_clai_stub make_npm_install_stub make_npm_fail_stub \
     make_npm_forbidden_stub run_provision \
     assert_eq assert_file_absent assert_file_present \
-    assert_provisioned assert_not_provisioned assert_stderr_contains
+    assert_provisioned assert_not_provisioned assert_stderr_contains \
+    assert_stderr_not_contains
