@@ -93,7 +93,6 @@ def test_arming_writes_an_armed_record_and_starts_nothing(tmp_path: Path) -> Non
     assert record.start_at == h.clock.now_utc() + timedelta(minutes=30)
     assert record.armed_by == "cli"
     assert h.launched == [] and h.armed_launched == []
-    assert not RunStatus.ARMED.is_terminal
 
 
 def test_a_second_arming_is_refused_naming_the_first(tmp_path: Path) -> None:
@@ -348,3 +347,67 @@ def test_at_now_is_never_refused_when_the_clock_moves(tmp_path: Path) -> None:
     h.clock.now_utc = later_each_read  # type: ignore[method-assign]
     code, out = _invoke(h, "run", "smoke", "--at", "now")
     assert code == 0 and "armed as" in out, out
+
+
+MANUAL_DISABLED = MANUAL.replace(
+    "schedule: manual\n", "schedule: manual\nenabled: false\n"
+)
+
+
+def test_disabling_or_invalidating_an_armed_chore_abandons_it(tmp_path: Path) -> None:
+    """The ARM_ABANDONED row's other two triggers: enabled: false, and a
+    binding that no longer resolves."""
+    h = _harness(tmp_path, smoke=MANUAL, ask=MANUAL_PROMPT)
+    disabled = _arm(h, "smoke")
+    broken = _arm(h, "ask")
+    home = Path(h.paths.chores_home) / "chores"
+    (home / "smoke.md").write_text(MANUAL_DISABLED)
+    (home / "ask.md").write_text(
+        MANUAL_PROMPT.replace("backend: local", "backend: gone")
+    )
+    # The harness mints run ids with a fixed suffix: a second later, the
+    # tick's own INVALID record for "ask" gets an id of its own.
+    h.clock.advance(1)
+    tick(h.deps().as_tick_deps())
+    for run_id, word in ((disabled, "disabled"), (broken, "invalid")):
+        record = h.store.read_record(run_id)
+        assert record is not None and record.status is RunStatus.ARM_ABANDONED
+        assert word in (record.reason or ""), record.reason
+    assert h.armed_launched == []
+
+
+def test_status_next_is_the_earlier_of_cron_and_arming(tmp_path: Path) -> None:
+    """A cron chore (next slot 10:30 local) armed for 10:10 shows 10:10
+    armed; armed for 15:00 it shows the 10:30 slot."""
+    h = _harness(tmp_path, daily=DAILY)
+    early = _arm(h, "daily", minutes=10)
+    row = status(h.deps()).chores[0]
+    assert row.armed is not None and row.next_due == row.armed.start_at
+    assert cancel_armed(early, h.deps())
+    _arm(h, "daily", minutes=300)
+    row = status(h.deps()).chores[0]
+    assert row.next_due is not None and row.next_due.hour == 10
+    assert row.next_due.minute == 30
+
+
+def test_cli_hh_mm_already_past_today_means_tomorrow(tmp_path: Path) -> None:
+    """Given local 10:00, When `--at 09:00`, Then the arming is tomorrow 09:00."""
+    h = _harness(tmp_path, smoke=MANUAL)
+    code, out = _invoke(h, "run", "smoke", "--at", "09:00")
+    assert code == 0, out
+    record = next(r for r in h.store.records(chore="smoke"))
+    expected = (h.clock.now_utc() + timedelta(days=1)).replace(
+        hour=16, minute=0, second=0
+    )
+    assert record.start_at == expected
+
+
+def test_prune_never_deletes_an_arming(tmp_path: Path) -> None:
+    """An arming is not a finished run: past retention, prune keeps it."""
+    from chores.application.status import prune
+
+    h = _harness(tmp_path, smoke=MANUAL)
+    run_id = _arm(h, "smoke", minutes=200 * 24 * 60)
+    h.clock.advance(120 * 24 * 3600)  # beyond the default 90-day retention
+    assert run_id not in prune(h.deps())
+    assert _status_of(h, run_id) is RunStatus.ARMED

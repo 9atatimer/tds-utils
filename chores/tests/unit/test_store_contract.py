@@ -214,3 +214,37 @@ def test_transition_is_a_check_and_set(store: RunStorePort) -> None:
         store.transition("missing", expected=RunStatus.RUNNING, then=interrupt) is None
     )
     assert store.read_record("c-1") == done
+
+
+def test_an_arming_round_trips_with_its_fields(store: RunStorePort) -> None:
+    """Given an ARMED record with start_at/armed_at/armed_by, When it is read
+    back, ended by check-and-set, and a fired one carries late_sec, Then
+    every field survives the store (CHORES-ONE-TIME Data Model)."""
+    armed = RunRecord.armed(
+        run_id="c-armed",
+        chore="c",
+        kind=Kind.COMMAND,
+        definition_rev="rev",
+        start_at=T0 + timedelta(hours=1),
+        armed_at=T0,
+        armed_by="cli",
+    )
+    store.write_record(armed)
+    assert store.read_record("c-armed") == armed
+    ended = store.transition(
+        "c-armed",
+        expected=RunStatus.ARMED,
+        then=lambda r: r.end_arming(RunStatus.CANCELLED, at=T0, reason="x"),
+    )
+    assert ended is not None and store.read_record("c-armed") == ended
+    fired = armed.fire(
+        started=T0 + timedelta(hours=3),
+        definition_rev="rev",
+        late_sec=7200,
+        budget=None,
+        backend=None,
+        billing=None,
+    )
+    store.write_record(fired)
+    back = store.read_record("c-armed")
+    assert back == fired and back is not None and back.late_sec == 7200
