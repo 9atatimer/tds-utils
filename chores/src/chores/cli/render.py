@@ -20,6 +20,7 @@ from chores.domain.run import RunRecord
 
 Localize = Callable[[datetime], datetime]
 
+
 def _jsonable(value: object) -> object:
     if is_dataclass(value) and not isinstance(value, type):
         return {k: _jsonable(v) for k, v in asdict(value).items()}
@@ -58,7 +59,9 @@ def _utc_when(at: datetime | None, local: Localize) -> str:
 def _run_cell(summary: RunSummary | None, local: Localize) -> str:
     if summary is None:
         return "-"
-    return f"{summary.status.value} {_utc_when(summary.ended or summary.started, local)}"
+    return (
+        f"{summary.status.value} {_utc_when(summary.ended or summary.started, local)}"
+    )
 
 
 def _usage_cell(summary: RunSummary | None) -> str:

@@ -70,6 +70,9 @@ def test_status_and_runs_show_every_time_in_local_wall_clock(tmp_path: Path) -> 
     assert "17:00" not in status_out
     _, runs_out = invoke(h, "runs")
     assert "03-02 10:00" in runs_out and "17:00" not in runs_out
+    run_id = json.loads(invoke(h, "runs", "--json")[1])[0]["run_id"]
+    _, show_out = invoke(h, "show", run_id)
+    assert "03-02 10:00" in show_out and "17:00" not in show_out
 
 
 def test_status_flags_stale_scheduler_and_failures(tmp_path: Path) -> None:
