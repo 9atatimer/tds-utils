@@ -214,6 +214,17 @@ lands in the conversation and work continues. Same handoff applies to any
 state-changing command the classifier refuses. The iac skill owns the
 authority model; `/infra-handoff` writes the block.
 
+## Never deploy: land the PR, let CI ship it
+
+Never run a deploy or publish command yourself -- not locally, not by
+dispatching the deploy workflow by hand -- even when a task prompt says
+"deploy." If the repo ships through CI on merge or a landing bot, your job
+ends at opening the PR and requesting landing the way that repo documents.
+The repo's own current AGENT.md/skill outranks a task prompt, which can be
+stale (observed 2026-09-30: a stale prompt said "deploy," the repo's skill
+said land via tedium, and a local preview publish went out from an
+unmerged branch).
+
 ## Never pull down and run a shell script
 
 NEVER `curl ... | sh`, and never fetch-then-run an installer script, including
