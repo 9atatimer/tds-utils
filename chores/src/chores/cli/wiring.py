@@ -103,14 +103,32 @@ def forget_home(paths: Paths) -> None:
 
 
 def _launch_factory(state_dir: Path) -> Callable[[str], None]:
+    spawn = _spawn_factory(state_dir)
+
     def launch(name: str) -> None:
+        spawn(["run", name])
+
+    return launch
+
+
+def _launch_armed_factory(state_dir: Path) -> Callable[[str, str], None]:
+    spawn = _spawn_factory(state_dir)
+
+    def launch_armed(name: str, run_id: str) -> None:
+        spawn(["run", name, "--armed", run_id])
+
+    return launch_armed
+
+
+def _spawn_factory(state_dir: Path) -> Callable[[list[str]], None]:
+    def spawn(args: list[str]) -> None:
         log = state_dir / "spawn.log"
         if log.is_symlink():
             raise UnsafeStatePath(f"{log} is a symlink; refusing to log there")
         fd = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "ab") as fh:
             subprocess.Popen(
-                [sys.executable, "-m", "chores", "run", name],
+                [sys.executable, "-m", "chores", *args],
                 stdin=subprocess.DEVNULL,
                 stdout=fh,
                 stderr=fh,
@@ -118,7 +136,7 @@ def _launch_factory(state_dir: Path) -> Callable[[str], None]:
                 close_fds=True,
             )
 
-    return launch
+    return spawn
 
 
 def build_deps(*, installed_probe: Callable[[], bool | None] | None = None) -> Deps:
@@ -149,6 +167,7 @@ def build_deps(*, installed_probe: Callable[[], bool | None] | None = None) -> D
         inherited_env=dict(os.environ),
         run_id_suffix=lambda: secrets.token_hex(2),
         launch=_launch_factory(state_dir),
+        launch_armed=_launch_armed_factory(state_dir),
         scheduler_installed=installed_probe,
         installer=installer,
     )

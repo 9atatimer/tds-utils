@@ -95,8 +95,8 @@ def held(record: RunRecord, *, ledgered: bool) -> LedgerUsage | None:
     crash) can fall between them. A command run holds nothing -- commands
     are exempt from ceilings -- and so does everything else.
     """
-    if record.kind is Kind.COMMAND:
-        return None
+    if record.kind is Kind.COMMAND or record.status is RunStatus.ARMED:
+        return None  # an arming holds nothing until it is admitted
     if not record.status.is_terminal:
         if record.budget is None:
             # Written before records carried a budget (the upgrade window):

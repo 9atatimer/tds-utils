@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from chores.application.context import (
+    armed_record,
     binding_errors,
     ledger_window,
     live_running,
@@ -20,6 +21,7 @@ from chores.domain.budget import Ceiling, Usage
 from chores.domain.errors import InfrastructureError
 from chores.domain.policies import redact
 from chores.domain.run import Billing, RunRecord, RunStatus
+from chores.domain.schedule import Schedule
 from chores.ports.store import Notification
 
 STALE_AFTER_TICKS = 3
@@ -40,6 +42,15 @@ class RunSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class ArmedSummary:
+    """A chore's one armed run (CHORES-ONE-TIME.DESIGN.md)."""
+
+    run_id: str
+    start_at: datetime
+    """Local wall-clock time, like ``next_due``."""
+
+
+@dataclass(frozen=True, slots=True)
 class ChoreStatus:
     name: str
     kind: str
@@ -53,6 +64,7 @@ class ChoreStatus:
     last_run: RunSummary | None
     last_success: RunSummary | None
     last_failure: RunSummary | None
+    armed: ArmedSummary | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +158,21 @@ def status(deps: Deps) -> StatusView:
         )
         last_run, last_success, last_failure = _summaries(records)
         bindings = binding_errors(ctx, chore, forbidden=deps.paths.forbidden_for_cwd())
+        arming = armed_record(deps.store, chore.name)
+        armed = (
+            ArmedSummary(
+                run_id=arming.run_id,
+                start_at=deps.clock.local_from_utc(arming.start_at),
+            )
+            if arming is not None and arming.start_at is not None
+            else None
+        )
+        cron_next = (
+            chore.schedule.next_after(now_local)
+            if chore.enabled and isinstance(chore.schedule, Schedule)
+            else None
+        )
+        candidates = [t for t in (cron_next, armed.start_at if armed else None) if t]
         chores.append(
             ChoreStatus(
                 name=chore.name,
@@ -153,15 +180,14 @@ def status(deps: Deps) -> StatusView:
                 enabled=chore.enabled,
                 paused_by=deps.store.chore_paused(chore.name),
                 schedule=chore.schedule.expression,
-                next_due=chore.schedule.next_after(now_local)
-                if chore.enabled
-                else None,
+                next_due=min(candidates) if candidates else None,
                 backend=chore.backend,
                 invalid="; ".join(bindings) or None,
                 running=RunSummary.of(running) if running else None,
                 last_run=last_run,
                 last_success=last_success,
                 last_failure=last_failure,
+                armed=armed,
             )
         )
     for invalid in ctx.definitions.invalid:

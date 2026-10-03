@@ -95,7 +95,8 @@ def _chore_row(c: ChoreStatus, *, local: Localize) -> list[str]:
         c.name,
         state,
         c.schedule,
-        _when(c.next_due),
+        _when(c.next_due)
+        + (" armed" if c.armed is not None and c.next_due == c.armed.start_at else ""),
         _run_cell(c.last_run, local),
         _usage_cell(c.last_run),
         _run_cell(c.last_failure, local),

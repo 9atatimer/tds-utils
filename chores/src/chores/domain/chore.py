@@ -22,7 +22,7 @@ from chores.domain.budget import Budget, Ceiling, InvalidBudget
 from chores.domain.errors import DomainError
 from chores.domain.kinds import DEFINABLE_KINDS, KIND_PORT, ExecutionPort, Kind
 from chores.domain.run import Billing, RunStatus
-from chores.domain.schedule import InvalidSchedule, Schedule
+from chores.domain.schedule import InvalidSchedule, Manual, Trigger, parse_trigger
 
 __all__ = [
     "BackendSpec",
@@ -229,7 +229,7 @@ class Chore:
     """One definition, validated field by field. Build with :meth:`from_mapping`."""
 
     name: str
-    schedule: Schedule
+    schedule: Trigger
     kind: Kind
     budget: Budget
     body: str
@@ -261,9 +261,11 @@ class Chore:
         if schedule_text is None:
             raise InvalidChore("schedule is required")
         try:
-            schedule = Schedule.parse(schedule_text)
+            schedule = parse_trigger(schedule_text)
         except InvalidSchedule as e:
             raise InvalidChore(f"schedule: {e}") from e
+        if isinstance(schedule, Manual) and _bool(data, "catch_up", default=False):
+            raise InvalidChore("catch_up does not apply to schedule: manual (no slots)")
         kind_text = _str(data, "kind")
         try:
             kind = Kind(kind_text)

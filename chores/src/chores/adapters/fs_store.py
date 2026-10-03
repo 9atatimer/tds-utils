@@ -164,6 +164,10 @@ def record_to_json(record: RunRecord) -> dict[str, object]:
             "usd": record.budget.usd,
             "turns": record.budget.turns,
         },
+        "start_at": record.start_at.isoformat() if record.start_at else None,
+        "armed_at": record.armed_at.isoformat() if record.armed_at else None,
+        "armed_by": record.armed_by,
+        "late_sec": record.late_sec,
     }
 
 
@@ -209,6 +213,10 @@ def record_from_json(data: Mapping[str, object]) -> RunRecord:
         exit_code=_opt_int(data.get("exit_code")),
         truncated=bool(data.get("truncated", False)),
         budget=budget,
+        start_at=_opt_dt(data.get("start_at")),
+        armed_at=_opt_dt(data.get("armed_at")),
+        armed_by=_opt_str(data.get("armed_by")),
+        late_sec=_opt_int(data.get("late_sec")),
     )
 
 

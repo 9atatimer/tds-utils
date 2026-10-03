@@ -447,3 +447,33 @@ def note_false_breaker(
 
 def mint_run_id(chore: str, clock: ClockPort, suffix: Callable[[], str]) -> str:
     return new_run_id(chore, at=clock.now_utc(), suffix=suffix())
+
+
+# --- armings (CHORES-ONE-TIME.DESIGN.md) ------------------------------------
+
+
+def armed_record(store: RunStorePort, chore: str) -> RunRecord | None:
+    """The chore's one ARMED record, if it has one."""
+    return next(
+        (r for r in store.records(chore=chore) if r.status is RunStatus.ARMED), None
+    )
+
+
+def end_arming(
+    store: RunStorePort,
+    record: RunRecord,
+    status: RunStatus,
+    *,
+    at: datetime,
+    reason: str,
+) -> RunRecord | None:
+    """ARMED -> ``status`` as a check-and-set, plus its ledger row. None when
+    the record was no longer ARMED (cancelled, or the runner took it)."""
+    ended = store.transition(
+        record.run_id,
+        expected=RunStatus.ARMED,
+        then=lambda current: current.end_arming(status, at=at, reason=reason),
+    )
+    if ended is not None:
+        store.append_ledger(to_ledger_row(ended))
+    return ended

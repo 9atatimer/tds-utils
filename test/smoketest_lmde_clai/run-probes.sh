@@ -30,7 +30,7 @@ run_probe() {
 main() {
   local fails=0 rc probe
   printf '=== LMDE/CLAI smoketest (env=%s, home=%s) ===\n' "$(env_label)" "${HOME}"
-  for probe in probe-lmde.sh probe-clai.sh; do
+  for probe in probe-lmde.sh probe-clai.sh probe-chores.sh; do
     run_probe "${probe}"
     rc=$?
     fails=$((fails + rc))

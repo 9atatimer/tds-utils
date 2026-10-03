@@ -7,7 +7,8 @@ function, shape the result. The composition root lives in
 
 from __future__ import annotations
 
-from datetime import timedelta
+import re
+from datetime import datetime, timedelta
 from typing import cast
 
 import click
@@ -15,6 +16,7 @@ import click
 from chores import __version__
 from chores.adapters.scheduler import SchedulerInstaller
 from chores.application import status as queries
+from chores.application.arm import arm_chore, cancel_armed
 from chores.application.deps import Deps
 from chores.application.run import run_chore
 from chores.application.tick import tick as run_tick
@@ -22,6 +24,7 @@ from chores.cli import render
 from chores.cli.wiring import forget_home, remember_home, restore_home
 from chores.domain.errors import InfrastructureError
 from chores.domain.run import RunStatus
+from chores.ports.host import ClockPort
 
 _ARTIFACT_FLAGS = ("transcript", "stdout", "stderr", "errors", "definition")
 _ARTIFACT_NAMES = {
@@ -170,14 +173,50 @@ def show(ctx: click.Context, run_id: str, as_json: bool, artifact: str | None) -
 @click.option(
     "--dry-run", is_flag=True, help="Print the resolved plan; execute nothing."
 )
+@click.option(
+    "--at",
+    "at",
+    default=None,
+    metavar="WHEN",
+    help="Arm instead of running now: 'now', 'HH:MM' (next occurrence, local) "
+    "or 'YYYY-MM-DDTHH:MM' (local). The tick starts it at that time.",
+)
+@click.option("--armed", "armed_run_id", default=None, hidden=True)
 @click.pass_context
-def run(ctx: click.Context, name: str, force: bool, dry_run: bool) -> None:
-    """Run one chore now (admission still applies).
+def run(
+    ctx: click.Context,
+    name: str,
+    force: bool,
+    dry_run: bool,
+    at: str | None,
+    armed_run_id: str | None,
+) -> None:
+    """Run one chore now, or arm it for later with --at (admission applies).
 
-    Exit 0 ran and succeeded, 1 no such chore, 2 ran and failed (or invalid),
-    3 refused by admission (paused, ceiling, overlap, offline, battery).
+    Exit 0 ran and succeeded (or armed), 1 no such chore or refused arming,
+    2 ran and failed (or invalid), 3 refused by admission (paused, ceiling,
+    overlap, offline, battery).
     """
-    outcome = run_chore(name, _deps(ctx).as_run_deps(), force=force, dry_run=dry_run)
+    deps = _deps(ctx)
+    if at is not None:
+        if force or dry_run:
+            raise click.UsageError("--at cannot be combined with --force or --dry-run")
+        try:
+            start_at = parse_at(at, deps.clock)
+        except ValueError as e:
+            raise click.UsageError(f"--at: {e}") from e
+        armed = arm_chore(name, start_at, deps.as_run_deps(), armed_by="cli")
+        click.echo(armed.message)
+        if armed.run_id is None:
+            ctx.exit(1)
+        return
+    outcome = run_chore(
+        name,
+        deps.as_run_deps(),
+        force=force,
+        dry_run=dry_run,
+        armed_run_id=armed_run_id,
+    )
     if outcome.plan is not None:
         p = outcome.plan
         click.echo(f"chore:     {p.chore} ({p.kind}, port {p.port or '-'})")
@@ -208,6 +247,44 @@ def run(ctx: click.Context, name: str, force: bool, dry_run: bool) -> None:
         ctx.exit(2)
     elif not record.status.is_run_terminal:
         ctx.exit(3)  # refused: SKIPPED_* or DEFERRED_BATTERY; nothing ran
+
+
+@main.command()
+@click.argument("run_id")
+@click.pass_context
+def cancel(ctx: click.Context, run_id: str) -> None:
+    """Cancel an armed run before it starts (`chores kill` stops a running one)."""
+    if cancel_armed(run_id, _deps(ctx)):
+        click.echo(f"{run_id}: cancelled")
+        return
+    click.echo(f"{run_id}: not armed; nothing cancelled")
+    ctx.exit(1)
+
+
+def parse_at(text: str, clock: ClockPort) -> datetime | None:
+    """``now`` (None: ``arm_chore`` reads the clock itself), ``HH:MM`` (the next
+    occurrence, local) or an ISO 8601 local date-time, as a naive UTC
+    instant. Raises ValueError."""
+    if text.strip() == "now":
+        return None
+    now_utc = clock.now_utc()
+    now_local = clock.now_local()
+    offset = now_local - now_utc  # this machine's local - UTC, right now
+    if re.fullmatch(r"\d{1,2}:\d{2}", text.strip()):
+        hours, minutes = (int(v) for v in text.strip().split(":"))
+        if hours > 23 or minutes > 59:
+            raise ValueError(f"{text!r} is not a time of day")
+        local = now_local.replace(hour=hours, minute=minutes, second=0, microsecond=0)
+        if local < now_local.replace(second=0, microsecond=0):
+            local += timedelta(days=1)
+        return local - offset
+    try:
+        local = datetime.fromisoformat(text.strip())
+    except ValueError as e:
+        raise ValueError(f"{text!r}: expected now, HH:MM or YYYY-MM-DDTHH:MM") from e
+    if local.tzinfo is not None:
+        raise ValueError("give a local time without a zone")
+    return local - offset
 
 
 @main.command()
