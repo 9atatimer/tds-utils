@@ -17,6 +17,7 @@ from chores.application.context import (
     admit,
     apply_breaker,
     binding_errors,
+    end_arming,
     find_chore,
     invalid_record_name,
     load_context,
@@ -518,9 +519,29 @@ def _finish(
 # --- the use case ------------------------------------------------------------
 
 
+def _late_sec(record: RunRecord, started: datetime, *, grace_sec: int) -> int | None:
+    """Seconds past ``start_at`` when that exceeds the missed grace, else None."""
+    if record.start_at is None:
+        return None
+    late = int((started - record.start_at).total_seconds())
+    return late if late > grace_sec else None
+
+
 def run_chore(
-    name: str, deps: RunDeps, *, force: bool = False, dry_run: bool = False
+    name: str,
+    deps: RunDeps,
+    *,
+    force: bool = False,
+    dry_run: bool = False,
+    armed_run_id: str | None = None,
 ) -> RunOutcome:
+    """``armed_run_id``: the tick fires an ARMED record by name; the run then
+    takes over that record's id and directory (CHORES-ONE-TIME.DESIGN.md)."""
+    if armed_run_id is not None:
+        armed = deps.store.read_record(armed_run_id)
+        if armed is None or armed.chore != name or armed.status is not RunStatus.ARMED:
+            state = "missing" if armed is None else armed.status.value
+            return RunOutcome(armed, f"{name}: {armed_run_id} is not armed ({state})")
     ctx = load_context(deps.definitions, deps.catalog_for)
     if ctx.definitions.config_error is not None:
         return RunOutcome(None, f"refused: {ctx.definitions.config_error}")
@@ -614,7 +635,23 @@ def run_chore(
                 admission_reason=verdict.reason,
             )
             return RunOutcome(None, "dry run", plan)
-        run_id = mint_run_id(name, deps.clock, deps.run_id_suffix)
+        run_id = armed_run_id or mint_run_id(name, deps.clock, deps.run_id_suffix)
+        if verdict.decision is not Decision.ADMIT and armed_run_id is not None:
+            armed_now = deps.store.read_record(armed_run_id)
+            ended = (
+                end_arming(
+                    deps.store,
+                    armed_now,
+                    verdict.record_status or RunStatus.SKIPPED_PAUSED,
+                    at=deps.clock.now_utc(),
+                    reason=verdict.reason or "",
+                )
+                if armed_now is not None
+                and armed_now.status is RunStatus.ARMED
+                and verdict.record_status is not RunStatus.DEFERRED_BATTERY
+                else None
+            )
+            return RunOutcome(ended or armed_now, f"{name}: refused: {verdict.reason}")
         if verdict.decision is not Decision.ADMIT:
             if verdict.record_status is None:
                 return RunOutcome(None, f"{name}: {verdict.reason}")
@@ -634,17 +671,38 @@ def run_chore(
             )
 
         started_utc = deps.clock.now_utc()
-        record = RunRecord.pending(
-            run_id=run_id,
-            chore=name,
-            kind=chore.kind,
-            definition_rev=ctx.definitions.revision,
-            started=started_utc,
-            budget=chore.budget,
-            backend=spec.name if spec else None,
-            billing=spec.billing if spec else None,
-        )
-        deps.store.write_record(record)
+        if armed_run_id is not None:
+            grace = ctx.definitions.config.missed_grace_sec
+            fired = deps.store.transition(
+                armed_run_id,
+                expected=RunStatus.ARMED,
+                then=lambda current: current.fire(
+                    started=started_utc,
+                    definition_rev=ctx.definitions.revision,
+                    late_sec=_late_sec(current, started_utc, grace_sec=grace),
+                    budget=chore.budget,
+                    backend=spec.name if spec else None,
+                    billing=spec.billing if spec else None,
+                ),
+            )
+            if fired is None:  # cancelled (or taken) between the tick and now
+                return RunOutcome(
+                    deps.store.read_record(armed_run_id),
+                    f"{name}: {armed_run_id} is no longer armed",
+                )
+            record = fired
+        else:
+            record = RunRecord.pending(
+                run_id=run_id,
+                chore=name,
+                kind=chore.kind,
+                definition_rev=ctx.definitions.revision,
+                started=started_utc,
+                budget=chore.budget,
+                backend=spec.name if spec else None,
+                billing=spec.billing if spec else None,
+            )
+            deps.store.write_record(record)
 
     secret_values, credential, failure = _resolve_secrets(chore, ctx, deps)
     redaction = [*secret_values.values(), *([credential] if credential else [])]

@@ -191,6 +191,7 @@ class FullHarness:
         self.workspaces = FakeWorkspaces()
         self.catalog = FakeCatalog(completion=completion, agent=agent)
         self.launched: list[str] = []
+        self.armed_launched: list[tuple[str, str]] = []
         self.paths = Paths(str(home), str(tmp_path / "state"), str(tmp_path / "data"))
         self.definitions = DefinitionsLoader(home, revision_reader=lambda _: "rev1")
         self.env = dict(env or {"PATH": "/usr/bin", "HOME": "/home/t", "LANG": "C"})
@@ -213,4 +214,7 @@ class FullHarness:
             run_id_suffix=lambda: "ab12",
             launch=self.launched.append,
             scheduler_installed=lambda: self.installed,
+            launch_armed=lambda name, run_id: self.armed_launched.append(
+                (name, run_id)
+            ),
         )

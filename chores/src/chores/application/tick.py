@@ -17,6 +17,7 @@ from chores.application.context import (
     admit,
     apply_breaker,
     binding_errors,
+    end_arming,
     ensure_ledgered,
     invalid_record_name,
     launch_reservation,
@@ -31,7 +32,7 @@ from chores.domain.errors import ChoresError, DomainError, InfrastructureError
 from chores.domain.kinds import Kind
 from chores.domain.policies import Decision
 from chores.domain.run import RunRecord, RunStatus, to_ledger_row
-from chores.domain.schedule import due_policy
+from chores.domain.schedule import ArmedVerdict, Manual, armed_policy, due_policy
 from chores.ports.backends import BackendCatalogPort
 from chores.ports.definitions import Definitions, DefinitionsPort
 from chores.ports.host import ClockPort, NetworkPort, NotifierPort, PowerPort
@@ -57,6 +58,8 @@ class TickDeps:
     paths: Paths
     launch: Callable[[str], None]
     run_id_suffix: Callable[[], str]
+    launch_armed: Callable[[str, str], None] | None = None
+    """Spawns ``chores run <name> --armed <run-id>`` (CHORES-ONE-TIME)."""
 
 
 @dataclass(slots=True)
@@ -310,6 +313,8 @@ def _consider(
             reason="; ".join(errors),
         )
         return
+    if isinstance(chore.schedule, Manual):
+        return  # never due: no window, no slots, no MISSED (CHORES-ONE-TIME G1)
     window_start, latest = _window_start(deps, chore, previous_tick=previous_tick)
     retained = latest is not None and latest.status is RunStatus.DEFERRED_BATTERY
     if retained:
@@ -357,6 +362,59 @@ def _consider(
         return  # one record per retained slot, not one per tick
     report.skipped[chore.name] = admission.reason or admission.record_status.value
     _outcome(deps, ctx, chore, admission.record_status, admission.reason or "")
+
+
+def _fire_armed(
+    deps: TickDeps,
+    ctx: Context,
+    host: Host,
+    report: TickReport,
+    *,
+    launched: dict[str, Launched],
+) -> None:
+    """Each ARMED record: abandon it if its chore is gone, invalid or
+    disabled; wait until its start time; then admit and spawn the runner
+    with its id, or end it with the refusal (battery keeps it ARMED)."""
+    now = deps.clock.now_utc()
+    chores = {c.name: c for c in ctx.definitions.chores}
+    for record in deps.store.records():
+        if record.status is not RunStatus.ARMED or record.start_at is None:
+            continue
+        chore = chores.get(record.chore)
+        problem = (
+            f"chore {record.chore!r} no longer exists or is invalid"
+            if chore is None
+            else (f"chore {record.chore!r} is disabled" if not chore.enabled else None)
+        )
+        if chore is not None and problem is None:
+            errors = binding_errors(
+                ctx, chore, forbidden=deps.paths.forbidden_for_cwd()
+            )
+            if errors:
+                problem = f"chore {record.chore!r} is invalid: {'; '.join(errors)}"
+        if problem is not None:
+            end_arming(
+                deps.store, record, RunStatus.ARM_ABANDONED, at=now, reason=problem
+            )
+            continue
+        assert chore is not None
+        if armed_policy(record.start_at, now=now) is ArmedVerdict.WAIT:
+            continue
+        admission, spec = admit(ctx, chore, host, launched=launched)
+        if admission.decision is Decision.ADMIT:
+            if deps.launch_armed is None:
+                raise InfrastructureError("no armed launcher wired")
+            held = launch_reservation(deps.store, chore, spec)
+            report.fired.append(chore.name)
+            deps.launch_armed(chore.name, record.run_id)
+            if held is not None:
+                launched[chore.name] = held
+            continue
+        if admission.record_status is RunStatus.DEFERRED_BATTERY:
+            continue  # stays ARMED; fires on the first tick with AC power
+        status = admission.record_status or RunStatus.SKIPPED_PAUSED
+        report.skipped[chore.name] = admission.reason or status.value
+        end_arming(deps.store, record, status, at=now, reason=admission.reason or "")
 
 
 # --- the use case ------------------------------------------------------------
@@ -420,6 +478,7 @@ def tick(deps: TickDeps) -> TickReport:
                 )
             except ChoresError as e:  # a mechanism failed: the chore stays valid
                 _warn_chore(deps, report, chore, e)
+        _fire_armed(deps, ctx, host, report, launched=launched)
         deps.store.mark_tick(
             TickMark(at=deps.clock.now_utc(), ledger_rows=deps.store.ledger_count())
         )

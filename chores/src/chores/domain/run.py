@@ -38,6 +38,10 @@ class RunStatus(Enum):
     SKIPPED_CEILING = "SKIPPED_CEILING"
     SKIPPED_OFFLINE = "SKIPPED_OFFLINE"
     DEFERRED_BATTERY = "DEFERRED_BATTERY"
+    ARMED = "ARMED"
+    """Asked to run at a start time; the tick fires it (CHORES-ONE-TIME)."""
+    CANCELLED = "CANCELLED"
+    ARM_ABANDONED = "ARM_ABANDONED"
 
     @property
     def is_run_terminal(self) -> bool:
@@ -46,7 +50,7 @@ class RunStatus(Enum):
 
     @property
     def is_terminal(self) -> bool:
-        return self is not RunStatus.PENDING and self is not RunStatus.RUNNING
+        return self not in _NOT_TERMINAL
 
     @property
     def is_failure(self) -> bool:
@@ -54,6 +58,17 @@ class RunStatus(Enum):
         return self in _FAILURES
 
 
+_NOT_TERMINAL = frozenset({RunStatus.PENDING, RunStatus.RUNNING, RunStatus.ARMED})
+_ARMING_ENDS = frozenset(
+    {
+        RunStatus.SKIPPED_OVERLAP,
+        RunStatus.SKIPPED_PAUSED,
+        RunStatus.SKIPPED_CEILING,
+        RunStatus.SKIPPED_OFFLINE,
+        RunStatus.CANCELLED,
+        RunStatus.ARM_ABANDONED,
+    }
+)
 _RUN_TERMINAL = frozenset(
     {
         RunStatus.SUCCEEDED,
@@ -120,6 +135,70 @@ class RunRecord:
     budget: Budget | None = None
     """The declared budget the run was admitted with: until its ledger row
     lands, it is what the run holds against the ceilings (issue #283)."""
+    start_at: datetime | None = None
+    """When an armed run was asked to start (UTC); None if never armed."""
+    armed_at: datetime | None = None
+    armed_by: str | None = None
+    late_sec: int | None = None
+    """How far past ``start_at`` the run actually started, when that was
+    more than the missed grace (the laptop slept); never a MISSED."""
+
+    @classmethod
+    def armed(
+        cls,
+        *,
+        run_id: str,
+        chore: str,
+        kind: Kind,
+        definition_rev: str,
+        start_at: datetime,
+        armed_at: datetime,
+        armed_by: str,
+    ) -> RunRecord:
+        """An arming: non-terminal, holds no budget, fired by the tick."""
+        return cls(
+            run_id=run_id,
+            chore=chore,
+            kind=kind,
+            definition_rev=definition_rev,
+            status=RunStatus.ARMED,
+            started=armed_at,
+            start_at=start_at,
+            armed_at=armed_at,
+            armed_by=armed_by,
+        )
+
+    def fire(
+        self,
+        *,
+        started: datetime,
+        definition_rev: str,
+        late_sec: int | None,
+        budget: Budget | None,
+        backend: str | None,
+        billing: Billing | None,
+    ) -> RunRecord:
+        """ARMED -> PENDING: the runner adopts the arming's id."""
+        if self.status is not RunStatus.ARMED:
+            raise IllegalTransition(f"cannot fire from {self.status.value}")
+        return replace(
+            self,
+            status=RunStatus.PENDING,
+            started=started,
+            definition_rev=definition_rev,
+            late_sec=late_sec,
+            budget=budget,
+            backend=backend,
+            billing=billing,
+        )
+
+    def end_arming(self, status: RunStatus, *, at: datetime, reason: str) -> RunRecord:
+        """ARMED -> a refusal, CANCELLED or ARM_ABANDONED: terminal, no run."""
+        if self.status is not RunStatus.ARMED:
+            raise IllegalTransition(f"cannot end an arming from {self.status.value}")
+        if status not in _ARMING_ENDS:
+            raise IllegalTransition(f"{status.value} does not end an arming")
+        return replace(self, status=status, ended=at, reason=reason)
 
     @classmethod
     def pending(
@@ -260,4 +339,6 @@ def to_ledger_row(
         "exit_code": record.exit_code,
         "truncated": record.truncated,
         "amends": amends.value if amends else None,
+        "start_at": record.start_at.isoformat() if record.start_at else None,
+        "late_sec": record.late_sec,
     }

@@ -32,6 +32,20 @@ mechanism -- lets one probe run in both places.
 | C3 | clai injects OTEL telemetry env            | assert | pass** |
 | C4 | skills placed in .claude/skills            | assert | assert |
 
+`probe-chores.sh` -- "does the herd actually run?" (CHORES-ONE-TIME.DESIGN.md).
+It ACTS: it runs the operator's `smoketest-*` chores (`schedule: manual`) from
+`$CHORES_HOME` and arms one.
+
+| id | check                                                      | laptop | cloud |
+|----|------------------------------------------------------------|--------|-------|
+| K1 | chores scheduler installed and not stale                   | assert | skip  |
+| K2 | every `smoketest-*` manual chore runs now and SUCCEEDS     | assert | skip  |
+| K3 | one armed `--at now` is started by the tick within 2 ticks | assert | skip  |
+
+With the herd installed and no `smoketest-*` manual chore defined, K2 and K3
+FAIL: an installed herd with nothing to kick the tires with is misconfigured.
+K3 waits at most two tick intervals.
+
 \* L3 is skipped on a laptop by design: `naatm-sandbox` places the global
 CLAUDE.md only in a cloud sandbox (`setup-core.sh` skips it on a real
 checkout). In the cloud it lands at `/etc/claude-code/CLAUDE.md` (override
