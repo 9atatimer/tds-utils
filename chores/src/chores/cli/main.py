@@ -261,12 +261,13 @@ def cancel(ctx: click.Context, run_id: str) -> None:
     ctx.exit(1)
 
 
-def parse_at(text: str, clock: ClockPort) -> datetime:
-    """``now``, ``HH:MM`` (the next occurrence, local) or an ISO 8601 local
-    date-time, as a naive UTC instant. Raises ValueError."""
-    now_utc = clock.now_utc()
+def parse_at(text: str, clock: ClockPort) -> datetime | None:
+    """``now`` (None: ``arm_chore`` reads the clock itself), ``HH:MM`` (the next
+    occurrence, local) or an ISO 8601 local date-time, as a naive UTC
+    instant. Raises ValueError."""
     if text.strip() == "now":
-        return now_utc
+        return None
+    now_utc = clock.now_utc()
     now_local = clock.now_local()
     offset = now_local - now_utc  # this machine's local - UTC, right now
     if re.fullmatch(r"\d{1,2}:\d{2}", text.strip()):

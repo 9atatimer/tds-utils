@@ -263,6 +263,10 @@ def _window_start(
     next slot and never catches up across the gap before that tick."""
     latest: RunRecord | None = None
     for record in deps.store.records(chore=chore.name):
+        if record.start_at is not None:
+            # An arming, or a run started from one, is an ask, never a cron
+            # slot: it neither opens the window nor hides a retained one.
+            continue
         if latest is None:
             latest = record
         if record.status in _SLOT_CONSUMING:

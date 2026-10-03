@@ -6,7 +6,7 @@ through the use cases with the shared fakes.
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from chores.application.arm import arm_chore, cancel_armed
@@ -299,3 +299,52 @@ def test_cli_status_shows_manual_and_armed(tmp_path: Path) -> None:
     _arm(h, "smoke", minutes=30)
     code, out = _invoke(h, "status")
     assert code == 0 and "manual" in out and "armed" in out, out
+
+
+# --- self-review findings on PR #402 -----------------------------------------
+
+DAILY = (
+    "---\nname: daily\nschedule: '30 10 * * *'\nkind: command\n"
+    "command: [echo, hi]\ntimeout_sec: 5\n---\n"
+)
+
+
+def _due_slot_then_arm(h: FullHarness, *, cancel: bool) -> None:
+    tick(h.deps().as_tick_deps())  # 10:00:30: opens the window
+    h.clock.advance(30 * 60)  # 10:30:30: the 10:30 slot is due, no tick yet
+    run_id = _arm(h, "daily", minutes=300)
+    if cancel:
+        assert cancel_armed(run_id, h.deps())
+    h.clock.advance(5)
+
+
+def test_arming_a_cron_chore_does_not_swallow_its_due_slot(tmp_path: Path) -> None:
+    """Given a cron slot due and not yet fired, When the chore is armed for
+    later, Then the next tick still fires the slot (CHORES.DESIGN Goals:
+    missed is recorded, not lost)."""
+    h = _harness(tmp_path, daily=DAILY)
+    _due_slot_then_arm(h, cancel=False)
+    report = tick(h.deps().as_tick_deps())
+    assert "daily" in report.fired and h.launched == ["daily"]
+
+
+def test_a_cancelled_arming_does_not_swallow_the_slot_either(tmp_path: Path) -> None:
+    h = _harness(tmp_path, daily=DAILY)
+    _due_slot_then_arm(h, cancel=True)
+    report = tick(h.deps().as_tick_deps())
+    assert "daily" in report.fired and h.launched == ["daily"]
+
+
+def test_at_now_is_never_refused_when_the_clock_moves(tmp_path: Path) -> None:
+    """Given a clock that crosses a second boundary between reads, When
+    `run smoke --at now`, Then it arms (design: 'now' is never past)."""
+    h = _harness(tmp_path, smoke=MANUAL)
+    base = h.clock.now_utc
+
+    def later_each_read() -> datetime:
+        h.clock.advance(1)
+        return base()
+
+    h.clock.now_utc = later_each_read  # type: ignore[method-assign]
+    code, out = _invoke(h, "run", "smoke", "--at", "now")
+    assert code == 0 and "armed as" in out, out

@@ -38,13 +38,16 @@ class ArmOutcome:
 
 
 def arm_chore(
-    name: str, start_at: datetime, deps: RunDeps, *, armed_by: str
+    name: str, start_at: datetime | None, deps: RunDeps, *, armed_by: str
 ) -> ArmOutcome:
-    """Write an ARMED record for ``name`` to start at ``start_at`` (UTC).
+    """Write an ARMED record for ``name`` to start at ``start_at`` (UTC), or
+    now when ``start_at`` is None.
 
     Refused, writing nothing, when the chore is unknown or invalid, when it
     is already armed (the message names that run), or when ``start_at`` is
-    in the past. "Now" is the caller's ``now_utc()``, which is not past."""
+    in the past. "Now" is this function's own clock read, so it can never be
+    past: a caller-side read would be, once a second boundary falls between
+    the two (the clock is whole seconds)."""
     ctx = load_context(deps.definitions, deps.catalog_for)
     if ctx.definitions.config_error is not None:
         return ArmOutcome(None, f"refused: {ctx.definitions.config_error}")
@@ -57,6 +60,8 @@ def arm_chore(
     if errors:
         return ArmOutcome(None, f"{name} is invalid: {'; '.join(errors)}")
     now = deps.clock.now_utc()
+    if start_at is None:
+        start_at = now
     if start_at < now:
         return ArmOutcome(
             None, f"{name}: start time {start_at.isoformat()} is in the past"
