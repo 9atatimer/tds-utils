@@ -159,37 +159,16 @@ fight it -- it is the right division of labor. The smooth flow: agent runs
 lands in the conversation and work continues. Same handoff applies to any
 state-changing command the classifier refuses.
 
-## Deploys: only the repo's own CI/landing bot deploys, never the agent
+## Never deploy: land the PR, let CI ship it
 
-If a task says "deploy" or "publish the results" and the repo already ships
-through a CI workflow gated on merge (or a bot like tedium, or manual
-`workflow_dispatch`), the agent's job stops at opening the PR and asking for
-it to land. Never run the deploy/publish command directly -- not from the
-laptop, not by hand-dispatching the deploy workflow as a substitute for
-landing. Publishing is a "hard to reverse, affects shared systems" action
-under the executing-actions-with-care rules even when the repo's own docs
-describe a "local deploy" command; that command is for a human at the
-machine, not unattended use.
-
-Observed 2026-09-30 (GammaGo monster-art scheduled run): a stale
-scheduled-task instruction file said to "deploy the results to the preview
-handbook site," so the agent ran the preview publish command from the
-laptop against an unmerged feature branch -- pushing unreviewed content to
-the shared preview URL under the agent's own credentials instead of the
-repo's CI service account. The repo's own current skill said the opposite
-explicitly: do not run `deploy` in a scheduled run, because landing the PR
-through the repo's merge bot deploys it via CI with no action from the
-agent. The stale instruction lived outside the repo (a scheduled-task
-config file) and had drifted from the repo's own, newer procedure.
-
-**How to apply:** before running any publish/deploy command, check the
-target repo's own current AGENT.md/skill for how it actually ships -- not a
-cached memory of it, not a scheduled-task prompt, since either can be stale.
-If the repo deploys via CI on merge or via a landing bot, the agent's action
-is: open the PR, then whatever that repo's landing mechanism is (a comment
-like `tedium land`, a review, asking the human). It never separately runs
-the deploy step to "finish the job" -- CI finishing the job after landing is
-the job being finished.
+Never run a deploy or publish command yourself -- not locally, not by
+dispatching the deploy workflow by hand -- even when a task prompt says
+"deploy." If the repo ships through CI on merge or a landing bot, your job
+ends at opening the PR and requesting landing the way that repo documents.
+The repo's own current AGENT.md/skill outranks a task prompt, which can be
+stale (observed 2026-09-30: a stale prompt said "deploy," the repo's skill
+said land via tedium, and a local preview publish went out from an
+unmerged branch).
 
 ## Never pull down and run a shell script
 
