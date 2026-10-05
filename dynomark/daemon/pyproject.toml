@@ -7,6 +7,7 @@ dependencies = [
     "pydantic>=2.8",
     "click>=8.1",
     "structlog>=24.1",
+    "sqlite-vec>=0.1.9",
 ]
 
 [project.scripts]
@@ -40,6 +41,12 @@ python_version = "3.12"
 packages = ["dynomark_daemon", "tests"]
 mypy_path = "src"
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# sqlite-vec ships typed source but no py.typed marker; follow it rather
+# than treating it as Any.
+module = ["sqlite_vec"]
+follow_untyped_imports = true
 
 [tool.pydantic-mypy]
 init_forbid_extra = true

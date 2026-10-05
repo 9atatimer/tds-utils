@@ -8,21 +8,16 @@ that queries key on.
 
 Search: ``text_candidates`` is an FTS5 ``MATCH`` of every query word,
 ranked by ``bm25``; ``knn_candidates`` is brute-force cosine similarity in
-Python over float32 blobs. ``sqlite-vec`` is the planned accelerator; it is
-Assess on the tech radar, so it is not used until it is promoted.
-
-KNN reads its vectors from ``_VectorCache``, not the file: every vector
-unpacked with its norm, and the placed identities, loaded on first use.
-This connection's writes update it once written, and a rollback drops it;
-a commit through any other connection (another store, the check command,
-a hand edit) changes ``PRAGMA data_version``, and the cache is reloaded.
-Migrations run in ``open``, before any cache exists. At 10,000 x 768 it
-holds about 30 MB.
+SQL over the float32 blobs, by ``sqlite-vec``'s ``vec_distance_cosine``,
+top-k by ``ORDER BY ... LIMIT``. Every store connection loads the extension;
+a Python whose ``sqlite3`` cannot load extensions is refused by name. KNN
+reads the table itself, so it sees exactly what this connection's
+transaction sees: its own writes at once, a rollback never, and another
+connection's commits from the next query.
 
 Thread-safe: one connection, every method under one lock, each write one
 transaction. ``atomic`` holds the lock and one transaction for a whole unit
-of work; a write or unit inside it is a savepoint, and any rollback drops
-the vector cache (it may hold what was rolled back). Schema migrations are
+of work; a write or unit inside it is a savepoint. Schema migrations are
 versioned in code (``MIGRATIONS``, recorded in ``PRAGMA user_version``); a
 file from a newer schema is refused.
 """
@@ -33,11 +28,13 @@ import os
 import re
 import sqlite3
 import threading
-from collections.abc import Collection, Iterable, Iterator, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Final, Self
+
+import sqlite_vec
 
 from dynomark_daemon.adapters.records import dump_record, load_record
 from dynomark_daemon.domain.batch import BatchRecord, BatchState
@@ -190,6 +187,8 @@ class StoreHealth:
     entries: int
     jobs: int
     integrity: str
+    vector_extension: str
+    """The ``sqlite-vec`` version KNN runs in, as ``vec_version()`` names it."""
 
 
 # --- Helpers ---
@@ -222,48 +221,65 @@ def _unpack(blob: bytes) -> "array.array[float]":
     return vector
 
 
-# math.sumprod (3.12+) is why requires-python is >=3.12: Goal 4's tier-2
-# budget is not met reliably without it (tests/integration/test_runtime_floor.py).
-_dot = math.sumprod
+def _knn_sql(*, placed_only: bool) -> str:
+    """Cosine similarity of every (placed) entry to ``:query``, best first,
+    ties by identity, cut to ``:limit``.
+
+    A row scores 0.0, and stays a candidate, where there is no finite answer:
+    a vector that is not a blob of exactly ``:size`` bytes (another
+    dimension, empty, or a hand edit), or one with no direction or a
+    component past float32 (``vec_distance_cosine`` answers NULL; SQLite
+    stores a NaN as NULL too). The ``CASE`` is evaluated lazily, so a row of
+    the wrong size never reaches ``vec_distance_cosine``, which raises on a
+    dimension mismatch. sqlite-vec sums in float32, so a vector whose squared
+    components overflow it (about 1.8e19) has no finite norm and scores 0.0.
+    """
+    placed = " JOIN placements p ON p.identity = e.identity" if placed_only else ""
+    return (
+        "SELECT e.identity, CASE WHEN :size > 0 AND typeof(e.vector) = 'blob'"
+        " AND length(e.vector) = :size"
+        " THEN coalesce(1.0 - vec_distance_cosine(e.vector, :query), 0.0)"
+        " ELSE 0.0 END AS score"
+        f" FROM entries e{placed}"
+        " ORDER BY score DESC, e.identity LIMIT :limit"
+    )
 
 
-def _cosine(
-    query: Sequence[float], query_norm: float, vector: Sequence[float], norm: float
-) -> float:
-    """0.0 where there is no finite answer: a component past float32 is stored
-    as inf, inf/inf is NaN, and one NaN score leaves ``sorted`` unordered."""
-    if len(vector) != len(query) or query_norm == 0.0 or norm == 0.0:
-        return 0.0
-    score = _dot(query, vector) / (query_norm * norm)
-    return score if math.isfinite(score) else 0.0
+def _load_vector_extension(connection: sqlite3.Connection) -> str:
+    """Load ``sqlite-vec`` into ``connection``; its ``vec_version()``.
+
+    Raises:
+        StoreError: this Python's ``sqlite3`` cannot load extensions (the
+            macOS system Python), or the extension would not load.
+    """
+    try:
+        connection.enable_load_extension(True)
+        try:
+            sqlite_vec.load(connection)
+        finally:
+            connection.enable_load_extension(False)
+        (version,) = connection.execute("SELECT vec_version()").fetchone()
+    except (AttributeError, sqlite3.Error) as error:
+        raise StoreError(
+            f"this Python's sqlite3 cannot load the sqlite-vec extension, which "
+            f"KNN runs in ({error}); use a Python built with loadable sqlite3 "
+            f"extensions (python.org, Homebrew or uv's)"
+        ) from error
+    return str(version)
 
 
-@dataclass(slots=True)
-class _VectorCache:
-    """What KNN needs of the ``entries`` and ``placements`` tables, as of
-    ``data_version``. The arrays are replaced, never mutated in place."""
+def vector_extension_version() -> str:
+    """The ``sqlite-vec`` version this Python loads, on a throwaway in-memory
+    database (what ``dynomark-daemon check`` reports).
 
-    data_version: int
-    vectors: dict[str, tuple["array.array[float]", float]]
-    placed: set[str]
-
-
-def _data_version(db: sqlite3.Connection) -> int:
-    (version,) = db.execute("PRAGMA data_version").fetchone()
-    return int(version)
-
-
-def _load_vector_cache(db: sqlite3.Connection) -> _VectorCache:
-    version = _data_version(db)
-    vectors = {
-        str(identity): (_unpack(blob), float(norm))
-        for identity, blob, norm in db.execute(
-            "SELECT identity, vector, norm FROM entries"
-        )
-        if isinstance(blob, bytes) and isinstance(norm, float | int)
-    }
-    placed = {str(row[0]) for row in db.execute("SELECT identity FROM placements")}
-    return _VectorCache(data_version=version, vectors=vectors, placed=placed)
+    Raises:
+        StoreError: as ``_load_vector_extension``.
+    """
+    connection = sqlite3.connect(":memory:")
+    try:
+        return _load_vector_extension(connection)
+    finally:
+        connection.close()
 
 
 def _best_first(scored: Iterable[tuple[str, float]], limit: int) -> list[Candidate]:
@@ -331,7 +347,7 @@ class SqliteCorpusStore:
         self._path = path
         self._read_only = read_only
         self._lock = threading.RLock()
-        self._vectors: _VectorCache | None = None
+        self._vector_extension = _load_vector_extension(connection)
         self._depth = 0
         """Open writes and units of work, nested; only read under the lock."""
 
@@ -340,7 +356,8 @@ class SqliteCorpusStore:
         """Open (creating and migrating unless ``read_only``) the store at ``path``.
 
         Raises:
-            StoreError: no file to read, or a schema newer than the code.
+            StoreError: no file to read, a schema newer than the code, or a
+                Python that cannot load ``sqlite-vec``.
         """
         connection = _connect(path, read_only=read_only)
         try:
@@ -350,14 +367,13 @@ class SqliteCorpusStore:
                     raise StoreError(f"{path} has schema {version}, newer than ours")
             else:
                 _migrate(connection, path)
+            return cls(connection, path, read_only=read_only)
         except BaseException:
             connection.close()
             raise
-        return cls(connection, path, read_only=read_only)
 
     def close(self) -> None:
         with self._lock:
-            self._vectors = None
             self._db.close()
 
     def health(self) -> StoreHealth:
@@ -372,6 +388,7 @@ class SqliteCorpusStore:
             entries=int(entries),
             jobs=int(jobs),
             integrity=str(integrity),
+            vector_extension=self._vector_extension,
         )
 
     # --- Plumbing ---
@@ -390,7 +407,6 @@ class SqliteCorpusStore:
             try:
                 yield self._db
             except BaseException:
-                self._vectors = None  # it may hold a write rolled back here
                 if outermost:
                     self._db.execute("ROLLBACK")
                 else:
@@ -403,11 +419,9 @@ class SqliteCorpusStore:
                 self._db.execute("COMMIT" if outermost else "RELEASE unit")
             except BaseException:
                 # A failed COMMIT (a full or failing disk) is rolled back by
-                # SQLite, or left open; either way the cache may hold writes
-                # that are not on disk. An open one is rolled back here, or
+                # SQLite, or left open. An open one is rolled back here, or
                 # every later BEGIN IMMEDIATE fails. A failed RELEASE is left
                 # to the enclosing unit, which rolls back on this error.
-                self._vectors = None
                 if outermost and self._db.in_transaction:
                     self._db.execute("ROLLBACK")
                 raise
@@ -426,7 +440,9 @@ class SqliteCorpusStore:
             row: tuple[object, ...] | None = self._db.execute(sql, params).fetchone()
         return row
 
-    def _all(self, sql: str, params: Sequence[object] = ()) -> list[tuple[object, ...]]:
+    def _all(
+        self, sql: str, params: Sequence[object] | Mapping[str, object] = ()
+    ) -> list[tuple[object, ...]]:
         with self._lock:
             rows: list[tuple[object, ...]] = self._db.execute(sql, params).fetchall()
         return rows
@@ -438,14 +454,6 @@ class SqliteCorpusStore:
     def _docs(self, sql: str, params: Sequence[object] = ()) -> list[str]:
         return [str(row[0]) for row in self._all(sql, params)]
 
-    def _vector_cache(self) -> _VectorCache:
-        """The cache, (re)loaded when missing or another connection committed."""
-        with self._lock:
-            cache = self._vectors
-            if cache is None or cache.data_version != _data_version(self._db):
-                cache = self._vectors = _load_vector_cache(self._db)
-            return cache
-
     def _entry(self, doc: object, vector: object) -> CorpusEntry:
         bare = load_record(str(doc), CorpusEntry)
         values = tuple(_unpack(bytes(vector))) if isinstance(vector, bytes) else ()
@@ -456,39 +464,36 @@ class SqliteCorpusStore:
 
     def put_entry(self, entry: CorpusEntry) -> None:
         blob, norm = _pack(entry.embedding.vector)
-        with self._lock:
-            with self._write() as db:
-                db.execute(
-                    "INSERT INTO entries (identity, doc, vector, norm, model_id)"
-                    " VALUES (?, ?, ?, ?, ?) ON CONFLICT (identity) DO UPDATE SET"
-                    " doc = excluded.doc, vector = excluded.vector,"
-                    " norm = excluded.norm, model_id = excluded.model_id",
-                    (
-                        entry.identity.value,
-                        _entry_doc(entry),
-                        blob,
-                        norm,
-                        entry.embedding.model_id,
-                    ),
-                )
-                (position,) = db.execute(
-                    "SELECT position FROM entries WHERE identity = ?",
-                    (entry.identity.value,),
-                ).fetchone()
-                db.execute("DELETE FROM entries_fts WHERE rowid = ?", (position,))
-                db.execute(
-                    "INSERT INTO entries_fts (rowid, title, summary, tags, text)"
-                    " VALUES (?, ?, ?, ?, ?)",
-                    (
-                        position,
-                        entry.bookmark.title,
-                        entry.summary,
-                        " ".join(entry.tags),
-                        entry.capture.text,
-                    ),
-                )
-            if self._vectors is not None:  # written: KNN on this connection sees it
-                self._vectors.vectors[entry.identity.value] = (_unpack(blob), norm)
+        with self._write() as db:
+            db.execute(
+                "INSERT INTO entries (identity, doc, vector, norm, model_id)"
+                " VALUES (?, ?, ?, ?, ?) ON CONFLICT (identity) DO UPDATE SET"
+                " doc = excluded.doc, vector = excluded.vector,"
+                " norm = excluded.norm, model_id = excluded.model_id",
+                (
+                    entry.identity.value,
+                    _entry_doc(entry),
+                    blob,
+                    norm,
+                    entry.embedding.model_id,
+                ),
+            )
+            (position,) = db.execute(
+                "SELECT position FROM entries WHERE identity = ?",
+                (entry.identity.value,),
+            ).fetchone()
+            db.execute("DELETE FROM entries_fts WHERE rowid = ?", (position,))
+            db.execute(
+                "INSERT INTO entries_fts (rowid, title, summary, tags, text)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (
+                    position,
+                    entry.bookmark.title,
+                    entry.summary,
+                    " ".join(entry.tags),
+                    entry.capture.text,
+                ),
+            )
 
     def get_entry(self, identity: Identity) -> CorpusEntry | None:
         row = self._one(
@@ -529,36 +534,24 @@ class SqliteCorpusStore:
     def knn_candidates(
         self, vector: Sequence[float], *, limit: int, placed_only: bool = False
     ) -> list[Candidate]:
-        query, query_norm = _unpack(_pack(vector)[0]), math.hypot(*vector)
-        with self._lock:
-            cache = self._vector_cache()
-            if placed_only:
-                rows = [
-                    (identity, cache.vectors[identity])
-                    for identity in cache.placed
-                    if identity in cache.vectors
-                ]
-            else:
-                rows = list(cache.vectors.items())
-        return _best_first(
-            (
-                (identity, _cosine(query, query_norm, row, norm))
-                for identity, (row, norm) in rows
-            ),
-            limit,
+        query = _pack(vector)[0]
+        rows = self._all(
+            _knn_sql(placed_only=placed_only),
+            {"query": query, "size": len(query), "limit": limit},
         )
+        return [
+            Candidate(Identity(str(identity)), float(str(score)))
+            for identity, score in rows
+        ]
 
     # --- Placements ---
 
     def put_placement(self, placement: Placement) -> None:
-        with self._lock:
-            with self._write() as db:
-                db.execute(
-                    "INSERT OR REPLACE INTO placements (identity, doc) VALUES (?, ?)",
-                    (placement.identity.value, dump_record(placement)),
-                )
-            if self._vectors is not None:  # written: KNN on this connection sees it
-                self._vectors.placed.add(placement.identity.value)
+        with self._write() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO placements (identity, doc) VALUES (?, ?)",
+                (placement.identity.value, dump_record(placement)),
+            )
 
     def get_placement(self, identity: Identity) -> Placement | None:
         doc = self._doc(

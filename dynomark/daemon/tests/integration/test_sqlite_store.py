@@ -175,28 +175,6 @@ def _nearest(store: SqliteCorpusStore, *, placed_only: bool = False) -> list[str
     return [c.identity.value for c in found]
 
 
-def test_knn_reads_the_vectors_from_the_file_only_once(tmp_path: Path) -> None:
-    """Given KNN asked once, When it is asked again (placed or not) and after a
-    write, Then no statement reads a vector blob back from the file (Goal 4
-    tier 2: the fetch and unpack of every vector is not paid per query)."""
-    statements: list[str] = []
-    store = _traced_store(tmp_path / "corpus.sqlite3", statements)
-    store.put_entry(make_entry("https://a.example/", vector=(1.0, 0.0)))
-    store.put_placement(make_placement("https://a.example/"))
-    _nearest(store)
-    statements.clear()
-
-    store.put_entry(make_entry("https://b.example/", vector=(0.6, 0.8)))
-    statements.clear()
-    unplaced, placed = _nearest(store), _nearest(store, placed_only=True)
-
-    assert (unplaced, placed) == (
-        ["https://a.example/", "https://b.example/"],
-        ["https://a.example/"],
-    )
-    assert not [s for s in statements if "vector" in s.lower()]
-
-
 def test_knn_follows_writes_made_through_another_connection(tmp_path: Path) -> None:
     """Given a read-only store that has answered KNN, When another connection
     replaces a vector, deletes an entry and places one, Then the reader's next
@@ -222,11 +200,7 @@ def test_knn_follows_writes_made_through_another_connection(tmp_path: Path) -> N
 
 def test_a_failed_replace_leaves_knn_on_the_committed_vector(tmp_path: Path) -> None:
     """Given KNN asked once, When replacing an entry's vector fails inside its
-    transaction, Then KNN still ranks by the vector that was committed.
-
-    The trigger is created before the first KNN: a commit through another
-    connection after it would move ``data_version`` and reload the cache from
-    the table, hiding whatever ``put_entry`` did to the cache."""
+    transaction, Then KNN still ranks by the vector that was committed."""
     db = tmp_path / "corpus.sqlite3"
     store = SqliteCorpusStore.open(db)
     store.put_entry(make_entry("https://a.example/", vector=(1.0, 0.0)))
