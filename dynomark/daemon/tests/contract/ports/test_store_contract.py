@@ -267,6 +267,74 @@ def test_knn_candidates_follow_every_write_immediately(
     assert _nearest(store, placed_only=True) == [a]
 
 
+def _scored(
+    store: CorpusStorePort,
+    query: tuple[float, ...] = (1.0, 0.0),
+    *,
+    limit: int = 10,
+    placed_only: bool = False,
+) -> list[tuple[str, float]]:
+    found = store.knn_candidates(query, limit=limit, placed_only=placed_only)
+    return [(c.identity.value, round(c.score, 3)) for c in found]
+
+
+@pytest.mark.parametrize("placed_only", [False, True])
+def test_knn_scores_a_vector_with_no_direction_as_unrelated(
+    store: CorpusStorePort, placed_only: bool
+) -> None:
+    """Given a zero vector, a vector of another dimension and an empty vector
+    beside a matching one, When KNN ranks them, Then each of the three scores
+    0.0 and is still a candidate, after the match (a re-embedded corpus mixes
+    dimensions until it is rebuilt)."""
+    for url, vector in (
+        ("https://match.example/", (1.0, 0.0)),
+        ("https://zero.example/", (0.0, 0.0)),
+        ("https://wide.example/", (1.0, 0.0, 0.0)),
+        ("https://empty.example/", ()),
+    ):
+        store.put_entry(make_entry(url, vector=vector))
+        store.put_placement(make_placement(url))
+
+    assert _scored(store, placed_only=placed_only) == [
+        ("https://match.example/", 1.0),
+        ("https://empty.example/", 0.0),
+        ("https://wide.example/", 0.0),
+        ("https://zero.example/", 0.0),
+    ]
+
+
+@pytest.mark.parametrize("query", [(0.0, 0.0), ()])
+def test_knn_for_a_query_with_no_direction_scores_everything_zero(
+    store: CorpusStorePort, query: tuple[float, ...]
+) -> None:
+    """Given entries, When KNN is asked for a zero or an empty query vector, Then
+    every entry scores 0.0, ordered by identity and cut to the limit."""
+    for url, vector in (
+        ("https://c.example/", (1.0, 0.0)),
+        ("https://a.example/", (0.0, 1.0)),
+        ("https://b.example/", ()),
+    ):
+        store.put_entry(make_entry(url, vector=vector))
+
+    assert _scored(store, query, limit=2) == [
+        ("https://a.example/", 0.0),
+        ("https://b.example/", 0.0),
+    ]
+
+
+def test_knn_breaks_a_tie_by_identity_before_the_limit(store: CorpusStorePort) -> None:
+    """Given three entries with the same vector, When the nearest two are asked
+    for, Then the tie is broken by identity, so the same two come back every
+    time whatever the write order."""
+    for url in ("https://c.example/", "https://a.example/", "https://b.example/"):
+        store.put_entry(make_entry(url, vector=(0.6, 0.8)))
+
+    assert _scored(store, limit=2) == [
+        ("https://a.example/", 0.6),
+        ("https://b.example/", 0.6),
+    ]
+
+
 # --- Jobs ---
 
 

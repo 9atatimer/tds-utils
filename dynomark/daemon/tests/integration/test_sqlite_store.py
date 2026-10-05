@@ -321,6 +321,86 @@ def test_a_vector_beyond_float32_ranks_as_unrelated_not_unordered(
     ]
 
 
+@pytest.mark.parametrize("placed_only", [False, True])
+def test_a_vector_that_is_not_float32_ranks_as_unrelated_not_an_error(
+    tmp_path: Path, placed_only: bool
+) -> None:
+    """Given placed entries whose vector a hand edit left as a blob of no whole
+    float32 count, or as text, When KNN ranks them, Then each scores 0.0 and
+    is still a candidate, and the matching entry still comes first."""
+    db = tmp_path / "corpus.sqlite3"
+    store = SqliteCorpusStore.open(db)
+    for url in ("https://a.example/", "https://odd.example/", "https://text.example/"):
+        store.put_entry(make_entry(url, vector=(1.0, 0.0)))
+        store.put_placement(make_placement(url))
+    with sqlite3.connect(db) as raw:
+        raw.execute(
+            "UPDATE entries SET vector = CASE identity"
+            " WHEN 'https://odd.example/' THEN x'00000000000080'"
+            " ELSE 'eight ch' END WHERE identity != 'https://a.example/'"
+        )
+
+    found = store.knn_candidates((1.0, 0.0), limit=5, placed_only=placed_only)
+
+    assert [(c.identity.value, round(c.score, 3)) for c in found] == [
+        ("https://a.example/", 1.0),
+        ("https://odd.example/", 0.0),
+        ("https://text.example/", 0.0),
+    ]
+
+
+@pytest.mark.parametrize("read_only", [False, True])
+def test_health_names_the_sqlite_vec_version_the_store_searches_with(
+    tmp_path: Path, read_only: bool
+) -> None:
+    """Given a store opened for writing or read-only, When its health is read,
+    Then it names the sqlite-vec version loaded on its connection (KNN runs
+    in that extension)."""
+    db = tmp_path / "corpus.sqlite3"
+    SqliteCorpusStore.open(db).close()
+    store = SqliteCorpusStore.open(db, read_only=read_only)
+
+    try:
+        version = store.health().vector_extension
+    finally:
+        store.close()
+
+    assert version.startswith("v0.")
+
+
+class _NoExtensions:
+    """A connection from a Python whose sqlite3 was built without loadable
+    extensions (the macOS system Python): ``enable_load_extension`` is absent."""
+
+    def __init__(self, db: Path) -> None:
+        self._db = sqlite3.connect(db, isolation_level=None, check_same_thread=False)
+
+    def __getattr__(self, name: str) -> object:
+        if name in ("enable_load_extension", "load_extension"):
+            raise AttributeError(name)
+        return getattr(self._db, name)
+
+    def close(self) -> None:
+        self._db.close()
+
+
+def test_a_python_that_cannot_load_sqlite_vec_is_refused_by_name(
+    tmp_path: Path,
+) -> None:
+    """Given a connection that cannot load extensions, When a store is built on
+    it, Then StoreError names sqlite-vec instead of KNN failing on the first
+    search."""
+    db = tmp_path / "corpus.sqlite3"
+    SqliteCorpusStore.open(db).close()
+    connection = _NoExtensions(db)
+
+    try:
+        with pytest.raises(StoreError, match="sqlite-vec"):
+            SqliteCorpusStore(cast(sqlite3.Connection, connection), db, read_only=False)
+    finally:
+        connection.close()
+
+
 def test_health_counts_entries_and_jobs_and_checks_integrity(tmp_path: Path) -> None:
     """Given a store with one entry and two jobs, When its health is read, Then
     it reports the schema version, the counts and an ok integrity check."""
