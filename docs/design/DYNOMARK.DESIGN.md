@@ -493,6 +493,10 @@ local corpus store, and are not exported to any fleet ledger.
 | Hybrid ranking | fusion in the domain over the store's two candidate lists | testable without the store |
 | Relation to orgmarks | supersedes it for the live flow; orgmarks untouched | orgmarks required off-lining the browser and went unused; this record overturns its rejections that only held for a batch tool (Rejections) |
 | Tech radar | `sqlite-vec` is Assess on `lmde/TECH_RADAR.md`; propose Trial with this record | first production use in the fleet; SEMANTIC-SEARCH already names it |
+| KNN engine (2026-10-05) | `sqlite-vec` loaded on every store connection; KNN is a brute-force `vec_distance_cosine` scan with top-k in SQL, no `vec0` index; a Python whose `sqlite3` cannot load extensions is refused by name | the pure-Python scan was about 90% of tier 2 and failed Goal 4 on a busy runner; 265 ms -> 55 ms P95 with no second table to keep in sync (issue #392, PR #409) |
+| Tech radar (2026-10-05) | `sqlite-vec` is Trial; supersedes the Assess row above | approved by Todd ("Trial it.", issue #392) |
+| Open Questions 1-4 (provisional, 2026-10-05) | merges discarded; rebuild manual with an opt-in cadence; backfill user-started at 10 ingests/s, fetch-only, recorded in place; Ollama `nomic-embed-text` and `llama3.1:8b` | chosen during the build so the code could run; none ratified (issue #425) |
+| Retrospective (2026-10-05) | drift filed as issues #410-#425 under issue #342; status stays APPROVED | IMPLEMENTED waits on task-027 (the mbp acceptance run), the drift closing, and the owner's call |
 
 ---
 
