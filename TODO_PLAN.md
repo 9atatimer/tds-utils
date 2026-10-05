@@ -34,14 +34,18 @@ the design shipped, no code did. Retrospective ran 2026-09-19. Order:
 
 Dynomark (`docs/design/DYNOMARK.DESIGN.md`, APPROVED 2026-09-27): live AI
 filing of native bookmarks, the successor to orgmarks. Code is under
-`dynomark/` (contract, daemon, extension, e2e; `dynomark/README.md` has the
-gates and the mbp install sequence). Tasks 022-026 and 028-031 are built
-and closed: every gate green in a cloud sandbox with fake models, plus a
-real-daemon-to-real-extension e2e in Chromium. Umbrella: issue #342. Order:
+`dynomark/` (contract, daemon, extension, e2e). Tasks 022-026 and 028-031
+are built; the retrospective (2026-10-05) filed drift as issues #410-#425
+under issue #342. Order:
 
+- task-036..task-042 -- the drift defects with no open design question
+  (issues #411-#415, #417, #418); fix before the acceptance run so it
+  measures the fixed loop. task-036 (#411, the "local" model mark) first:
+  it is a Security control.
 - task-027 -- mbp integration and the MVP acceptance run (real Chrome
-  profile, Ollama, launchd, phone save, a week of use); the only thing left
-  that needs the laptop, and the retrospective waits on it.
+  profile, Ollama, launchd, phone save, a week of use); the only thing that
+  needs the laptop. Run the daemon under a uv, python.org or Homebrew
+  Python: the macOS system Python cannot load `sqlite-vec`.
 - task-032 -- Firefox adapters; last, or a follow-up if Firefox is absent.
 
 `ls tasks/` is the index. This file is still the legacy mono-file below
@@ -60,8 +64,66 @@ this section; issue #289 owns the migration into `tasks/`.
   it.
 - 2026-09-27: task-027 needs the mbp (real Chrome profile, native-messaging
   host manifest, Ollama, launchd); no cloud session can run it.
+- 2026-10-05: Dynomark drift needing an owner ruling: issues #410
+  (background-tab capture address policy -- Security), #416, #419-#425.
+  Each closes with a Key Decisions row citing it. Unblock: Todd rules; the
+  design stays APPROVED until then (IMPLEMENTED is Todd's call).
 
 ## Lessons Learned (unsettled)
+
+### A closed durable-state list in a design is outgrown by its own guarantees
+
+about: skill:design
+
+DYNOMARK said the extension's durable state is "exactly" three keys; the
+build ended with nine (issue #420). Each at-least-once guarantee across an
+MV3 worker kill (unanswered saves, owed captures, move reports, backfill
+resume, window cleanup) needs state that outlives the worker, and each was
+added inside its task with no route back to the closed list. Derive the
+inventory from the delivery guarantees, or state it as a rule ("whatever
+an at-least-once path needs, and nothing that holds page text") rather
+than a list. The design skill lives in template-tools, which this session
+could not reach.
+
+### A Security mitigation that names a container misses new copies of the data
+
+about: skill:design
+
+DYNOMARK's "page content on disk" mitigation names the corpus store; the
+build put captured page text in `chrome.storage.local` and a second table
+too (issue #420), and the "local model" control checks a host, not where
+the data goes (issue #411). Nothing re-reviewed either, because no new
+container triggers a mitigation written about a container. State the
+mitigation against the data (page text, queries) and its flows.
+
+### Pulling Future Considerations into scope without amending the body splits the spec
+
+about: skill:design
+
+The Scope row made background-tab capture and the writer marker MVP while
+the body still described PoC behaviour, so one APPROVED record carried two
+capture policies and the contract README became the spec of record (issues
+#410, #424). A scope change that pulls a deferred item in is an amendment
+to every section that item touches, made before the freeze, not a row.
+
+### A Given/When/Then written as one example gets tested as one example
+
+about: skill:testing
+
+"Placement respects a lock: a sibling or new leaf" was pinned by one
+fixture whose neighbours sat in a sibling, so it passed while the general
+rule is false (issue #423). A Behaviors row stating a rule over inputs
+needs a property test, or at least the adversarial case, not the
+illustrative one.
+
+### Host-scoped design meets profile-scoped transport
+
+about: wip
+
+The design makes HostRole a per-host value; native messaging connects per
+browser profile, so the code had to choose a profile and chose silently
+and permanently (issue #419). Unsettled until the binding is ruled on and
+the component ships; then it belongs in `docs/arch/` for Dynomark.
 
 ### A retrospective cut tasks for bugs its own PR had already fixed
 
