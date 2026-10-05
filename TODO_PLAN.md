@@ -58,10 +58,6 @@ this section; issue #289 owns the migration into `tasks/`.
 - 2026-09-19: `TMUX-HERD.DESIGN.md` DRAFT -> APPROVED is Todd's call; the
   implementer (a different, cheaper model) must not start task-020 before
   it.
-- 2026-09-27: `sqlite-vec` is Assess, so the daemon's KNN is brute-force
-  cosine in Python (about 0.3 s at 10k x 768 on Python 3.11; tier-2 P95
-  about 350 ms in the sandbox). Promoting it to Trial lets the store adapter
-  use it; human-maintained file. Unblock: Todd lands the row or refuses it.
 - 2026-09-27: task-027 needs the mbp (real Chrome profile, native-messaging
   host manifest, Ollama, launchd); no cloud session can run it.
 

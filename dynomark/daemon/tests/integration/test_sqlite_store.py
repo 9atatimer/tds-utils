@@ -175,28 +175,6 @@ def _nearest(store: SqliteCorpusStore, *, placed_only: bool = False) -> list[str
     return [c.identity.value for c in found]
 
 
-def test_knn_reads_the_vectors_from_the_file_only_once(tmp_path: Path) -> None:
-    """Given KNN asked once, When it is asked again (placed or not) and after a
-    write, Then no statement reads a vector blob back from the file (Goal 4
-    tier 2: the fetch and unpack of every vector is not paid per query)."""
-    statements: list[str] = []
-    store = _traced_store(tmp_path / "corpus.sqlite3", statements)
-    store.put_entry(make_entry("https://a.example/", vector=(1.0, 0.0)))
-    store.put_placement(make_placement("https://a.example/"))
-    _nearest(store)
-    statements.clear()
-
-    store.put_entry(make_entry("https://b.example/", vector=(0.6, 0.8)))
-    statements.clear()
-    unplaced, placed = _nearest(store), _nearest(store, placed_only=True)
-
-    assert (unplaced, placed) == (
-        ["https://a.example/", "https://b.example/"],
-        ["https://a.example/"],
-    )
-    assert not [s for s in statements if "vector" in s.lower()]
-
-
 def test_knn_follows_writes_made_through_another_connection(tmp_path: Path) -> None:
     """Given a read-only store that has answered KNN, When another connection
     replaces a vector, deletes an entry and places one, Then the reader's next
@@ -222,11 +200,7 @@ def test_knn_follows_writes_made_through_another_connection(tmp_path: Path) -> N
 
 def test_a_failed_replace_leaves_knn_on_the_committed_vector(tmp_path: Path) -> None:
     """Given KNN asked once, When replacing an entry's vector fails inside its
-    transaction, Then KNN still ranks by the vector that was committed.
-
-    The trigger is created before the first KNN: a commit through another
-    connection after it would move ``data_version`` and reload the cache from
-    the table, hiding whatever ``put_entry`` did to the cache."""
+    transaction, Then KNN still ranks by the vector that was committed."""
     db = tmp_path / "corpus.sqlite3"
     store = SqliteCorpusStore.open(db)
     store.put_entry(make_entry("https://a.example/", vector=(1.0, 0.0)))
@@ -319,6 +293,86 @@ def test_a_vector_beyond_float32_ranks_as_unrelated_not_unordered(
         ("https://c.example/", 0.707),
         ("https://b.example/", 0.0),
     ]
+
+
+@pytest.mark.parametrize("placed_only", [False, True])
+def test_a_vector_that_is_not_float32_ranks_as_unrelated_not_an_error(
+    tmp_path: Path, placed_only: bool
+) -> None:
+    """Given placed entries whose vector a hand edit left as a blob of no whole
+    float32 count, or as text, When KNN ranks them, Then each scores 0.0 and
+    is still a candidate, and the matching entry still comes first."""
+    db = tmp_path / "corpus.sqlite3"
+    store = SqliteCorpusStore.open(db)
+    for url in ("https://a.example/", "https://odd.example/", "https://text.example/"):
+        store.put_entry(make_entry(url, vector=(1.0, 0.0)))
+        store.put_placement(make_placement(url))
+    with sqlite3.connect(db) as raw:
+        raw.execute(
+            "UPDATE entries SET vector = CASE identity"
+            " WHEN 'https://odd.example/' THEN x'00000000000080'"
+            " ELSE 'eight ch' END WHERE identity != 'https://a.example/'"
+        )
+
+    found = store.knn_candidates((1.0, 0.0), limit=5, placed_only=placed_only)
+
+    assert [(c.identity.value, round(c.score, 3)) for c in found] == [
+        ("https://a.example/", 1.0),
+        ("https://odd.example/", 0.0),
+        ("https://text.example/", 0.0),
+    ]
+
+
+@pytest.mark.parametrize("read_only", [False, True])
+def test_health_names_the_sqlite_vec_version_the_store_searches_with(
+    tmp_path: Path, read_only: bool
+) -> None:
+    """Given a store opened for writing or read-only, When its health is read,
+    Then it names the sqlite-vec version loaded on its connection (KNN runs
+    in that extension)."""
+    db = tmp_path / "corpus.sqlite3"
+    SqliteCorpusStore.open(db).close()
+    store = SqliteCorpusStore.open(db, read_only=read_only)
+
+    try:
+        version = store.health().vector_extension
+    finally:
+        store.close()
+
+    assert version.startswith("v0.")
+
+
+class _NoExtensions:
+    """A connection from a Python whose sqlite3 was built without loadable
+    extensions (the macOS system Python): ``enable_load_extension`` is absent."""
+
+    def __init__(self, db: Path) -> None:
+        self._db = sqlite3.connect(db, isolation_level=None, check_same_thread=False)
+
+    def __getattr__(self, name: str) -> object:
+        if name in ("enable_load_extension", "load_extension"):
+            raise AttributeError(name)
+        return getattr(self._db, name)
+
+    def close(self) -> None:
+        self._db.close()
+
+
+def test_a_python_that_cannot_load_sqlite_vec_is_refused_by_name(
+    tmp_path: Path,
+) -> None:
+    """Given a connection that cannot load extensions, When a store is built on
+    it, Then StoreError names sqlite-vec instead of KNN failing on the first
+    search."""
+    db = tmp_path / "corpus.sqlite3"
+    SqliteCorpusStore.open(db).close()
+    connection = _NoExtensions(db)
+
+    try:
+        with pytest.raises(StoreError, match="sqlite-vec"):
+            SqliteCorpusStore(cast(sqlite3.Connection, connection), db, read_only=False)
+    finally:
+        connection.close()
 
 
 def test_health_counts_entries_and_jobs_and_checks_integrity(tmp_path: Path) -> None:

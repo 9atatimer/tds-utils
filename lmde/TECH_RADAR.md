@@ -89,12 +89,12 @@ documents the recommended approach so it isn't reinvented per repo.
   OTLP spans by the collector. Monolithic, digest-pinned beside Loki. Exit
   criterion to Adopt: same as Loki.
 - **Decision models** (Jev, Clef and kin): typed yes/no, pick-one and rubric judgements returned as probabilities, served locally by the decision arena.
+- **sqlite-vec**: vector search inside SQLite (a loadable extension); nearest-neighbour queries over embeddings stored in a local SQLite database.
 
 ---
 
 ## Assess -- Researching / Observing
 
-- **sqlite-vec**: Potential replacement for heavier embedding search frameworks in `log-hoarder`.
 - **sesh**: tmux session manager (create-or-attach by name, zoxide/tmux/config-driven picker sources). Evaluating as the `tm` interactive alias's backend in place of a hand-rolled `tmux has-session` script.
 - **zoxide**: Frecency-ranked `cd` replacement. Evaluating as a `sesh` picker source (recently/frequently visited dirs), not yet adopted as a `cd` replacement itself.
 - **Docling** (IBM): document-to-structured-data conversion (PDF, DOCX, HTML -> Markdown/JSON with layout and tables). Evaluating as the ingestion front end for LLM-adjacent jobs that read documents.
@@ -113,6 +113,10 @@ documents the recommended approach so it isn't reinvented per repo.
 ---
 
 ## Decisions Log
+
+- **2026-10-05**: Moved `sqlite-vec` from Assess to Trial on Todd's
+  approval ("Trial it."): the Dynomark daemon's brute-force Python KNN
+  leaves too little margin under Goal 4's 500 ms (issue #392).
 
 - **2026-10-03**: Adopted `HAProxy` as the LMDE proxy layer at Todd's request.
 

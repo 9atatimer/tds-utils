@@ -73,6 +73,20 @@ def test_check_is_green_when_everything_is_in_place(tmp_path: Path) -> None:
     assert "FAIL" not in result.output and "writer" in _lines(result.output)["role"]
 
 
+def test_check_reports_that_sqlite_vec_loads_before_any_store_exists(
+    tmp_path: Path,
+) -> None:
+    """Given a fresh install (no store yet), When check runs, Then a vector line
+    says this Python's sqlite3 loads sqlite-vec and names its version (KNN
+    cannot run without it), and still no file is created."""
+    result = CliRunner().invoke(main, ["check"], env=_env(tmp_path, _closed_port()))
+
+    vector = _lines(result.output)["vector"]
+    assert vector.split()[1] == "ok", result.output
+    assert "sqlite-vec v0." in vector
+    assert sorted(p.name for p in tmp_path.iterdir()) == []
+
+
 def test_check_names_a_model_that_is_not_pulled(tmp_path: Path) -> None:
     """Given Ollama without the completion model, When check runs, Then the
     models line fails naming it."""

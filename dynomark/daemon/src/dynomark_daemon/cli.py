@@ -1,8 +1,9 @@
 """``dynomark-daemon``: the daemon's command line (Click).
 
 - ``serve``: the socket server and the job loop, until SIGTERM or SIGINT.
-- ``check``: config, store health, socket, Ollama and its models. Reads
-  only: it creates no file, binds nothing, never touches the tree.
+- ``check``: config, sqlite-vec, store health, socket, Ollama and its
+  models. Reads only: it creates no file, binds nothing, never touches the
+  tree.
 - ``install-host-manifest``: the ``tds.dynomark`` native-messaging manifest
   for Chrome and Chromium, bound to one extension id.
 - ``launchd-plist``: a user LaunchAgent plist that runs ``serve``.
@@ -31,7 +32,11 @@ from dynomark_daemon.adapters.host_manifest import (
 )
 from dynomark_daemon.adapters.ollama import OllamaClient, OllamaError, has_model
 from dynomark_daemon.adapters.socket_server import SocketUnavailable
-from dynomark_daemon.adapters.sqlite_store import SqliteCorpusStore, StoreError
+from dynomark_daemon.adapters.sqlite_store import (
+    SqliteCorpusStore,
+    StoreError,
+    vector_extension_version,
+)
 from dynomark_daemon.container import build_ports, private_state_dir
 from dynomark_daemon.container import serve as serve_daemon
 from dynomark_daemon.settings import (
@@ -103,6 +108,15 @@ def _check_config(settings: Settings) -> list[CheckLine]:
     ]
 
 
+def _check_vector() -> CheckLine:
+    """KNN runs in sqlite-vec; a Python that cannot load it cannot search."""
+    try:
+        version = vector_extension_version()
+    except StoreError as error:
+        return CheckLine("vector", FAIL, str(error))
+    return CheckLine("vector", OK, f"sqlite-vec {version} loads")
+
+
 def _check_store(settings: Settings) -> CheckLine:
     path = Path(settings.config.store_path)
     if not path.exists():
@@ -156,6 +170,7 @@ def _check_ollama(settings: Settings) -> list[CheckLine]:
 def run_check(settings: Settings) -> list[CheckLine]:
     return [
         *_check_config(settings),
+        _check_vector(),
         _check_store(settings),
         _check_socket(settings.socket_path),
         *_check_ollama(settings),
@@ -202,7 +217,7 @@ def serve() -> None:
 
 @main.command()
 def check() -> None:
-    """Report config, store, socket, Ollama and models; change nothing."""
+    """Report config, sqlite-vec, store, socket, Ollama, models; change nothing."""
     lines = run_check(_settings(os.environ))
     for line in lines:
         click.echo(line.render())

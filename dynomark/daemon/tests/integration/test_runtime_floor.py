@@ -1,9 +1,11 @@
-"""Given Goal 4 (tier-2 hits within 500 ms P95 at 10,000 entries), When the
-daemon runs, Then it runs on a Python with math.sumprod: without it the
-brute-force KNN dot products alone take about 290 ms at 10k x 768 and the
-budget is not met reliably (sqlite-vec, the planned accelerator, is Assess)."""
+"""Given the daemon's source uses PEP 695 type-parameter syntax
+(``class Page[T]``, ``def paginate[T]`` in app/pages.py), When it is
+installed, Then the package refuses an interpreter older than 3.12, which
+would fail to import it with a SyntaxError instead of a clear refusal.
 
-import math
+(The floor was first set for ``math.sumprod`` in the brute-force KNN; KNN
+now runs in sqlite-vec, and the syntax is what keeps the floor.)"""
+
 import sys
 import tomllib
 from pathlib import Path
@@ -11,11 +13,10 @@ from pathlib import Path
 PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
 
 
-def test_the_interpreter_has_math_sumprod() -> None:
+def test_the_interpreter_meets_the_floor() -> None:
     assert sys.version_info >= (3, 12)
-    assert hasattr(math, "sumprod")
 
 
-def test_the_package_refuses_interpreters_without_sumprod() -> None:
+def test_the_package_refuses_interpreters_below_the_floor() -> None:
     project = tomllib.loads(PYPROJECT.read_text())["project"]
     assert project["requires-python"] == ">=3.12"

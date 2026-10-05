@@ -59,8 +59,9 @@ dynomark-daemon install-host-manifest --extension-id <32-letter id from chrome:/
 dynomark-daemon check
 ```
 
-`check` prints one line each for config, role, store, socket, Ollama and
-models, exits 1 on any `FAIL`, and changes nothing (it opens the store
+`check` prints one line each for config, role, vector (this Python's
+`sqlite3` loads `sqlite-vec`), store, socket, Ollama and models, exits 1
+on any `FAIL`, and changes nothing (it opens the store
 read-only and only probes the socket). Stop the agent with
 `launchctl bootout gui/$(id -u)/tds.dynomark.daemon`. On Linux, run
 `dynomark-daemon serve` under a user service manager instead of launchd.
@@ -70,7 +71,7 @@ read-only and only probes the socket). Stop the agent with
 | Command | What it does |
 |---|---|
 | `dynomark-daemon serve` | socket server + job loop until SIGTERM/SIGINT/SIGHUP |
-| `dynomark-daemon check` | config, store health, socket, Ollama reachability and models |
+| `dynomark-daemon check` | config, sqlite-vec loads, store health, socket, Ollama reachability and models |
 | `dynomark-daemon install-host-manifest --extension-id ID [--browser chrome\|chromium\|all] [--host-path P]` | writes `tds.dynomark.json` for Chrome and Chromium (macOS and Linux per-user dirs), `allowed_origins` = that one extension |
 | `dynomark-daemon launchd-plist [--program P]` | prints a user LaunchAgent (`RunAtLoad`, `KeepAlive`) running `serve`; refuses when the daemon's socket would not be the one `dynomark-host` connects to (see Config) |
 | `dynomark-host` | started by the browser; pipes stdio frames to the socket unchanged; with no daemon it answers the first frame `error` `busy` and exits |
@@ -188,13 +189,15 @@ If NEW is switched before the old marker is gone, it reports the conflict
 ## Adapter notes
 
 - Store: SQLite with FTS5 (`bm25`) for full-text candidates; vectors as
-  float32 blobs, KNN by brute-force cosine in Python over an in-memory
-  vector cache kept consistent with the table. The dot products cost about
-  0.21 s at 10,000 x 768 with `math.sumprod` and about 0.29 s without it,
-  which is why the daemon requires Python 3.12+: tier-2 P95 measured
-  283-306 ms on 3.12 against Goal 4's 500 ms, and 374-448 ms on 3.11.
-  `sqlite-vec` is Assess on the tech radar (`lmde/TECH_RADAR.md`); it is
-  the planned accelerator once promoted, and is not used until then.
+  float32 blobs, KNN by brute-force cosine in SQL with `sqlite-vec`
+  (`vec_distance_cosine`, top-k by `ORDER BY ... LIMIT`; Trial on the tech
+  radar, `lmde/TECH_RADAR.md`). Every store connection loads the extension,
+  so the daemon needs a Python whose `sqlite3` can load extensions
+  (python.org, Homebrew and uv's can; the macOS system Python cannot) and
+  refuses to start on one that cannot; `check` reports it. A vector of
+  another dimension, or with no finite cosine, scores 0.0. Tier-2 P95
+  measured about 55 ms at 10,000 x 768 against Goal 4's 500 ms, down from
+  about 265 ms with the cosine in Python (issue #392).
   Migrations are versioned in code (`MIGRATIONS`, `PRAGMA user_version`);
   a newer schema is refused. `index.pull` pages by entry position (kept
   on replace), so its cursor is compact and survives data changes.
