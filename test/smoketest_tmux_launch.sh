@@ -7,8 +7,11 @@
 #
 # Covered: first terminal creates the session, later terminals add a window to
 # it instead of creating another session, and a new window starts in the
-# directory the terminal was opened in.  Also the dot.zshrc wiring: an
-# interactive shell outside tmux hands off to tmux-launch.
+# directory the terminal was opened in; with no terminal, tmux-launch opens
+# no window.  Also the dot.zshrc wiring: a terminal's shell outside tmux hands
+# off to tmux-launch, and a shell with no terminal or a -c command does not
+# (issue #427 -- GUI environment probes left stray windows).  Requires
+# script(1) for the pty cases.
 #
 # Usage: ./test/smoketest_tmux_launch.sh
 
@@ -178,6 +181,37 @@ test_zshrc_command_shell_on_terminal_stays_out_of_tmux() {
     assert_eq "the command ran" 1 "$(print -r -- "${out}" | grep -c cmd-ok || true)"
 }
 
+# The accept side of the terminal guard: on a terminal, tmux-launch still
+# opens a window and attaches. A client-attached hook detaches at once, so
+# the attach returns instead of holding the test.
+test_launch_on_terminal_adds_a_window_and_attaches() {
+    bold "\nTest: tmux-launch on a terminal adds a window and attaches\n"
+
+    local before
+    before=$(window_count)
+    tm set-hook -g client-attached 'detach-client'
+    ( cd "${SCRATCH}/term1" && in_pty env TDS_TMUX_SOCKET="${SOCKET}" \
+        /bin/zsh -f "${LAUNCH_SH}" </dev/null >/dev/null 2>&1 ) || true
+    tm set-hook -gu client-attached
+
+    assert_eq "one more window" "$(( before + 1 ))" "$(window_count)"
+}
+
+# A window is only worth creating if a terminal will attach to it. Whatever
+# calls tmux-launch without one, it must not leave a window behind (#427).
+test_launch_without_terminal_adds_no_window() {
+    bold "\nTest: tmux-launch with no terminal adds no window and says why\n"
+
+    local before rc=0 err
+    before=$(window_count)
+    err=$( ( cd "${SCRATCH}/term1" && TDS_TMUX_SOCKET="${SOCKET}" \
+        /bin/zsh -f "${LAUNCH_SH}" </dev/null >/dev/null ) 2>&1 ) || rc=$?
+
+    assert_eq "window count unchanged" "${before}" "$(window_count)"
+    assert_eq "it exits non-zero" 1 "$(( rc != 0 ))"
+    assert_eq "it names the missing terminal" 1 "$(print -r -- "${err}" | grep -c 'no terminal' || true)"
+}
+
 # --- Main ---
 
 main() {
@@ -187,6 +221,8 @@ main() {
     test_first_terminal_creates_the_session
     test_second_terminal_adds_a_window_not_a_session
     test_new_window_starts_in_the_terminals_directory
+    test_launch_on_terminal_adds_a_window_and_attaches
+    test_launch_without_terminal_adds_no_window
     test_zshrc_hands_off_to_tmux_launch
     test_zshrc_env_probe_without_terminal_stays_out_of_tmux
     test_zshrc_command_shell_on_terminal_stays_out_of_tmux

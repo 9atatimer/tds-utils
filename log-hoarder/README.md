@@ -72,7 +72,7 @@ for the shepherd).
 | File | Purpose |
 |------|---------|
 | `tmux.conf` | tmux hooks and TPM plugins (resurrect, continuum) -- symlink to `~/.tmux.conf` |
-| `bin/tmux-launch` | Called by `dot.zshrc` per terminal: creates session `main` or adds a window to it, then attaches |
+| `bin/tmux-launch` | Called by `dot.zshrc` per terminal: creates session `main` or adds a window to it, then attaches. Only a shell on a terminal with no `-c` command hands off, so GUI environment probes (`zsh -ilc`) never open a window (issue #427) |
 | `tmux_logging.sh` | Opens pipe-pane at pane creation |
 | `tmux_shepherd.sh` | Archives logs on exit; sweeps orphans; delegates branding to cron |
 | `log_brander` | Stub — samples log, calls local LLM, writes `slug.txt` |
