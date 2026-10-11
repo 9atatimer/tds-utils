@@ -101,7 +101,7 @@ cleanup() {
     tmux -L "${SOCKET}" kill-server 2>/dev/null || true
     [[ -n "${SCRATCH}" ]] && rm -rf "${SCRATCH}"
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM HUP
 
 # --- Tests ---
 
@@ -182,19 +182,20 @@ test_zshrc_command_shell_on_terminal_stays_out_of_tmux() {
 }
 
 # The accept side of the terminal guard: on a terminal, tmux-launch still
-# opens a window and attaches. A client-attached hook detaches at once, so
-# the attach returns instead of holding the test.
+# opens a window and attaches. A client-attached hook records the attach and
+# detaches at once, so the attach returns instead of holding the test.
 test_launch_on_terminal_adds_a_window_and_attaches() {
     bold "\nTest: tmux-launch on a terminal adds a window and attaches\n"
 
     local before
     before=$(window_count)
-    tm set-hook -g client-attached 'detach-client'
+    tm set-hook -g client-attached "run-shell \"touch '${SCRATCH}/attached'\" ; detach-client"
     ( cd "${SCRATCH}/term1" && in_pty env TDS_TMUX_SOCKET="${SOCKET}" \
         /bin/zsh -f "${LAUNCH_SH}" </dev/null >/dev/null 2>&1 ) || true
     tm set-hook -gu client-attached
 
     assert_eq "one more window" "$(( before + 1 ))" "$(window_count)"
+    assert_eq "a client attached" yes "$([[ -e "${SCRATCH}/attached" ]] && print yes || print no)"
 }
 
 # A window is only worth creating if a terminal will attach to it. Whatever
