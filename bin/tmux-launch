@@ -1,7 +1,8 @@
 #!/bin/zsh
 # tmux-launch -- put this terminal in the ONE shared tmux session, in a new window
 #
-# Called by macos/dot.zshrc for every interactive shell outside tmux. The first
+# Called by macos/dot.zshrc for every terminal's shell outside tmux. With no
+# terminal to attach it refuses and opens no window (issue #427). The first
 # terminal creates session "main"; every later one adds a window to it and
 # attaches. One session means one tmux server with one thing to save and
 # restore (tmux-resurrect / tmux-continuum), instead of a session per terminal
@@ -17,10 +18,23 @@
 #   TDS_TMUX_SESSION     session name (default: main)
 #   TDS_TMUX_SOCKET      tmux -L socket name (default: tmux's own default;
 #                        the smoke test points this at a private server)
-#   TDS_TMUX_NO_ATTACH   non-empty: do everything except attach (tests only --
-#                        attaching needs a terminal)
+#   TDS_TMUX_NO_ATTACH   non-empty: do everything except attach, and skip the
+#                        terminal check (tests only -- attaching needs a
+#                        terminal)
 
 set -euo pipefail
+
+# --- Predicates ---
+
+# Attaching needs a terminal on both ends. Without one the window would be
+# created and then orphaned (issue #427).
+has_terminal() {
+    [[ -t 0 && -t 1 ]]
+}
+
+will_attach() {
+    [[ -z "${TDS_TMUX_NO_ATTACH:-}" ]]
+}
 
 # --- Action functions ---
 
@@ -72,8 +86,12 @@ ensure_window() {
 }
 
 run_launch() {
+    if will_attach && ! has_terminal; then
+        print -u2 -r -- "tmux-launch: no terminal to attach; not opening a window"
+        return 1
+    fi
     ensure_window
-    [[ -n "${TDS_TMUX_NO_ATTACH:-}" ]] && return 0
+    will_attach || return 0
     attach_session
 }
 

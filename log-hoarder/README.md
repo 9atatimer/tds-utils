@@ -72,7 +72,7 @@ for the shepherd).
 | File | Purpose |
 |------|---------|
 | `tmux.conf` | tmux hooks and TPM plugins (resurrect, continuum) -- symlink to `~/.tmux.conf` |
-| `bin/tmux-launch` | Called by `dot.zshrc` per terminal: creates session `main` or adds a window to it, then attaches |
+| `bin/tmux-launch` | Called by `dot.zshrc` per terminal: creates session `main` or adds a window to it, then attaches. Only a shell on a terminal with no `-c` command hands off, so GUI environment probes (`zsh -ilc`) never open a window (issue #427) |
 | `tmux_logging.sh` | Opens pipe-pane at pane creation |
 | `tmux_shepherd.sh` | Archives logs on exit; sweeps orphans; delegates branding to cron |
 | `log_brander` | Stub — samples log, calls local LLM, writes `slug.txt` |
@@ -143,13 +143,9 @@ Set "Run command" to:
 /bin/zsh -l
 ```
 
-The `dot.zshrc` already contains the tmux auto-launch guard:
-
-```zsh
-if [[ -o interactive ]] && [[ -z "$TMUX" ]]; then
-    exec tmux new-session
-fi
-```
+`dot.zshrc` already ends with the tmux auto-launch block (`--- Main ---`):
+a shell on a terminal, outside tmux and with no `-c` command, execs
+`bin/tmux-launch`, or `tmux new-session` when `tmux-launch` is not on PATH.
 
 ### 5. Add the cron job
 
@@ -220,13 +216,8 @@ tmux source-file ~/.tmux.conf
 
 ### Stop tmux auto-launching in new terminals
 
-Comment out the guard block in `macos/dot.zshrc`:
-
-```zsh
-# if [[ -o interactive ]] && [[ -z "$TMUX" ]]; then
-#     exec tmux new-session
-# fi
-```
+Comment out the `if ... fi` block under `--- Main ---` at the end of
+`macos/dot.zshrc`.
 
 ### Remove the cron job
 

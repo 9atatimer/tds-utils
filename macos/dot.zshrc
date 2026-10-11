@@ -205,7 +205,12 @@ fi
 # NOTHING BELOW THIS BLOCK RUNS in a normal terminal. tmux's shell is login
 # AND interactive, so .zshenv -> path_helper -> .zprofile -> .zshrc all run a
 # second time; that is why tds_path_apply has to be idempotent.
-if [[ -o interactive ]] && [[ -z "$TMUX" ]]; then
+# Only a shell on a terminal, with no -c command, hands off. A GUI app
+# reading the environment runs an interactive shell with no terminal (or a
+# `zsh -ic` on a pty); exec'd into tmux it leaves a stray window behind and
+# never returns the environment (issue #427).
+if [[ -o interactive ]] && [[ -z "$TMUX" ]] && [[ -t 0 && -t 1 ]] \
+    && [[ -z "${ZSH_EXECUTION_STRING:-}" ]]; then
     if (( $+commands[tmux-launch] )); then
         exec tmux-launch
     fi

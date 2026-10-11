@@ -252,7 +252,8 @@ cp macos/dot.zshrc "$stage/.zshrc"
 # .zshenv + .zprofile only -- .zshrc is NOT sourced by a non-interactive shell
 env -i HOME="$HOME" ZDOTDIR="$stage" TERM=dumb /bin/zsh -lc 'command -v bash'
 
-# adds .zshrc; TMUX must be non-empty or .zshrc execs tmux and the probe hangs
+# adds .zshrc; a shell with no terminal or with -c never execs tmux (issue
+# #427), so TMUX=probe is belt and braces, not load-bearing
 env -i HOME="$HOME" ZDOTDIR="$stage" TERM=dumb TMUX=probe /bin/zsh -lic \
     'command -v bash' </dev/null
 ```
