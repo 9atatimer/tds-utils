@@ -24,7 +24,7 @@ file points there.
 - Never ask with `AskUserQuestion` or a menu; ask in prose for the one value you lack.
 - Never set a timer, wakeup or schedule for yourself, and never poll on a clock.
 - Never `curl | sh` or run a fetched installer; install through signed package managers.
-- Never publish to claude.ai Artifacts; an HTML deliverable is a local file in the repo.
+- Never use claude.ai Artifacts (the Artifact tool, any action); an HTML deliverable is a file in the repo.
 - Say what a command does before handing it to the human to run.
 - Never `cd`; scope tools with `-C` / `--directory` / `--filter`.
 - Never work on the default branch; prefer a worktree under `~/workplace/.worktrees/`.
@@ -227,10 +227,10 @@ stale (observed 2026-09-30: a stale prompt said "deploy," the repo's skill
 said land via tedium, and a local preview publish went out from an
 unmerged branch).
 
-## Never publish Artifacts: HTML is a file in the repo
+## Never use Artifacts: HTML is a file in the repo
 
-Never call the Artifact tool or any other claude.ai publishing path. Not
-for a page, not for a diagram, not "private by default". An HTML deliverable
+Never call the Artifact tool, for any action (publish, read, list, open,
+pin), or any other claude.ai publishing path. Not for a page, not for a diagram, not "private by default". An HTML deliverable
 is a file written into the repo (or a worktree of it) and opened locally
 with `open <file>`. When the human asks for "an HTML artifact", that means
 the file.
