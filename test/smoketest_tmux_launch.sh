@@ -164,6 +164,20 @@ test_zshrc_env_probe_without_terminal_stays_out_of_tmux() {
     assert_eq "the probe's command ran" probe-ok "${out}"
 }
 
+# A shell given a command (-c) exists to run it, terminal or not. Some env
+# probes run on a pty, and `zsh -ic cmd` typed at a terminal means cmd.
+test_zshrc_command_shell_on_terminal_stays_out_of_tmux() {
+    bold "\nTest: zsh -ic on a terminal runs its command, not tmux\n"
+
+    local dirs out
+    dirs=(${(z)"$(stage_zshrc)"})
+    out=$(in_pty env -i HOME="${SCRATCH}" ZDOTDIR="${dirs[1]}" TERM=dumb \
+        PATH="${dirs[2]}:/usr/bin:/bin" /bin/zsh -ic 'print cmd-ok' </dev/null 2>/dev/null || true)
+
+    assert_eq "tmux-launch did not run" not-launched "$(launched)"
+    assert_eq "the command ran" 1 "$(print -r -- "${out}" | grep -c cmd-ok || true)"
+}
+
 # --- Main ---
 
 main() {
@@ -175,6 +189,7 @@ main() {
     test_new_window_starts_in_the_terminals_directory
     test_zshrc_hands_off_to_tmux_launch
     test_zshrc_env_probe_without_terminal_stays_out_of_tmux
+    test_zshrc_command_shell_on_terminal_stays_out_of_tmux
 
     print ""
     bold "=== Results: ${TESTS_PASSED}/${TESTS_RUN} passed"
