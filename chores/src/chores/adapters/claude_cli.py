@@ -3,8 +3,10 @@
 Load-bearing isolation (CHORES.DESIGN.md Subsystem 4, template-tools lesson
 19): every invocation disables the operator's global MCP servers and every
 settings source, caps turns, and passes the definition's tool allowlist.
-``HOME`` must be in the task environment because the subscription
-credential is keychain-bound; the adapter never reads or writes it.
+``HOME`` and ``USER`` must be in the task environment because the
+subscription credential is keychain-bound and looked up by user (without
+``USER`` the CLI reports "Not logged in", issue #406); the adapter never
+reads or writes it.
 """
 
 from __future__ import annotations
