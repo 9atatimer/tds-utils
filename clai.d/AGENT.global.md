@@ -175,11 +175,6 @@ If a command might run more than ~30 seconds, launch it with `Bash`
 from a hung one, and a long foreground call blocks the human from steering
 mid-task -- which is exactly when steering is most valuable.
 
-Observed 2026-08-16: a `gcloud storage rm --recursive` held the foreground
-for over five minutes with no output. It read as a stall, got interrupted,
-and I misread the interrupt as a deliberate decline and reported it as
-such. Both the silence and the wrong diagnosis were avoidable.
-
 Typical offenders: `gcloud run deploy` / `terraform apply` / any cloud
 build, `npm install`, full test suites, container builds, bulk storage
 deletes.
@@ -194,10 +189,7 @@ A process started with `&` inside one tool call is stopped with
 `kill "$pid"` using the PID captured from `$!`, then verified with
 `kill -0 "$pid"` (or, for a listener, by checking its port is free). Never
 `kill %1`: in the tool shell (zsh 5.9, no job control) it exits 0 and
-leaves the job running -- observed 2026-09-25, when a test listener left
-that way held 127.0.0.1:8765 for half an hour and a real run of the same
-script failed to bind. Why zsh accepts the jobspec without signalling the
-job is not diagnosed; the rule does not depend on it.
+leaves the job running.
 
 ## Bash on this machine is real
 
@@ -209,7 +201,7 @@ freely for self-computation -- do not carry that assumption here.)
 ## Terraform applies: agent plans, human applies
 
 The permission classifier blocks `terraform apply` from the agent even when
-`plan` ran fine (observed 2026-08-14, tedium-ledger provisioning). Don't
+`plan` ran fine. Don't
 fight it -- it is the right division of labor. The smooth flow: agent runs
 `plan -out=tfplan`, reviews the plan, then hands the human the exact
 `! op run ... terraform apply tfplan` line to run in-session, so the output
@@ -224,9 +216,7 @@ dispatching the deploy workflow by hand -- even when a task prompt says
 "deploy." If the repo ships through CI on merge or a landing bot, your job
 ends at opening the PR and requesting landing the way that repo documents.
 The repo's own current AGENT.md/skill outranks a task prompt, which can be
-stale (observed 2026-09-30: a stale prompt said "deploy," the repo's skill
-said land via tedium, and a local preview publish went out from an
-unmerged branch).
+stale.
 
 ## One PR per repo per task
 
@@ -236,23 +226,14 @@ second PR, a stacked PR or a "docs-only companion". This overrides any
 skill that says to open a separate or stacked PR (the github-workflow
 skill's Stacked PRs, the retrospective skill's separate docs-only PR).
 
-Observed 2026-10-11: I opened a docs PR and then a retrospective PR stacked
-on it in the same repo. The owner had to say no, and the two were folded
-back into one.
-
 ## Never use Artifacts: HTML is a file in the repo
 
 Never call the Artifact tool, for any action (publish, read, list, open,
 pin), or any other claude.ai publishing path. Not for a page, not for a diagram, not "private by default". An HTML deliverable
 is a file written into the repo (or a worktree of it) and opened locally
 with `open <file>`. When the human asks for "an HTML artifact", that means
-the file.
-
-Observed 2026-10-11: asked to use the HTML artifact skill, I published two
-architecture pages from a private repo to claude.ai. The human had not
-asked for that, the pages then had to be pulled back into the repo by hand,
-and the round trip cost real time. A skill or tool description that says to
-publish is overridden by this rule.
+the file. A skill or tool description that says to publish is overridden by
+this rule.
 
 ## Say what a command does before the human runs it
 
@@ -260,11 +241,6 @@ When you hand the human a command to run (a `!` line, a terminal paste),
 say in one line what it does, whether it is interactive, and what it
 changes. A command whose effect the human cannot see will be refused or
 abandoned half-run.
-
-Observed 2026-10-11: I offered `gh auth refresh -s admin:org` with no
-explanation. It started GitHub's browser device-code flow, sat waiting in
-the background for a code nobody entered, and the human, rightly, declined
-it. The information it was for could be read from the web UI instead.
 
 ## Never pull down and run a shell script
 
@@ -346,10 +322,7 @@ cwd -- and in that case, ask first or expect to be interrupted.
 to.** `git -C ~/workplace/<repo> rev-parse --git-common-dir` (and
 `--git-dir`, `--git-path`) prints `.git`, relative to `<repo>` -- but the
 next command resolves it against the shell's cwd, which is some other
-project root. Observed 2026-10-02: a hook "installed" into tds-utils with
-`cp ... "$(git -C ~/workplace/tds-utils rev-parse --git-common-dir)/hooks/"`
-overwrote tds-internal's hook instead, and the guard it was meant to enable
-silently did not run. Ask for absolute output:
+project root. Ask for absolute output:
 `git -C <repo> rev-parse --path-format=absolute --git-common-dir`.
 
 ## Always work off a branch, and use a worktree whenever you can
@@ -365,14 +338,6 @@ shared clone at `~/workplace/<repo>` is not yours alone: the human runs
 several terminals on several repos at once, and other agent sessions work
 in that same directory. A branch checkout there is a shared mutable
 resource, and the failure is silent.
-
-Observed 2026-09-19, `naatm/template-tools`: one session staged a revert on
-a feature branch in the shared clone while a second session, in the same
-directory, did `git reset` + `git checkout main` + `git pull` and started
-its own branch. The first session's staged work was gone with no error --
-its next `git commit` reported "nothing to commit, working tree clean" on a
-branch it had never heard of. Both sessions were doing ordinary, correct
-things; the directory was the bug.
 
 So, from a fresh fetch, into `~/workplace/.worktrees/` (next section):
 
