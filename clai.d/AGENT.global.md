@@ -24,8 +24,11 @@ file points there.
 - Never ask with `AskUserQuestion` or a menu; ask in prose for the one value you lack.
 - Never set a timer, wakeup or schedule for yourself, and never poll on a clock.
 - Never `curl | sh` or run a fetched installer; install through signed package managers.
+- Never use claude.ai Artifacts (the Artifact tool, any action); an HTML deliverable is a file in the repo.
+- Say what a command does before handing it to the human to run.
 - Never `cd`; scope tools with `-C` / `--directory` / `--filter`.
 - Never work on the default branch; prefer a worktree under `~/workplace/.worktrees/`.
+- One PR per repo per task: never stack or split work into several PRs in one repo.
 - Never commit a defect fix before its RED test; cut the Issue first.
 - Never queue a "task card"; out-of-scope work is a GitHub Issue.
 - Don't write auto-memory; durable context goes in the repo or this file.
@@ -224,6 +227,44 @@ The repo's own current AGENT.md/skill outranks a task prompt, which can be
 stale (observed 2026-09-30: a stale prompt said "deploy," the repo's skill
 said land via tedium, and a local preview publish went out from an
 unmerged branch).
+
+## One PR per repo per task
+
+A task gets exactly one PR in each repo it touches. Retrospectives, review
+fixes, follow-up docs and corrections go onto that PR's branch, not into a
+second PR, a stacked PR or a "docs-only companion". This overrides any
+skill that says to open a separate or stacked PR (the github-workflow
+skill's Stacked PRs, the retrospective skill's separate docs-only PR).
+
+Observed 2026-10-11: I opened a docs PR and then a retrospective PR stacked
+on it in the same repo. The owner had to say no, and the two were folded
+back into one.
+
+## Never use Artifacts: HTML is a file in the repo
+
+Never call the Artifact tool, for any action (publish, read, list, open,
+pin), or any other claude.ai publishing path. Not for a page, not for a diagram, not "private by default". An HTML deliverable
+is a file written into the repo (or a worktree of it) and opened locally
+with `open <file>`. When the human asks for "an HTML artifact", that means
+the file.
+
+Observed 2026-10-11: asked to use the HTML artifact skill, I published two
+architecture pages from a private repo to claude.ai. The human had not
+asked for that, the pages then had to be pulled back into the repo by hand,
+and the round trip cost real time. A skill or tool description that says to
+publish is overridden by this rule.
+
+## Say what a command does before the human runs it
+
+When you hand the human a command to run (a `!` line, a terminal paste),
+say in one line what it does, whether it is interactive, and what it
+changes. A command whose effect the human cannot see will be refused or
+abandoned half-run.
+
+Observed 2026-10-11: I offered `gh auth refresh -s admin:org` with no
+explanation. It started GitHub's browser device-code flow, sat waiting in
+the background for a code nobody entered, and the human, rightly, declined
+it. The information it was for could be read from the web UI instead.
 
 ## Never pull down and run a shell script
 
