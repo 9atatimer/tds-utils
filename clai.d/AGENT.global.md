@@ -28,6 +28,7 @@ file points there.
 - Say what a command does before handing it to the human to run.
 - Never `cd`; scope tools with `-C` / `--directory` / `--filter`.
 - Never work on the default branch; prefer a worktree under `~/workplace/.worktrees/`.
+- One PR per repo per task: never stack or split work into several PRs in one repo.
 - Never commit a defect fix before its RED test; cut the Issue first.
 - Never queue a "task card"; out-of-scope work is a GitHub Issue.
 - Don't write auto-memory; durable context goes in the repo or this file.
@@ -226,6 +227,18 @@ The repo's own current AGENT.md/skill outranks a task prompt, which can be
 stale (observed 2026-09-30: a stale prompt said "deploy," the repo's skill
 said land via tedium, and a local preview publish went out from an
 unmerged branch).
+
+## One PR per repo per task
+
+A task gets exactly one PR in each repo it touches. Retrospectives, review
+fixes, follow-up docs and corrections go onto that PR's branch, not into a
+second PR, a stacked PR or a "docs-only companion". This overrides any
+skill that says to open a separate or stacked PR (the github-workflow
+skill's Stacked PRs, the retrospective skill's separate docs-only PR).
+
+Observed 2026-10-11: I opened a docs PR and then a retrospective PR stacked
+on it in the same repo. The owner had to say no, and the two were folded
+back into one.
 
 ## Never use Artifacts: HTML is a file in the repo
 
