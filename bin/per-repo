@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+# per-repo -- run one action across every repository of a GitHub owner.
+#
+# The runner owns discovery and the safety rules; an ACTION owns what is
+# done. An action is any executable: a path, or a name resolved to
+# `per-repo-<name>` on PATH. It is called twice per repository, with the
+# repository's facts in the environment:
+#
+#   PER_REPO_MODE=select   may this repository be acted on?
+#                          exit 0 = yes, 10 = not applicable, 2 = could not
+#                          tell (any other code is treated as 2)
+#   PER_REPO_MODE=run      act on it (ACTION-ARGS passed through);
+#                          exit 0 = ok, 1 = not ready, 2 = error
+#
+#   PER_REPO=<owner>/<name>  PER_REPO_OWNER  PER_REPO_NAME
+#   PER_REPO_VISIBILITY (private|public)     PER_REPO_DEFAULT_BRANCH
+#   PER_REPO_DRY_RUN (0|1)
+#
+# Every repository is selected before any is run, and one "could not tell"
+# aborts the whole run with nothing changed: an incomplete target set would
+# leave a repository silently skipped. Discovery lists the owner's repos
+# (never code search, an eventually-consistent index that drops repos --
+# tds-utils#348) and fails closed. Repositories named after `--` are run
+# directly, with no listing and no select pass.
+#
+# Usage:
+#   per-repo [-o OWNER] [-v private|public|all] [-n] ACTION [ACTION-ARGS...] [-- OWNER/REPO ...]
+#
+#   -o OWNER   GitHub owner to scan (default: 9atatimer)
+#   -v VIS     only repositories of this visibility (default: all)
+#   -n         dry run: PER_REPO_DRY_RUN=1 for the action
+#   -h         this help
+#
+# Exit: 0 every run ok; 1 some run not ready; 2 an error (usage, discovery,
+# a select that could not tell, or a run that failed).
+#
+# Needs `gh` (authenticated). Writes nothing itself; the action does.
+
+set -euo pipefail
+
+DEFAULT_OWNER="9atatimer"
+REPO_LIST_LIMIT=1000
+NOT_APPLICABLE=10
+
+# --- Action functions ------------------------------------------------------
+
+usage() {
+    sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+# The executable for ACTION: a path as given, else per-repo-<name> on PATH.
+resolve_action() {
+    local action="$1"
+    case "${action}" in
+        */*) [ -x "${action}" ] && { printf '%s\n' "${action}"; return 0; } ;;
+        *) command -v "per-repo-${action}" 2>/dev/null && return 0 ;;
+    esac
+    return 1
+}
+
+# Every non-archived repository under OWNER as "<owner/name> <vis> <branch>"
+# lines, tab separated. Fails with gh's message when the listing fails: an
+# empty answer must never be mistaken for "no repositories".
+discover_repos() {
+    local owner="$1" out
+    out=$(gh repo list "${owner}" --limit "${REPO_LIST_LIMIT}" --no-archived \
+        --json nameWithOwner,visibility,defaultBranchRef \
+        --jq '.[] | [.nameWithOwner, (.visibility | ascii_downcase), (.defaultBranchRef.name // "")] | @tsv' 2>&1) || {
+        printf '%s\n' "${out}" >&2
+        return 1
+    }
+    printf '%s\n' "${out}" | sed '/^$/d' | sort -u
+}
+
+# "<owner/name> <vis> <branch>" for one named repository.
+describe_repo() {
+    local repo="$1" out
+    out=$(gh repo view "${repo}" --json nameWithOwner,visibility,defaultBranchRef \
+        --jq '[.nameWithOwner, (.visibility | ascii_downcase), (.defaultBranchRef.name // "")] | @tsv' 2>&1) || {
+        printf '%s\n' "${out}" >&2
+        return 1
+    }
+    printf '%s\n' "${out}"
+}
+
+# Call ACTION on one repository in MODE; returns the action's exit code.
+call_action() {
+    local exe="$1" mode="$2" line="$3" dry_run="$4"; shift 4
+    local repo vis branch rc=0
+    repo=$(printf '%s' "${line}" | cut -f1)
+    vis=$(printf '%s' "${line}" | cut -f2)
+    branch=$(printf '%s' "${line}" | cut -f3)
+    PER_REPO_MODE="${mode}" PER_REPO="${repo}" PER_REPO_OWNER="${repo%%/*}" \
+        PER_REPO_NAME="${repo#*/}" PER_REPO_VISIBILITY="${vis}" \
+        PER_REPO_DEFAULT_BRANCH="${branch}" PER_REPO_DRY_RUN="${dry_run}" \
+        "${exe}" "$@" || rc=$?
+    return "${rc}"
+}
+
+# --- Flow functions --------------------------------------------------------
+
+# The lines to run on: named repositories described directly, else every
+# discovered repository of the wanted visibility that the action selects.
+# Fails (nothing printed) on any discovery or select error.
+targets() {
+    local exe="$1" owner="$2" vis_filter="$3" dry_run="$4"; shift 4
+    local line rc selected=""
+    if [ "$#" -gt 0 ]; then
+        local repo
+        for repo in "$@"; do
+            line=$(describe_repo "${repo}") || return 1
+            selected="${selected}${line}"$'\n'
+        done
+        printf '%s' "${selected}"
+        return 0
+    fi
+    local lines
+    lines=$(discover_repos "${owner}") || {
+        echo "per-repo: could not list repositories under ${owner}" >&2
+        return 1
+    }
+    while IFS= read -r line; do
+        [ -n "${line}" ] || continue
+        if [ "${vis_filter}" != all ] && [ "$(printf '%s' "${line}" | cut -f2)" != "${vis_filter}" ]; then
+            continue
+        fi
+        rc=0; call_action "${exe}" select "${line}" "${dry_run}" </dev/null || rc=$?
+        case "${rc}" in
+            0) selected="${selected}${line}"$'\n' ;;
+            "${NOT_APPLICABLE}") ;;
+            *) echo "per-repo: could not determine whether $(printf '%s' "${line}" | cut -f1) applies" >&2
+               return 1 ;;
+        esac
+    done <<< "${lines}"
+    printf '%s' "${selected}"
+}
+
+run_all() {
+    local exe="$1" owner="$2" vis_filter="$3" dry_run="$4" nargs="$5"; shift 5
+    local action_args=("${@:1:${nargs}}") named=("${@:$((nargs + 1))}")
+    local selected line rc worst=0
+    selected=$(targets "${exe}" "${owner}" "${vis_filter}" "${dry_run}" "${named[@]+"${named[@]}"}") || {
+        echo "per-repo: could not determine the target set under ${owner}; nothing run" >&2
+        return 2
+    }
+    while IFS= read -r line; do
+        [ -n "${line}" ] || continue
+        rc=0; call_action "${exe}" run "${line}" "${dry_run}" "${action_args[@]+"${action_args[@]}"}" </dev/null || rc=$?
+        case "${rc}" in
+            0) ;;
+            1) [ "${worst}" -lt 1 ] && worst=1 ;;
+            *) worst=2 ;;
+        esac
+    done <<< "${selected}"
+    return "${worst}"
+}
+
+# --- Main ------------------------------------------------------------------
+
+main() {
+    local owner="${DEFAULT_OWNER}" vis_filter=all dry_run=0 opt
+    while getopts "o:v:nh" opt; do
+        case "${opt}" in
+            o) owner="${OPTARG}" ;;
+            v) vis_filter="${OPTARG}" ;;
+            n) dry_run=1 ;;
+            h) usage; exit 0 ;;
+            *) usage >&2; exit 2 ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+    case "${vis_filter}" in private|public|all) ;; *) usage >&2; exit 2 ;; esac
+    local action="${1:-}"
+    [ -n "${action}" ] || { usage >&2; exit 2; }
+    shift
+    local exe
+    exe=$(resolve_action "${action}") || {
+        echo "per-repo: no action '${action}' (not an executable path, no per-repo-${action} on PATH)" >&2
+        exit 2
+    }
+    local action_args=() named=() seen_dashes=0 arg
+    for arg in "$@"; do
+        if [ "${seen_dashes}" = 0 ] && [ "${arg}" = "--" ]; then seen_dashes=1; continue; fi
+        if [ "${seen_dashes}" = 1 ]; then named+=("${arg}"); else action_args+=("${arg}"); fi
+    done
+    run_all "${exe}" "${owner}" "${vis_filter}" "${dry_run}" "${#action_args[@]}" \
+        "${action_args[@]+"${action_args[@]}"}" "${named[@]+"${named[@]}"}"
+}
+
+main "$@"

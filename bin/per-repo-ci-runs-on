@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# per-repo-ci-runs-on -- per-repo action: the CI_RUNS_ON Actions variable
+# that moves a repository's jobs onto the self-hosted CI runner pool.
+#
+# Run under bin/per-repo, never directly:
+#
+#   per-repo -o 9atatimer ci-runs-on status   # which repos read it, and its value
+#   per-repo -o 9atatimer ci-runs-on set      # set it where workflows read it
+#   per-repo -o 9atatimer ci-runs-on unset -- 9atatimer/iae   # the rollback
+#
+# A repository applies when it is PRIVATE and a workflow under
+# .github/workflows mentions `vars.CI_RUNS_ON`. A public repository never
+# gets the variable, even when named: the pool serves private repositories
+# only, so its jobs would queue forever. The workflows are read with the
+# contents API; a lookup that fails for a reason other than 404 is "could
+# not tell", which makes per-repo abort before anything is written.
+#
+# The value set is CI_RUNS_ON_LABELS, default the pool's labels:
+#   ["self-hosted","linux","x64","cf-pool"]
+#
+# Needs `gh` (authenticated). `set` and `unset` write one repository
+# variable each; with -n they only print what they would do.
+
+set -euo pipefail
+
+VARIABLE="CI_RUNS_ON"
+DEFAULT_LABELS='["self-hosted","linux","x64","cf-pool"]'
+NOT_APPLICABLE=10
+ABSENT=4
+
+# --- Action functions ------------------------------------------------------
+
+# Workflow file names under .github/workflows; ABSENT (4) when the directory
+# does not exist, 1 with gh's message on any other failure.
+list_workflows() {
+    local repo="$1" out
+    out=$(gh api "repos/${repo}/contents/.github/workflows" --jq '.[] | select(.type == "file") | .name' 2>&1) || {
+        case "${out}" in
+            *"HTTP 404"*) return "${ABSENT}" ;;
+            *) printf '%s\n' "${out}" >&2; return 1 ;;
+        esac
+    }
+    printf '%s\n' "${out}" | sed '/^$/d'
+}
+
+# One workflow file, decoded. Fails with gh's message on any error: the
+# file was just listed, so even a 404 here means "could not tell".
+workflow_body() {
+    local repo="$1" name="$2" out
+    out=$(gh api "repos/${repo}/contents/.github/workflows/${name}" --jq .content 2>&1) || {
+        printf '%s\n' "${out}" >&2
+        return 1
+    }
+    printf '%s' "${out}" | base64 -d 2>/dev/null
+}
+
+# The workflows (.yml/.yaml) that read the variable, space separated; empty
+# when none do. Returns 1 when it could not tell.
+readers() {
+    local repo="$1" names name body rc=0 found=""
+    names=$(list_workflows "${repo}") || rc=$?
+    case "${rc}" in
+        0) ;;
+        "${ABSENT}") return 0 ;;
+        *) return 1 ;;
+    esac
+    while IFS= read -r name; do
+        case "${name}" in *.yml|*.yaml) ;; *) continue ;; esac
+        body=$(workflow_body "${repo}" "${name}") || return 1
+        if printf '%s\n' "${body}" | grep -q "vars\.${VARIABLE}"; then
+            found="${found:+${found} }${name}"
+        fi
+    done <<< "${names}"
+    printf '%s\n' "${found}"
+}
+
+# The variable's current value, or "-" when it is not set.
+current_value() {
+    local repo="$1"
+    gh variable get "${VARIABLE}" -R "${repo}" 2>/dev/null || echo "-"
+}
+
+# --- Flow functions --------------------------------------------------------
+
+do_select() {
+    local found
+    [ "${PER_REPO_VISIBILITY}" = private ] || return "${NOT_APPLICABLE}"
+    found=$(readers "${PER_REPO}") || return 2
+    [ -n "${found}" ] || return "${NOT_APPLICABLE}"
+}
+
+do_status() {
+    local found value
+    found=$(readers "${PER_REPO}") || return 2
+    value=$(current_value "${PER_REPO}")
+    printf '%-36s %-44s %s\n' "${PER_REPO}" "${value}" "${found:--}"
+    [ "${value}" != "-" ] || return 1
+}
+
+do_set() {
+    local labels="${CI_RUNS_ON_LABELS:-${DEFAULT_LABELS}}"
+    if [ "${PER_REPO_DRY_RUN}" = 1 ]; then
+        echo "would set ${VARIABLE} on ${PER_REPO} to ${labels}"
+        return 0
+    fi
+    gh variable set "${VARIABLE}" -R "${PER_REPO}" --body "${labels}"
+    echo "set ${VARIABLE} on ${PER_REPO} to ${labels}"
+}
+
+do_unset() {
+    if [ "${PER_REPO_DRY_RUN}" = 1 ]; then
+        echo "would delete ${VARIABLE} on ${PER_REPO}"
+        return 0
+    fi
+    gh variable delete "${VARIABLE}" -R "${PER_REPO}"
+    echo "deleted ${VARIABLE} on ${PER_REPO}"
+}
+
+# --- Main ------------------------------------------------------------------
+
+main() {
+    : "${PER_REPO_MODE:?run under per-repo}" "${PER_REPO:?}" "${PER_REPO_VISIBILITY:?}" "${PER_REPO_DRY_RUN:?}"
+    if [ "${PER_REPO_MODE}" = select ]; then
+        do_select
+        return
+    fi
+    local cmd="${1:-}"
+    if [ "${cmd}" = set ] && [ "${PER_REPO_VISIBILITY}" != private ]; then
+        echo "per-repo-ci-runs-on: ${PER_REPO} is ${PER_REPO_VISIBILITY}; the pool serves private repositories only" >&2
+        return 2
+    fi
+    case "${cmd}" in
+        status) do_status ;;
+        set)    do_set ;;
+        unset)  do_unset ;;
+        *) echo "per-repo-ci-runs-on: unknown command '${cmd}' (status | set | unset)" >&2; return 2 ;;
+    esac
+}
+
+main "$@"
