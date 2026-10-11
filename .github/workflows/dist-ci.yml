@@ -130,6 +130,10 @@ jobs:
       - name: Smoketest bin/seed-ci-magic
         run: /bin/bash test/smoketest_seed_ci_magic.sh
 
+      # Hermetic: fake gh and a recording action on PATH; nothing reaches GitHub.
+      - name: Smoketest bin/per-repo
+        run: /bin/bash test/smoketest_per_repo.sh
+
       # Node suite: the review-settled decision (lib/) + CLI usage checks.
       - name: Smoketest bin/review-settled
         run: /bin/bash test/smoketest_review_settled.sh
