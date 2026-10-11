@@ -50,6 +50,41 @@ open_terminal() {
     ( cd "$1" && TDS_TMUX_SOCKET="${SOCKET}" TDS_TMUX_NO_ATTACH=1 /bin/zsh -f "${LAUNCH_SH}" ) || true
 }
 
+# Run a command on a pseudo-terminal, the way a terminal emulator starts a
+# shell. BSD script(1) takes the command as argv; util-linux takes it as -c.
+in_pty() {
+    if [[ "$(uname -s)" == Darwin ]]; then
+        script -q /dev/null "$@"
+    else
+        script -qec "${(j: :)${(q)@}}" /dev/null
+    fi
+}
+
+# Stage dot.zshrc with a stand-in tmux-launch on PATH that records that it
+# ran; tmux itself is never reached. Prints the ZDOTDIR and fake bin dir.
+stage_zshrc() {
+    local stage="${SCRATCH}/zdot" bindir="${SCRATCH}/fakebin"
+    rm -rf "${stage}" "${bindir}" "${SCRATCH}/launched"
+    mkdir -p "${stage}" "${bindir}"
+    cp "${DOT_ZSHRC}" "${stage}/.zshrc"
+    {
+        print '#!/bin/sh'
+        print "echo launched > '${SCRATCH}/launched'"
+    } > "${bindir}/tmux-launch"
+    chmod +x "${bindir}/tmux-launch"
+    print -r -- "${stage} ${bindir}"
+}
+
+# A shell started with only the staged .zshrc and the stand-in on PATH.
+staged_zsh() {
+    local stage="$1" bindir="$2"
+    shift 2
+    env -i HOME="${SCRATCH}" ZDOTDIR="${stage}" TERM=dumb \
+        PATH="${bindir}:/usr/bin:/bin" /bin/zsh "$@"
+}
+
+launched() { cat "${SCRATCH}/launched" 2>/dev/null || print -r -- not-launched; }
+
 session_count() { tm list-sessions 2>/dev/null | grep -c . || true; }
 
 window_count() { tm list-windows -t main 2>/dev/null | grep -c . || true; }
@@ -101,24 +136,32 @@ test_new_window_starts_in_the_terminals_directory() {
     assert_eq "newest window cwd" "${SCRATCH:A}/term2" "${newest#* }"
 }
 
-# An interactive shell outside tmux must hand off to tmux-launch. A stand-in
-# tmux-launch on PATH records that it ran; tmux itself is never reached.
+# A terminal emulator starts an interactive shell on a pty; outside tmux it
+# must hand off to tmux-launch.
 test_zshrc_hands_off_to_tmux_launch() {
-    bold "\nTest: dot.zshrc execs tmux-launch for an interactive shell outside tmux\n"
+    bold "\nTest: dot.zshrc execs tmux-launch for a terminal's shell outside tmux\n"
 
-    local stage="${SCRATCH}/zdot" bindir="${SCRATCH}/fakebin"
-    mkdir -p "${stage}" "${bindir}"
-    cp "${DOT_ZSHRC}" "${stage}/.zshrc"
-    {
-        print '#!/bin/sh'
-        print "echo launched > '${SCRATCH}/launched'"
-    } > "${bindir}/tmux-launch"
-    chmod +x "${bindir}/tmux-launch"
+    local dirs
+    dirs=(${(z)"$(stage_zshrc)"})
+    in_pty env -i HOME="${SCRATCH}" ZDOTDIR="${dirs[1]}" TERM=dumb \
+        PATH="${dirs[2]}:/usr/bin:/bin" /bin/zsh -i </dev/null >/dev/null 2>&1 || true
 
-    env -i HOME="${SCRATCH}" ZDOTDIR="${stage}" TERM=dumb \
-        PATH="${bindir}:/usr/bin:/bin" /bin/zsh -ic 'true' </dev/null >/dev/null 2>&1 || true
+    assert_eq "tmux-launch ran" launched "$(launched)"
+}
 
-    assert_eq "tmux-launch ran" launched "$(cat "${SCRATCH}/launched" 2>/dev/null || true)"
+# Issue #427. A GUI app (Claude desktop, an editor) reads the user's
+# environment by running an interactive login shell with no terminal. Handed
+# to tmux-launch, that probe left a stray window in session main and never
+# returned its environment.
+test_zshrc_env_probe_without_terminal_stays_out_of_tmux() {
+    bold "\nTest: an interactive shell with no terminal runs its command, not tmux\n"
+
+    local dirs out
+    dirs=(${(z)"$(stage_zshrc)"})
+    out=$(staged_zsh "${dirs[1]}" "${dirs[2]}" -lic 'print probe-ok' </dev/null 2>/dev/null || true)
+
+    assert_eq "tmux-launch did not run" not-launched "$(launched)"
+    assert_eq "the probe's command ran" probe-ok "${out}"
 }
 
 # --- Main ---
@@ -131,6 +174,7 @@ main() {
     test_second_terminal_adds_a_window_not_a_session
     test_new_window_starts_in_the_terminals_directory
     test_zshrc_hands_off_to_tmux_launch
+    test_zshrc_env_probe_without_terminal_stays_out_of_tmux
 
     print ""
     bold "=== Results: ${TESTS_PASSED}/${TESTS_RUN} passed"
