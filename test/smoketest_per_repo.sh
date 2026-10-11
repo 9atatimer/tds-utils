@@ -87,6 +87,7 @@ case "${args}" in
         repo=$(printf '%s' "${args}" | sed -n 's|.*repos/\([^/]*/[^/]*\)/contents.*|\1|p')
         name=$(printf '%s' "${args}" | sed -n 's|.*contents/.github/workflows/\([^ ]*\).*|\1|p')
         f="$(repo_dir "${repo}")/workflows/${name}"
+        [ -e "${f}.error" ] && { echo "gh: API rate limit exceeded (HTTP 403)" >&2; exit 1; }
         [ -f "${f}" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
         base64 < "${f}" ;;
     *"contents/.github/workflows"*)
@@ -331,6 +332,15 @@ case_ci_runs_on_lookup_failure_aborts() {
     assert "nothing written" "! grep -q '^variable' '${s}/log'"
 }
 
+case_ci_runs_on_workflow_fetch_failure_aborts() {
+    bold "ci-runs-on: one workflow file that fails to fetch (not 404) aborts the run before any write"; echo
+    local s; s=$(fixture cro7)
+    touch "${s}/repos/9atatimer/grubsta/workflows/ci.yaml.error"
+    run "${s}" -o 9atatimer ci-runs-on set
+    assert "exit 2, not a silent skip" "[ \"\${RUN_RC}\" -eq 2 ]"
+    assert "nothing written" "! grep -q '^variable' '${s}/log'"
+}
+
 # --- Main ------------------------------------------------------------------
 
 main() {
@@ -351,6 +361,7 @@ main() {
     case_ci_runs_on_unset
     case_ci_runs_on_refuses_a_public_repo_even_when_named
     case_ci_runs_on_lookup_failure_aborts
+    case_ci_runs_on_workflow_fetch_failure_aborts
     echo
     printf '%s run, ' "${TESTS_RUN}"; green "${TESTS_PASSED} passed"; printf ', '
     if [ "${TESTS_FAILED}" -gt 0 ]; then red "${TESTS_FAILED} failed"; echo; exit 1; fi

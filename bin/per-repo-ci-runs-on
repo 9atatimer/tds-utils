@@ -43,15 +43,21 @@ list_workflows() {
     printf '%s\n' "${out}" | sed '/^$/d'
 }
 
+# One workflow file, decoded. Fails with gh's message on any error: the
+# file was just listed, so even a 404 here means "could not tell".
 workflow_body() {
-    local repo="$1" name="$2"
-    gh api "repos/${repo}/contents/.github/workflows/${name}" --jq .content | base64 -d 2>/dev/null
+    local repo="$1" name="$2" out
+    out=$(gh api "repos/${repo}/contents/.github/workflows/${name}" --jq .content 2>&1) || {
+        printf '%s\n' "${out}" >&2
+        return 1
+    }
+    printf '%s' "${out}" | base64 -d 2>/dev/null
 }
 
 # The workflows (.yml/.yaml) that read the variable, space separated; empty
 # when none do. Returns 1 when it could not tell.
 readers() {
-    local repo="$1" names name rc=0 found=""
+    local repo="$1" names name body rc=0 found=""
     names=$(list_workflows "${repo}") || rc=$?
     case "${rc}" in
         0) ;;
@@ -60,7 +66,8 @@ readers() {
     esac
     while IFS= read -r name; do
         case "${name}" in *.yml|*.yaml) ;; *) continue ;; esac
-        if workflow_body "${repo}" "${name}" | grep -q "vars\.${VARIABLE}"; then
+        body=$(workflow_body "${repo}" "${name}") || return 1
+        if printf '%s\n' "${body}" | grep -q "vars\.${VARIABLE}"; then
             found="${found:+${found} }${name}"
         fi
     done <<< "${names}"
