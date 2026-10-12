@@ -73,7 +73,11 @@ permissions:
 jobs:
   review-settled:
     name: review-settled
-    runs-on: ubuntu-latest
+    # The caller's CI_RUNS_ON (a called workflow reads the caller's vars):
+    # its self-hosted pool when set, else hosted. Only a pull_request event
+    # can name a fork; on issue_comment a fork PR also runs on the pool,
+    # which is safe because this job runs only this repo's checker.
+    runs-on: ${{ fromJSON((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNS_ON || '"ubuntu-latest"') }}
     timeout-minutes: 5
     permissions:
       statuses: write
