@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template: setup.sh renders @ROOT@ and @LOGDIR@ to absolute paths
+     (launchd expands neither ~ nor variables) into ~/Library/LaunchAgents.
+     The LMDE proxy layer: HAProxy in the foreground with every installed
+     tenant route (launch-proxy.zsh). -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tds.lmde.proxy-layer</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-f</string>
+    <string>@ROOT@/libexec/launch-proxy.zsh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>WorkingDirectory</key>
+  <string>@ROOT@</string>
+
+  <!-- Start at login, restart after a crash or a refused start (no routes,
+       invalid configuration), at most once per ThrottleInterval. A clean
+       exit (an operator stop) stays down. -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <!-- Errors, timeouts and aborts only (option dontlog-normal): request
+       lines and timings, never bodies (Q10). -->
+  <key>StandardOutPath</key>
+  <string>@LOGDIR@/haproxy.log</string>
+  <key>StandardErrorPath</key>
+  <string>@LOGDIR@/haproxy.log</string>
+</dict>
+</plist>
