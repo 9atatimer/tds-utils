@@ -98,6 +98,7 @@ sandboxed_with() {
         -D "GATEWAY_TREE=${TREE}" \
         -D "GATEWAY_HOME=${TREE}/home" \
         -D "MODEL_STORE=${STORE}" \
+        -D "MODEL_STORE_PARENT=$(dirname "${STORE}")" \
         "$@"
 }
 
@@ -122,6 +123,11 @@ fail() {
 assert_eq() {
     local got="$1" want="$2" msg="${3:-}"
     [[ "${got}" == "${want}" ]] || fail "${msg}: got '${got}', want '${want}'"
+}
+
+assert_ne() {
+    local got="$1" unwanted="$2" msg="${3:-}"
+    [[ "${got}" != "${unwanted}" ]] || fail "${msg}: got '${got}', wanted anything else"
 }
 
 assert_contains() {
