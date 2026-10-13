@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # seed-ocr-review -- report and seed OCR on Demand adoption across one owner's
 # repos (docs/design/OCR-ON-DEMAND.DESIGN.md, Seeder and G6; runbook
-# docs/ocr-review.md).
+# docs/ops/ocr-review.md).
 #
 # A repository adopts the review by copying docs/ocr-review-caller.yml to
 # .github/workflows/ocr-review-caller.yml; this tool does the rest:

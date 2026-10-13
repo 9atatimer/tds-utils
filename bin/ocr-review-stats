@@ -2,7 +2,7 @@
 // ocr-review-stats -- OCR on Demand: runs by outcome and failures by cause,
 // per period, across the repositories that adopted the review
 // (docs/design/OCR-ON-DEMAND.DESIGN.md: G7, Design/Stats; runbook
-// docs/ocr-review.md).
+// docs/ops/ocr-review.md).
 //
 // Read-only. Reads the run records the report job uploads as the
 // `ocr-review-record-<attempt>` artifact of each ocr-review-caller.yml run,

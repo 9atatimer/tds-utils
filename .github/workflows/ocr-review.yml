@@ -3,7 +3,7 @@
 # or anyone with write access dispatches it, with completions from the
 # laptop's model through the Ollama Gateway.
 # Design: docs/design/OCR-ON-DEMAND.DESIGN.md (APPROVED); runbook:
-# docs/ocr-review.md.
+# docs/ops/ocr-review.md.
 #
 # The core guarantee: a review is never a silent false negative. Every run
 # that is not skipped writes a run record (job summary + artifact) and, but
