@@ -19,7 +19,7 @@ import {
 } from '../lib/ocr-review/verdict.mjs';
 
 const BASE = 'b'.repeat(40);
-const HEAD = 'h'.repeat(40);
+const HEAD = 'c'.repeat(40);
 
 // --- git output parsers ------------------------------------------------------
 
