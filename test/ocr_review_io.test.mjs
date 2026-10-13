@@ -448,6 +448,32 @@ test('report: a failed setup step is unexpected naming review and the step', asy
   assert.equal(record.failing_step, `review / ${opcli.name}`);
 });
 
+test('report: a host-tools failure is recorded runner-tool-missing and the comment names the tool', async () => {
+  const step = fakeStep();
+  const env = reportEnv({
+    REVIEW_RESULT: 'failure',
+    REVIEW_OUTPUTS: reviewOutputs({
+      stage: 'success',
+      hosttools: 'failure',
+      hosttools_cause: 'runner-tool-missing',
+      hosttools_detail: 'gpg',
+      opcli: 'skipped',
+      creds: 'skipped',
+      probe: 'skipped',
+      ocr: 'skipped',
+      verdict: 'skipped',
+      model: '',
+    }),
+  });
+  await runReport({ env, readFile: noState, step, now: () => 'f' });
+  const record = JSON.parse(step.files[env.RECORD_PATH]);
+  assert.equal(record.outcome, 'failure');
+  assert.equal(record.cause, 'runner-tool-missing');
+  assert.equal(record.failing_step, null);
+  assert.match(step.files[env.COMMENT_PATH], /Detail: gpg/);
+  assert.equal(step.outputs.should_comment, 'true');
+});
+
 test('report: the review state supplies the range and counts', async () => {
   const step = fakeStep();
   const state = { cause: null, range: { base: BASE, head: HEAD }, filesReviewable: 1, filesReviewed: 1, findingsPosted: 0, findingsFailed: 0, unreviewed: [] };

@@ -233,3 +233,41 @@ test('reusable: the review job hands upstream\'s summary_comment_url to the repo
   const outputs = block(jobBlock(REUSABLE, 'review'), 'outputs', 4) ?? '';
   assert.match(outputs, /^\s+upstream_summary_url:\s*\$\{\{\s*steps\.ocr\.outputs\.summary_comment_url\s*\}\}\s*$/m);
 });
+
+// --- Reusable workflow: host tools (tds-utils#446) ------------------------------
+
+const reviewSteps = () =>
+  jobBlock(REUSABLE, 'review')
+    .split(/\n\s*- name: /)
+    .slice(1);
+const stepNamed = (name) => reviewSteps().find((s) => s.startsWith(`${name}\n`));
+
+test('reusable: the review job checks its host tools before installing op and before any credential', () => {
+  const check = stepNamed('Check the host tools');
+  assert.ok(check, 'review has a Check the host tools step');
+  assert.match(check, /^\s+id: hosttools$/m);
+  assert.match(check, /^\s+run: node "\$RUNNER_TEMP\/ocr-review-tools\/bin\/ocr-review" host-tools$/m);
+  assert.doesNotMatch(check, /secrets\.|vars\./);
+  const names = reviewSteps().map((s) => s.split('\n')[0]);
+  const at = (name) => names.indexOf(name);
+  assert.ok(at('Check the host tools') > at('Stage the tools'), 'after the tools are staged');
+  assert.ok(at('Check the host tools') < at('Install the 1Password CLI'), 'before the install');
+  assert.ok(at('Install the 1Password CLI') < at('Credentials'), 'the install still precedes credentials');
+});
+
+test('reusable: the 1Password CLI is installed only when the check says op is not on the runner', () => {
+  const install = stepNamed('Install the 1Password CLI');
+  assert.ok(install);
+  assert.match(install, /^\s+if: steps\.hosttools\.outputs\.install_op == 'true'$/m);
+  assert.match(install, /uses:\s*1password\/install-cli-action@[0-9a-f]{40}/);
+});
+
+test('reusable: the report reads the host-tools step, its cause and detail, from the review job', () => {
+  const at = (key) => REVIEW_STEPS.findIndex((s) => s.key === key);
+  const check = REVIEW_STEPS[at('hosttools')];
+  assert.deepEqual(check, { key: 'hosttools', name: 'Check the host tools', cause: 'hosttools_cause', detail: 'hosttools_detail' });
+  assert.ok(at('stage') < at('hosttools') && at('hosttools') < at('opcli'), 'the table keeps the workflow order');
+  const outputs = block(jobBlock(REUSABLE, 'review'), 'outputs', 4) ?? '';
+  assert.match(outputs, /^\s+hosttools_cause:\s*\$\{\{\s*steps\.hosttools\.outputs\.cause\s*\}\}\s*$/m);
+  assert.match(outputs, /^\s+hosttools_detail:\s*\$\{\{\s*steps\.hosttools\.outputs\.detail\s*\}\}\s*$/m);
+});
