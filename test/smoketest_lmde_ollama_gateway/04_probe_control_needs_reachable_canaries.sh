@@ -21,7 +21,7 @@ main() {
     assert_contains "${out}" "ok keychain-framework-reachable" "keychain framework control"
     assert_not_contains "${out}" "not-a-secret" "control never prints the value"
 
-    security delete-generic-password -s "${CANARY_SERVICE}" "${KEYCHAIN}" >/dev/null
+    security delete-generic-password -s "${CANARY_SERVICE}" "${KEYCHAIN}" >/dev/null 2>&1
     status=0
     out="$(/bin/zsh -f "${PROBE}" control "${args[@]}" 2>&1)" || status=$?
     [[ "${status}" -ne 0 ]] || fail "control must fail without the keychain canary"

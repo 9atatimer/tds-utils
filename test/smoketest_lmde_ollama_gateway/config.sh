@@ -266,3 +266,71 @@ run_seed_tty() {
 keychain_token() {
     security find-generic-password -s "${TOKEN_SERVICE}" -a "${TOKEN_ACCOUNT}" -w "${KEYCHAIN}" 2>/dev/null || true
 }
+
+# --- Setup fixtures ----------------------------------------------------------
+
+OLLAMA_LABEL="com.tds.lmde.ollama-gateway.ollama"
+CONNECTOR_LABEL="com.tds.lmde.ollama-gateway.connector"
+PROXY_LABEL="com.tds.lmde.proxy-layer"
+
+# install_fake_launchctl -- a `launchctl` on FAKE_BIN that logs every call to
+# ${WORK}/launchctl.log and keeps a loaded-or-not marker per label, so the
+# setup scripts' load/unload logic runs without touching launchd.
+install_fake_launchctl() {
+    mkdir -p "${WORK}/launchd"
+    cat > "${FAKE_BIN}/launchctl" <<FAKE
+#!/bin/sh
+echo "launchctl \$*" >> "${WORK}/launchctl.log"
+state="${WORK}/launchd"
+case "\$1" in
+    print) [ -e "\${state}/\$(basename "\$2")" ] ;;
+    bootstrap) label=\$(/usr/libexec/PlistBuddy -c 'Print :Label' "\$3") && touch "\${state}/\${label}" ;;
+    bootout) rm -f "\${state}/\$(basename "\$2")" ;;
+    kickstart|enable|disable) exit 0 ;;
+    *) echo "fake launchctl: unhandled \$*" >&2; exit 99 ;;
+esac
+FAKE
+    chmod +x "${FAKE_BIN}/launchctl"
+}
+
+# everyday_fixture -- the everyday ollama's footprint in the fake home: its
+# LaunchAgent, identity key, history, config and a populated store.
+everyday_fixture() {
+    mkdir -p "${FAKE_HOME}/Library/LaunchAgents" "${STORE}/manifests/registry.ollama.ai/library/m"
+    cat > "${FAKE_HOME}/Library/LaunchAgents/sh.brew.ollama.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>Label</key><string>sh.brew.ollama</string>
+<key>ProgramArguments</key><array><string>/opt/homebrew/opt/ollama/bin/ollama</string><string>serve</string></array>
+</dict></plist>
+PLIST
+    echo "everyday identity" > "${FAKE_HOME}/.ollama/id_ed25519"
+    echo "everyday history" > "${FAKE_HOME}/.ollama/history"
+    echo '{}' > "${FAKE_HOME}/.ollama/config.json"
+    echo '{"layers":[]}' > "${STORE}/manifests/registry.ollama.ai/library/m/latest"
+    echo "weights" > "${STORE}/blobs/sha256-0000"
+}
+
+# everyday_snapshot -- a digest of every path, size, mode, mtime and content
+# hash in the everyday ollama's footprint.
+everyday_snapshot() {
+    {
+        find "${FAKE_HOME}/.ollama" "${FAKE_HOME}/Library/LaunchAgents/sh.brew.ollama.plist" \
+            -exec stat -f '%N %z %p %m' {} + | sort
+        find "${FAKE_HOME}/.ollama" -type f -exec shasum {} + | sort
+        shasum "${FAKE_HOME}/Library/LaunchAgents/sh.brew.ollama.plist"
+    } | shasum | awk '{print $1}'
+}
+
+# run_setup <args...> -- the gateway's setup.sh against the fake home, with
+# fake launchctl, the throwaway keychain and a throwaway proxy-layer root.
+run_setup() {
+    env -i HOME="${FAKE_HOME}" PATH="${FAKE_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+        OLLAMA_GATEWAY_KEYCHAIN="${KEYCHAIN}" \
+        "${SETUP}" "$@" 2>&1
+}
+
+# plist_value <plist> <key path> -- PlistBuddy's view of one value.
+plist_value() {
+    /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null
+}
