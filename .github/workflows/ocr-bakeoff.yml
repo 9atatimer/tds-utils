@@ -1,0 +1,256 @@
+# ocr-bakeoff.yml -- reusable workflow: the OCR bake-off (tds-utils
+# Issue#468). Which model reviews best, measured on diffs Copilot or Codex
+# reviewed and the inline findings on them that triage accepted
+# (lib/ocr-bakeoff/cases.json). Runbook: docs/ops/ocr-review.md, "Comparing
+# models".
+#
+# Dispatch only: every job refuses any other trigger. Three jobs, each on
+# the caller's CI_RUNS_ON pool (else a GitHub-hosted runner):
+#
+#   plan     the matrix: one job per (model, case), model-major, so each
+#            model loads once and its first case carries the cold load.
+#   run      one at a time (the gateway holds one model). Resolves the
+#            gateway credential and probes it with bin/ocr-review's own
+#            steps, then runs the ocr CLI at OCR on Demand's pin and
+#            settings over the case range -- no pull request, nothing
+#            posted -- within what is left of a budget under the pool's
+#            10-minute ceiling: a review production would time out on
+#            times out here too. Uploads the run record and ocr's JSON
+#            result, never ocr's log.
+#   collate  every record -> the per-model report (job summary) and
+#            bakeoff-results.json, for judging which located findings name
+#            the accepted defect.
+#
+# The workflow names no hostname, vault or item: they arrive as the caller
+# owner's variables, as for OCR on Demand. Dispatch inputs reach scripts
+# only through env:, never through an expression inside a run: block.
+
+name: ocr-bakeoff
+
+on:
+  workflow_call:
+    inputs:
+      models:
+        description: The models to compare, one per line or comma.
+        type: string
+        required: true
+      cases:
+        description: Case ids to run, comma-separated; empty runs every case.
+        type: string
+        required: false
+        default: ''
+      tools_ref:
+        description: The tds-utils commit to run the step commands from; the same SHA the caller pins this workflow at.
+        type: string
+        required: true
+    secrets:
+      OLLAMA_GATEWAY_OP_SA_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: plan
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') }}
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Fetch the tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: 9atatimer/tds-utils
+          ref: ${{ inputs.tools_ref }}
+          path: .ocr-bakeoff-tools
+          persist-credentials: false
+          sparse-checkout: |
+            bin/ocr-bakeoff
+            lib/ocr-bakeoff
+            lib/ocr-review
+          sparse-checkout-cone-mode: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Plan
+        id: matrix
+        env:
+          MODELS: ${{ inputs.models }}
+          CASES: ${{ inputs.cases }}
+        run: node .ocr-bakeoff-tools/bin/ocr-bakeoff matrix
+
+  run:
+    name: run (${{ matrix.key }})
+    needs: [plan]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') }}
+    # The pool's container ceiling is 10 minutes; the review's own deadline
+    # (JOB_BUDGET_SECONDS) ends it first, so the record is still written.
+    timeout-minutes: 9
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      OCR_NO_UPDATE: '1'
+      OCR_ENABLE_TELEMETRY: '0'
+      OCR_RAW_LOGGING: '0'
+      OCR_CONTENT_LOGGING: '0'
+    steps:
+      - name: Start the clock
+        id: clock
+        run: echo "at=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: 9atatimer/tds-utils
+          ref: ${{ inputs.tools_ref }}
+          path: .ocr-bakeoff-tools
+          persist-credentials: false
+          sparse-checkout: |
+            bin/ocr-bakeoff
+            bin/ocr-review
+            lib/ocr-bakeoff
+            lib/ocr-review
+          sparse-checkout-cone-mode: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      # The full history: the case's base is an ancestor of its head.
+      - name: Check out the case
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ matrix.repo }}
+          ref: ${{ matrix.head }}
+          path: subject
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check the host tools
+        id: hosttools
+        run: node .ocr-bakeoff-tools/bin/ocr-review host-tools
+
+      - name: Install the 1Password CLI
+        if: steps.hosttools.outputs.install_op == 'true'
+        uses: 1password/install-cli-action@1a3160d5e9de1ae0803eaa08a88746f5ae3daa50 # v4.1.0
+        with:
+          version: 2.40.0
+
+      # The one step that references the secret; bin/ocr-review masks each
+      # value it reads before writing anything.
+      - name: Credentials
+        id: creds
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OLLAMA_GATEWAY_OP_SA_TOKEN }}
+          OLLAMA_GATEWAY_OP_ITEM: ${{ vars.OLLAMA_GATEWAY_OP_ITEM }}
+          OLLAMA_GATEWAY_URL: ${{ vars.OLLAMA_GATEWAY_URL }}
+          OLLAMA_GATEWAY_MODEL: ${{ vars.OLLAMA_GATEWAY_MODEL }}
+          MODEL_OVERRIDE: ${{ matrix.model }}
+          TRIGGER: dispatch
+        run: node .ocr-bakeoff-tools/bin/ocr-review credentials
+
+      # OCR on Demand's exact ocr version (ocr-review.yml, ocr_version).
+      - name: Install ocr
+        env:
+          OCR_VERSION: '1.12.13'
+        run: npm install -g "@alibaba-group/open-code-review@${OCR_VERSION}"
+
+      - name: Mark the probe start
+        id: probe_start
+        run: echo "at=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      # G5, as production runs it: a cold model is retried for up to 6
+      # minutes. Its elapsed time is the run's load time.
+      - name: Probe
+        id: probe
+        env:
+          GATEWAY_URL: ${{ steps.creds.outputs.url }}
+          MODEL: ${{ steps.creds.outputs.model }}
+          HEADERS_FILE: ${{ steps.creds.outputs.headers_file }}
+        run: node .ocr-bakeoff-tools/bin/ocr-review probe
+
+      - name: Mark the probe end
+        id: probe_end
+        if: always() && steps.probe_start.outcome == 'success'
+        run: echo "at=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      # Runs after a failed probe too, so the failure is a record.
+      - name: Review
+        if: always() && steps.creds.outcome == 'success'
+        env:
+          ENTRY: ${{ toJSON(matrix) }}
+          GATEWAY_URL: ${{ steps.creds.outputs.url }}
+          EXTRA_HEADERS: ${{ steps.creds.outputs.extra_headers }}
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+          PROBE_CAUSE: ${{ steps.probe.outputs.cause }}
+          SUBJECT_DIR: ${{ github.workspace }}/subject
+          OUT_DIR: ${{ runner.temp }}/bakeoff-out
+          JOB_STARTED: ${{ steps.clock.outputs.at }}
+          PROBE_STARTED: ${{ steps.probe_start.outputs.at }}
+          PROBE_ENDED: ${{ steps.probe_end.outputs.at }}
+          JOB_BUDGET_SECONDS: '480'
+        run: node .ocr-bakeoff-tools/bin/ocr-bakeoff review
+
+      - name: Upload the record
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bakeoff-${{ matrix.key }}
+          path: ${{ runner.temp }}/bakeoff-out
+          if-no-files-found: ignore
+          retention-days: 30
+
+  collate:
+    name: collate
+    needs: [plan, run]
+    if: always() && github.event_name == 'workflow_dispatch' && needs.plan.result == 'success'
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') }}
+    timeout-minutes: 5
+    steps:
+      - name: Fetch the tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: 9atatimer/tds-utils
+          ref: ${{ inputs.tools_ref }}
+          path: .ocr-bakeoff-tools
+          persist-credentials: false
+          sparse-checkout: |
+            bin/ocr-bakeoff
+            lib/ocr-bakeoff
+            lib/ocr-review
+          sparse-checkout-cone-mode: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Download the records
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: bakeoff-*
+          path: ${{ runner.temp }}/records
+
+      - name: Collate
+        env:
+          MODELS: ${{ inputs.models }}
+          CASES: ${{ inputs.cases }}
+          RECORDS_DIR: ${{ runner.temp }}/records
+          OUT_DIR: ${{ runner.temp }}/results
+        run: node .ocr-bakeoff-tools/bin/ocr-bakeoff collate
+
+      - name: Upload the results
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ocr-bakeoff-results
+          path: ${{ runner.temp }}/results/bakeoff-results.json
+          retention-days: 90
