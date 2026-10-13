@@ -1,0 +1,48 @@
+# ocr-review-caller.yml -- OCR on Demand caller template. Copy it verbatim
+# to .github/workflows/ocr-review-caller.yml in an adopting repository of
+# either owner (9atatimer, Nine-At-A-Time-Media); runbook: docs/ocr-review.md
+# in tds-utils; design: docs/design/OCR-ON-DEMAND.DESIGN.md.
+#
+# It carries only the event types. What a valid /ocr command is, and who
+# may issue it, is decided in the reusable workflow.
+#
+# The two SHAs below are a PLACEHOLDER (all zeros) until the reusable
+# workflow lands on tds-utils master. Replace BOTH with the same tds-utils
+# commit: the reusable workflow is pinned by it, and tools_ref fetches the
+# step commands from it. Taking a later version is bumping both.
+# `bin/seed-ocr-review status` reports the pin, a placeholder, a mismatch
+# and a stale pin.
+#
+# Exactly one repository secret crosses into the public workflow, by name.
+
+name: ocr-review
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number to review
+        type: number
+        required: true
+      model:
+        description: Model to review with (empty uses the owner's OLLAMA_GATEWAY_MODEL)
+        type: string
+        required: false
+        default: ''
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  ocr-review:
+    uses: 9atatimer/tds-utils/.github/workflows/ocr-review.yml@0000000000000000000000000000000000000000
+    with:
+      pr: ${{ github.event_name == 'workflow_dispatch' && inputs.pr || github.event.issue.number }}
+      model: ${{ github.event_name == 'workflow_dispatch' && inputs.model || '' }}
+      tools_ref: '0000000000000000000000000000000000000000'
+    secrets:
+      OLLAMA_GATEWAY_OP_SA_TOKEN: ${{ secrets.OLLAMA_GATEWAY_OP_SA_TOKEN }}
