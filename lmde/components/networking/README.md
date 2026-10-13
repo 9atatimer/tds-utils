@@ -20,9 +20,15 @@ ingress), for the full design.
 
 ## Pieces
 
+- `setup.sh` -- installs Caddy's configuration: renders `caddy/Caddyfile.in`
+  into Homebrew's `/opt/homebrew/etc/Caddyfile` with the admin API on the
+  component's unix socket (`~/.local/share/lmde-networking/run/caddy-admin.sock`,
+  mode 0600, run dir 0700) and restarts the Homebrew service. A human runs
+  it once per laptop and after a Caddy reinstall.
 - `lib.sh` -- sourced helper library. `register_cluster_vhost <alias> <port>`
   adds or updates the Caddy route for `*.{alias}.localhost`;
-  `unregister_cluster_vhost <alias>` removes it.
+  `unregister_cluster_vhost <alias>` removes it. Every admin call goes
+  through `caddy_api`, over the socket.
 - `ingress-nginx/` -- the in-cluster controller: a vendored kind-provider
   manifest plus `setup.sh`, which applies it and waits for the rollout.
 
@@ -35,9 +41,13 @@ ingress), for the full design.
   dev ports, below the Linux ephemeral floor (`32768`). The observability
   cluster is index `0`, hence `32100`.
 - **Caddy assumption:** routes are added to Caddy server `srv0` (the default
-  server name Caddy assigns), via the admin API on `localhost:2019`.
+  server name Caddy assigns), via the admin API on the component's unix
+  socket. The API is unauthenticated and can make the proxy serve any file
+  this account can read, so it is never on a TCP port (Issue#465).
 
 ## Usage
 
-`lib.sh` is sourced by a cluster's `setup.sh`; `ingress-nginx/setup.sh` is
-invoked during that bootstrap once the cluster exists.
+`setup.sh install` puts Caddy on its socket. `lib.sh` is sourced by a
+cluster's `setup.sh`; `ingress-nginx/setup.sh` is invoked during that
+bootstrap once the cluster exists. Tests: `test/smoketest_lmde_networking/`
+(a fake admin API on a unix socket; nothing real is touched).
