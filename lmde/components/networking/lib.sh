@@ -11,7 +11,13 @@
 
 # --- Shared state ---
 
-CADDY_ADMIN_URL="${CADDY_ADMIN_URL:-http://localhost:2019}"
+# Caddy's admin API is reached only over its unix socket (mode 0600, this
+# account's), never a TCP port: the API is unauthenticated and reconfigures
+# the proxy, so no other local process may reach it (tds-utils Issue#465).
+# setup.sh renders the same path into the Caddyfile.
+CADDY_ADMIN_SOCKET="${CADDY_ADMIN_SOCKET:-${HOME}/.local/share/lmde-networking/run/caddy-admin.sock}"
+# The URL's host is ignored on a unix socket; only the path matters.
+CADDY_ADMIN_URL="http://localhost"
 
 # --- Logging ---
 
@@ -21,24 +27,30 @@ log_info() {
 
 # --- Caddy helpers ---
 
-# caddy_is_running -- succeeds if the Caddy admin API answers.
+# caddy_api <curl args...> -- one admin API call, over the socket. Every
+# call in this file goes through here, so the transport is in one place.
+caddy_api() {
+    curl -sf --unix-socket "${CADDY_ADMIN_SOCKET}" "$@"
+}
+
+# caddy_is_running -- succeeds if the Caddy admin API answers on its socket.
 caddy_is_running() {
-    curl -sf --max-time 2 "${CADDY_ADMIN_URL}/config/" >/dev/null 2>&1
+    [[ -S "${CADDY_ADMIN_SOCKET}" ]] && caddy_api --max-time 2 "${CADDY_ADMIN_URL}/config/" >/dev/null 2>&1
 }
 
 # _caddy_ensure_server -- ensure the http app and server srv0 exist, listening
 # on :80 and :443. srv0 is the default server name Caddy assigns. Private.
 _caddy_ensure_server() {
-    if ! curl -sf "${CADDY_ADMIN_URL}/config/apps/http" >/dev/null 2>&1; then
+    if ! caddy_api "${CADDY_ADMIN_URL}/config/apps/http" >/dev/null 2>&1; then
         log_info "Initializing Caddy http app..."
-        curl -sf -X POST -H "Content-Type: application/json" \
+        caddy_api -X POST -H "Content-Type: application/json" \
             -d '{"servers": {"srv0": {"listen": [":80", ":443"], "routes": []}}}' \
             "${CADDY_ADMIN_URL}/config/apps/http" >/dev/null || return 1
         return 0
     fi
-    if ! curl -sf "${CADDY_ADMIN_URL}/config/apps/http/servers/srv0" >/dev/null 2>&1; then
+    if ! caddy_api "${CADDY_ADMIN_URL}/config/apps/http/servers/srv0" >/dev/null 2>&1; then
         log_info "Initializing Caddy server srv0..."
-        curl -sf -X POST -H "Content-Type: application/json" \
+        caddy_api -X POST -H "Content-Type: application/json" \
             -d '{"listen": [":80", ":443"], "routes": []}' \
             "${CADDY_ADMIN_URL}/config/apps/http/servers/srv0" >/dev/null || return 1
     fi
@@ -48,17 +60,17 @@ _caddy_ensure_server() {
 # the internal issuer covers <subject>. Idempotent. Private.
 _caddy_ensure_internal_tls() {
     local subject="$1"
-    if ! curl -sf "${CADDY_ADMIN_URL}/config/apps/tls" >/dev/null 2>&1; then
-        curl -sf -X POST -H "Content-Type: application/json" \
+    if ! caddy_api "${CADDY_ADMIN_URL}/config/apps/tls" >/dev/null 2>&1; then
+        caddy_api -X POST -H "Content-Type: application/json" \
             -d '{"automation": {"policies": []}}' \
             "${CADDY_ADMIN_URL}/config/apps/tls" >/dev/null || return 1
     fi
     local policies
-    policies=$(curl -sf "${CADDY_ADMIN_URL}/config/apps/tls/automation/policies" 2>/dev/null || echo "[]")
+    policies=$(caddy_api "${CADDY_ADMIN_URL}/config/apps/tls/automation/policies" 2>/dev/null || echo "[]")
     if [[ "${policies}" == *"\"${subject}\""* ]]; then
         return 0
     fi
-    curl -sf -X POST -H "Content-Type: application/json" \
+    caddy_api -X POST -H "Content-Type: application/json" \
         -d "{\"subjects\": [\"${subject}\"], \"issuers\": [{\"module\": \"internal\"}]}" \
         "${CADDY_ADMIN_URL}/config/apps/tls/automation/policies" >/dev/null || return 1
 }
@@ -93,7 +105,7 @@ register_cluster_vhost() {
     fi
 
     if ! caddy_is_running; then
-        log_info "WARNING: Caddy admin API unreachable at ${CADDY_ADMIN_URL};" \
+        log_info "WARNING: Caddy admin API unreachable at ${CADDY_ADMIN_SOCKET};" \
                  "skipping vhost registration for *.${alias}.localhost"
         return 0
     fi
@@ -119,16 +131,16 @@ register_cluster_vhost() {
 EOF
     )
 
-    if curl -sf "${CADDY_ADMIN_URL}/id/${route_id}" >/dev/null 2>&1; then
+    if caddy_api "${CADDY_ADMIN_URL}/id/${route_id}" >/dev/null 2>&1; then
         log_info "Updating Caddy route ${host} -> 127.0.0.1:${port}"
-        if ! curl -sf -X PATCH -H "Content-Type: application/json" \
+        if ! caddy_api -X PATCH -H "Content-Type: application/json" \
             -d "${route}" "${CADDY_ADMIN_URL}/id/${route_id}" >/dev/null; then
             echo "ERROR: failed to update Caddy route ${route_id}" >&2
             return 1
         fi
     else
         log_info "Adding Caddy route ${host} -> 127.0.0.1:${port}"
-        if ! curl -sf -X POST -H "Content-Type: application/json" \
+        if ! caddy_api -X POST -H "Content-Type: application/json" \
             -d "${route}" "${CADDY_ADMIN_URL}/config/apps/http/servers/srv0/routes" >/dev/null; then
             echo "ERROR: failed to add Caddy route ${route_id}" >&2
             return 1
@@ -150,6 +162,6 @@ unregister_cluster_vhost() {
         echo "ERROR: unregister_cluster_vhost requires <cluster-alias>" >&2
         return 1
     fi
-    curl -sf -X DELETE "${CADDY_ADMIN_URL}/id/lmde_cluster_${alias}" >/dev/null 2>&1 || true
+    caddy_api -X DELETE "${CADDY_ADMIN_URL}/id/lmde_cluster_${alias}" >/dev/null 2>&1 || true
     log_info "Unregistered vhost *.${alias}.localhost (if present)"
 }

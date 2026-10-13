@@ -1,0 +1,14 @@
+# Caddyfile.in -- the LMDE networking component's Caddy configuration,
+# TEMPLATE. setup.sh renders @RUN@ to the component's run dir and installs
+# the result as Homebrew's /opt/homebrew/etc/Caddyfile, which the Homebrew
+# service (homebrew.mxcl.caddy) runs with `caddy run --config`.
+#
+# Only the admin endpoint is configured here. Routes are added at run time
+# through that endpoint by lib.sh (register_cluster_vhost), so this file
+# never carries a vhost. The endpoint is a unix socket owned by this account
+# with mode 0600, never a TCP port: Caddy's admin API is unauthenticated and
+# can reconfigure the proxy to serve any readable file, so every other
+# local process must be unable to reach it (tds-utils Issue#465).
+{
+	admin unix/@RUN@/caddy-admin.sock|0600
+}
