@@ -22,14 +22,14 @@ main() {
 ${out}"
     assert_contains "${out}" "refusing to start" "refusal message"
     assert_contains "${out}" "FAIL canary-file-unreadable" "the failed check is named"
-    [[ ! -e "${WORK}/fake-ollama.out" ]] || fail "ollama was started despite the failed probe"
+    [[ ! -e "${TREE}/home/fake-ollama.out" ]] || fail "ollama was started despite the failed probe"
 
     rm -f "${CANARY_FILE}"
     status=0
     out="$(run_launcher)" || status=$?
     [[ "${status}" -ne 0 ]] || fail "launcher must refuse when the canary is missing"
-    assert_contains "${out}" "FAIL canary-file-readable" "missing canary named"
-    [[ ! -e "${WORK}/fake-ollama.out" ]] || fail "ollama was started without a canary"
+    assert_contains "${out}" "FAIL canary-file-unreadable" "missing canary named"
+    [[ ! -e "${TREE}/home/fake-ollama.out" ]] || fail "ollama was started without a canary"
 }
 
 main "$@"

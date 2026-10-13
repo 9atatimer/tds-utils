@@ -15,6 +15,8 @@
 #                                  (default ~/.local/share/ollama-gateway)
 #   OLLAMA_GATEWAY_MODEL_STORE     the everyday store (default ~/.ollama/models)
 #   OLLAMA_GATEWAY_PROFILE         sandbox profile (default: beside libexec/)
+#   OLLAMA_GATEWAY_PROBE_SPEC      the probe's conformance table (default:
+#                                  beside the profile)
 #   OLLAMA_GATEWAY_PROBE_KEYCHAIN  keychain file holding the canary item
 #                                  (default: the user's search list)
 #   and gateway.env's values (ports, keep_alive, context length).
@@ -37,8 +39,8 @@ readonly CHILD_PATH="/usr/bin:/bin:/usr/sbin:/sbin"
 
 # --- Flags / config (read once by load_config) ---
 
-typeset USER_HOME="" TREE="" GATEWAY_HOME="" STORE="" PROFILE="" CANARY_FILE=""
-typeset PROBE_KEYCHAIN="" OLLAMA_BIN=""
+typeset USER_HOME="" TREE="" GATEWAY_HOME="" STORE="" PROFILE="" SPEC="" CANARY_FILE=""
+typeset USER_TMPDIR="" PROBE_KEYCHAIN="" OLLAMA_BIN="" OLLAMA_KEG=""
 typeset -a SANDBOX_ARGV
 
 # --- Reporting ---
@@ -59,6 +61,21 @@ is_port_bound() {
 
 # --- Pure helpers ---
 
+# is_private_keg <dir> -- the engine's own tree, not a shared prefix: its
+# bin/ holds nothing but ollama, and it is none of the roots a manual
+# install lands in nor an ancestor of the user's home.
+is_private_keg() {
+    local keg="$1" entry
+    case "${keg}" in
+        /|/usr|/usr/local|/opt|/opt/homebrew|/opt/local) return 1 ;;
+    esac
+    [[ "${USER_HOME}" == "${keg}" || "${USER_HOME}" == "${keg}"/* ]] && return 1
+    for entry in "${keg}"/bin/*(N); do
+        [[ "${entry:t}" == ollama* ]] || return 1
+    done
+    return 0
+}
+
 # probe_args -- the probe's arguments for this configuration.
 probe_args() {
     local -a args=(
@@ -66,7 +83,12 @@ probe_args() {
         --keychain-service "${CANARY_SERVICE}"
         --store "${STORE}"
         --guard-dir "${TREE}/libexec"
+        --gateway-home "${GATEWAY_HOME}"
+        --user-tmpdir "${USER_TMPDIR}"
         --deny-port "${EVERYDAY_PORT}"
+        --proxy-port "${OLLAMA_GATEWAY_PROXY_PORT}"
+        --ollama-port "${OLLAMA_GATEWAY_OLLAMA_PORT}"
+        --spec "${SPEC}"
     )
     [[ -n "${PROBE_KEYCHAIN}" ]] && args+=(--keychain "${PROBE_KEYCHAIN}")
     print -r -l -- "${args[@]}"
@@ -83,8 +105,18 @@ load_config() {
     GATEWAY_HOME="${TREE}/home"
     STORE="${${OLLAMA_GATEWAY_MODEL_STORE:-${USER_HOME}/.ollama/models}:A}"
     PROFILE="${OLLAMA_GATEWAY_PROFILE:-${COMPONENT_ROOT}/sandbox/ollama-gateway.sb}"
+    # The G4 conformance table, beside the profile it proves.
+    SPEC="${OLLAMA_GATEWAY_PROBE_SPEC:-${COMPONENT_ROOT}/sandbox/ollama-gateway.probe.tsv}"
+    # The user's per-session temp tree: unreadable to the engine (G4).
+    USER_TMPDIR="${$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null):-/private/var/folders}"
+    USER_TMPDIR="${USER_TMPDIR%/}"
     CANARY_FILE="${USER_HOME}/.local/state/ollama-gateway-probe/canary"
     PROBE_KEYCHAIN="${OLLAMA_GATEWAY_PROBE_KEYCHAIN:-}"
+    # The keg: the tree the resolved binary lives in (<keg>/bin/ollama, with
+    # the real binary and its runner under <keg>/libexec), the one tree the
+    # profile lets the engine exec from.
+    OLLAMA_BIN="$(whence -p ollama)" || die "ollama not found on PATH (${PATH})"
+    OLLAMA_KEG="${OLLAMA_BIN:A:h:h}"
     SANDBOX_ARGV=(
         "${SANDBOX_EXEC}" -f "${PROFILE}"
         -D "USER_HOME=${USER_HOME}"
@@ -92,6 +124,7 @@ load_config() {
         -D "GATEWAY_HOME=${GATEWAY_HOME}"
         -D "MODEL_STORE=${STORE}"
         -D "MODEL_STORE_PARENT=${STORE:h}"
+        -D "OLLAMA_KEG=${OLLAMA_KEG}"
     )
 }
 
@@ -100,13 +133,16 @@ load_config() {
 preflight() {
     [[ -x "${SANDBOX_EXEC}" ]] || die "${SANDBOX_EXEC} not found; cannot confine ollama"
     [[ -f "${PROFILE}" ]] || die "sandbox profile not found: ${PROFILE}"
+    [[ -f "${SPEC}" ]] || die "probe spec not found: ${SPEC}; run setup.sh"
     [[ -d "${GATEWAY_HOME}" ]] || die "gateway home not found: ${GATEWAY_HOME}; run setup.sh"
     [[ -d "${STORE}" ]] || die "model store not found: ${STORE}"
     [[ "${OLLAMA_GATEWAY_OLLAMA_PORT}" == <1-65535> ]] \
         || die "OLLAMA_GATEWAY_OLLAMA_PORT must be 1-65535, got: ${OLLAMA_GATEWAY_OLLAMA_PORT}"
     [[ "${OLLAMA_GATEWAY_OLLAMA_PORT}" != "${EVERYDAY_PORT}" ]] \
         || die "OLLAMA_GATEWAY_OLLAMA_PORT is the everyday ollama's ${EVERYDAY_PORT}; refusing"
-    OLLAMA_BIN="$(whence -p ollama)" || die "ollama not found on PATH (${PATH})"
+    [[ -d "${OLLAMA_KEG}" ]] || die "ollama keg not found: ${OLLAMA_KEG}"
+    is_private_keg "${OLLAMA_KEG}" \
+        || die "refusing to grant the engine ${OLLAMA_KEG}: a keg holds only ollama under its bin/ (a symlink into Homebrew's Cellar, or a tree of its own); a shared prefix or a home directory is not a keg"
     if is_port_bound "${OLLAMA_GATEWAY_OLLAMA_PORT}"; then
         die "127.0.0.1:${OLLAMA_GATEWAY_OLLAMA_PORT} is already bound by another process; refusing to start beside it"
     fi

@@ -16,23 +16,23 @@ main() {
 
     out="$(/bin/zsh -f "${PROBE}" control "${args[@]}" 2>&1)" || status=$?
     assert_eq "${status}" "0" "control with both canaries present; output: ${out}"
-    assert_contains "${out}" "ok canary-file-readable" "file canary control"
-    assert_contains "${out}" "ok keychain-cli-reachable" "keychain cli control"
-    assert_contains "${out}" "ok keychain-framework-reachable" "keychain framework control"
+    assert_contains "${out}" "ok canary-file-unreadable" "file canary control"
+    assert_contains "${out}" "ok keychain-cli-denied" "keychain cli control"
+    assert_contains "${out}" "ok keychain-framework-denied" "keychain framework control"
     assert_not_contains "${out}" "not-a-secret" "control never prints the value"
 
     security delete-generic-password -s "${CANARY_SERVICE}" "${KEYCHAIN}" >/dev/null 2>&1
     status=0
     out="$(/bin/zsh -f "${PROBE}" control "${args[@]}" 2>&1)" || status=$?
     [[ "${status}" -ne 0 ]] || fail "control must fail without the keychain canary"
-    assert_contains "${out}" "FAIL keychain-cli-reachable" "missing keychain canary named"
+    assert_contains "${out}" "FAIL keychain-cli-denied" "missing keychain canary named"
     assert_contains "${out}" "${CANARY_SERVICE}" "message names the canary item"
 
     rm -f "${CANARY_FILE}"
     status=0
     out="$(/bin/zsh -f "${PROBE}" control "${args[@]}" 2>&1)" || status=$?
     [[ "${status}" -ne 0 ]] || fail "control must fail without the file canary"
-    assert_contains "${out}" "FAIL canary-file-readable" "missing file canary named"
+    assert_contains "${out}" "FAIL canary-file-unreadable" "missing file canary named"
 }
 
 main "$@"

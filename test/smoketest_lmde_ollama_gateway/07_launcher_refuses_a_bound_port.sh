@@ -35,7 +35,7 @@ main() {
     out="$(run_launcher)" || status=$?
     [[ "${status}" -ne 0 ]] || fail "launcher must refuse a bound port; output: ${out}"
     assert_contains "${out}" "${OLLAMA_PORT}" "the port is named"
-    [[ ! -e "${WORK}/fake-ollama.out" ]] || fail "ollama was started onto a bound port"
+    [[ ! -e "${TREE}/home/fake-ollama.out" ]] || fail "ollama was started onto a bound port"
 }
 
 main "$@"
