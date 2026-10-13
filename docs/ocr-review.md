@@ -37,9 +37,9 @@ caller item's `op://<vault>/<item>` reference up in tds-internal
 ```
 bin/seed-ocr-review status                                   # 9atatimer
 bin/seed-ocr-review -o Nine-At-A-Time-Media status
-bin/seed-ocr-review -n -i '<caller item op:// reference>' seed   # dry run
-bin/seed-ocr-review -i '<caller item op:// reference>' seed
-bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' seed
+bin/seed-ocr-review -n -i '<caller item op:// reference>' -r '<SA token op:// reference>' -u '<gateway base URL>' seed   # dry run
+bin/seed-ocr-review -i '<caller item op:// reference>' -r '<SA token op:// reference>' -u '<gateway base URL>' seed
+bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' seed
 ```
 
 - `status` is read-only: per consumer, the pin and its state, the secret,
@@ -48,7 +48,7 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' seed
 - `seed` needs 1Password unlocked. It pipes the service-account token from
   `op read` into `gh secret set`, never as an argument, and sets
   `OLLAMA_GATEWAY_OP_ITEM`, `OLLAMA_GATEWAY_URL`
-  (`https://ollama.api9.com`) and `OLLAMA_GATEWAY_MODEL`
+  (the gateway base URL from tds-internal's credential registry, passed with `-u`) and `OLLAMA_GATEWAY_MODEL`
   (`qwen3.6:latest`). On 9atatimer (no org tier) it writes each consumer
   repo; on Nine-At-A-Time-Media it writes org secrets and variables whose
   repo selection it widens, never narrows.

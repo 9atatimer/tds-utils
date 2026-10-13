@@ -27,17 +27,18 @@
 #
 # Usage:
 #   seed-ocr-review [-o OWNER] [-n] status
-#   seed-ocr-review [-o OWNER] -i OPITEM [-r OPREF] [-u URL] [-m MODEL] [-n] seed [OWNER/REPO ...]
+#   seed-ocr-review [-o OWNER] -i OPITEM -r OPREF -u URL [-m MODEL] [-n] seed [OWNER/REPO ...]
 #
 #   -o OWNER   GitHub owner (default: 9atatimer)
 #   -i OPITEM  value for OLLAMA_GATEWAY_OP_ITEM: the op://<vault>/<item>
 #              reference of the gateway caller item, as tds-internal's
 #              credential registry records it (this public repo does not
 #              name it). Required by seed.
-#   -r OPREF   op:// reference of the service-account token
-#              (default: the item recorded in tds-internal's credential
-#              registry for ollama-gateway-sa)
-#   -u URL     value for OLLAMA_GATEWAY_URL (default: https://ollama.api9.com)
+#   -r OPREF   op:// reference of the service-account token, as
+#              tds-internal's credential registry records it for
+#              ollama-gateway-sa. Required by seed.
+#   -u URL     value for OLLAMA_GATEWAY_URL: the gateway base URL, from
+#              tds-internal's credential registry. Required by seed.
 #   -m MODEL   value for OLLAMA_GATEWAY_MODEL (default: qwen3.6:latest)
 #   -n         dry run: print the plan, read no token, set nothing
 #   -h         this help
@@ -55,8 +56,6 @@ set -euo pipefail
 
 DEFAULT_OWNER="9atatimer"
 SECRET="OLLAMA_GATEWAY_OP_SA_TOKEN"
-DEFAULT_OP_REF="op://VAULT/ITEM/credential"
-DEFAULT_URL="https://ollama.api9.com"
 DEFAULT_MODEL="qwen3.6:latest"
 VARIABLES="OLLAMA_GATEWAY_OP_ITEM OLLAMA_GATEWAY_URL OLLAMA_GATEWAY_MODEL"
 CALLER_PATH=".github/workflows/ocr-review-caller.yml"
@@ -346,6 +345,16 @@ cmd_seed() {
         "") echo "seed-ocr-review: seed needs -i op://<vault>/<item> (the gateway caller item, from tds-internal's credential registry)" >&2; return 2 ;;
         *) echo "seed-ocr-review: -i must be an op://<vault>/<item> reference" >&2; return 2 ;;
     esac
+    case "${op_ref}" in
+        op://?*/?*/?*) ;;
+        "") echo "seed-ocr-review: seed needs -r op://<vault>/<item>/<field> (the service-account token, from tds-internal's credential registry)" >&2; return 2 ;;
+        *) echo "seed-ocr-review: -r must be an op://<vault>/<item>/<field> reference" >&2; return 2 ;;
+    esac
+    case "${url}" in
+        https://?*) ;;
+        "") echo "seed-ocr-review: seed needs -u https://<gateway host> (from tds-internal's credential registry)" >&2; return 2 ;;
+        *) echo "seed-ocr-review: -u must be an https:// URL" >&2; return 2 ;;
+    esac
     kind=$(owner_type "${owner}") || { echo "seed-ocr-review: could not read owner ${owner}" >&2; return 2; }
     targets=$(seed_targets "${owner}" "$@") || {
         echo "seed-ocr-review: could not determine the consumer set under ${owner}; nothing seeded" >&2
@@ -365,7 +374,7 @@ cmd_seed() {
 # --- Main ------------------------------------------------------------------
 
 main() {
-    local owner="${DEFAULT_OWNER}" op_ref="${DEFAULT_OP_REF}" item="" url="${DEFAULT_URL}" model="${DEFAULT_MODEL}" dry_run=0
+    local owner="${DEFAULT_OWNER}" op_ref="" item="" url="" model="${DEFAULT_MODEL}" dry_run=0
     local opt
     while getopts "o:r:i:u:m:nh" opt; do
         case "${opt}" in
