@@ -271,3 +271,30 @@ test('reusable: the report reads the host-tools step, its cause and detail, from
   assert.match(outputs, /^\s+hosttools_cause:\s*\$\{\{\s*steps\.hosttools\.outputs\.cause\s*\}\}\s*$/m);
   assert.match(outputs, /^\s+hosttools_detail:\s*\$\{\{\s*steps\.hosttools\.outputs\.detail\s*\}\}\s*$/m);
 });
+
+// --- Reusable workflow: reactions on the /ocr comment -------------------------
+
+const stepOf = (job, name) =>
+  jobBlock(REUSABLE, job)
+    .split(/\n\s*- name: /)
+    .find((s) => s.startsWith(`${name}\n`));
+const stepNames = (job) =>
+  jobBlock(REUSABLE, job)
+    .split(/\n\s*- name: /)
+    .slice(1)
+    .map((s) => s.split('\n')[0]);
+
+test('reusable: the authorize job acknowledges an approved comment after deciding, and the ack cannot fail the run', () => {
+  const ack = stepOf('authorize', 'Acknowledge the comment');
+  assert.ok(ack, 'authorize has an Acknowledge the comment step');
+  assert.match(ack, /^\s+id: ack$/m);
+  assert.match(ack, /^\s+continue-on-error: true$/m);
+  assert.match(ack, /^\s+run: node \.ocr-review-tools\/bin\/ocr-review ack$/m);
+  assert.match(ack, /^\s+COMMENT_ID: \$\{\{ github\.event\.comment\.id \}\}$/m);
+  assert.match(ack, /^\s+DECISION: \$\{\{ steps\.authorize\.outputs\.decision \}\}$/m);
+  assert.match(ack, /^\s+GITHUB_TOKEN: \$\{\{ github\.token \}\}$/m);
+  const names = stepNames('authorize');
+  assert.ok(names.indexOf('Acknowledge the comment') > names.indexOf('Authorize'));
+  const outputs = block(jobBlock(REUSABLE, 'authorize'), 'outputs', 4) ?? '';
+  assert.match(outputs, /^\s+ack_reaction_id:\s*\$\{\{\s*steps\.ack\.outputs\.reaction_id\s*\}\}\s*$/m);
+});

@@ -19,6 +19,7 @@ run_suites() {
         "${REPO_ROOT}/test/ocr_review_authorize.test.mjs" \
         "${REPO_ROOT}/test/ocr_review_gateway.test.mjs" \
         "${REPO_ROOT}/test/ocr_review_host_tools.test.mjs" \
+        "${REPO_ROOT}/test/ocr_review_reaction.test.mjs" \
         "${REPO_ROOT}/test/ocr_review_verdict.test.mjs" \
         "${REPO_ROOT}/test/ocr_review_record.test.mjs" \
         "${REPO_ROOT}/test/ocr_review_io.test.mjs" \

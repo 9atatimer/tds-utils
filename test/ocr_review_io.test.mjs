@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   REVIEW_STEPS,
+  runAck,
   runAuthorize,
   runComment,
   runCredentials,
@@ -113,6 +114,54 @@ test('authorize: a fork head fails fork; a dispatch reads trigger dispatch', asy
 
 test('authorize: any other API failure throws (the job fails; report calls it unexpected)', async () => {
   await assert.rejects(runAuthorize({ env: authorizeEnv(), fetch: fakeFetch(() => json(500, {})), step: fakeStep(), now: () => 'x' }), /HTTP 500/);
+});
+
+// --- ack: eyes on an approved /ocr comment ------------------------------------
+
+const ackEnv = (over) => ({ GITHUB_TOKEN: 't', REPO: 'o/r', EVENT_NAME: 'issue_comment', COMMENT_ID: '555', DECISION: 'approve', ...over });
+
+test('ack: an approved /ocr comment gets eyes, and the reaction id is output for the report', async () => {
+  const step = fakeStep();
+  const fetch = fakeFetch(() => json(201, { id: 42, content: 'eyes' }));
+  const code = await runAck({ env: ackEnv(), fetch, step });
+  assert.equal(code, 0);
+  assert.equal(fetch.calls.length, 1);
+  assert.equal(fetch.calls[0].url, 'https://api.github.com/repos/o/r/issues/comments/555/reactions');
+  assert.equal(fetch.calls[0].init.method, 'POST');
+  assert.equal(fetch.calls[0].init.headers.authorization, 'Bearer t');
+  assert.deepEqual(fetch.calls[0].body, { content: 'eyes' });
+  assert.equal(step.outputs.reaction_id, '42');
+});
+
+test('ack: a dispatch, a skipped comment and a failed authorize get no reaction and no API call', async () => {
+  for (const over of [{ EVENT_NAME: 'workflow_dispatch', COMMENT_ID: '' }, { DECISION: 'skip' }, { DECISION: 'fail' }]) {
+    const step = fakeStep();
+    const fetch = fakeFetch(() => json(201, { id: 1 }));
+    assert.equal(await runAck({ env: ackEnv(over), fetch, step }), 0);
+    assert.equal(fetch.calls.length, 0, JSON.stringify(over));
+    assert.equal(step.outputs.reaction_id, undefined);
+  }
+});
+
+test('ack: a refused or failed reaction only warns; it never fails the run', async () => {
+  for (const fetch of [
+    fakeFetch(() => json(403, {})),
+    fakeFetch(() => {
+      throw new TypeError('fetch failed');
+    }),
+  ]) {
+    const step = fakeStep();
+    assert.equal(await runAck({ env: ackEnv(), fetch, step }), 0);
+    assert.ok(step.events.some((e) => e[0] === 'log' && e[1].startsWith('::warning::')));
+    assert.equal(step.outputs.reaction_id, undefined);
+  }
+});
+
+test('ack: a comment id that is not a number is never put in a URL', async () => {
+  const step = fakeStep();
+  const fetch = fakeFetch(() => json(201, { id: 1 }));
+  assert.equal(await runAck({ env: ackEnv({ COMMENT_ID: '1/../../x' }), fetch, step }), 0);
+  assert.equal(fetch.calls.length, 0);
 });
 
 // --- host tools ----------------------------------------------------------------
