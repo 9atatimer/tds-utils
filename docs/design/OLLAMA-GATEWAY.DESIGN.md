@@ -586,6 +586,9 @@ to local logs is open (Q10).
 | Q9 Seeding authentication | An interactive human `op` session, per the tds-internal record | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
 | Q10 Local logging of contents | Neither the connector nor the deadline proxy writes request or response bodies to disk | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
 | Q12 Proxy-layer route | One loopback listener per route; no throttle or payload cap in the first cut beyond the deadline | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
+| Radar: cloudflared (supersedes Trial) | Adopt in `lmde/TECH_RADAR.md` | Todd, 2026-10-12, tds-utils Issue#363 rulings comment (third set) |
+| Radar: sandbox-exec (supersedes Trial) | Adopt in `lmde/TECH_RADAR.md`: the command-line front end to the macOS Seatbelt sandbox; the probe seam still gates every start | Todd, 2026-10-12, tds-utils Issue#363 rulings comment (third set) |
+| Q8 drift-check credential | The drift check presents the `gha` consumer credential for the POC; a dedicated consumer key is tds-internal Issue#219 | Todd, 2026-10-12, tds-utils Issue#363 rulings comment (third set) |
 
 ---
 
