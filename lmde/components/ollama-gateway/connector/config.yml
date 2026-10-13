@@ -1,0 +1,8 @@
+# config.yml -- the Ollama Gateway connector's cloudflared configuration.
+#
+# The tunnel is remotely managed: its ingress rules (the exact-path
+# allow-list, G3) live in tds-internal ops/terraform/ollama-gateway and
+# reach cloudflared from the edge, never from this file. This file exists
+# so cloudflared is given an explicit --config and never falls back to
+# ~/.cloudflared/config.yml, which may name another tunnel's credentials.
+no-autoupdate: true
