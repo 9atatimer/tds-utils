@@ -136,3 +136,39 @@ assert_not_contains() {
     [[ "${haystack}" != *"${needle}"* ]] || fail "${msg}: did not expect '${needle}' in:
 ${haystack}"
 }
+
+# --- Launcher fixtures -------------------------------------------------------
+
+# free_port -- a loopback TCP port nothing is listening on.
+free_port() {
+    /usr/bin/python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()'
+}
+
+# install_fake_ollama -- an `ollama` on FAKE_BIN that records its argv and
+# environment, and whether it could read the file canary and the fake
+# ~/.ssh key, into ${WORK}/fake-ollama.out (outside the fake home, so it
+# is writable even confined). The launcher scrubs the environment, so the
+# output path is baked into the script, not passed in.
+install_fake_ollama() {
+    cat > "${FAKE_BIN}/ollama" <<FAKE
+#!/bin/sh
+out="${WORK}/fake-ollama.out"
+{
+    echo "argv \$*"
+    env | sed 's/^/env /'
+    if cat "${CANARY_FILE}" >/dev/null 2>&1; then echo "canary readable"; else echo "canary denied"; fi
+    if cat "${FAKE_HOME}/.ssh/id_ed25519" >/dev/null 2>&1; then echo "ssh readable"; else echo "ssh denied"; fi
+} > "\${out}"
+FAKE
+    chmod +x "${FAKE_BIN}/ollama"
+}
+
+# run_launcher <env assignments...> -- run the ollama launcher as launchd
+# would (HOME set, a minimal PATH with the fakes first), against the
+# fixture, on a free port. Prints its combined output; returns its status.
+run_launcher() {
+    env -i HOME="${FAKE_HOME}" PATH="${FAKE_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+        OLLAMA_GATEWAY_PROBE_KEYCHAIN="${KEYCHAIN}" \
+        OLLAMA_GATEWAY_OLLAMA_PORT="${OLLAMA_PORT}" \
+        "$@" /bin/zsh -f "${LAUNCH_OLLAMA}" 2>&1
+}
