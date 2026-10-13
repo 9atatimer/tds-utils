@@ -254,10 +254,12 @@ FAKE
 
 # run_seed_tty <args...> -- the seeding script under a pseudo-terminal, as a
 # human runs it, with the fakes first on PATH and the throwaway keychain.
+# Prints its output and always succeeds: script(1) does not carry the
+# child's status reliably, so cases assert on output and the keychain.
 run_seed_tty() {
     env -i HOME="${FAKE_HOME}" PATH="${FAKE_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" TERM=dumb \
         OLLAMA_GATEWAY_KEYCHAIN="${KEYCHAIN}" ${SEED_EXTRA_ENV:-} \
-        script -q /dev/null /bin/zsh -f "${SEED}" "$@" < /dev/null 2>&1 | tr -d '\r'
+        script -q /dev/null /bin/zsh -f "${SEED}" "$@" < /dev/null 2>&1 | tr -d '\r' || true
 }
 
 # keychain_token -- the token now in the throwaway keychain, or nothing.
