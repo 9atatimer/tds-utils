@@ -15,8 +15,9 @@
 ;; Deny by default. Every allow below is named, and reads are granted only
 ;; on trees that hold no user data: the OS's own (SIP-protected or
 ;; root-owned), the Homebrew kegs the engine links against, and the
-;; gateway's own trees. The engine makes NO outbound connection: it only
-;; listens, on loopback. The allow-list was derived with
+;; gateway's own trees. The engine's one outbound connection is to its own
+;; runner on an ephemeral loopback port (the network section says how
+;; that is bounded); it listens on loopback. The allow-list was derived with
 ;; libexec/profile-trace.zsh (the unified log's sandbox denials under a
 ;; real workload), round by round, until the workload passed with an empty
 ;; trace; re-run it after an ollama or macOS upgrade.
@@ -33,6 +34,15 @@
 ;;
 ;; Rule order matters: in SBPL the last matching rule wins, so the explicit
 ;; denials at the end take back part of an allow above them.
+;;
+;; Prior art (read 2026-10-13): Chromium's sandbox/policy/mac/common.sb and
+;; gpu.sb take this same shape (deny default, hand-listed OS reads, the
+;; cryptex paths, IOSurfaceRootUserClient and the Apple GPU client for
+;; Metal, MTLCompilerService). Apple's /System/Library/Sandbox/Profiles/
+;; system.sb can be imported by sandbox-exec and would replace the OS
+;; section below, but Apple marks it a private interface subject to
+;; change, and it admits more than this engine needs (32 mach services,
+;; LaunchServices' database among them), so it is not imported.
 
 (version 1)
 (deny default)
@@ -43,9 +53,11 @@
 (allow signal (target children))
 (allow sysctl-read)
 (allow system-socket)
-;; The GPU: Metal opens IOKit user clients; the compiler service builds
-;; the shaders.
-(allow iokit-open)
+;; The GPU: Metal opens the Apple GPU's user client and IOSurface (the
+;; two classes profile-trace.zsh saw the runner open); the compiler
+;; service builds the shaders.
+(allow iokit-open (iokit-user-client-class "AGXDeviceUserClient"))
+(allow iokit-open (iokit-user-client-class "IOSurfaceRootUserClient"))
 (allow mach-lookup (global-name "com.apple.MTLCompilerService"))
 ;; Logging and the system's notification plumbing the frameworks expect.
 (allow mach-lookup (global-name "com.apple.system.logger"))
@@ -88,6 +100,9 @@
 (allow file-read-metadata (literal "/var"))
 (allow file-read-metadata (literal "/var/select"))
 (allow file-read* (literal "/var/select/developer_dir"))
+;; /bin/sh is a shim too; the probe's helpers and a test's fake engine use it.
+(allow file-read* (literal "/private/var/select/sh"))
+(allow file-read* (literal "/var/select/sh"))
 (allow file-read* (subpath "/dev"))
 (allow file-read-metadata (literal "/etc"))
 (allow file-read-metadata (literal "/private"))
@@ -150,6 +165,13 @@
 ;; (measured 2026-10-13). The block below is rendered from the kernel's
 ;; range; it costs a few seconds of profile compilation per start, which
 ;; a daemon that starts at login can afford.
+;;
+;; Bind stays a loopback wildcard: the runner binds an ephemeral port too,
+;; and a second per-port block pushes the compiled profile past what
+;; sandbox_apply accepts (about 33k rules failed with "Invalid argument";
+;; the 16k outbound block applies). A compromised engine can therefore
+;; bind a well-known loopback port while its real listener is down
+;; (self-review of PR#462, finding S1, deferred).
 (allow network-bind (local tcp "localhost:*"))
 (allow network-inbound (local tcp "localhost:*"))
 @EPHEMERAL_OUTBOUND@

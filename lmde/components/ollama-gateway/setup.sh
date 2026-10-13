@@ -7,8 +7,8 @@
 # install (idempotent):
 #   - copies the launchers, probe, the profile template and its
 #     conformance table, gateway.env and the connector config into the
-#     gateway tree, and renders the profile for this machine's kernel, ~/.local/share/ollama-gateway; creates
-#     its home/ (the external ollama's HOME)
+#     gateway tree, ~/.local/share/ollama-gateway; renders the profile for
+#     this machine's kernel; creates its home/ (the external ollama's HOME)
 #   - creates the G4 probe's canaries: a file outside the tree,
 #     ~/.local/state/ollama-gateway-probe/canary, and a keychain item
 #     (service lmde.ollama-gateway.probe-canary) -- both hold the literal

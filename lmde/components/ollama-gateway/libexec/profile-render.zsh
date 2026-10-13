@@ -15,8 +15,11 @@
 # Usage: profile-render.zsh <template.sb.in> <output.sb>
 #        [--first <port>] [--last <port>]   (tests; default: sysctl)
 #
-# Replaces the line `@EPHEMERAL_OUTBOUND@` in the template. Writes the
-# output atomically. Exit 0 on success, 2 on usage, 78 when the range
+# Replaces the line `@EPHEMERAL_OUTBOUND@` in the template with one
+# outbound allow per ephemeral port (the engine connects to its runner
+# there). Bind is not rendered per port: a second block of that size
+# exceeds what sandbox_apply accepts (measured 2026-10-13). Writes the
+# output atomically. Exit 0 on success, 64 on usage, 78 when the range
 # cannot be read or is implausible.
 
 set -euo pipefail
@@ -36,7 +39,8 @@ is_port() { [[ "$1" == <1-65535> ]]; }
 
 # --- Pure helpers ---
 
-# ephemeral_rules <first> <last> -- one allow rule per port, on stdout.
+# ephemeral_rules <first> <last> -- one outbound allow per ephemeral port,
+# on stdout.
 ephemeral_rules() {
     integer p="$1" last="$2"
     print -r -- ";; The kernel's ephemeral range on this machine, ${1}-${2}: where ollama's"
@@ -82,6 +86,7 @@ parse_args() {
         esac
     done
     [[ -f "${TEMPLATE}" ]] || die "template not found: ${TEMPLATE}"
+
 }
 
 main() {

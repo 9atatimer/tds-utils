@@ -73,21 +73,31 @@ everyday ollama on 127.0.0.1:11434 -- untouched, denied to the sandbox
   ephemeral loopback ports, where the engine's own runner listens (ollama
   cannot pin that port, and SBPL has no port ranges and lets no deny
   narrow a wildcard allow, so the render lists each port). Every
-  well-known loopback port, 11434 and 11436 included, is out of reach.
+  well-known loopback port, 11434 and 11436 included, is out of reach
+  outbound. Bind is still a loopback wildcard, because a second per-port
+  block exceeds the size sandbox_apply accepts; a compromised engine could
+  bind a well-known port while its real listener is down (deferred). The
+  GPU is reached through two named IOKit user-client classes, not a
+  blanket allow.
   The allow-list was derived with `profile-trace.zsh` until the workload
   (model load, `/v1/models`, a completion) passed with an empty trace.
 - The probe, before every start, runs every row of
   `sandbox/ollama-gateway.probe.tsv` twice. Unconfined (`control`), each
   row must be reachable, so no confined pass can succeed vacuously.
-  Confined, each `deny` row must be observed as a sandbox denial (EPERM,
-  never "no such file" or "connection refused"): reading the file canary
-  `~/.local/state/ollama-gateway-probe/canary`, finding the keychain
-  canary `lmde.ollama-gateway.probe-canary` through `/usr/bin/security`
-  and through the Security framework, writing the store, the installed
-  launchers, `/private/tmp` and the Homebrew prefix, listing the user's
-  TMPDIR, reaching launchd and LaunchServices, connecting to 11434, to
-  the proxy's port and off the host; and the gateway home must stay
-  writable. Both canaries hold the literal `not-a-secret`.
+  Confined, each `deny` row on a file, exec, connect or listen must be
+  observed as a sandbox denial (EPERM, never "no such file", "connection
+  refused" or "address in use"): reading the file canary
+  `~/.local/state/ollama-gateway-probe/canary`, writing the store, the
+  installed launchers, `/private/tmp` and the Homebrew prefix, listing
+  the user's TMPDIR, executing `launchctl` and `open`, connecting to
+  11434, to the proxy's port and off the host; while the gateway home
+  must stay writable and the engine's own port bindable. The daemon rows observe the daemon's
+  refusal instead: the keychain canary `lmde.ollama-gateway.probe-canary`
+  must be found unconfined through `/usr/bin/security` and the Security
+  framework and not found confined, and the LaunchServices mach service
+  must be reachable unconfined and refused confined, from a binary the
+  profile does not deny by path. Both canaries hold the literal
+  `not-a-secret`.
 - What the engine can still reach: loopback services bound to a port in
   the kernel's ephemeral range (Docker Desktop's, an editor's language
   server), because its runner lives there. Bind local control APIs to

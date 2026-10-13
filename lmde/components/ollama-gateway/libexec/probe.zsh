@@ -22,7 +22,10 @@
 #
 # Expectations: deny (EPERM observed), permit (anything but EPERM), allow
 # (the operation succeeded), skip. Verbs: read, list, write, exec, connect,
-# keychain-framework, keychain-cli (the table's header has the grammar).
+# listen, mach-lookup, keychain-framework, keychain-cli (the table's header
+# has the grammar). The keychain and mach rows observe the daemon's
+# refusal rather than an EPERM: the control pass proves the lookup
+# succeeds unconfined, so a refusal confined is the sandbox's.
 #
 # Usage:
 #   probe.zsh control|confined
@@ -42,6 +45,7 @@
 #                                   getconf
 #       [--deny-port <port>]        the everyday ollama's port (11434)
 #       [--proxy-port <port>]       the deadline proxy's port (11436)
+#       [--ollama-port <port>]      the engine's own listen port (11435)
 #       [--spec <tsv>]              the table; default: beside the profile
 #
 # Prints one line per row, "ok <check>" or "FAIL <check>: <why>", and
@@ -73,13 +77,15 @@ readonly FRAMEWORK_NEEDS_DIALOG=3
 # Not one of the checker's codes: it printed no status line at all.
 readonly FRAMEWORK_NOT_RUN=99
 readonly -a EXPECTATIONS=(deny permit allow skip)
-readonly -a VERBS=(read list write exec connect keychain-framework keychain-cli)
+readonly -a VERBS=(read list write exec connect listen mach-lookup keychain-framework keychain-cli)
+readonly MACH_PROBE="${SCRIPT_DIR}/mach-probe.py"
+readonly MACH_NO_SUCH_SERVICE=3
 
 # --- Flags / config (set by parse_args) ---
 
 typeset MODE="" CANARY_FILE="" KEYCHAIN_SERVICE="" KEYCHAIN="" STORE="" GUARD_DIR=""
 typeset GATEWAY_HOME="" USER_TMPDIR="" SPEC=""
-typeset DENY_PORT="11434" PROXY_PORT="11436" MODE_TAG=""
+typeset DENY_PORT="11434" PROXY_PORT="11436" OLLAMA_PORT="11435" MODE_TAG=""
 integer FAILURES=0
 # The framework row's answer, so the CLI row can refuse to try when a
 # dialog could follow (the table orders the two rows).
@@ -112,6 +118,7 @@ expand() {
     t="${t//\$USER_TMPDIR/${USER_TMPDIR}}"
     t="${t//\$DENY_PORT/${DENY_PORT}}"
     t="${t//\$PROXY_PORT/${PROXY_PORT}}"
+    t="${t//\$OLLAMA_PORT/${OLLAMA_PORT}}"
     t="${t//\$UID/${UID}}"
     print -r -- "${t}"
 }
@@ -176,6 +183,30 @@ attempt_connect() {
     classify "${rc}" "${out}"
 }
 
+# attempt_listen <host:port> -- bind and listen; closes on success. A port
+# in use is "other" (EADDRINUSE), never a sandbox denial.
+attempt_listen() {
+    local port="${1##*:}" out rc=0
+    out="$( { ztcp -l "${port}" && ztcp -c "${REPLY}"; } 2>&1 )" || rc=$?
+    classify "${rc}" "${out}"
+}
+
+# attempt_mach_lookup <service> -- ask the bootstrap server for the
+# service from a binary the profile does not deny by path (python), so
+# the mach-service denial itself is observed. A refusal is reported as a
+# sandbox denial; an unknown service is "other".
+attempt_mach_lookup() {
+    local out rc=0
+    out="$("${PYTHON}" "${MACH_PROBE}" "$1" 2>&1)" || rc=$?
+    if [[ "${out}" != *"mach-probe: status"* ]]; then
+        print -r -- "other"; print -r -- "the mach checker did not run: ${out}"
+    elif (( rc == 0 )); then print -r -- "allowed"
+    elif (( rc == MACH_NO_SUCH_SERVICE )); then print -r -- "other"; print -r -- "no such service (${out})"
+    else print -r -- "denied"; print -r -- "${out}"
+    fi
+    return 0
+}
+
 # keychain_cli_finds -- does /usr/bin/security find the canary item? No -w
 # and no -g: it prints attributes only, so the secret is never fetched and
 # the item's access list is never evaluated. Output is discarded.
@@ -236,6 +267,8 @@ run_attempt() {
         write) attempt_write "$1" ;;
         exec) attempt_exec "$@" ;;
         connect) attempt_connect "$1" ;;
+        listen) attempt_listen "$1" ;;
+        mach-lookup) attempt_mach_lookup "$1" ;;
     esac
 }
 
@@ -348,6 +381,7 @@ parse_args() {
             --user-tmpdir) USER_TMPDIR="$2" ;;
             --deny-port) DENY_PORT="$2" ;;
             --proxy-port) PROXY_PORT="$2" ;;
+            --ollama-port) OLLAMA_PORT="$2" ;;
             --spec) SPEC="$2" ;;
             *) usage; exit 2 ;;
         esac
@@ -357,6 +391,7 @@ parse_args() {
         || { usage; exit 2; }
     [[ "${MODE}" == control || "${MODE}" == confined ]] || { usage; exit 2; }
     [[ "${MODE}" == control ]] && MODE_TAG=" [control]"
+    [[ -f "${MACH_PROBE}" ]] || { print -u2 -r -- "probe: mach checker not found: ${MACH_PROBE}"; exit 2; }
     [[ -n "${GATEWAY_HOME}" ]] || GATEWAY_HOME="${GUARD_DIR:h}/home"
     # The launcher passes the user's temp dir; getconf cannot run under the
     # profile (and must not end the probe), so the fallback is the tree

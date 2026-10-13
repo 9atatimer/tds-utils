@@ -5,8 +5,8 @@
 # Runs the real `ollama serve` under a CANDIDATE sandbox profile, on a
 # scratch port with a scratch HOME, drives the gateway's workload against
 # it (version, model list, one short completion), stops it, and prints
-# every operation the sandbox denied during the run as the unified log
-# recorded it -- then the same lines as SBPL allow rules to paste into the
+# every operation the sandbox denied during the run, for the engine and
+# its runner subprocess (`llama-server`), as the unified log recorded it -- then the same lines as SBPL allow rules to paste into the
 # profile. The profile is never modified; a human decides what to allow.
 # Iterate until the workload passes and the trace is empty.
 #
@@ -34,7 +34,8 @@ set -euo pipefail
 
 # --- Constants ---
 
-readonly SCRIPT_DIR="${0:A:h}"
+readonly SCRIPT_PATH="${0:A}"
+readonly SCRIPT_DIR="${SCRIPT_PATH:h}"
 readonly COMPONENT_ROOT="${SCRIPT_DIR:h}"
 readonly SANDBOX_EXEC="/usr/bin/sandbox-exec"
 readonly LOG="/usr/bin/log"
@@ -51,7 +52,9 @@ typeset OLLAMA_BIN="" HOME_DIR="" STARTED_AT="" PID=""
 
 log() { print -r -- "profile-trace: $*"; }
 die() { print -u2 -r -- "profile-trace: $*"; exit "${2:-${EX_CONFIG}}"; }
-usage() { sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'; }
+# $0 inside a zsh function is the function's name (FUNCTION_ARGZERO), so
+# the help is read from the path captured at top level.
+usage() { sed -n '2,/^$/p' "${SCRIPT_PATH}" | sed 's/^# \{0,1\}//'; }
 
 # --- Pure helpers ---
 
@@ -150,7 +153,7 @@ workload() {
 
 collect_denials() {
     "${LOG}" show --start "${STARTED_AT}" --style compact --predicate 'sender == "Sandbox"' 2>/dev/null \
-        | grep -E 'Sandbox: (ollama|env|python3)\([0-9]+\) deny' \
+        | grep -E 'Sandbox: (ollama|llama-server|env|python3)\([0-9]+\) deny' \
         | sed -E 's/.*deny\([0-9]+\) //' \
         | sed -E 's/^([a-z*-]+) (.*)$/\1 \2/' \
         | sort -u > "${OUT}/denials.txt" || true
@@ -202,7 +205,7 @@ parse_args() {
 
 main() {
     parse_args "$@"
-    trap stop_ollama EXIT INT TERM
+    trap stop_ollama EXIT INT TERM HUP
     start_ollama
     if wait_for_ollama; then
         workload || log "workload had failures (expected while the allow-list is incomplete)"

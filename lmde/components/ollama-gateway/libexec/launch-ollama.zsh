@@ -61,6 +61,21 @@ is_port_bound() {
 
 # --- Pure helpers ---
 
+# is_private_keg <dir> -- the engine's own tree, not a shared prefix: its
+# bin/ holds nothing but ollama, and it is none of the roots a manual
+# install lands in nor an ancestor of the user's home.
+is_private_keg() {
+    local keg="$1" entry
+    case "${keg}" in
+        /|/usr|/usr/local|/opt|/opt/homebrew|/opt/local) return 1 ;;
+    esac
+    [[ "${USER_HOME}" == "${keg}" || "${USER_HOME}" == "${keg}"/* ]] && return 1
+    for entry in "${keg}"/bin/*(N); do
+        [[ "${entry:t}" == ollama* ]] || return 1
+    done
+    return 0
+}
+
 # probe_args -- the probe's arguments for this configuration.
 probe_args() {
     local -a args=(
@@ -72,6 +87,7 @@ probe_args() {
         --user-tmpdir "${USER_TMPDIR}"
         --deny-port "${EVERYDAY_PORT}"
         --proxy-port "${OLLAMA_GATEWAY_PROXY_PORT}"
+        --ollama-port "${OLLAMA_GATEWAY_OLLAMA_PORT}"
         --spec "${SPEC}"
     )
     [[ -n "${PROBE_KEYCHAIN}" ]] && args+=(--keychain "${PROBE_KEYCHAIN}")
@@ -125,6 +141,8 @@ preflight() {
     [[ "${OLLAMA_GATEWAY_OLLAMA_PORT}" != "${EVERYDAY_PORT}" ]] \
         || die "OLLAMA_GATEWAY_OLLAMA_PORT is the everyday ollama's ${EVERYDAY_PORT}; refusing"
     [[ -d "${OLLAMA_KEG}" ]] || die "ollama keg not found: ${OLLAMA_KEG}"
+    is_private_keg "${OLLAMA_KEG}" \
+        || die "refusing to grant the engine ${OLLAMA_KEG}: a keg holds only ollama under its bin/ (a symlink into Homebrew's Cellar, or a tree of its own); a shared prefix or a home directory is not a keg"
     if is_port_bound "${OLLAMA_GATEWAY_OLLAMA_PORT}"; then
         die "127.0.0.1:${OLLAMA_GATEWAY_OLLAMA_PORT} is already bound by another process; refusing to start beside it"
     fi
