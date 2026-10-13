@@ -96,6 +96,9 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
 - `ocr-result-<attempt>` is ocr's JSON result (`--audience agent`) for an
   LLM to act on.
 - Causes and what to do:
+  - `runner-tool-missing`: the runner lacks a host tool the review job
+    needs; the detail names it. Add it to the runner image (next
+    section).
   - `configuration`: run `bin/seed-ocr-review status`.
   - `credential`: Access refused the item's headers; check the item.
   - `gateway-down`: the laptop, its tunnel, the deadline proxy or the
@@ -108,6 +111,27 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
   - `reviewed-nothing`: reviewable files existed and ocr reviewed none.
 - Trends across repos: `bin/ocr-review-stats` (read-only; `-p day|week|month`,
   `-d DAYS`, `-j`).
+
+## Runner host tools
+
+The review job's `Check the host tools` step (`bin/ocr-review host-tools`,
+rule in `lib/ocr-review/host-tools.mjs`) runs before anything touches a
+credential and logs which of `git`, `unzip`, `gpg` and `op` the runner
+has (design Key Decisions, runner host tools; tds-utils Issue#446):
+
+- `op` on PATH (the cf-pool image bakes in a pinned, verified one): it is
+  used as is, and `Install the 1Password CLI` is skipped, so nothing is
+  downloaded at run time.
+- No `op` (a GitHub-hosted runner): the pinned
+  `1password/install-cli-action` installs it, which needs `gpg` (its
+  signature check) and `unzip`.
+- `git` is needed either way (the upstream action and the verdict step).
+- A tool the chosen path needs that is absent fails the run with cause
+  `runner-tool-missing` and the tool as the detail, before credentials
+  load. The fix is the runner image; signature verification is never
+  dropped to get past it.
+
+`node` and `npm` come from `setup-node` on every runner.
 
 ## Upstream at the pin
 
