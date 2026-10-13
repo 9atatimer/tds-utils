@@ -176,7 +176,8 @@ const reactEnv = (over) => ({
   ACK_REACTION_ID: '42',
   ...over,
 });
-const reactFetch = (post = 201, del = 204) => fakeFetch((url, init) => (init.method === 'DELETE' ? text(del, '') : json(post, { id: 77 })));
+const reactFetch = (post = 201, del = 204, listed = []) =>
+  fakeFetch((url, init) => (init.method === 'DELETE' ? text(del, '') : (init.method ?? 'GET') === 'GET' ? json(200, listed) : json(post, { id: 77 })));
 const callsOf = (fetch) => fetch.calls.map((c) => `${c.init.method} ${c.url}`);
 
 test('react: a successful comment-triggered run adds +1, then removes only the eyes this workflow added', async () => {
@@ -189,6 +190,28 @@ test('react: a successful comment-triggered run adds +1, then removes only the e
   ]);
   assert.deepEqual(fetch.calls[0].body, { content: '+1' });
   assert.equal(fetch.calls[1].init.headers.authorization, 'Bearer t');
+});
+
+test("react: on a rerun, the workflow's own opposite thumb is removed so the comment shows one outcome; nobody else's reaction is touched", async () => {
+  const listed = [
+    { id: 9, content: '-1', user: { login: 'github-actions[bot]' } },
+    { id: 10, content: '-1', user: { login: 'alice' } },
+  ];
+  const fetch = reactFetch(201, 204, listed);
+  assert.equal(await runReact({ env: reactEnv(), fetch, step: fakeStep() }), 0);
+  const calls = callsOf(fetch);
+  assert.ok(calls.includes('DELETE https://api.github.com/repos/o/r/issues/comments/555/reactions/9'), calls.join('\n'));
+  assert.ok(!calls.includes('DELETE https://api.github.com/repos/o/r/issues/comments/555/reactions/10'));
+  assert.ok(calls.includes('DELETE https://api.github.com/repos/o/r/issues/comments/555/reactions/42'));
+});
+
+test('react: a failed reaction listing only warns; the outcome still posts and eyes still comes off', async () => {
+  const fetch = fakeFetch((url, init) => (init.method === 'DELETE' ? text(204, '') : (init.method ?? 'GET') === 'GET' ? text(500, 'boom') : json(201, { id: 77 })));
+  const step = fakeStep();
+  assert.equal(await runReact({ env: reactEnv(), fetch, step }), 0);
+  const calls = callsOf(fetch);
+  assert.ok(calls.includes('POST https://api.github.com/repos/o/r/issues/comments/555/reactions'));
+  assert.ok(calls.includes('DELETE https://api.github.com/repos/o/r/issues/comments/555/reactions/42'));
 });
 
 test('react: a failed or cancelled run adds -1', async () => {

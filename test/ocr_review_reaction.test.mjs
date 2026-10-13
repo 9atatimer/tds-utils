@@ -7,7 +7,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ackReaction, isCommentId, outcomeReaction } from '../lib/ocr-review/reaction.mjs';
+import { ackReaction, isCommentId, outcomeReaction, staleOutcomeIds } from '../lib/ocr-review/reaction.mjs';
 
 test('an approved /ocr comment is acknowledged with eyes', () => {
   assert.equal(ackReaction({ trigger: 'comment', decision: 'approve' }), 'eyes');
@@ -36,4 +36,18 @@ test('a comment-triggered run ends with -1 on failure (pr-not-open and fork incl
 test('a dispatch never reacts, and an outcome outside the record\'s set gets no reaction', () => {
   for (const outcome of ['success', 'failure', 'cancelled']) assert.equal(outcomeReaction({ trigger: 'dispatch', outcome }), null, outcome);
   for (const outcome of ['', 'skipped', undefined]) assert.equal(outcomeReaction({ trigger: 'comment', outcome }), null, String(outcome));
+});
+
+test("a rerun's stale outcome: only the workflow's own opposite thumb is stale (Codex review, PR#447)", () => {
+  const reactions = [
+    { id: 9, content: '-1', user: { login: 'github-actions[bot]' } },
+    { id: 10, content: '-1', user: { login: 'alice' } },
+    { id: 11, content: '+1', user: { login: 'github-actions[bot]' } },
+    { id: 12, content: 'eyes', user: { login: 'github-actions[bot]' } },
+    { id: 13, content: 'heart', user: { login: 'github-actions[bot]' } },
+  ];
+  assert.deepEqual(staleOutcomeIds(reactions, '+1'), ['9']);
+  assert.deepEqual(staleOutcomeIds(reactions, '-1'), ['11']);
+  assert.deepEqual(staleOutcomeIds('not a list', '+1'), []);
+  assert.deepEqual(staleOutcomeIds([{ id: '9/../1', content: '-1', user: { login: 'github-actions[bot]' } }], '+1'), []);
 });
