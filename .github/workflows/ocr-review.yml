@@ -246,13 +246,21 @@ jobs:
           resolve_outdated: 'false'
 
       # Runs after the review whether it passed or failed: it marks an ocr
-      # exit as engine-error, and judges a completed review (G4).
+      # exit as engine-error, and judges a completed review (G4) by the
+      # action's post counts -- at this pin it reports post outcomes only as
+      # counts (Key Decisions, per-finding post status). An output the
+      # action did not set arrives empty and is engine-error, never zero.
       - name: Verdict
         id: verdict
         if: always() && steps.ocr.outcome != 'skipped'
         env:
           OCR_STEP_OUTCOME: ${{ steps.ocr.outcome }}
           OCR_RESULT_PATH: /tmp/ocr-result.json
+          OCR_COMMENTS_TOTAL: ${{ steps.ocr.outputs.comments_total }}
+          OCR_COMMENTS_INLINE: ${{ steps.ocr.outputs.comments_inline }}
+          OCR_COMMENTS_ROUTED: ${{ steps.ocr.outputs.comments_routed }}
+          OCR_COMMENTS_SKIPPED: ${{ steps.ocr.outputs.comments_skipped }}
+          OCR_COMMENTS_FAILED: ${{ steps.ocr.outputs.comments_failed }}
         run: node "$RUNNER_TEMP/ocr-review-tools/bin/ocr-review" verdict
 
       # G8: ocr's JSON result (--audience agent), for an LLM to act on.
