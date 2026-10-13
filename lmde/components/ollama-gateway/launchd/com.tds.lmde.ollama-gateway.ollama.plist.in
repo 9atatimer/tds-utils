@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template: setup.sh renders @TREE@ and @LOGDIR@ to absolute paths
+     (launchd expands neither ~ nor variables) into ~/Library/LaunchAgents.
+     The external ollama: launch-ollama.zsh runs the G4 probe before every start and exits 78 rather than start unconfined; launchd retries it. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tds.lmde.ollama-gateway.ollama</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-f</string>
+    <string>@TREE@/libexec/launch-ollama.zsh</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>WorkingDirectory</key>
+  <string>@TREE@</string>
+
+  <!-- G7: start at login, restart after a crash or a refused start, never
+       hot-loop: launchd relaunches at most once per ThrottleInterval. A
+       clean exit (an operator stop) stays down. -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>@LOGDIR@/ollama.log</string>
+  <key>StandardErrorPath</key>
+  <string>@LOGDIR@/ollama.log</string>
+</dict>
+</plist>

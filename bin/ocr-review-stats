@@ -1,0 +1,210 @@
+#!/usr/bin/env node
+// ocr-review-stats -- OCR on Demand: runs by outcome and failures by cause,
+// per period, across the repositories that adopted the review
+// (docs/design/OCR-ON-DEMAND.DESIGN.md: G7, Design/Stats; runbook
+// docs/ocr-review.md).
+//
+// Read-only. Reads the run records the report job uploads as the
+// `ocr-review-record-<attempt>` artifact of each ocr-review-caller.yml run,
+// through `gh` (authenticated as you; it needs read access to Actions on
+// each repository). GitHub keeps artifacts 90 days by default, so the
+// window defaults to 90 days (Key Decisions Q2). Every record_version a
+// reader exists for is counted; any other is reported as unreadable. A run
+// that left no record was skipped (an ordinary comment) or its report job
+// failed before the upload; those are counted, not guessed at.
+//
+// Usage:
+//   ocr-review-stats [-o OWNER]... [-d DAYS] [-p day|week|month] [-j] [OWNER/REPO ...]
+//
+//   -o OWNER  an owner to scan for adopters (repeatable; default both
+//             9atatimer and Nine-At-A-Time-Media). Ignored when repos are named.
+//   -d DAYS   window, in days back from now (default 90)
+//   -p        period granularity (default week)
+//   -j        JSON instead of the table
+//   -h        this help
+//
+// Exit 0 on a report (an empty one included); 2 when a lookup failed, so
+// the counts would be incomplete.
+
+import { execFile } from 'node:child_process';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { aggregate, normalizeRecord, renderTable } from '../lib/ocr-review/stats.mjs';
+
+// --- Constants --------------------------------------------------------------
+
+const DEFAULT_OWNERS = ['9atatimer', 'Nine-At-A-Time-Media'];
+const CALLER_WORKFLOW = 'ocr-review-caller.yml';
+const RECORD_ARTIFACT = 'ocr-review-record-*';
+const REPO_LIST_LIMIT = '1000';
+
+// --- Flow -------------------------------------------------------------------
+
+/**
+ * Collect the records. `github` is the read-only port: listAdopters(owner),
+ * listRuns(repo, sinceIso) -> [{ id }], readRecords(repo, runId) -> [text].
+ * Returns { records (normalized, readable), unreadable, unrecorded }.
+ */
+export async function collectStats({ owners, repos, since }, { github }) {
+  const targets = repos.length > 0 ? repos : (await Promise.all(owners.map((owner) => github.listAdopters(owner)))).flat();
+  const records = [];
+  let unreadable = 0;
+  let unrecorded = 0;
+  for (const repo of targets) {
+    for (const run of await github.listRuns(repo, since)) {
+      const texts = await github.readRecords(repo, run.id);
+      if (texts.length === 0) unrecorded += 1;
+      for (const text of texts) {
+        let raw = null;
+        try {
+          raw = JSON.parse(text);
+        } catch {
+          raw = null;
+        }
+        const record = normalizeRecord(raw);
+        if (record.ok) records.push(record);
+        else unreadable += 1;
+      }
+    }
+  }
+  return { records, unreadable, unrecorded };
+}
+
+// --- Adapters (gh) ----------------------------------------------------------
+
+function gh(args) {
+  return new Promise((done) => {
+    execFile('gh', args, { maxBuffer: 64 * 1024 * 1024 }, (error, stdout, stderr) => {
+      done({ ok: !error, stdout: String(stdout), stderr: String(stderr) });
+    });
+  });
+}
+
+const notFound = (r) => /HTTP 404|Not Found/.test(r.stderr);
+
+function fail(what, r) {
+  const error = new Error(`${what}: ${r.stderr.trim() || 'gh failed'}`);
+  error.incomplete = true;
+  return error;
+}
+
+const ghGithub = {
+  async listAdopters(owner) {
+    const listed = await gh(['repo', 'list', owner, '--limit', REPO_LIST_LIMIT, '--no-archived', '--json', 'nameWithOwner', '--jq', '.[].nameWithOwner']);
+    if (!listed.ok) throw fail(`listing ${owner}'s repositories`, listed);
+    const adopters = [];
+    for (const repo of listed.stdout.split('\n').filter(Boolean)) {
+      const probe = await gh(['api', `repos/${repo}/contents/.github/workflows/${CALLER_WORKFLOW}`, '--silent']);
+      if (probe.ok) adopters.push(repo);
+      else if (!notFound(probe)) throw fail(`checking ${repo} for ${CALLER_WORKFLOW}`, probe);
+    }
+    return adopters;
+  },
+  async listRuns(repo, since) {
+    const r = await gh([
+      'api',
+      '--paginate',
+      `repos/${repo}/actions/workflows/${CALLER_WORKFLOW}/runs?per_page=100&created=%3E%3D${since.slice(0, 10)}`,
+      '--jq',
+      '.workflow_runs[].id',
+    ]);
+    if (!r.ok) {
+      if (notFound(r)) return [];
+      throw fail(`listing ${repo}'s runs`, r);
+    }
+    return r.stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((id) => ({ id: Number(id) }));
+  },
+  async readRecords(repo, runId) {
+    const dir = mkdtempSync(join(tmpdir(), 'ocr-review-stats-'));
+    try {
+      const r = await gh(['run', 'download', String(runId), '-R', repo, '--pattern', RECORD_ARTIFACT, '--dir', dir]);
+      if (!r.ok) {
+        if (/no (valid )?artifacts? (found|matches)/i.test(r.stderr) || notFound(r)) return [];
+        throw fail(`downloading ${repo} run ${runId}'s record`, r);
+      }
+      return listJson(dir).map((path) => readFileSync(path, 'utf8'));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  },
+};
+
+function listJson(dir) {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name);
+    if (statSync(path).isDirectory()) return listJson(path);
+    return name.endsWith('.json') ? [path] : [];
+  });
+}
+
+// --- Entry point ------------------------------------------------------------
+
+function usage() {
+  const text = readFileSync(fileURLToPath(import.meta.url), 'utf8');
+  const header = [];
+  for (const line of text.split('\n').slice(1)) {
+    if (!line.startsWith('//')) break;
+    header.push(line.replace(/^\/\/ ?/, ''));
+  }
+  return `${header.join('\n')}\n`;
+}
+
+function parseArgs(argv) {
+  const out = { owners: [], repos: [], days: 90, period: 'week', json: false, help: false };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    const next = () => {
+      i += 1;
+      if (i >= argv.length) throw new Error(`${arg} needs a value`);
+      return argv[i];
+    };
+    if (arg === '-o') out.owners.push(next());
+    else if (arg === '-d') out.days = Number(next());
+    else if (arg === '-p') out.period = next();
+    else if (arg === '-j') out.json = true;
+    else if (arg === '-h') out.help = true;
+    else if (/^[^-/][^/]*\/[^/]+$/.test(arg)) out.repos.push(arg);
+    else throw new Error(`unknown argument: ${arg}`);
+  }
+  if (!Number.isInteger(out.days) || out.days <= 0) throw new Error('-d DAYS must be a positive whole number');
+  if (!['day', 'week', 'month'].includes(out.period)) throw new Error('-p must be day, week or month');
+  if (out.owners.length === 0) out.owners = DEFAULT_OWNERS;
+  return out;
+}
+
+async function main(argv) {
+  const args = parseArgs(argv);
+  if (args.help) {
+    process.stdout.write(usage());
+    return 0;
+  }
+  const since = new Date(Date.now() - args.days * 24 * 60 * 60 * 1000).toISOString();
+  const result = await collectStats({ owners: args.owners, repos: args.repos, since }, { github: ghGithub });
+  const rows = aggregate(result.records, args.period);
+  if (args.json) {
+    process.stdout.write(`${JSON.stringify({ since, period: args.period, rows, unreadable: result.unreadable, unrecorded: result.unrecorded }, null, 2)}\n`);
+  } else {
+    process.stdout.write(renderTable(rows, result));
+  }
+  return 0;
+}
+
+const invokedDirectly = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+
+if (invokedDirectly) {
+  main(process.argv.slice(2)).then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (error) => {
+      console.error(`ocr-review-stats: ${error.message}`);
+      process.exitCode = error.incomplete ? 2 : 1;
+    },
+  );
+}

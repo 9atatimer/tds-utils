@@ -1,0 +1,450 @@
+#!/usr/bin/env node
+// ocr-review -- the step commands of the OCR on Demand reusable workflow
+// (.github/workflows/ocr-review.yml; docs/design/OCR-ON-DEMAND.DESIGN.md).
+//
+// Each subcommand is one workflow step: it reads its inputs from the
+// environment (never from `${{ }}` interpolated into a script -- PR-controlled
+// text reaches it only that way), does its I/O, and writes step outputs. The
+// decisions live in lib/ocr-review/ (pure, unit-tested); this file is the
+// I/O and the composition root, and every adapter is injectable so the
+// suite drives it with fakes (test/ocr_review_io.test.mjs).
+//
+//   authorize    authorize job: skip / fail (pr-not-open, fork) / approve.
+//                References no secret. Exit 1 on fail.
+//   credentials  review job: the gateway's caller item, read through the
+//                1Password CLI with the service-account token; every value
+//                masked the moment it is read. Exit 1 on configuration.
+//   probe        review job: G5. Exit 1 on any failure cause.
+//   verdict      review job: G4 over ocr's result and git. Exit 1 on a
+//                failure verdict; marks the Review step engine-error when
+//                ocr itself exited non-zero.
+//   report       report job: the run record (file + job summary) first,
+//                then this workflow's summary comment body, linking
+//                upstream's own summary. References no secret.
+//   comment      report job: post the body. Exit 1 when the post fails.
+//
+// Usage: ocr-review <subcommand>   (environment as each run* function reads)
+
+import { execFile, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { authorizeRun } from '../lib/ocr-review/authorize.mjs';
+import { extraHeadersValue, probeGateway, resolveCredentials, resolveGatewayConfig, resolveModel } from '../lib/ocr-review/gateway.mjs';
+import { buildRecord, endOfRun, renderSummary, shouldComment } from '../lib/ocr-review/record.mjs';
+import { judgeReview, parseCheckAttr, parseNameStatus, parseNumstat, readEngineResult, readPostCounts, reviewableFiles } from '../lib/ocr-review/verdict.mjs';
+
+// --- Constants --------------------------------------------------------------
+
+/** Steps of the authorize job, in order; `key` is its job-output name. */
+export const AUTHORIZE_STEPS = Object.freeze([
+  { key: 'tools', name: 'Fetch the tools' },
+  { key: 'node', name: 'Set up Node' },
+  { key: 'authorize', name: 'Authorize' },
+]);
+
+/** Steps of the review job, in order. `cause`/`detail` name the job outputs
+ * carrying the step's declared cause; a step without one that fails is
+ * `unexpected`. These names are the workflow's step names. */
+export const REVIEW_STEPS = Object.freeze([
+  { key: 'tools', name: 'Fetch the tools' },
+  { key: 'node', name: 'Set up Node' },
+  { key: 'stage', name: 'Stage the tools' },
+  { key: 'opcli', name: 'Install the 1Password CLI' },
+  { key: 'creds', name: 'Credentials', cause: 'creds_cause', detail: 'creds_detail' },
+  { key: 'probe', name: 'Probe', cause: 'probe_cause', detail: 'probe_detail' },
+  { key: 'ocr', name: 'Review', cause: 'ocr_cause', detail: 'ocr_detail' },
+  { key: 'verdict', name: 'Verdict', cause: 'verdict_cause', detail: 'verdict_detail' },
+  { key: 'upload_result', name: 'Upload the ocr result' },
+  { key: 'upload_state', name: 'Upload the review state' },
+]);
+
+/** One probe attempt's bound: past the deadline proxy's own deadline (set
+ * under the edge's ~100 s time-to-first-byte limit), so a live gateway
+ * always answers first. */
+const REQUEST_TIMEOUT_MS = 110 * 1000;
+
+/** Recognizes the 1Password CLI refusing the service-account token itself,
+ * as opposed to an item or field it cannot read. */
+const OP_TOKEN_REFUSED = /service account|token|unauthori[sz]ed|authenticat|\b401\b/i;
+
+const HEADERS_FILE = 'ocr-gateway-headers.json';
+const STATE_FILE = 'ocr-review-state/state.json';
+
+// --- Pure helpers -----------------------------------------------------------
+
+const apiUrl = (env) => String(env.GITHUB_API_URL || 'https://api.github.com').replace(/\/$/, '');
+
+function githubHeaders(token) {
+  return {
+    authorization: `Bearer ${token}`,
+    accept: 'application/vnd.github+json',
+    'content-type': 'application/json',
+    'user-agent': 'tds-utils ocr-review',
+  };
+}
+
+/** Escape a value for a workflow command's data (`::add-mask::<data>`). */
+const commandData = (value) => String(value).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+
+const triggerOf = (eventName) => (eventName === 'workflow_dispatch' ? 'dispatch' : 'comment');
+
+function parseJson(text, fallback) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return fallback;
+  }
+}
+
+/** A job's ordered steps from its outputs, for endOfRun. */
+function stepsFrom(table, outputs) {
+  return table.map(({ key, name, cause }) => ({
+    name,
+    outcome: outputs[key] || 'skipped',
+    cause: cause ? outputs[cause] || null : null,
+  }));
+}
+
+/** The one-line detail of the step that ended the run, if it gave one. */
+function failingDetail(table, outputs, authorizeOutputs) {
+  if (authorizeOutputs.decision === 'fail') return authorizeOutputs.reason || null;
+  const failed = table.find(({ key }) => outputs[key] === 'failure');
+  return failed?.detail ? outputs[failed.detail] || null : null;
+}
+
+/** The upstream action's post counts from the verdict step's env (the
+ * workflow maps steps.ocr.outputs.comments_* there), for readPostCounts. */
+const postCountsEnv = (env) => ({
+  total: env.OCR_COMMENTS_TOTAL,
+  inline: env.OCR_COMMENTS_INLINE,
+  routed: env.OCR_COMMENTS_ROUTED,
+  skipped: env.OCR_COMMENTS_SKIPPED,
+  failed: env.OCR_COMMENTS_FAILED,
+});
+
+// --- Flow: authorize --------------------------------------------------------
+
+/** The authorize step. Env: GITHUB_TOKEN, REPO, EVENT_NAME, COMMENT_BODY,
+ * AUTHOR_ASSOCIATION, PR. Returns the exit code. */
+export async function runAuthorize({ env, fetch, step, now }) {
+  const trigger = triggerOf(env.EVENT_NAME);
+  const readPullRequest = async (number) => {
+    const res = await fetch(`${apiUrl(env)}/repos/${env.REPO}/pulls/${number}`, { headers: githubHeaders(env.GITHUB_TOKEN) });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`pulls GET HTTP ${res.status}`);
+    const pr = await res.json();
+    return {
+      state: pr.state,
+      headRepo: pr.head?.repo?.full_name ?? null,
+      baseRepo: pr.base?.repo?.full_name ?? null,
+      headSha: pr.head?.sha ?? null,
+      baseRef: pr.base?.ref ?? null,
+    };
+  };
+  const event = { trigger, commentBody: env.COMMENT_BODY, association: env.AUTHOR_ASSOCIATION, pr: Number(env.PR) };
+  const verdict = await authorizeRun(event, { readPullRequest });
+  step.log(`authorize: ${verdict.decision}${verdict.cause ? ` (${verdict.cause})` : ''} -- ${verdict.reason}`);
+  step.setOutput('decision', verdict.decision);
+  step.setOutput('cause', verdict.cause ?? '');
+  step.setOutput('reason', verdict.reason);
+  step.setOutput('trigger', trigger);
+  step.setOutput('head_sha', verdict.headSha ?? '');
+  step.setOutput('base_ref', verdict.baseRef ?? '');
+  step.setOutput('started_at', now());
+  return verdict.decision === 'fail' ? 1 : 0;
+}
+
+// --- Flow: credentials ------------------------------------------------------
+
+/** The credentials step. Env: OP_SERVICE_ACCOUNT_TOKEN, OLLAMA_GATEWAY_OP_ITEM,
+ * OLLAMA_GATEWAY_URL, OLLAMA_GATEWAY_MODEL, MODEL_OVERRIDE, TRIGGER,
+ * RUNNER_TEMP. `op(argv, env)` runs the 1Password CLI without a shell. */
+export async function runCredentials({ env, op, step }) {
+  const mask = (value) => step.log(`::add-mask::${commandData(value)}`);
+  const item = env.OLLAMA_GATEWAY_OP_ITEM || '';
+  if (item) mask(item);
+  const model = resolveModel({ trigger: env.TRIGGER, override: env.MODEL_OVERRIDE, configured: env.OLLAMA_GATEWAY_MODEL });
+  // Every output waits until every resolved value is masked; the model is
+  // reported even on a configuration failure that left it resolvable.
+  const fail = (failure) => {
+    if (model) step.setOutput('model', model);
+    step.log(`::error::configuration: ${failure.detail}`);
+    step.setOutput('cause', failure.cause);
+    step.setOutput('detail', failure.detail);
+    return 1;
+  };
+  const config = resolveGatewayConfig({
+    token: env.OP_SERVICE_ACCOUNT_TOKEN,
+    item,
+    url: env.OLLAMA_GATEWAY_URL,
+    configuredModel: env.OLLAMA_GATEWAY_MODEL,
+    override: env.MODEL_OVERRIDE,
+    trigger: env.TRIGGER,
+  });
+  if (!config.ok) return fail(config);
+  const opEnv = { PATH: env.PATH ?? '', HOME: env.HOME ?? '', OP_SERVICE_ACCOUNT_TOKEN: env.OP_SERVICE_ACCOUNT_TOKEN };
+  const readSecret = async (ref) => {
+    const r = await op(['read', '--no-newline', ref], opEnv);
+    if (r.code === 0) return r.stdout;
+    const error = new Error('op read failed');
+    error.kind = OP_TOKEN_REFUSED.test(r.stderr) ? 'token' : 'item';
+    throw error;
+  };
+  const credentials = await resolveCredentials(item, { readSecret, mask });
+  if (!credentials.ok) return fail(credentials);
+  step.writeFile(`${env.RUNNER_TEMP}/${HEADERS_FILE}`, JSON.stringify(credentials.headers));
+  step.setOutput('model', config.model);
+  step.setOutput('url', config.url);
+  step.setOutput('headers_file', `${env.RUNNER_TEMP}/${HEADERS_FILE}`);
+  step.setOutput('extra_headers', extraHeadersValue(credentials.headers));
+  step.log(`credentials: resolved ${Object.keys(credentials.headers).length} gateway headers; model ${config.model}`);
+  return 0;
+}
+
+// --- Flow: probe ------------------------------------------------------------
+
+/** The probe step. Env: GATEWAY_URL, MODEL, HEADERS_FILE. */
+export async function runProbe({ env, fetch, readFile, clock, step }) {
+  const headers = JSON.parse(readFile(env.HEADERS_FILE));
+  const post = async (request) => {
+    try {
+      const res = await fetch(request.url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...request.headers },
+        body: JSON.stringify(request.body),
+        redirect: 'manual',
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      const body = await res.text();
+      step.log(`probe: HTTP ${res.status}`);
+      return { status: res.status, body };
+    } catch (error) {
+      const why = error?.name === 'TimeoutError' ? 'timed out' : (error?.cause?.code ?? error?.message ?? 'no answer');
+      step.log(`probe: no HTTP answer (${why})`);
+      return { error: why };
+    }
+  };
+  const result = await probeGateway({ url: env.GATEWAY_URL, model: env.MODEL, headers }, { post, clock });
+  if (result.ok) {
+    step.log(`probe: ready after ${result.attempts} attempt(s)`);
+    return 0;
+  }
+  step.log(`::error::probe: ${result.cause} -- ${result.detail}`);
+  step.setOutput('cause', result.cause);
+  step.setOutput('detail', result.detail);
+  return 1;
+}
+
+// --- Flow: verdict ----------------------------------------------------------
+
+async function reviewableOver(range, git) {
+  const span = `${range.base}..${range.head}`;
+  const changes = parseNameStatus(await git(['diff', '--name-status', '-z', '--no-renames', span]));
+  const binary = parseNumstat(await git(['diff', '--numstat', '-z', '--no-renames', span]));
+  const present = changes.filter((c) => c.status !== 'D').map((c) => c.path);
+  const attributes =
+    present.length > 0
+      ? parseCheckAttr(await git(['check-attr', '-z', '--stdin', `--source=${range.head}`, 'linguist-generated', 'linguist-vendored'], `${present.join('\0')}\0`))
+      : new Map();
+  return reviewableFiles({ changes, binary, attributes });
+}
+
+/** The verdict step. Env: OCR_STEP_OUTCOME, OCR_EXIT_CODE, OCR_RESULT_PATH,
+ * OCR_COMMENTS_TOTAL/_INLINE/_ROUTED/_SKIPPED/_FAILED (the action's post
+ * counts), RUNNER_TEMP. OCR_EXIT_CODE has no env: entry in the workflow:
+ * the pinned upstream action writes it to GITHUB_ENV after `ocr review`, so
+ * it reaches this later step; it is unset when the action failed before
+ * running ocr. `git(argv, stdin)` runs git in the reviewed checkout. */
+export async function runVerdict({ env, git, readFile, step }) {
+  const statePath = `${env.RUNNER_TEMP}/${STATE_FILE}`;
+  const resultText = (() => {
+    try {
+      return readFile(env.OCR_RESULT_PATH);
+    } catch {
+      return '';
+    }
+  })();
+  const engine = readEngineResult(resultText);
+  if (env.OCR_STEP_OUTCOME !== 'success') {
+    const exit = String(env.OCR_EXIT_CODE ?? '');
+    if (exit && exit !== '0') {
+      step.setOutput('review_cause', 'engine-error');
+      step.setOutput('review_detail', `ocr exited ${exit}`);
+    }
+    step.writeFile(statePath, JSON.stringify({ cause: exit && exit !== '0' ? 'engine-error' : null, range: engine.range ?? null }));
+    return 0;
+  }
+  const reviewable = engine.ok ? await reviewableOver(engine.range, git) : [];
+  const verdict = judgeReview({ reviewable, engine, postCounts: readPostCounts(postCountsEnv(env)) });
+  const state = { ...verdict, range: verdict.range ?? engine.range ?? null };
+  step.writeFile(statePath, JSON.stringify(state));
+  step.setOutput('cause', verdict.cause ?? '');
+  step.setOutput('detail', verdict.detail ?? '');
+  if (verdict.outcome === 'success') {
+    step.log(`verdict: success${verdict.cause ? ` (${verdict.cause})` : ''}; ${verdict.filesReviewed} of ${verdict.filesReviewable} reviewable files reviewed`);
+    return 0;
+  }
+  step.log(`::error::verdict: ${verdict.cause} -- ${verdict.detail}`);
+  return 1;
+}
+
+// --- Flow: report -----------------------------------------------------------
+
+function fencedJson(value) {
+  const text = JSON.stringify(value, null, 2);
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = '`'.repeat(Math.max(3, longest + 1));
+  return `${fence}json\n${text}\n${fence}`;
+}
+
+/** The report step. Env: REPO, PR, EVENT_NAME, RUN_CANCELLED,
+ * AUTHORIZE_RESULT, AUTHORIZE_OUTPUTS, REVIEW_RESULT, REVIEW_OUTPUTS (both
+ * JSON of the job outputs), OCR_VERSION, STATE_PATH, RUN_URL, RECORD_PATH,
+ * COMMENT_PATH. Writes the record before the comment body. */
+export async function runReport({ env, readFile, step, now, summary = () => {} }) {
+  const authorizeOutputs = parseJson(env.AUTHORIZE_OUTPUTS || '{}', {});
+  const reviewOutputs = parseJson(env.REVIEW_OUTPUTS || '{}', {});
+  const state = (() => {
+    try {
+      return parseJson(readFile(env.STATE_PATH), null);
+    } catch {
+      return null;
+    }
+  })();
+  const end = endOfRun({
+    runCancelled: env.RUN_CANCELLED === 'true',
+    authorize: {
+      result: env.AUTHORIZE_RESULT,
+      decision: authorizeOutputs.decision || '',
+      cause: authorizeOutputs.cause || null,
+      steps: stepsFrom(AUTHORIZE_STEPS, authorizeOutputs),
+    },
+    review: { result: env.REVIEW_RESULT, steps: stepsFrom(REVIEW_STEPS, reviewOutputs) },
+  });
+  const finishedAt = now();
+  const record = buildRecord({
+    repo: env.REPO,
+    pr: Number(env.PR),
+    trigger: triggerOf(env.EVENT_NAME),
+    model: reviewOutputs.model || null,
+    ocrVersion: env.OCR_VERSION,
+    approved: authorizeOutputs.decision === 'approve',
+    end,
+    range: state?.range ?? null,
+    judged: state,
+    startedAt: authorizeOutputs.started_at || finishedAt,
+    finishedAt,
+  });
+  step.writeFile(env.RECORD_PATH, `${JSON.stringify(record, null, 2)}\n`);
+  summary(`### OCR review run record\n\n${fencedJson(record)}\n`);
+  const detail = failingDetail(REVIEW_STEPS, reviewOutputs, authorizeOutputs);
+  step.writeFile(env.COMMENT_PATH, renderSummary(record, { runUrl: env.RUN_URL, judged: state, detail, upstreamSummaryUrl: reviewOutputs.upstream_summary_url || '' }));
+  step.setOutput('should_comment', String(shouldComment(record)));
+  step.setOutput('outcome', record.outcome);
+  step.setOutput('cause', record.cause ?? '');
+  step.log(`report: ${record.outcome}${record.cause ? ` (${record.cause})` : ''}`);
+  return 0;
+}
+
+/** The comment step. Env: GITHUB_TOKEN, REPO, PR, COMMENT_PATH. Throws when
+ * the post fails, so the job (and the run) concludes red. */
+export async function runComment({ env, fetch, readFile }) {
+  const res = await fetch(`${apiUrl(env)}/repos/${env.REPO}/issues/${env.PR}/comments`, {
+    method: 'POST',
+    headers: githubHeaders(env.GITHUB_TOKEN),
+    body: JSON.stringify({ body: readFile(env.COMMENT_PATH) }),
+  });
+  if (!res.ok) throw new Error(`comment POST HTTP ${res.status}`);
+  return 0;
+}
+
+// --- Adapters (real I/O) ----------------------------------------------------
+
+function realStep(env) {
+  return {
+    log: (line) => process.stdout.write(`${line}\n`),
+    setOutput: (name, value) => {
+      const text = String(value);
+      let delimiter = `ghadelimiter_${randomUUID()}`;
+      while (text.includes(delimiter)) delimiter = `ghadelimiter_${randomUUID()}`;
+      appendFileSync(env.GITHUB_OUTPUT, `${name}<<${delimiter}\n${text}\n${delimiter}\n`);
+    },
+    writeFile: (path, text) => {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, text, { mode: 0o600 });
+    },
+  };
+}
+
+function runOp(argv, env) {
+  return new Promise((done) => {
+    execFile('op', argv, { env, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+      done({ code: error ? (typeof error.code === 'number' ? error.code : 1) : 0, stdout: String(stdout), stderr: String(stderr) });
+    });
+  });
+}
+
+function gitIn(workspace) {
+  return (argv, stdin) =>
+    new Promise((done, fail) => {
+      const child = spawn('git', ['-C', workspace, ...argv], { stdio: ['pipe', 'pipe', 'pipe'] });
+      const out = [];
+      const err = [];
+      child.stdout.on('data', (chunk) => out.push(chunk));
+      child.stderr.on('data', (chunk) => err.push(chunk));
+      child.on('error', fail);
+      child.on('close', (code) => {
+        if (code === 0) done(Buffer.concat(out).toString('utf8'));
+        else fail(new Error(`git ${argv[0]} exited ${code}: ${Buffer.concat(err).toString('utf8').trim()}`));
+      });
+      child.stdin.end(stdin ?? '');
+    });
+}
+
+const realClock = {
+  now: () => Date.now(),
+  sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+};
+
+const readText = (path) => readFileSync(path, 'utf8');
+const isoNow = () => new Date().toISOString();
+
+// --- Entry point (composition root) -----------------------------------------
+
+async function main(argv, env) {
+  const step = realStep(env);
+  switch (argv[0]) {
+    case 'authorize':
+      return runAuthorize({ env, fetch: globalThis.fetch, step, now: isoNow });
+    case 'credentials':
+      return runCredentials({ env, op: runOp, step });
+    case 'probe':
+      return runProbe({ env, fetch: globalThis.fetch, readFile: readText, clock: realClock, step });
+    case 'verdict':
+      return runVerdict({ env, git: gitIn(env.GITHUB_WORKSPACE || '.'), readFile: readText, step });
+    case 'report':
+      return runReport({ env, readFile: readText, step, now: isoNow, summary: (text) => appendFileSync(env.GITHUB_STEP_SUMMARY, text) });
+    case 'comment':
+      return runComment({ env, fetch: globalThis.fetch, readFile: readText });
+    default:
+      throw new Error('usage: ocr-review authorize|credentials|probe|verdict|report|comment');
+  }
+}
+
+// Run only as a script: the test suite imports this file for its flows.
+const invokedDirectly = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+
+if (invokedDirectly) {
+  main(process.argv.slice(2), process.env).then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (error) => {
+      console.error(`ocr-review: ${error.message}`);
+      process.exitCode = 1;
+    },
+  );
+}
