@@ -71,9 +71,14 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
 
 ## Read the result
 
-- The summary comment on the PR states the outcome and, on failure, the
-  cause; `unexpected` also names the failing job and step. `pr-not-open`
-  posts no comment.
+- A PR carries two summary comments (owner ruling "option A"):
+  - this workflow's, one per run: the outcome and, on failure, the cause
+    (`unexpected` also names the failing job and step); on success the
+    reviewed-file counts, the action's post counts and every reviewable
+    file ocr did not review. `pr-not-open` posts none.
+  - upstream's own, sticky (updated in place each run): the findings that
+    could not be anchored inline and each finding that failed to post.
+    Ours links it whenever the action reports its URL.
 - The run's job summary and its `ocr-review-record-<attempt>` artifact
   carry the run record (`record_version` 1, the design's Data Model).
 - `ocr-result-<attempt>` is ocr's JSON result (`--audience agent`) for an
@@ -85,8 +90,9 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
     sandboxed ollama is down.
   - `model-not-found`: the gateway does not serve that model.
   - `cold-model`: the model loaded for 6 minutes without answering; re-run.
-  - `engine-error`: ocr failed, or its result lacked a required part (see
-    Known gaps).
+  - `engine-error`: ocr failed, its result lacked the resolved range or the
+    reviewed-file list, or the action's post counts were missing,
+    unparseable or inconsistent with ocr's findings.
   - `reviewed-nothing`: reviewable files existed and ocr reviewed none.
 - Trends across repos: `bin/ocr-review-stats` (read-only; `-p day|week|month`,
   `-d DAYS`, `-j`).
@@ -110,9 +116,14 @@ Checked 2026-10-12 by reading `action.yml`,
 - The resolved range and the per-file reviewed list are in ocr's JSON
   result: `manifest.input.resolved_base` / `resolved_head` and
   `manifest.coverage` (schema `ocr.run-manifest/v1`).
-- Outputs are counts only: `comments_total`, `comments_inline`,
-  `comments_failed`, `comments_routed`, `comments_skipped`,
-  `summary_comment_url`.
+- Post outcomes are outputs as counts only: `comments_total`,
+  `comments_inline`, `comments_failed`, `comments_routed`,
+  `comments_skipped`, plus `summary_comment_url`. The verdict step reads
+  the counts through its `env:`: `findings_failed` is `comments_failed`,
+  `findings_posted` is `comments_inline` plus `comments_routed`, and a
+  count that is empty, not an integer, or does not add up to ocr's
+  findings is `engine-error`. `summary_comment_url` reaches the report job
+  as the review job's `upstream_summary_url` output.
 - Chat completions do not stream by default; `{"stream": true}` in
   `llm_extra_body` turns streaming on, and the workflow sets it.
 - `head_sha` and `base_ref` must be passed: on a dispatch or comment
@@ -121,13 +132,13 @@ Checked 2026-10-12 by reading `action.yml`,
 
 ## Known gaps (reported, not worked around)
 
-- **No per-finding post status at the pin.** The design's Verdict row
-  requires it; upstream lists a failed finding only inside its own summary
-  comment's markdown. So every completed review ends `engine-error` until
-  upstream exposes it and the pin moves. The inline findings are still
-  posted by upstream.
-- **Upstream's summary comment cannot be turned off at the pin.** It posts
-  one (sticky, so one per PR) beside this workflow's summary comment.
+- **No per-finding post status at the pin.** The action reports post
+  outcomes only as counts, so the verdict judges by counts and our summary
+  cannot list the findings that failed to post; upstream's summary names
+  them, and ours links it. A later pin that exposes per-finding status can
+  restore the stricter contract (design Key Decisions, option A).
+- **Upstream's summary comment cannot be turned off at the pin.** It stays
+  beside ours (sticky, so one per PR), by ruling.
 - **The proxy's status codes are mirrored by hand.** `GATEWAY_STATUS` in
   `lib/ocr-review/gateway.mjs` holds 503 (ollama down) and 507 Model Not
   Ready (the deadline answer, the one retryable code) as the LMDE proxy
