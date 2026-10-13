@@ -1,6 +1,6 @@
 # ocr-review-caller.yml -- OCR on Demand caller template. Copy it verbatim
 # to .github/workflows/ocr-review-caller.yml in an adopting repository of
-# either owner (9atatimer, Nine-At-A-Time-Media); runbook: docs/ocr-review.md
+# either owner (9atatimer, Nine-At-A-Time-Media); runbook: docs/ops/ocr-review.md
 # in tds-utils; design: docs/design/OCR-ON-DEMAND.DESIGN.md.
 #
 # It carries only the event types. What a valid /ocr command is, and who
