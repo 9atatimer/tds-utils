@@ -33,7 +33,7 @@ import { fileURLToPath } from 'node:url';
 import { authorizeRun } from '../lib/ocr-review/authorize.mjs';
 import { extraHeadersValue, probeGateway, resolveCredentials, resolveGatewayConfig, resolveModel } from '../lib/ocr-review/gateway.mjs';
 import { buildRecord, endOfRun, renderSummary, shouldComment } from '../lib/ocr-review/record.mjs';
-import { judgeReview, parseCheckAttr, parseNameStatus, parseNumstat, readEngineResult, reviewableFiles } from '../lib/ocr-review/verdict.mjs';
+import { judgeReview, parseCheckAttr, parseNameStatus, parseNumstat, readEngineResult, readPostCounts, reviewableFiles } from '../lib/ocr-review/verdict.mjs';
 
 // --- Constants --------------------------------------------------------------
 
@@ -114,17 +114,15 @@ function failingDetail(table, outputs, authorizeOutputs) {
   return failed?.detail ? outputs[failed.detail] || null : null;
 }
 
-/**
- * Per-finding post status from the pinned engine. alibaba/open-code-review
- * at v1.12.13 (fabbdb2) publishes counts only -- comments_inline,
- * comments_failed, comments_routed, comments_skipped -- and lists a failed
- * finding only inside the markdown of its own summary comment. The design's
- * Verdict row makes this a required output, so its absence is engine-error.
- * Re-verify when the pin moves.
- */
-function postStatusFromEngine() {
-  return null;
-}
+/** The upstream action's post counts from the verdict step's env (the
+ * workflow maps steps.ocr.outputs.comments_* there), for readPostCounts. */
+const postCountsEnv = (env) => ({
+  total: env.OCR_COMMENTS_TOTAL,
+  inline: env.OCR_COMMENTS_INLINE,
+  routed: env.OCR_COMMENTS_ROUTED,
+  skipped: env.OCR_COMMENTS_SKIPPED,
+  failed: env.OCR_COMMENTS_FAILED,
+});
 
 // --- Flow: authorize --------------------------------------------------------
 
@@ -254,9 +252,11 @@ async function reviewableOver(range, git) {
 }
 
 /** The verdict step. Env: OCR_STEP_OUTCOME, OCR_EXIT_CODE, OCR_RESULT_PATH,
- * RUNNER_TEMP. OCR_EXIT_CODE has no env: entry in the workflow: the pinned
- * upstream action writes it to GITHUB_ENV after `ocr review`, so it reaches
- * this later step; it is unset when the action failed before running ocr. `git(argv, stdin)` runs git in the reviewed checkout. */
+ * OCR_COMMENTS_TOTAL/_INLINE/_ROUTED/_SKIPPED/_FAILED (the action's post
+ * counts), RUNNER_TEMP. OCR_EXIT_CODE has no env: entry in the workflow:
+ * the pinned upstream action writes it to GITHUB_ENV after `ocr review`, so
+ * it reaches this later step; it is unset when the action failed before
+ * running ocr. `git(argv, stdin)` runs git in the reviewed checkout. */
 export async function runVerdict({ env, git, readFile, step }) {
   const statePath = `${env.RUNNER_TEMP}/${STATE_FILE}`;
   const resultText = (() => {
@@ -277,7 +277,7 @@ export async function runVerdict({ env, git, readFile, step }) {
     return 0;
   }
   const reviewable = engine.ok ? await reviewableOver(engine.range, git) : [];
-  const verdict = judgeReview({ reviewable, engine, postStatus: postStatusFromEngine() });
+  const verdict = judgeReview({ reviewable, engine, postCounts: readPostCounts(postCountsEnv(env)) });
   const state = { ...verdict, range: verdict.range ?? engine.range ?? null };
   step.writeFile(statePath, JSON.stringify(state));
   step.setOutput('cause', verdict.cause ?? '');
