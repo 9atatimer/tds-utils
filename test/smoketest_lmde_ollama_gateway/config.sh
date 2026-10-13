@@ -172,3 +172,52 @@ run_launcher() {
         OLLAMA_GATEWAY_OLLAMA_PORT="${OLLAMA_PORT}" \
         "$@" /bin/zsh -f "${LAUNCH_OLLAMA}" 2>&1
 }
+
+# --- Connector fixtures ------------------------------------------------------
+
+TOKEN_SERVICE="lmde.ollama-gateway.tunnel-token"
+TOKEN_ACCOUNT="ollama-gateway"
+# Shaped like a run token (base64); not a credential.
+FAKE_TOKEN="eyJhIjoiZmFrZS1hY2NvdW50IiwidCI6ImZha2UtdHVubmVsIiwicyI6ImZha2UifQ=="
+
+# install_fake_cloudflared -- a `cloudflared` on FAKE_BIN that records its
+# argv (one element per line), its environment, and what it read from the
+# --token-file path, into ${WORK}/fake-cloudflared.out.
+install_fake_cloudflared() {
+    cat > "${FAKE_BIN}/cloudflared" <<FAKE
+#!/bin/sh
+out="${WORK}/fake-cloudflared.out"
+: > "\${out}"
+prev=""
+for a in "\$@"; do
+    echo "argv \${a}" >> "\${out}"
+    if [ "\${prev}" = "--token-file" ]; then
+        echo "token-file-path \${a}" >> "\${out}"
+        echo "token-file-content \$(cat "\${a}")" >> "\${out}"
+    fi
+    prev="\${a}"
+done
+env | sed 's/^/env /' >> "\${out}"
+FAKE
+    chmod +x "${FAKE_BIN}/cloudflared"
+}
+
+# seed_fake_token [<value>] -- the fake run token into the throwaway keychain.
+seed_fake_token() {
+    security add-generic-password -U -s "${TOKEN_SERVICE}" -a "${TOKEN_ACCOUNT}" \
+        -w "${1:-${FAKE_TOKEN}}" "${KEYCHAIN}" >/dev/null
+}
+
+# connector_tree -- the installed connector config the launcher expects.
+connector_tree() {
+    mkdir -p "${TREE}/connector"
+    cp "${COMPONENT_DIR}/connector/config.yml" "${TREE}/connector/config.yml"
+}
+
+# run_connector <env assignments...> -- the connector launcher as launchd
+# would run it, against the throwaway keychain.
+run_connector() {
+    env -i HOME="${FAKE_HOME}" PATH="${FAKE_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+        OLLAMA_GATEWAY_KEYCHAIN="${KEYCHAIN}" \
+        "$@" /bin/zsh -f "${LAUNCH_CONNECTOR}" 2>&1
+}
