@@ -128,10 +128,11 @@ Checked 2026-10-12 by reading `action.yml`,
   posted by upstream.
 - **Upstream's summary comment cannot be turned off at the pin.** It posts
   one (sticky, so one per PR) beside this workflow's summary comment.
-- **The deadline status code is not yet the proxy's.** `GATEWAY_STATUS` in
-  `lib/ocr-review/gateway.mjs` assumes 503 (ollama down) and 504 (the
-  deadline answer) from the laptop track's proxy; it must match that
-  proxy's configuration.
+- **The proxy's status codes are mirrored by hand.** `GATEWAY_STATUS` in
+  `lib/ocr-review/gateway.mjs` holds 503 (ollama down) and 507 Model Not
+  Ready (the deadline answer, the one retryable code) as the LMDE proxy
+  layer's `ollama-gateway` route serves them; a change there must change
+  it too.
 - **A timed-out job cannot name its step.** The token holds no `actions`
   scope (design permissions), so a timeout reads `unexpected` with
   "(no step failed: job timeout or runner lost)".
