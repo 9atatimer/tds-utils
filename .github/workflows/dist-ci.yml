@@ -138,6 +138,11 @@ jobs:
       - name: Smoketest bin/review-settled
         run: /bin/bash test/smoketest_review_settled.sh
 
+      # Node suites: OCR on Demand (lib/ocr-review, bin/ocr-review,
+      # bin/ocr-review-stats, the workflow files). Fakes only; no network.
+      - name: Smoketest bin/ocr-review
+        run: /bin/bash test/smoketest_ocr_review.sh
+
       # macOS-only argv assertions inside; the suite skips them on the ubuntu
       # leg and still checks the dot.zshenv wiring there.
       - name: Smoketest bin/plannotator-browser
