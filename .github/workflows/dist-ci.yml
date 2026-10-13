@@ -139,7 +139,8 @@ jobs:
         run: /bin/bash test/smoketest_review_settled.sh
 
       # Node suites: OCR on Demand (lib/ocr-review, bin/ocr-review,
-      # bin/ocr-review-stats, the workflow files). Fakes only; no network.
+      # bin/ocr-review-stats, the workflow files) and the bake-off
+      # (lib/ocr-bakeoff, bin/ocr-bakeoff). Fakes only; no network.
       - name: Smoketest bin/ocr-review
         run: /bin/bash test/smoketest_ocr_review.sh
 

@@ -1,0 +1,494 @@
+{
+  "_about": [
+    "OCR bake-off cases (tds-utils Issue#468): diffs a Copilot or Codex review saw, and the inline findings on them that triage accepted (a reply citing the fix SHA).",
+    "Source: template-tools docs/ops/review-calibration/ (survey of PRs 2026-06-15..2026-08-31), accepted findings on code files only (ocr skips Markdown).",
+    "base = merge-base(PR base, head); head = the commit the bot reviewed (the comment's original_commit_id). line = the comment's original_line."
+  ],
+  "cases": [
+    {
+      "id": "tt159-2828600",
+      "repo": "Nine-At-A-Time-Media/template-tools",
+      "pr": 159,
+      "base": "95f440bdee402c70586f33b31f33849ce9f4bdfb",
+      "head": "2828600e9b6ce02bf33ee7062b7ed1a39dfaff31",
+      "accepted": [
+        {
+          "path": "packages/naatm-hooks/scripts/lint-markdown-ascii.sh",
+          "line": 77,
+          "start_line": 55,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/159#discussion_r3563390421",
+          "summary": "The file list is fed into the `while read` loop via an unquoted here-doc (`<<EOF`). Because the delimiter is unquoted, bash performs parameter/command substitution on the here-doc body after expanding `$files`. A staged filename containing `$...`, backticks, or `$(...)` can be expanded/executed, and even benign `$` in filenames will be mangled. Use process substitution (or a quoted here-string) instead of an unquoted here-doc for this data path."
+        },
+        {
+          "path": "packages/naatm-hooks/scripts/lint-markdown-ascii.sh",
+          "line": 7,
+          "start_line": 5,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/159#discussion_r3563390434",
+          "summary": "This header comment points to `prompts/SKILL.MARKDOWN.md`, but that path does not exist in this repo (the file is at `packages/naatm-prompts/prompts/SKILL.MARKDOWN.md`). Updating the reference avoids sending readers to a dead path."
+        },
+        {
+          "path": "packages/naatm-hooks/scripts/lint-markdown-ascii.sh",
+          "line": 84,
+          "start_line": 81,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/159#discussion_r3563390442",
+          "summary": "The error output references `prompts/SKILL.MARKDOWN.md`, but that path doesn't exist in this repo (and likely won't exist in consuming repos either). Point this at the actual doc location (or remove the path reference) so developers can find the rule being cited."
+        },
+        {
+          "path": "packages/naatm-hooks/husky/pre-commit",
+          "line": 66,
+          "start_line": 63,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/159#discussion_r3563390449",
+          "summary": "This comment points to `prompts/SKILL.MARKDOWN.md`, but the file lives at `packages/naatm-prompts/prompts/SKILL.MARKDOWN.md` in this repo. Updating the reference avoids a dead path for anyone reading the hook output/comments."
+        },
+        {
+          "path": "packages/naatm-hooks/package.json",
+          "line": 23,
+          "start_line": 22,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/159#discussion_r3563390459",
+          "summary": "`lint:md` currently runs the staged-only mode, so `npm run lint:md` is often a no-op (prints \"No Markdown to check.\") unless the user has staged files. If this script is meant as a general-purpose lint command (e.g., in CI), it should likely run `--all` (or be renamed to reflect staged-only behavior)."
+        }
+      ]
+    },
+    {
+      "id": "tt159-5a6fdba",
+      "repo": "Nine-At-A-Time-Media/template-tools",
+      "pr": 159,
+      "base": "95f440bdee402c70586f33b31f33849ce9f4bdfb",
+      "head": "5a6fdba42bc478e44339acf60fe4dbe4ec97b0e6",
+      "accepted": [
+        {
+          "path": "packages/naatm-hooks/scripts/lint-markdown-ascii.sh",
+          "line": 31,
+          "start_line": null,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/159#discussion_r3563407112",
+          "summary": "`staged_markdown` excludes renamed files (`R`). That can miss non-ASCII in Markdown when a file is renamed (including rename+edit), which is still part of the staged content being committed. Align with other hook scanners here (gitleaks/trivy/semgrep) by including `R` in the diff-filter."
+        },
+        {
+          "path": "packages/naatm-hooks/scripts/lint-markdown-ascii.sh",
+          "line": 11,
+          "start_line": null,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/159#discussion_r3563407133",
+          "summary": "The header comment for the hooks scope says it only checks added/copied/modified files, but the implementation should also include renames (see `staged_markdown`). Keep the documentation aligned with the actual scan behavior."
+        },
+        {
+          "path": "packages/naatm-hooks/scripts/lint-markdown-ascii.sh",
+          "line": 37,
+          "start_line": 35,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/159#discussion_r3563407143",
+          "summary": "`--all` mode currently misses uppercase `.MARKDOWN` files because `git ls-files` only includes `*.markdown` and `*.MD`. If a repo has `README.MARKDOWN` (or similar), `npm run lint:md` wont scan it."
+        },
+        {
+          "path": "packages/naatm-hooks/scripts/lint-markdown-ascii.sh",
+          "line": 98,
+          "start_line": 90,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/159#discussion_r3563407152",
+          "summary": "This script assumes it is executed from the repo root (so paths returned by `git diff`/`git ls-files` resolve and `NO.MDASCII` is checked at the root). When run from a subdirectory (e.g. via workspace scripts), many files can be silently skipped due to the `[ -f \"$file\" ]` guard. Resolve and `cd` to the git toplevel at startup so both staged and `--all` mode work from any cwd."
+        },
+        {
+          "path": "packages/naatm-hooks/tests/markdown-ascii-check.sh",
+          "line": 20,
+          "start_line": null,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/159#discussion_r3563407165",
+          "summary": "To fully isolate these tests from the machines git configuration, also disable system gitconfig. Some environments set signing or hooks in system config (not just global), which can make test repos behave unexpectedly."
+        }
+      ]
+    },
+    {
+      "id": "tt193-11de331",
+      "repo": "Nine-At-A-Time-Media/template-tools",
+      "pr": 193,
+      "base": "88edaabdd466ff2fe6186e762d84a7b8073d04e5",
+      "head": "11de331a57df9751510522aa8f6c35c9bd62a481",
+      "accepted": [
+        {
+          "path": "packages/naatm-git-mirror/scripts/resync.sh",
+          "line": 122,
+          "start_line": 118,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/193#discussion_r3609095218",
+          "summary": "The EXIT trap uses an unquoted variable expansion (`mirror_temp_remote_remove ${TMP_REMOTE}`), which relies on word-splitting rules and expands at exit time. Quoting the remote name makes the cleanup more robust and avoids surprises if the variable ever changes or contains unexpected characters."
+        },
+        {
+          "path": "packages/naatm-git-mirror/scripts/doctor.sh",
+          "line": 105,
+          "start_line": 100,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/193#discussion_r3609095226",
+          "summary": "`check_drift` is documented as \"warn-only\" and should never be able to take `doctor` down under `set -e`, but `mirror_temp_remote_add` runs unguarded. If `git remote add/remove` fails for any reason (read-only repo config, broken `.git`, etc.), `doctor` will exit non-zero here. Consider making temp-remote setup best-effort and only installing the EXIT trap after a successful add."
+        },
+        {
+          "path": "packages/naatm-git-mirror/scripts/doctor.sh",
+          "line": 140,
+          "start_line": 134,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/193#discussion_r3609095232",
+          "summary": "`git ls-remote --tags` includes both tag refs and peeled `^{} ` entries for annotated tags, so `grep -c 'refs/tags/'` can double-count and produce false \"mirror missing tags\" warnings. Use `--refs` to count only tag refs."
+        },
+        {
+          "path": "packages/naatm-git-mirror/scripts/mirror-lib.sh",
+          "line": 38,
+          "start_line": 28,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/193#discussion_r3609095237",
+          "summary": "`mirror_default_branch` falls back to `main` whenever `refs/remotes/<remote>/HEAD` is missing. In repos where that symref was never set (e.g. remotes added after init) or the default branch isnt `main`, this can select the wrong branch for drift checks and `resync`. Consider deriving the default branch from the remotes HEAD symref when available (`git ls-remote --symref <remote> HEAD`) before falling back to `main`."
+        }
+      ]
+    },
+    {
+      "id": "tt34-5f2583d",
+      "repo": "Nine-At-A-Time-Media/template-tools",
+      "pr": 34,
+      "base": "8c412add1062e246d9c210504942c0f535d94006",
+      "head": "5f2583db6a7f587cd06a06e990ec8927cb451a5c",
+      "accepted": [
+        {
+          "path": "packages/naatm-ci-magic/action.yml",
+          "line": 18,
+          "start_line": 15,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/34#discussion_r3439508883",
+          "summary": "The `model` input description says rules may still set their own model via front-matter, but `CI_MAGIC_MODEL`/`inputs.model` currently overrides the model for *all* rules (it wins over rule + config in `makeProviderResolver`). This is misleading for action consumers."
+        },
+        {
+          "path": "packages/naatm-ci-magic/action.yml",
+          "line": 29,
+          "start_line": 26,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/34#discussion_r3439508908",
+          "summary": "Running `npm install` inside `packages/naatm-ci-magic` in this repo will be treated as an npm workspace install (repo has `workspaces: [\"packages/*\"]`), which can unexpectedly install the whole monorepo during the workflow. This is slow/flaky and not necessary for the action; disable workspaces for this step so only the action's deps are installed."
+        },
+        {
+          "path": "packages/naatm-ci-magic/src/github.mjs",
+          "line": 64,
+          "start_line": 46,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/34#discussion_r3439508922",
+          "summary": "`upsertComment()` only fetches the first 100 PR comments, so on busy PRs it can miss the existing marker comment and create duplicates. Also, the POST/PATCH requests don't send a `Content-Type: application/json` header, which can cause API parsing issues."
+        },
+        {
+          "path": "packages/naatm-ci-magic/src/cli.mjs",
+          "line": 70,
+          "start_line": 60,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/34#discussion_r3439508932",
+          "summary": "GitHub Actions workflow commands require escaping `%`, newlines, and also `:`/`,` in properties. As-is, `r.file` and `r.reason` can break `::error` / `::warning` annotations (e.g., paths with `,` or messages with `%`). Escaping here will make annotations reliable."
+        },
+        {
+          "path": "packages/naatm-ci-magic/src/evaluate.mjs",
+          "line": 32,
+          "start_line": 24,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/34#discussion_r3439508942",
+          "summary": "The `catch` block assumes anything thrown has an `.message` property. If a provider throws a string or other non-Error value, the reason becomes `evaluation error: undefined`, losing the real failure detail."
+        }
+      ]
+    },
+    {
+      "id": "tt36-279fd81",
+      "repo": "Nine-At-A-Time-Media/template-tools",
+      "pr": 36,
+      "base": "6b31cbaa6fc98340f22ab4ada00a7bc5edb20684",
+      "head": "279fd81013c3deddabdb58c7b971aab0b38cb2f6",
+      "accepted": [
+        {
+          "path": ".github/workflows/ci-magic.yml",
+          "line": 40,
+          "start_line": 37,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/36#discussion_r3444852652",
+          "summary": "The ci.magic step is not guarded on the 1Password SA secret being present. When `CI_MAGIC_OP_SA_TOKEN` is unset, the 1Password step is skipped and `CLAUDE_CODE_OAUTH_TOKEN` remains empty, but the action still runs with `provider: claude-cli`. Provider errors are converted to `fatal` findings (see evaluate.mjs), so this workflow will fail until the secret is configured."
+        },
+        {
+          "path": ".github/workflows/ci-magic.yml",
+          "line": 35,
+          "start_line": null,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/36#discussion_r3444852665",
+          "summary": "This 1Password reference string includes what looks like a personal identifier (\"tdsmobile@\"). Item titles/refs in a public repo should avoid embedding email/usernames, and this likely wont match other environments vault item names. Use a generic vault item reference."
+        },
+        {
+          "path": ".github/workflows/ci-magic.yml",
+          "line": 10,
+          "start_line": 8,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/36#discussion_r3444852672",
+          "summary": "The header comment says there are no applicable ci.magic rules yet, but this PR adds `packages/naatm-ci-magic/ci.magic` which will apply to Markdown changes under that directory (e.g. the README). With the current workflow, missing secrets will cause a fatal evaluation error rather than \"still passing\"."
+        },
+        {
+          "path": "packages/naatm-ci-magic/action.yml",
+          "line": 46,
+          "start_line": 42,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/36#discussion_r3444852682",
+          "summary": "Installing `@anthropic-ai/claude-code` without a version pin can introduce non-deterministic CI behavior if a breaking CLI release lands. Consider pinning to a known-good version (or exposing an input to control the CLI version) to keep action runs reproducible."
+        }
+      ]
+    },
+    {
+      "id": "tt442-f9b82c2",
+      "repo": "Nine-At-A-Time-Media/template-tools",
+      "pr": 442,
+      "base": "8a72ee857a3002b99c2049e1d5eb9df6849d98ab",
+      "head": "f9b82c20067cf36d2ac5ee9df349b768639c6f55",
+      "accepted": [
+        {
+          "path": "packages/naatm-ci-magic/src/adapters/vcs/git.mjs",
+          "line": 36,
+          "start_line": 33,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/442#discussion_r3782270771",
+          "summary": "`git ls-tree` is hard-coded to `HEAD`, but the ledger records `head_sha` is explicitly set to the PR head SHA (from the event payload) rather than the merge commit. In the default Actions checkout for `pull_request`, `HEAD` is the synthetic merge commit, so the blob SHAs you compute may not be resolvable from `head_sha`, breaking the intended join key."
+        },
+        {
+          "path": "packages/naatm-ci-magic/src/adapters/ledger/sigv4.mjs",
+          "line": 145,
+          "start_line": 140,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/442#discussion_r3782270797",
+          "summary": "Canonical header construction lower-cases header names but does not de-duplicate after lower-casing. If the caller provides both `Host` and `host` (or any mixed-case duplicates), `names` will contain duplicates and the canonical request will be malformed, producing signatures that real endpoints reject."
+        },
+        {
+          "path": "packages/naatm-ci-magic/src/adapters/ledger/r2.mjs",
+          "line": 61,
+          "start_line": null,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/442#discussion_r3782270817",
+          "summary": "`fetch` has no timeout; a stalled/blackholed warehouse endpoint can hang the entire ci.magic run, which violates the intent that ledgering must not affect merge gating. Consider adding a small request timeout via `AbortController`."
+        },
+        {
+          "path": "packages/naatm-ci-magic/src/application/review-pull-request.mjs",
+          "line": 227,
+          "start_line": 223,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/442#discussion_r3782270854",
+          "summary": "This comment says raw output does not have to be held any longer than the Check itself, but `result.evaluation` (including raw assistant text + prompts) is returned and then retained in the `results` array until the end of the run. That can significantly increase peak memory on large runs, and it also means unconfigured ledgers still retain raw outputs unnecessarily."
+        }
+      ]
+    },
+    {
+      "id": "tt434-f368a2e",
+      "repo": "Nine-At-A-Time-Media/template-tools",
+      "pr": 434,
+      "base": "33ec3b749f08c5b8d01c4984ccfc17563190de9a",
+      "head": "f368a2e4263b0716e38253f88c9d7b4cf97562df",
+      "accepted": [
+        {
+          "path": "packages/naatm-tedium/src/batcher/batcher.ts",
+          "line": 638,
+          "start_line": null,
+          "reviewer": "codex",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/434#discussion_r3782217444",
+          "summary": "Revalidate the claim before reviving a canceled batch When a cancellation arrives while staging construction is awaiting GitHub, this new `Running` state makes `cancel()` take the running-batch path and persist `Canceled`; the original start then resumes and unconditionally overwrites that state at `startWaitingBatch` with `Running` and a commit. A single-patch batch canceled during construction can therefore post running again and eventually land. Preserve a distinct starting state or verify that the claim is still owned before persisting the constructed batch."
+        },
+        {
+          "path": "packages/naatm-tedium/src/ledger/ledger.ts",
+          "line": 10,
+          "start_line": null,
+          "reviewer": "codex",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/434#discussion_r3782217453",
+          "summary": "Preserve cause-specific ledger outcomes When a PR head races during construction, the batcher posts `race` but returns `error`; invalid configuration and non-fast-forward pushes are similarly collapsed to `error`. Because this new union also omits the documented `config_error` and `push_not_ff` values, warehouse records cannot distinguish these operationally different failures even though `DESIGN.TEDIUM.md` defines separate outcome dimensions for them. Carry the terminal cause through to `ledgerBatch` instead of recording the generic database state."
+        },
+        {
+          "path": "packages/naatm-tedium/src/ledger/entries.ts",
+          "line": 70,
+          "start_line": null,
+          "reviewer": "codex",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/434#discussion_r3782217458",
+          "summary": "Record divergence when double-bar stage 1 fails For a workflow-changing batch whose established-bars build fails, `bar_stage` remains `1`, so this expression records `bars_diverged: false` even though stage 1 was created precisely because the proposed workflow tree differed. This undercounts the failure mode the warehouse dimension is intended to measure; retain the divergence decision from staging construction rather than inferring it only from whether stage 2 was reached."
+        },
+        {
+          "path": "packages/naatm-tedium/src/ledger/entries.ts",
+          "line": 66,
+          "start_line": null,
+          "reviewer": "codex",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/434#discussion_r3782217462",
+          "summary": "Keep both double-bar commit SHAs in the ledger When a double-bar batch advances, `advanceToStage2` replaces `batch.commit` with the stage-2 SHA and deletes the staged inputs. Consequently this field labels the stage-2 commit as `staging_commit`, loses the stage-1 commit entirely, and the new record has no `stage2_commit` field despite the batch schema in `DESIGN.TEDIUM.md` requiring both. Preserve the stage-1 SHA and emit the final stage-2 SHA separately so double-bar lineage remains reconstructable."
+        }
+      ]
+    },
+    {
+      "id": "tt376-8d9122f",
+      "repo": "Nine-At-A-Time-Media/template-tools",
+      "pr": 376,
+      "base": "000aef9f695b827cf8c9e663057443618fedeeeb",
+      "head": "8d9122f8da7f8018273ed4309bc7448be072a0ab",
+      "accepted": [
+        {
+          "path": "packages/ast-mcp/src/adapters/secondary/parsers/RemarkAdapter.ts",
+          "line": 186,
+          "start_line": 183,
+          "reviewer": "codex",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/376#discussion_r3742270033",
+          "summary": "Merge only lists with compatible ordered-list delimiters When valid Markdown intentionally places a `1.` list next to a `1)` list, remark represents both as adjacent nodes with `ordered === true`, but CommonMark treats their different delimiters as separate lists. This condition merges them anyway; a direct insertion with the other delimiteror even an unrelated mutation elsewhere, since the loop scans the whole documentthen diverges from TreeSitterAdapter's raw-text reparse and causes the consensus check to reject the edit. Restrict merging to splice boundaries whose source delimiters are compatible rather than using `ordered` alone."
+        },
+        {
+          "path": ".husky/pre-commit",
+          "line": 8,
+          "start_line": null,
+          "reviewer": "codex",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/376#discussion_r3742270038",
+          "summary": "Fix the generator instead of only its generated shim On a normal fresh checkout, the root `prepare` script runs `naatm-hooks install`, and `packages/naatm-hooks/bin/install.sh` still emits the removed `_common.sh` source line. Consequently every dependency install rewrites this tracked file back to its old contents, leaves the worktree dirty, and restores the dash failure this change claims to fix. Make the same change in the generator and regenerate the shim so the fix survives setup."
+        },
+        {
+          "path": "packages/ast-mcp/src/adapters/secondary/parsers/RemarkAdapter.ts",
+          "line": 187,
+          "start_line": 183,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/376#discussion_r3742271505",
+          "summary": "`mergeAdjacentOrderedLists()` scans and merges *all* adjacent ordered lists in `tree.children` every time any splice happens (updateNode/insertNode/updateSection). That can unintentionally change unrelated parts of the document (e.g., if the original markdown legitimately contains two adjacent ordered lists that should remain separate, a later edit elsewhere would silently merge them). Consider constraining the merge to the splice boundary only (merge at most the neighbors around the insertion/replacement range), rather than folding the entire document on every edit."
+        }
+      ]
+    },
+    {
+      "id": "tt203-91be275",
+      "repo": "Nine-At-A-Time-Media/template-tools",
+      "pr": 203,
+      "base": "87a23438d148a4cf1f444571580784c364bccc7c",
+      "head": "91be275b2d78629119b510561364a6b39bd31d54",
+      "accepted": [
+        {
+          "path": "packages/naatm-hooks/scripts/fix-markdown-ascii.sh",
+          "line": 14,
+          "start_line": 11,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/203#discussion_r3609231669",
+          "summary": "The header comment says the substitution table contains 33 codepoints, but the current table includes 37 distinct byte sequences (see normalize_tos 37 s/// rules). This makes the script documentation inaccurate and can mislead consumers relying on the stated scope size."
+        },
+        {
+          "path": "packages/naatm-hooks/scripts/fix-markdown-ascii.sh",
+          "line": 176,
+          "start_line": 171,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/203#discussion_r3609231676",
+          "summary": "Unknown `--...` options are currently treated as literal paths (and often silently skipped as not a file), which can mask typos like `--chek` and yield a false clean exit. Since `--` already exists to force literal paths, its safer to fail fast on unrecognized `--*` options."
+        },
+        {
+          "path": "packages/naatm-hooks/scripts/fix-markdown-ascii.sh",
+          "line": 206,
+          "start_line": 179,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/203#discussion_r3609231685",
+          "summary": "The script documents exit code 2 for operational failures, but with `set -e` many failures (e.g., `git add`, `mktemp`, `cat`) will currently exit with their native status instead of 2. Add an `ERR` trap to normalize unexpected failures to 2, and call `run_fix` in an `if ! ...` context so the intended rc=1 (human needed) is preserved."
+        }
+      ]
+    },
+    {
+      "id": "tt203-195ba18",
+      "repo": "Nine-At-A-Time-Media/template-tools",
+      "pr": 203,
+      "base": "87a23438d148a4cf1f444571580784c364bccc7c",
+      "head": "195ba1809fff22ba1efc6516ea8be89d70ee4a77",
+      "accepted": [
+        {
+          "path": "packages/naatm-hooks/scripts/fix-markdown-ascii.sh",
+          "line": 196,
+          "start_line": 193,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/203#discussion_r3609244259",
+          "summary": "`--all` is silently ignored whenever any positional PATH arguments are provided, because `explicit[]` takes precedence in `run_fix()`. This can lead to accidentally fixing only a subset of files while the user believes they requested a repo-wide fix. Consider rejecting `--all` + PATH... as invalid usage (exit 2) to fail fast."
+        },
+        {
+          "path": "packages/naatm-hooks/scripts/fix-markdown-ascii.sh",
+          "line": 93,
+          "start_line": 91,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/203#discussion_r3609244264",
+          "summary": "The `staged_markdown_z` helpers comment claims it returns staged Markdown paths, but it actually returns *all* staged paths (Markdown filtering happens later via `is_markdown_path`). This can mislead future edits (e.g., someone might assume the downstream filter is redundant)."
+        },
+        {
+          "path": "packages/naatm-hooks/tests/markdown-fix-ascii.sh",
+          "line": 575,
+          "start_line": 557,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/203#discussion_r3609244269",
+          "summary": "With `set -e`, any scenario function that returns non-zero (e.g., via `assert_exit ... || return`) can terminate the entire suite early, which defeats the failure-accumulation + summary pattern used elsewhere in this repos hook tests (e.g., `tests/markdown-ascii-check.sh`). Running each scenario call as `... || true` keeps the suite executing and preserves the final aggregated report."
+        }
+      ]
+    },
+    {
+      "id": "tt351-ddeb8f8",
+      "repo": "Nine-At-A-Time-Media/template-tools",
+      "pr": 351,
+      "base": "fc96d71993488987cfc3ea7a64575a584d9d27f6",
+      "head": "ddeb8f821c0dc4be174e7f2f9c5f92714608b041",
+      "accepted": [
+        {
+          "path": "packages/ast-mcp/src/domain/outlineView.ts",
+          "line": 34,
+          "start_line": null,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/351#discussion_r3701439333",
+          "summary": "The JSDoc for `OutlineNodeView.content` is now inaccurate: `projectOutline` includes `content` in `compact` mode for headings, so `content` is not \"only when detail is `full`\". This can mislead API consumers and future maintainers."
+        },
+        {
+          "path": "packages/ast-mcp/src/ports/inbound/AstEditorService.ts",
+          "line": 18,
+          "start_line": 15,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/351#discussion_r3701439349",
+          "summary": "This docstring says compact \"omits node content\", but compact mode intentionally retains heading text to keep the outline navigable. The interface comment should match the actual behavior to avoid confusing callers."
+        }
+      ]
+    },
+    {
+      "id": "tt62-3200942",
+      "repo": "Nine-At-A-Time-Media/template-tools",
+      "pr": 62,
+      "base": "aff6c7159d365cfa11689bab92457ba5a8887089",
+      "head": "3200942a0f928aeeab8b088f328375c46f00c124",
+      "accepted": [
+        {
+          "path": "packages/naatm-hooks/husky/pre-push",
+          "line": 13,
+          "start_line": null,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/62#discussion_r3532178689",
+          "summary": "`git fetch` can prompt for credentials (or block waiting for input) when the users origin requires auth. In a pre-push hook that can effectively hang the push. Force non-interactive behavior so failures are fast and the hook remains best-effort."
+        },
+        {
+          "path": "packages/naatm-hooks/tests/pre-push-merged-branch-guard.sh",
+          "line": 60,
+          "start_line": 58,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/62#discussion_r3532178721",
+          "summary": "This comment is inaccurate: `run_hook` doesnt echo the exit code, and the output file is `hook_output.log` (not `output.log`). Updating this makes the test harness easier to understand/maintain."
+        }
+      ]
+    },
+    {
+      "id": "tt408-c96d312",
+      "repo": "Nine-At-A-Time-Media/template-tools",
+      "pr": 408,
+      "base": "aa623c4e96e72062ead553b2b51c45a54dd1f0b6",
+      "head": "c96d3128f9788f8d3919303d80766f5804a699d1",
+      "accepted": [
+        {
+          "path": "packages/naatm-deploy/cfwdeploy/lib/wrangler_config.sh",
+          "line": 170,
+          "start_line": 167,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/408#discussion_r3771911349",
+          "summary": "The TOML custom-domain check is too broad: it treats any `workers_dev =` (including `true`) as an error, and it scans the entire file so routes/workers_dev in a different env would incorrectly block URL construction for the targeted env. It should only refuse when the active scope (root or [env.<env>]) declares `route(s)` or `workers_dev = false`."
+        },
+        {
+          "path": "packages/naatm-deploy/cfwdeploy/lib/wrangler_config.sh",
+          "line": 160,
+          "start_line": 155,
+          "reviewer": "copilot",
+          "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/408#discussion_r3771911365",
+          "summary": "When CLOUDFLARE_ENV is set, this TOML path will happily synthesize \"<base>-<env>\" even if the config has no matching [env.<env>] section. Wrangler falls back to the top-level config in that case, so this would smoke-test a worker that was never deployed. Consider failing explicitly when the targeted env section is missing (matching the JSON/JSONC behavior)."
+        }
+      ]
+    }
+  ]
+}
