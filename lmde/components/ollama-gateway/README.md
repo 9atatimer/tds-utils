@@ -106,6 +106,10 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.tds.lmde.ollama-gate
 
 ## Install, operate, remove
 
+The runbook -- ship, verify, roll back, debug, gotchas, known gaps -- is
+[docs/ops/ollama-gateway.md](../../../docs/ops/ollama-gateway.md); the
+as-built is [docs/arch/ollama-gateway/](../../../docs/arch/ollama-gateway/ARCHITECTURE.md).
+
 - Install: `lmde install proxy-layer` and `lmde install ollama-gateway`
   (or each `setup.sh`), in either order.
 - Health: `lmde status` / `lmde doctor`, or `healthcheck.sh`. The Q8 drift

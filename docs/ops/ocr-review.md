@@ -5,6 +5,8 @@ in any repo of 9atatimer or Nine-At-A-Time-Media, with completions from the
 laptop's model through the Ollama Gateway.
 
 - Design: `docs/design/OCR-ON-DEMAND.DESIGN.md` (APPROVED; the authority).
+- As-built (what is deployed, every pin and timeout):
+  `docs/arch/ocr-review/ARCHITECTURE.md`.
 - Reusable workflow: `.github/workflows/ocr-review.yml`.
 - Caller template: `docs/ocr-review-caller.yml`.
 - Step commands: `bin/ocr-review`; decisions in `lib/ocr-review/`.
@@ -96,7 +98,11 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
   - this workflow's, one per run: the outcome and, on failure, the cause
     (`unexpected` also names the failing job and step); on success the
     reviewed-file counts, the action's post counts and every reviewable
-    file ocr did not review. `pr-not-open` posts none.
+    file ocr did not review. `pr-not-open` posts none. ocr never selects
+    Markdown, so every changed `.md` file is listed there, and a PR that
+    changes only Markdown fails `reviewed-nothing`; whether Markdown joins
+    the exclusion class is an open owner decision (`TODO_PLAN.md`,
+    Blockers).
   - upstream's own, sticky (updated in place each run): the findings that
     could not be anchored inline and each finding that failed to post.
     Ours links it whenever the action reports its URL.
@@ -193,8 +199,11 @@ Checked 2026-10-12 by reading `action.yml`,
   scope (design permissions), so a timeout reads `unexpected` with
   "(no step failed: job timeout or runner lost)".
 - **The probe and the review share 9 minutes** under the pool's 10-minute
-  container ceiling; a 6-minute cold load leaves about 3 for the review.
-  The pilot (task-051) measures it.
+  container ceiling. The probe starts no attempt after 6 minutes, but the
+  last one can run to the gateway's 90 s deadline, so a cold model that
+  never answers costs about 7.5 minutes. The pilot's green run took 65 s
+  for the whole review job, with the model's files in the laptop's OS
+  cache; a load from a cold OS cache is unmeasured (task-046).
 
 ---
 
