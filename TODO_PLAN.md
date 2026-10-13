@@ -50,19 +50,24 @@ under issue #342. Order:
 
 OCR on Demand + Ollama Gateway (`docs/design/OCR-ON-DEMAND.DESIGN.md`,
 `docs/design/OLLAMA-GATEWAY.DESIGN.md`, APPROVED 2026-10-02; open questions
-ruled 2026-10-12 on issue #363): `ocr` runs as a GitHub Action on the niners
-pool (GitHub-hosted for public repos), inference from the sandboxed ollama on
-the laptop through `ollama.api9.com`. Nothing is built. Order:
+ruled on Issue#363): shipped 2026-10-13. The gateway runs on the laptop
+behind `ollama.api9.com` (tds-internal's live smoketest: PASS 6/6); the
+reusable workflow is on `master` and piloted green on
+Nine-At-A-Time-Media/Spot-the-clone. As-built: `docs/arch/`; runbooks:
+`docs/ops/ollama-gateway.md`, `docs/ops/ocr-review.md`. The retrospective
+(2026-10-13) filed drift Issue#453, Issue#454, Issue#455 and the
+discovered Issue#456. Order:
 
-- task-047, task-048 -- the workflow's authorize and report jobs; need no
-  gateway, so they start now.
-- task-043, task-044 -- the sandboxed ollama and the LMDE proxy layer's
-  deadline route; laptop-only, parallel to the above.
-- task-045 -- the connector; blocked on the tds-internal `ollama-gateway`
-  root (human apply).
-- task-049, task-046 -- the review job, then gateway bring-up.
-- task-050, task-051 -- seeder and the two-repo pilot; task-052 and task-053
-  (stats, fleet rollout) follow.
+- Owner rulings on Issue#453 (`tools_ref`, which shapes the caller every
+  repo copies), Issue#454 and Issue#455 (a G4 rule), and the Markdown
+  decision under Blockers -- before task-053, so the fleet copies a ruled
+  caller.
+- task-053 -- fleet rollout; its first public adopter proves the
+  GitHub-hosted path and the G5 causes the pilot did not provoke.
+- task-046 -- the bring-up remainder (Q6, G5 through the edge, G1 from a
+  cold OS cache); the laptop and a human.
+- Issue#442 (the connector's Keychain read can prompt under launchd) and
+  Issue#456 (the component suites run in no CI job).
 
 `ls tasks/` is the index. This file is still the legacy mono-file below
 this section; issue #289 owns the migration into `tasks/`.
@@ -84,6 +89,18 @@ this section; issue #289 owns the migration into `tasks/`.
   (background-tab capture address policy -- Security), #416, #419-#425.
   Each closes with a Key Decisions row citing it. Unblock: Todd rules; the
   design stays APPROVED until then (IMPLEMENTED is Todd's call).
+- 2026-10-13: OCR on Demand and Markdown. `ocr` never selects Markdown
+  (the fleet radar row says it skips it; on the pilot all 30 unreviewed
+  reviewable files were `.md`), but G4's exclusion class does not exclude
+  it. So every summary lists each changed `.md` file as "reviewable files
+  ocr did not review", and a PR changing only Markdown would fail
+  `reviewed-nothing` (`lib/ocr-review/verdict.mjs`, `judgeReview`). This
+  is the design working as written, not drift. Unblock: Todd decides
+  whether Markdown joins the exclusion class (a Key Decisions row in
+  `OCR-ON-DEMAND.DESIGN.md`) or the listing stands.
+- 2026-10-13: `OLLAMA-GATEWAY.DESIGN.md` and `OCR-ON-DEMAND.DESIGN.md`
+  APPROVED -> IMPLEMENTED waits on drift Issue#453, Issue#454 and Issue#455, and task-046.
+  Only Todd moves them.
 
 ## Lessons Learned (unsettled)
 
@@ -187,6 +204,20 @@ pipeline's status is tail's. Two commits in this build landed with a red
 test for that reason and needed fix-ups. `set -o pipefail` first, or check
 `${PIPESTATUS[0]}`. Unsettled: this belongs in the global agent
 instructions (`about: global`) if it recurs across repos.
+
+### Fakes passed what the real dependency refused
+
+about: wip
+
+PR#440's offline suites (over 200 tests) were green when live bring-up
+and the pilot found five defects, each a real-environment behaviour no
+fake modelled: the Keychain partition list (Issue#441), ollama 0.40.3's lstat
+of the store's ancestors (Issue#443), ollama's loopback-`Host` guard
+(Issue#444), a runner image without `gpg` (Issue#446), and a write racing
+a child closing its stdin (Issue#449). Each now has a test. Unsettled:
+whether the testing skill should require a smoke against the real
+dependency per adapter before merge, or this is the normal cost of
+bring-up.
 
 ### YAML front-matter turns `off` and `true` into booleans
 
@@ -426,7 +457,7 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 - [x] Task LMDE9: **Collector pipelines.** Logs -> Loki (`otlp_http/loki`), traces -> Tempo (`otlp_grpc/tempo`) and the `sum` connector.
 - [ ] Task LMDE10: **Grafana data sources + bootstrap + verify.** Data sources, `setup.sh`, and `test/smoketest_lmde_observability/03_verify_logs_traces.sh` are built; the pipeline and data sources were verified end to end against the real images in docker (a kind cluster cannot boot in a cloud sandbox). Done when Todd runs `setup.sh` and the three smoke tests pass on the laptop.
   - Note: local agent logs stay inert until clai sets `OTEL_LOGS_EXPORTER=otlp` (in `ai-tools`, not this repo) -- coordinate before declaring LMDE10 done.
-- [ ] Task LMDE19: **Cloud ingest edge.** The tunnel, DNS, Access app and per-component service tokens for write-only OTLP (`docs/design/LMDE.DESIGN.md` section 3.4); the edge record is tds-internal `docs/design/DESIGN.otel-ingest-infra.md` (REVIEW). Then: terraform in tds-internal (human applies), `cloudflared` radar row + LaunchAgent here, an OTLP route on the LMDE proxy layer (blocked until the layer exists; `OLLAMA-GATEWAY.DESIGN.md`), Worker export config in each consumer. Issue #380.
+- [ ] Task LMDE19: **Cloud ingest edge.** The tunnel, DNS, Access app and per-component service tokens for write-only OTLP (`docs/design/LMDE.DESIGN.md` section 3.4); the edge record is tds-internal `docs/design/DESIGN.otel-ingest-infra.md` (REVIEW). Then: terraform in tds-internal (human applies), `cloudflared` radar row + LaunchAgent here, an OTLP route on the LMDE proxy layer (the layer shipped 2026-10-13: `lmde/components/proxy-layer/`, `docs/arch/proxy-layer/`), Worker export config in each consumer. Issue #380.
 - [ ] Task LMDE20: **Release skill catches up.** After LMDE10 and LMDE19, the Skills repo's `skills/release/SKILL.md` Debuggability section drops "LMDE has no log or trace backend yet" and points cloud exporters at the ingest edge. Not before: a Skills merge is a fleet release.
 - [ ] Task LMDE11: **Stack-health Grafana dashboard.** Add a Grafana dashboard monitoring the obs stack itself -- CPU, memory, storage, restarts/errors per component (prometheus, grafana, otel-collector, loki, ingress-nginx). Dashboard JSON + ConfigMap; no new infra; can land before LMDE7-10.
 - [ ] Task LMDE12: **NATS-in-kind: design.** Drafted in `docs/design/LMDE.DESIGN.md` section 5 (Backplane) -- move the LMDE backplane (starting with NATS, then audit each other Adopted component against the residency rule in `lmde/LMDE.md`) into the kind cluster behind LMDE5's ingress-nginx + `*.lmde.localhost`, so kind-sandboxed coding agents reach the same bus as Mac-local agents. Decide: NATS server in-cluster vs. exposing host NATS via ingress; auth model (anonymous loopback today vs. per-agent creds); how `gadmin` and other clients resolve the bus address from inside vs. outside the cluster; which components actually need to move (Caddy/dnsmasq/registry sit at the edge or feed kind and may stay out). Update the `lmde/LMDE.md` Contract once the design lands.
