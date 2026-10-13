@@ -5,7 +5,8 @@
 # is observed as a sandbox denial: writes under /private/tmp and the
 # Homebrew prefix, a listing of the user's TMPDIR, launchd and
 # LaunchServices, a connect to the route's port and to a non-loopback
-# address -- while the gateway home stays writable (Issue#460).
+# address, a listing of /usr/local -- while the gateway home stays
+# writable (Issue#460; the /usr/local row from Codex's review of PR#462).
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
@@ -23,6 +24,7 @@ ${out}"
     assert_contains "${out}" "ok tmp-write-denied" "writes under /private/tmp"
     assert_contains "${out}" "ok homebrew-write-denied" "writes under the Homebrew prefix"
     assert_contains "${out}" "ok user-tmpdir-unreadable" "the user's TMPDIR tree"
+    assert_contains "${out}" "ok usr-local-unreadable" "/usr/local, user-managed on Intel Homebrew Macs (Codex P1)"
     assert_contains "${out}" "ok launchd-unreachable" "launchd"
     assert_contains "${out}" "ok launchservices-unreachable" "LaunchServices"
     assert_contains "${out}" "ok loopback-route-denied" "no outbound to the route's port"

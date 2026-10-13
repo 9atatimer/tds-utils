@@ -80,6 +80,11 @@
 (allow file-read* (literal "/"))
 (allow file-read* (subpath "/System"))
 (allow file-read* (subpath "/usr"))
+;; /usr/local is not OS-owned: Intel Homebrew and hand-installed software
+;; live there, with their etc/ and whatever credentials those hold, so it
+;; is taken back here. The keg allows below come later and so still win
+;; for a keg that lives under /usr/local (Codex review of PR#462, P1).
+(deny file-read* file-map-executable (subpath "/usr/local"))
 (allow file-read* (subpath "/bin"))
 (allow file-read* (subpath "/sbin"))
 (allow file-read* (subpath "/private/preboot"))
@@ -114,6 +119,7 @@
 (allow file-read-metadata (literal "/Users"))
 (allow file-map-executable (subpath "/System"))
 (allow file-map-executable (subpath "/usr"))
+(deny file-map-executable (subpath "/usr/local"))
 (allow file-map-executable (subpath "/private/preboot"))
 (allow file-map-executable (subpath "/Library/Frameworks"))
 (allow file-map-executable (subpath "/Library/Developer/CommandLineTools"))
@@ -191,3 +197,4 @@
 ;; Q7: the store is read-only, stated explicitly so it holds even for a
 ;; store that lives outside $HOME.
 (deny file-write* (subpath (param "MODEL_STORE")))
+

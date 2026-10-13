@@ -33,6 +33,7 @@ gateway-home-writable	allow	allow	write	$GATEWAY_HOME
 tmp-write-denied	deny	allow	write	/private/tmp
 homebrew-write-denied	deny	permit	write	/opt/homebrew/bin
 user-tmpdir-unreadable	deny	allow	list	$USER_TMPDIR
+usr-local-unreadable	deny	permit	list	/usr/local
 keychain-framework-denied	deny	allow	keychain-framework	$KEYCHAIN_SERVICE
 keychain-cli-denied	deny	allow	keychain-cli	$KEYCHAIN_SERVICE
 launchd-unreachable	deny	permit	exec	/bin/launchctl print gui/$UID

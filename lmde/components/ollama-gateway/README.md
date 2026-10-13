@@ -62,9 +62,9 @@ everyday ollama on 127.0.0.1:11434 -- untouched, denied to the sandbox
   q8_0 KV cache like the everyday instance, and a scrubbed environment.
 - The sandbox denies by default. Readable: the OS's own trees (`/System`,
   `/usr`, the cryptex, `/private/etc`, a few `/Library` and `/private/var/db`
-  subtrees), the Homebrew kegs the engine links against (its own, `mlx`,
-  `mlx-c`), the gateway tree and the store; writable: the gateway `home/`
-  only. Nothing else under `$HOME`, nothing under `/private/tmp`, the
+  subtrees, never `/usr/local`), the Homebrew kegs the engine links against
+  (its own, `mlx`, `mlx-c`), the gateway tree and the store; writable: the
+  gateway `home/` only. Nothing else under `$HOME`, nothing under `/private/tmp`, the
   user's TMPDIR tree or the rest of the Homebrew prefix. Executable: the
   engine's keg and the system's own binaries, with `/usr/bin/security`,
   `/bin/launchctl` and `/usr/bin/open` denied outright, and the keychain,
