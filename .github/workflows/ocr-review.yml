@@ -22,7 +22,11 @@
 #              or approve. The review job needs its approval, so the job
 #              that loads credentials never starts for an unauthorized
 #              trigger (G2).
-#   review     the only job that references the secret. Resolves the
+#   review     the only job that references the secret. Checks the
+#              runner's host tools first (git; the 1Password CLI is used
+#              from the runner when it has one, installed otherwise, which
+#              needs gpg and unzip; a missing one is runner-tool-missing,
+#              tds-utils#446). Resolves the
 #              gateway credential from 1Password (each value masked the
 #              moment it is read), probes the gateway (G5), runs the
 #              upstream action pinned by SHA with an exact ocr version,
@@ -149,6 +153,9 @@ jobs:
       tools: ${{ steps.tools.outcome }}
       node: ${{ steps.node.outcome }}
       stage: ${{ steps.stage.outcome }}
+      hosttools: ${{ steps.hosttools.outcome }}
+      hosttools_cause: ${{ steps.hosttools.outputs.cause }}
+      hosttools_detail: ${{ steps.hosttools.outputs.detail }}
       opcli: ${{ steps.opcli.outcome }}
       creds: ${{ steps.creds.outcome }}
       creds_cause: ${{ steps.creds.outputs.cause }}
@@ -195,8 +202,19 @@ jobs:
         id: stage
         run: cp -R .ocr-review-tools "$RUNNER_TEMP/ocr-review-tools"
 
+      # Before any credential: which of git, unzip, gpg and op the runner
+      # has. The cf-pool image bakes in a verified op, so it is used as is
+      # and nothing is downloaded at run time; a GitHub-hosted runner has
+      # none, so the pinned action installs it, which needs gpg and unzip.
+      # A tool the chosen path needs that is absent fails the run
+      # runner-tool-missing, naming it (tds-utils#446).
+      - name: Check the host tools
+        id: hosttools
+        run: node "$RUNNER_TEMP/ocr-review-tools/bin/ocr-review" host-tools
+
       - name: Install the 1Password CLI
         id: opcli
+        if: steps.hosttools.outputs.install_op == 'true'
         uses: 1password/install-cli-action@1a3160d5e9de1ae0803eaa08a88746f5ae3daa50 # v4.1.0
         with:
           version: 2.40.0

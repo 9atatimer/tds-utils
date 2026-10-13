@@ -56,6 +56,7 @@ export const REVIEW_STEPS = Object.freeze([
   { key: 'tools', name: 'Fetch the tools' },
   { key: 'node', name: 'Set up Node' },
   { key: 'stage', name: 'Stage the tools' },
+  { key: 'hosttools', name: 'Check the host tools', cause: 'hosttools_cause', detail: 'hosttools_detail' },
   { key: 'opcli', name: 'Install the 1Password CLI' },
   { key: 'creds', name: 'Credentials', cause: 'creds_cause', detail: 'creds_detail' },
   { key: 'probe', name: 'Probe', cause: 'probe_cause', detail: 'probe_detail' },
