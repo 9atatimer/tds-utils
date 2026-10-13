@@ -1,0 +1,135 @@
+#!/bin/zsh
+# launch-comfyui -- start the ComfyUI server headless with a unified-memory
+# cap, for launchd (macos/launchd/com.tds.comfyui.plist) or by hand.
+#
+# Why this exists (tds-utils#338): on Apple Silicon "VRAM" is unified
+# memory. PyTorch's MPS allocator ships with
+# PYTORCH_MPS_HIGH_WATERMARK_RATIO=1.7, i.e. it will allocate 170% of
+# Metal's recommended working set before refusing -- past physical RAM on
+# every Mac. Nothing outside the process can cap it (no Metal in Linux
+# containers, no quotas in seatbelt, rlimits ignore wired GPU memory), so
+# the cap is set here, in-process, from ONE knob:
+#
+#   COMFYUI_BUDGET_GB   GB of unified memory ComfyUI's GPU side may take.
+#                       Default 48. Everything else is derived from it:
+#     PYTORCH_MPS_HIGH_WATERMARK_RATIO = budget / torch.mps.recommended_max_memory()
+#     PYTORCH_MPS_LOW_WATERMARK_RATIO  = high - 0.10
+#     --reserve-vram                    = total RAM - budget
+#
+# so ComfyUI's planner and torch's allocator agree on the same ceiling and
+# a runaway workflow dies with a torch OOM instead of taking the machine.
+#
+# Other knobs, all optional:
+#   COMFYUI_SRC                 ComfyUI source checkout (has main.py)
+#   COMFYUI_BASE                base dir: .venv, models, custom_nodes, user
+#   COMFYUI_PORT                default 8188 (Comfy Desktop uses 8000)
+#   COMFYUI_CACHE_LRU           node output cache size, default 2
+#   COMFYUI_RECOMMENDED_MAX_GB  skip the torch query (tests; or pin it)
+#   COMFYUI_LOG                 log file when not on a tty
+#
+# --dry-run prints the derived numbers, env, and argv one per line and
+# exits without launching. That is the test seam
+# (test/smoketest_comfyui_launchd.sh).
+#
+# zsh, not bash: macOS-only by nature (MPS, launchd), per AGENTS.md.
+
+set -euo pipefail
+
+die() { print -u2 -- "launch-comfyui: $*"; exit 1; }
+
+DRY_RUN=0
+for arg in "$@"; do
+    case "${arg}" in
+        --dry-run) DRY_RUN=1 ;;
+        -h|--help) sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) die "unknown argument: ${arg}" ;;
+    esac
+done
+
+# --- Inputs ---
+
+COMFYUI_SRC="${COMFYUI_SRC:-${HOME}/ComfyUI-Installs/ComfyUI/ComfyUI}"
+COMFYUI_BASE="${COMFYUI_BASE:-${HOME}/workplace/OSS/comfyui}"
+COMFYUI_PORT="${COMFYUI_PORT:-8188}"
+COMFYUI_BUDGET_GB="${COMFYUI_BUDGET_GB:-48}"
+COMFYUI_CACHE_LRU="${COMFYUI_CACHE_LRU:-2}"
+COMFYUI_LOG="${COMFYUI_LOG:-${HOME}/Library/Logs/comfyui-launchd/comfyui.log}"
+
+PYTHON="${COMFYUI_BASE}/.venv/bin/python"
+MAIN="${COMFYUI_SRC}/main.py"
+
+# --- Preflight: fail fast, name the reason ---
+
+[[ -x "${PYTHON}" ]] || die "venv python not found or not executable: ${PYTHON}"
+[[ -f "${MAIN}" ]]   || die "ComfyUI main.py not found: ${MAIN}"
+[[ "${COMFYUI_PORT}" == <1-65535> ]] || die "COMFYUI_PORT must be 1-65535, got: ${COMFYUI_PORT}"
+[[ "${COMFYUI_CACHE_LRU}" == <0-> ]] || die "COMFYUI_CACHE_LRU must be a non-negative integer, got: ${COMFYUI_CACHE_LRU}"
+
+TOTAL_GB=$(( $(sysctl -n hw.memsize) / 1073741824 ))
+[[ "${COMFYUI_BUDGET_GB}" == <1-> ]] \
+    || die "COMFYUI_BUDGET_GB must be a positive integer, got: ${COMFYUI_BUDGET_GB}"
+(( COMFYUI_BUDGET_GB < TOTAL_GB )) \
+    || die "COMFYUI_BUDGET_GB=${COMFYUI_BUDGET_GB} must be below total RAM (${TOTAL_GB} GB); that is the torch default that took the machine down"
+
+if lsof -nP -iTCP:"${COMFYUI_PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
+    die "port ${COMFYUI_PORT} is already bound (Comfy Desktop still running?); refusing to fight it"
+fi
+
+# Metal's recommended working set, from torch, unless pinned by env.
+if [[ -n "${COMFYUI_RECOMMENDED_MAX_GB:-}" ]]; then
+    RECOMMENDED_MAX_GB="${COMFYUI_RECOMMENDED_MAX_GB}"
+else
+    RECOMMENDED_MAX_GB="$("${PYTHON}" -c \
+        'import torch; print(torch.mps.recommended_max_memory() / 2**30)' 2>/dev/null)" \
+        || die "could not read torch.mps.recommended_max_memory() from ${PYTHON}; set COMFYUI_RECOMMENDED_MAX_GB to pin it"
+fi
+[[ "${RECOMMENDED_MAX_GB}" == <1->(.<->|) ]] \
+    || die "recommended max is not a positive number: ${RECOMMENDED_MAX_GB}"
+
+# --- Derive the caps ---
+
+HIGH_WATERMARK="$(printf '%.2f' $(( 1.0 * COMFYUI_BUDGET_GB / RECOMMENDED_MAX_GB )))"
+LOW_WATERMARK="$(printf '%.2f' $(( HIGH_WATERMARK - 0.10 )))"
+(( LOW_WATERMARK > 0 )) || LOW_WATERMARK="0.01"
+RESERVE_GB=$(( TOTAL_GB - COMFYUI_BUDGET_GB ))
+
+typeset -a ARGV
+ARGV=(
+    "${PYTHON}"
+    "${MAIN}"
+    --base-directory "${COMFYUI_BASE}"
+    --user-directory "${COMFYUI_BASE}/user"
+    --listen 127.0.0.1
+    --port "${COMFYUI_PORT}"
+    --reserve-vram "${RESERVE_GB}"
+    --cache-lru "${COMFYUI_CACHE_LRU}"
+    --log-stdout
+)
+
+# --- Dry run: the test seam ---
+
+if (( DRY_RUN )); then
+    print -- "total_gb=${TOTAL_GB}"
+    print -- "recommended_max_gb=${RECOMMENDED_MAX_GB}"
+    print -- "budget_gb=${COMFYUI_BUDGET_GB}"
+    print -- "reserve_gb=${RESERVE_GB}"
+    print -- "env PYTORCH_MPS_HIGH_WATERMARK_RATIO=${HIGH_WATERMARK}"
+    print -- "env PYTORCH_MPS_LOW_WATERMARK_RATIO=${LOW_WATERMARK}"
+    for a in "${ARGV[@]}"; do print -- "argv ${a}"; done
+    exit 0
+fi
+
+# --- Launch ---
+
+export PYTORCH_MPS_HIGH_WATERMARK_RATIO="${HIGH_WATERMARK}"
+export PYTORCH_MPS_LOW_WATERMARK_RATIO="${LOW_WATERMARK}"
+
+# Under launchd there is no tty; own the log path here rather than in the
+# plist (launchd will not expand ~ and will not create the directory).
+if [[ ! -t 1 ]]; then
+    mkdir -p "${COMFYUI_LOG:h}"
+    exec >>"${COMFYUI_LOG}" 2>&1
+fi
+
+print -- "launch-comfyui: budget ${COMFYUI_BUDGET_GB} GB of ${TOTAL_GB} (recommended max ${RECOMMENDED_MAX_GB}); watermark ${HIGH_WATERMARK}/${LOW_WATERMARK}; reserve ${RESERVE_GB} GB; port ${COMFYUI_PORT}"
+exec "${ARGV[@]}"

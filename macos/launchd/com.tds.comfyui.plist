@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.tds.comfyui</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-c</string>
+    <!-- Bare command name: .zshenv is sourced unconditionally (login or
+         not, interactive or not), so tds_path_apply's tiered tds_bin PATH
+         entry (~/.tds/dist/current -> ~/.tds/release -> the dev checkout)
+         is in effect before this resolves. A hardcoded checkout path here
+         would bypass a real dist/release install, or fail to start at all
+         on a machine with no dev checkout. -->
+    <string>exec launch-comfyui</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+    <!-- COMFYUI_BUDGET_GB and friends are read by launch-comfyui; set them
+         here to pin a machine-specific value. Defaults live in the script. -->
+  </dict>
+
+  <!-- On demand, not at login: an idle ComfyUI still holds a couple of GB.
+       Start:  launchctl kickstart -k gui/$UID/com.tds.comfyui
+       Stop:   launchctl stop gui/$UID/com.tds.comfyui -->
+  <key>RunAtLoad</key>
+  <false/>
+
+  <!-- A torch OOM aborts the process; bring back an empty server, but
+       never hot-loop on a workflow that OOMs at startup. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>Crashed</key>
+    <true/>
+  </dict>
+
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <!-- Background, deliberately unlike the sibling monitors: CPU, disk and
+       network yield to the foreground UI while a generation runs. GPU is
+       not schedulable this way; the memory cap in launch-comfyui is what
+       keeps the machine alive. -->
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <!-- No StandardOutPath/StandardErrorPath: launchd will not expand ~ nor
+       create a directory, so launch-comfyui owns the log
+       (~/Library/Logs/comfyui-launchd/comfyui.log) when it has no tty. -->
+</dict>
+</plist>
