@@ -110,13 +110,13 @@ install_tree() {
 install_canaries() {
     mkdir -p "${CANARY_DIR}"
     print -r -- "${CANARY_VALUE}" > "${CANARY_DIR}/canary"
-    # -A: any application may read the canary without a dialog, so the
-    # probe's framework check (Keychain UI off) can read it unconfined and
-    # a sandbox hole cannot hide behind a dialog. Recreated on every
-    # install rather than kept: an item left by an earlier install may
-    # admit only /usr/bin/security, and the probe would then fail until
-    # it is replaced (Issue#441). Deleted and re-added, never modified in
-    # place -- changing an existing item's access list prompts the user.
+    # The probe finds this item by its attributes and never reads its
+    # value, so its access list and partition list do not decide whether
+    # the probe passes (Issue#441). -A only states that the value is not
+    # a secret. Recreated on every install rather than kept, so every
+    # install leaves one item in a known shape. Deleted and re-added,
+    # never modified in place -- changing an existing item's access list
+    # prompts the user.
     integer stale=0
     while security delete-generic-password -s "${CANARY_SERVICE}" "${KEYCHAIN_ARG[@]}" >/dev/null 2>&1 \
         && (( ++stale < 10 )); do

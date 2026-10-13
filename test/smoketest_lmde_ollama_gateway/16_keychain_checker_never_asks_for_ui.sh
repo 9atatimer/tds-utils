@@ -2,11 +2,12 @@
 # 16_keychain_checker_never_asks_for_ui.sh
 # Given the probe's Security framework checker (keychain-probe.py), When it
 # looks up a keychain item, Then it has switched the Security framework's
-# user interaction off first, so a lookup that would need a Keychain dialog
-# (a locked keychain, an access list that does not admit the checker) is
-# refused with a status instead of prompting -- and it says so, read back
-# from the framework, on every answer (tds-utils Issue#441; G7: no start
-# needs a human). The canary still reads, and a missing item still fails.
+# user interaction off first, so a lookup that would still need a Keychain
+# dialog is refused with a status instead of prompting -- and it says so,
+# read back from the framework, on every answer (tds-utils Issue#441; G7:
+# no start needs a human). The canary is still found, and a missing item
+# still fails. (Its lookups are attribute-only and need no dialog in the
+# first place: scenario 19.)
 #
 # Never constructs a lookup that would prompt: the fixture's canary admits
 # any application, so a broken switch cannot raise a dialog here either.

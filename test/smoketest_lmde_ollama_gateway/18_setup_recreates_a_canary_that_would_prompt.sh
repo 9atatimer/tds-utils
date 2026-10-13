@@ -5,8 +5,9 @@
 # run from /usr/bin/python3, could read it only through a Keychain dialog),
 # When setup.sh installs, Then it replaces the canary with one any
 # application may read without a dialog -- one item, same service, the
-# non-secret value -- so re-running setup.sh is the fix the probe names
-# (tds-utils Issue#441).
+# non-secret value -- so every install leaves one canary in a known shape
+# (tds-utils Issue#441). The probe no longer depends on that shape: it
+# finds the canary by attributes and never reads it (scenario 19).
 #
 # Asserted from the item's access list (security dump-keychain -a, which
 # reads no secret), never by reading the stale item from python: that read

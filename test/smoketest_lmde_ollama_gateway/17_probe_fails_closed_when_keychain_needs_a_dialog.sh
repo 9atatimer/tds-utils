@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # 17_probe_fails_closed_when_keychain_needs_a_dialog.sh
-# Given a keychain the framework checker can read only through a dialog (it
-# answers errSecInteractionNotAllowed, exit 3: a locked keychain, or a
-# canary whose access list does not admit the checker), When the probe runs
+# Given a keychain the framework checker could reach only through a dialog
+# (it answers errSecInteractionNotAllowed, exit 3 -- its lookups are
+# attribute-only and should never meet one, so this is the fail-closed
+# backstop, not an expected state), When the probe runs
 # in either mode, Then it fails closed without ever asking: the check names
 # the dialog and the fix (re-run setup.sh, or unlock the keychain), and
 # /usr/bin/security -- which cannot switch Keychain UI off -- is not

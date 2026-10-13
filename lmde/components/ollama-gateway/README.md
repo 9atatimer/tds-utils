@@ -54,16 +54,21 @@ everyday ollama on 127.0.0.1:11434 -- untouched, denied to the sandbox
 - The probe, before every start: unconfined, both canaries must be
   reachable; confined, each of these must be a sandbox denial (EPERM):
   reading the file canary `~/.local/state/ollama-gateway-probe/canary`,
-  retrieving the keychain canary `lmde.ollama-gateway.probe-canary`
+  finding the keychain canary `lmde.ollama-gateway.probe-canary`
   through `/usr/bin/security` and through the Security framework,
   connecting to 11434, writing the store, writing the installed launchers.
   Both canaries hold the literal `not-a-secret`.
-- The probe never raises a Keychain dialog (Issue#441): the Security
-  framework check runs with Keychain UI switched off, and
-  `/usr/bin/security`, which has no such switch, is tried only after that
-  check proved the canary readable without one. A canary readable only
-  through a dialog (keychain locked, or an access list that does not
-  admit any application) fails the control pass naming the fix.
+- The probe never reads the keychain canary's secret (Issue#441): both
+  means look the item up by its attributes only (`/usr/bin/security
+  find-generic-password -s`, no `-w`), which evaluates neither its access
+  list nor its partition list, so it needs no authorization. Confined,
+  the item cannot even be found, so the run token beside it cannot be
+  read (G4).
+- The probe never raises a Keychain dialog: the Security framework check
+  runs with Keychain UI switched off, and `/usr/bin/security`, which has
+  no such switch, is tried only after that check found the canary
+  without one. A lookup refused for want of a dialog fails the control
+  pass naming the fix.
 - A failed probe: the launcher logs the failed checks and exits 78;
   launchd retries every 30 s; the gateway is DEGRADED until it passes.
 
