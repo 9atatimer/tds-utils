@@ -182,6 +182,14 @@ test('the deadline answer is the one retryable answer', () => {
   assert.equal(c.kind, 'retry');
 });
 
+test('the deadline answer is the proxy\'s 507 Model Not Ready; ollama down is its 503', () => {
+  // lmde proxy layer, routes/ollama-gateway.cfg and ollama-gateway.deadline.http.
+  assert.equal(GATEWAY_STATUS.deadline, 507);
+  assert.equal(GATEWAY_STATUS.ollamaDown, 503);
+  assert.equal(classifyProbeAnswer({ status: 507 }).kind, 'retry');
+  assert.equal(classifyProbeAnswer({ status: 504 }).cause, 'unexpected');
+});
+
 test('the deadline status is distinct from every other documented status', () => {
   const others = [GATEWAY_STATUS.tunnelDown, GATEWAY_STATUS.proxyDown, GATEWAY_STATUS.ollamaDown];
   assert.ok(!others.includes(GATEWAY_STATUS.deadline));
