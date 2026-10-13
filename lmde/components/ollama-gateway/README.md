@@ -41,7 +41,9 @@ everyday ollama on 127.0.0.1:11434 -- untouched, denied to the sandbox
   and iterates until the workload passes with an empty trace.
 - `libexec/launch-ollama.zsh` -- runs the probe before every start, then
   `ollama serve` under the profile; refuses (exit 78) rather than start
-  unconfined.
+  unconfined. `--probe-only` runs the two probe passes with the same
+  parameters, prints their rows and exits 0 or 78 without starting ollama
+  (what the tds-internal G6 smoketest calls on a live laptop).
 - `libexec/launch-connector.zsh`, `connector/config.yml` -- cloudflared
   with the run token from the login Keychain.
 - `route/` -- the gateway's route for the LMDE proxy layer: the deadline
@@ -147,6 +149,9 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.tds.lmde.ollama-gate
 - Not covered by the deadline: a NON-streaming completion whose generation
   takes longer than the deadline also gets 507, and so would every retry.
   Stream (`"stream": true`) for long generations.
+
+Operating it (install, release, re-deriving the allow-list, diagnosis):
+`docs/ops/ollama-gateway.md`.
 
 ## Install, operate, remove
 
