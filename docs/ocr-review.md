@@ -44,14 +44,26 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
 
 - `status` is read-only: per consumer, the pin and its state, the secret,
   the three variables and the last run. Exit 0 ready, 1 not ready, 2
-  could not tell.
+  could not tell. On Nine-At-A-Time-Media an org secret or variable counts
+  for a repo only when its visibility reaches it: `all` reaches every repo,
+  `private` only private and internal repos (never a public one), and
+  `selected` the repos it lists.
 - `seed` needs 1Password unlocked. It pipes the service-account token from
   `op read` into `gh secret set`, never as an argument, and sets
   `OLLAMA_GATEWAY_OP_ITEM`, `OLLAMA_GATEWAY_URL`
   (the gateway base URL from tds-internal's credential registry, passed with `-u`) and `OLLAMA_GATEWAY_MODEL`
   (`qwen3.6:latest`). On 9atatimer (no org tier) it writes each consumer
-  repo; on Nine-At-A-Time-Media it writes org secrets and variables whose
-  repo selection it widens, never narrows.
+  repo. On Nine-At-A-Time-Media it writes org secrets and variables and
+  never narrows or changes the visibility each already has: `all` stays
+  `all`; `selected` keeps every repo it selects (every page) and adds the
+  consumers; `private` stays `private`. One that does not exist yet is
+  created `selected` for the consumers.
+- A `private` org secret or variable never reaches a public repo, so when a
+  consumer is public `seed` refuses (exit 2), naming the public repos and
+  the secret or variable, before reading the token or writing anything.
+  Change that one's visibility to `all`, or to `selected` repositories
+  that include them, in the org's Actions settings, then re-run; or name
+  only private repos on the command line.
 - Re-run `seed` after a new adopter and after a rotation.
 
 ## Trigger a review

@@ -12,9 +12,12 @@
 #     OLLAMA_GATEWAY_URL and OLLAMA_GATEWAY_MODEL.
 #
 # On an organization (Nine-At-A-Time-Media) they are set once at org scope,
-# visible to the selected consumer repos -- an existing selection is kept,
-# never narrowed. On a user account (9atatimer), which has no org tier, they
-# are set on each consumer repo.
+# and each keeps the visibility it already has: `all` stays all, `selected`
+# keeps every repo it selects and adds the consumers, `private` stays private
+# -- and seed refuses, writing nothing, when a consumer is public, since a
+# private-visibility org secret never reaches a public repo. One that does
+# not exist yet is created `selected` for the consumers. On a user account
+# (9atatimer), which has no org tier, they are set on each consumer repo.
 #
 # `status` lists every repo of the owner that carries the caller (found by
 # listing the owner's repos, never by code search -- tds-utils#348): the
@@ -129,28 +132,64 @@ pin_state() {
     if [ "${changed:-0}" -gt 0 ]; then echo stale; else echo current; fi
 }
 
-# Repos an org secret or variable is visible to, one per line, read across
-# every page (GitHub serves 30 a page by default; a truncated list would
-# revoke the rest when seed writes it back); empty when it does not exist
-# (404); "@all" when its visibility is not "selected" (GitHub answers 409);
-# fails on anything else.
+# The visibility of an org secret or variable: all | private | selected, or
+# absent on a 404; fails on anything else.
+org_visibility() {
+    local owner="$1" kind="$2" name="$3" out
+    out=$(gh api "orgs/${owner}/actions/${kind}/${name}" --jq .visibility 2>&1) || {
+        case "${out}" in
+            *"HTTP 404"*) echo absent; return 0 ;;
+            *) printf '%s\n' "${out}" >&2; return 1 ;;
+        esac
+    }
+    case "${out}" in
+        all|private|selected) printf '%s\n' "${out}" ;;
+        *) echo "seed-ocr-review: org ${kind%s} ${name} has unknown visibility '${out}'" >&2; return 1 ;;
+    esac
+}
+
+# Repos a selected-visibility org secret or variable is visible to, one per
+# line, read across every page (GitHub serves 30 a page by default; a
+# truncated list would revoke the rest when seed writes it back). Fails on
+# any error: it is only asked once the visibility is known to be selected.
 org_selection() {
     local owner="$1" kind="$2" name="$3" out
     out=$(gh api "orgs/${owner}/actions/${kind}/${name}/repositories?per_page=100" --paginate \
         --jq '.repositories[].full_name' 2>&1) || {
-        case "${out}" in
-            *"HTTP 404"*) return 0 ;;
-            *"HTTP 409"*) echo "@all"; return 0 ;;
-            *) printf '%s\n' "${out}" >&2; return 1 ;;
-        esac
+        printf '%s\n' "${out}" >&2
+        return 1
     }
     printf '%s\n' "${out}" | sed '/^$/d'
 }
 
+# public | private | internal.
+repo_visibility() {
+    gh api "repos/$1" --jq .visibility
+}
+
+# Whether an org secret or variable reaches REPO: 0 it does, 1 it does not,
+# 2 a lookup failed. GitHub's `private` visibility reaches private and
+# internal repos only.
+org_reaches() {
+    local owner="$1" kind="$2" name="$3" repo="$4" vis selection
+    vis=$(org_visibility "${owner}" "${kind}" "${name}") || return 2
+    case "${vis}" in
+        all) return 0 ;;
+        absent) return 1 ;;
+        private)
+            vis=$(repo_visibility "${repo}") || return 2
+            [ "${vis}" != public ] ;;
+        selected)
+            selection=$(org_selection "${owner}" "${kind}" "${name}") || return 2
+            grep -qxF -- "${repo}" <<< "${selection}" ;;
+    esac
+}
+
 # The secret on REPO: its updated_at for a repo secret, "org" for an org
-# secret that selects it, "-" when absent, "error" when a lookup failed.
+# secret whose visibility reaches it, "-" when absent, "error" when a lookup
+# failed.
 secret_state() {
-    local repo="$1" owner="$2" is_org="$3" out selection
+    local repo="$1" owner="$2" is_org="$3" out rc
     if out=$(gh api "repos/${repo}/actions/secrets/${SECRET}" --jq .updated_at 2>&1); then
         printf '%s\n' "${out}"; return 0
     fi
@@ -159,8 +198,11 @@ secret_state() {
         *) printf '%s\n' "${out}" >&2; echo error; return 0 ;;
     esac
     if [ "${is_org}" = 1 ]; then
-        selection=$(org_selection "${owner}" secrets "${SECRET}") || { echo error; return 0; }
-        if printf '%s\n' "${selection}" | grep -qx -e "${repo}" -e '@all'; then echo org; return 0; fi
+        rc=0; org_reaches "${owner}" secrets "${SECRET}" "${repo}" || rc=$?
+        case "${rc}" in
+            0) echo org; return 0 ;;
+            2) echo error; return 0 ;;
+        esac
     fi
     echo "-"
 }
@@ -168,7 +210,7 @@ secret_state() {
 # How many of the three variables reach REPO, as "N/3"; "error" when a
 # lookup failed.
 variables_state() {
-    local repo="$1" owner="$2" is_org="$3" name out selection count=0
+    local repo="$1" owner="$2" is_org="$3" name out rc count=0
     for name in ${VARIABLES}; do
         if out=$(gh api "repos/${repo}/actions/variables/${name}" --jq .value 2>&1); then
             count=$((count + 1)); continue
@@ -178,8 +220,11 @@ variables_state() {
             *) printf '%s\n' "${out}" >&2; echo error; return 0 ;;
         esac
         if [ "${is_org}" = 1 ]; then
-            selection=$(org_selection "${owner}" variables "${name}") || { echo error; return 0; }
-            if printf '%s\n' "${selection}" | grep -qx -e "${repo}" -e '@all'; then count=$((count + 1)); fi
+            rc=0; org_reaches "${owner}" variables "${name}" "${repo}" || rc=$?
+            case "${rc}" in
+                0) count=$((count + 1)) ;;
+                2) echo error; return 0 ;;
+            esac
         fi
     done
     echo "${count}/3"
@@ -200,9 +245,15 @@ set_repo_secret() {
     op read "${op_ref}" | gh secret set "${SECRET}" -R "${repo}"
 }
 
+# VISIBILITY is all, private or selected; REPOS (comma-joined) only with
+# selected.
 set_org_secret() {
-    local owner="$1" repos="$2" op_ref="$3"
-    op read "${op_ref}" | gh secret set "${SECRET}" --org "${owner}" --visibility selected --repos "${repos}"
+    local owner="$1" visibility="$2" repos="$3" op_ref="$4"
+    if [ "${visibility}" = selected ]; then
+        op read "${op_ref}" | gh secret set "${SECRET}" --org "${owner}" --visibility selected --repos "${repos}"
+    else
+        op read "${op_ref}" | gh secret set "${SECRET}" --org "${owner}" --visibility "${visibility}"
+    fi
 }
 
 set_repo_variable() {
@@ -211,8 +262,12 @@ set_repo_variable() {
 }
 
 set_org_variable() {
-    local owner="$1" name="$2" repos="$3" value="$4"
-    gh variable set "${name}" --org "${owner}" --visibility selected --repos "${repos}" --body "${value}"
+    local owner="$1" name="$2" visibility="$3" repos="$4" value="$5"
+    if [ "${visibility}" = selected ]; then
+        gh variable set "${name}" --org "${owner}" --visibility selected --repos "${repos}" --body "${value}"
+    else
+        gh variable set "${name}" --org "${owner}" --visibility "${visibility}" --body "${value}"
+    fi
 }
 
 # The value a variable is seeded with.
@@ -313,31 +368,89 @@ seed_user() {
 # The selection to write: the existing one plus the targets, comma-joined.
 widened_selection() {
     local existing="$1" targets="$2"
-    printf '%s\n%s\n' "${existing}" "${targets}" | sed '/^$/d' | grep -vx '@all' | sort -u | paste -sd, -
+    printf '%s\n%s\n' "${existing}" "${targets}" | sed '/^$/d' | sort -u | paste -sd, -
 }
 
+# The targets whose visibility is public, one per line; fails when a lookup
+# fails.
+public_targets() {
+    local targets="$1" repo vis
+    while IFS= read -r repo; do
+        [ -n "${repo}" ] || continue
+        vis=$(repo_visibility "${repo}") || return 1
+        [ "${vis}" = public ] && printf '%s\n' "${repo}"
+    done <<< "${targets}"
+    return 0
+}
+
+# The scope to write for one org secret or variable, "<visibility> <repos>"
+# (repos comma-joined, selected only). Never narrows or changes an existing
+# scope: all stays all, selected keeps its selection plus the targets,
+# private stays private -- and refuses (2) when a target is public, which a
+# private-visibility scope never reaches. Absent is created selected. Fails
+# (1) on a lookup error.
+org_scope() {
+    local owner="$1" kind="$2" name="$3" targets="$4" vis existing public repo
+    vis=$(org_visibility "${owner}" "${kind}" "${name}") || return 1
+    case "${vis}" in
+        all) echo "all" ;;
+        private)
+            public=$(public_targets "${targets}") || return 1
+            if [ -n "${public}" ]; then
+                {
+                    echo "seed-ocr-review: org ${kind%s} ${name} on ${owner} has visibility private, which never reaches a public repo, and these targets are public:"
+                    while IFS= read -r repo; do echo "  ${repo}"; done <<< "${public}"
+                    echo "Nothing was read or written. Change its visibility to all, or to selected repositories that include them, in ${owner}'s Actions settings and re-run seed; or name only private targets."
+                } >&2
+                return 2
+            fi
+            echo "private" ;;
+        selected)
+            existing=$(org_selection "${owner}" "${kind}" "${name}") || return 1
+            echo "selected $(widened_selection "${existing}" "${targets}")" ;;
+        absent) echo "selected $(widened_selection "" "${targets}")" ;;
+    esac
+}
+
+# Every org scope is decided before the token is read or anything written,
+# so a refusal or a lookup error leaves everything as it was.
 seed_org() {
     local owner="$1" targets="$2" op_ref="$3" item="$4" url="$5" model="$6" dry_run="$7"
-    local existing repos name value
-    existing=$(org_selection "${owner}" secrets "${SECRET}") || return 2
-    repos=$(widened_selection "${existing}" "${targets}")
-    if [ "${dry_run}" = 1 ]; then
-        echo "would set org secret ${SECRET} on ${owner} for ${repos} from ${op_ref}"
-    else
-        set_org_secret "${owner}" "${repos}" "${op_ref}"
-        echo "set org secret ${SECRET} on ${owner} for ${repos}"
-    fi
+    local scope plan="" kind name visibility repos value rc
+    rc=0; scope=$(org_scope "${owner}" secrets "${SECRET}" "${targets}") || rc=$?
+    if [ "${rc}" -ne 0 ]; then seed_org_abort "${rc}" "${owner}"; return 2; fi
+    plan="secrets ${SECRET} ${scope}"$'\n'
     for name in ${VARIABLES}; do
-        existing=$(org_selection "${owner}" variables "${name}") || return 2
-        repos=$(widened_selection "${existing}" "${targets}")
+        rc=0; scope=$(org_scope "${owner}" variables "${name}" "${targets}") || rc=$?
+        if [ "${rc}" -ne 0 ]; then seed_org_abort "${rc}" "${owner}"; return 2; fi
+        plan="${plan}variables ${name} ${scope}"$'\n'
+    done
+    # The plan arrives on fd 3, so nothing inside the loop can read it.
+    while read -r kind name visibility repos <&3; do
+        [ -n "${kind}" ] || continue
+        if [ "${kind}" = secrets ]; then
+            if [ "${dry_run}" = 1 ]; then
+                echo "would set org secret ${name} on ${owner} (visibility ${visibility}${repos:+: ${repos}}) from ${op_ref}"
+            else
+                set_org_secret "${owner}" "${visibility}" "${repos}" "${op_ref}"
+                echo "set org secret ${name} on ${owner} (visibility ${visibility}${repos:+: ${repos}})"
+            fi
+            continue
+        fi
         value=$(variable_value "${name}" "${item}" "${url}" "${model}")
         if [ "${dry_run}" = 1 ]; then
-            echo "would set org variable ${name}=${value} on ${owner} for ${repos}"
+            echo "would set org variable ${name}=${value} on ${owner} (visibility ${visibility}${repos:+: ${repos}})"
         else
-            set_org_variable "${owner}" "${name}" "${repos}" "${value}"
-            echo "set org variable ${name} on ${owner} for ${repos}"
+            set_org_variable "${owner}" "${name}" "${visibility}" "${repos}" "${value}"
+            echo "set org variable ${name} on ${owner} (visibility ${visibility}${repos:+: ${repos}})"
         fi
-    done
+    done 3<<< "${plan}"
+}
+
+# A lookup error (1) gets its own message; a refusal (2) has printed its own.
+seed_org_abort() {
+    [ "$1" = 2 ] && return 0
+    echo "seed-ocr-review: could not read an org secret's or variable's scope on $2; nothing seeded" >&2
 }
 
 cmd_seed() {
