@@ -11,6 +11,7 @@ import {
   runAuthorize,
   runComment,
   runCredentials,
+  runHostTools,
   runProbe,
   runReport,
   runVerdict,
@@ -112,6 +113,46 @@ test('authorize: a fork head fails fork; a dispatch reads trigger dispatch', asy
 
 test('authorize: any other API failure throws (the job fails; report calls it unexpected)', async () => {
   await assert.rejects(runAuthorize({ env: authorizeEnv(), fetch: fakeFetch(() => json(500, {})), step: fakeStep(), now: () => 'x' }), /HTTP 500/);
+});
+
+// --- host tools ----------------------------------------------------------------
+
+/** A fake PATH lookup: the tools the runner has; records each question. */
+function fakeOnPath(...tools) {
+  const asked = [];
+  const onPath = (tool) => {
+    asked.push(tool);
+    return tools.includes(tool);
+  };
+  onPath.asked = asked;
+  return onPath;
+}
+
+test('host tools: on the pool image (op baked in) the check passes and says not to install op', async () => {
+  const step = fakeStep();
+  const onPath = fakeOnPath('git', 'unzip', 'gpg', 'op');
+  const code = await runHostTools({ env: {}, onPath, step });
+  assert.equal(code, 0);
+  assert.deepEqual([...onPath.asked].sort(), ['git', 'gpg', 'op', 'unzip']);
+  assert.equal(step.outputs.install_op, 'false');
+  assert.equal(step.outputs.cause ?? '', '');
+  assert.ok(step.events.some((e) => e[0] === 'log' && e[1].includes('git present, unzip present, gpg present, op present')));
+});
+
+test('host tools: on a GitHub-hosted runner (no op) the check passes and says to install op', async () => {
+  const step = fakeStep();
+  const code = await runHostTools({ env: {}, onPath: fakeOnPath('git', 'unzip', 'gpg'), step });
+  assert.equal(code, 0);
+  assert.equal(step.outputs.install_op, 'true');
+});
+
+test('host tools: no op and no gpg fails runner-tool-missing with detail gpg, exit 1', async () => {
+  const step = fakeStep();
+  const code = await runHostTools({ env: {}, onPath: fakeOnPath('git', 'unzip'), step });
+  assert.equal(code, 1);
+  assert.equal(step.outputs.cause, 'runner-tool-missing');
+  assert.equal(step.outputs.detail, 'gpg');
+  assert.ok(step.events.some((e) => e[0] === 'log' && /^::error::runner-tool-missing: gpg/.test(e[1])));
 });
 
 // --- credentials ---------------------------------------------------------------
