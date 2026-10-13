@@ -334,3 +334,67 @@ run_setup() {
 plist_value() {
     /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null
 }
+
+# --- Healthcheck fixtures ----------------------------------------------------
+
+EDGE_URL="https://gateway.example.invalid"
+FAKE_CLIENT_SECRET="fake-client-secret-0123456789abcdef"
+
+# install_fake_curl -- a `curl` on FAKE_BIN that answers from canned
+# response headers in ${WORK}/curl/<url with non-alphanumerics as _>, logs
+# its argv to ${WORK}/curl.argv and whatever it was given on stdin to
+# ${WORK}/curl.stdin. An unknown URL is a connection failure (exit 7).
+install_fake_curl() {
+    mkdir -p "${WORK}/curl"
+    cat > "${FAKE_BIN}/curl" <<FAKE
+#!/bin/sh
+echo "argv \$*" >> "${WORK}/curl.argv"
+url=""
+stdin_headers=0
+for a in "\$@"; do
+    case "\$a" in http://*|https://*) url="\$a" ;; @-) stdin_headers=1 ;; esac
+done
+[ "\${stdin_headers}" = "1" ] && cat >> "${WORK}/curl.stdin"
+key=\$(printf '%s' "\${url}" | tr -c 'A-Za-z0-9' '_')
+[ -f "${WORK}/curl/\${key}" ] || { echo "curl: (7) Failed to connect" >&2; exit 7; }
+cat "${WORK}/curl/\${key}"
+FAKE
+    chmod +x "${FAKE_BIN}/curl"
+}
+
+# canned <url> <status> [<header line>...] -- the fake curl's answer for <url>.
+canned() {
+    local url="$1" status="$2" key
+    shift 2
+    key="$(printf '%s' "${url}" | tr -c 'A-Za-z0-9' '_')"
+    {
+        printf 'HTTP/1.1 %s X\r\n' "${status}"
+        local h
+        for h in "$@"; do printf '%s\r\n' "${h}"; done
+        printf '\r\n'
+    } > "${WORK}/curl/${key}"
+}
+
+# healthy_local -- the external ollama and the gateway route both answer.
+healthy_local() {
+    canned "http://127.0.0.1:11435/api/version" 200
+    canned "http://127.0.0.1:11436/v1/models" 200 "X-LMDE-Route: ollama-gateway"
+}
+
+# run_healthcheck <env assignments...> -- the component healthcheck as
+# `lmde status` runs it, with the fakes first on PATH.
+run_healthcheck() {
+    env -i HOME="${FAKE_HOME}" PATH="${FAKE_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" "$@" "${HEALTHCHECK}" 2>&1
+}
+
+# edge_env -- the drift check's configuration: the edge URL and the
+# consumer credential as header name/value pairs, as an op run env file
+# would supply them from the consumer's 1Password item.
+edge_env() {
+    printf '%s\n' \
+        "OLLAMA_GATEWAY_EDGE_URL=${EDGE_URL}" \
+        "OLLAMA_GATEWAY_CLIENT_ID_HEADER=X-Example-Client-Id" \
+        "OLLAMA_GATEWAY_CLIENT_ID=fake-client-id" \
+        "OLLAMA_GATEWAY_CLIENT_SECRET_HEADER=X-Example-Client-Secret" \
+        "OLLAMA_GATEWAY_CLIENT_SECRET=${FAKE_CLIENT_SECRET}"
+}
