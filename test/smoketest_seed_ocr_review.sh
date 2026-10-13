@@ -24,6 +24,8 @@ PIN_NEW="1111111111111111111111111111111111111111"
 PIN_OLD="2222222222222222222222222222222222222222"
 PIN_ZERO="0000000000000000000000000000000000000000"
 ITEM="op://vault-uuid/item-title"
+OPREF="op://vault-uuid/token-item/credential"
+URL="https://gateway.example.invalid"
 
 red()   { printf '\033[1;31m%s\033[0m' "$1"; }
 green() { printf '\033[1;32m%s\033[0m' "$1"; }
@@ -169,7 +171,7 @@ fixture() {
     caller_at "${PIN_NEW}" "${PIN_NEW}" > "${u}/alpha/caller"
     echo "2026-10-12T05:00:00Z" > "${u}/alpha/secret"
     echo "${ITEM}" > "${u}/alpha/var.OLLAMA_GATEWAY_OP_ITEM"
-    echo "https://ollama.api9.com" > "${u}/alpha/var.OLLAMA_GATEWAY_URL"
+    echo "${URL}" > "${u}/alpha/var.OLLAMA_GATEWAY_URL"
     echo "qwen3.6:latest" > "${u}/alpha/var.OLLAMA_GATEWAY_MODEL"
     echo "success 2026-10-12T06:00:00Z" > "${u}/alpha/lastrun"
     caller_at "${PIN_ZERO}" "'${PIN_ZERO}'" > "${u}/beta/caller"
@@ -228,13 +230,13 @@ case_status_org_owner() {
 case_seed_user_owner() {
     bold "seed (user owner): secret from op read through a pipe, three variables per repo"; echo
     local s; s=$(fixture seed1)
-    run "${s}" -i "${ITEM}" seed
+    run "${s}" -i "${ITEM}" -r "${OPREF}" -u "${URL}" seed
     assert "seed exits 0" "[ \"\${RUN_RC}\" -eq 0 ]"
-    assert "the token came from the default op:// reference" "grep -q 'op read op://VAULT/ITEM/credential' '${s}/log'"
+    assert "the token came from the -r op:// reference" "grep -q 'op read ${OPREF}' '${s}/log'"
     for r in alpha beta gamma; do
         assert "${r}: secret set from the pipe" "grep -q 'secret set OLLAMA_GATEWAY_OP_SA_TOKEN 9atatimer/${r} tok-for-' '${s}/log'"
         assert "${r}: OLLAMA_GATEWAY_OP_ITEM set" "grep -q 'variable set OLLAMA_GATEWAY_OP_ITEM 9atatimer/${r} ${ITEM}' '${s}/log'"
-        assert "${r}: OLLAMA_GATEWAY_URL set" "grep -q 'variable set OLLAMA_GATEWAY_URL 9atatimer/${r} https://ollama.api9.com' '${s}/log'"
+        assert "${r}: OLLAMA_GATEWAY_URL set" "grep -q 'variable set OLLAMA_GATEWAY_URL 9atatimer/${r} ${URL}' '${s}/log'"
         assert "${r}: OLLAMA_GATEWAY_MODEL set" "grep -q 'variable set OLLAMA_GATEWAY_MODEL 9atatimer/${r} qwen3.6:latest' '${s}/log'"
     done
     assert "delta (no caller) untouched" "! grep -q 'delta' '${s}/log'"
@@ -245,7 +247,7 @@ case_seed_org_owner() {
     bold "seed (org owner): one org secret and org variables, selecting every consumer, never dropping one"; echo
     local s; s=$(fixture seed2)
     echo "Nine-At-A-Time-Media/legacy" >> "${s}/org/Nine-At-A-Time-Media/secret.repos"
-    run "${s}" -o Nine-At-A-Time-Media -i "${ITEM}" seed
+    run "${s}" -o Nine-At-A-Time-Media -i "${ITEM}" -r "${OPREF}" -u "${URL}" seed
     assert "seed exits 0" "[ \"\${RUN_RC}\" -eq 0 ]"
     assert "one org secret write" "[ \"\$(grep -c '^org secret set' '${s}/log')\" -eq 1 ]"
     assert "the org secret selects both consumers and keeps an existing selection" \
@@ -257,7 +259,7 @@ case_seed_org_owner() {
 case_seed_named_repo() {
     bold "seed <repo>: only the named repo"; echo
     local s; s=$(fixture seed3)
-    run "${s}" -i "${ITEM}" seed 9atatimer/delta
+    run "${s}" -i "${ITEM}" -r "${OPREF}" -u "${URL}" seed 9atatimer/delta
     assert "seed exits 0" "[ \"\${RUN_RC}\" -eq 0 ]"
     assert "delta seeded on request" "grep -q 'secret set OLLAMA_GATEWAY_OP_SA_TOKEN 9atatimer/delta' '${s}/log'"
     assert "nothing else seeded" "[ \"\$(grep -c '^secret set' '${s}/log')\" -eq 1 ]"
@@ -272,10 +274,24 @@ case_seed_needs_item() {
     assert "nothing read or written" "! grep -q 'set\\|op read' '${s}/log'"
 }
 
+case_seed_needs_token_ref_and_url() {
+    bold "seed without -r or -u refuses before reading or writing anything: the public repo names no token item or gateway host"; echo
+    local s; s=$(fixture ref1)
+    run "${s}" -i "${ITEM}" -u "${URL}" seed
+    assert "no -r: exit 2" "[ \"\${RUN_RC}\" -eq 2 ]"
+    assert "no -r: says -r is needed" "printf '%s' \"\${RUN_ERR}\" | grep -q -- '-r'"
+    assert "no -r: nothing read or written" "! grep -q 'set\\|op read' '${s}/log'"
+    s=$(fixture url1)
+    run "${s}" -i "${ITEM}" -r "${OPREF}" seed
+    assert "no -u: exit 2" "[ \"\${RUN_RC}\" -eq 2 ]"
+    assert "no -u: says -u is needed" "printf '%s' \"\${RUN_ERR}\" | grep -q -- '-u'"
+    assert "no -u: nothing read or written" "! grep -q 'set\\|op read' '${s}/log'"
+}
+
 case_dry_run() {
     bold "-n seed: the plan, no token read, nothing set"; echo
     local s; s=$(fixture dry1)
-    run "${s}" -n -i "${ITEM}" seed
+    run "${s}" -n -i "${ITEM}" -r "${OPREF}" -u "${URL}" seed
     assert "dry run exits 0" "[ \"\${RUN_RC}\" -eq 0 ]"
     assert "no op read, no set" "! grep -q 'set\\|op read' '${s}/log'"
     assert "the plan names each consumer and each variable" \
@@ -288,7 +304,7 @@ case_discovery_failure() {
     : > "${s}/list-fails"
     run "${s}" status
     assert "status exits 2" "[ \"\${RUN_RC}\" -eq 2 ]"
-    run "${s}" -i "${ITEM}" seed
+    run "${s}" -i "${ITEM}" -r "${OPREF}" -u "${URL}" seed
     assert "seed exits 2" "[ \"\${RUN_RC}\" -eq 2 ]"
     assert "nothing read or written" "! grep -q 'set\\|op read' '${s}/log'"
 }
@@ -300,7 +316,7 @@ case_lookup_error() {
     run "${s}" status
     assert "status exits 2" "[ \"\${RUN_RC}\" -eq 2 ]"
     assert "beta reads error" "line_of 9atatimer/beta | grep -q error"
-    run "${s}" -i "${ITEM}" seed
+    run "${s}" -i "${ITEM}" -r "${OPREF}" -u "${URL}" seed
     assert "seed refuses an incomplete target set" "[ \"\${RUN_RC}\" -eq 2 ] && ! grep -q 'set' '${s}/log'"
 }
 
@@ -327,6 +343,7 @@ main() {
     case_seed_org_owner
     case_seed_named_repo
     case_seed_needs_item
+    case_seed_needs_token_ref_and_url
     case_dry_run
     case_discovery_failure
     case_lookup_error
