@@ -143,6 +143,10 @@ jobs:
       - name: Smoketest bin/ocr-review
         run: /bin/bash test/smoketest_ocr_review.sh
 
+      # Hermetic: fake gh/op on PATH; nothing reaches GitHub or 1Password.
+      - name: Smoketest bin/seed-ocr-review
+        run: /bin/bash test/smoketest_seed_ocr_review.sh
+
       # macOS-only argv assertions inside; the suite skips them on the ubuntu
       # leg and still checks the dot.zshenv wiring there.
       - name: Smoketest bin/plannotator-browser
