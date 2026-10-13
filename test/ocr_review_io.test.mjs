@@ -409,12 +409,23 @@ test('report: a failed setup step is unexpected naming review and the step', asy
 
 test('report: the review state supplies the range and counts', async () => {
   const step = fakeStep();
-  const state = { cause: null, range: { base: BASE, head: HEAD }, filesReviewable: 1, filesReviewed: 1, findingsPosted: 0, findingsFailed: 0, unreviewed: [], unposted: [] };
+  const state = { cause: null, range: { base: BASE, head: HEAD }, filesReviewable: 1, filesReviewed: 1, findingsPosted: 0, findingsFailed: 0, unreviewed: [] };
   await runReport({ env: reportEnv(), readFile: () => JSON.stringify(state), step, now: () => 'f' });
   const record = JSON.parse(step.files['/tmp/rt/record/ocr-review-record.json']);
   assert.equal(record.outcome, 'success');
   assert.equal(record.range, `${BASE}..${HEAD}`);
   assert.equal(record.files_reviewed, 1);
+});
+
+test('report: the comment links upstream\'s summary from the review job\'s upstream_summary_url', async () => {
+  const step = fakeStep();
+  const url = 'https://github.com/o/r/pull/7#issuecomment-9';
+  const state = { outcome: 'success', cause: null, range: { base: BASE, head: HEAD }, filesReviewable: 1, filesReviewed: 1, findingsPosted: 1, findingsFailed: 1, unreviewed: [] };
+  const env = reportEnv({ REVIEW_OUTPUTS: reviewOutputs({ upstream_summary_url: url }) });
+  await runReport({ env, readFile: () => JSON.stringify(state), step, now: () => 'f' });
+  const body = step.files[env.COMMENT_PATH];
+  assert.ok(body.includes(`](${url})`), body);
+  assert.match(body, /failed to post are named/);
 });
 
 test('comment: posts the body to the PR; a failed post throws so the job fails', async () => {

@@ -228,3 +228,8 @@ test('reusable: the verdict step gets the action\'s post counts through env:, fr
     assert.match(env, new RegExp(`^\\s+${name}:\\s*\\$\\{\\{\\s*steps\\.ocr\\.outputs\\.comments_${count}\\s*\\}\\}\\s*$`, 'm'), name);
   }
 });
+
+test('reusable: the review job hands upstream\'s summary_comment_url to the report as upstream_summary_url', () => {
+  const outputs = block(jobBlock(REUSABLE, 'review'), 'outputs', 4) ?? '';
+  assert.match(outputs, /^\s+upstream_summary_url:\s*\$\{\{\s*steps\.ocr\.outputs\.summary_comment_url\s*\}\}\s*$/m);
+});
