@@ -217,3 +217,14 @@ test('reusable: the job outputs and step names match the report\'s step tables',
 test('reusable: no job output carries the gateway headers', () => {
   for (const job of jobsOf(REUSABLE)) assert.doesNotMatch(block(jobBlock(REUSABLE, job), 'outputs', 4) ?? '', /extra_headers|headers_file/);
 });
+
+test('reusable: the verdict step gets the action\'s post counts through env:, from the Review step\'s outputs', () => {
+  const review = jobBlock(REUSABLE, 'review');
+  const verdict = review.split(/\n\s*- name: /).find((s) => s.startsWith('Verdict\n'));
+  assert.ok(verdict, 'review has a Verdict step');
+  const env = block(verdict, 'env', 8) ?? '';
+  for (const count of ['total', 'inline', 'routed', 'skipped', 'failed']) {
+    const name = `OCR_COMMENTS_${count.toUpperCase()}`;
+    assert.match(env, new RegExp(`^\\s+${name}:\\s*\\$\\{\\{\\s*steps\\.ocr\\.outputs\\.comments_${count}\\s*\\}\\}\\s*$`, 'm'), name);
+  }
+});
