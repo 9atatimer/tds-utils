@@ -19,7 +19,8 @@
 //                failure verdict; marks the Review step engine-error when
 //                ocr itself exited non-zero.
 //   report       report job: the run record (file + job summary) first,
-//                then the summary comment body. References no secret.
+//                then this workflow's summary comment body, linking
+//                upstream's own summary. References no secret.
 //   comment      report job: post the body. Exit 1 when the post fails.
 //
 // Usage: ocr-review <subcommand>   (environment as each run* function reads)
@@ -340,7 +341,7 @@ export async function runReport({ env, readFile, step, now, summary = () => {} }
   step.writeFile(env.RECORD_PATH, `${JSON.stringify(record, null, 2)}\n`);
   summary(`### OCR review run record\n\n${fencedJson(record)}\n`);
   const detail = failingDetail(REVIEW_STEPS, reviewOutputs, authorizeOutputs);
-  step.writeFile(env.COMMENT_PATH, renderSummary(record, { runUrl: env.RUN_URL, judged: state, detail }));
+  step.writeFile(env.COMMENT_PATH, renderSummary(record, { runUrl: env.RUN_URL, judged: state, detail, upstreamSummaryUrl: reviewOutputs.upstream_summary_url || '' }));
   step.setOutput('should_comment', String(shouldComment(record)));
   step.setOutput('outcome', record.outcome);
   step.setOutput('cause', record.cause ?? '');

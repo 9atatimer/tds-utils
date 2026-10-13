@@ -7,8 +7,10 @@
 #
 # The core guarantee: a review is never a silent false negative. Every run
 # that is not skipped writes a run record (job summary + artifact) and, but
-# for pr-not-open, exactly one summary comment saying what was reviewed or
-# why nothing was.
+# for pr-not-open, one summary comment of this workflow's saying what was
+# reviewed or why nothing was. The pinned upstream action also keeps its own
+# sticky summary on the PR, which cannot be turned off and names the
+# findings that failed to post; ours links it (Key Decisions, option A).
 #
 # Three jobs, each on the caller's CI_RUNS_ON runner pool when the caller
 # sets that variable (a called workflow reads the caller's vars), else on a
@@ -163,6 +165,10 @@ jobs:
       verdict_detail: ${{ steps.verdict.outputs.detail }}
       upload_result: ${{ steps.upload_result.outcome }}
       upload_state: ${{ steps.upload_state.outcome }}
+      # Upstream's own sticky summary, which names the findings that failed
+      # to post; the report job's comment links it. Empty when the action
+      # posted none.
+      upstream_summary_url: ${{ steps.ocr.outputs.summary_comment_url }}
     steps:
       - name: Fetch the tools
         id: tools
@@ -221,8 +227,10 @@ jobs:
       # bearer token, so it carries a fixed non-secret placeholder. Streaming
       # is on so a long completion's first byte reaches the edge before its
       # time-to-first-byte limit. Upstream's own artifact upload is off: it
-      # would publish ocr's stderr log too. Its summary comment cannot be
-      # turned off at this pin (docs/ocr-review.md, Known gaps).
+      # would publish ocr's stderr log too. Its own summary comment stays:
+      # it cannot be turned off at this pin, and it is where the findings
+      # that failed to post are named (Key Decisions, option A). Sticky, so
+      # it is updated in place rather than added each run.
       - name: Review
         id: ocr
         uses: alibaba/open-code-review@fabbdb296b0d97e2140ada8d54ca7d6d6d1d7ad4 # v1.12.13
@@ -350,9 +358,10 @@ jobs:
           path: ${{ runner.temp }}/ocr-review-record/ocr-review-record.json
           retention-days: 90
 
-      # Exactly one per run, per the State Machine table (none for
-      # pr-not-open). A failed post fails this job, so the run concludes
-      # red; the record is already written.
+      # One per run from this workflow, per the State Machine table (none
+      # for pr-not-open), beside upstream's sticky summary. A failed post
+      # fails this job, so the run concludes red; the record is already
+      # written.
       - name: Post the summary comment
         if: always() && steps.record.outputs.should_comment == 'true'
         env:
