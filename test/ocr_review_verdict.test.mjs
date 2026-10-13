@@ -15,6 +15,7 @@ import {
   parseNameStatus,
   parseNumstat,
   readEngineResult,
+  readPostCounts,
   reviewableFiles,
 } from '../lib/ocr-review/verdict.mjs';
 
@@ -126,31 +127,56 @@ test('a missing or unparseable result, range or reviewed list is reported missin
   assert.deepEqual(readEngineResult(result({ comments: undefined })).missing, ['findings']);
 });
 
+// --- the action's post counts ----------------------------------------------------
+
+/** The pinned action's step outputs as the verdict step's env carries them. */
+const outputs = (over = {}) => ({ total: '0', inline: '0', routed: '0', skipped: '0', failed: '0', ...over });
+
+test('the action\'s counts parse into numbers', () => {
+  assert.deepEqual(readPostCounts(outputs({ total: '5', inline: '3', routed: '1', failed: '1' })), {
+    ok: true,
+    total: 5,
+    inline: 3,
+    routed: 1,
+    skipped: 0,
+    failed: 1,
+  });
+});
+
+test('a missing or unparseable count is reported missing, never zero', () => {
+  assert.deepEqual(readPostCounts(outputs({ failed: '' })).missing, ['comments_failed']);
+  assert.deepEqual(readPostCounts(outputs({ failed: undefined, inline: 'three' })).missing, ['comments_inline', 'comments_failed']);
+  assert.deepEqual(readPostCounts(outputs({ total: '-1' })).missing, ['comments_total']);
+  assert.deepEqual(readPostCounts({}).missing, ['comments_total', 'comments_inline', 'comments_routed', 'comments_skipped', 'comments_failed']);
+});
+
 // --- the verdict ---------------------------------------------------------------
 
 const engine = (reviewed, findings = []) => ({ ok: true, range: { base: BASE, head: HEAD }, reviewed, findings, missing: [] });
 const finding = (path, line, content) => ({ path, start_line: line, content });
+const counts = (over = {}) => readPostCounts(outputs(over));
 
-test('no per-finding post status is engine-error, never "nothing failed"', () => {
-  const v = judgeReview({ reviewable: ['src/a.js'], engine: engine(['src/a.js']), postStatus: null });
+test('missing post counts are engine-error, never "nothing failed"', () => {
+  const v = judgeReview({ reviewable: ['src/a.js'], engine: engine(['src/a.js']), postCounts: readPostCounts(outputs({ failed: '' })) });
   assert.equal(v.outcome, 'failure');
   assert.equal(v.cause, 'engine-error');
-  assert.match(v.detail, /post status/);
+  assert.match(v.detail, /comments_failed/);
 });
 
 test('a result missing the range or reviewed list is engine-error naming what is missing', () => {
-  const v = judgeReview({ reviewable: ['src/a.js'], engine: { ok: false, missing: ['range'] }, postStatus: [] });
+  const v = judgeReview({ reviewable: ['src/a.js'], engine: { ok: false, missing: ['range'] }, postCounts: counts() });
   assert.equal(v.cause, 'engine-error');
   assert.match(v.detail, /range/);
 });
 
-test('post status that does not line up with the findings is engine-error', () => {
-  const v = judgeReview({ reviewable: ['src/a.js'], engine: engine(['src/a.js'], [finding('src/a.js', 1, 'x')]), postStatus: [] });
-  assert.equal(v.cause, 'engine-error');
+test('counts that do not line up with the findings are engine-error', () => {
+  const one = engine(['src/a.js'], [finding('src/a.js', 1, 'x')]);
+  assert.equal(judgeReview({ reviewable: ['src/a.js'], engine: one, postCounts: counts() }).cause, 'engine-error');
+  assert.equal(judgeReview({ reviewable: ['src/a.js'], engine: one, postCounts: counts({ total: '1', inline: '1', failed: '1' }) }).cause, 'engine-error');
 });
 
 test('reviewable files exist and ocr reviewed none: reviewed-nothing', () => {
-  const v = judgeReview({ reviewable: ['src/a.js', 'src/b.js'], engine: engine(['README.md']), postStatus: [] });
+  const v = judgeReview({ reviewable: ['src/a.js', 'src/b.js'], engine: engine(['README.md']), postCounts: counts() });
   assert.equal(v.outcome, 'failure');
   assert.equal(v.cause, 'reviewed-nothing');
   assert.equal(v.filesReviewable, 2);
@@ -158,7 +184,7 @@ test('reviewable files exist and ocr reviewed none: reviewed-nothing', () => {
 });
 
 test('some but not all reviewed: success listing every unreviewed reviewable file', () => {
-  const v = judgeReview({ reviewable: ['src/a.js', 'src/b.js', 'src/c.js'], engine: engine(['src/a.js']), postStatus: [] });
+  const v = judgeReview({ reviewable: ['src/a.js', 'src/b.js', 'src/c.js'], engine: engine(['src/a.js']), postCounts: counts() });
   assert.equal(v.outcome, 'success');
   assert.equal(v.cause, null);
   assert.equal(v.filesReviewed, 1);
@@ -166,26 +192,21 @@ test('some but not all reviewed: success listing every unreviewed reviewable fil
 });
 
 test('no reviewable files: success, files_reviewed 0, nothing-reviewable', () => {
-  const v = judgeReview({ reviewable: [], engine: engine([]), postStatus: [] });
+  const v = judgeReview({ reviewable: [], engine: engine([]), postCounts: counts() });
   assert.equal(v.outcome, 'success');
   assert.equal(v.cause, 'nothing-reviewable');
   assert.equal(v.filesReviewable, 0);
   assert.equal(v.filesReviewed, 0);
 });
 
-test('findings that failed to post or could not anchor are listed and counted; posted ones counted', () => {
-  const findings = [finding('src/a.js', 1, 'one'), finding('src/a.js', 9, 'two'), finding('src/a.js', null, 'three')];
-  const v = judgeReview({ reviewable: ['src/a.js'], engine: engine(['src/a.js'], findings), postStatus: ['inline', 'failed', 'unanchorable'] });
+test('findings_failed is the action\'s comments_failed; findings_posted is inline plus routed', () => {
+  const findings = [finding('src/a.js', 1, 'one'), finding('src/a.js', 9, 'two'), finding('src/a.js', 4, 'three'), finding('src/a.js', null, 'four')];
+  const v = judgeReview({
+    reviewable: ['src/a.js'],
+    engine: engine(['src/a.js'], findings),
+    postCounts: counts({ total: '4', inline: '1', routed: '1', failed: '1' }),
+  });
   assert.equal(v.outcome, 'success');
-  assert.equal(v.findingsPosted, 1);
+  assert.equal(v.findingsPosted, 2);
   assert.equal(v.findingsFailed, 1);
-  assert.deepEqual(
-    v.unposted.map((u) => [u.body, u.status]),
-    [['two', 'failed'], ['three', 'unanchorable']],
-  );
-});
-
-test('an unknown post status is engine-error, not silently dropped', () => {
-  const v = judgeReview({ reviewable: ['src/a.js'], engine: engine(['src/a.js'], [finding('src/a.js', 1, 'x')]), postStatus: ['maybe'] });
-  assert.equal(v.cause, 'engine-error');
 });
