@@ -207,7 +207,7 @@ run_launcher() {
     env -i HOME="${FAKE_HOME}" PATH="${FAKE_KEG}/bin:${FAKE_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
         OLLAMA_GATEWAY_PROBE_KEYCHAIN="${KEYCHAIN}" \
         OLLAMA_GATEWAY_OLLAMA_PORT="${OLLAMA_PORT}" \
-        "${assignments[@]}" "$@" 2>&1
+        ${assignments[@]+"${assignments[@]}"} "$@" 2>&1
 }
 
 # --- Connector fixtures ------------------------------------------------------

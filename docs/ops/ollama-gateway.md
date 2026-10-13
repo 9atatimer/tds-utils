@@ -37,10 +37,13 @@ component's install.
   `lmde install networking` for Caddy's socket.
 - After any change to the component lands on `master`:
   `bin/tds-release`, then `lmde install ollama-gateway` again. The install
-  re-renders the sandbox profile for this machine, reinstalls the route and
-  restarts the external ollama; the connector stays up. Expect the first
-  start to take a few seconds longer: the profile lists every ephemeral
-  port and compiles on each start.
+  re-renders the sandbox profile for this machine, reinstalls the route
+  (restarting the proxy layer if it is loaded), then restarts the external
+  ollama and the connector, so the road drops for a few seconds; the
+  connector comes back only if its run token is in the Keychain, and is
+  left disabled otherwise. Expect the first start to take a few seconds
+  longer: the profile lists every ephemeral port and compiles on each
+  start.
 - After an `ollama` or macOS upgrade: re-derive the allow-list before
   trusting the gateway (below). The engine's keg path changes with every
   ollama version; the launcher derives it from `whence -p ollama`, so a
