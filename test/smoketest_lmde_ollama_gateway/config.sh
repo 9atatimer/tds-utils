@@ -177,7 +177,7 @@ run_launcher() {
 TOKEN_SERVICE="lmde.ollama-gateway.tunnel-token"
 TOKEN_ACCOUNT="ollama-gateway"
 # Shaped like a run token (base64); not a credential.
-FAKE_TOKEN="eyJhIjoiZmFrZS1hY2NvdW50IiwidCI6ImZha2UtdHVubmVsIiwicyI6ImZha2UifQ=="
+FAKE_TOKEN="eyJhIjoiZmFrZS1hY2NvdW50IiwidCI6ImZha2UtdHVubmVsIiwicyI6ImZha2UifQ==" # gitleaks:allow -- decodes to fake-account/fake-tunnel
 
 # install_fake_cloudflared -- a `cloudflared` on FAKE_BIN that records its
 # argv (one element per line), its environment, and what it read from the
