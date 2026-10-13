@@ -13,7 +13,7 @@ set -euo pipefail
 CLUSTER_NAME="lmde-observability"
 VHOST="grafana.lmde.localhost"
 INGRESS_PORT="32100"
-CADDY_ADMIN_URL="http://localhost:2019"
+CADDY_ADMIN_SOCKET="${CADDY_ADMIN_SOCKET:-${HOME}/.local/share/lmde-networking/run/caddy-admin.sock}"
 HEALTH_URL="https://${VHOST}/api/health"
 
 log() {
@@ -36,8 +36,9 @@ assert_stack_deployed() {
     if ! kind get clusters 2>/dev/null | grep -q "^${CLUSTER_NAME}$"; then
         skip "kind cluster '${CLUSTER_NAME}' not found -- run observability/setup.sh first"
     fi
-    if ! curl -sf --max-time 2 "${CADDY_ADMIN_URL}/config/" >/dev/null 2>&1; then
-        skip "Caddy admin API unreachable at ${CADDY_ADMIN_URL}"
+    if [[ ! -S "${CADDY_ADMIN_SOCKET}" ]] \
+        || ! curl -sf --max-time 2 --unix-socket "${CADDY_ADMIN_SOCKET}" http://localhost/config/ >/dev/null 2>&1; then
+        skip "Caddy admin API unreachable at ${CADDY_ADMIN_SOCKET}"
     fi
 }
 

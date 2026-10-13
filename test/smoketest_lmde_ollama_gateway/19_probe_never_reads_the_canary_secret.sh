@@ -75,8 +75,8 @@ main() {
 
     out="$(/bin/zsh -f "${PROBE}" control "${args[@]}" 2>&1)" || status=$?
     assert_eq "${status}" "0" "control passes on a canary whose secret python cannot read (status ${refused}); output: ${out}"
-    assert_contains "${out}" "ok keychain-framework-reachable" "framework reachability from attributes"
-    assert_contains "${out}" "ok keychain-cli-reachable" "cli reachability from attributes"
+    assert_contains "${out}" "ok keychain-framework-denied" "framework reachability from attributes"
+    assert_contains "${out}" "ok keychain-cli-denied" "cli reachability from attributes"
     assert_not_contains "${out}" "not-a-secret" "control never prints the value"
 
     copy="$(shimmed_component)"

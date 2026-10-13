@@ -1,0 +1,230 @@
+#!/usr/bin/env node
+// ocr-bakeoff -- the step commands of the OCR bake-off reusable workflow
+// (.github/workflows/ocr-bakeoff.yml; tds-utils Issue#468): which model
+// reviews best, measured on diffs Copilot or Codex reviewed and the inline
+// findings on them that triage accepted (lib/ocr-bakeoff/cases.json).
+//
+// Each subcommand is one workflow step and reads its inputs from the
+// environment; the rules live in lib/ocr-bakeoff/ and every adapter is
+// injectable, so test/ocr_bakeoff.test.mjs drives the flows with fakes.
+// The gateway's credentials and probe are bin/ocr-review's own steps.
+//
+//   matrix   plan job: one job per (model, case), model-major. Exit 1 on a
+//            bad model list or an unknown case.
+//   review   run job: configure ocr as OCR on Demand does, review the case
+//            range within what is left of the job budget, and write the
+//            run record and ocr's JSON result. A failed review is a record,
+//            not a failed step (exit 0); exit 1 only when no record can be
+//            written.
+//   collate  collate job: every record -> the per-model report (job
+//            summary) and bakeoff-results.json.
+//
+// Usage: ocr-bakeoff matrix|review|collate   (environment as each run* reads)
+
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import {
+  OCR_SETTINGS,
+  buildMatrix,
+  buildRunRecord,
+  collate,
+  configArgs,
+  parseCases,
+  parseModels,
+  renderReport,
+  reviewArgs,
+  selectCases,
+} from '../lib/ocr-bakeoff/bakeoff.mjs';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const CASES_PATH = join(HERE, '..', 'lib', 'ocr-bakeoff', 'cases.json');
+
+/** ocr's environment: no self-update, no telemetry, no request capture --
+ * the review job's own settings. */
+const OCR_QUIET = Object.freeze({
+  OCR_NO_UPDATE: '1',
+  OCR_ENABLE_TELEMETRY: '0',
+  OCR_RAW_LOGGING: '0',
+  OCR_CONTENT_LOGGING: '0',
+});
+
+// --- Flow: matrix -----------------------------------------------------------
+
+/** Env: MODELS, CASES. */
+export function runMatrix({ env, casesText, step }) {
+  let matrix;
+  try {
+    const cases = selectCases(parseCases(casesText), env.CASES);
+    matrix = buildMatrix(parseModels(env.MODELS), cases);
+  } catch (error) {
+    step.log(`::error::${error.message}`);
+    return 1;
+  }
+  step.setOutput('matrix', JSON.stringify(matrix));
+  step.setOutput('count', matrix.include.length);
+  step.log(`matrix: ${matrix.include.length} runs`);
+  return 0;
+}
+
+// --- Flow: review -----------------------------------------------------------
+
+const seconds = (ms) => Math.round(ms / 1000);
+
+/** Env: ENTRY (the matrix entry, JSON), GATEWAY_URL, EXTRA_HEADERS,
+ * PROBE_OUTCOME and PROBE_CAUSE (the probe step's), SUBJECT_DIR (the checkout at the case's head), OUT_DIR, JOB_STARTED,
+ * PROBE_STARTED, PROBE_ENDED (epoch seconds), JOB_BUDGET_SECONDS, PATH,
+ * HOME. `run(cmd, argv, { env, cwd, deadlineMs })` resolves
+ * { code, timedOut, stdout }; `now()` is epoch milliseconds. */
+export async function runReview({ env, casesText, run, now, step }) {
+  let entry;
+  let kase;
+  try {
+    entry = JSON.parse(env.ENTRY ?? '');
+    kase = parseCases(casesText).find((c) => c.id === entry.case);
+    if (!kase) throw new Error(`unknown case: ${entry.case}`);
+    if (kase.base !== entry.base || kase.head !== entry.head) throw new Error(`the matrix entry's range is not case ${kase.id}'s`);
+  } catch (error) {
+    step.log(`::error::${error.message}`);
+    return 1;
+  }
+  const probeSeconds = Number(env.PROBE_ENDED) - Number(env.PROBE_STARTED);
+  const record = (exit, resultText, reviewSeconds) => {
+    const rec = buildRunRecord({ entry, kase, exit, resultText, probeSeconds, reviewSeconds });
+    step.writeFile(join(env.OUT_DIR, 'record.json'), `${JSON.stringify(rec, null, 2)}\n`);
+    if (resultText) step.writeFile(join(env.OUT_DIR, 'ocr-result.json'), resultText);
+    step.log(`review: ${rec.outcome}; ${rec.findings_total} findings; located ${rec.located.filter(Boolean).length} of ${rec.located.length}`);
+    if (rec.detail) step.log(`review: ${rec.detail}`);
+    return 0;
+  };
+
+  // The probe's own failure has a cause; a skipped probe means an earlier
+  // step failed, which is not the gateway's doing.
+  if (env.PROBE_OUTCOME === 'failure') return record({ probeFailed: env.PROBE_CAUSE ?? '' }, '', 0);
+  if (env.PROBE_OUTCOME !== undefined && env.PROBE_OUTCOME !== 'success') return record({ setupFailed: true }, '', 0);
+  const base = { PATH: env.PATH ?? '', HOME: env.HOME ?? '', ...OCR_QUIET };
+  for (const argv of configArgs({ url: env.GATEWAY_URL ?? '', model: entry.model })) {
+    const r = await run('ocr', argv, { env: base, cwd: env.SUBJECT_DIR, deadlineMs: 60 * 1000 });
+    if (r.timedOut || r.code !== 0) {
+      return record({ configFailed: { setting: argv[2], why: r.timedOut ? 'timed out' : `exited ${r.code}` } }, '', 0);
+    }
+  }
+  const leftMs = Number(env.JOB_BUDGET_SECONDS) * 1000 - (now() - Number(env.JOB_STARTED) * 1000);
+  if (!(leftMs > 0)) return record({ code: null, timedOut: true }, '', 0);
+  const reviewEnv = {
+    ...base,
+    OCR_LLM_TOKEN: OCR_SETTINGS.token,
+    OCR_LLM_EXTRA_HEADERS: env.EXTRA_HEADERS ?? '',
+    OCR_LLM_TIMEOUT: OCR_SETTINGS.llmTimeoutSeconds,
+  };
+  const started = now();
+  const r = await run('ocr', reviewArgs(kase), { env: reviewEnv, cwd: env.SUBJECT_DIR, deadlineMs: leftMs });
+  return record({ code: r.code, timedOut: Boolean(r.timedOut) }, r.stdout ?? '', seconds(now() - started));
+}
+
+// --- Flow: collate ----------------------------------------------------------
+
+/** Every record.json under `dir`, at any depth; none when no run uploaded
+ * one (the download step then leaves no directory). */
+function readRecords(dir) {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { recursive: true })
+    .map(String)
+    .filter((p) => basename(p) === 'record.json')
+    .sort()
+    .map((p) => JSON.parse(readFileSync(join(dir, p), 'utf8')));
+}
+
+/** Env: RECORDS_DIR, MODELS, CASES, OUT_DIR. */
+export function runCollate({ env, casesText, step, summary }) {
+  let report;
+  try {
+    const cases = selectCases(parseCases(casesText), env.CASES);
+    const models = parseModels(env.MODELS);
+    const records = readRecords(env.RECORDS_DIR);
+    report = { models, cases: cases.map((c) => c.id), records, ...collate(records, { models, cases }) };
+  } catch (error) {
+    step.log(`::error::${error.message}`);
+    return 1;
+  }
+  summary(renderReport(report));
+  step.writeFile(join(env.OUT_DIR, 'bakeoff-results.json'), `${JSON.stringify(report, null, 2)}\n`);
+  return 0;
+}
+
+// --- Adapters (real I/O) ----------------------------------------------------
+
+function realStep(env) {
+  return {
+    log: (line) => process.stdout.write(`${line}\n`),
+    setOutput: (name, value) => {
+      const text = String(value);
+      let delimiter = `ghadelimiter_${randomUUID()}`;
+      while (text.includes(delimiter)) delimiter = `ghadelimiter_${randomUUID()}`;
+      appendFileSync(env.GITHUB_OUTPUT, `${name}<<${delimiter}\n${text}\n${delimiter}\n`);
+    },
+    writeFile: (path, text) => {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, text, { mode: 0o600 });
+    },
+  };
+}
+
+/** Run a command without a shell; past the deadline, TERM then KILL. ocr's
+ * stderr is discarded: it is never uploaded. */
+function runCommand(cmd, argv, { env, cwd, deadlineMs }) {
+  return new Promise((done) => {
+    const child = spawn(cmd, argv, { env, cwd, stdio: ['ignore', 'pipe', 'ignore'] });
+    const out = [];
+    let timedOut = false;
+    const term = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+      setTimeout(() => child.kill('SIGKILL'), 10 * 1000).unref();
+    }, deadlineMs);
+    child.stdout.on('data', (chunk) => out.push(chunk));
+    child.on('error', () => {
+      clearTimeout(term);
+      done({ code: 127, timedOut: false, stdout: '' });
+    });
+    child.on('close', (code) => {
+      clearTimeout(term);
+      done({ code, timedOut, stdout: Buffer.concat(out).toString('utf8') });
+    });
+  });
+}
+
+// --- Entry point (composition root) -----------------------------------------
+
+async function main(argv, env) {
+  const step = realStep(env);
+  const casesText = readFileSync(CASES_PATH, 'utf8');
+  switch (argv[0]) {
+    case 'matrix':
+      return runMatrix({ env, casesText, step });
+    case 'review':
+      return runReview({ env, casesText, run: runCommand, now: () => Date.now(), step });
+    case 'collate':
+      return runCollate({ env, casesText, step, summary: (text) => appendFileSync(env.GITHUB_STEP_SUMMARY, text) });
+    default:
+      throw new Error('usage: ocr-bakeoff matrix|review|collate');
+  }
+}
+
+// Run only as a script: the test suite imports this file for its flows.
+const invokedDirectly = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+
+if (invokedDirectly) {
+  main(process.argv.slice(2), process.env).then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (error) => {
+      console.error(`ocr-bakeoff: ${error.message}`);
+      process.exitCode = 1;
+    },
+  );
+}

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # smoketest_ocr_review.sh -- run the OCR on Demand node suites (lib/ocr-review,
-# bin/ocr-review, the workflow files), a usage check of bin/ocr-review, and
+# bin/ocr-review, the workflow files; the bake-off, lib/ocr-bakeoff and
+# bin/ocr-bakeoff), a usage check of bin/ocr-review, and
 # `bin/ocr-review host-tools` against a fake runner PATH (the real PATH
 # lookup, which the node suites fake). No network.
 #
@@ -25,7 +26,8 @@ run_suites() {
         "${REPO_ROOT}/test/ocr_review_io.test.mjs" \
         "${REPO_ROOT}/test/ocr_review_git.test.mjs" \
         "${REPO_ROOT}/test/ocr_review_workflow.test.mjs" \
-        "${REPO_ROOT}/test/ocr_review_stats.test.mjs"
+        "${REPO_ROOT}/test/ocr_review_stats.test.mjs" \
+        "${REPO_ROOT}/test/ocr_bakeoff.test.mjs"
 }
 
 check_usage_error() {

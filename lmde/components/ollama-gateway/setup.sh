@@ -5,9 +5,10 @@
 # Usage: setup.sh [install|uninstall]     (default: install)
 #
 # install (idempotent):
-#   - copies the launchers, probe, profile, gateway.env and the connector
-#     config into the gateway tree, ~/.local/share/ollama-gateway; creates
-#     its home/ (the external ollama's HOME)
+#   - copies the launchers, probe, the profile template and its
+#     conformance table, gateway.env and the connector config into the
+#     gateway tree, ~/.local/share/ollama-gateway; renders the profile for
+#     this machine's kernel; creates its home/ (the external ollama's HOME)
 #   - creates the G4 probe's canaries: a file outside the tree,
 #     ~/.local/state/ollama-gateway-probe/canary, and a keychain item
 #     (service lmde.ollama-gateway.probe-canary) -- both hold the literal
@@ -100,7 +101,12 @@ install_tree() {
     mkdir -p "${TREE}/libexec" "${TREE}/sandbox" "${TREE}/connector" "${TREE}/home/.ollama" "${TREE}/home/tmp"
     cp "${COMPONENT_DIR}"/libexec/* "${TREE}/libexec/"
     chmod 755 "${TREE}"/libexec/*.zsh
-    cp "${COMPONENT_DIR}/sandbox/ollama-gateway.sb" "${TREE}/sandbox/"
+    cp "${COMPONENT_DIR}/sandbox/ollama-gateway.sb.in" "${TREE}/sandbox/"
+    cp "${COMPONENT_DIR}/sandbox/ollama-gateway.probe.tsv" "${TREE}/sandbox/"
+    # The profile is rendered here, not copied: its ephemeral-port block
+    # comes from this machine's kernel (libexec/profile-render.zsh).
+    /bin/zsh -f "${TREE}/libexec/profile-render.zsh" \
+        "${TREE}/sandbox/ollama-gateway.sb.in" "${TREE}/sandbox/ollama-gateway.sb"
     cp "${COMPONENT_DIR}/gateway.env" "${TREE}/gateway.env"
     cp "${COMPONENT_DIR}/connector/config.yml" "${TREE}/connector/config.yml"
     mkdir -p "${LOGDIR}"

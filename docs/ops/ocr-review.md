@@ -117,7 +117,10 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
   - `configuration`: run `bin/seed-ocr-review status`.
   - `credential`: Access refused the item's headers; check the item.
   - `gateway-down`: the laptop, its tunnel, the deadline proxy or the
-    sandboxed ollama is down.
+    sandboxed ollama is down. On the laptop, `lmde status` says which; a
+    sandboxed ollama that refuses to start (the G4 probe failed a row) is
+    the commonest, and `docs/ops/ollama-gateway.md` has the diagnosis
+    table.
   - `model-not-found`: the gateway does not serve that model.
   - `cold-model`: the model loaded for 6 minutes without answering; re-run.
   - `engine-error`: ocr failed, its result lacked the resolved range or the
@@ -181,6 +184,49 @@ Checked 2026-10-12 by reading `action.yml`,
   trigger the event carries no pull request, and the action would
   otherwise resolve an empty head.
 
+## Comparing models (the bake-off)
+
+Which model `OLLAMA_GATEWAY_MODEL` should name is measured, not guessed
+(Issue#468): `.github/workflows/ocr-bakeoff.yml` reruns real past reviews
+-- diffs Copilot or Codex reviewed, scored against the inline findings on
+them that triage accepted -- through the same gateway, ocr pin and
+settings as OCR on Demand, with nothing posted anywhere.
+
+- **The cases** are `lib/ocr-bakeoff/cases.json`: each is a repository, the
+  range a bot saw (`base` = merge-base of the PR's base and the reviewed
+  commit, `head` = the reviewed commit) and the accepted findings on it.
+  The first set comes from template-tools'
+  `docs/ops/review-calibration/` survey; code files only, because ocr
+  skips Markdown. A case must be in a public repository: the run job
+  checks it out with the caller's token.
+- **The caller** is `docs/ocr-bakeoff-caller.yml`, copied into a
+  repository that already runs OCR on Demand (it needs the same secret and
+  variables) with both SHAs set to one tds-utils commit, like the OCR on
+  Demand caller.
+- **Run it** from that repository; `models` is one per line or comma,
+  `cases` a comma list of case ids (empty for all):
+
+  ```
+  gh workflow run ocr-bakeoff-caller.yml -R <owner>/<repo> \
+      -f models='qwen3.6:latest,<other model>' -f cases=''
+  ```
+
+  Every model must already be in the laptop's store (`ollama pull` on the
+  everyday instance). Jobs run one at a time, model by model, so the first
+  case of each model carries its cold load; each job holds the production
+  budget (8 minutes for probe plus review), so a review production would
+  time out on times out here too.
+- **Read it** in the `collate` job's summary: per model, runs, failures by
+  cause (`timeout`, `probe-failed`, `engine-error`, `no-record`), located
+  k of n, total findings, the cold load and the median review time.
+  "Located" is mechanical -- a finding on the same file within 10 lines of
+  an accepted one. Whether it names the same defect, and whether the
+  findings that locate nothing are real, is judged from the
+  `ocr-bakeoff-results` artifact (every finding with its text and quoted
+  code); post the judged table on the Issue that asked the question.
+- **Choosing** stays the owner's: the result recommends, the owner sets
+  `OLLAMA_GATEWAY_MODEL`.
+
 ## Known gaps (reported, not worked around)
 
 - **No per-finding post status at the pin.** The action reports post
@@ -222,9 +268,10 @@ design record's Key Decisions log; the umbrella issue is Issue#363.
 | Decisions | `lib/ocr-review/*.mjs` | Pure: authorize, gateway probe classification, verdict, record and summary, host tools, reactions, stats |
 | Caller template | `docs/ocr-review-caller.yml` | Copied verbatim into adopting repos; two SHAs pin it |
 | Seeder, stats | `bin/seed-ocr-review`, `bin/ocr-review-stats` | Human-run; `status` reports each adopter's pin |
+| Bake-off | `.github/workflows/ocr-bakeoff.yml`, `bin/ocr-bakeoff`, `lib/ocr-bakeoff/` (rules and `cases.json`), `docs/ocr-bakeoff-caller.yml`, `test/ocr_bakeoff.test.mjs` | Reuses `bin/ocr-review`'s credentials and probe steps; its ocr settings (`OCR_SETTINGS`, `configArgs`, `reviewArgs`) mirror `ocr-review.yml` and the pinned action by hand, so a change to one is a change to both |
 | Tests | `test/ocr_review_*.test.mjs`, `test/smoketest_ocr_review.sh`, `test/smoketest_seed_ocr_review.sh` | The smoketest is the list of node suites; a new suite is added there |
 | Runner image | tds-internal `services/ci-runner-pool/Dockerfile` | The pool's host tools (git, gnupg, unzip, a pinned and verified `op`); its `test/wiring.test.ts` lists them |
-| Gateway | `lmde/components/ollama-gateway/`, `lmde/components/proxy-layer/`; tds-internal `ops/terraform/ollama-gateway/` | The deadline status (507) and Host rewrite live in the route |
+| Gateway | `lmde/components/ollama-gateway/`, `lmde/components/proxy-layer/`; tds-internal `ops/terraform/ollama-gateway/` | The deadline status (507) and Host rewrite live in the route; operating the laptop side is `docs/ops/ollama-gateway.md` |
 
 ### Invariants a change must keep
 

@@ -1,0 +1,41 @@
+# ocr-bakeoff-caller.yml -- OCR bake-off caller template (tds-utils
+# Issue#468). Copy it verbatim to .github/workflows/ocr-bakeoff-caller.yml
+# in a repository that already runs OCR on Demand (it needs the same secret
+# and variables); runbook: docs/ops/ocr-review.md in tds-utils, "Comparing
+# models".
+#
+# Dispatch only. It reviews the cases in tds-utils lib/ocr-bakeoff/cases.json
+# (diffs of other repositories), not this repository, and posts nothing.
+#
+# The two SHAs below are a PLACEHOLDER (all zeros) until the reusable
+# workflow lands on tds-utils master. Replace BOTH with the same tds-utils
+# commit: the workflow is pinned by it, and tools_ref fetches the step
+# commands and the cases from it.
+
+name: ocr-bakeoff
+
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: Models to compare, one per line or comma
+        type: string
+        required: true
+      cases:
+        description: Case ids, comma-separated (empty runs every case)
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  ocr-bakeoff:
+    uses: 9atatimer/tds-utils/.github/workflows/ocr-bakeoff.yml@0000000000000000000000000000000000000000
+    with:
+      models: ${{ inputs.models }}
+      cases: ${{ inputs.cases }}
+      tools_ref: '0000000000000000000000000000000000000000'
+    secrets:
+      OLLAMA_GATEWAY_OP_SA_TOKEN: ${{ secrets.OLLAMA_GATEWAY_OP_SA_TOKEN }}

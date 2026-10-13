@@ -21,8 +21,8 @@ main() {
 
     out="$(run_launcher LEAKY_SECRET=do-not-pass)" || status=$?
     assert_eq "${status}" "0" "launcher exit status; output: ${out}"
-    [[ -f "${WORK}/fake-ollama.out" ]] || fail "ollama never started; output: ${out}"
-    rec="$(cat "${WORK}/fake-ollama.out")"
+    [[ -f "${TREE}/home/fake-ollama.out" ]] || fail "ollama never started; output: ${out}"
+    rec="$(cat "${TREE}/home/fake-ollama.out")"
 
     assert_contains "${rec}" "argv serve" "runs ollama serve"
     assert_contains "${rec}" "canary denied" "ollama runs confined (file canary)"
