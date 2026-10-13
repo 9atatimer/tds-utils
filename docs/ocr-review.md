@@ -80,6 +80,14 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
   MEMBER or COLLABORATOR. The comment path always uses the configured
   model. Any other comment is skipped and leaves nothing behind.
 - Fork PRs fail with cause `fork`; nothing reads the secret for them.
+- Reactions on the `/ocr` comment (design Key Decisions, comment
+  reactions): `eyes` once the run is approved, before the review starts;
+  after the summary comment, `+1` for success (including
+  `nothing-reviewable`) or `-1` for a failure (including `pr-not-open` and
+  `fork`) or a cancellation, and the workflow removes its own `eyes`. A
+  skipped comment and a dispatch get none. A reaction that cannot be
+  posted logs a warning and never fails the run; the summary comment and
+  the record are the outcome of record.
 
 ## Read the result
 
