@@ -1,6 +1,7 @@
 // test/ocr_review_record.test.mjs -- OCR on Demand, the report job's domain
 // (docs/design/OCR-ON-DEMAND.DESIGN.md: State Machine, Data Model, Report
-// job). How a run ended, the run record, and the one summary comment.
+// job). How a run ended, the run record, and this workflow's summary
+// comment (upstream's own sticky summary sits beside it; ours links it).
 // Pure: values in, values out. No network.
 // Run: node --test test/ocr_review_record.test.mjs
 
@@ -35,8 +36,9 @@ const JUDGED = {
   findingsPosted: 4,
   findingsFailed: 1,
   unreviewed: ['src/b.js'],
-  unposted: [{ path: 'src/a.js', line: 3, status: 'failed', body: 'Null check missing.' }],
 };
+
+const UPSTREAM = 'https://github.com/o/r/pull/7#issuecomment-123';
 
 const baseFacts = {
   repo: 'o/r',
@@ -234,19 +236,47 @@ test('every terminal state comments except pr-not-open', () => {
   assert.equal(shouldComment({ cause: null }), true);
 });
 
-test('a success summary names the range, the counts, the unreviewed files and the unposted findings', () => {
-  const body = renderSummary(record(), { runUrl: 'https://github.com/o/r/actions/runs/1', judged: JUDGED });
+test('a success summary names the range, the counts and the unreviewed files, and links upstream\'s summary', () => {
+  const body = renderSummary(record(), { runUrl: 'https://github.com/o/r/actions/runs/1', judged: JUDGED, upstreamSummaryUrl: UPSTREAM });
   assert.ok(body.startsWith(SUMMARY_MARKER));
   assert.match(body, new RegExp(`${RANGE.base.slice(0, 7)}\\.\\.${RANGE.head.slice(0, 7)}`));
   assert.match(body, /2 of 3 reviewable files/);
   assert.match(body, /src\/b\.js/);
-  assert.match(body, /src\/a\.js/);
-  assert.match(body, /Null check missing\./);
+  assert.match(body, /posted: 4; failed to post: 1/);
   assert.match(body, /actions\/runs\/1/);
+  // Upstream's summary is where each failed-to-post finding is named.
+  assert.ok(body.includes(`](${UPSTREAM})`), 'links upstream\'s summary comment');
+  assert.match(body, /failed to post[^\n]*named/i);
+});
+
+test('a failure summary still links upstream\'s summary when the action posted one', () => {
+  const body = renderSummary(record({ end: { outcome: 'failure', cause: 'engine-error', failingStep: null }, judged: null }), {
+    runUrl: 'u',
+    upstreamSummaryUrl: UPSTREAM,
+  });
+  assert.match(body, /engine-error/);
+  assert.ok(body.includes(`](${UPSTREAM})`));
+});
+
+test('with no upstream summary URL nothing is linked, and failed findings say they could not be linked', () => {
+  const body = renderSummary(record(), { runUrl: 'u', judged: JUDGED, upstreamSummaryUrl: '' });
+  assert.doesNotMatch(body, /issuecomment/);
+  assert.match(body, /no summary comment URL/i);
+});
+
+test('an upstream summary URL that is not a plain https URL is never linked', () => {
+  const body = renderSummary(record(), { runUrl: 'u', judged: JUDGED, upstreamSummaryUrl: 'javascript:alert(1)) [x](https://evil' });
+  assert.doesNotMatch(body, /javascript:|evil/);
+});
+
+test('engine-error is explained in terms of the action\'s post counts, not per-finding status', () => {
+  const body = renderSummary(record({ end: { outcome: 'failure', cause: 'engine-error', failingStep: null }, judged: null }), { runUrl: 'u' });
+  assert.match(body, /post counts/);
+  assert.doesNotMatch(body, /per-finding/);
 });
 
 test('a nothing-reviewable summary says so', () => {
-  const judged = { ...JUDGED, filesReviewable: 0, filesReviewed: 0, unreviewed: [], unposted: [] };
+  const judged = { ...JUDGED, filesReviewable: 0, filesReviewed: 0, unreviewed: [] };
   const body = renderSummary(record({ end: { outcome: 'success', cause: 'nothing-reviewable', failingStep: null }, judged }), {
     runUrl: 'u',
     judged,
@@ -272,19 +302,10 @@ test('a cancelled summary says the run was cancelled', () => {
   assert.match(body, /cancelled/i);
 });
 
-test('PR-controlled text cannot break out of its block or mention anyone', () => {
-  const judged = {
-    ...JUDGED,
-    unreviewed: ['evil`path`@team.js'],
-    unposted: [{ path: 'x.js', line: 1, status: 'failed', body: '```\n@everyone ping <img src=x>\n```' }],
-  };
+test('PR-controlled text cannot break out of its markup or mention anyone', () => {
+  const judged = { ...JUDGED, unreviewed: ['evil`path`@team.js'] };
   const body = renderSummary(record({ judged }), { runUrl: 'u', judged });
-  // The finding sits inside a fence longer than any backtick run it holds,
-  // so its own ``` cannot close the block and its @mention is inert text.
-  const fenced = body.match(/^(`{4,})\n([\s\S]*?)\n\1$/m);
-  assert.ok(fenced, 'finding body is fenced with a fence longer than its own backticks');
-  assert.match(fenced[2], /@everyone ping/);
-  assert.equal(body.split('@everyone').length, 2, '@everyone appears once, inside the fence');
   // A path is HTML-escaped inside <code>, so backticks and @ are inert.
   assert.match(body, /<code>evil&#96;path&#96;&#64;team\.js<\/code>/);
+  assert.doesNotMatch(body, /@team/);
 });
