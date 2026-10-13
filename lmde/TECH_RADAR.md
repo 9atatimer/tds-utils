@@ -90,6 +90,8 @@ documents the recommended approach so it isn't reinvented per repo.
   criterion to Adopt: same as Loki.
 - **Decision models** (Jev, Clef and kin): typed yes/no, pick-one and rubric judgements returned as probabilities, served locally by the decision arena.
 - **sqlite-vec**: vector search inside SQLite (a loadable extension); nearest-neighbour queries over embeddings stored in a local SQLite database.
+- **sandbox-exec** (macOS sandbox profiles): confining a local service that handles untrusted input; Apple-deprecated, so a probe run under the profile, never the profile text, is what gates the service. Exit: a supported successor, or survival across a macOS major update.
+- **cloudflared**: the Cloudflare tunnel connector for the LMDE's Access-protected public endpoints, from Homebrew, behind the LMDE proxy layer. Exit: a month without a manual restart.
 
 ---
 
@@ -113,6 +115,10 @@ documents the recommended approach so it isn't reinvented per repo.
 ---
 
 ## Decisions Log
+
+- **2026-10-12**: Added `sandbox-exec` and `cloudflared` to Trial, as the
+  approved Ollama Gateway design proposes (`docs/design/OLLAMA-GATEWAY.DESIGN.md`,
+  Key Decisions; issue #363), landing with the code that uses them.
 
 - **2026-10-05**: Moved `sqlite-vec` from Assess to Trial on Todd's
   approval ("Trial it."): the Dynomark daemon's brute-force Python KNN
