@@ -268,10 +268,18 @@ function fakeGit() {
   return run;
 }
 
+/** The verdict step's env as the workflow sets it: the Review step's
+ * outcome, the action's post counts (steps.ocr.outputs.comments_*), and
+ * OCR_EXIT_CODE, which the action itself exports. */
 const verdictEnv = (over) => ({
   OCR_STEP_OUTCOME: 'success',
   OCR_EXIT_CODE: '0',
   OCR_RESULT_PATH: '/tmp/ocr-result.json',
+  OCR_COMMENTS_TOTAL: '1',
+  OCR_COMMENTS_INLINE: '0',
+  OCR_COMMENTS_ROUTED: '0',
+  OCR_COMMENTS_SKIPPED: '0',
+  OCR_COMMENTS_FAILED: '1',
   RUNNER_TEMP: '/tmp/rt',
   ...over,
 });
@@ -291,18 +299,28 @@ test('verdict: the upstream action failing with no ocr exit code is left for rep
   assert.equal(step.outputs.review_cause ?? '', '');
 });
 
-test('verdict: at the pinned engine there is no per-finding post status, so a review is engine-error', async () => {
+test('verdict: a completed review is judged by the action\'s counts', async () => {
   const step = fakeStep();
   const git = fakeGit();
   const code = await runVerdict({ env: verdictEnv(), git, readFile: () => resultJson, step });
-  assert.equal(code, 1);
-  assert.equal(step.outputs.cause, 'engine-error');
-  assert.match(step.outputs.detail, /post counts/);
+  assert.equal(code, 0);
+  assert.equal(step.outputs.cause, '');
   // git was asked about exactly the range ocr resolved.
-  assert.ok(git.calls[0].argv.includes(`${BASE}..${HEAD}`) || (git.calls[0].argv.includes(BASE) && git.calls[0].argv.includes(HEAD)));
+  assert.ok(git.calls[0].argv.includes(`${BASE}..${HEAD}`));
   const state = JSON.parse(step.files['/tmp/rt/ocr-review-state/state.json']);
   assert.deepEqual(state.range, { base: BASE, head: HEAD });
-  assert.equal(state.cause, 'engine-error');
+  assert.equal(state.outcome, 'success');
+  assert.equal(state.findingsPosted, 0);
+  assert.equal(state.findingsFailed, 1);
+});
+
+test('verdict: a count the action did not set is engine-error naming it, never "nothing failed"', async () => {
+  const step = fakeStep();
+  const code = await runVerdict({ env: verdictEnv({ OCR_COMMENTS_FAILED: '' }), git: fakeGit(), readFile: () => resultJson, step });
+  assert.equal(code, 1);
+  assert.equal(step.outputs.cause, 'engine-error');
+  assert.match(step.outputs.detail, /comments_failed/);
+  assert.equal(JSON.parse(step.files['/tmp/rt/ocr-review-state/state.json']).cause, 'engine-error');
 });
 
 // --- report and comment --------------------------------------------------------
