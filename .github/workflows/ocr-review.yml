@@ -101,6 +101,7 @@ jobs:
       tools: ${{ steps.tools.outcome }}
       node: ${{ steps.node.outcome }}
       authorize: ${{ steps.authorize.outcome }}
+      ack_reaction_id: ${{ steps.ack.outputs.reaction_id }}
     steps:
       - name: Fetch the tools
         id: tools
@@ -131,6 +132,20 @@ jobs:
           AUTHOR_ASSOCIATION: ${{ github.event.comment.author_association }}
           PR: ${{ inputs.pr }}
         run: node .ocr-review-tools/bin/ocr-review authorize
+
+      # Eyes on an approved /ocr comment, before the review job starts; the
+      # report job replaces it with the outcome. Nothing for a dispatch or
+      # a skipped comment. Ambient token only; it may never fail the run.
+      - name: Acknowledge the comment
+        id: ack
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          DECISION: ${{ steps.authorize.outputs.decision }}
+        run: node .ocr-review-tools/bin/ocr-review ack
 
   review:
     name: review

@@ -11,6 +11,8 @@
 //
 //   authorize    authorize job: skip / fail (pr-not-open, fork) / approve.
 //                References no secret. Exit 1 on fail.
+//   ack          authorize job: react eyes on an approved /ocr comment and
+//                output the reaction id. Never fails the run (exit 0).
 //   host-tools   review job: which of git, unzip, gpg and op the runner has,
 //                and whether to install op (install_op). Runs before any
 //                credential is loaded. Exit 1 on runner-tool-missing.
@@ -37,6 +39,7 @@ import { fileURLToPath } from 'node:url';
 import { authorizeRun } from '../lib/ocr-review/authorize.mjs';
 import { extraHeadersValue, probeGateway, resolveCredentials, resolveGatewayConfig, resolveModel } from '../lib/ocr-review/gateway.mjs';
 import { HOST_TOOLS, checkHostTools, describeHostTools } from '../lib/ocr-review/host-tools.mjs';
+import { ackReaction, isCommentId } from '../lib/ocr-review/reaction.mjs';
 import { buildRecord, endOfRun, renderSummary, shouldComment } from '../lib/ocr-review/record.mjs';
 import { judgeReview, parseCheckAttr, parseNameStatus, parseNumstat, readEngineResult, readPostCounts, reviewableFiles } from '../lib/ocr-review/verdict.mjs';
 
@@ -160,6 +163,44 @@ export async function runAuthorize({ env, fetch, step, now }) {
   step.setOutput('base_ref', verdict.baseRef ?? '');
   step.setOutput('started_at', now());
   return verdict.decision === 'fail' ? 1 : 0;
+}
+
+// --- Flow: reactions --------------------------------------------------------
+
+/** POST a reaction on an issue comment; resolves the reaction's id (string,
+ * or null when GitHub's answer carries none). Throws on a non-2xx. */
+async function addReaction({ env, fetch, commentId, content }) {
+  const res = await fetch(`${apiUrl(env)}/repos/${env.REPO}/issues/comments/${commentId}/reactions`, {
+    method: 'POST',
+    headers: githubHeaders(env.GITHUB_TOKEN),
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) throw new Error(`reactions POST HTTP ${res.status}`);
+  const id = String((await res.json())?.id ?? '');
+  return isCommentId(id) ? id : null;
+}
+
+/** The ack step. Env: GITHUB_TOKEN, REPO, EVENT_NAME, COMMENT_ID, DECISION.
+ * Reacts eyes on an approved /ocr comment and outputs reaction_id. Always
+ * returns 0: an acknowledgement must never fail the run. */
+export async function runAck({ env, fetch, step }) {
+  const reaction = ackReaction({ trigger: triggerOf(env.EVENT_NAME), decision: env.DECISION });
+  if (!reaction) {
+    step.log('ack: no reaction (not an approved /ocr comment)');
+    return 0;
+  }
+  if (!isCommentId(env.COMMENT_ID)) {
+    step.log('::warning::ack: no usable comment id; not reacting');
+    return 0;
+  }
+  try {
+    const id = await addReaction({ env, fetch, commentId: env.COMMENT_ID, content: reaction });
+    if (id) step.setOutput('reaction_id', id);
+    step.log(`ack: reacted ${reaction} on comment ${env.COMMENT_ID}`);
+  } catch (error) {
+    step.log(`::warning::ack: could not react ${reaction} on comment ${env.COMMENT_ID}: ${error?.message ?? error}`);
+  }
+  return 0;
 }
 
 // --- Flow: host tools -------------------------------------------------------
@@ -461,6 +502,8 @@ async function main(argv, env) {
   switch (argv[0]) {
     case 'authorize':
       return runAuthorize({ env, fetch: globalThis.fetch, step, now: isoNow });
+    case 'ack':
+      return runAck({ env, fetch: globalThis.fetch, step });
     case 'host-tools':
       return runHostTools({ onPath: onPathIn(env.PATH), step });
     case 'credentials':
@@ -474,7 +517,7 @@ async function main(argv, env) {
     case 'comment':
       return runComment({ env, fetch: globalThis.fetch, readFile: readText });
     default:
-      throw new Error('usage: ocr-review authorize|host-tools|credentials|probe|verdict|report|comment');
+      throw new Error('usage: ocr-review authorize|ack|host-tools|credentials|probe|verdict|report|comment');
   }
 }
 
