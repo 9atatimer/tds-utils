@@ -104,50 +104,9 @@ this section; issue #289 owns the migration into `tasks/`.
 
 ## Lessons Learned (unsettled)
 
-### A closed durable-state list in a design is outgrown by its own guarantees
-
-about: skill:design
-
-DYNOMARK said the extension's durable state is "exactly" three keys; the
-build ended with nine (issue #420). Each at-least-once guarantee across an
-MV3 worker kill (unanswered saves, owed captures, move reports, backfill
-resume, window cleanup) needs state that outlives the worker, and each was
-added inside its task with no route back to the closed list. Derive the
-inventory from the delivery guarantees, or state it as a rule ("whatever
-an at-least-once path needs, and nothing that holds page text") rather
-than a list. The design skill lives in template-tools, which this session
-could not reach.
-
-### A Security mitigation that names a container misses new copies of the data
-
-about: skill:design
-
-DYNOMARK's "page content on disk" mitigation names the corpus store; the
-build put captured page text in `chrome.storage.local` and a second table
-too (issue #420), and the "local model" control checks a host, not where
-the data goes (issue #411). Nothing re-reviewed either, because no new
-container triggers a mitigation written about a container. State the
-mitigation against the data (page text, queries) and its flows.
-
-### Pulling Future Considerations into scope without amending the body splits the spec
-
-about: skill:design
-
-The Scope row made background-tab capture and the writer marker MVP while
-the body still described PoC behaviour, so one APPROVED record carried two
-capture policies and the contract README became the spec of record (issues
-#410, #424). A scope change that pulls a deferred item in is an amendment
-to every section that item touches, made before the freeze, not a row.
-
-### A Given/When/Then written as one example gets tested as one example
-
-about: skill:testing
-
-"Placement respects a lock: a sibling or new leaf" was pinned by one
-fixture whose neighbours sat in a sibling, so it passed while the general
-rule is false (issue #423). A Behaviors row stating a rule over inputs
-needs a property test, or at least the adversarial case, not the
-illustrative one.
+Graduated 2026-10-13 to the Skills repo (Skills PR#123): the three design
+lessons, the Given/When/Then lesson and the todo-plan lesson that sat here
+with a non-wip `about:`.
 
 ### Host-scoped design meets profile-scoped transport
 
@@ -157,19 +116,6 @@ The design makes HostRole a per-host value; native messaging connects per
 browser profile, so the code had to choose a profile and chose silently
 and permanently (issue #419). Unsettled until the binding is ruled on and
 the component ships; then it belongs in `docs/arch/` for Dynomark.
-
-### A retrospective cut tasks for bugs its own PR had already fixed
-
-about: skill:todo-plan
-
-Tasks 033 and 034 (issues #296, #297) were cut on 2026-09-28 from open
-issues and sat in Now for a day. Both bugs had been fixed and tested inside
-PR #290, the PR whose adversarial review filed them, but the fix commits
-named no closing keyword, so the issues stayed open and read as live work.
-Mechanism: an open issue says nothing was closed, not that nothing was
-fixed. Before cutting a task from an open issue, grep master for the issue
-number. The todo-plan skill lives in template-tools, which this session
-could not reach; this stays here until it is routed there.
 
 ### An accounting invariant across concurrent writers needs its state table first
 

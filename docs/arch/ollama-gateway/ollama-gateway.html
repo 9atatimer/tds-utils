@@ -82,19 +82,19 @@
   <path class="arrow" d="M300 480 V512"/>
 
   <rect class="sbx" x="30" y="516" width="550" height="176" rx="8"/>
-  <text x="44" y="538">sandbox-exec profile ollama-gateway.sb</text>
+  <text x="44" y="538">sandbox-exec, deny by default: ollama-gateway.sb, rendered per machine</text>
   <rect class="hop" x="50" y="550" width="510" height="64" rx="6"/>
   <text x="64" y="572">external ollama, 127.0.0.1:11435</text>
-  <text x="64" y="592" class="small">keep_alive 2m, 1 loaded model, context 32768, no prune, HOME = gateway tree</text>
-  <text x="44" y="640" class="small">G4 probe before every start (control, then confined); any failure: exit 78,</text>
+  <text x="64" y="592" class="small">keep_alive 2m, 1 loaded model, context 32768, no prune, HOME = &lt;tree&gt;/home</text>
+  <text x="44" y="640" class="small">G4 probe table before every start (control, then confined); any failed row: exit 78,</text>
   <text x="44" y="658" class="small">launchd retries in 30 s, DEGRADED. Never starts unconfined.</text>
-  <text x="44" y="680" class="small">$HOME: only the gateway tree and the store (read-only); metadata of $HOME, ~/.ollama (Issue#455)</text>
+  <text x="44" y="680" class="small">$HOME: gateway tree read-only, home/ writable, store read-only; metadata of $HOME, ~/.ollama (Issue#455)</text>
 
   <rect class="deny" x="620" y="520" width="215" height="44" rx="6"/>
   <text x="632" y="546">everyday ollama :11434</text>
   <path class="denied" d="M560 572 L620 545"/>
   <rect class="deny" x="620" y="580" width="215" height="44" rx="6"/>
-  <text x="632" y="606">Keychain, ~/.ssh, AI creds</text>
+  <text x="632" y="606">Keychain, launchd, ~/.ssh</text>
   <path class="denied" d="M560 600 L620 602"/>
   <rect class="sbx" x="620" y="640" width="215" height="44" rx="6"/>
   <text x="632" y="666">model store (read-only)</text>
@@ -104,7 +104,8 @@
 <ul>
   <li>2xx: ollama's answer, streamed through, plus the X-LMDE-Route header.</li>
   <li>The route's 503 and 507 are mirrored by hand in lib/ocr-review/gateway.mjs.</li>
-  <li>Live since 2026-10-13; tds-internal smoketest PASS 6/6.</li>
+  <li>Live since 2026-10-13; tds-internal smoketest PASS 6/6 at bring-up, PASS 7/7 at 22:28Z with the G4 probe (launch-ollama.zsh --probe-only) as its first check.</li>
+  <li>Outbound loopback: only the kernel's ephemeral range, where the runner listens; every well-known port (11434, 11436, ...) is denied.</li>
 </ul>
 </main>
 </body>
