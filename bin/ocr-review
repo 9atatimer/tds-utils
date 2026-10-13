@@ -254,7 +254,9 @@ async function reviewableOver(range, git) {
 }
 
 /** The verdict step. Env: OCR_STEP_OUTCOME, OCR_EXIT_CODE, OCR_RESULT_PATH,
- * RUNNER_TEMP. `git(argv, stdin)` runs git in the reviewed checkout. */
+ * RUNNER_TEMP. OCR_EXIT_CODE has no env: entry in the workflow: the pinned
+ * upstream action writes it to GITHUB_ENV after `ocr review`, so it reaches
+ * this later step; it is unset when the action failed before running ocr. `git(argv, stdin)` runs git in the reviewed checkout. */
 export async function runVerdict({ env, git, readFile, step }) {
   const statePath = `${env.RUNNER_TEMP}/${STATE_FILE}`;
   const resultText = (() => {
