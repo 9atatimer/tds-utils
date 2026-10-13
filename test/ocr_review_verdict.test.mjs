@@ -109,6 +109,12 @@ test('the engine result yields the resolved range, the reviewed files and the fi
   assert.equal(r.findings.length, 1);
 });
 
+test('a null comments list is Go\'s empty slice: no findings, not a missing part', () => {
+  const r = readEngineResult(result({ comments: null }));
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.findings, []);
+});
+
 test('a missing or unparseable result, range or reviewed list is reported missing, never empty', () => {
   assert.deepEqual(readEngineResult('').missing, ['result']);
   assert.deepEqual(readEngineResult('{not json').missing, ['result']);
