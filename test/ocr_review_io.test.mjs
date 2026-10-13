@@ -177,7 +177,7 @@ const reactEnv = (over) => ({
   ...over,
 });
 const reactFetch = (post = 201, del = 204, listed = []) =>
-  fakeFetch((url, init) => (init.method === 'DELETE' ? text(del, '') : (init.method ?? 'GET') === 'GET' ? json(200, listed) : json(post, { id: 77 })));
+  fakeFetch((url, init) => (init.method === 'DELETE' ? text(del, '') : init.method === 'GET' ? json(200, listed) : json(post, { id: 77 })));
 const callsOf = (fetch) => fetch.calls.map((c) => `${c.init.method} ${c.url}`);
 
 test('react: a successful comment-triggered run adds +1, then removes only the eyes this workflow added', async () => {
@@ -186,10 +186,11 @@ test('react: a successful comment-triggered run adds +1, then removes only the e
   assert.equal(await runReact({ env: reactEnv(), fetch, step }), 0);
   assert.deepEqual(callsOf(fetch), [
     'POST https://api.github.com/repos/o/r/issues/comments/555/reactions',
+    'GET https://api.github.com/repos/o/r/issues/comments/555/reactions?per_page=100',
     'DELETE https://api.github.com/repos/o/r/issues/comments/555/reactions/42',
   ]);
   assert.deepEqual(fetch.calls[0].body, { content: '+1' });
-  assert.equal(fetch.calls[1].init.headers.authorization, 'Bearer t');
+  assert.equal(fetch.calls[2].init.headers.authorization, 'Bearer t');
 });
 
 test("react: on a rerun, the workflow's own opposite thumb is removed so the comment shows one outcome; nobody else's reaction is touched", async () => {
@@ -206,7 +207,7 @@ test("react: on a rerun, the workflow's own opposite thumb is removed so the com
 });
 
 test('react: a failed reaction listing only warns; the outcome still posts and eyes still comes off', async () => {
-  const fetch = fakeFetch((url, init) => (init.method === 'DELETE' ? text(204, '') : (init.method ?? 'GET') === 'GET' ? text(500, 'boom') : json(201, { id: 77 })));
+  const fetch = fakeFetch((url, init) => (init.method === 'DELETE' ? text(204, '') : init.method === 'GET' ? text(500, 'boom') : json(201, { id: 77 })));
   const step = fakeStep();
   assert.equal(await runReact({ env: reactEnv(), fetch, step }), 0);
   const calls = callsOf(fetch);
@@ -225,7 +226,10 @@ test('react: a failed or cancelled run adds -1', async () => {
 test('react: a run that failed in authorize (no eyes were added) gets -1 and deletes nothing', async () => {
   const fetch = reactFetch();
   await runReact({ env: reactEnv({ OUTCOME: 'failure', ACK_REACTION_ID: '' }), fetch, step: fakeStep() });
-  assert.deepEqual(callsOf(fetch), ['POST https://api.github.com/repos/o/r/issues/comments/555/reactions']);
+  assert.deepEqual(callsOf(fetch), [
+    'POST https://api.github.com/repos/o/r/issues/comments/555/reactions',
+    'GET https://api.github.com/repos/o/r/issues/comments/555/reactions?per_page=100',
+  ]);
 });
 
 test('react: a reaction id that is not a number is never deleted', async () => {

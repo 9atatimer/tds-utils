@@ -41,7 +41,7 @@ import { fileURLToPath } from 'node:url';
 import { authorizeRun } from '../lib/ocr-review/authorize.mjs';
 import { extraHeadersValue, probeGateway, resolveCredentials, resolveGatewayConfig, resolveModel } from '../lib/ocr-review/gateway.mjs';
 import { HOST_TOOLS, checkHostTools, describeHostTools } from '../lib/ocr-review/host-tools.mjs';
-import { ackReaction, isCommentId, outcomeReaction } from '../lib/ocr-review/reaction.mjs';
+import { ackReaction, isCommentId, outcomeReaction, staleOutcomeIds } from '../lib/ocr-review/reaction.mjs';
 import { buildRecord, endOfRun, renderSummary, shouldComment } from '../lib/ocr-review/record.mjs';
 import { judgeReview, parseCheckAttr, parseNameStatus, parseNumstat, readEngineResult, readPostCounts, reviewableFiles } from '../lib/ocr-review/verdict.mjs';
 
@@ -224,6 +224,26 @@ export async function runReact({ env, fetch, step }) {
     step.log(`react: reacted ${reaction} on comment ${env.COMMENT_ID}`);
   } catch (error) {
     step.log(`::warning::react: could not react ${reaction} on comment ${env.COMMENT_ID}: ${error?.message ?? error}`);
+  }
+  // A rerun on the same comment must not leave the previous run's opposite
+  // thumb beside this one (Codex review, PR#447): remove only this
+  // workflow's own stale outcome reactions.
+  try {
+    const res = await fetch(`${apiUrl(env)}/repos/${env.REPO}/issues/comments/${env.COMMENT_ID}/reactions?per_page=100`, {
+      method: 'GET',
+      headers: githubHeaders(env.GITHUB_TOKEN),
+    });
+    if (!res.ok) throw new Error(`reactions GET HTTP ${res.status}`);
+    for (const id of staleOutcomeIds(await res.json(), reaction)) {
+      const del = await fetch(`${apiUrl(env)}/repos/${env.REPO}/issues/comments/${env.COMMENT_ID}/reactions/${id}`, {
+        method: 'DELETE',
+        headers: githubHeaders(env.GITHUB_TOKEN),
+      });
+      if (!del.ok && del.status !== 404) throw new Error(`reactions DELETE HTTP ${del.status}`);
+      step.log(`react: removed a stale outcome reaction on comment ${env.COMMENT_ID}`);
+    }
+  } catch (error) {
+    step.log(`::warning::react: could not clear stale outcome reactions on comment ${env.COMMENT_ID}: ${error?.message ?? error}`);
   }
   // Eyes means "under way"; it comes off even if the outcome did not post.
   if (!isCommentId(env.ACK_REACTION_ID)) return 0;
