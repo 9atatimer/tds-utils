@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ollama Gateway as-built</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1d2330; --muted: #5b6475; --line: #8a93a6;
+    --edge: #e8f0fe; --edge-b: #4a74c9; --laptop: #f4f6f9; --laptop-b: #8a93a6;
+    --hop: #eef7ee; --hop-b: #3f8f4f; --sbx: #fff4e5; --sbx-b: #c27a12;
+    --deny: #fdecec; --deny-b: #c0392b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171d; --fg: #e4e8ef; --muted: #a2abbb; --line: #6f7889;
+      --edge: #1d2a44; --edge-b: #7aa2f0; --laptop: #1b1f27; --laptop-b: #6f7889;
+      --hop: #1b2c1f; --hop-b: #6cc17e; --sbx: #2e2416; --sbx-b: #e3a447;
+      --deny: #351c1c; --deny-b: #e57368;
+    }
+  }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg);
+         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 1.3em; margin: 0 0 4px; }
+  p { color: var(--muted); margin: 0 0 12px; }
+  svg { width: 100%; height: auto; display: block; }
+  svg text { fill: var(--fg); font-size: 13px; }
+  svg .small { font-size: 11.5px; fill: var(--muted); }
+  svg .code { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; }
+  .edge { fill: var(--edge); stroke: var(--edge-b); }
+  .laptop { fill: var(--laptop); stroke: var(--laptop-b); stroke-dasharray: 6 4; }
+  .hop { fill: var(--hop); stroke: var(--hop-b); }
+  .sbx { fill: var(--sbx); stroke: var(--sbx-b); }
+  .deny { fill: var(--deny); stroke: var(--deny-b); }
+  .arrow { stroke: var(--line); stroke-width: 1.6; fill: none; marker-end: url(#a); }
+  .denied { stroke: var(--deny-b); stroke-width: 1.4; fill: none; stroke-dasharray: 4 3; }
+  ul { color: var(--muted); padding-left: 20px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Ollama Gateway, laptop side -- as-built</h1>
+<p>One credentialed request, top to bottom, with the status each layer answers. Detail: ARCHITECTURE.md beside this file.</p>
+<svg viewBox="0 0 860 720" role="img" aria-label="Request path from caller through Cloudflare, cloudflared, the proxy layer's two hops, to the sandboxed ollama">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8a93a6"/>
+    </marker>
+  </defs>
+
+  <text x="20" y="26">caller (OCR on Demand on an Actions runner), HTTPS + Access headers</text>
+  <path class="arrow" d="M300 34 V58"/>
+
+  <rect class="edge" x="20" y="62" width="560" height="96" rx="8"/>
+  <text x="34" y="84">Cloudflare edge: ollama.api9.com (tds-internal terraform)</text>
+  <text x="34" y="106" class="small">Access application: refuse without a valid service token -- 302 / 403</text>
+  <text x="34" y="126" class="small">Tunnel ingress: exactly /v1/chat/completions, /v1/models; else 404</text>
+  <text x="34" y="146" class="small">no connector -- 530</text>
+  <path class="arrow" d="M300 158 V190"/>
+  <text x="310" y="180" class="small">outbound-only tunnel, http2</text>
+
+  <rect class="laptop" x="10" y="194" width="840" height="514" rx="10"/>
+  <text x="24" y="214" class="small">owner's laptop (LaunchAgents)</text>
+
+  <rect class="hop" x="30" y="224" width="550" height="56" rx="8"/>
+  <text x="44" y="246">cloudflared connector</text>
+  <text x="44" y="266" class="small code">--protocol http2 --no-autoupdate, token from the Keychain on a pipe</text>
+  <path class="arrow" d="M300 280 V306"/>
+  <text x="310" y="298" class="small">nothing on 11436 -- 502</text>
+
+  <rect class="hop" x="30" y="310" width="550" height="70" rx="8"/>
+  <text x="44" y="332">proxy layer: deadline hop, 127.0.0.1:11436</text>
+  <text x="44" y="352" class="small">X-LMDE-Route: ollama-gateway on every answer</text>
+  <text x="44" y="370" class="small">no first byte in 90 s -- 507 Model Not Ready (retryable, retry-after 20)</text>
+  <path class="arrow" d="M300 380 V406"/>
+
+  <rect class="hop" x="30" y="410" width="550" height="70" rx="8"/>
+  <text x="44" y="432">proxy layer: hold hop, unix socket run/ollama-gateway.sock</text>
+  <text x="44" y="452" class="small">no abortonclose; holds the upstream 6 m; Host set to 127.0.0.1:11435</text>
+  <text x="44" y="470" class="small">ollama not listening -- 503</text>
+  <path class="arrow" d="M300 480 V512"/>
+
+  <rect class="sbx" x="30" y="516" width="550" height="176" rx="8"/>
+  <text x="44" y="538">sandbox-exec profile ollama-gateway.sb</text>
+  <rect class="hop" x="50" y="550" width="510" height="64" rx="6"/>
+  <text x="64" y="572">external ollama, 127.0.0.1:11435</text>
+  <text x="64" y="592" class="small">keep_alive 2m, 1 loaded model, context 32768, no prune, HOME = gateway tree</text>
+  <text x="44" y="640" class="small">G4 probe before every start (control, then confined); any failure: exit 78,</text>
+  <text x="44" y="658" class="small">launchd retries in 30 s, DEGRADED. Never starts unconfined.</text>
+  <text x="44" y="680" class="small">$HOME: only the gateway tree and the store (read-only); metadata of $HOME, ~/.ollama (Issue#455)</text>
+
+  <rect class="deny" x="620" y="520" width="215" height="44" rx="6"/>
+  <text x="632" y="546">everyday ollama :11434</text>
+  <path class="denied" d="M560 572 L620 545"/>
+  <rect class="deny" x="620" y="580" width="215" height="44" rx="6"/>
+  <text x="632" y="606">Keychain, ~/.ssh, AI creds</text>
+  <path class="denied" d="M560 600 L620 602"/>
+  <rect class="sbx" x="620" y="640" width="215" height="44" rx="6"/>
+  <text x="632" y="666">model store (read-only)</text>
+  <path class="arrow" d="M560 612 L620 660"/>
+  <text x="626" y="510" class="small">dashed red: denied by the sandbox</text>
+</svg>
+<ul>
+  <li>2xx: ollama's answer, streamed through, plus the X-LMDE-Route header.</li>
+  <li>The route's 503 and 507 are mirrored by hand in lib/ocr-review/gateway.mjs.</li>
+  <li>Live since 2026-10-13; tds-internal smoketest PASS 6/6.</li>
+</ul>
+</main>
+</body>
+</html>

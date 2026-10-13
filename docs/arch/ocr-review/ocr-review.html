@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OCR on Demand as-built</title>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1d2330; --muted: #5b6475; --line: #8a93a6;
+    --job: #eef7ee; --job-b: #3f8f4f; --sec: #fff4e5; --sec-b: #c27a12;
+    --ext: #e8f0fe; --ext-b: #4a74c9; --fail: #fdecec; --fail-b: #c0392b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171d; --fg: #e4e8ef; --muted: #a2abbb; --line: #6f7889;
+      --job: #1b2c1f; --job-b: #6cc17e; --sec: #2e2416; --sec-b: #e3a447;
+      --ext: #1d2a44; --ext-b: #7aa2f0; --fail: #351c1c; --fail-b: #e57368;
+    }
+  }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg);
+         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 1.3em; margin: 0 0 4px; }
+  p { color: var(--muted); margin: 0 0 12px; }
+  svg { width: 100%; height: auto; display: block; }
+  svg text { fill: var(--fg); font-size: 13px; }
+  svg .small { font-size: 11.5px; fill: var(--muted); }
+  .job { fill: var(--job); stroke: var(--job-b); }
+  .sec { fill: var(--sec); stroke: var(--sec-b); }
+  .ext { fill: var(--ext); stroke: var(--ext-b); }
+  .fail { fill: var(--fail); stroke: var(--fail-b); }
+  .arrow { stroke: var(--line); stroke-width: 1.6; fill: none; marker-end: url(#a); }
+  ul { color: var(--muted); padding-left: 20px; }
+</style>
+</head>
+<body>
+<main>
+<h1>OCR on Demand -- as-built</h1>
+<p>One run, from the trigger in an adopting repo to the record and the summary comment. Detail: ARCHITECTURE.md beside this file.</p>
+<svg viewBox="0 0 860 640" role="img" aria-label="Caller workflow, authorize job, review job, report job, with the gateway and upstream action">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8a93a6"/>
+    </marker>
+  </defs>
+
+  <rect class="ext" x="20" y="10" width="560" height="62" rx="8"/>
+  <text x="34" y="32">caller in the adopting repo: /ocr comment or workflow_dispatch</text>
+  <text x="34" y="54" class="small">uses: 9atatimer/tds-utils/.github/workflows/ocr-review.yml@SHA, tools_ref: SHA (Issue#453)</text>
+  <path class="arrow" d="M300 72 V96"/>
+
+  <rect class="job" x="20" y="100" width="560" height="76" rx="8"/>
+  <text x="34" y="122">authorize (no secret, 3 min)</text>
+  <text x="34" y="142" class="small">/ocr from OWNER, MEMBER or COLLABORATOR, or a dispatch; PR open; same-repo head</text>
+  <text x="34" y="162" class="small">reacts eyes on an approved /ocr comment</text>
+  <rect class="fail" x="620" y="110" width="220" height="56" rx="6"/>
+  <text x="632" y="132">skip (no record)</text>
+  <text x="632" y="152" class="small">or fail: pr-not-open, fork</text>
+  <path class="arrow" d="M580 138 H618"/>
+  <path class="arrow" d="M300 176 V200"/>
+  <text x="310" y="194" class="small">approve</text>
+
+  <rect class="sec" x="20" y="204" width="560" height="196" rx="8"/>
+  <text x="34" y="226">review (the only job with OLLAMA_GATEWAY_OP_SA_TOKEN, 9 min)</text>
+  <text x="34" y="248" class="small">host tools: git; op from the runner, else install it (gpg, unzip) -- runner-tool-missing</text>
+  <text x="34" y="268" class="small">credentials: op reads OLLAMA_GATEWAY_OP_ITEM; every value masked -- configuration</text>
+  <text x="34" y="288" class="small">probe: 1-token completion; 507 retried, 10 s apart, none started after 6 min</text>
+  <text x="34" y="306" class="small">  -- credential, gateway-down, model-not-found, cold-model, unexpected</text>
+  <text x="34" y="326" class="small">Review: alibaba/open-code-review@fabbdb29 (v1.12.13), ocr 1.12.13, stream on</text>
+  <text x="34" y="346" class="small">verdict: reviewable files over ocr's range, minus the exclusion class</text>
+  <text x="34" y="364" class="small">  -- engine-error, reviewed-nothing, nothing-reviewable</text>
+  <text x="34" y="386" class="small">uploads ocr-result (90 d) and ocr-review-state (1 d) (Issue#454)</text>
+
+  <rect class="ext" x="620" y="250" width="220" height="64" rx="6"/>
+  <text x="632" y="274">Ollama Gateway</text>
+  <text x="632" y="294" class="small">ollama.api9.com, Access headers</text>
+  <path class="arrow" d="M580 290 H618"/>
+  <rect class="ext" x="620" y="330" width="220" height="56" rx="6"/>
+  <text x="632" y="352">upstream posts inline</text>
+  <text x="632" y="372" class="small">and its sticky summary</text>
+  <path class="arrow" d="M580 330 H618"/>
+
+  <path class="arrow" d="M300 400 V424"/>
+  <text x="310" y="418" class="small">always, unless skipped</text>
+
+  <rect class="job" x="20" y="428" width="560" height="110" rx="8"/>
+  <text x="34" y="450">report (no secret, 5 min)</text>
+  <text x="34" y="472" class="small">run record first: job summary + ocr-review-record (90 d), record_version 1</text>
+  <text x="34" y="492" class="small">then one summary comment (none for pr-not-open), linking upstream's</text>
+  <text x="34" y="512" class="small">then +1 or -1 on the /ocr comment; its own eyes removed</text>
+  <text x="34" y="530" class="small">a failure no step declared is unexpected, naming the job and step</text>
+
+  <rect class="ext" x="20" y="562" width="560" height="56" rx="8"/>
+  <text x="34" y="584">bin/ocr-review-stats</text>
+  <text x="34" y="604" class="small">reads the records across adopters: runs by outcome, failures by cause, per period</text>
+  <path class="arrow" d="M300 538 V560"/>
+</svg>
+<ul>
+  <li>Every job runs on the caller's CI_RUNS_ON pool when set, else ubuntu-latest.</li>
+  <li>Pilot: Nine-At-A-Time-Media/Spot-the-clone; first green run 2026-10-13 (authorize 24 s, review 65 s, report 18 s).</li>
+</ul>
+</main>
+</body>
+</html>
