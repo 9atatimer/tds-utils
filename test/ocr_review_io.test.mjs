@@ -8,10 +8,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   REVIEW_STEPS,
+  runAck,
   runAuthorize,
   runComment,
   runCredentials,
+  runHostTools,
   runProbe,
+  runReact,
   runReport,
   runVerdict,
 } from '../bin/ocr-review';
@@ -112,6 +115,186 @@ test('authorize: a fork head fails fork; a dispatch reads trigger dispatch', asy
 
 test('authorize: any other API failure throws (the job fails; report calls it unexpected)', async () => {
   await assert.rejects(runAuthorize({ env: authorizeEnv(), fetch: fakeFetch(() => json(500, {})), step: fakeStep(), now: () => 'x' }), /HTTP 500/);
+});
+
+// --- ack: eyes on an approved /ocr comment ------------------------------------
+
+const ackEnv = (over) => ({ GITHUB_TOKEN: 't', REPO: 'o/r', EVENT_NAME: 'issue_comment', COMMENT_ID: '555', DECISION: 'approve', ...over });
+
+test('ack: an approved /ocr comment gets eyes, and the reaction id is output for the report', async () => {
+  const step = fakeStep();
+  const fetch = fakeFetch(() => json(201, { id: 42, content: 'eyes' }));
+  const code = await runAck({ env: ackEnv(), fetch, step });
+  assert.equal(code, 0);
+  assert.equal(fetch.calls.length, 1);
+  assert.equal(fetch.calls[0].url, 'https://api.github.com/repos/o/r/issues/comments/555/reactions');
+  assert.equal(fetch.calls[0].init.method, 'POST');
+  assert.equal(fetch.calls[0].init.headers.authorization, 'Bearer t');
+  assert.deepEqual(fetch.calls[0].body, { content: 'eyes' });
+  assert.equal(step.outputs.reaction_id, '42');
+});
+
+test('ack: a dispatch, a skipped comment and a failed authorize get no reaction and no API call', async () => {
+  for (const over of [{ EVENT_NAME: 'workflow_dispatch', COMMENT_ID: '' }, { DECISION: 'skip' }, { DECISION: 'fail' }]) {
+    const step = fakeStep();
+    const fetch = fakeFetch(() => json(201, { id: 1 }));
+    assert.equal(await runAck({ env: ackEnv(over), fetch, step }), 0);
+    assert.equal(fetch.calls.length, 0, JSON.stringify(over));
+    assert.equal(step.outputs.reaction_id, undefined);
+  }
+});
+
+test('ack: a refused or failed reaction only warns; it never fails the run', async () => {
+  for (const fetch of [
+    fakeFetch(() => json(403, {})),
+    fakeFetch(() => {
+      throw new TypeError('fetch failed');
+    }),
+  ]) {
+    const step = fakeStep();
+    assert.equal(await runAck({ env: ackEnv(), fetch, step }), 0);
+    assert.ok(step.events.some((e) => e[0] === 'log' && e[1].startsWith('::warning::')));
+    assert.equal(step.outputs.reaction_id, undefined);
+  }
+});
+
+test('ack: a comment id that is not a number is never put in a URL', async () => {
+  const step = fakeStep();
+  const fetch = fakeFetch(() => json(201, { id: 1 }));
+  assert.equal(await runAck({ env: ackEnv({ COMMENT_ID: '1/../../x' }), fetch, step }), 0);
+  assert.equal(fetch.calls.length, 0);
+});
+
+// --- react: the outcome replaces eyes -------------------------------------------
+
+const reactEnv = (over) => ({
+  GITHUB_TOKEN: 't',
+  REPO: 'o/r',
+  EVENT_NAME: 'issue_comment',
+  COMMENT_ID: '555',
+  OUTCOME: 'success',
+  ACK_REACTION_ID: '42',
+  ...over,
+});
+const reactFetch = (post = 201, del = 204, listed = []) =>
+  fakeFetch((url, init) => (init.method === 'DELETE' ? text(del, '') : init.method === 'GET' ? json(200, listed) : json(post, { id: 77 })));
+const callsOf = (fetch) => fetch.calls.map((c) => `${c.init.method} ${c.url}`);
+
+test('react: a successful comment-triggered run adds +1, then removes only the eyes this workflow added', async () => {
+  const step = fakeStep();
+  const fetch = reactFetch();
+  assert.equal(await runReact({ env: reactEnv(), fetch, step }), 0);
+  assert.deepEqual(callsOf(fetch), [
+    'POST https://api.github.com/repos/o/r/issues/comments/555/reactions',
+    'GET https://api.github.com/repos/o/r/issues/comments/555/reactions?per_page=100',
+    'DELETE https://api.github.com/repos/o/r/issues/comments/555/reactions/42',
+  ]);
+  assert.deepEqual(fetch.calls[0].body, { content: '+1' });
+  assert.equal(fetch.calls[2].init.headers.authorization, 'Bearer t');
+});
+
+test("react: on a rerun, the workflow's own opposite thumb is removed so the comment shows one outcome; nobody else's reaction is touched", async () => {
+  const listed = [
+    { id: 9, content: '-1', user: { login: 'github-actions[bot]' } },
+    { id: 10, content: '-1', user: { login: 'alice' } },
+  ];
+  const fetch = reactFetch(201, 204, listed);
+  assert.equal(await runReact({ env: reactEnv(), fetch, step: fakeStep() }), 0);
+  const calls = callsOf(fetch);
+  assert.ok(calls.includes('DELETE https://api.github.com/repos/o/r/issues/comments/555/reactions/9'), calls.join('\n'));
+  assert.ok(!calls.includes('DELETE https://api.github.com/repos/o/r/issues/comments/555/reactions/10'));
+  assert.ok(calls.includes('DELETE https://api.github.com/repos/o/r/issues/comments/555/reactions/42'));
+});
+
+test('react: a failed reaction listing only warns; the outcome still posts and eyes still comes off', async () => {
+  const fetch = fakeFetch((url, init) => (init.method === 'DELETE' ? text(204, '') : init.method === 'GET' ? text(500, 'boom') : json(201, { id: 77 })));
+  const step = fakeStep();
+  assert.equal(await runReact({ env: reactEnv(), fetch, step }), 0);
+  const calls = callsOf(fetch);
+  assert.ok(calls.includes('POST https://api.github.com/repos/o/r/issues/comments/555/reactions'));
+  assert.ok(calls.includes('DELETE https://api.github.com/repos/o/r/issues/comments/555/reactions/42'));
+});
+
+test('react: a failed or cancelled run adds -1', async () => {
+  for (const outcome of ['failure', 'cancelled']) {
+    const fetch = reactFetch();
+    await runReact({ env: reactEnv({ OUTCOME: outcome }), fetch, step: fakeStep() });
+    assert.deepEqual(fetch.calls[0].body, { content: '-1' }, outcome);
+  }
+});
+
+test('react: a run that failed in authorize (no eyes were added) gets -1 and deletes nothing', async () => {
+  const fetch = reactFetch();
+  await runReact({ env: reactEnv({ OUTCOME: 'failure', ACK_REACTION_ID: '' }), fetch, step: fakeStep() });
+  assert.deepEqual(callsOf(fetch), [
+    'POST https://api.github.com/repos/o/r/issues/comments/555/reactions',
+    'GET https://api.github.com/repos/o/r/issues/comments/555/reactions?per_page=100',
+  ]);
+});
+
+test('react: a reaction id that is not a number is never deleted', async () => {
+  const fetch = reactFetch();
+  await runReact({ env: reactEnv({ ACK_REACTION_ID: '42/../../7' }), fetch, step: fakeStep() });
+  assert.ok(fetch.calls.every((c) => c.init.method !== 'DELETE'));
+});
+
+test('react: a dispatch gets no reaction and no API call', async () => {
+  const fetch = reactFetch();
+  assert.equal(await runReact({ env: reactEnv({ EVENT_NAME: 'workflow_dispatch', COMMENT_ID: '' }), fetch, step: fakeStep() }), 0);
+  assert.equal(fetch.calls.length, 0);
+});
+
+test('react: a failed add or remove only warns; it never fails the run, and eyes is still removed', async () => {
+  for (const [post, del] of [
+    [403, 204],
+    [201, 500],
+  ]) {
+    const step = fakeStep();
+    const fetch = reactFetch(post, del);
+    assert.equal(await runReact({ env: reactEnv(), fetch, step }), 0);
+    assert.ok(callsOf(fetch).includes('DELETE https://api.github.com/repos/o/r/issues/comments/555/reactions/42'));
+    assert.ok(step.events.some((e) => e[0] === 'log' && e[1].startsWith('::warning::')), `${post}/${del}`);
+  }
+});
+
+// --- host tools ----------------------------------------------------------------
+
+/** A fake PATH lookup: the tools the runner has; records each question. */
+function fakeOnPath(...tools) {
+  const asked = [];
+  const onPath = (tool) => {
+    asked.push(tool);
+    return tools.includes(tool);
+  };
+  onPath.asked = asked;
+  return onPath;
+}
+
+test('host tools: on the pool image (op baked in) the check passes and says not to install op', async () => {
+  const step = fakeStep();
+  const onPath = fakeOnPath('git', 'unzip', 'gpg', 'op');
+  const code = await runHostTools({ env: {}, onPath, step });
+  assert.equal(code, 0);
+  assert.deepEqual([...onPath.asked].sort(), ['git', 'gpg', 'op', 'unzip']);
+  assert.equal(step.outputs.install_op, 'false');
+  assert.equal(step.outputs.cause ?? '', '');
+  assert.ok(step.events.some((e) => e[0] === 'log' && e[1].includes('git present, unzip present, gpg present, op present')));
+});
+
+test('host tools: on a GitHub-hosted runner (no op) the check passes and says to install op', async () => {
+  const step = fakeStep();
+  const code = await runHostTools({ env: {}, onPath: fakeOnPath('git', 'unzip', 'gpg'), step });
+  assert.equal(code, 0);
+  assert.equal(step.outputs.install_op, 'true');
+});
+
+test('host tools: no op and no gpg fails runner-tool-missing with detail gpg, exit 1', async () => {
+  const step = fakeStep();
+  const code = await runHostTools({ env: {}, onPath: fakeOnPath('git', 'unzip'), step });
+  assert.equal(code, 1);
+  assert.equal(step.outputs.cause, 'runner-tool-missing');
+  assert.equal(step.outputs.detail, 'gpg');
+  assert.ok(step.events.some((e) => e[0] === 'log' && /^::error::runner-tool-missing: gpg/.test(e[1])));
 });
 
 // --- credentials ---------------------------------------------------------------
@@ -405,6 +588,32 @@ test('report: a failed setup step is unexpected naming review and the step', asy
   assert.equal(record.cause, 'unexpected');
   const opcli = REVIEW_STEPS.find((s) => s.key === 'opcli');
   assert.equal(record.failing_step, `review / ${opcli.name}`);
+});
+
+test('report: a host-tools failure is recorded runner-tool-missing and the comment names the tool', async () => {
+  const step = fakeStep();
+  const env = reportEnv({
+    REVIEW_RESULT: 'failure',
+    REVIEW_OUTPUTS: reviewOutputs({
+      stage: 'success',
+      hosttools: 'failure',
+      hosttools_cause: 'runner-tool-missing',
+      hosttools_detail: 'gpg',
+      opcli: 'skipped',
+      creds: 'skipped',
+      probe: 'skipped',
+      ocr: 'skipped',
+      verdict: 'skipped',
+      model: '',
+    }),
+  });
+  await runReport({ env, readFile: noState, step, now: () => 'f' });
+  const record = JSON.parse(step.files[env.RECORD_PATH]);
+  assert.equal(record.outcome, 'failure');
+  assert.equal(record.cause, 'runner-tool-missing');
+  assert.equal(record.failing_step, null);
+  assert.match(step.files[env.COMMENT_PATH], /Detail: gpg/);
+  assert.equal(step.outputs.should_comment, 'true');
 });
 
 test('report: the review state supplies the range and counts', async () => {

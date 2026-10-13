@@ -76,6 +76,12 @@ test('the table shows each period, its outcomes, its failure causes, and what co
   assert.match(table, /runs without a record.*: 2/);
 });
 
+test('a runner-tool-missing failure is counted and shown under its own cause, at full width', () => {
+  const rows = aggregate([v1({ outcome: 'failure', cause: 'runner-tool-missing' })].map(normalizeRecord), 'week');
+  assert.deepEqual(rows[0].causes, { 'runner-tool-missing': 1 });
+  assert.match(renderTable(rows, { unreadable: 0, unrecorded: 0 }), /^ {2}runner-tool-missing\s+1$/m);
+});
+
 // --- collect flow ----------------------------------------------------------------
 
 /** A fake GitHub port: adopters per owner, runs per repo, records per run. */

@@ -83,6 +83,22 @@ test('a step that declares its cause ends the run with it (configuration, probe 
   }
 });
 
+test('a host tool missing from the runner ends the run runner-tool-missing, not unexpected', () => {
+  // Given the host-tools check found a tool the review job needs absent,
+  // When the run ends, Then the cause names that, and no step is blamed.
+  const steps = [
+    ok('Fetch the tools'),
+    ok('Set up Node'),
+    ok('Stage the tools'),
+    bad('Check the host tools', 'runner-tool-missing'),
+    skipped('Install the 1Password CLI'),
+    skipped('Credentials'),
+  ];
+  const end = endOfRun({ runCancelled: false, authorize: approved, review: { result: 'failure', steps } });
+  assert.deepEqual(end, { outcome: 'failure', cause: 'runner-tool-missing', failingStep: null });
+  assert.equal(isJudged(end), false);
+});
+
 test('a probe answer nobody documented is unexpected and names the probe step', () => {
   const steps = [ok('Credentials'), bad('Probe', 'unexpected')];
   const end = endOfRun({ runCancelled: false, authorize: approved, review: { result: 'failure', steps } });
@@ -137,6 +153,7 @@ test('every cause the State Machine names is in the closed set', () => {
     'gateway-down',
     'model-not-found',
     'cold-model',
+    'runner-tool-missing',
     'unexpected',
     'engine-error',
     'reviewed-nothing',
@@ -295,6 +312,17 @@ test('a failure summary names the cause; unexpected also names the failing step'
     runUrl: 'u',
   });
   assert.match(unexpected, /review \/ Probe/);
+});
+
+test('a runner-tool-missing summary names the cause and the missing tool, and says it is the runner, not the engine', () => {
+  const body = renderSummary(record({ model: null, end: { outcome: 'failure', cause: 'runner-tool-missing', failingStep: null }, judged: null }), {
+    runUrl: 'u',
+    detail: 'gpg',
+  });
+  assert.match(body, /OCR review failed: runner-tool-missing/);
+  assert.match(body, /Detail: gpg/);
+  assert.match(body, /runner image/);
+  assert.doesNotMatch(body, /no other cause covers/);
 });
 
 test('a cancelled summary says the run was cancelled', () => {

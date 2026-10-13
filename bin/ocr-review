@@ -11,6 +11,13 @@
 //
 //   authorize    authorize job: skip / fail (pr-not-open, fork) / approve.
 //                References no secret. Exit 1 on fail.
+//   ack          authorize job: react eyes on an approved /ocr comment and
+//                output the reaction id. Never fails the run (exit 0).
+//   react        report job: the outcome (+1 / -1) on the /ocr comment, then
+//                remove the eyes the ack step added. Never fails (exit 0).
+//   host-tools   review job: which of git, unzip, gpg and op the runner has,
+//                and whether to install op (install_op). Runs before any
+//                credential is loaded. Exit 1 on runner-tool-missing.
 //   credentials  review job: the gateway's caller item, read through the
 //                1Password CLI with the service-account token; every value
 //                masked the moment it is read. Exit 1 on configuration.
@@ -27,12 +34,14 @@
 
 import { execFile, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { accessSync, appendFileSync, constants as fsConstants, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { authorizeRun } from '../lib/ocr-review/authorize.mjs';
 import { extraHeadersValue, probeGateway, resolveCredentials, resolveGatewayConfig, resolveModel } from '../lib/ocr-review/gateway.mjs';
+import { HOST_TOOLS, checkHostTools, describeHostTools } from '../lib/ocr-review/host-tools.mjs';
+import { ackReaction, isCommentId, outcomeReaction, staleOutcomeIds } from '../lib/ocr-review/reaction.mjs';
 import { buildRecord, endOfRun, renderSummary, shouldComment } from '../lib/ocr-review/record.mjs';
 import { judgeReview, parseCheckAttr, parseNameStatus, parseNumstat, readEngineResult, readPostCounts, reviewableFiles } from '../lib/ocr-review/verdict.mjs';
 
@@ -52,6 +61,7 @@ export const REVIEW_STEPS = Object.freeze([
   { key: 'tools', name: 'Fetch the tools' },
   { key: 'node', name: 'Set up Node' },
   { key: 'stage', name: 'Stage the tools' },
+  { key: 'hosttools', name: 'Check the host tools', cause: 'hosttools_cause', detail: 'hosttools_detail' },
   { key: 'opcli', name: 'Install the 1Password CLI' },
   { key: 'creds', name: 'Credentials', cause: 'creds_cause', detail: 'creds_detail' },
   { key: 'probe', name: 'Probe', cause: 'probe_cause', detail: 'probe_detail' },
@@ -155,6 +165,119 @@ export async function runAuthorize({ env, fetch, step, now }) {
   step.setOutput('base_ref', verdict.baseRef ?? '');
   step.setOutput('started_at', now());
   return verdict.decision === 'fail' ? 1 : 0;
+}
+
+// --- Flow: reactions --------------------------------------------------------
+
+/** POST a reaction on an issue comment; resolves the reaction's id (string,
+ * or null when GitHub's answer carries none). Throws on a non-2xx. */
+async function addReaction({ env, fetch, commentId, content }) {
+  const res = await fetch(`${apiUrl(env)}/repos/${env.REPO}/issues/comments/${commentId}/reactions`, {
+    method: 'POST',
+    headers: githubHeaders(env.GITHUB_TOKEN),
+    body: JSON.stringify({ content }),
+  });
+  if (!res.ok) throw new Error(`reactions POST HTTP ${res.status}`);
+  const id = String((await res.json())?.id ?? '');
+  return isCommentId(id) ? id : null;
+}
+
+/** The ack step. Env: GITHUB_TOKEN, REPO, EVENT_NAME, COMMENT_ID, DECISION.
+ * Reacts eyes on an approved /ocr comment and outputs reaction_id. Always
+ * returns 0: an acknowledgement must never fail the run. */
+export async function runAck({ env, fetch, step }) {
+  const reaction = ackReaction({ trigger: triggerOf(env.EVENT_NAME), decision: env.DECISION });
+  if (!reaction) {
+    step.log('ack: no reaction (not an approved /ocr comment)');
+    return 0;
+  }
+  if (!isCommentId(env.COMMENT_ID)) {
+    step.log('::warning::ack: no usable comment id; not reacting');
+    return 0;
+  }
+  try {
+    const id = await addReaction({ env, fetch, commentId: env.COMMENT_ID, content: reaction });
+    if (id) step.setOutput('reaction_id', id);
+    step.log(`ack: reacted ${reaction} on comment ${env.COMMENT_ID}`);
+  } catch (error) {
+    step.log(`::warning::ack: could not react ${reaction} on comment ${env.COMMENT_ID}: ${error?.message ?? error}`);
+  }
+  return 0;
+}
+
+/** The react step. Env: GITHUB_TOKEN, REPO, EVENT_NAME, COMMENT_ID, OUTCOME
+ * (the record's), ACK_REACTION_ID (the authorize job's eyes). Adds the
+ * outcome reaction, then deletes that eyes by id -- the one reaction this
+ * workflow added, never anyone else's. Always returns 0. */
+export async function runReact({ env, fetch, step }) {
+  const reaction = outcomeReaction({ trigger: triggerOf(env.EVENT_NAME), outcome: env.OUTCOME });
+  if (!reaction) {
+    step.log('react: no reaction (not a comment-triggered run)');
+    return 0;
+  }
+  if (!isCommentId(env.COMMENT_ID)) {
+    step.log('::warning::react: no usable comment id; not reacting');
+    return 0;
+  }
+  try {
+    await addReaction({ env, fetch, commentId: env.COMMENT_ID, content: reaction });
+    step.log(`react: reacted ${reaction} on comment ${env.COMMENT_ID}`);
+  } catch (error) {
+    step.log(`::warning::react: could not react ${reaction} on comment ${env.COMMENT_ID}: ${error?.message ?? error}`);
+  }
+  // A rerun on the same comment must not leave the previous run's opposite
+  // thumb beside this one (Codex review, PR#447): remove only this
+  // workflow's own stale outcome reactions.
+  try {
+    const res = await fetch(`${apiUrl(env)}/repos/${env.REPO}/issues/comments/${env.COMMENT_ID}/reactions?per_page=100`, {
+      method: 'GET',
+      headers: githubHeaders(env.GITHUB_TOKEN),
+    });
+    if (!res.ok) throw new Error(`reactions GET HTTP ${res.status}`);
+    for (const id of staleOutcomeIds(await res.json(), reaction)) {
+      const del = await fetch(`${apiUrl(env)}/repos/${env.REPO}/issues/comments/${env.COMMENT_ID}/reactions/${id}`, {
+        method: 'DELETE',
+        headers: githubHeaders(env.GITHUB_TOKEN),
+      });
+      if (!del.ok && del.status !== 404) throw new Error(`reactions DELETE HTTP ${del.status}`);
+      step.log(`react: removed a stale outcome reaction on comment ${env.COMMENT_ID}`);
+    }
+  } catch (error) {
+    step.log(`::warning::react: could not clear stale outcome reactions on comment ${env.COMMENT_ID}: ${error?.message ?? error}`);
+  }
+  // Eyes means "under way"; it comes off even if the outcome did not post.
+  if (!isCommentId(env.ACK_REACTION_ID)) return 0;
+  try {
+    const res = await fetch(`${apiUrl(env)}/repos/${env.REPO}/issues/comments/${env.COMMENT_ID}/reactions/${env.ACK_REACTION_ID}`, {
+      method: 'DELETE',
+      headers: githubHeaders(env.GITHUB_TOKEN),
+    });
+    if (!res.ok && res.status !== 404) throw new Error(`reactions DELETE HTTP ${res.status}`);
+    step.log(`react: removed the acknowledgement on comment ${env.COMMENT_ID}`);
+  } catch (error) {
+    step.log(`::warning::react: could not remove the acknowledgement on comment ${env.COMMENT_ID}: ${error?.message ?? error}`);
+  }
+  return 0;
+}
+
+// --- Flow: host tools -------------------------------------------------------
+
+/** The host-tools step. `onPath(tool)` says whether the runner's PATH has an
+ * executable by that name. Outputs install_op ('true' when the 1Password CLI
+ * must be installed); on a missing tool, cause and detail, and exit 1. */
+export async function runHostTools({ onPath, step }) {
+  const present = Object.fromEntries(HOST_TOOLS.map((tool) => [tool, Boolean(onPath(tool))]));
+  const check = checkHostTools(present);
+  step.log(`host tools: ${describeHostTools(present)}`);
+  step.setOutput('install_op', String(check.installOp));
+  if (check.ok) {
+    step.log(`host tools: ${check.installOp ? 'op is not on the runner; the 1Password CLI will be installed' : "using the runner's op"}`);
+    return 0;
+  }
+  step.log(`::error::runner-tool-missing: ${check.detail}`);
+  step.setOutput('cause', check.cause);
+  step.setOutput('detail', check.detail);
+  return 1;
 }
 
 // --- Flow: credentials ------------------------------------------------------
@@ -387,6 +510,23 @@ function runOp(argv, env) {
   });
 }
 
+/** A PATH lookup over `pathValue`: a regular file the process may execute. */
+function onPathIn(pathValue) {
+  const dirs = String(pathValue ?? '')
+    .split(delimiter)
+    .filter(Boolean);
+  return (tool) =>
+    dirs.some((dir) => {
+      const candidate = join(dir, tool);
+      try {
+        accessSync(candidate, fsConstants.X_OK);
+        return statSync(candidate).isFile();
+      } catch {
+        return false;
+      }
+    });
+}
+
 function gitIn(workspace) {
   return (argv, stdin) =>
     new Promise((done, fail) => {
@@ -419,6 +559,10 @@ async function main(argv, env) {
   switch (argv[0]) {
     case 'authorize':
       return runAuthorize({ env, fetch: globalThis.fetch, step, now: isoNow });
+    case 'ack':
+      return runAck({ env, fetch: globalThis.fetch, step });
+    case 'host-tools':
+      return runHostTools({ onPath: onPathIn(env.PATH), step });
     case 'credentials':
       return runCredentials({ env, op: runOp, step });
     case 'probe':
@@ -427,10 +571,12 @@ async function main(argv, env) {
       return runVerdict({ env, git: gitIn(env.GITHUB_WORKSPACE || '.'), readFile: readText, step });
     case 'report':
       return runReport({ env, readFile: readText, step, now: isoNow, summary: (text) => appendFileSync(env.GITHUB_STEP_SUMMARY, text) });
+    case 'react':
+      return runReact({ env, fetch: globalThis.fetch, step });
     case 'comment':
       return runComment({ env, fetch: globalThis.fetch, readFile: readText });
     default:
-      throw new Error('usage: ocr-review authorize|credentials|probe|verdict|report|comment');
+      throw new Error('usage: ocr-review authorize|ack|host-tools|credentials|probe|verdict|report|comment|react');
   }
 }
 
