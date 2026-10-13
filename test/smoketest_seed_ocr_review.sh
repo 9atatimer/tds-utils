@@ -54,8 +54,9 @@ trap cleanup EXIT INT TERM HUP
 #   secret         repo secret updated_at (absent -> 404)
 #   var.<NAME>     repo variable value (absent -> 404)
 #   lastrun        "<conclusion> <createdAt>"
-# ${FAKE_STATE}/org/<owner>/secret.repos      org secret's selected repos (absent -> 404)
-# ${FAKE_STATE}/org/<owner>/var.<NAME>.repos  org variable's selected repos
+# ${FAKE_STATE}/org/<owner>/secret.repos      org secret's selected repos (absent -> 404),
+#                                             served a page at a time like GitHub
+# ${FAKE_STATE}/org/<owner>/var.<NAME>.repos  org variable's selected repos, likewise
 # ${FAKE_STATE}/stale/<pin>                   compare <pin>...master touches ocr paths
 # ${FAKE_STATE}/log                           every write and every op read
 
@@ -69,6 +70,14 @@ state="${FAKE_STATE:?}"
 args="$*"
 repo_dir() { printf '%s/repos/%s\n' "${state}" "$1"; }
 flag() { printf '%s' "${args}" | sed -n "s/.*$1 \([^ ]*\).*/\1/p"; }
+# A list endpoint as GitHub serves it: one page (per_page, default 30) unless
+# --paginate asks for every page.
+page_of() {
+    local per_page
+    case " ${args} " in *" --paginate "*) cat "$1"; return 0 ;; esac
+    per_page=$(printf '%s' "${args}" | sed -n 's/.*per_page=\([0-9]*\).*/\1/p')
+    head -n "${per_page:-30}" "$1"
+}
 case "${args}" in
     *"search/code"*)
         printf 'search %s\n' "${args}" >> "${state}/log"; exit 99 ;;
@@ -101,7 +110,7 @@ case "${args}" in
         owner=$(printf '%s' "${args}" | sed -n 's|api orgs/\([^/]*\)/.*|\1|p')
         f="${state}/org/${owner}/secret.repos"
         [ -f "${f}" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
-        cat "${f}" ;;
+        page_of "${f}" ;;
     "api repos/"*"/actions/variables/"*)
         repo=$(printf '%s' "${args}" | sed -n 's|api repos/\([^/]*/[^/]*\)/actions.*|\1|p')
         name=$(printf '%s' "${args}" | sed -n 's|.*/actions/variables/\([A-Z_]*\).*|\1|p')
@@ -113,7 +122,7 @@ case "${args}" in
         name=$(printf '%s' "${args}" | sed -n 's|.*/actions/variables/\([A-Z_]*\)/.*|\1|p')
         f="${state}/org/${owner}/var.${name}.repos"
         [ -f "${f}" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
-        cat "${f}" ;;
+        page_of "${f}" ;;
     "run list"*)
         repo=$(flag -R)
         f="$(repo_dir "${repo}")/lastrun"
@@ -256,6 +265,20 @@ case_seed_org_owner() {
     assert "no per-repo secret" "! grep -q '^secret set' '${s}/log'"
 }
 
+case_org_selection_every_page() {
+    bold "org owner: a selection longer than one page is read whole -- status counts a repo on page 2, seed keeps it"; echo
+    local s i sel; s=$(fixture page1)
+    sel="${s}/org/Nine-At-A-Time-Media/secret.repos"
+    for i in $(seq 1 120); do echo "Nine-At-A-Time-Media/filler${i}"; done >> "${sel}"
+    printf '%s\n' Nine-At-A-Time-Media/tools Nine-At-A-Time-Media/late >> "${sel}"
+    run "${s}" -o Nine-At-A-Time-Media status
+    assert "status: tools, selected on a later page, reads org" "line_of Nine-At-A-Time-Media/tools | grep -q ' org '"
+    run "${s}" -o Nine-At-A-Time-Media -i "${ITEM}" -r "${OPREF}" -u "${URL}" seed
+    assert "seed exits 0" "[ \"\${RUN_RC}\" -eq 0 ]"
+    assert "seed keeps a repo selected on a later page (no revocation)" \
+        "grep '^org secret set' '${s}/log' | grep -q 'Nine-At-A-Time-Media/late' && grep '^org secret set' '${s}/log' | grep -q 'Nine-At-A-Time-Media/filler120'"
+}
+
 case_seed_named_repo() {
     bold "seed <repo>: only the named repo"; echo
     local s; s=$(fixture seed3)
@@ -341,6 +364,7 @@ main() {
     case_status_org_owner
     case_seed_user_owner
     case_seed_org_owner
+    case_org_selection_every_page
     case_seed_named_repo
     case_seed_needs_item
     case_seed_needs_token_ref_and_url
