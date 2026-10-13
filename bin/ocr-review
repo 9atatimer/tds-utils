@@ -527,7 +527,7 @@ function onPathIn(pathValue) {
     });
 }
 
-function gitIn(workspace) {
+export function gitIn(workspace) {
   return (argv, stdin) =>
     new Promise((done, fail) => {
       const child = spawn('git', ['-C', workspace, ...argv], { stdio: ['pipe', 'pipe', 'pipe'] });
@@ -536,6 +536,12 @@ function gitIn(workspace) {
       child.stdout.on('data', (chunk) => out.push(chunk));
       child.stderr.on('data', (chunk) => err.push(chunk));
       child.on('error', fail);
+      // git may exit before reading its stdin (a refused command); the write
+      // then fails with EPIPE. That is not the error: git's exit code and
+      // stderr, reported on close below, are (Issue#449).
+      child.stdin.on('error', (error) => {
+        if (error?.code !== 'EPIPE') fail(error);
+      });
       child.on('close', (code) => {
         if (code === 0) done(Buffer.concat(out).toString('utf8'));
         else fail(new Error(`git ${argv[0]} exited ${code}: ${Buffer.concat(err).toString('utf8').trim()}`));
