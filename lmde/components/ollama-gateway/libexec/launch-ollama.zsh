@@ -91,6 +91,7 @@ load_config() {
         -D "GATEWAY_TREE=${TREE}"
         -D "GATEWAY_HOME=${GATEWAY_HOME}"
         -D "MODEL_STORE=${STORE}"
+        -D "MODEL_STORE_PARENT=${STORE:h}"
     )
 }
 

@@ -31,6 +31,11 @@
 (allow file-read* (subpath (param "GATEWAY_TREE")))
 (allow file-write* (subpath (param "GATEWAY_HOME")))
 (allow file-read* (subpath (param "MODEL_STORE")))
+;; The store's parent: metadata only (stat, no listing, no file reads).
+;; ollama 0.40.3 lstats each component of the store path and rejects every
+;; manifest without it (Issue#443); ~/.ollama/id_ed25519 and history stay
+;; denied by the home-wide rule above.
+(allow file-read-metadata (literal (param "MODEL_STORE_PARENT")))
 
 ;; Q7, first cut: the store is read-only. Stated explicitly so it holds
 ;; even for a store that lives outside $HOME.
