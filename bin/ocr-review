@@ -13,6 +13,8 @@
 //                References no secret. Exit 1 on fail.
 //   ack          authorize job: react eyes on an approved /ocr comment and
 //                output the reaction id. Never fails the run (exit 0).
+//   react        report job: the outcome (+1 / -1) on the /ocr comment, then
+//                remove the eyes the ack step added. Never fails (exit 0).
 //   host-tools   review job: which of git, unzip, gpg and op the runner has,
 //                and whether to install op (install_op). Runs before any
 //                credential is loaded. Exit 1 on runner-tool-missing.
@@ -39,7 +41,7 @@ import { fileURLToPath } from 'node:url';
 import { authorizeRun } from '../lib/ocr-review/authorize.mjs';
 import { extraHeadersValue, probeGateway, resolveCredentials, resolveGatewayConfig, resolveModel } from '../lib/ocr-review/gateway.mjs';
 import { HOST_TOOLS, checkHostTools, describeHostTools } from '../lib/ocr-review/host-tools.mjs';
-import { ackReaction, isCommentId } from '../lib/ocr-review/reaction.mjs';
+import { ackReaction, isCommentId, outcomeReaction } from '../lib/ocr-review/reaction.mjs';
 import { buildRecord, endOfRun, renderSummary, shouldComment } from '../lib/ocr-review/record.mjs';
 import { judgeReview, parseCheckAttr, parseNameStatus, parseNumstat, readEngineResult, readPostCounts, reviewableFiles } from '../lib/ocr-review/verdict.mjs';
 
@@ -199,6 +201,41 @@ export async function runAck({ env, fetch, step }) {
     step.log(`ack: reacted ${reaction} on comment ${env.COMMENT_ID}`);
   } catch (error) {
     step.log(`::warning::ack: could not react ${reaction} on comment ${env.COMMENT_ID}: ${error?.message ?? error}`);
+  }
+  return 0;
+}
+
+/** The react step. Env: GITHUB_TOKEN, REPO, EVENT_NAME, COMMENT_ID, OUTCOME
+ * (the record's), ACK_REACTION_ID (the authorize job's eyes). Adds the
+ * outcome reaction, then deletes that eyes by id -- the one reaction this
+ * workflow added, never anyone else's. Always returns 0. */
+export async function runReact({ env, fetch, step }) {
+  const reaction = outcomeReaction({ trigger: triggerOf(env.EVENT_NAME), outcome: env.OUTCOME });
+  if (!reaction) {
+    step.log('react: no reaction (not a comment-triggered run)');
+    return 0;
+  }
+  if (!isCommentId(env.COMMENT_ID)) {
+    step.log('::warning::react: no usable comment id; not reacting');
+    return 0;
+  }
+  try {
+    await addReaction({ env, fetch, commentId: env.COMMENT_ID, content: reaction });
+    step.log(`react: reacted ${reaction} on comment ${env.COMMENT_ID}`);
+  } catch (error) {
+    step.log(`::warning::react: could not react ${reaction} on comment ${env.COMMENT_ID}: ${error?.message ?? error}`);
+  }
+  // Eyes means "under way"; it comes off even if the outcome did not post.
+  if (!isCommentId(env.ACK_REACTION_ID)) return 0;
+  try {
+    const res = await fetch(`${apiUrl(env)}/repos/${env.REPO}/issues/comments/${env.COMMENT_ID}/reactions/${env.ACK_REACTION_ID}`, {
+      method: 'DELETE',
+      headers: githubHeaders(env.GITHUB_TOKEN),
+    });
+    if (!res.ok && res.status !== 404) throw new Error(`reactions DELETE HTTP ${res.status}`);
+    step.log(`react: removed the acknowledgement on comment ${env.COMMENT_ID}`);
+  } catch (error) {
+    step.log(`::warning::react: could not remove the acknowledgement on comment ${env.COMMENT_ID}: ${error?.message ?? error}`);
   }
   return 0;
 }
@@ -514,10 +551,12 @@ async function main(argv, env) {
       return runVerdict({ env, git: gitIn(env.GITHUB_WORKSPACE || '.'), readFile: readText, step });
     case 'report':
       return runReport({ env, readFile: readText, step, now: isoNow, summary: (text) => appendFileSync(env.GITHUB_STEP_SUMMARY, text) });
+    case 'react':
+      return runReact({ env, fetch: globalThis.fetch, step });
     case 'comment':
       return runComment({ env, fetch: globalThis.fetch, readFile: readText });
     default:
-      throw new Error('usage: ocr-review authorize|ack|host-tools|credentials|probe|verdict|report|comment');
+      throw new Error('usage: ocr-review authorize|ack|host-tools|credentials|probe|verdict|report|comment|react');
   }
 }
 

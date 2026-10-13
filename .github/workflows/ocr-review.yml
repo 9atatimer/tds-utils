@@ -403,3 +403,18 @@ jobs:
           PR: ${{ inputs.pr }}
           COMMENT_PATH: ${{ runner.temp }}/ocr-review-comment.md
         run: node .ocr-review-tools/bin/ocr-review comment
+
+      # On a comment-triggered run: +1 (success) or -1 (failure, cancelled)
+      # on the /ocr comment, then the authorize job's eyes comes off, by
+      # the id it recorded. Nothing for a dispatch; never fails the run.
+      - name: React with the outcome
+        if: always() && steps.record.outcome == 'success'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          OUTCOME: ${{ steps.record.outputs.outcome }}
+          ACK_REACTION_ID: ${{ needs.authorize.outputs.ack_reaction_id }}
+        run: node .ocr-review-tools/bin/ocr-review react
