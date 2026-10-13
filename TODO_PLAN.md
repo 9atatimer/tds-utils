@@ -48,6 +48,22 @@ under issue #342. Order:
   Python: the macOS system Python cannot load `sqlite-vec`.
 - task-032 -- Firefox adapters; last, or a follow-up if Firefox is absent.
 
+OCR on Demand + Ollama Gateway (`docs/design/OCR-ON-DEMAND.DESIGN.md`,
+`docs/design/OLLAMA-GATEWAY.DESIGN.md`, APPROVED 2026-10-02; open questions
+ruled 2026-10-12 on issue #363): `ocr` runs as a GitHub Action on the niners
+pool (GitHub-hosted for public repos), inference from the sandboxed ollama on
+the laptop through `ollama.api9.com`. Nothing is built. Order:
+
+- task-047, task-048 -- the workflow's authorize and report jobs; need no
+  gateway, so they start now.
+- task-043, task-044 -- the sandboxed ollama and the LMDE proxy layer's
+  deadline route; laptop-only, parallel to the above.
+- task-045 -- the connector; blocked on the tds-internal `ollama-gateway`
+  root (human apply).
+- task-049, task-046 -- the review job, then gateway bring-up.
+- task-050, task-051 -- seeder and the two-repo pilot; task-052 and task-053
+  (stats, fleet rollout) follow.
+
 `ls tasks/` is the index. This file is still the legacy mono-file below
 this section; issue #289 owns the migration into `tasks/`.
 

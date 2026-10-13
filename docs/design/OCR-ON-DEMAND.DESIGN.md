@@ -433,6 +433,11 @@ Question Q2.
 | Partial coverage | Succeeds, with unreviewed reviewable files listed in the summary | Loud without failing a run that did review something |
 | Records for skipped runs | None | Every ordinary PR comment fires the comment trigger; recording those would swamp the stats |
 | Run records | Job summary + artifact per non-skipped run, versioned by `record_version`, aggregated by a read-only script | Concept: precision and error rates visible over time, without new infrastructure; pinned callers mean versions coexist |
+| Where the review runs (reverses the GitHub-hosted row) | The caller's `CI_RUNS_ON` runner pool (niners, Cloudflare Containers) when the caller sets one; GitHub-hosted otherwise (public repos). The runner choice is the caller's existing variable, not a new input. Job `timeout-minutes` stays under the pool's container ceiling | Todd, 2026-10-12, tds-utils Issue#363 rulings comment: all procedural code runs on a Cloudflare-hosted runner, all inference on the sandboxed ollama stack; `ocr` still never runs on the laptop. Secret-bearing jobs stay on the pool per tds-internal Issue#214 |
+| Q1 Default model | `qwen3.6:latest` | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
+| Q2 Record retention | 90-day run artifacts suffice for the Trial | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
+| Q3 Both trigger paths for LLMs | An agent holding Todd's token may use both the `/ocr` comment and `workflow_dispatch` | Todd, 2026-10-12, tds-utils Issue#363 rulings comment. Closes the freeze precondition that APPROVED skipped |
+| Q4 Dependency file name | `OLLAMA-GATEWAY.DESIGN.md` keeps its name | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
 
 ---
 

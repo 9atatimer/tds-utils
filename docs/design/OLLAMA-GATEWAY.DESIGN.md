@@ -577,6 +577,15 @@ to local logs is open (Q10).
 | Where the deadline proxy lives | A route on the LMDE proxy layer: one local reverse proxy that every laptop service with a public port sits behind, centralizing throttling and maximum payload sizes | Todd, 2026-10-02 (chores-webhooks concept, PR #379): "We'd want that proxy layer to be part of the lmde ecosystem, and anything local that needs a public port should play nice with it." |
 | Radar: macOS sandbox (`sandbox-exec`) | Propose Trial in `lmde/TECH_RADAR.md` | Apple-deprecated API; Trial until a supported replacement is chosen or it proves stable across a macOS major update |
 | LMDE "Public ingress" non-goal | Crossed for this one endpoint; append a Key Decisions row to `LMDE.DESIGN.md` citing this record and issue #363 | The LMDE record is frozen; its log is append-only |
+| Q1 Hostname | `ollama.api9.com`, production only, no nonprod tier (recorded in the tds-internal record) | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
+| Q3 Memory contention | Keep the one-loaded-model bound, and the external ollama unloads promptly after each review (short `keep_alive`) | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
+| Q4 The name | "Ollama Gateway" | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
+| Q6 Silent-connector bound | Measured at bring-up; the measured bound is recorded as a new row | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
+| Q7 Loopback and store denial | In the first cut: the sandbox denies loopback to the everyday ollama's port and denies writes to the model store. G8 no longer carries the compromise caveat | Todd, 2026-10-12, tds-utils Issue#363 rulings comment. The 2026-10-02 spike showed outbound denial leaves inference intact |
+| Q8 Origin-port drift | (a): drift is detected -- an allow-listed request through the tunnel is verified to reach the deadline proxy; the mechanism is code | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
+| Q9 Seeding authentication | An interactive human `op` session, per the tds-internal record | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
+| Q10 Local logging of contents | Neither the connector nor the deadline proxy writes request or response bodies to disk | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
+| Q12 Proxy-layer route | One loopback listener per route; no throttle or payload cap in the first cut beyond the deadline | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
 
 ---
 
