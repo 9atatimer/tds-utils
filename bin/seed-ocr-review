@@ -1,0 +1,392 @@
+#!/usr/bin/env bash
+# seed-ocr-review -- report and seed OCR on Demand adoption across one owner's
+# repos (docs/design/OCR-ON-DEMAND.DESIGN.md, Seeder and G6; runbook
+# docs/ocr-review.md).
+#
+# A repository adopts the review by copying docs/ocr-review-caller.yml to
+# .github/workflows/ocr-review-caller.yml; this tool does the rest:
+#
+#   - the secret OLLAMA_GATEWAY_OP_SA_TOKEN, the 1Password service-account
+#     token that reads the gateway caller item;
+#   - the variables OLLAMA_GATEWAY_OP_ITEM (that item's op:// reference),
+#     OLLAMA_GATEWAY_URL and OLLAMA_GATEWAY_MODEL.
+#
+# On an organization (Nine-At-A-Time-Media) they are set once at org scope,
+# visible to the selected consumer repos -- an existing selection is kept,
+# never narrowed. On a user account (9atatimer), which has no org tier, they
+# are set on each consumer repo.
+#
+# `status` lists every repo of the owner that carries the caller (found by
+# listing the owner's repos, never by code search -- tds-utils#348): the
+# reusable-workflow SHA it pins and that pin's state, the secret, the
+# variables set, and the last run. `seed` sets them on every such consumer
+# (or the repos you name), reading the token from 1Password into a pipe and
+# never printing it. Seeding is a human act (tds-internal policy): this is
+# what the human runs. It is idempotent, so the same command re-seeds after
+# a rotation.
+#
+# Usage:
+#   seed-ocr-review [-o OWNER] [-n] status
+#   seed-ocr-review [-o OWNER] -i OPITEM [-r OPREF] [-u URL] [-m MODEL] [-n] seed [OWNER/REPO ...]
+#
+#   -o OWNER   GitHub owner (default: 9atatimer)
+#   -i OPITEM  value for OLLAMA_GATEWAY_OP_ITEM: the op://<vault>/<item>
+#              reference of the gateway caller item, as tds-internal's
+#              credential registry records it (this public repo does not
+#              name it). Required by seed.
+#   -r OPREF   op:// reference of the service-account token
+#              (default: the item recorded in tds-internal's credential
+#              registry for ollama-gateway-sa)
+#   -u URL     value for OLLAMA_GATEWAY_URL (default: https://ollama.api9.com)
+#   -m MODEL   value for OLLAMA_GATEWAY_MODEL (default: qwen3.6:latest)
+#   -n         dry run: print the plan, read no token, set nothing
+#   -h         this help
+#
+# Pin states: current (no change to the ocr-review files on tds-utils master
+# since the pin), stale (there are; bump both SHAs in the caller),
+# placeholder (the template's zeros), mismatch (tools_ref differs from the
+# pinned SHA), unknown (GitHub could not compare the pin).
+#
+# Exit: 0 every consumer ready; 1 one is not (a stale pin alone is only
+# reported); 2 could not determine, or seed refused. Needs `gh`
+# (authenticated) and, for seed, `op` with 1Password unlocked.
+
+set -euo pipefail
+
+DEFAULT_OWNER="9atatimer"
+SECRET="OLLAMA_GATEWAY_OP_SA_TOKEN"
+DEFAULT_OP_REF="op://VAULT/ITEM/credential"
+DEFAULT_URL="https://ollama.api9.com"
+DEFAULT_MODEL="qwen3.6:latest"
+VARIABLES="OLLAMA_GATEWAY_OP_ITEM OLLAMA_GATEWAY_URL OLLAMA_GATEWAY_MODEL"
+CALLER_PATH=".github/workflows/ocr-review-caller.yml"
+CALLER_WORKFLOW="ocr-review-caller.yml"
+TOOLS_REPO="9atatimer/tds-utils"
+PLACEHOLDER="0000000000000000000000000000000000000000"
+REPO_LIST_LIMIT=1000
+ABSENT=4
+
+# --- Action functions ------------------------------------------------------
+
+usage() {
+    sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+# "Organization" or "User".
+owner_type() {
+    gh api "users/$1" --jq .type
+}
+
+# Every non-archived repo under OWNER, one per line. Fails when the listing
+# fails: an empty answer must never be mistaken for "no consumers".
+discover_repos() {
+    local owner="$1" out
+    out=$(gh repo list "${owner}" --limit "${REPO_LIST_LIMIT}" --no-archived \
+        --json nameWithOwner --jq '.[].nameWithOwner' 2>&1) || {
+        printf '%s\n' "${out}" >&2
+        return 1
+    }
+    printf '%s\n' "${out}" | sort -u | sed '/^$/d'
+}
+
+# The repo's caller workflow, decoded. ABSENT (4) on a 404 -- not a
+# consumer -- and 1 on any other failure, with gh's message on stderr.
+fetch_caller() {
+    local repo="$1" out
+    out=$(gh api "repos/${repo}/contents/${CALLER_PATH}" --jq .content 2>&1) || {
+        case "${out}" in
+            *"HTTP 404"*) return "${ABSENT}" ;;
+            *) printf '%s\n' "${out}" >&2; return 1 ;;
+        esac
+    }
+    printf '%s' "${out}" | base64 -d 2>/dev/null
+}
+
+# The SHA the caller pins the reusable workflow at, from its body on stdin.
+caller_pin() {
+    sed -n 's|.*uses:[[:space:]]*9atatimer/tds-utils/\.github/workflows/ocr-review\.yml@\([0-9a-fA-F]*\).*|\1|p' | head -1
+}
+
+# The SHA the caller fetches the step commands at (tools_ref), from stdin.
+caller_tools_ref() {
+    sed -n "s|.*tools_ref:[[:space:]]*['\"]\{0,1\}\([0-9a-fA-F]*\).*|\1|p" | head -1
+}
+
+# How many ocr-review files changed on tds-utils master since PIN; fails
+# when GitHub cannot compare (an unknown or unpushed SHA).
+changes_since() {
+    local pin="$1"
+    gh api "repos/${TOOLS_REPO}/compare/${pin}...master" \
+        --jq '[.files[]?.filename | select(startswith(".github/workflows/ocr-review.yml") or startswith("bin/ocr-review") or startswith("lib/ocr-review/"))] | length' 2>/dev/null
+}
+
+# none | placeholder | mismatch | unknown | stale | current
+pin_state() {
+    local pin="$1" tools_ref="$2" changed
+    if [ -z "${pin}" ]; then echo none; return 0; fi
+    if [ "${pin}" = "${PLACEHOLDER}" ]; then echo placeholder; return 0; fi
+    if [ "${pin}" != "${tools_ref}" ]; then echo mismatch; return 0; fi
+    changed=$(changes_since "${pin}") || { echo unknown; return 0; }
+    if [ "${changed:-0}" -gt 0 ]; then echo stale; else echo current; fi
+}
+
+# Repos an org secret or variable is visible to, one per line; empty when
+# it does not exist (404); "@all" when its visibility is not "selected"
+# (GitHub answers 409); fails on anything else.
+org_selection() {
+    local owner="$1" kind="$2" name="$3" out
+    out=$(gh api "orgs/${owner}/actions/${kind}/${name}/repositories" --jq '.repositories[].full_name' 2>&1) || {
+        case "${out}" in
+            *"HTTP 404"*) return 0 ;;
+            *"HTTP 409"*) echo "@all"; return 0 ;;
+            *) printf '%s\n' "${out}" >&2; return 1 ;;
+        esac
+    }
+    printf '%s\n' "${out}" | sed '/^$/d'
+}
+
+# The secret on REPO: its updated_at for a repo secret, "org" for an org
+# secret that selects it, "-" when absent, "error" when a lookup failed.
+secret_state() {
+    local repo="$1" owner="$2" is_org="$3" out selection
+    if out=$(gh api "repos/${repo}/actions/secrets/${SECRET}" --jq .updated_at 2>&1); then
+        printf '%s\n' "${out}"; return 0
+    fi
+    case "${out}" in
+        *"HTTP 404"*) ;;
+        *) printf '%s\n' "${out}" >&2; echo error; return 0 ;;
+    esac
+    if [ "${is_org}" = 1 ]; then
+        selection=$(org_selection "${owner}" secrets "${SECRET}") || { echo error; return 0; }
+        if printf '%s\n' "${selection}" | grep -qx -e "${repo}" -e '@all'; then echo org; return 0; fi
+    fi
+    echo "-"
+}
+
+# How many of the three variables reach REPO, as "N/3"; "error" when a
+# lookup failed.
+variables_state() {
+    local repo="$1" owner="$2" is_org="$3" name out selection count=0
+    for name in ${VARIABLES}; do
+        if out=$(gh api "repos/${repo}/actions/variables/${name}" --jq .value 2>&1); then
+            count=$((count + 1)); continue
+        fi
+        case "${out}" in
+            *"HTTP 404"*) ;;
+            *) printf '%s\n' "${out}" >&2; echo error; return 0 ;;
+        esac
+        if [ "${is_org}" = 1 ]; then
+            selection=$(org_selection "${owner}" variables "${name}") || { echo error; return 0; }
+            if printf '%s\n' "${selection}" | grep -qx -e "${repo}" -e '@all'; then count=$((count + 1)); fi
+        fi
+    done
+    echo "${count}/3"
+}
+
+# "<conclusion> <createdAt>" of the newest caller run, or "-".
+last_run() {
+    local repo="$1" out
+    out=$(gh run list -R "${repo}" --workflow="${CALLER_WORKFLOW}" --limit 1 \
+        --json conclusion,createdAt --jq '.[0] | select(.) | "\(.conclusion) \(.createdAt)"' 2>/dev/null || true)
+    printf '%s\n' "${out:--}"
+}
+
+# The token crosses a pipe and nothing else: never a variable, never an
+# argument, never printed.
+set_repo_secret() {
+    local repo="$1" op_ref="$2"
+    op read "${op_ref}" | gh secret set "${SECRET}" -R "${repo}"
+}
+
+set_org_secret() {
+    local owner="$1" repos="$2" op_ref="$3"
+    op read "${op_ref}" | gh secret set "${SECRET}" --org "${owner}" --visibility selected --repos "${repos}"
+}
+
+set_repo_variable() {
+    local repo="$1" name="$2" value="$3"
+    gh variable set "${name}" -R "${repo}" --body "${value}"
+}
+
+set_org_variable() {
+    local owner="$1" name="$2" repos="$3" value="$4"
+    gh variable set "${name}" --org "${owner}" --visibility selected --repos "${repos}" --body "${value}"
+}
+
+# The value a variable is seeded with.
+variable_value() {
+    case "$1" in
+        OLLAMA_GATEWAY_OP_ITEM) printf '%s' "$2" ;;
+        OLLAMA_GATEWAY_URL) printf '%s' "$3" ;;
+        OLLAMA_GATEWAY_MODEL) printf '%s' "$4" ;;
+    esac
+}
+
+# --- Flow functions --------------------------------------------------------
+
+cmd_status() {
+    local owner="$1"
+    local kind is_org=0 repos repo body rc pin tools_ref state secret vars run errors=0 not_ready=0
+    kind=$(owner_type "${owner}") || { echo "seed-ocr-review: could not read owner ${owner}" >&2; return 2; }
+    [ "${kind}" = "Organization" ] && is_org=1
+    repos=$(discover_repos "${owner}") || {
+        echo "seed-ocr-review: could not discover repositories under ${owner}" >&2
+        return 2
+    }
+    printf '%-40s %-7s %-8s %-11s %-21s %-5s %s\n' REPO CALLER PIN PIN-STATE SECRET VARS LAST-RUN
+    while IFS= read -r repo; do
+        [ -n "${repo}" ] || continue
+        rc=0; body=$(fetch_caller "${repo}") || rc=$?
+        if [ "${rc}" -eq "${ABSENT}" ]; then continue; fi
+        if [ "${rc}" -ne 0 ]; then
+            printf '%-40s %-7s %-8s %-11s %-21s %-5s %s\n' "${repo}" error - - - - -
+            errors=$((errors + 1)); continue
+        fi
+        pin=$(printf '%s\n' "${body}" | caller_pin)
+        tools_ref=$(printf '%s\n' "${body}" | caller_tools_ref)
+        state=$(pin_state "${pin}" "${tools_ref}")
+        secret=$(secret_state "${repo}" "${owner}" "${is_org}")
+        vars=$(variables_state "${repo}" "${owner}" "${is_org}")
+        run=$(last_run "${repo}")
+        printf '%-40s %-7s %-8s %-11s %-21s %-5s %s\n' "${repo}" yes "${pin:0:7}" "${state}" "${secret}" "${vars}" "${run}"
+        if [ "${secret}" = error ] || [ "${vars}" = error ]; then errors=$((errors + 1)); continue; fi
+        case "${state}" in current|stale) ;; *) not_ready=$((not_ready + 1)); continue ;; esac
+        if [ "${secret}" = "-" ] || [ "${vars}" != "3/3" ]; then not_ready=$((not_ready + 1)); fi
+    done <<< "${repos}"
+    if [ "${errors}" -gt 0 ]; then
+        echo "seed-ocr-review: ${errors} lookup(s) failed; readiness could not be determined" >&2
+        return 2
+    fi
+    if [ "${not_ready}" -gt 0 ]; then
+        echo "seed-ocr-review: ${not_ready} consumer(s) not ready (pin current or stale, secret set, 3/3 variables)" >&2
+        return 1
+    fi
+}
+
+# The named repos verbatim, else every repo carrying the caller. Fails
+# (nothing printed) when discovery or any non-404 lookup fails.
+seed_targets() {
+    local owner="$1"; shift
+    if [ "$#" -gt 0 ]; then
+        printf '%s\n' "$@"
+        return 0
+    fi
+    local repos repo rc targets=""
+    repos=$(discover_repos "${owner}") || return 1
+    while IFS= read -r repo; do
+        [ -n "${repo}" ] || continue
+        rc=0; fetch_caller "${repo}" >/dev/null || rc=$?
+        case "${rc}" in
+            0) targets="${targets}${repo}"$'\n' ;;
+            "${ABSENT}") ;;
+            *) return 1 ;;
+        esac
+    done <<< "${repos}"
+    printf '%s' "${targets}"
+}
+
+seed_user() {
+    local targets="$1" op_ref="$2" item="$3" url="$4" model="$5" dry_run="$6"
+    local repo name value
+    while IFS= read -r repo; do
+        [ -n "${repo}" ] || continue
+        if [ "${dry_run}" = 1 ]; then
+            echo "would set secret ${SECRET} on ${repo} from ${op_ref}"
+        else
+            set_repo_secret "${repo}" "${op_ref}"
+            echo "set secret ${SECRET} on ${repo}"
+        fi
+        for name in ${VARIABLES}; do
+            value=$(variable_value "${name}" "${item}" "${url}" "${model}")
+            if [ "${dry_run}" = 1 ]; then
+                echo "would set variable ${name}=${value} on ${repo}"
+            else
+                set_repo_variable "${repo}" "${name}" "${value}"
+                echo "set variable ${name} on ${repo}"
+            fi
+        done
+    done <<< "${targets}"
+}
+
+# The selection to write: the existing one plus the targets, comma-joined.
+widened_selection() {
+    local existing="$1" targets="$2"
+    printf '%s\n%s\n' "${existing}" "${targets}" | sed '/^$/d' | grep -vx '@all' | sort -u | paste -sd, -
+}
+
+seed_org() {
+    local owner="$1" targets="$2" op_ref="$3" item="$4" url="$5" model="$6" dry_run="$7"
+    local existing repos name value
+    existing=$(org_selection "${owner}" secrets "${SECRET}") || return 2
+    repos=$(widened_selection "${existing}" "${targets}")
+    if [ "${dry_run}" = 1 ]; then
+        echo "would set org secret ${SECRET} on ${owner} for ${repos} from ${op_ref}"
+    else
+        set_org_secret "${owner}" "${repos}" "${op_ref}"
+        echo "set org secret ${SECRET} on ${owner} for ${repos}"
+    fi
+    for name in ${VARIABLES}; do
+        existing=$(org_selection "${owner}" variables "${name}") || return 2
+        repos=$(widened_selection "${existing}" "${targets}")
+        value=$(variable_value "${name}" "${item}" "${url}" "${model}")
+        if [ "${dry_run}" = 1 ]; then
+            echo "would set org variable ${name}=${value} on ${owner} for ${repos}"
+        else
+            set_org_variable "${owner}" "${name}" "${repos}" "${value}"
+            echo "set org variable ${name} on ${owner} for ${repos}"
+        fi
+    done
+}
+
+cmd_seed() {
+    local owner="$1" op_ref="$2" item="$3" url="$4" model="$5" dry_run="$6"; shift 6
+    local kind targets
+    case "${item}" in
+        op://?*/?*) ;;
+        "") echo "seed-ocr-review: seed needs -i op://<vault>/<item> (the gateway caller item, from tds-internal's credential registry)" >&2; return 2 ;;
+        *) echo "seed-ocr-review: -i must be an op://<vault>/<item> reference" >&2; return 2 ;;
+    esac
+    kind=$(owner_type "${owner}") || { echo "seed-ocr-review: could not read owner ${owner}" >&2; return 2; }
+    targets=$(seed_targets "${owner}" "$@") || {
+        echo "seed-ocr-review: could not determine the consumer set under ${owner}; nothing seeded" >&2
+        return 2
+    }
+    if [ -z "${targets}" ]; then
+        echo "seed-ocr-review: no consumer repositories under ${owner}" >&2
+        return 0
+    fi
+    if [ "${kind}" = "Organization" ]; then
+        seed_org "${owner}" "${targets}" "${op_ref}" "${item}" "${url}" "${model}" "${dry_run}"
+    else
+        seed_user "${targets}" "${op_ref}" "${item}" "${url}" "${model}" "${dry_run}"
+    fi
+}
+
+# --- Main ------------------------------------------------------------------
+
+main() {
+    local owner="${DEFAULT_OWNER}" op_ref="${DEFAULT_OP_REF}" item="" url="${DEFAULT_URL}" model="${DEFAULT_MODEL}" dry_run=0
+    local opt
+    while getopts "o:r:i:u:m:nh" opt; do
+        case "${opt}" in
+            o) owner="${OPTARG}" ;;
+            r) op_ref="${OPTARG}" ;;
+            i) item="${OPTARG}" ;;
+            u) url="${OPTARG}" ;;
+            m) model="${OPTARG}" ;;
+            n) dry_run=1 ;;
+            h) usage; exit 0 ;;
+            *) usage >&2; exit 2 ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+    local cmd="${1:-}"
+    [ -n "${cmd}" ] && shift
+    case "${cmd}" in
+        status) cmd_status "${owner}" ;;
+        seed)   cmd_seed "${owner}" "${op_ref}" "${item}" "${url}" "${model}" "${dry_run}" "$@" ;;
+        *)      usage >&2; exit 2 ;;
+    esac
+}
+
+main "$@"
