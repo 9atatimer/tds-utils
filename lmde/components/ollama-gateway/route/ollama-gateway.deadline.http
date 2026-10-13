@@ -1,0 +1,8 @@
+HTTP/1.1 507 Model Not Ready
+content-type: application/json
+cache-control: no-store
+retry-after: 20
+connection: close
+content-length: 199
+
+{"error":{"message":"deadline: the model server sent no first byte before the gateway deadline (typically a cold model load); the load continues -- retry","type":"deadline","code":"model_not_ready"}}
