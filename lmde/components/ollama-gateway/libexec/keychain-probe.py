@@ -10,6 +10,14 @@ Exit 0 when the item's secret was retrieved, 1 when it was not (not found,
 denied, daemon unreachable), 2 on a usage error. Prints only the Security
 framework status code -- never the secret, its length, or any attribute.
 
+It never raises a Keychain dialog (tds-utils Issue#441; G7: no start needs
+a human). Before any lookup it switches the Security framework's user
+interaction off for this process, so a lookup that would need one (a
+locked keychain, an access list that does not admit this binary) returns
+errSecInteractionNotAllowed instead of prompting. The switch is read back
+and reported on every answer; if it cannot be confirmed off, nothing is
+looked up.
+
 Stdlib only (ctypes), so it runs under /usr/bin/python3 with nothing
 installed.
 """
@@ -28,6 +36,22 @@ def load_security() -> ctypes.CDLL:
     if path is None:
         raise OSError("Security framework not found")
     return ctypes.cdll.LoadLibrary(path)
+
+
+def disable_user_interaction(sec: ctypes.CDLL) -> None:
+    """Switch Keychain UI off for this process and confirm it by readback.
+
+    SecKeychainSetUserInteractionAllowed is the switch the legacy lookup
+    below (SecKeychainFindGenericPassword) honours; kSecUseAuthenticationUI
+    is the SecItem* equivalent and does not apply to it.
+    """
+    status = sec.SecKeychainSetUserInteractionAllowed(ctypes.c_ubyte(0))
+    if status != 0:
+        raise OSError(f"cannot switch keychain user interaction off (status {status}); not looking up")
+    allowed = ctypes.c_ubyte(1)
+    status = sec.SecKeychainGetUserInteractionAllowed(ctypes.byref(allowed))
+    if status != 0 or allowed.value != 0:
+        raise OSError("keychain user interaction is still on; not looking up")
 
 
 def open_keychain(sec: ctypes.CDLL, keychain_path: str) -> ctypes.c_void_p:
@@ -65,12 +89,13 @@ def main(argv: list[str]) -> int:
     service = argv[1]
     try:
         sec = load_security()
+        disable_user_interaction(sec)
         keychain = open_keychain(sec, argv[2]) if len(argv) == 3 else None
         status = retrieve(sec, service, keychain)
     except OSError as err:
         print(f"keychain-probe: {err}")
         return 1
-    print(f"keychain-probe: status {status}")
+    print(f"keychain-probe: status {status} (user interaction off)")
     return 0 if status == 0 else 1
 
 
