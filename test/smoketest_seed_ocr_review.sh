@@ -54,9 +54,12 @@ trap cleanup EXIT INT TERM HUP
 #   secret         repo secret updated_at (absent -> 404)
 #   var.<NAME>     repo variable value (absent -> 404)
 #   lastrun        "<conclusion> <createdAt>"
-# ${FAKE_STATE}/org/<owner>/secret.repos      org secret's selected repos (absent -> 404),
-#                                             served a page at a time like GitHub
-# ${FAKE_STATE}/org/<owner>/var.<NAME>.repos  org variable's selected repos, likewise
+#   visibility     public | private | internal (absent -> private)
+# ${FAKE_STATE}/org/<owner>/secret.visibility all | private | selected (absent -> selected
+#                                             when secret.repos exists, else 404)
+# ${FAKE_STATE}/org/<owner>/secret.repos      org secret's selected repos, served a page
+#                                             at a time like GitHub; 409 unless selected
+# ${FAKE_STATE}/org/<owner>/var.<NAME>.{visibility,repos}  the same for an org variable
 # ${FAKE_STATE}/stale/<pin>                   compare <pin>...master touches ocr paths
 # ${FAKE_STATE}/log                           every write and every op read
 
@@ -77,6 +80,20 @@ page_of() {
     case " ${args} " in *" --paginate "*) cat "$1"; return 0 ;; esac
     per_page=$(printf '%s' "${args}" | sed -n 's/.*per_page=\([0-9]*\).*/\1/p')
     head -n "${per_page:-30}" "$1"
+}
+# The visibility of the org secret or variable stored at BASE.{visibility,repos}.
+org_visibility_of() {
+    if [ -f "$1.visibility" ]; then cat "$1.visibility"
+    elif [ -f "$1.repos" ]; then echo selected
+    else return 1; fi
+}
+# GitHub's selected-repositories endpoint: 404 when absent, 409 unless the
+# visibility is selected.
+serve_selection() {
+    local vis
+    vis=$(org_visibility_of "$1") || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+    [ "${vis}" = selected ] || { echo "gh: Conflict (HTTP 409)" >&2; exit 1; }
+    if [ -f "$1.repos" ]; then page_of "$1.repos"; fi
 }
 case "${args}" in
     *"search/code"*)
@@ -108,9 +125,7 @@ case "${args}" in
         cat "${f}" ;;
     "api orgs/"*"/actions/secrets/"*"/repositories"*)
         owner=$(printf '%s' "${args}" | sed -n 's|api orgs/\([^/]*\)/.*|\1|p')
-        f="${state}/org/${owner}/secret.repos"
-        [ -f "${f}" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
-        page_of "${f}" ;;
+        serve_selection "${state}/org/${owner}/secret" ;;
     "api repos/"*"/actions/variables/"*)
         repo=$(printf '%s' "${args}" | sed -n 's|api repos/\([^/]*/[^/]*\)/actions.*|\1|p')
         name=$(printf '%s' "${args}" | sed -n 's|.*/actions/variables/\([A-Z_]*\).*|\1|p')
@@ -120,9 +135,19 @@ case "${args}" in
     "api orgs/"*"/actions/variables/"*"/repositories"*)
         owner=$(printf '%s' "${args}" | sed -n 's|api orgs/\([^/]*\)/.*|\1|p')
         name=$(printf '%s' "${args}" | sed -n 's|.*/actions/variables/\([A-Z_]*\)/.*|\1|p')
-        f="${state}/org/${owner}/var.${name}.repos"
-        [ -f "${f}" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
-        page_of "${f}" ;;
+        serve_selection "${state}/org/${owner}/var.${name}" ;;
+    "api orgs/"*"/actions/secrets/"*" --jq .visibility")
+        owner=$(printf '%s' "${args}" | sed -n 's|api orgs/\([^/]*\)/.*|\1|p')
+        org_visibility_of "${state}/org/${owner}/secret" || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; } ;;
+    "api orgs/"*"/actions/variables/"*" --jq .visibility")
+        owner=$(printf '%s' "${args}" | sed -n 's|api orgs/\([^/]*\)/.*|\1|p')
+        name=$(printf '%s' "${args}" | sed -n 's|.*/actions/variables/\([A-Z_]*\) .*|\1|p')
+        org_visibility_of "${state}/org/${owner}/var.${name}" || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; } ;;
+    "api repos/"*" --jq .visibility")
+        repo=$(printf '%s' "${args}" | sed -n 's|api repos/\([^/]*/[^ ]*\) .*|\1|p')
+        [ -d "$(repo_dir "${repo}")" ] || { echo "gh: Not Found (HTTP 404)" >&2; exit 1; }
+        f="$(repo_dir "${repo}")/visibility"
+        if [ -f "${f}" ]; then cat "${f}"; else echo private; fi ;;
     "run list"*)
         repo=$(flag -R)
         f="$(repo_dir "${repo}")/lastrun"
@@ -131,14 +156,14 @@ case "${args}" in
         name=$(printf '%s' "${args}" | awk '{print $3}')
         value=$(cat)
         if [ -n "$(flag --org)" ]; then
-            printf 'org secret set %s %s repos=%s %s\n' "${name}" "$(flag --org)" "$(flag --repos)" "${value}" >> "${state}/log"
+            printf 'org secret set %s %s visibility=%s repos=%s %s\n' "${name}" "$(flag --org)" "$(flag --visibility)" "$(flag --repos)" "${value}" >> "${state}/log"
         else
             printf 'secret set %s %s %s\n' "${name}" "$(flag -R)" "${value}" >> "${state}/log"
         fi ;;
     "variable set"*)
         name=$(printf '%s' "${args}" | awk '{print $3}')
         if [ -n "$(flag --org)" ]; then
-            printf 'org variable set %s %s repos=%s %s\n' "${name}" "$(flag --org)" "$(flag --repos)" "$(flag --body)" >> "${state}/log"
+            printf 'org variable set %s %s visibility=%s repos=%s %s\n' "${name}" "$(flag --org)" "$(flag --visibility)" "$(flag --repos)" "$(flag --body)" >> "${state}/log"
         else
             printf 'variable set %s %s %s\n' "${name}" "$(flag -R)" "$(flag --body)" >> "${state}/log"
         fi ;;
@@ -279,6 +304,65 @@ case_org_selection_every_page() {
         "grep '^org secret set' '${s}/log' | grep -q 'Nine-At-A-Time-Media/late' && grep '^org secret set' '${s}/log' | grep -q 'Nine-At-A-Time-Media/filler120'"
 }
 
+# org_scopes <state> <secret> <OP_ITEM> <URL> <MODEL> -- each org secret's or
+# variable's visibility; "selected" also selects tools only.
+org_scopes() {
+    local org="$1/org/Nine-At-A-Time-Media" vis base
+    rm -f "${org}"/*.repos "${org}"/*.visibility
+    for base in secret var.OLLAMA_GATEWAY_OP_ITEM var.OLLAMA_GATEWAY_URL var.OLLAMA_GATEWAY_MODEL; do
+        shift; vis="$1"
+        echo "${vis}" > "${org}/${base}.visibility"
+        [ "${vis}" = selected ] && echo Nine-At-A-Time-Media/tools > "${org}/${base}.repos"
+    done
+    return 0
+}
+
+case_status_org_visibility() {
+    bold "status (org owner): all reaches every repo, private only private ones, selected the listed ones"; echo
+    local s; s=$(fixture vis1)
+    org_scopes "${s}" private all private selected
+    echo public > "${s}/repos/Nine-At-A-Time-Media/ops/visibility"
+    run "${s}" -o Nine-At-A-Time-Media status
+    assert "tools (private, selected): the private org secret reaches it, 3/3 variables" \
+        "line_of Nine-At-A-Time-Media/tools | grep -q ' org ' && line_of Nine-At-A-Time-Media/tools | grep -q '3/3'"
+    assert "ops (public): a private org secret does not reach it" "! line_of Nine-At-A-Time-Media/ops | grep -q ' org '"
+    assert "ops (public): only the all-visibility variable reaches it, 1/3" "line_of Nine-At-A-Time-Media/ops | grep -q '1/3'"
+    assert "status exits 1: ops is not ready" "[ \"\${RUN_RC}\" -eq 1 ]"
+}
+
+case_seed_org_keeps_all() {
+    bold "seed (org owner): an all-visibility secret and variables keep all"; echo
+    local s; s=$(fixture vis2)
+    org_scopes "${s}" all all all all
+    run "${s}" -o Nine-At-A-Time-Media -i "${ITEM}" -r "${OPREF}" -u "${URL}" seed
+    assert "seed exits 0" "[ \"\${RUN_RC}\" -eq 0 ]"
+    assert "the org secret is set and stays visibility all" "grep '^org secret set' '${s}/log' | grep -q 'visibility=all repos= '"
+    assert "every org variable stays visibility all" "[ \"\$(grep '^org variable set' '${s}/log' | grep -c 'visibility=all repos= ')\" -eq 3 ]"
+}
+
+case_seed_org_keeps_private() {
+    bold "seed (org owner): a private-visibility scope stays private when every target is private"; echo
+    local s; s=$(fixture vis3)
+    org_scopes "${s}" private private private private
+    run "${s}" -o Nine-At-A-Time-Media -i "${ITEM}" -r "${OPREF}" -u "${URL}" seed
+    assert "seed exits 0" "[ \"\${RUN_RC}\" -eq 0 ]"
+    assert "the org secret stays visibility private" "grep '^org secret set' '${s}/log' | grep -q 'visibility=private repos= '"
+    assert "every org variable stays visibility private" "[ \"\$(grep '^org variable set' '${s}/log' | grep -c 'visibility=private repos= ')\" -eq 3 ]"
+}
+
+case_seed_org_private_refuses_public() {
+    bold "seed (org owner): a private-visibility scope with a public target refuses before reading or writing anything"; echo
+    local s; s=$(fixture vis4)
+    org_scopes "${s}" selected all private selected
+    echo public > "${s}/repos/Nine-At-A-Time-Media/ops/visibility"
+    run "${s}" -o Nine-At-A-Time-Media -i "${ITEM}" -r "${OPREF}" -u "${URL}" seed
+    assert "exit 2" "[ \"\${RUN_RC}\" -eq 2 ]"
+    assert "names the public target and the private-visibility variable" \
+        "printf '%s' \"\${RUN_ERR}\" | grep -q 'Nine-At-A-Time-Media/ops' && printf '%s' \"\${RUN_ERR}\" | grep -q 'OLLAMA_GATEWAY_URL'"
+    assert "says how to fix it" "printf '%s' \"\${RUN_ERR}\" | grep -qi 'visibility'"
+    assert "nothing read or written" "! grep -q 'set\\|op read' '${s}/log'"
+}
+
 case_seed_named_repo() {
     bold "seed <repo>: only the named repo"; echo
     local s; s=$(fixture seed3)
@@ -365,6 +449,10 @@ main() {
     case_seed_user_owner
     case_seed_org_owner
     case_org_selection_every_page
+    case_status_org_visibility
+    case_seed_org_keeps_all
+    case_seed_org_keeps_private
+    case_seed_org_private_refuses_public
     case_seed_named_repo
     case_seed_needs_item
     case_seed_needs_token_ref_and_url
