@@ -17,9 +17,13 @@ set -euo pipefail
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${TEST_DIR}/../.." && pwd)"
 COMPONENT_DIR="${REPO_DIR}/lmde/components/ollama-gateway"
-PROFILE="${COMPONENT_DIR}/sandbox/ollama-gateway.sb"
+# Rendered into the fixture's tree by fixture_setup (the repo holds the
+# template, sandbox/ollama-gateway.sb.in).
+PROFILE=""
 PROBE="${COMPONENT_DIR}/libexec/probe.zsh"
-LAUNCH_OLLAMA="${COMPONENT_DIR}/libexec/launch-ollama.zsh"
+# Run from the fixture's tree copy, as launchd runs the installed one (the
+# profile lets the engine read the gateway tree, not the repository).
+LAUNCH_OLLAMA=""
 LAUNCH_CONNECTOR="${COMPONENT_DIR}/libexec/launch-connector.zsh"
 SEED="${COMPONENT_DIR}/seed-tunnel-token.zsh"
 SETUP="${COMPONENT_DIR}/setup.sh"
@@ -37,6 +41,10 @@ STORE=""
 CANARY_FILE=""
 KEYCHAIN=""
 FAKE_BIN=""
+# The fake engine's own keg: the profile lets the engine exec and read only
+# its keg (OLLAMA_KEG), so the fake cannot share FAKE_BIN with the other
+# fakes, and the keg must not contain the fake home.
+FAKE_KEG=""
 
 # --- Platform gate -----------------------------------------------------------
 
@@ -71,12 +79,29 @@ fixture_setup() {
     STORE="${FAKE_HOME}/.ollama/models"
     CANARY_FILE="${FAKE_HOME}/.local/state/ollama-gateway-probe/canary"
     FAKE_BIN="${WORK}/bin"
+    FAKE_KEG="${WORK}/keg"
     mkdir -p "${TREE}/libexec" "${TREE}/home" "${STORE}/manifests" "${STORE}/blobs" \
-        "$(dirname "${CANARY_FILE}")" "${FAKE_HOME}/.ssh" "${FAKE_BIN}"
+        "$(dirname "${CANARY_FILE}")" "${FAKE_HOME}/.ssh" "${FAKE_BIN}" "${FAKE_KEG}/bin"
+    # The profile lets the engine read only the gateway tree, not the
+    # repository checkout, so the probe runs from a copy in the fixture's
+    # tree, as it does when installed (setup.sh copies the same files).
+    cp "${COMPONENT_DIR}"/libexec/* "${TREE}/libexec/"
+    cp "${COMPONENT_DIR}/gateway.env" "${TREE}/gateway.env"
+    mkdir -p "${TREE}/sandbox"
+    cp "${COMPONENT_DIR}"/sandbox/* "${TREE}/sandbox/"
+    PROBE="${TREE}/libexec/probe.zsh"
+    LAUNCH_OLLAMA="${TREE}/libexec/launch-ollama.zsh"
+    PROFILE="${TREE}/sandbox/ollama-gateway.sb"
+    /bin/zsh -f "${TREE}/libexec/profile-render.zsh" \
+        "${TREE}/sandbox/ollama-gateway.sb.in" "${PROFILE}" >/dev/null
     echo "canary: not a secret" > "${CANARY_FILE}"
     echo "fake private key" > "${FAKE_HOME}/.ssh/id_ed25519"
     echo "store manifest" > "${STORE}/manifests/m"
-    KEYCHAIN="${WORK}/probe.keychain-db"
+    # In the fake keg: a tree the profile lets the engine read (OLLAMA_KEG),
+    # so a confined lookup fails on the daemons' mach services (what G4
+    # asserts), never on an unreadable keychain file; and outside the
+    # gateway tree, which uninstall removes.
+    KEYCHAIN="${FAKE_KEG}/probe.keychain-db"
     security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}" >/dev/null
     security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}" >/dev/null
     security add-generic-password -A -s "${CANARY_SERVICE}" -a ollama-gateway \
@@ -99,6 +124,7 @@ sandboxed_with() {
         -D "GATEWAY_HOME=${TREE}/home" \
         -D "MODEL_STORE=${STORE}" \
         -D "MODEL_STORE_PARENT=$(dirname "${STORE}")" \
+        -D "OLLAMA_KEG=${FAKE_KEG}" \
         "$@"
 }
 
@@ -149,15 +175,15 @@ free_port() {
     /usr/bin/python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()'
 }
 
-# install_fake_ollama -- an `ollama` on FAKE_BIN that records its argv and
+# install_fake_ollama -- an `ollama` in FAKE_KEG/bin that records its argv and
 # environment, and whether it could read the file canary and the fake
-# ~/.ssh key, into ${WORK}/fake-ollama.out (outside the fake home, so it
-# is writable even confined). The launcher scrubs the environment, so the
-# output path is baked into the script, not passed in.
+# ~/.ssh key, into ${TREE}/home/fake-ollama.out (the gateway home: the one
+# tree the profile lets the engine write). The launcher scrubs the
+# environment, so the output path is baked into the script, not passed in.
 install_fake_ollama() {
-    cat > "${FAKE_BIN}/ollama" <<FAKE
+    cat > "${FAKE_KEG}/bin/ollama" <<FAKE
 #!/bin/sh
-out="${WORK}/fake-ollama.out"
+out="${TREE}/home/fake-ollama.out"
 {
     echo "argv \$*"
     env | sed 's/^/env /'
@@ -165,14 +191,14 @@ out="${WORK}/fake-ollama.out"
     if cat "${FAKE_HOME}/.ssh/id_ed25519" >/dev/null 2>&1; then echo "ssh readable"; else echo "ssh denied"; fi
 } > "\${out}"
 FAKE
-    chmod +x "${FAKE_BIN}/ollama"
+    chmod +x "${FAKE_KEG}/bin/ollama"
 }
 
 # run_launcher <env assignments...> -- run the ollama launcher as launchd
 # would (HOME set, a minimal PATH with the fakes first), against the
 # fixture, on a free port. Prints its combined output; returns its status.
 run_launcher() {
-    env -i HOME="${FAKE_HOME}" PATH="${FAKE_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+    env -i HOME="${FAKE_HOME}" PATH="${FAKE_KEG}/bin:${FAKE_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
         OLLAMA_GATEWAY_PROBE_KEYCHAIN="${KEYCHAIN}" \
         OLLAMA_GATEWAY_OLLAMA_PORT="${OLLAMA_PORT}" \
         "$@" /bin/zsh -f "${LAUNCH_OLLAMA}" 2>&1

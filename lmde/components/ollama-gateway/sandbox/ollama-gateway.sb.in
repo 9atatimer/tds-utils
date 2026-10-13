@@ -1,0 +1,171 @@
+;; ollama-gateway.sb.in -- TEMPLATE of the macOS sandbox profile for the
+;; Ollama Gateway's external ollama (docs/design/OLLAMA-GATEWAY.DESIGN.md,
+;; G4, Key Decisions Q7; tds-utils Issue#460). libexec/profile-render.zsh
+;; renders it to sandbox/ollama-gateway.sb at install (setup.sh), filling
+;; the one machine-specific block (the kernel's ephemeral port range) from
+;; sysctl. The rendered profile is applied by libexec/launch-ollama.zsh with
+;; sandbox-exec, to the G4 probe first and then to `ollama serve`, with
+;; identical parameters.
+;;
+;; This text is not the guarantee. libexec/probe.zsh is: it runs every row
+;; of sandbox/ollama-gateway.probe.tsv under this profile before every start
+;; and the launcher refuses to start ollama unless every row holds (the
+;; confinement-mechanism seam).
+;;
+;; Deny by default. Every allow below is named, and reads are granted only
+;; on trees that hold no user data: the OS's own (SIP-protected or
+;; root-owned), the Homebrew kegs the engine links against, and the
+;; gateway's own trees. The engine makes NO outbound connection: it only
+;; listens, on loopback. The allow-list was derived with
+;; libexec/profile-trace.zsh (the unified log's sandbox denials under a
+;; real workload), round by round, until the workload passed with an empty
+;; trace; re-run it after an ollama or macOS upgrade.
+;;
+;; Parameters (sandbox-exec -D NAME=VALUE), all resolved absolute paths:
+;;   USER_HOME            the user's home directory (metadata only)
+;;   GATEWAY_TREE         the gateway's config tree under ~/.local/ (read)
+;;   GATEWAY_HOME         ollama's HOME inside the tree (the one writable tree)
+;;   MODEL_STORE          the everyday model store (read)
+;;   MODEL_STORE_PARENT   its parent (metadata only; ollama lstats every
+;;                        component of the store path, Issue#443)
+;;   OLLAMA_KEG           the tree holding the ollama binary and its
+;;                        libexec (exec and read)
+;;
+;; Rule order matters: in SBPL the last matching rule wins, so the explicit
+;; denials at the end take back part of an allow above them.
+
+(version 1)
+(deny default)
+
+;; --- process and kernel services ---------------------------------------
+(allow process-fork)
+(allow signal (target self))
+(allow signal (target children))
+(allow sysctl-read)
+(allow system-socket)
+;; The GPU: Metal opens IOKit user clients; the compiler service builds
+;; the shaders.
+(allow iokit-open)
+(allow mach-lookup (global-name "com.apple.MTLCompilerService"))
+;; Logging and the system's notification plumbing the frameworks expect.
+(allow mach-lookup (global-name "com.apple.system.logger"))
+(allow mach-lookup (global-name "com.apple.logd"))
+(allow mach-lookup (global-name "com.apple.system.notification_center"))
+(allow ipc-posix-shm-read-data (ipc-posix-name "apple.shm.notification_center"))
+(allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo"))
+
+;; What may be executed: the engine (and its runner, the same binary), the
+;; system's own binaries (the probe needs zsh, ls and python3; a shell
+;; inherits this profile and is not a way out), never anything under $HOME,
+;; /private/tmp or the rest of the Homebrew prefix.
+(allow process-exec (subpath (param "OLLAMA_KEG")))
+(allow process-exec (subpath "/bin"))
+(allow process-exec (subpath "/usr/bin"))
+(allow process-exec (subpath "/usr/libexec"))
+(allow process-exec (subpath "/Library/Developer/CommandLineTools"))
+
+;; --- reads: OS-owned trees that hold no user data ------------------------
+(allow file-read* (literal "/"))
+(allow file-read* (subpath "/System"))
+(allow file-read* (subpath "/usr"))
+(allow file-read* (subpath "/bin"))
+(allow file-read* (subpath "/sbin"))
+(allow file-read* (subpath "/private/preboot"))
+(allow file-read* (subpath "/private/etc"))
+(allow file-read* (subpath "/private/var/db/dyld"))
+(allow file-read* (subpath "/private/var/db/timezone"))
+(allow file-read* (subpath "/Library/Frameworks"))
+(allow file-read* (subpath "/Library/Preferences/Logging"))
+(allow file-read* (subpath "/Library/Apple"))
+(allow file-read* (subpath "/Library/Developer/CommandLineTools"))
+;; /usr/bin/python3 is a shim that resolves the developer directory through
+;; this link before it can run the probe's Security framework checker.
+(allow file-read* (literal "/private/var/select/developer_dir"))
+(allow file-read-metadata (literal "/private/var/select"))
+;; The same link reached through the /var and /etc symlinks (the sandbox
+;; sees the path as the caller spelled it before it resolves the link).
+(allow file-read-metadata (literal "/tmp"))
+(allow file-read-metadata (literal "/var"))
+(allow file-read-metadata (literal "/var/select"))
+(allow file-read* (literal "/var/select/developer_dir"))
+(allow file-read* (subpath "/dev"))
+(allow file-read-metadata (literal "/etc"))
+(allow file-read-metadata (literal "/private"))
+(allow file-read-metadata (literal "/private/var"))
+(allow file-read-metadata (literal "/private/var/db"))
+(allow file-read-metadata (literal "/Library"))
+(allow file-read-metadata (literal "/Library/Preferences"))
+(allow file-read-metadata (literal "/Library/Developer"))
+(allow file-read-metadata (literal "/Users"))
+(allow file-map-executable (subpath "/System"))
+(allow file-map-executable (subpath "/usr"))
+(allow file-map-executable (subpath "/private/preboot"))
+(allow file-map-executable (subpath "/Library/Frameworks"))
+(allow file-map-executable (subpath "/Library/Developer/CommandLineTools"))
+(allow file-ioctl (subpath "/dev"))
+(allow file-write-data (literal "/dev/null"))
+(allow file-write-data (regex #"^/dev/tty"))
+
+;; --- reads: the Homebrew kegs the engine links against -------------------
+;; The prefix is user-writable, so only the kegs, never etc/ or var/.
+(allow file-read-metadata (literal "/opt"))
+(allow file-read-metadata (literal "/opt/homebrew"))
+(allow file-read-metadata (literal "/opt/homebrew/bin"))
+(allow file-read-metadata (literal "/opt/homebrew/Cellar"))
+;; Metadata on every keg path, so the engine can resolve its own symlinked
+;; binary back to its keg and find the runner beside it; contents stay
+;; limited to the kegs named below.
+(allow file-read-metadata (subpath "/opt/homebrew/Cellar"))
+(allow file-read-metadata (literal "/opt/homebrew/opt"))
+(allow file-read* (literal "/opt/homebrew/bin/ollama"))
+(allow file-read* (subpath (param "OLLAMA_KEG")))
+(allow file-read* (subpath "/opt/homebrew/Cellar/mlx"))
+(allow file-read* (subpath "/opt/homebrew/Cellar/mlx-c"))
+(allow file-read* (subpath "/opt/homebrew/opt/mlx"))
+(allow file-read* (subpath "/opt/homebrew/opt/mlx-c"))
+(allow file-map-executable (subpath (param "OLLAMA_KEG")))
+(allow file-map-executable (subpath "/opt/homebrew/Cellar/mlx"))
+(allow file-map-executable (subpath "/opt/homebrew/Cellar/mlx-c"))
+
+;; --- the gateway's own trees ---------------------------------------------
+;; G4: under $HOME, an allow-list. Everything else -- ~/.ssh, AI tool
+;; credentials, 1Password data, ~/.ollama/id_ed25519, the login keychain
+;; file -- is unreachable because nothing allows it.
+(allow file-read-metadata (literal (param "USER_HOME")))
+(allow file-read* (subpath (param "GATEWAY_TREE")))
+(allow file-read* file-write* (subpath (param "GATEWAY_HOME")))
+(allow file-read* (subpath (param "MODEL_STORE")))
+(allow file-read-metadata (literal (param "MODEL_STORE_PARENT")))
+
+;; --- network: listen on loopback; outbound only to its own runner ---------
+;; The deadline proxy connects TO the engine. The engine's one outbound
+;; need is its runner subprocess, which listens on a loopback port the
+;; kernel picks from its ephemeral range (ollama cannot pin it). Nothing
+;; off the host (OLLAMA_NO_CLOUD=1), and nothing on a well-known loopback
+;; port: the everyday ollama on 11434, the deadline proxy on 11436 and
+;; every other local service below the ephemeral range are out of reach.
+;;
+;; Why one rule per port: SBPL has no port ranges, and a wildcard allow
+;; ("localhost:*") cannot be narrowed by any later deny, in any spelling
+;; (measured 2026-10-13). The block below is rendered from the kernel's
+;; range; it costs a few seconds of profile compilation per start, which
+;; a daemon that starts at login can afford.
+(allow network-bind (local tcp "localhost:*"))
+(allow network-inbound (local tcp "localhost:*"))
+@EPHEMERAL_OUTBOUND@
+
+;; --- explicit denials, last so they win ------------------------------------
+;; G4: the connector's run token is unretrievable by any means. A keychain
+;; item is not read by path: the CLI is denied outright, and the keychain
+;; daemons' mach services are denied so the Security framework fails from
+;; any binary, a copied or bundled one included.
+(deny process-exec (literal "/usr/bin/security"))
+(deny mach-lookup (global-name-regex #"^com\.apple\.(SecurityServer|securityd|secd|security\.)"))
+;; Nothing the engine starts may leave this sandbox: launchd and
+;; LaunchServices start processes that are not its children.
+(deny process-exec (literal "/bin/launchctl"))
+(deny process-exec (literal "/usr/bin/open"))
+(deny mach-lookup (global-name-regex #"^com\.apple\.(coreservices\.launchservicesd|lsd\.|xpc\.launchd)"))
+;; Q7: the store is read-only, stated explicitly so it holds even for a
+;; store that lives outside $HOME.
+(deny file-write* (subpath (param "MODEL_STORE")))

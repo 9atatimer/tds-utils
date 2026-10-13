@@ -23,9 +23,22 @@ everyday ollama on 127.0.0.1:11434 -- untouched, denied to the sandbox
 - `gateway.env` -- the single source of truth: ports (11435 ollama, 11436
   proxy -- tds-internal mirrors 11436 as `origin_port`), the 90 s deadline,
   the 6 m upstream hold, keep_alive, context length. Each value says why.
-- `sandbox/ollama-gateway.sb` -- the sandbox profile (G4, Q7).
+- `sandbox/ollama-gateway.sb.in` -- the sandbox profile's template (G4,
+  Q7): deny by default, every allow named. `libexec/profile-render.zsh`
+  renders it to `sandbox/ollama-gateway.sb` at install, filling the one
+  machine-specific block (the kernel's ephemeral port range, see "The
+  external ollama") from `sysctl`; the rendered file is not committed.
+- `sandbox/ollama-gateway.probe.tsv` -- the G4 conformance table: one row
+  per property, with the expectation under the profile (`confined`) and
+  without it (`control`). Adding a property to the seam is adding a row.
 - `libexec/probe.zsh`, `libexec/keychain-probe.py` -- the G4 probe, the
-  confinement-mechanism seam.
+  confinement-mechanism seam: runs every row of the table, in both modes,
+  before every start.
+- `libexec/profile-trace.zsh` -- the allow-list apparatus: runs the real
+  engine under a candidate profile on a scratch port, drives the gateway's
+  workload, and prints every operation the sandbox denied (from the
+  unified log) as SBPL. A human runs it after an ollama or macOS upgrade
+  and iterates until the workload passes with an empty trace.
 - `libexec/launch-ollama.zsh` -- runs the probe before every start, then
   `ollama serve` under the profile; refuses (exit 78) rather than start
   unconfined.
@@ -47,17 +60,38 @@ everyday ollama on 127.0.0.1:11434 -- untouched, denied to the sandbox
   `OLLAMA_MAX_LOADED_MODELS=1`, `OLLAMA_KEEP_ALIVE=2m` (Q3),
   `OLLAMA_CONTEXT_LENGTH=32768`, `OLLAMA_NO_CLOUD=1`, flash attention and a
   q8_0 KV cache like the everyday instance, and a scrubbed environment.
-- The sandbox, first cut: under `$HOME` only the gateway tree (read; its
-  `home/` read-write) and the store (read-only) are reachable; loopback to
-  11434 is denied; `/usr/bin/security` and the keychain daemons' mach
-  services are denied. Outside `$HOME` it is broad (hardening pass).
-- The probe, before every start: unconfined, both canaries must be
-  reachable; confined, each of these must be a sandbox denial (EPERM):
-  reading the file canary `~/.local/state/ollama-gateway-probe/canary`,
-  finding the keychain canary `lmde.ollama-gateway.probe-canary`
-  through `/usr/bin/security` and through the Security framework,
-  connecting to 11434, writing the store, writing the installed launchers.
-  Both canaries hold the literal `not-a-secret`.
+- The sandbox denies by default. Readable: the OS's own trees (`/System`,
+  `/usr`, the cryptex, `/private/etc`, a few `/Library` and `/private/var/db`
+  subtrees), the Homebrew kegs the engine links against (its own, `mlx`,
+  `mlx-c`), the gateway tree and the store; writable: the gateway `home/`
+  only. Nothing else under `$HOME`, nothing under `/private/tmp`, the
+  user's TMPDIR tree or the rest of the Homebrew prefix. Executable: the
+  engine's keg and the system's own binaries, with `/usr/bin/security`,
+  `/bin/launchctl` and `/usr/bin/open` denied outright, and the keychain,
+  launchd and LaunchServices mach services denied so a copied binary
+  fails too. Network: listen on loopback; outbound only to the kernel's
+  ephemeral loopback ports, where the engine's own runner listens (ollama
+  cannot pin that port, and SBPL has no port ranges and lets no deny
+  narrow a wildcard allow, so the render lists each port). Every
+  well-known loopback port, 11434 and 11436 included, is out of reach.
+  The allow-list was derived with `profile-trace.zsh` until the workload
+  (model load, `/v1/models`, a completion) passed with an empty trace.
+- The probe, before every start, runs every row of
+  `sandbox/ollama-gateway.probe.tsv` twice. Unconfined (`control`), each
+  row must be reachable, so no confined pass can succeed vacuously.
+  Confined, each `deny` row must be observed as a sandbox denial (EPERM,
+  never "no such file" or "connection refused"): reading the file canary
+  `~/.local/state/ollama-gateway-probe/canary`, finding the keychain
+  canary `lmde.ollama-gateway.probe-canary` through `/usr/bin/security`
+  and through the Security framework, writing the store, the installed
+  launchers, `/private/tmp` and the Homebrew prefix, listing the user's
+  TMPDIR, reaching launchd and LaunchServices, connecting to 11434, to
+  the proxy's port and off the host; and the gateway home must stay
+  writable. Both canaries hold the literal `not-a-secret`.
+- What the engine can still reach: loopback services bound to a port in
+  the kernel's ephemeral range (Docker Desktop's, an editor's language
+  server), because its runner lives there. Bind local control APIs to
+  unix sockets or well-known ports, never to ephemeral ones.
 - The probe never reads the keychain canary's secret (Issue#441): both
   means look the item up by its attributes only (`/usr/bin/security
   find-generic-password -s`, no `-w`), which evaluates neither its access
@@ -107,7 +141,13 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.tds.lmde.ollama-gate
 ## Install, operate, remove
 
 - Install: `lmde install proxy-layer` and `lmde install ollama-gateway`
-  (or each `setup.sh`), in either order.
+  (or each `setup.sh`), in either order. Re-run the gateway's install
+  after a change to the kernel's ephemeral port range (`sysctl
+  net.inet.ip.portrange`), since the rendered profile lists it.
+- After an ollama or macOS upgrade, re-derive the allow-list:
+  `libexec/profile-trace.zsh --model <small model>` and fold any new
+  denial the workload needs into the template, with a comment saying
+  which step wanted it.
 - Health: `lmde status` / `lmde doctor`, or `healthcheck.sh`. The Q8 drift
   check (an allow-listed request through the tunnel must reach the route,
   identified by its header) runs when `OLLAMA_GATEWAY_EDGE_URL` and the

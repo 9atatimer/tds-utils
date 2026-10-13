@@ -1,0 +1,39 @@
+# ollama-gateway.probe.tsv -- the G4 conformance spec (docs/design/
+# OLLAMA-GATEWAY.DESIGN.md, G4; tds-utils Issue#460). One row per behavior
+# libexec/probe.zsh exercises, twice: unconfined (the `control` column must
+# hold, so no row can pass vacuously) and under sandbox/ollama-gateway.sb
+# with the launcher's parameters (the `confined` column must hold).
+#
+# Columns, tab separated: check  confined  control  verb  target...
+#   expectation  deny    the sandbox itself refused (EPERM); nothing else counts
+#                permit  the sandbox did not refuse: success or any other error
+#                allow   the operation succeeded
+#                skip    not exercised in this mode
+#   verb         read <file> | list <dir> | write <dir> | exec <path> [args]
+#                connect <host:port> | keychain-framework <service>
+#                keychain-cli <service>
+#   target       $VAR names are the probe's parameters (--canary-file,
+#                --store, --guard-dir, --gateway-home, --user-tmpdir,
+#                --keychain-service, --deny-port, --proxy-port) and $UID;
+#                nothing else expands. The engine needs NO outbound
+#                connection, so even the route's port is denied to it.
+#
+# Order matters for the keychain rows: the CLI is tried only after the
+# framework row answered without a dialog (the probe enforces this).
+#
+# check	confined	control	verb	target
+canary-file-unreadable	deny	allow	read	$CANARY_FILE
+store-readable	allow	allow	list	$STORE
+store-write-denied	deny	allow	write	$STORE
+guard-write-denied	deny	allow	write	$GUARD_DIR
+gateway-home-writable	allow	allow	write	$GATEWAY_HOME
+tmp-write-denied	deny	allow	write	/private/tmp
+homebrew-write-denied	deny	permit	write	/opt/homebrew/bin
+user-tmpdir-unreadable	deny	allow	list	$USER_TMPDIR
+keychain-framework-denied	deny	allow	keychain-framework	$KEYCHAIN_SERVICE
+keychain-cli-denied	deny	allow	keychain-cli	$KEYCHAIN_SERVICE
+launchd-unreachable	deny	permit	exec	/bin/launchctl print gui/$UID
+launchservices-unreachable	deny	permit	exec	/usr/bin/open -Ra Finder
+loopback-everyday-denied	deny	permit	connect	127.0.0.1:$DENY_PORT
+loopback-route-denied	deny	permit	connect	127.0.0.1:$PROXY_PORT
+outbound-denied	deny	permit	connect	224.0.0.1:9

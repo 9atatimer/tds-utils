@@ -43,10 +43,10 @@ main() {
     out="$(/bin/zsh -f "${copy}/libexec/probe.zsh" control "${args[@]}" 2>&1)" || status=$?
     [[ "${status}" -ne 0 ]] || fail "control must fail when the canary needs a dialog; output:
 ${out}"
-    assert_contains "${out}" "FAIL keychain-framework-reachable" "framework control fails"
+    assert_contains "${out}" "FAIL keychain-framework-denied" "framework control fails"
     assert_contains "${out}" "dialog" "the failure names the dialog it refused to raise"
     assert_contains "${out}" "setup.sh" "the failure names the fix"
-    assert_contains "${out}" "FAIL keychain-cli-reachable" "cli control fails closed"
+    assert_contains "${out}" "FAIL keychain-cli-denied" "cli control fails closed"
     assert_contains "${out}" "not attempted" "/usr/bin/security is not tried after a refusal"
 
     status=0
@@ -58,10 +58,11 @@ ${out}"
     assert_contains "${out}" "not attempted" "/usr/bin/security is not tried after a refusal"
 
     status=0
-    out="$(env -i HOME="${FAKE_HOME}" PATH="${FAKE_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
+    out="$(env -i HOME="${FAKE_HOME}" PATH="${FAKE_KEG}/bin:${FAKE_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
         OLLAMA_GATEWAY_PROBE_KEYCHAIN="${KEYCHAIN}" \
         OLLAMA_GATEWAY_OLLAMA_PORT="${OLLAMA_PORT}" \
         OLLAMA_GATEWAY_TREE="${TREE}" \
+        OLLAMA_GATEWAY_PROFILE="${PROFILE}" \
         /bin/zsh -f "${copy}/libexec/launch-ollama.zsh" 2>&1)" || status=$?
     assert_eq "${status}" "78" "launcher exit status (EX_CONFIG; launchd relaunches, throttled); output: ${out}"
     refusals="$(grep -c 'refusing to start' <<<"${out}" || true)"

@@ -43,3 +43,5 @@ dist/
 
 # chores (uv project): per-machine virtualenv
 chores/.venv/
+# Rendered per machine by lmde/components/ollama-gateway/libexec/profile-render.zsh
+lmde/components/ollama-gateway/sandbox/ollama-gateway.sb
