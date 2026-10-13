@@ -88,9 +88,9 @@ to start on any failed row. The connector is not sandboxed.
   line naming the row otherwise. tds-internal's G6 smoketest runs this.
 - Verify the whole road: `lmde status` green (`external-ollama: OK`,
   `deadline-proxy: OK (127.0.0.1:11436, HTTP 200)`, exit 0; `edge` is
-  SKIPPED unless `OLLAMA_GATEWAY_EDGE_URL` and the consumer credential's
-  four variables are set, typically under `op run` with an env file kept
-  in tds-internal), then tds-internal `scripts/ollama-gateway/smoketest.sh`,
+  SKIPPED when `OLLAMA_GATEWAY_EDGE_URL` is unset and DEGRADED when the
+  URL is set but the consumer credential's four variables are not,
+  typically under `op run` with an env file kept in tds-internal), then tds-internal `scripts/ollama-gateway/smoketest.sh`,
   run by a human from the tds-internal root: PASS on every check. After
   any restart, `ollama.log` shows `launch-ollama: probe passed under ...`
   then `starting ... serve`.
@@ -139,8 +139,10 @@ environment, `edge`. Logs: `~/Library/Logs/ollama-gateway/{ollama,connector}.log
 | Caddy vhosts gone after an install | `curl --unix-socket ~/.local/share/lmde-networking/run/caddy-admin.sock http://localhost/config/` | the networking install restarted Caddy; routes are added at cluster bootstrap, so re-run the cluster's setup or `register_cluster_vhost` from `lib.sh` |
 | connector not up, or 530 at the edge | `connector.log`; `launchctl print gui/$(id -u)/com.tds.lmde.ollama-gateway.connector` (last exit 78 is a refused start) | no run token in the Keychain (exit 78 names the item), or a Keychain dialog under launchd (Issue#442): re-seed with `seed-tunnel-token.zsh` |
 
-`ollama.log` carries the launcher's preflight and probe lines (`ok <check>`
-/ `FAIL <check>: <why>`), then ollama's own log, one `[GIN]` line per
+`ollama.log` carries the launcher's refusals and, on a failed probe, its
+report (`ok <check>` / `FAIL <check>: <why>` per row); a passing start logs
+one `probe passed under <profile>` line (the full report is printed only
+under `--probe-only`), then ollama's own log, one `[GIN]` line per
 request. `haproxy.log` carries errors, timeouts and aborts only, never a
 normal request and never a body.
 
