@@ -4,7 +4,9 @@
 # config and launcher land under ~/.local/share/lmde-proxy, its LaunchAgent
 # is well-formed, starts at login, restarts after an unsuccessful exit
 # (throttled), logs under ~/Library/Logs/lmde-proxy and runs the installed
-# launcher, and it is loaded; uninstall unloads and removes it but leaves
+# launcher, and it is loaded; launchd's default 256-descriptor limit is
+# raised, so HAProxy does not size itself to ~100 connections -- a hidden
+# throttle the first cut does not have (Q12); uninstall unloads and removes it but leaves
 # tenants' routes for their own uninstall. Runs without HAProxy: launchd is
 # a fake here.
 
@@ -50,6 +52,8 @@ FAKE
     [[ "$(/usr/libexec/PlistBuddy -c 'Print :ThrottleInterval' "${p}")" -ge 10 ]] || fail "ThrottleInterval below 10"
     assert_eq "$(/usr/libexec/PlistBuddy -c 'Print :StandardErrorPath' "${p}")" \
         "${home}/Library/Logs/lmde-proxy/haproxy.log" "log path"
+    [[ "$(/usr/libexec/PlistBuddy -c 'Print :SoftResourceLimits:NumberOfFiles' "${p}" 2>/dev/null || echo 0)" -ge 4096 ]] \
+        || fail "descriptor limit left at launchd's default (HAProxy caps maxconn near 100)"
     assert_contains "$(cat "${work}/launchctl.log")" "bootstrap gui/${uid} ${p}" "layer loaded"
 
     out="$(env -i HOME="${home}" PATH="${bin}:/usr/bin:/bin:/usr/sbin:/sbin" "${PROXY_DIR}/setup.sh" uninstall 2>&1)" \
