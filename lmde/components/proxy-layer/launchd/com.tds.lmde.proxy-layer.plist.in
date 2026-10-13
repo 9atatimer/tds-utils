@@ -38,6 +38,20 @@
   <key>ThrottleInterval</key>
   <integer>10</integer>
 
+  <!-- launchd's default of 256 descriptors makes HAProxy size itself to
+       about 100 connections, a cap Q12 does not set (each gateway request
+       holds four descriptors across its two hops). -->
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>8192</integer>
+  </dict>
+  <key>HardResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>8192</integer>
+  </dict>
+
   <!-- Errors, timeouts and aborts only (option dontlog-normal): request
        lines and timings, never bodies (Q10). -->
   <key>StandardOutPath</key>
