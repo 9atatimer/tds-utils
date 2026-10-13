@@ -9,6 +9,7 @@ laptop's model through the Ollama Gateway.
 - Caller template: `docs/ocr-review-caller.yml`.
 - Step commands: `bin/ocr-review`; decisions in `lib/ocr-review/`.
 - Seeder: `bin/seed-ocr-review`. Stats: `bin/ocr-review-stats`.
+- Changing the workflow or its tools: `docs/runbooks/RUNBOOK.ocr-review-maintenance.md`.
 - Tests: `test/smoketest_ocr_review.sh` (node suites),
   `test/smoketest_seed_ocr_review.sh` (fake `gh`/`op`). Both run in CI.
 
