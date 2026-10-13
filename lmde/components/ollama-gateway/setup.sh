@@ -110,13 +110,20 @@ install_tree() {
 install_canaries() {
     mkdir -p "${CANARY_DIR}"
     print -r -- "${CANARY_VALUE}" > "${CANARY_DIR}/canary"
-    # -A: any application may read the canary without a prompt, so a
-    # sandbox hole cannot hide behind a keychain access dialog. Created
-    # once: changing an existing item's access list prompts the user.
-    if ! security find-generic-password -s "${CANARY_SERVICE}" -a "${TOKEN_ACCOUNT}" "${KEYCHAIN_ARG[@]}" >/dev/null 2>&1; then
-        security add-generic-password -A -s "${CANARY_SERVICE}" -a "${TOKEN_ACCOUNT}" \
-            -w "${CANARY_VALUE}" "${KEYCHAIN_ARG[@]}" >/dev/null
-    fi
+    # -A: any application may read the canary without a dialog, so the
+    # probe's framework check (Keychain UI off) can read it unconfined and
+    # a sandbox hole cannot hide behind a dialog. Recreated on every
+    # install rather than kept: an item left by an earlier install may
+    # admit only /usr/bin/security, and the probe would then fail until
+    # it is replaced (Issue#441). Deleted and re-added, never modified in
+    # place -- changing an existing item's access list prompts the user.
+    integer stale=0
+    while security delete-generic-password -s "${CANARY_SERVICE}" "${KEYCHAIN_ARG[@]}" >/dev/null 2>&1 \
+        && (( ++stale < 10 )); do
+        :
+    done
+    security add-generic-password -A -s "${CANARY_SERVICE}" -a "${TOKEN_ACCOUNT}" \
+        -w "${CANARY_VALUE}" "${KEYCHAIN_ARG[@]}" >/dev/null
     log "probe canaries in place (${CANARY_DIR}/canary, keychain ${CANARY_SERVICE})"
 }
 
