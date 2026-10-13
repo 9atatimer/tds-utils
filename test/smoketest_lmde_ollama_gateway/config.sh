@@ -17,7 +17,6 @@ set -euo pipefail
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "${TEST_DIR}/../.." && pwd)"
 COMPONENT_DIR="${REPO_DIR}/lmde/components/ollama-gateway"
-PROXY_DIR="${REPO_DIR}/lmde/components/proxy-layer"
 PROFILE="${COMPONENT_DIR}/sandbox/ollama-gateway.sb"
 PROBE="${COMPONENT_DIR}/libexec/probe.zsh"
 LAUNCH_OLLAMA="${COMPONENT_DIR}/libexec/launch-ollama.zsh"
@@ -271,7 +270,6 @@ keychain_token() {
 
 OLLAMA_LABEL="com.tds.lmde.ollama-gateway.ollama"
 CONNECTOR_LABEL="com.tds.lmde.ollama-gateway.connector"
-PROXY_LABEL="com.tds.lmde.proxy-layer"
 
 # install_fake_launchctl -- a `launchctl` on FAKE_BIN that logs every call to
 # ${WORK}/launchctl.log and keeps a loaded-or-not marker per label, so the
