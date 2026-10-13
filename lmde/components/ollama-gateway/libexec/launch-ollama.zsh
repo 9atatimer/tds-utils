@@ -4,7 +4,10 @@
 # External ollama, G4, G7, G8; Key Decisions Q3, Q7).
 #
 # Run by launchd (com.tds.lmde.ollama-gateway.ollama), which restarts it
-# after a non-zero exit. Before EVERY start it runs the G4 probe: once
+# after a non-zero exit. With --probe-only it runs the probe passes with
+# the same parameters, prints the verdict and exits 0 or 78 without
+# starting ollama (the tds-internal G6 smoketest re-proves G4 this way on
+# a laptop whose engine is already up). Before EVERY start it runs the G4 probe: once
 # unconfined (the canaries must be reachable) and once under the same
 # profile and parameters ollama gets (every denial must hold). If either
 # fails, it exits 78 and never starts ollama -- there is no fallback to
@@ -41,6 +44,7 @@ readonly CHILD_PATH="/usr/bin:/bin:/usr/sbin:/sbin"
 
 typeset USER_HOME="" TREE="" GATEWAY_HOME="" STORE="" PROFILE="" SPEC="" CANARY_FILE=""
 typeset USER_TMPDIR="" PROBE_KEYCHAIN="" OLLAMA_BIN="" OLLAMA_KEG=""
+integer PROBE_ONLY=0
 typeset -a SANDBOX_ARGV
 
 # --- Reporting ---
@@ -143,7 +147,8 @@ preflight() {
     [[ -d "${OLLAMA_KEG}" ]] || die "ollama keg not found: ${OLLAMA_KEG}"
     is_private_keg "${OLLAMA_KEG}" \
         || die "refusing to grant the engine ${OLLAMA_KEG}: a keg holds only ollama under its bin/ (a symlink into Homebrew's Cellar, or a tree of its own); a shared prefix or a home directory is not a keg"
-    if is_port_bound "${OLLAMA_GATEWAY_OLLAMA_PORT}"; then
+    # A probe-only run on a live laptop finds the engine itself on the port.
+    if (( ! PROBE_ONLY )) && is_port_bound "${OLLAMA_GATEWAY_OLLAMA_PORT}"; then
         die "127.0.0.1:${OLLAMA_GATEWAY_OLLAMA_PORT} is already bound by another process; refusing to start beside it"
     fi
 }
@@ -160,10 +165,12 @@ run_probe() {
         print -u2 -r -- "${report}"
         die "refusing to start the external ollama: the probe's control pass failed (DEGRADED)"
     fi
+    (( PROBE_ONLY )) && print -r -- "${report}"
     if ! report="$(cd "${GATEWAY_HOME}" && "${SANDBOX_ARGV[@]}" /bin/zsh -f "${PROBE}" confined "${args[@]}" 2>&1)"; then
         print -u2 -r -- "${report}"
         die "refusing to start the external ollama unconfined: the G4 probe failed under ${PROFILE} (DEGRADED)"
     fi
+    (( PROBE_ONLY )) && print -r -- "${report}"
     log "probe passed under ${PROFILE}"
 }
 
@@ -192,10 +199,18 @@ start_ollama() {
 # --- Entry point ---
 
 main() {
-    (( $# == 0 )) || die "takes no arguments"
+    case "$#:${1:-}" in
+        0:) ;;
+        1:--probe-only) PROBE_ONLY=1 ;;
+        *) die "usage: launch-ollama.zsh [--probe-only]" ;;
+    esac
     load_config
     preflight
     run_probe
+    if (( PROBE_ONLY )); then
+        log "probe-only: not starting ollama"
+        return 0
+    fi
     start_ollama
 }
 

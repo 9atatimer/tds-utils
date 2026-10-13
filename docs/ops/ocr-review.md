@@ -111,7 +111,10 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
   - `configuration`: run `bin/seed-ocr-review status`.
   - `credential`: Access refused the item's headers; check the item.
   - `gateway-down`: the laptop, its tunnel, the deadline proxy or the
-    sandboxed ollama is down.
+    sandboxed ollama is down. On the laptop, `lmde status` says which; a
+    sandboxed ollama that refuses to start (the G4 probe failed a row) is
+    the commonest, and `docs/ops/ollama-gateway.md` has the diagnosis
+    table.
   - `model-not-found`: the gateway does not serve that model.
   - `cold-model`: the model loaded for 6 minutes without answering; re-run.
   - `engine-error`: ocr failed, its result lacked the resolved range or the
@@ -215,7 +218,7 @@ design record's Key Decisions log; the umbrella issue is Issue#363.
 | Seeder, stats | `bin/seed-ocr-review`, `bin/ocr-review-stats` | Human-run; `status` reports each adopter's pin |
 | Tests | `test/ocr_review_*.test.mjs`, `test/smoketest_ocr_review.sh`, `test/smoketest_seed_ocr_review.sh` | The smoketest is the list of node suites; a new suite is added there |
 | Runner image | tds-internal `services/ci-runner-pool/Dockerfile` | The pool's host tools (git, gnupg, unzip, a pinned and verified `op`); its `test/wiring.test.ts` lists them |
-| Gateway | `lmde/components/ollama-gateway/`, `lmde/components/proxy-layer/`; tds-internal `ops/terraform/ollama-gateway/` | The deadline status (507) and Host rewrite live in the route |
+| Gateway | `lmde/components/ollama-gateway/`, `lmde/components/proxy-layer/`; tds-internal `ops/terraform/ollama-gateway/` | The deadline status (507) and Host rewrite live in the route; operating the laptop side is `docs/ops/ollama-gateway.md` |
 
 ### Invariants a change must keep
 

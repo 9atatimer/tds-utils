@@ -194,14 +194,20 @@ FAKE
     chmod +x "${FAKE_KEG}/bin/ollama"
 }
 
-# run_launcher <env assignments...> -- run the ollama launcher as launchd
-# would (HOME set, a minimal PATH with the fakes first), against the
-# fixture, on a free port. Prints its combined output; returns its status.
+# run_launcher <env assignments...> [<command...>] -- run the ollama
+# launcher as launchd would (HOME set, a minimal PATH with the fakes
+# first), against the fixture, on a free port. Arguments up to the first
+# that is not NAME=VALUE are environment assignments; the rest replace the
+# default command (the launcher with no arguments), so a test can pass the
+# launcher's own flags. Prints its combined output; returns its status.
 run_launcher() {
+    local -a assignments=()
+    while [[ $# -gt 0 && "$1" == *=* && "$1" != /* ]]; do assignments+=("$1"); shift; done
+    [[ $# -gt 0 ]] || set -- /bin/zsh -f "${LAUNCH_OLLAMA}"
     env -i HOME="${FAKE_HOME}" PATH="${FAKE_KEG}/bin:${FAKE_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" \
         OLLAMA_GATEWAY_PROBE_KEYCHAIN="${KEYCHAIN}" \
         OLLAMA_GATEWAY_OLLAMA_PORT="${OLLAMA_PORT}" \
-        "$@" /bin/zsh -f "${LAUNCH_OLLAMA}" 2>&1
+        "${assignments[@]}" "$@" 2>&1
 }
 
 # --- Connector fixtures ------------------------------------------------------
