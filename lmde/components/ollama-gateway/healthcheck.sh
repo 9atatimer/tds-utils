@@ -7,8 +7,9 @@
 # "<check>: SKIPPED (<why>)"; exits non-zero if any check is DEGRADED.
 #
 #   external-ollama  something answers GET /api/version on 127.0.0.1:<ollama-port>
-#   deadline-proxy   GET /v1/models on 127.0.0.1:<proxy-port> answers with the
-#                    route's X-LMDE-Route: ollama-gateway header
+#   deadline-proxy   GET /v1/models on 127.0.0.1:<proxy-port> answers 200 (or
+#                    the 507 deadline answer) with the route's
+#                    X-LMDE-Route: ollama-gateway header
 #   edge             Q8 (a), origin-port drift: an allow-listed request
 #                    through the tunnel must reach the deadline proxy. GET
 #                    <edge>/v1/models with the consumer credential must answer
@@ -95,6 +96,8 @@ check_deadline_proxy() {
         degraded deadline-proxy "nothing answers on 127.0.0.1:${OLLAMA_GATEWAY_PROXY_PORT}; is com.tds.lmde.proxy-layer loaded?"
     elif ! carries_route_header "${headers}"; then
         degraded deadline-proxy "127.0.0.1:${OLLAMA_GATEWAY_PROXY_PORT} answered without the route header: another listener holds the proxy port"
+    elif [[ "$(status_of "${headers}")" != (200|507) ]]; then
+        degraded deadline-proxy "GET /v1/models through the route answered HTTP $(status_of "${headers}"); see ~/Library/Logs/ollama-gateway/ollama.log"
     else
         ok deadline-proxy "127.0.0.1:${OLLAMA_GATEWAY_PROXY_PORT}, HTTP $(status_of "${headers}")"
     fi
