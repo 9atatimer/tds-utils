@@ -527,7 +527,7 @@ function onPathIn(pathValue) {
     });
 }
 
-function gitIn(workspace) {
+export function gitIn(workspace) {
   return (argv, stdin) =>
     new Promise((done, fail) => {
       const child = spawn('git', ['-C', workspace, ...argv], { stdio: ['pipe', 'pipe', 'pipe'] });

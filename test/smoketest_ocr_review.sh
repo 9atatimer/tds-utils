@@ -23,6 +23,7 @@ run_suites() {
         "${REPO_ROOT}/test/ocr_review_verdict.test.mjs" \
         "${REPO_ROOT}/test/ocr_review_record.test.mjs" \
         "${REPO_ROOT}/test/ocr_review_io.test.mjs" \
+        "${REPO_ROOT}/test/ocr_review_git.test.mjs" \
         "${REPO_ROOT}/test/ocr_review_workflow.test.mjs" \
         "${REPO_ROOT}/test/ocr_review_stats.test.mjs"
 }
