@@ -18,7 +18,7 @@
           "start_line": 55,
           "reviewer": "copilot",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/159#discussion_r3563390421",
-          "summary": "The file list is fed into the `while read` loop via an unquoted here-doc (`<<EOF`). Because the delimiter is unquoted, bash performs parameter/command substitution on the here-doc body after expanding `$files`. A staged filename containing `$...`, backticks, or `$(...)` can be expanded/executed, and even benign `$` in filenames will be mangled. Use process substitution (or a quoted here-string) in"
+          "summary": "The file list is fed into the `while read` loop via an unquoted here-doc (`<<EOF`). Because the delimiter is unquoted, bash performs parameter/command substitution on the here-doc body after expanding `$files`. A staged filename containing `$...`, backticks, or `$(...)` can be expanded/executed, and even benign `$` in filenames will be mangled. Use process substitution (or a quoted here-string) instead of an unquoted here-doc for this data path."
         },
         {
           "path": "packages/naatm-hooks/scripts/lint-markdown-ascii.sh",
@@ -75,7 +75,7 @@
           "start_line": null,
           "reviewer": "copilot",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/159#discussion_r3563407133",
-          "summary": "The header comment for the hook\u2019s scope says it only checks added/copied/modified files, but the implementation should also include renames (see `staged_markdown`). Keep the documentation aligned with the actual scan behavior."
+          "summary": "The header comment for the hooks scope says it only checks added/copied/modified files, but the implementation should also include renames (see `staged_markdown`). Keep the documentation aligned with the actual scan behavior."
         },
         {
           "path": "packages/naatm-hooks/scripts/lint-markdown-ascii.sh",
@@ -83,7 +83,7 @@
           "start_line": 35,
           "reviewer": "copilot",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/159#discussion_r3563407143",
-          "summary": "`--all` mode currently misses uppercase `.MARKDOWN` files because `git ls-files` only includes `*.markdown` and `*.MD`. If a repo has `README.MARKDOWN` (or similar), `npm run lint:md` won\u2019t scan it."
+          "summary": "`--all` mode currently misses uppercase `.MARKDOWN` files because `git ls-files` only includes `*.markdown` and `*.MD`. If a repo has `README.MARKDOWN` (or similar), `npm run lint:md` wont scan it."
         },
         {
           "path": "packages/naatm-hooks/scripts/lint-markdown-ascii.sh",
@@ -99,7 +99,7 @@
           "start_line": null,
           "reviewer": "copilot",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/159#discussion_r3563407165",
-          "summary": "To fully isolate these tests from the machine\u2019s git configuration, also disable system gitconfig. Some environments set signing or hooks in system config (not just global), which can make test repos behave unexpectedly."
+          "summary": "To fully isolate these tests from the machines git configuration, also disable system gitconfig. Some environments set signing or hooks in system config (not just global), which can make test repos behave unexpectedly."
         }
       ]
     },
@@ -140,7 +140,7 @@
           "start_line": 28,
           "reviewer": "copilot",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/193#discussion_r3609095237",
-          "summary": "`mirror_default_branch` falls back to `main` whenever `refs/remotes/<remote>/HEAD` is missing. In repos where that symref was never set (e.g. remotes added after init) or the default branch isn\u2019t `main`, this can select the wrong branch for drift checks and `resync`. Consider deriving the default branch from the remote\u2019s HEAD symref when available (`git ls-remote --symref <remote> HEAD`) before fa"
+          "summary": "`mirror_default_branch` falls back to `main` whenever `refs/remotes/<remote>/HEAD` is missing. In repos where that symref was never set (e.g. remotes added after init) or the default branch isnt `main`, this can select the wrong branch for drift checks and `resync`. Consider deriving the default branch from the remotes HEAD symref when available (`git ls-remote --symref <remote> HEAD`) before falling back to `main`."
         }
       ]
     },
@@ -214,7 +214,7 @@
           "start_line": null,
           "reviewer": "copilot",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/36#discussion_r3444852665",
-          "summary": "This 1Password reference string includes what looks like a personal identifier (\"tdsmobile@\"). Item titles/refs in a public repo should avoid embedding email/usernames, and this likely won\u2019t match other environments\u2019 vault item names. Use a generic vault item reference."
+          "summary": "This 1Password reference string includes what looks like a personal identifier (\"tdsmobile@\"). Item titles/refs in a public repo should avoid embedding email/usernames, and this likely wont match other environments vault item names. Use a generic vault item reference."
         },
         {
           "path": ".github/workflows/ci-magic.yml",
@@ -247,7 +247,7 @@
           "start_line": 33,
           "reviewer": "copilot",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/442#discussion_r3782270771",
-          "summary": "`git ls-tree` is hard-coded to `HEAD`, but the ledger record\u2019s `head_sha` is explicitly set to the PR head SHA (from the event payload) rather than the merge commit. In the default Actions checkout for `pull_request`, `HEAD` is the synthetic merge commit, so the blob SHAs you compute may not be resolvable from `head_sha`, breaking the intended join key."
+          "summary": "`git ls-tree` is hard-coded to `HEAD`, but the ledger records `head_sha` is explicitly set to the PR head SHA (from the event payload) rather than the merge commit. In the default Actions checkout for `pull_request`, `HEAD` is the synthetic merge commit, so the blob SHAs you compute may not be resolvable from `head_sha`, breaking the intended join key."
         },
         {
           "path": "packages/naatm-ci-magic/src/adapters/ledger/sigv4.mjs",
@@ -271,7 +271,7 @@
           "start_line": 223,
           "reviewer": "copilot",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/442#discussion_r3782270854",
-          "summary": "This comment says raw output \u201cdoes not have to be held any longer than the Check itself\u201d, but `result.evaluation` (including raw assistant text + prompts) is returned and then retained in the `results` array until the end of the run. That can significantly increase peak memory on large runs, and it also means unconfigured ledgers still retain raw outputs unnecessarily."
+          "summary": "This comment says raw output does not have to be held any longer than the Check itself, but `result.evaluation` (including raw assistant text + prompts) is returned and then retained in the `results` array until the end of the run. That can significantly increase peak memory on large runs, and it also means unconfigured ledgers still retain raw outputs unnecessarily."
         }
       ]
     },
@@ -288,7 +288,7 @@
           "start_line": null,
           "reviewer": "codex",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/434#discussion_r3782217444",
-          "summary": "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Revalidate the claim before reviving a canceled batch**"
+          "summary": "Revalidate the claim before reviving a canceled batch When a cancellation arrives while staging construction is awaiting GitHub, this new `Running` state makes `cancel()` take the running-batch path and persist `Canceled`; the original start then resumes and unconditionally overwrites that state at `startWaitingBatch` with `Running` and a commit. A single-patch batch canceled during construction can therefore post running again and eventually land. Preserve a distinct starting state or verify that the claim is still owned before persisting the constructed batch."
         },
         {
           "path": "packages/naatm-tedium/src/ledger/ledger.ts",
@@ -296,7 +296,7 @@
           "start_line": null,
           "reviewer": "codex",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/434#discussion_r3782217453",
-          "summary": "**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow?style=flat)</sub></sub>  Preserve cause-specific ledger outcomes**"
+          "summary": "Preserve cause-specific ledger outcomes When a PR head races during construction, the batcher posts `race` but returns `error`; invalid configuration and non-fast-forward pushes are similarly collapsed to `error`. Because this new union also omits the documented `config_error` and `push_not_ff` values, warehouse records cannot distinguish these operationally different failures even though `DESIGN.TEDIUM.md` defines separate outcome dimensions for them. Carry the terminal cause through to `ledgerBatch` instead of recording the generic database state."
         },
         {
           "path": "packages/naatm-tedium/src/ledger/entries.ts",
@@ -304,7 +304,7 @@
           "start_line": null,
           "reviewer": "codex",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/434#discussion_r3782217458",
-          "summary": "**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow?style=flat)</sub></sub>  Record divergence when double-bar stage 1 fails**"
+          "summary": "Record divergence when double-bar stage 1 fails For a workflow-changing batch whose established-bars build fails, `bar_stage` remains `1`, so this expression records `bars_diverged: false` even though stage 1 was created precisely because the proposed workflow tree differed. This undercounts the failure mode the warehouse dimension is intended to measure; retain the divergence decision from staging construction rather than inferring it only from whether stage 2 was reached."
         },
         {
           "path": "packages/naatm-tedium/src/ledger/entries.ts",
@@ -312,7 +312,7 @@
           "start_line": null,
           "reviewer": "codex",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/434#discussion_r3782217462",
-          "summary": "**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow?style=flat)</sub></sub>  Keep both double-bar commit SHAs in the ledger**"
+          "summary": "Keep both double-bar commit SHAs in the ledger When a double-bar batch advances, `advanceToStage2` replaces `batch.commit` with the stage-2 SHA and deletes the staged inputs. Consequently this field labels the stage-2 commit as `staging_commit`, loses the stage-1 commit entirely, and the new record has no `stage2_commit` field despite the batch schema in `DESIGN.TEDIUM.md` requiring both. Preserve the stage-1 SHA and emit the final stage-2 SHA separately so double-bar lineage remains reconstructable."
         }
       ]
     },
@@ -329,7 +329,7 @@
           "start_line": 183,
           "reviewer": "codex",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/376#discussion_r3742270033",
-          "summary": "**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow?style=flat)</sub></sub>  Merge only lists with compatible ordered-list delimiters**"
+          "summary": "Merge only lists with compatible ordered-list delimiters When valid Markdown intentionally places a `1.` list next to a `1)` list, remark represents both as adjacent nodes with `ordered === true`, but CommonMark treats their different delimiters as separate lists. This condition merges them anyway; a direct insertion with the other delimiteror even an unrelated mutation elsewhere, since the loop scans the whole documentthen diverges from TreeSitterAdapter's raw-text reparse and causes the consensus check to reject the edit. Restrict merging to splice boundaries whose source delimiters are compatible rather than using `ordered` alone."
         },
         {
           "path": ".husky/pre-commit",
@@ -337,7 +337,7 @@
           "start_line": null,
           "reviewer": "codex",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/376#discussion_r3742270038",
-          "summary": "**<sub><sub>![P2 Badge](https://img.shields.io/badge/P2-yellow?style=flat)</sub></sub>  Fix the generator instead of only its generated shim**"
+          "summary": "Fix the generator instead of only its generated shim On a normal fresh checkout, the root `prepare` script runs `naatm-hooks install`, and `packages/naatm-hooks/bin/install.sh` still emits the removed `_common.sh` source line. Consequently every dependency install rewrites this tracked file back to its old contents, leaves the worktree dirty, and restores the dash failure this change claims to fix. Make the same change in the generator and regenerate the shim so the fix survives setup."
         },
         {
           "path": "packages/ast-mcp/src/adapters/secondary/parsers/RemarkAdapter.ts",
@@ -345,7 +345,7 @@
           "start_line": 183,
           "reviewer": "copilot",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/376#discussion_r3742271505",
-          "summary": "`mergeAdjacentOrderedLists()` scans and merges *all* adjacent ordered lists in `tree.children` every time any splice happens (updateNode/insertNode/updateSection). That can unintentionally change unrelated parts of the document (e.g., if the original markdown legitimately contains two adjacent ordered lists that should remain separate, a later edit elsewhere would silently merge them). Consider co"
+          "summary": "`mergeAdjacentOrderedLists()` scans and merges *all* adjacent ordered lists in `tree.children` every time any splice happens (updateNode/insertNode/updateSection). That can unintentionally change unrelated parts of the document (e.g., if the original markdown legitimately contains two adjacent ordered lists that should remain separate, a later edit elsewhere would silently merge them). Consider constraining the merge to the splice boundary only (merge at most the neighbors around the insertion/replacement range), rather than folding the entire document on every edit."
         }
       ]
     },
@@ -362,7 +362,7 @@
           "start_line": 11,
           "reviewer": "copilot",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/203#discussion_r3609231669",
-          "summary": "The header comment says the substitution table contains 33 codepoints, but the current table includes 37 distinct byte sequences (see normalize_to\u2019s 37 s/// rules). This makes the script documentation inaccurate and can mislead consumers relying on the stated scope size."
+          "summary": "The header comment says the substitution table contains 33 codepoints, but the current table includes 37 distinct byte sequences (see normalize_tos 37 s/// rules). This makes the script documentation inaccurate and can mislead consumers relying on the stated scope size."
         },
         {
           "path": "packages/naatm-hooks/scripts/fix-markdown-ascii.sh",
@@ -370,7 +370,7 @@
           "start_line": 171,
           "reviewer": "copilot",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/203#discussion_r3609231676",
-          "summary": "Unknown `--...` options are currently treated as literal paths (and often silently skipped as \u201cnot a file\u201d), which can mask typos like `--chek` and yield a false \u201cclean\u201d exit. Since `--` already exists to force literal paths, it\u2019s safer to fail fast on unrecognized `--*` options."
+          "summary": "Unknown `--...` options are currently treated as literal paths (and often silently skipped as not a file), which can mask typos like `--chek` and yield a false clean exit. Since `--` already exists to force literal paths, its safer to fail fast on unrecognized `--*` options."
         },
         {
           "path": "packages/naatm-hooks/scripts/fix-markdown-ascii.sh",
@@ -378,7 +378,7 @@
           "start_line": 179,
           "reviewer": "copilot",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/203#discussion_r3609231685",
-          "summary": "The script documents exit code 2 for operational failures, but with `set -e` many failures (e.g., `git add`, `mktemp`, `cat`) will currently exit with their native status instead of 2. Add an `ERR` trap to normalize unexpected failures to 2, and call `run_fix` in an `if ! ...` context so the intended rc=1 (\u201chuman needed\u201d) is preserved."
+          "summary": "The script documents exit code 2 for operational failures, but with `set -e` many failures (e.g., `git add`, `mktemp`, `cat`) will currently exit with their native status instead of 2. Add an `ERR` trap to normalize unexpected failures to 2, and call `run_fix` in an `if ! ...` context so the intended rc=1 (human needed) is preserved."
         }
       ]
     },
@@ -403,7 +403,7 @@
           "start_line": 91,
           "reviewer": "copilot",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/203#discussion_r3609244264",
-          "summary": "The `staged_markdown_z` helper\u2019s comment claims it returns staged Markdown paths, but it actually returns *all* staged paths (Markdown filtering happens later via `is_markdown_path`). This can mislead future edits (e.g., someone might assume the downstream filter is redundant)."
+          "summary": "The `staged_markdown_z` helpers comment claims it returns staged Markdown paths, but it actually returns *all* staged paths (Markdown filtering happens later via `is_markdown_path`). This can mislead future edits (e.g., someone might assume the downstream filter is redundant)."
         },
         {
           "path": "packages/naatm-hooks/tests/markdown-fix-ascii.sh",
@@ -411,7 +411,7 @@
           "start_line": 557,
           "reviewer": "copilot",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/203#discussion_r3609244269",
-          "summary": "With `set -e`, any scenario function that returns non-zero (e.g., via `assert_exit ... || return`) can terminate the entire suite early, which defeats the failure-accumulation + summary pattern used elsewhere in this repo\u2019s hook tests (e.g., `tests/markdown-ascii-check.sh`). Running each scenario call as `... || true` keeps the suite executing and preserves the final aggregated report."
+          "summary": "With `set -e`, any scenario function that returns non-zero (e.g., via `assert_exit ... || return`) can terminate the entire suite early, which defeats the failure-accumulation + summary pattern used elsewhere in this repos hook tests (e.g., `tests/markdown-ascii-check.sh`). Running each scenario call as `... || true` keeps the suite executing and preserves the final aggregated report."
         }
       ]
     },
@@ -453,7 +453,7 @@
           "start_line": null,
           "reviewer": "copilot",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/62#discussion_r3532178689",
-          "summary": "`git fetch` can prompt for credentials (or block waiting for input) when the user\u2019s origin requires auth. In a pre-push hook that can effectively hang the push. Force non-interactive behavior so failures are fast and the hook remains best-effort."
+          "summary": "`git fetch` can prompt for credentials (or block waiting for input) when the users origin requires auth. In a pre-push hook that can effectively hang the push. Force non-interactive behavior so failures are fast and the hook remains best-effort."
         },
         {
           "path": "packages/naatm-hooks/tests/pre-push-merged-branch-guard.sh",
@@ -461,7 +461,7 @@
           "start_line": 58,
           "reviewer": "copilot",
           "url": "https://github.com/Nine-At-A-Time-Media/template-tools/pull/62#discussion_r3532178721",
-          "summary": "This comment is inaccurate: `run_hook` doesn\u2019t echo the exit code, and the output file is `hook_output.log` (not `output.log`). Updating this makes the test harness easier to understand/maintain."
+          "summary": "This comment is inaccurate: `run_hook` doesnt echo the exit code, and the output file is `hook_output.log` (not `output.log`). Updating this makes the test harness easier to understand/maintain."
         }
       ]
     },

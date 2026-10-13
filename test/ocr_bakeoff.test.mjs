@@ -59,6 +59,16 @@ test('the committed cases parse, and every case has a base, a head and accepted 
   assert.equal(new Set(cases.map((c) => c.id)).size, cases.length, 'case ids are unique');
 });
 
+test('cases: every accepted finding carries its defect text, not only a title or a badge', () => {
+  const cases = parseCases(readFileSync(join(ROOT, 'lib/ocr-bakeoff/cases.json'), 'utf8'));
+  for (const c of cases) {
+    for (const a of c.accepted) {
+      assert.doesNotMatch(a.summary, /<sub>|!\[/, `${a.url}: markup`);
+      assert.ok(a.summary.length >= 120, `${a.url}: ${a.summary.length} chars`);
+    }
+  }
+});
+
 test('cases: a case without a full base SHA, or a duplicate id, is refused', () => {
   const doc = (cases) => JSON.stringify({ cases });
   assert.throws(() => parseCases(doc([kase({ base: 'abc' })])), /base/);
@@ -331,6 +341,54 @@ test('collate step: no records directory (every run died before uploading) is al
   });
   assert.equal(code, 0);
   assert.match(summary, /no-record 1/);
+});
+
+test('review step: a step before the probe failed (the probe skipped) is setup-failed, not probe-failed', async () => {
+  const step = fakeStep();
+  const code = await runReview({
+    env: {
+      ENTRY: JSON.stringify({ key: 'k', model: 'm', case: 'c1', first_for_model: false, base: SHA_A, head: SHA_B }),
+      PROBE_OUTCOME: 'skipped',
+      PROBE_CAUSE: '',
+      OUT_DIR: '/o',
+      JOB_STARTED: '0',
+      JOB_BUDGET_SECONDS: '480',
+    },
+    casesText: JSON.stringify({ cases: [kase({ id: 'c1' })] }),
+    run: async () => ({ code: 0 }),
+    now: () => 0,
+    step,
+  });
+  assert.equal(code, 0);
+  assert.equal(JSON.parse(step.files['/o/record.json']).outcome, 'setup-failed');
+});
+
+test('review step: an ocr config call that fails or hangs is engine-error naming the setting, never "exited null"', async () => {
+  for (const [answer, why] of [
+    [{ code: null, timedOut: true, stdout: '' }, /llm\.url.*timed out/],
+    [{ code: 2, timedOut: false, stdout: '' }, /llm\.url.*exited 2/],
+  ]) {
+    const step = fakeStep();
+    const run = async (_cmd, argv) => (argv[2] === 'llm.url' ? answer : { code: 0, timedOut: false, stdout: '' });
+    const code = await runReview({
+      env: {
+        ENTRY: JSON.stringify({ key: 'k', model: 'm', case: 'c1', first_for_model: false, base: SHA_A, head: SHA_B }),
+        PROBE_OUTCOME: 'success',
+        GATEWAY_URL: 'https://gw',
+        OUT_DIR: '/o',
+        JOB_STARTED: '0',
+        JOB_BUDGET_SECONDS: '480',
+      },
+      casesText: JSON.stringify({ cases: [kase({ id: 'c1' })] }),
+      run,
+      now: () => 0,
+      step,
+    });
+    assert.equal(code, 0);
+    const rec = JSON.parse(step.files['/o/record.json']);
+    assert.equal(rec.outcome, 'engine-error');
+    assert.match(rec.detail, why);
+  }
 });
 
 test('review step: a case id the cases file lacks fails before ocr runs', async () => {

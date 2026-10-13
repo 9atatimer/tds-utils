@@ -101,11 +101,16 @@ export async function runReview({ env, casesText, run, now, step }) {
     return 0;
   };
 
-  if (env.PROBE_OUTCOME !== undefined && env.PROBE_OUTCOME !== 'success') return record({ probeFailed: env.PROBE_CAUSE ?? '' }, '', 0);
+  // The probe's own failure has a cause; a skipped probe means an earlier
+  // step failed, which is not the gateway's doing.
+  if (env.PROBE_OUTCOME === 'failure') return record({ probeFailed: env.PROBE_CAUSE ?? '' }, '', 0);
+  if (env.PROBE_OUTCOME !== undefined && env.PROBE_OUTCOME !== 'success') return record({ setupFailed: true }, '', 0);
   const base = { PATH: env.PATH ?? '', HOME: env.HOME ?? '', ...OCR_QUIET };
   for (const argv of configArgs({ url: env.GATEWAY_URL ?? '', model: entry.model })) {
     const r = await run('ocr', argv, { env: base, cwd: env.SUBJECT_DIR, deadlineMs: 60 * 1000 });
-    if (r.code !== 0) return record({ code: r.code, timedOut: false }, '', 0);
+    if (r.timedOut || r.code !== 0) {
+      return record({ configFailed: { setting: argv[2], why: r.timedOut ? 'timed out' : `exited ${r.code}` } }, '', 0);
+    }
   }
   const leftMs = Number(env.JOB_BUDGET_SECONDS) * 1000 - (now() - Number(env.JOB_STARTED) * 1000);
   if (!(leftMs > 0)) return record({ code: null, timedOut: true }, '', 0);
