@@ -129,12 +129,15 @@ pin_state() {
     if [ "${changed:-0}" -gt 0 ]; then echo stale; else echo current; fi
 }
 
-# Repos an org secret or variable is visible to, one per line; empty when
-# it does not exist (404); "@all" when its visibility is not "selected"
-# (GitHub answers 409); fails on anything else.
+# Repos an org secret or variable is visible to, one per line, read across
+# every page (GitHub serves 30 a page by default; a truncated list would
+# revoke the rest when seed writes it back); empty when it does not exist
+# (404); "@all" when its visibility is not "selected" (GitHub answers 409);
+# fails on anything else.
 org_selection() {
     local owner="$1" kind="$2" name="$3" out
-    out=$(gh api "orgs/${owner}/actions/${kind}/${name}/repositories" --jq '.repositories[].full_name' 2>&1) || {
+    out=$(gh api "orgs/${owner}/actions/${kind}/${name}/repositories?per_page=100" --paginate \
+        --jq '.repositories[].full_name' 2>&1) || {
         case "${out}" in
             *"HTTP 404"*) return 0 ;;
             *"HTTP 409"*) echo "@all"; return 0 ;;
