@@ -221,3 +221,46 @@ run_connector() {
         OLLAMA_GATEWAY_KEYCHAIN="${KEYCHAIN}" \
         "$@" /bin/zsh -f "${LAUNCH_CONNECTOR}" 2>&1
 }
+
+# --- Seeding fixtures --------------------------------------------------------
+
+FAKE_REF="op://Example-Vault/example-item/password"
+
+# install_fake_op [<token>] -- an `op` on FAKE_BIN that logs its argv to
+# ${WORK}/op.log and answers `op read` with the given token (default
+# FAKE_TOKEN); OP_FAKE_FAIL=1 makes it fail like a locked desktop app.
+install_fake_op() {
+    local token="${1:-${FAKE_TOKEN}}"
+    cat > "${FAKE_BIN}/op" <<FAKE
+#!/bin/sh
+echo "op \$*" >> "${WORK}/op.log"
+[ "\${OP_FAKE_FAIL:-}" = "1" ] && { echo "[ERROR] authorization prompt dismissed" >&2; exit 1; }
+[ "\$1" = "read" ] || { echo "fake op: unhandled \$*" >&2; exit 99; }
+printf '%s' '${token}'
+FAKE
+    chmod +x "${FAKE_BIN}/op"
+}
+
+# install_security_shim -- a `security` on FAKE_BIN that logs its argv and
+# its stdin to ${WORK}/security.log, then runs the real one with that stdin.
+install_security_shim() {
+    cat > "${FAKE_BIN}/security" <<FAKE
+#!/bin/sh
+echo "argv \$*" >> "${WORK}/security.argv"
+exec /usr/bin/security "\$@"
+FAKE
+    chmod +x "${FAKE_BIN}/security"
+}
+
+# run_seed_tty <args...> -- the seeding script under a pseudo-terminal, as a
+# human runs it, with the fakes first on PATH and the throwaway keychain.
+run_seed_tty() {
+    env -i HOME="${FAKE_HOME}" PATH="${FAKE_BIN}:/usr/bin:/bin:/usr/sbin:/sbin" TERM=dumb \
+        OLLAMA_GATEWAY_KEYCHAIN="${KEYCHAIN}" ${SEED_EXTRA_ENV:-} \
+        script -q /dev/null /bin/zsh -f "${SEED}" "$@" < /dev/null 2>&1 | tr -d '\r'
+}
+
+# keychain_token -- the token now in the throwaway keychain, or nothing.
+keychain_token() {
+    security find-generic-password -s "${TOKEN_SERVICE}" -a "${TOKEN_ACCOUNT}" -w "${KEYCHAIN}" 2>/dev/null || true
+}
