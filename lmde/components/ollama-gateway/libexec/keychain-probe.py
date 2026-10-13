@@ -7,8 +7,10 @@ profile (must fail).
 Usage: keychain-probe.py <service> [<keychain-path>]
 
 Exit 0 when the item's secret was retrieved, 1 when it was not (not found,
-denied, daemon unreachable), 2 on a usage error. Prints only the Security
-framework status code -- never the secret, its length, or any attribute.
+denied, daemon unreachable), 2 on a usage error, 3 when the keychain
+answered but refused for want of a dialog (errSecInteractionNotAllowed).
+Prints only the Security framework status code -- never the secret, its
+length, or any attribute.
 
 It never raises a Keychain dialog (tds-utils Issue#441; G7: no start needs
 a human). Before any lookup it switches the Security framework's user
@@ -29,6 +31,11 @@ import ctypes.util
 import sys
 
 USAGE = "usage: keychain-probe.py <service> [<keychain-path>]"
+ERR_SEC_INTERACTION_NOT_ALLOWED = -25308
+EXIT_RETRIEVED = 0
+EXIT_NOT_RETRIEVED = 1
+EXIT_USAGE = 2
+EXIT_NEEDS_DIALOG = 3
 
 
 def load_security() -> ctypes.CDLL:
@@ -82,10 +89,19 @@ def retrieve(sec: ctypes.CDLL, service: str, keychain: ctypes.c_void_p | None) -
     return int(status)
 
 
+def exit_code(status: int) -> int:
+    """The probe's exit code for a lookup's OSStatus."""
+    if status == 0:
+        return EXIT_RETRIEVED
+    if status == ERR_SEC_INTERACTION_NOT_ALLOWED:
+        return EXIT_NEEDS_DIALOG
+    return EXIT_NOT_RETRIEVED
+
+
 def main(argv: list[str]) -> int:
     if len(argv) not in (2, 3):
         print(USAGE, file=sys.stderr)
-        return 2
+        return EXIT_USAGE
     service = argv[1]
     try:
         sec = load_security()
@@ -94,9 +110,9 @@ def main(argv: list[str]) -> int:
         status = retrieve(sec, service, keychain)
     except OSError as err:
         print(f"keychain-probe: {err}")
-        return 1
+        return EXIT_NOT_RETRIEVED
     print(f"keychain-probe: status {status} (user interaction off)")
-    return 0 if status == 0 else 1
+    return exit_code(status)
 
 
 if __name__ == "__main__":

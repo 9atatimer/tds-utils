@@ -58,6 +58,12 @@ everyday ollama on 127.0.0.1:11434 -- untouched, denied to the sandbox
   through `/usr/bin/security` and through the Security framework,
   connecting to 11434, writing the store, writing the installed launchers.
   Both canaries hold the literal `not-a-secret`.
+- The probe never raises a Keychain dialog (Issue#441): the Security
+  framework check runs with Keychain UI switched off, and
+  `/usr/bin/security`, which has no such switch, is tried only after that
+  check proved the canary readable without one. A canary readable only
+  through a dialog (keychain locked, or an access list that does not
+  admit any application) fails the control pass naming the fix.
 - A failed probe: the launcher logs the failed checks and exits 78;
   launchd retries every 30 s; the gateway is DEGRADED until it passes.
 

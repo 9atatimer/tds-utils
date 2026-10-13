@@ -28,7 +28,11 @@
 #
 # Prints one line per check, "ok <check>" or "FAIL <check>: <why>", and
 # exits 0 only when every check passed (1 on a failed check, 2 on usage).
-# It never prints a canary's value.
+# It never prints a canary's value, and it never raises a Keychain dialog
+# (tds-utils Issue#441, G7): the Security framework checker runs with
+# Keychain UI switched off, and /usr/bin/security -- which has no such
+# switch -- is tried only once that checker has just proved the canary
+# readable without one, or (confined) the keychain unreachable.
 
 set -euo pipefail
 zmodload zsh/net/tcp
@@ -40,6 +44,10 @@ readonly KEYCHAIN_PROBE="${SCRIPT_DIR}/keychain-probe.py"
 readonly PYTHON="/usr/bin/python3"
 readonly SECURITY_CLI="/usr/bin/security"
 readonly EPERM_TEXT="operation not permitted"
+# keychain-probe.py's exit codes: retrieved, and refused for want of a
+# dialog (it switches Keychain UI off, so it is refused, never prompted).
+readonly FRAMEWORK_RETRIEVED=0
+readonly FRAMEWORK_NEEDS_DIALOG=3
 
 # --- Flags / config (set by parse_args) ---
 
@@ -98,9 +106,11 @@ keychain_cli_retrieves() {
     "${SECURITY_CLI}" "${args[@]}" >/dev/null 2>&1
 }
 
-# keychain_framework_retrieves -- does the Security framework, called from
-# a binary other than /usr/bin/security, hand over the canary's secret?
-keychain_framework_retrieves() {
+# keychain_framework_attempt -- ask the Security framework, from a binary
+# other than /usr/bin/security and with Keychain UI off, for the canary's
+# secret. Returns keychain-probe.py's exit code (FRAMEWORK_*; any other
+# non-zero is "not retrieved").
+keychain_framework_attempt() {
     local -a args=("${KEYCHAIN_PROBE}" "${KEYCHAIN_SERVICE}")
     [[ -n "${KEYCHAIN}" ]] && args+=("${KEYCHAIN}")
     "${PYTHON}" "${args[@]}" >/dev/null 2>&1
@@ -126,15 +136,21 @@ run_control() {
     else
         flunk canary-file-readable "the file canary ${CANARY_FILE} is not readable unconfined (${err}); run setup.sh"
     fi
-    if keychain_cli_retrieves; then
+    integer framework=0
+    keychain_framework_attempt || framework=$?
+    case "${framework}" in
+        "${FRAMEWORK_RETRIEVED}") pass keychain-framework-reachable ;;
+        "${FRAMEWORK_NEEDS_DIALOG}")
+            flunk keychain-framework-reachable "keychain item ${KEYCHAIN_SERVICE} is readable unconfined only through a Keychain dialog (the keychain is locked, or the item's access list does not admit ${PYTHON}); the probe never raises one: unlock the keychain, or re-run setup.sh to recreate the canary" ;;
+        *)
+            flunk keychain-framework-reachable "keychain item ${KEYCHAIN_SERVICE} is not retrievable unconfined via the Security framework (${PYTHON}); run setup.sh" ;;
+    esac
+    if (( framework != FRAMEWORK_RETRIEVED )); then
+        flunk keychain-cli-reachable "not attempted: the Security framework did not prove ${KEYCHAIN_SERVICE} readable without a dialog, and ${SECURITY_CLI} cannot be kept from raising one"
+    elif keychain_cli_retrieves; then
         pass keychain-cli-reachable
     else
         flunk keychain-cli-reachable "keychain item ${KEYCHAIN_SERVICE} is not retrievable unconfined via ${SECURITY_CLI}; run setup.sh (or unlock the keychain)"
-    fi
-    if keychain_framework_retrieves; then
-        pass keychain-framework-reachable
-    else
-        flunk keychain-framework-reachable "keychain item ${KEYCHAIN_SERVICE} is not retrievable unconfined via the Security framework (${PYTHON}); run setup.sh"
     fi
 }
 
@@ -151,16 +167,27 @@ check_canary_file() {
     fi
 }
 
+# check_keychain -- the framework first, with Keychain UI off. A refusal for
+# want of a dialog means the keychain daemon answered from inside the
+# sandbox: a hole, and a keychain the CLI could prompt for, so the CLI is
+# not tried. Otherwise the CLI cannot prompt: either the canary was just
+# read without a dialog, or the daemon is unreachable to it as well.
 check_keychain() {
-    if keychain_cli_retrieves; then
+    integer framework=0
+    keychain_framework_attempt || framework=$?
+    case "${framework}" in
+        "${FRAMEWORK_RETRIEVED}")
+            flunk keychain-framework-denied "the keychain canary is retrievable via the Security framework" ;;
+        "${FRAMEWORK_NEEDS_DIALOG}")
+            flunk keychain-framework-denied "the keychain daemon answered from inside the sandbox (it refused only for want of a dialog)" ;;
+        *) pass keychain-framework-denied ;;
+    esac
+    if (( framework == FRAMEWORK_NEEDS_DIALOG )); then
+        flunk keychain-cli-denied "not attempted: the keychain is reachable and wants a dialog, which ${SECURITY_CLI} cannot be kept from raising"
+    elif keychain_cli_retrieves; then
         flunk keychain-cli-denied "the keychain canary is retrievable via ${SECURITY_CLI}"
     else
         pass keychain-cli-denied
-    fi
-    if keychain_framework_retrieves; then
-        flunk keychain-framework-denied "the keychain canary is retrievable via the Security framework"
-    else
-        pass keychain-framework-denied
     fi
 }
 
