@@ -298,3 +298,16 @@ test('reusable: the authorize job acknowledges an approved comment after decidin
   const outputs = block(jobBlock(REUSABLE, 'authorize'), 'outputs', 4) ?? '';
   assert.match(outputs, /^\s+ack_reaction_id:\s*\$\{\{\s*steps\.ack\.outputs\.reaction_id\s*\}\}\s*$/m);
 });
+
+test('reusable: after the summary comment, the report replaces eyes with the outcome, and that cannot fail the run', () => {
+  const react = stepOf('report', 'React with the outcome');
+  assert.ok(react, 'report has a React with the outcome step');
+  assert.match(react, /^\s+continue-on-error: true$/m);
+  assert.match(react, /^\s+if: always\(\) && steps\.record\.outcome == 'success'$/m);
+  assert.match(react, /^\s+run: node \.ocr-review-tools\/bin\/ocr-review react$/m);
+  assert.match(react, /^\s+COMMENT_ID: \$\{\{ github\.event\.comment\.id \}\}$/m);
+  assert.match(react, /^\s+OUTCOME: \$\{\{ steps\.record\.outputs\.outcome \}\}$/m);
+  assert.match(react, /^\s+ACK_REACTION_ID: \$\{\{ needs\.authorize\.outputs\.ack_reaction_id \}\}$/m);
+  const names = stepNames('report');
+  assert.ok(names.indexOf('React with the outcome') > names.indexOf('Post the summary comment'));
+});

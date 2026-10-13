@@ -14,6 +14,7 @@ import {
   runCredentials,
   runHostTools,
   runProbe,
+  runReact,
   runReport,
   runVerdict,
 } from '../bin/ocr-review';
@@ -162,6 +163,71 @@ test('ack: a comment id that is not a number is never put in a URL', async () =>
   const fetch = fakeFetch(() => json(201, { id: 1 }));
   assert.equal(await runAck({ env: ackEnv({ COMMENT_ID: '1/../../x' }), fetch, step }), 0);
   assert.equal(fetch.calls.length, 0);
+});
+
+// --- react: the outcome replaces eyes -------------------------------------------
+
+const reactEnv = (over) => ({
+  GITHUB_TOKEN: 't',
+  REPO: 'o/r',
+  EVENT_NAME: 'issue_comment',
+  COMMENT_ID: '555',
+  OUTCOME: 'success',
+  ACK_REACTION_ID: '42',
+  ...over,
+});
+const reactFetch = (post = 201, del = 204) => fakeFetch((url, init) => (init.method === 'DELETE' ? text(del, '') : json(post, { id: 77 })));
+const callsOf = (fetch) => fetch.calls.map((c) => `${c.init.method} ${c.url}`);
+
+test('react: a successful comment-triggered run adds +1, then removes only the eyes this workflow added', async () => {
+  const step = fakeStep();
+  const fetch = reactFetch();
+  assert.equal(await runReact({ env: reactEnv(), fetch, step }), 0);
+  assert.deepEqual(callsOf(fetch), [
+    'POST https://api.github.com/repos/o/r/issues/comments/555/reactions',
+    'DELETE https://api.github.com/repos/o/r/issues/comments/555/reactions/42',
+  ]);
+  assert.deepEqual(fetch.calls[0].body, { content: '+1' });
+  assert.equal(fetch.calls[1].init.headers.authorization, 'Bearer t');
+});
+
+test('react: a failed or cancelled run adds -1', async () => {
+  for (const outcome of ['failure', 'cancelled']) {
+    const fetch = reactFetch();
+    await runReact({ env: reactEnv({ OUTCOME: outcome }), fetch, step: fakeStep() });
+    assert.deepEqual(fetch.calls[0].body, { content: '-1' }, outcome);
+  }
+});
+
+test('react: a run that failed in authorize (no eyes were added) gets -1 and deletes nothing', async () => {
+  const fetch = reactFetch();
+  await runReact({ env: reactEnv({ OUTCOME: 'failure', ACK_REACTION_ID: '' }), fetch, step: fakeStep() });
+  assert.deepEqual(callsOf(fetch), ['POST https://api.github.com/repos/o/r/issues/comments/555/reactions']);
+});
+
+test('react: a reaction id that is not a number is never deleted', async () => {
+  const fetch = reactFetch();
+  await runReact({ env: reactEnv({ ACK_REACTION_ID: '42/../../7' }), fetch, step: fakeStep() });
+  assert.ok(fetch.calls.every((c) => c.init.method !== 'DELETE'));
+});
+
+test('react: a dispatch gets no reaction and no API call', async () => {
+  const fetch = reactFetch();
+  assert.equal(await runReact({ env: reactEnv({ EVENT_NAME: 'workflow_dispatch', COMMENT_ID: '' }), fetch, step: fakeStep() }), 0);
+  assert.equal(fetch.calls.length, 0);
+});
+
+test('react: a failed add or remove only warns; it never fails the run, and eyes is still removed', async () => {
+  for (const [post, del] of [
+    [403, 204],
+    [201, 500],
+  ]) {
+    const step = fakeStep();
+    const fetch = reactFetch(post, del);
+    assert.equal(await runReact({ env: reactEnv(), fetch, step }), 0);
+    assert.ok(callsOf(fetch).includes('DELETE https://api.github.com/repos/o/r/issues/comments/555/reactions/42'));
+    assert.ok(step.events.some((e) => e[0] === 'log' && e[1].startsWith('::warning::')), `${post}/${del}`);
+  }
 });
 
 // --- host tools ----------------------------------------------------------------
