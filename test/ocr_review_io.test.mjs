@@ -297,7 +297,7 @@ test('verdict: at the pinned engine there is no per-finding post status, so a re
   const code = await runVerdict({ env: verdictEnv(), git, readFile: () => resultJson, step });
   assert.equal(code, 1);
   assert.equal(step.outputs.cause, 'engine-error');
-  assert.match(step.outputs.detail, /post status/);
+  assert.match(step.outputs.detail, /post counts/);
   // git was asked about exactly the range ocr resolved.
   assert.ok(git.calls[0].argv.includes(`${BASE}..${HEAD}`) || (git.calls[0].argv.includes(BASE) && git.calls[0].argv.includes(HEAD)));
   const state = JSON.parse(step.files['/tmp/rt/ocr-review-state/state.json']);
