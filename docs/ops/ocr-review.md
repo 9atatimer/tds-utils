@@ -82,6 +82,14 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
   MEMBER or COLLABORATOR. The comment path always uses the configured
   model. Any other comment is skipped and leaves nothing behind.
 - Fork PRs fail with cause `fork`; nothing reads the secret for them.
+- On the Cloudflare backend every dispatch is billed, so check before
+  spending. The PR is open and `gh pr view --json mergeable` does not say
+  `CONFLICTING`: a superseded branch reviews code that is not on the
+  default branch (Spot-the-clone PR#1, 2026-10-14, eight findings on a
+  February branch that `main` had rebuilt). A check of the plumbing uses
+  the smallest such PR. Whether a model reviews well is the bake-off's
+  question (below); a dispatch on a PR with no earlier Copilot or Codex
+  findings has nothing to score against and answers it with nothing.
 - Reactions on the `/ocr` comment (design Key Decisions, comment
   reactions): `eyes` once the run is approved, before the review starts;
   after the summary comment, `+1` for success (including
@@ -269,6 +277,14 @@ no cold model and the gateway applies its own retry policy):
 
 The pool's 10-minute ceiling still applies (Issue#478); a hosted model is
 far faster than the laptop, so it is the likelier backend to fit it.
+
+Measured on the first Cloudflare run (2026-10-14, run 38539937733, DeepSeek
+V4 Pro with `reasoning_effort` none): 7 code files, ocr's own elapsed time
+8m24s, 17 gateway calls, 115k tokens in and 25k out, $0.24. The review
+job took 8m56s against its `timeout-minutes: 9` (set under the pool's
+ceiling), 4 seconds to spare. At about $0.03 and over a minute a file, a
+PR any larger than seven files is likely to hit the job's timeout long
+before the spend cap.
 
 ## Comparing models (the bake-off)
 
