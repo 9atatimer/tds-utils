@@ -187,6 +187,15 @@ test('reusable: the record is uploaded before the summary comment is posted', ()
 
 // --- Reusable workflow: the review step -------------------------------------------
 
+test('reusable: the request body turns reasoning off in the form ollama obeys, and streams (Issue#479)', () => {
+  const review = jobBlock(REUSABLE, 'review');
+  const body = JSON.parse(review.match(/llm_extra_body:\s*'([^']+)'/)[1]);
+  // ollama's OpenAI-compatible API ignores "thinking" and "think"; only
+  // reasoning_effort "none" stops a thinking model reasoning first.
+  assert.equal(body.reasoning_effort, 'none');
+  assert.equal(body.stream, true);
+});
+
 test('reusable: the upstream action is pinned by SHA with an exact ocr_version, no self-update, no telemetry', () => {
   const review = jobBlock(REUSABLE, 'review');
   assert.match(review, /uses:\s*alibaba\/open-code-review@[0-9a-f]{40}/);
