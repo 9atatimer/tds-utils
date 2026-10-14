@@ -39,7 +39,7 @@ import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { authorizeRun } from '../lib/ocr-review/authorize.mjs';
-import { extraHeadersValue, probeGateway, resolveCredentials, resolveGatewayConfig, resolveModel } from '../lib/ocr-review/gateway.mjs';
+import { BACKENDS, backendProfile, extraHeadersValue, probeGateway, resolveBackend, resolveCredentials, resolveGatewayConfig, resolveModel } from '../lib/ocr-review/gateway.mjs';
 import { HOST_TOOLS, checkHostTools, describeHostTools } from '../lib/ocr-review/host-tools.mjs';
 import { ackReaction, isCommentId, outcomeReaction, staleOutcomeIds } from '../lib/ocr-review/reaction.mjs';
 import { buildRecord, endOfRun, renderSummary, shouldComment } from '../lib/ocr-review/record.mjs';
@@ -282,18 +282,25 @@ export async function runHostTools({ onPath, step }) {
 
 // --- Flow: credentials ------------------------------------------------------
 
-/** The credentials step. Env: OP_SERVICE_ACCOUNT_TOKEN, OLLAMA_GATEWAY_OP_ITEM,
- * OLLAMA_GATEWAY_URL, OLLAMA_GATEWAY_MODEL, MODEL_OVERRIDE, TRIGGER,
- * RUNNER_TEMP. `op(argv, env)` runs the 1Password CLI without a shell. */
+/** The credentials step. Env: OP_SERVICE_ACCOUNT_TOKEN, OCR_BACKEND,
+ * BACKEND_OVERRIDE, the chosen backend's variables (OLLAMA_GATEWAY_OP_ITEM,
+ * _URL, _MODEL or CF_AI_GATEWAY_OP_ITEM, _URL, _MODEL, _REASONING), MODEL_OVERRIDE,
+ * TRIGGER, RUNNER_TEMP. `op(argv, env)` runs the 1Password CLI without a
+ * shell. Outputs the backend, model, url, api_base, the header string and
+ * file, and the backend's non-secret auth_token placeholder and extra_body. */
 export async function runCredentials({ env, op, step }) {
   const mask = (value) => step.log(`::add-mask::${commandData(value)}`);
-  const item = env.OLLAMA_GATEWAY_OP_ITEM || '';
+  const backend = resolveBackend({ trigger: env.TRIGGER, override: env.BACKEND_OVERRIDE, configured: env.OCR_BACKEND });
+  const prefix = backend === BACKENDS.cf ? 'CF_AI_GATEWAY' : 'OLLAMA_GATEWAY';
+  const item = env[`${prefix}_OP_ITEM`] || '';
   if (item) mask(item);
-  const model = resolveModel({ trigger: env.TRIGGER, override: env.MODEL_OVERRIDE, configured: env.OLLAMA_GATEWAY_MODEL });
+  const configuredModel = env[`${prefix}_MODEL`];
+  const model = resolveModel({ trigger: env.TRIGGER, override: env.MODEL_OVERRIDE, configured: configuredModel });
   // Every output waits until every resolved value is masked; the model is
   // reported even on a configuration failure that left it resolvable.
   const fail = (failure) => {
     if (model) step.setOutput('model', model);
+    if (backend) step.setOutput('backend', backend);
     step.log(`::error::configuration: ${failure.detail}`);
     step.setOutput('cause', failure.cause);
     step.setOutput('detail', failure.detail);
@@ -302,12 +309,17 @@ export async function runCredentials({ env, op, step }) {
   const config = resolveGatewayConfig({
     token: env.OP_SERVICE_ACCOUNT_TOKEN,
     item,
-    url: env.OLLAMA_GATEWAY_URL,
-    configuredModel: env.OLLAMA_GATEWAY_MODEL,
+    url: env[`${prefix}_URL`],
+    configuredModel,
     override: env.MODEL_OVERRIDE,
     trigger: env.TRIGGER,
+    backend,
+    reasoning: env.CF_AI_GATEWAY_REASONING,
   });
   if (!config.ok) return fail(config);
+  // ocr's `config set llm.url` echoes the URL unredacted, and a Cloudflare
+  // AI Gateway URL carries the account id; the base masks the API base too.
+  mask(config.url);
   const opEnv = { PATH: env.PATH ?? '', HOME: env.HOME ?? '', OP_SERVICE_ACCOUNT_TOKEN: env.OP_SERVICE_ACCOUNT_TOKEN };
   const readSecret = async (ref) => {
     const r = await op(['read', '--no-newline', ref], opEnv);
@@ -316,20 +328,25 @@ export async function runCredentials({ env, op, step }) {
     error.kind = OP_TOKEN_REFUSED.test(r.stderr) ? 'token' : 'item';
     throw error;
   };
-  const credentials = await resolveCredentials(item, { readSecret, mask });
+  const credentials = await resolveCredentials(item, { readSecret, mask }, backend);
   if (!credentials.ok) return fail(credentials);
+  const profile = backendProfile(backend, { reasoning: env.CF_AI_GATEWAY_REASONING });
   step.writeFile(`${env.RUNNER_TEMP}/${HEADERS_FILE}`, JSON.stringify(credentials.headers));
+  step.setOutput('backend', backend);
   step.setOutput('model', config.model);
   step.setOutput('url', config.url);
+  step.setOutput('api_base', config.apiBase);
+  step.setOutput('auth_token', profile.authToken);
+  step.setOutput('extra_body', profile.extraBody);
   step.setOutput('headers_file', `${env.RUNNER_TEMP}/${HEADERS_FILE}`);
   step.setOutput('extra_headers', extraHeadersValue(credentials.headers));
-  step.log(`credentials: resolved ${Object.keys(credentials.headers).length} gateway headers; model ${config.model}`);
+  step.log(`credentials: resolved ${Object.keys(credentials.headers).length} gateway headers; backend ${backend}; model ${config.model}`);
   return 0;
 }
 
 // --- Flow: probe ------------------------------------------------------------
 
-/** The probe step. Env: GATEWAY_URL, MODEL, HEADERS_FILE. */
+/** The probe step. Env: GATEWAY_URL, API_BASE, BACKEND, MODEL, HEADERS_FILE. */
 export async function runProbe({ env, fetch, readFile, clock, step }) {
   const headers = JSON.parse(readFile(env.HEADERS_FILE));
   const post = async (request) => {
@@ -350,7 +367,8 @@ export async function runProbe({ env, fetch, readFile, clock, step }) {
       return { error: why };
     }
   };
-  const result = await probeGateway({ url: env.GATEWAY_URL, model: env.MODEL, headers }, { post, clock });
+  const target = { url: env.GATEWAY_URL, apiBase: env.API_BASE || undefined, backend: env.BACKEND || BACKENDS.ollama, model: env.MODEL, headers };
+  const result = await probeGateway(target, { post, clock });
   if (result.ok) {
     step.log(`probe: ready after ${result.attempts} attempt(s)`);
     return 0;
@@ -453,6 +471,7 @@ export async function runReport({ env, readFile, step, now, summary = () => {} }
     pr: Number(env.PR),
     trigger: triggerOf(env.EVENT_NAME),
     model: reviewOutputs.model || null,
+    backend: reviewOutputs.backend || null,
     ocrVersion: env.OCR_VERSION,
     approved: authorizeOutputs.decision === 'approve',
     end,

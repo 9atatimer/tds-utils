@@ -1,7 +1,9 @@
 # ocr-review.yml -- reusable workflow: OCR on Demand. Runs Alibaba's Open
 # Code Review (ocr) over one pull request when a collaborator comments /ocr
 # or anyone with write access dispatches it, with completions from the
-# laptop's model through the Ollama Gateway.
+# laptop's model through the Ollama Gateway, or -- when the owner's
+# OCR_BACKEND variable or a dispatch says cf-ai-gateway -- from Cloudflare AI
+# Gateway (Issue#481).
 # Design: docs/design/OCR-ON-DEMAND.DESIGN.md (APPROVED); runbook:
 # docs/ops/ocr-review.md.
 #
@@ -38,7 +40,8 @@
 # Hosted here because a reusable workflow in a public repo can be called
 # from both owners (the review-settled.yml precedent). The workflow names no
 # hostname, vault or item: those arrive as the caller owner's variables
-# OLLAMA_GATEWAY_OP_ITEM, OLLAMA_GATEWAY_URL and OLLAMA_GATEWAY_MODEL.
+# OCR_BACKEND, and the chosen backend's OLLAMA_GATEWAY_OP_ITEM, _URL and
+# _MODEL or CF_AI_GATEWAY_OP_ITEM, _URL and _MODEL.
 #
 # The step commands are bin/ocr-review (decisions in lib/ocr-review/),
 # fetched at `tools_ref`. A reusable workflow cannot learn the commit it was
@@ -60,7 +63,12 @@ on:
         type: number
         required: true
       model:
-        description: Model override, dispatch only; empty uses the owner's OLLAMA_GATEWAY_MODEL.
+        description: Model override, dispatch only; empty uses the chosen backend's model variable.
+        type: string
+        required: false
+        default: ''
+      backend:
+        description: Backend override, dispatch only (ollama-gateway or cf-ai-gateway); empty uses the owner's OCR_BACKEND, else ollama-gateway.
         type: string
         required: false
         default: ''
@@ -176,6 +184,7 @@ jobs:
       creds_cause: ${{ steps.creds.outputs.cause }}
       creds_detail: ${{ steps.creds.outputs.detail }}
       model: ${{ steps.creds.outputs.model }}
+      backend: ${{ steps.creds.outputs.backend }}
       probe: ${{ steps.probe.outcome }}
       probe_cause: ${{ steps.probe.outputs.cause }}
       probe_detail: ${{ steps.probe.outputs.detail }}
@@ -240,9 +249,15 @@ jobs:
         id: creds
         env:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OLLAMA_GATEWAY_OP_SA_TOKEN }}
+          OCR_BACKEND: ${{ vars.OCR_BACKEND }}
+          BACKEND_OVERRIDE: ${{ inputs.backend }}
           OLLAMA_GATEWAY_OP_ITEM: ${{ vars.OLLAMA_GATEWAY_OP_ITEM }}
           OLLAMA_GATEWAY_URL: ${{ vars.OLLAMA_GATEWAY_URL }}
           OLLAMA_GATEWAY_MODEL: ${{ vars.OLLAMA_GATEWAY_MODEL }}
+          CF_AI_GATEWAY_OP_ITEM: ${{ vars.CF_AI_GATEWAY_OP_ITEM }}
+          CF_AI_GATEWAY_URL: ${{ vars.CF_AI_GATEWAY_URL }}
+          CF_AI_GATEWAY_MODEL: ${{ vars.CF_AI_GATEWAY_MODEL }}
+          CF_AI_GATEWAY_REASONING: ${{ vars.CF_AI_GATEWAY_REASONING }}
           MODEL_OVERRIDE: ${{ inputs.model }}
           TRIGGER: ${{ needs.authorize.outputs.trigger }}
         run: node "$RUNNER_TEMP/ocr-review-tools/bin/ocr-review" credentials
@@ -251,18 +266,21 @@ jobs:
         id: probe
         env:
           GATEWAY_URL: ${{ steps.creds.outputs.url }}
+          API_BASE: ${{ steps.creds.outputs.api_base }}
+          BACKEND: ${{ steps.creds.outputs.backend }}
           MODEL: ${{ steps.creds.outputs.model }}
           HEADERS_FILE: ${{ steps.creds.outputs.headers_file }}
         run: node "$RUNNER_TEMP/ocr-review-tools/bin/ocr-review" probe
 
       # alibaba/open-code-review v1.12.13. The gateway authenticates by the
-      # item's headers; llm_auth_token is a required input ocr sends as a
-      # bearer token, so it carries a fixed non-secret placeholder. Streaming
-      # is on so a long completion's first byte reaches the edge before its
-      # time-to-first-byte limit. Reasoning is off through reasoning_effort
-      # "none": the gateway's ollama ignores the "thinking" field, and a
-      # thinking model would otherwise reason before every answer
-      # (Issue#479). Upstream's own artifact upload is off: it
+      # item's headers; llm_auth_token is a required input ocr sends as the
+      # Authorization bearer, so it carries the backend's fixed non-secret
+      # placeholder. The API base, the placeholder and the request body are
+      # the chosen backend's profile (lib/ocr-review/gateway.mjs): on the
+      # Ollama Gateway the body streams, so a long completion's first byte
+      # reaches the edge before its time-to-first-byte limit, and turns
+      # reasoning off through reasoning_effort "none", which is all the
+      # gateway's ollama obeys (Issue#479). Upstream's own artifact upload is off: it
       # would publish ocr's stderr log too. Its own summary comment stays:
       # it cannot be turned off at this pin, and it is where the findings
       # that failed to post are named (Key Decisions, option A). Sticky, so
@@ -271,13 +289,13 @@ jobs:
         id: ocr
         uses: alibaba/open-code-review@fabbdb296b0d97e2140ada8d54ca7d6d6d1d7ad4 # v1.12.13
         with:
-          llm_url: ${{ steps.creds.outputs.url }}/v1
-          llm_auth_token: ollama
+          llm_url: ${{ steps.creds.outputs.api_base }}
+          llm_auth_token: ${{ steps.creds.outputs.auth_token }}
           llm_model: ${{ steps.creds.outputs.model }}
           llm_use_anthropic: 'false'
           llm_protocol: openai
           llm_extra_headers: ${{ steps.creds.outputs.extra_headers }}
-          llm_extra_body: '{"thinking": {"type": "disabled"}, "reasoning_effort": "none", "stream": true}'
+          llm_extra_body: ${{ steps.creds.outputs.extra_body }}
           ocr_version: '1.12.13'
           pr_number: ${{ needs.authorize.outputs.pr }}
           head_sha: ${{ needs.authorize.outputs.head_sha }}

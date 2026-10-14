@@ -26,6 +26,11 @@ on:
         type: string
         required: false
         default: ''
+      backend:
+        description: Backend (ollama-gateway or cf-ai-gateway; empty uses the owner's OCR_BACKEND)
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -36,6 +41,7 @@ jobs:
     with:
       models: ${{ inputs.models }}
       cases: ${{ inputs.cases }}
+      backend: ${{ inputs.backend }}
       tools_ref: '0000000000000000000000000000000000000000'
     secrets:
       OLLAMA_GATEWAY_OP_SA_TOKEN: ${{ secrets.OLLAMA_GATEWAY_OP_SA_TOKEN }}

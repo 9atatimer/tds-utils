@@ -75,6 +75,7 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
   ```
   gh workflow run ocr-review-caller.yml -R <owner>/<repo> -f pr=<N>
   gh workflow run ocr-review-caller.yml -R <owner>/<repo> -f pr=<N> -f model=<model>
+  gh workflow run ocr-review-caller.yml -R <owner>/<repo> -f pr=<N> -f backend=cf-ai-gateway
   ```
 
 - Comment: a PR comment whose body starts with `/ocr`, from an OWNER,
@@ -101,7 +102,9 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
     could not be anchored inline and each finding that failed to post.
     Ours links it whenever the action reports its URL.
 - The run's job summary and its `ocr-review-record-<attempt>` artifact
-  carry the run record (`record_version` 1, the design's Data Model).
+  carry the run record: the design's Data Model, plus `backend` since
+  `record_version` 2 (Issue#481, Key Decisions "Run record v2"). Pinned
+  callers still write v1 records; `bin/ocr-review-stats` reads both.
 - `ocr-result-<attempt>` is ocr's JSON result (`--audience agent`) for an
   LLM to act on.
 - Causes and what to do:
@@ -184,6 +187,87 @@ Checked 2026-10-12 by reading `action.yml`,
 - `head_sha` and `base_ref` must be passed: on a dispatch or comment
   trigger the event carries no pull request, and the action would
   otherwise resolve an empty head.
+
+## Choosing the backend: laptop or Cloudflare AI Gateway
+
+Completions come from one of two backends (Issue#481):
+
+- **`ollama-gateway`** -- the laptop's sandboxed ollama through the Ollama
+  Gateway (`docs/ops/ollama-gateway.md`). The default, and free.
+- **`cf-ai-gateway`** -- tds-internal's Cloudflare AI Gateway (the
+  `personal` gateway, `ops/terraform/ai-gateway`): a Workers AI model
+  through its OpenAI-compatible `/compat` endpoint, paid from the
+  account's prepaid credits under the gateway's spend limit. An option for
+  when the laptop is busy or off.
+- **Workers AI models only** (`workers-ai/@cf/...`). ocr always sends an
+  `Authorization` header, and the gateway forwards one to a third-party
+  provider unchanged, so a third-party model (`openai/...`) would fail
+  provider authentication; the Credentials step refuses one as
+  `configuration`. Workers AI takes no provider credential, so the
+  placeholder is harmless there.
+
+The owner's variable `OCR_BACKEND` chooses (unset is `ollama-gateway`); a
+dispatch may override it with `-f backend=...`, as it may the model. A
+`/ocr` comment always uses `OCR_BACKEND`. The summary comment and the run
+record (v2) name the backend.
+
+Each backend has its own three variables; only the chosen one's are read:
+
+| Backend | Item | Base URL | Model |
+|---|---|---|---|
+| `ollama-gateway` | `OLLAMA_GATEWAY_OP_ITEM` | `OLLAMA_GATEWAY_URL` | `OLLAMA_GATEWAY_MODEL` |
+| `cf-ai-gateway` | `CF_AI_GATEWAY_OP_ITEM` | `CF_AI_GATEWAY_URL` (the gateway base, `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>`) | `CF_AI_GATEWAY_MODEL` (a gateway model id; the owner's default is `workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813`) |
+
+The Cloudflare backend has one more, optional variable:
+`CF_AI_GATEWAY_REASONING`, sent as `reasoning_effort` (e.g. `none` turns
+reasoning off on models that allow it -- DeepSeek V4 Pro, Kimi K2.6,
+GLM-5.2; some, like Kimi K2.7 Code, always reason). Unset, the model's own
+default applies, which is usually reasoning on. The owner's default
+pairing is DeepSeek V4 Pro with `none` (2026-10-14).
+
+The secret stays `OLLAMA_GATEWAY_OP_SA_TOKEN`: the same service account
+reads either item, so turning the option on adds no GitHub secret.
+
+**What a Cloudflare request carries.** The run token from the item's
+`password`, as `cf-aig-authorization: Bearer ...` (masked the moment it is
+read); `cf-aig-metadata: {"tool":"ocr-review"}`, so the gateway's
+per-tool spend rule partitions OCR from designomatic and the rest; and
+`cf-aig-collect-log-payload: false`, so no diff is stored in the gateway's
+logs. ocr always sends an `Authorization` bearer; for this backend it is a
+fixed placeholder, because unified billing resolves the provider
+credential (designomatic's proven shape). The request body is streaming
+only: no ollama-specific field reaches a hosted model.
+
+**Turning it on** (owner; the item and its token come from tds-internal,
+whose registry names them -- this public repo does not):
+
+```
+gh variable set CF_AI_GATEWAY_OP_ITEM -o <org> --visibility selected --repos <repo,...> --body 'op://<vault>/<item>'
+gh variable set CF_AI_GATEWAY_URL     -o <org> --visibility selected --repos <repo,...> --body 'https://gateway.ai.cloudflare.com/v1/<account>/<gateway>'
+gh variable set CF_AI_GATEWAY_MODEL   -o <org> --visibility selected --repos <repo,...> --body 'workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813'
+gh variable set CF_AI_GATEWAY_REASONING -o <org> --visibility selected --repos <repo,...> --body none
+# then either per run: -f backend=cf-ai-gateway, or for every run:
+gh variable set OCR_BACKEND           -o <org> --visibility selected --repos <repo,...> --body cf-ai-gateway
+```
+
+On a user account (9atatimer) set them per repository (`-R <owner>/<repo>`
+instead of `-o`), as the seeder does for the Ollama variables. Unsetting
+`OCR_BACKEND` is the way back to the laptop.
+
+**Its answers** (the probe reads them; nothing is retried, since there is
+no cold model and the gateway applies its own retry policy):
+
+| Probe answer | Cause |
+|---|---|
+| a chat completion | ready |
+| 401, 403 | `credential` |
+| 402 (credits exhausted) | `budget` |
+| 429 (a spend limit, or the unified-billing request rate of 200 a minute: the status cannot tell which) | `limited` |
+| any other 4xx | `model-not-found` |
+| 5xx, or no answer | `gateway-down` |
+
+The pool's 10-minute ceiling still applies (Issue#478); a hosted model is
+far faster than the laptop, so it is the likelier backend to fit it.
 
 ## Comparing models (the bake-off)
 
@@ -270,6 +354,7 @@ design record's Key Decisions log; the umbrella issue is Issue#363.
 | Tests | `test/ocr_review_*.test.mjs`, `test/smoketest_ocr_review.sh`, `test/smoketest_seed_ocr_review.sh` | The smoketest is the list of node suites; a new suite is added there |
 | Runner image | tds-internal `services/ci-runner-pool/Dockerfile` | The pool's host tools (git, gnupg, unzip, a pinned and verified `op`); its `test/wiring.test.ts` lists them |
 | Gateway | `lmde/components/ollama-gateway/`, `lmde/components/proxy-layer/`; tds-internal `ops/terraform/ollama-gateway/` | The deadline status (507) and Host rewrite live in the route; operating the laptop side is `docs/ops/ollama-gateway.md` |
+| Backends | `lib/ocr-review/gateway.mjs` (`BACKENDS`, the per-backend variables, profiles, credential shapes and probe readings); tds-internal `ops/terraform/ai-gateway/` for Cloudflare AI Gateway | A new backend is a profile, a variable set, a credential reader and a probe reading there, plus its env lines in both workflows |
 
 ### Invariants a change must keep
 

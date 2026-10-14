@@ -134,3 +134,10 @@ test('collect never writes: its port has only reads', async () => {
   await collectStats({ owners: ['a'], repos: [], since: 's' }, { github });
   assert.ok(github.calls.every((c) => ['adopters', 'runs', 'records'].includes(c[0])));
 });
+
+test('a record_version 2 record (it names the backend) is read like version 1', () => {
+  const r = normalizeRecord(v1({ record_version: 2, backend: 'cf-ai-gateway' }));
+  assert.equal(r.ok, true);
+  assert.equal(r.version, 2);
+  assert.equal(r.outcome, 'success');
+});
