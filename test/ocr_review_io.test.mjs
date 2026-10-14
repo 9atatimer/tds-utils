@@ -464,6 +464,20 @@ test('credentials, Cloudflare backend: one read of the run token, masked first; 
   assert.equal(JSON.parse(step.files['/tmp/rt/ocr-gateway-headers.json'])['cf-aig-authorization'], 'Bearer run-token-9');
 });
 
+test('credentials: the backend URL (a Cloudflare one carries the account id) is masked before any output', async () => {
+  for (const [env, op, url] of [
+    [cfEnv(), fakeCfOp(), 'https://gateway.ai.cloudflare.com/v1/acct/personal'],
+    [credEnv(), fakeOp(), 'https://gateway.example'],
+  ]) {
+    const step = fakeStep();
+    await runCredentials({ env, op, step });
+    const firstWrite = step.events.findIndex((e) => e[0] !== 'log');
+    const masked = step.events.slice(0, firstWrite).filter((e) => e[0] === 'log' && e[1].startsWith('::add-mask::')).map((e) => e[1].slice('::add-mask::'.length));
+    // ocr's own `config set llm.url` echoes the URL unredacted.
+    assert.ok(masked.includes(url), `masked ${url} before the first output`);
+  }
+});
+
 test('credentials: the Ollama backend is the default and outputs its own base, bearer and reasoning-off body', async () => {
   const step = fakeStep();
   await runCredentials({ env: credEnv(), op: fakeOp(), step });

@@ -316,6 +316,9 @@ export async function runCredentials({ env, op, step }) {
     backend,
   });
   if (!config.ok) return fail(config);
+  // ocr's `config set llm.url` echoes the URL unredacted, and a Cloudflare
+  // AI Gateway URL carries the account id; the base masks the API base too.
+  mask(config.url);
   const opEnv = { PATH: env.PATH ?? '', HOME: env.HOME ?? '', OP_SERVICE_ACCOUNT_TOKEN: env.OP_SERVICE_ACCOUNT_TOKEN };
   const readSecret = async (ref) => {
     const r = await op(['read', '--no-newline', ref], opEnv);
