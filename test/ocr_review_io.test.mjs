@@ -447,7 +447,7 @@ function fakeCfOp() {
   return run;
 }
 
-test('credentials, Cloudflare backend: one read of the run token, masked first; outputs the /compat base, placeholder bearer and body', async () => {
+test('credentials, Cloudflare backend: one read of the run token, masked first; outputs the /compat base, the run token as bearer, and body', async () => {
   const step = fakeStep();
   const op = fakeCfOp();
   const code = await runCredentials({ env: cfEnv(), op, step });
@@ -458,7 +458,9 @@ test('credentials, Cloudflare backend: one read of the run token, masked first; 
   assert.equal(step.outputs.backend, 'cf-ai-gateway');
   assert.equal(step.outputs.model, 'workers-ai/@cf/moonshotai/kimi-k2.6');
   assert.equal(step.outputs.api_base, 'https://gateway.ai.cloudflare.com/v1/acct/personal/compat');
-  assert.equal(step.outputs.auth_token, 'cf-aig-unified-billing');
+  // ocr always sends Authorization; the gateway refuses a placeholder (401,
+  // Issue#489), so on Cloudflare the bearer is the run token, masked first.
+  assert.equal(step.outputs.auth_token, 'run-token-9');
   assert.deepEqual(JSON.parse(step.outputs.extra_body), { stream: true });
   assert.match(step.outputs.extra_headers, /^cf-aig-authorization=Bearer run-token-9,/);
   assert.equal(JSON.parse(step.files['/tmp/rt/ocr-gateway-headers.json'])['cf-aig-authorization'], 'Bearer run-token-9');
