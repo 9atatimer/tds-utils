@@ -203,8 +203,8 @@ Completions come from one of two backends (Issue#481):
   `Authorization` header, and the gateway forwards one to a third-party
   provider unchanged, so a third-party model (`openai/...`) would fail
   provider authentication; the Credentials step refuses one as
-  `configuration`. Workers AI takes no provider credential, so the
-  placeholder is harmless there.
+  `configuration`. On a Workers AI model that header carries the run
+  token, which the gateway requires (Issue#489).
 
 The owner's variable `OCR_BACKEND` chooses (unset is `ollama-gateway`); a
 dispatch may override it with `-f backend=...`, as it may the model. A

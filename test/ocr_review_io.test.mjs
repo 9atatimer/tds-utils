@@ -447,7 +447,7 @@ function fakeCfOp() {
   return run;
 }
 
-test('credentials, Cloudflare backend: one read of the run token, masked first; outputs the /compat base, placeholder bearer and body', async () => {
+test('credentials, Cloudflare backend: one read of the run token, masked first; outputs the /compat base, the run token as bearer, and body', async () => {
   const step = fakeStep();
   const op = fakeCfOp();
   const code = await runCredentials({ env: cfEnv(), op, step });
