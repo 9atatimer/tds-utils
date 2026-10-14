@@ -331,13 +331,16 @@ test('the OpenAI-compatible base: /v1 on the Ollama Gateway, /compat on Cloudfla
   assert.equal(cf.backend, BACKENDS.cf);
 });
 
-test('the request profile: the Ollama body turns reasoning off; Cloudflare gets a placeholder bearer and only streaming', () => {
+test('the request profile: the Ollama body turns reasoning off; Cloudflare streams and has no placeholder bearer', () => {
   const ollama = backendProfile(BACKENDS.ollama);
   assert.equal(JSON.parse(ollama.extraBody).reasoning_effort, 'none');
   assert.equal(JSON.parse(ollama.extraBody).stream, true);
+  assert.equal(ollama.authToken, 'ollama');
   const cf = backendProfile(BACKENDS.cf);
   assert.deepEqual(JSON.parse(cf.extraBody), { stream: true });
-  assert.equal(cf.authToken, 'cf-aig-unified-billing');
+  // The gateway refuses a placeholder Authorization for Workers AI (401,
+  // Issue#489): ocr's bearer is the run token, from the credential.
+  assert.equal(cf.authToken, null);
 });
 
 test('a Cloudflare credential is the run token in password: an authorization header, the tool tag, and no payload logging', async () => {
@@ -350,6 +353,7 @@ test('a Cloudflare credential is the run token in password: an authorization hea
   );
   assert.equal(c.ok, true);
   assert.deepEqual(read, [`${ITEM}/password`]);
+  assert.equal(c.authToken, 'tok-123', "ocr's bearer is the run token (Issue#489)");
   assert.deepEqual(c.headers, {
     'cf-aig-authorization': 'Bearer tok-123',
     'cf-aig-metadata': '{"tool":"ocr-review"}',

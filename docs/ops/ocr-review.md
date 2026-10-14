@@ -233,10 +233,11 @@ reads either item, so turning the option on adds no GitHub secret.
 read); `cf-aig-metadata: {"tool":"ocr-review"}`, so the gateway's
 per-tool spend rule partitions OCR from designomatic and the rest; and
 `cf-aig-collect-log-payload: false`, so no diff is stored in the gateway's
-logs. ocr always sends an `Authorization` bearer; for this backend it is a
-fixed placeholder, because unified billing resolves the provider
-credential (designomatic's proven shape). The request body is streaming
-only: no ollama-specific field reaches a hosted model.
+logs. ocr always sends an `Authorization` bearer too, and on this backend
+it is the same run token, masked: the gateway refuses a placeholder
+bearer even for a Workers AI model (401 on every call, Issue#489), though
+the probe -- which sends no `Authorization` -- passes. The request body is
+streaming only: no ollama-specific field reaches a hosted model.
 
 **Turning it on** (owner; the item and its token come from tds-internal,
 whose registry names them -- this public repo does not):

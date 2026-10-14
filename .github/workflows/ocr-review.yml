@@ -274,9 +274,10 @@ jobs:
 
       # alibaba/open-code-review v1.12.13. The gateway authenticates by the
       # item's headers; llm_auth_token is a required input ocr sends as the
-      # Authorization bearer, so it carries the backend's fixed non-secret
-      # placeholder. The API base, the placeholder and the request body are
-      # the chosen backend's profile (lib/ocr-review/gateway.mjs): on the
+      # Authorization bearer: a fixed non-secret placeholder on the Ollama
+      # Gateway, the masked run token on Cloudflare AI Gateway, which refuses
+      # a placeholder (Issue#489). The API base, the bearer and the request
+      # body are the chosen backend's profile (lib/ocr-review/gateway.mjs): on the
       # Ollama Gateway the body streams, so a long completion's first byte
       # reaches the edge before its time-to-first-byte limit, and turns
       # reasoning off through reasoning_effort "none", which is all the
