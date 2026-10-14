@@ -102,7 +102,9 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
     could not be anchored inline and each finding that failed to post.
     Ours links it whenever the action reports its URL.
 - The run's job summary and its `ocr-review-record-<attempt>` artifact
-  carry the run record (`record_version` 1, the design's Data Model).
+  carry the run record: the design's Data Model, plus `backend` since
+  `record_version` 2 (Issue#481, Key Decisions "Run record v2"). Pinned
+  callers still write v1 records; `bin/ocr-review-stats` reads both.
 - `ocr-result-<attempt>` is ocr's JSON result (`--audience agent`) for an
   LLM to act on.
 - Causes and what to do:
