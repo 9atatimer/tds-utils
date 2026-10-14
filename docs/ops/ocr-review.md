@@ -174,6 +174,13 @@ Checked 2026-10-12 by reading `action.yml`,
   as the review job's `upstream_summary_url` output.
 - Chat completions do not stream by default; `{"stream": true}` in
   `llm_extra_body` turns streaming on, and the workflow sets it.
+- The action's default body, `{"thinking": {"type": "disabled"}}`, does
+  not stop a thinking model reasoning on the gateway's ollama, and neither
+  does `"think": false`: ollama's OpenAI-compatible API ignores both, and
+  a thinking model spends its tokens reasoning before it answers
+  (Issue#479). Only `"reasoning_effort": "none"` turns it off, so the
+  workflow sends that too. The action's `llm_reasoning_effort` input does
+  not accept `none`; an explicit key in `llm_extra_body` wins over it.
 - `head_sha` and `base_ref` must be passed: on a dispatch or comment
   trigger the event carries no pull request, and the action would
   otherwise resolve an empty head.

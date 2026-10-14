@@ -259,7 +259,10 @@ jobs:
       # item's headers; llm_auth_token is a required input ocr sends as a
       # bearer token, so it carries a fixed non-secret placeholder. Streaming
       # is on so a long completion's first byte reaches the edge before its
-      # time-to-first-byte limit. Upstream's own artifact upload is off: it
+      # time-to-first-byte limit. Reasoning is off through reasoning_effort
+      # "none": the gateway's ollama ignores the "thinking" field, and a
+      # thinking model would otherwise reason before every answer
+      # (Issue#479). Upstream's own artifact upload is off: it
       # would publish ocr's stderr log too. Its own summary comment stays:
       # it cannot be turned off at this pin, and it is where the findings
       # that failed to post are named (Key Decisions, option A). Sticky, so
@@ -274,7 +277,7 @@ jobs:
           llm_use_anthropic: 'false'
           llm_protocol: openai
           llm_extra_headers: ${{ steps.creds.outputs.extra_headers }}
-          llm_extra_body: '{"thinking": {"type": "disabled"}, "stream": true}'
+          llm_extra_body: '{"thinking": {"type": "disabled"}, "reasoning_effort": "none", "stream": true}'
           ocr_version: '1.12.13'
           pr_number: ${{ needs.authorize.outputs.pr }}
           head_sha: ${{ needs.authorize.outputs.head_sha }}
