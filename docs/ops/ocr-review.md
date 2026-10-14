@@ -195,10 +195,16 @@ Completions come from one of two backends (Issue#481):
 - **`ollama-gateway`** -- the laptop's sandboxed ollama through the Ollama
   Gateway (`docs/ops/ollama-gateway.md`). The default, and free.
 - **`cf-ai-gateway`** -- tds-internal's Cloudflare AI Gateway (the
-  `personal` gateway, `ops/terraform/ai-gateway`): Workers AI or another
-  provider through its OpenAI-compatible `/compat` endpoint, paid from the
+  `personal` gateway, `ops/terraform/ai-gateway`): a Workers AI model
+  through its OpenAI-compatible `/compat` endpoint, paid from the
   account's prepaid credits under the gateway's spend limit. An option for
   when the laptop is busy or off.
+- **Workers AI models only** (`workers-ai/@cf/...`). ocr always sends an
+  `Authorization` header, and the gateway forwards one to a third-party
+  provider unchanged, so a third-party model (`openai/...`) would fail
+  provider authentication; the Credentials step refuses one as
+  `configuration`. Workers AI takes no provider credential, so the
+  placeholder is harmless there.
 
 The owner's variable `OCR_BACKEND` chooses (unset is `ollama-gateway`); a
 dispatch may override it with `-f backend=...`, as it may the model. A
@@ -247,7 +253,8 @@ no cold model and the gateway applies its own retry policy):
 |---|---|
 | a chat completion | ready |
 | 401, 403 | `credential` |
-| 402 (credits exhausted), 429 (spend limit) | `budget` |
+| 402 (credits exhausted) | `budget` |
+| 429 (a spend limit, or the unified-billing request rate of 200 a minute: the status cannot tell which) | `limited` |
 | any other 4xx | `model-not-found` |
 | 5xx, or no answer | `gateway-down` |
 

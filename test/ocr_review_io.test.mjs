@@ -505,7 +505,7 @@ test('credentials: an unknown backend is configuration, exit 1, op never called'
   assert.equal(op.calls.length, 0);
 });
 
-test('probe, Cloudflare backend: posts to API_BASE/chat/completions; a 429 is budget at once', async () => {
+test('probe, Cloudflare backend: posts to API_BASE/chat/completions; a 429 is limited at once', async () => {
   const step = fakeStep();
   const fetch = fakeFetch(() => text(429, 'spend limit'));
   const code = await runProbe({
@@ -516,7 +516,7 @@ test('probe, Cloudflare backend: posts to API_BASE/chat/completions; a 429 is bu
     step,
   });
   assert.equal(code, 1);
-  assert.equal(step.outputs.cause, 'budget');
+  assert.equal(step.outputs.cause, 'limited');
   assert.equal(fetch.calls.length, 1);
   assert.equal(fetch.calls[0].url, 'https://gateway.ai.cloudflare.com/v1/acct/personal/compat/chat/completions');
 });

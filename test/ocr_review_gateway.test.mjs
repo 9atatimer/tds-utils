@@ -326,7 +326,7 @@ test('each backend names its own variables when one is missing', () => {
 
 test('the OpenAI-compatible base: /v1 on the Ollama Gateway, /compat on Cloudflare AI Gateway', () => {
   assert.equal(resolveGatewayConfig(config()).apiBase, 'https://gateway.example/v1');
-  const cf = resolveGatewayConfig(config({ backend: BACKENDS.cf, url: 'https://gateway.ai.cloudflare.com/v1/acct/personal/' }));
+  const cf = resolveGatewayConfig(config({ backend: BACKENDS.cf, url: 'https://gateway.ai.cloudflare.com/v1/acct/personal/', configuredModel: 'workers-ai/@cf/x/y' }));
   assert.equal(cf.apiBase, 'https://gateway.ai.cloudflare.com/v1/acct/personal/compat');
   assert.equal(cf.backend, BACKENDS.cf);
 });
@@ -372,11 +372,14 @@ test('the header list ocr parses keeps the tool tag JSON whole', () => {
   );
 });
 
-test('Cloudflare answers: a completion is ready; 401/403 credential; 402 and 429 budget; other 4xx model-not-found; 5xx gateway-down', () => {
+test('Cloudflare answers: a completion is ready; 401/403 credential; 402 budget; 429 limited; other 4xx model-not-found; 5xx gateway-down', () => {
   const cf = (answer) => classifyProbeAnswer(answer, BACKENDS.cf);
   assert.equal(cf(COMPLETION).kind, 'ready');
   for (const status of [401, 403]) assert.equal(cf({ status }).cause, 'credential', String(status));
-  for (const status of [402, 429]) assert.equal(cf({ status }).cause, 'budget', String(status));
+  // 402 is the credit balance; 429 is a spend limit OR the unified-billing
+  // request rate (200/min), which the status alone cannot tell apart.
+  assert.equal(cf({ status: 402 }).cause, 'budget');
+  assert.equal(cf({ status: 429 }).cause, 'limited');
   for (const status of [400, 404]) assert.equal(cf({ status }).cause, 'model-not-found', String(status));
   for (const status of [500, 502, 503, 504]) assert.equal(cf({ status }).cause, 'gateway-down', String(status));
   assert.equal(cf({ error: 'ENOTFOUND' }).cause, 'gateway-down');
@@ -391,7 +394,18 @@ test('a Cloudflare probe goes to the /compat completions path and is never retri
     { post: gw.post, clock },
   );
   assert.equal(r.ok, false);
-  assert.equal(r.cause, 'budget');
+  assert.equal(r.cause, 'limited');
   assert.equal(gw.requests.length, 1);
   assert.equal(gw.requests[0].url, 'https://gateway.ai.cloudflare.com/v1/acct/personal/compat/chat/completions');
+});
+
+test('Cloudflare AI Gateway takes Workers AI models only: ocr always sends an Authorization header, which the gateway forwards to a third-party provider', () => {
+  assert.equal(resolveGatewayConfig(config({ backend: BACKENDS.cf, configuredModel: 'workers-ai/@cf/moonshotai/kimi-k2.7-code' })).ok, true);
+  for (const model of ['openai/gpt-5.5', 'anthropic/claude-x', '@cf/moonshotai/kimi-k2.6']) {
+    const c = resolveGatewayConfig(config({ backend: BACKENDS.cf, configuredModel: model }));
+    assert.equal(c.cause, 'configuration', model);
+    assert.match(c.detail, /workers-ai\//);
+  }
+  const overridden = resolveGatewayConfig(config({ backend: BACKENDS.cf, configuredModel: 'workers-ai/@cf/a/b', override: 'openai/gpt-5.5' }));
+  assert.equal(overridden.cause, 'configuration', 'a dispatch override is held to the same rule');
 });

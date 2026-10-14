@@ -350,8 +350,11 @@ test('the record names the backend, and is record_version 2', () => {
   assert.equal(unapproved.backend, null);
 });
 
-test('budget is a closed-set cause a review step may declare, and the summary says what it means', () => {
+test('budget and limited are closed-set causes a review step may declare, and the summary says what each means', () => {
   assert.ok(CAUSES.includes('budget'));
+  assert.ok(CAUSES.includes('limited'));
+  const limited = buildRecord({ ...baseFacts, backend: 'cf-ai-gateway', approved: true, end: { outcome: 'failure', cause: 'limited', failingStep: null } });
+  assert.match(renderSummary(limited, { runUrl: 'u', detail: 'HTTP 429' }), /spend limit.*request.rate|request.rate.*spend limit/is);
   const r = buildRecord({ ...baseFacts, backend: 'cf-ai-gateway', approved: true, end: { outcome: 'failure', cause: 'budget', failingStep: null } });
   const body = renderSummary(r, { runUrl: 'u', detail: 'HTTP 429 from the gateway' });
   assert.match(body, /spend|credit/i);
