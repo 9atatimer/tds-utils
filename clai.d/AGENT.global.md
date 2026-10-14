@@ -28,6 +28,8 @@ file points there.
 - Say what a command does before handing it to the human to run.
 - Never `cd`; scope tools with `-C` / `--directory` / `--filter`.
 - Never work on the default branch; prefer a worktree under `~/workplace/.worktrees/`.
+- Before `git worktree remove`, run `git -C <wt> clean -ndX`; ignored files die with the worktree.
+- A tool never writes its data under a checkout; a per-user data dir, never a gitignored folder.
 - One PR per repo per task: never stack or split work into several PRs in one repo.
 - Never commit a defect fix before its RED test; cut the Issue first.
 - Never queue a "task card"; out-of-scope work is a GitHub Issue.
@@ -353,6 +355,20 @@ tracks `origin/<default>`, and a bare push is refused -- or, following git's
 hint, lands on the default branch.
 
 A worktree is cheap, it is isolated, and `git worktree remove` cleans it up.
+
+**`git worktree remove` deletes ignored files without asking.** It refuses
+only on untracked or modified files; everything `.gitignore` covers goes
+silently, and no git hook fires (there is no worktree-remove hook, so husky
+cannot help). Before removing one, run `git -C <wt> clean -ndX` and read
+the list; if it names anything you cannot regenerate, move it out first.
+The cause is upstream of the remove: **a tool must never write its data
+under a checkout.** A gitignored `work/`, `out/` or `.cache/` inside the
+repo is not storage, it is a folder that `git status` cannot see and a
+worktree takes with it. Default such paths to a per-user data dir
+(`$XDG_DATA_HOME/<app>` or `~/.local/share/<app>`) and make the test
+suite fail if the default ever resolves inside the repo. Spot-the-clone
+lost its first GPU run (1024 renders and the attempt ledger) this way on
+2026-10-13.
 Branch from `origin/<default>` explicitly rather than from whatever the
 shared clone's HEAD happens to be -- in a shared clone that is not
 necessarily the default branch, or current.
