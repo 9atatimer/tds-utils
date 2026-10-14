@@ -106,6 +106,16 @@ test('caller: passes exactly one secret, by name, and never inherits', () => {
   assert.match(CALLER, /OLLAMA_GATEWAY_OP_SA_TOKEN:\s*\$\{\{\s*secrets\.OLLAMA_GATEWAY_OP_SA_TOKEN\s*\}\}/);
 });
 
+test('caller: pr reaches the reusable workflow as a number on both triggers (Issue#485)', () => {
+  // A dispatch's inputs.pr arrives as a string; the reusable input is
+  // type: number and refuses "1" ("Unexpected value '1'"). fromJSON over the
+  // formatted value yields a number for the dispatch and the comment alike.
+  assert.match(
+    CALLER,
+    /pr:\s*\$\{\{\s*fromJSON\(format\('\{0\}',\s*github\.event_name == 'workflow_dispatch' && inputs\.pr \|\| github\.event\.issue\.number\)\)\s*\}\}/,
+  );
+});
+
 test('caller: the model reaches the reusable workflow on a dispatch only', () => {
   assert.match(CALLER, /model:\s*\$\{\{\s*github\.event_name == 'workflow_dispatch' && inputs\.model \|\| ''\s*\}\}/);
 });
