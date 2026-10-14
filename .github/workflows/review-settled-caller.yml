@@ -29,7 +29,7 @@ name: review-settled
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, review_requested]
   pull_request_review:
     types: [submitted, dismissed]
   pull_request_review_comment:
@@ -72,4 +72,10 @@ jobs:
       # (Copilot has no quota; owner ruling 2026-09-27).
       reviewers: 'copilot-pull-request-reviewer|chatgpt-codex-connector'
       pr: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
+      # Fail fast on every event except a review request: Copilot's answer
+      # fires no workflow, so the run its request starts is the one that
+      # waits for it. Codex's answer (a review or a comment) fires an event
+      # of its own and needs no wait. A later event cancels the waiting run
+      # through the concurrency group.
+      wait_seconds: ${{ github.event.action == 'review_requested' && 180 || 0 }}
       tools_ref: ${{ github.event.pull_request.head.sha || 'master' }}
