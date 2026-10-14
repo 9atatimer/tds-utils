@@ -39,6 +39,11 @@ on:
         type: string
         required: false
         default: ''
+      backend:
+        description: Backend to run every model on (ollama-gateway or cf-ai-gateway); empty uses the owner's OCR_BACKEND, else ollama-gateway.
+        type: string
+        required: false
+        default: ''
       tools_ref:
         description: The tds-utils commit to run the step commands from; the same SHA the caller pins this workflow at.
         type: string
@@ -151,9 +156,14 @@ jobs:
         id: creds
         env:
           OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OLLAMA_GATEWAY_OP_SA_TOKEN }}
+          OCR_BACKEND: ${{ vars.OCR_BACKEND }}
+          BACKEND_OVERRIDE: ${{ inputs.backend }}
           OLLAMA_GATEWAY_OP_ITEM: ${{ vars.OLLAMA_GATEWAY_OP_ITEM }}
           OLLAMA_GATEWAY_URL: ${{ vars.OLLAMA_GATEWAY_URL }}
           OLLAMA_GATEWAY_MODEL: ${{ vars.OLLAMA_GATEWAY_MODEL }}
+          CF_AI_GATEWAY_OP_ITEM: ${{ vars.CF_AI_GATEWAY_OP_ITEM }}
+          CF_AI_GATEWAY_URL: ${{ vars.CF_AI_GATEWAY_URL }}
+          CF_AI_GATEWAY_MODEL: ${{ vars.CF_AI_GATEWAY_MODEL }}
           MODEL_OVERRIDE: ${{ matrix.model }}
           TRIGGER: dispatch
         run: node .ocr-bakeoff-tools/bin/ocr-review credentials
@@ -174,6 +184,8 @@ jobs:
         id: probe
         env:
           GATEWAY_URL: ${{ steps.creds.outputs.url }}
+          API_BASE: ${{ steps.creds.outputs.api_base }}
+          BACKEND: ${{ steps.creds.outputs.backend }}
           MODEL: ${{ steps.creds.outputs.model }}
           HEADERS_FILE: ${{ steps.creds.outputs.headers_file }}
         run: node .ocr-bakeoff-tools/bin/ocr-review probe
@@ -188,7 +200,10 @@ jobs:
         if: always() && steps.creds.outcome == 'success'
         env:
           ENTRY: ${{ toJSON(matrix) }}
-          GATEWAY_URL: ${{ steps.creds.outputs.url }}
+          API_BASE: ${{ steps.creds.outputs.api_base }}
+          AUTH_TOKEN: ${{ steps.creds.outputs.auth_token }}
+          EXTRA_BODY: ${{ steps.creds.outputs.extra_body }}
+          BACKEND: ${{ steps.creds.outputs.backend }}
           EXTRA_HEADERS: ${{ steps.creds.outputs.extra_headers }}
           PROBE_OUTCOME: ${{ steps.probe.outcome }}
           PROBE_CAUSE: ${{ steps.probe.outputs.cause }}

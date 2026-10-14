@@ -8,13 +8,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  BACKENDS,
   COLD_MODEL_LIMIT_MS,
   GATEWAY_STATUS,
+  backendProfile,
   classifyProbeAnswer,
   extraHeadersValue,
   itemReferences,
   probeGateway,
   resolveCredentials,
+  resolveBackend,
   resolveGatewayConfig,
   resolveModel,
 } from '../lib/ocr-review/gateway.mjs';
@@ -27,6 +30,7 @@ const config = (over) => ({
   configuredModel: 'qwen3.6:latest',
   override: '',
   trigger: 'dispatch',
+  backend: 'ollama-gateway',
   ...over,
 });
 
@@ -289,4 +293,105 @@ test('a terminal answer fails at once, without a retry', async () => {
     assert.equal(gw.requests.length, 1);
     assert.ok(clock.now() < 60_000, 'decided within a minute');
   }
+});
+
+// --- Backends: the laptop's Ollama Gateway, or Cloudflare AI Gateway (Issue#481)
+
+test('the backend: a dispatch override, else the configured one, else the Ollama Gateway', () => {
+  assert.equal(resolveBackend({ trigger: 'dispatch', override: 'cf-ai-gateway', configured: '' }), BACKENDS.cf);
+  assert.equal(resolveBackend({ trigger: 'comment', override: 'cf-ai-gateway', configured: '' }), BACKENDS.ollama);
+  assert.equal(resolveBackend({ trigger: 'comment', override: '', configured: 'cf-ai-gateway' }), BACKENDS.cf);
+  assert.equal(resolveBackend({ trigger: 'dispatch', override: ' ', configured: '' }), BACKENDS.ollama);
+  assert.equal(resolveBackend({ trigger: 'dispatch', override: 'bogus', configured: '' }), null);
+});
+
+test('an unknown backend is a configuration failure naming the choices', () => {
+  const c = resolveGatewayConfig(config({ backend: null }));
+  assert.equal(c.cause, 'configuration');
+  assert.match(c.detail, /ollama-gateway.*cf-ai-gateway/);
+});
+
+test('each backend names its own variables when one is missing', () => {
+  for (const [field, name] of [
+    ['item', 'CF_AI_GATEWAY_OP_ITEM'],
+    ['url', 'CF_AI_GATEWAY_URL'],
+    ['configuredModel', 'CF_AI_GATEWAY_MODEL'],
+  ]) {
+    const c = resolveGatewayConfig(config({ backend: BACKENDS.cf, [field]: '' }));
+    assert.equal(c.cause, 'configuration', field);
+    assert.match(c.detail, new RegExp(name));
+    assert.doesNotMatch(c.detail, /OLLAMA_GATEWAY_(OP_ITEM|URL|MODEL)/);
+  }
+});
+
+test('the OpenAI-compatible base: /v1 on the Ollama Gateway, /compat on Cloudflare AI Gateway', () => {
+  assert.equal(resolveGatewayConfig(config()).apiBase, 'https://gateway.example/v1');
+  const cf = resolveGatewayConfig(config({ backend: BACKENDS.cf, url: 'https://gateway.ai.cloudflare.com/v1/acct/personal/' }));
+  assert.equal(cf.apiBase, 'https://gateway.ai.cloudflare.com/v1/acct/personal/compat');
+  assert.equal(cf.backend, BACKENDS.cf);
+});
+
+test('the request profile: the Ollama body turns reasoning off; Cloudflare gets a placeholder bearer and only streaming', () => {
+  const ollama = backendProfile(BACKENDS.ollama);
+  assert.equal(JSON.parse(ollama.extraBody).reasoning_effort, 'none');
+  assert.equal(JSON.parse(ollama.extraBody).stream, true);
+  const cf = backendProfile(BACKENDS.cf);
+  assert.deepEqual(JSON.parse(cf.extraBody), { stream: true });
+  assert.equal(cf.authToken, 'cf-aig-unified-billing');
+});
+
+test('a Cloudflare credential is the run token in password: an authorization header, the tool tag, and no payload logging', async () => {
+  const masked = [];
+  const read = [];
+  const c = await resolveCredentials(
+    ITEM,
+    { readSecret: async (ref) => (read.push(ref), 'tok-123'), mask: (v) => masked.push(v) },
+    BACKENDS.cf,
+  );
+  assert.equal(c.ok, true);
+  assert.deepEqual(read, [`${ITEM}/password`]);
+  assert.deepEqual(c.headers, {
+    'cf-aig-authorization': 'Bearer tok-123',
+    'cf-aig-metadata': '{"tool":"ocr-review"}',
+    'cf-aig-collect-log-payload': 'false',
+  });
+  assert.ok(masked.includes('tok-123'));
+});
+
+test('a Cloudflare run token that cannot travel as a header, or an empty one, is a configuration failure', async () => {
+  for (const value of ['', 'a,b', 'a"b']) {
+    const c = await resolveCredentials(ITEM, { readSecret: async () => value, mask: () => {} }, BACKENDS.cf);
+    assert.equal(c.cause, 'configuration', JSON.stringify(value));
+  }
+});
+
+test('the header list ocr parses keeps the tool tag JSON whole', () => {
+  assert.equal(
+    extraHeadersValue({ 'cf-aig-authorization': 'Bearer t', 'cf-aig-metadata': '{"tool":"ocr-review"}' }),
+    'cf-aig-authorization=Bearer t,cf-aig-metadata={"tool":"ocr-review"}',
+  );
+});
+
+test('Cloudflare answers: a completion is ready; 401/403 credential; 402 and 429 budget; other 4xx model-not-found; 5xx gateway-down', () => {
+  const cf = (answer) => classifyProbeAnswer(answer, BACKENDS.cf);
+  assert.equal(cf(COMPLETION).kind, 'ready');
+  for (const status of [401, 403]) assert.equal(cf({ status }).cause, 'credential', String(status));
+  for (const status of [402, 429]) assert.equal(cf({ status }).cause, 'budget', String(status));
+  for (const status of [400, 404]) assert.equal(cf({ status }).cause, 'model-not-found', String(status));
+  for (const status of [500, 502, 503, 504]) assert.equal(cf({ status }).cause, 'gateway-down', String(status));
+  assert.equal(cf({ error: 'ENOTFOUND' }).cause, 'gateway-down');
+  assert.equal(cf({ status: 507 }).kind, 'fail', 'no cold-model retry on a hosted gateway');
+});
+
+test('a Cloudflare probe goes to the /compat completions path and is never retried', async () => {
+  const clock = fakeClock();
+  const gw = fakeGateway(clock, [{ status: 429 }, COMPLETION]);
+  const r = await probeGateway(
+    { url: 'https://gateway.ai.cloudflare.com/v1/acct/personal', apiBase: 'https://gateway.ai.cloudflare.com/v1/acct/personal/compat', backend: BACKENDS.cf, model: 'workers-ai/@cf/x', headers: { H: 'v' } },
+    { post: gw.post, clock },
+  );
+  assert.equal(r.ok, false);
+  assert.equal(r.cause, 'budget');
+  assert.equal(gw.requests.length, 1);
+  assert.equal(gw.requests[0].url, 'https://gateway.ai.cloudflare.com/v1/acct/personal/compat/chat/completions');
 });

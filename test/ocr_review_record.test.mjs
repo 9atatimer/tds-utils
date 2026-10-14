@@ -45,6 +45,7 @@ const baseFacts = {
   pr: 7,
   trigger: 'dispatch',
   model: 'qwen3.6:latest',
+  backend: 'ollama-gateway',
   ocrVersion: '1.12.13',
   startedAt: '2026-10-12T10:00:00Z',
   finishedAt: '2026-10-12T10:05:00Z',
@@ -174,6 +175,7 @@ const RECORD_KEYS = [
   'head_sha',
   'range',
   'model',
+  'backend',
   'ocr_version',
   'outcome',
   'cause',
@@ -336,4 +338,22 @@ test('PR-controlled text cannot break out of its markup or mention anyone', () =
   // A path is HTML-escaped inside <code>, so backticks and @ are inert.
   assert.match(body, /<code>evil&#96;path&#96;&#64;team\.js<\/code>/);
   assert.doesNotMatch(body, /@team/);
+});
+
+// --- The backend (Issue#481) -------------------------------------------------
+
+test('the record names the backend, and is record_version 2', () => {
+  const r = buildRecord({ ...baseFacts, backend: 'cf-ai-gateway', approved: true, end: { outcome: 'success', cause: null, failingStep: null }, judged: JUDGED });
+  assert.equal(r.backend, 'cf-ai-gateway');
+  assert.equal(RECORD_VERSION, 2);
+  const unapproved = buildRecord({ ...baseFacts, approved: false, end: { outcome: 'failure', cause: 'fork', failingStep: null } });
+  assert.equal(unapproved.backend, null);
+});
+
+test('budget is a closed-set cause a review step may declare, and the summary says what it means', () => {
+  assert.ok(CAUSES.includes('budget'));
+  const r = buildRecord({ ...baseFacts, backend: 'cf-ai-gateway', approved: true, end: { outcome: 'failure', cause: 'budget', failingStep: null } });
+  const body = renderSummary(r, { runUrl: 'u', detail: 'HTTP 429 from the gateway' });
+  assert.match(body, /spend|credit/i);
+  assert.match(body, /backend <code>cf-ai-gateway<\/code>/);
 });

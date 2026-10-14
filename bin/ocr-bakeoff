@@ -74,7 +74,8 @@ export function runMatrix({ env, casesText, step }) {
 
 const seconds = (ms) => Math.round(ms / 1000);
 
-/** Env: ENTRY (the matrix entry, JSON), GATEWAY_URL, EXTRA_HEADERS,
+/** Env: ENTRY (the matrix entry, JSON), and from the Credentials step
+ * API_BASE, AUTH_TOKEN, EXTRA_BODY, BACKEND and EXTRA_HEADERS;
  * PROBE_OUTCOME and PROBE_CAUSE (the probe step's), SUBJECT_DIR (the checkout at the case's head), OUT_DIR, JOB_STARTED,
  * PROBE_STARTED, PROBE_ENDED (epoch seconds), JOB_BUDGET_SECONDS, PATH,
  * HOME. `run(cmd, argv, { env, cwd, deadlineMs })` resolves
@@ -93,7 +94,7 @@ export async function runReview({ env, casesText, run, now, step }) {
   }
   const probeSeconds = Number(env.PROBE_ENDED) - Number(env.PROBE_STARTED);
   const record = (exit, resultText, reviewSeconds) => {
-    const rec = buildRunRecord({ entry, kase, exit, resultText, probeSeconds, reviewSeconds });
+    const rec = buildRunRecord({ entry, kase, exit, resultText, probeSeconds, reviewSeconds, backend: env.BACKEND || null });
     step.writeFile(join(env.OUT_DIR, 'record.json'), `${JSON.stringify(rec, null, 2)}\n`);
     if (resultText) step.writeFile(join(env.OUT_DIR, 'ocr-result.json'), resultText);
     step.log(`review: ${rec.outcome}; ${rec.findings_total} findings; located ${rec.located.filter(Boolean).length} of ${rec.located.length}`);
@@ -106,7 +107,7 @@ export async function runReview({ env, casesText, run, now, step }) {
   if (env.PROBE_OUTCOME === 'failure') return record({ probeFailed: env.PROBE_CAUSE ?? '' }, '', 0);
   if (env.PROBE_OUTCOME !== undefined && env.PROBE_OUTCOME !== 'success') return record({ setupFailed: true }, '', 0);
   const base = { PATH: env.PATH ?? '', HOME: env.HOME ?? '', ...OCR_QUIET };
-  for (const argv of configArgs({ url: env.GATEWAY_URL ?? '', model: entry.model })) {
+  for (const argv of configArgs({ apiBase: env.API_BASE ?? '', model: entry.model, extraBody: env.EXTRA_BODY ?? '' })) {
     const r = await run('ocr', argv, { env: base, cwd: env.SUBJECT_DIR, deadlineMs: 60 * 1000 });
     if (r.timedOut || r.code !== 0) {
       return record({ configFailed: { setting: argv[2], why: r.timedOut ? 'timed out' : `exited ${r.code}` } }, '', 0);
@@ -116,7 +117,7 @@ export async function runReview({ env, casesText, run, now, step }) {
   if (!(leftMs > 0)) return record({ code: null, timedOut: true }, '', 0);
   const reviewEnv = {
     ...base,
-    OCR_LLM_TOKEN: OCR_SETTINGS.token,
+    OCR_LLM_TOKEN: env.AUTH_TOKEN ?? '',
     OCR_LLM_EXTRA_HEADERS: env.EXTRA_HEADERS ?? '',
     OCR_LLM_TIMEOUT: OCR_SETTINGS.llmTimeoutSeconds,
   };

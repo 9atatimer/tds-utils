@@ -426,6 +426,87 @@ test('probe: a thrown fetch (DNS, TLS, connect) is gateway-down', async () => {
   assert.equal(step.outputs.cause, 'gateway-down');
 });
 
+// --- the Cloudflare AI Gateway backend (Issue#481) ---------------------------
+
+const CF_ITEM = 'op://ci-vault/ai-gateway-ci';
+const cfEnv = (over) =>
+  credEnv({
+    OCR_BACKEND: 'cf-ai-gateway',
+    CF_AI_GATEWAY_OP_ITEM: CF_ITEM,
+    CF_AI_GATEWAY_URL: 'https://gateway.ai.cloudflare.com/v1/acct/personal',
+    CF_AI_GATEWAY_MODEL: 'workers-ai/@cf/moonshotai/kimi-k2.6',
+    ...over,
+  });
+function fakeCfOp() {
+  const calls = [];
+  const run = async (argv, env) => {
+    calls.push({ argv, env });
+    return { code: 0, stdout: 'run-token-9', stderr: '' };
+  };
+  run.calls = calls;
+  return run;
+}
+
+test('credentials, Cloudflare backend: one read of the run token, masked first; outputs the /compat base, placeholder bearer and body', async () => {
+  const step = fakeStep();
+  const op = fakeCfOp();
+  const code = await runCredentials({ env: cfEnv(), op, step });
+  assert.equal(code, 0);
+  assert.deepEqual(op.calls.map((c) => c.argv[c.argv.length - 1]), [`${CF_ITEM}/password`]);
+  const firstWrite = step.events.findIndex((e) => e[0] !== 'log');
+  assert.ok(step.events.slice(0, firstWrite).some((e) => e[1] === '::add-mask::run-token-9'), 'token masked before any output');
+  assert.equal(step.outputs.backend, 'cf-ai-gateway');
+  assert.equal(step.outputs.model, 'workers-ai/@cf/moonshotai/kimi-k2.6');
+  assert.equal(step.outputs.api_base, 'https://gateway.ai.cloudflare.com/v1/acct/personal/compat');
+  assert.equal(step.outputs.auth_token, 'cf-aig-unified-billing');
+  assert.deepEqual(JSON.parse(step.outputs.extra_body), { stream: true });
+  assert.match(step.outputs.extra_headers, /^cf-aig-authorization=Bearer run-token-9,/);
+  assert.equal(JSON.parse(step.files['/tmp/rt/ocr-gateway-headers.json'])['cf-aig-authorization'], 'Bearer run-token-9');
+});
+
+test('credentials: the Ollama backend is the default and outputs its own base, bearer and reasoning-off body', async () => {
+  const step = fakeStep();
+  await runCredentials({ env: credEnv(), op: fakeOp(), step });
+  assert.equal(step.outputs.backend, 'ollama-gateway');
+  assert.equal(step.outputs.api_base, 'https://gateway.example/v1');
+  assert.equal(step.outputs.auth_token, 'ollama');
+  assert.equal(JSON.parse(step.outputs.extra_body).reasoning_effort, 'none');
+});
+
+test('credentials: a dispatch backend override wins; on a comment it does not', async () => {
+  const dispatched = fakeStep();
+  await runCredentials({ env: cfEnv({ OCR_BACKEND: '', BACKEND_OVERRIDE: 'cf-ai-gateway' }), op: fakeCfOp(), step: dispatched });
+  assert.equal(dispatched.outputs.backend, 'cf-ai-gateway');
+  const commented = fakeStep();
+  await runCredentials({ env: cfEnv({ OCR_BACKEND: '', BACKEND_OVERRIDE: 'cf-ai-gateway', TRIGGER: 'comment' }), op: fakeOp(), step: commented });
+  assert.equal(commented.outputs.backend, 'ollama-gateway');
+});
+
+test('credentials: an unknown backend is configuration, exit 1, op never called', async () => {
+  const step = fakeStep();
+  const op = fakeOp();
+  const code = await runCredentials({ env: credEnv({ OCR_BACKEND: 'openai' }), op, step });
+  assert.equal(code, 1);
+  assert.equal(step.outputs.cause, 'configuration');
+  assert.equal(op.calls.length, 0);
+});
+
+test('probe, Cloudflare backend: posts to API_BASE/chat/completions; a 429 is budget at once', async () => {
+  const step = fakeStep();
+  const fetch = fakeFetch(() => text(429, 'spend limit'));
+  const code = await runProbe({
+    env: { ...probeEnv, BACKEND: 'cf-ai-gateway', API_BASE: 'https://gateway.ai.cloudflare.com/v1/acct/personal/compat' },
+    fetch,
+    readFile: readHeaders,
+    clock: instant,
+    step,
+  });
+  assert.equal(code, 1);
+  assert.equal(step.outputs.cause, 'budget');
+  assert.equal(fetch.calls.length, 1);
+  assert.equal(fetch.calls[0].url, 'https://gateway.ai.cloudflare.com/v1/acct/personal/compat/chat/completions');
+});
+
 // --- verdict -----------------------------------------------------------------
 
 const resultJson = JSON.stringify({

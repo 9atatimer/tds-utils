@@ -13,7 +13,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   MAX_JOBS,
-  OCR_SETTINGS,
   buildMatrix,
   buildRunRecord,
   collate,
@@ -267,7 +266,10 @@ test('review step: configures ocr like OCR on Demand, runs the case range, and w
   })();
   const env = {
     ENTRY: JSON.stringify({ key: 'm1-c1', model: 'm-one', case: 'c1', first_for_model: true, base: SHA_A, head: SHA_B }),
-    GATEWAY_URL: 'https://gw.example',
+    API_BASE: 'https://gw.example/compat',
+    AUTH_TOKEN: 'placeholder-bearer',
+    EXTRA_BODY: '{"stream": true}',
+    BACKEND: 'cf-ai-gateway',
     EXTRA_HEADERS: 'H=v',
     SUBJECT_DIR: '/w/subject',
     OUT_DIR: '/w/out',
@@ -281,18 +283,22 @@ test('review step: configures ocr like OCR on Demand, runs the case range, and w
   const code = await runReview({ env, casesText: JSON.stringify({ cases: [kase({ id: 'c1' })] }), run, now, step });
   assert.equal(code, 0);
   const sets = calls.filter((c) => c.argv[0] === 'config').map((c) => c.argv.slice(1));
-  assert.ok(sets.some((a) => a[0] === 'set' && a[1] === 'llm.url' && a[2] === 'https://gw.example/v1'));
+  // The base, bearer and body are the Credentials step's (the backend's
+  // profile, Issue#481), never a copy the bake-off keeps.
+  assert.ok(sets.some((a) => a[0] === 'set' && a[1] === 'llm.url' && a[2] === 'https://gw.example/compat'));
   assert.ok(sets.some((a) => a[1] === 'llm.model' && a[2] === 'm-one'));
   assert.ok(sets.some((a) => a[1] === 'llm.protocol' && a[2] === 'openai'));
-  assert.ok(sets.some((a) => a[1] === 'llm.extra_body' && JSON.parse(a[2]).stream === true && JSON.parse(a[2]).thinking.type === 'disabled'));
+  assert.ok(sets.some((a) => a[1] === 'llm.extra_body' && a[2] === '{"stream": true}'));
   const review = calls.find((c) => c.argv[0] === 'review');
   assert.equal(review.cwd, '/w/subject');
   assert.equal(review.env.OCR_LLM_EXTRA_HEADERS, 'H=v');
   assert.equal(review.env.OCR_NO_UPDATE, '1');
   assert.equal(review.env.OCR_LLM_TIMEOUT, '300');
+  assert.equal(review.env.OCR_LLM_TOKEN, 'placeholder-bearer');
   assert.ok(review.deadlineMs > 0 && review.deadlineMs <= 480 * 1000, 'the deadline is what is left of the job budget');
   const rec = JSON.parse(step.files['/w/out/record.json']);
   assert.equal(rec.outcome, 'complete');
+  assert.equal(rec.backend, 'cf-ai-gateway');
   assert.equal(rec.probe_seconds, 41);
   assert.deepEqual(rec.located, [true]);
   assert.ok(step.files['/w/out/ocr-result.json']);
@@ -521,7 +527,6 @@ test('workflow: ocr is the version and the settings OCR on Demand runs, so a bak
   const review = readFileSync(join(ROOT, '.github/workflows/ocr-review.yml'), 'utf8');
   const pin = review.match(/ocr_version: '([^']+)'/)[1];
   assert.equal(code(WORKFLOW).match(/OCR_VERSION: '([^']+)'/)[1], pin);
-  assert.deepEqual(JSON.parse(review.match(/llm_extra_body: '([^']+)'/)[1]), JSON.parse(OCR_SETTINGS.extraBody));
   assert.match(review, /llm_protocol: openai/);
   assert.match(review, /llm_use_anthropic: 'false'/);
 });
@@ -533,4 +538,16 @@ test('caller: dispatch only, passes the one secret by name, pins workflow and to
   assert.doesNotMatch(body, /secrets: inherit/);
   const pin = body.match(/ocr-bakeoff\.yml@([0-9a-f]{40})/)[1];
   assert.equal(body.match(/tools_ref: '([0-9a-f]{40})'/)[1], pin);
+});
+
+test('workflow: the backend input reaches the Credentials step as a dispatch override, with both backends\' variables (Issue#481)', () => {
+  const body = code(WORKFLOW);
+  assert.match(body, /BACKEND_OVERRIDE:\s*\$\{\{\s*inputs\.backend\s*\}\}/);
+  for (const v of ['OCR_BACKEND', 'CF_AI_GATEWAY_OP_ITEM', 'CF_AI_GATEWAY_URL', 'CF_AI_GATEWAY_MODEL']) {
+    assert.match(body, new RegExp(`${v}:\\s*\\$\\{\\{\\s*vars\\.${v}\\s*\\}\\}`), v);
+  }
+  for (const [env, out] of [['API_BASE', 'api_base'], ['AUTH_TOKEN', 'auth_token'], ['EXTRA_BODY', 'extra_body'], ['BACKEND', 'backend']]) {
+    assert.match(body, new RegExp(`${env}:\\s*\\$\\{\\{\\s*steps\\.creds\\.outputs\\.${out}\\s*\\}\\}`), env);
+  }
+  assert.match(code(CALLER), /backend:\s*\$\{\{\s*inputs\.backend\s*\}\}/);
 });
