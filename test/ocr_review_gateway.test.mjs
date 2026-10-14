@@ -409,3 +409,20 @@ test('Cloudflare AI Gateway takes Workers AI models only: ocr always sends an Au
   const overridden = resolveGatewayConfig(config({ backend: BACKENDS.cf, configuredModel: 'workers-ai/@cf/a/b', override: 'openai/gpt-5.5' }));
   assert.equal(overridden.cause, 'configuration', 'a dispatch override is held to the same rule');
 });
+
+test('Cloudflare reasoning: CF_AI_GATEWAY_REASONING rides the body as reasoning_effort; unset sends none, so the model default applies', () => {
+  assert.deepEqual(JSON.parse(backendProfile(BACKENDS.cf, { reasoning: 'none' }).extraBody), { stream: true, reasoning_effort: 'none' });
+  assert.deepEqual(JSON.parse(backendProfile(BACKENDS.cf, { reasoning: '' }).extraBody), { stream: true });
+  assert.deepEqual(JSON.parse(backendProfile(BACKENDS.cf).extraBody), { stream: true });
+  // The Ollama profile is fixed: its reasoning is always off (Issue#479).
+  assert.equal(JSON.parse(backendProfile(BACKENDS.ollama, { reasoning: 'high' }).extraBody).reasoning_effort, 'none');
+});
+
+test('a reasoning value that is not a single lowercase word is a configuration failure', () => {
+  for (const reasoning of ['high, max', 'NONE"', 'x y']) {
+    const c = resolveGatewayConfig(config({ backend: BACKENDS.cf, configuredModel: 'workers-ai/@cf/a/b', reasoning }));
+    assert.equal(c.cause, 'configuration', reasoning);
+    assert.match(c.detail, /CF_AI_GATEWAY_REASONING/);
+  }
+  assert.equal(resolveGatewayConfig(config({ backend: BACKENDS.cf, configuredModel: 'workers-ai/@cf/a/b', reasoning: 'none' })).ok, true);
+});

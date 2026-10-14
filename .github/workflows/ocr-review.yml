@@ -257,6 +257,7 @@ jobs:
           CF_AI_GATEWAY_OP_ITEM: ${{ vars.CF_AI_GATEWAY_OP_ITEM }}
           CF_AI_GATEWAY_URL: ${{ vars.CF_AI_GATEWAY_URL }}
           CF_AI_GATEWAY_MODEL: ${{ vars.CF_AI_GATEWAY_MODEL }}
+          CF_AI_GATEWAY_REASONING: ${{ vars.CF_AI_GATEWAY_REASONING }}
           MODEL_OVERRIDE: ${{ inputs.model }}
           TRIGGER: ${{ needs.authorize.outputs.trigger }}
         run: node "$RUNNER_TEMP/ocr-review-tools/bin/ocr-review" credentials

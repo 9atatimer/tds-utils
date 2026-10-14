@@ -216,7 +216,14 @@ Each backend has its own three variables; only the chosen one's are read:
 | Backend | Item | Base URL | Model |
 |---|---|---|---|
 | `ollama-gateway` | `OLLAMA_GATEWAY_OP_ITEM` | `OLLAMA_GATEWAY_URL` | `OLLAMA_GATEWAY_MODEL` |
-| `cf-ai-gateway` | `CF_AI_GATEWAY_OP_ITEM` | `CF_AI_GATEWAY_URL` (the gateway base, `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>`) | `CF_AI_GATEWAY_MODEL` (a gateway model id, e.g. `workers-ai/@cf/moonshotai/kimi-k2.6`) |
+| `cf-ai-gateway` | `CF_AI_GATEWAY_OP_ITEM` | `CF_AI_GATEWAY_URL` (the gateway base, `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>`) | `CF_AI_GATEWAY_MODEL` (a gateway model id; the owner's default is `workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813`) |
+
+The Cloudflare backend has one more, optional variable:
+`CF_AI_GATEWAY_REASONING`, sent as `reasoning_effort` (e.g. `none` turns
+reasoning off on models that allow it -- DeepSeek V4 Pro, Kimi K2.6,
+GLM-5.2; some, like Kimi K2.7 Code, always reason). Unset, the model's own
+default applies, which is usually reasoning on. The owner's default
+pairing is DeepSeek V4 Pro with `none` (2026-10-14).
 
 The secret stays `OLLAMA_GATEWAY_OP_SA_TOKEN`: the same service account
 reads either item, so turning the option on adds no GitHub secret.
@@ -237,7 +244,8 @@ whose registry names them -- this public repo does not):
 ```
 gh variable set CF_AI_GATEWAY_OP_ITEM -o <org> --visibility selected --repos <repo,...> --body 'op://<vault>/<item>'
 gh variable set CF_AI_GATEWAY_URL     -o <org> --visibility selected --repos <repo,...> --body 'https://gateway.ai.cloudflare.com/v1/<account>/<gateway>'
-gh variable set CF_AI_GATEWAY_MODEL   -o <org> --visibility selected --repos <repo,...> --body '<model id>'
+gh variable set CF_AI_GATEWAY_MODEL   -o <org> --visibility selected --repos <repo,...> --body 'workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813'
+gh variable set CF_AI_GATEWAY_REASONING -o <org> --visibility selected --repos <repo,...> --body none
 # then either per run: -f backend=cf-ai-gateway, or for every run:
 gh variable set OCR_BACKEND           -o <org> --visibility selected --repos <repo,...> --body cf-ai-gateway
 ```

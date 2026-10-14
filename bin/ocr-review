@@ -284,7 +284,7 @@ export async function runHostTools({ onPath, step }) {
 
 /** The credentials step. Env: OP_SERVICE_ACCOUNT_TOKEN, OCR_BACKEND,
  * BACKEND_OVERRIDE, the chosen backend's variables (OLLAMA_GATEWAY_OP_ITEM,
- * _URL, _MODEL or CF_AI_GATEWAY_OP_ITEM, _URL, _MODEL), MODEL_OVERRIDE,
+ * _URL, _MODEL or CF_AI_GATEWAY_OP_ITEM, _URL, _MODEL, _REASONING), MODEL_OVERRIDE,
  * TRIGGER, RUNNER_TEMP. `op(argv, env)` runs the 1Password CLI without a
  * shell. Outputs the backend, model, url, api_base, the header string and
  * file, and the backend's non-secret auth_token placeholder and extra_body. */
@@ -314,6 +314,7 @@ export async function runCredentials({ env, op, step }) {
     override: env.MODEL_OVERRIDE,
     trigger: env.TRIGGER,
     backend,
+    reasoning: env.CF_AI_GATEWAY_REASONING,
   });
   if (!config.ok) return fail(config);
   // ocr's `config set llm.url` echoes the URL unredacted, and a Cloudflare
@@ -329,7 +330,7 @@ export async function runCredentials({ env, op, step }) {
   };
   const credentials = await resolveCredentials(item, { readSecret, mask }, backend);
   if (!credentials.ok) return fail(credentials);
-  const profile = backendProfile(backend);
+  const profile = backendProfile(backend, { reasoning: env.CF_AI_GATEWAY_REASONING });
   step.writeFile(`${env.RUNNER_TEMP}/${HEADERS_FILE}`, JSON.stringify(credentials.headers));
   step.setOutput('backend', backend);
   step.setOutput('model', config.model);

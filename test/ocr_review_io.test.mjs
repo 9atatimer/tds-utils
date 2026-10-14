@@ -478,6 +478,12 @@ test('credentials: the backend URL (a Cloudflare one carries the account id) is 
   }
 });
 
+test('credentials, Cloudflare backend: CF_AI_GATEWAY_REASONING reaches extra_body', async () => {
+  const step = fakeStep();
+  await runCredentials({ env: cfEnv({ CF_AI_GATEWAY_REASONING: 'none' }), op: fakeCfOp(), step });
+  assert.deepEqual(JSON.parse(step.outputs.extra_body), { stream: true, reasoning_effort: 'none' });
+});
+
 test('credentials: the Ollama backend is the default and outputs its own base, bearer and reasoning-off body', async () => {
   const step = fakeStep();
   await runCredentials({ env: credEnv(), op: fakeOp(), step });

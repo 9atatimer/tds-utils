@@ -543,7 +543,7 @@ test('caller: dispatch only, passes the one secret by name, pins workflow and to
 test('workflow: the backend input reaches the Credentials step as a dispatch override, with both backends\' variables (Issue#481)', () => {
   const body = code(WORKFLOW);
   assert.match(body, /BACKEND_OVERRIDE:\s*\$\{\{\s*inputs\.backend\s*\}\}/);
-  for (const v of ['OCR_BACKEND', 'CF_AI_GATEWAY_OP_ITEM', 'CF_AI_GATEWAY_URL', 'CF_AI_GATEWAY_MODEL']) {
+  for (const v of ['OCR_BACKEND', 'CF_AI_GATEWAY_OP_ITEM', 'CF_AI_GATEWAY_URL', 'CF_AI_GATEWAY_MODEL', 'CF_AI_GATEWAY_REASONING']) {
     assert.match(body, new RegExp(`${v}:\\s*\\$\\{\\{\\s*vars\\.${v}\\s*\\}\\}`), v);
   }
   for (const [env, out] of [['API_BASE', 'api_base'], ['AUTH_TOKEN', 'auth_token'], ['EXTRA_BODY', 'extra_body'], ['BACKEND', 'backend']]) {
