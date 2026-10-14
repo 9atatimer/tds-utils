@@ -279,10 +279,12 @@ The pool's 10-minute ceiling still applies (Issue#478); a hosted model is
 far faster than the laptop, so it is the likelier backend to fit it.
 
 Measured on the first Cloudflare run (2026-10-14, run 38539937733, DeepSeek
-V4 Pro with `reasoning_effort` none): 7 code files reviewed in 8.5 minutes,
-17 gateway calls, 115k tokens in and 25k out, $0.24. That is about
-$0.03 a file and over a minute a file, so a PR much larger than seven
-files will cross the 10-minute ceiling before it crosses the spend cap.
+V4 Pro with `reasoning_effort` none): 7 code files, ocr's own elapsed time
+8m24s, 17 gateway calls, 115k tokens in and 25k out, $0.24. The review
+job took 8m56s against its `timeout-minutes: 9` (set under the pool's
+ceiling), 4 seconds to spare. At about $0.03 and over a minute a file, a
+PR any larger than seven files is likely to hit the job's timeout long
+before the spend cap.
 
 ## Comparing models (the bake-off)
 
