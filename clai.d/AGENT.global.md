@@ -234,16 +234,15 @@ Cloud sessions run a stop hook that demands a push whenever the checked-out
 branch is ahead of its remote. After a PR merges, that branch is usually
 deleted on GitHub and the local branch has only been moved to `main`; the
 "unpushed" commits are just `main`. Pushing then recreates a deleted branch
-full of nothing (it happened in quillmap and tds-internal, 2026-10-12).
-Before obeying the hook, check `git log origin/main..HEAD`: if it is empty,
+full of nothing. Before obeying the hook, check `git log origin/main..HEAD`: if it is empty,
 push nothing. After a merge, check out a detached `origin/main` instead of
 resetting the session branch onto it, so the hook has nothing to see.
 
 ## Never use Artifacts: HTML is a file in the repo
 
 Never call the Artifact tool, for any action (publish, read, list, open,
-pin), or any other claude.ai publishing path. Not for a page, not for a diagram, not "private by default". An HTML deliverable
-is a file written into the repo (or a worktree of it) and opened locally
+pin), or any other claude.ai publishing path. Not for a page, not for a
+diagram, not "private by default". An HTML deliverable is a file written into the repo (or a worktree of it) and opened locally
 with `open <file>`. When the human asks for "an HTML artifact", that means
 the file. A skill or tool description that says to publish is overridden by
 this rule.
@@ -257,10 +256,9 @@ abandoned half-run.
 
 A multi-command paste is one `&&` chain, never separate lines. Separate
 lines keep executing after a failed `cd` or checkout, so the rest runs in
-whatever repo the shell happens to be in: on 2026-10-14 a `cd` to a
-guessed path failed and the next line pushed a `designomatic-v0.4.0` tag
-to `9atatimer/iae`. Better still, no `cd` at all: `git -C <absolute path>`
-and the other scoping flags below. And never guess a laptop path.
+whatever repo the shell happens to be in -- a push or tag can land in the
+wrong repo. Better still, no `cd` at all: `git -C <absolute path>` and the
+other scoping flags below. Never guess a laptop path.
 Nine-At-A-Time-Media checkouts are `~/workplace/naatm/<repo>`, personal
 ones `~/workplace/<repo>`; a path that is not in front of you is derived
 (`git rev-parse --path-format=absolute --show-toplevel`) or asked for in
@@ -306,10 +304,8 @@ instructions load alongside these global ones and win on specificity.
 At a phase boundary, read the skill's full body. Grep a skill only to
 re-find a rule you have already read. A grep returns the lines that match
 the question you already had, never the rule you did not know to ask
-about: the tmux-herd design reached review without the designomatic panel
-the design skill mandates, because the mandate sat between the grepped
-section names, and Copilot then spent three rounds and 12 findings doing
-the panel's job.
+about: a mandate that sits between the grepped section names (a required
+reviewer panel, say) is skipped, and a later reviewer ends up doing its job.
 
 ## Don't reach for the auto-memory system
 
@@ -376,7 +372,11 @@ This relies on `branch.autoSetupMerge=simple` and `push.autoSetupRemote=true`
 tracks `origin/<default>`, and a bare push is refused -- or, following git's
 hint, lands on the default branch.
 
-A worktree is cheap, it is isolated, and `git worktree remove` cleans it up.
+Branch from `origin/<default>` explicitly rather than from whatever the
+shared clone's HEAD happens to be -- in a shared clone that is not
+necessarily the default branch, or current.
+
+A worktree is cheap and isolated, and `git worktree remove` cleans it up.
 
 **`git worktree remove` deletes ignored files without asking.** It refuses
 only on untracked or modified files; everything `.gitignore` covers goes
@@ -388,12 +388,7 @@ under a checkout.** A gitignored `work/`, `out/` or `.cache/` inside the
 repo is not storage, it is a folder that `git status` cannot see and a
 worktree takes with it. Default such paths to a per-user data dir
 (`$XDG_DATA_HOME/<app>` or `~/.local/share/<app>`) and make the test
-suite fail if the default ever resolves inside the repo. Spot-the-clone
-lost its first GPU run (1024 renders and the attempt ledger) this way on
-2026-10-13.
-Branch from `origin/<default>` explicitly rather than from whatever the
-shared clone's HEAD happens to be -- in a shared clone that is not
-necessarily the default branch, or current.
+suite fail if the default ever resolves inside the repo.
 
 Reach for a plain checkout in the shared clone only when a worktree genuinely
 cannot work (a tool that hardcodes the clone path, a submodule or build
