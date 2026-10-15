@@ -183,9 +183,8 @@ Typical offenders: `gcloud run deploy` / `terraform apply` / any cloud
 build, `npm install`, full test suites, container builds, bulk storage
 deletes.
 
-This is NOT the banned self-polling from "Never set a timer" above --
-nothing is scheduled and nothing wakes itself. The command runs once and
-notifies on exit.
+This is not the banned self-polling above: nothing is scheduled; the
+command runs once and notifies on exit.
 
 ### Stop a background process by its PID, and check it stopped
 
@@ -209,8 +208,8 @@ The permission classifier blocks `terraform apply` from the agent even when
 hand the human the exact `! op run ... terraform apply tfplan` line to run
 in-session, so the output lands in the conversation and work continues.
 The same handoff applies to any state-changing command the classifier
-refuses. The iac skill owns the
-authority model; `/infra-handoff` writes the block.
+refuses. The iac skill owns the authority model; `/infra-handoff` writes
+the block.
 
 ## Never deploy: land the PR, let CI ship it
 
@@ -293,8 +292,7 @@ unordered set. Where order matters, say it in prose or name the dependency
 
 When told to swarm-code a solution (e.g. `ultracode`), automatically open a PR
 when the coding concludes -- do not wait to be asked -- and then automatically
-triage Copilot's review feedback per the gates skill (and the repo's
-`prompts/GITHUB.md` where one still exists).
+triage Copilot's review feedback per the gates skill.
 
 ## Always review the repo's own CLAUDE.md / AGENT.md
 
@@ -361,7 +359,9 @@ several terminals on several repos at once, and other agent sessions work
 in that same directory. A branch checkout there is a shared mutable
 resource, and the failure is silent.
 
-So, from a fresh fetch, into `~/workplace/.worktrees/` (next section):
+So, from a fresh fetch, into `~/workplace/.worktrees/` (next section),
+branching from `origin/<default>` and never from the shared clone's HEAD,
+which may be any branch and stale:
 
 ```
 git -C ~/workplace/<repo> fetch origin
@@ -373,10 +373,6 @@ This relies on `branch.autoSetupMerge=simple` and `push.autoSetupRemote=true`
 (provisioned in `git-config/dot.gitconfig`): without them the new branch
 tracks `origin/<default>`, and a bare push is refused -- or, following git's
 hint, lands on the default branch.
-
-Branch from `origin/<default>` explicitly rather than from whatever the
-shared clone's HEAD happens to be -- in a shared clone that is not
-necessarily the default branch, or current.
 
 **`git worktree remove` deletes ignored files without asking.** It refuses
 only on untracked or modified files; everything `.gitignore` covers goes
@@ -427,8 +423,7 @@ remote and usually **cannot see this screen** -- they may be jogging, driving,
 or away from the desk. A long silent pause while you run tools reads as "it
 broke," even when work is progressing fine.
 
-So, every time a channel message arrives, the acknowledgement comes first
-and the result comes last:
+Acknowledgement first, result last:
 
 - **Before any other tool call, reply through the channel's reply tool** with
   a one-line acknowledgement: what you understood + that you're starting. This
@@ -439,26 +434,23 @@ and the result comes last:
   Edits don't trigger a push notification; a fresh message makes their phone
   ping. `edit_message` is only for optional mid-task progress nudges.
 
-Keep channel replies short and skimmable -- a notification-reader app may read
-them aloud through earbuds. This applies in every repo, since the Telegram
-channel is user-global.
+Keep channel replies short and skimmable; they may be read aloud through
+earbuds. This applies in every repo.
 
 ## Pushing when the 1Password SSH agent is locked
 
 Git push/pull/ls-remote over SSH on this machine authenticate via the
 **1Password SSH agent** (`SSH_AUTH_SOCK` -> `...2BUA8C4S2C.com.1password/t/agent.sock`).
-When 1Password is locked, `ssh-add -l` still *lists* keys but *signing* fails
-(`communication with agent failed` -> `Permission denied (publickey)`), so
-`git push` aborts. Two ways through:
+When 1Password is locked, `ssh-add -l` still lists keys but signing fails
+(`Permission denied (publickey)`), so `git push` aborts. Two ways through:
 
 - **Unlock 1Password** on the Mac (GUI action; cannot be done from a phone/Telegram).
 - **Push over HTTPS using gh's token** -- no SSH needed. git is already configured
   with the `!gh auth git-credential` helper for github.com, so
-  `git push https://github.com/<owner>/<repo>.git <branch>` works while the agent
-  is locked. This is why `gh pr ...`/API commands keep working even when
-  `git push` can't -- they use the same HTTPS token. (Side effect: `origin/<branch>`
-  tracking refs go stale until an SSH fetch succeeds, so `git status` may show a
-  bogus "ahead N" -- verify against GitHub before assuming unpushed work.)
+  `git push https://github.com/<owner>/<repo>.git <branch>` works while the
+  agent is locked. (Side effect: `origin/<branch>` tracking refs go stale
+  until an SSH fetch succeeds, so `git status` may show a bogus "ahead N" --
+  verify against GitHub before assuming unpushed work.)
 
 ## Always disambiguate PRs and issues with a linked, repo-qualified reference
 
@@ -472,7 +464,7 @@ number:
 [<owner>/<repo> Issue#35](https://github.com/<owner>/<repo>/issues/35)
 ```
 
-Not a naked URL, and not only in the first line. A check run gets the same
+Not a naked URL, and not only in the first mention. A check run gets the same
 treatment. The github-workflow skill, Naming issues and PRs, is canonical
 (commit-message and `Closes #N` forms included); take owner/repo from the
 remote, never from memory.
