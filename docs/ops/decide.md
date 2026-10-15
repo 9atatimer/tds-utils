@@ -178,9 +178,23 @@ caps each consumer separately: give every caller its own `--tool`.
 - **Answer shapes are thinly documented.** The Workers AI docs show no
   sample response. `decide` reads choice and score as the Hugging Face card
   describes them, score probabilities keyed by level index, by legend label
-  or as an array, and noul from a bare number, `{probability}`,
-  `{probabilities: {true, false}}` or `{value}`. A shape outside those is
-  `malformed`; `raw` in a success shows what actually came back.
+  or as an array, and noul as Cloudflare's reference SystemOne code answers
+  it, `{"type": "noul", "noul": p}` (Issue#513), or from a bare number,
+  `{probability}`, `{probabilities: {true, false}}` or `{value}`. A shape
+  outside those is `malformed`; `raw` in a success shows what actually came
+  back.
+- **The vendor's machine-readable sources outrank its prose.** Both shape
+  defects found after release came from trusting prose: the noul answer
+  shape was in the model repository's `joint_schema_model.py`, not the
+  card's text (Issue#513), and the two image shapes were in Cloudflare's
+  published model schema (`cloudflare-docs`
+  `src/content/workers-ai-models/clef.json`), not the Workers AI page.
+  Check a request or answer shape against those two first.
+- **A 401 (exit 5) from a valid run token is a missing permission.** The
+  provider-native Workers AI route checks the token itself, so a token
+  holding only AI Gateway Run is refused (401, Cloudflare code 10000)
+  whatever headers carry it. The token needs Workers AI Read; tds-internal
+  `ops/terraform/ai-gateway` grants it (Issue#512).
 - **The state leaves the machine** on cf-ai-gateway. Payload logging is off
   by default; it is still a hosted model.
 - **Local backend.** `DECIDE_BACKEND=systemone` with `DECIDE_URL` posts the
