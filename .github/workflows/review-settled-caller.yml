@@ -45,7 +45,13 @@ on:
 
 concurrency:
   group: review-settled-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
-  cancel-in-progress: true
+  # A push or a review request supersedes whatever is running: the head
+  # changed, or the wait is about to start. A comment or a review must NOT
+  # cancel -- it would kill the one run waiting for Copilot's answer (the
+  # self-review epilogue lands inside that window) and replace it with a
+  # run that waits 0 and posts "no review yet" over an answer seconds away
+  # (issue #353). Those runs queue and re-evaluate after the waiter posts.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -74,8 +80,12 @@ jobs:
       pr: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
       # Fail fast on every event except a review request: Copilot's answer
       # fires no workflow, so the run its request starts is the one that
-      # waits for it. Codex's answer (a review or a comment) fires an event
-      # of its own and needs no wait. A later event cancels the waiting run
-      # through the concurrency group.
+      # waits for it (PR #356 shows the event firing for a Copilot request).
+      # Codex's answer (a review or a comment) fires an event of its own and
+      # needs no wait. A push cancels the waiting run through the
+      # concurrency group; a comment queues behind it. If tds-internal's
+      # `automatic_copilot_code_review` is ever enabled for this repo,
+      # Copilot re-reviews a push with NO review_requested event, and
+      # `synchronize` needs the wait back.
       wait_seconds: ${{ github.event.action == 'review_requested' && 180 || 0 }}
       tools_ref: ${{ github.event.pull_request.head.sha || 'master' }}

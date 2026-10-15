@@ -30,3 +30,9 @@ test('only a review_requested run waits for the reviewer; every other event post
     "${{ github.event.action == 'review_requested' && 180 || 0 }}",
   );
 });
+
+test('only a push or a review request cancels a waiting run; a comment queues behind it', () => {
+  const cancel = CALLER.match(/^\s+cancel-in-progress: (.+)$/m);
+  assert.ok(cancel, 'the concurrency group sets cancel-in-progress explicitly');
+  assert.equal(cancel[1].trim(), "${{ github.event_name == 'pull_request' }}");
+});
