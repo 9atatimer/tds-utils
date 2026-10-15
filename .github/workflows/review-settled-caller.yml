@@ -25,7 +25,13 @@
 # can see.
 #
 # `tools_ref` is the PR's own head so a change to the checker is tested
-# by the PR that carries it, not by the one after.
+# by the PR that carries it, not by the one after. The caller itself is
+# only half testable that way: GitHub runs a `pull_request` workflow from
+# the PR's copy of this file, but an `issue_comment` workflow from the
+# default branch's copy. A PR that changes this file sees its own change on
+# push and review events, and master's behaviour on every comment, until it
+# merges (a comment run on PR #493 waited master's 180s while the PR's copy
+# said 0).
 
 name: review-settled
 
