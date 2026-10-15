@@ -234,18 +234,19 @@ Cloud sessions run a stop hook that demands a push whenever the checked-out
 branch is ahead of its remote. After a PR merges, that branch is usually
 deleted on GitHub and the local branch has only been moved to `main`; the
 "unpushed" commits are just `main`. Pushing then recreates a deleted branch
-full of nothing. Before obeying the hook, check `git log origin/main..HEAD`: if it is empty,
-push nothing. After a merge, check out a detached `origin/main` instead of
-resetting the session branch onto it, so the hook has nothing to see.
+full of nothing. Before obeying the hook, check `git log origin/main..HEAD`:
+if it is empty, push nothing. After a merge, check out a detached
+`origin/main` instead of resetting the session branch onto it, so the hook
+has nothing to see.
 
 ## Never use Artifacts: HTML is a file in the repo
 
 Never call the Artifact tool, for any action (publish, read, list, open,
 pin), or any other claude.ai publishing path. Not for a page, not for a
-diagram, not "private by default". An HTML deliverable is a file written into the repo (or a worktree of it) and opened locally
-with `open <file>`. When the human asks for "an HTML artifact", that means
-the file. A skill or tool description that says to publish is overridden by
-this rule.
+diagram, not "private by default". An HTML deliverable is a file written
+into the repo (or a worktree of it) and opened locally with `open <file>`. When the human asks for "an HTML
+artifact", that means the file. A skill or tool description that says to
+publish is overridden by this rule.
 
 ## Say what a command does before the human runs it
 
@@ -304,8 +305,9 @@ instructions load alongside these global ones and win on specificity.
 At a phase boundary, read the skill's full body. Grep a skill only to
 re-find a rule you have already read. A grep returns the lines that match
 the question you already had, never the rule you did not know to ask
-about: a mandate that sits between the grepped section names (a required
-reviewer panel, say) is skipped, and a later reviewer ends up doing its job.
+about: a mandate that sits between the grepped section names (the
+designomatic panel the design skill requires, say) is skipped, and a later
+reviewer ends up doing the panel's job.
 
 ## Don't reach for the auto-memory system
 
