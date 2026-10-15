@@ -206,6 +206,13 @@ test('a bare boolean is a label with p_true null, never a 0/1 sentinel', () => {
   assert.equal(ok(normalizeNoul(false)).p_true, null);
 });
 
+test('noul reads the reference SystemOne shape { noul } (Issue#513)', () => {
+  // Cloudflare's joint_schema_model.py systemone_answer at clef-flash 8b2e5fd.
+  const answer = ok(normalizeNoul({ type: 'noul', noul: 0.9 }));
+  near(answer.p_true, 0.9);
+  assert.equal(answer.calibrated, true);
+});
+
 test('noul passes vendor confidence through', () => {
   assert.equal(ok(normalizeNoul({ probability: 0.83, confidence: 0.2 })).vendor_confidence, 0.2);
   assert.equal(ok(normalizeNoul(0.83)).vendor_confidence, null);
