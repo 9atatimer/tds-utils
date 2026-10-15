@@ -25,6 +25,7 @@ file points there.
 - Never set a timer, wakeup or schedule for yourself, and never poll on a clock.
 - Never `curl | sh` or run a fetched installer; install through signed package managers.
 - Never use claude.ai Artifacts (the Artifact tool, any action); an HTML deliverable is a file in the repo.
+- Never run a deploy or publish command yourself; open the PR and let CI ship it.
 - Say what a command does before handing it to the human to run.
 - Never `cd`; scope tools with `-C` / `--directory` / `--filter`.
 - Never work on the default branch; prefer a worktree under `~/workplace/.worktrees/`.
@@ -68,9 +69,9 @@ is back, request no Copilot review on any PR: the adversarial self-review
 self-review re-review. Codex stays human-summoned only.
 
 Once quota is back: request a Copilot review once per PR that is not
-documentation-only, and a re-review only when a push carries a load-bearing fix -- behavior, a
-contract, security, a test's verdict, or what a rule an agent or gate
-executes says. Hygiene (wording, typos, comments, documentation accuracy) is
+documentation-only, and a re-review only when a push carries a load-bearing
+fix -- behavior, a contract, security, a test's verdict, or what a rule an
+agent or gate executes says. Hygiene (wording, typos, comments, documentation accuracy) is
 fixed and pushed, never re-reviewed, in self-review as much as in Copilot
 or Codex. When a round brings no value, stop requesting rounds;
 `review-settled` going red on a stale review is not a reason to spend
@@ -203,8 +204,8 @@ freely for self-computation -- do not carry that assumption here.)
 ## Terraform applies: agent plans, human applies
 
 The permission classifier blocks `terraform apply` from the agent even when
-`plan` ran fine. Don't
-fight it -- it is the right division of labor. The smooth flow: agent runs
+`plan` ran fine. Don't fight it -- it is the right division of labor. The
+smooth flow: agent runs
 `plan -out=tfplan`, reviews the plan, then hands the human the exact
 `! op run ... terraform apply tfplan` line to run in-session, so the output
 lands in the conversation and work continues. Same handoff applies to any
@@ -233,20 +234,20 @@ skill's Stacked PRs, the retrospective skill's separate docs-only PR).
 Cloud sessions run a stop hook that demands a push whenever the checked-out
 branch is ahead of its remote. After a PR merges, that branch is usually
 deleted on GitHub and the local branch has only been moved to the default
-branch; the "unpushed" commits are just that branch. Pushing then recreates a deleted branch
-full of nothing. Before obeying the hook, check `git log origin/<default>..HEAD`:
-if it is empty, push nothing. After a merge, check out a detached
-`origin/<default>` instead of resetting the session branch onto it, so the hook
-has nothing to see.
+branch; the "unpushed" commits are just that branch, and pushing recreates a
+deleted branch full of nothing. Before obeying the hook, check
+`git log origin/<default>..HEAD`: if it is empty, push nothing. After a
+merge, check out a detached `origin/<default>` instead of resetting the
+session branch onto it, so the hook has nothing to see.
 
 ## Never use Artifacts: HTML is a file in the repo
 
 Never call the Artifact tool, for any action (publish, read, list, open,
 pin), or any other claude.ai publishing path. Not for a page, not for a
 diagram, not "private by default". An HTML deliverable is a file written
-into the repo (or a worktree of it) and opened locally with `open <file>`. When the human asks for "an HTML
-artifact", that means the file. A skill or tool description that says to
-publish is overridden by this rule.
+into the repo (or a worktree of it) and opened locally with `open <file>`.
+When the human asks for "an HTML artifact", that means the file. A skill or
+tool description that says to publish is overridden by this rule.
 
 ## Say what a command does before the human runs it
 
@@ -347,9 +348,9 @@ next command resolves it against the shell's cwd, which is some other
 project root. Ask for absolute output:
 `git -C <repo> rev-parse --path-format=absolute --git-common-dir`.
 
-## Always work off a branch, and use a worktree whenever you can
+## Work off a branch, in a worktree
 
-Two rules, the second stronger than it used to be.
+Two rules.
 
 **Never work on the default branch.** Every repo instruction file already
 says this; it holds even for a one-line docs edit and even when the change
@@ -378,15 +379,13 @@ Branch from `origin/<default>` explicitly rather than from whatever the
 shared clone's HEAD happens to be -- in a shared clone that is not
 necessarily the default branch, or current.
 
-A worktree is cheap and isolated; removing it is covered below.
-
 **`git worktree remove` deletes ignored files without asking.** It refuses
 only on untracked or modified files; everything `.gitignore` covers goes
 silently, and no git hook fires (there is no worktree-remove hook, so husky
 cannot help). Before removing one, run `git -C <wt> clean -ndX` and read
 the list; if it names anything you cannot regenerate, move it out first.
-The cause is upstream of the remove: **a tool must never write its data
-under a checkout.** A gitignored `work/`, `out/` or `.cache/` inside the
+The cause is upstream: **a tool must never write its data under a
+checkout.** A gitignored `work/`, `out/` or `.cache/` inside the
 repo is not storage, it is a folder that `git status` cannot see and a
 worktree takes with it. Default such paths to a per-user data dir
 (`$XDG_DATA_HOME/<app>` or `~/.local/share/<app>`) and make the test
