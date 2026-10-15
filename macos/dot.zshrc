@@ -209,12 +209,16 @@ fi
 # reading the environment runs an interactive shell with no terminal (or a
 # `zsh -ic` on a pty); exec'd into tmux it leaves a stray window behind and
 # never returns the environment (issue #427).
-# A Claude desktop Terminal-panel tab is a terminal too, but one the app opens
-# and closes on its own: in tmux it joined session main, switched every other
-# client onto its window, and left that window behind on close (issue #498).
+# A shell the Claude desktop app opens is a terminal too, but one the app
+# opens and closes on its own: in tmux it joined session main, switched every
+# other client onto its window, left that window behind on close, and sent
+# what was typed in it to whatever pane main was showing (issue #498).
+# Terminal-panel tabs set TERM_PROGRAM=claude-desktop; the bash mode / Run
+# shell sets no TERM_PROGRAM, and both set CLAUDE_AGENT_SDK_VERSION.
 if [[ -o interactive ]] && [[ -z "$TMUX" ]] && [[ -t 0 && -t 1 ]] \
     && [[ -z "${ZSH_EXECUTION_STRING:-}" ]] \
-    && [[ "${TERM_PROGRAM:-}" != claude-desktop ]]; then
+    && [[ "${TERM_PROGRAM:-}" != claude-desktop ]] \
+    && [[ -z "${CLAUDE_AGENT_SDK_VERSION:-}" ]]; then
     if (( $+commands[tmux-launch] )); then
         exec tmux-launch
     fi
