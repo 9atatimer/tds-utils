@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# agent-report-card -- size and density report for an agent instruction file.
+# Prints a markdown table comparing a git ref to the working tree, for a PR body.
+
+set -euo pipefail
+
+DEFAULT_FILE="clai.d/AGENT.global.md"
+RULE_PATTERN='\b(never|always|must|do not)\b'
+
+# --- Action functions ---
+
+usage() {
+    echo "usage: agent-report-card [-f file] [-r base-ref]   (default: ${DEFAULT_FILE} vs origin/master)"
+}
+
+# measure: reads text on stdin, prints "words bytes gzip rules lines".
+measure() {
+    local text w b g r l
+    text=$(cat)
+    w=$(printf '%s\n' "$text" | wc -w | tr -d ' ')
+    b=$(printf '%s\n' "$text" | wc -c | tr -d ' ')
+    g=$(printf '%s\n' "$text" | gzip -9c | wc -c | tr -d ' ')
+    r=$(printf '%s\n' "$text" | grep -ciE "$RULE_PATTERN" || true)
+    l=$(printf '%s\n' "$text" | wc -l | tr -d ' ')
+    echo "$w $b $g $r $l"
+}
+
+delta() {
+    local before=$1 after=$2
+    awk -v b="$before" -v a="$after" 'BEGIN {
+        d = a - b
+        p = (b == 0) ? 0 : 100 * d / b
+        printf "%+d (%+.1f%%)", d, p }'
+}
+
+# --- Flow functions ---
+
+render_card() {
+    local file=$1 ref=$2
+    local before after
+    before=$(git show "${ref}:${file}" | measure)
+    after=$(measure <"$file")
+    local -a b a
+    read -r -a b <<<"$before"
+    read -r -a a <<<"$after"
+    local -a names=(words bytes gzip-bytes rule-lines lines)
+    local i
+    echo "**Report card: \`${file}\` vs \`${ref}\`**"
+    echo
+    echo "| metric | before | after | delta |"
+    echo "|--------|-------:|------:|-------|"
+    for i in 0 1 2 3 4; do
+        echo "| ${names[$i]} | ${b[$i]} | ${a[$i]} | $(delta "${b[$i]}" "${a[$i]}") |"
+    done
+    echo
+    echo "rule-lines = lines matching never/always/must/do not. Fewer bytes with"
+    echo "rule-lines held steady means denser, not weaker."
+}
+
+# --- Main ---
+
+main() {
+    local file=$DEFAULT_FILE ref=origin/master opt
+    while getopts "f:r:h" opt; do
+        case "$opt" in
+            f) file=$OPTARG ;;
+            r) ref=$OPTARG ;;
+            h) usage; exit 0 ;;
+            *) usage; exit 1 ;;
+        esac
+    done
+    render_card "$file" "$ref"
+}
+
+main "$@"
