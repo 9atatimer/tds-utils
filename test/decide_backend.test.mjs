@@ -44,6 +44,12 @@ test('a gateway base whose path is not /v1/<account>/<gateway> is a config failu
   }
 });
 
+test('a gateway base the URL parser rejects is the same config failure, never a throw (exit 1 is outside the contract)', () => {
+  for (const base of ['https://h:99999/v1/acct/gw', 'https://[bad/v1/acct/gw']) {
+    assert.match(configError(cfEnv({ DECIDE_GATEWAY_URL: base })), /\/v1\/<account>\/<gateway>/);
+  }
+});
+
 test('systemone posts to ${DECIDE_URL}/v1/systemone and needs no token', () => {
   const config = configOf({ DECIDE_BACKEND: 'systemone', DECIDE_URL: 'http://127.0.0.1:30000/' });
   assert.equal(config.url, 'http://127.0.0.1:30000/v1/systemone');
