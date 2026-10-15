@@ -12,7 +12,9 @@
 # review itself, the reply in a thread, and the PR comment the reviewer
 # posts after resolving (the self-review epilogue the gates skill
 # requires) -- so all three re-evaluate, and workflow_dispatch covers a
-# stuck one by hand.
+# stuck one by hand. A review request is the one event whose run waits
+# for the reviewer's answer (`wait_seconds` below); every other run posts
+# at once.
 #
 # Part of the contract, not a gap to close: a thread UNRESOLVED with no
 # comment fires nothing either, so a green status can outlive it until
@@ -45,13 +47,16 @@ on:
 
 concurrency:
   group: review-settled-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
-  # A push or a review request supersedes whatever is running: the head
-  # changed, or the wait is about to start. A comment or a review must NOT
-  # cancel -- it would kill the one run waiting for Copilot's answer (the
-  # self-review epilogue lands inside that window) and replace it with a
-  # run that waits 0 and posts "no review yet" over an answer seconds away
-  # (issue #353). Those runs queue and re-evaluate after the waiter posts.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Only a push or a review request supersedes whatever is running: the
+  # head changed, or the wait is about to start. No other event cancels --
+  # it would kill the one run waiting for Copilot's answer and replace it
+  # with a run that waits 0 and posts "no review yet" over an answer
+  # seconds away (issue #353). The self-review epilogue comment lands
+  # inside that window, and so does the `opened` run of a PR created with
+  # its reviewer attached: GitHub delivers `opened` and `review_requested`
+  # unordered, so `opened` must not cancel either. Every other run queues
+  # and re-evaluates after the waiter posts.
+  cancel-in-progress: ${{ github.event.action == 'synchronize' || github.event.action == 'review_requested' }}
 
 permissions:
   contents: read
