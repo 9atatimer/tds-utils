@@ -275,8 +275,11 @@ no cold model and the gateway applies its own retry policy):
 | any other 4xx | `model-not-found` |
 | 5xx, or no answer | `gateway-down` |
 
-The pool's 10-minute ceiling still applies (Issue#478); a hosted model is
-far faster than the laptop, so it is the likelier backend to fit it.
+The pool's 10-minute ceiling is the limit on either backend, by decision
+(design Key Decisions, a review's length; Issue#478): a PR that does not
+finish in it is not reviewed, and the run fails at the job timeout as
+`unexpected` (Known gaps). A hosted model is far faster than the laptop,
+so it is the likelier backend to fit it.
 
 Measured on the first Cloudflare run (2026-10-14, run 38539937733, DeepSeek
 V4 Pro with `reasoning_effort` none): 7 code files, ocr's own elapsed time
