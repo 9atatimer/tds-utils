@@ -232,11 +232,11 @@ skill's Stacked PRs, the retrospective skill's separate docs-only PR).
 
 Cloud sessions run a stop hook that demands a push whenever the checked-out
 branch is ahead of its remote. After a PR merges, that branch is usually
-deleted on GitHub and the local branch has only been moved to `main`; the
-"unpushed" commits are just `main`. Pushing then recreates a deleted branch
-full of nothing. Before obeying the hook, check `git log origin/main..HEAD`:
+deleted on GitHub and the local branch has only been moved to the default
+branch; the "unpushed" commits are just that branch. Pushing then recreates a deleted branch
+full of nothing. Before obeying the hook, check `git log origin/<default>..HEAD`:
 if it is empty, push nothing. After a merge, check out a detached
-`origin/main` instead of resetting the session branch onto it, so the hook
+`origin/<default>` instead of resetting the session branch onto it, so the hook
 has nothing to see.
 
 ## Never use Artifacts: HTML is a file in the repo
@@ -378,7 +378,7 @@ Branch from `origin/<default>` explicitly rather than from whatever the
 shared clone's HEAD happens to be -- in a shared clone that is not
 necessarily the default branch, or current.
 
-A worktree is cheap and isolated, and `git worktree remove` cleans it up.
+A worktree is cheap and isolated; removing it is covered below.
 
 **`git worktree remove` deletes ignored files without asking.** It refuses
 only on untracked or modified files; everything `.gitignore` covers goes
