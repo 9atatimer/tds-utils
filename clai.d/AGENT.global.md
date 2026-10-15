@@ -27,6 +27,8 @@ file points there.
 - Never use claude.ai Artifacts (the Artifact tool, any action); an HTML deliverable is a file in the repo.
 - Never run a deploy or publish command yourself; open the PR and let CI ship it.
 - Say what a command does before handing it to the human to run.
+- Run anything over ~30s with `run_in_background`; never leave the human in silence.
+- On a `<channel>` message, ack through the channel first, then work.
 - Never `cd`; scope tools with `-C` / `--directory` / `--filter`.
 - Never work on the default branch; prefer a worktree under `~/workplace/.worktrees/`.
 - Before `git worktree remove`, run `git -C <wt> clean -ndX`; ignored files die with the worktree.
@@ -71,11 +73,11 @@ self-review re-review. Codex stays human-summoned only.
 Once quota is back: request a Copilot review once per PR that is not
 documentation-only, and a re-review only when a push carries a load-bearing
 fix -- behavior, a contract, security, a test's verdict, or what a rule an
-agent or gate executes says. Hygiene (wording, typos, comments, documentation accuracy) is
-fixed and pushed, never re-reviewed, in self-review as much as in Copilot
-or Codex. When a round brings no value, stop requesting rounds;
-`review-settled` going red on a stale review is not a reason to spend
-quota.
+agent or gate executes says. Hygiene (wording, typos, comments,
+documentation accuracy) is fixed and pushed, never re-reviewed, in
+self-review as much as in Copilot or Codex. When a round brings no value,
+stop requesting rounds; `review-settled` going red on a stale review is not
+a reason to spend quota.
 
 A documentation-only PR -- every changed file is human-read prose -- gets
 no Copilot and no Codex: the adversarial self-review is sufficient,
@@ -87,12 +89,11 @@ them takes the full review ladder.
 Triage with backbone: fix what is genuinely broken and reject the rest on
 the thread in one line. Every finding gets a recorded disposition,
 including the body-only "Previously missed" ones that have no thread.
-After an accept or reject reply, resolve the thread too: `gadmin reply`
-does not touch GitHub's thread-resolved state. The gates skill owns the
-procedure: Spend Review Turns on Load-Bearing Fixes and Automated Review
-Response for triage, and Feedback becomes pr-todo issues for the
-`resolveReviewThread` mechanism, which applies to accepts and rejects as
-well as deferrals.
+After an accept or reject reply, resolve the thread too (the
+`resolveReviewThread` mechanism): `gadmin reply` does not touch GitHub's
+thread-resolved state. The gates skill owns the procedure -- Spend Review
+Turns on Load-Bearing Fixes and Automated Review Response for triage,
+Feedback becomes pr-todo issues for deferrals.
 
 ## Answer style: succinct, terse, specific
 
@@ -204,12 +205,11 @@ freely for self-computation -- do not carry that assumption here.)
 ## Terraform applies: agent plans, human applies
 
 The permission classifier blocks `terraform apply` from the agent even when
-`plan` ran fine. Don't fight it -- it is the right division of labor. The
-smooth flow: agent runs
-`plan -out=tfplan`, reviews the plan, then hands the human the exact
-`! op run ... terraform apply tfplan` line to run in-session, so the output
-lands in the conversation and work continues. Same handoff applies to any
-state-changing command the classifier refuses. The iac skill owns the
+`plan` ran fine. Don't fight it. Run `plan -out=tfplan`, review it, then
+hand the human the exact `! op run ... terraform apply tfplan` line to run
+in-session, so the output lands in the conversation and work continues.
+The same handoff applies to any state-changing command the classifier
+refuses. The iac skill owns the
 authority model; `/infra-handoff` writes the block.
 
 ## Never deploy: land the PR, let CI ship it
@@ -322,10 +322,9 @@ rare; if unsure, don't save.
 
 ## Never `cd` -- stay at the project root and target subdirs with flags
 
-`cd` and `cd path && cmd` are not in the user's standing auto-approval set, so
-every one of them stops the agent for a permission prompt. Worse, the shell
-environment doesn't persist between Bash tool calls, so chaining `cd` for the
-side effect is fragile anyway.
+`cd` and `cd path && cmd` are not in the standing auto-approval set, so each
+stops the agent for a permission prompt, and shell state does not persist
+between Bash calls anyway.
 
 **Stay in the project root. For every tool that needs to operate on a subdir,
 use that tool's native scoping flag:**
