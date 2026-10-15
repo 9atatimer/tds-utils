@@ -8,6 +8,8 @@ import assert from 'node:assert/strict';
 import { BACKENDS, acceptToken, buildBody, buildHeaders, buildRequest, opReadArgv, resolveConfig } from '../lib/decide/backend.mjs';
 
 const BASE = 'https://gateway.example/v1/acct/gw';
+/** The REST route the base resolves to: Cloudflare's API, the base's account, the model. */
+const REST = 'https://api.cloudflare.com/client/v4/accounts/acct/ai/run/@cf/cloudflare';
 const TOKEN = 'run-token-abc123';
 const cfEnv = (over) => ({ DECIDE_GATEWAY_URL: BASE, DECIDE_GATEWAY_TOKEN: TOKEN, ...over });
 const configOf = (env, flags) => {
@@ -24,15 +26,28 @@ const configError = (env, flags) => {
 
 // --- Backend and URL ---------------------------------------------------------
 
-test('cf-ai-gateway is the default backend and the URL is the Workers AI route for the model', () => {
+test('cf-ai-gateway is the default backend and the URL is the REST route for the model, on the account named by the gateway base', () => {
   const config = configOf(cfEnv());
   assert.equal(config.backend, BACKENDS.cf);
   assert.equal(config.model, 'clef');
-  assert.equal(config.url, `${BASE}/workers-ai/@cf/cloudflare/clef`);
+  assert.equal(config.url, `${REST}/clef`);
+  assert.equal(config.gatewayId, 'gw');
 });
 
 test('a trailing slash on the gateway base is stripped', () => {
-  assert.equal(configOf(cfEnv({ DECIDE_GATEWAY_URL: `${BASE}//` })).url, `${BASE}/workers-ai/@cf/cloudflare/clef`);
+  assert.equal(configOf(cfEnv({ DECIDE_GATEWAY_URL: `${BASE}//` })).url, `${REST}/clef`);
+});
+
+test('a gateway base whose path is not /v1/<account>/<gateway> is a config failure naming that shape', () => {
+  for (const base of ['https://gateway.example', 'https://gateway.example/v1/acct', 'https://gateway.example/v1/acct/gw/extra', 'https://gateway.example/v2/acct/gw']) {
+    assert.match(configError(cfEnv({ DECIDE_GATEWAY_URL: base })), /\/v1\/<account>\/<gateway>/);
+  }
+});
+
+test('a gateway base the URL parser rejects is the same config failure, never a throw (exit 1 is outside the contract)', () => {
+  for (const base of ['https://h:99999/v1/acct/gw', 'https://[bad/v1/acct/gw']) {
+    assert.match(configError(cfEnv({ DECIDE_GATEWAY_URL: base })), /\/v1\/<account>\/<gateway>/);
+  }
 });
 
 test('systemone posts to ${DECIDE_URL}/v1/systemone and needs no token', () => {
@@ -55,7 +70,7 @@ test('an unknown backend, or a missing or non-URL base, is a config failure', ()
 test('the model comes from --model, else DECIDE_MODEL, else clef', () => {
   assert.equal(configOf(cfEnv({ DECIDE_MODEL: 'clef-flash' })).model, 'clef-flash');
   assert.equal(configOf(cfEnv({ DECIDE_MODEL: 'clef-flash' }), { model: 'clef' }).model, 'clef');
-  assert.equal(configOf(cfEnv({ DECIDE_MODEL: 'clef-flash' })).url, `${BASE}/workers-ai/@cf/cloudflare/clef-flash`);
+  assert.equal(configOf(cfEnv({ DECIDE_MODEL: 'clef-flash' })).url, `${REST}/clef-flash`);
 });
 
 test('cf-ai-gateway serves clef and clef-flash only; systemone takes any plain model name', () => {
@@ -111,11 +126,11 @@ test('DECIDE_TIMEOUT_MS defaults to 60000 and must be a positive integer', () =>
 
 // --- Headers and body --------------------------------------------------------
 
-test('cf-ai-gateway headers carry the token twice, the tool tag, and no payload logging', () => {
+test('cf-ai-gateway headers carry the token on Authorization, the gateway id, the tool tag, and no payload logging', () => {
   assert.deepEqual(buildHeaders(configOf(cfEnv()), TOKEN), {
     'content-type': 'application/json',
-    'cf-aig-authorization': `Bearer ${TOKEN}`,
     authorization: `Bearer ${TOKEN}`,
+    'cf-aig-gateway-id': 'gw',
     'cf-aig-metadata': '{"tool":"decide"}',
     'cf-aig-collect-log-payload': 'false',
   });
@@ -142,6 +157,6 @@ test('the body is the model plus state, questions and images, never the id', () 
   assert.deepEqual(buildBody(config, { state: 's', questions }), { model: 'clef-flash', state: 's', questions });
   assert.deepEqual(buildBody(config, { state: 's', questions, images: ['b64'] }), { model: 'clef-flash', state: 's', questions, images: ['b64'] });
   const request = buildRequest(config, TOKEN, { state: 's', questions });
-  assert.equal(request.url, `${BASE}/workers-ai/@cf/cloudflare/clef-flash`);
+  assert.equal(request.url, `${REST}/clef-flash`);
   assert.deepEqual(JSON.parse(request.body), { model: 'clef-flash', state: 's', questions });
 });

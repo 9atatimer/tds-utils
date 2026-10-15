@@ -26,8 +26,16 @@ bin/decide probe
 ```
 
 - `DECIDE_GATEWAY_URL` is the gateway base recorded in the note of the
-  gateway's run-token item. `decide` appends
-  `/workers-ai/@cf/cloudflare/<model>`; a trailing slash is stripped.
+  gateway's run-token item, `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>`;
+  a trailing slash is stripped. `decide` takes the account and gateway
+  ids from it and posts to Cloudflare's REST route,
+  `https://api.cloudflare.com/client/v4/accounts/<account>/ai/run/@cf/cloudflare/<model>`,
+  with the token on `Authorization` and the gateway on
+  `cf-aig-gateway-id`, so the gateway's spend rules and log still apply.
+  It does not use the gateway's own `workers-ai` route: with the gateway
+  on Unified Billing that route answers 401 for every Workers AI model
+  (tds-utils Issue#512, 2026-10-15), and Cloudflare documents Workers AI
+  through a gateway on the REST route only.
 - `DECIDE_GATEWAY_OP_ITEM` is that item's `op://` reference. `decide` runs
   `op read "<item>/password"` once per invocation, so 1Password must be
   unlocked and the CLI signed in. Failure -> `config` (exit 2).
