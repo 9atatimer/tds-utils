@@ -9,6 +9,8 @@ import assert from 'node:assert/strict';
 import { PROBE_REQUEST, RETRY_DELAY_MS, runCli } from '../bin/decide';
 
 const BASE = 'https://gateway.example/v1/acct/gw';
+/** The REST route that base resolves to. */
+const REST = 'https://api.cloudflare.com/client/v4/accounts/acct/ai/run/@cf/cloudflare';
 const TOKEN = 'run-token-s3cret';
 const CF_ENV = Object.freeze({ DECIDE_GATEWAY_URL: BASE, DECIDE_GATEWAY_TOKEN: TOKEN });
 
@@ -117,7 +119,8 @@ test('run --file posts the record (without its id) and prints one normalized dec
   const code = await runCli(['run', '--file', 'ticket.json'], io);
   assert.equal(code, 0);
   assert.equal(fetch.calls.length, 1);
-  assert.equal(fetch.calls[0].url, `${BASE}/workers-ai/@cf/cloudflare/clef`);
+  assert.equal(fetch.calls[0].url, `${REST}/clef`);
+  assert.equal(fetch.calls[0].headers['cf-aig-gateway-id'], 'gw');
   assert.equal(fetch.calls[0].method, 'POST');
   assert.deepEqual(fetch.calls[0].body, { model: 'clef', state: RECORD.state, questions: QUESTIONS });
   assert.deepEqual(io.decisions(), [
@@ -144,7 +147,7 @@ test('run reads stdin when no --file is given, and --tool stamps the gateway met
   const io = fakeIo({ stdin: JSON.stringify(RECORD), fetch });
   assert.equal(await runCli(['run', '--tool', 'ocrinator', '--model', 'clef-flash'], io), 0);
   assert.equal(fetch.calls[0].headers['cf-aig-metadata'], '{"tool":"ocrinator"}');
-  assert.equal(fetch.calls[0].url, `${BASE}/workers-ai/@cf/cloudflare/clef-flash`);
+  assert.equal(fetch.calls[0].url, `${REST}/clef-flash`);
   assert.equal(io.decisions()[0].model, 'clef-flash');
 });
 
@@ -308,8 +311,8 @@ test('with DECIDE_GATEWAY_OP_ITEM, op reads the password field once and the toke
   const io = fakeIo({ env: { DECIDE_GATEWAY_URL: BASE, DECIDE_GATEWAY_OP_ITEM: 'op://vault/item' }, stdin: JSON.stringify(RECORD), fetch, op });
   assert.equal(await runCli(['run'], io), 0);
   assert.deepEqual(op.calls, [['read', 'op://vault/item/password']]);
-  assert.equal(fetch.calls[0].headers['cf-aig-authorization'], `Bearer ${TOKEN}`);
   assert.equal(fetch.calls[0].headers.authorization, `Bearer ${TOKEN}`);
+  assert.equal('cf-aig-authorization' in fetch.calls[0].headers, false);
 });
 
 test('a literal token means op is never run', async () => {
