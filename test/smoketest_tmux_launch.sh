@@ -141,13 +141,16 @@ test_new_window_starts_in_the_terminals_directory() {
 }
 
 # A terminal emulator starts an interactive shell on a pty; outside tmux it
-# must hand off to tmux-launch.
+# must hand off to tmux-launch. Terminal.app names itself in TERM_PROGRAM, as
+# every emulator does, so the accept case does too: a guard that refused any
+# TERM_PROGRAM would otherwise pass (issue #498).
 test_zshrc_hands_off_to_tmux_launch() {
     bold "\nTest: dot.zshrc execs tmux-launch for a terminal's shell outside tmux\n"
 
     local dirs
     dirs=(${(z)"$(stage_zshrc)"})
     in_pty env -i HOME="${SCRATCH}" ZDOTDIR="${dirs[1]}" TERM=dumb \
+        TERM_PROGRAM=Apple_Terminal \
         PATH="${dirs[2]}:/usr/bin:/bin" /bin/zsh -i </dev/null >/dev/null 2>&1 || true
 
     assert_eq "tmux-launch ran" launched "$(launched)"
