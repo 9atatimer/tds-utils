@@ -198,11 +198,13 @@ caps each consumer separately: give every caller its own `--tool`.
   published model schema (`cloudflare-docs`
   `src/content/workers-ai-models/clef.json`), not the Workers AI page.
   Check a request or answer shape against those two first.
-- **A 401 (exit 5) from a valid run token is a missing permission.** The
-  provider-native Workers AI route checks the token itself, so a token
-  holding only AI Gateway Run is refused (401, Cloudflare code 10000)
-  whatever headers carry it. The token needs Workers AI Read; tds-internal
-  `ops/terraform/ai-gateway` grants it (Issue#512).
+- **A 401 (exit 5) on the REST route means the token lacks Workers AI
+  Read.** The REST route checks the token itself, and only tds-internal
+  `ops/terraform/ai-gateway` grants that permission, so a run token minted
+  before that change is refused until the module is applied. (The 401 that
+  opened Issue#512 was a different thing: the gateway's own `workers-ai`
+  route refuses every Workers AI model on Unified Billing, whatever the
+  token carries, which is why `decide` no longer uses it.)
 - **The state leaves the machine** on cf-ai-gateway. Payload logging is off
   by default; it is still a hosted model.
 - **Local backend.** `DECIDE_BACKEND=systemone` with `DECIDE_URL` posts the
