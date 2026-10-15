@@ -228,6 +228,17 @@ second PR, a stacked PR or a "docs-only companion". This overrides any
 skill that says to open a separate or stacked PR (the github-workflow
 skill's Stacked PRs, the retrospective skill's separate docs-only PR).
 
+## A stop hook's "unpushed commits" is not an instruction to push
+
+Cloud sessions run a stop hook that demands a push whenever the checked-out
+branch is ahead of its remote. After a PR merges, that branch is usually
+deleted on GitHub and the local branch has only been moved to `main`; the
+"unpushed" commits are just `main`. Pushing then recreates a deleted branch
+full of nothing (it happened in quillmap and tds-internal, 2026-10-12).
+Before obeying the hook, check `git log origin/main..HEAD`: if it is empty,
+push nothing. After a merge, check out a detached `origin/main` instead of
+resetting the session branch onto it, so the hook has nothing to see.
+
 ## Never use Artifacts: HTML is a file in the repo
 
 Never call the Artifact tool, for any action (publish, read, list, open,
