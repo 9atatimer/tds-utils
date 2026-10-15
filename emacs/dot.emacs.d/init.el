@@ -33,8 +33,9 @@
 ;; compiles `static-when' as a function call and then fails to load with
 ;; (invalid-function static-when), even once elpa's compat 31 is installed.
 ;; Repair by recompiling in a fresh process, where package-initialize puts
-;; elpa's compat first: emacs -Q --batch, then (package-initialize)
-;; (package-recompile-all).  Issue #505.
+;; elpa's compat first:
+;;   emacs -Q --batch --eval '(progn (package-initialize) (package-recompile-all))'
+;; Issue #505.
 (when (>= emacs-major-version 24)
   (require 'package)
   (setq package-archives '(("melpa-stable" . "https://stable.melpa.org/packages/")
