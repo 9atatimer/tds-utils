@@ -244,6 +244,17 @@ say in one line what it does, whether it is interactive, and what it
 changes. A command whose effect the human cannot see will be refused or
 abandoned half-run.
 
+A multi-command paste is one `&&` chain, never separate lines. Separate
+lines keep executing after a failed `cd` or checkout, so the rest runs in
+whatever repo the shell happens to be in: on 2026-10-14 a `cd` to a
+guessed path failed and the next line pushed a `designomatic-v0.4.0` tag
+to `9atatimer/iae`. Better still, no `cd` at all: `git -C <absolute path>`
+and the other scoping flags below. And never guess a laptop path.
+Nine-At-A-Time-Media checkouts are `~/workplace/naatm/<repo>`, personal
+ones `~/workplace/<repo>`; a path that is not in front of you is derived
+(`git rev-parse --path-format=absolute --show-toplevel`) or asked for in
+one line before the command is given.
+
 ## Never pull down and run a shell script
 
 NEVER `curl ... | sh`, and never fetch-then-run an installer script, including
