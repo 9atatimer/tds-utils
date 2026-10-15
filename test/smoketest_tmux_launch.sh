@@ -11,8 +11,8 @@
 # no window.  Also the dot.zshrc wiring: a terminal's shell outside tmux hands
 # off to tmux-launch, and a shell with no terminal or a -c command does not
 # (issue #427 -- GUI environment probes left stray windows), nor does a
-# Claude desktop Terminal-panel tab (issue #498).  Requires script(1) for the
-# pty cases.
+# shell the Claude desktop app opens -- a Terminal-panel tab or its bash mode
+# (issue #498).  Requires script(1) for the pty cases.
 #
 # Usage: ./test/smoketest_tmux_launch.sh
 
@@ -201,6 +201,22 @@ test_zshrc_claude_desktop_terminal_stays_out_of_tmux() {
     assert_eq "tmux-launch did not run" not-launched "$(launched)"
 }
 
+# Issue #498, second shape. The Claude desktop app's bash mode and Run button
+# open a shell that sets no TERM_PROGRAM at all, only the agent SDK's
+# CLAUDE_AGENT_SDK_VERSION. Handed to tmux, what the human typed there went
+# into whatever pane session main was showing -- another agent's prompt.
+test_zshrc_claude_desktop_run_shell_stays_out_of_tmux() {
+    bold "\nTest: a Claude desktop bash-mode shell stays out of tmux\n"
+
+    local dirs
+    dirs=(${(z)"$(stage_zshrc)"})
+    in_pty env -i HOME="${SCRATCH}" ZDOTDIR="${dirs[1]}" TERM=dumb \
+        CLAUDE_AGENT_SDK_VERSION=0.3.295 \
+        PATH="${dirs[2]}:/usr/bin:/bin" /bin/zsh -i </dev/null >/dev/null 2>&1 || true
+
+    assert_eq "tmux-launch did not run" not-launched "$(launched)"
+}
+
 # The accept side of the terminal guard: on a terminal, tmux-launch still
 # opens a window and attaches. A client-attached hook records the attach and
 # detaches at once, so the attach returns instead of holding the test.
@@ -248,6 +264,7 @@ main() {
     test_zshrc_env_probe_without_terminal_stays_out_of_tmux
     test_zshrc_command_shell_on_terminal_stays_out_of_tmux
     test_zshrc_claude_desktop_terminal_stays_out_of_tmux
+    test_zshrc_claude_desktop_run_shell_stays_out_of_tmux
 
     print ""
     bold "=== Results: ${TESTS_PASSED}/${TESTS_RUN} passed"
