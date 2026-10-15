@@ -275,6 +275,14 @@ and conclude the config is broken when you never loaded it.
 See `test/smoketest_shell_env.sh` for the worked version, and issue #176 for
 what it cost to find this out.
 
+To PROBE tmux, `-L <socket>` is not isolation: it separates the socket and
+nothing else. A new server still loads `~/.tmux.conf`, whose hooks run
+log-hoarder against the real `TDS_LOG_DIR`, and every server's first session
+is `$0` -- so a throwaway server claims `active/$0` and sets the live
+session's log tree aside (issue #503). Start probe servers with
+`tmux -L <socket> -f /dev/null`, and give anything that starts one itself
+(`tmux-launch`) a `HOME` with no `.tmux.conf` in it.
+
 Note that `CLAUDE.md` is itself a symlink to `AGENT.md` -- edit `AGENT.md`.
 
 ## Putting a Machine on the Provisioning Rail
