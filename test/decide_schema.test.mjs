@@ -20,11 +20,11 @@ const rejects = (r, pattern) => {
 };
 
 test('a valid record yields exactly the request the model is sent, without the id', () => {
-  const verdict = validateRecord(record({ id: 'row-7', images: ['iVBORw0KGgo='], extra: 'ignored' }));
+  const verdict = validateRecord(record({ id: 'row-7', images: ['data:image/png;base64,iVBORw0KGgo='], extra: 'ignored' }));
   assert.deepEqual(verdict, {
     ok: true,
     id: 'row-7',
-    request: { state: 'a message', questions: { spam: noul }, images: ['iVBORw0KGgo='] },
+    request: { state: 'a message', questions: { spam: noul }, images: ['data:image/png;base64,iVBORw0KGgo='] },
   });
 });
 
@@ -97,10 +97,15 @@ test('score: 2 and 10 levels pass; 1 and 11 fail; criteria must be an array of s
   rejects(score(['low', 2]), /must all be strings/);
 });
 
-test('images: 4 pass, 5 fail; each must be a non-empty base64 string, not a URL', () => {
-  accepts(record({ images: ['a', 'b', 'c', 'd'] }));
-  rejects(record({ images: ['a', 'b', 'c', 'd', 'e'] }), /5 images/);
+test('images: Clef takes a data: URL or {content_type, base64}; 4 pass, 5 fail', () => {
+  const png = 'data:image/png;base64,iVBORw0KGgo=';
+  const obj = { content_type: 'image/webp', base64: 'UklGRg==' };
+  accepts(record({ images: [png, obj, png, obj] }));
+  accepts(record({ images: ['DATA:image/jpeg;base64,/9j/'] }));
+  rejects(record({ images: [png, png, png, png, png] }), /5 images/);
   rejects(record({ images: 'abc' }), /must be an array/);
-  rejects(record({ images: [''] }), /non-empty base64/);
-  rejects(record({ images: ['https://example.com/a.png'] }), /not URLs/);
+  rejects(record({ images: ['iVBORw0KGgo='] }), /data: URL/);
+  rejects(record({ images: ['https://example.com/a.png'] }), /data: URL/);
+  rejects(record({ images: [{ content_type: 'image/png' }] }), /content_type and base64/);
+  rejects(record({ images: [{ content_type: 'image/gif', base64: 'R0lG' }] }), /image\/png, image\/jpeg or image\/webp/);
 });

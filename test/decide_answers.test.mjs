@@ -125,7 +125,7 @@ test('a probability outside [0, 1] or an all-zero distribution is malformed', ()
 
 test('with no probabilities but a vendor score: probabilities null, expected = the score, uncalibrated', () => {
   const answer = ok(normalizeScore(score5, { score: 1.6, confidence: 0.4 }));
-  assert.deepEqual(answer, { type: 'score', levels: 5, vendor_confidence: 0.4, probabilities: null, expected: 1.6, unit: 0.4, top: 2, calibrated: false });
+  assert.deepEqual(answer, { type: 'score', levels: 5, vendor_confidence: 0.4, probabilities: null, expected: 1.6, unit: 0.4, top: null, calibrated: false });
   assert.equal(ok(normalizeScore(score5, 3)).expected, 3);
   isMalformed(normalizeScore(score5, { score: 7 }), /neither probabilities nor a score in range/);
   isMalformed(normalizeScore(score5, {}), /neither/);
@@ -245,4 +245,12 @@ test('a question with no answer makes the whole decision malformed', () => {
 
 test('one unreadable answer makes the whole decision malformed, naming the question', () => {
   isMalformed(normalizeAnswers({ a: score3 }, { a: { probabilities: { nope: 1 } } }), /question "a":/);
+});
+
+test('a question id of __proto__ is kept as an own answer, not swallowed by the prototype', () => {
+  const questions = JSON.parse('{"__proto__": {"type": "noul", "instructions": "Is it?"}}');
+  const verdict = normalizeAnswers(questions, JSON.parse('{"__proto__": 0.75}'));
+  assert.equal(verdict.ok, true);
+  assert.deepEqual(Object.keys(verdict.answers), ['__proto__']);
+  assert.equal(JSON.parse(JSON.stringify(verdict.answers)).__proto__.p_true, 0.75);
 });

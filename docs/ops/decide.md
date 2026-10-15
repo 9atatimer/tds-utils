@@ -98,7 +98,8 @@ Connectivity and latency: `bin/decide probe` -> `{"ok": true, "model":
   JSON); 1-64 questions; ids `^[A-Za-z0-9_.-]{1,100}$`; `instructions` a
   non-empty string; `choice` criteria an object of 2-255
   `{option: description}`; `score` criteria an array of 2-10 level
-  descriptions, lowest first; `noul` takes no criteria; at most 4 `images`.
+  descriptions, lowest first; `noul` takes no criteria; at most 4 `images`,
+  each a `data:` URL or a `{content_type, base64}` object.
   Anything else -> `rejected` (exit 3), no request sent.
 - `--jsonl`: one output line per non-blank input line. A bad line or a
   failed request is a failure line, not the end of the batch. Exit 0 when
@@ -123,7 +124,9 @@ Connectivity and latency: `bin/decide probe` -> `{"ok": true, "model":
 
 - `score`: `probabilities` lowest -> highest, one per level asked;
   `expected` = sum(i * p_i), computed here; `unit` = expected/(levels-1);
-  `top` = the most likely level. If the vendor's own `score` differs from
+  `top` = the most likely level, or null when the backend sent only a
+  score and no probabilities (rounding an expectation does not find the
+  mode). If the vendor's own `score` differs from
   `expected` by more than 0.01 it rides along as `vendor_expected`.
 - `choice`: `top` is the argmax here; a disagreeing vendor `choice` rides
   along as `vendor_choice`.
@@ -168,8 +171,10 @@ caps each consumer separately: give every caller its own `--tool`.
 - **Vague instructions give near-0.5 answers.** A probability near the
   middle often means the question is ambiguous, not that the state is.
   Sharpen `instructions` and `criteria` before reading it as uncertainty.
-- **Images are base64 only** (PNG, JPEG, WebP), at most 4. A URL is
-  refused locally.
+- **Images take one of two shapes**, as Cloudflare's Clef schema has
+  them: a `data:image/<png|jpeg|webp>;base64,...` URL, or
+  `{"content_type": "image/png", "base64": "..."}`. At most 4. Raw base64
+  and remote URLs are refused locally.
 - **Answer shapes are thinly documented.** The Workers AI docs show no
   sample response. `decide` reads choice and score as the Hugging Face card
   describes them, score probabilities keyed by level index, by legend label
