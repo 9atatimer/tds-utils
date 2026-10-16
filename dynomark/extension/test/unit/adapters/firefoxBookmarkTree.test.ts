@@ -84,6 +84,14 @@ describe('listenFirefoxBookmarkEvents', () => {
     expect(seen[0]).not.toHaveProperty('node.url');
   });
 
+  it('Given Firefox reports a reorder as moves, When onMoved fires with the same parent, Then the listener gets a reorder of that folder, not a move (no feedback; Codex on 9atatimer/tds-utils PR#535)', () => {
+    const api = eventsApi();
+    const seen: BookmarkEvent[] = [];
+    listenFirefoxBookmarkEvents((e) => seen.push(e), api);
+    api.onMoved.fire('g00000000005', { parentId: TOOLBAR, oldParentId: TOOLBAR, index: 0, oldIndex: 2 });
+    expect(seen).toEqual([{ kind: 'reordered', folder_id: TOOLBAR }]);
+  });
+
   it('Given Firefox has no onChildrenReordered, When listening and each event fires, Then nothing throws and moves, changes and removals arrive', () => {
     const api = eventsApi();
     const seen: BookmarkEvent[] = [];

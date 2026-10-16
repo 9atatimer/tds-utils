@@ -122,3 +122,18 @@ def test_an_older_move_recorded_late_leaves_the_placement_at_the_newer() -> None
     assert len(store.recent_feedback(limit=10)) == 2
     placement = store.get_placement(Identity(URL))
     assert placement is not None and placement.folder == web
+
+
+def test_a_reorder_within_one_folder_records_nothing() -> None:
+    """Given a user move whose from and to are the same owned folder (a
+    reorder: Chrome and Firefox both report one as a move), When recorded,
+    Then it is not feedback and the placement and its reason stay (a move is
+    feedback only between two owned folders; Codex on 9atatimer/tds-utils
+    PR#535)."""
+    store = InMemoryCorpusStore()
+    before = make_placement(URL, folder=RUST)
+    store.put_placement(before)
+
+    assert _record(store, _move(to=RUST)) is None
+    assert store.recent_feedback(limit=10) == []
+    assert store.get_placement(Identity(URL)) == before
