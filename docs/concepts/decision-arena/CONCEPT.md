@@ -64,4 +64,21 @@ still in review.
 - Whether the arena shares the gateway's hostname or has its own.
 - Whether the arena runs inside the same sandbox as the external ollama.
 - Whether the model runs well enough on Apple silicon; it was tested on CUDA.
+  A spike on 2026-10-15 answers the "runs" half (below); "well enough"
+  waits on the ocrinator measurement.
+
+**Spike, 2026-10-15 (evidence, not design).** Todd lifted "no model
+downloads" for one test. Clef-flash (Hugging Face `Cloudflare/clef-flash`,
+revision `8b2e5fd`, 19 GB) ran on the reference laptop's GPU (M1 Max,
+MPS) in bf16: torch 2.11 and transformers 5.10.2, which also needs
+torchvision for the processor. It loaded in 16 s and scored about 3 to
+9 s per record (five rubric questions over a 150-500 word passage),
+against about 40 ms per decision hosted. It ran behind a loopback
+SystemOne server that called the release's own `systemone()`, and tds-utils
+`bin/decide` drove it with `DECIDE_BACKEND=systemone`. On 205 labelled
+passages (9atatimer/iae experiments/qualities-clef) local Clef-flash
+scored mean Spearman 0.857, close to hosted Clef (27B) at 0.865. Hosted
+Clef-flash has not run on the same passages, so whether one model scores
+the same locally and hosted is unmeasured. Clef (27B) was not tried
+locally.
 - Whether hosted Jev is kept as a baseline to measure against.
