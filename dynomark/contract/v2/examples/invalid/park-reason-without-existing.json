@@ -1,0 +1,19 @@
+{
+  "v": 2,
+  "type": "batch.offer",
+  "event_id": "evt-0203",
+  "batch": {
+    "batch_id": "batch-0107",
+    "operations": [
+      {
+        "op": "remove",
+        "index": 0,
+        "node_id": "46",
+        "expect": {
+          "parent_id": "10"
+        }
+      }
+    ],
+    "park": {}
+  }
+}

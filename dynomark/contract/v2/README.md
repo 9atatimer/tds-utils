@@ -346,7 +346,10 @@ identity it holds, never by normalizing history URLs.
 
 - **Duplicate identity.** An identity counts as already filed only when
   it has a `FILED` entry whose node is present in the latest
-  `tree.snapshot`.
+  `tree.snapshot` outside `Graveyard`. The batch that parks the new node
+  carries `park.existing`, the folder that filed copy is in now (the
+  existing placement), on `batch.offer` and in `batch.list`
+  (`batch.offer--park-duplicate.json`).
 
 ## Background-tab capture
 
@@ -440,6 +443,13 @@ item crosses the boundary exactly as the item did
 (`batch.offer--partial-inverse-audit.json`). A `PARTIAL` or skipped
 filing with no `changed` op produces no inverse batch (a batch has at
 least one op).
+
+**Undo report.** `undo.result` `dropped` lists every step of the
+inverse the daemon left out, by the original op's index, with its
+`UndoDropReason`: `node_moved`, `node_missing`, `not_empty` (the undo
+guard), `locked` (a folder locked since: no batch moves a locked
+folder) and `owned_root` (an owned root the batch created: an undo keeps
+`Dynomark` and `Graveyard`).
 
 **Undo guard.** The daemon runs the undo guard only against a
 `tree.snapshot` received after that batch's receipt was recorded;

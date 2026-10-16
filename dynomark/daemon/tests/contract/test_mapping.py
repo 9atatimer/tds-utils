@@ -192,10 +192,12 @@ def test_map_event_to_wire_yields_its_event_message(event: Event) -> None:
     assert _round_trips(message)
 
 
-def test_map_every_undo_drop_reason_to_a_contract_v1_code() -> None:
+def test_map_every_undo_drop_reason_to_its_own_contract_code() -> None:
     """Given each reason the undo guard can drop a step for, When it is put on
-    the wire, Then contract v2 accepts the code (a reason v1 lacks maps to
-    the closest v1 code until contract v2 carries it)."""
+    the wire, Then contract v2 carries that very reason -- locked and
+    owned_root included, no longer folded into node_moved and not_empty
+    (issue #423)."""
     for reason in UndoDropReason:
         drop = mapping.undo_drop_to_wire(UndoDrop(index=0, reason=reason))
+        assert drop.reason == reason.value
         assert w.UndoDrop.model_validate(drop.model_dump()) == drop

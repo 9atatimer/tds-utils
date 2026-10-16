@@ -28,6 +28,16 @@
           "parent_id": "10"
         }
       }
-    ]
+    ],
+    "park": {
+      "existing": {
+        "root": "bar",
+        "names": [
+          "Dynomark",
+          "Rust",
+          "Async"
+        ]
+      }
+    }
   }
 }

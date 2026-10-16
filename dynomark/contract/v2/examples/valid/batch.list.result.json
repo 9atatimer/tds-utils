@@ -4,6 +4,23 @@
   "re": "req-0042",
   "batches": [
     {
+      "batch_id": "batch-0105",
+      "state": "APPLIED",
+      "created_at": 1790000130000,
+      "job_id": "job-8c1d",
+      "identity": "https://tokio.rs/tokio/tutorial",
+      "park": {
+        "existing": {
+          "root": "bar",
+          "names": [
+            "Dynomark",
+            "Rust",
+            "Async"
+          ]
+        }
+      }
+    },
+    {
       "batch_id": "batch-0104",
       "state": "PARTIAL",
       "created_at": 1790000125000,

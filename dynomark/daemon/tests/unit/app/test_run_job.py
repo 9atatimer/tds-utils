@@ -13,6 +13,7 @@ from dynomark_daemon.domain.batch import (
     Expect,
     OpCreateFolder,
     OpRemove,
+    ParkReason,
 )
 from dynomark_daemon.domain.events import BatchOffered, JobUpdated
 from dynomark_daemon.domain.ids import NodeId
@@ -25,6 +26,7 @@ from dynomark_daemon.testing.completion import (
     EnrichCall,
     ScriptedCompletion,
 )
+from dynomark_daemon.wire.mapping import batch_summary_to_wire
 from tests._factories import (
     make_job,
     make_node,
@@ -151,6 +153,27 @@ def test_run_job_parks_a_duplicate_identity_in_the_graveyard() -> None:
     )
     assert loop.store.get_placement(job.identity) == existing
     assert [type(c) for c in loop.completion.calls] == [EnrichCall]
+
+
+def test_a_parking_batch_names_the_existing_placement() -> None:
+    """Given an identity already FILED in Dynomark/Rust, When a new save of it is
+    parked, Then the parking batch carries the reason naming that existing
+    placement, and the history's batch summary shows it (issue #423)."""
+    tree = make_tree(*TREE.nodes[3:], make_node("41", "14", "Tokio", url=URL))
+    loop = Loop(ScriptedCompletion(enrich=[ENRICHMENT]), tree)
+    _with_filed_original(loop, node_id="41")
+
+    job = loop.run(loop.save())
+
+    assert job.batch_id is not None
+    record = loop.store.get_batch(job.batch_id)
+    assert record is not None
+    assert record.batch.park == ParkReason(existing=RUST)
+    summary = batch_summary_to_wire(record)
+    assert summary.park is not None and summary.park.existing.names == [
+        "Dynomark",
+        "Rust",
+    ]
 
 
 def test_run_job_files_again_an_identity_whose_filed_node_is_gone() -> None:

@@ -362,11 +362,13 @@
       ]
     },
     "UndoDropReason": {
-      "description": "Why the undo guard dropped an inverse operation. node_moved: the node is no longer where the batch left it. node_missing: the node no longer exists. not_empty: a folder the batch created now holds items.",
+      "description": "Why the undo guard dropped an inverse operation. node_moved: the node is no longer where the batch left it. node_missing: the node no longer exists. not_empty: a folder the batch created now holds items. locked: the step would move a folder the user has locked since (a locked folder is never moved by any batch). owned_root: the step would remove an owned root (Dynomark or Graveyard) the batch created; an undo keeps it.",
       "enum": [
         "node_moved",
         "node_missing",
-        "not_empty"
+        "not_empty",
+        "locked",
+        "owned_root"
       ]
     },
     "VetRefusal": {
@@ -412,6 +414,19 @@
         "follow_up",
         "dynomark",
         "graveyard"
+      ],
+      "additionalProperties": false
+    },
+    "ParkReason": {
+      "type": "object",
+      "description": "Why a batch parks its node in Graveyard instead of filing it: its identity is already filed, and existing is the folder that filed copy is in now (the existing placement).",
+      "properties": {
+        "existing": {
+          "$ref": "#/$defs/FolderPath"
+        }
+      },
+      "required": [
+        "existing"
       ],
       "additionalProperties": false
     },
@@ -807,7 +822,7 @@
     },
     "WriteBatch": {
       "type": "object",
-      "description": "Ordered operations the extension applies. operations[i].index == i. diff_item_id present = the batch realizes, or reverts, an accepted DiffItem and may cross the owned-roots boundary; every inverse batch (undo and PARTIAL prefix) carries the original's diff_item_id. The inverse stays on the daemon.",
+      "description": "Ordered operations the extension applies. operations[i].index == i. diff_item_id present = the batch realizes, or reverts, an accepted DiffItem and may cross the owned-roots boundary; every inverse batch (undo and PARTIAL prefix) carries the original's diff_item_id. The inverse stays on the daemon. park present = a parking batch (a duplicate identity moved to Graveyard), naming the existing placement.",
       "properties": {
         "batch_id": {
           "$ref": "#/$defs/Id"
@@ -822,6 +837,9 @@
         },
         "diff_item_id": {
           "$ref": "#/$defs/Id"
+        },
+        "park": {
+          "$ref": "#/$defs/ParkReason"
         }
       },
       "required": [
@@ -1320,7 +1338,7 @@
     },
     "BatchSummary": {
       "type": "object",
-      "description": "One write batch as batch.list shows it. job_id and identity: the job it files (filing and parking batches). diff_item_id: the DiffItem it realizes or reverts. undoes: the batch this one is the inverse of. undone_by: the recorded inverse of this batch.",
+      "description": "One write batch as batch.list shows it. job_id and identity: the job it files (filing and parking batches). diff_item_id: the DiffItem it realizes or reverts. undoes: the batch this one is the inverse of. undone_by: the recorded inverse of this batch. park: the existing placement a parking batch names (the history page shows it).",
       "properties": {
         "batch_id": {
           "$ref": "#/$defs/Id"
@@ -1345,6 +1363,9 @@
         },
         "undone_by": {
           "$ref": "#/$defs/Id"
+        },
+        "park": {
+          "$ref": "#/$defs/ParkReason"
         }
       },
       "required": [

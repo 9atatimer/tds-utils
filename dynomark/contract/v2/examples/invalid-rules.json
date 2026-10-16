@@ -169,6 +169,11 @@
     "path": "/batch/operations/1",
     "rule": "no hard delete: op is one of four"
   },
+  "park-reason-without-existing.json": {
+    "keyword": "required",
+    "path": "/batch/park/existing",
+    "rule": "a park reason names the existing placement"
+  },
   "placement-explain-both-keys.json": {
     "keyword": "oneOf",
     "path": "",
@@ -283,6 +288,11 @@
     "keyword": "enum",
     "path": "/writer_binding",
     "rule": "WriterBinding is a closed set"
+  },
+  "undo-drop-reason-unknown.json": {
+    "keyword": "enum",
+    "path": "/dropped/0/reason",
+    "rule": "UndoDropReason is a closed set"
   },
   "undo-result-missing-undoes.json": {
     "keyword": "required",
