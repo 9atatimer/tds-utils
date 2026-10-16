@@ -140,6 +140,31 @@ def test_list_entries_keeps_a_replaced_entry_at_its_position(
     assert store.list_entries(limit=1)[0].entry.summary == "re-enriched"
 
 
+def test_an_entry_put_again_after_it_was_dropped_takes_a_new_last_position(
+    store: CorpusStorePort,
+) -> None:
+    """Given entries a and b, a page read past both, and a dropped, When a is put
+    again, Then it takes a position after every one used before: the next
+    page past the cursor holds it, as for any new entry (index.pull keyset
+    cursors stay valid; issue #534 T13, both stores alike)."""
+    store.put_entry(make_entry("https://a.example/"))
+    store.put_entry(make_entry("https://b.example/"))
+    first = store.list_entries(limit=2)
+    store.drop_entry(Identity("https://a.example/"))
+
+    store.put_entry(make_entry("https://a.example/", summary="saved again"))
+    rest = store.list_entries(after=first[-1].position, limit=2)
+
+    assert [(s.entry.identity.value, s.entry.summary) for s in rest] == [
+        ("https://a.example/", "saved again")
+    ]
+    assert rest[0].position > first[-1].position
+    assert store.entry_identities() == [
+        Identity("https://b.example/"),
+        Identity("https://a.example/"),
+    ]
+
+
 # --- Placements ---
 
 
