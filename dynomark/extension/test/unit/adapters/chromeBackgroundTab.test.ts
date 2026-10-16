@@ -167,6 +167,12 @@ describe('ChromeBackgroundTab -- a guarded load never reaches a private host (is
     'http://[fe80::1]/',
     'http://[fec0::1]/',
     'http://[ff02::1]/',
+    'http://[2002:7f00:1::]/',
+    'http://[2001::1]/',
+    'http://[2001:db8::1]/',
+    'http://[100::1]/',
+    'http://[2606:4700::1111]/',
+    'http://[2001:4860:4860::8888]/',
     'http://localhost/',
     'http://localhost.:8080/',
     'http://intranet/wiki',
@@ -197,8 +203,6 @@ describe('ChromeBackgroundTab -- a guarded load never reaches a private host (is
     'https://localhost.example.com/',
     'https://local.example/',
     'https://news.example:8443/story',
-    'http://[2606:4700::1111]/',
-    'http://[2001:4860:4860::8888]/',
   ])(
     'Given private hosts blocked, When the load is redirected to the public %s, Then it is read and the result names where it ended',
     async (target) => {
