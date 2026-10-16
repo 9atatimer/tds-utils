@@ -58,6 +58,25 @@ describe('Background-tab capture on the writer', () => {
     expect(w.backgroundTabs.opened).toEqual([]);
   });
 
+  it('Given a writer whose daemon refuses private addresses, When a save no tab shows is redirected to one as its background tab loads, Then the tab was guarded, ingest carries source none and the private page text is never sent (issue #534)', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const PRIVATE = 'http://10.0.0.5/admin';
+    const SECRET = { title: 'Router admin', text: 'WAN password: hunter2' };
+    const privateLiteral = /^https?:\/\/(127\.|10\.|192\.168\.)/;
+    const policy = (r: RequestMessage): ResponseMessage | undefined =>
+      r.type === 'url.vet' && privateLiteral.test(r.url)
+        ? { v: 2, type: 'url.vet.result', re: r.id, allowed: false, refusal: 'address' }
+        : undefined;
+    scriptDaemon(w, { role: 'writer' }, policy);
+    const ids = await seedOwnedTree(w.tree);
+    w.backgroundTabs.redirect(URL, PRIVATE);
+    w.backgroundTabs.serve(PRIVATE, SECRET);
+    const ingest = await save(w, await startRuntime(w), ids.followUp);
+    expect(ingest?.capture).toEqual({ source: 'none', text: '' });
+    expect(JSON.stringify(w.connection().sent)).not.toContain('hunter2');
+    expect(w.backgroundTabs.loads).toEqual([{ url: URL, blockPrivateHosts: true }]);
+  });
+
   it('Given a writer whose daemon answers url.vet with an error, When a save no tab shows arrives, Then ingest carries source none and no background tab is opened (issue #410)', async () => {
     const w = new FakeExtensionWorld({ flavor: 'chrome' });
     const fail = (r: RequestMessage): ResponseMessage | undefined =>

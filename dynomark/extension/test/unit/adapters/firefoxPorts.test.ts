@@ -71,12 +71,38 @@ describe('firefoxPorts', () => {
     const fx = fakeFirefox();
     const { background } = firefoxPorts(fx.api);
     fx.windows.serve('https://news.example/story', { title: 'Story', text: 'Signed-in text.' });
-    expect(await background.readTab('https://news.example/story')).toEqual({ title: 'Story', text: 'Signed-in text.' });
+    expect(await background.readTab('https://news.example/story', { blockPrivateHosts: false })).toMatchObject({
+      title: 'Story',
+      text: 'Signed-in text.',
+    });
     expect(fx.windows.log).toEqual([
       'open https://news.example/story focused=false state=minimized',
       'inject https://news.example/story',
       'close https://news.example/story',
     ]);
+  });
+
+  it('Given private hosts blocked, When the background-tab port loads a public URL that 302s to 192.168.1.1, Then browser.declarativeNetRequest blocks the hop, nothing is read and the rules go with the window (issue #534)', async () => {
+    const fx = fakeFirefox();
+    const { background } = firefoxPorts(fx.api);
+    fx.windows.redirect('https://news.example/story', 'http://192.168.1.1/admin');
+    fx.windows.serve('http://192.168.1.1/admin', { title: 'Router admin', text: 'WAN password: hunter2' });
+    expect(await background.readTab('https://news.example/story', { blockPrivateHosts: true })).toBeUndefined();
+    expect(fx.windows.log).toContain('blocked http://192.168.1.1/admin');
+    expect(fx.windows.log.filter((l) => l.startsWith('inject http://192.168'))).toEqual([]);
+    expect(fx.windows.sessionRules()).toEqual([]);
+    expect(fx.windows.openWindows()).toBe(0);
+  });
+
+  it('Given private hosts blocked, When a public page loads on Firefox, Then it is read and the result names the URL it was read at', async () => {
+    const fx = fakeFirefox();
+    const { background } = firefoxPorts(fx.api);
+    fx.windows.serve('https://news.example/story', { title: 'Story', text: 'Signed-in text.' });
+    expect(await background.readTab('https://news.example/story', { blockPrivateHosts: true })).toEqual({
+      title: 'Story',
+      text: 'Signed-in text.',
+      url: 'https://news.example/story',
+    });
   });
 
   it('Given an omnibox choice, When the navigator opens it, Then the tab is navigated or opened as the disposition says', async () => {

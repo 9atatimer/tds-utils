@@ -7,11 +7,14 @@
 // the diff view"; State Machine: FAILED -> QUEUED from chat); a diff proposed, read and accepted one item at a
 // time, its batch applied and its state shown, and a folder pinned; the
 // writer-conflict banner, with a batch refused while the conflict stands;
-// background-tab capture of a save no tab shows (a real page on 127.0.0.1);
+// background-tab capture of a save no tab shows (a real page on 127.0.0.1),
+// and a public URL that redirects to 127.0.0.1 never loading the private page
+// when the daemon refuses private addresses (issue #534);
 // and the settings page's backfill.
 
 import type { Page } from '@playwright/test';
 import type { RequestMessage } from '../src/wire/messages.js';
+import { launchExtension } from '../test/support/browser.js';
 import { serveLocal } from '../test/support/localServer.js';
 import { expect, followUpId, ofType, test } from './fixtures.js';
 
@@ -256,6 +259,45 @@ test('Given a writer and a save no tab shows, When it lands in Follow Up, Then t
     expect(server.requested).toContain('/story');
     await expect.poll(() => page.evaluate(async () => (await chrome.windows.getAll()).length)).toBe(windowsBefore);
   } finally {
+    await server.close();
+  }
+});
+
+test('Given a daemon that refuses private addresses, When a save no tab shows is a public URL that 302s to 127.0.0.1, Then the background tab never requests the private page and ingest carries source none (issue #534)', async () => {
+  const server = await serveLocal({
+    '/story': { redirect: '{origin}/secret' },
+    '/secret': `<!doctype html><title>Router admin</title><body><article><p>WAN password: hunter2</p></article></body>`,
+  });
+  // news.example is the local server under a public-looking name: the daemon vets it, the browser resolves it here.
+  const ext = await launchExtension({ args: ['--host-resolver-rules=MAP news.example 127.0.0.1'] });
+  try {
+    await ext.context.route(
+      (url) => /^(https?|wss?):$/.test(url.protocol) && url.hostname !== '127.0.0.1' && url.hostname !== 'news.example',
+      (route) => route.abort('internetdisconnected'),
+    );
+    ext.daemon.extra = (r) =>
+      r.type === 'url.vet'
+        ? {
+            v: 2,
+            type: 'url.vet.result',
+            re: r.id,
+            ...(new URL(r.url).hostname === 'news.example' ? { allowed: true } : { allowed: false, refusal: 'address' }),
+          }
+        : undefined;
+    await ext.daemon.waitFor(ofType('writer.status'));
+    const folder = await followUpId(ext);
+    const page = await ext.extensionPage('history.html');
+    const url = `http://news.example:${new URL(server.origin).port}/story`;
+    const id = await page.evaluate(async ({ parentId, u }) => (await chrome.bookmarks.create({ parentId, title: 'Story', url: u })).id, {
+      parentId: folder,
+      u: url,
+    });
+    const ingest = (await ext.daemon.waitFor((r) => r.type === 'ingest' && r.bookmark.node_id === id, { timeoutMs: 40_000 })) as Ingest;
+    expect(ingest.capture).toEqual({ source: 'none', text: '' });
+    expect(server.requested).toContain('/story');
+    expect(server.requested).not.toContain('/secret');
+  } finally {
+    await ext.close();
     await server.close();
   }
 });
