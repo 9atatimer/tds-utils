@@ -11,7 +11,7 @@ event) map outbound only, because the domain holds more than the wire
 Wire models are strict: lists, not tuples; plain strings for enums.
 """
 
-from typing import Final, Literal, cast
+from typing import Literal, cast
 
 from dynomark_daemon.domain.batch import (
     BatchReceipt,
@@ -27,6 +27,7 @@ from dynomark_daemon.domain.batch import (
     OpMove,
     OpRemove,
     OpSkipped,
+    ParkReason,
     ReceiptApplied,
     ReceiptPartial,
     ReceiptRejected,
@@ -311,12 +312,19 @@ def operation_to_wire(
             )
 
 
+def _park_to_wire(park: ParkReason | None) -> w.ParkReason | None:
+    if park is None:
+        return None
+    return w.ParkReason(existing=folder_path_to_wire(park.existing))
+
+
 def write_batch_to_wire(batch: WriteBatch) -> w.WriteBatch:
     """The batch as offered: its operations; the inverse stays in the store."""
     return w.WriteBatch(
         batch_id=batch.batch_id,
         operations=[operation_to_wire(op) for op in batch.operations],
         diff_item_id=batch.diff_item_id,
+        park=_park_to_wire(batch.park),
     )
 
 
@@ -430,23 +438,10 @@ def undo_drop_from_wire(drop: w.UndoDrop) -> UndoDrop:
     return UndoDrop(index=drop.index, reason=UndoDropReason(drop.reason))
 
 
-_WIRE_DROP_REASON: Final[dict[UndoDropReason, w.UndoDropReason]] = {
-    UndoDropReason.NODE_MOVED: "node_moved",
-    UndoDropReason.NODE_MISSING: "node_missing",
-    UndoDropReason.NOT_EMPTY: "not_empty",
-    UndoDropReason.LOCKED: "node_moved",
-    UndoDropReason.OWNED_ROOT: "not_empty",
-}
-
-
 def undo_drop_to_wire(drop: UndoDrop) -> w.UndoDrop:
-    """Contract v2's UndoDropReason has no ``locked`` and no ``owned_root``,
-    until a contract version carries them: a step dropped because the user
-    locked its folder since is reported ``node_moved`` (the user changed the
-    node after the batch left it); the kept removal of an owned root the
-    batch created is reported ``not_empty`` (the folder removal is skipped
-    and the root stays to hold every filing)."""
-    return w.UndoDrop(index=drop.index, reason=_WIRE_DROP_REASON[drop.reason])
+    """Every reason the undo guard drops a step for is its own contract v2
+    code (issue #423)."""
+    return w.UndoDrop(index=drop.index, reason=drop.reason.value)
 
 
 def batch_summary_to_wire(record: BatchRecord) -> w.BatchSummary:
@@ -459,6 +454,7 @@ def batch_summary_to_wire(record: BatchRecord) -> w.BatchSummary:
         diff_item_id=record.batch.diff_item_id,
         undoes=record.undoes,
         undone_by=record.undone_by,
+        park=_park_to_wire(record.batch.park),
     )
 
 

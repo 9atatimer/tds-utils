@@ -51,10 +51,17 @@ export interface OpRemove {
 export type Operation = OpCreateFolder | OpCreate | OpMove | OpRemove;
 
 /** Ordered operations offered by the daemon; an optional accepted `DiffItem` reference exempts it from the boundary. */
+/** Why a batch parks its node in Graveyard: its identity is already filed, in `existing` (contract v2, Duplicate identity). */
+export interface ParkReason {
+  readonly existing: FolderPath;
+}
+
 export interface WriteBatch {
   readonly batch_id: BatchId;
   readonly operations: readonly Operation[];
   readonly diff_item_id?: Id;
+  /** Present on a parking batch: the existing placement. */
+  readonly park?: ParkReason;
 }
 
 // --- Receipts ---

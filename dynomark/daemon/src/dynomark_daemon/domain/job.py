@@ -177,6 +177,27 @@ def _is_filed_outside(node_id: NodeId, tree: Snapshot, graveyard: FolderPath) ->
     return parent is None or not parent.is_inside(graveyard)
 
 
+def existing_placement(
+    job: Job, filed: Iterable[Job], tree: Snapshot | None, *, graveyard: FolderPath
+) -> FolderPath | None:
+    """The folder ``job``'s identity is already filed in: where the first other
+    FILED copy that makes it a duplicate (``is_duplicate``) sits in the tree
+    now; ``None`` when it is no duplicate."""
+    if tree is None:
+        return None
+    for other in filed:
+        if (
+            other.job_id != job.job_id
+            and other.identity == job.identity
+            and other.state is JobState.FILED
+            and _is_filed_outside(other.node_id, tree, graveyard)
+        ):
+            node = tree.node(other.node_id)
+            if node is not None and node.parent_id is not None:
+                return tree.path_of(node.parent_id)
+    return None
+
+
 def is_duplicate(
     job: Job, filed: Iterable[Job], tree: Snapshot | None, *, graveyard: FolderPath
 ) -> bool:

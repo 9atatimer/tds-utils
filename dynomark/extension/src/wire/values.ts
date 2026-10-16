@@ -4,7 +4,7 @@
 // is a domain value with no mapping layer.
 
 import { z } from 'zod';
-import type { BatchReceipt, Operation, WriteBatch } from '../domain/batch.js';
+import type { BatchReceipt, Operation, ParkReason, WriteBatch } from '../domain/batch.js';
 import type { Capture } from '../domain/capture.js';
 import type { Answer, EntryRef, Turn } from '../domain/chat.js';
 import type { DiffItem, OutlineFolder, PlacementReason, TreeDiff, UndoDrop } from '../domain/diff.js';
@@ -105,7 +105,7 @@ export const BatchStateSchema = z.enum(['PROPOSED', 'APPLIED', 'PARTIAL', 'REJEC
 export const SkipReasonSchema = z.enum(['node_missing', 'parent_mismatch', 'not_empty']);
 export const FailReasonSchema = z.enum(['parent_missing', 'browser_error']);
 export const RejectReasonSchema = z.enum(['boundary', 'invalid', 'writer_conflict']);
-export const UndoDropReasonSchema = z.enum(['node_moved', 'node_missing', 'not_empty']);
+export const UndoDropReasonSchema = z.enum(['node_moved', 'node_missing', 'not_empty', 'locked', 'owned_root']);
 export const DiffActionSchema = z.enum(['add', 'move', 'merge']);
 /** Why url.vet refuses a URL (contract v2, "Background-tab capture"). */
 export const VetRefusalSchema = z.enum(['scheme', 'unresolved', 'address']);
@@ -203,10 +203,13 @@ export const OperationSchema = z.discriminatedUnion('op', [
   z.strictObject({ op: z.literal('remove'), index: OpIndexSchema, node_id: NodeIdSchema, expect: ExpectSchema }),
 ]) satisfies z.ZodType<Operation>;
 
+export const ParkReasonSchema = z.strictObject({ existing: FolderPathSchema }) satisfies z.ZodType<ParkReason>;
+
 export const WriteBatchSchema = z.strictObject({
   batch_id: IdSchema,
   operations: z.array(OperationSchema).min(1).max(MAX_OPS_PER_BATCH).readonly(),
   diff_item_id: IdSchema.exactOptional(),
+  park: ParkReasonSchema.exactOptional(),
 }) satisfies z.ZodType<WriteBatch>;
 
 const OpAppliedSchema = z.strictObject({ index: OpIndexSchema, node_id: NodeIdSchema, changed: z.boolean() });
@@ -319,6 +322,7 @@ export const BatchSummarySchema = z.strictObject({
   diff_item_id: IdSchema.exactOptional(),
   undoes: IdSchema.exactOptional(),
   undone_by: IdSchema.exactOptional(),
+  park: ParkReasonSchema.exactOptional(),
 });
 
 export const TreeDiffSchema = z.strictObject({

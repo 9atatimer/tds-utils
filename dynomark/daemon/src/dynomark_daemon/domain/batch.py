@@ -118,6 +118,15 @@ class Revert:
 
 
 @dataclass(frozen=True, slots=True)
+class ParkReason:
+    """Why a batch parks its node instead of filing it: the identity is
+    already filed, in ``existing`` (Behaviors "A duplicate identity is
+    parked": the batch's reason names the existing placement)."""
+
+    existing: FolderPath
+
+
+@dataclass(frozen=True, slots=True)
 class WriteBatch:
     """Ordered operations plus their inverse, and an optional accepted item."""
 
@@ -125,6 +134,7 @@ class WriteBatch:
     operations: tuple[Operation, ...]
     inverse: tuple[Revert, ...]
     diff_item_id: ItemId | None = None
+    park: ParkReason | None = None
 
 
 @dataclass(frozen=True, slots=True)

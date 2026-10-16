@@ -29,14 +29,25 @@ from dynomark_daemon.app.place import place
 from dynomark_daemon.app.process import process_job
 from dynomark_daemon.domain.batch import OutsideOwnedRoots
 from dynomark_daemon.domain.bookmark import CorpusEntry
-from dynomark_daemon.domain.job import Job, JobState, RetryPolicy, is_duplicate
+from dynomark_daemon.domain.job import (
+    Job,
+    JobState,
+    RetryPolicy,
+    existing_placement,
+    is_duplicate,
+)
 from dynomark_daemon.domain.placement import (
     NoAdmissibleFolder,
     Placement,
     PlacementReason,
 )
 from dynomark_daemon.domain.roles import HostRole, NotWriter
-from dynomark_daemon.domain.tree import OwnedRoots, TreeOutline, outline_of
+from dynomark_daemon.domain.tree import (
+    FolderPath,
+    OwnedRoots,
+    TreeOutline,
+    outline_of,
+)
 from dynomark_daemon.domain.writer import WriterConflict
 from dynomark_daemon.ports.clock import Clock, IdSource
 from dynomark_daemon.ports.completion import CompletionPort
@@ -86,6 +97,16 @@ def _fail(
 def _is_duplicate(job: Job, roots: OwnedRoots, *, store: CorpusStorePort) -> bool:
     filed = store.list_jobs(state=JobState.FILED)
     return is_duplicate(
+        job, filed, store.latest_tree_snapshot(), graveyard=roots.graveyard
+    )
+
+
+def _existing_placement(
+    job: Job, roots: OwnedRoots, *, store: CorpusStorePort
+) -> FolderPath | None:
+    """Where ``job``'s identity is already filed, when it is a duplicate."""
+    filed = store.list_jobs(state=JobState.FILED)
+    return existing_placement(
         job, filed, store.latest_tree_snapshot(), graveyard=roots.graveyard
     )
 
@@ -211,8 +232,9 @@ def _file_job(
     if placement is None:
         raise UnknownRecord(f"job {job.job_id} has no placement")
     try:
-        if _is_duplicate(job, roots, store=store):
-            park(job, roots, role, store=store, clock=clock, ids=ids)
+        existing = _existing_placement(job, roots, store=store)
+        if existing is not None:
+            park(job, roots, role, existing, store=store, clock=clock, ids=ids)
         else:
             file(
                 placement,

@@ -5,7 +5,8 @@ change: a dataclass becomes an object tagged with its class name (the tag
 picks the member of a union such as ``Operation`` or ``Event``); a tuple or
 list becomes an array; a dict becomes an array of ``[key, value]`` pairs
 (keys may be values, not strings); an enum becomes its value; a ``NewType``
-id is its underlying string. Nothing here knows SQLite.
+id is its underlying string; a field with a default may be absent from an
+older document. Nothing here knows SQLite.
 """
 
 import dataclasses
@@ -33,6 +34,18 @@ class RecordError(ValueError):
 def _field_hints(cls: type) -> Mapping[str, object]:
     hints = typing.get_type_hints(cls)
     return {field.name: hints[field.name] for field in dataclasses.fields(cls)}
+
+
+@functools.cache
+def _defaulted(cls: type) -> frozenset[str]:
+    """Fields with a default: a document written before one was added lacks
+    it and takes the default (a new optional field needs no migration)."""
+    return frozenset(
+        f.name
+        for f in dataclasses.fields(cls)
+        if f.default is not dataclasses.MISSING
+        or f.default_factory is not dataclasses.MISSING
+    )
 
 
 def _is_dataclass_type(hint: object) -> typing.TypeGuard[type]:
@@ -81,10 +94,16 @@ def _decode_dataclass(data: JsonValue, cls: type) -> object:
     if not isinstance(data, dict) or data.get(TAG) != cls.__name__:
         raise RecordError(f"document is not a {cls.__name__}")
     hints = _field_hints(cls)
-    missing = set(hints) - set(data)
+    missing = set(hints) - set(data) - _defaulted(cls)
     if missing:
         raise RecordError(f"{cls.__name__} document lacks {sorted(missing)}")
-    return cls(**{name: decode(data[name], hint) for name, hint in hints.items()})
+    return cls(
+        **{
+            name: decode(data[name], hint)
+            for name, hint in hints.items()
+            if name in data
+        }
+    )
 
 
 def _decode_collection(data: JsonValue, hint: object, origin: object) -> object:

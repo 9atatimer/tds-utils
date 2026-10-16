@@ -56,7 +56,9 @@ NodeKind = Literal["folder", "bookmark", "separator"]
 SkipReason = Literal["node_missing", "parent_mismatch", "not_empty"]
 FailReason = Literal["parent_missing", "browser_error"]
 RejectReason = Literal["boundary", "invalid", "writer_conflict"]
-UndoDropReason = Literal["node_moved", "node_missing", "not_empty"]
+UndoDropReason = Literal[
+    "node_moved", "node_missing", "not_empty", "locked", "owned_root"
+]
 VetRefusal = Literal["scheme", "unresolved", "address"]
 DiffAction = Literal["add", "move", "merge"]
 
@@ -198,10 +200,15 @@ Operation = Annotated[
 ]
 
 
+class ParkReason(WireModel):
+    existing: FolderPath
+
+
 class WriteBatch(WireModel):
     batch_id: Id
     operations: Annotated[list[Operation], Field(min_length=1, max_length=1000)]
     diff_item_id: Id | None = None
+    park: ParkReason | None = None
 
 
 class OpApplied(WireModel):
@@ -283,6 +290,7 @@ class BatchSummary(WireModel):
     diff_item_id: Id | None = None
     undoes: Id | None = None
     undone_by: Id | None = None
+    park: ParkReason | None = None
 
 
 # --- Moves, search, chat, placement ---

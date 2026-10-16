@@ -16,6 +16,7 @@ from dynomark_daemon.domain.batch import (
     Operation,
     OpMove,
     OpRemove,
+    ParkReason,
     Revert,
     UndoDrop,
     UndoDropReason,
@@ -102,6 +103,7 @@ write_batches = st.builds(
     operations=operations(),
     inverse=reverts,
     diff_item_id=st.none() | ids.map(ItemId),
+    park=st.none() | st.builds(ParkReason, existing=folder_paths),
 )
 
 jobs = st.builds(
