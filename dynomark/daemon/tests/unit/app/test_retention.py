@@ -264,6 +264,30 @@ def test_an_abandoned_reader_profiles_tree_stops_keeping_an_entry() -> None:
     assert not daemon.kept()
 
 
+def test_an_absence_recorded_before_the_last_tree_is_forgotten_still_expires() -> None:
+    """Given a reader daemon whose only known tree is profile A's, taken
+    without the bookmark, and an absence first recorded 10 days after that
+    tree, When the tree is forgotten (over 30 days old) before the absence is
+    30 days old, Then later sweeps still expire the absence and drop the entry
+    (Codex on 9atatimer/tds-utils PR#535): an absence already recorded is judged
+    against an empty tree set, though no new absence starts without a tree."""
+    daemon = Daemon(state=JobState.INDEXED)
+    daemon.store.release_writer_profile()
+    _reader_tree(daemon, A, WITHOUT_BOOKMARK)
+    daemon.clock.advance(10 * DAY)
+    daemon.sweep()
+    recorded = TOKIO in daemon.store.absences()
+    daemon.clock.advance(RETENTION_MS - 10 * DAY + 1)
+    daemon.sweep()
+    forgotten = A not in daemon.store.profile_trees()
+    kept_while_young = daemon.kept()
+    daemon.clock.advance(10 * DAY)
+    daemon.sweep()
+
+    assert recorded and forgotten and kept_while_young
+    assert not daemon.kept()
+
+
 def test_no_tree_snapshot_tracks_and_drops_no_entry() -> None:
     """Given no tree snapshot at all (a reader host keeps none), When sweeps
     run past 30 days, Then no entry is tracked absent or dropped."""
