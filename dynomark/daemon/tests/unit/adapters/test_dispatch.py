@@ -14,6 +14,7 @@ import pytest
 from structlog.testing import capture_logs
 
 from dynomark_daemon.adapters.dispatch import Dispatcher, Session
+from dynomark_daemon.app.hello import release_writer_binding
 from dynomark_daemon.app.run import run_job
 from dynomark_daemon.domain.batch import Expect, OpCreateFolder, OpMove
 from dynomark_daemon.domain.bookmark import Enrichment, Identity
@@ -870,6 +871,83 @@ def test_status_tells_a_profile_served_reader_that_the_writer_is_bound_elsewhere
     assert isinstance(mine, m.StatusResult) and isinstance(theirs, m.StatusResult)
     assert (mine.role, mine.writer_binding) == ("writer", "this_profile")
     assert (theirs.role, theirs.writer_binding) == ("reader", "other_profile")
+
+
+def _rebound_to_b(harness: Harness) -> Session:
+    """Profile A's writer connection stays open while the owner runs
+    ``dynomark-daemon rebind`` (another process, same store) and profile B,
+    in another browser, completes a full hello: B is now the writer."""
+    harness.hello()
+    harness.send(wire.tree_snapshot("t-a"))
+    release_writer_binding(store=harness.store)
+    other = Session(transport=RecordingTransport())
+    harness.dispatcher.handle(wire.hello("h-b", profile="profile-b"), other)
+    assert harness.store.writer_profile() == ProfileId("profile-b")
+    return other
+
+
+@pytest.mark.parametrize(
+    ("message_type", "fields"),
+    [
+        ("undo", {"batch_id": "batch-1"}),
+        ("diff.accept", {"item_id": "item-1"}),
+        (
+            "folder.flags.set",
+            {"path": {"root": "bar", "names": ["Dynomark", "Rust"]}, "locked": True},
+        ),
+    ],
+)
+def test_after_rebind_the_old_writers_live_connection_is_refused_not_writer(
+    message_type: str, fields: dict[str, object]
+) -> None:
+    """Given profile A's live writer connection, When rebind runs and profile B
+    binds, and then undo, diff.accept or folder.flags.set arrives on A's
+    connection, Then it is answered not_writer, as a reader connection's
+    would be (issue #534 T3: one writer per store)."""
+    harness = Harness()
+    _rebound_to_b(harness)
+
+    reply = harness.send(wire.body(message_type, "x-1", **fields))
+
+    assert _error(reply) == ("x-1", "not_writer")
+
+
+def test_after_rebind_the_old_writers_snapshot_is_not_the_latest_tree() -> None:
+    """Given profile B bound after a rebind and its snapshot the latest tree,
+    When profile A's still-open connection sends a snapshot, Then the latest
+    tree stays B's (A's is kept as its profile's tree, as a reader's is)."""
+    harness = Harness()
+    other = _rebound_to_b(harness)
+    b_tree = make_tree(*wire.TREE.nodes, make_node("77", "11", "B only", index=2))
+    harness.dispatcher.handle(wire.tree_snapshot("t-b", b_tree), other)
+
+    harness.send(wire.tree_snapshot("t-a2"))
+
+    assert harness.store.latest_tree_snapshot() == b_tree
+
+
+def test_after_rebind_the_old_writers_connection_gets_no_offer_and_reads_reader() -> (
+    None
+):
+    """Given profile A's live writer connection with a save in flight, When
+    rebind runs, B binds, A's job files a batch and A's connection then sends
+    its first snapshot, Then no batch.offer goes out on it, and status there
+    says reader, bound to another profile."""
+    harness = Harness()
+    harness.hello()
+    harness.ingest()
+    release_writer_binding(store=harness.store)
+    harness.dispatcher.handle(wire.hello("h-b", profile="profile-b"), Session())
+    harness.store.put_tree_snapshot(wire.TREE)
+    _placed_job(harness)
+
+    harness.send(wire.tree_snapshot("t-a"))
+    reply = harness.send(wire.body("status", "s-a"))
+
+    offers = [e for e in harness.transport.events_for(A) if isinstance(e, BatchOffered)]
+    assert offers == []
+    assert isinstance(reply, m.StatusResult)
+    assert (reply.role, reply.writer_binding) == ("reader", "other_profile")
 
 
 def test_writer_status_reports_another_hosts_marker_as_a_conflict() -> None:
