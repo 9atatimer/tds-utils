@@ -13,6 +13,7 @@ from dynomark_daemon.domain.events import BatchOffered
 from dynomark_daemon.domain.ids import NodeId
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.domain.roles import HostRole
+from dynomark_daemon.domain.tree import FolderPath, Snapshot, TreeOutline
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.store import InMemoryCorpusStore
 from tests._factories import (
@@ -43,7 +44,14 @@ MOVED = OpApplied(index=1, node_id=NodeId("42"), changed=True)
 class Daemon:
     """A writer that has filed one job into a new folder, Dynomark/Rust/Async."""
 
-    def __init__(self, store: InMemoryCorpusStore | None = None) -> None:
+    def __init__(
+        self,
+        store: InMemoryCorpusStore | None = None,
+        *,
+        tree: Snapshot = TREE,
+        outline: TreeOutline | None = None,
+        folder: FolderPath = ASYNC,
+    ) -> None:
         self.store = store or InMemoryCorpusStore()
         self.clock, self.ids = FakeClock(start_ms=1_000), SequentialIds()
         self.job = make_job(state=JobState.PLACED)
@@ -55,11 +63,12 @@ class Daemon:
                 capture=make_capture(),
             ),
         )
-        self.store.put_tree_snapshot(TREE)
+        self.store.put_tree_snapshot(tree)
         batch = file(
-            make_placement(folder=ASYNC),
+            make_placement(folder=folder),
             self.job,
-            make_outline(make_outline_folder("Dynomark", "Rust", node_id="14")),
+            outline
+            or make_outline(make_outline_folder("Dynomark", "Rust", node_id="14")),
             make_roots(),
             HostRole.WRITER,
             store=self.store,

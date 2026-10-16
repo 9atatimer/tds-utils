@@ -22,6 +22,7 @@ from dynomark_daemon.domain.batch import (
     BatchRecord,
     BatchState,
     Expect,
+    OpApplied,
     OpCreateFolder,
     OpMove,
     OpRemove,
@@ -31,7 +32,7 @@ from dynomark_daemon.domain.batch import (
 )
 from dynomark_daemon.domain.ids import NodeId
 from dynomark_daemon.domain.roles import HostRole, NotWriter
-from dynomark_daemon.domain.tree import Snapshot, SnapshotNode
+from dynomark_daemon.domain.tree import Snapshot, SnapshotNode, TreeOutline
 from dynomark_daemon.domain.writer import WriterConflict
 from dynomark_daemon.testing.store import InMemoryCorpusStore
 from tests._crash import DyingStore
@@ -200,6 +201,57 @@ def test_undo_leaves_a_created_folder_that_now_holds_other_items() -> None:
     assert isinstance(result, Undone) and result.batch is not None
     assert result.batch.operations == (replace(MOVE_BACK, index=0),)
     assert result.dropped == (UndoDrop(index=0, reason=UndoDropReason.NOT_EMPTY),)
+
+
+def _filed_into_a_fresh_tree() -> Daemon:
+    """A writer whose first filing created ``Dynomark`` itself (index 0) and
+    ``Rust`` (index 1), then moved the bookmark in; APPLIED, with a tree
+    after."""
+    daemon = Daemon(
+        tree=make_tree(
+            make_node("10", "1", "Follow Up"),
+            make_node("42", "10", "Tokio tutorial", url=URL),
+        ),
+        outline=TreeOutline(root=make_path("Dynomark"), folders=()),
+        folder=RUST,
+    )
+    assert daemon.batch.operations[0] == OpCreateFolder(
+        index=0, parent=make_path(), title="Dynomark"
+    )
+    daemon.receive(
+        ReceiptApplied(
+            batch_id=daemon.batch.batch_id,
+            applied=(
+                OpApplied(index=0, node_id=NodeId("11"), changed=True),
+                OpApplied(index=1, node_id=NodeId("14"), changed=True),
+                OpApplied(index=2, node_id=NodeId("42"), changed=True),
+            ),
+            skipped=(),
+            pre_batch=True,
+            snapshot=None,
+        )
+    )
+    record_tree_snapshot(
+        _after(make_node("42", "14", "Tokio tutorial", url=URL)),
+        HostRole.WRITER,
+        store=daemon.store,
+    )
+    return daemon
+
+
+def test_undo_keeps_an_owned_root_the_batch_created_and_reports_it() -> None:
+    """Given the first filing created Dynomark, When undone, Then the bookmark
+    goes back and Rust is removed, Dynomark stays, and the report lists the
+    kept root's step with its reason (Goal 6: skips and reports the rest;
+    issue #415)."""
+    daemon = _filed_into_a_fresh_tree()
+
+    result = _undo(daemon)
+
+    assert isinstance(result, Undone) and result.batch is not None
+    removed = {op.node_id for op in result.batch.operations if isinstance(op, OpRemove)}
+    assert removed == {NodeId("14")}
+    assert [(d.index, d.reason.value) for d in result.dropped] == [(0, "owned_root")]
 
 
 def test_undo_twice_returns_the_one_recorded_inverse() -> None:
