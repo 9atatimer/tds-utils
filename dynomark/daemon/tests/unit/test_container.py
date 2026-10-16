@@ -10,6 +10,7 @@ from pathlib import Path
 
 from structlog.testing import capture_logs
 
+from dynomark_daemon.adapters.records import RecordError
 from dynomark_daemon.app.ingest import ingest
 from dynomark_daemon.container import Daemon, JobLoop, Ports
 from dynomark_daemon.domain.bookmark import (
@@ -490,3 +491,36 @@ def test_the_job_loop_re_embeds_entries_of_an_old_model() -> None:
 
     models = {s.entry.embedding.model_id for s in ports.store.list_entries(limit=10)}
     assert models == {ports.embedding.model().model_id}
+
+
+class _UndecodableEntriesStore(InMemoryCorpusStore):
+    """A store whose stale-embedding query fails as a corrupt row does: a
+    stored document that does not decode (``RecordError``)."""
+
+    def entries_embedded_otherwise(
+        self, model_id: str, *, limit: int
+    ) -> list[CorpusEntry]:
+        raise RecordError("corpus_entry: not a CorpusEntry")
+
+
+def test_a_store_failure_while_re_embedding_is_logged_and_the_pass_goes_on() -> None:
+    """Given a store that fails reading the entries to re-embed, When the job
+    loop runs a pass, Then the failure is logged with its trace as
+    reembed.failed and the pass goes on to its retention sweep: the job
+    thread is not killed (issue #534 T7)."""
+    clock = FakeClock(start_ms=1_000)
+    ports = replace(
+        _ports(ScriptedCompletion(), store=_UndecodableEntriesStore()), clock=clock
+    )
+    ports.store.bind_writer_profile(A)
+    ports.store.put_tree_snapshot(wire.TREE)
+    url = "https://example.org/gone"
+    ports.store.put_entry(make_entry(url))
+    ports.store.put_job(make_job(identity=url, state=JobState.FILED))
+
+    with capture_logs() as logs:
+        JobLoop(make_config(), ports).run_once()
+
+    failed = [e for e in logs if e["event"] == "reembed.failed"]
+    assert [(e["log_level"], e.get("exc_info")) for e in failed] == [("error", True)]
+    assert list(ports.store.absences()) == [Identity(url)]
