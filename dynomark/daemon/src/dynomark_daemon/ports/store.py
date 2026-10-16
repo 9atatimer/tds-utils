@@ -283,6 +283,11 @@ class CorpusStorePort(Protocol):
         """Bind the store to ``profile_id`` unless it is already bound."""
         ...
 
+    def release_writer_profile(self) -> ProfileId | None:
+        """Unbind the store (the owner's ``rebind``); the profile it was bound
+        to, or ``None``. The next bind takes."""
+        ...
+
     def put_follow_up(self, profile_id: ProfileId, path: FolderPath) -> None:
         """Keep the ``Follow Up`` folder the profile's extension resolved."""
         ...

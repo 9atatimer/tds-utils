@@ -177,7 +177,9 @@ Firefox 128 or newer, against the same daemon (steps 1 to 4 above).
 - **One writer profile.** The daemon binds the first browser profile that
   says a full hello (design Key Decisions, Writer binding). With Chrome
   already filing, Firefox is served as a reader. To file from Firefox,
-  release the binding with `dynomark-daemon rebind` once it lands
-  (issue #419), or run it against a daemon with a fresh store.
+  release the binding with `dynomark-daemon rebind`, then reload the
+  extension in Firefox: the next profile to complete a full hello binds.
+  The settings page says when a browser is served as a reader because the
+  writer is bound to another profile.
 - The chat is Firefox's sidebar (Alt+Shift+K). The acceptance run is
   `tasks/task-027-dynomark-mbp-integration.md`, "Firefox acceptance".

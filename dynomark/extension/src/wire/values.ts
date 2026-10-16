@@ -79,6 +79,8 @@ const OpIndexSchema = count(MAX_OP_INDEX);
 
 export const RootKeySchema = z.enum(ROOT_KEYS);
 export const HostRoleSchema = z.enum(['writer', 'reader']);
+/** Whom a writer daemon files for, as this profile sees it (contract v2, status.result). */
+export const WriterBindingSchema = z.enum(['this_profile', 'other_profile', 'unbound']);
 export const CaptureSourceSchema = z.enum(['tab', 'background_tab', 'fetch', 'none']);
 export const JobStateSchema = z.enum(['QUEUED', 'CAPTURING', 'ENRICHED', 'PLACED', 'FILED', 'INDEXED', 'FAILED']);
 export const DiffKindSchema = z.enum(['audit', 'rebuild']);

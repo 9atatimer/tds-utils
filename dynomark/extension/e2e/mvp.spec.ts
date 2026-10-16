@@ -209,6 +209,29 @@ test('Given another host is writer too, When the settings page opens, Then the c
   await expect(options.locator('#writer-conflict')).toBeHidden();
 });
 
+test('Given a writer daemon bound to another browser profile, When the settings page opens, Then a banner says this browser is served as a reader and names rebind (issue #419)', async ({
+  ext,
+}) => {
+  ext.daemon.extra = (r) =>
+    r.type === 'status'
+      ? {
+          v: 2,
+          type: 'status.result',
+          re: r.id,
+          role: 'reader',
+          host_id: 'mbp',
+          contract_version: 2,
+          models: { embedding: { id: 'nomic-embed-text', local: true }, completion: { id: 'llama3.1:8b', local: true } },
+          queue_depth: 0,
+          writer_binding: 'other_profile',
+        }
+      : undefined;
+  const options = await ext.extensionPage('options.html');
+  await expect(options.locator('#reader-binding')).toBeVisible();
+  await expect(options.locator('#reader-binding')).toContainText('dynomark-daemon rebind');
+  await expect(options.locator('#daemon-binding')).toContainText('another browser profile');
+});
+
 test('Given a writer and a save no tab shows, When it lands in Follow Up, Then the page is read from a background tab (source background_tab) and the window is closed', async ({
   ext,
 }) => {

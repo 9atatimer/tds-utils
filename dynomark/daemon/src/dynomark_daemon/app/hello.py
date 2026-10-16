@@ -9,8 +9,10 @@ from dynomark_daemon.domain.config import Config, ModelInfo
 from dynomark_daemon.domain.connection import (
     DAEMON_CONTRACT_VERSION,
     HelloMode,
+    WriterBinding,
     negotiate,
     served_role,
+    writer_binding,
 )
 from dynomark_daemon.domain.ids import HostId, ProfileId
 from dynomark_daemon.domain.job import JobState
@@ -42,6 +44,8 @@ class DaemonStatus:
     embedding: ModelInfo
     completion: ModelInfo
     queue_depth: int
+    binding: WriterBinding | None = None
+    """On a writer daemon: whether the store files for this profile."""
 
 
 def owned_roots_for(
@@ -84,8 +88,11 @@ def hello(
     )
 
 
-def status(role: HostRole, config: Config, *, store: CorpusStorePort) -> DaemonStatus:
-    """The daemon's status as a connection served ``role`` sees it."""
+def status(
+    role: HostRole, config: Config, profile: ProfileId, *, store: CorpusStorePort
+) -> DaemonStatus:
+    """The daemon's status as a connection of ``profile`` served ``role`` sees
+    it, with the writer binding that explains a writer serving it reader."""
     in_flight = sum(len(store.list_jobs(state=state)) for state in _IN_FLIGHT)
     return DaemonStatus(
         role=role,
@@ -94,4 +101,13 @@ def status(role: HostRole, config: Config, *, store: CorpusStorePort) -> DaemonS
         embedding=config.embedding_model,
         completion=config.completion_model,
         queue_depth=in_flight,
+        binding=writer_binding(config.role, store.writer_profile(), profile),
     )
+
+
+def release_writer_binding(*, store: CorpusStorePort) -> ProfileId | None:
+    """The owner's ``rebind``: the store files for no profile until the next
+    one completes a full hello, which binds it (a reinstalled extension's new
+    profile id, or another browser profile). Returns the profile it was
+    bound to. A connection keeps the role its hello gave it."""
+    return store.release_writer_profile()

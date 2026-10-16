@@ -9,6 +9,7 @@ import type { SettingsChange } from '../domain/settings.js';
 import type { WriterStatus } from '../domain/writer.js';
 import type { BackfillView, Overview, PageClient } from '../ports/pages.js';
 import { byId, el } from './dom.js';
+import { renderBinding } from './binding.js';
 import { modelText } from './models.js';
 import { renderWriterBanner } from './writerBanner.js';
 
@@ -43,6 +44,7 @@ function render(doc: Document, overview: Overview): void {
   byId(doc, 'connection').textContent = connectionText(overview);
   const d = overview.daemon;
   byId(doc, 'daemon-role').textContent = d?.role ?? '-';
+  renderBinding(doc, d);
   byId(doc, 'daemon-host').textContent = d?.host_id ?? '-';
   byId(doc, 'daemon-embedding').textContent = d === undefined ? '-' : modelText(d.models.embedding);
   byId(doc, 'daemon-completion').textContent = d === undefined ? '-' : modelText(d.models.completion);

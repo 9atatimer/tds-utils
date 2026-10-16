@@ -28,6 +28,7 @@ from dynomark_daemon.wire.base import (
 
 RootKey = Literal["bar", "other", "mobile", "menu"]
 HostRole = Literal["writer", "reader"]
+WriterBinding = Literal["this_profile", "other_profile", "unbound"]
 CaptureSource = Literal["tab", "background_tab", "fetch", "none"]
 ExtensionCaptureSource = Literal["tab", "background_tab", "none"]
 """``Capture.source`` on the wire: ``fetch`` is daemon-only."""

@@ -60,7 +60,11 @@ permissions, keyword and pages come from `manifest.json`.
    `tds.dynomark.json` to
    `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/`.
 4. Options page (right-click the toolbar icon -> Options): native link,
-   hello outcome, daemon role, host id, models, queue depth; the writer
+   hello outcome, daemon role, the writer binding (a banner while this
+   browser is served as a reader because the writer daemon files for
+   another browser profile, e.g. after a reinstall: run
+   `dynomark-daemon rebind`, then reload the extension), host id, models,
+   queue depth; the writer
    marker (a red banner while another host's marker is in `Dynomark`: no
    batch is applied until it is cleared); the two capture settings (open
    tab; background tab on the writer, default on: a tab opens only for a

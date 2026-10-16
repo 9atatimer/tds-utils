@@ -502,7 +502,9 @@ class Dispatcher:
         return Outcome(reply, register=served, deliver=served)
 
     def _status(self, message: m.Status, session: Session) -> Outcome:
-        daemon = status(session.role, self._config, store=self._store)
+        daemon = status(
+            session.role, self._config, _profile(session), store=self._store
+        )
         return Outcome(
             m.StatusResult(
                 v=V,
@@ -516,6 +518,7 @@ class Dispatcher:
                     completion=model_info_to_wire(daemon.completion),
                 ),
                 queue_depth=daemon.queue_depth,
+                writer_binding=None if daemon.binding is None else daemon.binding.value,
             )
         )
 

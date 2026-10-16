@@ -54,6 +54,7 @@ from dynomark_daemon.wire.values import (
     UndoDrop,
     VetRefusal,
     WriteBatch,
+    WriterBinding,
 )
 
 # --- Page sizes (contract/v2/README.md, Size limits) ---
@@ -485,6 +486,7 @@ class StatusResult(WireModel):
     contract_version: Annotated[int, Field(ge=1)]
     models: Models
     queue_depth: Count
+    writer_binding: WriterBinding | None = None
 
 
 # --- Background-tab capture ---

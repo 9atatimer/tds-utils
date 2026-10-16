@@ -7,6 +7,8 @@
 - ``install-host-manifest``: the ``tds.dynomark`` native-messaging manifest
   for Chrome, Chromium or Firefox, bound to one extension id.
 - ``launchd-plist``: a user LaunchAgent plist that runs ``serve``.
+- ``rebind``: release the writer binding, so the next browser profile to
+  complete a full hello is the one this writer files for.
 
 Entry points stay thin: parse, call the composition root or an adapter,
 print.
@@ -37,8 +39,10 @@ from dynomark_daemon.adapters.sqlite_store import (
     StoreError,
     vector_extension_version,
 )
+from dynomark_daemon.app.hello import release_writer_binding
 from dynomark_daemon.container import build_ports, private_state_dir
 from dynomark_daemon.container import serve as serve_daemon
+from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.settings import (
     ConfigError,
     Settings,
@@ -296,3 +300,34 @@ def launchd_plist_command(program: Path | None) -> None:
         program or _installed("dynomark-daemon"), settings, os.environ
     )
     click.echo(plist.decode("utf-8"), nl=False)
+
+
+@main.command()
+def rebind() -> None:
+    """Release the writer binding: the next profile to say hello files.
+
+    A writer daemon files for the first browser profile that completed a full
+    hello and serves every other one as a reader. Reinstalling the extension
+    mints a new profile, which then reads only; run this, then reload the
+    extension (or restart the browser) in the profile that should file."""
+    settings = _settings(os.environ)
+    path = Path(settings.config.store_path)
+    try:
+        store = SqliteCorpusStore.open(path)
+    except StoreError as error:
+        raise click.ClickException(str(error)) from error
+    try:
+        released = release_writer_binding(store=store)
+    finally:
+        store.close()
+    old = "unbound" if released is None else f"bound to profile {released}"
+    click.echo(f"writer binding: {old} -> unbound")
+    click.echo(
+        "the next browser profile to complete a full hello is the one this "
+        "daemon files for; reload the extension in that profile"
+    )
+    if settings.config.role is not HostRole.WRITER:
+        click.echo(
+            f"note: this daemon is configured {settings.config.role.value}; "
+            "it files for no profile until its role is writer"
+        )

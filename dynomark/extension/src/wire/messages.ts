@@ -38,6 +38,7 @@ import {
   UrlSchema,
   VetRefusalSchema,
   WriteBatchSchema,
+  WriterBindingSchema,
   count,
   text,
   uniqueArray,
@@ -189,6 +190,7 @@ export const StatusResultSchema = response('status.result', {
   contract_version: z.int().min(1),
   models: z.strictObject({ embedding: ModelInfoSchema, completion: ModelInfoSchema }),
   queue_depth: count(),
+  writer_binding: WriterBindingSchema.exactOptional(),
 });
 /** A refused vet says why; an allowed one carries no refusal. */
 export const UrlVetResultSchema = response('url.vet.result', {

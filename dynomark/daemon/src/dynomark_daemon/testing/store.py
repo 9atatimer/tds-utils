@@ -396,6 +396,10 @@ class InMemoryCorpusStore:
         if self._writer_profile is None:
             self._writer_profile = profile_id
 
+    def release_writer_profile(self) -> ProfileId | None:
+        released, self._writer_profile = self._writer_profile, None
+        return released
+
     def put_follow_up(self, profile_id: ProfileId, path: FolderPath) -> None:
         self._follow_ups[profile_id] = path
 

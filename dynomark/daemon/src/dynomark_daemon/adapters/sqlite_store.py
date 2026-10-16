@@ -973,6 +973,13 @@ class SqliteCorpusStore:
                 (profile_id,),
             )
 
+    def release_writer_profile(self) -> ProfileId | None:
+        with self._write() as db:
+            row = db.execute(
+                "DELETE FROM meta WHERE key = 'writer_profile' RETURNING value"
+            ).fetchone()
+        return None if row is None else ProfileId(str(row[0]))
+
     def put_follow_up(self, profile_id: ProfileId, path: FolderPath) -> None:
         with self._write() as db:
             db.execute(
