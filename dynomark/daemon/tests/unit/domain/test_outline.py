@@ -22,7 +22,7 @@ def test_outline_holds_the_dynomark_folders_with_flags_and_item_counts() -> None
     """Given a tree and a lock on one folder, When the outline is derived, Then
     it holds exactly the Dynomark folders (root included, marker and Follow Up
     excluded) with their flags and bookmark counts."""
-    flags = {NodeId("14"): FolderFlags(pinned=False, locked=True)}
+    flags = {make_path("Dynomark", "Rust"): FolderFlags(pinned=False, locked=True)}
 
     outline = outline_of(TREE, make_path("Dynomark"), flags)
 

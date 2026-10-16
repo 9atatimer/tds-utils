@@ -29,7 +29,6 @@ from dynomark_daemon.domain.ids import (
     BatchId,
     EventId,
     JobId,
-    NodeId,
     ProfileId,
     RequestId,
     SnapshotId,
@@ -42,8 +41,11 @@ from tests._factories import (
     make_entry,
     make_feedback,
     make_job,
+    make_node,
+    make_path,
     make_placement,
     make_snapshot,
+    make_tree,
 )
 
 MODEL = "fake:hashing"
@@ -100,7 +102,9 @@ def test_everything_put_survives_a_reopen(tmp_path: Path) -> None:
     store.put_tree_snapshot(tree := make_snapshot())
     store.put_feedback(feedback := make_feedback("fb-1"))
     store.put_event(A, event)
-    store.put_folder_flags(NodeId("14"), FolderFlags(pinned=True, locked=False))
+    store.put_folder_flags(
+        make_path("Dynomark", "Rust"), FolderFlags(pinned=True, locked=False)
+    )
     store.bind_writer_profile(A)
     store.put_request(RequestId("req-1"), "sha256:abc")
     store.close()
@@ -116,7 +120,7 @@ def test_everything_put_survives_a_reopen(tmp_path: Path) -> None:
     assert reopened.recent_feedback(limit=5) == [feedback]
     assert [p.event for p in reopened.unacked_events(A)] == [event]
     assert reopened.folder_flags() == {
-        NodeId("14"): FolderFlags(pinned=True, locked=False)
+        make_path("Dynomark", "Rust"): FolderFlags(pinned=True, locked=False)
     }
     assert reopened.writer_profile() == A
     assert reopened.get_request(RequestId("req-1")) == "sha256:abc"
@@ -597,4 +601,36 @@ def test_a_version_2_file_drops_its_archives_by_the_time_they_were_taken(
     dropped = store.drop_snapshots_before(2_000)
 
     assert dropped == [SnapshotId("tree-1000")]
+    store.close()
+
+
+def test_a_version_4_file_keys_its_folder_flags_by_path(tmp_path: Path) -> None:
+    """Given a schema-4 file whose folder flags are keyed by this host's node
+    ids, one of a folder the latest tree holds and one of a folder gone from
+    it, When opened, Then the first is keyed by its folder path and the
+    second, which no path names any more, is gone (issue #423)."""
+    db = tmp_path / "corpus.sqlite3"
+    tree = make_tree(
+        make_node("11", "1", "Dynomark"),
+        make_node("14", "11", "Rust"),
+    )
+    with sqlite3.connect(db, isolation_level=None) as raw:
+        for script in MIGRATIONS[:4]:
+            raw.executescript(script)
+        raw.execute("PRAGMA user_version = 4")
+        raw.execute(
+            "INSERT INTO tree_snapshot (slot, taken_at, doc) VALUES (1, ?, ?)",
+            (tree.taken_at, dump_record(tree)),
+        )
+        raw.executemany(
+            "INSERT INTO folder_flags (node_id, pinned, locked) VALUES (?, ?, ?)",
+            [("14", 1, 1), ("15", 0, 1)],
+        )
+    raw.close()
+
+    store = SqliteCorpusStore.open(db)
+
+    assert store.folder_flags() == {
+        make_path("Dynomark", "Rust"): FolderFlags(pinned=True, locked=True)
+    }
     store.close()

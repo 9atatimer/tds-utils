@@ -9,7 +9,7 @@ the owned roots is ``invalid``, an unknown node or a path mismatch
 import pytest
 
 from dynomark_daemon.app.errors import InvalidRequest, TreeNotReady, UnknownRecord
-from dynomark_daemon.app.flags import set_folder_flags
+from dynomark_daemon.app.flags import locked_folders, set_folder_flags
 from dynomark_daemon.app.run import current_outline
 from dynomark_daemon.domain.ids import NodeId
 from dynomark_daemon.domain.roles import HostRole, NotWriter
@@ -103,3 +103,25 @@ def test_a_reader_sets_no_flags() -> None:
 
     assert isinstance(_set(store, locked=True, role=HostRole.READER), NotWriter)
     assert store.folder_flags() == {}
+
+
+def test_a_lock_is_kept_by_folder_path_across_a_writer_change() -> None:
+    """Given a folder locked on one writer, When another writer's tree holds
+    the same folder under another node id, Then the outline and the folders
+    no batch may move still show it locked: flags are keyed by folder path,
+    stable across writers, not by a host's node id (issue #423)."""
+    store = _store()
+    _set(store, locked=True)
+    renumbered = make_tree(
+        make_node("70", "1", "Follow Up"),
+        make_node("71", "1", "Dynomark", index=1),
+        make_node("99", "71", "Rust"),
+        taken_at=TREE.taken_at + 1,
+    )
+    store.put_tree_snapshot(renumbered)
+
+    outline = current_outline(make_roots(), store=store)
+
+    folder = outline.folder_at(RUST)
+    assert folder is not None and (folder.node_id, folder.locked) == ("99", True)
+    assert locked_folders(renumbered, store=store) == {NodeId("99")}

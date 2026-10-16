@@ -681,16 +681,17 @@ def test_put_event_twice_keeps_one_and_marks_pushed(store: CorpusStorePort) -> N
 # --- Owned-folder flags (Data Model: owned_folder pinned, locked) ---
 
 
-def test_folder_flags_are_kept_per_node_and_replaced(store: CorpusStorePort) -> None:
+def test_folder_flags_are_kept_per_path_and_replaced(store: CorpusStorePort) -> None:
     """Given flags set on two folders and one set again, When read, Then each
     folder holds its latest flags."""
-    store.put_folder_flags(NodeId("14"), FolderFlags(pinned=True, locked=False))
-    store.put_folder_flags(NodeId("21"), FolderFlags(pinned=False, locked=True))
-    store.put_folder_flags(NodeId("14"), FolderFlags(pinned=False, locked=True))
+    rust, go = make_path("Dynomark", "Rust"), make_path("Dynomark", "Go")
+    store.put_folder_flags(rust, FolderFlags(pinned=True, locked=False))
+    store.put_folder_flags(go, FolderFlags(pinned=False, locked=True))
+    store.put_folder_flags(rust, FolderFlags(pinned=False, locked=True))
 
     assert store.folder_flags() == {
-        NodeId("14"): FolderFlags(pinned=False, locked=True),
-        NodeId("21"): FolderFlags(pinned=False, locked=True),
+        rust: FolderFlags(pinned=False, locked=True),
+        go: FolderFlags(pinned=False, locked=True),
     }
 
 
@@ -878,7 +879,9 @@ def _write_everything(store: CorpusStorePort) -> None:
     store.put_diff(make_diff("diff-2"))
     store.put_tree_snapshot(make_snapshot(taken_at=2_000_000_000_000))
     store.put_snapshot(SnapshotId("snap-1"), make_snapshot())
-    store.put_folder_flags(NodeId("14"), FolderFlags(pinned=True, locked=True))
+    store.put_folder_flags(
+        make_path("Dynomark", "Rust"), FolderFlags(pinned=True, locked=True)
+    )
     store.bind_writer_profile(PROFILE_A)
     store.put_request(RequestId("req-1"), "sha256:abc")
 
