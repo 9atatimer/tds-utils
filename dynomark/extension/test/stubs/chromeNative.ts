@@ -77,7 +77,7 @@ export class NativeMessagingStub implements NativeRuntimeApi {
   }
 
   private drop(reason: LossReason): void {
-    if (reason === 'superseded') this.deliver({ v: 1, type: 'error', re: null, code: 'superseded', message: 'a newer connection' });
+    if (reason === 'superseded') this.deliver({ v: 2, type: 'error', re: null, code: 'superseded', message: 'a newer connection' });
     this.exit();
   }
 

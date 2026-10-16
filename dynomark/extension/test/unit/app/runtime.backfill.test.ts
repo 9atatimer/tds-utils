@@ -1,6 +1,6 @@
 // runtime.backfill.test.ts -- the settings page's backfill (design, Open
 // Question 3: run the existing tree through capture and indexing at first
-// install, searchable, not re-filed, and at what rate; contract v1, "Jobs":
+// install, searchable, not re-filed, and at what rate; contract v2, "Jobs":
 // an ingest with backfill true is never offered a batch). Every existing
 // bookmark outside Follow Up and Graveyard is ingested once with backfill
 // true and no capture (the daemon fetches), a chunk at a time with a pause
@@ -90,7 +90,7 @@ describe('Backfill -- every existing bookmark, once, as backfill', () => {
   it('Given the daemon refuses one ingest as invalid, When backfilling, Then that one is skipped and reported and the rest go on', async () => {
     const refuse = (r: RequestMessage): ResponseMessage | undefined =>
       r.type === 'ingest' && r.bookmark.url === 'https://b3.example/'
-        ? { v: 1, type: 'error', re: r.id, code: 'invalid', message: 'no' }
+        ? { v: 2, type: 'error', re: r.id, code: 'invalid', message: 'no' }
         : undefined;
     const { w, candidates, runtime } = await setup(refuse);
     await runtime.page({ kind: 'backfill.start' });
@@ -107,7 +107,7 @@ describe('Backfill -- every existing bookmark, once, as backfill', () => {
     const busyOnce = (r: RequestMessage): ResponseMessage | undefined => {
       if (r.type !== 'ingest' || r.bookmark.url !== 'https://b3.example/' || refused) return undefined;
       refused = true;
-      return { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
+      return { v: 2, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
     };
     const { w, candidates, runtime } = await setup(busyOnce);
     await runtime.page({ kind: 'backfill.start' });
@@ -139,7 +139,7 @@ describe('Backfill -- resumable across worker restarts', () => {
   it('Given an ingest answered busy, When the worker is terminated during the backoff, Then the next worker re-sends that frame with the same id', async () => {
     const busyOnce = (r: RequestMessage): ResponseMessage | undefined =>
       r.type === 'ingest' && r.bookmark.url === 'https://b3.example/'
-        ? { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' }
+        ? { v: 2, type: 'error', re: r.id, code: 'busy', message: 'model loading' }
         : undefined;
     const { w, runtime } = await setup(busyOnce);
     await runtime.page({ kind: 'backfill.start' });

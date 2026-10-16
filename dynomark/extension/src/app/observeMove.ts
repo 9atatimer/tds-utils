@@ -6,7 +6,7 @@
 // The browser adapter turns parent ids into FolderPaths before calling this.
 //
 // A report is feedback the daemon cannot recover from the tree, so it is
-// delivered at least once (contract v1, "Delivery and replay"): the frame is
+// delivered at least once (contract v2, "Delivery and replay"): the frame is
 // kept in storage from before it is first sent until it is answered
 // move.observed.result or refused for good. A busy or internal answer comes
 // on a link that stays up, so the identical frame is re-sent after a backoff;

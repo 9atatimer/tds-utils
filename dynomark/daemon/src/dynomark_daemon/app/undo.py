@@ -1,5 +1,5 @@
 """Use case: a batch is undone (DYNOMARK.DESIGN.md, Behaviors and Interfaces;
-The daemon, "Undo"; Goal 6; contract/v1 README, Undo guard and the
+The daemon, "Undo"; Goal 6; contract/v2 README, Undo guard and the
 idempotency table).
 """
 

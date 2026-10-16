@@ -1,4 +1,4 @@
-"""Contract v1 shared values: one model per non-message ``$defs`` entry.
+"""Contract v2 shared values: one model per non-message ``$defs`` entry.
 
 Names follow messages.schema.json so a reader can put the two side by
 side. Enums are ``Literal`` string sets (exact, case-sensitive).

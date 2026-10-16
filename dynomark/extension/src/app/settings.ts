@@ -1,6 +1,6 @@
 // settings.ts -- the extension's own settings (design, "Settings": transport
 // selection and Follow Up behaviour, in extension-local storage; nothing
-// secret). The profile id is generated once and kept (contract v1 README,
+// secret). The profile id is generated once and kept (contract v2 README,
 // "Connection lifecycle", step 1).
 
 import { newSettings, withChange, type Settings, type SettingsChange } from '../domain/settings.js';

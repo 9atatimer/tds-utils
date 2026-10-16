@@ -1,6 +1,6 @@
 // applyBatch.partial.test.ts -- design Behaviors row "A batch fails midway":
 // Given operation 3 fails, When applied, Then the receipt is PARTIAL with the
-// applied prefix. Contract v1, "Write batches": an op whose target folder
+// applied prefix. Contract v2, "Write batches": an op whose target folder
 // does not resolve, or that the browser refuses, fails; the batch stops;
 // `applied` and `skipped` partition 0..failed.index-1 and later ops were not
 // tried. PARTIAL is not retried automatically; a re-offer resumes from the

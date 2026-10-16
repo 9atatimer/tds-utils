@@ -1,6 +1,6 @@
 // navigator.ts -- the Navigator port: open a URL in the browser (design, "The
 // extension", Tier-1 search: Enter opens the hit by navigating to its
-// identity; contract v1 README, "Identity").
+// identity; contract v2 README, "Identity").
 
 import type { Url } from '../domain/values.js';
 

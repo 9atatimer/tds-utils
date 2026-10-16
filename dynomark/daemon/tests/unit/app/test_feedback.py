@@ -2,7 +2,7 @@
 Behaviors and Interfaces; The extension, "Record feedback": "only a Move of
 origin user on the writer host becomes feedback (the daemon discards the
 rest by HostRole)"; Ubiquitous language: MoveFeedback, "between two owned
-folders"). Contract v1 ``move.observed`` is idempotent on (node_id,
+folders"). Contract v2 ``move.observed`` is idempotent on (node_id,
 observed_at). Goal 3: a filed bookmark's folder changes by a user move, so
 its placement follows.
 """

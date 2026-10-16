@@ -1,12 +1,12 @@
 // submitSave.ts -- use case "A save is submitted" (design, Behaviors and
 // Interfaces): submit_save(bookmark, capture, *, transport) -> RequestId.
 //
-// Ingest is idempotent on the node (contract v1, "Delivery and replay"), and
+// Ingest is idempotent on the node (contract v2, "Delivery and replay"), and
 // a repeat of a request reuses its id and body. So one worker submits a node
 // at most once: a second submission joins the first (in flight or answered),
 // and a resubmission after a retryable error re-sends the identical frame.
 // A busy or internal answer comes on a link that stays up, so no reconnect
-// will re-send it (contract v1: busy and internal are retried with the same
+// will re-send it (contract v2: busy and internal are retried with the same
 // id after backoff): the identical frame is re-sent after a backoff, unless a
 // resubmission comes first. A lost link is the reconnect backlog's.
 //

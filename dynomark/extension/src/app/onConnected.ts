@@ -1,4 +1,4 @@
-// onConnected.ts -- the connect routine after a hello (contract v1 README,
+// onConnected.ts -- the connect routine after a hello (contract v2 README,
 // "Connection lifecycle", step 4; "Index freshness"): in full mode send
 // tree.snapshot and events.replay, then pull the index; in read_only replay
 // events and pull the index (search continues); in refused, nothing.

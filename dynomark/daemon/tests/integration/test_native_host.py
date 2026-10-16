@@ -1,4 +1,4 @@
-"""The native-messaging host ``tds.dynomark`` (contract/v1/README.md:
+"""The native-messaging host ``tds.dynomark`` (contract/v2/README.md:
 Framing -- "The native-messaging host is a transparent byte pipe: it copies
 frames between its stdio and the socket unchanged, in both directions, and
 never parses them"; Endpoint -- "The browser starts the shim; the shim

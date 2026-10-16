@@ -1,5 +1,5 @@
 // followUp.ts -- which folder is Follow Up (design, "The extension", Watch
-// Follow Up; contract v1 README, "Connection lifecycle", step 1). Zero
+// Follow Up; contract v2 README, "Connection lifecycle", step 1). Zero
 // folders named Follow Up: create one directly under the bookmarks bar. More
 // than one: use the one directly under the bar (the lowest index, as the
 // Paths rule picks) and report the others. Only a folder its own FolderPath

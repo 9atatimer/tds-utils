@@ -1,6 +1,6 @@
-"""The base every contract v1 wire model shares, and the constrained scalars.
+"""The base every contract v2 wire model shares, and the constrained scalars.
 
-Rules taken from contract/v1/README.md and messages.schema.json:
+Rules taken from contract/v2/README.md and messages.schema.json:
 
 - ``additionalProperties: false`` everywhere -> ``extra="forbid"``.
 - JSON types are exact: strict mode, so ``true`` is never an integer and
@@ -32,7 +32,7 @@ from pydantic import (
 
 # --- Constants ---
 
-CONTRACT_VERSION: Final = 1
+CONTRACT_VERSION: Final = 2
 MAX_SAFE_INTEGER: Final = 2**53 - 1
 
 

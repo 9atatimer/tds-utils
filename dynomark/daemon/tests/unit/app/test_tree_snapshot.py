@@ -1,4 +1,4 @@
-"""Behaviors row: a tree snapshot is recorded (contract/v1 README, Connection
+"""Behaviors row: a tree snapshot is recorded (contract/v2 README, Connection
 lifecycle: ``tree.snapshot`` after every hello and every receipt; Undo
 guard) -- and its cost does not grow with the filings on record.
 

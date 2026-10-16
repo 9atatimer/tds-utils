@@ -1,4 +1,4 @@
-// daemonEvents.ts -- the events the daemon pushes (contract v1 README,
+// daemonEvents.ts -- the events the daemon pushes (contract v2 README,
 // "Delivery and replay"; design, "Transport contract", delivery).
 //
 // job.updated and diff.proposed are acknowledged with events.ack, every
@@ -14,7 +14,7 @@
 // contract": transport loss and daemon restart are retryable by
 // reconnecting). Such an event resolves quietly and has no effect until then.
 // A retryable code on a link that stays up would wait for a reconnect that
-// may never come (contract v1: busy and internal are retried after backoff),
+// may never come (contract v2: busy and internal are retried after backoff),
 // so it also asks the daemon to replay after a backoff: the replayed ack is
 // sent again, and a re-offered batch is answered from its cursor.
 

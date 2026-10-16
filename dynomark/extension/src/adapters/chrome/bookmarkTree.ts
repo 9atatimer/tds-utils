@@ -4,7 +4,7 @@
 // rule over one tree read; path-idempotence and the boundary are the use
 // cases'. Chrome has no separators. root_ids are read from folderType
 // (Chrome 134+), preferring the syncing copy where the profile keeps an
-// account and a local-only one (contract v1 README, "Write batches", Paths);
+// account and a local-only one (contract v2 README, "Write batches", Paths);
 // an older Chrome falls back to its fixed ids 1, 2 and 3. Every refusal
 // Chrome reports becomes BrowserRefused.
 

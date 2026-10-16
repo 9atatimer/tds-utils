@@ -1,4 +1,4 @@
-"""Every extension -> daemon request of contract v1 has a handler (contract/v1
+"""Every extension -> daemon request of contract v2 has a handler (contract/v2
 README, Envelope: "Every request X is answered by exactly one frame: X.result
 or error"; Message table). The wire union is enumerated from the daemon's
 own models, and every valid golden example of a request is served: answered
@@ -61,7 +61,7 @@ def test_every_request_of_the_wire_union_has_a_handler() -> None:
 def test_every_valid_request_example_is_served(path: Path) -> None:
     """Given a full writer connection with a tree, When a valid golden request
     arrives, Then it is answered with its result or a served error (never
-    invalid: nothing of contract v1 is left unserved)."""
+    invalid: nothing of contract v2 is left unserved)."""
     dispatcher, session = _dispatcher(), Session()
     dispatcher.handle(wire.hello(), session)
     dispatcher.handle(wire.tree_snapshot("t-0"), session)

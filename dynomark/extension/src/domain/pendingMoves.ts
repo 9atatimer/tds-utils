@@ -1,5 +1,5 @@
 // pendingMoves.ts -- the move reports sent and not yet answered
-// move.observed.result (contract v1, "Delivery and replay": a request with no
+// move.observed.result (contract v2, "Delivery and replay": a request with no
 // answer is re-sent after a reconnect, and busy and internal are retried,
 // with the same id and body). Kept so a worker that dies before the answer
 // leaves the report to the next, rather than losing the feedback. A move

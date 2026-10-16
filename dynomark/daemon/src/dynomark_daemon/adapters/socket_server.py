@@ -1,4 +1,4 @@
-"""The daemon's unix-socket server and its ``TransportPort`` (contract/v1
+"""The daemon's unix-socket server and its ``TransportPort`` (contract/v2
 README: Framing, Endpoint; Design: Security Considerations, "the daemon's
 unix socket is owner-only; no TCP port").
 
@@ -12,7 +12,7 @@ model call runs on it, so no connection waits on another's work.
 - The model pool: a request that waits on a model (``MODEL_REQUESTS``:
   ``ask``, ``search``, ``diff.propose``) is admitted on the lane, then runs
   on a pool thread while the connection's later frames are served; its
-  answer goes out when it is ready (contract v1: responses may arrive in any
+  answer goes out when it is ready (contract v2: responses may arrive in any
   order).
 
 The job loop runs on its own thread and calls ``notify`` when jobs moved;

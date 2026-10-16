@@ -17,7 +17,7 @@ const CITED = { identity: 'https://tokio.rs/tokio/tutorial', title: 'Tokio tutor
 function answers(r: RequestMessage): ResponseMessage | undefined {
   if (r.type === 'ask') {
     return {
-      v: 1,
+      v: 2,
       type: 'ask.result',
       re: r.id,
       answer: { text: 'See the tutorial.', citations: [CITED], external_urls: ['https://async.example/'] },
@@ -25,7 +25,7 @@ function answers(r: RequestMessage): ResponseMessage | undefined {
   }
   if (r.type === 'placement.explain') {
     return {
-      v: 1,
+      v: 2,
       type: 'placement.explain.result',
       re: r.id,
       reason: {

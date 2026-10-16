@@ -72,13 +72,13 @@ describe('FakeExtensionWorld service-worker restart', () => {
     const folder = await old.tree.createFolder('1', 'Dynomark');
     const heard: string[] = [];
     old.transport.onEvent((e) => heard.push(e.event_id));
-    const inFlight = old.transport.send({ v: 1, type: 'events.replay', id: 'req-1' });
+    const inFlight = old.transport.send({ v: 2, type: 'events.replay', id: 'req-1' });
     const next = world.restart();
     await expect(inFlight).rejects.toMatchObject({ reason: 'disconnected' });
     expect(await next.storage.loadCursor()).toEqual(CURSOR);
     expect(await next.tree.getNode(folder.id)).toMatchObject({ title: 'Dynomark' });
     expect(next.transport).not.toBe(old.transport);
-    await world.daemon().emit({ v: 1, type: 'diff.proposed', event_id: 'evt-1', diff: DIFF });
+    await world.daemon().emit({ v: 2, type: 'diff.proposed', event_id: 'evt-1', diff: DIFF });
     expect(heard).toEqual([]);
   });
 });

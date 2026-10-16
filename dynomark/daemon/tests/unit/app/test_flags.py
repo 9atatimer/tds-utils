@@ -1,5 +1,5 @@
 """Pin and lock an owned folder (DYNOMARK.DESIGN.md, glossary ``pinned`` and
-``locked``; Behaviors "Placement respects a lock"; contract/v1
+``locked``; Behaviors "Placement respects a lock"; contract/v2
 ``folder.flags.set``: addressed by node id, ``path`` a check, only the
 flags given change, idempotent on (node_id, flag values); a folder outside
 the owned roots is ``invalid``, an unknown node or a path mismatch

@@ -1,6 +1,6 @@
 // buildFrecency.ts -- Frecency for the LocalIndex (design glossary: identity
 // -> visit boost derived from browser history through HistoryPort). History
-// is asked by each identity the index holds, exactly (contract v1,
+// is asked by each identity the index holds, exactly (contract v2,
 // "Identity"): the extension never normalizes a URL.
 
 import { frecencyOf, type Frecency, type LocalIndex, type Visit } from '../domain/search.js';

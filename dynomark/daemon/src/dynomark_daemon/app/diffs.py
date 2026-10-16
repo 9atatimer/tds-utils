@@ -1,5 +1,5 @@
 """Use cases: a diff is proposed; a diff item is accepted (DYNOMARK.DESIGN.md,
-Behaviors and Interfaces; The daemon, "Diffs"; Goal 8; contract/v1
+Behaviors and Interfaces; The daemon, "Diffs"; Goal 8; contract/v2
 ``diff.propose``, ``diff.list``, ``diff.page``, ``diff.accept``).
 
 Nothing is applied until an item is accepted, and each acceptance is its

@@ -10,7 +10,7 @@ the bookmark tree until told to. An unknown key or a bad value is a
 
 Files: state ``$XDG_STATE_HOME/dynomark`` (default
 ``~/.local/state/dynomark``) holds the store, the log and the socket;
-``$DYNOMARK_SOCKET`` overrides the socket (contract/v1 README, Endpoint).
+``$DYNOMARK_SOCKET`` overrides the socket (contract/v2 README, Endpoint).
 Models are Ollama model names at ``$OLLAMA_HOST`` (default
 ``http://127.0.0.1:11434``); their ``Config`` ids are ``ollama:<name>``.
 """

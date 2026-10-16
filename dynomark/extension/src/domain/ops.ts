@@ -1,4 +1,4 @@
-// ops.ts -- what an operation finds already in the tree (contract v1 README,
+// ops.ts -- what an operation finds already in the tree (contract v2 README,
 // "Write batches", Operations): the existing child a create would duplicate,
 // which is both the path-idempotence test and the post-condition of a create
 // whose browser call may have happened before the worker died.

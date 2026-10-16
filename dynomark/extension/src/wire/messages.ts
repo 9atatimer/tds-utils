@@ -1,5 +1,5 @@
-// messages.ts -- zod schemas for every contract v1 message, one discriminated
-// union on `type`, split by direction (contract v1 README, "Envelope"):
+// messages.ts -- zod schemas for every contract v2 message, one discriminated
+// union on `type`, split by direction (contract v2 README, "Envelope"):
 // requests carry `id` (extension -> daemon), responses carry `re` and events
 // carry `event_id` (daemon -> extension). Every object is strict.
 
@@ -44,8 +44,8 @@ import {
 
 // --- Constants ---
 
-/** The contract version this build speaks (contract/v1/CONTRACT_VERSION). */
-export const CONTRACT_VERSION = 1;
+/** The contract version this build speaks (contract/v2/CONTRACT_VERSION). */
+export const CONTRACT_VERSION = 2;
 
 /** Non-frozen messages pin `v` to this build's version. */
 const V = z.literal(CONTRACT_VERSION);

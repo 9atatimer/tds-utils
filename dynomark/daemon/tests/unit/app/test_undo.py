@@ -3,7 +3,7 @@ Undo leaves a non-empty folder; and the undo half of A reader host never
 writes (DYNOMARK.DESIGN.md, Behaviors and Interfaces; The daemon, "Undo";
 Goal 6) -- ``undo(batch_id, role, *, store) -> WriteBatch or NotWriter``.
 
-Contract v1 pins the rest (Write batches: Undo guard; the idempotency
+Contract v2 pins the rest (Write batches: Undo guard; the idempotency
 table): the guard runs only against a tree snapshot received after the
 receipt (``busy`` before one); at most one inverse per batch; an
 all-dropped answer is not recorded. ``undo`` also takes OwnedRoots (the

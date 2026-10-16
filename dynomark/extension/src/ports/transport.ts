@@ -1,6 +1,6 @@
 // transport.ts -- the TransportPort: extension <-> daemon (design, seam table,
-// "Extension <-> daemon transport"; contract v1 README, "Envelope" and
-// "Endpoint"). Frames are contract v1 messages already validated by the
+// "Extension <-> daemon transport"; contract v2 README, "Envelope" and
+// "Endpoint"). Frames are contract v2 messages already validated by the
 // adapter; framing, sockets and native messaging stay behind the port.
 
 import type { ErrorMessage, EventMessage, RequestMessage, ResultOf } from '../wire/messages.js';

@@ -13,18 +13,18 @@ describeTransportContract('FakeTransport', () => {
 describe('FakeTransport', () => {
   it('Given an auto-answering daemon, When a request is re-sent after a drop, Then both frames are recorded under one id', async () => {
     const transport = new FakeTransport();
-    const first = transport.send({ v: 1, type: 'events.replay', id: 'req-1' });
+    const first = transport.send({ v: 2, type: 'events.replay', id: 'req-1' });
     await transport.daemon.drop('disconnected');
     await expect(first).rejects.toMatchObject({ reason: 'disconnected' });
-    transport.autoAnswer((req) => ({ v: 1, type: 'events.replay.result', re: req.id, count: 0 }));
-    await transport.send({ v: 1, type: 'events.replay', id: 'req-1' });
+    transport.autoAnswer((req) => ({ v: 2, type: 'events.replay.result', re: req.id, count: 0 }));
+    await transport.send({ v: 2, type: 'events.replay', id: 'req-1' });
     expect(transport.sent.map((r) => r.id)).toEqual(['req-1', 'req-1']);
     expect(transport.connections).toBe(2);
   });
 
   it('Given a request already in flight, When the same id is sent again on the same connection, Then the fake throws (a caller bug)', () => {
     const transport = new FakeTransport();
-    void transport.send({ v: 1, type: 'status', id: 'req-1' });
-    expect(() => transport.send({ v: 1, type: 'status', id: 'req-1' })).toThrow(/in flight/);
+    void transport.send({ v: 2, type: 'status', id: 'req-1' });
+    expect(() => transport.send({ v: 2, type: 'status', id: 'req-1' })).toThrow(/in flight/);
   });
 });

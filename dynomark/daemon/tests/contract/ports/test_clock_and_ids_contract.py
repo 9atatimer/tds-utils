@@ -2,7 +2,7 @@
 
 Design: Behaviors are deterministic under fakes (testing skill: "never
 sleep, use fake clocks"); ids are contract ``Id``s, unique in the store
-(contract/v1/README.md, Envelope: "event_id ... unique in the daemon's
+(contract/v2/README.md, Envelope: "event_id ... unique in the daemon's
 store, never reused").
 """
 

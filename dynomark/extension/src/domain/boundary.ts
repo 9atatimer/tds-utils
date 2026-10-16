@@ -1,5 +1,5 @@
 // boundary.ts -- which batches the extension admits (design Goal 8, "Ownership
-// boundary"; contract v1 README, "Write batches", Boundary). Checked once,
+// boundary"; contract v2 README, "Write batches", Boundary). Checked once,
 // before the first op, against the snapshot read at the start of the attempt.
 // OwnedRoots is a value passed in, never a literal here.
 

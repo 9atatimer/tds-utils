@@ -46,8 +46,8 @@ const CORPUS_HIT = {
 };
 
 function answers(r: RequestMessage): ResponseMessage | undefined {
-  if (r.type === 'index.pull') return { v: 1, type: 'index.pull.result', re: r.id, rows: ROWS, next_cursor: null };
-  if (r.type === 'search') return { v: 1, type: 'search.result', re: r.id, hits: [CORPUS_HIT], next_cursor: null };
+  if (r.type === 'index.pull') return { v: 2, type: 'index.pull.result', re: r.id, rows: ROWS, next_cursor: null };
+  if (r.type === 'search') return { v: 2, type: 'search.result', re: r.id, hits: [CORPUS_HIT], next_cursor: null };
   return undefined;
 }
 
@@ -115,7 +115,7 @@ describe('Omnibox bm -- tier 1 per keystroke, tier 2 after the debounce', () => 
       summary: '',
     }));
     scriptDaemon(w, {}, (r) =>
-      r.type === 'index.pull' ? { v: 1, type: 'index.pull.result', re: r.id, rows: weak, next_cursor: null } : answers(r),
+      r.type === 'index.pull' ? { v: 2, type: 'index.pull.result', re: r.id, rows: weak, next_cursor: null } : answers(r),
     );
     const runtime = await startRuntime(w);
     const rounds = type(runtime, 'pin');
@@ -226,7 +226,7 @@ describe('Omnibox bm -- Enter navigates to the hit identity', () => {
     const w = new FakeExtensionWorld({ flavor: 'chrome' });
     scriptDaemon(w, {}, (r) =>
       r.type === 'search'
-        ? { v: 1, type: 'search.result', re: r.id, hits: [{ ...CORPUS_HIT, identity: 'javascript:alert(1)' }], next_cursor: null }
+        ? { v: 2, type: 'search.result', re: r.id, hits: [{ ...CORPUS_HIT, identity: 'javascript:alert(1)' }], next_cursor: null }
         : answers(r),
     );
     const runtime = await startRuntime(w);

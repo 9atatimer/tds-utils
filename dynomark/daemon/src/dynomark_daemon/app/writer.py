@@ -1,5 +1,5 @@
 """Use cases: the writer keeps its marker; the writer's standing
-(DYNOMARK.DESIGN.md, Key Decisions "Two writers"; contract/v1 README,
+(DYNOMARK.DESIGN.md, Key Decisions "Two writers"; contract/v2 README,
 Writer marker and ``writer.status``).
 
 The marker is created by an ordinary batch, offered on a writer connection

@@ -60,7 +60,7 @@ def test_readable_survives_unbalanced_markup() -> None:
 
 def test_readable_caps_the_text_at_the_capture_limit() -> None:
     """Given a page whose text exceeds Capture.text's cap, When extracted, Then
-    the text is cut to MAX_TEXT code points (contract v1, Size limits)."""
+    the text is cut to MAX_TEXT code points (contract v2, Size limits)."""
     page = readable("<p>" + "é" * (MAX_TEXT + 10) + "</p>")
 
     assert len(page.text) == MAX_TEXT == 1_048_576

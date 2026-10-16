@@ -1,6 +1,6 @@
 """The daemon's Config from TOML (DYNOMARK.DESIGN.md, Ubiquitous language:
 "Config -- HostRole, model ids, store path, RetryPolicy"; The daemon,
-"Config -- loaded once by the composition root"; contract/v1 README,
+"Config -- loaded once by the composition root"; contract/v2 README,
 Endpoint: the socket path). Parsing is pure: the TOML text is an input.
 
 A missing file gives documented defaults with role reader, so a fresh

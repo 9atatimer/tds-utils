@@ -1,8 +1,8 @@
 """``dynomark-host``: the native-messaging host ``tds.dynomark``.
 
 The browser starts it with the extension's origin as an argument and talks
-contract v1 frames on its stdio. It connects to the daemon's socket and
-copies bytes both ways unchanged, never parsing them (contract/v1 README,
+contract v2 frames on its stdio. It connects to the daemon's socket and
+copies bytes both ways unchanged, never parsing them (contract/v2 README,
 Framing), until either side closes. When no daemon answers, it reads the
 first frame and answers it with one ``error`` ``busy`` (retry later), so
 the extension never waits on a pipe to nothing.

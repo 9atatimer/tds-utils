@@ -1,4 +1,4 @@
-"""Use case: a tree snapshot is recorded (contract/v1 README, Connection
+"""Use case: a tree snapshot is recorded (contract/v2 README, Connection
 lifecycle: the extension sends ``tree.snapshot`` after every hello, after
 every receipt result, and after owned-root changes).
 

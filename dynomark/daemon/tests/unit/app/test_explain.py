@@ -1,7 +1,7 @@
 """Behaviors row: A placement is explained (DYNOMARK.DESIGN.md, Behaviors and
 Interfaces) -- ``explain_placement(identity, *, store)``: "Given a filed
 entry, When explained, Then the reason names the folder, neighbours and
-feedback used". Contract v1 ``placement.explain`` names the entry by
+feedback used". Contract v2 ``placement.explain`` names the entry by
 identity or by raw url; an entry with no placement is ``not_found``.
 """
 

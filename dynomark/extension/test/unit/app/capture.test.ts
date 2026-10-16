@@ -2,7 +2,7 @@
 // tab": capture(bookmark, *, content) -> Capture. Given a tab showing the URL,
 // When captured, Then source is tab and text is non-empty; otherwise the
 // request carries source none. Security: non-http(s) URLs are never captured.
-// Contract v1 "Size limits" and "Framing": text and title are cut at a code
+// Contract v2 "Size limits" and "Framing": text and title are cut at a code
 // point boundary and made well-formed before they can reach the wire.
 // Background-tab capture (design, Future Considerations, MVP; task-031): when
 // the chain has a background adapter, a URL no tab shows is opened in a

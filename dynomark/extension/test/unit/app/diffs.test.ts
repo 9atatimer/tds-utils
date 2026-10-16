@@ -1,7 +1,7 @@
 // diffs.test.ts -- the extension half of TreeDiffs (design, Behaviors rows "A
 // diff is proposed", "A diff item is accepted", "An audit item may cross the
 // boundary"; Non-Goals: audit is suggest-only, one accepted item at a time;
-// contract v1, "Connection lifecycle" step 6: tree.snapshot immediately
+// contract v2, "Connection lifecycle" step 6: tree.snapshot immediately
 // before every diff.propose, awaiting its result, so an audit compares
 // against the current bar). The diff view lists diffs and their items,
 // proposes, accepts one item at a time, and sets pin/lock flags.
@@ -42,20 +42,20 @@ const FOLDER: OutlineFolder = {
 function daemon(r: RequestMessage): ResponseMessage {
   switch (r.type) {
     case 'tree.snapshot':
-      return { v: 1, type: 'tree.snapshot.result', re: r.id };
+      return { v: 2, type: 'tree.snapshot.result', re: r.id };
     case 'diff.propose':
-      return { v: 1, type: 'diff.propose.result', re: r.id, diff: { ...DIFF, kind: r.kind } };
+      return { v: 2, type: 'diff.propose.result', re: r.id, diff: { ...DIFF, kind: r.kind } };
     case 'diff.list':
-      return { v: 1, type: 'diff.list.result', re: r.id, diffs: [DIFF], next_cursor: r.cursor === undefined ? 'p2' : null };
+      return { v: 2, type: 'diff.list.result', re: r.id, diffs: [DIFF], next_cursor: r.cursor === undefined ? 'p2' : null };
     case 'diff.page':
-      return { v: 1, type: 'diff.page.result', re: r.id, diff: DIFF, items: [ITEM], next_cursor: null };
+      return { v: 2, type: 'diff.page.result', re: r.id, diff: DIFF, items: [ITEM], next_cursor: null };
     case 'diff.accept':
-      return { v: 1, type: 'diff.accept.result', re: r.id, item_id: r.item_id, accepted_at: 1_790_000_125_000, batch_id: 'batch-104' };
+      return { v: 2, type: 'diff.accept.result', re: r.id, item_id: r.item_id, accepted_at: 1_790_000_125_000, batch_id: 'batch-104' };
     case 'outline.get':
-      return { v: 1, type: 'outline.get.result', re: r.id, outline: [FOLDER], next_cursor: null };
+      return { v: 2, type: 'outline.get.result', re: r.id, outline: [FOLDER], next_cursor: null };
     case 'folder.flags.set':
       return {
-        v: 1,
+        v: 2,
         type: 'folder.flags.set.result',
         re: r.id,
         folder: { ...FOLDER, pinned: r.pinned ?? FOLDER.pinned, locked: r.locked ?? FOLDER.locked },
@@ -152,7 +152,7 @@ function outlineDaemon(dynomark: string): { answer: (r: RequestMessage) => Respo
     answer: (r) => {
       if (r.type === 'tree.snapshot') {
         latest = r.snapshot;
-        return { v: 1, type: 'tree.snapshot.result', re: r.id };
+        return { v: 2, type: 'tree.snapshot.result', re: r.id };
       }
       if (r.type !== 'outline.get') return daemon(r);
       const folders = (latest?.nodes ?? []).filter((n) => n.kind === 'folder' && n.parent_id === dynomark);
@@ -163,7 +163,7 @@ function outlineDaemon(dynomark: string): { answer: (r: RequestMessage) => Respo
         locked: false,
         item_count: 0,
       }));
-      return { v: 1, type: 'outline.get.result', re: r.id, outline, next_cursor: r.cursor === undefined ? 'p2' : null };
+      return { v: 2, type: 'outline.get.result', re: r.id, outline, next_cursor: r.cursor === undefined ? 'p2' : null };
     },
   };
 }

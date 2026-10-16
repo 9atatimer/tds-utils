@@ -1,5 +1,5 @@
 """Identity normalization (DYNOMARK.DESIGN.md, Ubiquitous language: "Identity
--- the normalized URL. Normalized on the daemon only"; contract/v1 README,
+-- the normalized URL. Normalized on the daemon only"; contract/v2 README,
 Identity: "an absolute URL the browser can navigate to that reaches the same
 resource as the raw URLs it stands for; normalization only removes
 equivalent variants").

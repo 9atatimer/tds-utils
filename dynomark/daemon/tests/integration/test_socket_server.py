@@ -1,4 +1,4 @@
-"""The daemon's unix-socket transport (contract/v1/README.md: Framing,
+"""The daemon's unix-socket transport (contract/v2/README.md: Framing,
 Endpoint, Connection lifecycle, Envelope; Design: Security Considerations,
 "Transport exposure -- the daemon's unix socket is owner-only; no TCP
 port"). Real sockets in a temp directory; a fake-backed dispatcher.
@@ -79,7 +79,7 @@ def _requests() -> list[dict[str, object]]:
 def test_every_request_of_the_contract_is_answered_exactly_once(
     tmp_path: Path,
 ) -> None:
-    """Given a full connection, When every valid example request of contract v1
+    """Given a full connection, When every valid example request of contract v2
     is sent, Then each gets exactly one answer with its id: its result type or
     an error of the closed code set."""
     path = _socket(tmp_path)
@@ -285,7 +285,7 @@ def test_a_slow_model_call_does_not_stall_other_connections_or_later_requests(
     """Given a model-backed request whose model call is still running, When
     another profile's connection and the same connection send requests, Then
     both are answered before it returns, and it is answered by its id once
-    the model does (contract v1: responses may arrive in any order)."""
+    the model does (contract v2: responses may arrive in any order)."""
     path = _socket(tmp_path)
     gate = _Gate()
     server = build_server(
@@ -315,7 +315,7 @@ def test_a_slow_model_call_does_not_stall_other_connections_or_later_requests(
     assert answer["type"] == f"{kind}.result"
 
 
-# --- A batch over the 1 MiB frame limit fails its job (contract v1, Size limits) ---
+# --- A batch over the 1 MiB frame limit fails its job (contract v2, Size limits) ---
 
 
 def test_a_batch_that_cannot_fit_a_frame_is_not_offered_and_its_job_fails(

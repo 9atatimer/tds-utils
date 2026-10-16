@@ -60,7 +60,7 @@ export class FakeTransport implements TransportPort, TransportLink {
     if (this.noDaemon) {
       // dynomark-host's answer_unavailable: the first frame is answered busy, then the host exits.
       if (fresh) {
-        this.answer({ v: 1, type: 'error', re: request.id, code: 'busy', message: NO_DAEMON });
+        this.answer({ v: 2, type: 'error', re: request.id, code: 'busy', message: NO_DAEMON });
         void Promise.resolve().then(() => this.drop('disconnected'));
       }
       return reply as Promise<ResultOf<R['type']> | ErrorMessage>;

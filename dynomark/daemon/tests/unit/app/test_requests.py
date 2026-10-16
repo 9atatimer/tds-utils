@@ -1,4 +1,4 @@
-"""Request-id memory (contract/v1 README, Envelope: "The daemon remembers a
+"""Request-id memory (contract/v2 README, Envelope: "The daemon remembers a
 diff.propose id for as long as it keeps the diff; a known diff.propose id
 arriving with a different body is answered error invalid"; the idempotency
 table: diff.propose is keyed on the request id). Transport contract,

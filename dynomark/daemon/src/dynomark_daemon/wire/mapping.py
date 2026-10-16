@@ -1,4 +1,4 @@
-"""Wire <-> domain mapping for contract v1.
+"""Wire <-> domain mapping for contract v2.
 
 The only place that knows both a wire model and a domain value. Inbound
 (extension -> daemon) values map ``*_from_wire``; outbound ones
@@ -440,7 +440,7 @@ _WIRE_DROP_REASON: Final[dict[UndoDropReason, w.UndoDropReason]] = {
 
 
 def undo_drop_to_wire(drop: UndoDrop) -> w.UndoDrop:
-    """Contract v1's UndoDropReason has no ``locked`` and no ``owned_root``,
+    """Contract v2's UndoDropReason has no ``locked`` and no ``owned_root``,
     until a contract version carries them: a step dropped because the user
     locked its folder since is reported ``node_moved`` (the user changed the
     node after the batch left it); the kept removal of an owned root the

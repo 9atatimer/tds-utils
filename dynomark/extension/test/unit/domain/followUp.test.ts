@@ -1,7 +1,7 @@
 // followUp.test.ts -- which folder is Follow Up (design, "The extension",
 // Watch Follow Up: zero folders named Follow Up at startup -> create one
 // under the bookmarks bar; more than one -> use the one under the bookmarks
-// bar and report the others; contract v1 README, "Connection lifecycle",
+// bar and report the others; contract v2 README, "Connection lifecycle",
 // step 1). The rule is pure over a tree read.
 
 import { describe, expect, it } from 'vitest';

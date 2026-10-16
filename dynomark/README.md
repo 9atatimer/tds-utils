@@ -16,7 +16,7 @@ is ever hard-deleted: removals go to `Graveyard`. The design is
 
 ```
 dynomark/
-+-- contract/   the transport contract: v1/ schema, examples, README;
++-- contract/   the transport contract: v2/ schema, examples, README;
 |               check.py self-check (stdlib only). Both runtimes build
 |               against it; nothing else is shared between them.
 +-- daemon/     the Python daemon: store, models, capture, placement,

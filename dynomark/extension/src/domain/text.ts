@@ -1,4 +1,4 @@
-// text.ts -- well-formed strings (contract v1 README, "Framing"). Browser data
+// text.ts -- well-formed strings (contract v2 README, "Framing"). Browser data
 // can hold lone UTF-16 surrogates (a title cut mid-emoji); nothing leaves the
 // extension, and no title is compared, until it is well-formed.
 

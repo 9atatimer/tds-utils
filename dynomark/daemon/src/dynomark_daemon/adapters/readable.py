@@ -13,7 +13,7 @@ from html.parser import HTMLParser
 from typing import Final
 
 MAX_TEXT: Final = 1_048_576
-"""``Capture.text``'s cap in code points (contract v1, Size limits)."""
+"""``Capture.text``'s cap in code points (contract v2, Size limits)."""
 
 SKIPPED: Final = frozenset(
     {

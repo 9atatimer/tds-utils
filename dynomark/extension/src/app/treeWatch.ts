@@ -1,5 +1,5 @@
 // treeWatch.ts -- what each bookmark event means (design, "The extension":
-// Watch Follow Up, Capture from the open tab, Record feedback; contract v1
+// Watch Follow Up, Capture from the open tab, Record feedback; contract v2
 // README, "Connection lifecycle", steps 5 and 6). A bookmark created in, or
 // moved into, Follow Up is captured and ingested; a move is reported as
 // move.observed when both ends are owned (one seen with no full session is
@@ -71,7 +71,7 @@ export interface TreeWatchContext {
 
 // --- Predicates ---
 
-/** The link was lost (a daemon stopped or restarting): the next hello sends tree.snapshot anyway (contract v1, step 6). */
+/** The link was lost (a daemon stopped or restarting): the next hello sends tree.snapshot anyway (contract v2, step 6). */
 function isLostLink(error: unknown): boolean {
   return error instanceof TransportLost && error.reason === 'disconnected';
 }

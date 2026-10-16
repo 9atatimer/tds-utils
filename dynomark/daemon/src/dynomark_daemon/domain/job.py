@@ -181,7 +181,7 @@ def is_duplicate(
     job: Job, filed: Iterable[Job], tree: Snapshot | None, *, graveyard: FolderPath
 ) -> bool:
     """``job``'s identity is already filed: another job of it is FILED and its
-    node is present in the latest tree outside ``graveyard`` (contract v1,
+    node is present in the latest tree outside ``graveyard`` (contract v2,
     Jobs: Duplicate identity). A duplicate parked in ``graveyard`` is FILED by
     its parking batch, yet never makes a later save a duplicate (issue
     #414)."""

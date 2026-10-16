@@ -1,4 +1,4 @@
-"""Hypothesis strategies for domain values that fit contract v1's caps.
+"""Hypothesis strategies for domain values that fit contract v2's caps.
 
 Test support only (imports hypothesis, a dev dependency); never imported by
 production code. Values stay inside the wire caps so that a mapping

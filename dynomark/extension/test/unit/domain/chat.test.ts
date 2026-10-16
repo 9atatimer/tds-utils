@@ -1,5 +1,5 @@
 // chat.test.ts -- the conversation the chat page keeps and sends as history
-// (design, "Turn / Question / Answer / Citation"; contract v1, "Size limits":
+// (design, "Turn / Question / Answer / Citation"; contract v2, "Size limits":
 // ask.question 1 to 8,192 code points, history at most 50 turns, an answer
 // text at most 65,536).
 

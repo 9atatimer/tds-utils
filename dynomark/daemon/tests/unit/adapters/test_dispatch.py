@@ -1,6 +1,6 @@
 """The transport adapter's request side: one frame body in, one answer out.
 
-contract/v1/README.md: Connection lifecycle (hello first, admission order,
+contract/v2/README.md: Connection lifecycle (hello first, admission order,
 mode), Envelope ("Every request X is answered by exactly one frame"),
 Delivery and replay (events, offers only after a tree.snapshot on the
 connection), Roles and errors (the closed code set), Size limits (no frame
@@ -89,7 +89,7 @@ class Harness:
             self.dispatcher.deliver(self.session)
         return outcome.reply
 
-    def hello(self, *, v: int = 1) -> m.AnyMessage:
+    def hello(self, *, v: int = 2) -> m.AnyMessage:
         return self.send(wire.hello(v=v))
 
     def ingest(self, request_id: str = "i-1") -> m.AnyMessage:
@@ -137,13 +137,28 @@ def test_hello_answers_role_mode_and_owned_roots_and_registers() -> None:
     assert (harness.session.profile_id, harness.session.mode) == (A, HelloMode.FULL)
 
 
+def test_a_v1_hello_is_refused_at_this_daemons_version() -> None:
+    """Given a writer daemon, When a v1 extension (the version before this
+    one) says hello, Then it is answered refused, at the daemon's version, and
+    its next request version_mismatch; the store stays unbound."""
+    harness = Harness()
+
+    reply = harness.hello(v=1)
+    status = harness.send(wire.body("status", "s-1"))
+
+    assert isinstance(reply, m.HelloResult)
+    assert (reply.v, reply.mode, reply.role) == (2, "refused", "reader")
+    assert _error(status) == ("s-1", "version_mismatch")
+    assert harness.store.writer_profile() is None
+
+
 def test_a_second_hello_is_answered_and_changes_nothing() -> None:
     """Given a full connection, When hello arrives again with a newer version,
     Then it is answered and the connection keeps its mode."""
     harness = Harness()
     harness.hello()
 
-    outcome = harness.dispatcher.handle(wire.hello("h-2", v=2), harness.session)
+    outcome = harness.dispatcher.handle(wire.hello("h-2", v=3), harness.session)
 
     assert isinstance(outcome.reply, m.HelloResult) and not outcome.register
     assert harness.session.mode is HelloMode.FULL
@@ -156,7 +171,7 @@ def test_a_second_hello_answers_the_first_standing_and_writes_nothing() -> None:
     the first Follow Up), the store stays unbound and the profile keeps its
     Follow Up."""
     harness = Harness()
-    harness.hello(v=2)
+    harness.hello(v=3)
     again = json.loads(wire.hello("h-2"))
     again["follow_up"] = {"root": "bar", "names": ["Elsewhere"]}
 
@@ -175,12 +190,12 @@ def test_a_second_hello_answers_the_first_standing_and_writes_nothing() -> None:
 
 
 def test_a_non_frozen_message_of_another_version_is_a_version_mismatch() -> None:
-    """Given a full connection, When a status request says v 2, Then it is
+    """Given a full connection, When a status request says v 1 (a v1 peer), Then it is
     answered version_mismatch before the schema runs."""
     harness = Harness()
     harness.hello()
 
-    reply = harness.send(json.dumps({"v": 2, "type": "status", "id": "s-2"}).encode())
+    reply = harness.send(json.dumps({"v": 1, "type": "status", "id": "s-2"}).encode())
 
     assert _error(reply) == ("s-2", "version_mismatch")
 
@@ -189,7 +204,7 @@ def test_a_read_only_connection_searches_but_does_not_ingest() -> None:
     """Given an extension newer than the daemon (read_only), When it searches
     and then ingests, Then the search is served and the ingest refused."""
     harness = Harness()
-    harness.hello(v=2)
+    harness.hello(v=3)
 
     searched = harness.send(wire.body("search", "q-1", query="tokio"))
     ingested = harness.ingest("i-9")
@@ -227,7 +242,7 @@ def test_a_response_sent_by_the_extension_is_invalid() -> None:
     harness.hello()
 
     reply = harness.send(
-        json.dumps({"v": 1, "type": "events.ack.result", "re": "x"}).encode()
+        json.dumps({"v": 2, "type": "events.ack.result", "re": "x"}).encode()
     )
 
     assert _error(reply) == (None, "invalid")
@@ -410,7 +425,7 @@ def test_events_go_only_to_the_connection_whose_standing_chose_them() -> None:
     harness.send(wire.tree_snapshot("t-1"))
     newer = RecordingTransport()
     later = Session(transport=newer)
-    harness.dispatcher.handle(wire.hello("h-2", v=2), later)
+    harness.dispatcher.handle(wire.hello("h-2", v=3), later)
     harness.ingest()
     _placed_job(harness)
 
@@ -480,7 +495,7 @@ def test_ask_is_answered_with_citations_on_a_read_only_connection() -> None:
     )
     harness = Harness(completion=completion)
     harness.store.put_entry(make_entry(url, text="tokio cancellation"))
-    harness.hello(v=2)
+    harness.hello(v=3)
 
     reply = harness.send(
         wire.body(

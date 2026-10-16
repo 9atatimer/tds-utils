@@ -1,5 +1,5 @@
 // nativeTransport.test.ts -- the TransportPort on chrome.runtime.connectNative
-// (contract v1 README, "Endpoint": host name tds.dynomark) runs the port
+// (contract v2 README, "Endpoint": host name tds.dynomark) runs the port
 // contract over a tiny stand-in for native messaging; frames from the daemon
 // are validated against the contract schema before anything sees them, and
 // the link's state is observable for reconnection and the settings page.
@@ -19,7 +19,7 @@ describeTransportContract('NativeMessagingTransport (stubbed connectNative)', ()
 
 // --- Builders ---
 
-const STATUS = { v: 1 as const, type: 'status' as const };
+const STATUS = { v: 2 as const, type: 'status' as const };
 
 function setup(options: { readonly hostName?: string } = {}) {
   const stub = new NativeMessagingStub();
@@ -75,9 +75,9 @@ describe('NativeMessagingTransport', () => {
     const good = transport.send({ ...STATUS, id: 'req-2' });
     await stub.daemon.nextRequest();
     await stub.daemon.nextRequest();
-    stub.deliver({ v: 1, type: 'status.result', re: 'req-1', role: 'boss' });
+    stub.deliver({ v: 2, type: 'status.result', re: 'req-1', role: 'boss' });
     await expect(bad).rejects.toBeInstanceOf(InvalidFrame);
-    stub.deliver({ v: 1, type: 'events.replay.result', re: 'req-2', count: 0 });
+    stub.deliver({ v: 2, type: 'events.replay.result', re: 'req-2', count: 0 });
     expect(await good).toMatchObject({ re: 'req-2' });
     expect(transport.linkState()).toEqual({ state: 'connected' });
   });
@@ -88,10 +88,10 @@ describe('NativeMessagingTransport', () => {
     transport.onEvent((e) => seen.push(e));
     void transport.send({ ...STATUS, id: 'req-1' });
     await stub.daemon.nextRequest();
-    stub.deliver({ v: 1, type: 'job.updated', event_id: 'evt-1', job: { job_id: 'j' } });
-    stub.deliver({ v: 1, type: 'status', id: 'req-9' });
+    stub.deliver({ v: 2, type: 'job.updated', event_id: 'evt-1', job: { job_id: 'j' } });
+    stub.deliver({ v: 2, type: 'status', id: 'req-9' });
     stub.deliver({
-      v: 1,
+      v: 2,
       type: 'diff.proposed',
       event_id: 'evt-2',
       diff: { diff_id: 'd', kind: 'audit', proposed_at: 1, item_count: 1, unaccepted_count: 1 },
@@ -103,8 +103,8 @@ describe('NativeMessagingTransport', () => {
     const { stub, transport } = setup();
     const reply = transport.send({ ...STATUS, id: 'req-1' });
     await stub.daemon.nextRequest();
-    stub.deliver({ v: 1, type: 'events.replay.result', re: 'req-unknown', count: 0 });
-    stub.deliver({ v: 1, type: 'events.replay.result', re: 'req-1', count: 0 });
+    stub.deliver({ v: 2, type: 'events.replay.result', re: 'req-unknown', count: 0 });
+    stub.deliver({ v: 2, type: 'events.replay.result', re: 'req-1', count: 0 });
     expect(await reply).toMatchObject({ re: 'req-1' });
   });
 

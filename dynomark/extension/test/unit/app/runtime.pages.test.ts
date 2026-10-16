@@ -29,7 +29,7 @@ function answers(r: RequestMessage): ResponseMessage | undefined {
   switch (r.type) {
     case 'batch.list':
       return {
-        v: 1,
+        v: 2,
         type: 'batch.list.result',
         re: r.id,
         batches: [{ batch_id: 'batch-1', state: 'APPLIED', created_at: 5, identity: 'https://tokio.rs/' }],
@@ -37,12 +37,12 @@ function answers(r: RequestMessage): ResponseMessage | undefined {
       };
     case 'undo':
       return r.batch_id === 'batch-1'
-        ? { v: 1, type: 'undo.result', re: r.id, batch_id: 'batch-2', undoes: 'batch-1', dropped: [] }
-        : { v: 1, type: 'error', re: r.id, code: 'not_found', message: 'no such batch' };
+        ? { v: 2, type: 'undo.result', re: r.id, batch_id: 'batch-2', undoes: 'batch-1', dropped: [] }
+        : { v: 2, type: 'error', re: r.id, code: 'not_found', message: 'no such batch' };
     case 'job.list':
-      return { v: 1, type: 'job.list.result', re: r.id, jobs: [FAILED_JOB], next_cursor: null };
+      return { v: 2, type: 'job.list.result', re: r.id, jobs: [FAILED_JOB], next_cursor: null };
     case 'job.retry':
-      return { v: 1, type: 'job.retry.result', re: r.id, job: { ...FAILED_JOB, state: 'QUEUED', seq: 5 } };
+      return { v: 2, type: 'job.retry.result', re: r.id, job: { ...FAILED_JOB, state: 'QUEUED', seq: 5 } };
     default:
       return undefined;
   }

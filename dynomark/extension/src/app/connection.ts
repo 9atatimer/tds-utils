@@ -1,4 +1,4 @@
-// connection.ts -- the connection lifecycle on the extension side (contract v1
+// connection.ts -- the connection lifecycle on the extension side (contract v2
 // README, "Connection lifecycle", "Delivery and replay", "Roles and errors").
 //
 // A Connection is the TransportPort every other use case is handed. It says

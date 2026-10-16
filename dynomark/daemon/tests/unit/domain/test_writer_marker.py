@@ -1,5 +1,5 @@
 """The writer marker (DYNOMARK.DESIGN.md, Key Decisions "Two writers", MVP
-half: "refuse on a writer marker in the owned tree"; contract/v1 README,
+half: "refuse on a writer marker in the owned tree"; contract/v2 README,
 Writer marker: an empty folder titled exactly ``dynomark-writer:<host_id>``
 directly in ``owned_roots.dynomark``, created by an ordinary batch; marker
 folders are excluded from the outline and from placement).

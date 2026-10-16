@@ -1,5 +1,5 @@
 """Use cases: the handshake and the daemon's status (DYNOMARK.DESIGN.md,
-Transport contract, "Identity and version"; Goal 7; contract/v1 README,
+Transport contract, "Identity and version"; Goal 7; contract/v2 README,
 Connection lifecycle and the ``status`` message).
 """
 

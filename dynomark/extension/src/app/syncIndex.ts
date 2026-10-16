@@ -1,7 +1,7 @@
 // syncIndex.ts -- use case "The local index is synced" (design, Behaviors and
 // Interfaces): sync_index(*, transport) -> LocalIndex. Pulls every page of
 // the daemon's LocalIndex from the first, and swaps it into storage only
-// when the last page arrives (contract v1, "Index freshness", "Pagination").
+// when the last page arrives (contract v2, "Index freshness", "Pagination").
 
 import { toLocalIndex, type LocalIndex, type LocalIndexRow } from '../domain/search.js';
 import type { Cursor } from '../domain/values.js';

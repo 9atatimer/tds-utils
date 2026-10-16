@@ -6,7 +6,7 @@ writer, from a background tab when no tab shows it), applies the daemon's
 write batches to the native bookmark tree, and serves the `bm` omnibox
 keyword. MVP pages: the chat surface, the diff view, and the writer-marker
 status and backfill on the settings page. It talks to the daemon only
-through native messaging (host `tds.dynomark`, contract `../contract/v1/`).
+through native messaging (host `tds.dynomark`, contract `../contract/v2/`).
 
 ## Extension id
 
@@ -118,7 +118,7 @@ keyboard command is covered by unit tests only.
 | Path                                                    | Layer                                                                                  |
 | ------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `src/domain/`                                           | rules and values; imports nothing else                                                 |
-| `src/wire/`                                             | zod schemas of contract v1                                                             |
+| `src/wire/`                                             | zod schemas of contract v2                                                             |
 | `src/ports/`                                            | seams: tree, history, content, storage, transport, clock, ids, timer, navigator, pages |
 | `src/app/`                                              | use cases and the background workflow (`runtime.ts`)                                   |
 | `src/adapters/`                                         | chrome.* adapters (the only code that names a browser API)                             |

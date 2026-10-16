@@ -1,7 +1,7 @@
 // applyBatch.ts -- use case "A batch is applied" (design, Behaviors and
 // Interfaces): apply_batch(batch, *, tree) -> BatchReceipt. Reads the tree
 // first (the receipt's snapshot), then runs the operations in order through
-// BookmarkTreePort (contract v1 README, "Write batches").
+// BookmarkTreePort (contract v2 README, "Write batches").
 //
 // Beyond the design's signature, the use case takes the connection's
 // `hello.result` values it cannot apply without (the owned roots, whose
@@ -115,7 +115,7 @@ async function decideCreate(
   return existing === undefined ? { kind: 'run', target } : { kind: 'noop', node_id: existing.id };
 }
 
-/** Already there: a no-op, expect unread. Else every expect clause, then the target (contract v1, Preconditions). */
+/** Already there: a no-op, expect unread. Else every expect clause, then the target (contract v2, Preconditions). */
 async function decideMove(op: OpMove | OpRemove, target: NodeId | undefined, tree: BookmarkTreePort): Promise<Decision> {
   const node = await tree.getNode(op.node_id);
   if (node === undefined) return { kind: 'skip', reason: 'node_missing' };
@@ -132,7 +132,7 @@ async function decideMove(op: OpMove | OpRemove, target: NodeId | undefined, tre
   return target === undefined ? { kind: 'fail' } : { kind: 'run', target };
 }
 
-/** Decide an op without touching the tree (contract v1, Cursor and resume, step 1). */
+/** Decide an op without touching the tree (contract v2, Cursor and resume, step 1). */
 async function decide(op: Operation, context: BatchContext, tree: BookmarkTreePort): Promise<Decision> {
   const target = await tree.resolveFolder(targetOf(op, context.owned_roots));
   return op.op === 'create_folder' || op.op === 'create' ? decideCreate(op, target, tree) : decideMove(op, target, tree);

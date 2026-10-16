@@ -1,6 +1,6 @@
 """Use case: an owned folder is pinned or locked (DYNOMARK.DESIGN.md, glossary
 ``pinned`` and ``locked``; Behaviors "Placement respects a lock";
-contract/v1 ``folder.flags.set``).
+contract/v2 ``folder.flags.set``).
 
 The request names a folder by this host's node id; the flags are kept by
 the folder's path, which every writer's tree resolves alike, so a writer

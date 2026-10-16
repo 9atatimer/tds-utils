@@ -1,4 +1,4 @@
-"""Frames on both hops (contract/v1/README.md, Framing): a uint32
+"""Frames on both hops (contract/v2/README.md, Framing): a uint32
 little-endian length, then that many bytes of JSON; length 0 is invalid;
 limits are on the body (32 MiB inbound, 1 MiB outbound); a length over the
 limit closes the connection without an answer.

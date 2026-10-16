@@ -1,4 +1,4 @@
-"""Frames on both hops (contract/v1/README.md, Framing).
+"""Frames on both hops (contract/v2/README.md, Framing).
 
 A frame is a uint32 little-endian body length, then that many bytes of
 UTF-8 JSON. Length 0 is invalid; limits count the body only: at most

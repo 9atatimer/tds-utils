@@ -52,7 +52,7 @@ class DraftAnswer:
 # --- Grounding (Goal 5; The daemon, "Chat") ---
 
 MAX_ANSWER_TEXT: Final = 65_536
-"""An ``Answer``'s text, in code points (contract v1 ``Answer``)."""
+"""An ``Answer``'s text, in code points (contract v2 ``Answer``)."""
 MAX_CITATIONS: Final = 50
 MAX_EXTERNAL_URLS: Final = 50
 MAX_URL: Final = 65_536

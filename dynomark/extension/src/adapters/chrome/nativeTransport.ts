@@ -1,6 +1,6 @@
 /// <reference types="chrome" />
 // nativeTransport.ts -- the TransportPort on chrome.runtime.connectNative
-// (design, seam table, "Extension <-> daemon transport"; contract v1 README,
+// (design, seam table, "Extension <-> daemon transport"; contract v2 README,
 // "Endpoint": host name tds.dynomark). Chrome frames each message; the shim
 // behind the host pipes frames to the daemon's socket unchanged.
 //
@@ -54,7 +54,7 @@ interface Pending {
 
 // --- Constants ---
 
-/** The native-messaging host name (contract v1 README, "Endpoint"). */
+/** The native-messaging host name (contract v2 README, "Endpoint"). */
 export const HOST_NAME = 'tds.dynomark';
 
 // --- Pure helpers ---

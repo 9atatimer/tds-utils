@@ -1,6 +1,6 @@
 """A connection's standing: the contract version each side speaks and what
 that lets continue (DYNOMARK.DESIGN.md, Transport contract, "Identity and
-version"; contract/v1 README, Connection lifecycle)."""
+version"; contract/v2 README, Connection lifecycle)."""
 
 from enum import StrEnum
 from typing import Final
@@ -8,8 +8,8 @@ from typing import Final
 from dynomark_daemon.domain.ids import ProfileId
 from dynomark_daemon.domain.roles import HostRole
 
-DAEMON_CONTRACT_VERSION: Final = 1
-"""The transport contract version this daemon speaks (contract/v1)."""
+DAEMON_CONTRACT_VERSION: Final = 2
+"""The transport contract version this daemon speaks (contract/v2)."""
 
 
 class HelloMode(StrEnum):

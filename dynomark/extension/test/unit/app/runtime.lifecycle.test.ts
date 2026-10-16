@@ -1,5 +1,5 @@
 // runtime.lifecycle.test.ts -- the background composition's workflow on the
-// fakes (design, "The extension": Watch Follow Up, Settings; contract v1
+// fakes (design, "The extension": Watch Follow Up, Settings; contract v2
 // README, "Connection lifecycle" and "Endpoint"). On start the worker loads
 // or creates its settings (a profile id generated once), resolves Follow Up
 // (creating it under the bar when there is none; reporting extra ones),
@@ -80,7 +80,7 @@ describe('Start -- ExtensionRuntime.start()', () => {
 
   it('Given a refused hello (a newer daemon), When started, Then nothing follows hello: no Follow Up backlog is ingested', async () => {
     const w = new FakeExtensionWorld({ flavor: 'chrome' });
-    scriptDaemon(w, { v: 2, mode: 'refused' });
+    scriptDaemon(w, { v: 3, mode: 'refused' });
     await seedOwnedTree(w.tree);
     await startRuntime(w);
     expect(sentTypes(w)).toEqual(['hello']);
@@ -150,7 +150,7 @@ describe('Connect routine -- a step that fails is reported, the rest still runs,
     let pulls = 0;
     scriptDaemon(w, {}, (r) =>
       r.type === 'index.pull' && (pulls += 1) === 1
-        ? { v: 1, type: 'error', re: r.id, code: 'internal', message: 'store closed' }
+        ? { v: 2, type: 'error', re: r.id, code: 'internal', message: 'store closed' }
         : undefined,
     );
     const ids = await seedOwnedTree(w.tree);

@@ -1,7 +1,7 @@
 """task-030, daemon half: a writer keeps its marker in the owned tree, and a
 host configured writer that sees another host's marker refuses every
 write-producing use case with a distinct result (DYNOMARK.DESIGN.md, Key
-Decisions "Two writers"; Future Considerations "Writer marker"; contract/v1
+Decisions "Two writers"; Future Considerations "Writer marker"; contract/v2
 README, Writer marker: no offers, ``undo``, ``diff.accept`` and
 ``folder.flags.set`` answered ``writer_conflict``, ``ingest`` accepted and
 its job indexed then ``FAILED`` naming the conflict).

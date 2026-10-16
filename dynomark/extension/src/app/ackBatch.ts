@@ -1,7 +1,7 @@
 // ackBatch.ts -- use case "A receipt is delivered" (design, Behaviors and
 // Interfaces): ack_batch(receipt, *, transport) -> none. Sends the receipt
 // and releases the durable cursor once the daemon has recorded it
-// (batch.receipt.result, or error not_found for that batch; contract v1,
+// (batch.receipt.result, or error not_found for that batch; contract v2,
 // "One batch at a time"). The daemon keys batch.receipt on batch_id, so a
 // second delivery records nothing new.
 

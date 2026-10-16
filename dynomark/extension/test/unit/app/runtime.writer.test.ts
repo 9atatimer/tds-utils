@@ -1,7 +1,7 @@
 // runtime.writer.test.ts -- the writer marker, extension side (design, Key
 // Decisions "Two writers", MVP: refuse on a writer marker in the owned tree;
 // task-030: a writer that sees another host's marker refuses every
-// write-producing use case and surfaces it in the settings page; contract v1,
+// write-producing use case and surfaces it in the settings page; contract v2,
 // "Writer marker (MVP)"). After a full hello the extension asks writer.status;
 // the settings page shows it; while a conflict is reported the extension
 // applies no batch (it asks again before rejecting, so a cleared conflict
@@ -27,7 +27,7 @@ function writerAnswers(daemon: Daemon) {
   return (r: RequestMessage): ResponseMessage | undefined => {
     if (r.type === 'writer.status') {
       return {
-        v: 1,
+        v: 2,
         type: 'writer.status.result',
         re: r.id,
         role: 'writer',
@@ -37,7 +37,7 @@ function writerAnswers(daemon: Daemon) {
         conflict: daemon.conflict,
       };
     }
-    if (r.type === 'undo') return { v: 1, type: 'error', re: r.id, code: 'writer_conflict', message: 'marker of host work-laptop present' };
+    if (r.type === 'undo') return { v: 2, type: 'error', re: r.id, code: 'writer_conflict', message: 'marker of host work-laptop present' };
     return undefined;
   };
 }
@@ -56,7 +56,7 @@ const BATCH: WriteBatch = {
 };
 
 async function offer(w: FakeExtensionWorld, runtime: ExtensionRuntime): Promise<RequestMessage | undefined> {
-  await w.daemon().emit({ v: 1, type: 'batch.offer', event_id: 'evt-go', batch: BATCH });
+  await w.daemon().emit({ v: 2, type: 'batch.offer', event_id: 'evt-go', batch: BATCH });
   await runtime.idle();
   return sentOf(w, 'batch.receipt').at(-1);
 }
@@ -82,7 +82,7 @@ describe('Writer status -- asked after a full hello, shown in settings', () => {
   it('Given a daemon that cannot answer writer.status, When connected, Then the connect routine still completes', async () => {
     const w = new FakeExtensionWorld({ flavor: 'chrome' });
     scriptDaemon(w, {}, (r) =>
-      r.type === 'writer.status' ? { v: 1, type: 'error', re: r.id, code: 'internal', message: 'boom' } : undefined,
+      r.type === 'writer.status' ? { v: 2, type: 'error', re: r.id, code: 'internal', message: 'boom' } : undefined,
     );
     const ids = await seedOwnedTree(w.tree);
     await startRuntime(w);

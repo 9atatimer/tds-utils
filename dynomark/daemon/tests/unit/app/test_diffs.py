@@ -4,7 +4,7 @@ may cross the boundary; the diff half of A reader host never writes
 8) -- ``propose_diff(kind, outline, own_bar, *, completion) -> TreeDiff``
 and ``accept_diff_item(item, roots, role) -> WriteBatch or NotWriter``.
 
-Contract v1 pins the rest: ``diff.propose`` is idempotent on its request
+Contract v2 pins the rest: ``diff.propose`` is idempotent on its request
 id (another body under a known id is ``invalid``) and reads the latest
 ``tree.snapshot``; ``diff.accept`` is idempotent on ``item_id``, records
 ``accepted_at`` and offers the batch; ``diff.page`` shows each accepted

@@ -1,6 +1,6 @@
 """End to end, in process (task-025 item 8; MVP tasks 028-030): the composed
 daemon -- SQLite store, unix socket, job loop -- with fakes for the models
-and the fetch, driven by a client speaking contract v1 frames:
+and the fetch, driven by a client speaking contract v2 frames:
 
 hello -> tree.snapshot -> ingest -> batch.offer -> batch.receipt APPLIED ->
 job FILED -> index.pull -> search -> undo;

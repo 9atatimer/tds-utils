@@ -209,7 +209,7 @@ class BatchRecord:
     report: tuple[UndoDrop, ...] = ()
     tree_since_receipt: bool = False
     """A ``tree.snapshot`` was recorded after the receipt: the undo guard may
-    run (contract v1, Undo guard)."""
+    run (contract v2, Undo guard)."""
 
     def with_receipt(
         self, receipt: BatchReceipt, snapshot_id: SnapshotId | None
@@ -226,7 +226,7 @@ class BatchRecord:
         )
 
 
-# --- Receipts (contract v1, Jobs: Receipt -> job) ---
+# --- Receipts (contract v2, Jobs: Receipt -> job) ---
 
 
 def receipt_state(receipt: BatchReceipt) -> BatchState:

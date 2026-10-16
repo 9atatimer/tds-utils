@@ -93,7 +93,7 @@ def _is_duplicate(job: Job, roots: OwnedRoots, *, store: CorpusStorePort) -> boo
 def _backfill(
     job: Job, role: HostRole, roots: OwnedRoots, *, store: CorpusStorePort, clock: Clock
 ) -> Job:
-    """A backfill is never offered a batch (contract v1, Jobs: Backfill): on the
+    """A backfill is never offered a batch (contract v2, Jobs: Backfill): on the
     writer, one already inside ``Dynomark`` is recorded as filed where it is;
     every other ends INDEXED."""
     save = store.get_save(job.job_id)
@@ -256,7 +256,7 @@ def run_job(
 ) -> Job:
     """Advance ``job`` as far as it can go now; the job as stored after. On a
     writer in ``conflict`` the job is indexed, then FAILED naming it
-    (contract v1, Writer marker)."""
+    (contract v2, Writer marker)."""
     start = job
     if job.state in (JobState.QUEUED, JobState.CAPTURING):
         processed = process_job(

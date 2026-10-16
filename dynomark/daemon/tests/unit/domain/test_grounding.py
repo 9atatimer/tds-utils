@@ -1,7 +1,7 @@
 """Grounding a chat answer (DYNOMARK.DESIGN.md, Goal 5: "an Answer cites
 CorpusEntry identities that the retrieval step returned; an identity the
 completion invents is dropped; a URL outside the corpus is marked
-external"). Contract v1 ``Answer``: at most 50 citations and 50 external
+external"). Contract v2 ``Answer``: at most 50 citations and 50 external
 urls, text at most 65,536 code points.
 """
 

@@ -4,8 +4,8 @@ The daemon runtime of Dynomark (`docs/design/DYNOMARK.DESIGN.md`, APPROVED):
 it ingests saves from the extension, captures, enriches and embeds them,
 places and files them through write batches the extension applies, and
 serves tier-2 search, undo, grounded chat (`ask`), audit and rebuild diffs,
-pin/lock flags and the writer marker. It speaks transport contract v1
-(`dynomark/contract/v1/`, every request type served) over an owner-only
+pin/lock flags and the writer marker. It speaks transport contract v2
+(`dynomark/contract/v2/`, every request type served) over an owner-only
 unix socket.
 
 ## Layout
@@ -15,7 +15,7 @@ src/dynomark_daemon/
   domain/      rules and values (pure; stdlib only)
   app/         use cases, one per Behaviors row; ports as keyword deps
   ports/       Protocols: store, embedding, completion, content, transport, clock
-  wire/        contract v1 models (Pydantic), codec, wire <-> domain mapping
+  wire/        contract v2 models (Pydantic), codec, wire <-> domain mapping
   adapters/    sqlite_store, records (JSON rows), socket_server, dispatch,
                framing, fetch, readable, ollama, host_manifest
   testing/     in-memory fakes of every port (shared by all suites);
@@ -158,7 +158,7 @@ jq -r 'select(.event == "job.applied") | .interval_ms' ~/.local/state/dynomark/d
   moves and adds only; merge rules are undefined (design Open Question 1).
 - Flags: `folder.flags.set` pins or locks an owned folder by node id; a
   lock keeps placement out of that folder and its subtree, and no undo
-  moves the folder (the step is dropped; contract v1 has no `locked`
+  moves the folder (the step is dropped; contract v2 has no `locked`
   reason, so `undo.result` reports it `node_moved`).
 - Writer marker: a writer keeps an empty folder `dynomark-writer:<host_id>`
   directly in `Dynomark`, created by an ordinary batch after the first

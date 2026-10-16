@@ -1,5 +1,5 @@
 // limits.ts -- the contract's caps on browser data, and the one rule for
-// meeting them (contract v1 README, "Size limits" and "Framing"): strings are
+// meeting them (contract v2 README, "Size limits" and "Framing"): strings are
 // made well-formed, then cut at a code point boundary, never mid-pair.
 
 import { toWellFormed } from './text.js';

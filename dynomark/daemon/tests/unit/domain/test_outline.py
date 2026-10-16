@@ -1,6 +1,6 @@
 """The TreeOutline (DYNOMARK.DESIGN.md, Ubiquitous language: "the folder
 skeleton of the owned subtree with pin/lock flags and per-folder item
-counts; no URLs"), derived from the latest tree snapshot. Contract v1:
+counts; no URLs"), derived from the latest tree snapshot. Contract v2:
 marker folders are excluded from the outline (Writer marker)."""
 
 from dynomark_daemon.domain.ids import NodeId

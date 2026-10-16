@@ -1,7 +1,7 @@
 """Transport contract, "Identity and version" (DYNOMARK.DESIGN.md): "On
 mismatch, write-producing flows stop; search and chat continue only if the
 extension's version is newer than the daemon's"; Goal 7 (one writer); as
-contract v1 pins them (Connection lifecycle: hello, mode, the role a
+contract v2 pins them (Connection lifecycle: hello, mode, the role a
 connection is served with; Message table: status).
 """
 

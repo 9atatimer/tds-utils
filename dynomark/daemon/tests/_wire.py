@@ -1,4 +1,4 @@
-"""Contract v1 request bodies for transport tests, built from domain values.
+"""Contract v2 request bodies for transport tests, built from domain values.
 
 Every builder returns the UTF-8 JSON body of one frame (no length header).
 """
@@ -39,11 +39,11 @@ TREE: Final = make_tree(
 
 def body(message_type: str, request_id: str, **fields: object) -> bytes:
     return json.dumps(
-        {"v": 1, "type": message_type, "id": request_id, **fields}
+        {"v": 2, "type": message_type, "id": request_id, **fields}
     ).encode("utf-8")
 
 
-def hello(request_id: str = "h-1", *, profile: str = "profile-a", v: int = 1) -> bytes:
+def hello(request_id: str = "h-1", *, profile: str = "profile-a", v: int = 2) -> bytes:
     return json.dumps(
         {
             "v": v,

@@ -1,4 +1,4 @@
-// batchLane.ts -- batch offers, one batch at a time (contract v1 README, "One
+// batchLane.ts -- batch offers, one batch at a time (contract v2 README, "One
 // batch at a time", "Cursor and resume", "Delivery and replay"; design,
 // "Transport contract", partial failure).
 //

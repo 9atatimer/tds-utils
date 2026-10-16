@@ -31,7 +31,7 @@ from dynomark_daemon.domain.tree import (
 )
 
 MAX_ITEM_OPERATIONS: Final = 100
-"""Operations per ``DiffItem`` (contract v1, Size limits)."""
+"""Operations per ``DiffItem`` (contract v2, Size limits)."""
 MAX_DESCRIPTION: Final = 4096
 """A ``DiffItem`` description, in code points."""
 
@@ -258,7 +258,7 @@ class NotAccepted(Exception):
 
 def item_batch_id(item_id: ItemId) -> BatchId:
     """The one batch an item becomes: a function of the item, so accepting it
-    again finds the same batch (contract v1: ``diff.accept`` is idempotent
+    again finds the same batch (contract v2: ``diff.accept`` is idempotent
     on ``item_id``)."""
     digest = hashlib.sha256(item_id.encode("utf-8")).hexdigest()[:40]
     return BatchId(f"batch-{digest}")

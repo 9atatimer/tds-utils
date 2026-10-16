@@ -1,6 +1,6 @@
 """The transport adapter's request side: one frame body in, one answer out.
 
-contract/v1/README.md, Connection lifecycle step 3: a body that is not a
+contract/v2/README.md, Connection lifecycle step 3: a body that is not a
 JSON object closes the connection (no answer); then ``hello_required``,
 then ``version_mismatch`` (another ``v``, or a request outside the
 connection's mode), then the schema (``invalid``). A request that passes
@@ -136,7 +136,7 @@ MAX_DETAIL: Final = 4096
 MODEL_REQUESTS: Final = frozenset({"ask", "search", "diff.propose"})
 """Requests whose answer waits on a model call. They change no connection
 state and nothing a later request on the connection depends on, so the
-transport may answer them concurrently with everything else (contract v1:
+transport may answer them concurrently with everything else (contract v2:
 responses may arrive in any order)."""
 
 
@@ -442,7 +442,7 @@ class Dispatcher:
             log.warning("request.port_failed", type=message.type, detail=str(error))
             return Outcome(_error(request_id, code, str(error)))
         except Exception as error:
-            # Every request is answered (contract v1, Envelope): an unexpected
+            # Every request is answered (contract v2, Envelope): an unexpected
             # failure is logged with its trace and answered internal, which
             # the extension retries with the same id.
             log.exception("request.failed", type=message.type, request_id=request_id)

@@ -83,7 +83,7 @@ class LocalIndex:
     rows: tuple[LocalIndexRow, ...]
 
 
-# --- Local index rows (Ubiquitous language: LocalIndex; contract v1, Size
+# --- Local index rows (Ubiquitous language: LocalIndex; contract v2, Size
 # limits: LocalIndexRow) ---
 
 MAX_ROW_BYTES: Final = 512

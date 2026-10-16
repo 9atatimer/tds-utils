@@ -1,4 +1,4 @@
-// errors.ts -- how a use case reports what the daemon refused (contract v1
+// errors.ts -- how a use case reports what the daemon refused (contract v2
 // README, "Roles and errors"). Every request is answered by its `X.result` or
 // by one `error`; the use cases turn the error into a thrown DaemonError so
 // a caller can branch on the closed code set.

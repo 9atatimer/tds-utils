@@ -1,6 +1,6 @@
 // history.contract.ts -- what every HistoryPort must do. Frecency is built by
 // asking for the visits of each identity the extension holds, never by
-// normalizing history URLs (contract v1 README, "Identity"), so the port
+// normalizing history URLs (contract v2 README, "Identity"), so the port
 // matches a URL exactly.
 
 import { describe, expect, it } from 'vitest';

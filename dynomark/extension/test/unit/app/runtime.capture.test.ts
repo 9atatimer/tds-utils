@@ -109,7 +109,7 @@ describe('Background-tab capture on the writer', () => {
     const busyTwice = (r: RequestMessage): ResponseMessage | undefined => {
       if (r.type !== 'ingest' || r.bookmark.url !== URL || refusals >= 2) return undefined;
       refusals += 1;
-      return { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
+      return { v: 2, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
     };
     scriptDaemon(w, { role: 'writer' }, busyTwice);
     const ids = await seedOwnedTree(w.tree);
@@ -134,7 +134,7 @@ describe('Background-tab capture on the writer', () => {
     const internalOnce = (r: RequestMessage): ResponseMessage | undefined => {
       if (r.type !== 'ingest' || r.bookmark.url !== URL || refused) return undefined;
       refused = true;
-      return { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
+      return { v: 2, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
     };
     scriptDaemon(w, { role: 'writer' }, internalOnce);
     const ids = await seedOwnedTree(w.tree);
@@ -155,7 +155,7 @@ describe('Background-tab capture on the writer', () => {
     const internalOnce = (r: RequestMessage): ResponseMessage | undefined => {
       if (r.type !== 'ingest' || r.bookmark.url !== URL || refused) return undefined;
       refused = true;
-      return { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
+      return { v: 2, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
     };
     scriptDaemon(w, { role: 'writer' }, internalOnce);
     const ids = await seedOwnedTree(w.tree);
@@ -178,7 +178,7 @@ describe('Background-tab capture on the writer', () => {
     const internalOnce = (r: RequestMessage): ResponseMessage | undefined => {
       if (r.type !== 'ingest' || r.bookmark.url !== URL || refused) return undefined;
       refused = true;
-      return { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
+      return { v: 2, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
     };
     scriptDaemon(w, { role: 'writer' }, internalOnce);
     const ids = await seedOwnedTree(w.tree);
@@ -199,7 +199,7 @@ describe('Background-tab capture on the writer', () => {
     const w = new FakeExtensionWorld({ flavor: 'chrome' });
     const internal = (r: RequestMessage): ResponseMessage | undefined =>
       r.type === 'ingest' && r.bookmark.url === URL
-        ? { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' }
+        ? { v: 2, type: 'error', re: r.id, code: 'internal', message: 'database is locked' }
         : undefined;
     scriptDaemon(w, { role: 'writer' }, internal);
     const ids = await seedOwnedTree(w.tree);
@@ -228,7 +228,7 @@ describe('Background-tab capture on the writer', () => {
     const w = new FakeExtensionWorld({ flavor: 'chrome' });
     const refuse = (r: RequestMessage): ResponseMessage | undefined =>
       r.type === 'ingest' && r.bookmark.url === URL
-        ? { v: 1, type: 'error', re: r.id, code: 'invalid', message: 'cannot act on it' }
+        ? { v: 2, type: 'error', re: r.id, code: 'invalid', message: 'cannot act on it' }
         : undefined;
     scriptDaemon(w, { role: 'writer' }, refuse);
     const ids = await seedOwnedTree(w.tree);
@@ -246,8 +246,8 @@ describe('Background-tab capture on the writer', () => {
     const busyThenRefuse = (r: RequestMessage): ResponseMessage | undefined => {
       if (r.type !== 'ingest' || r.bookmark.url !== URL) return undefined;
       answered += 1;
-      if (answered === 1) return { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
-      return { v: 1, type: 'error', re: r.id, code: 'invalid', message: 'cannot act on it' };
+      if (answered === 1) return { v: 2, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
+      return { v: 2, type: 'error', re: r.id, code: 'invalid', message: 'cannot act on it' };
     };
     scriptDaemon(w, { role: 'writer' }, busyThenRefuse);
     const ids = await seedOwnedTree(w.tree);

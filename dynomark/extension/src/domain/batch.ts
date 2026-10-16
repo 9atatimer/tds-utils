@@ -1,5 +1,5 @@
 // batch.ts -- write batches, their receipts and the in-flight cursor (design,
-// "Operation", "WriteBatch", "BatchReceipt"; contract v1, "Write batches").
+// "Operation", "WriteBatch", "BatchReceipt"; contract v2, "Write batches").
 
 import type { FolderPath, Snapshot } from './tree.js';
 import type { BatchId, Id, NodeId, Title, Url } from './values.js';

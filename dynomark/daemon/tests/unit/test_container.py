@@ -356,7 +356,7 @@ def test_a_reader_daemon_indexes_and_never_files() -> None:
 def test_the_job_loop_fails_saves_of_a_writer_in_conflict() -> None:
     """Given a writer whose tree holds another host's marker, When the job loop
     runs a save, Then the job is indexed and ends FAILED naming the conflict,
-    with no batch (contract v1, Writer marker)."""
+    with no batch (contract v2, Writer marker)."""
     completion = ScriptedCompletion(enrich=[ENRICHMENT], choose_folder=[RUST])
     ports = _ports(completion)
     ports.store.put_tree_snapshot(

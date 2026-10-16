@@ -1,5 +1,5 @@
 // pendingSaves.ts -- the Follow Up saves sent and not yet answered
-// ingest.result (contract v1, "Delivery and replay": busy and internal are
+// ingest.result (contract v2, "Delivery and replay": busy and internal are
 // retried with the same id and body). Kept so a worker that dies before the
 // answer re-sends the identical request, captured text included, rather than
 // a fresh one with no capture. Bounded: a few entries and at most one

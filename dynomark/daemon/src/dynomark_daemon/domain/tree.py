@@ -8,7 +8,7 @@ from typing import Final
 from dynomark_daemon.domain.ids import NodeId
 
 WRITER_MARKER_PREFIX: Final = "dynomark-writer:"
-"""The title prefix of a writer's marker folder (contract v1, Writer marker)."""
+"""The title prefix of a writer's marker folder (contract v2, Writer marker)."""
 
 
 class RootKey(StrEnum):
@@ -57,7 +57,7 @@ class OwnedRoots:
         return (self.follow_up, self.dynomark, self.graveyard)
 
     def contains(self, path: FolderPath) -> bool:
-        """``path`` is an owned root or lies inside one (contract v1, Boundary:
+        """``path`` is an owned root or lies inside one (contract v2, Boundary:
         a syntactic test on paths)."""
         return any(path.is_inside(root) for root in self.all())
 
@@ -169,7 +169,7 @@ class Snapshot:
         return FolderPath(root=roots[current.node_id], names=tuple(reversed(names)))
 
     def resolve(self, path: FolderPath) -> NodeId | None:
-        """The folder ``path`` names (contract v1, Write batches, Paths): from
+        """The folder ``path`` names (contract v2, Write batches, Paths): from
         the root's node, at each level the child folder with the lowest index
         whose title equals the name exactly."""
         current: NodeId | None = getattr(self.root_ids, path.root.value)

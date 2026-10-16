@@ -1,6 +1,6 @@
 // observeMove.test.ts -- design, "The extension", Record feedback:
 // every onMoved whose source and destination are owned is reported as
-// `move.observed` with its origin (contract v1); moves of nodes the in-flight
+// `move.observed` with its origin (contract v2); moves of nodes the in-flight
 // batch names are origin extension. The daemon's feedback_of alone decides
 // which become MoveFeedback (issue #422).
 
@@ -22,7 +22,7 @@ const RUST = { root: 'bar' as const, names: ['Dynomark', 'Rust'] };
 
 function acknowledging(r: RequestMessage): ResponseMessage {
   if (r.type !== 'move.observed') throw new Error(`unexpected ${r.type}`);
-  return { v: 1, type: 'move.observed.result', re: r.id };
+  return { v: 2, type: 'move.observed.result', re: r.id };
 }
 
 function deps() {

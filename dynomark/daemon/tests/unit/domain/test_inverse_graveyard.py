@@ -1,5 +1,5 @@
 """An inverse that removes something makes sure ``Graveyard`` exists first
-(Goal 6: "a removal is a move to Graveyard"; contract/v1 README, Write
+(Goal 6: "a removal is a move to Graveyard"; contract/v2 README, Write
 batches: a ``remove`` whose graveyard does not resolve fails the batch
 ``PARTIAL``, and a ``create_folder`` of an owned root is admitted "to create
 Dynomark and Graveyard on a fresh tree").

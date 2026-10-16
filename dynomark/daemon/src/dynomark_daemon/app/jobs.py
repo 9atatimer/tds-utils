@@ -1,4 +1,4 @@
-"""Use cases on jobs the extension asks for by id (contract/v1 README:
+"""Use cases on jobs the extension asks for by id (contract/v2 README:
 ``job.retry``, ``job.list``); the State Machine row FAILED -> QUEUED.
 """
 

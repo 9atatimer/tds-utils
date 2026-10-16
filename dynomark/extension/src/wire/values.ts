@@ -1,4 +1,4 @@
-// values.ts -- zod schemas for contract v1's shared values ($defs that are not
+// values.ts -- zod schemas for contract v2's shared values ($defs that are not
 // messages). Each schema that has a domain counterpart is checked against it
 // at compile time (`satisfies z.ZodType<DomainType>`), so a parsed wire value
 // is a domain value with no mapping layer.
@@ -15,7 +15,7 @@ import type { Bookmark, FolderPath, OwnedRoots, RootIds, Snapshot, SnapshotNode 
 import { isWellFormed } from '../domain/text.js';
 import { ROOT_KEYS } from '../domain/tree.js';
 
-// --- Constants (contract v1 README, "Size limits") ---
+// --- Constants (contract v2 README, "Size limits") ---
 
 const MAX_EPOCH_MS = Number.MAX_SAFE_INTEGER;
 const MAX_TITLE = 4096;
@@ -97,7 +97,7 @@ export const ErrorCodeSchema = z.enum([
   'internal',
   'superseded',
 ]);
-/** The closed set of `error` codes (contract v1, "Roles and errors"). */
+/** The closed set of `error` codes (contract v2, "Roles and errors"). */
 export type ErrorCode = z.output<typeof ErrorCodeSchema>;
 export const BatchStateSchema = z.enum(['PROPOSED', 'APPLIED', 'PARTIAL', 'REJECTED']);
 export const SkipReasonSchema = z.enum(['node_missing', 'parent_mismatch', 'not_empty']);

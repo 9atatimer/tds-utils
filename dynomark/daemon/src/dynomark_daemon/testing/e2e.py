@@ -18,7 +18,7 @@ loudly, as in unit tests)::
      "propose_diff":  [[{"action": "add"|"move"|"merge",
                          "description": str, "operations": [Operation]}]]}
 
-``FolderPath`` and ``Operation`` are contract v1 shapes.
+``FolderPath`` and ``Operation`` are contract v2 shapes.
 """
 
 import json

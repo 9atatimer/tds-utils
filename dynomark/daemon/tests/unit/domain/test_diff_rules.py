@@ -2,7 +2,7 @@
 ``pinned`` -- "immune to rebuild and audit moves"; ``locked`` -- "never
 moved, renamed or merged by any batch"; Multi-device policy -- the rest of
 the tree is written "only inside an accepted audit item"; Goal 8), and the
-batch an accepted item becomes. Contract v1: a ``DiffItem`` holds 1 to 100
+batch an accepted item becomes. Contract v2: a ``DiffItem`` holds 1 to 100
 operations with ``operations[i].index == i``; marker folders are excluded
 from the outline and from placement.
 """

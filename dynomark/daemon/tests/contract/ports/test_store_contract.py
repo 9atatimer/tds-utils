@@ -8,7 +8,7 @@ the ``integration`` marker as well.
 Design: Data Model ("one corpus_entry per identity"), Seams ("Corpus
 store ... SQLite with FTS5 and a vector extension / in-memory fake"), Key
 Decisions ("Hybrid ranking: fusion in the domain over the store's two
-candidate lists"); contract/v1/README.md, Delivery and replay
+candidate lists"); contract/v2/README.md, Delivery and replay
 ("index.pull cursors MUST stay valid across data changes") and the
 idempotency table. Entries page by their store position, a compact keyset
 that fits the 1,024-byte ``Cursor`` where an identity (up to 65,536 code
@@ -631,7 +631,7 @@ def test_list_diffs_is_newest_first(store: CorpusStorePort) -> None:
     assert store.get_diff(DiffId("diff-9")) is None
 
 
-# --- Events (contract/v1 README, Delivery and replay) ---
+# --- Events (contract/v2 README, Delivery and replay) ---
 
 
 def _job_event(event_id: str) -> JobUpdated:
@@ -695,7 +695,7 @@ def test_folder_flags_are_kept_per_path_and_replaced(store: CorpusStorePort) -> 
     }
 
 
-# --- Profiles (contract v1, Connection lifecycle: the writer's profile) ---
+# --- Profiles (contract v2, Connection lifecycle: the writer's profile) ---
 
 
 def test_the_writer_profile_is_bound_once(store: CorpusStorePort) -> None:
@@ -720,7 +720,7 @@ def test_a_profiles_follow_up_folder_is_remembered(store: CorpusStorePort) -> No
     assert store.follow_up_of(PROFILE_B) is None
 
 
-# --- Request-id memory (contract v1, Envelope) ---
+# --- Request-id memory (contract v2, Envelope) ---
 
 
 def test_a_request_fingerprint_is_remembered_by_id(store: CorpusStorePort) -> None:

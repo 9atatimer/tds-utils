@@ -1,5 +1,5 @@
 // bookmarkTree.ts -- the BookmarkTreePort: the browser's native bookmark tree
-// (design, seam table, "Browser tree API"; contract v1 README, "Write
+// (design, seam table, "Browser tree API"; contract v2 README, "Write
 // batches"). Thin over the browser API on purpose: path-idempotence, the
 // boundary and preconditions are domain and use-case rules, not the port's.
 // There is no delete: a removal is a move to Graveyard.

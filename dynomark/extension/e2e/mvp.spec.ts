@@ -114,7 +114,7 @@ test('Given a PARTIAL and a REJECTED batch and a FAILED job, When the chat surfa
   ];
   ext.daemon.extra = (r) =>
     r.type === 'job.retry'
-      ? { v: 1, type: 'job.retry.result', re: r.id, job: { ...ext.daemon.failedJobs[0]!, state: 'QUEUED', seq: 4 } }
+      ? { v: 2, type: 'job.retry.result', re: r.id, job: { ...ext.daemon.failedJobs[0]!, state: 'QUEUED', seq: 4 } }
       : undefined;
   await ext.daemon.waitFor(ofType('index.pull'));
 

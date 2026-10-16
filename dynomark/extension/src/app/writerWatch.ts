@@ -1,5 +1,5 @@
 // writerWatch.ts -- what the extension knows of a writer conflict (design,
-// Key Decisions "Two writers", MVP; task-030; contract v1, "Writer marker
+// Key Decisions "Two writers", MVP; task-030; contract v2, "Writer marker
 // (MVP)"). The daemon reads markers from the tree and reports them in
 // writer.status; a writer_conflict refusal is a report too. While a conflict
 // is reported the extension applies no batch -- but it asks again first,

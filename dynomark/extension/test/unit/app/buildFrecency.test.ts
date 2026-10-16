@@ -1,5 +1,5 @@
 // buildFrecency.test.ts -- design glossary "Frecency": a map identity ->
-// visit boost derived from browser history through HistoryPort. Contract v1,
+// visit boost derived from browser history through HistoryPort. Contract v2,
 // "Identity": the extension asks HistoryPort for the visits of each identity
 // it holds, never by normalizing history URLs. Tier-1 search orders within a
 // tier by it.

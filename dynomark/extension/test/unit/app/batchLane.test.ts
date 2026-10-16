@@ -1,4 +1,4 @@
-// batchLane.test.ts -- contract v1 README, "One batch at a time", "Cursor and
+// batchLane.test.ts -- contract v2 README, "One batch at a time", "Cursor and
 // resume", "Delivery and replay" (extension side of the design's Transport
 // contract, partial failure). Every batch.offer frame, a repeat included, is
 // answered with a batch.receipt; the extension keeps a batch's cursor until
@@ -28,8 +28,8 @@ async function setup() {
 }
 
 function result(r: RequestMessage): ResponseMessage {
-  if (r.type === 'batch.receipt') return { v: 1, type: 'batch.receipt.result', re: r.id };
-  if (r.type === 'tree.snapshot') return { v: 1, type: 'tree.snapshot.result', re: r.id };
+  if (r.type === 'batch.receipt') return { v: 2, type: 'batch.receipt.result', re: r.id };
+  if (r.type === 'tree.snapshot') return { v: 2, type: 'tree.snapshot.result', re: r.id };
   throw new Error(`unexpected ${r.type}`);
 }
 
@@ -163,7 +163,7 @@ describe('Batch offers -- BatchLane(context, deps).offer(batch)', () => {
     const { w, lane } = await setup();
     const failed = lane.offer(createBatch('batch-1', 'Go'));
     const r1 = await expectNext(w, 'batch.receipt');
-    await w.daemon().answer({ v: 1, type: 'error', re: r1.id, code: 'internal', message: 'store busy' });
+    await w.daemon().answer({ v: 2, type: 'error', re: r1.id, code: 'internal', message: 'store busy' });
     await expect(failed).rejects.toMatchObject({ code: 'internal' });
     expect(await w.storage.loadCursor()).toMatchObject({ batch_id: 'batch-1' });
     const retried = lane.offer(createBatch('batch-1', 'Go'));

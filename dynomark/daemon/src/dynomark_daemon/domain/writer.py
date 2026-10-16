@@ -1,5 +1,5 @@
 """The writer marker (DYNOMARK.DESIGN.md, Key Decisions "Two writers", MVP
-half; Non-Goals: two writers are never arbitrated automatically; contract/v1
+half; Non-Goals: two writers are never arbitrated automatically; contract/v2
 README, Writer marker).
 
 A writer keeps an empty folder titled ``dynomark-writer:<host_id>`` directly
@@ -23,7 +23,7 @@ from dynomark_daemon.domain.tree import (
 )
 
 HOST_ID: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
-"""A ``HostId`` (contract v1)."""
+"""A ``HostId`` (contract v2)."""
 MAX_OTHER_WRITERS: Final = 64
 """``writer.status.result`` names at most this many other writers."""
 

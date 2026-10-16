@@ -6,7 +6,7 @@ is lossless both ways: every such value in the golden files survives
 wire -> domain -> wire. Values the daemon only sends (a ``Job``, a
 ``WriteBatch`` without its inverse, a ``TreeDiff`` header, a batch
 summary, an event) are checked from the domain side: any in-contract
-domain value maps to a message that contract v1 accepts, keeping its ids.
+domain value maps to a message that contract v2 accepts, keeping its ids.
 """
 
 from collections.abc import Callable, Iterator
@@ -112,7 +112,7 @@ def _round_trips(message: AnyMessage) -> bool:
 @FEW
 @given(strategies.jobs)
 def test_map_job_to_wire_yields_a_contract_valid_job(job: Job) -> None:
-    """Given any in-contract Job, When mapped to the wire, Then contract v1
+    """Given any in-contract Job, When mapped to the wire, Then contract v2
     accepts it and it names the same job, node, identity and state."""
     wire = mapping.job_to_wire(job)
 
@@ -194,7 +194,7 @@ def test_map_event_to_wire_yields_its_event_message(event: Event) -> None:
 
 def test_map_every_undo_drop_reason_to_a_contract_v1_code() -> None:
     """Given each reason the undo guard can drop a step for, When it is put on
-    the wire, Then contract v1 accepts the code (a reason v1 lacks maps to
+    the wire, Then contract v2 accepts the code (a reason v1 lacks maps to
     the closest v1 code until contract v2 carries it)."""
     for reason in UndoDropReason:
         drop = mapping.undo_drop_to_wire(UndoDrop(index=0, reason=reason))

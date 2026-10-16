@@ -1,4 +1,4 @@
-"""Contract-level job use cases (contract/v1 README, Message table and the
+"""Contract-level job use cases (contract/v2 README, Message table and the
 idempotency table): ``job.retry`` is the design's State Machine row
 "FAILED -> QUEUED: user retries from chat or menu, always allowed";
 ``job.list`` pages a profile's jobs, optionally in one state, with a cursor
@@ -87,7 +87,7 @@ def test_retry_an_unknown_or_another_profiles_job_is_not_found() -> None:
         _retry(store, failed.job_id, ProfileId("profile-b"))
 
 
-# --- job.list and batch.list (contract v1, Delivery and replay: Pagination) ---
+# --- job.list and batch.list (contract v2, Delivery and replay: Pagination) ---
 
 
 def _jobs_store() -> InMemoryCorpusStore:

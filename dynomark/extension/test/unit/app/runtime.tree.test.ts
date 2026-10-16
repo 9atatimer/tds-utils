@@ -1,6 +1,6 @@
 // runtime.tree.test.ts -- bookmark events in the background composition
 // (design, "The extension": Watch Follow Up, Capture from the open tab,
-// Record feedback; contract v1 README, "Connection lifecycle", step 6). A
+// Record feedback; contract v2 README, "Connection lifecycle", step 6). A
 // bookmark created in, or moved into, Follow Up is captured from an open tab
 // (unless the capture setting is off) and ingested; a move between owned
 // folders is reported as move.observed with its origin; changes under the
@@ -132,7 +132,7 @@ describe('Record feedback -- a move report survives busy answers and worker rest
     const busy = (r: RequestMessage): ResponseMessage | undefined => {
       if (r.type !== 'move.observed' || refused) return undefined;
       refused = true;
-      return { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
+      return { v: 2, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
     };
     scriptDaemon(w, {}, busy);
     const ids = await seedOwnedTree(w.tree);
@@ -296,7 +296,7 @@ describe('Batch offers -- a batch.offer event is applied and answered', () => {
   it('Given a batch.offer moving the save into a new folder, When it arrives, Then the tree changes, the receipt is APPLIED and the move is origin extension', async () => {
     const { w, ids, runtime } = await setup();
     const offer = {
-      v: 1 as const,
+      v: 2 as const,
       type: 'batch.offer' as const,
       event_id: 'evt-offer-1',
       batch: {
@@ -329,7 +329,7 @@ describe("Batch offers -- a batch move is the extension's across a worker restar
     const serdePath = { root: 'bar' as const, names: ['Dynomark', 'Serde'] };
     w.tree.failOnMutation(2, 'terminate-after');
     await w.daemon().emit({
-      v: 1,
+      v: 2,
       type: 'batch.offer',
       event_id: 'evt-offer-1',
       batch: {
@@ -354,7 +354,7 @@ describe("Batch offers -- a batch move is the extension's across a worker restar
     const { w, ids, runtime } = await setup();
     w.tree.failOnMutation(2, 'terminate-after');
     await w.daemon().emit({
-      v: 1,
+      v: 2,
       type: 'batch.offer',
       event_id: 'evt-twice',
       batch: {
@@ -385,7 +385,7 @@ describe("Batch offers -- a batch move is the extension's across a worker restar
     const { w, ids, runtime } = await setup();
     const serdePath = { root: 'bar' as const, names: ['Dynomark', 'Serde'] };
     const offer = {
-      v: 1 as const,
+      v: 2 as const,
       type: 'batch.offer' as const,
       event_id: 'evt-offer-1',
       batch: {
@@ -420,7 +420,7 @@ describe('A batch receipt answered with a retryable code on a live link', () => 
   it('Given the daemon answers the first receipt internal and stays up, When the backoff passes, Then the extension asks for a replay and answers the re-offered batch from its cursor', async () => {
     const w = new FakeExtensionWorld({ flavor: 'chrome' });
     const offer = {
-      v: 1 as const,
+      v: 2 as const,
       type: 'batch.offer' as const,
       event_id: 'evt-go',
       batch: { batch_id: 'batch-go', operations: [{ op: 'create_folder' as const, index: 0, parent: DYNOMARK, title: 'Go' }] },
@@ -429,7 +429,7 @@ describe('A batch receipt answered with a retryable code on a live link', () => 
     let replays = 0;
     scriptDaemon(w, {}, (r) => {
       if (r.type === 'batch.receipt' && (receipts += 1) === 1)
-        return { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
+        return { v: 2, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
       if (r.type === 'events.replay' && (replays += 1) > 1) void w.daemon().emit(offer);
       return undefined;
     });
@@ -460,7 +460,7 @@ describe('A batch receipt answered with a retryable code on a live link', () => 
     it(`Given an earlier worker's open cursor, When its re-sent receipt is answered ${code} while a new offer is held, Then the extension asks for a replay, answers the old batch, and applies the held one`, async () => {
       const w = new FakeExtensionWorld({ flavor: 'chrome' });
       const offer = {
-        v: 1 as const,
+        v: 2 as const,
         type: 'batch.offer' as const,
         event_id: 'evt-new',
         batch: { batch_id: 'batch-new', operations: [{ op: 'create_folder' as const, index: 0, parent: DYNOMARK, title: 'Go' }] },
@@ -469,7 +469,7 @@ describe('A batch receipt answered with a retryable code on a live link', () => 
       let replays = 0;
       scriptDaemon(w, {}, (r) => {
         if (r.type === 'batch.receipt' && (receipts += 1) === 1)
-          return { v: 1, type: 'error', re: r.id, code, message: 'database is locked' };
+          return { v: 2, type: 'error', re: r.id, code, message: 'database is locked' };
         if (r.type === 'events.replay' && (replays += 1) > 1) void w.daemon().emit(offer);
         return undefined;
       });
@@ -504,7 +504,7 @@ describe('An ingest answered with a retryable code on a live link', () => {
     let answered = 0;
     scriptDaemon(w, {}, (r) => {
       if (r.type === 'ingest' && r.bookmark.url === SERDE_URL && (answered += 1) === 1)
-        return { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
+        return { v: 2, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
       return undefined;
     });
     const ids = await seedOwnedTree(w.tree);
@@ -551,13 +551,13 @@ describe('Move origin -- only the moves the extension itself issued are origin e
     let receipts = 0;
     scriptDaemon(w, {}, (r) =>
       r.type === 'batch.receipt' && (receipts += 1) === 1
-        ? { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' }
+        ? { v: 2, type: 'error', re: r.id, code: 'internal', message: 'database is locked' }
         : undefined,
     );
     const ids = await seedOwnedTree(w.tree);
     const runtime = await startRuntime(w);
     await w.daemon().emit({
-      v: 1,
+      v: 2,
       type: 'batch.offer',
       event_id: 'evt-serde',
       batch: {
@@ -580,7 +580,7 @@ describe('Move origin -- only the moves the extension itself issued are origin e
   it('Given one batch moves the same node twice, When the browser reports both moves after the batch closed, Then both are origin extension', async () => {
     const { w, ids, runtime } = await setup();
     await w.daemon().emit({
-      v: 1,
+      v: 2,
       type: 'batch.offer',
       event_id: 'evt-twice',
       batch: {
@@ -603,7 +603,7 @@ describe('Move origin -- only the moves the extension itself issued are origin e
     const go = await w.tree.createFolder(ids.dynomark, 'Go');
     const inner = await w.tree.createFolder(go.id, 'Inner');
     await w.daemon().emit({
-      v: 1,
+      v: 2,
       type: 'batch.offer',
       event_id: 'evt-cycle',
       batch: {
@@ -635,7 +635,7 @@ describe('The Follow Up backlog -- a save that fails does not hold back the save
     let answered = 0;
     scriptDaemon(w, { role: 'reader' }, (r) =>
       r.type === 'ingest' && r.bookmark.url.startsWith('https://tokio.rs/') && (answered += 1) === 1
-        ? { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' }
+        ? { v: 2, type: 'error', re: r.id, code: 'busy', message: 'model loading' }
         : undefined,
     );
     const ids = await seedOwnedTree(w.tree);

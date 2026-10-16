@@ -1,4 +1,4 @@
-"""Pages and cursors (contract/v1 README, Delivery and replay: Pagination).
+"""Pages and cursors (contract/v2 README, Delivery and replay: Pagination).
 
 A cursor is opaque to the extension and valid only for the list and the
 request parameters that minted it; presented with others it is stale.

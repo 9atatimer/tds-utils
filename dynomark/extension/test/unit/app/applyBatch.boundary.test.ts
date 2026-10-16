@@ -1,5 +1,5 @@
 // applyBatch.boundary.test.ts -- task-024 row 12 and design Goal 8
-// (ownership boundary), extension side. Contract v1, "Write batches",
+// (ownership boundary), extension side. Contract v2, "Write batches",
 // Boundary: before the first op, every op is checked against owned_roots
 // (a batch with diff_item_id is exempt). The check is syntactic on paths
 // (same RootKey, owned names a prefix); the owned-root create_folder is

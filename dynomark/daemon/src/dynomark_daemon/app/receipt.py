@@ -1,5 +1,5 @@
 """Use case: a receipt is processed (DYNOMARK.DESIGN.md, Behaviors and
-Interfaces; The daemon, "Receipts"; contract/v1 README, Jobs: Receipt -> job,
+Interfaces; The daemon, "Receipts"; contract/v2 README, Jobs: Receipt -> job,
 and Write batches: Receipts, Inverses).
 
 The first receipt recorded for a batch wins; a repeat records nothing new.
