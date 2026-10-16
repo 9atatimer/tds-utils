@@ -70,12 +70,15 @@ def _sweep_entries(
     now: int, keep_ms: int, *, store: CorpusStorePort
 ) -> tuple[Identity, ...]:
     trees = _known_trees(store=store)
-    if not trees:
-        return ()
     jobs = _jobs_by_identity(store.list_jobs())
     tracked = frozenset(
         i for i in store.entry_identities() if is_tracked(jobs.get(i, []))
     )
+    if not trees:
+        # With no known tree nothing new can be judged absent, but an absence
+        # already recorded keeps ageing: the tree that saw it gone may have
+        # been forgotten since (Codex on 9atatimer/tds-utils PR#535).
+        tracked = tracked & frozenset(store.absences())
     plan = plan_absences(
         tracked,
         present_in_any(trees),
