@@ -5,7 +5,8 @@
 // chrome.*, because the two APIs agree there: history (getVisits by exact
 // URL), tab content (tabs.query + scripting.executeScript), the background
 // tab (windows.create minimized and unfocused), storage.local, native
-// messaging (a lost host reported on port.error), and tab navigation. A
+// messaging (a lost host reported on port.error), and tab navigation. The
+// chat surface is the sidebar, falling back to Chrome's popup window. A
 // background window an earlier background script left open is closed.
 
 import { SystemClock } from '../clock.js';
@@ -19,6 +20,7 @@ import { ChromeNavigator } from '../chrome/navigator.js';
 import { ChromeStorage } from '../chrome/storage.js';
 import { ChromeTabContent } from '../chrome/tabContent.js';
 import { FirefoxBookmarkTree } from './bookmarkTree.js';
+import { FirefoxChatSurface } from './chatSurface.js';
 import type { FirefoxBrowser } from './namespace.js';
 
 // --- Entry ---
@@ -39,6 +41,6 @@ export function firefoxPorts(api: FirefoxBrowser) {
     ids: new CryptoIdSource(),
     timer,
     navigator: new ChromeNavigator(api.tabs),
-    surface: new ChromeChatSurface(api.windows, api.tabs, api.runtime),
+    surface: new FirefoxChatSurface(api.sidebarAction, new ChromeChatSurface(api.windows, api.tabs, api.runtime)),
   };
 }
