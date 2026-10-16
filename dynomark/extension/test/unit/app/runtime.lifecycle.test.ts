@@ -263,6 +263,26 @@ describe('Background work that a reconnect re-runs -- a lost link in the gap is 
     expect(after.ok && after.kind === 'overview' ? after.overview.problems : undefined).toEqual([]);
   });
 
+  it('Given a connected host whose connection is superseded while a save is being ingested (it never comes back), When the ingest fails, Then that failure is reported as a problem', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const lifecycle = scriptedDaemon({ role: 'reader' });
+    const URL = 'https://superseded.example/';
+    w.connection().autoAnswer((r) => {
+      if (r.type !== 'ingest' || r.bookmark.url !== URL) return lifecycle(r);
+      void Promise.resolve().then(() => w.daemon().drop('superseded'));
+      return undefined;
+    });
+    const ids = await seedOwnedTree(w.tree);
+    const runtime = await startRuntime(w);
+
+    const node = await w.tree.createBookmark(ids.followUp, 'Superseded', URL);
+    runtime.onBookmarkEvent({ kind: 'created', node });
+    await runtime.idle();
+
+    const page = await runtime.page({ kind: 'overview' });
+    expect(page.ok && page.kind === 'overview' ? page.overview.problems.join('\n') : '').toContain('superseded');
+  });
+
   it('Given a connected writer, When a tracked step fails for a real reason (the daemon answers invalid), Then it is still reported', async () => {
     const w = new FakeExtensionWorld({ flavor: 'chrome' });
     scriptDaemon(w, { role: 'writer' }, (r) =>

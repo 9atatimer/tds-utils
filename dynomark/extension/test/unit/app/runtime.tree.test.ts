@@ -292,6 +292,19 @@ describe('Snapshots -- a debounced tree.snapshot that meets a daemon restart (is
   });
 });
 
+describe('Snapshots -- a debounced tree.snapshot on a superseded connection', () => {
+  it('Given a change under the owned roots, When the debounce passes after the connection was superseded (it never comes back), Then the lost snapshot is reported as a problem', async () => {
+    const { w, ids, runtime } = await setup();
+    await moved(w, runtime, ids.saved, ids.rust);
+    await w.daemon().drop('superseded');
+    await w.timer().advance(SNAPSHOT_DEBOUNCE_MS);
+    await runtime.idle();
+
+    const page = await runtime.page({ kind: 'overview' });
+    expect(page.ok && page.kind === 'overview' ? page.overview.problems.join('\n') : '').toContain('superseded');
+  });
+});
+
 describe('Batch offers -- a batch.offer event is applied and answered', () => {
   it('Given a batch.offer moving the save into a new folder, When it arrives, Then the tree changes, the receipt is APPLIED and the move is origin extension', async () => {
     const { w, ids, runtime } = await setup();
