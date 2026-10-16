@@ -56,6 +56,13 @@ pytestmark = pytest.mark.integration
 A = ProfileId("profile-a")
 
 
+def _sql(version: int) -> str:
+    """Migration ``version``'s SQL script (one that is a script)."""
+    script = MIGRATIONS[version - 1]
+    assert isinstance(script, str)
+    return script
+
+
 def _mode(path: Path) -> int:
     return stat.S_IMODE(path.stat().st_mode)
 
@@ -554,7 +561,7 @@ def test_a_version_1_file_is_migrated_off_trees_in_batch_rows(tmp_path: Path) ->
         snapshot_id=SnapshotId("receipt-batch-1"),
     )
     with sqlite3.connect(db, isolation_level=None) as raw:
-        raw.executescript(MIGRATIONS[0])
+        raw.executescript(_sql(1))
         raw.execute("PRAGMA user_version = 1")
         raw.execute(
             "INSERT INTO batches (batch_id, created_at, doc) VALUES (?, ?, ?)",
@@ -588,8 +595,8 @@ def test_a_version_2_file_drops_its_archives_by_the_time_they_were_taken(
     migration reads each archive's taken_at; Retention, issue #421)."""
     db = tmp_path / "corpus.sqlite3"
     with sqlite3.connect(db, isolation_level=None) as raw:
-        raw.executescript(MIGRATIONS[0])
-        raw.executescript(MIGRATIONS[1])
+        raw.executescript(_sql(1))
+        raw.executescript(_sql(2))
         raw.execute("PRAGMA user_version = 2")
         raw.execute(
             "INSERT INTO snapshots (snapshot_id, doc) VALUES (?, ?)",
@@ -615,8 +622,8 @@ def test_a_version_4_file_keys_its_folder_flags_by_path(tmp_path: Path) -> None:
         make_node("14", "11", "Rust"),
     )
     with sqlite3.connect(db, isolation_level=None) as raw:
-        for script in MIGRATIONS[:4]:
-            raw.executescript(script)
+        for version in range(1, 5):
+            raw.executescript(_sql(version))
         raw.execute("PRAGMA user_version = 4")
         raw.execute(
             "INSERT INTO tree_snapshot (slot, taken_at, doc) VALUES (1, ?, ?)",

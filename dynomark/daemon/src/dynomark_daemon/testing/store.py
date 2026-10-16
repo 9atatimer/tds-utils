@@ -121,7 +121,7 @@ class InMemoryCorpusStore:
         self._feedback: dict[FeedbackId, MoveFeedback] = {}
         self._diffs: dict[DiffId, TreeDiff] = {}
         self._events: dict[ProfileId, dict[EventId, PendingEvent]] = {}
-        self._flags: dict[NodeId, FolderFlags] = {}
+        self._flags: dict[FolderPath, FolderFlags] = {}
         self._writer_profile: ProfileId | None = None
         self._follow_ups: dict[ProfileId, FolderPath] = {}
         self._requests: dict[RequestId, str] = {}
@@ -381,10 +381,10 @@ class InMemoryCorpusStore:
 
     # --- Owned-folder flags ---
 
-    def put_folder_flags(self, node_id: NodeId, flags: FolderFlags) -> None:
-        self._flags[node_id] = flags
+    def put_folder_flags(self, path: FolderPath, flags: FolderFlags) -> None:
+        self._flags[path] = flags
 
-    def folder_flags(self) -> dict[NodeId, FolderFlags]:
+    def folder_flags(self) -> dict[FolderPath, FolderFlags]:
         return dict(self._flags)
 
     # --- Profiles ---

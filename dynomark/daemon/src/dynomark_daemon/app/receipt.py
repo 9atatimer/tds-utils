@@ -157,7 +157,7 @@ def _record(
             applied_ops(receipt),
             tree,
             roots,
-            locked=locked_folders(store=store),
+            locked=locked_folders(tree, store=store),
         )
         if operations:
             inverse = propose_inverse(

@@ -87,7 +87,7 @@ def _undo(
         applied_ops(record.receipt),
         tree,
         roots,
-        locked=locked_folders(store=store),
+        locked=locked_folders(tree, store=store),
     )
     if not operations:
         return Undone(undoes=batch_id, batch=None, dropped=dropped)

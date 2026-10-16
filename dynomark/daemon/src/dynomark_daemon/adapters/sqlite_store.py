@@ -28,7 +28,14 @@ import os
 import re
 import sqlite3
 import threading
-from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
+from collections.abc import (
+    Callable,
+    Collection,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sequence,
+)
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -73,7 +80,30 @@ FILE_MODE: Final = 0o600
 BUSY_TIMEOUT_MS: Final = 5_000
 EVENT_TYPES: Final[tuple[type[Event], ...]] = (JobUpdated, BatchOffered, DiffProposed)
 
-MIGRATIONS: Final = (
+
+def _flags_by_path(db: sqlite3.Connection) -> None:
+    """Migration 5: re-key ``folder_flags`` from this host's node ids to the
+    folder paths the latest tree snapshot resolves them to; a flag on a node
+    that tree does not hold has no path and is dropped."""
+    db.execute(
+        "CREATE TABLE folder_flags_by_path ("
+        " path TEXT PRIMARY KEY, pinned INTEGER NOT NULL, locked INTEGER NOT NULL)"
+    )
+    row = db.execute("SELECT doc FROM tree_snapshot WHERE slot = 1").fetchone()
+    tree = None if row is None else load_record(str(row[0]), Snapshot)
+    flags = db.execute("SELECT node_id, pinned, locked FROM folder_flags").fetchall()
+    for node_id, pinned, locked in flags:
+        path = None if tree is None else tree.path_of(NodeId(str(node_id)))
+        if path is not None:
+            db.execute(
+                "INSERT OR REPLACE INTO folder_flags_by_path (path, pinned, locked)"
+                " VALUES (?, ?, ?)",
+                (dump_record(path), pinned, locked),
+            )
+    db.execute("DROP TABLE folder_flags")
+
+
+MIGRATIONS: Final[tuple[str | Callable[[sqlite3.Connection], None], ...]] = (
     # 1: the PoC schema.
     """
     CREATE TABLE entries (
@@ -183,8 +213,13 @@ MIGRATIONS: Final = (
     """
     CREATE INDEX entries_by_model ON entries (model_id, position);
     """,
+    # 5: folder flags keyed by folder path, stable across writers (issue
+    # #423); a node id is resolved to its path in the latest tree.
+    _flags_by_path,
 )
 SCHEMA_VERSION: Final = len(MIGRATIONS)
+"""Each migration is a SQL script, or a step run on the connection for what
+SQL cannot do; either runs in one transaction with its version."""
 
 
 class StoreError(RuntimeError):
@@ -325,10 +360,21 @@ def _migrate(connection: sqlite3.Connection, path: Path) -> None:
             f"{path} has schema {current}, newer than this daemon's {SCHEMA_VERSION}"
         )
     for version in range(current + 1, SCHEMA_VERSION + 1):
-        script = MIGRATIONS[version - 1]
-        connection.executescript(
-            f"BEGIN IMMEDIATE;\n{script}\nPRAGMA user_version = {version};\nCOMMIT;"
-        )
+        migration = MIGRATIONS[version - 1]
+        if isinstance(migration, str):
+            connection.executescript(
+                f"BEGIN IMMEDIATE;\n{migration}\n"
+                f"PRAGMA user_version = {version};\nCOMMIT;"
+            )
+            continue
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            migration(connection)
+            connection.execute(f"PRAGMA user_version = {version}")
+        except BaseException:
+            connection.execute("ROLLBACK")
+            raise
+        connection.execute("COMMIT")
 
 
 def _connect(path: Path, *, read_only: bool) -> sqlite3.Connection:
@@ -897,19 +943,21 @@ class SqliteCorpusStore:
 
     # --- Owned-folder flags ---
 
-    def put_folder_flags(self, node_id: NodeId, flags: FolderFlags) -> None:
+    def put_folder_flags(self, path: FolderPath, flags: FolderFlags) -> None:
         with self._write() as db:
             db.execute(
-                "INSERT OR REPLACE INTO folder_flags (node_id, pinned, locked)"
+                "INSERT OR REPLACE INTO folder_flags_by_path (path, pinned, locked)"
                 " VALUES (?, ?, ?)",
-                (node_id, int(flags.pinned), int(flags.locked)),
+                (dump_record(path), int(flags.pinned), int(flags.locked)),
             )
 
-    def folder_flags(self) -> dict[NodeId, FolderFlags]:
-        rows = self._all("SELECT node_id, pinned, locked FROM folder_flags")
+    def folder_flags(self) -> dict[FolderPath, FolderFlags]:
+        rows = self._all("SELECT path, pinned, locked FROM folder_flags_by_path")
         return {
-            NodeId(str(node_id)): FolderFlags(pinned=bool(pinned), locked=bool(locked))
-            for node_id, pinned, locked in rows
+            load_record(str(path), FolderPath): FolderFlags(
+                pinned=bool(pinned), locked=bool(locked)
+            )
+            for path, pinned, locked in rows
         }
 
     # --- Profiles ---

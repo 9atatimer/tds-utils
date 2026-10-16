@@ -267,11 +267,11 @@ class CorpusStorePort(Protocol):
 
     # --- Owned-folder flags ---
 
-    def put_folder_flags(self, node_id: NodeId, flags: FolderFlags) -> None:
-        """Set the flags of an owned folder (by this host's node id)."""
+    def put_folder_flags(self, path: FolderPath, flags: FolderFlags) -> None:
+        """Set the flags of the owned folder at ``path``."""
         ...
 
-    def folder_flags(self) -> dict[NodeId, FolderFlags]: ...
+    def folder_flags(self) -> dict[FolderPath, FolderFlags]: ...
 
     # --- Profiles ---
 
