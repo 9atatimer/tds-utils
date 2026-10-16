@@ -14,6 +14,8 @@ a cloudflared tunnel and the LMDE proxy layer's deadline route. The edge
 - Tests: `test/smoketest_lmde_ollama_gateway/run_all.sh`,
   `test/smoketest_lmde_proxy_layer/`, `test/smoketest_lmde_networking/`.
 - First caller: OCR on Demand, `docs/ops/ocr-review.md`.
+- As-built: `docs/arch/ollama-gateway/ARCHITECTURE.md`,
+  `docs/arch/proxy-layer/ARCHITECTURE.md`.
 
 ---
 
@@ -32,9 +34,27 @@ component's install.
 
 ## Install, upgrade, release
 
+One stage, production (`ollama.api9.com`): one laptop, one model store, so
+there is no nonprod (design Key Decisions Q1). The stand-in for nonprod is
+the offline suites above, run by hand on macOS before merging (no CI job
+runs them: Issue#456); they drive the real `sandbox-exec` and a real
+HAProxy against fakes.
+
 - Fresh laptop: `lmde install proxy-layer`, `lmde install ollama-gateway`,
-  then seed the run token (component README, The connector), then
-  `lmde install networking` for Caddy's socket.
+  then seed the run token, then `lmde install networking` for Caddy's
+  socket. Seeding is a human at a terminal with the 1Password desktop app
+  unlocked (the `op://` reference is in the tds-internal edge record);
+  an agent never runs it:
+
+  ```
+  lmde/components/ollama-gateway/seed-tunnel-token.zsh op://<vault>/<item>/<field>
+  launchctl enable gui/$(id -u)/com.tds.lmde.ollama-gateway.connector
+  launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.tds.lmde.ollama-gateway.connector.plist
+  ```
+
+- `setup.sh` COPIES the component into `~/.local/share/`; a release alone
+  changes nothing that runs, and nothing records which commit is
+  installed.
 - After any change to the component lands on `master`:
   `bin/tds-release`, then `lmde install ollama-gateway` again. The install
   re-renders the sandbox profile for this machine, reinstalls the route
@@ -66,6 +86,14 @@ to start on any failed row. The connector is not sandboxed.
 
   Exit 0 and one `ok` line per row in both passes; exit 78 and a `FAIL`
   line naming the row otherwise. tds-internal's G6 smoketest runs this.
+- Verify the whole road: `lmde status` green (`external-ollama: OK`,
+  `deadline-proxy: OK (127.0.0.1:11436, HTTP 200)`, exit 0; `edge` is
+  SKIPPED when `OLLAMA_GATEWAY_EDGE_URL` is unset and DEGRADED when the
+  URL is set but the consumer credential's four variables are not,
+  typically under `op run` with an env file kept in tds-internal), then tds-internal `scripts/ollama-gateway/smoketest.sh`,
+  run by a human from the tds-internal root: PASS on every check. After
+  any restart, `ollama.log` shows `launch-ollama: probe passed under ...`
+  then `starting ... serve`.
 - Add a property: one row in the table (`check  confined  control  verb
   target`), then `lmde install ollama-gateway`. The row is the test.
 
@@ -109,6 +137,51 @@ environment, `edge`. Logs: `~/Library/Logs/ollama-gateway/{ollama,connector}.log
 | caller gets 507 for 6 minutes | `ollama.log` | a cold model load longer than the caller's retry budget; nothing to fix, re-run |
 | `edge: DEGRADED ... DRIFT` | tds-internal module README, Q8 | the edge's origin port reaches some other listener; stop and read that README |
 | Caddy vhosts gone after an install | `curl --unix-socket ~/.local/share/lmde-networking/run/caddy-admin.sock http://localhost/config/` | the networking install restarted Caddy; routes are added at cluster bootstrap, so re-run the cluster's setup or `register_cluster_vhost` from `lib.sh` |
+| connector not up, or 530 at the edge | `connector.log`; `launchctl print gui/$(id -u)/com.tds.lmde.ollama-gateway.connector` (last exit 78 is a refused start) | no run token in the Keychain (exit 78 names the item), or a Keychain dialog under launchd (Issue#442): re-seed with `seed-tunnel-token.zsh` |
+
+`ollama.log` carries the launcher's refusals and, on a failed probe, its
+report (`ok <check>` / `FAIL <check>: <why>` per row); a passing start logs
+one `probe passed under <profile>` line (the full report is printed only
+under `--probe-only`), then ollama's own log, one `[GIN]` line per
+request. `haproxy.log` carries errors, timeouts and aborts only, never a
+normal request and never a body.
+
+What a caller's status code means, outermost first:
+
+| Answer | From | Meaning |
+|---|---|---|
+| 302, 403 without `X-LMDE-Route` | Cloudflare Access | missing or invalid credential |
+| 404 without `X-LMDE-Route` | tunnel ingress | path not allow-listed |
+| 530 | Cloudflare | no connector (laptop asleep or offline, connector stopped) |
+| 502 | cloudflared | nothing listens on 127.0.0.1:11436 (proxy layer down) |
+| 503 with `X-LMDE-Route` | the route | ollama not listening (a refused probe, a crash) |
+| 507 with `X-LMDE-Route` | the route | no first byte within 90 s; retry after `retry-after` |
+| 403 with `X-LMDE-Route` | ollama | a non-loopback `Host` reached ollama (Issue#444; the route rewrites it) |
+| 2xx with `X-LMDE-Route` | ollama | the answer |
+
+### Gotchas
+
+- **Keychain dialogs.** Never change a Keychain item's access in place: it
+  prompts. `setup.sh` deletes and recreates the probe's canary on every
+  install, so a control pass failing for want of a dialog is fixed by
+  re-running it.
+- **ollama upgrades.** The external ollama reads the store read-only, so
+  after a Homebrew upgrade past a store-layout change it lists no models
+  until the everyday ollama has run the new version once.
+- **`Host`.** ollama answers 403 to any non-loopback `Host`. Any new route
+  to an ollama rewrites `Host`, as this one does.
+- **Non-streaming completions longer than 90 s always get 507**, on every
+  retry: the deadline is HAProxy's inactivity timeout. Stream.
+- **`keep_alive` is 2 m**, so a review that starts later cold-loads the
+  model; from a cold OS cache that can take past the deadline, and the
+  caller sees 507, retries, and the held load completes.
+- **`~/.cloudflared` belongs to another tunnel.** The connector runs with
+  its own `HOME` and `--config`; never run `cloudflared` by hand against
+  the default config for this tunnel.
+- **Ports.** 11436 is mirrored by hand in tds-internal (`origin_port`);
+  change both together and run the edge check. The route's 503 and 507
+  are mirrored in `lib/ocr-review/gateway.mjs`; change both in one PR.
+- **Transport is pinned to http2**: QUIC over IPv6 fails on this network.
 
 ## Stop, start, remove
 
@@ -116,10 +189,18 @@ environment, `edge`. Logs: `~/Library/Logs/ollama-gateway/{ollama,connector}.log
   gui/$(id -u)/com.tds.lmde.ollama-gateway.connector`. The edge then answers
   530 to callers. Back: `launchctl bootstrap gui/$(id -u)
   ~/Library/LaunchAgents/com.tds.lmde.ollama-gateway.connector.plist`.
+  `bootout` lasts until the next login; add `launchctl disable` with the
+  same target to keep it off.
+- Roll back to an earlier version: `bin/tds-release -f <sha>` (human), then
+  `lmde install proxy-layer` and `lmde install ollama-gateway` again.
 - Restart the engine (after an install, or to pick up a rendered profile):
   `launchctl kickstart -k gui/$(id -u)/com.tds.lmde.ollama-gateway.ollama`.
 - Remove everything but the run token: `lmde/components/ollama-gateway/setup.sh
-  uninstall` (it prints the keychain command for the token).
+  uninstall` (agents, tree, canaries, route; restarts the layer; it prints
+  the keychain command for the token). `lmde/components/proxy-layer/setup.sh
+  uninstall` removes the layer; routes stay for their tenants.
+- Not undone by any of these: the run token in the Keychain, the edge
+  (tds-internal), and the model store (the gateway never writes it).
 
 ## What the sandbox does not cover, stated
 
@@ -134,3 +215,16 @@ environment, `edge`. Logs: `~/Library/Logs/ollama-gateway/{ollama,connector}.log
   unconfined process of this account can read it. The structural fix is a
   dedicated macOS user for the gateway (tds-internal remediation plan,
   phase 4).
+
+## Known gaps
+
+- Not yet measured (task-046): the silent-connector bound (Q6), the G5
+  bounds through the edge (stopped connector, stopped proxy layer), and G1
+  from a cold OS cache.
+- The connector's Keychain read can prompt under launchd: Issue#442.
+- The sandbox admits metadata reads of `$HOME` and `~/.ollama`, outside
+  G4's allow-list: Issue#455 (owner decision).
+- Nothing records which commit is installed under `~/.local/share/`.
+- The component suites run in no CI job: Issue#456.
+- Logs only: no metrics or traces reach LMDE observability.
+- The caller holds the gateway credential: Issue#365.

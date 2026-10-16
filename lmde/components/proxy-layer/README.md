@@ -31,6 +31,10 @@ The launcher exports `LMDE_PROXY_ROOT`, `LMDE_PROXY_ROUTES` and
 
 ## Install, operate, remove
 
+Runbook: [docs/ops/ollama-gateway.md](../../../docs/ops/ollama-gateway.md)
+(the layer's only tenant today); as-built:
+[docs/arch/proxy-layer/](../../../docs/arch/proxy-layer/ARCHITECTURE.md).
+
 - Install: `lmde install proxy-layer` (or `setup.sh`). Tenants install their
   routes independently and restart the layer when it is loaded.
 - LaunchAgent: `com.tds.lmde.proxy-layer`, logs in
