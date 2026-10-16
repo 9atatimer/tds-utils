@@ -144,6 +144,11 @@ jobs:
       - name: Smoketest bin/ocr-review
         run: /bin/bash test/smoketest_ocr_review.sh
 
+      # Node suites: bin/decide, the decision-model client (lib/decide,
+      # bin/decide). Fakes only; no network.
+      - name: Smoketest bin/decide
+        run: /bin/bash test/smoketest_decide.sh
+
       # Hermetic: fake gh/op on PATH; nothing reaches GitHub or 1Password.
       - name: Smoketest bin/seed-ocr-review
         run: /bin/bash test/smoketest_seed_ocr_review.sh

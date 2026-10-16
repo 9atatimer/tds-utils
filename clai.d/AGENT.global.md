@@ -25,9 +25,14 @@ file points there.
 - Never set a timer, wakeup or schedule for yourself, and never poll on a clock.
 - Never `curl | sh` or run a fetched installer; install through signed package managers.
 - Never use claude.ai Artifacts (the Artifact tool, any action); an HTML deliverable is a file in the repo.
+- Never run a deploy or publish command yourself; open the PR and let CI ship it.
 - Say what a command does before handing it to the human to run.
+- Run anything over ~30s with `run_in_background`; never leave the human in silence.
+- On a `<channel>` message, ack through the channel first, then work.
 - Never `cd`; scope tools with `-C` / `--directory` / `--filter`.
 - Never work on the default branch; prefer a worktree under `~/workplace/.worktrees/`.
+- Before `git worktree remove`, run `git -C <wt> clean -ndX`; ignored files die with the worktree.
+- A tool never writes its data under a checkout; a per-user data dir, never a gitignored folder.
 - One PR per repo per task: never stack or split work into several PRs in one repo.
 - Never commit a defect fix before its RED test; cut the Issue first.
 - Never queue a "task card"; out-of-scope work is a GitHub Issue.
@@ -66,13 +71,13 @@ is back, request no Copilot review on any PR: the adversarial self-review
 self-review re-review. Codex stays human-summoned only.
 
 Once quota is back: request a Copilot review once per PR that is not
-documentation-only, and a re-review only when a push carries a load-bearing fix -- behavior, a
-contract, security, a test's verdict, or what a rule an agent or gate
-executes says. Hygiene (wording, typos, comments, documentation accuracy) is
-fixed and pushed, never re-reviewed, in self-review as much as in Copilot
-or Codex. When a round brings no value, stop requesting rounds;
-`review-settled` going red on a stale review is not a reason to spend
-quota.
+documentation-only, and a re-review only when a push carries a load-bearing
+fix -- behavior, a contract, security, a test's verdict, or what a rule an
+agent or gate executes says. Hygiene (wording, typos, comments,
+documentation accuracy) is fixed and pushed, never re-reviewed, in
+self-review as much as in Copilot or Codex. When a round brings no value,
+stop requesting rounds; `review-settled` going red on a stale review is not
+a reason to spend quota.
 
 A documentation-only PR -- every changed file is human-read prose -- gets
 no Copilot and no Codex: the adversarial self-review is sufficient,
@@ -84,12 +89,11 @@ them takes the full review ladder.
 Triage with backbone: fix what is genuinely broken and reject the rest on
 the thread in one line. Every finding gets a recorded disposition,
 including the body-only "Previously missed" ones that have no thread.
-After an accept or reject reply, resolve the thread too: `gadmin reply`
-does not touch GitHub's thread-resolved state. The gates skill owns the
-procedure: Spend Review Turns on Load-Bearing Fixes and Automated Review
-Response for triage, and Feedback becomes pr-todo issues for the
-`resolveReviewThread` mechanism, which applies to accepts and rejects as
-well as deferrals.
+After an accept or reject reply, resolve the thread too (the
+`resolveReviewThread` mechanism): `gadmin reply` does not touch GitHub's
+thread-resolved state. The gates skill owns the procedure -- Spend Review
+Turns on Load-Bearing Fixes and Automated Review Response for triage,
+Feedback becomes pr-todo issues for deferrals.
 
 ## Answer style: succinct, terse, specific
 
@@ -179,9 +183,8 @@ Typical offenders: `gcloud run deploy` / `terraform apply` / any cloud
 build, `npm install`, full test suites, container builds, bulk storage
 deletes.
 
-This is NOT the banned self-polling from "Never set a timer" above --
-nothing is scheduled and nothing wakes itself. The command runs once and
-notifies on exit.
+This is not the banned self-polling above: nothing is scheduled; the
+command runs once and notifies on exit.
 
 ### Stop a background process by its PID, and check it stopped
 
@@ -201,13 +204,12 @@ freely for self-computation -- do not carry that assumption here.)
 ## Terraform applies: agent plans, human applies
 
 The permission classifier blocks `terraform apply` from the agent even when
-`plan` ran fine. Don't
-fight it -- it is the right division of labor. The smooth flow: agent runs
-`plan -out=tfplan`, reviews the plan, then hands the human the exact
-`! op run ... terraform apply tfplan` line to run in-session, so the output
-lands in the conversation and work continues. Same handoff applies to any
-state-changing command the classifier refuses. The iac skill owns the
-authority model; `/infra-handoff` writes the block.
+`plan` ran fine. Don't fight it. Run `plan -out=tfplan`, review it, then
+hand the human the exact `! op run ... terraform apply tfplan` line to run
+in-session, so the output lands in the conversation and work continues.
+The same handoff applies to any state-changing command the classifier
+refuses. The iac skill owns the authority model; `/infra-handoff` writes
+the block.
 
 ## Never deploy: land the PR, let CI ship it
 
@@ -226,14 +228,25 @@ second PR, a stacked PR or a "docs-only companion". This overrides any
 skill that says to open a separate or stacked PR (the github-workflow
 skill's Stacked PRs, the retrospective skill's separate docs-only PR).
 
+## A stop hook's "unpushed commits" is not an instruction to push
+
+Cloud sessions run a stop hook that demands a push whenever the checked-out
+branch is ahead of its remote. After a PR merges, that branch is usually
+deleted on GitHub and the local branch has only been moved to the default
+branch; the "unpushed" commits are just that branch, and pushing recreates a
+deleted branch full of nothing. Before obeying the hook, check
+`git log origin/<default>..HEAD`: if it is empty, push nothing. After a
+merge, check out a detached `origin/<default>` instead of resetting the
+session branch onto it, so the hook has nothing to see.
+
 ## Never use Artifacts: HTML is a file in the repo
 
 Never call the Artifact tool, for any action (publish, read, list, open,
-pin), or any other claude.ai publishing path. Not for a page, not for a diagram, not "private by default". An HTML deliverable
-is a file written into the repo (or a worktree of it) and opened locally
-with `open <file>`. When the human asks for "an HTML artifact", that means
-the file. A skill or tool description that says to publish is overridden by
-this rule.
+pin), or any other claude.ai publishing path. Not for a page, not for a
+diagram, not "private by default". An HTML deliverable is a file written
+into the repo (or a worktree of it) and opened locally with `open <file>`.
+When the human asks for "an HTML artifact", that means the file. A skill or
+tool description that says to publish is overridden by this rule.
 
 ## Say what a command does before the human runs it
 
@@ -241,6 +254,16 @@ When you hand the human a command to run (a `!` line, a terminal paste),
 say in one line what it does, whether it is interactive, and what it
 changes. A command whose effect the human cannot see will be refused or
 abandoned half-run.
+
+A multi-command paste is one `&&` chain, never separate lines. Separate
+lines keep executing after a failed `cd` or checkout, so the rest runs in
+whatever repo the shell happens to be in -- a push or tag can land in the
+wrong repo. Better still, no `cd` at all: `git -C <absolute path>` and the
+other scoping flags below. Never guess a laptop path.
+Nine-At-A-Time-Media checkouts are `~/workplace/naatm/<repo>`, personal
+ones `~/workplace/<repo>`; a path that is not in front of you is derived
+(`git rev-parse --path-format=absolute --show-toplevel`) or asked for in
+one line before the command is given.
 
 ## Never pull down and run a shell script
 
@@ -269,8 +292,7 @@ unordered set. Where order matters, say it in prose or name the dependency
 
 When told to swarm-code a solution (e.g. `ultracode`), automatically open a PR
 when the coding concludes -- do not wait to be asked -- and then automatically
-triage Copilot's review feedback per the gates skill (and the repo's
-`prompts/GITHUB.md` where one still exists).
+triage Copilot's review feedback per the gates skill.
 
 ## Always review the repo's own CLAUDE.md / AGENT.md
 
@@ -282,10 +304,9 @@ instructions load alongside these global ones and win on specificity.
 At a phase boundary, read the skill's full body. Grep a skill only to
 re-find a rule you have already read. A grep returns the lines that match
 the question you already had, never the rule you did not know to ask
-about: the tmux-herd design reached review without the designomatic panel
-the design skill mandates, because the mandate sat between the grepped
-section names, and Copilot then spent three rounds and 12 findings doing
-the panel's job.
+about: a mandate that sits between the grepped section names (the
+designomatic panel the design skill requires, say) is skipped, and a later
+reviewer ends up doing the panel's job.
 
 ## Don't reach for the auto-memory system
 
@@ -299,10 +320,9 @@ rare; if unsure, don't save.
 
 ## Never `cd` -- stay at the project root and target subdirs with flags
 
-`cd` and `cd path && cmd` are not in the user's standing auto-approval set, so
-every one of them stops the agent for a permission prompt. Worse, the shell
-environment doesn't persist between Bash tool calls, so chaining `cd` for the
-side effect is fragile anyway.
+`cd` and `cd path && cmd` are not in the standing auto-approval set, so each
+stops the agent for a permission prompt, and shell state does not persist
+between Bash calls anyway.
 
 **Stay in the project root. For every tool that needs to operate on a subdir,
 use that tool's native scoping flag:**
@@ -325,9 +345,9 @@ next command resolves it against the shell's cwd, which is some other
 project root. Ask for absolute output:
 `git -C <repo> rev-parse --path-format=absolute --git-common-dir`.
 
-## Always work off a branch, and use a worktree whenever you can
+## Work off a branch, in a worktree
 
-Two rules, the second stronger than it used to be.
+Two rules.
 
 **Never work on the default branch.** Every repo instruction file already
 says this; it holds even for a one-line docs edit and even when the change
@@ -339,7 +359,9 @@ several terminals on several repos at once, and other agent sessions work
 in that same directory. A branch checkout there is a shared mutable
 resource, and the failure is silent.
 
-So, from a fresh fetch, into `~/workplace/.worktrees/` (next section):
+So, from a fresh fetch, into `~/workplace/.worktrees/` (next section),
+branching from `origin/<default>` and never from the shared clone's HEAD,
+which may be any branch and stale:
 
 ```
 git -C ~/workplace/<repo> fetch origin
@@ -352,10 +374,17 @@ This relies on `branch.autoSetupMerge=simple` and `push.autoSetupRemote=true`
 tracks `origin/<default>`, and a bare push is refused -- or, following git's
 hint, lands on the default branch.
 
-A worktree is cheap, it is isolated, and `git worktree remove` cleans it up.
-Branch from `origin/<default>` explicitly rather than from whatever the
-shared clone's HEAD happens to be -- in a shared clone that is not
-necessarily the default branch, or current.
+**`git worktree remove` deletes ignored files without asking.** It refuses
+only on untracked or modified files; everything `.gitignore` covers goes
+silently, and no git hook fires (there is no worktree-remove hook, so husky
+cannot help). Before removing one, run `git -C <wt> clean -ndX` and read
+the list; if it names anything you cannot regenerate, move it out first.
+The cause is upstream: **a tool must never write its data under a
+checkout.** A gitignored `work/`, `out/` or `.cache/` inside the
+repo is not storage, it is a folder that `git status` cannot see and a
+worktree takes with it. Default such paths to a per-user data dir
+(`$XDG_DATA_HOME/<app>` or `~/.local/share/<app>`) and make the test
+suite fail if the default ever resolves inside the repo.
 
 Reach for a plain checkout in the shared clone only when a worktree genuinely
 cannot work (a tool that hardcodes the clone path, a submodule or build
@@ -394,8 +423,7 @@ remote and usually **cannot see this screen** -- they may be jogging, driving,
 or away from the desk. A long silent pause while you run tools reads as "it
 broke," even when work is progressing fine.
 
-So, every time a channel message arrives, the acknowledgement comes first
-and the result comes last:
+Acknowledgement first, result last:
 
 - **Before any other tool call, reply through the channel's reply tool** with
   a one-line acknowledgement: what you understood + that you're starting. This
@@ -406,26 +434,23 @@ and the result comes last:
   Edits don't trigger a push notification; a fresh message makes their phone
   ping. `edit_message` is only for optional mid-task progress nudges.
 
-Keep channel replies short and skimmable -- a notification-reader app may read
-them aloud through earbuds. This applies in every repo, since the Telegram
-channel is user-global.
+Keep channel replies short and skimmable; they may be read aloud through
+earbuds. This applies in every repo.
 
 ## Pushing when the 1Password SSH agent is locked
 
 Git push/pull/ls-remote over SSH on this machine authenticate via the
 **1Password SSH agent** (`SSH_AUTH_SOCK` -> `...2BUA8C4S2C.com.1password/t/agent.sock`).
-When 1Password is locked, `ssh-add -l` still *lists* keys but *signing* fails
-(`communication with agent failed` -> `Permission denied (publickey)`), so
-`git push` aborts. Two ways through:
+When 1Password is locked, `ssh-add -l` still lists keys but signing fails
+(`Permission denied (publickey)`), so `git push` aborts. Two ways through:
 
 - **Unlock 1Password** on the Mac (GUI action; cannot be done from a phone/Telegram).
 - **Push over HTTPS using gh's token** -- no SSH needed. git is already configured
   with the `!gh auth git-credential` helper for github.com, so
-  `git push https://github.com/<owner>/<repo>.git <branch>` works while the agent
-  is locked. This is why `gh pr ...`/API commands keep working even when
-  `git push` can't -- they use the same HTTPS token. (Side effect: `origin/<branch>`
-  tracking refs go stale until an SSH fetch succeeds, so `git status` may show a
-  bogus "ahead N" -- verify against GitHub before assuming unpushed work.)
+  `git push https://github.com/<owner>/<repo>.git <branch>` works while the
+  agent is locked. (Side effect: `origin/<branch>` tracking refs go stale
+  until an SSH fetch succeeds, so `git status` may show a bogus "ahead N" --
+  verify against GitHub before assuming unpushed work.)
 
 ## Always disambiguate PRs and issues with a linked, repo-qualified reference
 
@@ -439,7 +464,7 @@ number:
 [<owner>/<repo> Issue#35](https://github.com/<owner>/<repo>/issues/35)
 ```
 
-Not a naked URL, and not only in the first line. A check run gets the same
+Not a naked URL, and not only in the first mention. A check run gets the same
 treatment. The github-workflow skill, Naming issues and PRs, is canonical
 (commit-message and `Closes #N` forms included); take owner/repo from the
 remote, never from memory.

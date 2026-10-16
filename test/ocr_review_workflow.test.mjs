@@ -78,11 +78,11 @@ const EXACT_PERMISSIONS = ['contents: read', 'issues: write', 'pull-requests: wr
 
 // --- Caller --------------------------------------------------------------------
 
-test('caller: triggers are workflow_dispatch (pr, model) and issue_comment created, nothing else', () => {
+test('caller: triggers are workflow_dispatch (pr, model, backend) and issue_comment created, nothing else', () => {
   assert.deepEqual(keysAt(block(CALLER, 'on'), 2).sort(), ['issue_comment', 'workflow_dispatch']);
   assert.match(block(block(CALLER, 'on'), 'issue_comment', 2), /types:\s*\[created\]/);
   const inputs = keysAt(block(block(block(CALLER, 'on'), 'workflow_dispatch', 2), 'inputs', 4), 6);
-  assert.deepEqual(inputs.sort(), ['model', 'pr']);
+  assert.deepEqual(inputs.sort(), ['backend', 'model', 'pr']);
 });
 
 test('caller: permissions are exactly contents read, pull-requests write, issues write', () => {
@@ -106,16 +106,30 @@ test('caller: passes exactly one secret, by name, and never inherits', () => {
   assert.match(CALLER, /OLLAMA_GATEWAY_OP_SA_TOKEN:\s*\$\{\{\s*secrets\.OLLAMA_GATEWAY_OP_SA_TOKEN\s*\}\}/);
 });
 
+test('caller: pr reaches the reusable workflow as a number on both triggers (Issue#485)', () => {
+  // A dispatch's inputs.pr arrives as a string; the reusable input is
+  // type: number and refuses "1" ("Unexpected value '1'"). fromJSON over the
+  // formatted value yields a number for the dispatch and the comment alike.
+  assert.match(
+    CALLER,
+    /pr:\s*\$\{\{\s*fromJSON\(format\('\{0\}',\s*github\.event_name == 'workflow_dispatch' && inputs\.pr \|\| github\.event\.issue\.number\)\)\s*\}\}/,
+  );
+});
+
 test('caller: the model reaches the reusable workflow on a dispatch only', () => {
   assert.match(CALLER, /model:\s*\$\{\{\s*github\.event_name == 'workflow_dispatch' && inputs\.model \|\| ''\s*\}\}/);
 });
 
+test('caller: the backend reaches the reusable workflow on a dispatch only (Issue#481)', () => {
+  assert.match(CALLER, /backend:\s*\$\{\{\s*github\.event_name == 'workflow_dispatch' && inputs\.backend \|\| ''\s*\}\}/);
+});
+
 // --- Reusable workflow: shape ----------------------------------------------------
 
-test('reusable: workflow_call only, with pr, model, tools_ref and the one secret', () => {
+test('reusable: workflow_call only, with pr, model, backend, tools_ref and the one secret', () => {
   assert.deepEqual(keysAt(block(REUSABLE, 'on'), 2), ['workflow_call']);
   const call = block(block(REUSABLE, 'on'), 'workflow_call', 2);
-  assert.deepEqual(keysAt(block(call, 'inputs', 4), 6).sort(), ['model', 'pr', 'tools_ref']);
+  assert.deepEqual(keysAt(block(call, 'inputs', 4), 6).sort(), ['backend', 'model', 'pr', 'tools_ref']);
   assert.deepEqual(keysAt(block(call, 'secrets', 4), 6), ['OLLAMA_GATEWAY_OP_SA_TOKEN']);
 });
 
@@ -186,6 +200,27 @@ test('reusable: the record is uploaded before the summary comment is posted', ()
 });
 
 // --- Reusable workflow: the review step -------------------------------------------
+
+test('reusable: the Review step takes the API base, bearer and body from the Credentials step (Issue#479, Issue#481)', () => {
+  const review = jobBlock(REUSABLE, 'review');
+  // The body (reasoning off on ollama) and the bearer are the backend's
+  // profile in lib/ocr-review/gateway.mjs, tested there; the workflow only
+  // forwards them, so no backend's literal lives here.
+  assert.match(review, /llm_url:\s*\$\{\{\s*steps\.creds\.outputs\.api_base\s*\}\}\s*$/m);
+  assert.match(review, /llm_auth_token:\s*\$\{\{\s*steps\.creds\.outputs\.auth_token\s*\}\}\s*$/m);
+  assert.match(review, /llm_extra_body:\s*\$\{\{\s*steps\.creds\.outputs\.extra_body\s*\}\}\s*$/m);
+});
+
+test('reusable: the Credentials step gets the backend selector, its dispatch override and both backends\' variables', () => {
+  const review = jobBlock(REUSABLE, 'review');
+  for (const v of ['OCR_BACKEND', 'CF_AI_GATEWAY_OP_ITEM', 'CF_AI_GATEWAY_URL', 'CF_AI_GATEWAY_MODEL', 'CF_AI_GATEWAY_REASONING', 'OLLAMA_GATEWAY_OP_ITEM', 'OLLAMA_GATEWAY_URL', 'OLLAMA_GATEWAY_MODEL']) {
+    assert.match(review, new RegExp(`${v}:\\s*\\$\\{\\{\\s*vars\\.${v}\\s*\\}\\}`), v);
+  }
+  assert.match(review, /BACKEND_OVERRIDE:\s*\$\{\{\s*inputs\.backend\s*\}\}/);
+  assert.match(review, /API_BASE:\s*\$\{\{\s*steps\.creds\.outputs\.api_base\s*\}\}/);
+  assert.match(review, /BACKEND:\s*\$\{\{\s*steps\.creds\.outputs\.backend\s*\}\}/);
+  assert.match(block(review, 'outputs', 4), /backend:\s*\$\{\{\s*steps\.creds\.outputs\.backend\s*\}\}/);
+});
 
 test('reusable: the upstream action is pinned by SHA with an exact ocr_version, no self-update, no telemetry', () => {
   const review = jobBlock(REUSABLE, 'review');

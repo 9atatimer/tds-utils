@@ -25,7 +25,12 @@ on:
         type: number
         required: true
       model:
-        description: Model to review with (empty uses the owner's OLLAMA_GATEWAY_MODEL)
+        description: Model to review with (empty uses the backend's model variable)
+        type: string
+        required: false
+        default: ''
+      backend:
+        description: Backend (ollama-gateway or cf-ai-gateway; empty uses the owner's OCR_BACKEND)
         type: string
         required: false
         default: ''
@@ -41,8 +46,11 @@ jobs:
   ocr-review:
     uses: 9atatimer/tds-utils/.github/workflows/ocr-review.yml@0000000000000000000000000000000000000000
     with:
-      pr: ${{ github.event_name == 'workflow_dispatch' && inputs.pr || github.event.issue.number }}
+      # fromJSON: a dispatch's pr arrives as a string, and the reusable
+      # workflow's number input refuses one (Issue#485).
+      pr: ${{ fromJSON(format('{0}', github.event_name == 'workflow_dispatch' && inputs.pr || github.event.issue.number)) }}
       model: ${{ github.event_name == 'workflow_dispatch' && inputs.model || '' }}
+      backend: ${{ github.event_name == 'workflow_dispatch' && inputs.backend || '' }}
       tools_ref: '0000000000000000000000000000000000000000'
     secrets:
       OLLAMA_GATEWAY_OP_SA_TOKEN: ${{ secrets.OLLAMA_GATEWAY_OP_SA_TOKEN }}

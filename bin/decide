@@ -1,0 +1,326 @@
+#!/usr/bin/env node
+// decide -- the decision-model client: typed yes/no (noul), pick-one
+// (choice) and rubric (score) questions about a state, answered with
+// probabilities (docs/ops/decide.md).
+//
+// The decisions live in lib/decide/ (pure, unit-tested): schema.mjs
+// validates a record, backend.mjs resolves the backend and builds the
+// request, answers.mjs normalizes the answer, failure.mjs classifies what
+// went wrong, args.mjs parses the command line. This file is the I/O and
+// the composition root, and every adapter (fetch, the 1Password CLI, the
+// clock, stdin, stdout) is injectable so the suite drives it with fakes
+// (test/decide_io.test.mjs).
+//
+//   run     one record JSON from --file or stdin -> one decision JSON on
+//           stdout; --jsonl: one record per line -> one decision per line,
+//           in input order, up to --concurrency requests in flight.
+//   probe   one tiny noul question -> {"ok", "model", "latency_ms"}.
+//
+// Backends (DECIDE_BACKEND): cf-ai-gateway (Clef on Workers AI through
+// Cloudflare AI Gateway, the default) or systemone (a SystemOne server,
+// e.g. a local decision arena). Exit codes: 0 ok, 2 config, 3 rejected,
+// 4 unavailable, 5 auth, 6 malformed. The gateway token is never printed.
+//
+// Usage: decide run|probe [flags]   (decide --help)
+
+import { execFile } from 'node:child_process';
+import { readFile as readFileAsync } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { normalizeAnswers, unwrapResponse } from '../lib/decide/answers.mjs';
+import { USAGE, parseArgs } from '../lib/decide/args.mjs';
+import { acceptToken, buildRequest, opReadArgv, resolveConfig } from '../lib/decide/backend.mjs';
+import { FAILURE, classifyHttpFailure, classifyTransportError, exitCodeFor, failure, isSuccessStatus, redact, shouldRetry } from '../lib/decide/failure.mjs';
+import { validateRecord } from '../lib/decide/schema.mjs';
+
+// --- Constants --------------------------------------------------------------
+
+/** The pause before the one retry a network error or 502/503/504 earns. */
+export const RETRY_DELAY_MS = 2000;
+
+/** The probe: the smallest request a decision model can answer. */
+export const PROBE_REQUEST = Object.freeze({
+  state: 'decide probe: a connectivity check.',
+  questions: Object.freeze({ probe: Object.freeze({ type: 'noul', instructions: 'Is this text a connectivity check?' }) }),
+});
+
+// --- Pure helpers -----------------------------------------------------------
+
+const parseJson = (text) => {
+  try {
+    return { ok: true, value: JSON.parse(text) };
+  } catch {
+    return { ok: false };
+  }
+};
+
+/** A success decision, in the contract's field order. */
+function successDecision({ id, config, latencyMs, result, answers }) {
+  return {
+    id,
+    ok: true,
+    model: config.model,
+    backend: config.backend,
+    latency_ms: latencyMs,
+    usage: result.usage === undefined ? null : result.usage,
+    answers,
+    raw: result,
+  };
+}
+
+/** A failure decision. */
+const failureDecision = (id, error) => ({ id: id === undefined ? null : id, ok: false, error });
+
+/** The input's records: one per non-blank line. */
+const jsonlLines = (text) => text.split(/\r?\n/).filter((line) => line.trim() !== '');
+
+/** A line or a document as a validated record, or a rejected failure. */
+function recordFrom(text) {
+  const parsed = parseJson(text);
+  if (!parsed.ok) return { ok: false, id: null, error: failure(FAILURE.rejected, 'the input is not valid JSON') };
+  const checked = validateRecord(parsed.value);
+  return checked.ok ? checked : { ok: false, id: checked.id, error: failure(FAILURE.rejected, checked.message) };
+}
+
+// --- Flow: the token --------------------------------------------------------
+
+/**
+ * The gateway token: the literal one, else read from DECIDE_GATEWAY_OP_ITEM
+ * with `op read`. `op(argv)` resolves { code, stdout, stderr } and sets
+ * `missing` when the CLI is not installed. systemone needs none (null).
+ */
+export async function resolveToken(config, { op }) {
+  if (config.token) return { ok: true, token: config.token };
+  if (!config.opItem) return { ok: true, token: null };
+  const answer = await op(opReadArgv(config.opItem));
+  if (answer.missing) return { ok: false, error: failure(FAILURE.config, 'the 1Password CLI (op) is not on PATH; install it or set DECIDE_GATEWAY_TOKEN') };
+  if (answer.code !== 0) {
+    return { ok: false, error: failure(FAILURE.config, `op read of DECIDE_GATEWAY_OP_ITEM's password field failed (exit ${answer.code}); is 1Password unlocked and the CLI signed in?`) };
+  }
+  const accepted = acceptToken(answer.stdout);
+  return accepted.ok ? accepted : { ok: false, error: accepted.error };
+}
+
+// --- Flow: one HTTP exchange ------------------------------------------------
+
+/** One POST. Resolves { status, body } (body parsed JSON or null) or
+ * { error: { kind: 'timeout' | 'network', message } }. */
+export async function postOnce(request, { fetch, timeoutMs, signalFor }) {
+  try {
+    const res = await fetch(request.url, { method: 'POST', headers: request.headers, body: request.body, signal: signalFor(timeoutMs) });
+    const text = await res.text();
+    const parsed = parseJson(text);
+    return { status: res.status, body: parsed.ok ? parsed.value : null, unparsed: !parsed.ok };
+  } catch (error) {
+    const timedOut = error?.name === 'TimeoutError' || error?.name === 'AbortError';
+    return { error: { kind: timedOut ? 'timeout' : 'network', message: String(error?.cause?.message ?? error?.message ?? error) } };
+  }
+}
+
+/**
+ * The request with its one retry: after a network error or a 502/503/504,
+ * wait RETRY_DELAY_MS and try once more. latency_ms is the answered
+ * attempt's own HTTP time. Resolves { ok: true, body, latencyMs } or
+ * { ok: false, error } (messages redacted of the token).
+ */
+export async function exchange(request, { fetch, clock, timeoutMs, token, signalFor }) {
+  let attempt;
+  let latencyMs = 0;
+  for (let tries = 1; tries <= 2; tries += 1) {
+    const started = clock.now();
+    attempt = await postOnce(request, { fetch, timeoutMs, signalFor });
+    latencyMs = Math.round(clock.now() - started);
+    if (tries === 1 && shouldRetry(attempt)) {
+      await clock.sleep(RETRY_DELAY_MS);
+      continue;
+    }
+    break;
+  }
+  const scrub = (error) => ({ ...error, message: redact(error.message, token) });
+  if (attempt.error) return { ok: false, error: scrub(classifyTransportError(attempt.error, timeoutMs)) };
+  if (!isSuccessStatus(attempt.status)) return { ok: false, error: scrub(classifyHttpFailure(attempt.status, attempt.body)) };
+  if (attempt.unparsed) return { ok: false, error: failure(FAILURE.malformed, `the backend answered HTTP ${attempt.status} with a body that is not JSON`, attempt.status) };
+  return { ok: true, body: attempt.body, latencyMs };
+}
+
+// --- Flow: one decision -----------------------------------------------------
+
+/**
+ * Decide one validated record ({ id, request }). Resolves the normalized
+ * decision object (success or failure); never throws for a backend answer.
+ */
+export async function decideRecord(record, { config, token, fetch, clock, signalFor }) {
+  const request = buildRequest(config, token, record.request);
+  const answered = await exchange(request, { fetch, clock, timeoutMs: config.timeoutMs, token, signalFor });
+  if (!answered.ok) return failureDecision(record.id, answered.error);
+  const unwrapped = unwrapResponse(answered.body);
+  if (!unwrapped.ok) return failureDecision(record.id, unwrapped.error);
+  const normalized = normalizeAnswers(record.request.questions, unwrapped.answers);
+  if (!normalized.ok) return failureDecision(record.id, normalized.error);
+  return successDecision({ id: record.id, config, latencyMs: answered.latencyMs, result: unwrapped.result, answers: normalized.answers });
+}
+
+/** Run `worker` over `items` with at most `limit` in flight, calling
+ * `emit(result)` in input order as soon as each prefix is complete. */
+export async function mapInOrder(items, limit, worker, emit) {
+  const results = new Array(items.length);
+  const done = new Array(items.length).fill(false);
+  let next = 0;
+  let flushed = 0;
+  const flush = () => {
+    while (flushed < items.length && done[flushed]) {
+      emit(results[flushed]);
+      flushed += 1;
+    }
+  };
+  const lane = async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await worker(items[index], index);
+      done[index] = true;
+      flush();
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
+  return results;
+}
+
+/** The exit code for a list of decisions: the first failure's, in input order. */
+export function exitCodeOf(decisions) {
+  const first = decisions.find((decision) => !decision.ok);
+  return first ? exitCodeFor(first.error.class) : 0;
+}
+
+// --- Flow: commands ---------------------------------------------------------
+
+/**
+ * `decide run`. `readInput()` resolves the input text (the file or stdin)
+ * or throws; `out(line)` writes one stdout line; `err(line)` one stderr
+ * line. Returns the exit code.
+ */
+export async function runRun({ flags, env, readInput, fetch, op, clock, signalFor, out, err }) {
+  const writeOne = (decision) => out(JSON.stringify(decision));
+  const configured = resolveConfig(env, flags);
+  if (!configured.ok) return reportFatal(configured.error, { out: writeOne, err });
+  const { config } = configured;
+  let text;
+  try {
+    text = await readInput();
+  } catch (error) {
+    return reportFatal(failure(FAILURE.config, `cannot read the input${flags.file ? ` file ${flags.file}` : ''}: ${error.message}`), { out: writeOne, err });
+  }
+  const records = flags.jsonl ? jsonlLines(text).map(recordFrom) : [recordFrom(text)];
+  let token = null;
+  let tokenError = null;
+  if (records.some((record) => record.ok)) {
+    const resolved = await resolveToken(config, { op });
+    if (resolved.ok) token = resolved.token;
+    else tokenError = resolved.error;
+  }
+  const worker = async (record) => {
+    if (!record.ok) return failureDecision(record.id, record.error);
+    if (tokenError) return failureDecision(record.id, tokenError);
+    return decideRecord(record, { config, token, fetch, clock, signalFor });
+  };
+  const decisions = await mapInOrder(records, flags.jsonl ? flags.concurrency : 1, worker, writeOne);
+  if (!flags.jsonl && !decisions[0].ok) err(`decide: ${decisions[0].error.class}: ${decisions[0].error.message}`);
+  return exitCodeOf(decisions);
+}
+
+/** A failure before any record was read: one failure line, the exit code. */
+function reportFatal(error, { out, err }) {
+  out(failureDecision(null, error));
+  err(`decide: ${error.class}: ${error.message}`);
+  return exitCodeFor(error.class);
+}
+
+/** `decide probe`. Prints { ok, model, latency_ms } or { ok: false, model, error }. */
+export async function runProbe({ flags, env, fetch, op, clock, signalFor, out, err }) {
+  const fail = (model, error) => {
+    out(JSON.stringify({ ok: false, model, error }));
+    err(`decide: ${error.class}: ${error.message}`);
+    return exitCodeFor(error.class);
+  };
+  const configured = resolveConfig(env, flags);
+  if (!configured.ok) return fail(null, configured.error);
+  const { config } = configured;
+  const resolved = await resolveToken(config, { op });
+  if (!resolved.ok) return fail(config.model, resolved.error);
+  const decision = await decideRecord({ id: null, request: PROBE_REQUEST }, { config, token: resolved.token, fetch, clock, signalFor });
+  if (!decision.ok) return fail(config.model, decision.error);
+  out(JSON.stringify({ ok: true, model: config.model, latency_ms: decision.latency_ms }));
+  return 0;
+}
+
+/** The whole command line. `io` carries every adapter. Returns the exit code. */
+export async function runCli(argv, io) {
+  const parsed = parseArgs(argv);
+  if (!parsed.ok) {
+    io.err(USAGE.trimEnd());
+    return reportFatal(parsed.error, { out: (decision) => io.out(JSON.stringify(decision)), err: io.err });
+  }
+  if (parsed.command === 'help') {
+    io.out(USAGE.trimEnd());
+    return 0;
+  }
+  const { flags } = parsed;
+  if (parsed.command === 'probe') return runProbe({ ...io, flags });
+  const readInput = flags.file ? () => io.readFile(flags.file) : io.readStdin;
+  return runRun({ ...io, flags, readInput });
+}
+
+// --- Adapters (real I/O) ----------------------------------------------------
+
+/** The 1Password CLI: { code, stdout, stderr }, `missing` when op is absent. */
+function runOp(argv) {
+  return new Promise((done) => {
+    execFile('op', argv, { maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error?.code === 'ENOENT') return done({ code: 127, stdout: '', stderr: '', missing: true });
+      done({ code: error ? (typeof error.code === 'number' ? error.code : 1) : 0, stdout: String(stdout), stderr: String(stderr) });
+    });
+  });
+}
+
+async function readStdin() {
+  const chunks = [];
+  for await (const chunk of process.stdin) chunks.push(chunk);
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+const realClock = {
+  now: () => performance.now(),
+  sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+};
+
+// --- Entry point (composition root) -----------------------------------------
+
+function realIo(env) {
+  return {
+    env,
+    fetch: globalThis.fetch,
+    op: runOp,
+    clock: realClock,
+    signalFor: (ms) => AbortSignal.timeout(ms),
+    readFile: (path) => readFileAsync(path, 'utf8'),
+    readStdin,
+    out: (line) => process.stdout.write(`${line}\n`),
+    err: (line) => process.stderr.write(`${line}\n`),
+  };
+}
+
+// Run only as a script: the test suite imports this file for its flows.
+const invokedDirectly = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+
+if (invokedDirectly) {
+  runCli(process.argv.slice(2), realIo(process.env)).then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (error) => {
+      console.error(`decide: ${error.message}`);
+      process.exitCode = 1;
+    },
+  );
+}
