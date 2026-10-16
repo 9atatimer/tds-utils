@@ -123,8 +123,8 @@ def test_place_when_the_completion_names_a_locked_folder_picks_a_sibling() -> No
 
 def test_place_never_puts_a_new_leaf_inside_a_locked_folder() -> None:
     """Given the fake completion proposes a new leaf under a locked folder and
-    no neighbour sits in an unlocked one, When placed, Then the result is not
-    inside the locked folder."""
+    no neighbour sits in an unlocked one, When placed, Then the result is that
+    new leaf beside the locked folder, under its parent, never inside it."""
     store = _store_with_neighbours()
     outline = make_outline(make_outline_folder("Dynomark", "Rust", locked=True))
     leaf = make_path("Dynomark", "Rust", "Async")
@@ -136,7 +136,33 @@ def test_place_never_puts_a_new_leaf_inside_a_locked_folder() -> None:
     )
 
     assert placement.folder.names[:2] != ("Dynomark", "Rust")
-    assert placement.folder == make_path("Dynomark")
+    assert placement.folder == make_path("Dynomark", "Async")
+
+
+def test_place_a_locked_choice_lands_beside_it_not_where_neighbours_are() -> None:
+    """Given the completion names a locked folder whose neighbours were filed
+    in a folder elsewhere under Dynomark, When placed, Then the result is a
+    sibling of the locked folder, not the distant one (Placement respects a
+    lock: a sibling or new leaf; issue #423)."""
+    web_js = make_path("Dynomark", "Web", "JS")
+    neighbours = tuple((url, vector, web_js) for url, vector, _ in NEIGHBOURS)
+    store = _store_with_neighbours(neighbours)
+    outline = make_outline(
+        make_outline_folder("Dynomark", "Lang"),
+        make_outline_folder("Dynomark", "Lang", "Rust", locked=True),
+        make_outline_folder("Dynomark", "Lang", "Go"),
+        make_outline_folder("Dynomark", "Web"),
+        make_outline_folder("Dynomark", "Web", "JS"),
+    )
+    locked = make_path("Dynomark", "Lang", "Rust")
+
+    placement = _place(
+        store,
+        outline,
+        ScriptedCompletion(choose_folder=[FolderChoice(folder=locked, rationale="")]),
+    )
+
+    assert placement.folder == make_path("Dynomark", "Lang", "Go")
 
 
 def test_place_a_proposed_new_leaf_under_an_existing_folder() -> None:
