@@ -9,16 +9,20 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config.sh"
 main() {
     : "${SMOKE_TMP:=$(mktemp -d)}"
     require_lmde || return 1
-    local dir rc home log
+    local dir rc home log pins
     dir="$(scenario_dir stamp_no_bin)"
     home="${dir}/home"
     log="${dir}/installlog"
+    # Its own pins, ast-mcp unpinned, so it floats to the stub's 0.4.0
+    # whatever the live fleet pin beside the engine says.
+    pins="${dir}/pins.env"
+    printf '%s\n' 'CLAI_VERSION="1.2.3"' > "${pins}"
     # The stamp says 0.4.0 is installed, but the share tree (prefix bin) is gone.
     mkdir -p "${home}/.local/state/tds-utils/acquire"
     printf '%s\n' "0.4.0" > "${home}/.local/state/tds-utils/acquire/ast-mcp.version"
     make_npm_stub "${dir}/bin" "1.2.3" "0.4.0" "${log}"
 
-    rc="$(run_acquire "${dir}")"
+    rc="$(run_acquire "${dir}" --pins "${pins}")"
 
     assert_eq "${rc}" "0" "fail-open exit code" || return 1
     assert_installed "${log}" "@nine-at-a-time-media/ast-mcp@0.4.0" "reinstalls despite a matching stamp when the prefix bin is missing" || return 1
