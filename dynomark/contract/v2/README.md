@@ -247,7 +247,7 @@ identity it holds, never by normalizing history URLs.
 | `writer.status` | extension -> daemon | Writer-marker status | Key Decisions: two writers (MVP writer marker) |
 | `writer.status.result` | daemon -> extension | Own marker, other writers, conflict flag | Key Decisions: two writers (MVP writer marker) |
 | `status` | extension -> daemon | Daemon status for the settings page | Security: cloud model egress shown; Config |
-| `status.result` | daemon -> extension | Role, host id, contract version, models, queue depth | Security: cloud model egress shown; Config |
+| `status.result` | daemon -> extension | Role, host id, contract version, both models each with its `local` mark (loopback host, no cloud tag, endpoint not declared remote), queue depth | Security: cloud model egress shown; Config |
 | `url.vet` | extension -> daemon | May a background tab load this URL: the daemon resolves it and applies the fetch address policy | Key Decisions: background-tab capture (2026-10-16) |
 | `url.vet.result` | daemon -> extension | `allowed`, or the `VetRefusal` | Key Decisions: background-tab capture (2026-10-16) |
 | `error` | daemon -> extension | The one error response, closed code set | A reader host never writes (`not_writer`); Transport contract: retryable errors |

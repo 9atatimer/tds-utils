@@ -4,7 +4,7 @@
   "re": "req-0036",
   "role": "writer",
   "host_id": "mbp",
-  "contract_version": 1,
+  "contract_version": 2,
   "models": {
     "embedding": {
       "id": "ollama:nomic-embed-text",

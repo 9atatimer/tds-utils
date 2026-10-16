@@ -125,6 +125,27 @@ def test_the_environment_places_state_socket_and_ollama() -> None:
     assert not settings.config.embedding_model.local
 
 
+def test_a_cloud_tagged_completion_on_a_loopback_host_is_marked_not_local() -> None:
+    """Given Ollama on loopback with a local embedding model and a cloud-tagged
+    completion model, When parsed, Then status will report each model with
+    its own mark: the embedding local, the completion not (issue #411)."""
+    settings = _parse('[models]\ncompletion = "gpt-oss:120b-cloud"')
+
+    assert settings.config.embedding_model.local
+    assert not settings.config.completion_model.local
+
+
+def test_models_remote_declares_a_loopback_endpoint_remote() -> None:
+    """Given ``[models] remote = true`` (Ollama reached through a tunnel or proxy
+    on 127.0.0.1), When parsed, Then neither model is local."""
+    settings = _parse("[models]\nremote = true")
+
+    assert settings.config.embedding_model == ModelInfo(
+        "ollama:nomic-embed-text", local=False
+    )
+    assert not settings.config.completion_model.local
+
+
 @pytest.mark.parametrize(
     ("text", "names"),
     [
@@ -138,6 +159,7 @@ def test_the_environment_places_state_socket_and_ollama() -> None:
         ("[models]\nembedding = ''", "models.embedding"),
         ("[capture]\nmax_bytes = -1", "capture.max_bytes"),
         ('[capture]\nprivate_addresses = "yes"', "capture.private_addresses"),
+        ('[models]\nremote = "yes"', "models.remote"),
         ("[store]\nsize = 1", "store.size"),
     ],
 )

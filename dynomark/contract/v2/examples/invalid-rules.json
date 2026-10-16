@@ -269,6 +269,11 @@
     "path": "/snapshot/nodes/1/index",
     "rule": "sibling index is non-negative"
   },
+  "status-model-missing-local.json": {
+    "keyword": "required",
+    "path": "/models/embedding/local",
+    "rule": "every model carries its local mark"
+  },
   "status-negative-queue-depth.json": {
     "keyword": "minimum",
     "path": "/queue_depth",

@@ -1471,7 +1471,7 @@
     },
     "ModelInfo": {
       "type": "object",
-      "description": "A configured model id and whether it runs on this machine (false = requests leave the machine).",
+      "description": "A configured model id and whether it runs on this machine (false = page text, queries or questions sent to it leave the machine). local is true only when the model server's host is loopback, the model id carries no cloud tag (Ollama: a tag containing cloud, e.g. :cloud or :120b-cloud), and the daemon's config does not declare the endpoint remote ([models] remote = true, for a tunnel or proxy on loopback). status.result reports both models: each one receives the user's data.",
       "properties": {
         "id": {
           "type": "string",

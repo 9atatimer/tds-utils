@@ -63,6 +63,7 @@ test('Given no hit, When the omnibox Enter asks, Then the chat surface opens wit
   await expect(chat.locator('.answer-text').first()).toHaveText('The Tokio tutorial covers cancellation.');
   await expect(chat.locator('li.external').first()).toContainText('external');
   await expect(chat.locator('#model')).toContainText('llama3.1:8b (local)');
+  await expect(chat.locator('#model')).toContainText('nomic-embed-text (local)');
 
   await chat.locator(`button[data-explain="${CITED.identity}"]`).click();
   expect(await ext.daemon.waitFor(ofType('placement.explain'))).toMatchObject({ identity: CITED.identity });
