@@ -32,37 +32,18 @@ the design shipped, no code did. Retrospective ran 2026-09-19. Order:
 - task-020 -- build `bin/tmux-herd`; needs Todd's APPROVED on the design
   first, and task-021 before it can rename on this machine.
 
-Dynomark (`docs/design/DYNOMARK.DESIGN.md`, APPROVED 2026-09-27): live AI
-filing of native bookmarks, the successor to orgmarks. Code is under
-`dynomark/` (contract, daemon, extension, e2e). Tasks 022-026 and 028-031
-are built; the retrospective (2026-10-05) filed drift as issues #410-#425
-under issue #342. Order:
+Dynomark (`docs/design/DYNOMARK.DESIGN.md`, APPROVED 2026-09-27, body
+amended 2026-10-16): live AI filing of native bookmarks, the successor to
+orgmarks. Code is under `dynomark/` (contract v2, daemon, extension for
+Chrome and Firefox, e2e). The MVP is built: tasks 022-026, 028-032 and the
+retrospective's drift tasks 036-042 are closed, and the owner's 2026-10-16
+rulings are Key Decisions with revisit issues #525-#532. Order:
 
-- task-036..task-042 -- the drift defects with no open design question
-  (issues #411-#415, #417, #418); fix before the acceptance run so it
-  measures the fixed loop. task-036 (#411, the "local" model mark) first:
-  it is a Security control.
-- task-027 -- mbp integration and the MVP acceptance run (real Chrome
-  profile, Ollama, launchd, phone save, a week of use); the only thing that
-  needs the laptop. Run the daemon under a uv, python.org or Homebrew
-  Python: the macOS system Python cannot load `sqlite-vec`.
-- task-032 -- Firefox adapters; last, or a follow-up if Firefox is absent.
-
-OCR on Demand + Ollama Gateway (`docs/design/OCR-ON-DEMAND.DESIGN.md`,
-`docs/design/OLLAMA-GATEWAY.DESIGN.md`, APPROVED 2026-10-02; open questions
-ruled 2026-10-12 on issue #363): `ocr` runs as a GitHub Action on the niners
-pool (GitHub-hosted for public repos), inference from the sandboxed ollama on
-the laptop through `ollama.api9.com`. Nothing is built. Order:
-
-- task-047, task-048 -- the workflow's authorize and report jobs; need no
-  gateway, so they start now.
-- task-043, task-044 -- the sandboxed ollama and the LMDE proxy layer's
-  deadline route; laptop-only, parallel to the above.
-- task-045 -- the connector; blocked on the tds-internal `ollama-gateway`
-  root (human apply).
-- task-049, task-046 -- the review job, then gateway bring-up.
-- task-050, task-051 -- seeder and the two-repo pilot; task-052 and task-053
-  (stats, fleet rollout) follow.
+- task-027 -- the MVP acceptance run on the mbp (real Chrome profile, then
+  Firefox, Ollama, launchd, phone save, a week of use); the only thing left,
+  and the design's IMPLEMENTED transition waits on it. Run the daemon under
+  a uv, python.org or Homebrew Python: the macOS system Python cannot load
+  `sqlite-vec`.
 
 `ls tasks/` is the index. This file is still the legacy mono-file below
 this section; issue #289 owns the migration into `tasks/`.
@@ -80,10 +61,6 @@ this section; issue #289 owns the migration into `tasks/`.
   it.
 - 2026-09-27: task-027 needs the mbp (real Chrome profile, native-messaging
   host manifest, Ollama, launchd); no cloud session can run it.
-- 2026-10-05: Dynomark drift needing an owner ruling: issues #410
-  (background-tab capture address policy -- Security), #416, #419-#425.
-  Each closes with a Key Decisions row citing it. Unblock: Todd rules; the
-  design stays APPROVED until then (IMPLEMENTED is Todd's call).
 
 ## Lessons Learned (unsettled)
 
