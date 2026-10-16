@@ -2,10 +2,13 @@
 // move.observed.result (contract v1, "Delivery and replay": a request with no
 // answer is re-sent after a reconnect, and busy and internal are retried,
 // with the same id and body). Kept so a worker that dies before the answer
-// leaves the report to the next, rather than losing the feedback. Bounded:
-// the oldest go first.
+// leaves the report to the next, rather than losing the feedback. A move
+// seen with no full session (the daemon down, or the hello not yet answered)
+// is kept unjudged: whether it lies between owned folders is decided against
+// the owned roots of the next full hello. Bounded: the oldest go first.
 
-import type { Move } from './move.js';
+import { isOwnedMove, type Move } from './move.js';
+import type { OwnedRoots } from './tree.js';
 import type { RequestId } from './values.js';
 
 // --- Types ---
@@ -14,12 +17,21 @@ import type { RequestId } from './values.js';
 export interface PendingMove {
   readonly id: RequestId;
   readonly move: Move;
+  /** Seen with no full session: not yet judged against the owned roots (never sent until it is). */
+  readonly unjudged?: true;
 }
 
 // --- Constants ---
 
 /** At most this many move reports are kept pending at once. */
 export const MAX_PENDING_MOVES = 64;
+
+// --- Predicates ---
+
+/** True when the kept report is to be sent under these owned roots: judged already, or both of its ends owned. */
+export function isReportable(kept: PendingMove, roots: OwnedRoots): boolean {
+  return kept.unjudged !== true || isOwnedMove(kept.move.from, kept.move.to, roots);
+}
 
 // --- Pure helpers ---
 

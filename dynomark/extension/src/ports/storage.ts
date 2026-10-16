@@ -34,7 +34,7 @@ export interface StoragePort {
   /** Follow Up saves sent and not yet answered ingest.result: a later worker re-sends each unchanged. */
   loadPendingSaves(): Promise<readonly PendingSave[] | undefined>;
   savePendingSaves(saves: readonly PendingSave[]): Promise<void>;
-  /** Move reports sent and not yet answered move.observed.result: a later worker re-sends each unchanged after a full hello. */
+  /** Move reports sent and not yet answered move.observed.result, and moves seen with no full session (unjudged): a later worker sends each unchanged after a full hello. */
   loadPendingMoves(): Promise<readonly PendingMove[] | undefined>;
   savePendingMoves(moves: readonly PendingMove[]): Promise<void>;
   /** Tree moves the extension made and the browser has not reported: a later worker still knows the report as the extension's. */

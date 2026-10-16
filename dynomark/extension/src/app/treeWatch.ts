@@ -2,7 +2,8 @@
 // Watch Follow Up, Capture from the open tab, Record feedback; contract v1
 // README, "Connection lifecycle", steps 5 and 6). A bookmark created in, or
 // moved into, Follow Up is captured and ingested; a move is reported as
-// move.observed when both ends are owned; a change under the owned roots
+// move.observed when both ends are owned (one seen with no full session is
+// kept, and judged and reported after the next full hello); a change under the owned roots
 // schedules one debounced tree.snapshot. Every step is short and repeatable:
 // the worker can die between any two events, and ingest is idempotent. The
 // saves owed a background capture are stored, so a worker that dies before
@@ -26,7 +27,7 @@ import type { Timer } from '../ports/timer.js';
 import type { TransportPort } from '../ports/transport.js';
 import { capture } from './capture.js';
 import type { HelloOutcome } from './connection.js';
-import { observeMove, resendMoves, type ReportedMoves } from './observeMove.js';
+import { keepMove, observeMove, resendMoves, type ReportedMoves } from './observeMove.js';
 import { sendTreeSnapshot } from './onConnected.js';
 import { submitSave, UrlTooLong, type SubmittedSaves } from './submitSave.js';
 
@@ -146,9 +147,11 @@ export class TreeWatch {
     }
   }
 
-  /** Re-send the move reports left unanswered, by this worker or an earlier one (after a full hello). */
-  resendMoves(): Promise<void> {
-    return resendMoves({ ...this.deps, track: (work) => this.context.track(work) });
+  /** Re-send the move reports left unanswered or unjudged, by this worker or an earlier one (after a full hello). */
+  async resendMoves(): Promise<void> {
+    const outcome = this.context.outcome();
+    if (outcome?.mode !== 'full') return;
+    return resendMoves(outcome.owned_roots, { ...this.deps, track: (work) => this.context.track(work) });
   }
 
   // --- Flow ---
@@ -165,15 +168,26 @@ export class TreeWatch {
     const from = folderPathOf(tree, old_parent_id);
     const to = folderPathOf(tree, parent_id);
     const own = node !== undefined && (await this.context.isOwnMove(node.id, parent_id));
-    if (outcome?.mode !== 'full' || node === undefined || from === undefined || to === undefined) return;
+    if (node === undefined || from === undefined || to === undefined) return;
     // The node and its destination, not the node alone: a user move of a node the open batch names is still the user's.
     const in_flight = new Set<NodeId>(own ? [node.id] : []);
-    await observeMove(
-      { node_id: node.id, ...(node.kind === 'bookmark' ? { url: node.url } : {}), from, to },
-      outcome.role,
-      { owned_roots: outcome.owned_roots, in_flight },
-      { ...this.deps, track: (work) => this.context.track(work) },
-    );
+    const observed = { node_id: node.id, ...(node.kind === 'bookmark' ? { url: node.url } : {}), from, to };
+    if (outcome?.mode === 'full') {
+      await observeMove(
+        observed,
+        outcome.role,
+        { owned_roots: outcome.owned_roots, in_flight },
+        {
+          ...this.deps,
+          track: (work) => this.context.track(work),
+        },
+      );
+      return;
+    }
+    // No full session: the owned roots are unknown, so the move is kept and judged after the next full hello.
+    await keepMove(observed, in_flight, this.deps);
+    // That hello may have completed while the move was being kept, its re-send already past.
+    await this.resendMoves();
   }
 
   private async save(node: SnapshotNode, options: { readonly background: boolean } = { background: true }): Promise<void> {

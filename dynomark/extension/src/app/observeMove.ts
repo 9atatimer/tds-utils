@@ -11,11 +11,13 @@
 // on a link that stays up, so the identical frame is re-sent after a backoff;
 // a lost link, or a worker that dies first, leaves it to the next full
 // hello, which re-sends every kept frame this worker is not already sending.
+// A move seen with no full session is kept unjudged (keepMove) and judged
+// against that hello's owned roots: sent when owned, forgotten when not.
 
 import { backoffDelay } from '../domain/backoff.js';
 import { fitPath } from '../domain/limits.js';
 import { isOwnedMove, moveOrigin, type Move, type MoveFeedback } from '../domain/move.js';
-import { withPendingMove, withoutPendingMove, type PendingMove } from '../domain/pendingMoves.js';
+import { isReportable, withPendingMove, withoutPendingMove, type PendingMove } from '../domain/pendingMoves.js';
 import type { HostRole } from '../domain/roles.js';
 import type { FolderPath, OwnedRoots } from '../domain/tree.js';
 import type { NodeId, RequestId, Url } from '../domain/values.js';
@@ -59,6 +61,12 @@ export interface ObserveDeps extends ReportDeps {
   readonly clock: Clock;
 }
 
+export interface KeepDeps {
+  readonly moves: ReportedMoves;
+  readonly ids: IdSource;
+  readonly clock: Clock;
+}
+
 // --- The kept reports ---
 
 /**
@@ -87,6 +95,12 @@ export class ReportedMoves {
     await this.load();
     const current = this.pending ?? [];
     if (!current.some((kept) => kept.id === frame.id)) await this.store(withPendingMove(current, { id: frame.id, move: frame.move }));
+  }
+
+  /** Keep `pending` for the next full hello to send; this worker is not sending it. */
+  async keep(pending: PendingMove): Promise<void> {
+    await this.load();
+    await this.store(withPendingMove(this.pending ?? [], pending));
   }
 
   /** This worker stopped sending `id` (the next full hello may send it again, while it is kept). */
@@ -141,11 +155,28 @@ function retryLater(frame: MoveFrame, attempt: number, deps: ReportDeps): void {
   deps.timer.after(backoffDelay(attempt), () => deps.track(report(frame, attempt + 1, deps)));
 }
 
-/** Re-send every kept report this worker is not already sending, unchanged (after a full hello). */
-export async function resendMoves(deps: ReportDeps): Promise<void> {
+/** Re-send every kept report this worker is not already sending, unchanged, and forget each unjudged one that is not owned (after a full hello). */
+export async function resendMoves(owned_roots: OwnedRoots, deps: ReportDeps): Promise<void> {
   for (const kept of await deps.moves.adopt()) {
-    deps.track(report({ v: CONTRACT_VERSION, type: 'move.observed', id: kept.id, move: kept.move }, 0, deps));
+    if (!isReportable(kept, owned_roots)) await deps.moves.release(kept.id);
+    else deps.track(report({ v: CONTRACT_VERSION, type: 'move.observed', id: kept.id, move: kept.move }, 0, deps));
   }
+}
+
+/** The move as reported: paths fitted, stamped with its origin and the time it was seen. */
+function stamped(observed: ObservedMove, in_flight: ReadonlySet<NodeId>, clock: Clock): Move {
+  return {
+    ...observed,
+    from: fitPath(observed.from),
+    to: fitPath(observed.to),
+    origin: moveOrigin(observed.node_id, in_flight),
+    observed_at: clock.now(),
+  };
+}
+
+/** Keep a move seen with no full session, unjudged and stamped now, for the next full hello to judge and send. */
+export async function keepMove(observed: ObservedMove, in_flight: ReadonlySet<NodeId>, deps: KeepDeps): Promise<void> {
+  await deps.moves.keep({ id: deps.ids.next(), move: stamped(observed, in_flight, deps.clock), unjudged: true });
 }
 
 /** Report an owned move to the daemon and return the feedback it is, if any; a move outside the owned roots is ignored. */
@@ -156,13 +187,7 @@ export async function observeMove(
   deps: ObserveDeps,
 ): Promise<MoveFeedback | undefined> {
   if (!isOwnedMove(observed.from, observed.to, context.owned_roots)) return undefined;
-  const move: Move = {
-    ...observed,
-    from: fitPath(observed.from),
-    to: fitPath(observed.to),
-    origin: moveOrigin(observed.node_id, context.in_flight),
-    observed_at: deps.clock.now(),
-  };
+  const move = stamped(observed, context.in_flight, deps.clock);
   await report({ v: CONTRACT_VERSION, type: 'move.observed', id: deps.ids.next(), move }, 0, deps);
   return recordMove(move, role);
 }
