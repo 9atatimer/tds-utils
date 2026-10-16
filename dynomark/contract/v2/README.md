@@ -328,6 +328,14 @@ identity it holds, never by normalizing history URLs.
   | `PARTIAL` | `FAILED` | offer the inverse of the applied ops with `changed` true; none when there are none |
   | `REJECTED` | `FAILED` | nothing |
 
+  A receipt is recorded whichever connection it arrives on, because the
+  browser did what it reports: the batch takes its state and the job the
+  row above. An inverse is minted and offered only when the connection is
+  served `writer` for the batch's own profile. A `batch.receipt` on a
+  connection served `reader` (a binding released or a role changed while
+  the batch was out), or for a batch of another profile, is answered
+  `batch.receipt.result` and mints no batch.
+
 - **Duplicate identity.** An identity counts as already filed only when
   it has a `FILED` entry whose node is present in the latest
   `tree.snapshot`.
@@ -485,16 +493,20 @@ Clearing a stale marker is a user edit in the tree.
 | `not_writer` | `undo`, `diff.accept` or `folder.flags.set` on a connection served as `reader` | no |
 | `writer_conflict` | the same three on a writer that sees another host's marker | no |
 | `not_found` | an unknown `job_id`, `batch_id`, `diff_id`, `item_id`, identity, url or folder node id (or a `folder.flags.set` whose `path` does not match its node) | no |
-| `invalid` | a body that fails the schema, a reused `diff.propose` id with a different body, or a valid body the daemon cannot act on (e.g. `undo` of a batch that is not `APPLIED`, `folder.flags.set` outside the owned roots, `job.retry` of a `FAILED` job whose save Retention dropped: the job is known, so it is not `not_found`, and the message says the save is gone) | no |
+| `invalid` | a body that fails the schema, a reused `diff.propose` id with a different body, or a valid body the daemon cannot act on (e.g. `diff.propose` on a connection served `reader`, `undo` of a batch that is not `APPLIED`, `folder.flags.set` outside the owned roots, `job.retry` of a `FAILED` job whose save Retention dropped: the job is known, so it is not `not_found`, and the message says the save is gone) | no |
 | `stale_cursor` | a cursor that has expired, or presented with other request parameters | restart from page 1 |
 | `busy` | temporarily unable (e.g. a model loading, or `undo` before a post-receipt `tree.snapshot`) | yes, same `id`, after backoff |
 | `internal` | anything unexpected | yes, same `id`, after backoff |
 | `superseded` | unsolicited (`re` null): a newer connection of the same profile replaced this one; the daemon closes this one | no; do not reconnect |
 
 A connection served as `reader` answers `not_writer` only to the three
-requests above and serves every other one: `ingest` indexes for its own
-search and chat and never files (the job ends `INDEXED`),
-`move.observed` is discarded for feedback, and no `batch.offer` is ever
+requests above. Readers do not propose diffs: `diff.propose` on a reader
+connection is answered `invalid` (a reader cannot apply a diff and has no
+channel to the writer); `diff.list` and `diff.page` still read the diffs
+the store holds. It serves every other request: `ingest` indexes for its
+own search and chat and never files (the job ends `INDEXED`),
+`move.observed` is discarded for feedback, a `batch.receipt` is recorded
+but mints no batch (Jobs, Receipt -> job), and no `batch.offer` is ever
 sent.
 
 ## Size limits

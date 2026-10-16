@@ -328,6 +328,36 @@ def test_a_receipt_on_a_reader_connection_mints_no_batch() -> None:
     assert record is not None and record.undone_by is None
 
 
+def test_a_receipt_for_another_profiles_batch_is_recorded_and_mints_no_batch() -> None:
+    """Given a writer bound to profile A holding A's offered batch, When a
+    PARTIAL receipt for it arrives on profile B's (reader) connection, Then
+    it is answered batch.receipt.result, the batch takes the receipt's
+    state, and no inverse batch is minted (contract v2, Receipt -> job)."""
+    harness = Harness()
+    harness.hello()
+    harness.store.put_batch(
+        make_batch(
+            "batch-of-a",
+            operations=(
+                OpCreateFolder(index=0, parent=make_path("Dynomark"), title="Async"),
+                make_move_op(1),
+            ),
+        )
+    )
+    other = Session()
+    harness.dispatcher.handle(wire.hello("h-b", profile="profile-b"), other)
+
+    outcome = harness.dispatcher.handle(
+        wire.partial_receipt("r-1", "batch-of-a", ["16"]), other
+    )
+
+    assert isinstance(outcome.reply, m.BatchReceiptMessageResult)
+    assert [r.batch.batch_id for r in harness.store.list_batches()] == ["batch-of-a"]
+    record = harness.store.get_batch(BatchId("batch-of-a"))
+    assert record is not None and record.state.value == "PARTIAL"
+    assert record.undone_by is None
+
+
 def test_a_foreign_cursor_is_stale() -> None:
     """Given a full connection, When index.pull presents a job.list cursor, Then
     it is answered stale_cursor."""
