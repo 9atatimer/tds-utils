@@ -217,7 +217,8 @@ def admit_folder(
 
 def feedback_of(move: Move, role: HostRole, roots: OwnedRoots) -> MoveFeedback | None:
     """The labelled example a move gives, if any: only a user's move of a
-    bookmark between two owned folders, observed on the writer. Its id is
+    bookmark between two owned folders (a reorder within one is not),
+    observed on the writer. Its id is
     derived from (node, time), so a repeat is the same feedback."""
     if (
         role is not HostRole.WRITER
@@ -225,6 +226,7 @@ def feedback_of(move: Move, role: HostRole, roots: OwnedRoots) -> MoveFeedback |
         or move.url is None
         or not roots.contains(move.from_path)
         or not roots.contains(move.to_path)
+        or move.from_path == move.to_path
     ):
         return None
     return MoveFeedback(

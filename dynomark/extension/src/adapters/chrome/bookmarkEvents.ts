@@ -37,8 +37,13 @@ export function forwardBookmarkEvents<N>(
   toNode: (node: N) => SnapshotNode,
 ): void {
   api.onCreated.addListener((_id, node) => listener({ kind: 'created', node: toNode(node) }));
+  // A move within one folder is a reorder (Chrome on a drag, Firefox always): never move feedback.
   api.onMoved.addListener((id, info) =>
-    listener({ kind: 'moved', node_id: id, parent_id: info.parentId, old_parent_id: info.oldParentId }),
+    listener(
+      info.parentId === info.oldParentId
+        ? { kind: 'reordered', folder_id: info.parentId }
+        : { kind: 'moved', node_id: id, parent_id: info.parentId, old_parent_id: info.oldParentId },
+    ),
   );
   api.onChanged.addListener((id) => listener({ kind: 'changed', node_id: id }));
   api.onRemoved.addListener((id, info) => listener({ kind: 'removed', node_id: id, parent_id: info.parentId }));
