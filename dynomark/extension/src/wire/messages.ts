@@ -27,7 +27,6 @@ import {
   LocalIndexRowSchema,
   ModelInfoSchema,
   MoveSchema,
-  NodeIdSchema,
   OutlineFolderSchema,
   OwnedRootsSchema,
   PlacementReasonSchema,
@@ -111,8 +110,7 @@ export const DiffPageSchema = request('diff.page', { diff_id: IdSchema, cursor: 
 export const DiffAcceptSchema = request('diff.accept', { item_id: IdSchema });
 export const OutlineGetSchema = request('outline.get', { cursor: CursorSchema.exactOptional(), limit: pageLimit(1000) });
 export const FolderFlagsSetSchema = request('folder.flags.set', {
-  node_id: NodeIdSchema,
-  path: FolderPathSchema.exactOptional(),
+  path: FolderPathSchema,
   pinned: z.boolean().exactOptional(),
   locked: z.boolean().exactOptional(),
 }).refine((m) => m.pinned !== undefined || m.locked !== undefined, { message: 'folder.flags.set changes at least one flag' });

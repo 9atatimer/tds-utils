@@ -21,7 +21,6 @@ from dynomark_daemon.wire.base import (
     HostId,
     Id,
     Identity,
-    NodeId,
     Url,
     Version,
     WireModel,
@@ -429,8 +428,7 @@ class FolderFlagsSet(WireModel):
     v: Version
     type: Literal["folder.flags.set"]
     id: Id
-    node_id: NodeId
-    path: FolderPath | None = None
+    path: FolderPath
     pinned: bool | None = None
     locked: bool | None = None
 

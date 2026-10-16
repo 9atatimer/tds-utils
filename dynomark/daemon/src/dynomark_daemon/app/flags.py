@@ -2,11 +2,11 @@
 ``pinned`` and ``locked``; Behaviors "Placement respects a lock";
 contract/v2 ``folder.flags.set``).
 
-The request names a folder by this host's node id; the flags are kept by
-the folder's path, which every writer's tree resolves alike, so a writer
-change keeps every pin and lock (issue #423). They are read into every
-``TreeOutline`` (placement skips a locked folder, diffs never move a pinned
-one).
+The request names a folder by its path, and the flags are kept by it:
+every writer's tree resolves a path alike, so a writer change keeps every
+pin and lock (issue #423; contract v2 addresses the folder by path). They
+are read into every ``TreeOutline`` (placement skips a locked folder, diffs
+never move a pinned one).
 """
 
 from dynomark_daemon.app.errors import InvalidRequest, TreeNotReady, UnknownRecord
@@ -27,8 +27,7 @@ UNFLAGGED = FolderFlags(pinned=False, locked=False)
 
 
 def set_folder_flags(
-    node_id: NodeId,
-    path: FolderPath | None,
+    path: FolderPath,
     pinned: bool | None,
     locked: bool | None,
     role: HostRole,
@@ -37,13 +36,12 @@ def set_folder_flags(
     conflict: WriterConflict | None = None,
     store: CorpusStorePort,
 ) -> OutlineFolder | NotWriter | WriterConflict:
-    """Set the flags given (``None`` keeps one) on the owned folder
-    ``node_id``; ``path``, when given, must be where it is. A writer in
-    ``conflict`` refuses.
+    """Set the flags given (``None`` keeps one) on the owned folder at
+    ``path``. A writer in ``conflict`` refuses.
 
     Raises:
         TreeNotReady: no tree snapshot yet (``busy``).
-        UnknownRecord: no such folder, or it is not at ``path``
+        UnknownRecord: ``path`` resolves to no folder in the latest tree
             (``not_found``).
         InvalidRequest: the folder is outside the owned roots (``invalid``).
     """
@@ -54,14 +52,12 @@ def set_folder_flags(
     tree = store.latest_tree_snapshot()
     if tree is None:
         raise TreeNotReady("no tree snapshot to find the folder in")
-    node = tree.node(node_id)
-    where = tree.path_of(node_id) if node is not None else None
-    if node is None or node.kind is not NodeKind.FOLDER or where is None:
-        raise UnknownRecord(f"no folder {node_id}")
-    if path is not None and path != where:
-        raise UnknownRecord(f"folder {node_id} is not at {list(path.names)}")
-    if not roots.contains(where):
-        raise InvalidRequest(f"{list(where.names)} is not an owned folder")
+    node_id = tree.resolve(path)
+    if node_id is None:
+        raise UnknownRecord(f"no folder at {list(path.names)}")
+    if not roots.contains(path):
+        raise InvalidRequest(f"{list(path.names)} is not an owned folder")
+    where = path
     now = store.folder_flags().get(where, UNFLAGGED)
     flags = FolderFlags(
         pinned=now.pinned if pinned is None else pinned,

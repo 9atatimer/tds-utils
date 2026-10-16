@@ -135,8 +135,7 @@ def test_undo_never_moves_a_folder_the_user_has_locked_since() -> None:
         )
     )
     set_folder_flags(
-        NodeId("16"),
-        None,
+        make_path("Dynomark", "Rust", "Async"),
         None,
         True,
         HostRole.WRITER,

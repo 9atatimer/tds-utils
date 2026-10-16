@@ -79,7 +79,6 @@ from dynomark_daemon.domain.ids import (
     EventId,
     ItemId,
     JobId,
-    NodeId,
     ProfileId,
     RequestId,
 )
@@ -918,8 +917,7 @@ class Dispatcher:
 
     def _folder_flags_set(self, message: m.FolderFlagsSet, session: Session) -> Outcome:
         folder = set_folder_flags(
-            NodeId(message.node_id),
-            None if message.path is None else folder_path_from_wire(message.path),
+            folder_path_from_wire(message.path),
             message.pinned,
             message.locked,
             session.role,
