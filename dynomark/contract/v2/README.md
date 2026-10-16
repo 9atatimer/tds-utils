@@ -641,3 +641,21 @@ kept beside it (git holds it). A v1 peer still completes the handshake: the
 frozen messages are unchanged, a v1 `hello` (`valid/hello--v1-extension.json`)
 is answered `refused`, and a v1 daemon's `hello.result` answers a v2
 extension `read_only` (`valid/hello.result--read_only.json`).
+
+- `url.vet` / `url.vet.result` and `VetRefusal`: the writer opens a
+  background tab only for a URL the daemon vets (Background-tab capture;
+  issue #410).
+- `ModelInfo.local` is true only on a loopback host, with no cloud tag,
+  and no `[models] remote` (issue #411).
+- `status.result` `writer_binding` says why a profile is served `reader`
+  (issue #419).
+- `WriteBatch.park` / `BatchSummary.park` name the existing placement of
+  a parked duplicate; `UndoDropReason` gains `locked` and `owned_root`;
+  `WriteBatch.scope` carries an accepted item's scope, and a diff-item
+  batch is checked against it instead of being exempt;
+  `folder.flags.set` addresses a folder by `path` (issue #423).
+- Text only: readers do not propose diffs (`invalid`, issue #416); a
+  receipt off the batch profile's writer is recorded and mints nothing
+  (issue #417); `job.retry` of a job whose save Retention dropped is
+  `invalid`, not `not_found`; a reader-served profile's `tree.snapshot`
+  is kept for Retention (issue #421).
