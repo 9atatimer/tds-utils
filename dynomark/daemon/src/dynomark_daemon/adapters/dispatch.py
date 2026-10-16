@@ -978,6 +978,10 @@ class Dispatcher:
     # --- Background-tab capture ---
 
     def _url_vet(self, message: m.UrlVet, session: Session) -> Outcome:
+        # Background-tab capture is the writer's alone; a connection rebind
+        # demoted keeps its cached writer role, so the role is read now.
+        if self._role(session) is not HostRole.WRITER:
+            return Outcome(_refused(message.id, NotWriter("url.vet")))
         verdict = vet_url(message.url, vetter=self._vetter)
         log.info(
             "url.vetted",

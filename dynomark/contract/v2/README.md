@@ -371,8 +371,11 @@ DNS, decides:
   (never loopback, link-local, private, unspecified, reserved or
   multicast), unless the daemon's config sets `[capture]
   private_addresses = true`, which allows every resolving address.
-- `url.vet` is read-only and served on any connection; it is not in the
-  read-only set (a `read_only` connection ingests nothing to capture).
+- `url.vet` is read-only but writer-only: a connection served as `reader`
+  (a reader's, or a writer's that `dynomark-daemon rebind` demoted while it
+  stayed open) is answered `not_writer`, and the extension then opens no
+  tab. It is not in the read-only set (a `read_only` connection ingests
+  nothing to capture).
 
 ## Write batches
 
@@ -548,8 +551,8 @@ Clearing a stale marker is a user edit in the tree.
 |---|---|---|
 | `version_mismatch` | a non-frozen message's `v` is not the daemon's; a request outside the connection's `mode` | no |
 | `hello_required` | a request before `hello` was answered | after `hello` |
-| `not_writer` | `undo`, `diff.accept` or `folder.flags.set` on a connection served as `reader` | no |
-| `writer_conflict` | the same three on a writer that sees another host's marker | no |
+| `not_writer` | `undo`, `diff.accept`, `folder.flags.set` or `url.vet` on a connection served as `reader` | no |
+| `writer_conflict` | `undo`, `diff.accept` or `folder.flags.set` on a writer that sees another host's marker | no |
 | `not_found` | an unknown `job_id`, `batch_id`, `diff_id`, `item_id`, identity, url, or a `folder.flags.set` `path` that resolves to no folder in the latest tree | no |
 | `invalid` | a body that fails the schema, a reused `diff.propose` id with a different body, or a valid body the daemon cannot act on (e.g. `diff.propose` on a connection served `reader`, `undo` of a batch that is not `APPLIED`, `folder.flags.set` outside the owned roots, `job.retry` of a `FAILED` job whose save Retention dropped: the job is known, so it is not `not_found`, and the message says the save is gone) | no |
 | `stale_cursor` | a cursor that has expired, or presented with other request parameters | restart from page 1 |
@@ -557,7 +560,7 @@ Clearing a stale marker is a user edit in the tree.
 | `internal` | anything unexpected | yes, same `id`, after backoff |
 | `superseded` | unsolicited (`re` null): a newer connection of the same profile replaced this one; the daemon closes this one | no; do not reconnect |
 
-A connection served as `reader` answers `not_writer` only to the three
+A connection served as `reader` answers `not_writer` only to the four
 requests above. Readers do not propose diffs: `diff.propose` on a reader
 connection is answered `invalid` (a reader cannot apply a diff and has no
 channel to the writer); `diff.list` and `diff.page` still read the diffs
