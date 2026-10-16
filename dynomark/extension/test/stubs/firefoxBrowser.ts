@@ -26,7 +26,7 @@ export interface FakeFirefox {
   readonly native: NativeMessagingStub;
   /** Every tab navigation and opening, in order: `update <url>`, `create <url> active=<b>`. */
   readonly opened: string[];
-  /** Every sidebar call, in order: `open`, `panel <url>`. */
+  /** Every sidebar call, in order: `open`. */
   readonly sidebar: string[];
 }
 
@@ -87,7 +87,6 @@ export function fakeFirefox(options: { readonly sidebarRefuses?: boolean } = {})
           ? Promise.reject(new Error('sidebarAction.open may only be called from a user input handler'))
           : Promise.resolve();
       },
-      setPanel: (details) => Promise.resolve(void sidebar.push(`panel ${details.panel ?? 'null'}`)),
     },
     omnibox: {
       onInputChanged: new EventStub(),
