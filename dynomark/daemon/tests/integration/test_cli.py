@@ -3,6 +3,7 @@
 a local fake on 127.0.0.1 or a closed port.
 """
 
+import json
 import plistlib
 import socket
 import stat
@@ -120,6 +121,63 @@ def test_install_host_manifest_writes_both_browsers_under_home(tmp_path: Path) -
         Path(line) for line in result.output.splitlines() if line.endswith(".json")
     ]
     assert len(written) == 2 and all(p.is_file() for p in written)
+
+
+def test_install_host_manifest_for_firefox_writes_the_gecko_id(
+    tmp_path: Path,
+) -> None:
+    """Given a gecko id and --browser firefox, When install-host-manifest runs,
+    Then one manifest is written under HOME allowing exactly that extension,
+    and its path is printed."""
+    host = tmp_path / "dynomark-host"
+    host.write_text("#!/bin/sh\n")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "install-host-manifest",
+            "--extension-id",
+            "dynomark@tds.dynomark",
+            "--browser",
+            "firefox",
+            "--host-path",
+            str(host),
+        ],
+        env=_env(tmp_path, ""),
+    )
+
+    assert result.exit_code == 0, result.output
+    [written] = [Path(line) for line in result.output.splitlines()]
+    assert written.is_relative_to(tmp_path)
+    document = json.loads(written.read_text(encoding="utf-8"))
+    assert document["allowed_extensions"] == ["dynomark@tds.dynomark"]
+
+
+def test_install_host_manifest_refuses_a_chrome_id_for_firefox(
+    tmp_path: Path,
+) -> None:
+    """Given a Chrome extension id and --browser firefox, When installing,
+    Then it exits non-zero naming the option and writes nothing."""
+    host = tmp_path / "dynomark-host"
+    host.write_text("#!/bin/sh\n")
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "install-host-manifest",
+            "--extension-id",
+            EXTENSION,
+            "--browser",
+            "firefox",
+            "--host-path",
+            str(host),
+        ],
+        env=_env(tmp_path, ""),
+    )
+
+    assert result.exit_code == 2
+    assert "--extension-id" in result.output
+    assert not any(tmp_path.rglob("*.json"))
 
 
 def test_install_host_manifest_refuses_a_bad_extension_id(tmp_path: Path) -> None:
