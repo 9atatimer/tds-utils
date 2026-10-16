@@ -1,4 +1,4 @@
-"""Access to the shared contract v1 golden files (dynomark/contract/v1/).
+"""Access to the shared contract v2 golden files (dynomark/contract/v2/).
 
 Reading these files is fixture I/O, the one exception the contract suite
 is allowed: they are the contract both runtimes are validated against.
@@ -8,9 +8,9 @@ import json
 from pathlib import Path
 from typing import cast
 
-CONTRACT_V1 = Path(__file__).resolve().parents[3] / "contract" / "v1"
-VALID_DIR = CONTRACT_V1 / "examples" / "valid"
-INVALID_DIR = CONTRACT_V1 / "examples" / "invalid"
+CONTRACT_DIR = Path(__file__).resolve().parents[3] / "contract" / "v2"
+VALID_DIR = CONTRACT_DIR / "examples" / "valid"
+INVALID_DIR = CONTRACT_DIR / "examples" / "invalid"
 
 JsonObject = dict[str, object]
 
@@ -28,7 +28,7 @@ def load_object(path: Path) -> JsonObject:
 
 
 def schema() -> JsonObject:
-    return load_object(CONTRACT_V1 / "messages.schema.json")
+    return load_object(CONTRACT_DIR / "messages.schema.json")
 
 
 def schema_defs() -> dict[str, JsonObject]:
@@ -46,6 +46,11 @@ def message_type_of(def_name: str) -> str:
     return cast(str, properties["type"]["const"])
 
 
+def contract_version() -> int:
+    """The integer in CONTRACT_VERSION: the version both runtimes speak."""
+    return int((CONTRACT_DIR / "CONTRACT_VERSION").read_text(encoding="utf-8"))
+
+
 def invalid_rules() -> dict[str, dict[str, str]]:
-    path = CONTRACT_V1 / "examples" / "invalid-rules.json"
+    path = CONTRACT_DIR / "examples" / "invalid-rules.json"
     return cast(dict[str, dict[str, str]], load_object(path))

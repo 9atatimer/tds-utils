@@ -1,7 +1,7 @@
 /// <reference types="node" />
-// golden.test.ts -- the extension's zod schemas against contract v1's golden files.
+// golden.test.ts -- the extension's zod schemas against contract v2's golden files.
 //
-// Contract v1 README, "Validation": the extension's zod schemas MUST accept
+// Contract v2 README, "Validation": the extension's zod schemas MUST accept
 // every file in examples/valid/ and reject every file in examples/invalid/.
 // Reading those files is the one fixture I/O the suite allows.
 
@@ -9,11 +9,11 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { z } from 'zod';
-import { EventSchema, MessageSchema, RequestSchema, ResponseSchema } from '../../src/wire/messages.js';
+import { CONTRACT_VERSION, EventSchema, MessageSchema, RequestSchema, ResponseSchema } from '../../src/wire/messages.js';
 
 // --- Constants ---
 
-const CONTRACT = fileURLToPath(new URL('../../../contract/v1/', import.meta.url));
+const CONTRACT = fileURLToPath(new URL('../../../contract/v2/', import.meta.url));
 const VALID_DIR = `${CONTRACT}examples/valid/`;
 const INVALID_DIR = `${CONTRACT}examples/invalid/`;
 
@@ -82,14 +82,14 @@ function contractMessageTypes(): Map<string, 'request' | 'response' | 'event'> {
 
 const RULES = readJson(`${CONTRACT}examples/invalid-rules.json`) as Readonly<Record<string, InvalidRule>>;
 
-describe('contract v1 valid examples', () => {
+describe('contract v2 valid examples', () => {
   it.each(jsonFiles(VALID_DIR))('Given valid/%s, When the extension parses it, Then it is accepted', (file) => {
     const result = MessageSchema.safeParse(readJson(`${VALID_DIR}${file}`));
     expect(result.error?.issues).toBeUndefined();
   });
 });
 
-describe('contract v1 invalid examples', () => {
+describe('contract v2 invalid examples', () => {
   const rejected = jsonFiles(INVALID_DIR).filter((f) => !(f in ENFORCED_ELSEWHERE));
 
   it.each(rejected)('Given invalid/%s, When the extension parses it, Then it is rejected at the rule the contract names', (file) => {
@@ -112,7 +112,13 @@ describe('contract v1 invalid examples', () => {
   });
 });
 
-describe('contract v1 message set', () => {
+describe('contract v2 version', () => {
+  it('Given CONTRACT_VERSION, When compared with the version this build speaks, Then they are the same integer', () => {
+    expect(CONTRACT_VERSION).toBe(Number(readFileSync(`${CONTRACT}CONTRACT_VERSION`, 'utf8').trim()));
+  });
+});
+
+describe('contract v2 message set', () => {
   it("Given the contract schema, When its message types are compared with the zod union's, Then the sets are equal", () => {
     const zodTypes = MessageSchema.options.map((o) => o.shape.type.value);
     expect(new Set(zodTypes)).toEqual(new Set(contractMessageTypes().keys()));

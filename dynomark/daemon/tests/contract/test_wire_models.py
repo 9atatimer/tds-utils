@@ -1,6 +1,6 @@
-"""Contract v1 golden files against the daemon's Pydantic wire models.
+"""Contract v2 golden files against the daemon's Pydantic wire models.
 
-contract/v1/README.md, Validation: "the daemon's Pydantic models ... MUST
+contract/v2/README.md, Validation: "the daemon's Pydantic models ... MUST
 accept every file in examples/valid/ and reject every file in
 examples/invalid/". Design: Transport contract, "Identity and version --
 The contract is a versioned schema artifact in the repo".
@@ -13,8 +13,11 @@ from typing import cast
 import pytest
 from pydantic import ValidationError
 
+from dynomark_daemon.domain.connection import DAEMON_CONTRACT_VERSION
+from dynomark_daemon.wire.base import CONTRACT_VERSION
 from dynomark_daemon.wire.messages import MESSAGE_MODELS, validate_message
 from tests.contract.golden import (
+    contract_version,
     invalid_files,
     invalid_rules,
     load_object,
@@ -28,7 +31,7 @@ pytestmark = pytest.mark.contract
 
 # Invalid examples this runtime cannot reject because the rule is enforced
 # only by the extension or by check.py, keyed by file name, each with the
-# reason from invalid-rules.json. Every rule in contract v1 is a JSON Schema
+# reason from invalid-rules.json. Every rule in contract v2 is a JSON Schema
 # keyword the Pydantic models express, so the list is empty; an entry here
 # is asserted to still be accepted, so a stale one fails.
 UNENFORCEABLE_HERE: dict[str, str] = {}
@@ -77,7 +80,7 @@ def instance_path(document: object, loc: Sequence[str | int]) -> list[str]:
 
 @pytest.mark.parametrize("path", valid_files(), ids=_ids(valid_files()))
 def test_parse_valid_example_yields_the_model_of_its_type(path: Path) -> None:
-    """Given a contract v1 valid example, When the daemon parses it, Then it is
+    """Given a contract v2 valid example, When the daemon parses it, Then it is
     accepted as the wire model named after the schema $def of its type."""
     raw = path.read_bytes()
     doc_type = cast(str, load_object(path)["type"])
@@ -90,7 +93,7 @@ def test_parse_valid_example_yields_the_model_of_its_type(path: Path) -> None:
 
 @pytest.mark.parametrize("path", invalid_files(), ids=_ids(invalid_files()))
 def test_parse_invalid_example_is_rejected(path: Path) -> None:
-    """Given a contract v1 invalid example, When the daemon parses it, Then it is
+    """Given a contract v2 invalid example, When the daemon parses it, Then it is
     rejected on the instance path invalid-rules.json names for it (at, above or
     below it: Pydantic reports a model-level rule on the object, a missing
     clause on the field)."""
@@ -136,3 +139,10 @@ def test_wire_model_fields_match_schema_properties(def_name: str) -> None:
 
     assert set(fields) == properties
     assert {key for key, f in fields.items() if f.is_required()} == required
+
+
+def test_daemon_speaks_the_contract_version_of_the_golden_files() -> None:
+    """Given dynomark/contract/v2/CONTRACT_VERSION, When compared to the version
+    the daemon pins and negotiates, Then both are that integer."""
+    assert CONTRACT_VERSION == contract_version()
+    assert DAEMON_CONTRACT_VERSION == contract_version()

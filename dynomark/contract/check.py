@@ -41,13 +41,13 @@ from typing import Any
 # --- Constants ---
 
 HERE = Path(__file__).resolve().parent
-V1 = HERE / "v1"
-SCHEMA_PATH = V1 / "messages.schema.json"
-VALID_DIR = V1 / "examples" / "valid"
-INVALID_DIR = V1 / "examples" / "invalid"
-RULES_PATH = V1 / "examples" / "invalid-rules.json"
-README_PATH = V1 / "README.md"
-VERSION_PATH = V1 / "CONTRACT_VERSION"
+CONTRACT = HERE / "v2"
+SCHEMA_PATH = CONTRACT / "messages.schema.json"
+VALID_DIR = CONTRACT / "examples" / "valid"
+INVALID_DIR = CONTRACT / "examples" / "invalid"
+RULES_PATH = CONTRACT / "examples" / "invalid-rules.json"
+README_PATH = CONTRACT / "README.md"
+VERSION_PATH = CONTRACT / "CONTRACT_VERSION"
 
 FROZEN_TYPES = {"hello", "hello.result", "error"}
 MIN_INVALID = 20
