@@ -37,6 +37,10 @@ export class BackgroundBrowserStub {
   refuseWindows = false;
   /** When set, updateSessionRules rejects adding rules (an unsupported regex, or no permission). */
   refuseRules = false;
+  /** When set, windows.remove rejects and the window stays open. */
+  refuseClose = false;
+  /** How many session rules were installed at each windows.remove, in order. */
+  readonly rulesAtClose: number[] = [];
   private readonly pages = new Map<string, Served>();
   private readonly redirects = new Map<string, string>();
   private readonly open = new Map<number, StubTab>();
@@ -80,6 +84,8 @@ export class BackgroundBrowserStub {
       return Promise.resolve({ state: win.state, tabs: [{ id: win.tabId }] });
     },
     remove: (windowId: number): Promise<void> => {
+      this.rulesAtClose.push(this.rules.size);
+      if (this.refuseClose) return Promise.reject(new Error(`Could not close window ${windowId}.`));
       const win = this.open.get(windowId);
       this.open.delete(windowId);
       this.log.push(`close ${win?.url ?? String(windowId)}`);
