@@ -1,7 +1,7 @@
 // applyBatch.resume.test.ts -- design Behaviors row "A batch resumes after
 // termination": Given a cursor at operation 3 of 5, When the same batch is
 // offered again, Then operations 1-3 are not repeated and the receipt is
-// APPLIED. Contract v1, "Cursor and resume": recorded outcomes are reported,
+// APPLIED. Contract v2, "Cursor and resume": recorded outcomes are reported,
 // never re-derived from the tree; an op marked started is re-evaluated by
 // its post-condition; a fully applied batch is answered APPLIED again
 // without touching the tree; one durable cursor, held until the receipt's

@@ -133,21 +133,75 @@ def resolve_choice(choice: FolderPath, outline: TreeOutline) -> FolderPath | Non
     return current
 
 
+def _bars(path: FolderPath, outline: TreeOutline) -> bool:
+    """``path`` itself is locked, or a writer marker below the root."""
+    folder = outline.folder_at(path)
+    marker = len(path.names) > len(outline.root.names) and path.names[-1].startswith(
+        WRITER_MARKER_PREFIX
+    )
+    return marker or (folder is not None and folder.locked)
+
+
+def barrier_of(path: FolderPath, outline: TreeOutline) -> FolderPath | None:
+    """The outermost folder at or above ``path``, from the ``Dynomark`` root
+    down, that bars a placement: locked, or a writer marker. ``None`` when
+    nothing does."""
+    depths = range(len(outline.root.names), len(path.names) + 1)
+    return next(
+        (path.prefix(d) for d in depths if _bars(path.prefix(d), outline)), None
+    )
+
+
+def _beside(
+    resolved: FolderPath,
+    barrier: FolderPath,
+    outline: TreeOutline,
+    neighbour_folders: Sequence[FolderPath],
+) -> FolderPath:
+    """Where a choice barred at ``barrier`` goes: the admissible sibling of
+    the barrier most neighbours sit in; else the new leaf under its parent
+    the choice names below the barrier (an existing name is that folder);
+    else the first admissible sibling; else the parent itself."""
+    parent = barrier.prefix(len(barrier.names) - 1)
+    siblings = [
+        f.path
+        for f in outline.children_of(parent)
+        if f.path != barrier and is_admissible(f.path, outline)
+    ]
+    held = Counter(s for s in siblings for n in neighbour_folders if n.is_inside(s))
+    if held:
+        return max(siblings, key=lambda s: held[s])
+    below = resolved.names[len(barrier.names) :]
+    if below and below[0].strip():
+        leaf = _child_named(outline, parent, below[0]) or parent.child(below[0].strip())
+        if leaf != barrier and is_admissible(leaf, outline):
+            return leaf
+    return siblings[0] if siblings else parent
+
+
 def admit_folder(
     choice: FolderPath,
     outline: TreeOutline,
     neighbour_folders: Sequence[FolderPath],
 ) -> FolderPath:
-    """Where an entry goes: the completion's choice when admissible; else the
-    admissible folder most of its neighbours sit in (a sibling of a locked
-    choice); else the ``Dynomark`` root.
+    """Where an entry goes: the completion's choice when admissible. A choice
+    barred by a locked folder (or a writer marker) lands beside that folder:
+    a sibling of it or a new leaf under its parent, never inside it
+    (Behaviors, "Placement respects a lock"). A choice outside ``Dynomark``
+    goes to the admissible folder most of its neighbours sit in, else the
+    ``Dynomark`` root.
 
     Raises:
         NoAdmissibleFolder: the root itself is locked.
     """
+    if not is_admissible(outline.root, outline):
+        raise NoAdmissibleFolder(f"every folder under {outline.root.names} is locked")
     resolved = resolve_choice(choice, outline)
-    if resolved is not None and is_admissible(resolved, outline):
-        return resolved
+    if resolved is not None:
+        barrier = barrier_of(resolved, outline)
+        if barrier is None:
+            return resolved
+        return _beside(resolved, barrier, outline, neighbour_folders)
     usable = [
         folder
         for folder in neighbour_folders
@@ -155,9 +209,7 @@ def admit_folder(
     ]
     if usable:
         return Counter(usable).most_common(1)[0][0]
-    if is_admissible(outline.root, outline):
-        return outline.root
-    raise NoAdmissibleFolder(f"every folder under {outline.root.names} is locked")
+    return outline.root
 
 
 # --- Feedback (Ubiquitous language: Move, MoveFeedback) ---
@@ -165,7 +217,8 @@ def admit_folder(
 
 def feedback_of(move: Move, role: HostRole, roots: OwnedRoots) -> MoveFeedback | None:
     """The labelled example a move gives, if any: only a user's move of a
-    bookmark between two owned folders, observed on the writer. Its id is
+    bookmark between two owned folders (a reorder within one is not),
+    observed on the writer. Its id is
     derived from (node, time), so a repeat is the same feedback."""
     if (
         role is not HostRole.WRITER
@@ -173,6 +226,7 @@ def feedback_of(move: Move, role: HostRole, roots: OwnedRoots) -> MoveFeedback |
         or move.url is None
         or not roots.contains(move.from_path)
         or not roots.contains(move.to_path)
+        or move.from_path == move.to_path
     ):
         return None
     return MoveFeedback(

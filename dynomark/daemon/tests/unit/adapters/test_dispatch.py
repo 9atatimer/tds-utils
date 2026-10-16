@@ -1,6 +1,6 @@
 """The transport adapter's request side: one frame body in, one answer out.
 
-contract/v1/README.md: Connection lifecycle (hello first, admission order,
+contract/v2/README.md: Connection lifecycle (hello first, admission order,
 mode), Envelope ("Every request X is answered by exactly one frame"),
 Delivery and replay (events, offers only after a tree.snapshot on the
 connection), Roles and errors (the closed code set), Size limits (no frame
@@ -14,6 +14,7 @@ import pytest
 from structlog.testing import capture_logs
 
 from dynomark_daemon.adapters.dispatch import Dispatcher, Session
+from dynomark_daemon.app.hello import release_writer_binding
 from dynomark_daemon.app.run import run_job
 from dynomark_daemon.domain.batch import Expect, OpCreateFolder, OpMove
 from dynomark_daemon.domain.bookmark import Enrichment, Identity
@@ -21,12 +22,13 @@ from dynomark_daemon.domain.chat import DraftAnswer
 from dynomark_daemon.domain.connection import HelloMode
 from dynomark_daemon.domain.diff import DiffAction, DiffKind, DiffProposal
 from dynomark_daemon.domain.events import BatchOffered, JobUpdated
-from dynomark_daemon.domain.ids import EventId, JobId, NodeId, ProfileId
+from dynomark_daemon.domain.ids import BatchId, EventId, JobId, NodeId, ProfileId
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.domain.placement import FolderChoice
 from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.domain.tree import TreeOutline
 from dynomark_daemon.ports.completion import CompletionError
+from dynomark_daemon.testing.address import FakeAddressVet
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.completion import ProposeDiffCall, ScriptedCompletion
 from dynomark_daemon.testing.content import FakeFetch
@@ -37,10 +39,12 @@ from dynomark_daemon.wire import messages as m
 from dynomark_daemon.wire.codec import encode_message
 from tests import _wire as wire
 from tests._factories import (
+    make_batch,
     make_bookmark,
     make_capture,
     make_config,
     make_entry,
+    make_move_op,
     make_node,
     make_path,
     make_roots,
@@ -73,6 +77,9 @@ class Harness:
             clock=self.clock,
             ids=self.ids,
             transport=self.transport,
+            vetter=FakeAddressVet(
+                resolves={"tokio.rs": ("93.184.216.34",), "router": ("192.168.1.1",)}
+            ),
             wake=self._wake,
         )
         self.session = Session()
@@ -87,7 +94,7 @@ class Harness:
             self.dispatcher.deliver(self.session)
         return outcome.reply
 
-    def hello(self, *, v: int = 1) -> m.AnyMessage:
+    def hello(self, *, v: int = 2) -> m.AnyMessage:
         return self.send(wire.hello(v=v))
 
     def ingest(self, request_id: str = "i-1") -> m.AnyMessage:
@@ -135,13 +142,28 @@ def test_hello_answers_role_mode_and_owned_roots_and_registers() -> None:
     assert (harness.session.profile_id, harness.session.mode) == (A, HelloMode.FULL)
 
 
+def test_a_v1_hello_is_refused_at_this_daemons_version() -> None:
+    """Given a writer daemon, When a v1 extension (the version before this
+    one) says hello, Then it is answered refused, at the daemon's version, and
+    its next request version_mismatch; the store stays unbound."""
+    harness = Harness()
+
+    reply = harness.hello(v=1)
+    status = harness.send(wire.body("status", "s-1"))
+
+    assert isinstance(reply, m.HelloResult)
+    assert (reply.v, reply.mode, reply.role) == (2, "refused", "reader")
+    assert _error(status) == ("s-1", "version_mismatch")
+    assert harness.store.writer_profile() is None
+
+
 def test_a_second_hello_is_answered_and_changes_nothing() -> None:
     """Given a full connection, When hello arrives again with a newer version,
     Then it is answered and the connection keeps its mode."""
     harness = Harness()
     harness.hello()
 
-    outcome = harness.dispatcher.handle(wire.hello("h-2", v=2), harness.session)
+    outcome = harness.dispatcher.handle(wire.hello("h-2", v=3), harness.session)
 
     assert isinstance(outcome.reply, m.HelloResult) and not outcome.register
     assert harness.session.mode is HelloMode.FULL
@@ -154,7 +176,7 @@ def test_a_second_hello_answers_the_first_standing_and_writes_nothing() -> None:
     the first Follow Up), the store stays unbound and the profile keeps its
     Follow Up."""
     harness = Harness()
-    harness.hello(v=2)
+    harness.hello(v=3)
     again = json.loads(wire.hello("h-2"))
     again["follow_up"] = {"root": "bar", "names": ["Elsewhere"]}
 
@@ -173,12 +195,12 @@ def test_a_second_hello_answers_the_first_standing_and_writes_nothing() -> None:
 
 
 def test_a_non_frozen_message_of_another_version_is_a_version_mismatch() -> None:
-    """Given a full connection, When a status request says v 2, Then it is
+    """Given a full connection, When a status request says v 1 (a v1 peer), Then it is
     answered version_mismatch before the schema runs."""
     harness = Harness()
     harness.hello()
 
-    reply = harness.send(json.dumps({"v": 2, "type": "status", "id": "s-2"}).encode())
+    reply = harness.send(json.dumps({"v": 1, "type": "status", "id": "s-2"}).encode())
 
     assert _error(reply) == ("s-2", "version_mismatch")
 
@@ -187,7 +209,7 @@ def test_a_read_only_connection_searches_but_does_not_ingest() -> None:
     """Given an extension newer than the daemon (read_only), When it searches
     and then ingests, Then the search is served and the ingest refused."""
     harness = Harness()
-    harness.hello(v=2)
+    harness.hello(v=3)
 
     searched = harness.send(wire.body("search", "q-1", query="tokio"))
     ingested = harness.ingest("i-9")
@@ -225,7 +247,7 @@ def test_a_response_sent_by_the_extension_is_invalid() -> None:
     harness.hello()
 
     reply = harness.send(
-        json.dumps({"v": 1, "type": "events.ack.result", "re": "x"}).encode()
+        json.dumps({"v": 2, "type": "events.ack.result", "re": "x"}).encode()
     )
 
     assert _error(reply) == (None, "invalid")
@@ -286,6 +308,92 @@ def test_a_receipt_for_an_unknown_batch_is_not_found() -> None:
     assert _error(reply) == ("r-1", "not_found")
 
 
+def test_a_receipt_on_a_reader_connection_mints_no_batch() -> None:
+    """Given a reader daemon holding a batch it offered while it was a writer,
+    When a PARTIAL receipt for it arrives on a reader connection, Then the
+    receipt is answered and recorded, but no inverse batch is minted (issue
+    #417: role is a value input wherever a batch could result)."""
+    harness = Harness(HostRole.READER)
+    harness.hello()
+    harness.store.put_batch(
+        make_batch(
+            "batch-offered",
+            operations=(
+                OpCreateFolder(index=0, parent=make_path("Dynomark"), title="Async"),
+                make_move_op(1),
+            ),
+        )
+    )
+
+    reply = harness.send(wire.partial_receipt("r-1", "batch-offered", ["16"]))
+
+    assert isinstance(reply, m.BatchReceiptMessageResult)
+    assert [r.batch.batch_id for r in harness.store.list_batches()] == ["batch-offered"]
+    record = harness.store.get_batch(BatchId("batch-offered"))
+    assert record is not None and record.undone_by is None
+
+
+def test_a_receipt_for_another_profiles_batch_is_recorded_and_mints_no_batch() -> None:
+    """Given a writer bound to profile A holding A's offered batch, When a
+    PARTIAL receipt for it arrives on profile B's (reader) connection, Then
+    it is answered batch.receipt.result, the batch takes the receipt's
+    state, and no inverse batch is minted (contract v2, Receipt -> job)."""
+    harness = Harness()
+    harness.hello()
+    harness.store.put_batch(
+        make_batch(
+            "batch-of-a",
+            operations=(
+                OpCreateFolder(index=0, parent=make_path("Dynomark"), title="Async"),
+                make_move_op(1),
+            ),
+        )
+    )
+    other = Session()
+    harness.dispatcher.handle(wire.hello("h-b", profile="profile-b"), other)
+
+    outcome = harness.dispatcher.handle(
+        wire.partial_receipt("r-1", "batch-of-a", ["16"]), other
+    )
+
+    assert isinstance(outcome.reply, m.BatchReceiptMessageResult)
+    assert [r.batch.batch_id for r in harness.store.list_batches()] == ["batch-of-a"]
+    record = harness.store.get_batch(BatchId("batch-of-a"))
+    assert record is not None and record.state.value == "PARTIAL"
+    assert record.undone_by is None
+
+
+def test_url_vet_answers_whether_a_background_tab_may_load_the_url() -> None:
+    """Given a writer connection, When url.vet names a public URL, a private
+    one and a non-http one, Then the first is allowed and the others refused
+    with address and scheme (contract v2, Background-tab capture)."""
+    harness = Harness()
+    harness.hello()
+
+    public = harness.send(wire.body("url.vet", "v-1", url="https://tokio.rs/"))
+    private = harness.send(wire.body("url.vet", "v-2", url="http://router/admin"))
+    other = harness.send(wire.body("url.vet", "v-3", url="file:///etc/passwd"))
+
+    assert isinstance(public, m.UrlVetResult) and public.re == "v-1"
+    assert (public.allowed, public.refusal) == (True, None)
+    assert isinstance(private, m.UrlVetResult)
+    assert (private.allowed, private.refusal) == (False, "address")
+    assert isinstance(other, m.UrlVetResult)
+    assert (other.allowed, other.refusal) == (False, "scheme")
+
+
+def test_url_vet_on_a_reader_connection_is_refused_not_writer() -> None:
+    """Given a reader connection, When url.vet arrives, Then it is answered
+    not_writer: background-tab capture is the writer's alone (contract v2,
+    Background-tab capture)."""
+    harness = Harness(HostRole.READER)
+    harness.hello()
+
+    reply = harness.send(wire.body("url.vet", "v-1", url="https://tokio.rs/"))
+
+    assert _error(reply) == ("v-1", "not_writer")
+
+
 def test_a_foreign_cursor_is_stale() -> None:
     """Given a full connection, When index.pull presents a job.list cursor, Then
     it is answered stale_cursor."""
@@ -317,6 +425,7 @@ def test_an_unexpected_failure_is_answered_internal() -> None:
         clock=harness.clock,
         ids=harness.ids,
         transport=harness.transport,
+        vetter=FakeAddressVet(resolves={}),
         wake=lambda: None,
     )
     harness.hello()
@@ -324,6 +433,36 @@ def test_an_unexpected_failure_is_answered_internal() -> None:
     reply = harness.send(wire.body("job.retry", "j-1", job_id="job-1"))
 
     assert _error(reply) == ("j-1", "internal")
+
+
+def test_job_retry_answers_a_dropped_save_apart_from_an_unknown_job() -> None:
+    """Given a FAILED job whose save Retention dropped, When job.retry names it
+    and then a job id the daemon never had, Then the first is answered invalid
+    with a message naming Retention and the second not_found: the user is told
+    why a known job cannot run again, not that it does not exist."""
+    harness = Harness()
+    harness.hello()
+    harness.store.put_job(
+        Job(
+            job_id=JobId("job-1"),
+            profile_id=A,
+            node_id=NodeId("42"),
+            identity=Identity("https://tokio.rs/"),
+            state=JobState.FAILED,
+            seq=1,
+            attempts=3,
+            backfill=False,
+            updated_at=0,
+            last_error="capture: refused",
+        )
+    )
+
+    dropped = harness.send(wire.body("job.retry", "j-1", job_id="job-1"))
+    unknown = harness.send(wire.body("job.retry", "j-2", job_id="job-none"))
+
+    assert _error(dropped) == ("j-1", "invalid")
+    assert isinstance(dropped, m.Error) and "retention" in dropped.message
+    assert _error(unknown) == ("j-2", "not_found")
 
 
 # --- Events and offers (Delivery and replay) ---
@@ -383,7 +522,7 @@ def test_events_go_only_to_the_connection_whose_standing_chose_them() -> None:
     harness.send(wire.tree_snapshot("t-1"))
     newer = RecordingTransport()
     later = Session(transport=newer)
-    harness.dispatcher.handle(wire.hello("h-2", v=2), later)
+    harness.dispatcher.handle(wire.hello("h-2", v=3), later)
     harness.ingest()
     _placed_job(harness)
 
@@ -453,7 +592,7 @@ def test_ask_is_answered_with_citations_on_a_read_only_connection() -> None:
     )
     harness = Harness(completion=completion)
     harness.store.put_entry(make_entry(url, text="tokio cancellation"))
-    harness.hello(v=2)
+    harness.hello(v=3)
 
     reply = harness.send(
         wire.body(
@@ -666,7 +805,12 @@ def test_folder_flags_set_answers_the_folder_and_outline_get_shows_it() -> None:
     harness.send(wire.tree_snapshot("t-1"))
 
     reply = harness.send(
-        wire.body("folder.flags.set", "f-1", node_id="14", locked=True)
+        wire.body(
+            "folder.flags.set",
+            "f-1",
+            path={"root": "bar", "names": ["Dynomark", "Rust"]},
+            locked=True,
+        )
     )
     outline = harness.send(wire.body("outline.get", "o-1"))
 
@@ -683,7 +827,12 @@ def test_folder_flags_set_on_a_reader_connection_is_not_writer() -> None:
     harness.hello()
 
     reply = harness.send(
-        wire.body("folder.flags.set", "f-1", node_id="14", pinned=True)
+        wire.body(
+            "folder.flags.set",
+            "f-1",
+            path={"root": "bar", "names": ["Dynomark", "Rust"]},
+            pinned=True,
+        )
     )
 
     assert _error(reply) == ("f-1", "not_writer")
@@ -714,6 +863,104 @@ def test_the_first_snapshot_of_a_fresh_tree_offers_the_writer_marker() -> None:
     assert titles == ["Dynomark", "dynomark-writer:mbp"]
 
 
+def test_status_tells_a_profile_served_reader_that_the_writer_is_bound_elsewhere() -> (
+    None
+):
+    """Given a writer daemon bound to profile A, When profile B asks status,
+    Then status.result says role reader and writer_binding other_profile;
+    A's status says this_profile (issue #419)."""
+    harness = Harness()
+    harness.hello()
+    other = Session()
+    harness.dispatcher.handle(wire.hello("h-b", profile="profile-b"), other)
+
+    mine = harness.send(wire.body("status", "s-a"))
+    theirs = harness.dispatcher.handle(wire.body("status", "s-b"), other).reply
+
+    assert isinstance(mine, m.StatusResult) and isinstance(theirs, m.StatusResult)
+    assert (mine.role, mine.writer_binding) == ("writer", "this_profile")
+    assert (theirs.role, theirs.writer_binding) == ("reader", "other_profile")
+
+
+def _rebound_to_b(harness: Harness) -> Session:
+    """Profile A's writer connection stays open while the owner runs
+    ``dynomark-daemon rebind`` (another process, same store) and profile B,
+    in another browser, completes a full hello: B is now the writer."""
+    harness.hello()
+    harness.send(wire.tree_snapshot("t-a"))
+    release_writer_binding(store=harness.store)
+    other = Session(transport=RecordingTransport())
+    harness.dispatcher.handle(wire.hello("h-b", profile="profile-b"), other)
+    assert harness.store.writer_profile() == ProfileId("profile-b")
+    return other
+
+
+@pytest.mark.parametrize(
+    ("message_type", "fields"),
+    [
+        ("undo", {"batch_id": "batch-1"}),
+        ("diff.accept", {"item_id": "item-1"}),
+        (
+            "folder.flags.set",
+            {"path": {"root": "bar", "names": ["Dynomark", "Rust"]}, "locked": True},
+        ),
+        ("url.vet", {"url": "https://tokio.rs/"}),
+    ],
+)
+def test_after_rebind_the_old_writers_live_connection_is_refused_not_writer(
+    message_type: str, fields: dict[str, object]
+) -> None:
+    """Given profile A's live writer connection, When rebind runs and profile B
+    binds, and then undo, diff.accept, folder.flags.set or url.vet arrives on
+    A's connection, Then it is answered not_writer, as a reader connection's
+    would be (issue #534 T3: one writer per store; Codex on
+    9atatimer/tds-utils PR#535 for url.vet)."""
+    harness = Harness()
+    _rebound_to_b(harness)
+
+    reply = harness.send(wire.body(message_type, "x-1", **fields))
+
+    assert _error(reply) == ("x-1", "not_writer")
+
+
+def test_after_rebind_the_old_writers_snapshot_is_not_the_latest_tree() -> None:
+    """Given profile B bound after a rebind and its snapshot the latest tree,
+    When profile A's still-open connection sends a snapshot, Then the latest
+    tree stays B's (A's is kept as its profile's tree, as a reader's is)."""
+    harness = Harness()
+    other = _rebound_to_b(harness)
+    b_tree = make_tree(*wire.TREE.nodes, make_node("77", "11", "B only", index=2))
+    harness.dispatcher.handle(wire.tree_snapshot("t-b", b_tree), other)
+
+    harness.send(wire.tree_snapshot("t-a2"))
+
+    assert harness.store.latest_tree_snapshot() == b_tree
+
+
+def test_after_rebind_the_old_writers_connection_gets_no_offer_and_reads_reader() -> (
+    None
+):
+    """Given profile A's live writer connection with a save in flight, When
+    rebind runs, B binds, A's job files a batch and A's connection then sends
+    its first snapshot, Then no batch.offer goes out on it, and status there
+    says reader, bound to another profile."""
+    harness = Harness()
+    harness.hello()
+    harness.ingest()
+    release_writer_binding(store=harness.store)
+    harness.dispatcher.handle(wire.hello("h-b", profile="profile-b"), Session())
+    harness.store.put_tree_snapshot(wire.TREE)
+    _placed_job(harness)
+
+    harness.send(wire.tree_snapshot("t-a"))
+    reply = harness.send(wire.body("status", "s-a"))
+
+    offers = [e for e in harness.transport.events_for(A) if isinstance(e, BatchOffered)]
+    assert offers == []
+    assert isinstance(reply, m.StatusResult)
+    assert (reply.role, reply.writer_binding) == ("reader", "other_profile")
+
+
 def test_writer_status_reports_another_hosts_marker_as_a_conflict() -> None:
     """Given a writer whose tree holds another host's marker, When writer.status
     arrives, Then the answer names it and says conflict."""
@@ -733,7 +980,10 @@ def test_writer_status_reports_another_hosts_marker_as_a_conflict() -> None:
     [
         ("undo", {"batch_id": "batch-1"}),
         ("diff.accept", {"item_id": "item-1"}),
-        ("folder.flags.set", {"node_id": "14", "locked": True}),
+        (
+            "folder.flags.set",
+            {"path": {"root": "bar", "names": ["Dynomark", "Rust"]}, "locked": True},
+        ),
     ],
 )
 def test_a_writer_in_conflict_refuses_writes_with_writer_conflict(

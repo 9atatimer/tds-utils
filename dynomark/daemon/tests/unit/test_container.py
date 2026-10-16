@@ -10,9 +10,17 @@ from pathlib import Path
 
 from structlog.testing import capture_logs
 
+from dynomark_daemon.adapters.records import RecordError
 from dynomark_daemon.app.ingest import ingest
 from dynomark_daemon.container import Daemon, JobLoop, Ports
-from dynomark_daemon.domain.bookmark import Bookmark, Capture, CorpusEntry, Enrichment
+from dynomark_daemon.domain.bookmark import (
+    Bookmark,
+    Capture,
+    CorpusEntry,
+    Embedding,
+    Enrichment,
+    Identity,
+)
 from dynomark_daemon.domain.chat import DraftAnswer, Question, Turn
 from dynomark_daemon.domain.config import ModelInfo
 from dynomark_daemon.domain.diff import DiffKind, DiffProposal
@@ -20,10 +28,12 @@ from dynomark_daemon.domain.events import DiffProposed, JobUpdated
 from dynomark_daemon.domain.ids import JobId, ProfileId
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.domain.placement import EntryRef, FolderChoice, MoveFeedback
+from dynomark_daemon.domain.retention import RETENTION_MS
 from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.domain.tree import TreeOutline
 from dynomark_daemon.ports.completion import CompletionError, CompletionPort
 from dynomark_daemon.settings import parse_settings
+from dynomark_daemon.testing.address import FakeAddressVet
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.completion import EnrichCall, ScriptedCompletion
 from dynomark_daemon.testing.content import FakeFetch
@@ -34,6 +44,8 @@ from tests._factories import (
     make_bookmark,
     make_capture,
     make_config,
+    make_entry,
+    make_job,
     make_node,
     make_path,
     make_tree,
@@ -95,6 +107,7 @@ def _ports(
         embedding=HashingEmbedding(),
         completion=completion,
         content=FakeFetch({}),
+        vetter=FakeAddressVet(resolves={}),
         clock=FakeClock(start_ms=1_000),
         ids=SequentialIds(),
     )
@@ -346,7 +359,7 @@ def test_a_reader_daemon_indexes_and_never_files() -> None:
 def test_the_job_loop_fails_saves_of_a_writer_in_conflict() -> None:
     """Given a writer whose tree holds another host's marker, When the job loop
     runs a save, Then the job is indexed and ends FAILED naming the conflict,
-    with no batch (contract v1, Writer marker)."""
+    with no batch (contract v2, Writer marker)."""
     completion = ScriptedCompletion(enrich=[ENRICHMENT], choose_folder=[RUST])
     ports = _ports(completion)
     ports.store.put_tree_snapshot(
@@ -439,3 +452,75 @@ def test_run_once_reports_the_retry_a_job_failing_in_this_pass_waits_for() -> No
     (job,) = ports.store.list_jobs()
     assert (job.state, job.attempts) == (JobState.CAPTURING, 1)
     assert schedule.next_retry_at == job.updated_at + config.retry.backoff_ms(1)
+
+
+def test_the_job_loop_enforces_retention_on_its_clock() -> None:
+    """Given a writer's filed entry whose bookmark left the tree, When the job
+    loop runs a pass, then another 30 days later, Then the first pass records
+    the absence and the later one drops the entry (Retention, issue #421)."""
+    clock = FakeClock(start_ms=1_000)
+    ports = replace(_ports(ScriptedCompletion()), clock=clock)
+    ports.store.bind_writer_profile(A)
+    ports.store.put_tree_snapshot(wire.TREE)
+    url = "https://example.org/gone"
+    ports.store.put_entry(make_entry(url))
+    ports.store.put_job(make_job(identity=url, state=JobState.FILED))
+    loop = JobLoop(make_config(), ports)
+
+    loop.run_once()
+    tracked = ports.store.absences()
+    clock.advance(RETENTION_MS)
+    loop.run_once()
+
+    assert list(tracked) == [Identity(url)]
+    assert ports.store.get_entry(Identity(url)) is None
+
+
+def test_the_job_loop_re_embeds_entries_of_an_old_model() -> None:
+    """Given entries embedded by a model the daemon no longer uses, When the job
+    loop runs a pass, Then every entry is embedded by the current model (the
+    model change is caught up in the background; issue #423)."""
+    ports = _ports(ScriptedCompletion())
+    for url in ("https://a.example/", "https://b.example/"):
+        entry = make_entry(url)
+        ports.store.put_entry(
+            replace(entry, embedding=Embedding(vector=(1.0, 0.0), model_id="old:m"))
+        )
+
+    JobLoop(make_config(), ports).run_once()
+
+    models = {s.entry.embedding.model_id for s in ports.store.list_entries(limit=10)}
+    assert models == {ports.embedding.model().model_id}
+
+
+class _UndecodableEntriesStore(InMemoryCorpusStore):
+    """A store whose stale-embedding query fails as a corrupt row does: a
+    stored document that does not decode (``RecordError``)."""
+
+    def entries_embedded_otherwise(
+        self, model_id: str, *, limit: int
+    ) -> list[CorpusEntry]:
+        raise RecordError("corpus_entry: not a CorpusEntry")
+
+
+def test_a_store_failure_while_re_embedding_is_logged_and_the_pass_goes_on() -> None:
+    """Given a store that fails reading the entries to re-embed, When the job
+    loop runs a pass, Then the failure is logged with its trace as
+    reembed.failed and the pass goes on to its retention sweep: the job
+    thread is not killed (issue #534 T7)."""
+    clock = FakeClock(start_ms=1_000)
+    ports = replace(
+        _ports(ScriptedCompletion(), store=_UndecodableEntriesStore()), clock=clock
+    )
+    ports.store.bind_writer_profile(A)
+    ports.store.put_tree_snapshot(wire.TREE)
+    url = "https://example.org/gone"
+    ports.store.put_entry(make_entry(url))
+    ports.store.put_job(make_job(identity=url, state=JobState.FILED))
+
+    with capture_logs() as logs:
+        JobLoop(make_config(), ports).run_once()
+
+    failed = [e for e in logs if e["event"] == "reembed.failed"]
+    assert [(e["log_level"], e.get("exc_info")) for e in failed] == [("error", True)]
+    assert list(ports.store.absences()) == [Identity(url)]

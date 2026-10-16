@@ -1,7 +1,8 @@
 // applyBatch.boundary.test.ts -- task-024 row 12 and design Goal 8
-// (ownership boundary), extension side. Contract v1, "Write batches",
-// Boundary: before the first op, every op is checked against owned_roots
-// (a batch with diff_item_id is exempt). The check is syntactic on paths
+// (ownership boundary), extension side. Contract v2, "Write batches",
+// Boundary: before the first op, every op is checked against owned_roots;
+// a batch with diff_item_id may also stay inside the accepted item's scope
+// (issue #423: no longer exempt). The check is syntactic on paths
 // (same RootKey, owned names a prefix); the owned-root create_folder is
 // admitted; a move or remove of an existing node needs an owned root among
 // its ancestors; a node missing at check time passes. Any failure is
@@ -22,8 +23,13 @@ async function world() {
   return { w, ids: await seedOwnedTree(w.tree) };
 }
 
-function batch(operations: WriteBatch['operations'], diff_item_id?: string): WriteBatch {
-  return { batch_id: 'batch-b', operations, ...(diff_item_id === undefined ? {} : { diff_item_id }) };
+function batch(operations: WriteBatch['operations'], diff_item_id?: string, scope?: WriteBatch['scope']): WriteBatch {
+  return {
+    batch_id: 'batch-b',
+    operations,
+    ...(diff_item_id === undefined ? {} : { diff_item_id }),
+    ...(scope === undefined ? {} : { scope }),
+  };
 }
 
 const BAR = { root: 'bar' as const, names: [] };
@@ -97,6 +103,33 @@ describe('Ownership boundary in the extension -- applyBatch refuses a batch outs
     );
   });
 
+  it("Given an accepted DiffItem's batch, When an op takes a node from a folder its scope does not name, Then the batch is REJECTED boundary: a diff item is no longer exempt (issue #423)", async () => {
+    const { w, ids } = await world();
+    await expectRejectedUntouched(
+      w,
+      batch([{ op: 'move', index: 0, node_id: ids.usersOwn, to: RUST, expect: { parent_id: ids.bar } }], 'item-7', [RUST]),
+      'boundary',
+    );
+  });
+
+  it("Given an accepted DiffItem's batch, When an op targets a folder its scope does not name, Then the batch is REJECTED boundary", async () => {
+    const { w } = await world();
+    await expectRejectedUntouched(
+      w,
+      batch([{ op: 'create_folder', index: 0, parent: { root: 'other', names: [] }, title: 'Loot' }], 'item-7', [BAR]),
+      'boundary',
+    );
+  });
+
+  it("Given an accepted DiffItem's batch, When an op targets a folder under a scope path but not the path itself, Then it is REJECTED boundary (a scope path admits only itself)", async () => {
+    const { w } = await world();
+    await expectRejectedUntouched(
+      w,
+      batch([{ op: 'create_folder', index: 0, parent: { root: 'bar', names: ['Reading'] }, title: 'Deeper' }], 'item-7', [BAR]),
+      'boundary',
+    );
+  });
+
   it('Given op indices that are not 0..n-1, When applied, Then it is REJECTED invalid', async () => {
     const { w } = await world();
     await expectRejectedUntouched(
@@ -162,15 +195,28 @@ describe('Ownership boundary -- what is admitted', () => {
     expect(receipt).toMatchObject({ state: 'APPLIED', skipped: [{ index: 0, reason: 'node_missing' }] });
   });
 
-  it("Given a batch carrying an accepted DiffItem reference, When it moves the user's own bookmark, Then it is exempt from the boundary and applied", async () => {
+  it("Given an accepted DiffItem's batch whose scope names the user's bar and Rust, When it moves the user's own bookmark from the bar into Rust, Then it is admitted and applied", async () => {
     const { w, ids } = await world();
     const receipt = await applyBatch(
-      batch([{ op: 'move', index: 0, node_id: ids.usersOwn, to: RUST, expect: { parent_id: ids.bar } }], 'item-7'),
+      batch([{ op: 'move', index: 0, node_id: ids.usersOwn, to: RUST, expect: { parent_id: ids.bar, parent_path: BAR } }], 'item-7', [
+        RUST,
+        BAR,
+      ]),
       CONTEXT,
       w.worker(),
     );
     expect(receipt.state).toBe('APPLIED');
     expect(await w.tree.getNode(ids.usersOwn)).toMatchObject({ parent_id: ids.rust });
+  });
+
+  it('Given an accepted DiffItem whose batch stays inside the owned roots, When applied, Then it is admitted though its scope names other folders', async () => {
+    const { w } = await world();
+    const receipt = await applyBatch(
+      batch([{ op: 'create_folder', index: 0, parent: DYNOMARK, title: 'Go' }], 'item-8', [BAR]),
+      CONTEXT,
+      w.worker(),
+    );
+    expect(receipt.state).toBe('APPLIED');
   });
 
   it('Given the daemon reported a writer conflict, When a batch arrives with no marker in the tree, Then it is still REJECTED writer_conflict', async () => {

@@ -1,6 +1,6 @@
 // applyBatch.idempotent.test.ts -- task-024 row 8 and design glossary
 // "Operation": each is path-idempotent (create if absent, move if not
-// already there). Contract v1, "Write batches": a create is a no-op when an
+// already there). Contract v2, "Write batches": a create is a no-op when an
 // exact child already exists (applied, changed false); a move or remove
 // already directly in its target is a no-op and `expect` is not evaluated;
 // otherwise every `expect` clause is checked and a failed clause, or a node

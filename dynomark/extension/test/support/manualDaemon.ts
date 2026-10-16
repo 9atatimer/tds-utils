@@ -46,7 +46,7 @@ export class ManualDaemon {
       });
     },
     drop: (reason: LossReason): Promise<void> => {
-      if (reason === 'superseded') this.write({ v: 1, type: 'error', re: null, code: 'superseded', message: 'a newer connection' });
+      if (reason === 'superseded') this.write({ v: 2, type: 'error', re: null, code: 'superseded', message: 'a newer connection' });
       this.socket?.end();
       this.socket = undefined;
       this.arrivals.length = 0;

@@ -1,5 +1,5 @@
 // runtime.lifecycle.test.ts -- the background composition's workflow on the
-// fakes (design, "The extension": Watch Follow Up, Settings; contract v1
+// fakes (design, "The extension": Watch Follow Up, Settings; contract v2
 // README, "Connection lifecycle" and "Endpoint"). On start the worker loads
 // or creates its settings (a profile id generated once), resolves Follow Up
 // (creating it under the bar when there is none; reporting extra ones),
@@ -13,6 +13,7 @@ import { RECONNECT_BACKOFF } from '../../../src/domain/backoff.js';
 import { ExtensionRuntime } from '../../../src/app/runtime.js';
 import type { LocalIndexRow } from '../../../src/domain/search.js';
 import { FakeExtensionWorld } from '../../fakes/FakeExtensionWorld.js';
+import { scriptedDaemon } from '../../fixtures/daemon.js';
 import { FOLLOW_UP, seedOwnedTree } from '../../fixtures/ownedTree.js';
 import { scriptDaemon, sentOf, sentTypes, startRuntime } from '../../fixtures/runtime.js';
 
@@ -79,7 +80,7 @@ describe('Start -- ExtensionRuntime.start()', () => {
 
   it('Given a refused hello (a newer daemon), When started, Then nothing follows hello: no Follow Up backlog is ingested', async () => {
     const w = new FakeExtensionWorld({ flavor: 'chrome' });
-    scriptDaemon(w, { v: 2, mode: 'refused' });
+    scriptDaemon(w, { v: 3, mode: 'refused' });
     await seedOwnedTree(w.tree);
     await startRuntime(w);
     expect(sentTypes(w)).toEqual(['hello']);
@@ -149,7 +150,7 @@ describe('Connect routine -- a step that fails is reported, the rest still runs,
     let pulls = 0;
     scriptDaemon(w, {}, (r) =>
       r.type === 'index.pull' && (pulls += 1) === 1
-        ? { v: 1, type: 'error', re: r.id, code: 'internal', message: 'store closed' }
+        ? { v: 2, type: 'error', re: r.id, code: 'internal', message: 'store closed' }
         : undefined,
     );
     const ids = await seedOwnedTree(w.tree);
@@ -164,6 +165,42 @@ describe('Connect routine -- a step that fails is reported, the rest still runs,
     await runtime.idle();
     expect(sentOf(w, 'index.pull')).toHaveLength(2);
     expect(sentOf(w, 'hello')).toHaveLength(1);
+  });
+});
+
+describe('Daemon restart -- the gap while no daemon listens is a lost link, retried by reconnecting, never a problem (issue #524)', () => {
+  it('Given the connect routine has an index.pull in flight, When the daemon restarts (its host answers busy until the new one listens), Then no problem is reported and after the backoff the routine and writer status run on the new daemon', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    let pullInFlight: () => void = () => undefined;
+    const pulled = new Promise<void>((resolve) => (pullInFlight = resolve));
+    let pulls = 0;
+    const lifecycle = scriptedDaemon({});
+    w.connection().autoAnswer((r) => {
+      if (r.type === 'index.pull' && (pulls += 1) === 1) {
+        pullInFlight();
+        return undefined; // the old daemon is stopped before it answers
+      }
+      return lifecycle(r);
+    });
+    const runtime = new ExtensionRuntime(w.worker());
+    await runtime.start();
+    await pulled;
+
+    w.connection().daemonNotRunning(true);
+    await w.daemon().drop('disconnected');
+    await runtime.idle();
+    w.connection().daemonNotRunning(false);
+    await w.timer().advance(RECONNECT_BACKOFF.max_ms);
+    await runtime.idle();
+
+    const page = await runtime.page({ kind: 'overview' });
+    expect(page.ok && page.kind === 'overview' ? page.overview.problems : undefined).toEqual([]);
+    const types = sentTypes(w);
+    const lastHello = types.lastIndexOf('hello');
+    expect(types.slice(lastHello)).toEqual(
+      expect.arrayContaining(['hello', 'tree.snapshot', 'events.replay', 'index.pull', 'writer.status']),
+    );
+    expect(page).toMatchObject({ ok: true, overview: { link: { state: 'connected' } } });
   });
 });
 
@@ -192,5 +229,75 @@ describe('Start does not wait on frecency -- history is a ranking input, not a p
     await runtime.idle();
     expect(sentOf(w, 'hello')).toHaveLength(1);
     expect(await runtime.page({ kind: 'overview' })).toMatchObject({ ok: true });
+  });
+});
+
+describe('Background work that a reconnect re-runs -- a lost link in the gap is not a problem', () => {
+  it('Given a connected host whose daemon stops while a save is being ingested (the ingest is lost with the link, and its re-sends meet no daemon), When the gap lasts, Then no problem is reported, and once the daemon is back the next hello ingests it', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const lifecycle = scriptedDaemon({ role: 'reader' });
+    const URL = 'https://gap.example/';
+    let stopped = false;
+    w.connection().autoAnswer((r) => {
+      if (r.type !== 'ingest' || r.bookmark.url !== URL || stopped) return lifecycle(r);
+      stopped = true;
+      w.connection().daemonNotRunning(true);
+      void Promise.resolve().then(() => w.daemon().drop('disconnected'));
+      return undefined;
+    });
+    const ids = await seedOwnedTree(w.tree);
+    const runtime = await startRuntime(w);
+
+    const node = await w.tree.createBookmark(ids.followUp, 'Gap', URL);
+    runtime.onBookmarkEvent({ kind: 'created', node });
+    await runtime.idle();
+    const during = await runtime.page({ kind: 'overview' });
+    w.connection().daemonNotRunning(false);
+    await w.timer().advance(RECONNECT_BACKOFF.max_ms);
+    await runtime.idle();
+
+    expect(stopped).toBe(true);
+    expect(during.ok && during.kind === 'overview' ? during.overview.problems : undefined).toEqual([]);
+    expect(sentOf(w, 'ingest').filter((r) => r.bookmark.node_id === node.id).length).toBeGreaterThan(1);
+    const after = await runtime.page({ kind: 'overview' });
+    expect(after.ok && after.kind === 'overview' ? after.overview.problems : undefined).toEqual([]);
+  });
+
+  it('Given a connected host whose connection is superseded while a save is being ingested (it never comes back), When the ingest fails, Then that failure is reported as a problem', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const lifecycle = scriptedDaemon({ role: 'reader' });
+    const URL = 'https://superseded.example/';
+    w.connection().autoAnswer((r) => {
+      if (r.type !== 'ingest' || r.bookmark.url !== URL) return lifecycle(r);
+      void Promise.resolve().then(() => w.daemon().drop('superseded'));
+      return undefined;
+    });
+    const ids = await seedOwnedTree(w.tree);
+    const runtime = await startRuntime(w);
+
+    const node = await w.tree.createBookmark(ids.followUp, 'Superseded', URL);
+    runtime.onBookmarkEvent({ kind: 'created', node });
+    await runtime.idle();
+
+    const page = await runtime.page({ kind: 'overview' });
+    expect(page.ok && page.kind === 'overview' ? page.overview.problems.join('\n') : '').toContain('superseded');
+  });
+
+  it('Given a connected writer, When a tracked step fails for a real reason (the daemon answers invalid), Then it is still reported', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    scriptDaemon(w, { role: 'writer' }, (r) =>
+      r.type === 'ingest' && r.bookmark.url === 'https://bad.example/'
+        ? { v: 2, type: 'error', re: r.id, code: 'invalid', message: 'ingest refused' }
+        : undefined,
+    );
+    const ids = await seedOwnedTree(w.tree);
+    const runtime = await startRuntime(w);
+
+    const node = await w.tree.createBookmark(ids.followUp, 'Bad', 'https://bad.example/');
+    runtime.onBookmarkEvent({ kind: 'created', node });
+    await runtime.idle();
+
+    const page = await runtime.page({ kind: 'overview' });
+    expect(page.ok && page.kind === 'overview' ? page.overview.problems.join('\n') : '').toContain('ingest refused');
   });
 });

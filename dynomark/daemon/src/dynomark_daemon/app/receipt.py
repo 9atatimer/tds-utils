@@ -1,5 +1,5 @@
 """Use case: a receipt is processed (DYNOMARK.DESIGN.md, Behaviors and
-Interfaces; The daemon, "Receipts"; contract/v1 README, Jobs: Receipt -> job,
+Interfaces; The daemon, "Receipts"; contract/v2 README, Jobs: Receipt -> job,
 and Write batches: Receipts, Inverses).
 
 The first receipt recorded for a batch wins; a repeat records nothing new.
@@ -29,8 +29,9 @@ from dynomark_daemon.domain.batch import (
     invert,
 )
 from dynomark_daemon.domain.events import BatchOffered
-from dynomark_daemon.domain.ids import SnapshotId
+from dynomark_daemon.domain.ids import ProfileId, SnapshotId
 from dynomark_daemon.domain.job import Job, JobState
+from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.domain.tree import OwnedRoots
 from dynomark_daemon.ports.clock import Clock, IdSource
 from dynomark_daemon.ports.store import CorpusStorePort
@@ -78,6 +79,13 @@ def _needs_inverse(receipt: BatchReceipt, failure: str | None) -> bool:
     return not isinstance(receipt, ReceiptApplied) or failure is not None
 
 
+def _mints_for(record: BatchRecord, role: HostRole, profile: ProfileId) -> bool:
+    """This connection is the writer for the batch's own profile: only then
+    may the receipt result in a batch (Behaviors preamble: role is a value
+    input wherever a batch could result; issue #417)."""
+    return role is HostRole.WRITER and record.profile_id == profile
+
+
 def _awaits(job: Job | None, record: BatchRecord) -> bool:
     """The job still waits on this batch's receipt."""
     return (
@@ -89,6 +97,8 @@ def _awaits(job: Job | None, record: BatchRecord) -> bool:
 
 def receive_receipt(
     receipt: BatchReceipt,
+    role: HostRole,
+    profile: ProfileId,
     roots: OwnedRoots,
     *,
     store: CorpusStorePort,
@@ -96,17 +106,22 @@ def receive_receipt(
     ids: IdSource,
 ) -> ReceiptRecorded:
     """Record the extension's answer for a batch, once, with all its effects
-    in one unit of work.
+    in one unit of work. ``role`` and ``profile`` are the standing of the
+    connection it arrived on: the receipt is recorded either way (the browser
+    did what it says), but the inverse of an applied prefix is minted only
+    when that connection is the writer for the batch's own profile.
 
     Raises:
         UnknownRecord: no batch has ``receipt.batch_id`` (``not_found``).
     """
     with store.atomic():
-        return _record(receipt, roots, store=store, clock=clock, ids=ids)
+        return _record(receipt, role, profile, roots, store=store, clock=clock, ids=ids)
 
 
 def _record(
     receipt: BatchReceipt,
+    role: HostRole,
+    profile: ProfileId,
     roots: OwnedRoots,
     *,
     store: CorpusStorePort,
@@ -133,6 +148,7 @@ def _record(
     tree = receipt.snapshot or store.latest_tree_snapshot()
     if (
         _needs_inverse(receipt, failure)
+        and _mints_for(record, role, profile)
         and record.undone_by is None
         and tree is not None
     ):
@@ -141,7 +157,7 @@ def _record(
             applied_ops(receipt),
             tree,
             roots,
-            locked=locked_folders(store=store),
+            locked=locked_folders(tree, store=store),
         )
         if operations:
             inverse = propose_inverse(

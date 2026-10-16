@@ -1,5 +1,5 @@
-// messages.ts -- zod schemas for every contract v1 message, one discriminated
-// union on `type`, split by direction (contract v1 README, "Envelope"):
+// messages.ts -- zod schemas for every contract v2 message, one discriminated
+// union on `type`, split by direction (contract v2 README, "Envelope"):
 // requests carry `id` (extension -> daemon), responses carry `re` and events
 // carry `event_id` (daemon -> extension). Every object is strict.
 
@@ -27,7 +27,6 @@ import {
   LocalIndexRowSchema,
   ModelInfoSchema,
   MoveSchema,
-  NodeIdSchema,
   OutlineFolderSchema,
   OwnedRootsSchema,
   PlacementReasonSchema,
@@ -36,7 +35,9 @@ import {
   TurnSchema,
   UndoDropSchema,
   UrlSchema,
+  VetRefusalSchema,
   WriteBatchSchema,
+  WriterBindingSchema,
   count,
   text,
   uniqueArray,
@@ -44,8 +45,8 @@ import {
 
 // --- Constants ---
 
-/** The contract version this build speaks (contract/v1/CONTRACT_VERSION). */
-export const CONTRACT_VERSION = 1;
+/** The contract version this build speaks (contract/v2/CONTRACT_VERSION). */
+export const CONTRACT_VERSION = 2;
 
 /** Non-frozen messages pin `v` to this build's version. */
 const V = z.literal(CONTRACT_VERSION);
@@ -109,13 +110,13 @@ export const DiffPageSchema = request('diff.page', { diff_id: IdSchema, cursor: 
 export const DiffAcceptSchema = request('diff.accept', { item_id: IdSchema });
 export const OutlineGetSchema = request('outline.get', { cursor: CursorSchema.exactOptional(), limit: pageLimit(1000) });
 export const FolderFlagsSetSchema = request('folder.flags.set', {
-  node_id: NodeIdSchema,
-  path: FolderPathSchema.exactOptional(),
+  path: FolderPathSchema,
   pinned: z.boolean().exactOptional(),
   locked: z.boolean().exactOptional(),
 }).refine((m) => m.pinned !== undefined || m.locked !== undefined, { message: 'folder.flags.set changes at least one flag' });
 export const WriterStatusSchema = request('writer.status', {});
 export const StatusSchema = request('status', {});
+export const UrlVetSchema = request('url.vet', { url: UrlSchema });
 
 // --- Responses (daemon -> extension) ---
 
@@ -187,6 +188,15 @@ export const StatusResultSchema = response('status.result', {
   contract_version: z.int().min(1),
   models: z.strictObject({ embedding: ModelInfoSchema, completion: ModelInfoSchema }),
   queue_depth: count(),
+  writer_binding: WriterBindingSchema.exactOptional(),
+});
+/** A refused vet says why; an allowed one carries no refusal. */
+export const UrlVetResultSchema = response('url.vet.result', {
+  allowed: z.boolean(),
+  refusal: VetRefusalSchema.exactOptional(),
+}).superRefine((m, ctx) => {
+  if (!m.allowed && m.refusal === undefined) ctx.addIssue({ code: 'custom', path: ['refusal'], message: 'a refused vet says why' });
+  if (m.allowed && m.refusal !== undefined) ctx.addIssue({ code: 'custom', path: [], message: 'an allowed vet carries no refusal' });
 });
 /** The one error response. `re` is null when the request id was unreadable, and for `superseded`. */
 export const ErrorSchema = z.strictObject({
@@ -229,6 +239,7 @@ const REQUESTS = [
   FolderFlagsSetSchema,
   WriterStatusSchema,
   StatusSchema,
+  UrlVetSchema,
 ] as const;
 
 const RESPONSES = [
@@ -255,6 +266,7 @@ const RESPONSES = [
   FolderFlagsSetResultSchema,
   WriterStatusResultSchema,
   StatusResultSchema,
+  UrlVetResultSchema,
   ErrorSchema,
 ] as const;
 

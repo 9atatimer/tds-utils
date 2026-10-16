@@ -1,6 +1,6 @@
 """Opaque identifiers of the ubiquitous language.
 
-Every id is compared byte-for-byte and never parsed (contract v1, Envelope).
+Every id is compared byte-for-byte and never parsed (contract v2, Envelope).
 ``Identity`` is not here: it is a value with its own meaning (bookmark.py).
 """
 

@@ -1,10 +1,10 @@
 """Use cases: events are delivered, replayed and acknowledged
-(DYNOMARK.DESIGN.md, Transport contract, "Delivery"; contract/v1 README,
+(DYNOMARK.DESIGN.md, Transport contract, "Delivery"; contract/v2 README,
 Delivery and replay).
 
 Use cases record events in the store (an outbox); these functions send
 them. A batch whose offer cannot fit one frame is never sent: its job fails
-instead (contract/v1 README, Size limits). ``offers_ready`` is the
+instead (contract/v2 README, Size limits). ``offers_ready`` is the
 connection's standing the transport adapter knows: mode ``full``, role
 ``writer``, no writer conflict, and a ``tree.snapshot`` recorded on it.
 """

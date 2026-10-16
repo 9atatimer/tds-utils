@@ -1,5 +1,5 @@
 // snapshot.ts -- the tree as it may leave the extension (design, "Snapshot";
-// contract v1 README, "Size limits" and "Framing"): every title and url made
+// contract v2 README, "Size limits" and "Framing"): every title and url made
 // well-formed and cut to its cap, and a node whose title or url was cut is
 // marked `truncated`.
 

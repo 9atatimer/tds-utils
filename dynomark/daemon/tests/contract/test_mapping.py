@@ -6,7 +6,7 @@ is lossless both ways: every such value in the golden files survives
 wire -> domain -> wire. Values the daemon only sends (a ``Job``, a
 ``WriteBatch`` without its inverse, a ``TreeDiff`` header, a batch
 summary, an event) are checked from the domain side: any in-contract
-domain value maps to a message that contract v1 accepts, keeping its ids.
+domain value maps to a message that contract v2 accepts, keeping its ids.
 """
 
 from collections.abc import Callable, Iterator
@@ -15,7 +15,12 @@ import pytest
 from hypothesis import given, settings
 from pydantic import BaseModel
 
-from dynomark_daemon.domain.batch import BatchRecord, WriteBatch
+from dynomark_daemon.domain.batch import (
+    BatchRecord,
+    UndoDrop,
+    UndoDropReason,
+    WriteBatch,
+)
 from dynomark_daemon.domain.diff import TreeDiff
 from dynomark_daemon.domain.events import BatchOffered, DiffProposed, Event, JobUpdated
 from dynomark_daemon.domain.job import Job
@@ -107,7 +112,7 @@ def _round_trips(message: AnyMessage) -> bool:
 @FEW
 @given(strategies.jobs)
 def test_map_job_to_wire_yields_a_contract_valid_job(job: Job) -> None:
-    """Given any in-contract Job, When mapped to the wire, Then contract v1
+    """Given any in-contract Job, When mapped to the wire, Then contract v2
     accepts it and it names the same job, node, identity and state."""
     wire = mapping.job_to_wire(job)
 
@@ -185,3 +190,14 @@ def test_map_event_to_wire_yields_its_event_message(event: Event) -> None:
 
     assert (message.type, message.event_id) == (expected, event.event_id)
     assert _round_trips(message)
+
+
+def test_map_every_undo_drop_reason_to_its_own_contract_code() -> None:
+    """Given each reason the undo guard can drop a step for, When it is put on
+    the wire, Then contract v2 carries that very reason -- locked and
+    owned_root included, no longer folded into node_moved and not_empty
+    (issue #423)."""
+    for reason in UndoDropReason:
+        drop = mapping.undo_drop_to_wire(UndoDrop(index=0, reason=reason))
+        assert drop.reason == reason.value
+        assert w.UndoDrop.model_validate(drop.model_dump()) == drop

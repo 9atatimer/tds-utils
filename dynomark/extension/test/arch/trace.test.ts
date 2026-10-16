@@ -4,20 +4,20 @@
 // first, ports in a trailing deps object. The `satisfies` clauses are the
 // check (tsc fails on a drifted signature); the runtime assertion pins the
 // count of required parameters, so a value input cannot silently vanish.
+// The row "A user move becomes feedback" resolves on the daemon only
+// (record_feedback over feedback_of): its rule is not duplicated here (issue
+// #422); the extension's part is reporting each owned move (observeMove).
 
 import { describe, expect, it } from 'vitest';
 import { ackBatch } from '../../src/app/ackBatch.js';
 import { applyBatch, type BatchContext } from '../../src/app/applyBatch.js';
 import { capture } from '../../src/app/capture.js';
-import { recordMove } from '../../src/app/recordMove.js';
 import { searchLocal } from '../../src/app/searchLocal.js';
 import { searchRemote } from '../../src/app/searchRemote.js';
 import { submitSave, type SubmittedSaves } from '../../src/app/submitSave.js';
 import { syncIndex } from '../../src/app/syncIndex.js';
 import type { BatchReceipt, WriteBatch } from '../../src/domain/batch.js';
 import type { Capture } from '../../src/domain/capture.js';
-import type { Move, MoveFeedback } from '../../src/domain/move.js';
-import type { HostRole } from '../../src/domain/roles.js';
 import type { Frecency, Hit, LocalIndex, Query } from '../../src/domain/search.js';
 import type { Bookmark } from '../../src/domain/tree.js';
 import type { RequestId } from '../../src/domain/values.js';
@@ -64,7 +64,6 @@ const ROWS = {
     ackBatch satisfies (receipt: BatchReceipt, deps: Talk & { readonly storage: StoragePort }) => Promise<void>,
     2,
   ],
-  'A user move becomes feedback': [recordMove satisfies (move: Move, role: HostRole) => MoveFeedback | undefined, 2],
 } as const;
 
 // --- Tests ---

@@ -1,6 +1,6 @@
-"""One frame body <-> one contract v1 message.
+"""One frame body <-> one contract v2 message.
 
-contract/v1/README.md, Framing: a body is UTF-8 JSON, no BOM, exactly one
+contract/v2/README.md, Framing: a body is UTF-8 JSON, no BOM, exactly one
 object; duplicate keys are invalid; every string is Unicode scalar values.
 Connection lifecycle, step 3: a body that is not a JSON object closes the
 connection (``MalformedBody``); an object failing the schema is answered
@@ -31,7 +31,7 @@ class MalformedBody(ValueError):
 
 
 class InvalidMessage(ValueError):
-    """A JSON object that fails contract v1; answered ``error`` ``invalid``."""
+    """A JSON object that fails contract v2; answered ``error`` ``invalid``."""
 
     def __init__(self, detail: str, *, re: str | None) -> None:
         super().__init__(detail)
@@ -129,7 +129,7 @@ def decode_body(body: bytes | str) -> AnyMessage:
 
     Raises:
         MalformedBody: not one UTF-8 JSON object.
-        InvalidMessage: a JSON object that fails contract v1.
+        InvalidMessage: a JSON object that fails contract v2.
     """
     text = _decode_text(body)
     pairs = _object_pairs(text)

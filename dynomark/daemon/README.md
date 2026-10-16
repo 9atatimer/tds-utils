@@ -4,8 +4,8 @@ The daemon runtime of Dynomark (`docs/design/DYNOMARK.DESIGN.md`, APPROVED):
 it ingests saves from the extension, captures, enriches and embeds them,
 places and files them through write batches the extension applies, and
 serves tier-2 search, undo, grounded chat (`ask`), audit and rebuild diffs,
-pin/lock flags and the writer marker. It speaks transport contract v1
-(`dynomark/contract/v1/`, every request type served) over an owner-only
+pin/lock flags and the writer marker. It speaks transport contract v2
+(`dynomark/contract/v2/`, every request type served) over an owner-only
 unix socket.
 
 ## Layout
@@ -15,7 +15,7 @@ src/dynomark_daemon/
   domain/      rules and values (pure; stdlib only)
   app/         use cases, one per Behaviors row; ports as keyword deps
   ports/       Protocols: store, embedding, completion, content, transport, clock
-  wire/        contract v1 models (Pydantic), codec, wire <-> domain mapping
+  wire/        contract v2 models (Pydantic), codec, wire <-> domain mapping
   adapters/    sqlite_store, records (JSON rows), socket_server, dispatch,
                framing, fetch, readable, ollama, host_manifest
   testing/     in-memory fakes of every port (shared by all suites);
@@ -56,6 +56,7 @@ mkdir -p -m 700 ~/.local/state/dynomark
 dynomark-daemon launchd-plist > ~/Library/LaunchAgents/tds.dynomark.daemon.plist
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/tds.dynomark.daemon.plist
 dynomark-daemon install-host-manifest --extension-id <32-letter id from chrome://extensions>
+dynomark-daemon install-host-manifest --extension-id dynomark@tds.dynomark --browser firefox   # Firefox too
 dynomark-daemon check
 ```
 
@@ -72,8 +73,9 @@ read-only and only probes the socket). Stop the agent with
 |---|---|
 | `dynomark-daemon serve` | socket server + job loop until SIGTERM/SIGINT/SIGHUP |
 | `dynomark-daemon check` | config, sqlite-vec loads, store health, socket, Ollama reachability and models |
-| `dynomark-daemon install-host-manifest --extension-id ID [--browser chrome\|chromium\|all] [--host-path P]` | writes `tds.dynomark.json` for Chrome and Chromium (macOS and Linux per-user dirs), `allowed_origins` = that one extension |
+| `dynomark-daemon install-host-manifest --extension-id ID [--browser chrome\|chromium\|firefox\|all] [--host-path P]` | writes `tds.dynomark.json` per browser (macOS and Linux per-user dirs) allowing that one extension: Chrome and Chromium take its 32-letter id (`allowed_origins`), Firefox its gecko id (`allowed_extensions`); `all` (the default) writes every browser whose ids take the id's form |
 | `dynomark-daemon launchd-plist [--program P]` | prints a user LaunchAgent (`RunAtLoad`, `KeepAlive`) running `serve`; refuses when the daemon's socket would not be the one `dynomark-host` connects to (see Config) |
+| `dynomark-daemon rebind` | releases the writer binding (the browser profile a writer files for: the first to complete a full hello) and prints the old and new state; the next profile to say a full hello binds. Use it after reinstalling the extension (a new profile id) or to move filing to another browser profile; reload the extension there. A connection still open on the released profile is served reader from its next request on |
 | `dynomark-host` | started by the browser; pipes stdio frames to the socket unchanged; with no daemon it answers the first frame `error` `busy` and exits |
 
 ## Config
@@ -91,6 +93,8 @@ role = "writer"                 # default: "reader"
 embedding = "nomic-embed-text"  # default (design Open Question 4, provisional)
 completion = "llama3.1:8b"      # default
 timeout_s = 120
+remote = false                  # true: Ollama is reached through a tunnel or
+                                # proxy on loopback; no model is local
 
 [store]
 path = "~/.local/state/dynomark/corpus.sqlite3"
@@ -103,18 +107,23 @@ attempts = 3
 initial_backoff_ms = 5000
 max_backoff_ms = 300000
 
-[capture]                       # the fetch fallback
+[capture]                       # the fetch fallback, and url.vet
 fetch_timeout_s = 15            # for the whole fetch, not each read
 max_bytes = 5000000
-private_addresses = false       # true: also fetch loopback, link-local, LAN
+private_addresses = false       # true: also fetch (and let a background tab
+                                # open) loopback, link-local, LAN
+vet_timeout_s = 3               # url.vet's DNS wait; no answer: not allowed
 
 [diffs]                         # absent: rebuilds are proposed on request only
 rebuild_every_hours = 168       # the job loop proposes a rebuild this often
 ```
 
 Environment: `XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `DYNOMARK_SOCKET` (wins
-over `[socket]`), `OLLAMA_HOST` (default `http://127.0.0.1:11434`; models
-count as local only on a loopback host). The browser starts
+over `[socket]`), `OLLAMA_HOST` (default `http://127.0.0.1:11434`). A model is marked
+local -- in `status`, on the options page and the chat surface, which show
+both models -- only when this host is loopback, its name carries no Ollama
+cloud tag (a tag containing `cloud`, e.g. `gpt-oss:120b-cloud`), and
+`[models] remote` is not set. The browser starts
 `dynomark-host` without your shell environment: it reads only
 `~/.config/dynomark/config.toml` and otherwise connects to
 `~/.local/state/dynomark/daemon.sock`. `launchd-plist` passes these
@@ -130,6 +139,16 @@ whose `XDG_CONFIG_HOME` and `DYNOMARK_SOCKET` do not point elsewhere.
 `corpus.sqlite3` (0600, WAL), `daemon.sock` (0600), `daemon.log` (0600,
 JSON lines). The socket must fit a unix socket address (104 bytes on
 macOS); `serve` refuses a path it cannot bind and says so.
+
+Retention (the job loop sweeps hourly): a corpus entry, its saves and its
+placement go 30 days after its bookmark left every known profile's latest
+tree -- the writer's, and the tree each browser profile served as a
+reader last sent (kept for this alone) -- so a reader host prunes too.
+A reader profile's tree is forgotten once over 30 days old, and a save
+from a profile that is not known (none sent recently, or the old one
+after a reinstall and rebind) keeps nothing: it is judged by the known
+trees. Archived snapshots go after 30 days; batch rows stay; answered
+requests go. A `job.retry` of a job whose save went is answered `invalid`.
 
 Goal 2 (ingest received -> `APPLIED` under 60 s at P95) is read from the
 log: every filed job logs `job.applied` with `received_at`, `applied_at`
@@ -158,7 +177,7 @@ jq -r 'select(.event == "job.applied") | .interval_ms' ~/.local/state/dynomark/d
   moves and adds only; merge rules are undefined (design Open Question 1).
 - Flags: `folder.flags.set` pins or locks an owned folder by node id; a
   lock keeps placement out of that folder and its subtree, and no undo
-  moves the folder (the step is dropped; contract v1 has no `locked`
+  moves the folder (the step is dropped; contract v2 has no `locked`
   reason, so `undo.result` reports it `node_moved`).
 - Writer marker: a writer keeps an empty folder `dynomark-writer:<host_id>`
   directly in `Dynomark`, created by an ordinary batch after the first
@@ -216,7 +235,12 @@ If NEW is switched before the old marker is gone, it reports the conflict
   Each host (a redirect's too) is resolved first and refused unless every
   address it resolves to is public; the connection goes to exactly the
   address that was checked. `private_addresses = true` lifts the refusal
-  for an install whose saves live on a LAN or localhost. Readable text via
+  for an install whose saves live on a LAN or localhost. The same policy
+  answers `url.vet`: the writer's extension opens a background tab (with the
+  user's cookies) only for a URL whose every address it allows (contract
+  v2, Background-tab capture); a host whose DNS has not answered within
+  `vet_timeout_s` is refused unresolved, and the lookup runs on a thread of
+  its own, so slow DNS holds no model-pool thread past that. Readable text via
   `html.parser` (article, then main, then body; no script, style, nav,
   header, footer).
 - Ollama: `/api/embed`, `/api/generate` with `format: json`; strict

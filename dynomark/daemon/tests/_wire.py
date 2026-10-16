@@ -1,4 +1,4 @@
-"""Contract v1 request bodies for transport tests, built from domain values.
+"""Contract v2 request bodies for transport tests, built from domain values.
 
 Every builder returns the UTF-8 JSON body of one frame (no length header).
 """
@@ -6,7 +6,13 @@ Every builder returns the UTF-8 JSON body of one frame (no length header).
 import json
 from typing import Final
 
-from dynomark_daemon.domain.batch import OpApplied, ReceiptApplied
+from dynomark_daemon.domain.batch import (
+    FailReason,
+    OpApplied,
+    OpFailed,
+    ReceiptApplied,
+    ReceiptPartial,
+)
 from dynomark_daemon.domain.bookmark import Bookmark, Capture
 from dynomark_daemon.domain.ids import BatchId, NodeId
 from dynomark_daemon.domain.tree import Snapshot
@@ -33,11 +39,11 @@ TREE: Final = make_tree(
 
 def body(message_type: str, request_id: str, **fields: object) -> bytes:
     return json.dumps(
-        {"v": 1, "type": message_type, "id": request_id, **fields}
+        {"v": 2, "type": message_type, "id": request_id, **fields}
     ).encode("utf-8")
 
 
-def hello(request_id: str = "h-1", *, profile: str = "profile-a", v: int = 1) -> bytes:
+def hello(request_id: str = "h-1", *, profile: str = "profile-a", v: int = 2) -> bytes:
     return json.dumps(
         {
             "v": v,
@@ -64,6 +70,28 @@ def tree_snapshot(request_id: str, tree: Snapshot = TREE) -> bytes:
         "tree.snapshot",
         request_id,
         snapshot=snapshot_to_wire(tree).model_dump(by_alias=True),
+    )
+
+
+def partial_receipt(
+    request_id: str, batch_id: str, node_ids: list[str], tree: Snapshot = TREE
+) -> bytes:
+    """The ops for ``node_ids`` applied in order; the next one failed."""
+    receipt = ReceiptPartial(
+        batch_id=BatchId(batch_id),
+        applied=tuple(
+            OpApplied(index=i, node_id=NodeId(node_id), changed=True)
+            for i, node_id in enumerate(node_ids)
+        ),
+        skipped=(),
+        failed=OpFailed(index=len(node_ids), reason=FailReason.BROWSER_ERROR),
+        pre_batch=True,
+        snapshot=tree,
+    )
+    return body(
+        "batch.receipt",
+        request_id,
+        receipt=receipt_to_wire(receipt).model_dump(by_alias=True),
     )
 
 

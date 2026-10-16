@@ -1,6 +1,6 @@
 """Every valid golden file survives decode -> encode unchanged.
 
-contract/v1/README.md, Envelope: "optional fields are omitted, never
+contract/v2/README.md, Envelope: "optional fields are omitted, never
 null; null appears only where the schema says null". What the daemon
 sends must be what the extension's zod schemas accept, so a decoded
 message re-encodes to the same JSON document.

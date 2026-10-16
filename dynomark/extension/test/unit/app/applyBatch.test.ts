@@ -1,7 +1,7 @@
 // applyBatch.test.ts -- design Behaviors row "A batch is applied":
 // apply_batch(batch, *, tree) -> BatchReceipt. Given a batch, When applied,
 // Then a snapshot is read first, operations run in order, and the receipt is
-// APPLIED with a node id per operation. Contract v1, "Write batches": the
+// APPLIED with a node id per operation. Contract v2, "Write batches": the
 // receipt carries the full tree read at the start of the attempt, and
 // `pre_batch` true when no op of the batch had changed the tree before it.
 
@@ -99,7 +99,7 @@ describe('Behavior: A batch is applied -- applyBatch(batch, context, { tree, sto
     expect(await w.tree.getNode(ids.saved)).toMatchObject({ parent_id: ids.graveyard });
   });
 
-  it('Given an applied batch, When its receipt is validated, Then it is a valid contract v1 BatchReceipt', async () => {
+  it('Given an applied batch, When its receipt is validated, Then it is a valid contract v2 BatchReceipt', async () => {
     const { w, ids } = await world();
     const receipt = await applyBatch(fileBatch(ids.saved, ids.followUp), CONTEXT, w.worker());
     expect(() => BatchReceiptSchema.parse(receipt)).not.toThrow();

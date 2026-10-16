@@ -1,4 +1,4 @@
-"""Request admission before the schema (contract/v1 README, Connection
+"""Request admission before the schema (contract/v2 README, Connection
 lifecycle, step 3, rules 3 and 4; the read-only set of step 2).
 
 Rules 1-2 (a body that is not a JSON object; reading ``id``) belong to the

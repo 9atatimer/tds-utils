@@ -31,7 +31,7 @@ build-backend = "uv_build"
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
 markers = [
-    "contract: runs against the shared contract/v1 golden files or a port contract suite (select with -m contract)",
+    "contract: runs against the shared contract/v2 golden files or a port contract suite (select with -m contract)",
     "integration: real I/O against a hermetic local resource -- a temp sqlite file, a unix socket, a subprocess, a 127.0.0.1 http.server (select with -m integration)",
 ]
 

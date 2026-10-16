@@ -1,11 +1,12 @@
 """Behaviors row: A receipt is processed (DYNOMARK.DESIGN.md, Behaviors and
-Interfaces; The daemon, "Receipts") -- ``receive_receipt(receipt, *, store)
--> Job or WriteBatch``: "Given APPLIED, Then the job is FILED and the
-snapshot stored; Given PARTIAL, Then the job is FAILED and a PROPOSED
-inverse of the prefix exists"; REJECTED -> FAILED (State Machine). With
-contract v1's rows (Jobs, Receipt -> job): a skipped filing op fails the
-job like PARTIAL, and a receipt delivered twice is recorded once
-(``receipt.batch_id`` is the idempotency key; "A receipt is delivered").
+Interfaces; The daemon, "Receipts") -- ``receive_receipt(receipt, role,
+profile, roots, *, store) -> Job or WriteBatch``: "Given APPLIED, Then the
+job is FILED and the snapshot stored; Given PARTIAL, Then the job is
+FAILED and a PROPOSED inverse of the prefix exists"; REJECTED -> FAILED
+(State Machine). With contract v2's rows (Jobs, Receipt -> job): a skipped
+filing op fails the job like PARTIAL, and a receipt delivered twice is
+recorded once (``receipt.batch_id`` is the idempotency key; "A receipt is
+delivered").
 """
 
 from collections.abc import Callable
@@ -35,8 +36,9 @@ from dynomark_daemon.domain.batch import (
 )
 from dynomark_daemon.domain.connection import HelloMode
 from dynomark_daemon.domain.events import BatchOffered, JobUpdated
-from dynomark_daemon.domain.ids import BatchId, NodeId
+from dynomark_daemon.domain.ids import BatchId, NodeId, ProfileId
 from dynomark_daemon.domain.job import JobState
+from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.testing.transport import RecordingTransport
 from tests._crash import DyingStore
 from tests._factories import make_batch, make_path
@@ -167,6 +169,35 @@ def test_receive_a_partial_receipt_fails_the_job_and_offers_the_prefix_inverse()
         inverse.batch.batch_id,
     )
     assert [o.batch for o in daemon.offers()] == [inverse.batch]
+
+
+@pytest.mark.parametrize(
+    ("role", "profile"),
+    [
+        (HostRole.READER, None),
+        (HostRole.WRITER, ProfileId("profile-b")),
+    ],
+    ids=["reader-connection", "another-profile"],
+)
+def test_receive_a_partial_receipt_off_the_batch_writer_mints_no_inverse(
+    role: HostRole, profile: ProfileId | None
+) -> None:
+    """Given a filing batch whose move failed, When its PARTIAL receipt arrives
+    on a reader connection, or on a writer connection of another profile, Then
+    the job is FAILED and the receipt recorded, but no inverse batch is minted
+    or offered (issue #417)."""
+    daemon = Daemon()
+
+    recorded = daemon.receive(_partial(daemon), role=role, profile=profile)
+
+    assert daemon.job_now().state is JobState.FAILED
+    assert recorded.inverse is None
+    assert [r.batch.batch_id for r in daemon.store.list_batches()] == [
+        daemon.batch.batch_id
+    ]
+    original = daemon.store.get_batch(daemon.batch.batch_id)
+    assert original is not None
+    assert (original.state, original.undone_by) == (BatchState.PARTIAL, None)
 
 
 def test_receive_an_applied_receipt_whose_filing_op_was_skipped_fails_the_job() -> None:

@@ -1,10 +1,12 @@
 // pendingSaves.ts -- the Follow Up saves sent and not yet answered
-// ingest.result (contract v1, "Delivery and replay": busy and internal are
+// ingest.result (contract v2, "Delivery and replay": busy and internal are
 // retried with the same id and body). Kept so a worker that dies before the
 // answer re-sends the identical request, captured text included, rather than
 // a fresh one with no capture. Bounded: a few entries and at most one
 // maximum capture's worth of text; the oldest go first, and a save that does
-// not fit alone is not kept (it is sent all the same).
+// not fit alone is not kept (it is sent all the same). A save whose bookmark
+// has left Follow Up, or whose url was edited since, is never re-sent, so its
+// entry (and page text) goes at the next backlog.
 
 import type { ExtensionCapture } from './capture.js';
 import { MAX_CAPTURE_TEXT } from './limits.js';
@@ -50,4 +52,9 @@ export function withPending(saves: readonly PendingSave[], save: PendingSave): P
 /** `saves` without the request `id`. */
 export function withoutPending(saves: readonly PendingSave[], id: RequestId): PendingSave[] {
   return saves.filter((save) => save.id !== id);
+}
+
+/** `saves` without those whose node and url are not in `present` (each bookmark still in Follow Up, by node, with its url now). */
+export function pendingAmong(saves: readonly PendingSave[], present: ReadonlyMap<NodeId, Url>): PendingSave[] {
+  return saves.filter((save) => present.get(save.bookmark.node_id) === save.bookmark.url);
 }

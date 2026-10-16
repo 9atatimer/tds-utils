@@ -35,11 +35,11 @@ const REASON: PlacementReason = {
 };
 
 function daemon(r: RequestMessage): ResponseMessage {
-  if (r.type === 'ask') return { v: 1, type: 'ask.result', re: r.id, answer: ANSWER };
+  if (r.type === 'ask') return { v: 2, type: 'ask.result', re: r.id, answer: ANSWER };
   if (r.type === 'placement.explain') {
     return r.identity === REASON.identity
-      ? { v: 1, type: 'placement.explain.result', re: r.id, reason: REASON }
-      : { v: 1, type: 'error', re: r.id, code: 'not_found', message: 'no such entry' };
+      ? { v: 2, type: 'placement.explain.result', re: r.id, reason: REASON }
+      : { v: 2, type: 'error', re: r.id, code: 'not_found', message: 'no such entry' };
   }
   throw new Error(`unexpected ${r.type}`);
 }

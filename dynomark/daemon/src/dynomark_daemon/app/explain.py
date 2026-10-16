@@ -1,5 +1,5 @@
 """Use case: a placement is explained (DYNOMARK.DESIGN.md, Behaviors and
-Interfaces; contract/v1 ``placement.explain``, the "why here" view).
+Interfaces; contract/v2 ``placement.explain``, the "why here" view).
 """
 
 from dynomark_daemon.app.errors import UnknownRecord

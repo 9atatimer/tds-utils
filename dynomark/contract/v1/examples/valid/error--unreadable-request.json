@@ -1,7 +1,0 @@
-{
-  "v": 1,
-  "type": "error",
-  "re": null,
-  "code": "invalid",
-  "message": "frame is not a JSON object"
-}

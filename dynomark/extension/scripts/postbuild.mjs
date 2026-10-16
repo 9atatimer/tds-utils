@@ -1,4 +1,5 @@
-// postbuild.mjs -- turn tsc's dist/ into a loadable unpacked MV3 extension.
+// postbuild.mjs -- turn tsc's dist/ into a loadable unpacked MV3 extension
+// for Chrome, and write its Firefox twin to dist-firefox/ (task-032).
 //
 // No bundler (none is on the tech radar): MV3 loads ES modules natively, so
 // tsc's output is the extension. What tsc does not do, this does:
@@ -10,9 +11,16 @@
 //      or service worker cannot resolve a bare specifier (no import map in a
 //      service worker);
 //   4. refuse the build if any module under dist/ still imports a bare
-//      specifier -- the extension would fail to load at runtime otherwise.
+//      specifier -- the extension would fail to load at runtime otherwise;
+//   5. copy dist/ to dist-firefox/ and write there the Firefox manifest,
+//      derived from manifest.json so the two never ask for different
+//      permissions: background scripts (Firefox runs an event page, not a
+//      service worker) on the Firefox entry, the pinned gecko id the
+//      daemon's host manifest allows, options_ui for options_page, the
+//      sidebar as the chat surface with the chat shortcut opening it, and no
+//      Chrome `key`.
 
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -23,6 +31,15 @@ const DIST = join(ROOT, 'dist');
 const STATIC = join(ROOT, 'static');
 const ZOD = join(ROOT, 'node_modules', 'zod');
 const VENDOR_ZOD = join(DIST, 'vendor', 'zod');
+const DIST_FIREFOX = join(ROOT, 'dist-firefox');
+
+/** The Firefox add-on id; `dynomark-daemon install-host-manifest --browser firefox` allows exactly it. */
+const GECKO_ID = 'dynomark@tds.dynomark';
+/** The oldest Firefox with everything used: MV3 module background scripts, scripting.executeScript with func, sidebar_action (ESR 128). */
+const FIREFOX_MIN_VERSION = '128.0';
+const FIREFOX_BACKGROUND = 'firefoxBackground.js';
+const CHAT_PAGE = 'chat.html';
+const OPEN_CHAT_COMMAND = 'open-chat';
 
 /** `from 'x'`, `import 'x'` and `import('x')`, capturing the quote and the specifier. */
 const SPECIFIER = /(\bfrom\s*|\bimport\s*\(?\s*)(['"])([^'"]+)\2/g;
@@ -45,6 +62,21 @@ function rewriteZod(source, zodPath) {
 /** Every bare specifier the module still imports (comments ignored). */
 function bareSpecifiers(source) {
   return [...source.replace(COMMENTS, '').matchAll(SPECIFIER)].map((m) => m[3]).filter(isBare);
+}
+
+/** The Firefox manifest for the Chrome one: same permissions, keyword, popup and pages; Firefox's own background, id, options and sidebar. */
+function firefoxManifest(chrome) {
+  const { key: _key, background: _background, options_page: optionsPage, commands, ...shared } = chrome;
+  const openChat = commands?.[OPEN_CHAT_COMMAND];
+  if (openChat === undefined) throw new Error(`manifest.json has no ${OPEN_CHAT_COMMAND} command for the Firefox sidebar shortcut`);
+  return {
+    ...shared,
+    background: { scripts: [FIREFOX_BACKGROUND], type: 'module' },
+    options_ui: { page: optionsPage, open_in_tab: true },
+    sidebar_action: { default_title: shared.name, default_panel: CHAT_PAGE, open_at_install: false },
+    commands: { _execute_sidebar_action: { suggested_key: openChat.suggested_key, description: openChat.description } },
+    browser_specific_settings: { gecko: { id: GECKO_ID, strict_min_version: FIREFOX_MIN_VERSION } },
+  };
 }
 
 function toImportPath(fromDir, target) {
@@ -91,6 +123,14 @@ function verifyNoBareSpecifiers() {
   if (offenders.length > 0) throw new Error(`bare import specifiers left in dist/ (not loadable in MV3):\n  ${offenders.join('\n  ')}`);
 }
 
+function writeFirefox() {
+  const chrome = JSON.parse(readFileSync(join(ROOT, 'manifest.json'), 'utf8'));
+  const manifest = firefoxManifest(chrome);
+  rmSync(DIST_FIREFOX, { recursive: true, force: true });
+  cpSync(DIST, DIST_FIREFOX, { recursive: true });
+  writeFileSync(join(DIST_FIREFOX, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+}
+
 // --- Main ---
 
 function main() {
@@ -99,6 +139,7 @@ function main() {
   vendorZod();
   rewriteModules();
   verifyNoBareSpecifiers();
+  writeFirefox();
 }
 
 main();

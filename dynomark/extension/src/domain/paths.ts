@@ -1,4 +1,4 @@
-// paths.ts -- FolderPath resolution, the one owner of the rule (contract v1
+// paths.ts -- FolderPath resolution, the one owner of the rule (contract v2
 // README, "Write batches", Paths). Pure over a tree read; the tree port and
 // its fake resolve through it, and so will the boundary check.
 
@@ -53,7 +53,7 @@ export function folderPathOf(tree: TreeRead, id: NodeId): FolderPath | undefined
 
 // --- Containment ---
 
-/** True when `path` is `root` or lies under it: same RootKey and `root.names` a prefix of `path.names` (syntactic; contract v1, Boundary). */
+/** True when `path` is `root` or lies under it: same RootKey and `root.names` a prefix of `path.names` (syntactic; contract v2, Boundary). */
 export function isPathInside(path: FolderPath, root: FolderPath): boolean {
   if (path.root !== root.root || root.names.length > path.names.length) return false;
   return root.names.every((name, i) => path.names[i] === name);

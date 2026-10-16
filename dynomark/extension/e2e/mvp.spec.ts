@@ -7,12 +7,15 @@
 // the diff view"; State Machine: FAILED -> QUEUED from chat); a diff proposed, read and accepted one item at a
 // time, its batch applied and its state shown, and a folder pinned; the
 // writer-conflict banner, with a batch refused while the conflict stands;
-// background-tab capture of a save no tab shows (a real page on 127.0.0.1);
+// background-tab capture of a save no tab shows (a real page on 127.0.0.1),
+// and a public URL that redirects to 127.0.0.1 never loading the private page
+// when the daemon refuses private addresses (issue #534);
 // and the settings page's backfill.
 
 import type { Page } from '@playwright/test';
 import type { RequestMessage } from '../src/wire/messages.js';
-import { serveLocal } from '../test/support/localServer.js';
+import { launchExtension } from '../test/support/browser.js';
+import { serveLocal, type LocalServer } from '../test/support/localServer.js';
 import { expect, followUpId, ofType, test } from './fixtures.js';
 
 // --- Builders ---
@@ -63,6 +66,7 @@ test('Given no hit, When the omnibox Enter asks, Then the chat surface opens wit
   await expect(chat.locator('.answer-text').first()).toHaveText('The Tokio tutorial covers cancellation.');
   await expect(chat.locator('li.external').first()).toContainText('external');
   await expect(chat.locator('#model')).toContainText('llama3.1:8b (local)');
+  await expect(chat.locator('#model')).toContainText('nomic-embed-text (local)');
 
   await chat.locator(`button[data-explain="${CITED.identity}"]`).click();
   expect(await ext.daemon.waitFor(ofType('placement.explain'))).toMatchObject({ identity: CITED.identity });
@@ -114,7 +118,7 @@ test('Given a PARTIAL and a REJECTED batch and a FAILED job, When the chat surfa
   ];
   ext.daemon.extra = (r) =>
     r.type === 'job.retry'
-      ? { v: 1, type: 'job.retry.result', re: r.id, job: { ...ext.daemon.failedJobs[0]!, state: 'QUEUED', seq: 4 } }
+      ? { v: 2, type: 'job.retry.result', re: r.id, job: { ...ext.daemon.failedJobs[0]!, state: 'QUEUED', seq: 4 } }
       : undefined;
   await ext.daemon.waitFor(ofType('index.pull'));
 
@@ -181,7 +185,9 @@ test('Given an audit diff, When it is proposed, read and one item accepted in th
   await expect(view.locator('button[data-accept="item-3"]')).toBeDisabled();
 
   await view.locator('input[data-pin="16"]').check();
-  expect(await ext.daemon.waitFor(ofType('folder.flags.set'))).toMatchObject({ node_id: '16', pinned: true });
+  const flags = await ext.daemon.waitFor(ofType('folder.flags.set'));
+  expect(flags).toMatchObject({ path: { root: 'bar', names: ['Dynomark', 'Rust'] }, pinned: true });
+  expect(flags).not.toHaveProperty('node_id');
   expect(ext.daemon.invalid).toEqual([]);
 });
 
@@ -208,6 +214,29 @@ test('Given another host is writer too, When the settings page opens, Then the c
   await expect(options.locator('#writer-conflict')).toBeHidden();
 });
 
+test('Given a writer daemon bound to another browser profile, When the settings page opens, Then a banner says this browser is served as a reader and names rebind (issue #419)', async ({
+  ext,
+}) => {
+  ext.daemon.extra = (r) =>
+    r.type === 'status'
+      ? {
+          v: 2,
+          type: 'status.result',
+          re: r.id,
+          role: 'reader',
+          host_id: 'mbp',
+          contract_version: 2,
+          models: { embedding: { id: 'nomic-embed-text', local: true }, completion: { id: 'llama3.1:8b', local: true } },
+          queue_depth: 0,
+          writer_binding: 'other_profile',
+        }
+      : undefined;
+  const options = await ext.extensionPage('options.html');
+  await expect(options.locator('#reader-binding')).toBeVisible();
+  await expect(options.locator('#reader-binding')).toContainText('dynomark-daemon rebind');
+  await expect(options.locator('#daemon-binding')).toContainText('another browser profile');
+});
+
 test('Given a writer and a save no tab shows, When it lands in Follow Up, Then the page is read from a background tab (source background_tab) and the window is closed', async ({
   ext,
 }) => {
@@ -229,6 +258,66 @@ test('Given a writer and a save no tab shows, When it lands in Follow Up, Then t
     expect(ingest.capture?.text).toContain('Full text visible only when signed in.');
     expect(server.requested).toContain('/story');
     await expect.poll(() => page.evaluate(async () => (await chrome.windows.getAll()).length)).toBe(windowsBefore);
+  } finally {
+    await server.close();
+  }
+});
+
+/** Save `path` of `server` into Follow Up as news.example (the server under a public-looking name), with a daemon whose url.vet allows only news.example, and return its ingest. */
+async function saveAsPublic(server: LocalServer, path: string): Promise<Ingest> {
+  // The daemon vets news.example; the browser resolves it to the server here. Every private address is refused.
+  const ext = await launchExtension({ args: ['--host-resolver-rules=MAP news.example 127.0.0.1'] });
+  try {
+    await ext.context.route(
+      (url) => /^(https?|wss?):$/.test(url.protocol) && url.hostname !== '127.0.0.1' && url.hostname !== 'news.example',
+      (route) => route.abort('internetdisconnected'),
+    );
+    ext.daemon.extra = (r) =>
+      r.type === 'url.vet'
+        ? {
+            v: 2,
+            type: 'url.vet.result',
+            re: r.id,
+            ...(new URL(r.url).hostname === 'news.example' ? { allowed: true } : { allowed: false, refusal: 'address' }),
+          }
+        : undefined;
+    await ext.daemon.waitFor(ofType('writer.status'));
+    const folder = await followUpId(ext);
+    const page = await ext.extensionPage('history.html');
+    const url = `http://news.example:${new URL(server.origin).port}${path}`;
+    const id = await page.evaluate(async ({ parentId, u }) => (await chrome.bookmarks.create({ parentId, title: 'Story', url: u })).id, {
+      parentId: folder,
+      u: url,
+    });
+    return (await ext.daemon.waitFor((r) => r.type === 'ingest' && r.bookmark.node_id === id, { timeoutMs: 40_000 })) as Ingest;
+  } finally {
+    await ext.close();
+  }
+}
+
+test('Given a daemon that refuses private addresses, When a save no tab shows is a public URL that 302s to 127.0.0.1, Then the background tab never requests the private page and ingest carries source none (issue #534)', async () => {
+  const server = await serveLocal({
+    '/story': { redirect: '{origin}/secret' },
+    '/secret': `<!doctype html><title>Router admin</title><body><article><p>WAN password: hunter2</p></article></body>`,
+  });
+  try {
+    const ingest = await saveAsPublic(server, '/story');
+    expect(ingest.capture).toEqual({ source: 'none', text: '' });
+    expect(server.requested).toContain('/story');
+    expect(server.requested).not.toContain('/secret');
+  } finally {
+    await server.close();
+  }
+});
+
+test('Given a daemon that refuses private addresses, When a save no tab shows is a public URL, Then the guarded background tab still reads it (source background_tab)', async () => {
+  const server = await serveLocal({
+    '/story': `<!doctype html><title>Story | News</title><body><article><p>Full text visible only when signed in.</p></article></body>`,
+  });
+  try {
+    const ingest = await saveAsPublic(server, '/story');
+    expect(ingest.capture).toMatchObject({ source: 'background_tab', title: 'Story | News' });
+    expect(ingest.capture?.text).toContain('Full text visible only when signed in.');
   } finally {
     await server.close();
   }

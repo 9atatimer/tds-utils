@@ -1,5 +1,5 @@
 """Use cases: a diff is proposed; a diff item is accepted (DYNOMARK.DESIGN.md,
-Behaviors and Interfaces; The daemon, "Diffs"; Goal 8; contract/v1
+Behaviors and Interfaces; The daemon, "Diffs"; Goal 8; contract/v2
 ``diff.propose``, ``diff.list``, ``diff.page``, ``diff.accept``).
 
 Nothing is applied until an item is accepted, and each acceptance is its
@@ -18,7 +18,7 @@ from dynomark_daemon.app.errors import (
 )
 from dynomark_daemon.app.file import offer
 from dynomark_daemon.app.pages import Page, paginate
-from dynomark_daemon.app.requests import RequestRecall, recall_request
+from dynomark_daemon.app.requests import recall_request
 from dynomark_daemon.app.run import current_outline
 from dynomark_daemon.domain.batch import (
     BatchRecord,
@@ -126,6 +126,12 @@ def _request_diff_id(request_id: RequestId) -> DiffId:
     return DiffId(f"diff-{digest}")
 
 
+def is_answered_request(request_id: RequestId, *, store: CorpusStorePort) -> bool:
+    """The diff ``request_id`` asked for is stored: the diff itself now
+    answers a retry, so the request's memory may go (Retention)."""
+    return store.get_diff(_request_diff_id(request_id)) is not None
+
+
 def request_diff(
     request_id: RequestId,
     kind: DiffKind,
@@ -138,7 +144,9 @@ def request_diff(
     ids: IdSource,
 ) -> TreeDiff:
     """The diff ``diff.propose`` asked for, proposed and stored once per
-    request id.
+    request id. Once stored, the diff answers a retry by itself, so the
+    request's memory may be forgotten (Retention) and a retry still returns
+    it, or is invalid for another kind.
 
     Raises:
         InvalidRequest: the id is known with another body, or this host is a
@@ -148,15 +156,17 @@ def request_diff(
     """
     if role is HostRole.READER:
         raise InvalidRequest("a reader keeps no tree to propose a diff from")
+    diff_id = _request_diff_id(request_id)
+    known = store.get_diff(diff_id)
+    if known is not None:
+        if known.kind is not kind:
+            raise InvalidRequest(f"request {request_id} was sent with another body")
+        return known
     body = json.dumps({"type": "diff.propose", "kind": kind.value}, sort_keys=True)
     # The completion call below sits between remembering the id and storing
     # the diff, so no unit of work spans them: a kill between leaves the id
     # known and no diff, and its re-send (a REPEAT with no diff) proposes.
-    recall = recall_request(request_id, body, store=store)
-    diff_id = _request_diff_id(request_id)
-    known = store.get_diff(diff_id)
-    if recall is RequestRecall.REPEAT and known is not None:
-        return known
+    recall_request(request_id, body, store=store)
     scope = diff_scope(kind, roots, store=store)
     diff = propose_diff(
         kind,

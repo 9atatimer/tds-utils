@@ -1,4 +1,4 @@
-"""A blocking contract v1 client for integration tests: frames over a socket."""
+"""A blocking contract v2 client for integration tests: frames over a socket."""
 
 import json
 import socket
@@ -79,7 +79,7 @@ def events_through(
     """``early`` -- the events that came before an answer -- up to the first
     that ``predicate`` accepts, reading on only when none of them does.
 
-    Events interleave freely with answers (contract v1, Envelope), so the
+    Events interleave freely with answers (contract v2, Envelope), so the
     event a request causes may arrive before that request's answer. Waiting
     past ``early`` for it then waits for a second one that never comes
     (issue #370)."""

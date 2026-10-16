@@ -5,6 +5,8 @@ nested union member, every enum and id. Round-trip over the domain's own
 hypothesis strategies.
 """
 
+import json
+
 import pytest
 from hypothesis import given, settings
 
@@ -15,7 +17,13 @@ from dynomark_daemon.domain.events import BatchOffered, DiffProposed, Event, Job
 from dynomark_daemon.domain.job import Job
 from dynomark_daemon.domain.tree import Snapshot
 from dynomark_daemon.testing import strategies as s
-from tests._factories import make_job, make_node, make_snapshot, make_tree
+from tests._factories import (
+    make_batch,
+    make_job,
+    make_node,
+    make_snapshot,
+    make_tree,
+)
 
 EVENT_TYPES = (JobUpdated, BatchOffered, DiffProposed)
 
@@ -68,3 +76,15 @@ def test_loading_a_document_of_another_type_raises() -> None:
     RecordError instead of returning a wrong value."""
     with pytest.raises(RecordError):
         load_record(dump_record(make_job()), Snapshot)
+
+
+def test_a_batch_row_written_before_a_field_existed_loads_with_its_default() -> None:
+    """Given a stored batch document from before WriteBatch gained ``park``
+    (contract v2), When loaded, Then it loads with ``park`` unset instead of
+    failing: a new optional field needs no migration of old rows."""
+    record = make_batch()
+    document = json.loads(dump_record(record))
+    document["batch"].pop("park", None)
+    document["batch"].pop("scope", None)
+
+    assert load_record(json.dumps(document), BatchRecord) == record

@@ -39,7 +39,7 @@ class PendingEvent:
     pushed: bool
 
 
-# --- Delivery rules (contract/v1 README, Delivery and replay) ---
+# --- Delivery rules (contract/v2 README, Delivery and replay) ---
 
 
 def deliverable(

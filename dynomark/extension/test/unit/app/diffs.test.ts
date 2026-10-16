@@ -1,14 +1,16 @@
 // diffs.test.ts -- the extension half of TreeDiffs (design, Behaviors rows "A
 // diff is proposed", "A diff item is accepted", "An audit item may cross the
 // boundary"; Non-Goals: audit is suggest-only, one accepted item at a time;
-// contract v1, "Connection lifecycle" step 6: tree.snapshot immediately
+// contract v2, "Connection lifecycle" step 6: tree.snapshot immediately
 // before every diff.propose, awaiting its result, so an audit compares
 // against the current bar). The diff view lists diffs and their items,
 // proposes, accepts one item at a time, and sets pin/lock flags.
 
 import { describe, expect, it } from 'vitest';
 import { DiffAcceptance, listDiffs, proposeDiff, readDiffPage, readOutline, setFolderFlags } from '../../../src/app/diffs.js';
+import { sendTreeSnapshot } from '../../../src/app/onConnected.js';
 import type { DiffItem, OutlineFolder, TreeDiff } from '../../../src/domain/diff.js';
+import type { Snapshot } from '../../../src/domain/tree.js';
 import type { RequestMessage, ResponseMessage } from '../../../src/wire/messages.js';
 import { FakeBookmarkTree } from '../../fakes/FakeBookmarkTree.js';
 import { FakeClock } from '../../fakes/FakeClock.js';
@@ -40,20 +42,20 @@ const FOLDER: OutlineFolder = {
 function daemon(r: RequestMessage): ResponseMessage {
   switch (r.type) {
     case 'tree.snapshot':
-      return { v: 1, type: 'tree.snapshot.result', re: r.id };
+      return { v: 2, type: 'tree.snapshot.result', re: r.id };
     case 'diff.propose':
-      return { v: 1, type: 'diff.propose.result', re: r.id, diff: { ...DIFF, kind: r.kind } };
+      return { v: 2, type: 'diff.propose.result', re: r.id, diff: { ...DIFF, kind: r.kind } };
     case 'diff.list':
-      return { v: 1, type: 'diff.list.result', re: r.id, diffs: [DIFF], next_cursor: r.cursor === undefined ? 'p2' : null };
+      return { v: 2, type: 'diff.list.result', re: r.id, diffs: [DIFF], next_cursor: r.cursor === undefined ? 'p2' : null };
     case 'diff.page':
-      return { v: 1, type: 'diff.page.result', re: r.id, diff: DIFF, items: [ITEM], next_cursor: null };
+      return { v: 2, type: 'diff.page.result', re: r.id, diff: DIFF, items: [ITEM], next_cursor: null };
     case 'diff.accept':
-      return { v: 1, type: 'diff.accept.result', re: r.id, item_id: r.item_id, accepted_at: 1_790_000_125_000, batch_id: 'batch-104' };
+      return { v: 2, type: 'diff.accept.result', re: r.id, item_id: r.item_id, accepted_at: 1_790_000_125_000, batch_id: 'batch-104' };
     case 'outline.get':
-      return { v: 1, type: 'outline.get.result', re: r.id, outline: [FOLDER], next_cursor: null };
+      return { v: 2, type: 'outline.get.result', re: r.id, outline: [FOLDER], next_cursor: null };
     case 'folder.flags.set':
       return {
-        v: 1,
+        v: 2,
         type: 'folder.flags.set.result',
         re: r.id,
         folder: { ...FOLDER, pinned: r.pinned ?? FOLDER.pinned, locked: r.locked ?? FOLDER.locked },
@@ -140,17 +142,66 @@ describe('DiffAcceptance -- one item at a time', () => {
   });
 });
 
+/**
+ * A daemon whose outline is the folders under Dynomark in the latest tree.snapshot it recorded, as
+ * dynomark_daemon's current_outline is; issue #437.
+ */
+function outlineDaemon(dynomark: string): { answer: (r: RequestMessage) => ResponseMessage } {
+  let latest: Snapshot | undefined;
+  return {
+    answer: (r) => {
+      if (r.type === 'tree.snapshot') {
+        latest = r.snapshot;
+        return { v: 2, type: 'tree.snapshot.result', re: r.id };
+      }
+      if (r.type !== 'outline.get') return daemon(r);
+      const folders = (latest?.nodes ?? []).filter((n) => n.kind === 'folder' && n.parent_id === dynomark);
+      const outline = folders.map((n) => ({
+        node_id: n.id,
+        path: { root: 'bar' as const, names: ['Dynomark', n.title] },
+        pinned: false,
+        locked: false,
+        item_count: 0,
+      }));
+      return { v: 2, type: 'outline.get.result', re: r.id, outline, next_cursor: r.cursor === undefined ? 'p2' : null };
+    },
+  };
+}
+
 describe('readOutline and setFolderFlags -- pin and lock', () => {
   it('Given the owned outline, When read, Then its folders come back with their flags', async () => {
     const d = await deps();
     expect(await readOutline(undefined, d)).toEqual({ folders: [FOLDER], next_cursor: null });
   });
 
-  it('Given a folder, When pinned, Then folder.flags.set names its node id and path and only the flag changed', async () => {
+  it('Given a folder filed under Dynomark that no tree.snapshot has carried yet, When the outline is read, Then that folder is listed (issue #437)', async () => {
+    const tree = new FakeBookmarkTree({ flavor: 'chrome' });
+    const seeded = await seedOwnedTree(tree);
+    const transport = new FakeTransport();
+    transport.autoAnswer(outlineDaemon(seeded.dynomark).answer);
+    const d = { transport, ids: new SequentialIdSource(), tree, clock: new FakeClock(1_790_000_000_000) };
+    await sendTreeSnapshot(d); // the daemon's latest tree: the one sent after hello
+    const reading = (await tree.createFolder(seeded.dynomark, 'Reading')).id;
+    const { folders } = await readOutline(undefined, d);
+    expect(folders.map((f) => f.node_id)).toContain(reading);
+  });
+
+  it('Given a later page of the outline, When read from its cursor, Then no tree.snapshot is sent, so the cursor still names the outline it pages', async () => {
+    const tree = new FakeBookmarkTree({ flavor: 'chrome' });
+    const seeded = await seedOwnedTree(tree);
+    const transport = new FakeTransport();
+    transport.autoAnswer(outlineDaemon(seeded.dynomark).answer);
+    const d = { transport, ids: new SequentialIdSource(), tree, clock: new FakeClock(1_790_000_000_000) };
+    expect(await readOutline('p2', d)).toMatchObject({ next_cursor: null });
+    expect(transport.sent.map((r) => r.type)).toEqual(['outline.get']);
+  });
+
+  it('Given a folder, When pinned, Then folder.flags.set names it by path alone (flags are kept by path, issue #423) and only the flag changed', async () => {
     const d = await deps();
     expect(await setFolderFlags(FOLDER, { pinned: true }, d)).toEqual({ ...FOLDER, pinned: true });
     const [sent] = d.transport.sent;
-    expect(sent).toEqual(expect.objectContaining({ type: 'folder.flags.set', node_id: '14', path: FOLDER.path, pinned: true }));
+    expect(sent).toEqual(expect.objectContaining({ type: 'folder.flags.set', path: FOLDER.path, pinned: true }));
+    expect(sent !== undefined && 'node_id' in sent).toBe(false);
     expect(sent !== undefined && 'locked' in sent).toBe(false);
   });
 

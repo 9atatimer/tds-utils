@@ -1,8 +1,8 @@
-"""Use cases on jobs the extension asks for by id (contract/v1 README:
+"""Use cases on jobs the extension asks for by id (contract/v2 README:
 ``job.retry``, ``job.list``); the State Machine row FAILED -> QUEUED.
 """
 
-from dynomark_daemon.app.errors import UnknownRecord
+from dynomark_daemon.app.errors import InvalidRequest, UnknownRecord
 from dynomark_daemon.app.pages import Page, paginate
 from dynomark_daemon.domain.batch import BatchRecord
 from dynomark_daemon.domain.events import JobUpdated
@@ -47,10 +47,18 @@ def retry_job(
 
     Raises:
         UnknownRecord: no such job for this profile (``not_found``).
+        InvalidRequest: the job is known but its save is no longer kept
+            (Retention dropped it with its entry), so nothing is left to
+            process (``invalid``, contract v2: not ``not_found``).
     """
     job = profile_job(job_id, profile_id, store=store)
     if job.state is not JobState.FAILED:
         return job
+    if store.get_save(job.job_id) is None:
+        raise InvalidRequest(
+            f"job {job_id} cannot run again: retention dropped its save 30 days "
+            "after its bookmark left the tree; save the page again"
+        )
     return record_job_change(job.retried(at=clock.now_ms()), store=store, ids=ids)
 
 

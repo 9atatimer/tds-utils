@@ -21,13 +21,13 @@ import { DAEMON_DIR } from './paths.js';
 
 export type HostRole = 'writer' | 'reader';
 
-/** A contract v1 FolderPath. */
+/** A contract v2 FolderPath. */
 export interface FolderPath {
   readonly root: 'bar' | 'other' | 'mobile' | 'menu';
   readonly names: readonly string[];
 }
 
-/** A contract v1 Operation, as a scripted diff item carries it. */
+/** A contract v2 Operation, as a scripted diff item carries it. */
 export type Operation =
   | { readonly op: 'create_folder'; readonly index: number; readonly parent: FolderPath; readonly title: string }
   | { readonly op: 'create'; readonly index: number; readonly parent: FolderPath; readonly title: string; readonly url: string };

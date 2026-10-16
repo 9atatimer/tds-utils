@@ -8,7 +8,7 @@ from typing import Final
 from dynomark_daemon.domain.ids import NodeId
 
 WRITER_MARKER_PREFIX: Final = "dynomark-writer:"
-"""The title prefix of a writer's marker folder (contract v1, Writer marker)."""
+"""The title prefix of a writer's marker folder (contract v2, Writer marker)."""
 
 
 class RootKey(StrEnum):
@@ -57,7 +57,7 @@ class OwnedRoots:
         return (self.follow_up, self.dynomark, self.graveyard)
 
     def contains(self, path: FolderPath) -> bool:
-        """``path`` is an owned root or lies inside one (contract v1, Boundary:
+        """``path`` is an owned root or lies inside one (contract v2, Boundary:
         a syntactic test on paths)."""
         return any(path.is_inside(root) for root in self.all())
 
@@ -68,7 +68,9 @@ class OwnedRoots:
 @dataclass(frozen=True, slots=True)
 class FolderFlags:
     """``pinned``: immune to rebuild and audit moves. ``locked``: never a
-    placement candidate, never moved, renamed or merged by any batch."""
+    placement candidate, never moved, renamed or merged by any batch. Kept by
+    folder path, which every writer's tree resolves alike (a node id is one
+    host's)."""
 
     pinned: bool
     locked: bool
@@ -167,7 +169,7 @@ class Snapshot:
         return FolderPath(root=roots[current.node_id], names=tuple(reversed(names)))
 
     def resolve(self, path: FolderPath) -> NodeId | None:
-        """The folder ``path`` names (contract v1, Write batches, Paths): from
+        """The folder ``path`` names (contract v2, Write batches, Paths): from
         the root's node, at each level the child folder with the lowest index
         whose title equals the name exactly."""
         current: NodeId | None = getattr(self.root_ids, path.root.value)
@@ -192,10 +194,10 @@ def _outline_folders(
     snapshot: Snapshot,
     node_id: NodeId,
     path: FolderPath,
-    flags: Mapping[NodeId, FolderFlags],
+    flags: Mapping[FolderPath, FolderFlags],
 ) -> list[OutlineFolder]:
     children = snapshot.children(node_id)
-    own = flags.get(node_id, FolderFlags(pinned=False, locked=False))
+    own = flags.get(path, FolderFlags(pinned=False, locked=False))
     folder = OutlineFolder(
         node_id=node_id,
         path=path,
@@ -216,7 +218,7 @@ def _outline_folders(
 
 
 def outline_of(
-    snapshot: Snapshot, root: FolderPath, flags: Mapping[NodeId, FolderFlags]
+    snapshot: Snapshot, root: FolderPath, flags: Mapping[FolderPath, FolderFlags]
 ) -> TreeOutline:
     """The ``TreeOutline`` of the subtree ``root`` resolves to in ``snapshot``:
     every folder but writer markers, with its flags and bookmark count;
@@ -230,7 +232,7 @@ def outline_of(
 
 
 def bar_outline(
-    snapshot: Snapshot, roots: OwnedRoots, flags: Mapping[NodeId, FolderFlags]
+    snapshot: Snapshot, roots: OwnedRoots, flags: Mapping[FolderPath, FolderFlags]
 ) -> TreeOutline:
     """The user's own bar: every folder of the bookmarks bar (the bar itself
     included) that is not an owned root or inside one; an audit compares it

@@ -1,5 +1,5 @@
 // values.ts -- the scalar values of the ubiquitous language (design, "Ubiquitous
-// language"; contract v1 README, "Envelope" and "Size limits").
+// language"; contract v2 README, "Envelope" and "Size limits").
 //
 // Plain aliases: the domain names what a string means, the wire checks its
 // shape. Ids are opaque -- compare byte-for-byte, never parse.

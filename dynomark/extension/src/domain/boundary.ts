@@ -1,6 +1,8 @@
 // boundary.ts -- which batches the extension admits (design Goal 8, "Ownership
-// boundary"; contract v1 README, "Write batches", Boundary). Checked once,
-// before the first op, against the snapshot read at the start of the attempt.
+// boundary"; contract v2 README, "Write batches", Boundary). Checked once,
+// before the first op, against the snapshot read at the start of the attempt:
+// every op inside the owned roots, or, for an accepted DiffItem's batch,
+// inside that item's scope.
 // OwnedRoots is a value passed in, never a literal here.
 
 import type { Operation, RejectReason, WriteBatch } from './batch.js';
@@ -80,12 +82,50 @@ function admitsOp(op: Operation, roots: OwnedRoots, byId: ReadonlyMap<NodeId, Sn
   }
 }
 
-/** True when some op of a batch without a DiffItem reference lies outside the owned roots. */
+/** True when `path` is exactly one of the scope's paths: a scope path admits only itself. */
+function isScopePath(path: FolderPath, scope: readonly FolderPath[]): boolean {
+  return scope.some((s) => s.root === path.root && s.names.length === path.names.length && s.names.every((n, i) => path.names[i] === n));
+}
+
+/** What an accepted item's scope admits: its own folders as targets, and nodes taken from them (or from under an owned root). */
+interface ScopeCheck {
+  readonly scope: readonly FolderPath[];
+  readonly scopeIds: ReadonlySet<NodeId>;
+}
+
+function admitsScopedOp(
+  op: Operation,
+  check: ScopeCheck,
+  roots: OwnedRoots,
+  byId: ReadonlyMap<NodeId, SnapshotNode>,
+  ownedIds: ReadonlySet<NodeId>,
+): boolean {
+  switch (op.op) {
+    case 'create_folder':
+    case 'create':
+      return isScopePath(op.parent, check.scope);
+    case 'move':
+    case 'remove': {
+      if (op.op === 'move' && !isOwnedTarget(op.to, roots) && !isScopePath(op.to, check.scope)) return false;
+      const node = byId.get(op.node_id);
+      if (node === undefined) return true;
+      const fromScope = node.parent_id !== null && check.scopeIds.has(node.parent_id);
+      return fromScope || hasOwnedAncestor(node, byId, ownedIds);
+    }
+  }
+}
+
+/**
+ * True when some op lies outside the owned roots and, for a batch realizing
+ * an accepted DiffItem, outside that item's scope too (Goal 8: a crossing op
+ * must lie inside one accepted item; issue #423 ended the blanket exemption).
+ */
 export function crossesBoundary(batch: WriteBatch, roots: OwnedRoots, tree: TreeRead): boolean {
-  if (batch.diff_item_id !== undefined) return false;
   const byId = new Map(tree.nodes.map((n) => [n.id, n] as const));
   const ownedIds = new Set(ownedRootList(roots).flatMap((root) => resolveFolderPath(tree, root) ?? []));
-  return batch.operations.some((op) => !admitsOp(op, roots, byId, ownedIds));
+  const scope = batch.diff_item_id === undefined ? [] : (batch.scope ?? []);
+  const check: ScopeCheck = { scope, scopeIds: new Set(scope.flatMap((path) => resolveFolderPath(tree, path) ?? [])) };
+  return batch.operations.some((op) => !admitsOp(op, roots, byId, ownedIds) && !admitsScopedOp(op, check, roots, byId, ownedIds));
 }
 
 /**

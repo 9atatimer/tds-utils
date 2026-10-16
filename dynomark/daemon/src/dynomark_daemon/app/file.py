@@ -14,6 +14,7 @@ from dynomark_daemon.domain.batch import (
     BatchState,
     Expect,
     Operation,
+    ParkReason,
     UndoDrop,
     WriteBatch,
     admit,
@@ -26,7 +27,7 @@ from dynomark_daemon.domain.ids import BatchId, EventId, SnapshotId
 from dynomark_daemon.domain.job import Job
 from dynomark_daemon.domain.placement import Placement
 from dynomark_daemon.domain.roles import HostRole, NotWriter
-from dynomark_daemon.domain.tree import OwnedRoots, TreeOutline
+from dynomark_daemon.domain.tree import FolderPath, OwnedRoots, TreeOutline
 from dynomark_daemon.ports.clock import Clock, IdSource
 from dynomark_daemon.ports.store import CorpusStorePort
 
@@ -77,14 +78,15 @@ def propose_inverse(
     ``original``, and link it as ``original.undone_by``, in one unit of
     work: callers make an inverse only while ``undone_by`` is unset, so an
     offered inverse without that link would be offered again. It carries
-    the original's ``DiffItem`` reference."""
-    if original.batch.diff_item_id is None:
-        admit(operations, roots)
+    the original's ``DiffItem`` reference and scope, and is admitted against
+    that scope (an inverse crosses the boundary exactly as its item did)."""
+    admit(operations, roots, scope=original.batch.scope)
     batch = WriteBatch(
         batch_id=BatchId(ids.new_id("batch")),
         operations=operations,
         inverse=plan_inverse(operations, roots),
         diff_item_id=original.batch.diff_item_id,
+        scope=original.batch.scope,
     )
     record = BatchRecord(
         batch=batch,
@@ -105,6 +107,7 @@ def propose(
     job: Job,
     roots: OwnedRoots,
     *,
+    park: ParkReason | None = None,
     store: CorpusStorePort,
     clock: Clock,
     ids: IdSource,
@@ -121,6 +124,7 @@ def propose(
         batch_id=BatchId(ids.new_id("batch")),
         operations=operations,
         inverse=plan_inverse(operations, roots),
+        park=park,
     )
     record = BatchRecord(
         batch=batch,
@@ -168,13 +172,15 @@ def park(
     job: Job,
     roots: OwnedRoots,
     role: HostRole,
+    existing: FolderPath,
     *,
     store: CorpusStorePort,
     clock: Clock,
     ids: IdSource,
 ) -> WriteBatch | NotWriter:
     """File nothing new for a duplicate identity: a batch moves ``job``'s node
-    to ``Graveyard``; the existing placement is untouched.
+    to ``Graveyard`` and names the ``existing`` placement as its reason; the
+    existing placement is untouched.
 
     Raises:
         TreeNotReady: no tree snapshot resolves where the node was saved.
@@ -184,4 +190,12 @@ def park(
     operations = parking_operations(
         roots, node_id=job.node_id, expect=saved_node_expect(job, store=store)
     )
-    return propose(operations, job, roots, store=store, clock=clock, ids=ids)
+    return propose(
+        operations,
+        job,
+        roots,
+        park=ParkReason(existing=existing),
+        store=store,
+        clock=clock,
+        ids=ids,
+    )

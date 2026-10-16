@@ -1,7 +1,7 @@
 """task-030, daemon half: a writer keeps its marker in the owned tree, and a
 host configured writer that sees another host's marker refuses every
 write-producing use case with a distinct result (DYNOMARK.DESIGN.md, Key
-Decisions "Two writers"; Future Considerations "Writer marker"; contract/v1
+Decisions "Two writers"; Future Considerations "Writer marker"; contract/v2
 README, Writer marker: no offers, ``undo``, ``diff.accept`` and
 ``folder.flags.set`` answered ``writer_conflict``, ``ingest`` accepted and
 its job indexed then ``FAILED`` naming the conflict).
@@ -19,7 +19,7 @@ from dynomark_daemon.app.writer import (
 )
 from dynomark_daemon.domain.batch import BatchState, OpCreateFolder
 from dynomark_daemon.domain.events import BatchOffered
-from dynomark_daemon.domain.ids import BatchId, HostId, ItemId, NodeId, ProfileId
+from dynomark_daemon.domain.ids import BatchId, HostId, ItemId, ProfileId
 from dynomark_daemon.domain.job import JobState
 from dynomark_daemon.domain.placement import FolderChoice
 from dynomark_daemon.domain.roles import HostRole
@@ -151,8 +151,7 @@ def test_undo_accept_and_flags_refuse_with_the_conflict() -> None:
             ids=ids,
         ),
         set_folder_flags(
-            NodeId("14"),
-            None,
+            RUST,
             None,
             True,
             HostRole.WRITER,

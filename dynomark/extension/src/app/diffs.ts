@@ -7,7 +7,7 @@
 
 import type { DiffItem, DiffKind, OutlineFolder, TreeDiff } from '../domain/diff.js';
 import type { FolderPath } from '../domain/tree.js';
-import type { BatchId, Cursor, EpochMs, Id, NodeId } from '../domain/values.js';
+import type { BatchId, Cursor, EpochMs, Id } from '../domain/values.js';
 import type { BookmarkTreePort } from '../ports/bookmarkTree.js';
 import type { Clock } from '../ports/clock.js';
 import type { IdSource } from '../ports/idSource.js';
@@ -85,26 +85,32 @@ export async function readDiffPage(
   return { diff: r.diff, items: r.items, next_cursor: r.next_cursor };
 }
 
-/** One page of the owned outline with its pin and lock flags. */
-export async function readOutline(cursor: Cursor | undefined, deps: Talk): Promise<Paged & { readonly folders: readonly OutlineFolder[] }> {
+/**
+ * One page of the owned outline with its pin and lock flags. The daemon's
+ * outline is its latest tree.snapshot, which lags the browser: a batch's
+ * folders until the post-receipt snapshot, a user's until the debounce. So
+ * the first page sends the tree as read now and awaits its result first (as
+ * diff.propose does); a later page does not, so its cursor still names the
+ * outline it pages (issue #437).
+ */
+export async function readOutline(
+  cursor: Cursor | undefined,
+  deps: Talk & { readonly tree: BookmarkTreePort; readonly clock: Clock },
+): Promise<Paged & { readonly folders: readonly OutlineFolder[] }> {
+  if (cursor === undefined) await sendTreeSnapshot(deps);
   const r = resultOrThrow(
     await deps.transport.send({ v: CONTRACT_VERSION, type: 'outline.get', id: deps.ids.next(), ...cursorField(cursor) }),
   );
   return { folders: r.outline, next_cursor: r.next_cursor };
 }
 
-/** Pin or lock an owned folder, naming its node id and the path it was shown at (the daemon checks they still match). */
-export async function setFolderFlags(
-  folder: { readonly node_id: NodeId; readonly path: FolderPath },
-  flags: FolderFlags,
-  deps: Talk,
-): Promise<OutlineFolder> {
+/** Pin or lock an owned folder, naming it by the path it was shown at: the daemon keeps flags by path (contract v2, issue #423). */
+export async function setFolderFlags(folder: { readonly path: FolderPath }, flags: FolderFlags, deps: Talk): Promise<OutlineFolder> {
   if (flags.pinned === undefined && flags.locked === undefined) throw new Error('folder.flags.set changes at least one flag');
   const frame = {
     v: CONTRACT_VERSION,
     type: 'folder.flags.set',
     id: deps.ids.next(),
-    node_id: folder.node_id,
     path: folder.path,
     ...(flags.pinned === undefined ? {} : { pinned: flags.pinned }),
     ...(flags.locked === undefined ? {} : { locked: flags.locked }),

@@ -2,7 +2,7 @@
 
 Design: Transport contract, "Direction -- Daemon -> extension: responses
 by id, plus unsolicited events (job finished, batch ready)";
-contract/v1/README.md, "Events go only to a connection of the profile they
+contract/v2/README.md, "Events go only to a connection of the profile they
 belong to". Use-case tests assert on the pushes the fake recorded.
 """
 

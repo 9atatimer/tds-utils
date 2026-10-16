@@ -1,12 +1,12 @@
 // backfill.ts -- the settings page's backfill (design, Open Question 3: run
 // the existing tree through capture and indexing at first install --
-// searchable, not re-filed -- and at what rate; contract v1, "Jobs": a
+// searchable, not re-filed -- and at what rate; contract v2, "Jobs": a
 // backfill ingest is never offered a batch). The candidates are fixed when it
 // starts and stored with the progress; each step sends one chunk of ingests
 // (backfill true, no capture: the daemon fetches, and opening thousands of
 // tabs is not a capture strategy), stores how far it got, and schedules the
 // next chunk after a pause. A busy or internal answer comes on a link that
-// stays up, so no reconnect will resume it (contract v1: busy and internal are
+// stays up, so no reconnect will resume it (contract v2: busy and internal are
 // retried with the same id after backoff): the step stores progress up to that
 // bookmark, with the frame's id, and the next step, after a backoff, re-sends
 // the identical frame. A worker restart loses only the schedule: the next

@@ -1,6 +1,6 @@
 """A connection's standing: the contract version each side speaks and what
 that lets continue (DYNOMARK.DESIGN.md, Transport contract, "Identity and
-version"; contract/v1 README, Connection lifecycle)."""
+version"; contract/v2 README, Connection lifecycle)."""
 
 from enum import StrEnum
 from typing import Final
@@ -8,8 +8,8 @@ from typing import Final
 from dynomark_daemon.domain.ids import ProfileId
 from dynomark_daemon.domain.roles import HostRole
 
-DAEMON_CONTRACT_VERSION: Final = 1
-"""The transport contract version this daemon speaks (contract/v1)."""
+DAEMON_CONTRACT_VERSION: Final = 2
+"""The transport contract version this daemon speaks (contract/v2)."""
 
 
 class HelloMode(StrEnum):
@@ -27,6 +27,29 @@ def negotiate(extension: int, daemon: int) -> HelloMode:
     if extension == daemon:
         return HelloMode.FULL
     return HelloMode.READ_ONLY if extension > daemon else HelloMode.REFUSED
+
+
+class WriterBinding(StrEnum):
+    """Which profile a writer daemon files for, as one profile sees it (Key
+    Decisions "Writer binding" 2026-10-16, issue #419)."""
+
+    THIS_PROFILE = "this_profile"
+    OTHER_PROFILE = "other_profile"
+    UNBOUND = "unbound"
+
+
+def writer_binding(
+    configured: HostRole, writer_profile: ProfileId | None, profile: ProfileId
+) -> WriterBinding | None:
+    """The binding ``profile`` sees on a writer daemon; ``None`` on a reader,
+    which binds no profile."""
+    if configured is not HostRole.WRITER:
+        return None
+    if writer_profile is None:
+        return WriterBinding.UNBOUND
+    if writer_profile == profile:
+        return WriterBinding.THIS_PROFILE
+    return WriterBinding.OTHER_PROFILE
 
 
 def served_role(

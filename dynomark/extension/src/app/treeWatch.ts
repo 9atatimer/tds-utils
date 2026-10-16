@@ -1,8 +1,9 @@
 // treeWatch.ts -- what each bookmark event means (design, "The extension":
-// Watch Follow Up, Capture from the open tab, Record feedback; contract v1
+// Watch Follow Up, Capture from the open tab, Record feedback; contract v2
 // README, "Connection lifecycle", steps 5 and 6). A bookmark created in, or
 // moved into, Follow Up is captured and ingested; a move is reported as
-// move.observed when both ends are owned; a change under the owned roots
+// move.observed when both ends are owned (one seen with no full session is
+// kept, and judged and reported after the next full hello); a change under the owned roots
 // schedules one debounced tree.snapshot. Every step is short and repeatable:
 // the worker can die between any two events, and ingest is idempotent. The
 // saves owed a background capture are stored, so a worker that dies before
@@ -19,16 +20,18 @@ import type { NodeId } from '../domain/values.js';
 import type { BookmarkTreePort } from '../ports/bookmarkTree.js';
 import type { BookmarkEvent } from '../ports/bookmarkEvents.js';
 import type { Clock } from '../ports/clock.js';
+import type { BackgroundTabPort } from '../ports/backgroundTab.js';
 import type { ContentSourcePort } from '../ports/contentSource.js';
 import type { IdSource } from '../ports/idSource.js';
 import type { StoragePort } from '../ports/storage.js';
 import type { Timer } from '../ports/timer.js';
-import type { TransportPort } from '../ports/transport.js';
+import { TransportLost, type TransportPort } from '../ports/transport.js';
 import { capture } from './capture.js';
 import type { HelloOutcome } from './connection.js';
-import { observeMove, resendMoves, type ReportedMoves } from './observeMove.js';
+import { keepMove, observeMove, resendMoves, type ReportedMoves } from './observeMove.js';
 import { sendTreeSnapshot } from './onConnected.js';
 import { submitSave, UrlTooLong, type SubmittedSaves } from './submitSave.js';
+import { vetUrl } from './vetUrl.js';
 
 // --- Constants ---
 
@@ -46,7 +49,7 @@ const NOTHING_OPEN: ContentSourcePort = { readTab: () => Promise.resolve(undefin
 export interface TreeWatchDeps {
   readonly tree: BookmarkTreePort;
   readonly content: ContentSourcePort;
-  readonly background: ContentSourcePort;
+  readonly background: BackgroundTabPort;
   readonly transport: TransportPort;
   readonly ids: IdSource;
   readonly clock: Clock;
@@ -66,6 +69,13 @@ export interface TreeWatchContext {
   track(work: Promise<unknown>): void;
   /** A debounced tree.snapshot was recorded by the daemon (it re-reads writer markers from it). */
   snapshotSent(): void;
+}
+
+// --- Predicates ---
+
+/** The link was lost (a daemon stopped or restarting): the next hello sends tree.snapshot anyway (contract v2, step 6). */
+function isLostLink(error: unknown): boolean {
+  return error instanceof TransportLost && error.reason === 'disconnected';
 }
 
 // --- Pure helpers ---
@@ -133,12 +143,17 @@ export class TreeWatch {
     if (path === undefined) return;
     const id = await this.deps.tree.resolveFolder(path);
     if (id === undefined) return;
+    const mark = this.deps.saves.mark();
     const children = await this.deps.tree.getChildren(id);
     const owed = await this.owedSet();
     const waiting = new Set(children.map((node) => node.id));
     const gone = [...owed].filter((node_id) => !waiting.has(node_id));
     for (const node_id of gone) owed.delete(node_id);
     if (gone.length > 0) await this.storeOwed(owed);
+    // A kept frame for a bookmark gone from Follow Up, or whose url was edited since, is never re-sent:
+    // its page text leaves storage now. One kept since the mark is spared: its bookmark may have been created after the read.
+    const present = new Map(children.flatMap((node) => (node.kind === 'bookmark' ? [[node.id, node.url] as const] : [])));
+    await this.deps.saves.keepOnly(present, mark);
     for (const node of children) {
       const saved = this.save(node, { background: owed.has(node.id) });
       this.context.track(saved);
@@ -146,9 +161,11 @@ export class TreeWatch {
     }
   }
 
-  /** Re-send the move reports left unanswered, by this worker or an earlier one (after a full hello). */
-  resendMoves(): Promise<void> {
-    return resendMoves({ ...this.deps, track: (work) => this.context.track(work) });
+  /** Re-send the move reports left unanswered or unjudged, by this worker or an earlier one (after a full hello). */
+  async resendMoves(): Promise<void> {
+    const outcome = this.context.outcome();
+    if (outcome?.mode !== 'full') return;
+    return resendMoves(outcome.owned_roots, { ...this.deps, track: (work) => this.context.track(work) });
   }
 
   // --- Flow ---
@@ -165,15 +182,22 @@ export class TreeWatch {
     const from = folderPathOf(tree, old_parent_id);
     const to = folderPathOf(tree, parent_id);
     const own = node !== undefined && (await this.context.isOwnMove(node.id, parent_id));
-    if (outcome?.mode !== 'full' || node === undefined || from === undefined || to === undefined) return;
+    if (node === undefined || from === undefined || to === undefined) return;
     // The node and its destination, not the node alone: a user move of a node the open batch names is still the user's.
     const in_flight = new Set<NodeId>(own ? [node.id] : []);
-    await observeMove(
-      { node_id: node.id, ...(node.kind === 'bookmark' ? { url: node.url } : {}), from, to },
-      outcome.role,
-      { owned_roots: outcome.owned_roots, in_flight },
-      { ...this.deps, track: (work) => this.context.track(work) },
-    );
+    const observed = { node_id: node.id, ...(node.kind === 'bookmark' ? { url: node.url } : {}), from, to };
+    if (outcome?.mode === 'full') {
+      await observeMove(
+        observed,
+        { owned_roots: outcome.owned_roots, in_flight },
+        { ...this.deps, track: (work) => this.context.track(work) },
+      );
+      return;
+    }
+    // No full session: the owned roots are unknown, so the move is kept and judged after the next full hello.
+    await keepMove(observed, in_flight, this.deps);
+    // That hello may have completed while the move was being kept, its re-send already past.
+    await this.resendMoves();
   }
 
   private async save(node: SnapshotNode, options: { readonly background: boolean } = { background: true }): Promise<void> {
@@ -252,17 +276,28 @@ export class TreeWatch {
     if (content === NOTHING_OPEN && background === undefined) return NO_CAPTURE;
     if (background === undefined) return capture(bookmark, { content });
     await this.owe(bookmark.node_id);
-    return capture(bookmark, { content, background });
+    return capture(bookmark, { content, background: { tabs: background, vet: (url) => vetUrl(url, this.deps) } });
   }
 
-  /** Schedule one tree.snapshot when any of these folders lies under an owned root (full connections only). */
+  /**
+   * Schedule one tree.snapshot when any of these folders lies under an owned
+   * root (full connections only). One that meets a lost link is dropped, not
+   * reported: the reconnect's hello sends the tree as it is then (issue #524).
+   */
   private touched(tree: TreeRead, folders: readonly (NodeId | null | undefined)[]): void {
     if (this.context.outcome()?.mode !== 'full') return;
     if (!folders.some((f) => isOwnedFolder(tree, f, this.context))) return;
     this.cancelSnapshot?.();
     this.cancelSnapshot = this.deps.timer.after(SNAPSHOT_DEBOUNCE_MS, () => {
       this.cancelSnapshot = undefined;
-      this.context.track(sendTreeSnapshot(this.deps).then(() => this.context.snapshotSent()));
+      this.context.track(
+        sendTreeSnapshot(this.deps).then(
+          () => this.context.snapshotSent(),
+          (error: unknown) => {
+            if (!isLostLink(error)) throw error;
+          },
+        ),
+      );
     });
   }
 

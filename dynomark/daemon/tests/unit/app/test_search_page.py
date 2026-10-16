@@ -1,4 +1,4 @@
-"""Tier-2 search, one page at a time (contract/v1 README: ``search`` is
+"""Tier-2 search, one page at a time (contract/v2 README: ``search`` is
 paginated; "``search`` repeats its ``query`` on every page"; a cursor is
 valid only for the parameters that minted it; Size limits: ``Cursor`` is
 at most 1,024 printable ASCII characters).

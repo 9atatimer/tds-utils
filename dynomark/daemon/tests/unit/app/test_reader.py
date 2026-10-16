@@ -70,7 +70,15 @@ def test_file_and_park_on_a_reader_are_not_writer_and_store_no_batch() -> None:
         clock=clock,
         ids=ids,
     )
-    parked = park(job, make_roots(), HostRole.READER, store=store, clock=clock, ids=ids)
+    parked = park(
+        job,
+        make_roots(),
+        HostRole.READER,
+        make_path("Dynomark"),
+        store=store,
+        clock=clock,
+        ids=ids,
+    )
 
     assert isinstance(filed, NotWriter) and isinstance(parked, NotWriter)
     assert store.list_batches() == []

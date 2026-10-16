@@ -1,6 +1,6 @@
 // bookmarkTree.contract.ts -- what every BookmarkTreePort must do, arranged
 // only through the port itself so the real Chrome and Firefox adapters can run
-// it unchanged (contract v1 README, "Write batches": Paths, Operations; design,
+// it unchanged (contract v2 README, "Write batches": Paths, Operations; design,
 // "Snapshot" and "Deletions": there is no hard delete).
 
 import { describe, expect, it } from 'vitest';

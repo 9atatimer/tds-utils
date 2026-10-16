@@ -3,6 +3,7 @@
 // Machine, FAILED -> QUEUED "user retries"). Undo per APPLIED batch, Retry
 // per FAILED job. A view over the background, holding no state of its own.
 
+import type { UndoDrop } from '../domain/diff.js';
 import type { Job } from '../domain/jobs.js';
 import type { PageClient, PageResponse } from '../ports/pages.js';
 import { byId, el, row, when } from './dom.js';
@@ -18,6 +19,32 @@ function isUndoable(batch: Batch): boolean {
   return batch.state === 'APPLIED' && batch.undone_by === undefined;
 }
 
+// --- Pure helpers ---
+
+const DROP_REASON: Readonly<Record<UndoDrop['reason'], string>> = {
+  node_moved: 'moved since',
+  node_missing: 'gone since',
+  not_empty: 'the folder holds other items now',
+  locked: 'the folder is locked',
+  owned_root: 'Dynomark and Graveyard are kept (an owned root)',
+};
+
+/** What a batch row says the batch did: an undo, a parked duplicate (naming the existing placement), a filing, or an accepted item. */
+export function batchWhat(batch: Batch): string {
+  if (batch.undoes !== undefined) return `undo of ${batch.undoes}`;
+  const what = batch.identity ?? batch.diff_item_id ?? '';
+  if (batch.park === undefined) return what;
+  const where = [batch.park.existing.root, ...batch.park.existing.names].join(' / ').replace(/^bar \/ /, '');
+  return `${what}: parked, already filed in ${where}`;
+}
+
+/** What an undo answer says: queued or nothing left, and each step left out with its reason. */
+export function undoReport(batch_id: string, inverse: string | null, dropped: readonly UndoDrop[]): string {
+  const head = inverse === null ? `undo ${batch_id}: nothing left to revert` : `undo ${batch_id} queued as ${inverse}`;
+  if (dropped.length === 0) return head;
+  return `${head}; not reverted: ${dropped.map((d) => `op ${d.index}: ${DROP_REASON[d.reason]}`).join(', ')}`;
+}
+
 // --- Rendering ---
 
 function say(doc: Document, text: string): void {
@@ -25,7 +52,7 @@ function say(doc: Document, text: string): void {
 }
 
 function batchRow(doc: Document, client: PageClient, batch: Batch): HTMLElement {
-  const what = batch.undoes !== undefined ? `undo of ${batch.undoes}` : (batch.identity ?? batch.diff_item_id ?? '');
+  const what = batchWhat(batch);
   const action = el(doc, 'button', 'Undo', { 'data-batch': batch.batch_id });
   if (!isUndoable(batch)) action.setAttribute('disabled', '');
   action.addEventListener('click', () => void undo(doc, client, batch.batch_id));
@@ -69,15 +96,7 @@ async function loadJobs(doc: Document, client: PageClient, cursor?: string): Pro
 async function undo(doc: Document, client: PageClient, batch_id: string): Promise<void> {
   const response = await client.request({ kind: 'undo', batch_id });
   if (!response.ok) return say(doc, `undo ${batch_id}: ${response.error}`);
-  if (response.kind === 'undo') {
-    const dropped = response.dropped.length === 0 ? '' : `; ${response.dropped.length} operation(s) could not be reverted`;
-    say(
-      doc,
-      response.batch_id === null
-        ? `undo ${batch_id}: nothing left to revert${dropped}`
-        : `undo ${batch_id} queued as ${response.batch_id}${dropped}`,
-    );
-  }
+  if (response.kind === 'undo') say(doc, undoReport(batch_id, response.batch_id, response.dropped));
   await loadBatches(doc, client);
 }
 

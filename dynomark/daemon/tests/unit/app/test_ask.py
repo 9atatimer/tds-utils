@@ -103,6 +103,26 @@ def test_ask_marks_a_url_outside_the_corpus_external() -> None:
     assert answer.external_urls == (outside,)
 
 
+def test_ask_marks_an_out_of_corpus_url_in_the_answer_text_external() -> None:
+    """Given the completion names a URL only in its answer text, not in its
+    urls list, When asked, Then it is marked external all the same, and a
+    corpus URL in the text is not (Goal 5; issue #423)."""
+    outside = "https://rust-lang.github.io/async-book/"
+    completion = ScriptedCompletion(
+        answer=[DraftAnswer(text=f"Read {outside} and {RAYON}.", cited=(), urls=())]
+    )
+
+    answer = ask(
+        Question("tokio"),
+        (),
+        store=_corpus(),
+        embedding=HashingEmbedding(),
+        completion=completion,
+    )
+
+    assert answer.external_urls == (outside,)
+
+
 def test_ask_on_an_empty_corpus_answers_without_citations() -> None:
     """Given no corpus entries, When asked, Then the completion is shown no
     context and the answer cites nothing."""

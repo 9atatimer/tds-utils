@@ -1,6 +1,6 @@
 """The transport adapter's request side: one frame body in, one answer out.
 
-contract/v1/README.md, Connection lifecycle step 3: a body that is not a
+contract/v2/README.md, Connection lifecycle step 3: a body that is not a
 JSON object closes the connection (no answer); then ``hello_required``,
 then ``version_mismatch`` (another ``v``, or a request outside the
 connection's mode), then the schema (``invalid``). A request that passes
@@ -62,6 +62,7 @@ from dynomark_daemon.app.run import current_outline
 from dynomark_daemon.app.search import search_page
 from dynomark_daemon.app.tree import record_tree_snapshot
 from dynomark_daemon.app.undo import undo
+from dynomark_daemon.app.vet import vet_url
 from dynomark_daemon.app.writer import (
     ensure_writer_marker,
     writer_conflict,
@@ -70,7 +71,7 @@ from dynomark_daemon.app.writer import (
 from dynomark_daemon.domain.bookmark import Capture, Identity
 from dynomark_daemon.domain.chat import Question
 from dynomark_daemon.domain.config import Config
-from dynomark_daemon.domain.connection import HelloMode
+from dynomark_daemon.domain.connection import HelloMode, served_role
 from dynomark_daemon.domain.diff import DiffKind
 from dynomark_daemon.domain.ids import (
     BatchId,
@@ -78,7 +79,6 @@ from dynomark_daemon.domain.ids import (
     EventId,
     ItemId,
     JobId,
-    NodeId,
     ProfileId,
     RequestId,
 )
@@ -87,6 +87,7 @@ from dynomark_daemon.domain.roles import HostRole, NotWriter
 from dynomark_daemon.domain.search import Query
 from dynomark_daemon.domain.tree import OwnedRoots
 from dynomark_daemon.domain.writer import WriterConflict
+from dynomark_daemon.ports.address import AddressVetPort
 from dynomark_daemon.ports.clock import Clock, IdSource
 from dynomark_daemon.ports.completion import CompletionPort
 from dynomark_daemon.ports.embedding import EmbeddingPort
@@ -133,10 +134,11 @@ log = structlog.get_logger("dynomark.transport")
 
 V: Final = CONTRACT_VERSION
 MAX_DETAIL: Final = 4096
-MODEL_REQUESTS: Final = frozenset({"ask", "search", "diff.propose"})
-"""Requests whose answer waits on a model call. They change no connection
+MODEL_REQUESTS: Final = frozenset({"ask", "search", "diff.propose", "url.vet"})
+"""Requests whose answer waits on a model call (or, for ``url.vet``, on a DNS
+lookup). They change no connection
 state and nothing a later request on the connection depends on, so the
-transport may answer them concurrently with everything else (contract v1:
+transport may answer them concurrently with everything else (contract v2:
 responses may arrive in any order)."""
 
 
@@ -153,6 +155,8 @@ class Session:
     profile_id: ProfileId | None = None
     mode: HelloMode | None = None
     role: HostRole = HostRole.READER
+    """The role the first ``hello`` served; ``Dispatcher`` re-checks it
+    against the store's writer binding on every request."""
     roots: OwnedRoots | None = None
     snapshot_seen: bool = False
     replay_pending: bool = False
@@ -160,12 +164,12 @@ class Session:
     """The answer to the first ``hello``; a repeat is answered with it."""
     transport: TransportPort | None = None
 
-    def offers_ready(self, *, conflict: bool) -> bool:
-        """Full mode, served writer, not in writer conflict, and a
-        ``tree.snapshot`` recorded on it (markers re-read from it)."""
+    def offers_ready(self, *, role: HostRole, conflict: bool) -> bool:
+        """Full mode, served writer now (``role``), not in writer conflict,
+        and a ``tree.snapshot`` recorded on it (markers re-read from it)."""
         return (
             self.mode is HelloMode.FULL
-            and self.role is HostRole.WRITER
+            and role is HostRole.WRITER
             and self.snapshot_seen
             and not conflict
         )
@@ -308,6 +312,7 @@ class Dispatcher:
         clock: Clock,
         ids: IdSource,
         transport: TransportPort,
+        vetter: AddressVetPort,
         wake: Callable[[], None] = _nothing,
     ) -> None:
         self._config = config
@@ -317,6 +322,7 @@ class Dispatcher:
         self._clock = clock
         self._ids = ids
         self._transport = transport
+        self._vetter = vetter
         self._wake = wake
         self._timing = _Timing()
         self._proposing: set[RequestId] = set()
@@ -346,6 +352,7 @@ class Dispatcher:
                 _on(m.OutlineGet, self._outline_get),
                 _on(m.FolderFlagsSet, self._folder_flags_set),
                 _on(m.WriterStatus, self._writer_status),
+                _on(m.UrlVet, self._url_vet),
             ]
         )
 
@@ -411,15 +418,28 @@ class Dispatcher:
 
     # --- Writer standing ---
 
+    def _role(self, session: Session) -> HostRole:
+        """The role ``session`` is served now: its hello's, unless the store
+        no longer files for its profile (``dynomark-daemon rebind`` ran in
+        another process, and maybe another profile bound since). Then it is
+        served as a reader connection is, so one store has one writer."""
+        if session.profile_id is None:
+            return session.role
+        return served_role(
+            session.role, self._store.writer_profile(), session.profile_id
+        )
+
     def _conflict(self, session: Session) -> WriterConflict | None:
         if session.roots is None:
             return None
         return writer_conflict(
-            session.role, self._config.host_id, session.roots, store=self._store
+            self._role(session), self._config.host_id, session.roots, store=self._store
         )
 
     def _offers_ready(self, session: Session) -> bool:
-        return session.offers_ready(conflict=self._conflict(session) is not None)
+        return session.offers_ready(
+            role=self._role(session), conflict=self._conflict(session) is not None
+        )
 
     # --- Serving ---
 
@@ -442,7 +462,7 @@ class Dispatcher:
             log.warning("request.port_failed", type=message.type, detail=str(error))
             return Outcome(_error(request_id, code, str(error)))
         except Exception as error:
-            # Every request is answered (contract v1, Envelope): an unexpected
+            # Every request is answered (contract v2, Envelope): an unexpected
             # failure is logged with its trace and answered internal, which
             # the extension retries with the same id.
             log.exception("request.failed", type=message.type, request_id=request_id)
@@ -496,7 +516,9 @@ class Dispatcher:
         return Outcome(reply, register=served, deliver=served)
 
     def _status(self, message: m.Status, session: Session) -> Outcome:
-        daemon = status(session.role, self._config, store=self._store)
+        daemon = status(
+            self._role(session), self._config, _profile(session), store=self._store
+        )
         return Outcome(
             m.StatusResult(
                 v=V,
@@ -510,6 +532,7 @@ class Dispatcher:
                     completion=model_info_to_wire(daemon.completion),
                 ),
                 queue_depth=daemon.queue_depth,
+                writer_binding=None if daemon.binding is None else daemon.binding.value,
             )
         )
 
@@ -590,11 +613,15 @@ class Dispatcher:
     def _tree_snapshot(self, message: m.TreeSnapshot, session: Session) -> Outcome:
         # Two use cases, two units: a kill between them leaves the snapshot
         # unanswered, and its re-send runs both again (each is idempotent).
+        role = self._role(session)
         record_tree_snapshot(
-            snapshot_from_wire(message.snapshot), session.role, store=self._store
+            snapshot_from_wire(message.snapshot),
+            role,
+            _profile(session),
+            store=self._store,
         )
         ensure_writer_marker(
-            session.role,
+            role,
             self._config.host_id,
             _roots(session),
             _profile(session),
@@ -614,7 +641,7 @@ class Dispatcher:
     def _move_observed(self, message: m.MoveObserved, session: Session) -> Outcome:
         feedback = record_feedback(
             move_from_wire(message.move),
-            session.role,
+            self._role(session),
             _roots(session),
             store=self._store,
         )
@@ -633,6 +660,8 @@ class Dispatcher:
     ) -> Outcome:
         recorded = receive_receipt(
             receipt_from_wire(message.receipt),
+            self._role(session),
+            _profile(session),
             _roots(session),
             store=self._store,
             clock=self._clock,
@@ -677,7 +706,7 @@ class Dispatcher:
     def _undo(self, message: m.Undo, session: Session) -> Outcome:
         result = undo(
             BatchId(message.batch_id),
-            session.role,
+            self._role(session),
             _roots(session),
             conflict=self._conflict(session),
             store=self._store,
@@ -802,7 +831,7 @@ class Dispatcher:
             diff = request_diff(
                 request_id,
                 DiffKind(message.kind),
-                session.role,
+                self._role(session),
                 _roots(session),
                 store=self._store,
                 completion=self._completion,
@@ -860,7 +889,7 @@ class Dispatcher:
     def _diff_accept(self, message: m.DiffAccept, session: Session) -> Outcome:
         accepted = accept_diff(
             ItemId(message.item_id),
-            session.role,
+            self._role(session),
             _roots(session),
             _profile(session),
             conflict=self._conflict(session),
@@ -907,11 +936,10 @@ class Dispatcher:
 
     def _folder_flags_set(self, message: m.FolderFlagsSet, session: Session) -> Outcome:
         folder = set_folder_flags(
-            NodeId(message.node_id),
-            None if message.path is None else folder_path_from_wire(message.path),
+            folder_path_from_wire(message.path),
             message.pinned,
             message.locked,
-            session.role,
+            self._role(session),
             _roots(session),
             conflict=self._conflict(session),
             store=self._store,
@@ -929,7 +957,10 @@ class Dispatcher:
 
     def _writer_status(self, message: m.WriterStatus, session: Session) -> Outcome:
         standing = writer_status(
-            session.role, self._config.host_id, _roots(session), store=self._store
+            self._role(session),
+            self._config.host_id,
+            _roots(session),
+            store=self._store,
         )
         return Outcome(
             m.WriterStatusResult(
@@ -941,5 +972,28 @@ class Dispatcher:
                 own_marker=standing.own_marker,
                 other_writers=list(standing.other_writers),
                 conflict=standing.conflict,
+            )
+        )
+
+    # --- Background-tab capture ---
+
+    def _url_vet(self, message: m.UrlVet, session: Session) -> Outcome:
+        # Background-tab capture is the writer's alone; a connection rebind
+        # demoted keeps its cached writer role, so the role is read now.
+        if self._role(session) is not HostRole.WRITER:
+            return Outcome(_refused(message.id, NotWriter("url.vet")))
+        verdict = vet_url(message.url, vetter=self._vetter)
+        log.info(
+            "url.vetted",
+            allowed=verdict.allowed,
+            refusal=None if verdict.refusal is None else verdict.refusal.value,
+        )
+        return Outcome(
+            m.UrlVetResult(
+                v=V,
+                type="url.vet.result",
+                re=message.id,
+                allowed=verdict.allowed,
+                refusal=None if verdict.refusal is None else verdict.refusal.value,
             )
         )

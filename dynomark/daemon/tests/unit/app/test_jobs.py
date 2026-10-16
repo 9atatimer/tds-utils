@@ -1,4 +1,4 @@
-"""Contract-level job use cases (contract/v1 README, Message table and the
+"""Contract-level job use cases (contract/v2 README, Message table and the
 idempotency table): ``job.retry`` is the design's State Machine row
 "FAILED -> QUEUED: user retries from chat or menu, always allowed";
 ``job.list`` pages a profile's jobs, optionally in one state, with a cursor
@@ -8,15 +8,16 @@ Pagination).
 
 import pytest
 
-from dynomark_daemon.app.errors import UnknownRecord
+from dynomark_daemon.app.errors import InvalidRequest, UnknownRecord
 from dynomark_daemon.app.jobs import list_batches_page, list_jobs_page, retry_job
 from dynomark_daemon.app.pages import StaleCursor
+from dynomark_daemon.domain.bookmark import Save
 from dynomark_daemon.domain.events import JobUpdated
 from dynomark_daemon.domain.ids import BatchId, JobId, ProfileId
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.store import InMemoryCorpusStore
-from tests._factories import make_batch, make_job
+from tests._factories import make_batch, make_bookmark, make_capture, make_job
 
 A = ProfileId("profile-a")
 
@@ -49,6 +50,9 @@ def test_retry_a_failed_job_queues_it_afresh() -> None:
     seq, no attempts, no error and no batch, and a job.updated records it."""
     store = InMemoryCorpusStore()
     store.put_job(failed := _failed())
+    store.put_save(
+        failed.job_id, Save(bookmark=make_bookmark(), capture=make_capture())
+    )
 
     job = _retry(store, failed.job_id)
 
@@ -83,7 +87,23 @@ def test_retry_an_unknown_or_another_profiles_job_is_not_found() -> None:
         _retry(store, failed.job_id, ProfileId("profile-b"))
 
 
-# --- job.list and batch.list (contract v1, Delivery and replay: Pagination) ---
+def test_retry_a_job_whose_save_retention_dropped_is_invalid_not_unknown() -> None:
+    """Given a FAILED job whose save Retention dropped (its bookmark left the
+    tree 30 days ago), When retried, Then it raises InvalidRequest naming
+    Retention -- not UnknownRecord: the job is known, nothing is left to run --
+    and the job stays FAILED with no event."""
+    store = InMemoryCorpusStore()
+    store.put_job(failed := _failed())
+
+    with pytest.raises(InvalidRequest, match="retention") as refused:
+        _retry(store, failed.job_id)
+
+    assert not isinstance(refused.value, UnknownRecord)
+    assert store.get_job(failed.job_id) == failed
+    assert store.unacked_events(A) == []
+
+
+# --- job.list and batch.list (contract v2, Delivery and replay: Pagination) ---
 
 
 def _jobs_store() -> InMemoryCorpusStore:

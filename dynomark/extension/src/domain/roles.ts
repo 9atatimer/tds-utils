@@ -1,5 +1,5 @@
 // roles.ts -- the host's role and the connection's mode (design, "HostRole";
-// contract v1, "Connection lifecycle").
+// contract v2, "Connection lifecycle").
 
 /** `writer` files; `reader` only indexes. Only the writer's batches ever reach the tree. */
 export type HostRole = 'writer' | 'reader';
@@ -9,7 +9,7 @@ export type ConnectionMode = 'full' | 'read_only' | 'refused';
 
 // --- Constants ---
 
-/** The requests a `read_only` connection still serves: the design's "search and chat continue" (contract v1, Connection lifecycle). */
+/** The requests a `read_only` connection still serves: the design's "search and chat continue" (contract v2, Connection lifecycle). */
 export const READ_ONLY_REQUESTS: ReadonlySet<string> = new Set([
   'hello',
   'status',

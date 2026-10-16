@@ -1,4 +1,4 @@
-// well-formed.test.ts -- contract v1 README, "Framing": every string on the
+// well-formed.test.ts -- contract v2 README, "Framing": every string on the
 // wire is a sequence of Unicode scalar values; a frame with a lone UTF-16
 // surrogate, escaped or not, is invalid.
 
@@ -9,7 +9,7 @@ import { MessageSchema } from '../../../src/wire/messages.js';
 
 function ingestTitled(title: string): unknown {
   return {
-    v: 1,
+    v: 2,
     type: 'ingest',
     id: 'req-1',
     bookmark: { node_id: '42', url: 'https://example.com/', title, path: { root: 'bar', names: ['Follow Up'] }, date_added: 0 },

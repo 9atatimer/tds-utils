@@ -1,9 +1,9 @@
 // submitSave.test.ts -- design Behaviors row "A save is submitted":
 // submit_save(bookmark, capture, *, transport) -> RequestId. Given a new
 // Follow Up node, When submitted twice, Then the daemon holds one job: both
-// submissions share one request id (contract v1, "Delivery and replay": a
+// submissions share one request id (contract v2, "Delivery and replay": a
 // repeat reuses the same id and body; ingest is idempotent on the node).
-// Everything sent is a valid contract v1 `ingest` frame.
+// Everything sent is a valid contract v2 `ingest` frame.
 
 import { describe, expect, it } from 'vitest';
 import { DaemonError } from '../../../src/app/errors.js';
@@ -49,7 +49,7 @@ function jobKeepingDaemon(): { readonly jobs: Map<string, string>; readonly resp
       attempts: 0,
       backfill: false,
     };
-    return { v: 1, type: 'ingest.result', re: r.id, job };
+    return { v: 2, type: 'ingest.result', re: r.id, job };
   };
   return { jobs, respond };
 }
@@ -107,7 +107,7 @@ describe('Behavior: A save is submitted -- submitSave(bookmark, capture, { trans
     expect(distinctIds(transport.sent)).toEqual([a, b]);
   });
 
-  it('Given a bookmark and a tab capture, When submitted, Then the frame is a valid contract v1 ingest carrying both, backfill false', async () => {
+  it('Given a bookmark and a tab capture, When submitted, Then the frame is a valid contract v2 ingest carrying both, backfill false', async () => {
     const transport = new FakeTransport();
     transport.autoAnswer(jobKeepingDaemon().respond);
     await submitSave(bookmark(), TAB, saveDeps(transport));
@@ -135,7 +135,7 @@ describe('Behavior: A save is submitted -- submitSave(bookmark, capture, { trans
   it('Given the daemon answers error busy, When the node is submitted again, Then it is re-sent with the same request id and body (busy: retry, same id)', async () => {
     const transport = new FakeTransport();
     const deps = saveDeps(transport);
-    transport.autoAnswer((r) => ({ v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' }));
+    transport.autoAnswer((r) => ({ v: 2, type: 'error', re: r.id, code: 'busy', message: 'model loading' }));
     await expect(submitSave(bookmark(), TAB, deps)).rejects.toMatchObject({ code: 'busy' });
     transport.autoAnswer(jobKeepingDaemon().respond);
     const id = await submitSave(bookmark(), TAB, deps);
@@ -146,9 +146,57 @@ describe('Behavior: A save is submitted -- submitSave(bookmark, capture, { trans
 
   it('Given the daemon answers error invalid, When submitted, Then it rejects with a DaemonError naming the code', async () => {
     const transport = new FakeTransport();
-    transport.autoAnswer((r) => ({ v: 1, type: 'error', re: r.id, code: 'invalid', message: 'bad body' }));
+    transport.autoAnswer((r) => ({ v: 2, type: 'error', re: r.id, code: 'invalid', message: 'bad body' }));
     const result = submitSave(bookmark(), TAB, saveDeps(transport));
     await expect(result).rejects.toBeInstanceOf(DaemonError);
     await expect(result).rejects.toMatchObject({ code: 'invalid' });
+  });
+});
+
+describe('Page text in extension storage -- kept only until the daemon answers (issue #420)', () => {
+  function keptDeps(transport: FakeTransport): { deps: SaveDeps; storage: FakeStorage; timer: FakeTimer; retries: Promise<unknown>[] } {
+    const storage = new FakeStorage();
+    const timer = new FakeTimer(new FakeClock(0));
+    const retries: Promise<unknown>[] = [];
+    const deps: SaveDeps = { ...saveDeps(transport), saves: new SubmittedSaves(storage), timer, track: (work) => void retries.push(work) };
+    return { deps, storage, timer, retries };
+  }
+
+  async function keptText(storage: FakeStorage): Promise<string[]> {
+    return ((await storage.loadPendingSaves()) ?? []).map((save) => save.capture.text);
+  }
+
+  it('Given a save in flight, When the daemon answers ingest.result, Then its page text was kept while unanswered and is gone after', async () => {
+    const transport = new FakeTransport();
+    const { deps, storage } = keptDeps(transport);
+    const submitted = submitSave(bookmark(), TAB, deps);
+    const request = await transport.daemon.nextRequest();
+    const inFlight = await keptText(storage);
+    await transport.daemon.answer(jobKeepingDaemon().respond(request));
+    await submitted;
+    expect(inFlight).toEqual([TAB.text]);
+    expect(await keptText(storage)).toEqual([]);
+  });
+
+  it('Given a save answered busy, When its retry is answered ingest.result, Then its page text is kept through the backoff and gone after', async () => {
+    const transport = new FakeTransport();
+    const { deps, storage, timer, retries } = keptDeps(transport);
+    transport.autoAnswer((r) => ({ v: 2, type: 'error', re: r.id, code: 'busy', message: 'model loading' }));
+    await expect(submitSave(bookmark(), TAB, deps)).rejects.toMatchObject({ code: 'busy' });
+    const waiting = await keptText(storage);
+    transport.autoAnswer(jobKeepingDaemon().respond);
+    await timer.advance(60_000);
+    await Promise.all(retries);
+    expect(transport.sent).toHaveLength(2);
+    expect(waiting).toEqual([TAB.text]);
+    expect(await keptText(storage)).toEqual([]);
+  });
+
+  it('Given a save the daemon refuses for good, When answered, Then its page text is gone', async () => {
+    const transport = new FakeTransport();
+    const { deps, storage } = keptDeps(transport);
+    transport.autoAnswer((r) => ({ v: 2, type: 'error', re: r.id, code: 'invalid', message: 'bad body' }));
+    await expect(submitSave(bookmark(), TAB, deps)).rejects.toMatchObject({ code: 'invalid' });
+    expect(await keptText(storage)).toEqual([]);
   });
 });

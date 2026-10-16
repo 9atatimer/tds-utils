@@ -48,11 +48,11 @@ function twoJobPages(): (r: RequestMessage) => ResponseMessage | undefined {
     const { cursor } = r as JobList;
     if (cursor !== undefined && stale) {
       stale = false;
-      return { v: 1, type: 'error', re: r.id, code: 'stale_cursor', message: 'the FAILED list changed' };
+      return { v: 2, type: 'error', re: r.id, code: 'stale_cursor', message: 'the FAILED list changed' };
     }
     return cursor === undefined
-      ? { v: 1, type: 'job.list.result', re: r.id, jobs: [failedJob(1)], next_cursor: 'jobs-2' }
-      : { v: 1, type: 'job.list.result', re: r.id, jobs: [failedJob(2)], next_cursor: null };
+      ? { v: 2, type: 'job.list.result', re: r.id, jobs: [failedJob(1)], next_cursor: 'jobs-2' }
+      : { v: 2, type: 'job.list.result', re: r.id, jobs: [failedJob(2)], next_cursor: null };
   };
 }
 
@@ -63,7 +63,7 @@ test('Given the built extension, When it loads unpacked, Then its id is the pinn
 }) => {
   expect(ext.extensionId).toBe(PINNED_EXTENSION_ID);
   const hello = await ext.daemon.waitFor(ofType('hello'));
-  expect(hello).toMatchObject({ v: 1, follow_up: { root: 'bar', names: ['Follow Up'] } });
+  expect(hello).toMatchObject({ v: 2, follow_up: { root: 'bar', names: ['Follow Up'] } });
   await ext.daemon.waitFor(ofType('index.pull'));
   expect(ext.daemon.received.map((r) => r.frame.type).slice(0, 4)).toEqual(['hello', 'tree.snapshot', 'events.replay', 'index.pull']);
   expect(ext.daemon.invalid).toEqual([]);
@@ -222,9 +222,9 @@ test('Given an APPLIED batch and a FAILED job, When the history page offers Undo
     },
   ];
   ext.daemon.extra = (r) => {
-    if (r.type === 'undo') return { v: 1, type: 'undo.result', re: r.id, batch_id: 'batch-2', undoes: r.batch_id, dropped: [] };
+    if (r.type === 'undo') return { v: 2, type: 'undo.result', re: r.id, batch_id: 'batch-2', undoes: r.batch_id, dropped: [] };
     if (r.type === 'job.retry')
-      return { v: 1, type: 'job.retry.result', re: r.id, job: { ...ext.daemon.failedJobs[0]!, state: 'QUEUED', seq: 4 } };
+      return { v: 2, type: 'job.retry.result', re: r.id, job: { ...ext.daemon.failedJobs[0]!, state: 'QUEUED', seq: 4 } };
     return undefined;
   };
   await ext.daemon.waitFor(ofType('index.pull'));

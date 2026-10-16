@@ -59,8 +59,10 @@ function message(error: unknown): string {
 async function daemonSection(context: PageContext): Promise<Pick<Overview, 'daemon' | 'daemon_error'>> {
   try {
     const status = resultOrThrow(await context.transport.send({ v: CONTRACT_VERSION, type: 'status', id: context.ids.next() }));
-    const { role, host_id, contract_version, models, queue_depth } = status;
-    return { daemon: { role, host_id, contract_version, models, queue_depth } };
+    const { role, host_id, contract_version, models, queue_depth, writer_binding } = status;
+    return {
+      daemon: { role, host_id, contract_version, models, queue_depth, ...(writer_binding === undefined ? {} : { writer_binding }) },
+    };
   } catch (error) {
     return { daemon_error: message(error) };
   }

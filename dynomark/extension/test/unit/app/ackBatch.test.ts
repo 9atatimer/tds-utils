@@ -1,6 +1,6 @@
 // ackBatch.test.ts -- design Behaviors row "A receipt is delivered":
 // ack_batch(receipt, *, transport) -> none. Given a receipt, When delivered
-// twice, Then the daemon records it once. Contract v1: `batch.receipt` is
+// twice, Then the daemon records it once. Contract v2: `batch.receipt` is
 // idempotent on receipt.batch_id (the first recorded wins); the extension
 // keeps a batch's cursor until batch.receipt.result (or error not_found)
 // for that batch arrives; a receipt that would not fit the 32 MiB frame
@@ -49,7 +49,7 @@ function recordingDaemon(): { readonly recorded: Map<string, BatchReceipt>; read
   const respond = (r: RequestMessage): ResponseMessage => {
     if (r.type !== 'batch.receipt') throw new Error(`unexpected ${r.type}`);
     if (!recorded.has(r.receipt.batch_id)) recorded.set(r.receipt.batch_id, r.receipt);
-    return { v: 1, type: 'batch.receipt.result', re: r.id };
+    return { v: 2, type: 'batch.receipt.result', re: r.id };
   };
   return { recorded, respond };
 }
@@ -79,14 +79,14 @@ describe('Behavior: A receipt is delivered -- ackBatch(receipt, { transport, ids
     const request = await transport.daemon.nextRequest();
     expect(BatchReceiptMessageSchema.parse(request).receipt).toEqual(receipt());
     expect(await storage.loadCursor()).toMatchObject({ batch_id: 'batch-0101' });
-    await transport.daemon.answer({ v: 1, type: 'batch.receipt.result', re: request.id });
+    await transport.daemon.answer({ v: 2, type: 'batch.receipt.result', re: request.id });
     await delivered;
     expect(await storage.loadCursor()).toBeUndefined();
   });
 
   it('Given the daemon answers not_found for the batch, When delivered, Then the cursor is released all the same', async () => {
     const transport = new FakeTransport();
-    transport.autoAnswer((r) => ({ v: 1, type: 'error', re: r.id, code: 'not_found', message: 'no such batch' }));
+    transport.autoAnswer((r) => ({ v: 2, type: 'error', re: r.id, code: 'not_found', message: 'no such batch' }));
     const storage = new FakeStorage();
     await storage.saveCursor(cursorFor('batch-0101'));
     await ackBatch(receipt(), { transport, ids: new SequentialIdSource(), storage });
@@ -95,7 +95,7 @@ describe('Behavior: A receipt is delivered -- ackBatch(receipt, { transport, ids
 
   it('Given the daemon answers another error, When delivered, Then it rejects with a DaemonError and the cursor is kept', async () => {
     const transport = new FakeTransport();
-    transport.autoAnswer((r) => ({ v: 1, type: 'error', re: r.id, code: 'internal', message: 'store busy' }));
+    transport.autoAnswer((r) => ({ v: 2, type: 'error', re: r.id, code: 'internal', message: 'store busy' }));
     const storage = new FakeStorage();
     await storage.saveCursor(cursorFor('batch-0101'));
     await expect(ackBatch(receipt(), { transport, ids: new SequentialIdSource(), storage })).rejects.toBeInstanceOf(DaemonError);

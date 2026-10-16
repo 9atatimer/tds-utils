@@ -1,4 +1,4 @@
-"""Every extension -> daemon request of contract v1 has a handler (contract/v1
+"""Every extension -> daemon request of contract v2 has a handler (contract/v2
 README, Envelope: "Every request X is answered by exactly one frame: X.result
 or error"; Message table). The wire union is enumerated from the daemon's
 own models, and every valid golden example of a request is served: answered
@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from dynomark_daemon.adapters.dispatch import Dispatcher, Session
+from dynomark_daemon.testing.address import FakeAddressVet
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.completion import ScriptedCompletion
 from dynomark_daemon.testing.embedding import HashingEmbedding
@@ -38,6 +39,7 @@ def _dispatcher() -> Dispatcher:
         clock=FakeClock(start_ms=1_000),
         ids=SequentialIds(),
         transport=RecordingTransport(),
+        vetter=FakeAddressVet(resolves={}),
     )
 
 
@@ -53,7 +55,7 @@ def test_every_request_of_the_wire_union_has_a_handler() -> None:
     """Given the wire union's messages that carry a request id (the extension ->
     daemon requests), When the dispatcher's handlers are listed, Then there is
     exactly one per request type."""
-    assert len(EXTENSION_REQUESTS) == 23
+    assert len(EXTENSION_REQUESTS) == 24
     assert _dispatcher().handled_types() == EXTENSION_REQUESTS
 
 
@@ -61,7 +63,7 @@ def test_every_request_of_the_wire_union_has_a_handler() -> None:
 def test_every_valid_request_example_is_served(path: Path) -> None:
     """Given a full writer connection with a tree, When a valid golden request
     arrives, Then it is answered with its result or a served error (never
-    invalid: nothing of contract v1 is left unserved)."""
+    invalid: nothing of contract v2 is left unserved)."""
     dispatcher, session = _dispatcher(), Session()
     dispatcher.handle(wire.hello(), session)
     dispatcher.handle(wire.tree_snapshot("t-0"), session)

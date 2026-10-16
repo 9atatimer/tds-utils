@@ -1,0 +1,19 @@
+{
+  "v": 2,
+  "type": "status.result",
+  "re": "req-0037",
+  "role": "writer",
+  "host_id": "mbp",
+  "contract_version": 2,
+  "models": {
+    "embedding": {
+      "id": "ollama:nomic-embed-text",
+      "local": true
+    },
+    "completion": {
+      "id": "ollama:gpt-oss:120b-cloud",
+      "local": false
+    }
+  },
+  "queue_depth": 0
+}

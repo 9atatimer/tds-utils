@@ -1,16 +1,23 @@
 """Transport contract, "Identity and version" (DYNOMARK.DESIGN.md): "On
 mismatch, write-producing flows stop; search and chat continue only if the
 extension's version is newer than the daemon's"; Goal 7 (one writer); as
-contract v1 pins them (Connection lifecycle: hello, mode, the role a
+contract v2 pins them (Connection lifecycle: hello, mode, the role a
 connection is served with; Message table: status).
 """
 
 import pytest
 
-from dynomark_daemon.app.hello import Greeting, hello, owned_roots_for, status
+from dynomark_daemon.app.hello import (
+    Greeting,
+    hello,
+    owned_roots_for,
+    release_writer_binding,
+    status,
+)
 from dynomark_daemon.domain.connection import (
     DAEMON_CONTRACT_VERSION,
     HelloMode,
+    WriterBinding,
     negotiate,
 )
 from dynomark_daemon.domain.ids import HostId, ProfileId
@@ -122,7 +129,7 @@ def test_status_reports_role_host_version_models_and_queue_depth() -> None:
     ):
         store.put_job(make_job(f"job-{n}", node_id=str(n), state=state))
 
-    report = status(HostRole.WRITER, make_config(), store=store)
+    report = status(HostRole.WRITER, make_config(), A, store=store)
 
     config = make_config()
     assert (report.role, report.host_id, report.contract_version) == (
@@ -135,6 +142,48 @@ def test_status_reports_role_host_version_models_and_queue_depth() -> None:
         config.completion_model,
     )
     assert report.queue_depth == 3
+
+
+def test_a_reinstalled_extension_is_a_reader_until_rebind_then_the_writer() -> None:
+    """Given a writer daemon bound to profile A (the extension before its
+    reinstall), When the reinstalled extension says hello as a new profile B,
+    Then B is served reader and status says the writer is bound to another
+    profile; When the owner runs rebind, Then the release names A and status
+    says unbound; When B says hello again, Then B is the writer and status
+    says this profile (Key Decisions "Writer binding", issue #419)."""
+    store = InMemoryCorpusStore()
+    config = make_config(role=HostRole.WRITER)
+    _hello(store, A)
+
+    before = _hello(store, B)
+    seen_before = status(before.role, config, B, store=store)
+    released = release_writer_binding(store=store)
+    seen_released = status(before.role, config, B, store=store)
+    after = _hello(store, B)
+    seen_after = status(after.role, config, B, store=store)
+
+    assert (before.role, seen_before.binding) == (
+        HostRole.READER,
+        WriterBinding.OTHER_PROFILE,
+    )
+    assert released == A
+    assert seen_released.binding is WriterBinding.UNBOUND
+    assert (after.role, seen_after.binding) == (
+        HostRole.WRITER,
+        WriterBinding.THIS_PROFILE,
+    )
+    assert store.writer_profile() == B
+
+
+def test_a_reader_daemon_reports_no_writer_binding() -> None:
+    """Given a daemon configured reader, When status is asked, Then it carries no
+    binding: a reader binds no profile."""
+    store = InMemoryCorpusStore()
+    _hello(store, A, role=HostRole.READER)
+
+    report = status(HostRole.READER, make_config(role=HostRole.READER), A, store=store)
+
+    assert report.binding is None
 
 
 def test_the_daemon_speaks_the_contract_version_of_its_wire_models() -> None:

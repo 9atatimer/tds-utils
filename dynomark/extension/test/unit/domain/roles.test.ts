@@ -1,4 +1,4 @@
-// roles.test.ts -- contract v1 README, "Connection lifecycle": the version
+// roles.test.ts -- contract v2 README, "Connection lifecycle": the version
 // table gives the mode (equal full; extension newer read_only; extension
 // older refused), and the mode decides which requests continue (read_only:
 // hello, status, events.replay, events.ack, index.pull, search, ask,

@@ -1,5 +1,5 @@
 // idSource.ts -- the IdSource port: request ids and the profile id (contract
-// v1 README, "Envelope": random, at least 122 bits, a UUIDv4, never reused).
+// v2 README, "Envelope": random, at least 122 bits, a UUIDv4, never reused).
 
 import type { Id } from '../domain/values.js';
 

@@ -1,12 +1,12 @@
 // submitSave.ts -- use case "A save is submitted" (design, Behaviors and
 // Interfaces): submit_save(bookmark, capture, *, transport) -> RequestId.
 //
-// Ingest is idempotent on the node (contract v1, "Delivery and replay"), and
+// Ingest is idempotent on the node (contract v2, "Delivery and replay"), and
 // a repeat of a request reuses its id and body. So one worker submits a node
 // at most once: a second submission joins the first (in flight or answered),
 // and a resubmission after a retryable error re-sends the identical frame.
 // A busy or internal answer comes on a link that stays up, so no reconnect
-// will re-send it (contract v1: busy and internal are retried with the same
+// will re-send it (contract v2: busy and internal are retried with the same
 // id after backoff): the identical frame is re-sent after a backoff, unless a
 // resubmission comes first. A lost link is the reconnect backlog's.
 //
@@ -18,7 +18,7 @@
 import { backoffDelay } from '../domain/backoff.js';
 import { fitBookmark } from '../domain/limits.js';
 import { isExtensionCapture, type Capture, type ExtensionCapture } from '../domain/capture.js';
-import { pendingFor, withPending, withoutPending, type PendingSave } from '../domain/pendingSaves.js';
+import { pendingAmong, pendingFor, withPending, withoutPending, type PendingSave } from '../domain/pendingSaves.js';
 import type { Bookmark } from '../domain/tree.js';
 import type { NodeId, RequestId, Url } from '../domain/values.js';
 import type { IdSource } from '../ports/idSource.js';
@@ -76,6 +76,9 @@ export class SubmittedSaves {
   private readonly entries = new Map<string, SaveEntry>();
   private pending: readonly PendingSave[] | undefined;
   private loading: Promise<readonly PendingSave[]> | undefined;
+  /** Frames kept so far by this worker: each kept frame's id maps to its turn. */
+  private holds = 0;
+  private readonly heldAt = new Map<RequestId, number>();
 
   constructor(private readonly storage: StoragePort) {}
 
@@ -108,7 +111,13 @@ export class SubmittedSaves {
     await this.load();
     const current = this.pending ?? [];
     if (save === undefined || pendingFor(current, save.bookmark.node_id, save.bookmark.url)?.id === save.id) return;
+    this.heldAt.set(save.id, (this.holds += 1));
     await this.store(withPending(current, save));
+  }
+
+  /** A point in this worker's keeping: keepOnly spares every frame kept after it. */
+  mark(): number {
+    return this.holds;
   }
 
   /** Forget `frame`: it was answered, or refused for good. */
@@ -116,6 +125,21 @@ export class SubmittedSaves {
     await this.load();
     const current = this.pending ?? [];
     if (current.some((save) => save.id === frame.id)) await this.store(withoutPending(current, frame.id));
+  }
+
+  /**
+   * Forget every kept frame whose node and url are not in `present` (no
+   * longer in Follow Up, or its url edited: never re-sent): its page text
+   * goes. A frame kept after `since` (a mark taken before `present` was
+   * read) stays: its bookmark may have been created after the read (issue
+   * #534).
+   */
+  async keepOnly(present: ReadonlyMap<NodeId, Url>, since: number): Promise<void> {
+    await this.load();
+    const current = this.pending ?? [];
+    const among = new Set(pendingAmong(current, present).map((save) => save.id));
+    const kept = current.filter((save) => among.has(save.id) || (this.heldAt.get(save.id) ?? 0) > since);
+    if (kept.length < current.length) await this.store(kept);
   }
 
   private async load(): Promise<void> {

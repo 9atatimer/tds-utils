@@ -1,4 +1,4 @@
-"""Frame bodies in and out (contract/v1/README.md, Framing and Connection
+"""Frame bodies in and out (contract/v2/README.md, Framing and Connection
 lifecycle, step 3).
 
 A body that is not a JSON object closes the connection without an answer
@@ -21,7 +21,7 @@ from dynomark_daemon.wire.codec import (
 )
 from dynomark_daemon.wire.messages import Status
 
-STATUS = b'{"v":1,"type":"status","id":"r-1"}'
+STATUS = b'{"v":2,"type":"status","id":"r-1"}'
 
 json_scalars = st.none() | st.booleans() | st.integers() | st.text(max_size=8)
 json_values = st.recursive(
@@ -36,17 +36,17 @@ json_values = st.recursive(
 
 def test_decode_status_request_yields_the_status_model() -> None:
     """Given a well-formed status request, When decoded, Then it is a Status."""
-    assert decode_body(STATUS) == Status(v=1, type="status", id="r-1")
+    assert decode_body(STATUS) == Status(v=2, type="status", id="r-1")
 
 
 def test_encode_message_writes_compact_utf8_json() -> None:
     """Given a message with a non-ASCII field, When encoded, Then the body is
     compact JSON with the character unescaped (frame sizes are UTF-8 bytes)."""
-    message = decode_body('{"v":1,"type":"search","id":"q","query":"cafeé"}')
+    message = decode_body('{"v":2,"type":"search","id":"q","query":"cafeé"}')
 
     body = encode_message(message)
 
-    assert body == '{"v":1,"type":"search","id":"q","query":"cafeé"}'.encode()
+    assert body == '{"v":2,"type":"search","id":"q","query":"cafeé"}'.encode()
 
 
 @pytest.mark.parametrize(
@@ -64,14 +64,14 @@ def test_decode_non_object_body_is_malformed(body: bytes) -> None:
 def test_decode_non_finite_number_is_malformed() -> None:
     """Given a body using NaN (not JSON), When decoded, Then it is MalformedBody."""
     with pytest.raises(MalformedBody):
-        decode_body(b'{"v":1,"type":"status","id":"r-1","x":NaN}')
+        decode_body(b'{"v":2,"type":"status","id":"r-1","x":NaN}')
 
 
 def test_decode_duplicate_key_is_invalid_with_the_request_id() -> None:
     """Given an object with a duplicate key, When decoded, Then it is
     InvalidMessage answering the request's id (duplicate keys are invalid)."""
     with pytest.raises(InvalidMessage) as rejected:
-        decode_body(b'{"v":1,"type":"status","id":"r-1","id":"r-2"}')
+        decode_body(b'{"v":2,"type":"status","id":"r-1","id":"r-2"}')
 
     assert rejected.value.re == "r-1"
 
@@ -80,7 +80,7 @@ def test_decode_lone_surrogate_is_invalid() -> None:
     """Given a string holding a lone UTF-16 surrogate, When decoded, Then it is
     InvalidMessage (every string is a sequence of Unicode scalar values)."""
     with pytest.raises(InvalidMessage) as rejected:
-        decode_body(b'{"v":1,"type":"search","id":"q","query":"\\ud800"}')
+        decode_body(b'{"v":2,"type":"search","id":"q","query":"\\ud800"}')
 
     assert rejected.value.re == "q"
 
@@ -89,7 +89,7 @@ def test_decode_schema_failure_with_unreadable_id_answers_null() -> None:
     """Given an object failing the schema whose id is not an Id, When decoded,
     Then InvalidMessage carries re None."""
     with pytest.raises(InvalidMessage) as rejected:
-        decode_body(b'{"v":1,"type":"status","id":"bad id\\n"}')
+        decode_body(b'{"v":2,"type":"status","id":"bad id\\n"}')
 
     assert rejected.value.re is None
 
@@ -108,14 +108,14 @@ def test_decode_null_for_an_optional_field_is_invalid() -> None:
     """Given job.list with "state": null, When decoded, Then it is InvalidMessage
     (optional fields are omitted, never null)."""
     with pytest.raises(InvalidMessage):
-        decode_body(b'{"v":1,"type":"job.list","id":"r-1","state":null}')
+        decode_body(b'{"v":2,"type":"job.list","id":"r-1","state":null}')
 
 
 def test_decode_null_for_a_nullable_required_field_is_accepted() -> None:
     """Given job.list.result with "next_cursor": null, When decoded, Then it is
     accepted (null where the schema says null: end of pagination)."""
     message = decode_body(
-        b'{"v":1,"type":"job.list.result","re":"r-1","jobs":[],"next_cursor":null}'
+        b'{"v":2,"type":"job.list.result","re":"r-1","jobs":[],"next_cursor":null}'
     )
 
     assert message.type == "job.list.result"

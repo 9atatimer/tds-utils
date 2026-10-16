@@ -1,6 +1,6 @@
 """The e2e's socket client takes events that beat their answer (issue #370).
 
-Events interleave freely with answers (contract v1, Envelope), so the event
+Events interleave freely with answers (contract v2, Envelope), so the event
 a request causes can arrive before that request's answer. Which one the
 daemon writes first is a race, so the e2e alone cannot pin this: here the
 reading side is non-blocking, and a read the client should not make fails

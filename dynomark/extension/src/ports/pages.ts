@@ -59,8 +59,8 @@ export interface Overview {
   readonly link: LinkState;
   /** What the current hello decided; absent while not connected. */
   readonly connection?: { readonly v: number; readonly mode: ConnectionMode; readonly role: HostRole; readonly host_id: string };
-  /** The daemon's own status (role, host id, models, queue depth); absent when it could not be asked. */
-  readonly daemon?: Pick<StatusResult, 'role' | 'host_id' | 'contract_version' | 'models' | 'queue_depth'>;
+  /** The daemon's own status (role, writer binding, host id, models, queue depth); absent when it could not be asked. */
+  readonly daemon?: Pick<StatusResult, 'role' | 'host_id' | 'contract_version' | 'models' | 'queue_depth' | 'writer_binding'>;
   readonly daemon_error?: string;
   /** The writer marker as the daemon last reported it; `conflict` is shown prominently. */
   readonly writer?: WriterStatus;

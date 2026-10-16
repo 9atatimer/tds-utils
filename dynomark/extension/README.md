@@ -1,12 +1,13 @@
 # Dynomark extension
 
-The MV3 browser extension of Dynomark (`docs/design/DYNOMARK.DESIGN.md`):
+The MV3 browser extension of Dynomark, for Chrome and Firefox (`docs/design/DYNOMARK.DESIGN.md`):
 watches `Follow Up`, captures a saved page from its open tab (and, on the
-writer, from a background tab when no tab shows it), applies the daemon's
+writer, from a background tab when no tab shows it and the daemon vets
+the URL), applies the daemon's
 write batches to the native bookmark tree, and serves the `bm` omnibox
 keyword. MVP pages: the chat surface, the diff view, and the writer-marker
 status and backfill on the settings page. It talks to the daemon only
-through native messaging (host `tds.dynomark`, contract `../contract/v1/`).
+through native messaging (host `tds.dynomark`, contract `../contract/v2/`).
 
 ## Extension id
 
@@ -21,17 +22,34 @@ iiflkiojolkdbmlgfbdfeobinoinnfjp
 The daemon's native-messaging host manifest must allow exactly
 `chrome-extension://iiflkiojolkdbmlgfbdfeobinoinnfjp/`.
 
+The Firefox build pins its gecko id in `browser_specific_settings`
+(`scripts/postbuild.mjs`):
+
+```
+dynomark@tds.dynomark
+```
+
+Firefox's host manifest must list exactly that id in `allowed_extensions`
+(`dynomark-daemon install-host-manifest --extension-id dynomark@tds.dynomark --browser firefox`).
+
 ## Build
 
 ```zsh
 npm ci
-npm run build        # tsc -> dist/, then scripts/postbuild.mjs
+npm run build        # tsc -> dist/, then scripts/postbuild.mjs -> dist-firefox/
 ```
 
-`dist/` is the unpacked extension. No bundler: `postbuild.mjs` copies the
-manifest and `static/` pages, vendors zod's ESM build into `dist/vendor/zod`,
-rewrites the bare `zod` import (an MV3 service worker cannot resolve one),
-and fails the build if any bare specifier is left.
+| Output          | Browser      | Manifest                                                                                                                                                         |
+| --------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dist/`         | Chrome       | `manifest.json` as committed: service worker `background.js`, pinned `key`                                                                                       |
+| `dist-firefox/` | Firefox 128+ | derived from it: background script `firefoxBackground.js` (module), gecko id, `options_ui`, `sidebar_action` on `chat.html`, the chat shortcut opens the sidebar |
+
+No bundler: `postbuild.mjs` copies the manifest and `static/` pages,
+vendors zod's ESM build into `dist/vendor/zod`, rewrites the bare `zod`
+import (an MV3 service worker cannot resolve one), fails the build if any
+bare specifier is left, then copies `dist/` to `dist-firefox/` and writes
+the Firefox manifest there. The Firefox manifest is derived, never edited:
+permissions, keyword and pages come from `manifest.json`.
 
 ## Run (macOS, Chrome)
 
@@ -42,10 +60,20 @@ and fails the build if any bare specifier is left.
    `tds.dynomark.json` to
    `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/`.
 4. Options page (right-click the toolbar icon -> Options): native link,
-   hello outcome, daemon role, host id, models, queue depth; the writer
+   hello outcome, daemon role, the writer binding (a banner while this
+   browser is served as a reader because the writer daemon files for
+   another browser profile, e.g. after a reinstall: run
+   `dynomark-daemon rebind`, then reload the extension), host id, models,
+   queue depth; the writer
    marker (a red banner while another host's marker is in `Dynomark`: no
    batch is applied until it is cleared); the two capture settings (open
-   tab; background tab on the writer, default on); Backfill existing
+   tab; background tab on the writer, default on: a tab opens only for a
+   URL the daemon's `url.vet` allows, by default a public address; a
+   refused or unanswered vet leaves the page to the daemon's fetch; unless
+   the daemon allows private addresses, the tab's session rules
+   (`declarativeNetRequest`) block every redirect hop to a private, loopback
+   or local-name host before it loads, and a page that ended anywhere but
+   the vetted URL is kept only when `url.vet` allows where it ended); Backfill existing
    bookmarks (ten ingests a second, resumes after a worker restart). The
    toolbar popup is the history page: Undo per APPLIED batch, Retry per
    FAILED job.
@@ -56,15 +84,40 @@ and fails the build if any bare specifier is left.
    change), opens `chat.html` in a popup window. A citation opens in one
    click; "why here" shows the placement reason; an external URL can be
    filed into `Follow Up`. Batches that ended PARTIAL or REJECTED and FAILED
-   jobs are listed on top, each job with Retry.
+   jobs are listed on top, each job with Retry. The header names both
+   models, the completion and the embedding one, each marked local or cloud
+   (the daemon's mark: a loopback Ollama, no cloud tag, not declared remote).
 7. Diffs: `diff.html` (linked from the settings page). Propose an audit or
    a rebuild, open it, accept one item at a time; each accepted item is a
    batch whose state shows on its row. Pin or lock owned folders there.
 
+## Run (Firefox)
+
+- `npm ci && npm run build`
+- `about:debugging#/runtime/this-firefox` -> Load Temporary Add-on -> pick
+  `dynomark/extension/dist-firefox/manifest.json`. The id shown must be
+  `dynomark@tds.dynomark`. A temporary add-on goes away when Firefox quits.
+- `about:addons` -> Dynomark -> Permissions: "Access your data for all
+  websites" must be on (tab and background-tab capture).
+- Register the host for Firefox:
+  `dynomark-daemon install-host-manifest --extension-id dynomark@tds.dynomark --browser firefox`
+  (macOS `~/Library/Application Support/Mozilla/NativeMessagingHosts/`,
+  Linux `~/.mozilla/native-messaging-hosts/`).
+- Everything else is as on Chrome, with three differences. The chat is
+  the sidebar: Alt+Shift+K or View -> Sidebar -> Dynomark opens it; the
+  `Ask:` row opens the chat in a popup window carrying the question.
+  Omnibox rows are plain text. `Follow Up` is created under the Bookmarks
+  Toolbar; separators are read as separators and never filed.
+
+Firefox's real-browser acceptance is a manual run
+(`tasks/task-027-dynomark-mbp-integration.md`, "Firefox acceptance"):
+Playwright cannot drive a stock Firefox with an extension loaded.
+
 ## Durable state
 
 Everything the service worker keeps across a restart goes through the
-`StoragePort` (`src/ports/storage.ts`), on `chrome.storage.local`, except
+`StoragePort` (`src/ports/storage.ts`), on `chrome.storage.local`
+(`browser.storage.local` on Firefox), except
 `capture_window`, which the background-tab adapter keeps there itself. The
 rest is in memory and is rebuilt, or re-sent, after the next full hello.
 
@@ -86,12 +139,12 @@ rest is in memory and is rebuilt, or re-sent, after the next full hello.
 npm run typecheck && npm run format:check && npm test && npm run build && npm run e2e
 ```
 
-| Tier        | Where                                     | Runs                                                                                               |
-| ----------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| unit        | `test/unit`, `test/contract`, `test/arch` | `npm test` (first, shuffled): fakes and small chrome.* stubs, no I/O                               |
-| perf        | `test/perf`                               | `npm test` (then, one file at a time): Goal 4's tier-1 bound                                       |
-| integration | `test/integration`                        | `npm run e2e` (first half): the port contract suites against the real chrome adapters in Chromium  |
-| e2e         | `e2e/`                                    | `npm run e2e` (second half, Playwright): the built extension against a fake native host and daemon |
+| Tier        | Where                                     | Runs                                                                                                                                                                         |
+| ----------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| unit        | `test/unit`, `test/contract`, `test/arch` | `npm test` (first, shuffled): fakes and small chrome.* and browser.* (Firefox) stubs, no I/O; the port contract suites run against the Chrome adapters and the Firefox ports |
+| perf        | `test/perf`                               | `npm test` (then, one file at a time): Goal 4's tier-1 bound                                                                                                                 |
+| integration | `test/integration`                        | `npm run e2e` (first half): the port contract suites against the real chrome adapters in Chromium; the built `dist-firefox/` manifest and module graph                       |
+| e2e         | `e2e/`                                    | `npm run e2e` (second half, Playwright): the built extension against a fake native host and daemon                                                                           |
 
 Both browser tiers need `dist/` built and a Chromium that honours
 `--load-extension` (not branded Chrome). They use, in order:
@@ -107,20 +160,22 @@ export DYNOMARK_CHROMIUM="$(ls -d ~/.cache/dynomark-cft/chrome/mac_arm-*/chrome-
 Hermetic: a temp profile whose `NativeMessagingHosts/` registers the host
 (Chromium reads per-user host manifests from the user data dir), a temp unix
 socket, and routed pages; no network: every web request not to 127.0.0.1 is
-aborted unless a test routes it, and the background-tab test loads its page
-from a throw-away HTTP server on 127.0.0.1. The omnibox cannot be typed into
+aborted unless a test routes it, and the background-tab tests load their
+pages from a throw-away HTTP server on 127.0.0.1 (the guarded ones as
+`news.example`, mapped there with `--host-resolver-rules`). The omnibox cannot be typed into
 headless, so e2e drives its handler through `globalThis.dynomark`, the
 diagnostic handle the service worker exposes on its own global scope; the
 keyboard command is covered by unit tests only.
 
 ## Layout
 
-| Path                                                    | Layer                                                                                  |
-| ------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `src/domain/`                                           | rules and values; imports nothing else                                                 |
-| `src/wire/`                                             | zod schemas of contract v1                                                             |
-| `src/ports/`                                            | seams: tree, history, content, storage, transport, clock, ids, timer, navigator, pages |
-| `src/app/`                                              | use cases and the background workflow (`runtime.ts`)                                   |
-| `src/adapters/`                                         | chrome.* adapters (the only code that names a browser API)                             |
-| `src/ui/`                                               | the options, history, chat and diff page views                                         |
-| `src/background.ts`, `src/options.ts`, `src/history.ts` | entry points / composition roots (also `src/chat.ts`, `src/diff.ts`)                   |
+| Path                                            | Layer                                                                                                                                                                                               |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/domain/`                                   | rules and values; imports nothing else                                                                                                                                                              |
+| `src/wire/`                                     | zod schemas of contract v2                                                                                                                                                                          |
+| `src/ports/`                                    | seams: tree, history, content, storage, transport, clock, ids, timer, navigator, pages                                                                                                              |
+| `src/app/`                                      | use cases and the background workflow (`runtime.ts`)                                                                                                                                                |
+| `src/adapters/`                                 | the only code that names a browser API: `chrome/` (the WebExtensions adapters, shared with Firefox where the APIs agree), `firefox/` (tree dialect, events, omnibox, sidebar, ports on `browser.*`) |
+| `src/ui/`                                       | the options, history, chat and diff page views                                                                                                                                                      |
+| `src/background.ts`, `src/firefoxBackground.ts` | the Chrome and Firefox composition roots, over `src/boot.ts`                                                                                                                                        |
+| `src/options.ts`, `src/history.ts`              | page entry points (also `src/chat.ts`, `src/diff.ts`)                                                                                                                                               |

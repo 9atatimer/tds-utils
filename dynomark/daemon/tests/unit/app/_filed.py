@@ -10,9 +10,10 @@ from dynomark_daemon.domain.batch import (
 )
 from dynomark_daemon.domain.bookmark import Save
 from dynomark_daemon.domain.events import BatchOffered
-from dynomark_daemon.domain.ids import NodeId
+from dynomark_daemon.domain.ids import NodeId, ProfileId
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.domain.roles import HostRole
+from dynomark_daemon.domain.tree import FolderPath, Snapshot, TreeOutline
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.store import InMemoryCorpusStore
 from tests._factories import (
@@ -43,7 +44,14 @@ MOVED = OpApplied(index=1, node_id=NodeId("42"), changed=True)
 class Daemon:
     """A writer that has filed one job into a new folder, Dynomark/Rust/Async."""
 
-    def __init__(self, store: InMemoryCorpusStore | None = None) -> None:
+    def __init__(
+        self,
+        store: InMemoryCorpusStore | None = None,
+        *,
+        tree: Snapshot = TREE,
+        outline: TreeOutline | None = None,
+        folder: FolderPath = ASYNC,
+    ) -> None:
         self.store = store or InMemoryCorpusStore()
         self.clock, self.ids = FakeClock(start_ms=1_000), SequentialIds()
         self.job = make_job(state=JobState.PLACED)
@@ -55,11 +63,12 @@ class Daemon:
                 capture=make_capture(),
             ),
         )
-        self.store.put_tree_snapshot(TREE)
+        self.store.put_tree_snapshot(tree)
         batch = file(
-            make_placement(folder=ASYNC),
+            make_placement(folder=folder),
             self.job,
-            make_outline(make_outline_folder("Dynomark", "Rust", node_id="14")),
+            outline
+            or make_outline(make_outline_folder("Dynomark", "Rust", node_id="14")),
             make_roots(),
             HostRole.WRITER,
             store=self.store,
@@ -69,9 +78,23 @@ class Daemon:
         assert isinstance(batch, WriteBatch)
         self.batch = batch
 
-    def receive(self, receipt: BatchReceipt) -> ReceiptRecorded:
+    def receive(
+        self,
+        receipt: BatchReceipt,
+        *,
+        role: HostRole = HostRole.WRITER,
+        profile: ProfileId | None = None,
+    ) -> ReceiptRecorded:
+        """The receipt on a connection served ``role`` for ``profile`` (by
+        default the writer connection of the job's profile)."""
         return receive_receipt(
-            receipt, make_roots(), store=self.store, clock=self.clock, ids=self.ids
+            receipt,
+            role,
+            profile or self.job.profile_id,
+            make_roots(),
+            store=self.store,
+            clock=self.clock,
+            ids=self.ids,
         )
 
     def job_now(self) -> Job:

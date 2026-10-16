@@ -1,6 +1,6 @@
 // runtime.tree.test.ts -- bookmark events in the background composition
 // (design, "The extension": Watch Follow Up, Capture from the open tab,
-// Record feedback; contract v1 README, "Connection lifecycle", step 6). A
+// Record feedback; contract v2 README, "Connection lifecycle", step 6). A
 // bookmark created in, or moved into, Follow Up is captured from an open tab
 // (unless the capture setting is off) and ingested; a move between owned
 // folders is reported as move.observed with its origin; changes under the
@@ -10,10 +10,12 @@
 import { describe, expect, it } from 'vitest';
 import { SNAPSHOT_DEBOUNCE_MS } from '../../../src/app/runtime.js';
 import { RECONNECT_BACKOFF } from '../../../src/domain/backoff.js';
-import type { ExtensionRuntime } from '../../../src/app/runtime.js';
+import { ExtensionRuntime } from '../../../src/app/runtime.js';
+import type { SnapshotNode } from '../../../src/domain/tree.js';
 import type { BookmarkEvent } from '../../../src/ports/bookmarkEvents.js';
 import type { RequestMessage, ResponseMessage } from '../../../src/wire/messages.js';
 import { FakeExtensionWorld } from '../../fakes/FakeExtensionWorld.js';
+import { scriptedDaemon } from '../../fixtures/daemon.js';
 import { DYNOMARK, RUST, seedOwnedTree, type Seeded } from '../../fixtures/ownedTree.js';
 import { scriptDaemon, sentOf, startRuntime } from '../../fixtures/runtime.js';
 
@@ -42,6 +44,11 @@ async function moved(w: FakeExtensionWorld, runtime: ExtensionRuntime, id: strin
   const old_parent_id = (await w.tree.getNode(id))?.parent_id ?? '';
   await w.tree.move(id, to);
   await deliver(runtime, { kind: 'moved', node_id: id, parent_id: to, old_parent_id });
+}
+
+/** Let every queued continuation run: one turn of the event loop (no wall-clock wait). */
+function settle(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
 const PAGE = { title: 'Serde', text: 'Serde is a framework for serializing and deserializing Rust data structures.' };
@@ -101,6 +108,17 @@ describe('Record feedback -- owned moves are reported with their origin', () => 
     });
   });
 
+  it('Given a reader connection, When the user moves a bookmark between owned folders, Then move.observed still reports it (the daemon decides feedback)', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    scriptDaemon(w, { role: 'reader' });
+    const ids = await seedOwnedTree(w.tree);
+    const runtime = await startRuntime(w);
+    await moved(w, runtime, ids.saved, ids.rust);
+    expect(sentOf(w, 'move.observed').map((r) => r.move)).toEqual([
+      expect.objectContaining({ node_id: ids.saved, to: RUST, origin: 'user' }),
+    ]);
+  });
+
   it('Given a move out of the owned roots, When seen, Then nothing is reported', async () => {
     const { w, ids, runtime } = await setup();
     await moved(w, runtime, ids.saved, ids.bar);
@@ -115,7 +133,7 @@ describe('Record feedback -- a move report survives busy answers and worker rest
     const busy = (r: RequestMessage): ResponseMessage | undefined => {
       if (r.type !== 'move.observed' || refused) return undefined;
       refused = true;
-      return { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
+      return { v: 2, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
     };
     scriptDaemon(w, {}, busy);
     const ids = await seedOwnedTree(w.tree);
@@ -150,6 +168,70 @@ describe('Record feedback -- a move report survives busy answers and worker rest
     scriptDaemon(w);
     await startRuntime(w);
     expect(sentOf(w, 'move.observed')).toEqual([]);
+  });
+});
+
+describe('Record feedback -- a move seen without a full session is reported once one exists (issue #412)', () => {
+  async function down(): Promise<{ w: FakeExtensionWorld; ids: Seeded; runtime: ExtensionRuntime }> {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    scriptDaemon(w);
+    w.connection().unreachable(true);
+    const ids = await seedOwnedTree(w.tree);
+    return { w, ids, runtime: await startRuntime(w) };
+  }
+
+  async function reachable(w: FakeExtensionWorld, runtime: ExtensionRuntime): Promise<void> {
+    w.connection().unreachable(false);
+    await w.timer().advance(RECONNECT_BACKOFF.max_ms);
+    await runtime.idle();
+  }
+
+  it('Given the daemon is down, When the user moves a save between owned folders and the daemon comes back, Then move.observed reports it with origin user', async () => {
+    const { w, ids, runtime } = await down();
+    await moved(w, runtime, ids.saved, ids.rust);
+    await reachable(w, runtime);
+    expect(sentOf(w, 'hello').length).toBeGreaterThan(0);
+    expect(sentOf(w, 'move.observed').map((r) => r.move)).toEqual([
+      expect.objectContaining({ node_id: ids.saved, from: { root: 'bar', names: ['Follow Up'] }, to: RUST, origin: 'user' }),
+    ]);
+  });
+
+  it('Given the daemon is down when the user moves a save, When the worker is terminated and the next one reaches the daemon, Then the move is still reported', async () => {
+    const { w, ids, runtime } = await down();
+    await moved(w, runtime, ids.saved, ids.rust);
+    w.restart();
+    scriptDaemon(w);
+    await startRuntime(w);
+    expect(sentOf(w, 'move.observed').map((r) => r.move)).toEqual([
+      expect.objectContaining({ node_id: ids.saved, to: RUST, origin: 'user' }),
+    ]);
+  });
+
+  it('Given the daemon is down, When the user moves a save out of the owned roots and the daemon comes back, Then nothing is reported and nothing stays kept', async () => {
+    const { w, ids, runtime } = await down();
+    await moved(w, runtime, ids.saved, ids.bar);
+    await reachable(w, runtime);
+    expect(sentOf(w, 'move.observed')).toEqual([]);
+    expect((await w.storage.loadPendingMoves()) ?? []).toEqual([]);
+  });
+
+  it('Given a worker woken by the move before its hello is answered, When the hello completes, Then move.observed reports the move', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const ids = await seedOwnedTree(w.tree);
+    const runtime = new ExtensionRuntime(w.worker());
+    await runtime.start();
+    const hello = await w.daemon().nextRequest();
+    await w.tree.move(ids.saved, ids.rust);
+    runtime.onBookmarkEvent({ kind: 'moved', node_id: ids.saved, parent_id: ids.rust, old_parent_id: ids.followUp });
+    await settle();
+    const early = sentOf(w, 'move.observed').length;
+    scriptDaemon(w);
+    await w.daemon().answer(scriptedDaemon()(hello));
+    await runtime.idle();
+    expect(early).toBe(0);
+    expect(sentOf(w, 'move.observed').map((r) => r.move)).toEqual([
+      expect.objectContaining({ node_id: ids.saved, to: RUST, origin: 'user' }),
+    ]);
   });
 });
 
@@ -189,11 +271,46 @@ describe('Snapshots -- changes under the owned roots are debounced into one tree
   });
 });
 
+describe('Snapshots -- a debounced tree.snapshot that meets a daemon restart (issue #524)', () => {
+  it('Given a change under the owned roots, When the debounce passes while no daemon listens, Then no problem is reported and the reconnect sends the tree as it is then', async () => {
+    const { w, ids, runtime } = await setup();
+    await moved(w, runtime, ids.saved, ids.rust);
+    w.connection().daemonNotRunning(true);
+    await w.daemon().drop('disconnected');
+    await w.timer().advance(SNAPSHOT_DEBOUNCE_MS);
+    await runtime.idle();
+    w.connection().daemonNotRunning(false);
+    await w.timer().advance(RECONNECT_BACKOFF.max_ms);
+    await runtime.idle();
+
+    const page = await runtime.page({ kind: 'overview' });
+    expect(page.ok && page.kind === 'overview' ? page.overview.problems : undefined).toEqual([]);
+    expect(
+      sentOf(w, 'tree.snapshot')
+        .at(-1)
+        ?.snapshot.nodes.find((n) => n.id === ids.saved)?.parent_id,
+    ).toBe(ids.rust);
+  });
+});
+
+describe('Snapshots -- a debounced tree.snapshot on a superseded connection', () => {
+  it('Given a change under the owned roots, When the debounce passes after the connection was superseded (it never comes back), Then the lost snapshot is reported as a problem', async () => {
+    const { w, ids, runtime } = await setup();
+    await moved(w, runtime, ids.saved, ids.rust);
+    await w.daemon().drop('superseded');
+    await w.timer().advance(SNAPSHOT_DEBOUNCE_MS);
+    await runtime.idle();
+
+    const page = await runtime.page({ kind: 'overview' });
+    expect(page.ok && page.kind === 'overview' ? page.overview.problems.join('\n') : '').toContain('superseded');
+  });
+});
+
 describe('Batch offers -- a batch.offer event is applied and answered', () => {
   it('Given a batch.offer moving the save into a new folder, When it arrives, Then the tree changes, the receipt is APPLIED and the move is origin extension', async () => {
     const { w, ids, runtime } = await setup();
     const offer = {
-      v: 1 as const,
+      v: 2 as const,
       type: 'batch.offer' as const,
       event_id: 'evt-offer-1',
       batch: {
@@ -226,7 +343,7 @@ describe("Batch offers -- a batch move is the extension's across a worker restar
     const serdePath = { root: 'bar' as const, names: ['Dynomark', 'Serde'] };
     w.tree.failOnMutation(2, 'terminate-after');
     await w.daemon().emit({
-      v: 1,
+      v: 2,
       type: 'batch.offer',
       event_id: 'evt-offer-1',
       batch: {
@@ -251,7 +368,7 @@ describe("Batch offers -- a batch move is the extension's across a worker restar
     const { w, ids, runtime } = await setup();
     w.tree.failOnMutation(2, 'terminate-after');
     await w.daemon().emit({
-      v: 1,
+      v: 2,
       type: 'batch.offer',
       event_id: 'evt-twice',
       batch: {
@@ -282,7 +399,7 @@ describe("Batch offers -- a batch move is the extension's across a worker restar
     const { w, ids, runtime } = await setup();
     const serdePath = { root: 'bar' as const, names: ['Dynomark', 'Serde'] };
     const offer = {
-      v: 1 as const,
+      v: 2 as const,
       type: 'batch.offer' as const,
       event_id: 'evt-offer-1',
       batch: {
@@ -317,7 +434,7 @@ describe('A batch receipt answered with a retryable code on a live link', () => 
   it('Given the daemon answers the first receipt internal and stays up, When the backoff passes, Then the extension asks for a replay and answers the re-offered batch from its cursor', async () => {
     const w = new FakeExtensionWorld({ flavor: 'chrome' });
     const offer = {
-      v: 1 as const,
+      v: 2 as const,
       type: 'batch.offer' as const,
       event_id: 'evt-go',
       batch: { batch_id: 'batch-go', operations: [{ op: 'create_folder' as const, index: 0, parent: DYNOMARK, title: 'Go' }] },
@@ -326,7 +443,7 @@ describe('A batch receipt answered with a retryable code on a live link', () => 
     let replays = 0;
     scriptDaemon(w, {}, (r) => {
       if (r.type === 'batch.receipt' && (receipts += 1) === 1)
-        return { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
+        return { v: 2, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
       if (r.type === 'events.replay' && (replays += 1) > 1) void w.daemon().emit(offer);
       return undefined;
     });
@@ -357,7 +474,7 @@ describe('A batch receipt answered with a retryable code on a live link', () => 
     it(`Given an earlier worker's open cursor, When its re-sent receipt is answered ${code} while a new offer is held, Then the extension asks for a replay, answers the old batch, and applies the held one`, async () => {
       const w = new FakeExtensionWorld({ flavor: 'chrome' });
       const offer = {
-        v: 1 as const,
+        v: 2 as const,
         type: 'batch.offer' as const,
         event_id: 'evt-new',
         batch: { batch_id: 'batch-new', operations: [{ op: 'create_folder' as const, index: 0, parent: DYNOMARK, title: 'Go' }] },
@@ -366,7 +483,7 @@ describe('A batch receipt answered with a retryable code on a live link', () => 
       let replays = 0;
       scriptDaemon(w, {}, (r) => {
         if (r.type === 'batch.receipt' && (receipts += 1) === 1)
-          return { v: 1, type: 'error', re: r.id, code, message: 'database is locked' };
+          return { v: 2, type: 'error', re: r.id, code, message: 'database is locked' };
         if (r.type === 'events.replay' && (replays += 1) > 1) void w.daemon().emit(offer);
         return undefined;
       });
@@ -401,7 +518,7 @@ describe('An ingest answered with a retryable code on a live link', () => {
     let answered = 0;
     scriptDaemon(w, {}, (r) => {
       if (r.type === 'ingest' && r.bookmark.url === SERDE_URL && (answered += 1) === 1)
-        return { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
+        return { v: 2, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
       return undefined;
     });
     const ids = await seedOwnedTree(w.tree);
@@ -440,6 +557,44 @@ describe('An ingest answered with a retryable code on a live link', () => {
   });
 });
 
+describe('Backlog pruning -- a save made while the backlog runs keeps its frame (issue #534 T12)', () => {
+  it('Given a save lands in Follow Up after the backlog read the folder and before it pruned the kept frames, When the daemon answers it busy and the worker dies in the backoff, Then the next worker re-sends the identical frame, captured text included', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const LATE_URL = 'https://late.example/';
+    scriptDaemon(w, {}, (r) =>
+      r.type === 'ingest' && r.bookmark.url === LATE_URL
+        ? { v: 2, type: 'error', re: r.id, code: 'busy', message: 'model loading' }
+        : undefined,
+    );
+    const ids = await seedOwnedTree(w.tree);
+    w.tabs.open(LATE_URL, PAGE);
+    const runtime = new ExtensionRuntime(w.worker());
+    const tree = w.tree;
+    const read = tree.getChildren.bind(tree);
+    let late: SnapshotNode | undefined;
+    tree.getChildren = async (folderId) => {
+      const children = await read(folderId);
+      if (folderId === ids.followUp && late === undefined) {
+        late = await tree.createBookmark(ids.followUp, 'Late', LATE_URL);
+        runtime.onBookmarkEvent({ kind: 'created', node: late });
+        await settle(); // the created event captures the open tab and keeps its frame meanwhile
+      }
+      return children;
+    };
+    await runtime.start();
+    await runtime.idle();
+    const first = sentOf(w, 'ingest').find((r) => r.bookmark.node_id === late?.id);
+    expect(first?.capture).toEqual({ source: 'tab', ...PAGE });
+
+    w.tabs.close(LATE_URL);
+    w.restart();
+    scriptDaemon(w);
+    await startRuntime(w);
+
+    expect(sentOf(w, 'ingest').find((r) => r.bookmark.node_id === late?.id)).toEqual(first);
+  });
+});
+
 describe('Move origin -- only the moves the extension itself issued are origin extension', () => {
   const SERDE = { root: 'bar' as const, names: ['Dynomark', 'Serde'] };
 
@@ -448,13 +603,13 @@ describe('Move origin -- only the moves the extension itself issued are origin e
     let receipts = 0;
     scriptDaemon(w, {}, (r) =>
       r.type === 'batch.receipt' && (receipts += 1) === 1
-        ? { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' }
+        ? { v: 2, type: 'error', re: r.id, code: 'internal', message: 'database is locked' }
         : undefined,
     );
     const ids = await seedOwnedTree(w.tree);
     const runtime = await startRuntime(w);
     await w.daemon().emit({
-      v: 1,
+      v: 2,
       type: 'batch.offer',
       event_id: 'evt-serde',
       batch: {
@@ -477,7 +632,7 @@ describe('Move origin -- only the moves the extension itself issued are origin e
   it('Given one batch moves the same node twice, When the browser reports both moves after the batch closed, Then both are origin extension', async () => {
     const { w, ids, runtime } = await setup();
     await w.daemon().emit({
-      v: 1,
+      v: 2,
       type: 'batch.offer',
       event_id: 'evt-twice',
       batch: {
@@ -500,7 +655,7 @@ describe('Move origin -- only the moves the extension itself issued are origin e
     const go = await w.tree.createFolder(ids.dynomark, 'Go');
     const inner = await w.tree.createFolder(go.id, 'Inner');
     await w.daemon().emit({
-      v: 1,
+      v: 2,
       type: 'batch.offer',
       event_id: 'evt-cycle',
       batch: {
@@ -532,7 +687,7 @@ describe('The Follow Up backlog -- a save that fails does not hold back the save
     let answered = 0;
     scriptDaemon(w, { role: 'reader' }, (r) =>
       r.type === 'ingest' && r.bookmark.url.startsWith('https://tokio.rs/') && (answered += 1) === 1
-        ? { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' }
+        ? { v: 2, type: 'error', re: r.id, code: 'busy', message: 'model loading' }
         : undefined,
     );
     const ids = await seedOwnedTree(w.tree);

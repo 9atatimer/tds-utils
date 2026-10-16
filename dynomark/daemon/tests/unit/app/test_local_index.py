@@ -2,7 +2,7 @@
 Interfaces) -- ``build_local_index(*, store) -> LocalIndex``: "Given the
 corpus, When built, Then rows hold exactly identity, title, path, tags,
 one-line summary"; Ubiquitous language: "at most 512 bytes per entry".
-Contract v1 (Size limits): the 512 bytes are the row's compact UTF-8 JSON;
+Contract v2 (Size limits): the 512 bytes are the row's compact UTF-8 JSON;
 the daemon trims summary, then tags, then title, and leaves out a row whose
 identity alone cannot fit. ``index.pull`` pages by an opaque cursor that
 stays valid across data changes and fits the contract's 1,024-byte
@@ -164,7 +164,7 @@ def test_local_index_pages_survive_inserts_and_replacements() -> None:
 def test_local_index_cursor_fits_the_contract_whatever_the_identity() -> None:
     """Given entries whose identities are far longer than a Cursor may be, When
     the first page is read, Then its cursor is printable ASCII without spaces
-    and at most 1,024 characters (contract v1, Size limits: Cursor)."""
+    and at most 1,024 characters (contract v2, Size limits: Cursor)."""
     store = _store(*(make_entry("https://example.org/" + c * 60_000) for c in "ab"))
 
     cursor = local_index_page(None, 1, store=store).next_cursor

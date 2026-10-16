@@ -1,7 +1,9 @@
 """Use case: a job is processed to an entry (DYNOMARK.DESIGN.md, Behaviors
 and Interfaces; The daemon, "Enrich and index").
 
-One attempt: capture resolved (the ingest's, else the fetch fallback),
+One attempt: capture resolved (the ingest's, else the fetch fallback; a
+retryable fetch failure fails the attempt until the last one allowed,
+which settles for source ``none``),
 summary and tags through ``CompletionPort``, an embedding through
 ``EmbeddingPort``, the entry stored through ``CorpusStorePort``.
 
@@ -25,19 +27,41 @@ from dynomark_daemon.domain.bookmark import (
 from dynomark_daemon.domain.job import Job, JobState, RetryPolicy
 from dynomark_daemon.ports.clock import Clock, IdSource
 from dynomark_daemon.ports.completion import CompletionPort
-from dynomark_daemon.ports.content import ContentSourcePort
+from dynomark_daemon.ports.content import ContentSourcePort, ContentUnavailable
 from dynomark_daemon.ports.embedding import EmbeddingPort
 from dynomark_daemon.ports.errors import PortError
 from dynomark_daemon.ports.store import CorpusStorePort
 
 
+def _is_last_attempt(job: Job, policy: RetryPolicy) -> bool:
+    """This attempt is the last ``policy`` allows: a retryable fetch failure
+    now settles for source ``none`` instead of failing the attempt."""
+    return job.attempts + 1 >= policy.attempts
+
+
 def _resolve_capture(
-    job: Job, save: Save, *, store: CorpusStorePort, content: ContentSourcePort
+    job: Job,
+    save: Save,
+    policy: RetryPolicy,
+    *,
+    store: CorpusStorePort,
+    content: ContentSourcePort,
 ) -> Save:
-    """The save with its capture resolved; a fetched capture is kept."""
+    """The save with its capture resolved; a fetched capture is kept. A page
+    unreadable for good, or still unreadable on the last attempt, leaves
+    source ``none``.
+
+    Raises:
+        ContentUnavailable: a retryable fetch failure with attempts left.
+    """
     if save.capture.source is not CaptureSource.NONE:
         return save
-    fetched = capture(save.bookmark, content=content)
+    try:
+        fetched = capture(save.bookmark, content=content)
+    except ContentUnavailable:
+        if not _is_last_attempt(job, policy):
+            raise
+        return save
     if fetched.source is CaptureSource.NONE:
         return save
     resolved = Save(bookmark=save.bookmark, capture=fetched)
@@ -69,8 +93,8 @@ def process_job(
     if job.state is JobState.QUEUED:
         job = job.picked_up(at=clock.now_ms())
         store.put_job(job)
-    save = _resolve_capture(job, save, store=store, content=content)
     try:
+        save = _resolve_capture(job, save, policy, store=store, content=content)
         enrichment = completion.enrich(save.bookmark, save.capture)
         vector = embedding.embed(embedding_text(save.bookmark, enrichment))
     except PortError as error:

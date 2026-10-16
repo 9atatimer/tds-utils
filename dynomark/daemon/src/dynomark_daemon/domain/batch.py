@@ -98,6 +98,9 @@ class UndoDropReason(StrEnum):
     LOCKED = "locked"
     """The step would move or remove a folder the user has locked since
     (Glossary: locked is never moved by any batch)."""
+    OWNED_ROOT = "owned_root"
+    """The step would remove an owned root the batch created: an undo never
+    removes ``Dynomark`` or ``Graveyard`` (issue #415)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +118,15 @@ class Revert:
 
 
 @dataclass(frozen=True, slots=True)
+class ParkReason:
+    """Why a batch parks its node instead of filing it: the identity is
+    already filed, in ``existing`` (Behaviors "A duplicate identity is
+    parked": the batch's reason names the existing placement)."""
+
+    existing: FolderPath
+
+
+@dataclass(frozen=True, slots=True)
 class WriteBatch:
     """Ordered operations plus their inverse, and an optional accepted item."""
 
@@ -122,6 +134,10 @@ class WriteBatch:
     operations: tuple[Operation, ...]
     inverse: tuple[Revert, ...]
     diff_item_id: ItemId | None = None
+    park: ParkReason | None = None
+    scope: tuple[FolderPath, ...] = ()
+    """With ``diff_item_id``: the accepted item's scope, the folders its
+    operations name (contract v2, Boundary); an inverse carries the same."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,7 +222,7 @@ class BatchRecord:
     report: tuple[UndoDrop, ...] = ()
     tree_since_receipt: bool = False
     """A ``tree.snapshot`` was recorded after the receipt: the undo guard may
-    run (contract v1, Undo guard)."""
+    run (contract v2, Undo guard)."""
 
     def with_receipt(
         self, receipt: BatchReceipt, snapshot_id: SnapshotId | None
@@ -223,7 +239,7 @@ class BatchRecord:
         )
 
 
-# --- Receipts (contract v1, Jobs: Receipt -> job) ---
+# --- Receipts (contract v2, Jobs: Receipt -> job) ---
 
 
 def receipt_state(receipt: BatchReceipt) -> BatchState:
@@ -304,13 +320,62 @@ def outside_roots(
     return tuple(op.index for op in operations if not _is_inside_roots(op, roots))
 
 
-def admit(operations: tuple[Operation, ...], roots: OwnedRoots) -> None:
-    """The boundary policy.
+def _is_named_by(
+    path: FolderPath | None, roots: OwnedRoots, scope: Sequence[FolderPath]
+) -> bool:
+    """``path`` is unknown, inside an owned root, or exactly a scope path."""
+    return path is None or roots.contains(path) or path in scope
+
+
+def _is_inside_scope(
+    op: Operation, roots: OwnedRoots, scope: Sequence[FolderPath]
+) -> bool:
+    match op:
+        case OpCreateFolder() | OpCreate():
+            return op.parent in scope
+        case OpMove():
+            return _is_named_by(op.to, roots, scope) and _is_named_by(
+                op.expect.parent_path, roots, scope
+            )
+        case OpRemove():
+            return _is_named_by(op.expect.parent_path, roots, scope)
+
+
+def item_scope(operations: Sequence[Operation]) -> tuple[FolderPath, ...]:
+    """An accepted item's scope: every folder its operations target or take a
+    node from, each once, in the order first named (Goal 8: an operation
+    outside OwnedRoots must lie inside one accepted DiffItem)."""
+    named: list[FolderPath] = []
+    for op in operations:
+        match op:
+            case OpCreateFolder() | OpCreate():
+                paths: tuple[FolderPath | None, ...] = (op.parent,)
+            case OpMove():
+                paths = (op.to, op.expect.parent_path)
+            case OpRemove():
+                paths = (op.expect.parent_path,)
+        named.extend(p for p in paths if p is not None and p not in named)
+    return tuple(named)
+
+
+def admit(
+    operations: tuple[Operation, ...],
+    roots: OwnedRoots,
+    *,
+    scope: Sequence[FolderPath] = (),
+) -> None:
+    """The boundary policy: every operation inside the owned roots, or (for an
+    accepted item's batch) inside its ``scope``, where a scope path admits
+    only itself.
 
     Raises:
-        OutsideOwnedRoots: some operation leaves the owned roots.
+        OutsideOwnedRoots: some operation leaves both.
     """
-    outside = outside_roots(operations, roots)
+    outside = tuple(
+        i
+        for i in outside_roots(operations, roots)
+        if not _is_inside_scope(operations[i], roots, scope)
+    )
     if outside:
         raise OutsideOwnedRoots(outside)
 
@@ -470,6 +535,20 @@ def _step(
             )
 
 
+def _kept_roots(
+    batch: WriteBatch, changed: Collection[int], roots: OwnedRoots
+) -> tuple[UndoDrop, ...]:
+    """The steps ``plan_inverse`` left out because they would remove an owned
+    root this batch created, last first, as the undo report lists them."""
+    return tuple(
+        UndoDrop(op.index, UndoDropReason.OWNED_ROOT)
+        for op in reversed(batch.operations)
+        if isinstance(op, OpCreateFolder)
+        and op.index in changed
+        and _creates_owned_root(op, roots)
+    )
+
+
 def _invert(
     batch: WriteBatch,
     applied: Sequence[OpApplied],
@@ -508,7 +587,7 @@ def _invert(
             continue
         ops.append(step)
         leaving.add(inverting.moved_node(op))
-    return with_graveyard(ops, roots), tuple(drops)
+    return with_graveyard(ops, roots), (*drops, *_kept_roots(batch, changed, roots))
 
 
 def invert(
@@ -540,6 +619,6 @@ def guarded_inverse(
     """The undo of an applied batch against the tree read after its receipt:
     ``invert`` keeping only the steps whose node is still where the batch left
     it, and a folder removal only if nothing else fills the folder; a
-    ``locked`` folder is never moved. The rest are dropped and reported, by
-    the original op's index."""
+    ``locked`` folder is never moved, and an owned root the batch created is
+    kept. The rest are dropped and reported, by the original op's index."""
     return _invert(batch, applied, tree, roots, guarded=True, locked=locked)

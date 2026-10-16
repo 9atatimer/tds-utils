@@ -1,4 +1,4 @@
-"""Request-id memory for the requests keyed on their id (contract/v1 README,
+"""Request-id memory for the requests keyed on their id (contract/v2 README,
 Envelope; the idempotency table: ``diff.propose``).
 """
 

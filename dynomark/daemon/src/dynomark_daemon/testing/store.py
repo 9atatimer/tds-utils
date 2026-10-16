@@ -15,6 +15,7 @@ import math
 import re
 from collections.abc import Collection, Iterable, Iterator, Sequence
 from contextlib import contextmanager
+from dataclasses import replace
 from typing import Final
 
 from dynomark_daemon.domain.batch import BatchRecord, BatchState
@@ -44,11 +45,13 @@ WORD: Final = re.compile(r"\w+")
 TABLES: Final = (
     "_entries",
     "_positions",
+    "_last_position",
     "_placements",
     "_jobs",
     "_saves",
     "_batches",
     "_latest_tree",
+    "_profile_trees",
     "_snapshots",
     "_feedback",
     "_diffs",
@@ -57,6 +60,7 @@ TABLES: Final = (
     "_writer_profile",
     "_follow_ups",
     "_requests",
+    "_absences",
 )
 """Every attribute holding stored state; a unit of work restores these."""
 
@@ -110,19 +114,24 @@ class InMemoryCorpusStore:
     def __init__(self) -> None:
         self._entries: dict[Identity, CorpusEntry] = {}
         self._positions: dict[Identity, int] = {}
+        self._last_position = 0
+        """The highest position ever given, as SQLite's AUTOINCREMENT keeps
+        it: a dropped entry put again takes a new one after it."""
         self._placements: dict[Identity, Placement] = {}
         self._jobs: dict[JobId, Job] = {}
         self._saves: dict[JobId, Save] = {}
         self._batches: dict[BatchId, BatchRecord] = {}
         self._latest_tree: Snapshot | None = None
+        self._profile_trees: dict[ProfileId, Snapshot] = {}
         self._snapshots: dict[SnapshotId, Snapshot] = {}
         self._feedback: dict[FeedbackId, MoveFeedback] = {}
         self._diffs: dict[DiffId, TreeDiff] = {}
         self._events: dict[ProfileId, dict[EventId, PendingEvent]] = {}
-        self._flags: dict[NodeId, FolderFlags] = {}
+        self._flags: dict[FolderPath, FolderFlags] = {}
         self._writer_profile: ProfileId | None = None
         self._follow_ups: dict[ProfileId, FolderPath] = {}
         self._requests: dict[RequestId, str] = {}
+        self._absences: dict[Identity, int] = {}
 
     # --- Units of work ---
 
@@ -140,7 +149,9 @@ class InMemoryCorpusStore:
     # --- Entries ---
 
     def put_entry(self, entry: CorpusEntry) -> None:
-        self._positions.setdefault(entry.identity, len(self._positions) + 1)
+        if entry.identity not in self._positions:
+            self._last_position += 1
+            self._positions[entry.identity] = self._last_position
         self._entries[entry.identity] = entry
 
     def get_entry(self, identity: Identity) -> CorpusEntry | None:
@@ -156,6 +167,29 @@ class InMemoryCorpusStore:
         ordered = sorted(stored, key=lambda s: s.position)
         return [s for s in ordered if after is None or s.position > after][:limit]
 
+    def entry_identities(self) -> list[Identity]:
+        return sorted(self._entries, key=lambda i: self._positions[i])
+
+    # --- Retention ---
+
+    def absences(self) -> dict[Identity, int]:
+        return dict(self._absences)
+
+    def put_absence(self, identity: Identity, since: int) -> None:
+        self._absences.setdefault(identity, since)
+
+    def clear_absence(self, identity: Identity) -> None:
+        self._absences.pop(identity, None)
+
+    def drop_entry(self, identity: Identity) -> None:
+        self._entries.pop(identity, None)
+        self._positions.pop(identity, None)
+        self._placements.pop(identity, None)
+        self._absences.pop(identity, None)
+        for job in self._jobs.values():
+            if job.identity == identity:
+                self._saves.pop(job.job_id, None)
+
     # --- Candidates ---
 
     def text_candidates(self, query: Query, *, limit: int) -> list[Candidate]:
@@ -170,16 +204,30 @@ class InMemoryCorpusStore:
         )
 
     def knn_candidates(
-        self, vector: Sequence[float], *, limit: int, placed_only: bool = False
+        self,
+        vector: Sequence[float],
+        *,
+        model_id: str,
+        limit: int,
+        placed_only: bool = False,
     ) -> list[Candidate]:
         return _best_first(
             [
                 Candidate(entry.identity, _cosine(vector, entry.embedding.vector))
                 for entry in self._entries.values()
-                if not placed_only or entry.identity in self._placements
+                if entry.embedding.model_id == model_id
+                and (not placed_only or entry.identity in self._placements)
             ],
             limit,
         )
+
+    def entries_embedded_otherwise(
+        self, model_id: str, *, limit: int
+    ) -> list[CorpusEntry]:
+        ordered = sorted(
+            self._entries.values(), key=lambda e: self._positions[e.identity]
+        )
+        return [e for e in ordered if e.embedding.model_id != model_id][:limit]
 
     # --- Placements ---
 
@@ -264,6 +312,22 @@ class InMemoryCorpusStore:
     def latest_tree_snapshot(self) -> Snapshot | None:
         return self._latest_tree
 
+    def put_profile_tree(self, profile_id: ProfileId, snapshot: Snapshot) -> None:
+        kept = self._profile_trees.get(profile_id)
+        if kept is None or snapshot.taken_at >= kept.taken_at:
+            self._profile_trees[profile_id] = snapshot
+
+    def profile_trees(self) -> dict[ProfileId, Snapshot]:
+        return dict(self._profile_trees)
+
+    def drop_profile_trees_before(self, taken_at: int) -> list[ProfileId]:
+        dropped = sorted(
+            p for p, tree in self._profile_trees.items() if tree.taken_at < taken_at
+        )
+        for profile_id in dropped:
+            del self._profile_trees[profile_id]
+        return dropped
+
     def put_snapshot(self, snapshot_id: SnapshotId, snapshot: Snapshot) -> None:
         self._snapshots[snapshot_id] = snapshot
 
@@ -273,6 +337,15 @@ class InMemoryCorpusStore:
     def release_snapshot(self, snapshot_id: SnapshotId) -> None:
         if all(r.snapshot_id != snapshot_id for r in self._batches.values()):
             self._snapshots.pop(snapshot_id, None)
+
+    def drop_snapshots_before(self, taken_at: int) -> list[SnapshotId]:
+        dropped = sorted(i for i, s in self._snapshots.items() if s.taken_at < taken_at)
+        for snapshot_id in dropped:
+            del self._snapshots[snapshot_id]
+        for batch_id, record in self._batches.items():
+            if record.snapshot_id in dropped:
+                self._batches[batch_id] = replace(record, snapshot_id=None)
+        return dropped
 
     # --- Feedback ---
 
@@ -333,10 +406,10 @@ class InMemoryCorpusStore:
 
     # --- Owned-folder flags ---
 
-    def put_folder_flags(self, node_id: NodeId, flags: FolderFlags) -> None:
-        self._flags[node_id] = flags
+    def put_folder_flags(self, path: FolderPath, flags: FolderFlags) -> None:
+        self._flags[path] = flags
 
-    def folder_flags(self) -> dict[NodeId, FolderFlags]:
+    def folder_flags(self) -> dict[FolderPath, FolderFlags]:
         return dict(self._flags)
 
     # --- Profiles ---
@@ -347,6 +420,10 @@ class InMemoryCorpusStore:
     def bind_writer_profile(self, profile_id: ProfileId) -> None:
         if self._writer_profile is None:
             self._writer_profile = profile_id
+
+    def release_writer_profile(self) -> ProfileId | None:
+        released, self._writer_profile = self._writer_profile, None
+        return released
 
     def put_follow_up(self, profile_id: ProfileId, path: FolderPath) -> None:
         self._follow_ups[profile_id] = path
@@ -361,3 +438,9 @@ class InMemoryCorpusStore:
 
     def get_request(self, request_id: RequestId) -> str | None:
         return self._requests.get(request_id)
+
+    def list_requests(self) -> list[RequestId]:
+        return sorted(self._requests)
+
+    def forget_request(self, request_id: RequestId) -> None:
+        self._requests.pop(request_id, None)

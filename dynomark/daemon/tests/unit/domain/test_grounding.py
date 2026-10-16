@@ -1,7 +1,7 @@
 """Grounding a chat answer (DYNOMARK.DESIGN.md, Goal 5: "an Answer cites
 CorpusEntry identities that the retrieval step returned; an identity the
 completion invents is dropped; a URL outside the corpus is marked
-external"). Contract v1 ``Answer``: at most 50 citations and 50 external
+external"). Contract v2 ``Answer``: at most 50 citations and 50 external
 urls, text at most 65,536 code points.
 """
 
@@ -16,6 +16,7 @@ from dynomark_daemon.domain.chat import (
     Citation,
     DraftAnswer,
     ground,
+    urls_in_text,
 )
 from tests._factories import make_path
 
@@ -85,6 +86,43 @@ def test_ground_cites_a_retrieved_page_the_draft_mentions_by_a_url_variant() -> 
     answer = ground(draft, (TOKIO,), in_corpus=frozenset())
 
     assert answer.citations == (TOKIO,) and answer.external_urls == ()
+
+
+def test_ground_marks_an_out_of_corpus_url_only_in_the_text_external() -> None:
+    """Given a draft whose text names an out-of-corpus URL its ``urls`` list
+    leaves out, and a corpus URL the retrieval did not return, When grounded,
+    Then the outside URL is external (Goal 5: every out-of-corpus URL), with
+    sentence punctuation and a link's closing bracket not part of it; the
+    corpus one is neither marked nor cited, and a retrieved one named in the
+    text is cited (issue #423)."""
+    other = "https://docs.rs/tokio"
+    text = (
+        "See https://doc.rust-lang.org/book/ch16.html. Also [the guide]"
+        f"(https://example.org/guide) and {other}, or {TOKIO.identity.value}"
+    )
+
+    answer = ground(_draft(text=text), (TOKIO,), in_corpus=frozenset({Identity(other)}))
+
+    assert answer.external_urls == (
+        "https://doc.rust-lang.org/book/ch16.html",
+        "https://example.org/guide",
+    )
+    assert answer.citations == (TOKIO,)
+
+
+@given(
+    path=st.text("abcxyz019-_~/%", max_size=12),
+    before=st.sampled_from(["", " ", "(", "see "]),
+    after=st.sampled_from(["", " ", ".", ",", ")", "!", "? next"]),
+)
+def test_urls_in_text_finds_the_url_without_its_surroundings(
+    path: str, before: str, after: str
+) -> None:
+    """Given an http(s) URL inside any surrounding text and punctuation, When
+    the URLs in the text are found, Then it is found exactly once, whole."""
+    url = f"https://example.org/{path}"
+
+    assert urls_in_text(f"{before}{url}{after}") == (url,)
 
 
 def test_ground_never_marks_a_non_http_url_external() -> None:

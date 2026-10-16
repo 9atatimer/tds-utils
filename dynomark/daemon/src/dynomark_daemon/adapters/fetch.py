@@ -17,19 +17,40 @@ import http.client
 import re
 import socket
 import ssl
+import threading
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from email.message import Message
 from http.client import HTTPMessage
-from ipaddress import IPv4Address, IPv6Address, ip_address
+from ipaddress import ip_address
 from typing import IO, Final, Protocol
 from urllib.parse import urlsplit
 
 from dynomark_daemon.adapters.readable import readable
 from dynomark_daemon.domain.bookmark import Bookmark, Capture, CaptureSource
+from dynomark_daemon.domain.vetting import (
+    AddressPolicy,
+    IPAddress,
+    UrlVerdict,
+    VetRefusal,
+    any_address,
+    host_and_port,
+    is_public,
+    judge,
+)
 from dynomark_daemon.ports.content import ContentUnavailable
+
+__all__ = [
+    "AddressPolicy",
+    "DnsAddressVet",
+    "FetchContentSource",
+    "IPAddress",
+    "RefusedAddress",
+    "any_address",
+    "is_public",
+]
 
 SCHEMES: Final = frozenset({"http", "https"})
 TEXT_TYPES: Final = frozenset({"text/html", "application/xhtml+xml", "text/plain"})
@@ -38,24 +59,6 @@ USER_AGENT: Final = "dynomark/0.1 (local bookmark capture; no cookies)"
 META_CHARSET: Final = re.compile(rb"""<meta[^>]+charset=["']?([A-Za-z0-9._-]+)""", re.I)
 SNIFF_BYTES: Final = 4096
 READ_CHUNK: Final = 65536
-
-
-IPAddress = IPv4Address | IPv6Address
-AddressPolicy = Callable[[IPAddress], bool]
-"""Whether the fetch may connect to an address (every one a host resolves to
-must pass)."""
-
-
-# --- The address policy ---
-
-
-def is_public(address: IPAddress) -> bool:
-    """A globally routable unicast address: never loopback, link-local,
-    private, unspecified, reserved or multicast (an IPv4-mapped IPv6 address
-    is judged as its IPv4 address)."""
-    if isinstance(address, IPv6Address) and address.ipv4_mapped is not None:
-        address = address.ipv4_mapped
-    return address.is_global and not address.is_multicast
 
 
 _Connect = Callable[
@@ -67,10 +70,19 @@ passes the request's timeout."""
 BLOCKSIZE: Final = 8192
 
 
-def any_address(address: IPAddress) -> bool:
-    """Every address: an install that fetches its intranet and localhost
-    pages (``[capture] private_addresses``)."""
-    return True
+Resolve = Callable[[str, int], Sequence[str]]
+"""A host and port to the addresses it resolves to, as text."""
+
+
+def system_resolve(host: str, port: int) -> list[str]:
+    """``getaddrinfo`` for a stream connection: every address, as text.
+
+    Raises:
+        OSError: the host does not resolve (``socket.gaierror``).
+        UnicodeError: an IDNA-refused host label.
+    """
+    infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    return [str(info[4][0]) for info in infos]
 
 
 class RefusedAddress(OSError):
@@ -84,8 +96,7 @@ def _vetted(host: str, port: int, allowed: AddressPolicy) -> str:
     Raises:
         RefusedAddress: some address ``host`` resolves to is refused.
     """
-    infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
-    addresses = [ip_address(str(info[4][0]).split("%")[0]) for info in infos]
+    addresses = [ip_address(a.split("%")[0]) for a in system_resolve(host, port)]
     refused = [a for a in addresses if not allowed(a)]
     if refused or not addresses:
         where = refused[0] if refused else "nothing"
@@ -309,3 +320,81 @@ class FetchContentSource:
         if not page.text:
             raise _unavailable(url, "no readable text", retryable=False)
         return Capture(source=CaptureSource.FETCH, text=page.text, title=page.title)
+
+
+# --- The background-tab vet (Key Decisions "Background-tab capture") ---
+
+
+DEFAULT_VET_DEADLINE_S: Final = 3.0
+"""How long one ``url.vet`` waits for DNS before it answers unresolved."""
+VET_LOOKUPS: Final = 4
+"""At most this many lookups at once; a vet waits for a free one within its
+deadline. A lookup that outlives its vet keeps its slot until DNS answers,
+so a resolver that hangs costs these threads, never the model pool's."""
+
+
+class _Lookup:
+    """One lookup's answer, handed from its thread to the vet waiting on it."""
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.addresses: Sequence[str] | None = None
+
+
+class DnsAddressVet:
+    """``AddressVetPort`` by DNS: the fetch fallback's own policy, applied to
+    every address a URL's host resolves to before a background tab loads it.
+
+    ``getaddrinfo`` cannot be cancelled, and ``url.vet`` is answered on the
+    transport's small model pool, so each lookup runs on a daemon thread of
+    its own (``VET_LOOKUPS`` at once) and the vet waits for it at most
+    ``deadline_s``: a host whose DNS does not answer in time is unresolved,
+    not allowed (issue #534 T6)."""
+
+    def __init__(
+        self,
+        *,
+        allowed: AddressPolicy,
+        resolve: Resolve = system_resolve,
+        deadline_s: float = DEFAULT_VET_DEADLINE_S,
+        lookups: int = VET_LOOKUPS,
+    ) -> None:
+        self._allowed = allowed
+        self._resolve = resolve
+        self._deadline_s = deadline_s
+        self._slots = threading.BoundedSemaphore(lookups)
+
+    def _lookup(self, host: str, port: int, lookup: _Lookup) -> None:
+        try:
+            lookup.addresses = self._resolve(host, port)
+        except (OSError, UnicodeError):
+            lookup.addresses = None
+        finally:
+            self._slots.release()
+            lookup.done.set()
+
+    def _addresses(self, host: str, port: int) -> Sequence[str] | None:
+        """What ``host`` resolves to, or ``None`` when it does not resolve or
+        does not answer within the deadline."""
+        deadline = time.monotonic() + self._deadline_s
+        if not self._slots.acquire(timeout=self._deadline_s):
+            return None
+        lookup = _Lookup()
+        threading.Thread(
+            target=self._lookup,
+            args=(host, port, lookup),
+            name="dynomark-dns",
+            daemon=True,
+        ).start()
+        if not lookup.done.wait(max(0.0, deadline - time.monotonic())):
+            return None
+        return lookup.addresses
+
+    def vet(self, url: str) -> UrlVerdict:
+        target = host_and_port(url)
+        if target is None:
+            return UrlVerdict(VetRefusal.UNRESOLVED)
+        addresses = self._addresses(*target)
+        if addresses is None:
+            return UrlVerdict(VetRefusal.UNRESOLVED)
+        return judge(addresses, self._allowed)

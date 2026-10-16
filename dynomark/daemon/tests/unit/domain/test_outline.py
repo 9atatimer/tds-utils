@@ -1,6 +1,6 @@
 """The TreeOutline (DYNOMARK.DESIGN.md, Ubiquitous language: "the folder
 skeleton of the owned subtree with pin/lock flags and per-folder item
-counts; no URLs"), derived from the latest tree snapshot. Contract v1:
+counts; no URLs"), derived from the latest tree snapshot. Contract v2:
 marker folders are excluded from the outline (Writer marker)."""
 
 from dynomark_daemon.domain.ids import NodeId
@@ -22,7 +22,7 @@ def test_outline_holds_the_dynomark_folders_with_flags_and_item_counts() -> None
     """Given a tree and a lock on one folder, When the outline is derived, Then
     it holds exactly the Dynomark folders (root included, marker and Follow Up
     excluded) with their flags and bookmark counts."""
-    flags = {NodeId("14"): FolderFlags(pinned=False, locked=True)}
+    flags = {make_path("Dynomark", "Rust"): FolderFlags(pinned=False, locked=True)}
 
     outline = outline_of(TREE, make_path("Dynomark"), flags)
 

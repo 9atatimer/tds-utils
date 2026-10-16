@@ -15,6 +15,7 @@ import type { Job } from '../domain/jobs.js';
 import type { Url } from '../domain/values.js';
 import type { PageClient, PageResponse } from '../ports/pages.js';
 import { byId, el, when } from './dom.js';
+import { modelsText } from './models.js';
 
 // --- Types ---
 
@@ -161,8 +162,8 @@ async function fileUrl(doc: Document, client: PageClient, url: Url): Promise<voi
 
 async function showModel(doc: Document, client: PageClient): Promise<void> {
   const response = await client.request({ kind: 'overview' });
-  const model = response.ok && response.kind === 'overview' ? response.overview.daemon?.models.completion : undefined;
-  byId(doc, 'model').textContent = model === undefined ? 'Model unknown' : `Answers by ${model.id} (${model.local ? 'local' : 'cloud'})`;
+  const models = response.ok && response.kind === 'overview' ? response.overview.daemon?.models : undefined;
+  byId(doc, 'model').textContent = models === undefined ? 'Models unknown' : modelsText(models);
 }
 
 // --- The page ---

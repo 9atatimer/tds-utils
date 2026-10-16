@@ -1,4 +1,4 @@
-// paths.test.ts -- FolderPath resolution, contract v1 README, "Write batches",
+// paths.test.ts -- FolderPath resolution, contract v2 README, "Write batches",
 // Paths: the root key maps exactly to Snapshot.root_ids (the syncing copy);
 // at each level the child FOLDER with the lowest index whose well-formed title
 // equals the name exactly; names [] is the top-level folder itself.

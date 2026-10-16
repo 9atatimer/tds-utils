@@ -1,6 +1,6 @@
 """The daemon's Config from TOML (DYNOMARK.DESIGN.md, Ubiquitous language:
 "Config -- HostRole, model ids, store path, RetryPolicy"; The daemon,
-"Config -- loaded once by the composition root"; contract/v1 README,
+"Config -- loaded once by the composition root"; contract/v2 README,
 Endpoint: the socket path). Parsing is pure: the TOML text is an input.
 
 A missing file gives documented defaults with role reader, so a fresh
@@ -43,6 +43,7 @@ max_backoff_ms = 600000
 fetch_timeout_s = 7.5
 max_bytes = 1000000
 private_addresses = true
+vet_timeout_s = 1.5
 """
 
 
@@ -77,6 +78,7 @@ def test_no_config_file_gives_documented_defaults_with_role_reader() -> None:
     assert config.owned_roots.dynomark.root is RootKey.BAR
     assert config.owned_roots.dynomark.names == ("Dynomark",)
     assert settings.capture.private_addresses is False
+    assert settings.capture.vet_timeout_s == 3.0
     assert not settings.config_found
 
 
@@ -104,6 +106,7 @@ def test_a_full_config_file_sets_every_value() -> None:
         1_000_000,
     )
     assert settings.capture.private_addresses is True
+    assert settings.capture.vet_timeout_s == 1.5
     assert settings.config_found
 
 
@@ -125,6 +128,27 @@ def test_the_environment_places_state_socket_and_ollama() -> None:
     assert not settings.config.embedding_model.local
 
 
+def test_a_cloud_tagged_completion_on_a_loopback_host_is_marked_not_local() -> None:
+    """Given Ollama on loopback with a local embedding model and a cloud-tagged
+    completion model, When parsed, Then status will report each model with
+    its own mark: the embedding local, the completion not (issue #411)."""
+    settings = _parse('[models]\ncompletion = "gpt-oss:120b-cloud"')
+
+    assert settings.config.embedding_model.local
+    assert not settings.config.completion_model.local
+
+
+def test_models_remote_declares_a_loopback_endpoint_remote() -> None:
+    """Given ``[models] remote = true`` (Ollama reached through a tunnel or proxy
+    on 127.0.0.1), When parsed, Then neither model is local."""
+    settings = _parse("[models]\nremote = true")
+
+    assert settings.config.embedding_model == ModelInfo(
+        "ollama:nomic-embed-text", local=False
+    )
+    assert not settings.config.completion_model.local
+
+
 @pytest.mark.parametrize(
     ("text", "names"),
     [
@@ -138,6 +162,7 @@ def test_the_environment_places_state_socket_and_ollama() -> None:
         ("[models]\nembedding = ''", "models.embedding"),
         ("[capture]\nmax_bytes = -1", "capture.max_bytes"),
         ('[capture]\nprivate_addresses = "yes"', "capture.private_addresses"),
+        ('[models]\nremote = "yes"', "models.remote"),
         ("[store]\nsize = 1", "store.size"),
     ],
 )

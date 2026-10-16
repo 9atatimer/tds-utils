@@ -1,0 +1,20 @@
+{
+  "v": 2,
+  "type": "batch.offer",
+  "event_id": "evt-0204",
+  "batch": {
+    "batch_id": "batch-0108",
+    "diff_item_id": "item-0003",
+    "operations": [
+      {
+        "op": "create_folder",
+        "index": 0,
+        "parent": {
+          "root": "bar",
+          "names": []
+        },
+        "title": "Reading"
+      }
+    ]
+  }
+}

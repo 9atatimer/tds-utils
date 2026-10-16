@@ -37,6 +37,15 @@ export const NO_CAPTURE: ExtensionCapture = { source: 'none', text: '' };
 
 const CAPTURABLE_SCHEME = /^https?:/i;
 
+/**
+ * A loopback literal the writer asks the daemon to vet before a background
+ * load: refused under the default address policy (private addresses are
+ * blocked in the tab by literal), allowed only under the policy's opt-out,
+ * which applies to the background tab as to fetch (design, Configuration,
+ * "Address policy opt-out"; issue #534).
+ */
+export const PRIVATE_ADDRESS_PROBE: Url = 'http://127.0.0.1/';
+
 // --- Predicates ---
 
 /** True only for http(s) URLs: nothing else is ever read from a page (design, Security). */

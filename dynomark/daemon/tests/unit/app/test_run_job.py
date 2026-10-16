@@ -13,6 +13,7 @@ from dynomark_daemon.domain.batch import (
     Expect,
     OpCreateFolder,
     OpRemove,
+    ParkReason,
 )
 from dynomark_daemon.domain.events import BatchOffered, JobUpdated
 from dynomark_daemon.domain.ids import NodeId
@@ -20,7 +21,12 @@ from dynomark_daemon.domain.job import JobState
 from dynomark_daemon.domain.placement import FolderChoice, Placement
 from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.ports.completion import CompletionError
-from dynomark_daemon.testing.completion import EnrichCall, ScriptedCompletion
+from dynomark_daemon.testing.completion import (
+    ChooseFolderCall,
+    EnrichCall,
+    ScriptedCompletion,
+)
+from dynomark_daemon.wire.mapping import batch_summary_to_wire
 from tests._factories import (
     make_job,
     make_node,
@@ -149,6 +155,27 @@ def test_run_job_parks_a_duplicate_identity_in_the_graveyard() -> None:
     assert [type(c) for c in loop.completion.calls] == [EnrichCall]
 
 
+def test_a_parking_batch_names_the_existing_placement() -> None:
+    """Given an identity already FILED in Dynomark/Rust, When a new save of it is
+    parked, Then the parking batch carries the reason naming that existing
+    placement, and the history's batch summary shows it (issue #423)."""
+    tree = make_tree(*TREE.nodes[3:], make_node("41", "14", "Tokio", url=URL))
+    loop = Loop(ScriptedCompletion(enrich=[ENRICHMENT]), tree)
+    _with_filed_original(loop, node_id="41")
+
+    job = loop.run(loop.save())
+
+    assert job.batch_id is not None
+    record = loop.store.get_batch(job.batch_id)
+    assert record is not None
+    assert record.batch.park == ParkReason(existing=RUST)
+    summary = batch_summary_to_wire(record)
+    assert summary.park is not None and summary.park.existing.names == [
+        "Dynomark",
+        "Rust",
+    ]
+
+
 def test_run_job_files_again_an_identity_whose_filed_node_is_gone() -> None:
     """Given an identity FILED earlier whose node is no longer in the tree, When
     a new node of it is run, Then it is placed and filed, not parked."""
@@ -169,7 +196,36 @@ def test_run_job_files_again_an_identity_whose_filed_node_is_gone() -> None:
     assert not any(isinstance(op, OpRemove) for op in record.batch.operations)
 
 
-# --- Backfill (contract v1, Jobs: Backfill; design Open Question 3) ---
+def test_run_job_files_a_re_save_whose_only_filed_copy_is_parked() -> None:
+    """Given an original filed and then deleted by hand, and a duplicate of it
+    parked in Graveyard (its job FILED by the parking batch), When the URL is
+    saved again, Then the new save is placed and filed, not parked behind the
+    parked copy (issue #414)."""
+    tree = make_tree(
+        *TREE.nodes[3:],
+        make_node("15", "1", "Graveyard", index=2),
+        make_node("43", "15", "Tokio tutorial", url=URL),
+    )
+    loop = Loop(
+        ScriptedCompletion(
+            enrich=[ENRICHMENT],
+            choose_folder=[FolderChoice(folder=RUST, rationale="rust")],
+        ),
+        tree,
+    )
+    _with_filed_original(loop, node_id="41")  # deleted: not in the tree
+    loop.store.put_job(make_job("job-parked", node_id="43", state=JobState.FILED))
+
+    job = loop.run(loop.save())
+
+    assert job.batch_id is not None
+    record = loop.store.get_batch(job.batch_id)
+    assert record is not None
+    assert not any(isinstance(op, OpRemove) for op in record.batch.operations)
+    assert [type(c) for c in loop.completion.calls] == [EnrichCall, ChooseFolderCall]
+
+
+# --- Backfill (contract v2, Jobs: Backfill; design Open Question 3) ---
 
 
 def test_run_job_backfill_already_in_dynomark_is_filed_in_place() -> None:

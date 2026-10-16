@@ -7,7 +7,7 @@ from typing import Final, Self
 
 from dynomark_daemon.domain.bookmark import CaptureSource, Identity
 from dynomark_daemon.domain.ids import BatchId, JobId, NodeId, ProfileId
-from dynomark_daemon.domain.tree import Snapshot
+from dynomark_daemon.domain.tree import FolderPath, Snapshot
 
 
 class JobState(StrEnum):
@@ -167,16 +167,51 @@ class RetryPolicy:
         return min(self.initial_backoff_ms << doublings, self.max_backoff_ms)
 
 
-def is_duplicate(job: Job, filed: Iterable[Job], tree: Snapshot | None) -> bool:
+def _is_filed_outside(node_id: NodeId, tree: Snapshot, graveyard: FolderPath) -> bool:
+    """``node_id`` is in ``tree`` and does not sit in ``graveyard``: a parked
+    copy is not a filing."""
+    node = tree.node(node_id)
+    if node is None:
+        return False
+    parent = None if node.parent_id is None else tree.path_of(node.parent_id)
+    return parent is None or not parent.is_inside(graveyard)
+
+
+def existing_placement(
+    job: Job, filed: Iterable[Job], tree: Snapshot | None, *, graveyard: FolderPath
+) -> FolderPath | None:
+    """The folder ``job``'s identity is already filed in: where the first other
+    FILED copy that makes it a duplicate (``is_duplicate``) sits in the tree
+    now; ``None`` when it is no duplicate."""
+    if tree is None:
+        return None
+    for other in filed:
+        if (
+            other.job_id != job.job_id
+            and other.identity == job.identity
+            and other.state is JobState.FILED
+            and _is_filed_outside(other.node_id, tree, graveyard)
+        ):
+            node = tree.node(other.node_id)
+            if node is not None and node.parent_id is not None:
+                return tree.path_of(node.parent_id)
+    return None
+
+
+def is_duplicate(
+    job: Job, filed: Iterable[Job], tree: Snapshot | None, *, graveyard: FolderPath
+) -> bool:
     """``job``'s identity is already filed: another job of it is FILED and its
-    node is present in the latest tree (contract v1, Jobs: Duplicate
-    identity)."""
+    node is present in the latest tree outside ``graveyard`` (contract v2,
+    Jobs: Duplicate identity). A duplicate parked in ``graveyard`` is FILED by
+    its parking batch, yet never makes a later save a duplicate (issue
+    #414)."""
     if tree is None:
         return False
     return any(
         other.job_id != job.job_id
         and other.identity == job.identity
         and other.state is JobState.FILED
-        and tree.node(other.node_id) is not None
+        and _is_filed_outside(other.node_id, tree, graveyard)
         for other in filed
     )

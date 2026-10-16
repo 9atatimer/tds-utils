@@ -19,6 +19,7 @@ import type { BookmarkTreePort } from '../ports/bookmarkTree.js';
 import type { BookmarkEvent } from '../ports/bookmarkEvents.js';
 import type { ChatSurfacePort } from '../ports/chatSurface.js';
 import type { Clock } from '../ports/clock.js';
+import type { BackgroundTabPort } from '../ports/backgroundTab.js';
 import type { ContentSourcePort } from '../ports/contentSource.js';
 import type { HistoryPort } from '../ports/history.js';
 import type { IdSource } from '../ports/idSource.js';
@@ -54,6 +55,19 @@ export { SNAPSHOT_DEBOUNCE_MS } from './treeWatch.js';
 /** Problems kept for the options page, newest last. */
 const MAX_PROBLEMS = 20;
 
+// --- Predicates ---
+
+/**
+ * The link was lost (a daemon stopped or restarting, a host that cannot
+ * reach it): work the reconnect re-runs -- the connect routine, the Follow Up
+ * backlog, the move reports, the backfill, replayed events and offers, index
+ * pulls, writer status -- is not a problem for it. Superseded is not this:
+ * that connection never comes back.
+ */
+function isLostLink(error: unknown): boolean {
+  return error instanceof TransportLost && error.reason === 'disconnected';
+}
+
 // --- Types ---
 
 /** Every port the background needs; the entry point supplies the chrome adapters. */
@@ -61,8 +75,8 @@ export interface RuntimePorts {
   readonly tree: BookmarkTreePort;
   readonly history: HistoryPort;
   readonly content: ContentSourcePort;
-  /** Opens a URL in a background tab and reads it (the writer's third ContentSourcePort adapter). */
-  readonly background: ContentSourcePort;
+  /** Opens a URL in a background tab and reads it (the writer's background-tab port). */
+  readonly background: BackgroundTabPort;
   readonly storage: StoragePort;
   readonly transport: TransportPort & TransportLink;
   readonly clock: Clock;
@@ -114,7 +128,7 @@ export class ExtensionRuntime {
       index: () => this.index.index(),
       frecency: () => this.index.frecency(),
       roots: () => this.state?.connection.outcome()?.owned_roots,
-      track: (work) => this.track(work),
+      track: (work) => this.track(work, { rerun: false }),
     });
   }
 
@@ -252,9 +266,9 @@ export class ExtensionRuntime {
     this.track(this.ready.then((s) => s.watch.resendMoves()));
     this.track(this.ready.then((s) => s.backfill.resume()));
     this.track(
-      this.writer
-        .refresh({ transport: connection, ids: this.ports.ids })
-        .catch((error: unknown) => this.problem(`writer.status: ${String(error)}`)),
+      this.writer.refresh({ transport: connection, ids: this.ports.ids }).catch((error: unknown) => {
+        if (!isLostLink(error)) this.problem(`writer.status: ${String(error)}`);
+      }),
     );
   }
 
@@ -298,8 +312,16 @@ export class ExtensionRuntime {
 
   // --- Bookkeeping ---
 
-  private track(work: Promise<unknown>): void {
-    const settled = work.catch((error: unknown) => this.problem(error instanceof Error ? error.message : String(error)));
+  /**
+   * Run background work, reporting a failure as a problem -- unless the work
+   * is re-run on reconnect (the default) and the failure is a lost link: the
+   * next hello does it again (the omnibox's tier-2 search is not re-run).
+   */
+  private track(work: Promise<unknown>, options: { readonly rerun: boolean } = { rerun: true }): void {
+    const settled = work.catch((error: unknown) => {
+      if (options.rerun && isLostLink(error)) return;
+      this.problem(error instanceof Error ? error.message : String(error));
+    });
     this.tracked.add(settled);
     void settled.finally(() => this.tracked.delete(settled));
   }

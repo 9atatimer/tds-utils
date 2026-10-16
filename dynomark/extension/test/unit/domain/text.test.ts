@@ -1,5 +1,5 @@
 // text.test.ts -- the extension makes every string well-formed before sending
-// (contract v1 README, "Framing": String.prototype.toWellFormed semantics,
+// (contract v2 README, "Framing": String.prototype.toWellFormed semantics,
 // lone surrogates -> U+FFFD).
 
 import { describe, expect, it } from 'vitest';

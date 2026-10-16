@@ -1,4 +1,4 @@
-// connection.ts -- the connection lifecycle on the extension side (contract v1
+// connection.ts -- the connection lifecycle on the extension side (contract v2
 // README, "Connection lifecycle", "Delivery and replay", "Roles and errors").
 //
 // A Connection is the TransportPort every other use case is handed. It says
@@ -6,7 +6,11 @@
 // role, host id, owned roots), refuses locally any request the mode does not
 // permit, and re-sends a request that went unanswered because the
 // connection dropped (or the daemon answered hello_required) after a new
-// hello, with the same id and body. `superseded` ends it for good.
+// hello, with the same id and body. A hello answered `busy` is the host
+// saying no daemon listens (a daemon stopped or restarting): a lost link,
+// retried by reconnecting, never a refusal (design, "Transport contract":
+// daemon restart is retryable by reconnecting; issue #524). `superseded`
+// ends it for good.
 
 import { isPermitted, modeFor, type ConnectionMode, type HostRole } from '../domain/roles.js';
 import { fitPath } from '../domain/limits.js';
@@ -78,6 +82,11 @@ function samePath(a: FolderPath, b: FolderPath): boolean {
 
 function isHelloRequired(response: { readonly type: string }): boolean {
   return response.type === 'error' && (response as ErrorMessage).code === 'hello_required';
+}
+
+/** A hello answered busy: dynomark-host found no daemon on the socket and closes the link after answering. */
+function isNoDaemon(response: { readonly type: string }): boolean {
+  return response.type === 'error' && (response as ErrorMessage).code === 'busy';
 }
 
 function isDisconnect(error: unknown): boolean {
@@ -191,6 +200,7 @@ export class Connection implements TransportPort {
     let outcome: HelloOutcome;
     try {
       const response = await this.deps.transport.send(hello);
+      if (isNoDaemon(response)) throw new TransportLost('disconnected');
       if (response.type === 'error') throw new DaemonError(response);
       const decided = helloOutcome(response, this.identity);
       if (decided instanceof ContractViolation) {

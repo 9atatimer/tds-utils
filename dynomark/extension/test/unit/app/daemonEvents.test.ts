@@ -1,4 +1,4 @@
-// daemonEvents.test.ts -- contract v1 README, "Delivery and replay" (design,
+// daemonEvents.test.ts -- contract v2 README, "Delivery and replay" (design,
 // "Transport contract", delivery): job.updated and diff.proposed are
 // acknowledged by events.ack; the extension de-duplicates their side effects
 // by event_id, and of two copies of one job keeps the higher seq whatever
@@ -22,7 +22,7 @@ import { CONTEXT, DYNOMARK, seedOwnedTree } from '../../fixtures/ownedTree.js';
 
 function jobUpdated(event_id: string, state: JobState, seq: number, job_id = 'job-1'): EventMessage {
   const job: Job = { job_id, node_id: '42', identity: 'https://tokio.rs/', state, seq, attempts: 0, backfill: false };
-  return { v: 1, type: 'job.updated', event_id, job };
+  return { v: 2, type: 'job.updated', event_id, job };
 }
 
 const DIFF = { diff_id: 'diff-1', kind: 'rebuild' as const, proposed_at: 1, item_count: 2, unaccepted_count: 2 };
@@ -43,7 +43,7 @@ function sentOf(transport: FakeTransport, type: string): RequestMessage[] {
 
 /** What dynomark-host answers when no daemon listens (daemon README): busy, retry later. */
 function daemonDown(r: RequestMessage): ResponseMessage {
-  return { v: 1, type: 'error', re: r.id, code: 'busy', message: 'the dynomark daemon is not running' };
+  return { v: 2, type: 'error', re: r.id, code: 'busy', message: 'the dynomark daemon is not running' };
 }
 
 function acked(transport: FakeTransport): string[] {
@@ -128,8 +128,8 @@ describe('Daemon events -- DaemonEvents(deps, lane).handle(event)', () => {
 
   it('Given a diff.proposed twice, When handled, Then each copy is acknowledged and the diff is kept once', async () => {
     const { w, events } = setup();
-    await events.handle({ v: 1, type: 'diff.proposed', event_id: 'evt-d', diff: DIFF });
-    await events.handle({ v: 1, type: 'diff.proposed', event_id: 'evt-d', diff: DIFF });
+    await events.handle({ v: 2, type: 'diff.proposed', event_id: 'evt-d', diff: DIFF });
+    await events.handle({ v: 2, type: 'diff.proposed', event_id: 'evt-d', diff: DIFF });
     expect(acked(w.connection())).toEqual(['evt-d', 'evt-d']);
     expect([...events.diffs().values()]).toEqual([DIFF]);
   });
@@ -140,7 +140,7 @@ describe('Daemon events -- DaemonEvents(deps, lane).handle(event)', () => {
     w.connection().autoAnswer(scriptedDaemon({}));
     const events = new DaemonEvents(w.worker(), new BatchLane(() => CONTEXT, w.worker()));
     await events.handle({
-      v: 1,
+      v: 2,
       type: 'batch.offer',
       event_id: 'evt-b',
       batch: { batch_id: 'batch-1', operations: [{ op: 'create_folder', index: 0, parent: DYNOMARK, title: 'Go' }] },
@@ -179,7 +179,7 @@ describe('Daemon events -- DaemonEvents(deps, lane).handle(event)', () => {
 
   it('Given the daemon answers the ack invalid, When handled, Then it rejects (only transport loss and retryable codes wait for a replay)', async () => {
     const w = new FakeExtensionWorld({ flavor: 'chrome' });
-    w.connection().autoAnswer((r) => ({ v: 1, type: 'error', re: r.id, code: 'invalid', message: 'no' }));
+    w.connection().autoAnswer((r) => ({ v: 2, type: 'error', re: r.id, code: 'invalid', message: 'no' }));
     const events = new DaemonEvents(w.worker(), NO_BATCHES);
 
     await expect(events.handle(jobUpdated('evt-1', 'FILED', 3))).rejects.toThrow('invalid');
@@ -193,7 +193,7 @@ describe('Daemon events -- DaemonEvents(deps, lane).handle(event)', () => {
 
     await expect(
       events.handle({
-        v: 1,
+        v: 2,
         type: 'batch.offer',
         event_id: 'evt-b',
         batch: { batch_id: 'batch-1', operations: [{ op: 'create_folder', index: 0, parent: DYNOMARK, title: 'Go' }] },
@@ -210,7 +210,7 @@ describe('A retryable answer on a live link -- the daemon is asked to replay aft
     const lifecycle = scriptedDaemon({});
     w.connection().autoAnswer((r) => {
       if (r.type === 'events.ack' && (acks += 1) === 1)
-        return { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
+        return { v: 2, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
       if (r.type === 'events.replay') void events.handle(jobUpdated('evt-1', 'FILED', 3));
       return lifecycle(r);
     });

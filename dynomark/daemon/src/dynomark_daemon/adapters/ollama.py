@@ -47,7 +47,7 @@ MAX_PROMPT_TEXT: Final = 12_000
 """Captured text shown to the model, in code points."""
 MAX_TAGS: Final = 8
 MAX_TAG: Final = 64
-"""A tag's longest form (contract v1 ``Tag``)."""
+"""A tag's longest form (contract v2 ``Tag``)."""
 MAX_CONTEXT_TEXT: Final = 2_000
 MAX_DIFF_ITEMS: Final = 50
 """Items one proposal keeps; the rest of the model's answer is ignored."""

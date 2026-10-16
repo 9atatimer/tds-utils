@@ -1,4 +1,4 @@
-// code-points.test.ts -- contract v1 README, "Framing": string lengths in the
+// code-points.test.ts -- contract v2 README, "Framing": string lengths in the
 // schema count Unicode code points (a JS runtime counts [...s].length, not
 // s.length). No golden file exercises this, so these cases are synthetic.
 
@@ -14,7 +14,7 @@ const ASTRAL = '\u{1F516}';
 
 function ingestTitled(title: string): unknown {
   return {
-    v: 1,
+    v: 2,
     type: 'ingest',
     id: 'req-1',
     bookmark: { node_id: '42', url: 'https://example.com/', title, path: { root: 'bar', names: ['Follow Up'] }, date_added: 0 },
@@ -23,7 +23,7 @@ function ingestTitled(title: string): unknown {
 }
 
 function searchFor(query: string): unknown {
-  return { v: 1, type: 'search', id: 'req-2', query };
+  return { v: 2, type: 'search', id: 'req-2', query };
 }
 
 // --- Tests ---

@@ -1,4 +1,4 @@
-"""Contract v1 shared values: one model per non-message ``$defs`` entry.
+"""Contract v2 shared values: one model per non-message ``$defs`` entry.
 
 Names follow messages.schema.json so a reader can put the two side by
 side. Enums are ``Literal`` string sets (exact, case-sensitive).
@@ -28,6 +28,7 @@ from dynomark_daemon.wire.base import (
 
 RootKey = Literal["bar", "other", "mobile", "menu"]
 HostRole = Literal["writer", "reader"]
+WriterBinding = Literal["this_profile", "other_profile", "unbound"]
 CaptureSource = Literal["tab", "background_tab", "fetch", "none"]
 ExtensionCaptureSource = Literal["tab", "background_tab", "none"]
 """``Capture.source`` on the wire: ``fetch`` is daemon-only."""
@@ -55,7 +56,10 @@ NodeKind = Literal["folder", "bookmark", "separator"]
 SkipReason = Literal["node_missing", "parent_mismatch", "not_empty"]
 FailReason = Literal["parent_missing", "browser_error"]
 RejectReason = Literal["boundary", "invalid", "writer_conflict"]
-UndoDropReason = Literal["node_moved", "node_missing", "not_empty"]
+UndoDropReason = Literal[
+    "node_moved", "node_missing", "not_empty", "locked", "owned_root"
+]
+VetRefusal = Literal["scheme", "unresolved", "address"]
 DiffAction = Literal["add", "move", "merge"]
 
 
@@ -196,10 +200,28 @@ Operation = Annotated[
 ]
 
 
+class ParkReason(WireModel):
+    existing: FolderPath
+
+
 class WriteBatch(WireModel):
     batch_id: Id
     operations: Annotated[list[Operation], Field(min_length=1, max_length=1000)]
     diff_item_id: Id | None = None
+    park: ParkReason | None = None
+    scope: Annotated[list[FolderPath], Field(min_length=1, max_length=200)] | None = (
+        None
+    )
+
+    @model_validator(mode="after")
+    def _scope_goes_with_its_item(self) -> Self:
+        if (self.diff_item_id is None) != (self.scope is None):
+            raise ValueError("a batch carries scope exactly when it has diff_item_id")
+        if self.scope is not None and len(
+            {(p.root, tuple(p.names)) for p in self.scope}
+        ) != len(self.scope):
+            raise ValueError("scope names each folder once")
+        return self
 
 
 class OpApplied(WireModel):
@@ -281,6 +303,7 @@ class BatchSummary(WireModel):
     diff_item_id: Id | None = None
     undoes: Id | None = None
     undone_by: Id | None = None
+    park: ParkReason | None = None
 
 
 # --- Moves, search, chat, placement ---

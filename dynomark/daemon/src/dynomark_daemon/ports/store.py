@@ -74,6 +74,31 @@ class CorpusStorePort(Protocol):
         """Up to ``limit`` entries with position > ``after``, by position."""
         ...
 
+    def entry_identities(self) -> list[Identity]:
+        """The identity of every entry, by position; no entry is decoded."""
+        ...
+
+    # --- Retention (Key Decisions, Retention 2026-10-16) ---
+
+    def absences(self) -> dict[Identity, int]:
+        """When each entry tracked absent from the tree was first found so."""
+        ...
+
+    def put_absence(self, identity: Identity, since: int) -> None:
+        """Track ``identity`` absent since ``since``, unless it already is
+        (its first-absent time is kept)."""
+        ...
+
+    def clear_absence(self, identity: Identity) -> None:
+        """Stop tracking ``identity`` absent; unknown identities are ignored."""
+        ...
+
+    def drop_entry(self, identity: Identity) -> None:
+        """Delete the entry of ``identity`` (and its search candidates), its
+        placement, the save of every job of it, and its absence, in one
+        transaction. Its jobs and batch rows stay."""
+        ...
+
     # --- Candidates for hybrid search (fusion is the domain's) ---
 
     def text_candidates(self, query: Query, *, limit: int) -> list[Candidate]:
@@ -82,10 +107,24 @@ class CorpusStorePort(Protocol):
         ...
 
     def knn_candidates(
-        self, vector: Sequence[float], *, limit: int, placed_only: bool = False
+        self,
+        vector: Sequence[float],
+        *,
+        model_id: str,
+        limit: int,
+        placed_only: bool = False,
     ) -> list[Candidate]:
-        """Nearest entries by cosine similarity (the ``score``), nearest first;
-        ``placed_only`` keeps entries that have a placement."""
+        """Nearest entries embedded by ``model_id`` (the model ``vector`` is
+        in) by cosine similarity (the ``score``), nearest first; an entry of
+        another model is never a candidate. ``placed_only`` keeps entries
+        that have a placement."""
+        ...
+
+    def entries_embedded_otherwise(
+        self, model_id: str, *, limit: int
+    ) -> list[CorpusEntry]:
+        """Up to ``limit`` entries embedded by a model other than ``model_id``,
+        by position; read by key, at a cost that follows how many there are."""
         ...
 
     # --- Placements ---
@@ -159,6 +198,22 @@ class CorpusStorePort(Protocol):
 
     def latest_tree_snapshot(self) -> Snapshot | None: ...
 
+    def put_profile_tree(self, profile_id: ProfileId, snapshot: Snapshot) -> None:
+        """Keep ``snapshot`` as ``profile_id``'s latest tree unless a later one
+        is kept: a profile served as a reader, for Retention only (issue
+        #421). Never the latest tree filing, outline and undo read."""
+        ...
+
+    def profile_trees(self) -> dict[ProfileId, Snapshot]:
+        """Each such profile's latest tree."""
+        ...
+
+    def drop_profile_trees_before(self, taken_at: int) -> list[ProfileId]:
+        """Forget every profile tree taken before ``taken_at`` (never the
+        latest tree): a profile not heard from since is no longer known to
+        Retention. The profiles dropped, in id order."""
+        ...
+
     def put_snapshot(self, snapshot_id: SnapshotId, snapshot: Snapshot) -> None:
         """Archive a batch's fallback export; never the latest tree."""
         ...
@@ -168,6 +223,12 @@ class CorpusStorePort(Protocol):
     def release_snapshot(self, snapshot_id: SnapshotId) -> None:
         """Delete the archived snapshot unless a batch still names it as its
         ``snapshot_id``; a batch that moved to another archive released it."""
+        ...
+
+    def drop_snapshots_before(self, taken_at: int) -> list[SnapshotId]:
+        """Delete every archived snapshot taken before ``taken_at`` (never the
+        latest tree); a batch that named one names none after. The ids
+        dropped, in id order."""
         ...
 
     # --- Feedback ---
@@ -222,11 +283,11 @@ class CorpusStorePort(Protocol):
 
     # --- Owned-folder flags ---
 
-    def put_folder_flags(self, node_id: NodeId, flags: FolderFlags) -> None:
-        """Set the flags of an owned folder (by this host's node id)."""
+    def put_folder_flags(self, path: FolderPath, flags: FolderFlags) -> None:
+        """Set the flags of the owned folder at ``path``."""
         ...
 
-    def folder_flags(self) -> dict[NodeId, FolderFlags]: ...
+    def folder_flags(self) -> dict[FolderPath, FolderFlags]: ...
 
     # --- Profiles ---
 
@@ -236,6 +297,11 @@ class CorpusStorePort(Protocol):
 
     def bind_writer_profile(self, profile_id: ProfileId) -> None:
         """Bind the store to ``profile_id`` unless it is already bound."""
+        ...
+
+    def release_writer_profile(self) -> ProfileId | None:
+        """Unbind the store (the owner's ``rebind``); the profile it was bound
+        to, or ``None``. The next bind takes."""
         ...
 
     def put_follow_up(self, profile_id: ProfileId, path: FolderPath) -> None:
@@ -251,3 +317,11 @@ class CorpusStorePort(Protocol):
         ...
 
     def get_request(self, request_id: RequestId) -> str | None: ...
+
+    def list_requests(self) -> list[RequestId]:
+        """Every remembered request id, in id order."""
+        ...
+
+    def forget_request(self, request_id: RequestId) -> None:
+        """Forget a request id; an unknown one is ignored."""
+        ...

@@ -1,6 +1,6 @@
 // chromeBookmarkTree.test.ts -- the BookmarkTreePort on chrome.bookmarks runs
 // the port contract over a tiny stand-in for chrome.bookmarks, with and
-// without account storage; root_ids name the syncing copies (contract v1
+// without account storage; root_ids name the syncing copies (contract v2
 // README, "Write batches", Paths) and Chrome's refusals become BrowserRefused.
 
 import { describe, expect, it } from 'vitest';

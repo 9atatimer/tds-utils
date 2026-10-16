@@ -13,10 +13,15 @@ import type { ContentSourcePort } from '../../ports/contentSource.js';
 
 // --- Types ---
 
-/** What the injected reader returns. */
+/** A page's title and readable text. */
 export interface PageText {
   readonly title: string;
   readonly text: string;
+}
+
+/** What the injected reader returns: the page text, and the URL of the document it was read from. */
+export interface ReadPage extends PageText {
+  readonly url: string;
 }
 
 interface TabLike {
@@ -46,11 +51,11 @@ export const MAX_PAGE_UNITS = MAX_CAPTURE_TEXT * 2;
 
 // --- Injected (runs in the page; must stay self-contained) ---
 
-/** The page title and the rendered text of its article, main or body, cut to `maxUnits` UTF-16 units. */
-export function readPage(maxUnits: number): PageText {
+/** The page title and the rendered text of its article, main or body, cut to `maxUnits` UTF-16 units, and the page's URL. */
+export function readPage(maxUnits: number): ReadPage {
   const root: HTMLElement | null = document.querySelector('article') ?? document.querySelector('main') ?? document.body;
   const text = root?.innerText ?? '';
-  return { title: document.title, text: text.length > maxUnits ? text.slice(0, maxUnits) : text };
+  return { title: document.title, text: text.length > maxUnits ? text.slice(0, maxUnits) : text, url: location.href };
 }
 
 // --- Predicates ---
@@ -60,6 +65,11 @@ export function isPageText(value: unknown): value is PageText {
   if (typeof value !== 'object' || value === null) return false;
   const v = value as Record<string, unknown>;
   return typeof v['title'] === 'string' && typeof v['text'] === 'string';
+}
+
+/** True when an injected reader's result also names the URL it read. */
+export function isReadPage(value: unknown): value is ReadPage {
+  return isPageText(value) && typeof (value as unknown as Record<string, unknown>)['url'] === 'string';
 }
 
 // --- The adapter ---

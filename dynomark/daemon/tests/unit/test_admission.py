@@ -1,4 +1,4 @@
-"""Request admission (contract/v1 README, Connection lifecycle, step 3: "the
+"""Request admission (contract/v2 README, Connection lifecycle, step 3: "the
 daemon checks every request in this order, and the first rule that applies
 decides the answer"; step 2's read-only set). Transport contract, "Identity
 and version" (DYNOMARK.DESIGN.md): "On mismatch, write-producing flows

@@ -1,6 +1,6 @@
 // backfill.ts -- which existing bookmarks a backfill ingests, and how far it
 // got (design, Open Question 3: run the existing tree through capture and
-// indexing at first install -- searchable, not re-filed; contract v1, "Jobs":
+// indexing at first install -- searchable, not re-filed; contract v2, "Jobs":
 // a backfill ingest is never offered a batch). Candidates are the http(s)
 // bookmarks outside the folders given to skip (Follow Up: those are ordinary
 // saves; Graveyard: removed). Progress is a list fixed at the start plus how

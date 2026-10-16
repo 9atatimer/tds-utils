@@ -1,7 +1,7 @@
 """Behaviors row: A save is ingested (DYNOMARK.DESIGN.md, Behaviors and
 Interfaces) -- ``ingest(bookmark, capture, *, store) -> Job``: "Given a
 bookmark, When ingested, Then a Job is QUEUED; a second ingest with the same
-(NodeId, Identity) returns the same job". Contract v1 keys the job on
+(NodeId, Identity) returns the same job". Contract v2 keys the job on
 (profile, node_id, identity of bookmark.url) (Delivery and replay).
 """
 
@@ -110,7 +110,7 @@ def test_ingest_the_same_url_on_another_node_or_profile_is_another_job() -> None
 
 
 def test_ingest_a_backfill_queues_a_job_marked_backfill() -> None:
-    """Given a save the extension sends as backfill (contract v1, Jobs:
+    """Given a save the extension sends as backfill (contract v2, Jobs:
     Backfill), When ingested, Then its job is QUEUED and marked backfill."""
     store = InMemoryCorpusStore()
 

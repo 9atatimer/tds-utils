@@ -1,5 +1,5 @@
-// framing.ts -- contract v1 framing on the socket hop: a uint32
-// little-endian length, then that many bytes of UTF-8 JSON (contract v1
+// framing.ts -- contract v2 framing on the socket hop: a uint32
+// little-endian length, then that many bytes of UTF-8 JSON (contract v2
 // README, "Framing").
 
 // --- Pure helpers ---

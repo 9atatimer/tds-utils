@@ -1,8 +1,8 @@
-"""Contract v1 messages: one model per message ``$defs`` entry, and the union.
+"""Contract v2 messages: one model per message ``$defs`` entry, and the union.
 
 Every frame is exactly one message, discriminated by ``type``. A request
 carries ``id``, a response ``re``, an event ``event_id``
-(contract/v1/README.md, Envelope). ``hello``, ``hello.result`` and
+(contract/v2/README.md, Envelope). ``hello``, ``hello.result`` and
 ``error`` are frozen and accept any ``v >= 1``; every other message pins
 ``v`` to ``CONTRACT_VERSION``.
 """
@@ -21,7 +21,6 @@ from dynomark_daemon.wire.base import (
     HostId,
     Id,
     Identity,
-    NodeId,
     Url,
     Version,
     WireModel,
@@ -52,10 +51,12 @@ from dynomark_daemon.wire.values import (
     TreeOutline,
     Turn,
     UndoDrop,
+    VetRefusal,
     WriteBatch,
+    WriterBinding,
 )
 
-# --- Page sizes (contract/v1/README.md, Size limits) ---
+# --- Page sizes (contract/v2/README.md, Size limits) ---
 
 LARGE_PAGE: Final = 1000
 SMALL_PAGE: Final = 100
@@ -427,8 +428,7 @@ class FolderFlagsSet(WireModel):
     v: Version
     type: Literal["folder.flags.set"]
     id: Id
-    node_id: NodeId
-    path: FolderPath | None = None
+    path: FolderPath
     pinned: bool | None = None
     locked: bool | None = None
 
@@ -484,6 +484,31 @@ class StatusResult(WireModel):
     contract_version: Annotated[int, Field(ge=1)]
     models: Models
     queue_depth: Count
+    writer_binding: WriterBinding | None = None
+
+
+# --- Background-tab capture ---
+
+
+class UrlVet(WireModel):
+    v: Version
+    type: Literal["url.vet"]
+    id: Id
+    url: Url
+
+
+class UrlVetResult(WireModel):
+    v: Version
+    type: Literal["url.vet.result"]
+    re: Id
+    allowed: bool
+    refusal: VetRefusal | None = None
+
+    @model_validator(mode="after")
+    def _refused_says_why(self) -> Self:
+        if self.allowed == (self.refusal is not None):
+            raise ValueError("a refused vet carries refusal; an allowed one none")
+        return self
 
 
 # --- The union ---
@@ -535,6 +560,8 @@ AnyMessage = (
     | WriterStatusResult
     | Status
     | StatusResult
+    | UrlVet
+    | UrlVetResult
     | Error
     | JobUpdated
     | BatchOffer
@@ -560,6 +587,6 @@ def validate_message(body: bytes | str) -> AnyMessage:
     """Parse one frame body into its message model.
 
     Raises:
-        pydantic.ValidationError: the body fails contract v1.
+        pydantic.ValidationError: the body fails contract v2.
     """
     return MESSAGE_ADAPTER.validate_json(body)

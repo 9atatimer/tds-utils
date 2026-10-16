@@ -10,7 +10,7 @@ the bookmark tree until told to. An unknown key or a bad value is a
 
 Files: state ``$XDG_STATE_HOME/dynomark`` (default
 ``~/.local/state/dynomark``) holds the store, the log and the socket;
-``$DYNOMARK_SOCKET`` overrides the socket (contract/v1 README, Endpoint).
+``$DYNOMARK_SOCKET`` overrides the socket (contract/v2 README, Endpoint).
 Models are Ollama model names at ``$OLLAMA_HOST`` (default
 ``http://127.0.0.1:11434``); their ``Config`` ids are ``ollama:<name>``.
 """
@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Final
 from urllib.parse import urlsplit
 
-from dynomark_daemon.domain.config import Config, ModelInfo
+from dynomark_daemon.domain.config import Config, ModelInfo, is_local_model
 from dynomark_daemon.domain.ids import HostId
 from dynomark_daemon.domain.job import RetryPolicy
 from dynomark_daemon.domain.roles import HostRole
@@ -47,12 +47,12 @@ DEFAULT_RETRY: Final = RetryPolicy(
 )
 DEFAULT_FETCH_TIMEOUT_S: Final = 15.0
 DEFAULT_FETCH_MAX_BYTES: Final = 5_000_000
+DEFAULT_VET_TIMEOUT_S: Final = 3.0
 DEFAULT_ROOTS: Final = OwnedRoots(
     follow_up=FolderPath(root=RootKey.BAR, names=("Follow Up",)),
     dynomark=FolderPath(root=RootKey.BAR, names=("Dynomark",)),
     graveyard=FolderPath(root=RootKey.BAR, names=("Graveyard",)),
 )
-LOOPBACK: Final = frozenset({"127.0.0.1", "localhost", "::1"})
 HOST_ID: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")
 NOT_HOST_ID: Final = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -60,11 +60,13 @@ SCHEMA: Final[Mapping[str, frozenset[str]]] = {
     "": frozenset(
         {"host_id", "role", "models", "store", "socket", "retry", "capture", "diffs"}
     ),
-    "models": frozenset({"embedding", "completion", "timeout_s"}),
+    "models": frozenset({"embedding", "completion", "timeout_s", "remote"}),
     "store": frozenset({"path"}),
     "socket": frozenset({"path"}),
     "retry": frozenset({"attempts", "initial_backoff_ms", "max_backoff_ms"}),
-    "capture": frozenset({"fetch_timeout_s", "max_bytes", "private_addresses"}),
+    "capture": frozenset(
+        {"fetch_timeout_s", "max_bytes", "private_addresses", "vet_timeout_s"}
+    ),
     "diffs": frozenset({"rebuild_every_hours"}),
 }
 HOUR_MS: Final = 3_600_000
@@ -76,12 +78,14 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class CaptureSettings:
-    """The fetch adapter's limits, and whether it may reach loopback,
-    link-local and private addresses (off: public addresses only)."""
+    """The fetch adapter's limits, whether it may reach loopback, link-local
+    and private addresses (off: public addresses only), and how long
+    ``url.vet`` waits for DNS before it answers unresolved."""
 
     fetch_timeout_s: float
     max_bytes: int
     private_addresses: bool = False
+    vet_timeout_s: float = DEFAULT_VET_TIMEOUT_S
 
 
 @dataclass(frozen=True, slots=True)
@@ -241,6 +245,15 @@ def _capture(document: Mapping[str, object]) -> CaptureSettings:
             False,
             _is_flag,
         ),
+        vet_timeout_s=float(
+            _value(
+                table,
+                "capture.vet_timeout_s",
+                "vet_timeout_s",
+                DEFAULT_VET_TIMEOUT_S,
+                _is_seconds,
+            )
+        ),
     )
 
 
@@ -294,16 +307,23 @@ def parse_settings(
     timeout = _value(
         models, "models.timeout_s", "timeout_s", DEFAULT_MODEL_TIMEOUT_S, _is_seconds
     )
+    remote = _value(models, "models.remote", "remote", False, _is_flag)
     url = ollama_url(env)
-    local = (urlsplit(url).hostname or "") in LOOPBACK
+    host = urlsplit(url).hostname or ""
     socket_value = env.get("DYNOMARK_SOCKET", "")
     return Settings(
         config=Config(
             host_id=_host_id(document, hostname),
             role=_role(document),
             owned_roots=DEFAULT_ROOTS,
-            embedding_model=ModelInfo(model_id=f"ollama:{embedding}", local=local),
-            completion_model=ModelInfo(model_id=f"ollama:{completion}", local=local),
+            embedding_model=ModelInfo(
+                model_id=f"ollama:{embedding}",
+                local=is_local_model(host, embedding, declared_remote=remote),
+            ),
+            completion_model=ModelInfo(
+                model_id=f"ollama:{completion}",
+                local=is_local_model(host, completion, declared_remote=remote),
+            ),
             store_path=_path_setting(document, "store", state / STORE_NAME, home),
             retry=_retry(document),
             rebuild_cadence_ms=_rebuild_cadence_ms(document),

@@ -1,6 +1,6 @@
 """Transport contract, Delivery: "Events are durable on the daemon until
 acknowledged; on connect the extension asks for everything unacknowledged"
-(DYNOMARK.DESIGN.md), as contract/v1 pins it (Delivery and replay; One
+(DYNOMARK.DESIGN.md), as contract/v2 pins it (Delivery and replay; One
 batch at a time; Connection lifecycle, the read-only and refused modes).
 """
 
@@ -147,7 +147,7 @@ def test_events_go_only_to_the_profile_they_belong_to() -> None:
     assert transport.events_for(A) == [job]
 
 
-# --- A batch that cannot fit one frame (contract v1, Size limits) ---
+# --- A batch that cannot fit one frame (contract v2, Size limits) ---
 
 
 def _fits_unless(batch_id: str) -> Callable[[Event], bool]:

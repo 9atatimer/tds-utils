@@ -1,5 +1,5 @@
 """Use case: the local index is built (DYNOMARK.DESIGN.md, Behaviors and
-Interfaces; contract/v1 README, ``index.pull``: cursors stay valid across
+Interfaces; contract/v2 README, ``index.pull``: cursors stay valid across
 data changes).
 
 Pages are keyset by the store position of an entry, which is kept when the

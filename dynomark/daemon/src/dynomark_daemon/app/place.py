@@ -9,7 +9,12 @@ before ``file`` builds a batch.
 from collections.abc import Sequence
 from typing import Final
 
-from dynomark_daemon.domain.bookmark import CorpusEntry, Enrichment, embedding_text
+from dynomark_daemon.domain.bookmark import (
+    CorpusEntry,
+    Embedding,
+    Enrichment,
+    embedding_text,
+)
 from dynomark_daemon.domain.placement import (
     EntryRef,
     MoveFeedback,
@@ -28,19 +33,23 @@ NEIGHBOURS: Final = 5
 """How many placed neighbours the completion is shown."""
 
 
-def _vector(entry: CorpusEntry, *, embedding: EmbeddingPort) -> tuple[float, ...]:
-    """The entry's vector in the model the store's neighbours were embedded by."""
+def _vector(entry: CorpusEntry, *, embedding: EmbeddingPort) -> Embedding:
+    """The entry's embedding in the current model, the one KNN reads."""
     if entry.embedding.model_id == embedding.model().model_id:
-        return entry.embedding.vector
+        return entry.embedding
     about = Enrichment(summary=entry.summary, tags=entry.tags)
-    return embedding.embed(embedding_text(entry.bookmark, about)).vector
+    return embedding.embed(embedding_text(entry.bookmark, about))
 
 
 def _neighbours(
     entry: CorpusEntry, *, store: CorpusStorePort, embedding: EmbeddingPort
 ) -> tuple[EntryRef, ...]:
+    vector = _vector(entry, embedding=embedding)
     candidates = store.knn_candidates(
-        _vector(entry, embedding=embedding), limit=NEIGHBOURS + 1, placed_only=True
+        vector.vector,
+        model_id=vector.model_id,
+        limit=NEIGHBOURS + 1,
+        placed_only=True,
     )
     refs: list[EntryRef] = []
     for candidate in candidates:

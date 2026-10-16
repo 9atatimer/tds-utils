@@ -1,5 +1,5 @@
 """Use case: a user move becomes feedback, daemon side (DYNOMARK.DESIGN.md,
-The extension, "Record feedback"; contract/v1 ``move.observed``).
+The extension, "Record feedback"; contract/v2 ``move.observed``).
 """
 
 from typing import Final
@@ -28,7 +28,7 @@ def record_feedback(
     if feedback is None:
         return None
     # No unit of work: a kill after the feedback leaves ``move.observed``
-    # unanswered; its re-send (contract v1: requests are at-least-once)
+    # unanswered; its re-send (contract v2: requests are at-least-once)
     # records the feedback once (by ``feedback_id``) and moves the placement.
     store.put_feedback(feedback)
     placed = store.get_placement(feedback.identity)

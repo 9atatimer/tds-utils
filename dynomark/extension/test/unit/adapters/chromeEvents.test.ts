@@ -73,6 +73,16 @@ describe('listenBookmarkEvents', () => {
   });
 });
 
+describe('listenBookmarkEvents -- a reorder', () => {
+  it('Given a bookmark dragged within its folder, When onMoved fires with the same parent, Then the listener gets a reorder of that folder, not a move (no feedback; Codex on 9atatimer/tds-utils PR#535)', () => {
+    const api = bookmarkApi();
+    const seen: BookmarkEvent[] = [];
+    listenBookmarkEvents((e) => seen.push(e), api);
+    api.onMoved.fire('7', { parentId: '6', oldParentId: '6', index: 0, oldIndex: 2 });
+    expect(seen).toEqual([{ kind: 'reordered', folder_id: '6' }]);
+  });
+});
+
 describe('Omnibox suggestions', () => {
   it('Given a hit whose title and path hold XML metacharacters, When described, Then every one is escaped and the path is dimmed', () => {
     expect(describeHit(HIT)).toBe(

@@ -1,7 +1,7 @@
 // syncIndex.test.ts -- design Behaviors row "The local index is synced":
 // sync_index(*, transport) -> LocalIndex. Given a changed corpus, When
 // synced, Then the index has one row per entry, each at most 512 bytes.
-// Contract v1, "Index freshness" and "Pagination": the extension pulls from
+// Contract v2, "Index freshness" and "Pagination": the extension pulls from
 // the first page, follows next_cursor, and swaps the new index in only when
 // the last page (next_cursor null) arrives; on stale_cursor it restarts from
 // the first page.
@@ -41,7 +41,7 @@ function pagingDaemon(corpus: () => readonly LocalIndexRow[], fault?: (call: num
     const limit = r.limit ?? 1000;
     const rows = corpus().slice(offset, offset + limit);
     const next = offset + limit < corpus().length ? `off:${offset + limit}` : null;
-    return { v: 1, type: 'index.pull.result', re: r.id, rows, next_cursor: next };
+    return { v: 2, type: 'index.pull.result', re: r.id, rows, next_cursor: next };
   };
 }
 
@@ -108,7 +108,7 @@ describe('Behavior: The local index is synced -- syncIndex({ transport, ids, sto
     transport.autoAnswer(
       pagingDaemon(
         () => corpus,
-        (call, r) => (call === 2 ? { v: 1, type: 'error', re: r.id, code: 'internal', message: 'store closed' } : undefined),
+        (call, r) => (call === 2 ? { v: 2, type: 'error', re: r.id, code: 'internal', message: 'store closed' } : undefined),
       ),
     );
     await expect(syncIndex(deps(transport, storage), { page_limit: 2 })).rejects.toBeInstanceOf(DaemonError);
@@ -121,7 +121,7 @@ describe('Behavior: The local index is synced -- syncIndex({ transport, ids, sto
     transport.autoAnswer(
       pagingDaemon(
         () => corpus,
-        (call, r) => (call === 2 ? { v: 1, type: 'error', re: r.id, code: 'stale_cursor', message: 'expired' } : undefined),
+        (call, r) => (call === 2 ? { v: 2, type: 'error', re: r.id, code: 'stale_cursor', message: 'expired' } : undefined),
       ),
     );
     const index = await syncIndex(deps(transport), { page_limit: 2 });
@@ -143,7 +143,7 @@ describe('Behavior: The local index is synced -- syncIndex({ transport, ids, sto
         () => corpus,
         (_call, r) =>
           r.type === 'index.pull' && r.cursor !== undefined
-            ? { v: 1, type: 'error', re: r.id, code: 'stale_cursor', message: 'expired' }
+            ? { v: 2, type: 'error', re: r.id, code: 'stale_cursor', message: 'expired' }
             : undefined,
       ),
     );

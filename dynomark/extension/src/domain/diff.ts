@@ -58,5 +58,5 @@ export interface DiffItem {
 /** An inverse operation the undo guard dropped, and why. */
 export interface UndoDrop {
   readonly index: number;
-  readonly reason: 'node_moved' | 'node_missing' | 'not_empty';
+  readonly reason: 'node_moved' | 'node_missing' | 'not_empty' | 'locked' | 'owned_root';
 }

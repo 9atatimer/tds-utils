@@ -23,7 +23,7 @@ const CORPUS_HITS = [hit('https://only-in-text.example/', 0.61, 'corpus'), hit('
 
 function corpusDaemon(r: RequestMessage): ResponseMessage {
   if (r.type !== 'search') throw new Error(`unexpected ${r.type}`);
-  return { v: 1, type: 'search.result', re: r.id, hits: CORPUS_HITS.map((h) => ({ ...h, tier: 'corpus' as const })), next_cursor: null };
+  return { v: 2, type: 'search.result', re: r.id, hits: CORPUS_HITS.map((h) => ({ ...h, tier: 'corpus' as const })), next_cursor: null };
 }
 
 // --- Tests ---
@@ -61,7 +61,7 @@ describe('Behavior: Tier-2 search is requested -- searchRemote(query, { transpor
     expect(shouldRequestTier2(local, { tier2_min_hits: 2, tier2_min_score: 0.9 })).toBe(true);
   });
 
-  it('Given a query, When requested, Then one valid contract v1 search frame carries it, with a page limit', async () => {
+  it('Given a query, When requested, Then one valid contract v2 search frame carries it, with a page limit', async () => {
     const transport = new FakeTransport();
     transport.autoAnswer(corpusDaemon);
     await searchRemote('tokio', { transport, ids: new SequentialIdSource() }, { limit: 20 });
@@ -86,7 +86,7 @@ describe('Behavior: Tier-2 search is requested -- searchRemote(query, { transpor
 
   it('Given the daemon answers error, When requested, Then it rejects with a DaemonError', async () => {
     const transport = new FakeTransport();
-    transport.autoAnswer((r) => ({ v: 1, type: 'error', re: r.id, code: 'version_mismatch', message: 'read-only' }));
+    transport.autoAnswer((r) => ({ v: 2, type: 'error', re: r.id, code: 'version_mismatch', message: 'read-only' }));
     await expect(searchRemote('tokio', { transport, ids: new SequentialIdSource() })).rejects.toBeInstanceOf(DaemonError);
   });
 });

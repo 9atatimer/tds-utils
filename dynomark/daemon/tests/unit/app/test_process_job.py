@@ -156,6 +156,65 @@ def test_process_job_whose_fetch_fails_continues_with_source_none() -> None:
     )
 
 
+def _process_with(
+    store: InMemoryCorpusStore, job: Job, fetch: FakeFetch, clock: FakeClock
+) -> CorpusEntry | Job:
+    stored = store.get_job(job.job_id)
+    assert stored is not None
+    return process_job(
+        stored,
+        POLICY,
+        store=store,
+        content=fetch,
+        embedding=HashingEmbedding(),
+        completion=ScriptedCompletion(enrich=[ENRICHMENT]),
+        clock=clock,
+        ids=SequentialIds(),
+    )
+
+
+def test_process_job_whose_fetch_fails_transiently_is_retried_then_fetched() -> None:
+    """Given a save with capture source none whose page answers 503 once, When
+    processed, Then the attempt fails retryably (CAPTURING, one attempt, no
+    entry); When processed again, Then the entry is built from the fetched
+    text (issue #418: retried per RetryPolicy on a retryable error)."""
+    store = InMemoryCorpusStore()
+    job = _queued(store, Capture.none())
+    fetch = FakeFetch({URL: ("Tokio", "fetched words")}, outages={URL: 1})
+    clock = FakeClock(start_ms=1_000)
+
+    first = _process_with(store, job, fetch, clock)
+    second = _process_with(store, job, fetch, clock)
+
+    assert isinstance(first, Job)
+    assert (first.state, first.attempts) == (JobState.CAPTURING, 1)
+    assert isinstance(second, CorpusEntry)
+    assert (second.capture.source, second.capture.text) == (
+        CaptureSource.FETCH,
+        "fetched words",
+    )
+
+
+def test_process_job_whose_fetch_keeps_failing_settles_for_none_when_spent() -> None:
+    """Given a page that answers 503 on every read, When the job is processed
+    RetryPolicy.attempts times, Then each attempt but the last waits for a
+    retry and the last settles for source none and reaches ENRICHED."""
+    store = InMemoryCorpusStore()
+    job = _queued(store, Capture.none())
+    fetch = FakeFetch({}, outages={URL: POLICY.attempts})
+    clock = FakeClock(start_ms=1_000)
+
+    results = [_process_with(store, job, fetch, clock) for _ in range(POLICY.attempts)]
+
+    assert [r.state for r in results if isinstance(r, Job)] == [
+        JobState.CAPTURING,
+        JobState.CAPTURING,
+    ]
+    assert isinstance(results[-1], CorpusEntry)
+    assert results[-1].capture.source is CaptureSource.NONE
+    assert fetch.requested == [URL] * POLICY.attempts
+
+
 def _process(
     store: InMemoryCorpusStore, job: Job, completion: ScriptedCompletion
 ) -> CorpusEntry | Job:

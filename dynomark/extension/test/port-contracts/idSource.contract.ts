@@ -1,4 +1,4 @@
-// idSource.contract.ts -- what every IdSource must do (contract v1 README,
+// idSource.contract.ts -- what every IdSource must do (contract v2 README,
 // "Envelope": request ids are random with at least 122 bits -- a UUIDv4 --
 // and never reused for a different body).
 

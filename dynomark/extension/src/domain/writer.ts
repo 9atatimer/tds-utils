@@ -1,6 +1,6 @@
 // writer.ts -- the writer marker as the daemon reports it (design, Key
 // Decisions "Two writers": MVP, refuse on a writer marker in the owned tree;
-// contract v1, "Writer marker (MVP)").
+// contract v2, "Writer marker (MVP)").
 
 import type { HostRole } from './roles.js';
 import type { HostId } from './values.js';

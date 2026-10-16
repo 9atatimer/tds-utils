@@ -19,12 +19,12 @@ const FOLDER = { node_id: '16', path: { root: 'bar' as const, names: ['Dynomark'
 function answers(r: RequestMessage): ResponseMessage | undefined {
   switch (r.type) {
     case 'diff.propose':
-      return { v: 1, type: 'diff.propose.result', re: r.id, diff: DIFF };
+      return { v: 2, type: 'diff.propose.result', re: r.id, diff: DIFF };
     case 'diff.list':
-      return { v: 1, type: 'diff.list.result', re: r.id, diffs: [DIFF], next_cursor: null };
+      return { v: 2, type: 'diff.list.result', re: r.id, diffs: [DIFF], next_cursor: null };
     case 'diff.page':
       return {
-        v: 1,
+        v: 2,
         type: 'diff.page.result',
         re: r.id,
         diff: DIFF,
@@ -52,12 +52,12 @@ function answers(r: RequestMessage): ResponseMessage | undefined {
       };
     case 'diff.accept':
       return r.item_id === 'item-conflict'
-        ? { v: 1, type: 'error', re: r.id, code: 'writer_conflict', message: 'marker of host work-laptop present' }
-        : { v: 1, type: 'diff.accept.result', re: r.id, item_id: r.item_id, accepted_at: 10, batch_id: 'batch-107' };
+        ? { v: 2, type: 'error', re: r.id, code: 'writer_conflict', message: 'marker of host work-laptop present' }
+        : { v: 2, type: 'diff.accept.result', re: r.id, item_id: r.item_id, accepted_at: 10, batch_id: 'batch-107' };
     case 'outline.get':
-      return { v: 1, type: 'outline.get.result', re: r.id, outline: [FOLDER], next_cursor: null };
+      return { v: 2, type: 'outline.get.result', re: r.id, outline: [FOLDER], next_cursor: null };
     case 'folder.flags.set':
-      return { v: 1, type: 'folder.flags.set.result', re: r.id, folder: { ...FOLDER, locked: r.locked ?? false } };
+      return { v: 2, type: 'folder.flags.set.result', re: r.id, folder: { ...FOLDER, locked: r.locked ?? false } };
     default:
       return undefined;
   }
@@ -120,11 +120,12 @@ describe('Diff view -- accept one item, pin and lock', () => {
     expect(await runtime.page({ kind: 'diff.accept', item_id: 'item-conflict' })).toMatchObject({ ok: false, code: 'writer_conflict' });
   });
 
-  it('Given the outline, When a folder is locked, Then folder.flags.set carries its node id, path and the lock', async () => {
+  it('Given the outline, When a folder is locked, Then folder.flags.set carries its path and the lock, no node id', async () => {
     const { w, runtime } = await setup();
     expect(await runtime.page({ kind: 'outline' })).toEqual({ ok: true, kind: 'outline', folders: [FOLDER], next_cursor: null });
     const page = await runtime.page({ kind: 'folder.flags', node_id: '16', path: FOLDER.path, locked: true });
     expect(page).toEqual({ ok: true, kind: 'folder.flags', folder: { ...FOLDER, locked: true } });
-    expect(sentOf(w, 'folder.flags.set')[0]).toMatchObject({ node_id: '16', path: FOLDER.path, locked: true });
+    expect(sentOf(w, 'folder.flags.set')[0]).toMatchObject({ path: FOLDER.path, locked: true });
+    expect(sentOf(w, 'folder.flags.set')[0]).not.toHaveProperty('node_id');
   });
 });

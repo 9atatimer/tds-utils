@@ -1,5 +1,5 @@
 """Use case: a batch is undone (DYNOMARK.DESIGN.md, Behaviors and Interfaces;
-The daemon, "Undo"; Goal 6; contract/v1 README, Undo guard and the
+The daemon, "Undo"; Goal 6; contract/v2 README, Undo guard and the
 idempotency table).
 """
 
@@ -87,7 +87,7 @@ def _undo(
         applied_ops(record.receipt),
         tree,
         roots,
-        locked=locked_folders(store=store),
+        locked=locked_folders(tree, store=store),
     )
     if not operations:
         return Undone(undoes=batch_id, batch=None, dropped=dropped)

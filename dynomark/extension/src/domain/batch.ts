@@ -1,5 +1,5 @@
 // batch.ts -- write batches, their receipts and the in-flight cursor (design,
-// "Operation", "WriteBatch", "BatchReceipt"; contract v1, "Write batches").
+// "Operation", "WriteBatch", "BatchReceipt"; contract v2, "Write batches").
 
 import type { FolderPath, Snapshot } from './tree.js';
 import type { BatchId, Id, NodeId, Title, Url } from './values.js';
@@ -51,10 +51,19 @@ export interface OpRemove {
 export type Operation = OpCreateFolder | OpCreate | OpMove | OpRemove;
 
 /** Ordered operations offered by the daemon; an optional accepted `DiffItem` reference exempts it from the boundary. */
+/** Why a batch parks its node in Graveyard: its identity is already filed, in `existing` (contract v2, Duplicate identity). */
+export interface ParkReason {
+  readonly existing: FolderPath;
+}
+
 export interface WriteBatch {
   readonly batch_id: BatchId;
   readonly operations: readonly Operation[];
   readonly diff_item_id?: Id;
+  /** Present on a parking batch: the existing placement. */
+  readonly park?: ParkReason;
+  /** With diff_item_id: the accepted item's scope, the folders its operations name; a scope path admits only itself. */
+  readonly scope?: readonly FolderPath[];
 }
 
 // --- Receipts ---

@@ -1,6 +1,6 @@
 // backfill.test.ts -- which bookmarks a backfill ingests (design, Open
 // Question 3: run the existing tree through capture and indexing, searchable,
-// not re-filed; contract v1, "Jobs": a backfill ingest is never offered a
+// not re-filed; contract v2, "Jobs": a backfill ingest is never offered a
 // batch). Every http(s) bookmark with a folder path, outside Follow Up (those
 // are ordinary saves) and Graveyard (removed), in tree order.
 

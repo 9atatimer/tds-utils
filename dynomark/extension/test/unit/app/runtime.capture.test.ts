@@ -11,6 +11,7 @@ import { RECONNECT_BACKOFF } from '../../../src/domain/backoff.js';
 import type { HostRole } from '../../../src/domain/roles.js';
 import type { RequestMessage, ResponseMessage } from '../../../src/wire/messages.js';
 import { FakeExtensionWorld } from '../../fakes/FakeExtensionWorld.js';
+import { scriptedDaemon } from '../../fixtures/daemon.js';
 import { seedOwnedTree, type Seeded } from '../../fixtures/ownedTree.js';
 import { scriptDaemon, sentOf, startRuntime } from '../../fixtures/runtime.js';
 
@@ -42,6 +43,77 @@ describe('Background-tab capture on the writer', () => {
     const ingest = await save(w, runtime, ids.followUp);
     expect(ingest?.capture).toEqual({ source: 'background_tab', ...PAGE });
     expect(w.backgroundTabs.opened).toEqual([URL]);
+  });
+
+  it('Given a writer and a save the daemon refuses to vet (a private address), When it arrives in Follow Up, Then url.vet named its URL, ingest carries source none and no background tab is opened (issue #410)', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const refuse = (r: RequestMessage): ResponseMessage | undefined =>
+      r.type === 'url.vet' ? { v: 2, type: 'url.vet.result', re: r.id, allowed: false, refusal: 'address' } : undefined;
+    scriptDaemon(w, { role: 'writer' }, refuse);
+    const ids = await seedOwnedTree(w.tree);
+    w.backgroundTabs.serve(URL, PAGE);
+    const ingest = await save(w, await startRuntime(w), ids.followUp);
+    expect(sentOf(w, 'url.vet').map((r) => r.url)).toEqual([URL]);
+    expect(ingest?.capture).toEqual({ source: 'none', text: '' });
+    expect(w.backgroundTabs.opened).toEqual([]);
+  });
+
+  it('Given a writer whose daemon refuses private addresses, When a save no tab shows is redirected to one as its background tab loads, Then the tab was guarded, ingest carries source none and the private page text is never sent (issue #534)', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const PRIVATE = 'http://10.0.0.5/admin';
+    const SECRET = { title: 'Router admin', text: 'WAN password: hunter2' };
+    const privateLiteral = /^https?:\/\/(127\.|10\.|192\.168\.)/;
+    const policy = (r: RequestMessage): ResponseMessage | undefined =>
+      r.type === 'url.vet' && privateLiteral.test(r.url)
+        ? { v: 2, type: 'url.vet.result', re: r.id, allowed: false, refusal: 'address' }
+        : undefined;
+    scriptDaemon(w, { role: 'writer' }, policy);
+    const ids = await seedOwnedTree(w.tree);
+    w.backgroundTabs.redirect(URL, PRIVATE);
+    w.backgroundTabs.serve(PRIVATE, SECRET);
+    const ingest = await save(w, await startRuntime(w), ids.followUp);
+    expect(ingest?.capture).toEqual({ source: 'none', text: '' });
+    expect(JSON.stringify(w.connection().sent)).not.toContain('hunter2');
+    expect(w.backgroundTabs.loads).toEqual([{ url: URL, blockPrivateHosts: true }]);
+  });
+
+  it('Given a writer whose daemon answers url.vet with an error, When a save no tab shows arrives, Then ingest carries source none and no background tab is opened (issue #410)', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const fail = (r: RequestMessage): ResponseMessage | undefined =>
+      r.type === 'url.vet'
+        ? { v: 2, type: 'error', re: r.id, code: 'invalid', message: 'url.vet is not a request this daemon serves' }
+        : undefined;
+    scriptDaemon(w, { role: 'writer' }, fail);
+    const ids = await seedOwnedTree(w.tree);
+    w.backgroundTabs.serve(URL, PAGE);
+    const ingest = await save(w, await startRuntime(w), ids.followUp);
+    expect(ingest?.capture).toEqual({ source: 'none', text: '' });
+    expect(w.backgroundTabs.opened).toEqual([]);
+  });
+
+  it('Given a writer whose daemon stops as it is asked to vet a save no tab shows, When the save arrives, Then no background tab is opened while the vet goes unanswered (issue #410)', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const lifecycle = scriptedDaemon({ role: 'writer' });
+    const stopOnVet = (r: RequestMessage): ResponseMessage | undefined => {
+      if (r.type !== 'url.vet') return lifecycle(r);
+      w.connection().daemonNotRunning(true);
+      void Promise.resolve().then(() => w.daemon().drop('disconnected'));
+      return undefined;
+    };
+    w.connection().autoAnswer(stopOnVet);
+    const ids = await seedOwnedTree(w.tree);
+    w.backgroundTabs.serve(URL, PAGE);
+    const runtime = await startRuntime(w);
+    const node = await w.tree.createBookmark(ids.followUp, 'Story', URL);
+    runtime.onBookmarkEvent({ kind: 'created', node });
+    await runtime.idle();
+    expect(sentOf(w, 'url.vet').map((r) => r.url)).toContain(URL);
+    expect(w.backgroundTabs.opened).toEqual([]);
+    w.connection().daemonNotRunning(false);
+    w.connection().autoAnswer(lifecycle);
+    await w.timer().advance(RECONNECT_BACKOFF.max_ms);
+    await runtime.idle();
+    expect(sentOf(w, 'ingest').find((r) => r.bookmark.node_id === node.id)?.capture?.source).not.toBe('tab');
   });
 
   it('Given a save already in Follow Up at a full hello (the backlog re-sent on every hello), When it is re-sent, Then no background tab is opened for it', async () => {
@@ -109,7 +181,7 @@ describe('Background-tab capture on the writer', () => {
     const busyTwice = (r: RequestMessage): ResponseMessage | undefined => {
       if (r.type !== 'ingest' || r.bookmark.url !== URL || refusals >= 2) return undefined;
       refusals += 1;
-      return { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
+      return { v: 2, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
     };
     scriptDaemon(w, { role: 'writer' }, busyTwice);
     const ids = await seedOwnedTree(w.tree);
@@ -134,7 +206,7 @@ describe('Background-tab capture on the writer', () => {
     const internalOnce = (r: RequestMessage): ResponseMessage | undefined => {
       if (r.type !== 'ingest' || r.bookmark.url !== URL || refused) return undefined;
       refused = true;
-      return { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
+      return { v: 2, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
     };
     scriptDaemon(w, { role: 'writer' }, internalOnce);
     const ids = await seedOwnedTree(w.tree);
@@ -155,7 +227,7 @@ describe('Background-tab capture on the writer', () => {
     const internalOnce = (r: RequestMessage): ResponseMessage | undefined => {
       if (r.type !== 'ingest' || r.bookmark.url !== URL || refused) return undefined;
       refused = true;
-      return { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
+      return { v: 2, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
     };
     scriptDaemon(w, { role: 'writer' }, internalOnce);
     const ids = await seedOwnedTree(w.tree);
@@ -178,7 +250,7 @@ describe('Background-tab capture on the writer', () => {
     const internalOnce = (r: RequestMessage): ResponseMessage | undefined => {
       if (r.type !== 'ingest' || r.bookmark.url !== URL || refused) return undefined;
       refused = true;
-      return { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
+      return { v: 2, type: 'error', re: r.id, code: 'internal', message: 'database is locked' };
     };
     scriptDaemon(w, { role: 'writer' }, internalOnce);
     const ids = await seedOwnedTree(w.tree);
@@ -195,6 +267,26 @@ describe('Background-tab capture on the writer', () => {
     expect(later?.capture).toEqual({ source: 'none', text: '' });
   });
 
+  it('Given a pending save whose answer never came, When its bookmark leaves Follow Up before the next hello, Then that backlog drops its page text from storage (issue #420)', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const internal = (r: RequestMessage): ResponseMessage | undefined =>
+      r.type === 'ingest' && r.bookmark.url === URL
+        ? { v: 2, type: 'error', re: r.id, code: 'internal', message: 'database is locked' }
+        : undefined;
+    scriptDaemon(w, { role: 'writer' }, internal);
+    const ids = await seedOwnedTree(w.tree);
+    w.backgroundTabs.serve(URL, PAGE);
+    const first = await save(w, await startRuntime(w), ids.followUp);
+    const kept = ((await w.storage.loadPendingSaves()) ?? []).map((s) => s.capture.text);
+    w.terminate();
+    await w.tree.move(first?.bookmark.node_id ?? '', ids.rust);
+    w.restart();
+    scriptDaemon(w, { role: 'writer' });
+    await startRuntime(w);
+    expect(kept).toEqual([PAGE.text]);
+    expect((await w.storage.loadPendingSaves()) ?? []).toEqual([]);
+  });
+
   /** Three worker restarts, each a full hello whose backlog re-sends Follow Up; `extra` answers first on every worker. */
   async function restartThrice(w: FakeExtensionWorld, extra?: (r: RequestMessage) => ResponseMessage | undefined): Promise<void> {
     for (let i = 0; i < 3; i++) {
@@ -208,7 +300,7 @@ describe('Background-tab capture on the writer', () => {
     const w = new FakeExtensionWorld({ flavor: 'chrome' });
     const refuse = (r: RequestMessage): ResponseMessage | undefined =>
       r.type === 'ingest' && r.bookmark.url === URL
-        ? { v: 1, type: 'error', re: r.id, code: 'invalid', message: 'cannot act on it' }
+        ? { v: 2, type: 'error', re: r.id, code: 'invalid', message: 'cannot act on it' }
         : undefined;
     scriptDaemon(w, { role: 'writer' }, refuse);
     const ids = await seedOwnedTree(w.tree);
@@ -226,8 +318,8 @@ describe('Background-tab capture on the writer', () => {
     const busyThenRefuse = (r: RequestMessage): ResponseMessage | undefined => {
       if (r.type !== 'ingest' || r.bookmark.url !== URL) return undefined;
       answered += 1;
-      if (answered === 1) return { v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
-      return { v: 1, type: 'error', re: r.id, code: 'invalid', message: 'cannot act on it' };
+      if (answered === 1) return { v: 2, type: 'error', re: r.id, code: 'busy', message: 'model loading' };
+      return { v: 2, type: 'error', re: r.id, code: 'invalid', message: 'cannot act on it' };
     };
     scriptDaemon(w, { role: 'writer' }, busyThenRefuse);
     const ids = await seedOwnedTree(w.tree);

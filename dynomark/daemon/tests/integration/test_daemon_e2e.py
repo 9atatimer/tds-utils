@@ -1,6 +1,6 @@
 """End to end, in process (task-025 item 8; MVP tasks 028-030): the composed
 daemon -- SQLite store, unix socket, job loop -- with fakes for the models
-and the fetch, driven by a client speaking contract v1 frames:
+and the fetch, driven by a client speaking contract v2 frames:
 
 hello -> tree.snapshot -> ingest -> batch.offer -> batch.receipt APPLIED ->
 job FILED -> index.pull -> search -> undo;
@@ -38,6 +38,7 @@ from dynomark_daemon.domain.ids import NodeId
 from dynomark_daemon.domain.placement import FolderChoice
 from dynomark_daemon.logs import configure_logging
 from dynomark_daemon.settings import Settings, parse_settings
+from dynomark_daemon.testing.address import FakeAddressVet
 from dynomark_daemon.testing.completion import ScriptedCompletion
 from dynomark_daemon.testing.content import FakeFetch
 from dynomark_daemon.testing.embedding import HashingEmbedding
@@ -96,6 +97,7 @@ def _serving(
         embedding=HashingEmbedding(),
         completion=completion or _filing(),
         content=FakeFetch({}),
+        vetter=FakeAddressVet(resolves={}),
         clock=SystemClock(),
         ids=RandomIds(),
     )

@@ -1,5 +1,5 @@
 // transport.contract.ts -- what every TransportPort must do (design,
-// "Transport contract"; contract v1 README, "Envelope" and "Endpoint"):
+// "Transport contract"; contract v2 README, "Envelope" and "Endpoint"):
 // requests go out with a caller-chosen id, each is answered by exactly one
 // frame (X.result or error) whose re is that id, in any order; events arrive
 // as a stream; a lost connection fails what is in flight so the caller can
@@ -29,21 +29,21 @@ export interface TransportHarness {
 // --- Builders ---
 
 function status(id: string): RequestMessage {
-  return { v: 1, type: 'status', id };
+  return { v: 2, type: 'status', id };
 }
 
 function snapshotResult(re: string): ResponseMessage {
-  return { v: 1, type: 'tree.snapshot.result', re };
+  return { v: 2, type: 'tree.snapshot.result', re };
 }
 
 function statusResult(re: string): ResponseMessage {
   return {
-    v: 1,
+    v: 2,
     type: 'status.result',
     re,
     role: 'writer',
     host_id: 'mbp',
-    contract_version: 1,
+    contract_version: 2,
     models: { embedding: { id: 'nomic-embed-text', local: true }, completion: { id: 'llama3.1:8b', local: true } },
     queue_depth: 0,
   };
@@ -51,7 +51,7 @@ function statusResult(re: string): ResponseMessage {
 
 function jobUpdated(event_id: string): EventMessage {
   return {
-    v: 1,
+    v: 2,
     type: 'job.updated',
     event_id,
     job: { job_id: 'job-1', node_id: '42', identity: 'https://tokio.rs/', state: 'FILED', seq: 3, attempts: 1, backfill: false },
@@ -72,7 +72,7 @@ export function describeTransportContract(name: string, make: () => TransportHar
     it('Given two requests in flight, When answered in reverse order, Then each send resolves with its own response', async () => {
       const { transport, daemon } = make();
       const first = transport.send(status('req-1'));
-      const second = transport.send({ v: 1, type: 'tree.snapshot', id: 'req-2', snapshot: SNAPSHOT });
+      const second = transport.send({ v: 2, type: 'tree.snapshot', id: 'req-2', snapshot: SNAPSHOT });
       await daemon.nextRequest();
       await daemon.nextRequest();
       await daemon.answer(snapshotResult('req-2'));
@@ -83,9 +83,9 @@ export function describeTransportContract(name: string, make: () => TransportHar
 
     it('Given a request the daemon refuses, When it answers error with re = the id, Then send resolves with the error frame', async () => {
       const { transport, daemon } = make();
-      const reply = transport.send({ v: 1, type: 'undo', id: 'req-9', batch_id: 'batch-1' });
+      const reply = transport.send({ v: 2, type: 'undo', id: 'req-9', batch_id: 'batch-1' });
       await daemon.nextRequest();
-      const refusal: ResponseMessage = { v: 1, type: 'error', re: 'req-9', code: 'not_writer', message: 'reader host' };
+      const refusal: ResponseMessage = { v: 2, type: 'error', re: 'req-9', code: 'not_writer', message: 'reader host' };
       await daemon.answer(refusal);
       expect(await reply).toEqual(refusal);
     });
