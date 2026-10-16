@@ -100,9 +100,9 @@ const PRIVATE_HOSTS: readonly string[] = [
   // IPv4: shared, IETF and documentation ranges, benchmarking, multicast and reserved.
   '100\\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\\.[0-9.]+|192\\.0\\.[02]\\.[0-9]+|198\\.1[89]\\.[0-9.]+' +
     '|198\\.51\\.100\\.[0-9]+|203\\.0\\.113\\.[0-9]+|(?:22[4-9]|2[3-5][0-9])\\.[0-9.]+',
-  // IPv6: unspecified, loopback, IPv4-compatible and IPv4-mapped (each starts ::), NAT64, documentation,
-  // unique-local, link-local, site-local and multicast.
-  '\\[(?:::|64:ff9b:|2001:db8:|f[c-f][0-9a-f]{2}:)[^\\]]*\\]',
+  // IPv6: every literal. The daemon's policy refuses many ranges (6to4, Teredo, NAT64, discard,
+  // special use), and a public IPv6 literal is rare in a bookmark; the daemon's fetch still captures it.
+  '\\[[^\\]]*\\]',
   // Names: a single label (localhost, intranet), and the names that are local by definition.
   '[^./?#@:\\[\\]]+|(?:[^/?#@:\\[\\]]*\\.)?(?:local|localhost|internal|home\\.arpa)',
 ];
