@@ -178,18 +178,23 @@ export class ChromeBackgroundTab implements BackgroundTabPort {
 
   /** Close the window an earlier worker's capture left open, if it is still that window, and drop its rules. Never throws; captures wait for it. */
   sweep(): Promise<void> {
-    const run = this.tail.then(() => this.closeLeftOpen());
+    const run = this.tail.then(async () => {
+      await this.closeLeftOpen();
+    });
     this.tail = run;
     return run;
   }
 
   private async capture(url: Url, load: BackgroundLoad): Promise<LoadedPage | undefined> {
     let windowId: number | undefined;
+    let tabId: number | undefined;
     let guarded = false;
     try {
+      // An earlier window that will not close keeps the rules (their ids are fixed): no capture until it is gone.
+      if (!(await this.closeLeftOpen())) return undefined;
       const opened = await this.windows.create({ url: BLANK, focused: false, state: 'minimized' });
       windowId = opened?.id;
-      const tabId = opened?.tabs?.[0]?.id;
+      tabId = opened?.tabs?.[0]?.id;
       if (windowId !== undefined && tabId !== undefined) await this.remember({ window_id: windowId, tab_id: tabId });
       if (tabId === undefined) return undefined;
       if (load.blockPrivateHosts) {
@@ -205,22 +210,32 @@ export class ChromeBackgroundTab implements BackgroundTabPort {
       return undefined;
     } finally {
       if (windowId !== undefined) await this.close(windowId);
-      if (guarded) await this.unblock();
+      // A window that would not close keeps its rules: the next sweep closes it, then removes them.
+      if (guarded && tabId !== undefined && (await this.tabGone(tabId))) await this.unblock();
     }
   }
 
-  private async closeLeftOpen(): Promise<void> {
+  /**
+   * The rules go only once the recorded tab is gone: its page may still be
+   * loading, or redirecting, until then. A window not ours is left open and
+   * forgotten; its tab keeps the rules until it is gone or the next sweep or capture.
+   * True when no window of a capture is left open.
+   */
+  private async closeLeftOpen(): Promise<boolean> {
     try {
-      await this.unblock();
       const left = (await this.store.get(OPEN_WINDOW_KEY))[OPEN_WINDOW_KEY];
-      if (!isOpenWindow(left)) return;
-      const win = await this.windows.get(left.window_id, { populate: true }).catch(() => undefined);
-      const tabs = win?.tabs ?? [];
-      const ours = win?.state === 'minimized' && tabs.length === 1 && tabs[0]?.id === left.tab_id;
-      if (ours) await this.close(left.window_id);
-      else await this.store.remove(OPEN_WINDOW_KEY);
+      if (isOpenWindow(left)) {
+        const win = await this.windows.get(left.window_id, { populate: true }).catch(() => undefined);
+        const tabs = win?.tabs ?? [];
+        const ours = win?.state === 'minimized' && tabs.length === 1 && tabs[0]?.id === left.tab_id;
+        if (ours) await this.close(left.window_id);
+        else await this.store.remove(OPEN_WINDOW_KEY);
+        if (!(await this.tabGone(left.tab_id))) return !ours;
+      }
+      await this.unblock();
+      return true;
     } catch {
-      return;
+      return false;
     }
   }
 
@@ -236,6 +251,14 @@ export class ChromeBackgroundTab implements BackgroundTabPort {
     } catch {
       return;
     }
+  }
+
+  /** True when the browser no longer has tab `tabId`. */
+  private tabGone(tabId: number): Promise<boolean> {
+    return this.tabs.get(tabId).then(
+      () => false,
+      () => true,
+    );
   }
 
   /** Remove this adapter's block rules (scoped to a tab that is gone, they would block nothing; they are removed anyway). */
