@@ -21,10 +21,12 @@
 // after the window does.
 //
 // A worker terminated while the page loads never reaches the close, so the
-// open window is recorded in extension storage (key `capture_window`) until
-// it is closed, and the next worker's sweep() closes it -- only when that id
-// still names a minimized window holding the one tab it opened -- and removes
-// any rules it left.
+// open tab is recorded in session storage (key `capture_window`) until it is
+// closed. Session storage is cleared with the browser session, as session
+// rules are, and a browser never reuses a tab id within one, so a recorded
+// tab is always the capture's: the next worker's sweep() closes it, however
+// the user has moved or restored it, and only then removes its rules. No
+// capture runs while it is open.
 
 import type { Url } from '../../domain/values.js';
 import type { BackgroundLoad, BackgroundTabPort, LoadedPage } from '../../ports/backgroundTab.js';
@@ -42,16 +44,13 @@ export interface BackgroundWindowsApi {
     focused: boolean;
     state: 'minimized';
   }): Promise<{ id?: number | undefined; tabs?: { id?: number | undefined }[] | undefined } | undefined>;
-  get(
-    windowId: number,
-    options: { populate: true },
-  ): Promise<{ state?: string | undefined; tabs?: { id?: number | undefined }[] | undefined }>;
   remove(windowId: number): Promise<void>;
 }
 
 /** The part of chrome.tabs this adapter uses. */
 export interface BackgroundTabsApi {
   get(tabId: number): Promise<{ status?: string | undefined; url?: string | undefined }>;
+  remove(tabId: number): Promise<void>;
   update(tabId: number, properties: { url: string }): Promise<unknown>;
 }
 
@@ -165,7 +164,8 @@ export class ChromeBackgroundTab implements BackgroundTabPort {
     private readonly tabs: BackgroundTabsApi = chrome.tabs,
     private readonly scripting: ScriptingApi = chrome.scripting,
     private readonly timer: Timer = new SystemTimer(),
-    private readonly store: StorageAreaApi = chrome.storage.local,
+    /** Session storage: a record must not outlive the session rules and tab ids it names. */
+    private readonly store: StorageAreaApi = chrome.storage.session,
     private readonly rules: SessionRulesApi = chromeSessionRules(),
   ) {}
 
@@ -216,21 +216,16 @@ export class ChromeBackgroundTab implements BackgroundTabPort {
   }
 
   /**
-   * The rules go only once the recorded tab is gone: its page may still be
-   * loading, or redirecting, until then. A window not ours is left open and
-   * forgotten; its tab keeps the rules until it is gone or the next sweep or capture.
-   * True when no window of a capture is left open.
+   * Close the capture tab an earlier worker left open, then remove the rules.
+   * True when no capture tab is left open (its rules then gone).
    */
   private async closeLeftOpen(): Promise<boolean> {
     try {
       const left = (await this.store.get(OPEN_WINDOW_KEY))[OPEN_WINDOW_KEY];
       if (isOpenWindow(left)) {
-        const win = await this.windows.get(left.window_id, { populate: true }).catch(() => undefined);
-        const tabs = win?.tabs ?? [];
-        const ours = win?.state === 'minimized' && tabs.length === 1 && tabs[0]?.id === left.tab_id;
-        if (ours) await this.close(left.window_id);
-        else await this.store.remove(OPEN_WINDOW_KEY);
-        if (!(await this.tabGone(left.tab_id))) return !ours;
+        await this.tabs.remove(left.tab_id).catch(() => undefined);
+        if (!(await this.tabGone(left.tab_id))) return false;
+        await this.store.remove(OPEN_WINDOW_KEY);
       }
       await this.unblock();
       return true;

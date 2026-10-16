@@ -79,7 +79,6 @@ export function fakeFirefox(options: { readonly sidebarRefuses?: boolean } = {})
         if (data.type === 'popup') return Promise.resolve(void opened.push(`popup ${data.url} focused=${String(data.focused)}`));
         return windows.windows.create({ url: data.url, focused: data.focused, state: data.state ?? 'normal' });
       },
-      get: (id, populate) => windows.windows.get(id, populate),
       remove: (id) => windows.windows.remove(id),
     },
     storage: { local: storage, session },

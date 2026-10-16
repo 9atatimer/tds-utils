@@ -32,7 +32,7 @@ export interface FirefoxBrowser {
   readonly tabs: TabsApi & BackgroundTabsApi & ChatTabsApi & NavigatorTabsApi;
   readonly scripting: ScriptingApi;
   readonly windows: BackgroundWindowsApi & ChatWindowsApi;
-  readonly storage: { readonly local: StorageAreaApi };
+  readonly storage: { readonly local: StorageAreaApi; readonly session: StorageAreaApi };
   readonly declarativeNetRequest: SessionRulesApi;
   readonly runtime: NativeRuntimeApi & ExtensionUrlApi & PageServerApi;
   readonly sidebarAction: SidebarActionApi;
