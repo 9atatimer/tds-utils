@@ -6,11 +6,14 @@
 // its regexFilter matches (the hop shows an error page, as Chrome's does).
 // Injecting into a tab returns the page served for the URL it shows, with
 // that URL as location.href, or throws as Chrome does for a page it will not
-// script. Every call is logged in order.
+// script (a blocked tab shows, and is logged as, Chrome's error page). Every call is logged in order.
 
 import type { PageText } from '../../src/adapters/chrome/tabContent.js';
 
 type Served = PageText | 'unreadable' | 'never-loads';
+
+/** The document a tab shows when a block rule stopped its navigation. */
+const BLOCKED_PAGE = 'chrome-error://chromewebdata/';
 
 interface StubTab {
   readonly tabId: number;
@@ -104,7 +107,7 @@ export class BackgroundBrowserStub {
     executeScript: (injection: { target: { tabId: number } }): Promise<readonly { result?: unknown }[]> => {
       const tab = this.byTab(injection.target.tabId);
       if (tab === undefined) return Promise.reject(new Error(`No tab with id: ${injection.target.tabId}.`));
-      this.log.push(`inject ${tab.url}`);
+      this.log.push(`inject ${tab.blocked ? BLOCKED_PAGE : tab.url}`);
       const page = tab.blocked ? undefined : this.pages.get(tab.url);
       if (page === undefined || typeof page === 'string') {
         return Promise.reject(new Error('Cannot access contents of url "chrome-error://chromewebdata/".'));

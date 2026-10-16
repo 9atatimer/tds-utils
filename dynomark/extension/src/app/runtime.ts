@@ -19,6 +19,7 @@ import type { BookmarkTreePort } from '../ports/bookmarkTree.js';
 import type { BookmarkEvent } from '../ports/bookmarkEvents.js';
 import type { ChatSurfacePort } from '../ports/chatSurface.js';
 import type { Clock } from '../ports/clock.js';
+import type { BackgroundTabPort } from '../ports/backgroundTab.js';
 import type { ContentSourcePort } from '../ports/contentSource.js';
 import type { HistoryPort } from '../ports/history.js';
 import type { IdSource } from '../ports/idSource.js';
@@ -74,8 +75,8 @@ export interface RuntimePorts {
   readonly tree: BookmarkTreePort;
   readonly history: HistoryPort;
   readonly content: ContentSourcePort;
-  /** Opens a URL in a background tab and reads it (the writer's third ContentSourcePort adapter). */
-  readonly background: ContentSourcePort;
+  /** Opens a URL in a background tab and reads it (the writer's background-tab port). */
+  readonly background: BackgroundTabPort;
   readonly storage: StoragePort;
   readonly transport: TransportPort & TransportLink;
   readonly clock: Clock;

@@ -69,7 +69,11 @@ permissions, keyword and pages come from `manifest.json`.
    batch is applied until it is cleared); the two capture settings (open
    tab; background tab on the writer, default on: a tab opens only for a
    URL the daemon's `url.vet` allows, by default a public address; a
-   refused or unanswered vet leaves the page to the daemon's fetch); Backfill existing
+   refused or unanswered vet leaves the page to the daemon's fetch; unless
+   the daemon allows private addresses, the tab's session rules
+   (`declarativeNetRequest`) block every redirect hop to a private, loopback
+   or local-name host before it loads, and a page that ended anywhere but
+   the vetted URL is kept only when `url.vet` allows where it ended); Backfill existing
    bookmarks (ten ingests a second, resumes after a worker restart). The
    toolbar popup is the history page: Undo per APPLIED batch, Retry per
    FAILED job.
@@ -156,8 +160,9 @@ export DYNOMARK_CHROMIUM="$(ls -d ~/.cache/dynomark-cft/chrome/mac_arm-*/chrome-
 Hermetic: a temp profile whose `NativeMessagingHosts/` registers the host
 (Chromium reads per-user host manifests from the user data dir), a temp unix
 socket, and routed pages; no network: every web request not to 127.0.0.1 is
-aborted unless a test routes it, and the background-tab test loads its page
-from a throw-away HTTP server on 127.0.0.1. The omnibox cannot be typed into
+aborted unless a test routes it, and the background-tab tests load their
+pages from a throw-away HTTP server on 127.0.0.1 (the guarded ones as
+`news.example`, mapped there with `--host-resolver-rules`). The omnibox cannot be typed into
 headless, so e2e drives its handler through `globalThis.dynomark`, the
 diagnostic handle the service worker exposes on its own global scope; the
 keyboard command is covered by unit tests only.

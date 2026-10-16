@@ -4,7 +4,7 @@
 // part is the narrow API interface its adapter already declares, so a stand-in
 // in the tests and the real namespace satisfy the same shape.
 
-import type { BackgroundTabsApi, BackgroundWindowsApi } from '../chrome/backgroundTab.js';
+import type { BackgroundTabsApi, BackgroundWindowsApi, SessionRulesApi } from '../chrome/backgroundTab.js';
 import type { ChatTabsApi, ChatWindowsApi, ExtensionUrlApi } from '../chrome/chatSurface.js';
 import type { CommandsApi } from '../chrome/commands.js';
 import type { HistoryApi } from '../chrome/history.js';
@@ -33,6 +33,7 @@ export interface FirefoxBrowser {
   readonly scripting: ScriptingApi;
   readonly windows: BackgroundWindowsApi & ChatWindowsApi;
   readonly storage: { readonly local: StorageAreaApi };
+  readonly declarativeNetRequest: SessionRulesApi;
   readonly runtime: NativeRuntimeApi & ExtensionUrlApi & PageServerApi;
   readonly sidebarAction: SidebarActionApi;
   readonly omnibox: OmniboxApi;

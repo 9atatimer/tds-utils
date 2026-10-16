@@ -67,7 +67,7 @@ describe('firefoxPorts', () => {
     expect(fx.native.connects).toEqual(['tds.dynomark']);
   });
 
-  it('Given a page that loads, When the background-tab port reads it, Then an unfocused minimized window opens on it, is read and closes', async () => {
+  it('Given a page that loads, When the background-tab port reads it, Then an unfocused minimized window opens, is navigated to it, read and closed', async () => {
     const fx = fakeFirefox();
     const { background } = firefoxPorts(fx.api);
     fx.windows.serve('https://news.example/story', { title: 'Story', text: 'Signed-in text.' });
@@ -76,7 +76,8 @@ describe('firefoxPorts', () => {
       text: 'Signed-in text.',
     });
     expect(fx.windows.log).toEqual([
-      'open https://news.example/story focused=false state=minimized',
+      'open about:blank focused=false state=minimized',
+      'navigate https://news.example/story',
       'inject https://news.example/story',
       'close https://news.example/story',
     ]);

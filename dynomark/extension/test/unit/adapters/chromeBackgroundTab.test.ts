@@ -25,17 +25,22 @@ const SECRET = { title: 'Router admin', text: 'WAN password: hunter2' };
 
 function adapter(stub = new BackgroundBrowserStub(), store = new StorageAreaStub()) {
   const timer = new FakeTimer(new FakeClock(1_790_000_000_000));
-  return { stub, store, timer, source: new ChromeBackgroundTab(stub.windows, stub.tabs, stub.scripting, timer, store) };
+  return {
+    stub,
+    store,
+    timer,
+    source: new ChromeBackgroundTab(stub.windows, stub.tabs, stub.scripting, timer, store, stub.declarativeNetRequest),
+  };
 }
 
 // --- Tests ---
 
 describe('ChromeBackgroundTab', () => {
-  it('Given a page that loads, When read, Then an unfocused minimized window opens on the URL, the page is read and the window closes', async () => {
+  it('Given a page that loads, When read, Then an unfocused minimized window opens blank and is navigated to the URL, the page is read and the window closes', async () => {
     const { stub, source } = adapter();
     stub.serve(URL, PAGE);
-    expect(await source.readTab(URL, OPEN)).toEqual(PAGE);
-    expect(stub.log).toEqual([`open ${URL} focused=false state=minimized`, `inject ${URL}`, `close ${URL}`]);
+    expect(await source.readTab(URL, OPEN)).toEqual({ ...PAGE, url: URL });
+    expect(stub.log).toEqual(['open about:blank focused=false state=minimized', `navigate ${URL}`, `inject ${URL}`, `close ${URL}`]);
     expect(stub.openWindows()).toBe(0);
   });
 
@@ -46,7 +51,7 @@ describe('ChromeBackgroundTab', () => {
     await timer.advance(0);
     await timer.advance(BACKGROUND_LOAD_TIMEOUT_MS);
     expect(await read).toBeUndefined();
-    expect(stub.log).toEqual([`open ${URL} focused=false state=minimized`, `close ${URL}`]);
+    expect(stub.log).toEqual(['open about:blank focused=false state=minimized', `navigate ${URL}`, `close ${URL}`]);
   });
 
   it('Given a page the browser will not script (an error page), When read, Then nothing comes back and the window closes', async () => {
@@ -75,10 +80,12 @@ describe('ChromeBackgroundTab', () => {
     const [a, b] = await Promise.all([source.readTab(URL, OPEN), source.readTab('https://b.example/', OPEN)]);
     expect([a?.title, b?.title]).toEqual(['Story', 'B']);
     expect(stub.log.map((l) => l.split(' ').slice(0, 2).join(' '))).toEqual([
-      `open ${URL}`,
+      'open about:blank',
+      `navigate ${URL}`,
       `inject ${URL}`,
       `close ${URL}`,
-      'open https://b.example/',
+      'open about:blank',
+      'navigate https://b.example/',
       'inject https://b.example/',
       'close https://b.example/',
     ]);
@@ -86,16 +93,18 @@ describe('ChromeBackgroundTab', () => {
 });
 
 describe('ChromeBackgroundTab -- across worker restarts', () => {
-  it('Given a worker terminated while its background page loaded, When the next worker sweeps, Then the window it left is closed', async () => {
+  it('Given a worker terminated while its guarded background page loaded, When the next worker sweeps, Then the window it left is closed and its block rules removed', async () => {
     const first = adapter();
     first.stub.serve(URL, 'never-loads');
-    void first.source.readTab(URL, OPEN);
+    void first.source.readTab(URL, GUARDED);
     await first.timer.advance(0);
     expect(first.stub.openWindows()).toBe(1);
+    expect(first.stub.sessionRules()).not.toEqual([]);
     const next = adapter(first.stub, first.store);
     await next.source.sweep();
     expect(first.stub.openWindows()).toBe(0);
     expect(first.store.keys()).toEqual([]);
+    expect(first.stub.sessionRules()).toEqual([]);
   });
 
   it('Given a recorded window id that now names a window this adapter did not open, When swept, Then that window is left open and the record dropped', async () => {

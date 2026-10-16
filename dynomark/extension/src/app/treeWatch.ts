@@ -20,6 +20,7 @@ import type { NodeId } from '../domain/values.js';
 import type { BookmarkTreePort } from '../ports/bookmarkTree.js';
 import type { BookmarkEvent } from '../ports/bookmarkEvents.js';
 import type { Clock } from '../ports/clock.js';
+import type { BackgroundTabPort } from '../ports/backgroundTab.js';
 import type { ContentSourcePort } from '../ports/contentSource.js';
 import type { IdSource } from '../ports/idSource.js';
 import type { StoragePort } from '../ports/storage.js';
@@ -48,7 +49,7 @@ const NOTHING_OPEN: ContentSourcePort = { readTab: () => Promise.resolve(undefin
 export interface TreeWatchDeps {
   readonly tree: BookmarkTreePort;
   readonly content: ContentSourcePort;
-  readonly background: ContentSourcePort;
+  readonly background: BackgroundTabPort;
   readonly transport: TransportPort;
   readonly ids: IdSource;
   readonly clock: Clock;
