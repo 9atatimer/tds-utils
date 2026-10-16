@@ -41,7 +41,9 @@ file points there.
 - Never name a tier `staging`; it is `nonprod`.
 - Answer tersely, and stop when the answer is done.
 - Link every PR and issue with repo and kind in the link text.
-- Read the repo's `AGENT.md`, and read a skill whole, before working.
+- Read the repo's `AGENT.md` and `TODO_PLAN.md`, and read a skill whole, before working.
+- Clear the existing gate before you lower it; never `--no-verify`.
+- Judge CI from the default branch's HEAD, freshly fetched, not your branch.
 - Review each non-doc PR once; re-review only after a load-bearing fix.
 - Copilot is out of quota: self-review is the whole review until the owner says otherwise.
 
@@ -153,12 +155,10 @@ defers work to a future turn. Timers waste quota and the work is better
 without them. Do the work now, then stop and wait to be notified of an update.
 Never poll yourself.
 
-**This includes polling built out of other tools.** A `Monitor` with a
-`while true; do sleep N; ...; done` body, a `Bash` command with
-`run_in_background` that loops on an interval, or any other arrangement that
-re-invokes you on a timer is the same thing as a timer and is equally banned.
-The test is not which tool you called -- it is whether work is deferred to a
-future turn on a clock you set.
+**Polling built out of other tools is a timer.** A `Monitor` with a
+`while true; do sleep N; ...; done` body, or a `run_in_background` command
+that loops on an interval, is equally banned. The test is whether work is
+deferred to a future turn on a clock you set, not which tool you called.
 
 Push-based watches are fine because nothing is on a clock: a `Monitor` `ws:`
 source, a webhook relay (`gh webhook forward`), or a command that blocks until
@@ -179,12 +179,9 @@ If a command might run more than ~30 seconds, launch it with `Bash`
 from a hung one, and a long foreground call blocks the human from steering
 mid-task -- which is exactly when steering is most valuable.
 
-Typical offenders: `gcloud run deploy` / `terraform apply` / any cloud
-build, `npm install`, full test suites, container builds, bulk storage
-deletes.
-
-This is not the banned self-polling above: nothing is scheduled; the
-command runs once and notifies on exit.
+Typical offenders: cloud builds, `npm install`, full test suites,
+container builds, bulk storage deletes. This is not the banned
+self-polling above: the command runs once and notifies on exit.
 
 ### Stop a background process by its PID, and check it stopped
 
@@ -196,10 +193,9 @@ leaves the job running.
 
 ## Bash on this machine is real
 
-This is a laptop / real checkout: the bash tool touches the real disk and the
-real network, so assume side effects and destructive potential. (In an
-ephemeral cloud sandbox the bash tool is a throwaway container and can be used
-freely for self-computation -- do not carry that assumption here.)
+On a laptop / real checkout the bash tool touches the real disk and network:
+assume side effects and destructive potential. Only an ephemeral cloud
+sandbox is a throwaway container; do not carry that assumption here.
 
 ## Terraform applies: agent plans, human applies
 
@@ -294,10 +290,27 @@ When told to swarm-code a solution (e.g. `ultracode`), automatically open a PR
 when the coding concludes -- do not wait to be asked -- and then automatically
 triage Copilot's review feedback per the gates skill.
 
-## Always review the repo's own CLAUDE.md / AGENT.md
+## Read the repo's own instructions and plan first
 
-Read the repo's `CLAUDE.md` / `AGENT.md` before working in it. Repo
-instructions load alongside these global ones and win on specificity.
+Read the repo's `CLAUDE.md` / `AGENT.md` and its `TODO_PLAN.md` before
+changing anything in it. Repo instructions load alongside these global ones
+and win on specificity; the plan says what is in flight so you do not
+collide with it or redo it.
+
+## Gates: clear the bar before you move it
+
+A change that lowers a bar -- lint rules, coverage floors, required checks,
+severity thresholds, timeouts, review policy, the gate config itself -- must
+first pass the bar as it stands today. Nobody proposes a lower gate and then
+clears the one they just proposed. Raising a bar may take effect at once;
+lowering one takes effect only after the change clears the old bar and
+merges. Never `--no-verify`, never edit the config in the same commit as
+the code it fails, never disable the failing check. Only a repo owner may
+force past a gate.
+
+CI runs off the default branch's HEAD. Fetch it before you opine on what
+CI does: your branch or local default branch may be stale, and only what is
+live matters.
 
 ## Load a skill by reading it whole, never by grepping it
 
@@ -444,7 +457,7 @@ Git push/pull/ls-remote over SSH on this machine authenticate via the
 When 1Password is locked, `ssh-add -l` still lists keys but signing fails
 (`Permission denied (publickey)`), so `git push` aborts. Two ways through:
 
-- **Unlock 1Password** on the Mac (GUI action; cannot be done from a phone/Telegram).
+- **Unlock 1Password** on the Mac (a GUI action; not possible from a phone).
 - **Push over HTTPS using gh's token** -- no SSH needed. git is already configured
   with the `!gh auth git-credential` helper for github.com, so
   `git push https://github.com/<owner>/<repo>.git <branch>` works while the
