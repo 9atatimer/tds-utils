@@ -37,7 +37,7 @@ function deps() {
 // --- Tests ---
 
 describe('Behavior: A user move becomes feedback -- observeMove(observed, role, context, { transport, ids, clock, moves, timer, track })', () => {
-  it('Given the user moves a node between owned folders on the writer, When observed, Then feedback exists and move.observed carries origin user', async () => {
+  it('Given the user moves a node between owned folders on the writer, When observed, Then move.observed carries it with origin user and the extension decides no feedback itself (issue #422)', async () => {
     const d = deps();
     const feedback = await observeMove(
       { node_id: '42', url: 'https://tokio.rs/', from: ASYNC, to: RUST },
@@ -45,8 +45,16 @@ describe('Behavior: A user move becomes feedback -- observeMove(observed, role, 
       { owned_roots: ROOTS, in_flight: new Set() },
       d,
     );
-    expect(feedback).toEqual({ node_id: '42', url: 'https://tokio.rs/', from: ASYNC, to: RUST, origin: 'user', observed_at: NOW });
-    expect(MoveObservedSchema.parse(d.transport.sent[0]).move).toEqual(feedback);
+    expect(MoveObservedSchema.parse(d.transport.sent[0]).move).toEqual({
+      node_id: '42',
+      url: 'https://tokio.rs/',
+      from: ASYNC,
+      to: RUST,
+      origin: 'user',
+      observed_at: NOW,
+    });
+    // The daemon's feedback_of is the one rule: the extension reports, it does not judge.
+    expect(feedback).toBeUndefined();
   });
 
   it('Given the node is named by the batch in flight, When its move is observed, Then move.observed carries origin extension and there is no feedback', async () => {
