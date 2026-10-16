@@ -35,15 +35,25 @@ the design shipped, no code did. Retrospective ran 2026-09-19. Order:
 Dynomark (`docs/design/DYNOMARK.DESIGN.md`, APPROVED 2026-09-27, body
 amended 2026-10-16): live AI filing of native bookmarks, the successor to
 orgmarks. Code is under `dynomark/` (contract v2, daemon, extension for
-Chrome and Firefox, e2e). The MVP is built: tasks 022-026, 028-032 and the
-retrospective's drift tasks 036-042 are closed, and the owner's 2026-10-16
-rulings are Key Decisions with revisit issues #525-#532. Order:
+Chrome and Firefox, e2e). The MVP is built and merged (tds-utils PR#535):
+tasks 022-026, 028-032 and the retrospective's drift tasks 036-042 are
+closed, and the owner's 2026-10-16 rulings are Key Decisions with revisit
+issues #525-#532. Its retrospective ran 2026-10-16; discovered: issue #537
+(`review-settled` cannot read Codex's clean-pass receipt). Order:
 
+- task-054 -- owner rulings on the drift left by the MVP's review rounds
+  (retrospective 2026-10-16, tds-utils PR#535): five broken rules, issues
+  #538-#542, and the built-but-not-designed rows, issue #543. Issue #540
+  (an unanswered save filed elsewhere is never ingested on that host) is
+  the one that loses data.
+- task-055 -- the body amendment for issue #544, plus three code-text
+  fixes, including a repeat hello that still answers `role: writer` after
+  `rebind`.
 - task-027 -- the MVP acceptance run on the mbp (real Chrome profile, then
-  Firefox, Ollama, launchd, phone save, a week of use); the only thing left,
-  and the design's IMPLEMENTED transition waits on it. Run the daemon under
-  a uv, python.org or Homebrew Python: the macOS system Python cannot load
-  `sqlite-vec`.
+  Firefox, Ollama, launchd, phone save, a week of use). The design's
+  IMPLEMENTED transition waits on it and on tasks 054-055. Run the daemon
+  under a uv, python.org or Homebrew Python: the macOS system Python cannot
+  load `sqlite-vec`.
 
 OCR on Demand + Ollama Gateway (`docs/design/OCR-ON-DEMAND.DESIGN.md`,
 `docs/design/OLLAMA-GATEWAY.DESIGN.md`, APPROVED 2026-10-02; open questions
@@ -91,6 +101,9 @@ this section; issue #289 owns the migration into `tasks/`.
   is the design working as written, not drift. Unblock: Todd decides
   whether Markdown joins the exclusion class (a Key Decisions row in
   `OCR-ON-DEMAND.DESIGN.md`) or the listing stands.
+- 2026-10-16: `DYNOMARK.DESIGN.md` APPROVED -> IMPLEMENTED waits on
+  task-027 (the mbp acceptance run) and the drift issues #538-#544. Only
+  Todd moves it.
 - 2026-10-13: `OLLAMA-GATEWAY.DESIGN.md` and `OCR-ON-DEMAND.DESIGN.md`
   APPROVED -> IMPLEMENTED waits on drift Issue#453, Issue#454 and Issue#455, and task-046.
   Only Todd moves them.
