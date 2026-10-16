@@ -270,6 +270,28 @@ describe('Snapshots -- changes under the owned roots are debounced into one tree
   });
 });
 
+describe('Snapshots -- a debounced tree.snapshot that meets a daemon restart (issue #524)', () => {
+  it('Given a change under the owned roots, When the debounce passes while no daemon listens, Then no problem is reported and the reconnect sends the tree as it is then', async () => {
+    const { w, ids, runtime } = await setup();
+    await moved(w, runtime, ids.saved, ids.rust);
+    w.connection().daemonNotRunning(true);
+    await w.daemon().drop('disconnected');
+    await w.timer().advance(SNAPSHOT_DEBOUNCE_MS);
+    await runtime.idle();
+    w.connection().daemonNotRunning(false);
+    await w.timer().advance(RECONNECT_BACKOFF.max_ms);
+    await runtime.idle();
+
+    const page = await runtime.page({ kind: 'overview' });
+    expect(page.ok && page.kind === 'overview' ? page.overview.problems : undefined).toEqual([]);
+    expect(
+      sentOf(w, 'tree.snapshot')
+        .at(-1)
+        ?.snapshot.nodes.find((n) => n.id === ids.saved)?.parent_id,
+    ).toBe(ids.rust);
+  });
+});
+
 describe('Batch offers -- a batch.offer event is applied and answered', () => {
   it('Given a batch.offer moving the save into a new folder, When it arrives, Then the tree changes, the receipt is APPLIED and the move is origin extension', async () => {
     const { w, ids, runtime } = await setup();

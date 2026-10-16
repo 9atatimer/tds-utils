@@ -24,7 +24,7 @@ import type { ContentSourcePort } from '../ports/contentSource.js';
 import type { IdSource } from '../ports/idSource.js';
 import type { StoragePort } from '../ports/storage.js';
 import type { Timer } from '../ports/timer.js';
-import type { TransportPort } from '../ports/transport.js';
+import { TransportLost, type TransportPort } from '../ports/transport.js';
 import { capture } from './capture.js';
 import type { HelloOutcome } from './connection.js';
 import { keepMove, observeMove, resendMoves, type ReportedMoves } from './observeMove.js';
@@ -67,6 +67,13 @@ export interface TreeWatchContext {
   track(work: Promise<unknown>): void;
   /** A debounced tree.snapshot was recorded by the daemon (it re-reads writer markers from it). */
   snapshotSent(): void;
+}
+
+// --- Predicates ---
+
+/** The link was lost (a daemon stopped or restarting): the next hello sends tree.snapshot anyway (contract v1, step 6). */
+function isLostLink(error: unknown): boolean {
+  return error instanceof TransportLost && error.reason === 'disconnected';
 }
 
 // --- Pure helpers ---
@@ -267,14 +274,25 @@ export class TreeWatch {
     return capture(bookmark, { content, background });
   }
 
-  /** Schedule one tree.snapshot when any of these folders lies under an owned root (full connections only). */
+  /**
+   * Schedule one tree.snapshot when any of these folders lies under an owned
+   * root (full connections only). One that meets a lost link is dropped, not
+   * reported: the reconnect's hello sends the tree as it is then (issue #524).
+   */
   private touched(tree: TreeRead, folders: readonly (NodeId | null | undefined)[]): void {
     if (this.context.outcome()?.mode !== 'full') return;
     if (!folders.some((f) => isOwnedFolder(tree, f, this.context))) return;
     this.cancelSnapshot?.();
     this.cancelSnapshot = this.deps.timer.after(SNAPSHOT_DEBOUNCE_MS, () => {
       this.cancelSnapshot = undefined;
-      this.context.track(sendTreeSnapshot(this.deps).then(() => this.context.snapshotSent()));
+      this.context.track(
+        sendTreeSnapshot(this.deps).then(
+          () => this.context.snapshotSent(),
+          (error: unknown) => {
+            if (!isLostLink(error)) throw error;
+          },
+        ),
+      );
     });
   }
 

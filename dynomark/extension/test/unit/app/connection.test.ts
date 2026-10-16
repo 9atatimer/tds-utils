@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { Connection, ContractViolation, ModeRefused } from '../../../src/app/connection.js';
 import { onConnected } from '../../../src/app/onConnected.js';
 import { DaemonError } from '../../../src/app/errors.js';
+import { TransportLost } from '../../../src/ports/transport.js';
 import type { RequestMessage } from '../../../src/wire/messages.js';
 import { HelloSchema } from '../../../src/wire/messages.js';
 import { FakeExtensionWorld } from '../../fakes/FakeExtensionWorld.js';
@@ -140,6 +141,24 @@ describe('Delivery -- a request with no answer is re-sent after a reconnect with
       'hello:',
       'events.ack:req-ack',
     ]);
+  });
+
+  it('Given the daemon stops with a request in flight and its host answers every re-hello busy (no daemon listening), When the re-sends run out, Then the request rejects with TransportLost disconnected, not a DaemonError (issue #524)', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const daemon = w.daemon();
+    const connection = new Connection(IDENTITY, w.worker());
+    const pending = connection.send({ v: 1, type: 'events.ack', id: 'req-ack', event_ids: ['evt-1'] });
+    await daemon.answer(scriptedDaemon({})(await daemon.nextRequest()));
+    expect((await daemon.nextRequest()).type).toBe('events.ack');
+    w.connection().daemonNotRunning(true);
+    await daemon.drop('disconnected');
+    const lost = await pending.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(lost).toBeInstanceOf(TransportLost);
+    expect(lost).toMatchObject({ reason: 'disconnected' });
+    expect(connection.outcome()).toBeUndefined();
   });
 
   it('Given the connection is superseded, When requests are sent, Then they reject superseded and nothing more reaches the wire, not even hello', async () => {

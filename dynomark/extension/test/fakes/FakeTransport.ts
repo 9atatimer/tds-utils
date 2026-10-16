@@ -7,6 +7,9 @@
 import type { ErrorMessage, EventMessage, RequestMessage, ResponseMessage, ResultOf } from '../../src/wire/messages.js';
 import { TransportLost, type LinkState, type LossReason, type TransportLink, type TransportPort } from '../../src/ports/transport.js';
 
+/** What dynomark-host answers when no daemon listens (dynomark_daemon/host.py, NO_DAEMON). */
+export const NO_DAEMON = 'the dynomark daemon is not running';
+
 interface Pending {
   resolve(response: ResponseMessage): void;
   reject(error: TransportLost): void;
@@ -21,7 +24,8 @@ export class FakeTransport implements TransportPort, TransportLink {
   private open = false;
   private superseded = false;
   private down = false;
-  private responder: ((request: RequestMessage) => ResponseMessage) | undefined;
+  private noDaemon = false;
+  private responder: ((request: RequestMessage) => ResponseMessage | undefined) | undefined;
   private readonly pending = new Map<string, Pending>();
   private readonly listeners = new Set<(event: EventMessage) => void>();
   private readonly arrivals: RequestMessage[] = [];
@@ -45,15 +49,25 @@ export class FakeTransport implements TransportPort, TransportLink {
       return Promise.reject(new TransportLost('disconnected'));
     }
     if (this.pending.has(request.id)) throw new Error(`FakeTransport: request ${request.id} is already in flight on this connection`);
-    if (!this.open) {
+    const fresh = !this.open;
+    if (fresh) {
       this.open = true;
       this.connections += 1;
       this.setLink({ state: 'connected' });
     }
     this.sent.push(request);
     const reply = new Promise<ResponseMessage>((resolve, reject) => this.pending.set(request.id, { resolve, reject }));
+    if (this.noDaemon) {
+      // dynomark-host's answer_unavailable: the first frame is answered busy, then the host exits.
+      if (fresh) {
+        this.answer({ v: 1, type: 'error', re: request.id, code: 'busy', message: NO_DAEMON });
+        void Promise.resolve().then(() => this.drop('disconnected'));
+      }
+      return reply as Promise<ResultOf<R['type']> | ErrorMessage>;
+    }
     this.arrive(request);
-    if (this.responder !== undefined) this.answer(this.responder(request));
+    const response = this.responder?.(request);
+    if (response !== undefined) this.answer(response);
     // The daemon answers X with X.result or error; the fake trusts the test's daemon to keep that pairing.
     return reply as Promise<ResultOf<R['type']> | ErrorMessage>;
   }
@@ -77,8 +91,18 @@ export class FakeTransport implements TransportPort, TransportLink {
     this.down = down;
   }
 
-  /** Answer every later request at once with `respond`'s frame; undefined returns to manual answering. */
-  autoAnswer(respond: ((request: RequestMessage) => ResponseMessage) | undefined): void {
+  /**
+   * The host starts but no daemon listens on the socket (a daemon stopped or
+   * restarting), until called with false: as dynomark-host does, the
+   * first frame on each new link is answered `error` `busy` and the link then
+   * drops; anything else sent on that link is lost with it.
+   */
+  daemonNotRunning(notRunning: boolean): void {
+    this.noDaemon = notRunning;
+  }
+
+  /** Answer every later request at once with `respond`'s frame (a request it answers undefined is left in flight); undefined returns to manual answering. */
+  autoAnswer(respond: ((request: RequestMessage) => ResponseMessage | undefined) | undefined): void {
     this.responder = respond;
   }
 

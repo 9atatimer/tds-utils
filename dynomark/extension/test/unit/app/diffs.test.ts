@@ -8,7 +8,9 @@
 
 import { describe, expect, it } from 'vitest';
 import { DiffAcceptance, listDiffs, proposeDiff, readDiffPage, readOutline, setFolderFlags } from '../../../src/app/diffs.js';
+import { sendTreeSnapshot } from '../../../src/app/onConnected.js';
 import type { DiffItem, OutlineFolder, TreeDiff } from '../../../src/domain/diff.js';
+import type { Snapshot } from '../../../src/domain/tree.js';
 import type { RequestMessage, ResponseMessage } from '../../../src/wire/messages.js';
 import { FakeBookmarkTree } from '../../fakes/FakeBookmarkTree.js';
 import { FakeClock } from '../../fakes/FakeClock.js';
@@ -140,10 +142,58 @@ describe('DiffAcceptance -- one item at a time', () => {
   });
 });
 
+/**
+ * A daemon whose outline is the folders under Dynomark in the latest tree.snapshot it recorded, as
+ * dynomark_daemon's current_outline is; issue #437.
+ */
+function outlineDaemon(dynomark: string): { answer: (r: RequestMessage) => ResponseMessage } {
+  let latest: Snapshot | undefined;
+  return {
+    answer: (r) => {
+      if (r.type === 'tree.snapshot') {
+        latest = r.snapshot;
+        return { v: 1, type: 'tree.snapshot.result', re: r.id };
+      }
+      if (r.type !== 'outline.get') return daemon(r);
+      const folders = (latest?.nodes ?? []).filter((n) => n.kind === 'folder' && n.parent_id === dynomark);
+      const outline = folders.map((n) => ({
+        node_id: n.id,
+        path: { root: 'bar' as const, names: ['Dynomark', n.title] },
+        pinned: false,
+        locked: false,
+        item_count: 0,
+      }));
+      return { v: 1, type: 'outline.get.result', re: r.id, outline, next_cursor: r.cursor === undefined ? 'p2' : null };
+    },
+  };
+}
+
 describe('readOutline and setFolderFlags -- pin and lock', () => {
   it('Given the owned outline, When read, Then its folders come back with their flags', async () => {
     const d = await deps();
     expect(await readOutline(undefined, d)).toEqual({ folders: [FOLDER], next_cursor: null });
+  });
+
+  it('Given a folder filed under Dynomark that no tree.snapshot has carried yet, When the outline is read, Then that folder is listed (issue #437)', async () => {
+    const tree = new FakeBookmarkTree({ flavor: 'chrome' });
+    const seeded = await seedOwnedTree(tree);
+    const transport = new FakeTransport();
+    transport.autoAnswer(outlineDaemon(seeded.dynomark).answer);
+    const d = { transport, ids: new SequentialIdSource(), tree, clock: new FakeClock(1_790_000_000_000) };
+    await sendTreeSnapshot(d); // the daemon's latest tree: the one sent after hello
+    const reading = (await tree.createFolder(seeded.dynomark, 'Reading')).id;
+    const { folders } = await readOutline(undefined, d);
+    expect(folders.map((f) => f.node_id)).toContain(reading);
+  });
+
+  it('Given a later page of the outline, When read from its cursor, Then no tree.snapshot is sent, so the cursor still names the outline it pages', async () => {
+    const tree = new FakeBookmarkTree({ flavor: 'chrome' });
+    const seeded = await seedOwnedTree(tree);
+    const transport = new FakeTransport();
+    transport.autoAnswer(outlineDaemon(seeded.dynomark).answer);
+    const d = { transport, ids: new SequentialIdSource(), tree, clock: new FakeClock(1_790_000_000_000) };
+    expect(await readOutline('p2', d)).toMatchObject({ next_cursor: null });
+    expect(transport.sent.map((r) => r.type)).toEqual(['outline.get']);
   });
 
   it('Given a folder, When pinned, Then folder.flags.set names its node id and path and only the flag changed', async () => {

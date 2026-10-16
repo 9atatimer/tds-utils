@@ -85,8 +85,19 @@ export async function readDiffPage(
   return { diff: r.diff, items: r.items, next_cursor: r.next_cursor };
 }
 
-/** One page of the owned outline with its pin and lock flags. */
-export async function readOutline(cursor: Cursor | undefined, deps: Talk): Promise<Paged & { readonly folders: readonly OutlineFolder[] }> {
+/**
+ * One page of the owned outline with its pin and lock flags. The daemon's
+ * outline is its latest tree.snapshot, which lags the browser: a batch's
+ * folders until the post-receipt snapshot, a user's until the debounce. So
+ * the first page sends the tree as read now and awaits its result first (as
+ * diff.propose does); a later page does not, so its cursor still names the
+ * outline it pages (issue #437).
+ */
+export async function readOutline(
+  cursor: Cursor | undefined,
+  deps: Talk & { readonly tree: BookmarkTreePort; readonly clock: Clock },
+): Promise<Paged & { readonly folders: readonly OutlineFolder[] }> {
+  if (cursor === undefined) await sendTreeSnapshot(deps);
   const r = resultOrThrow(
     await deps.transport.send({ v: CONTRACT_VERSION, type: 'outline.get', id: deps.ids.next(), ...cursorField(cursor) }),
   );

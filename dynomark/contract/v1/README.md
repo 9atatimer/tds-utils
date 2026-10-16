@@ -189,8 +189,11 @@ identity it holds, never by normalizing history URLs.
 6. The extension sends `tree.snapshot` after every `hello`, right after
    every `batch.receipt.result` (not debounced), immediately before every
    `diff.propose` (awaiting `tree.snapshot.result` first, so an audit
-   compares against the current bar), and debounced after changes under
-   the owned roots.
+   compares against the current bar), immediately before the first page
+   of every `outline.get` (awaiting its result the same way, so the
+   outline lists the folders the user sees now; later pages send none, so
+   their cursor still names the outline it pages), and debounced after
+   changes under the owned roots.
 
 ## Message table
 
