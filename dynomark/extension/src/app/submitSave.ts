@@ -76,6 +76,9 @@ export class SubmittedSaves {
   private readonly entries = new Map<string, SaveEntry>();
   private pending: readonly PendingSave[] | undefined;
   private loading: Promise<readonly PendingSave[]> | undefined;
+  /** Frames kept so far by this worker: each kept frame's id maps to its turn. */
+  private holds = 0;
+  private readonly heldAt = new Map<RequestId, number>();
 
   constructor(private readonly storage: StoragePort) {}
 
@@ -108,7 +111,13 @@ export class SubmittedSaves {
     await this.load();
     const current = this.pending ?? [];
     if (save === undefined || pendingFor(current, save.bookmark.node_id, save.bookmark.url)?.id === save.id) return;
+    this.heldAt.set(save.id, (this.holds += 1));
     await this.store(withPending(current, save));
+  }
+
+  /** A point in this worker's keeping: keepOnly spares every frame kept after it. */
+  mark(): number {
+    return this.holds;
   }
 
   /** Forget `frame`: it was answered, or refused for good. */
@@ -118,11 +127,17 @@ export class SubmittedSaves {
     if (current.some((save) => save.id === frame.id)) await this.store(withoutPending(current, frame.id));
   }
 
-  /** Forget every kept frame whose node is not in `node_ids` (no longer in Follow Up, so never re-sent): its page text goes. */
-  async keepOnly(node_ids: ReadonlySet<NodeId>): Promise<void> {
+  /**
+   * Forget every kept frame whose node is not in `node_ids` (no longer in
+   * Follow Up, so never re-sent): its page text goes. A frame kept after
+   * `since` (a mark taken before `node_ids` was read) stays: its bookmark
+   * may have been created after the read (issue #534).
+   */
+  async keepOnly(node_ids: ReadonlySet<NodeId>, since: number): Promise<void> {
     await this.load();
     const current = this.pending ?? [];
-    const kept = pendingAmong(current, node_ids);
+    const among = new Set(pendingAmong(current, node_ids).map((save) => save.id));
+    const kept = current.filter((save) => among.has(save.id) || (this.heldAt.get(save.id) ?? 0) > since);
     if (kept.length < current.length) await this.store(kept);
   }
 

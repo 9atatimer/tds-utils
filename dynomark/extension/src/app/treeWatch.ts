@@ -20,6 +20,7 @@ import type { NodeId } from '../domain/values.js';
 import type { BookmarkTreePort } from '../ports/bookmarkTree.js';
 import type { BookmarkEvent } from '../ports/bookmarkEvents.js';
 import type { Clock } from '../ports/clock.js';
+import type { BackgroundTabPort } from '../ports/backgroundTab.js';
 import type { ContentSourcePort } from '../ports/contentSource.js';
 import type { IdSource } from '../ports/idSource.js';
 import type { StoragePort } from '../ports/storage.js';
@@ -48,7 +49,7 @@ const NOTHING_OPEN: ContentSourcePort = { readTab: () => Promise.resolve(undefin
 export interface TreeWatchDeps {
   readonly tree: BookmarkTreePort;
   readonly content: ContentSourcePort;
-  readonly background: ContentSourcePort;
+  readonly background: BackgroundTabPort;
   readonly transport: TransportPort;
   readonly ids: IdSource;
   readonly clock: Clock;
@@ -142,6 +143,7 @@ export class TreeWatch {
     if (path === undefined) return;
     const id = await this.deps.tree.resolveFolder(path);
     if (id === undefined) return;
+    const mark = this.deps.saves.mark();
     const children = await this.deps.tree.getChildren(id);
     const owed = await this.owedSet();
     const waiting = new Set(children.map((node) => node.id));
@@ -149,7 +151,8 @@ export class TreeWatch {
     for (const node_id of gone) owed.delete(node_id);
     if (gone.length > 0) await this.storeOwed(owed);
     // A kept frame for a bookmark gone from Follow Up is never re-sent: its page text leaves storage now.
-    await this.deps.saves.keepOnly(waiting);
+    // One kept since the mark is spared: its bookmark may have been created after the read.
+    await this.deps.saves.keepOnly(waiting, mark);
     for (const node of children) {
       const saved = this.save(node, { background: owed.has(node.id) });
       this.context.track(saved);

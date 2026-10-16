@@ -1,6 +1,7 @@
 // firefoxBrowser.ts -- a stand-in for Firefox's `browser` namespace, built
 // from the tiny per-API stubs: browser.bookmarks in Firefox's shapes, history,
-// tabs and scripting (open tabs, plus the background-tab windows), storage,
+// tabs and scripting (open tabs, plus the background-tab windows and their
+// declarativeNetRequest session rules), storage,
 // native messaging that reports a lost host on port.error, the sidebar, the
 // omnibox and commands. Each part is exposed so a test can arrange and
 // observe it.
@@ -59,7 +60,10 @@ export function fakeFirefox(options: { readonly sidebarRefuses?: boolean } = {})
     tabs: {
       query: () => tabs.query(),
       get: (tabId) => windows.tabs.get(tabId),
-      update: (p) => Promise.resolve(void opened.push(`update ${p.url}`)),
+      update: (tabOrProperties: number | { url: string }, properties?: { url: string }) =>
+        typeof tabOrProperties === 'number'
+          ? windows.tabs.update(tabOrProperties, properties ?? { url: '' })
+          : Promise.resolve(void opened.push(`update ${tabOrProperties.url}`)),
       create: (p) => Promise.resolve(void opened.push(`create ${p.url} active=${String(p.active)}`)),
     },
     scripting: {
@@ -75,6 +79,7 @@ export function fakeFirefox(options: { readonly sidebarRefuses?: boolean } = {})
       remove: (id) => windows.windows.remove(id),
     },
     storage: { local: storage },
+    declarativeNetRequest: windows.declarativeNetRequest,
     runtime: Object.assign(native, {
       id: 'dynomark@tds.dynomark',
       getURL: (path: string) => `moz-extension://self/${path}`,

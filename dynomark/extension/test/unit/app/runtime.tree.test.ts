@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { SNAPSHOT_DEBOUNCE_MS } from '../../../src/app/runtime.js';
 import { RECONNECT_BACKOFF } from '../../../src/domain/backoff.js';
 import { ExtensionRuntime } from '../../../src/app/runtime.js';
+import type { SnapshotNode } from '../../../src/domain/tree.js';
 import type { BookmarkEvent } from '../../../src/ports/bookmarkEvents.js';
 import type { RequestMessage, ResponseMessage } from '../../../src/wire/messages.js';
 import { FakeExtensionWorld } from '../../fakes/FakeExtensionWorld.js';
@@ -292,6 +293,19 @@ describe('Snapshots -- a debounced tree.snapshot that meets a daemon restart (is
   });
 });
 
+describe('Snapshots -- a debounced tree.snapshot on a superseded connection', () => {
+  it('Given a change under the owned roots, When the debounce passes after the connection was superseded (it never comes back), Then the lost snapshot is reported as a problem', async () => {
+    const { w, ids, runtime } = await setup();
+    await moved(w, runtime, ids.saved, ids.rust);
+    await w.daemon().drop('superseded');
+    await w.timer().advance(SNAPSHOT_DEBOUNCE_MS);
+    await runtime.idle();
+
+    const page = await runtime.page({ kind: 'overview' });
+    expect(page.ok && page.kind === 'overview' ? page.overview.problems.join('\n') : '').toContain('superseded');
+  });
+});
+
 describe('Batch offers -- a batch.offer event is applied and answered', () => {
   it('Given a batch.offer moving the save into a new folder, When it arrives, Then the tree changes, the receipt is APPLIED and the move is origin extension', async () => {
     const { w, ids, runtime } = await setup();
@@ -540,6 +554,44 @@ describe('An ingest answered with a retryable code on a live link', () => {
     await runtime.idle();
 
     expect(sentOf(w, 'ingest').filter((r) => r.bookmark.node_id === node.id)).toHaveLength(2);
+  });
+});
+
+describe('Backlog pruning -- a save made while the backlog runs keeps its frame (issue #534 T12)', () => {
+  it('Given a save lands in Follow Up after the backlog read the folder and before it pruned the kept frames, When the daemon answers it busy and the worker dies in the backoff, Then the next worker re-sends the identical frame, captured text included', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const LATE_URL = 'https://late.example/';
+    scriptDaemon(w, {}, (r) =>
+      r.type === 'ingest' && r.bookmark.url === LATE_URL
+        ? { v: 2, type: 'error', re: r.id, code: 'busy', message: 'model loading' }
+        : undefined,
+    );
+    const ids = await seedOwnedTree(w.tree);
+    w.tabs.open(LATE_URL, PAGE);
+    const runtime = new ExtensionRuntime(w.worker());
+    const tree = w.tree;
+    const read = tree.getChildren.bind(tree);
+    let late: SnapshotNode | undefined;
+    tree.getChildren = async (folderId) => {
+      const children = await read(folderId);
+      if (folderId === ids.followUp && late === undefined) {
+        late = await tree.createBookmark(ids.followUp, 'Late', LATE_URL);
+        runtime.onBookmarkEvent({ kind: 'created', node: late });
+        await settle(); // the created event captures the open tab and keeps its frame meanwhile
+      }
+      return children;
+    };
+    await runtime.start();
+    await runtime.idle();
+    const first = sentOf(w, 'ingest').find((r) => r.bookmark.node_id === late?.id);
+    expect(first?.capture).toEqual({ source: 'tab', ...PAGE });
+
+    w.tabs.close(LATE_URL);
+    w.restart();
+    scriptDaemon(w);
+    await startRuntime(w);
+
+    expect(sentOf(w, 'ingest').find((r) => r.bookmark.node_id === late?.id)).toEqual(first);
   });
 });
 

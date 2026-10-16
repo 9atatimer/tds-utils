@@ -137,6 +137,58 @@ describe('Omnibox bm -- tier 1 per keystroke, tier 2 after the debounce', () => 
   });
 });
 
+describe('Omnibox bm -- rows held back for tier 2 come back when it brings nothing (issue #534 T9)', () => {
+  const WEAK: LocalIndexRow[] = Array.from({ length: OMNIBOX_HIT_LIMIT + 2 }, (_, k) => ({
+    identity: `https://plans.example/${k}`,
+    title: `Planning ${k}`,
+    path: { root: 'bar', names: ['Dynomark', 'Plans'] },
+    tags: [],
+    summary: '',
+  }));
+  const EMPTY = (r: RequestMessage): ResponseMessage | undefined =>
+    r.type === 'search' ? { v: 2, type: 'search.result', re: r.id, hits: [], next_cursor: null } : undefined;
+  const FAILS = (r: RequestMessage): ResponseMessage | undefined =>
+    r.type === 'search' ? { v: 2, type: 'error', re: r.id, code: 'internal', message: 'store closed' } : undefined;
+
+  async function weakWorld(search: (r: RequestMessage) => ResponseMessage | undefined) {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    scriptDaemon(w, {}, (r) =>
+      r.type === 'index.pull' ? { v: 2, type: 'index.pull.result', re: r.id, rows: WEAK, next_cursor: null } : search(r),
+    );
+    return { w, runtime: await startRuntime(w) };
+  }
+
+  async function typedThenTier2(w: FakeExtensionWorld, runtime: ExtensionRuntime): Promise<OmniboxRows[]> {
+    const rounds = type(runtime, 'pin');
+    await w.timer().advance(TIER2_DEBOUNCE_MS);
+    await runtime.idle();
+    return rounds;
+  }
+
+  it('Given a full tier-1 list of weak matches, When tier 2 answers with no hits, Then the full tier-1 list is suggested again', async () => {
+    const { w, runtime } = await weakWorld(EMPTY);
+    const rounds = await typedThenTier2(w, runtime);
+    expect(sentOf(w, 'search').map((r) => r.query)).toEqual(['pin']);
+    expect(rounds[0]?.hits.length).toBeLessThan(OMNIBOX_HIT_LIMIT);
+    expect(rounds.at(-1)?.hits.map((h) => h.tier)).toEqual(Array<string>(OMNIBOX_HIT_LIMIT).fill('local'));
+    expect(rounds.at(-1)?.ask).toBe('pin');
+  });
+
+  it('Given a full tier-1 list of weak matches, When tier 2 answers with an error, Then the full tier-1 list is suggested again', async () => {
+    const { w, runtime } = await weakWorld(FAILS);
+    const rounds = await typedThenTier2(w, runtime);
+    expect(sentOf(w, 'search')).toHaveLength(1);
+    expect(rounds.at(-1)?.hits).toHaveLength(OMNIBOX_HIT_LIMIT);
+  });
+
+  it('Given a full tier-1 list of weak matches, When the daemon is unreachable as tier 2 is due, Then the full tier-1 list is suggested again', async () => {
+    const { w, runtime } = await weakWorld(EMPTY);
+    w.connection().unreachable(true);
+    const rounds = await typedThenTier2(w, runtime);
+    expect(rounds.at(-1)?.hits).toHaveLength(OMNIBOX_HIT_LIMIT);
+  });
+});
+
 describe('Omnibox bm -- the Ask row', () => {
   it('Given hits, When typed, Then the Ask row follows them and Enter on the text does not ask', async () => {
     const { runtime } = await setup();

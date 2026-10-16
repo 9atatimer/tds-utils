@@ -3,7 +3,9 @@
 // LocalIndex (search_local, no transport call). When tier 1 is under the
 // named thresholds, search_remote runs after a debounce and its hits are
 // appended below tier 1 -- unless a newer keystroke arrived meanwhile; tier 1
-// then shows fewer rows than the limit, so the appended hits have room. The
+// then shows fewer rows than the limit, so the appended hits have room, and
+// when tier 2 adds nothing (no new hit, an error, no daemon) the rows held
+// back for it are suggested after all (issue #534). The
 // Ask row always comes last (design, "Ask fall-through"). What Enter does is
 // decided here (the domain's enterAction); opening a page or the chat surface
 // is the runtime's.
@@ -61,7 +63,7 @@ export class OmniboxSession {
     this.shown = tier1;
     suggest(omniboxRows(text, tier1));
     if (!pending) return;
-    this.cancelTier2 = this.deps.timer.after(TIER2_DEBOUNCE_MS, () => this.deps.track(this.tier2(text, tier1, suggest)));
+    this.cancelTier2 = this.deps.timer.after(TIER2_DEBOUNCE_MS, () => this.deps.track(this.tier2(text, found, tier1, suggest)));
   }
 
   /** What Enter on `text` does: the picked row, else the best hit (tier 1, or what is shown for this text), else ask. */
@@ -78,15 +80,14 @@ export class OmniboxSession {
     });
   }
 
-  private async tier2(text: Query, tier1: readonly Hit[], suggest: Suggest): Promise<void> {
-    let corpus: Hit[];
-    try {
-      corpus = await searchRemote(text, this.deps);
-    } catch {
-      return;
-    }
+  /** Append tier 2 below the shortened tier 1; when it adds no hit or fails, show every tier-1 hit held back for it. */
+  private async tier2(text: Query, found: readonly Hit[], tier1: readonly Hit[], suggest: Suggest): Promise<void> {
+    const corpus = await searchRemote(text, this.deps).catch((): Hit[] => []);
     if (text !== this.current) return;
-    this.shown = appendTier2(tier1, corpus).slice(0, OMNIBOX_HIT_LIMIT);
+    const merged = appendTier2(tier1, corpus);
+    const addsHits = merged.length > tier1.length;
+    if (!addsHits && found.length === tier1.length) return; // nothing was held back: the rows shown stand
+    this.shown = addsHits ? merged.slice(0, OMNIBOX_HIT_LIMIT) : found;
     suggest(omniboxRows(text, this.shown));
   }
 }

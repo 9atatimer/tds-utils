@@ -47,6 +47,8 @@ export interface LaunchOptions {
   readonly files?: Readonly<Record<string, string>>;
   /** Native-messaging hosts to register: host name -> socket its pipe connects to. The daemon's own is always registered. */
   readonly hosts?: Readonly<Record<string, string>>;
+  /** Extra Chromium switches (e.g. --host-resolver-rules, to give the local server a public-looking name). */
+  readonly args?: readonly string[];
 }
 
 export interface Launched {
@@ -150,7 +152,7 @@ export async function launchExtension(options: LaunchOptions = {}): Promise<Laun
     headless: true,
     // Playwright's own build: channel chromium, because plain headless means the headless shell, which loads no extension.
     ...(executablePath === undefined ? { channel: 'chromium' } : { executablePath }),
-    args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
+    args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`, ...(options.args ?? [])],
   });
   const firstWorker = async (): Promise<Worker> => context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'));
   let extensionId = PINNED_EXTENSION_ID;

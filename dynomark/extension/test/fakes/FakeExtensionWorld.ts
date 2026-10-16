@@ -12,6 +12,7 @@
 import type { EpochMs } from '../../src/domain/values.js';
 import type { BookmarkTreePort } from '../../src/ports/bookmarkTree.js';
 import type { Clock } from '../../src/ports/clock.js';
+import type { BackgroundTabPort } from '../../src/ports/backgroundTab.js';
 import type { ContentSourcePort } from '../../src/ports/contentSource.js';
 import type { HistoryPort } from '../../src/ports/history.js';
 import type { IdSource } from '../../src/ports/idSource.js';
@@ -47,8 +48,8 @@ export interface WorkerPorts {
   readonly tree: BookmarkTreePort;
   readonly history: HistoryPort;
   readonly content: ContentSourcePort;
-  /** Opens a URL in a background tab and reads it (the writer's third ContentSourcePort adapter). */
-  readonly background: ContentSourcePort;
+  /** Opens a URL in a background tab and reads it (the writer's background-tab port). */
+  readonly background: BackgroundTabPort;
   readonly storage: StoragePort;
   readonly transport: TransportPort & TransportLink;
   readonly clock: Clock;
@@ -142,7 +143,7 @@ export class FakeExtensionWorld {
       tree: bind<BookmarkTreePort>(this.tree),
       history: bind<HistoryPort>(this.history),
       content: bind<ContentSourcePort>(this.tabs),
-      background: bind<ContentSourcePort>(this.backgroundTabs),
+      background: bind<BackgroundTabPort>(this.backgroundTabs),
       storage: bind<StoragePort>(this.storage),
       transport: bind<TransportPort & TransportLink>(connection),
       clock: bind<Clock>(this.clock),

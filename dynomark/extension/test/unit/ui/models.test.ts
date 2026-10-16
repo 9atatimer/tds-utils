@@ -22,6 +22,17 @@ describe('Cloud model egress -- both models are shown with their local mark', ()
     expect(text).toMatch(/leave this machine/);
   });
 
+  it.each([
+    { cloud: 'completion', embedding: true, completion: false },
+    { cloud: 'embedding', embedding: false, completion: true },
+  ])(
+    'Given only the $cloud model cloud, When the chat line is made, Then it still says page text and questions leave this machine',
+    ({ embedding, completion }) => {
+      const text = modelsText({ embedding: { id: 'ollama:e', local: embedding }, completion: { id: 'ollama:c', local: completion } });
+      expect(text).toMatch(/Page text and questions leave this machine\.$/);
+    },
+  );
+
   it('Given both models local, When the chat line is made, Then it does not say anything leaves the machine', () => {
     const text = modelsText({ embedding: { id: 'ollama:e', local: true }, completion: { id: 'ollama:c', local: true } });
     expect(text).not.toMatch(/leave/);
