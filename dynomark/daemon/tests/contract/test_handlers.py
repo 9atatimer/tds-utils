@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from dynomark_daemon.adapters.dispatch import Dispatcher, Session
+from dynomark_daemon.testing.address import FakeAddressVet
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.completion import ScriptedCompletion
 from dynomark_daemon.testing.embedding import HashingEmbedding
@@ -38,6 +39,7 @@ def _dispatcher() -> Dispatcher:
         clock=FakeClock(start_ms=1_000),
         ids=SequentialIds(),
         transport=RecordingTransport(),
+        vetter=FakeAddressVet(resolves={}),
     )
 
 

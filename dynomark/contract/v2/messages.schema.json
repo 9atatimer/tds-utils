@@ -143,6 +143,12 @@
       "$ref": "#/$defs/StatusResult"
     },
     {
+      "$ref": "#/$defs/UrlVet"
+    },
+    {
+      "$ref": "#/$defs/UrlVetResult"
+    },
+    {
       "$ref": "#/$defs/Error"
     },
     {
@@ -353,6 +359,14 @@
         "node_moved",
         "node_missing",
         "not_empty"
+      ]
+    },
+    "VetRefusal": {
+      "description": "Why url.vet refuses a URL. scheme: not http(s). unresolved: the URL has no host, or its host does not resolve on the daemon. address: the host resolves to an address the daemon's fetch address policy refuses (by default loopback, link-local, private and every other non-public address; [capture] private_addresses = true allows them).",
+      "enum": [
+        "scheme",
+        "unresolved",
+        "address"
       ]
     },
     "DiffAction": {
@@ -2960,6 +2974,80 @@
         "queue_depth"
       ],
       "additionalProperties": false
+    },
+    "UrlVet": {
+      "type": "object",
+      "description": "Ask the daemon whether a background tab may load url: the daemon resolves its host and applies the fetch fallback's address policy. Sent by the writer's extension before it opens a background tab. Read-only.",
+      "properties": {
+        "v": {
+          "const": 2,
+          "description": "Contract version of the sender."
+        },
+        "type": {
+          "const": "url.vet"
+        },
+        "id": {
+          "$ref": "#/$defs/Id"
+        },
+        "url": {
+          "$ref": "#/$defs/Url"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "id",
+        "url"
+      ],
+      "additionalProperties": false
+    },
+    "UrlVetResult": {
+      "type": "object",
+      "description": "The vet of one URL. allowed true: every address its host resolves to passes the policy (refusal absent). allowed false: refusal says why; the extension captures source none and never opens the tab.",
+      "properties": {
+        "v": {
+          "const": 2,
+          "description": "Contract version of the sender."
+        },
+        "type": {
+          "const": "url.vet.result"
+        },
+        "re": {
+          "$ref": "#/$defs/Id"
+        },
+        "allowed": {
+          "type": "boolean"
+        },
+        "refusal": {
+          "$ref": "#/$defs/VetRefusal"
+        }
+      },
+      "required": [
+        "v",
+        "type",
+        "re",
+        "allowed"
+      ],
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "allowed": {
+            "const": false
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "refusal"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "refusal"
+          ]
+        }
+      }
     },
     "Error": {
       "type": "object",

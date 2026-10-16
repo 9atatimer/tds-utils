@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest';
 import { capture } from '../../../src/app/capture.js';
 import type { Bookmark } from '../../../src/domain/tree.js';
+import { TransportLost } from '../../../src/ports/transport.js';
 import { FakeBackgroundTabs } from '../../fakes/FakeBackgroundTabs.js';
 import { FakeTabs } from '../../fakes/FakeTabs.js';
 
@@ -25,6 +26,14 @@ function bookmark(url: string): Bookmark {
 const NEVER_ASKED = {
   readTab: (url: string) => Promise.reject(new Error(`readTab(${url}) must not be called`)),
 };
+
+/** A vet the daemon allows, recording each URL it was asked about. */
+function allowing(asked: string[] = []) {
+  return (url: string) => {
+    asked.push(url);
+    return Promise.resolve(true);
+  };
+}
 
 // --- Tests ---
 
@@ -86,14 +95,23 @@ describe('Background-tab capture -- the chain: matching tab, then background tab
     const tabs = new FakeTabs();
     tabs.open(URL, PAGE);
     const background = new FakeBackgroundTabs();
-    expect(await capture(bookmark(URL), { content: tabs, background })).toMatchObject({ source: 'tab' });
+    const asked: string[] = [];
+    expect(await capture(bookmark(URL), { content: tabs, background: { tabs: background, vet: allowing(asked) } })).toMatchObject({
+      source: 'tab',
+    });
     expect(background.opened).toEqual([]);
+    expect(asked).toEqual([]);
   });
 
   it('Given no tab shows the URL, When captured with a background adapter, Then it is opened in the background and the capture has source background_tab', async () => {
     const background = new FakeBackgroundTabs();
     background.serve(URL, PAGE);
-    expect(await capture(bookmark(URL), { content: new FakeTabs(), background })).toEqual({ source: 'background_tab', ...PAGE });
+    const asked: string[] = [];
+    expect(await capture(bookmark(URL), { content: new FakeTabs(), background: { tabs: background, vet: allowing(asked) } })).toEqual({
+      source: 'background_tab',
+      ...PAGE,
+    });
+    expect(asked).toEqual([URL]);
     expect(background.opened).toEqual([URL]);
   });
 
@@ -102,20 +120,47 @@ describe('Background-tab capture -- the chain: matching tab, then background tab
     tabs.open(URL, { title: 'Story', text: '  ' });
     const background = new FakeBackgroundTabs();
     background.serve(URL, PAGE);
-    expect(await capture(bookmark(URL), { content: tabs, background })).toMatchObject({ source: 'background_tab' });
+    expect(await capture(bookmark(URL), { content: tabs, background: { tabs: background, vet: allowing() } })).toMatchObject({
+      source: 'background_tab',
+    });
   });
 
   it('Given the background tab cannot be read either, When captured, Then source is none', async () => {
-    expect(await capture(bookmark(URL), { content: new FakeTabs(), background: new FakeBackgroundTabs() })).toEqual({
+    expect(
+      await capture(bookmark(URL), { content: new FakeTabs(), background: { tabs: new FakeBackgroundTabs(), vet: allowing() } }),
+    ).toEqual({
       source: 'none',
       text: '',
     });
   });
 
   it('Given a non-http(s) URL, When captured with a background adapter, Then nothing is opened', async () => {
-    expect(await capture(bookmark('file:///etc/passwd'), { content: NEVER_ASKED, background: NEVER_ASKED })).toEqual({
+    const vet = (url: string) => Promise.reject(new Error(`vet(${url}) must not be called`));
+    expect(await capture(bookmark('file:///etc/passwd'), { content: NEVER_ASKED, background: { tabs: NEVER_ASKED, vet } })).toEqual({
       source: 'none',
       text: '',
     });
+  });
+
+  it('Given the daemon refuses the URL (url.vet allowed false: a loopback, private or link-local address), When captured, Then source is none and no background tab is opened (issue #410)', async () => {
+    const background = new FakeBackgroundTabs();
+    background.serve(URL, PAGE);
+    const refused = () => Promise.resolve(false);
+    expect(await capture(bookmark(URL), { content: new FakeTabs(), background: { tabs: background, vet: refused } })).toEqual({
+      source: 'none',
+      text: '',
+    });
+    expect(background.opened).toEqual([]);
+  });
+
+  it('Given the vet cannot be answered (the daemon is down: the request is lost), When captured, Then source is none and no background tab is opened (issue #410)', async () => {
+    const background = new FakeBackgroundTabs();
+    background.serve(URL, PAGE);
+    const lost = () => Promise.reject(new TransportLost('disconnected'));
+    expect(await capture(bookmark(URL), { content: new FakeTabs(), background: { tabs: background, vet: lost } })).toEqual({
+      source: 'none',
+      text: '',
+    });
+    expect(background.opened).toEqual([]);
   });
 });

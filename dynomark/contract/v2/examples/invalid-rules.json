@@ -284,6 +284,26 @@
     "path": "",
     "rule": "type must be a known message type"
   },
+  "url-vet-allowed-with-refusal.json": {
+    "keyword": "not",
+    "path": "",
+    "rule": "an allowed vet carries no refusal"
+  },
+  "url-vet-empty-url.json": {
+    "keyword": "minLength",
+    "path": "/url",
+    "rule": "url.vet names a URL"
+  },
+  "url-vet-refusal-unknown.json": {
+    "keyword": "enum",
+    "path": "/refusal",
+    "rule": "VetRefusal is a closed set"
+  },
+  "url-vet-refused-without-refusal.json": {
+    "keyword": "required",
+    "path": "/refusal",
+    "rule": "a refused vet says why"
+  },
   "v-mismatch-on-versioned-message.json": {
     "keyword": "const",
     "path": "/v",

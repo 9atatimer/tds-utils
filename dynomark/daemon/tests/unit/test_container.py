@@ -32,6 +32,7 @@ from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.domain.tree import TreeOutline
 from dynomark_daemon.ports.completion import CompletionError, CompletionPort
 from dynomark_daemon.settings import parse_settings
+from dynomark_daemon.testing.address import FakeAddressVet
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.completion import EnrichCall, ScriptedCompletion
 from dynomark_daemon.testing.content import FakeFetch
@@ -105,6 +106,7 @@ def _ports(
         embedding=HashingEmbedding(),
         completion=completion,
         content=FakeFetch({}),
+        vetter=FakeAddressVet(resolves={}),
         clock=FakeClock(start_ms=1_000),
         ids=SequentialIds(),
     )

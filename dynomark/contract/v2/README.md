@@ -248,6 +248,8 @@ identity it holds, never by normalizing history URLs.
 | `writer.status.result` | daemon -> extension | Own marker, other writers, conflict flag | Key Decisions: two writers (MVP writer marker) |
 | `status` | extension -> daemon | Daemon status for the settings page | Security: cloud model egress shown; Config |
 | `status.result` | daemon -> extension | Role, host id, contract version, models, queue depth | Security: cloud model egress shown; Config |
+| `url.vet` | extension -> daemon | May a background tab load this URL: the daemon resolves it and applies the fetch address policy | Key Decisions: background-tab capture (2026-10-16) |
+| `url.vet.result` | daemon -> extension | `allowed`, or the `VetRefusal` | Key Decisions: background-tab capture (2026-10-16) |
 | `error` | daemon -> extension | The one error response, closed code set | A reader host never writes (`not_writer`); Transport contract: retryable errors |
 
 ## Delivery and replay
@@ -339,6 +341,29 @@ identity it holds, never by normalizing history URLs.
 - **Duplicate identity.** An identity counts as already filed only when
   it has a `FILED` entry whose node is present in the latest
   `tree.snapshot`.
+
+## Background-tab capture
+
+The writer's extension may load a saved URL that no open tab shows in a
+background tab of the user's own browser profile (setting on by default).
+That tab carries the profile's cookies, so it is held to the same address
+policy as the daemon's fetch fallback, and the daemon, which can resolve
+DNS, decides:
+
+- Before it opens a background tab the extension sends `url.vet` with the
+  bookmark's URL. It opens the tab only on `url.vet.result` with
+  `allowed` true.
+- `allowed` false (`refusal`: `scheme`, `unresolved` or `address`), an
+  `error` answer, or no answer at all (the daemon down, the link lost)
+  captures as `source` `none`: the tab is never opened, and the daemon's
+  fetch fallback, under the same policy, takes the save.
+- The daemon allows a URL only when it is http(s) and every address its
+  host resolves to passes the fetch address policy: public addresses only
+  (never loopback, link-local, private, unspecified, reserved or
+  multicast), unless the daemon's config sets `[capture]
+  private_addresses = true`, which allows every resolving address.
+- `url.vet` is read-only and served on any connection; it is not in the
+  read-only set (a `read_only` connection ingests nothing to capture).
 
 ## Write batches
 

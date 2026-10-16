@@ -27,6 +27,7 @@ from dynomark_daemon.domain.placement import FolderChoice
 from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.domain.tree import TreeOutline
 from dynomark_daemon.ports.completion import CompletionError
+from dynomark_daemon.testing.address import FakeAddressVet
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.completion import ProposeDiffCall, ScriptedCompletion
 from dynomark_daemon.testing.content import FakeFetch
@@ -75,6 +76,9 @@ class Harness:
             clock=self.clock,
             ids=self.ids,
             transport=self.transport,
+            vetter=FakeAddressVet(
+                resolves={"tokio.rs": ("93.184.216.34",), "router": ("192.168.1.1",)}
+            ),
             wake=self._wake,
         )
         self.session = Session()
@@ -358,6 +362,28 @@ def test_a_receipt_for_another_profiles_batch_is_recorded_and_mints_no_batch() -
     assert record.undone_by is None
 
 
+@pytest.mark.parametrize("role", [HostRole.WRITER, HostRole.READER])
+def test_url_vet_answers_whether_a_background_tab_may_load_the_url(
+    role: HostRole,
+) -> None:
+    """Given a connection of either role, When url.vet names a public URL, a
+    private one and a non-http one, Then the first is allowed and the others
+    refused with address and scheme (contract v2, Background-tab capture)."""
+    harness = Harness(role)
+    harness.hello()
+
+    public = harness.send(wire.body("url.vet", "v-1", url="https://tokio.rs/"))
+    private = harness.send(wire.body("url.vet", "v-2", url="http://router/admin"))
+    other = harness.send(wire.body("url.vet", "v-3", url="file:///etc/passwd"))
+
+    assert isinstance(public, m.UrlVetResult) and public.re == "v-1"
+    assert (public.allowed, public.refusal) == (True, None)
+    assert isinstance(private, m.UrlVetResult)
+    assert (private.allowed, private.refusal) == (False, "address")
+    assert isinstance(other, m.UrlVetResult)
+    assert (other.allowed, other.refusal) == (False, "scheme")
+
+
 def test_a_foreign_cursor_is_stale() -> None:
     """Given a full connection, When index.pull presents a job.list cursor, Then
     it is answered stale_cursor."""
@@ -389,6 +415,7 @@ def test_an_unexpected_failure_is_answered_internal() -> None:
         clock=harness.clock,
         ids=harness.ids,
         transport=harness.transport,
+        vetter=FakeAddressVet(resolves={}),
         wake=lambda: None,
     )
     harness.hello()
