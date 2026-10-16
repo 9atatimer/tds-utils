@@ -64,7 +64,15 @@ describe('Pending saves', () => {
 
   it('Given saves for three nodes, When only two of them are still in Follow Up, Then only those two are kept, in order', () => {
     const saves = [pending(1), pending(2), pending(3)];
-    expect(pendingAmong(saves, new Set(['3', '1']))).toEqual([pending(1), pending(3)]);
-    expect(pendingAmong(saves, new Set())).toEqual([]);
+    const present = new Map([
+      ['3', 'https://p3.example/'],
+      ['1', 'https://p1.example/'],
+    ]);
+    expect(pendingAmong(saves, present)).toEqual([pending(1), pending(3)]);
+    expect(pendingAmong(saves, new Map())).toEqual([]);
+  });
+
+  it('Given a save kept for a node, When that bookmark is still in Follow Up with its url edited, Then the save is not kept (never re-sent: the pair differs)', () => {
+    expect(pendingAmong([pending(1)], new Map([['1', 'https://edited.example/']]))).toEqual([]);
   });
 });
