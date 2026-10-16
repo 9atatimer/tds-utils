@@ -135,6 +135,9 @@ class WriteBatch:
     inverse: tuple[Revert, ...]
     diff_item_id: ItemId | None = None
     park: ParkReason | None = None
+    scope: tuple[FolderPath, ...] = ()
+    """With ``diff_item_id``: the accepted item's scope, the folders its
+    operations name (contract v2, Boundary); an inverse carries the same."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -317,13 +320,62 @@ def outside_roots(
     return tuple(op.index for op in operations if not _is_inside_roots(op, roots))
 
 
-def admit(operations: tuple[Operation, ...], roots: OwnedRoots) -> None:
-    """The boundary policy.
+def _is_named_by(
+    path: FolderPath | None, roots: OwnedRoots, scope: Sequence[FolderPath]
+) -> bool:
+    """``path`` is unknown, inside an owned root, or exactly a scope path."""
+    return path is None or roots.contains(path) or path in scope
+
+
+def _is_inside_scope(
+    op: Operation, roots: OwnedRoots, scope: Sequence[FolderPath]
+) -> bool:
+    match op:
+        case OpCreateFolder() | OpCreate():
+            return op.parent in scope
+        case OpMove():
+            return _is_named_by(op.to, roots, scope) and _is_named_by(
+                op.expect.parent_path, roots, scope
+            )
+        case OpRemove():
+            return _is_named_by(op.expect.parent_path, roots, scope)
+
+
+def item_scope(operations: Sequence[Operation]) -> tuple[FolderPath, ...]:
+    """An accepted item's scope: every folder its operations target or take a
+    node from, each once, in the order first named (Goal 8: an operation
+    outside OwnedRoots must lie inside one accepted DiffItem)."""
+    named: list[FolderPath] = []
+    for op in operations:
+        match op:
+            case OpCreateFolder() | OpCreate():
+                paths: tuple[FolderPath | None, ...] = (op.parent,)
+            case OpMove():
+                paths = (op.to, op.expect.parent_path)
+            case OpRemove():
+                paths = (op.expect.parent_path,)
+        named.extend(p for p in paths if p is not None and p not in named)
+    return tuple(named)
+
+
+def admit(
+    operations: tuple[Operation, ...],
+    roots: OwnedRoots,
+    *,
+    scope: Sequence[FolderPath] = (),
+) -> None:
+    """The boundary policy: every operation inside the owned roots, or (for an
+    accepted item's batch) inside its ``scope``, where a scope path admits
+    only itself.
 
     Raises:
-        OutsideOwnedRoots: some operation leaves the owned roots.
+        OutsideOwnedRoots: some operation leaves both.
     """
-    outside = outside_roots(operations, roots)
+    outside = tuple(
+        i
+        for i in outside_roots(operations, roots)
+        if not _is_inside_scope(operations[i], roots, scope)
+    )
     if outside:
         raise OutsideOwnedRoots(outside)
 

@@ -5,6 +5,8 @@ production code. Values stay inside the wire caps so that a mapping
 failure is a mapping bug, not an oversize input.
 """
 
+from dataclasses import replace
+
 from hypothesis import strategies as st
 
 from dynomark_daemon.domain.batch import (
@@ -104,7 +106,16 @@ write_batches = st.builds(
     inverse=reverts,
     diff_item_id=st.none() | ids.map(ItemId),
     park=st.none() | st.builds(ParkReason, existing=folder_paths),
+).flatmap(
+    lambda batch: (
+        st.just(replace(batch, scope=()))
+        if batch.diff_item_id is None
+        else st.lists(folder_paths, min_size=1, max_size=4, unique=True).map(
+            lambda scope: replace(batch, scope=tuple(scope))
+        )
+    )
 )
+"""A batch carries a scope exactly when it realizes an accepted item."""
 
 jobs = st.builds(
     Job,

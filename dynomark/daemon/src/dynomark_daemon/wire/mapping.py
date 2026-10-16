@@ -325,6 +325,9 @@ def write_batch_to_wire(batch: WriteBatch) -> w.WriteBatch:
         operations=[operation_to_wire(op) for op in batch.operations],
         diff_item_id=batch.diff_item_id,
         park=_park_to_wire(batch.park),
+        scope=None
+        if batch.diff_item_id is None
+        else [folder_path_to_wire(p) for p in batch.scope],
     )
 
 

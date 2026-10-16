@@ -17,6 +17,7 @@ from dynomark_daemon.domain.batch import (
     OpRemove,
     WriteBatch,
     admit,
+    item_scope,
     outside_roots,
     plan_inverse,
 )
@@ -266,8 +267,9 @@ def item_batch_id(item_id: ItemId) -> BatchId:
 
 def item_batch(item: DiffItem, kind: DiffKind, roots: OwnedRoots) -> WriteBatch:
     """The batch realizing an accepted item: its operations, their inverse,
-    and the item's reference. An audit item may cross the ``OwnedRoots``
-    boundary (the item is the exception); a rebuild item may not.
+    the item's reference and its scope. An audit item may cross the
+    ``OwnedRoots`` boundary, but only into the folders it names (its scope);
+    a rebuild item may not cross it.
 
     Raises:
         NotAccepted: ``accepted_at`` is unset.
@@ -275,11 +277,15 @@ def item_batch(item: DiffItem, kind: DiffKind, roots: OwnedRoots) -> WriteBatch:
     """
     if item.accepted_at is None:
         raise NotAccepted(f"item {item.item_id} is not accepted")
+    scope = item_scope(item.operations)
     if kind is DiffKind.REBUILD:
         admit(item.operations, roots)
+    else:
+        admit(item.operations, roots, scope=scope)
     return WriteBatch(
         batch_id=item_batch_id(item.item_id),
         operations=item.operations,
         inverse=plan_inverse(item.operations, roots),
         diff_item_id=item.item_id,
+        scope=scope,
     )

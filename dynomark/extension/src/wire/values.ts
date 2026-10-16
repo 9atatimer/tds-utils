@@ -205,12 +205,26 @@ export const OperationSchema = z.discriminatedUnion('op', [
 
 export const ParkReasonSchema = z.strictObject({ existing: FolderPathSchema }) satisfies z.ZodType<ParkReason>;
 
-export const WriteBatchSchema = z.strictObject({
-  batch_id: IdSchema,
-  operations: z.array(OperationSchema).min(1).max(MAX_OPS_PER_BATCH).readonly(),
-  diff_item_id: IdSchema.exactOptional(),
-  park: ParkReasonSchema.exactOptional(),
-}) satisfies z.ZodType<WriteBatch>;
+export const WriteBatchSchema = z
+  .strictObject({
+    batch_id: IdSchema,
+    operations: z.array(OperationSchema).min(1).max(MAX_OPS_PER_BATCH).readonly(),
+    diff_item_id: IdSchema.exactOptional(),
+    park: ParkReasonSchema.exactOptional(),
+    scope: z
+      .array(FolderPathSchema)
+      .min(1)
+      .max(200)
+      .readonly()
+      .refine((paths) => new Set(paths.map((p) => JSON.stringify([p.root, p.names]))).size === paths.length, {
+        message: 'scope names each folder once',
+      })
+      .exactOptional(),
+  })
+  .refine((b) => (b.diff_item_id === undefined) === (b.scope === undefined), {
+    path: ['scope'],
+    message: 'a batch carries scope exactly when it has diff_item_id',
+  }) satisfies z.ZodType<WriteBatch>;
 
 const OpAppliedSchema = z.strictObject({ index: OpIndexSchema, node_id: NodeIdSchema, changed: z.boolean() });
 const OpSkippedSchema = z.strictObject({ index: OpIndexSchema, reason: SkipReasonSchema });

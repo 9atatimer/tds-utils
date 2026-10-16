@@ -209,6 +209,19 @@ class WriteBatch(WireModel):
     operations: Annotated[list[Operation], Field(min_length=1, max_length=1000)]
     diff_item_id: Id | None = None
     park: ParkReason | None = None
+    scope: Annotated[list[FolderPath], Field(min_length=1, max_length=200)] | None = (
+        None
+    )
+
+    @model_validator(mode="after")
+    def _scope_goes_with_its_item(self) -> Self:
+        if (self.diff_item_id is None) != (self.scope is None):
+            raise ValueError("a batch carries scope exactly when it has diff_item_id")
+        if self.scope is not None and len(
+            {(p.root, tuple(p.names)) for p in self.scope}
+        ) != len(self.scope):
+            raise ValueError("scope names each folder once")
+        return self
 
 
 class OpApplied(WireModel):

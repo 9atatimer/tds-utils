@@ -78,14 +78,15 @@ def propose_inverse(
     ``original``, and link it as ``original.undone_by``, in one unit of
     work: callers make an inverse only while ``undone_by`` is unset, so an
     offered inverse without that link would be offered again. It carries
-    the original's ``DiffItem`` reference."""
-    if original.batch.diff_item_id is None:
-        admit(operations, roots)
+    the original's ``DiffItem`` reference and scope, and is admitted against
+    that scope (an inverse crosses the boundary exactly as its item did)."""
+    admit(operations, roots, scope=original.batch.scope)
     batch = WriteBatch(
         batch_id=BatchId(ids.new_id("batch")),
         operations=operations,
         inverse=plan_inverse(operations, roots),
         diff_item_id=original.batch.diff_item_id,
+        scope=original.batch.scope,
     )
     record = BatchRecord(
         batch=batch,

@@ -62,6 +62,8 @@ export interface WriteBatch {
   readonly diff_item_id?: Id;
   /** Present on a parking batch: the existing placement. */
   readonly park?: ParkReason;
+  /** With diff_item_id: the accepted item's scope, the folders its operations name; a scope path admits only itself. */
+  readonly scope?: readonly FolderPath[];
 }
 
 // --- Receipts ---
