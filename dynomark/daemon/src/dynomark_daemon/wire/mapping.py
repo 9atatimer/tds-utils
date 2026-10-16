@@ -435,14 +435,17 @@ _WIRE_DROP_REASON: Final[dict[UndoDropReason, w.UndoDropReason]] = {
     UndoDropReason.NODE_MISSING: "node_missing",
     UndoDropReason.NOT_EMPTY: "not_empty",
     UndoDropReason.LOCKED: "node_moved",
+    UndoDropReason.OWNED_ROOT: "not_empty",
 }
 
 
 def undo_drop_to_wire(drop: UndoDrop) -> w.UndoDrop:
-    """Contract v1's UndoDropReason has no ``locked``: a step dropped because
-    the user locked its folder since is reported ``node_moved`` (the user
-    changed the node after the batch left it), until a contract version
-    carries the reason."""
+    """Contract v1's UndoDropReason has no ``locked`` and no ``owned_root``,
+    until a contract version carries them: a step dropped because the user
+    locked its folder since is reported ``node_moved`` (the user changed the
+    node after the batch left it); the kept removal of an owned root the
+    batch created is reported ``not_empty`` (the folder removal is skipped
+    and the root stays to hold every filing)."""
     return w.UndoDrop(index=drop.index, reason=_WIRE_DROP_REASON[drop.reason])
 
 

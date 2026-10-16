@@ -44,3 +44,16 @@ def test_read_unknown_page_raises_content_unavailable_and_is_recorded() -> None:
 
     assert raised.value.retryable is False
     assert fake.requested == ["https://gone.example/"]
+
+
+def test_read_during_an_outage_raises_retryable_then_reads_the_page() -> None:
+    """Given a page in an outage of one read, When read twice, Then the first
+    read raises a retryable ContentUnavailable and the second reads it."""
+    fake = FakeFetch({TOKIO: ("Tokio", "text")}, outages={TOKIO: 1})
+
+    with pytest.raises(ContentUnavailable) as raised:
+        fake.read(make_bookmark(TOKIO))
+    capture = fake.read(make_bookmark(TOKIO))
+
+    assert raised.value.retryable is True
+    assert capture.source is CaptureSource.FETCH

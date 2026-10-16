@@ -34,7 +34,7 @@ from dynomark_daemon.domain.ids import (
     ProfileId,
 )
 from dynomark_daemon.domain.job import Job, JobState
-from dynomark_daemon.domain.tree import FolderPath, RootKey
+from dynomark_daemon.domain.tree import FolderPath, OutlineFolder, RootKey, TreeOutline
 
 ID_ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._:-"
 NODE_ALPHABET = ID_ALPHABET.replace(":", "")
@@ -208,3 +208,49 @@ def http_urls(draw: st.DrawFn) -> str:
     if fragment is not None:
         url += "#" + fragment
     return url
+
+
+# --- Owned outlines with locks (Placement respects a lock) ---
+
+DYNOMARK = FolderPath(root=RootKey.BAR, names=("Dynomark",))
+_FOLDER_NAMES = st.sampled_from(["A", "B", "C", "a ", "dynomark-writer:mbp"])
+
+
+@st.composite
+def locked_outlines(draw: st.DrawFn) -> TreeOutline:
+    """A ``Dynomark`` outline up to three levels deep, every folder randomly
+    locked (the root rarely), writer markers among the names."""
+    paths = {DYNOMARK}
+    for names in draw(st.lists(st.lists(_FOLDER_NAMES, min_size=1, max_size=3))):
+        path = DYNOMARK
+        for name in names:
+            path = path.child(name)
+            paths.add(path)
+    ordered = sorted(paths, key=lambda p: p.names)
+    return TreeOutline(
+        root=DYNOMARK,
+        folders=tuple(
+            OutlineFolder(
+                node_id=NodeId(f"n{i}"),
+                path=path,
+                pinned=False,
+                locked=draw(
+                    st.booleans()
+                    if path != DYNOMARK
+                    else st.sampled_from([False] * 9 + [True])
+                ),
+                item_count=0,
+            )
+            for i, path in enumerate(ordered)
+        ),
+    )
+
+
+@st.composite
+def choices_in(draw: st.DrawFn, outline: TreeOutline) -> FolderPath:
+    """A completion's folder choice: an existing folder of ``outline``, maybe
+    with up to two new levels under it."""
+    base = draw(st.sampled_from([f.path for f in outline.folders]))
+    for name in draw(st.lists(st.sampled_from(["New", "B", "Other"]), max_size=2)):
+        base = base.child(name)
+    return base

@@ -11,7 +11,14 @@ from typing import Final
 
 from dynomark_daemon.app.search import search_corpus
 from dynomark_daemon.domain.bookmark import CorpusEntry, Identity, is_fetchable
-from dynomark_daemon.domain.chat import Answer, Citation, Question, Turn, ground
+from dynomark_daemon.domain.chat import (
+    Answer,
+    Citation,
+    Question,
+    Turn,
+    ground,
+    mentioned_urls,
+)
 from dynomark_daemon.domain.search import Query
 from dynomark_daemon.ports.completion import CompletionPort
 from dynomark_daemon.ports.embedding import EmbeddingPort
@@ -50,6 +57,8 @@ def ask(
     """
     entries, retrieved = _retrieve(question, store=store, embedding=embedding)
     draft = completion.answer(question, history=history, context=entries)
-    mentioned = {Identity.from_url(url) for url in draft.urls if is_fetchable(url)}
+    mentioned = {
+        Identity.from_url(url) for url in mentioned_urls(draft) if is_fetchable(url)
+    }
     in_corpus = frozenset(i for i in mentioned if store.get_entry(i) is not None)
     return ground(draft, retrieved, in_corpus=in_corpus)

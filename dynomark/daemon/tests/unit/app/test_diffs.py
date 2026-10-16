@@ -114,7 +114,7 @@ class Writer:
         self.store = store or InMemoryCorpusStore()
         self.store.put_tree_snapshot(TREE)
         self.store.put_folder_flags(
-            NodeId("17"), FolderFlags(pinned=True, locked=False)
+            make_path("Dynomark", "Pinned"), FolderFlags(pinned=True, locked=False)
         )
         self.completion = ScriptedCompletion(propose_diff=list(proposals))
         self.clock, self.ids = FakeClock(start_ms=1_000), SequentialIds()
@@ -340,7 +340,7 @@ def test_accept_after_the_folder_was_locked_is_refused() -> None:
     moved by any batch)."""
     writer = Writer((ASYNC_TO_CONCURRENCY,))
     item = writer.propose(DiffKind.REBUILD)
-    writer.store.put_folder_flags(NodeId("16"), FolderFlags(pinned=False, locked=True))
+    writer.store.put_folder_flags(ASYNC, FolderFlags(pinned=False, locked=True))
 
     with pytest.raises(InvalidRequest):
         writer.accept(item)
@@ -368,6 +368,8 @@ def test_an_audit_item_crosses_the_boundary_and_its_undo_carries_the_item() -> N
             pre_batch=True,
             snapshot=TREE,
         ),
+        HostRole.WRITER,
+        A,
         make_roots(),
         store=writer.store,
         clock=writer.clock,

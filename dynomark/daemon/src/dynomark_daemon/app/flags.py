@@ -2,8 +2,11 @@
 ``pinned`` and ``locked``; Behaviors "Placement respects a lock";
 contract/v1 ``folder.flags.set``).
 
-Flags are kept by this host's node id and read into every ``TreeOutline``
-(placement skips a locked folder, diffs never move a pinned one).
+The request names a folder by this host's node id; the flags are kept by
+the folder's path, which every writer's tree resolves alike, so a writer
+change keeps every pin and lock (issue #423). They are read into every
+``TreeOutline`` (placement skips a locked folder, diffs never move a pinned
+one).
 """
 
 from dynomark_daemon.app.errors import InvalidRequest, TreeNotReady, UnknownRecord
@@ -15,6 +18,7 @@ from dynomark_daemon.domain.tree import (
     NodeKind,
     OutlineFolder,
     OwnedRoots,
+    Snapshot,
 )
 from dynomark_daemon.domain.writer import WriterConflict
 from dynomark_daemon.ports.store import CorpusStorePort
@@ -58,13 +62,13 @@ def set_folder_flags(
         raise UnknownRecord(f"folder {node_id} is not at {list(path.names)}")
     if not roots.contains(where):
         raise InvalidRequest(f"{list(where.names)} is not an owned folder")
-    now = store.folder_flags().get(node_id, UNFLAGGED)
+    now = store.folder_flags().get(where, UNFLAGGED)
     flags = FolderFlags(
         pinned=now.pinned if pinned is None else pinned,
         locked=now.locked if locked is None else locked,
     )
     if flags != now:
-        store.put_folder_flags(node_id, flags)
+        store.put_folder_flags(where, flags)
     count = sum(c.kind is NodeKind.BOOKMARK for c in tree.children(node_id))
     return OutlineFolder(
         node_id=node_id,
@@ -75,6 +79,9 @@ def set_folder_flags(
     )
 
 
-def locked_folders(*, store: CorpusStorePort) -> frozenset[NodeId]:
-    """The folders no batch may move (Glossary: ``locked``)."""
-    return frozenset(n for n, flags in store.folder_flags().items() if flags.locked)
+def locked_folders(tree: Snapshot, *, store: CorpusStorePort) -> frozenset[NodeId]:
+    """The folders of ``tree`` no batch may move (Glossary: ``locked``): each
+    locked path as ``tree`` resolves it."""
+    locked = (path for path, flags in store.folder_flags().items() if flags.locked)
+    resolved = (tree.resolve(path) for path in locked)
+    return frozenset(node_id for node_id in resolved if node_id is not None)

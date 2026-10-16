@@ -28,7 +28,14 @@ import os
 import re
 import sqlite3
 import threading
-from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
+from collections.abc import (
+    Callable,
+    Collection,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sequence,
+)
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -73,7 +80,30 @@ FILE_MODE: Final = 0o600
 BUSY_TIMEOUT_MS: Final = 5_000
 EVENT_TYPES: Final[tuple[type[Event], ...]] = (JobUpdated, BatchOffered, DiffProposed)
 
-MIGRATIONS: Final = (
+
+def _flags_by_path(db: sqlite3.Connection) -> None:
+    """Migration 5: re-key ``folder_flags`` from this host's node ids to the
+    folder paths the latest tree snapshot resolves them to; a flag on a node
+    that tree does not hold has no path and is dropped."""
+    db.execute(
+        "CREATE TABLE folder_flags_by_path ("
+        " path TEXT PRIMARY KEY, pinned INTEGER NOT NULL, locked INTEGER NOT NULL)"
+    )
+    row = db.execute("SELECT doc FROM tree_snapshot WHERE slot = 1").fetchone()
+    tree = None if row is None else load_record(str(row[0]), Snapshot)
+    flags = db.execute("SELECT node_id, pinned, locked FROM folder_flags").fetchall()
+    for node_id, pinned, locked in flags:
+        path = None if tree is None else tree.path_of(NodeId(str(node_id)))
+        if path is not None:
+            db.execute(
+                "INSERT OR REPLACE INTO folder_flags_by_path (path, pinned, locked)"
+                " VALUES (?, ?, ?)",
+                (dump_record(path), pinned, locked),
+            )
+    db.execute("DROP TABLE folder_flags")
+
+
+MIGRATIONS: Final[tuple[str | Callable[[sqlite3.Connection], None], ...]] = (
     # 1: the PoC schema.
     """
     CREATE TABLE entries (
@@ -170,8 +200,26 @@ MIGRATIONS: Final = (
         SELECT snapshot_id FROM batches WHERE snapshot_id IS NOT NULL
     );
     """,
+    # 3: retention (issue #421): when each entry was first found absent from
+    # the tree; archives dropped by the time they were taken, read by index.
+    """
+    CREATE TABLE absences (identity TEXT PRIMARY KEY, since INTEGER NOT NULL);
+    ALTER TABLE snapshots ADD COLUMN taken_at INTEGER NOT NULL DEFAULT 0;
+    UPDATE snapshots SET taken_at = json_extract(doc, '$.taken_at');
+    CREATE INDEX snapshots_by_age ON snapshots (taken_at);
+    """,
+    # 4: KNN reads one embedding model's entries, and the entries another
+    # model embedded are found for re-embedding, by index (issue #423).
+    """
+    CREATE INDEX entries_by_model ON entries (model_id, position);
+    """,
+    # 5: folder flags keyed by folder path, stable across writers (issue
+    # #423); a node id is resolved to its path in the latest tree.
+    _flags_by_path,
 )
 SCHEMA_VERSION: Final = len(MIGRATIONS)
+"""Each migration is a SQL script, or a step run on the connection for what
+SQL cannot do; either runs in one transaction with its version."""
 
 
 class StoreError(RuntimeError):
@@ -222,8 +270,8 @@ def _unpack(blob: bytes) -> "array.array[float]":
 
 
 def _knn_sql(*, placed_only: bool) -> str:
-    """Cosine similarity of every (placed) entry to ``:query``, best first,
-    ties by identity, cut to ``:limit``.
+    """Cosine similarity of every (placed) entry embedded by ``:model`` to
+    ``:query``, best first, ties by identity, cut to ``:limit``.
 
     A row scores 0.0, and stays a candidate, where there is no finite answer:
     a vector that is not a blob of exactly ``:size`` bytes (another
@@ -240,7 +288,7 @@ def _knn_sql(*, placed_only: bool) -> str:
         " AND length(e.vector) = :size"
         " THEN coalesce(1.0 - vec_distance_cosine(e.vector, :query), 0.0)"
         " ELSE 0.0 END AS score"
-        f" FROM entries e{placed}"
+        f" FROM entries e{placed} WHERE e.model_id = :model"
         " ORDER BY score DESC, e.identity LIMIT :limit"
     )
 
@@ -312,10 +360,21 @@ def _migrate(connection: sqlite3.Connection, path: Path) -> None:
             f"{path} has schema {current}, newer than this daemon's {SCHEMA_VERSION}"
         )
     for version in range(current + 1, SCHEMA_VERSION + 1):
-        script = MIGRATIONS[version - 1]
-        connection.executescript(
-            f"BEGIN IMMEDIATE;\n{script}\nPRAGMA user_version = {version};\nCOMMIT;"
-        )
+        migration = MIGRATIONS[version - 1]
+        if isinstance(migration, str):
+            connection.executescript(
+                f"BEGIN IMMEDIATE;\n{migration}\n"
+                f"PRAGMA user_version = {version};\nCOMMIT;"
+            )
+            continue
+        connection.execute("BEGIN IMMEDIATE")
+        try:
+            migration(connection)
+            connection.execute(f"PRAGMA user_version = {version}")
+        except BaseException:
+            connection.execute("ROLLBACK")
+            raise
+        connection.execute("COMMIT")
 
 
 def _connect(path: Path, *, read_only: bool) -> sqlite3.Connection:
@@ -514,6 +573,57 @@ class SqliteCorpusStore:
             for position, doc, vector in rows
         ]
 
+    def entry_identities(self) -> list[Identity]:
+        rows = self._all("SELECT identity FROM entries ORDER BY position")
+        return [Identity(str(identity)) for (identity,) in rows]
+
+    def entries_embedded_otherwise(
+        self, model_id: str, *, limit: int
+    ) -> list[CorpusEntry]:
+        # Two ranges of the model index, not ``!=`` (which would scan every
+        # row, vectors and all), so the read follows how many there are.
+        found = self._all(
+            "SELECT position, doc, vector FROM entries INDEXED BY entries_by_model"
+            " WHERE model_id < :model OR model_id > :model"
+            " ORDER BY position LIMIT :limit",
+            {"model": model_id, "limit": limit},
+        )
+        return [self._entry(doc, vector) for _, doc, vector in found]
+
+    # --- Retention ---
+
+    def absences(self) -> dict[Identity, int]:
+        rows = self._all("SELECT identity, since FROM absences")
+        return {Identity(str(i)): int(str(since)) for i, since in rows}
+
+    def put_absence(self, identity: Identity, since: int) -> None:
+        with self._write() as db:
+            db.execute(
+                "INSERT OR IGNORE INTO absences (identity, since) VALUES (?, ?)",
+                (identity.value, since),
+            )
+
+    def clear_absence(self, identity: Identity) -> None:
+        with self._write() as db:
+            db.execute("DELETE FROM absences WHERE identity = ?", (identity.value,))
+
+    def drop_entry(self, identity: Identity) -> None:
+        value = identity.value
+        with self._write() as db:
+            row = db.execute(
+                "SELECT position FROM entries WHERE identity = ?", (value,)
+            ).fetchone()
+            if row is not None:
+                db.execute("DELETE FROM entries_fts WHERE rowid = ?", (row[0],))
+            db.execute("DELETE FROM entries WHERE identity = ?", (value,))
+            db.execute("DELETE FROM placements WHERE identity = ?", (value,))
+            db.execute("DELETE FROM absences WHERE identity = ?", (value,))
+            db.execute(
+                "DELETE FROM saves WHERE job_id IN"
+                " (SELECT job_id FROM jobs WHERE identity = ?)",
+                (value,),
+            )
+
     # --- Candidates ---
 
     def text_candidates(self, query: Query, *, limit: int) -> list[Candidate]:
@@ -532,12 +642,17 @@ class SqliteCorpusStore:
         )
 
     def knn_candidates(
-        self, vector: Sequence[float], *, limit: int, placed_only: bool = False
+        self,
+        vector: Sequence[float],
+        *,
+        model_id: str,
+        limit: int,
+        placed_only: bool = False,
     ) -> list[Candidate]:
         query = _pack(vector)[0]
         rows = self._all(
             _knn_sql(placed_only=placed_only),
-            {"query": query, "size": len(query), "limit": limit},
+            {"query": query, "size": len(query), "limit": limit, "model": model_id},
         )
         return [
             Candidate(Identity(str(identity)), float(str(score)))
@@ -688,8 +803,9 @@ class SqliteCorpusStore:
     def put_snapshot(self, snapshot_id: SnapshotId, snapshot: Snapshot) -> None:
         with self._write() as db:
             db.execute(
-                "INSERT OR REPLACE INTO snapshots (snapshot_id, doc) VALUES (?, ?)",
-                (snapshot_id, dump_record(snapshot)),
+                "INSERT OR REPLACE INTO snapshots (snapshot_id, taken_at, doc)"
+                " VALUES (?, ?, ?)",
+                (snapshot_id, snapshot.taken_at, dump_record(snapshot)),
             )
 
     def get_snapshot(self, snapshot_id: SnapshotId) -> Snapshot | None:
@@ -705,6 +821,28 @@ class SqliteCorpusStore:
                 " (SELECT 1 FROM batches WHERE snapshot_id = ?)",
                 (snapshot_id, snapshot_id),
             )
+
+    def drop_snapshots_before(self, taken_at: int) -> list[SnapshotId]:
+        with self._write() as db:
+            dropped = [
+                str(snapshot_id)
+                for (snapshot_id,) in db.execute(
+                    "SELECT snapshot_id FROM snapshots WHERE taken_at < ?"
+                    " ORDER BY snapshot_id",
+                    (taken_at,),
+                ).fetchall()
+            ]
+            for snapshot_id in dropped:
+                db.execute(
+                    "UPDATE batches SET snapshot_id = NULL,"
+                    " doc = json_set(doc, '$.snapshot_id', NULL)"
+                    " WHERE snapshot_id = ?",
+                    (snapshot_id,),
+                )
+                db.execute(
+                    "DELETE FROM snapshots WHERE snapshot_id = ?", (snapshot_id,)
+                )
+        return [SnapshotId(snapshot_id) for snapshot_id in dropped]
 
     # --- Feedback ---
 
@@ -805,19 +943,21 @@ class SqliteCorpusStore:
 
     # --- Owned-folder flags ---
 
-    def put_folder_flags(self, node_id: NodeId, flags: FolderFlags) -> None:
+    def put_folder_flags(self, path: FolderPath, flags: FolderFlags) -> None:
         with self._write() as db:
             db.execute(
-                "INSERT OR REPLACE INTO folder_flags (node_id, pinned, locked)"
+                "INSERT OR REPLACE INTO folder_flags_by_path (path, pinned, locked)"
                 " VALUES (?, ?, ?)",
-                (node_id, int(flags.pinned), int(flags.locked)),
+                (dump_record(path), int(flags.pinned), int(flags.locked)),
             )
 
-    def folder_flags(self) -> dict[NodeId, FolderFlags]:
-        rows = self._all("SELECT node_id, pinned, locked FROM folder_flags")
+    def folder_flags(self) -> dict[FolderPath, FolderFlags]:
+        rows = self._all("SELECT path, pinned, locked FROM folder_flags_by_path")
         return {
-            NodeId(str(node_id)): FolderFlags(pinned=bool(pinned), locked=bool(locked))
-            for node_id, pinned, locked in rows
+            load_record(str(path), FolderPath): FolderFlags(
+                pinned=bool(pinned), locked=bool(locked)
+            )
+            for path, pinned, locked in rows
         }
 
     # --- Profiles ---
@@ -860,3 +1000,11 @@ class SqliteCorpusStore:
         return self._doc(
             "SELECT fingerprint FROM requests WHERE request_id = ?", (request_id,)
         )
+
+    def list_requests(self) -> list[RequestId]:
+        rows = self._all("SELECT request_id FROM requests ORDER BY request_id")
+        return [RequestId(str(request_id)) for (request_id,) in rows]
+
+    def forget_request(self, request_id: RequestId) -> None:
+        with self._write() as db:
+            db.execute("DELETE FROM requests WHERE request_id = ?", (request_id,))

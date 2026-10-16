@@ -633,6 +633,8 @@ class Dispatcher:
     ) -> Outcome:
         recorded = receive_receipt(
             receipt_from_wire(message.receipt),
+            session.role,
+            _profile(session),
             _roots(session),
             store=self._store,
             clock=self._clock,

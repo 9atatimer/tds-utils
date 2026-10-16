@@ -98,6 +98,9 @@ class UndoDropReason(StrEnum):
     LOCKED = "locked"
     """The step would move or remove a folder the user has locked since
     (Glossary: locked is never moved by any batch)."""
+    OWNED_ROOT = "owned_root"
+    """The step would remove an owned root the batch created: an undo never
+    removes ``Dynomark`` or ``Graveyard`` (issue #415)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -470,6 +473,20 @@ def _step(
             )
 
 
+def _kept_roots(
+    batch: WriteBatch, changed: Collection[int], roots: OwnedRoots
+) -> tuple[UndoDrop, ...]:
+    """The steps ``plan_inverse`` left out because they would remove an owned
+    root this batch created, last first, as the undo report lists them."""
+    return tuple(
+        UndoDrop(op.index, UndoDropReason.OWNED_ROOT)
+        for op in reversed(batch.operations)
+        if isinstance(op, OpCreateFolder)
+        and op.index in changed
+        and _creates_owned_root(op, roots)
+    )
+
+
 def _invert(
     batch: WriteBatch,
     applied: Sequence[OpApplied],
@@ -508,7 +525,7 @@ def _invert(
             continue
         ops.append(step)
         leaving.add(inverting.moved_node(op))
-    return with_graveyard(ops, roots), tuple(drops)
+    return with_graveyard(ops, roots), (*drops, *_kept_roots(batch, changed, roots))
 
 
 def invert(
@@ -540,6 +557,6 @@ def guarded_inverse(
     """The undo of an applied batch against the tree read after its receipt:
     ``invert`` keeping only the steps whose node is still where the batch left
     it, and a folder removal only if nothing else fills the folder; a
-    ``locked`` folder is never moved. The rest are dropped and reported, by
-    the original op's index."""
+    ``locked`` folder is never moved, and an owned root the batch created is
+    kept. The rest are dropped and reported, by the original op's index."""
     return _invert(batch, applied, tree, roots, guarded=True, locked=locked)

@@ -23,7 +23,7 @@ import pytest
 
 from dynomark_daemon.adapters.sqlite_store import SqliteCorpusStore
 from dynomark_daemon.domain.batch import BatchRecord, BatchState, ReceiptApplied
-from dynomark_daemon.domain.bookmark import Identity, Save
+from dynomark_daemon.domain.bookmark import CorpusEntry, Embedding, Identity, Save
 from dynomark_daemon.domain.events import JobUpdated, PendingEvent
 from dynomark_daemon.domain.ids import (
     BatchId,
@@ -55,6 +55,9 @@ from tests._factories import (
     make_placement,
     make_snapshot,
 )
+
+MODEL = "fake:hashing"
+"""The model ``make_entry`` embeds with."""
 
 pytestmark = pytest.mark.contract
 
@@ -217,7 +220,7 @@ def test_knn_candidates_are_nearest_first_and_limited(store: CorpusStorePort) ->
     store.put_entry(make_entry("https://near.example/", vector=(0.8, 0.6)))
     store.put_entry(make_entry("https://far.example/", vector=(0.0, 1.0)))
 
-    found = store.knn_candidates((1.0, 0.0), limit=2)
+    found = store.knn_candidates((1.0, 0.0), model_id=MODEL, limit=2)
 
     assert [c.identity.value for c in found] == [
         "https://same.example/",
@@ -236,13 +239,53 @@ def test_knn_candidates_placed_only_skips_unplaced_entries(
     store.put_entry(make_entry("https://loose.example/", vector=(1.0, 0.0)))
     store.put_placement(make_placement("https://placed.example/"))
 
-    found = store.knn_candidates((1.0, 0.0), limit=5, placed_only=True)
+    found = store.knn_candidates((1.0, 0.0), model_id=MODEL, limit=5, placed_only=True)
 
     assert [c.identity.value for c in found] == ["https://placed.example/"]
 
 
+def _embedded_by(url: str, model_id: str, vector: tuple[float, ...]) -> CorpusEntry:
+    entry = make_entry(url, vector=vector)
+    return replace(entry, embedding=Embedding(vector=vector, model_id=model_id))
+
+
+def test_knn_candidates_are_only_entries_of_the_querys_model(
+    store: CorpusStorePort,
+) -> None:
+    """Given entries embedded by two models, When neighbours are asked for in
+    one model, Then only that model's entries are candidates: vectors of
+    another model live in another space (issue #423)."""
+    store.put_entry(_embedded_by("https://new.example/", MODEL, (0.6, 0.8)))
+    store.put_entry(_embedded_by("https://old.example/", "old:model", (1.0, 0.0)))
+
+    found = store.knn_candidates((1.0, 0.0), model_id=MODEL, limit=5)
+
+    assert [c.identity.value for c in found] == ["https://new.example/"]
+
+
+def test_entries_embedded_otherwise_are_the_other_models_by_position(
+    store: CorpusStorePort,
+) -> None:
+    """Given entries of the current model and of two others, When the entries
+    not embedded by the current model are asked for, Then they come in
+    position order, up to the limit."""
+    store.put_entry(_embedded_by("https://a.example/", "old:one", (1.0, 0.0)))
+    store.put_entry(_embedded_by("https://b.example/", MODEL, (1.0, 0.0)))
+    store.put_entry(_embedded_by("https://c.example/", "old:two", (1.0, 0.0)))
+    store.put_entry(_embedded_by("https://d.example/", "old:one", (1.0, 0.0)))
+
+    found = store.entries_embedded_otherwise(MODEL, limit=2)
+
+    assert [e.identity.value for e in found] == [
+        "https://a.example/",
+        "https://c.example/",
+    ]
+
+
 def _nearest(store: CorpusStorePort, *, placed_only: bool = False) -> list[str]:
-    found = store.knn_candidates((1.0, 0.0), limit=5, placed_only=placed_only)
+    found = store.knn_candidates(
+        (1.0, 0.0), model_id=MODEL, limit=5, placed_only=placed_only
+    )
     return [c.identity.value for c in found]
 
 
@@ -274,7 +317,9 @@ def _scored(
     limit: int = 10,
     placed_only: bool = False,
 ) -> list[tuple[str, float]]:
-    found = store.knn_candidates(query, limit=limit, placed_only=placed_only)
+    found = store.knn_candidates(
+        query, model_id=MODEL, limit=limit, placed_only=placed_only
+    )
     return [(c.identity.value, round(c.score, 3)) for c in found]
 
 
@@ -636,16 +681,17 @@ def test_put_event_twice_keeps_one_and_marks_pushed(store: CorpusStorePort) -> N
 # --- Owned-folder flags (Data Model: owned_folder pinned, locked) ---
 
 
-def test_folder_flags_are_kept_per_node_and_replaced(store: CorpusStorePort) -> None:
+def test_folder_flags_are_kept_per_path_and_replaced(store: CorpusStorePort) -> None:
     """Given flags set on two folders and one set again, When read, Then each
     folder holds its latest flags."""
-    store.put_folder_flags(NodeId("14"), FolderFlags(pinned=True, locked=False))
-    store.put_folder_flags(NodeId("21"), FolderFlags(pinned=False, locked=True))
-    store.put_folder_flags(NodeId("14"), FolderFlags(pinned=False, locked=True))
+    rust, go = make_path("Dynomark", "Rust"), make_path("Dynomark", "Go")
+    store.put_folder_flags(rust, FolderFlags(pinned=True, locked=False))
+    store.put_folder_flags(go, FolderFlags(pinned=False, locked=True))
+    store.put_folder_flags(rust, FolderFlags(pinned=False, locked=True))
 
     assert store.folder_flags() == {
-        NodeId("14"): FolderFlags(pinned=False, locked=True),
-        NodeId("21"): FolderFlags(pinned=False, locked=True),
+        rust: FolderFlags(pinned=False, locked=True),
+        go: FolderFlags(pinned=False, locked=True),
     }
 
 
@@ -686,6 +732,107 @@ def test_a_request_fingerprint_is_remembered_by_id(store: CorpusStorePort) -> No
     assert store.get_request(RequestId("req-2")) is None
 
 
+# --- Retention (Key Decisions, Retention 2026-10-16; issue #421) ---
+
+
+def test_entry_identities_are_every_entry_in_position_order(
+    store: CorpusStorePort,
+) -> None:
+    """Given entries put in some order, When their identities are read, Then
+    each comes once, in first-put order."""
+    for url in ("https://c.example/", "https://a.example/", "https://c.example/"):
+        store.put_entry(make_entry(url))
+
+    assert store.entry_identities() == [
+        Identity("https://c.example/"),
+        Identity("https://a.example/"),
+    ]
+
+
+def test_drop_entry_removes_its_entry_saves_and_placement_only(
+    store: CorpusStorePort,
+) -> None:
+    """Given an entry with a placement, a job and its save, and another entry
+    with its own save, When the first entry is dropped, Then its entry, text
+    and vector candidates, placement and save are gone, its job and the other
+    entry's records stay."""
+    tokio, other = "https://tokio.rs/tokio/tutorial", "https://other.example/"
+    store.put_entry(make_entry(tokio, text="tokio"))
+    store.put_entry(make_entry(other, title="Other", text="other"))
+    store.put_placement(make_placement(tokio))
+    store.put_job(make_job("job-1", identity=tokio))
+    store.put_job(make_job("job-2", identity=other, node_id="43"))
+    for job_id, url in (("job-1", tokio), ("job-2", other)):
+        store.put_save(
+            JobId(job_id), Save(bookmark=make_bookmark(url), capture=make_capture())
+        )
+    store.put_absence(Identity(tokio), 1_000)
+
+    store.drop_entry(Identity(tokio))
+
+    assert store.get_entry(Identity(tokio)) is None
+    assert store.get_placement(Identity(tokio)) is None
+    assert store.get_save(JobId("job-1")) is None
+    assert store.text_candidates(Query("tokio"), limit=10) == []
+    assert [
+        c.identity for c in store.knn_candidates((1.0, 0.0), model_id=MODEL, limit=10)
+    ] == [Identity(other)]
+    assert store.absences() == {}
+    assert store.get_job(JobId("job-1")) is not None
+    assert store.get_save(JobId("job-2")) is not None
+    assert store.entry_identities() == [Identity(other)]
+
+
+def test_an_absence_keeps_its_first_time_until_cleared(store: CorpusStorePort) -> None:
+    """Given an identity marked absent, When it is marked again later, Then the
+    first time is kept; When cleared, Then it is no longer tracked."""
+    tokio = Identity("https://tokio.rs/tokio/tutorial")
+
+    store.put_absence(tokio, 1_000)
+    store.put_absence(tokio, 2_000)
+    tracked = store.absences()
+    store.clear_absence(tokio)
+
+    assert tracked == {tokio: 1_000}
+    assert store.absences() == {}
+
+
+def test_archived_snapshots_taken_before_a_time_are_dropped_and_unnamed(
+    store: CorpusStorePort,
+) -> None:
+    """Given an old archive a batch names and a newer one, When archives taken
+    before a time between them are dropped, Then only the old one goes, the
+    batch row stays naming no archive, and the latest tree is untouched."""
+    old, new = SnapshotId("tree-1000"), SnapshotId("tree-5000")
+    store.put_snapshot(old, make_snapshot(taken_at=1_000))
+    store.put_snapshot(new, make_snapshot(taken_at=5_000))
+    store.put_tree_snapshot(make_snapshot(taken_at=500))
+    store.put_batch(replace(make_batch("batch-1"), snapshot_id=old))
+
+    dropped = store.drop_snapshots_before(2_000)
+
+    assert dropped == [old]
+    assert store.get_snapshot(old) is None
+    assert store.get_snapshot(new) == make_snapshot(taken_at=5_000)
+    batch = store.get_batch(BatchId("batch-1"))
+    assert batch is not None and batch.snapshot_id is None
+    assert store.latest_tree_snapshot() == make_snapshot(taken_at=500)
+
+
+def test_a_forgotten_request_is_no_longer_remembered(store: CorpusStorePort) -> None:
+    """Given two remembered request ids, When one is forgotten, Then only the
+    other is listed and remembered."""
+    store.put_request(RequestId("req-2"), "sha256:b")
+    store.put_request(RequestId("req-1"), "sha256:a")
+    listed = store.list_requests()
+
+    store.forget_request(RequestId("req-1"))
+
+    assert listed == [RequestId("req-1"), RequestId("req-2")]
+    assert store.list_requests() == [RequestId("req-2")]
+    assert store.get_request(RequestId("req-1")) is None
+
+
 # --- Units of work: a use case's writes commit together or not at all ---
 
 
@@ -698,10 +845,15 @@ def _state(store: CorpusStorePort) -> object:
     return (
         [s.entry for s in store.list_entries(limit=10)],
         [c.identity for c in store.text_candidates(Query("tokio"), limit=10)],
-        [c.identity for c in store.knn_candidates((1.0, 0.0), limit=10)],
         [
             c.identity
-            for c in store.knn_candidates((1.0, 0.0), limit=10, placed_only=True)
+            for c in store.knn_candidates((1.0, 0.0), model_id=MODEL, limit=10)
+        ],
+        [
+            c.identity
+            for c in store.knn_candidates(
+                (1.0, 0.0), model_id=MODEL, limit=10, placed_only=True
+            )
         ],
         store.get_placement(Identity("https://tokio.rs/tokio/tutorial")),
         store.list_jobs(),
@@ -727,7 +879,9 @@ def _write_everything(store: CorpusStorePort) -> None:
     store.put_diff(make_diff("diff-2"))
     store.put_tree_snapshot(make_snapshot(taken_at=2_000_000_000_000))
     store.put_snapshot(SnapshotId("snap-1"), make_snapshot())
-    store.put_folder_flags(NodeId("14"), FolderFlags(pinned=True, locked=True))
+    store.put_folder_flags(
+        make_path("Dynomark", "Rust"), FolderFlags(pinned=True, locked=True)
+    )
     store.bind_writer_profile(PROFILE_A)
     store.put_request(RequestId("req-1"), "sha256:abc")
 
@@ -806,7 +960,7 @@ def test_a_unit_inside_a_unit_that_raises_undoes_only_its_own_writes(
     assert [j.job_id for j in store.list_jobs()] == ["job-1"]
     assert store.list_batches() == []
     assert store.list_entries(limit=10) == []
-    assert store.knn_candidates((1.0, 0.0), limit=10) == []
+    assert store.knn_candidates((1.0, 0.0), model_id=MODEL, limit=10) == []
     assert [p.event.event_id for p in store.unacked_events(PROFILE_A)] == ["evt-1"]
 
 

@@ -15,7 +15,12 @@ import pytest
 from hypothesis import given, settings
 from pydantic import BaseModel
 
-from dynomark_daemon.domain.batch import BatchRecord, WriteBatch
+from dynomark_daemon.domain.batch import (
+    BatchRecord,
+    UndoDrop,
+    UndoDropReason,
+    WriteBatch,
+)
 from dynomark_daemon.domain.diff import TreeDiff
 from dynomark_daemon.domain.events import BatchOffered, DiffProposed, Event, JobUpdated
 from dynomark_daemon.domain.job import Job
@@ -185,3 +190,12 @@ def test_map_event_to_wire_yields_its_event_message(event: Event) -> None:
 
     assert (message.type, message.event_id) == (expected, event.event_id)
     assert _round_trips(message)
+
+
+def test_map_every_undo_drop_reason_to_a_contract_v1_code() -> None:
+    """Given each reason the undo guard can drop a step for, When it is put on
+    the wire, Then contract v1 accepts the code (a reason v1 lacks maps to
+    the closest v1 code until contract v2 carries it)."""
+    for reason in UndoDropReason:
+        drop = mapping.undo_drop_to_wire(UndoDrop(index=0, reason=reason))
+        assert w.UndoDrop.model_validate(drop.model_dump()) == drop

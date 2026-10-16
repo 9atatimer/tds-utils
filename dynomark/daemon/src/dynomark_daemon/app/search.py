@@ -38,10 +38,12 @@ def search_corpus(
     query: Query, *, store: CorpusStorePort, embedding: EmbeddingPort
 ) -> list[Hit]:
     """Corpus hits for ``query``, best first, every one of tier ``corpus``:
-    the store's full-text and nearest-neighbour candidates, fused."""
+    the store's full-text and nearest-neighbour candidates, fused; the
+    neighbours only among entries of the query's embedding model."""
+    vector = embedding.embed(query.text)
     candidates = fuse(
         store.text_candidates(query, limit=CANDIDATES),
-        store.knn_candidates(embedding.embed(query.text).vector, limit=CANDIDATES),
+        store.knn_candidates(vector.vector, model_id=vector.model_id, limit=CANDIDATES),
     )
     hits = (_hit(candidate, store=store) for candidate in candidates)
     return [hit for hit in hits if hit is not None]

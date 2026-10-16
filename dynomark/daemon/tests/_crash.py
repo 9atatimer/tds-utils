@@ -17,7 +17,6 @@ from dynomark_daemon.domain.events import Event
 from dynomark_daemon.domain.ids import (
     EventId,
     JobId,
-    NodeId,
     ProfileId,
     RequestId,
     SnapshotId,
@@ -112,9 +111,9 @@ class DyingStore(InMemoryCorpusStore):
         self._dies("ack_events", ids)
         super().ack_events(profile_id, ids)
 
-    def put_folder_flags(self, node_id: NodeId, flags: FolderFlags) -> None:
+    def put_folder_flags(self, path: FolderPath, flags: FolderFlags) -> None:
         self._dies("put_folder_flags", flags)
-        super().put_folder_flags(node_id, flags)
+        super().put_folder_flags(path, flags)
 
     def bind_writer_profile(self, profile_id: ProfileId) -> None:
         self._dies("bind_writer_profile", profile_id)
