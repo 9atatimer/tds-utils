@@ -152,3 +152,51 @@ describe('Behavior: A save is submitted -- submitSave(bookmark, capture, { trans
     await expect(result).rejects.toMatchObject({ code: 'invalid' });
   });
 });
+
+describe('Page text in extension storage -- kept only until the daemon answers (issue #420)', () => {
+  function keptDeps(transport: FakeTransport): { deps: SaveDeps; storage: FakeStorage; timer: FakeTimer; retries: Promise<unknown>[] } {
+    const storage = new FakeStorage();
+    const timer = new FakeTimer(new FakeClock(0));
+    const retries: Promise<unknown>[] = [];
+    const deps: SaveDeps = { ...saveDeps(transport), saves: new SubmittedSaves(storage), timer, track: (work) => void retries.push(work) };
+    return { deps, storage, timer, retries };
+  }
+
+  async function keptText(storage: FakeStorage): Promise<string[]> {
+    return ((await storage.loadPendingSaves()) ?? []).map((save) => save.capture.text);
+  }
+
+  it('Given a save in flight, When the daemon answers ingest.result, Then its page text was kept while unanswered and is gone after', async () => {
+    const transport = new FakeTransport();
+    const { deps, storage } = keptDeps(transport);
+    const submitted = submitSave(bookmark(), TAB, deps);
+    const request = await transport.daemon.nextRequest();
+    const inFlight = await keptText(storage);
+    await transport.daemon.answer(jobKeepingDaemon().respond(request));
+    await submitted;
+    expect(inFlight).toEqual([TAB.text]);
+    expect(await keptText(storage)).toEqual([]);
+  });
+
+  it('Given a save answered busy, When its retry is answered ingest.result, Then its page text is kept through the backoff and gone after', async () => {
+    const transport = new FakeTransport();
+    const { deps, storage, timer, retries } = keptDeps(transport);
+    transport.autoAnswer((r) => ({ v: 1, type: 'error', re: r.id, code: 'busy', message: 'model loading' }));
+    await expect(submitSave(bookmark(), TAB, deps)).rejects.toMatchObject({ code: 'busy' });
+    const waiting = await keptText(storage);
+    transport.autoAnswer(jobKeepingDaemon().respond);
+    await timer.advance(60_000);
+    await Promise.all(retries);
+    expect(transport.sent).toHaveLength(2);
+    expect(waiting).toEqual([TAB.text]);
+    expect(await keptText(storage)).toEqual([]);
+  });
+
+  it('Given a save the daemon refuses for good, When answered, Then its page text is gone', async () => {
+    const transport = new FakeTransport();
+    const { deps, storage } = keptDeps(transport);
+    transport.autoAnswer((r) => ({ v: 1, type: 'error', re: r.id, code: 'invalid', message: 'bad body' }));
+    await expect(submitSave(bookmark(), TAB, deps)).rejects.toMatchObject({ code: 'invalid' });
+    expect(await keptText(storage)).toEqual([]);
+  });
+});
