@@ -349,8 +349,9 @@ def test_accept_after_the_folder_was_locked_is_refused() -> None:
 
 def test_an_audit_item_crosses_the_boundary_and_its_undo_carries_the_item() -> None:
     """Given an accepted audit item moving a Dynomark folder into the user's bar,
-    When its batch is applied and then undone, Then the batch was admitted and
-    the inverse carries the same item reference."""
+    When its batch is applied and then undone, Then the batch was admitted
+    carrying the item's scope (the folders it names: Reading and Rust), and
+    the inverse carries the same item reference and scope (issue #423)."""
     writer = Writer((ASYNC_TO_READING,))
     item = writer.propose(DiffKind.AUDIT)
     accepted = writer.accept(item)
@@ -388,6 +389,9 @@ def test_an_audit_item_crosses_the_boundary_and_its_undo_carries_the_item() -> N
 
     assert isinstance(undone, Undone) and undone.batch is not None
     assert undone.batch.diff_item_id == item.item_id
+    offered = writer.store.get_batch(accepted.batch_id)
+    assert offered is not None and set(offered.batch.scope) == {READING, RUST}
+    assert undone.batch.scope == offered.batch.scope
     assert undone.batch.operations[0] == OpMove(
         index=0,
         node_id=NodeId("16"),

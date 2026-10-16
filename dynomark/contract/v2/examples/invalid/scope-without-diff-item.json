@@ -1,0 +1,27 @@
+{
+  "v": 2,
+  "type": "batch.offer",
+  "event_id": "evt-0205",
+  "batch": {
+    "batch_id": "batch-0109",
+    "operations": [
+      {
+        "op": "create_folder",
+        "index": 0,
+        "parent": {
+          "root": "bar",
+          "names": [
+            "Dynomark"
+          ]
+        },
+        "title": "Rust"
+      }
+    ],
+    "scope": [
+      {
+        "root": "bar",
+        "names": []
+      }
+    ]
+  }
+}

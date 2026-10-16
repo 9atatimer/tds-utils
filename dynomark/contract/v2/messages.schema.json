@@ -822,7 +822,7 @@
     },
     "WriteBatch": {
       "type": "object",
-      "description": "Ordered operations the extension applies. operations[i].index == i. diff_item_id present = the batch realizes, or reverts, an accepted DiffItem and may cross the owned-roots boundary; every inverse batch (undo and PARTIAL prefix) carries the original's diff_item_id. The inverse stays on the daemon. park present = a parking batch (a duplicate identity moved to Graveyard), naming the existing placement.",
+      "description": "Ordered operations the extension applies. operations[i].index == i. diff_item_id present = the batch realizes, or reverts, an accepted DiffItem: it carries that item's scope, and each operation must lie inside the owned roots or inside that scope; every inverse batch (undo and PARTIAL prefix) carries the original's diff_item_id and scope. The inverse stays on the daemon. park present = a parking batch (a duplicate identity moved to Graveyard), naming the existing placement.",
       "properties": {
         "batch_id": {
           "$ref": "#/$defs/Id"
@@ -840,13 +840,40 @@
         },
         "park": {
           "$ref": "#/$defs/ParkReason"
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FolderPath"
+          },
+          "minItems": 1,
+          "maxItems": 200,
+          "uniqueItems": true,
+          "description": "On a batch with diff_item_id (and only there): the accepted item's scope, every folder its operations target or take a node from (each create's parent, each move's to, each move's and remove's expect.parent_path). Its inverses carry the same scope."
         }
       },
       "required": [
         "batch_id",
         "operations"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "if": {
+        "required": [
+          "diff_item_id"
+        ]
+      },
+      "then": {
+        "required": [
+          "scope"
+        ]
+      },
+      "else": {
+        "not": {
+          "required": [
+            "scope"
+          ]
+        }
+      }
     },
     "OpApplied": {
       "type": "object",

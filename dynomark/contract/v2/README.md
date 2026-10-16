@@ -414,10 +414,9 @@ folder does not resolve, or that the browser refuses, **fails**: the
 batch stops and the receipt is `PARTIAL`.
 
 **Boundary.** Before the first op, the extension checks every op against
-`owned_roots`, and a batch with `diff_item_id` is exempt. The check is
-syntactic on paths: a `FolderPath` P is inside an owned root R when
-`P.root == R.root` and `R.names` is a prefix of `P.names` (P == R
-included).
+`owned_roots`. The check is syntactic on paths: a `FolderPath` P is
+inside an owned root R when `P.root == R.root` and `R.names` is a prefix
+of `P.names` (P == R included).
 
 - The target folder (`parent`, `to`; for `remove`, the graveyard) must
   be inside an owned root. Exception: a `create_folder` whose (`parent`,
@@ -429,6 +428,24 @@ included).
   owned root resolves to. A node missing at check time passes the
   boundary and is handled by its op (skipped: it carries `expect`).
 
+A batch with `diff_item_id` realizes, or reverts, one accepted
+`DiffItem` and carries that item's `scope`: every folder the item's
+operations target or take a node from (each `create_folder` and
+`create` parent, each `move` `to`, each `move` and `remove`
+`expect.parent_path`; the daemon gives every item `move` and `remove` a
+`parent_path`). Its inverses carry the same `scope`. The extension
+admits each op of such a batch that passes the owned-roots check above,
+or else stays inside the scope:
+
+- its target folder (`parent`, `to`) is exactly a scope path (for
+  `remove`, the graveyard, which is owned);
+- for `move` / `remove` of a node that exists at check time, its parent
+  is a folder a scope path resolves to, or one of its ancestors-or-self
+  folders, starting at its parent, is the node an owned root resolves to.
+
+A scope path admits only itself, never what lies under it: an accepted
+item can touch exactly the folders it named.
+
 If any op fails the check the batch is `REJECTED` (`boundary`) and
 nothing is touched. A batch whose op indices are not `0..n-1` is
 `REJECTED` (`invalid`). A batch arriving while `owned_roots.dynomark`
@@ -438,8 +455,8 @@ holds a `dynomark-writer:` folder of a host other than this connection's
 **Inverses.** The daemon keeps each batch's inverse; the undo inverse
 and the `PARTIAL`-prefix inverse revert only ops reported `applied` with
 `changed` true. Every inverse batch carries the original batch's
-`diff_item_id` when the original had one, so reverting an accepted audit
-item crosses the boundary exactly as the item did
+`diff_item_id` and `scope` when the original had them, so reverting an
+accepted audit item crosses the boundary exactly as the item did
 (`batch.offer--partial-inverse-audit.json`). A `PARTIAL` or skipped
 filing with no `changed` op produces no inverse batch (a batch has at
 least one op).

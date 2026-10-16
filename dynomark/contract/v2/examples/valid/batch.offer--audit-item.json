@@ -38,8 +38,28 @@
           ]
         },
         "expect": {
+          "parent_path": {
+            "root": "other",
+            "names": []
+          },
           "parent_id": "2"
         }
+      }
+    ],
+    "scope": [
+      {
+        "root": "bar",
+        "names": []
+      },
+      {
+        "root": "bar",
+        "names": [
+          "Reading"
+        ]
+      },
+      {
+        "root": "other",
+        "names": []
       }
     ]
   }

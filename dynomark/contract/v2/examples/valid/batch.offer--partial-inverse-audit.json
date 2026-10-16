@@ -19,6 +19,22 @@
           "empty": true
         }
       }
+    ],
+    "scope": [
+      {
+        "root": "bar",
+        "names": []
+      },
+      {
+        "root": "bar",
+        "names": [
+          "Reading"
+        ]
+      },
+      {
+        "root": "other",
+        "names": []
+      }
     ]
   }
 }

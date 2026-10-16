@@ -4,6 +4,11 @@
     "path": "/history/0/citations",
     "rule": "Turn is question + answer text"
   },
+  "audit-batch-without-scope.json": {
+    "keyword": "required",
+    "path": "/batch/scope",
+    "rule": "a diff-item batch carries its item's scope"
+  },
   "batch-empty-operations.json": {
     "keyword": "minItems",
     "path": "/batch/operations",
@@ -228,6 +233,11 @@
     "keyword": "required",
     "path": "/re",
     "rule": "responses carry re, not id"
+  },
+  "scope-without-diff-item.json": {
+    "keyword": "not",
+    "path": "/batch",
+    "rule": "only a diff-item batch carries a scope"
   },
   "search-hit-tier-local.json": {
     "keyword": "const",

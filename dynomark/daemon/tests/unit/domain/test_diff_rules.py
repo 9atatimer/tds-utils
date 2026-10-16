@@ -16,6 +16,8 @@ from dynomark_daemon.domain.batch import (
     OpMove,
     OpRemove,
     OutsideOwnedRoots,
+    admit,
+    item_scope,
 )
 from dynomark_daemon.domain.diff import (
     MAX_DESCRIPTION,
@@ -291,3 +293,41 @@ def test_an_accepted_rebuild_item_outside_the_owned_roots_raises() -> None:
     with pytest.raises(OutsideOwnedRoots):
         item_batch(crossing, DiffKind.REBUILD, make_roots())
     assert item_batch(crossing, DiffKind.AUDIT, make_roots())
+
+
+def test_an_items_scope_names_every_folder_its_operations_touch() -> None:
+    """Given an item that creates a folder, a bookmark, moves a folder and
+    removes one, When its scope is taken, Then it is every create's parent,
+    every move's target and every expected parent, each once (issue #423)."""
+    reading = make_path("Reading")
+    operations = (
+        OpCreateFolder(index=0, parent=make_path(), title="Reading"),
+        OpCreate(index=1, parent=reading, title="Book", url="https://b.example/"),
+        _move("16", reading),
+        OpRemove(
+            index=3,
+            node_id=NodeId("17"),
+            expect=Expect(parent_id=NodeId("11"), parent_path=make_path("Dynomark")),
+        ),
+    )
+
+    assert item_scope(operations) == (
+        make_path(),
+        reading,
+        RUST,
+        make_path("Dynomark"),
+    )
+
+
+def test_admit_with_a_scope_takes_ops_inside_it_and_refuses_the_rest() -> None:
+    """Given an item's scope (Reading and Rust), When a batch is admitted with
+    it, Then a move from Rust into Reading passes, and a move into a folder
+    neither owned nor in the scope -- even one under a scope path -- raises."""
+    reading = make_path("Reading")
+    scope = (reading, RUST)
+
+    admit((_move("16", reading),), make_roots(), scope=scope)
+    with pytest.raises(OutsideOwnedRoots):
+        admit((_move("16", make_path("Elsewhere")),), make_roots(), scope=scope)
+    with pytest.raises(OutsideOwnedRoots):
+        admit((_move("16", make_path("Reading", "Deeper")),), make_roots(), scope=scope)

@@ -48,6 +48,25 @@ type Answer = (r: RequestMessage) => ResponseMessage | undefined;
 export const FAKE_HOST_ID = 'e2e-host';
 const DEFAULT_WAIT_MS = 20_000;
 
+// --- Helpers ---
+
+/** An accepted item's scope as the daemon computes it: every folder its ops target or take a node from (contract v2, Boundary). */
+function itemScope(operations: WriteBatch['operations']): NonNullable<WriteBatch['scope']> {
+  const paths = operations.flatMap((op) => {
+    switch (op.op) {
+      case 'create_folder':
+      case 'create':
+        return [op.parent];
+      case 'move':
+        return [op.to, ...(op.expect.parent_path === undefined ? [] : [op.expect.parent_path])];
+      case 'remove':
+        return op.expect.parent_path === undefined ? [] : [op.expect.parent_path];
+    }
+  });
+  const seen = new Map(paths.map((p) => [JSON.stringify(p), p] as const));
+  return [...seen.values()];
+}
+
 // --- The daemon ---
 
 export class FakeDaemon {
@@ -326,7 +345,9 @@ export class FakeDaemon {
     this.diffItems = this.diffItems.map((i) => (i.item_id === item.item_id ? accepted : i));
     const batch_id = accepted.batch_id ?? `batch-${item.item_id}`;
     if (item.accepted_at === null) {
-      setImmediate(() => this.offer({ batch_id, operations: accepted.operations, diff_item_id: accepted.item_id }));
+      setImmediate(() =>
+        this.offer({ batch_id, operations: accepted.operations, diff_item_id: accepted.item_id, scope: itemScope(accepted.operations) }),
+      );
     }
     return { v: 2, type: 'diff.accept.result', re: r.id, item_id: accepted.item_id, accepted_at: accepted.accepted_at ?? 0, batch_id };
   }
