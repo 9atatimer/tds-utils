@@ -523,12 +523,14 @@ This repo lands PRs through the tedium merge bot; the rules are in
   Codex pass is a thumbs-up reaction with no review, and it does not
   settle the group: a reaction carries no commit, so the status stays red
   until a review lands on the head. Any other failure notice
-  stays red, as does silence. The checker waits up to `wait_seconds`
-  (default 180) for the answer, because GitHub runs no workflow when
-  Copilot posts. When the answer lands AFTER that window the status stays
-  at "no review yet" until something re-runs the workflow (issue #353);
-  the fallback is `gh run rerun <id>` on the latest review-settled run for
-  the PR, after which it reads the notice and fails open.
+  stays red, as does silence. GitHub runs no workflow when Copilot
+  posts, so the run a review request starts waits up to 180s for the
+  answer (`wait_seconds` in `review-settled-caller.yml`); every other
+  event's run posts at once, and only a push or a review request cancels
+  a waiting run. When the answer lands AFTER that window the status
+  stays at "no review yet" until something re-runs the workflow (issue
+  #353); the fallback is `gh run rerun <id>` on the latest review-settled
+  run for the PR, after which it reads the notice and fails open.
 - **Reviewers** (who may `r+`) are the repo's direct collaborators with
   push, synced by tedium. An agent acting under a reviewer's token is a
   reviewer.

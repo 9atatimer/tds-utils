@@ -12,7 +12,9 @@
 # review itself, the reply in a thread, and the PR comment the reviewer
 # posts after resolving (the self-review epilogue the gates skill
 # requires) -- so all three re-evaluate, and workflow_dispatch covers a
-# stuck one by hand.
+# stuck one by hand. A review request is the one event whose run waits
+# for the reviewer's answer (`wait_seconds` below); every other run posts
+# at once.
 #
 # Part of the contract, not a gap to close: a thread UNRESOLVED with no
 # comment fires nothing either, so a green status can outlive it until
@@ -23,13 +25,19 @@
 # can see.
 #
 # `tools_ref` is the PR's own head so a change to the checker is tested
-# by the PR that carries it, not by the one after.
+# by the PR that carries it, not by the one after. The caller itself is
+# only half testable that way: GitHub runs a `pull_request` workflow from
+# the PR's copy of this file, but an `issue_comment` workflow from the
+# default branch's copy. A PR that changes this file sees its own change on
+# push and review events, and master's behaviour on every comment, until it
+# merges (a comment run on PR #493 waited master's 180s while the PR's copy
+# said 0).
 
 name: review-settled
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, review_requested]
   pull_request_review:
     types: [submitted, dismissed]
   pull_request_review_comment:
@@ -45,7 +53,16 @@ on:
 
 concurrency:
   group: review-settled-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
-  cancel-in-progress: true
+  # Only a push or a review request supersedes whatever is running: the
+  # head changed, or the wait is about to start. No other event cancels --
+  # it would kill the one run waiting for Copilot's answer and replace it
+  # with a run that waits 0 and posts "no review yet" over an answer
+  # seconds away (issue #353). The self-review epilogue comment lands
+  # inside that window, and so does the `opened` run of a PR created with
+  # its reviewer attached: GitHub delivers `opened` and `review_requested`
+  # unordered, so `opened` must not cancel either. Every other run queues
+  # and re-evaluates after the waiter posts.
+  cancel-in-progress: ${{ github.event.action == 'synchronize' || github.event.action == 'review_requested' }}
 
 permissions:
   contents: read
@@ -72,4 +89,14 @@ jobs:
       # (Copilot has no quota; owner ruling 2026-09-27).
       reviewers: 'copilot-pull-request-reviewer|chatgpt-codex-connector'
       pr: ${{ github.event.pull_request.number || github.event.issue.number || inputs.pr }}
+      # Fail fast on every event except a review request: Copilot's answer
+      # fires no workflow, so the run its request starts is the one that
+      # waits for it (PR #356 shows the event firing for a Copilot request).
+      # Codex's answer (a review or a comment) fires an event of its own and
+      # needs no wait. A push cancels the waiting run through the
+      # concurrency group; a comment queues behind it. If tds-internal's
+      # `automatic_copilot_code_review` is ever enabled for this repo,
+      # Copilot re-reviews a push with NO review_requested event, and
+      # `synchronize` needs the wait back.
+      wait_seconds: ${{ github.event.action == 'review_requested' && 180 || 0 }}
       tools_ref: ${{ github.event.pull_request.head.sha || 'master' }}

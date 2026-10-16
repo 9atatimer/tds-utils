@@ -28,7 +28,10 @@
 # `uses: 9atatimer/tds-utils/.github/workflows/review-settled.yml@master`.
 # GitHub has no workflow trigger for a thread being resolved, so the
 # caller fires on the review, on replies in threads, on PR comments (the
-# epilogue posted after resolving), on pushes, and by hand. A synchronize
+# epilogue posted after resolving), on pushes, on a review request, and
+# by hand; a caller passes `wait_seconds` per event, and this repo's
+# waits only on the review request (the run Copilot's answer lands in).
+# A synchronize
 # event turns the status red at once (the newest review is on the old
 # head) until the reviewer re-reviews the new one -- that is the head-SHA
 # freshness the decision encodes.

@@ -18,6 +18,10 @@ run_io_suite() {
     node --test "${REPO_ROOT}/test/review_settled_io.test.mjs"
 }
 
+run_caller_suite() {
+    node --test "${REPO_ROOT}/test/review_settled_caller.test.mjs"
+}
+
 check_usage_errors() {
     local out
     # No --repo: must fail fast with the usage reason, never touch the network.
@@ -40,6 +44,7 @@ check_usage_errors() {
 run_all() {
     run_unit_suite
     run_io_suite
+    run_caller_suite
     check_usage_errors
 }
 

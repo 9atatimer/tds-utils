@@ -26,6 +26,7 @@ Any project running within this environment can assume the existence and availab
 
 - **Ollama**: Local LLM inference server.
 - **remollama**: Remote Ollama orchestration and proxying.
+- **decide**: the decision-model client (bin/decide) -- typed yes/no, pick-one and rubric questions answered with probabilities; hosted Clef through the AI Gateway today, a local decision arena later. See docs/ops/decide.md.
 
 ### Development Platforms
 
