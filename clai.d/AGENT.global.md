@@ -41,9 +41,9 @@ file points there.
 - Never name a tier `staging`; it is `nonprod`.
 - Answer tersely, and stop when the answer is done.
 - Link every PR and issue with repo and kind in the link text.
-- Read the repo's `AGENT.md` and `TODO_PLAN.md`, and read a skill whole, before working.
-- Clear the existing gate before you lower it; never `--no-verify`.
-- Judge CI from the default branch's HEAD, freshly fetched, not your branch.
+- Read the repo's `AGENT.md` and its `TODO_PLAN.md` if it has one, and read a skill whole, before working.
+- Lower a gate only in a change that first clears the current gate and merges; never `--no-verify` or disable a check.
+- Fetch the default branch's HEAD before judging what a workflow does; a stale branch says nothing about what is live.
 - Review each non-doc PR once; re-review only after a load-bearing fix.
 - Copilot is out of quota: self-review is the whole review until the owner says otherwise.
 
@@ -179,7 +179,7 @@ If a command might run more than ~30 seconds, launch it with `Bash`
 from a hung one, and a long foreground call blocks the human from steering
 mid-task -- which is exactly when steering is most valuable.
 
-Typical offenders: cloud builds, `npm install`, full test suites,
+Typical offenders: deploys and applies (`gcloud run deploy`, `terraform apply`), cloud builds, `npm install`, full test suites,
 container builds, bulk storage deletes. This is not the banned
 self-polling above: the command runs once and notifies on exit.
 
@@ -194,8 +194,8 @@ leaves the job running.
 ## Bash on this machine is real
 
 On a laptop / real checkout the bash tool touches the real disk and network:
-assume side effects and destructive potential. Only an ephemeral cloud
-sandbox is a throwaway container; do not carry that assumption here.
+assume side effects and destructive potential. An ephemeral cloud sandbox is
+a throwaway container, free for self-computation; do not carry that here.
 
 ## Terraform applies: agent plans, human applies
 
@@ -292,8 +292,8 @@ triage Copilot's review feedback per the gates skill.
 
 ## Read the repo's own instructions and plan first
 
-Read the repo's `CLAUDE.md` / `AGENT.md` and its `TODO_PLAN.md` before
-changing anything in it. Repo instructions load alongside these global ones
+Read the repo's `CLAUDE.md` / `AGENT.md` and its `TODO_PLAN.md` (if any; do
+not create one) before changing anything in it. Repo instructions load alongside these global ones
 and win on specificity; the plan says what is in flight so you do not
 collide with it or redo it.
 
@@ -301,16 +301,16 @@ collide with it or redo it.
 
 A change that lowers a bar -- lint rules, coverage floors, required checks,
 severity thresholds, timeouts, review policy, the gate config itself -- must
-first pass the bar as it stands today. Nobody proposes a lower gate and then
-clears the one they just proposed. Raising a bar may take effect at once;
-lowering one takes effect only after the change clears the old bar and
-merges. Never `--no-verify`, never edit the config in the same commit as
-the code it fails, never disable the failing check. Only a repo owner may
-force past a gate.
+first pass the bar as it stands today, with no bypass. Raising a bar may
+take effect at once; lowering one takes effect only after the change clears
+the old bar and merges. Never `--no-verify`, never lower the config in the
+same commit as the code it fails, never disable the failing check. Only a
+human repo owner may force past a gate, outside the session; an agent never
+does, even under an owner's token.
 
-CI runs off the default branch's HEAD. Fetch it before you opine on what
-CI does: your branch or local default branch may be stale, and only what is
-live matters.
+Workflows run off the default branch's HEAD (`master` or `main`). Fetch it
+before you opine on what a workflow does: your branch or local default
+branch may be stale. A PR's own check results are judged on its head.
 
 ## Load a skill by reading it whole, never by grepping it
 
