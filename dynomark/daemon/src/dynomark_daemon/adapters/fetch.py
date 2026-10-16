@@ -17,6 +17,7 @@ import http.client
 import re
 import socket
 import ssl
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -324,23 +325,76 @@ class FetchContentSource:
 # --- The background-tab vet (Key Decisions "Background-tab capture") ---
 
 
+DEFAULT_VET_DEADLINE_S: Final = 3.0
+"""How long one ``url.vet`` waits for DNS before it answers unresolved."""
+VET_LOOKUPS: Final = 4
+"""At most this many lookups at once; a vet waits for a free one within its
+deadline. A lookup that outlives its vet keeps its slot until DNS answers,
+so a resolver that hangs costs these threads, never the model pool's."""
+
+
+class _Lookup:
+    """One lookup's answer, handed from its thread to the vet waiting on it."""
+
+    def __init__(self) -> None:
+        self.done = threading.Event()
+        self.addresses: Sequence[str] | None = None
+
+
 class DnsAddressVet:
     """``AddressVetPort`` by DNS: the fetch fallback's own policy, applied to
-    every address a URL's host resolves to before a background tab loads it."""
+    every address a URL's host resolves to before a background tab loads it.
+
+    ``getaddrinfo`` cannot be cancelled, and ``url.vet`` is answered on the
+    transport's small model pool, so each lookup runs on a daemon thread of
+    its own (``VET_LOOKUPS`` at once) and the vet waits for it at most
+    ``deadline_s``: a host whose DNS does not answer in time is unresolved,
+    not allowed (issue #534 T6)."""
 
     def __init__(
-        self, *, allowed: AddressPolicy, resolve: Resolve = system_resolve
+        self,
+        *,
+        allowed: AddressPolicy,
+        resolve: Resolve = system_resolve,
+        deadline_s: float = DEFAULT_VET_DEADLINE_S,
+        lookups: int = VET_LOOKUPS,
     ) -> None:
         self._allowed = allowed
         self._resolve = resolve
+        self._deadline_s = deadline_s
+        self._slots = threading.BoundedSemaphore(lookups)
+
+    def _lookup(self, host: str, port: int, lookup: _Lookup) -> None:
+        try:
+            lookup.addresses = self._resolve(host, port)
+        except (OSError, UnicodeError):
+            lookup.addresses = None
+        finally:
+            self._slots.release()
+            lookup.done.set()
+
+    def _addresses(self, host: str, port: int) -> Sequence[str] | None:
+        """What ``host`` resolves to, or ``None`` when it does not resolve or
+        does not answer within the deadline."""
+        deadline = time.monotonic() + self._deadline_s
+        if not self._slots.acquire(timeout=self._deadline_s):
+            return None
+        lookup = _Lookup()
+        threading.Thread(
+            target=self._lookup,
+            args=(host, port, lookup),
+            name="dynomark-dns",
+            daemon=True,
+        ).start()
+        if not lookup.done.wait(max(0.0, deadline - time.monotonic())):
+            return None
+        return lookup.addresses
 
     def vet(self, url: str) -> UrlVerdict:
         target = host_and_port(url)
         if target is None:
             return UrlVerdict(VetRefusal.UNRESOLVED)
-        host, port = target
-        try:
-            addresses = self._resolve(host, port)
-        except (OSError, UnicodeError):
+        addresses = self._addresses(*target)
+        if addresses is None:
             return UrlVerdict(VetRefusal.UNRESOLVED)
         return judge(addresses, self._allowed)

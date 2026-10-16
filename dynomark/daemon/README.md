@@ -112,6 +112,7 @@ fetch_timeout_s = 15            # for the whole fetch, not each read
 max_bytes = 5000000
 private_addresses = false       # true: also fetch (and let a background tab
                                 # open) loopback, link-local, LAN
+vet_timeout_s = 3               # url.vet's DNS wait; no answer: not allowed
 
 [diffs]                         # absent: rebuilds are proposed on request only
 rebuild_every_hours = 168       # the job loop proposes a rebuild this often
@@ -234,7 +235,9 @@ If NEW is switched before the old marker is gone, it reports the conflict
   for an install whose saves live on a LAN or localhost. The same policy
   answers `url.vet`: the writer's extension opens a background tab (with the
   user's cookies) only for a URL whose every address it allows (contract
-  v2, Background-tab capture). Readable text via
+  v2, Background-tab capture); a host whose DNS has not answered within
+  `vet_timeout_s` is refused unresolved, and the lookup runs on a thread of
+  its own, so slow DNS holds no model-pool thread past that. Readable text via
   `html.parser` (article, then main, then body; no script, style, nav,
   header, footer).
 - Ollama: `/api/embed`, `/api/generate` with `format: json`; strict

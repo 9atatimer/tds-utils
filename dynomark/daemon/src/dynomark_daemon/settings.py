@@ -47,6 +47,7 @@ DEFAULT_RETRY: Final = RetryPolicy(
 )
 DEFAULT_FETCH_TIMEOUT_S: Final = 15.0
 DEFAULT_FETCH_MAX_BYTES: Final = 5_000_000
+DEFAULT_VET_TIMEOUT_S: Final = 3.0
 DEFAULT_ROOTS: Final = OwnedRoots(
     follow_up=FolderPath(root=RootKey.BAR, names=("Follow Up",)),
     dynomark=FolderPath(root=RootKey.BAR, names=("Dynomark",)),
@@ -63,7 +64,9 @@ SCHEMA: Final[Mapping[str, frozenset[str]]] = {
     "store": frozenset({"path"}),
     "socket": frozenset({"path"}),
     "retry": frozenset({"attempts", "initial_backoff_ms", "max_backoff_ms"}),
-    "capture": frozenset({"fetch_timeout_s", "max_bytes", "private_addresses"}),
+    "capture": frozenset(
+        {"fetch_timeout_s", "max_bytes", "private_addresses", "vet_timeout_s"}
+    ),
     "diffs": frozenset({"rebuild_every_hours"}),
 }
 HOUR_MS: Final = 3_600_000
@@ -75,12 +78,14 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class CaptureSettings:
-    """The fetch adapter's limits, and whether it may reach loopback,
-    link-local and private addresses (off: public addresses only)."""
+    """The fetch adapter's limits, whether it may reach loopback, link-local
+    and private addresses (off: public addresses only), and how long
+    ``url.vet`` waits for DNS before it answers unresolved."""
 
     fetch_timeout_s: float
     max_bytes: int
     private_addresses: bool = False
+    vet_timeout_s: float = DEFAULT_VET_TIMEOUT_S
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,6 +244,15 @@ def _capture(document: Mapping[str, object]) -> CaptureSettings:
             "private_addresses",
             False,
             _is_flag,
+        ),
+        vet_timeout_s=float(
+            _value(
+                table,
+                "capture.vet_timeout_s",
+                "vet_timeout_s",
+                DEFAULT_VET_TIMEOUT_S,
+                _is_seconds,
+            )
         ),
     )
 

@@ -130,7 +130,10 @@ def build_ports(settings: Settings) -> Ports:
             max_bytes=settings.capture.max_bytes,
             address_allowed=fetch_policy(settings),
         ),
-        vetter=DnsAddressVet(allowed=fetch_policy(settings)),
+        vetter=DnsAddressVet(
+            allowed=fetch_policy(settings),
+            deadline_s=settings.capture.vet_timeout_s,
+        ),
         clock=SystemClock(),
         ids=RandomIds(),
     )
