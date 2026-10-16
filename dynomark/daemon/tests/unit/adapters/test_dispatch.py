@@ -795,7 +795,12 @@ def test_folder_flags_set_answers_the_folder_and_outline_get_shows_it() -> None:
     harness.send(wire.tree_snapshot("t-1"))
 
     reply = harness.send(
-        wire.body("folder.flags.set", "f-1", node_id="14", locked=True)
+        wire.body(
+            "folder.flags.set",
+            "f-1",
+            path={"root": "bar", "names": ["Dynomark", "Rust"]},
+            locked=True,
+        )
     )
     outline = harness.send(wire.body("outline.get", "o-1"))
 
@@ -812,7 +817,12 @@ def test_folder_flags_set_on_a_reader_connection_is_not_writer() -> None:
     harness.hello()
 
     reply = harness.send(
-        wire.body("folder.flags.set", "f-1", node_id="14", pinned=True)
+        wire.body(
+            "folder.flags.set",
+            "f-1",
+            path={"root": "bar", "names": ["Dynomark", "Rust"]},
+            pinned=True,
+        )
     )
 
     assert _error(reply) == ("f-1", "not_writer")
@@ -881,7 +891,10 @@ def test_writer_status_reports_another_hosts_marker_as_a_conflict() -> None:
     [
         ("undo", {"batch_id": "batch-1"}),
         ("diff.accept", {"item_id": "item-1"}),
-        ("folder.flags.set", {"node_id": "14", "locked": True}),
+        (
+            "folder.flags.set",
+            {"path": {"root": "bar", "names": ["Dynomark", "Rust"]}, "locked": True},
+        ),
     ],
 )
 def test_a_writer_in_conflict_refuses_writes_with_writer_conflict(

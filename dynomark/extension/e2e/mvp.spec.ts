@@ -182,7 +182,9 @@ test('Given an audit diff, When it is proposed, read and one item accepted in th
   await expect(view.locator('button[data-accept="item-3"]')).toBeDisabled();
 
   await view.locator('input[data-pin="16"]').check();
-  expect(await ext.daemon.waitFor(ofType('folder.flags.set'))).toMatchObject({ node_id: '16', pinned: true });
+  const flags = await ext.daemon.waitFor(ofType('folder.flags.set'));
+  expect(flags).toMatchObject({ path: { root: 'bar', names: ['Dynomark', 'Rust'] }, pinned: true });
+  expect(flags).not.toHaveProperty('node_id');
   expect(ext.daemon.invalid).toEqual([]);
 });
 

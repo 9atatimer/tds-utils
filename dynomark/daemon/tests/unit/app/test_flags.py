@@ -1,9 +1,10 @@
 """Pin and lock an owned folder (DYNOMARK.DESIGN.md, glossary ``pinned`` and
 ``locked``; Behaviors "Placement respects a lock"; contract/v2
-``folder.flags.set``: addressed by node id, ``path`` a check, only the
-flags given change, idempotent on (node_id, flag values); a folder outside
-the owned roots is ``invalid``, an unknown node or a path mismatch
-``not_found``; ``not_writer`` on a reader).
+``folder.flags.set``: addressed by path -- flags are keyed by FolderPath,
+which every writer's tree resolves alike (issue #423) -- only the flags
+given change, idempotent on (path, flag values); a folder outside the owned
+roots is ``invalid``, a path that resolves to no folder ``not_found``;
+``not_writer`` on a reader).
 """
 
 import pytest
@@ -36,16 +37,13 @@ def _store() -> InMemoryCorpusStore:
 
 def _set(
     store: InMemoryCorpusStore,
-    node_id: str = "14",
+    path: FolderPath = RUST,
     *,
-    path: FolderPath | None = None,
     pinned: bool | None = None,
     locked: bool | None = None,
     role: HostRole = HostRole.WRITER,
 ) -> OutlineFolder | NotWriter | WriterConflict:
-    return set_folder_flags(
-        NodeId(node_id), path, pinned, locked, role, make_roots(), store=store
-    )
+    return set_folder_flags(path, pinned, locked, role, make_roots(), store=store)
 
 
 def test_locking_a_folder_keeps_its_pin_and_shows_in_the_outline() -> None:
@@ -54,7 +52,7 @@ def test_locking_a_folder_keeps_its_pin_and_shows_in_the_outline() -> None:
     store = _store()
     _set(store, pinned=True)
 
-    folder = _set(store, path=RUST, locked=True)
+    folder = _set(store, RUST, locked=True)
 
     assert folder == OutlineFolder(NodeId("14"), RUST, True, True, 1)
     outline = current_outline(make_roots(), store=store)
@@ -70,24 +68,41 @@ def test_setting_the_same_flags_again_changes_nothing() -> None:
 
 
 @pytest.mark.parametrize(
-    ("node_id", "path"),
-    [("99", None), ("40", None), ("14", make_path("Dynomark", "Go"))],
-    ids=["unknown-node", "a-bookmark", "path-mismatch"],
+    "path",
+    [make_path("Dynomark", "Go"), make_path("Dynomark", "Rust", "Tokio")],
+    ids=["no-such-folder", "a-bookmark-title"],
 )
-def test_an_unknown_folder_or_a_wrong_path_is_not_found(
-    node_id: str, path: FolderPath | None
-) -> None:
-    """Given the tree, When flags name no folder, a bookmark, or a folder whose
-    path differs from the check, Then it is an unknown record."""
+def test_a_path_that_resolves_to_no_folder_is_not_found(path: FolderPath) -> None:
+    """Given the tree, When flags name a path no folder of it resolves to (none
+    there, or only a bookmark of that title), Then it is an unknown record."""
     with pytest.raises(UnknownRecord):
-        _set(_store(), node_id, path=path, locked=True)
+        _set(_store(), path, locked=True)
+
+
+def test_a_folder_is_found_by_path_whatever_its_node_id() -> None:
+    """Given a writer whose tree holds Dynomark/Rust under node 99 (another
+    writer's numbering), When Rust is locked by path, Then the answer names
+    this tree's node and the lock is kept by path (issue #423)."""
+    store = InMemoryCorpusStore()
+    store.put_tree_snapshot(
+        make_tree(
+            make_node("70", "1", "Follow Up"),
+            make_node("71", "1", "Dynomark", index=1),
+            make_node("99", "71", "Rust"),
+        )
+    )
+
+    folder = _set(store, RUST, locked=True)
+
+    assert isinstance(folder, OutlineFolder) and folder.node_id == "99"
+    assert store.folder_flags()[RUST].locked
 
 
 def test_a_folder_outside_the_owned_roots_is_invalid() -> None:
     """Given the user's own Reading folder, When it is pinned, Then the request
     is one the daemon cannot act on."""
     with pytest.raises(InvalidRequest):
-        _set(_store(), "30", pinned=True)
+        _set(_store(), make_path("Reading"), pinned=True)
 
 
 def test_flags_before_any_tree_snapshot_are_not_ready() -> None:

@@ -84,10 +84,20 @@
     "path": "/ts",
     "rule": "additionalProperties false on every message"
   },
+  "folder-flags-set-by-node-id.json": {
+    "keyword": "additionalProperties",
+    "path": "/node_id",
+    "rule": "a folder is addressed by path, not by one profile's node id"
+  },
   "folder-flags-set-no-flag.json": {
     "keyword": "anyOf",
     "path": "",
     "rule": "flags.set changes at least one flag"
+  },
+  "folder-flags-set-without-path.json": {
+    "keyword": "required",
+    "path": "/path",
+    "rule": "folder.flags.set names the folder by path"
   },
   "folder-path-root-unknown.json": {
     "keyword": "enum",

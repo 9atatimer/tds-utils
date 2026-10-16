@@ -291,14 +291,15 @@ export class FakeDaemon {
       case 'outline.get':
         return { v: 2, type: 'outline.get.result', re: r.id, outline: this.outline, next_cursor: null };
       case 'folder.flags.set': {
-        const folder = this.outline.find((f) => f.node_id === r.node_id);
+        const same = (f: OutlineFolder): boolean => JSON.stringify(f.path) === JSON.stringify(r.path);
+        const folder = this.outline.find(same);
         if (folder === undefined) return { v: 2, type: 'error', re: r.id, code: 'not_found', message: 'no such folder' };
         const updated = {
           ...folder,
           ...(r.pinned === undefined ? {} : { pinned: r.pinned }),
           ...(r.locked === undefined ? {} : { locked: r.locked }),
         };
-        this.outline = this.outline.map((f) => (f.node_id === r.node_id ? updated : f));
+        this.outline = this.outline.map((f) => (same(f) ? updated : f));
         return { v: 2, type: 'folder.flags.set.result', re: r.id, folder: updated };
       }
       case 'status':

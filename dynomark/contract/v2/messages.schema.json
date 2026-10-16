@@ -2811,7 +2811,7 @@
     },
     "FolderFlagsSet": {
       "type": "object",
-      "description": "Set pinned and/or locked on one owned folder, addressed by node_id. path, when present, is a check: a folder whose path differs is answered not_found. Idempotent on (node_id, flag values).",
+      "description": "Set pinned and/or locked on one owned folder, addressed by its path: the daemon keys flags by FolderPath, which every writer's tree resolves alike, so a node id (one profile's) is not the folder's name. A path that does not resolve to a folder in the latest tree is answered not_found. Idempotent on (path, flag values).",
       "properties": {
         "v": {
           "const": 2,
@@ -2822,9 +2822,6 @@
         },
         "id": {
           "$ref": "#/$defs/Id"
-        },
-        "node_id": {
-          "$ref": "#/$defs/NodeId"
         },
         "path": {
           "$ref": "#/$defs/FolderPath"
@@ -2840,7 +2837,7 @@
         "v",
         "type",
         "id",
-        "node_id"
+        "path"
       ],
       "additionalProperties": false,
       "anyOf": [

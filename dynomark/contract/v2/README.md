@@ -248,7 +248,7 @@ identity it holds, never by normalizing history URLs.
 | `diff.accept.result` | daemon -> extension | Recorded `accepted_at` and the batch it produced | A diff item is accepted |
 | `outline.get` | extension -> daemon | Read one page of the owned `TreeOutline` | Glossary: `pinned`, `locked` (settings view) |
 | `outline.get.result` | daemon -> extension | One page of `OutlineFolder`s | Glossary: `pinned`, `locked` |
-| `folder.flags.set` | extension -> daemon | Set `pinned` / `locked` on an owned folder, by node id | Placement respects a lock; pinned folders immune to diffs |
+| `folder.flags.set` | extension -> daemon | Set `pinned` / `locked` on an owned folder, by path (flags are kept by `FolderPath`) | Placement respects a lock; pinned folders immune to diffs |
 | `folder.flags.set.result` | daemon -> extension | The folder with its flags | Placement respects a lock |
 | `writer.status` | extension -> daemon | Writer-marker status | Key Decisions: two writers (MVP writer marker) |
 | `writer.status.result` | daemon -> extension | Own marker, other writers, conflict flag | Key Decisions: two writers (MVP writer marker) |
@@ -315,7 +315,7 @@ identity it holds, never by normalizing history URLs.
 | `undo` | `batch_id` | returns the same recorded inverse batch; at most one inverse per batch. An all-dropped answer (`batch_id` null) is not recorded, so a later `undo` re-evaluates |
 | `diff.propose` | request `id` | with the same `id` returns the same diff; a new `id` proposes a new one |
 | `diff.accept` | `item_id` | returns the same `accepted_at` and batch |
-| `folder.flags.set` | (`node_id`, flag values) | sets the same values |
+| `folder.flags.set` | (`path`, flag values) | sets the same values |
 | all others | none needed | are read-only |
 
 ## Jobs
@@ -550,7 +550,7 @@ Clearing a stale marker is a user edit in the tree.
 | `hello_required` | a request before `hello` was answered | after `hello` |
 | `not_writer` | `undo`, `diff.accept` or `folder.flags.set` on a connection served as `reader` | no |
 | `writer_conflict` | the same three on a writer that sees another host's marker | no |
-| `not_found` | an unknown `job_id`, `batch_id`, `diff_id`, `item_id`, identity, url or folder node id (or a `folder.flags.set` whose `path` does not match its node) | no |
+| `not_found` | an unknown `job_id`, `batch_id`, `diff_id`, `item_id`, identity, url, or a `folder.flags.set` `path` that resolves to no folder in the latest tree | no |
 | `invalid` | a body that fails the schema, a reused `diff.propose` id with a different body, or a valid body the daemon cannot act on (e.g. `diff.propose` on a connection served `reader`, `undo` of a batch that is not `APPLIED`, `folder.flags.set` outside the owned roots, `job.retry` of a `FAILED` job whose save Retention dropped: the job is known, so it is not `not_found`, and the message says the save is gone) | no |
 | `stale_cursor` | a cursor that has expired, or presented with other request parameters | restart from page 1 |
 | `busy` | temporarily unable (e.g. a model loading, or `undo` before a post-receipt `tree.snapshot`) | yes, same `id`, after backoff |

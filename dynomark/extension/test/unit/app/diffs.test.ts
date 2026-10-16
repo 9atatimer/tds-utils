@@ -196,11 +196,12 @@ describe('readOutline and setFolderFlags -- pin and lock', () => {
     expect(transport.sent.map((r) => r.type)).toEqual(['outline.get']);
   });
 
-  it('Given a folder, When pinned, Then folder.flags.set names its node id and path and only the flag changed', async () => {
+  it('Given a folder, When pinned, Then folder.flags.set names it by path alone (flags are kept by path, issue #423) and only the flag changed', async () => {
     const d = await deps();
     expect(await setFolderFlags(FOLDER, { pinned: true }, d)).toEqual({ ...FOLDER, pinned: true });
     const [sent] = d.transport.sent;
-    expect(sent).toEqual(expect.objectContaining({ type: 'folder.flags.set', node_id: '14', path: FOLDER.path, pinned: true }));
+    expect(sent).toEqual(expect.objectContaining({ type: 'folder.flags.set', path: FOLDER.path, pinned: true }));
+    expect(sent !== undefined && 'node_id' in sent).toBe(false);
     expect(sent !== undefined && 'locked' in sent).toBe(false);
   });
 

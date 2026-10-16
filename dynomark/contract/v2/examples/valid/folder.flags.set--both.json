@@ -2,7 +2,14 @@
   "v": 2,
   "type": "folder.flags.set",
   "id": "req-0033",
-  "node_id": "16",
+  "path": {
+    "root": "bar",
+    "names": [
+      "Dynomark",
+      "Rust",
+      "Async"
+    ]
+  },
   "pinned": false,
   "locked": false
 }

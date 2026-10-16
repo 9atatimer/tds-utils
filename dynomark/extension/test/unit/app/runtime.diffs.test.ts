@@ -120,11 +120,12 @@ describe('Diff view -- accept one item, pin and lock', () => {
     expect(await runtime.page({ kind: 'diff.accept', item_id: 'item-conflict' })).toMatchObject({ ok: false, code: 'writer_conflict' });
   });
 
-  it('Given the outline, When a folder is locked, Then folder.flags.set carries its node id, path and the lock', async () => {
+  it('Given the outline, When a folder is locked, Then folder.flags.set carries its path and the lock, no node id', async () => {
     const { w, runtime } = await setup();
     expect(await runtime.page({ kind: 'outline' })).toEqual({ ok: true, kind: 'outline', folders: [FOLDER], next_cursor: null });
     const page = await runtime.page({ kind: 'folder.flags', node_id: '16', path: FOLDER.path, locked: true });
     expect(page).toEqual({ ok: true, kind: 'folder.flags', folder: { ...FOLDER, locked: true } });
-    expect(sentOf(w, 'folder.flags.set')[0]).toMatchObject({ node_id: '16', path: FOLDER.path, locked: true });
+    expect(sentOf(w, 'folder.flags.set')[0]).toMatchObject({ path: FOLDER.path, locked: true });
+    expect(sentOf(w, 'folder.flags.set')[0]).not.toHaveProperty('node_id');
   });
 });
