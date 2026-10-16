@@ -3,3 +3,4 @@ dist/
 .vitest/
 test-results/
 playwright-report/
+dist-firefox/

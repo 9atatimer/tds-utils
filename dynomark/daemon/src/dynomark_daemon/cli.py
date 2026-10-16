@@ -5,7 +5,7 @@
   models. Reads only: it creates no file, binds nothing, never touches the
   tree.
 - ``install-host-manifest``: the ``tds.dynomark`` native-messaging manifest
-  for Chrome and Chromium, bound to one extension id.
+  for Chrome, Chromium or Firefox, bound to one extension id.
 - ``launchd-plist``: a user LaunchAgent plist that runs ``serve``.
 
 Entry points stay thin: parse, call the composition root or an adapter,
@@ -226,12 +226,17 @@ def check() -> None:
 
 
 @main.command("install-host-manifest")
-@click.option("--extension-id", required=True, help="The unpacked extension's id.")
+@click.option(
+    "--extension-id",
+    required=True,
+    help="The extension's id: Chrome's 32 letters, or Firefox's gecko id.",
+)
 @click.option(
     "--browser",
     type=click.Choice([*BROWSERS, "all"]),
     default="all",
     show_default=True,
+    help="all: every browser whose extension ids take this id's form.",
 )
 @click.option(
     "--host-path",
@@ -243,7 +248,7 @@ def install_host_manifest(
     extension_id: str, browser: str, host_path: Path | None
 ) -> None:
     """Write the tds.dynomark native-messaging host manifest."""
-    browsers = BROWSERS if browser == "all" else (browser,)
+    browsers = None if browser == "all" else (browser,)
     try:
         written = install_manifests(
             host_path or _installed("dynomark-host"),

@@ -7,7 +7,10 @@
 // The link opens lazily on the first send (or event subscription) after it
 // was lost, so a caller's re-send is the reconnect; saying hello on the new
 // link is the Connection's job, and deciding when to reconnect with nothing to send is the runtime's
-// (it watches onLink). Every frame from the daemon is validated against the
+// (it watches onLink). Firefox's browser.runtime.connectNative is the same
+// API, except that a lost host is reported on the port passed to
+// onDisconnect (`port.error`), not on runtime.lastError; the detail reads
+// either. Every frame from the daemon is validated against the
 // contract schema before anything sees it: a response that fails rejects its
 // request with InvalidFrame, anything else that fails is dropped. `error`
 // `superseded` (re null) ends the transport for good.
@@ -30,7 +33,8 @@ export interface NativePortLike {
   postMessage(message: unknown): void;
   disconnect(): void;
   readonly onMessage: { addListener(callback: (message: unknown) => void): void };
-  readonly onDisconnect: { addListener(callback: () => void): void };
+  /** Chrome passes the port and sets runtime.lastError; Firefox passes the port with `error` set. */
+  readonly onDisconnect: { addListener(callback: (port?: unknown) => void): void };
 }
 
 /** The part of chrome.runtime this adapter uses. */
@@ -63,6 +67,15 @@ function readableRe(frame: unknown): Id | undefined {
   if (typeof frame !== 'object' || frame === null) return undefined;
   const re = (frame as Record<string, unknown>)['re'];
   return typeof re === 'string' ? re : undefined;
+}
+
+/** Why a port closed, as Firefox reports it (`port.error.message`); undefined when the port carries none. */
+function portErrorOf(port: unknown): string | undefined {
+  if (typeof port !== 'object' || port === null) return undefined;
+  const error = (port as Record<string, unknown>)['error'];
+  if (typeof error !== 'object' || error === null) return undefined;
+  const message = (error as Record<string, unknown>)['message'];
+  return typeof message === 'string' ? message : undefined;
 }
 
 function hasKey(frame: unknown, key: string): boolean {
@@ -125,7 +138,7 @@ export class NativeMessagingTransport implements TransportPort, TransportLink {
     const port = this.runtime.connectNative(this.hostName);
     this.port = port;
     port.onMessage.addListener((frame) => this.receive(port, frame));
-    port.onDisconnect.addListener(() => this.lost(port, this.runtime.lastError?.message ?? 'disconnected'));
+    port.onDisconnect.addListener((closed) => this.lost(port, portErrorOf(closed) ?? this.runtime.lastError?.message ?? 'disconnected'));
     this.setState({ state: 'connected' });
     return port;
   }

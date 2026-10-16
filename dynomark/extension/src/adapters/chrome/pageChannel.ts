@@ -3,7 +3,9 @@
 // messaging. A page request travels as { dynomark_page: request }; the
 // background answers only such messages, only from this extension, and only
 // for a known kind. The page side never throws: a background that cannot be
-// reached is an ok: false answer.
+// reached is an ok: false answer. The pages are shared with the Firefox build,
+// where the promise-based runtime is browser.runtime: a page uses it where it
+// exists (extensionRuntime).
 
 import type { PageClient, PageRequest, PageResponse } from '../../ports/pages.js';
 
@@ -25,6 +27,12 @@ export interface PageServerApi {
 export interface PageClientApi {
   readonly id: string;
   sendMessage(message: unknown): Promise<unknown>;
+}
+
+/** The extension namespaces a page's global scope may hold. */
+export interface ExtensionScope {
+  readonly browser?: { readonly runtime: PageClientApi } | undefined;
+  readonly chrome?: { readonly runtime: PageClientApi } | undefined;
 }
 
 // --- Constants ---
@@ -78,8 +86,15 @@ export function servePages(answer: (request: PageRequest) => Promise<PageRespons
 
 // --- The page side ---
 
+/** The runtime a page talks over: Firefox's browser.runtime where it exists, else chrome.runtime. */
+export function extensionRuntime(scope: ExtensionScope = globalThis as ExtensionScope): PageClientApi {
+  const runtime = scope.browser?.runtime ?? scope.chrome?.runtime;
+  if (runtime === undefined) throw new Error('no extension runtime in this page');
+  return runtime;
+}
+
 export class ChromePageClient implements PageClient {
-  constructor(private readonly api: PageClientApi = chrome.runtime) {}
+  constructor(private readonly api: PageClientApi = extensionRuntime()) {}
 
   async request(request: PageRequest): Promise<PageResponse> {
     try {

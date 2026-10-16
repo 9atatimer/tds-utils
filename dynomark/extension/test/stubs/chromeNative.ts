@@ -2,7 +2,9 @@
 // daemon end exposed in the shape the TransportPort contract's harness
 // expects. Messages cross as JSON copies, as Chrome's native messaging
 // serializes them; a lost host fires onDisconnect with chrome.runtime.lastError
-// set for the duration of the callback, as Chrome does.
+// set for the duration of the callback, as Chrome does -- or, with `firefox`,
+// with the port passed to the callback carrying the failure on `port.error`
+// and runtime.lastError never set, as Firefox does.
 
 import type { NativePortLike, NativeRuntimeApi } from '../../src/adapters/chrome/nativeTransport.js';
 import type { LossReason } from '../../src/ports/transport.js';
@@ -10,10 +12,12 @@ import type { EventMessage, RequestMessage, ResponseMessage } from '../../src/wi
 
 class StubPort implements NativePortLike {
   readonly messageListeners: ((message: unknown) => void)[] = [];
-  readonly disconnectListeners: (() => void)[] = [];
+  readonly disconnectListeners: ((port?: unknown) => void)[] = [];
   open = true;
+  /** Firefox only: why the port closed. */
+  error: { message: string } | null = null;
   readonly onMessage = { addListener: (cb: (message: unknown) => void): void => void this.messageListeners.push(cb) };
-  readonly onDisconnect = { addListener: (cb: () => void): void => void this.disconnectListeners.push(cb) };
+  readonly onDisconnect = { addListener: (cb: (port?: unknown) => void): void => void this.disconnectListeners.push(cb) };
 
   constructor(private readonly posted: (message: unknown) => void) {}
 
@@ -34,6 +38,11 @@ export class NativeMessagingStub implements NativeRuntimeApi {
   private port: StubPort | undefined;
   private readonly arrivals: RequestMessage[] = [];
   private readonly waiters: ((r: RequestMessage) => void)[] = [];
+  private readonly firefox: boolean;
+
+  constructor(options: { readonly firefox?: boolean } = {}) {
+    this.firefox = options.firefox ?? false;
+  }
 
   readonly daemon = {
     nextRequest: (): Promise<RequestMessage> => {
@@ -64,15 +73,20 @@ export class NativeMessagingStub implements NativeRuntimeApi {
     if (this.port !== undefined) this.port.open = false;
   }
 
-  /** The host goes away: onDisconnect fires with lastError set to `detail`. */
+  /** The host goes away: onDisconnect fires with lastError set to `detail` (Firefox: with port.error set to it). */
   exit(detail = 'Native host has exited.'): void {
     const port = this.port;
     if (port === undefined) return;
     port.open = false;
     this.port = undefined;
     this.arrivals.length = 0;
+    if (this.firefox) {
+      port.error = { message: detail };
+      port.disconnectListeners.forEach((cb) => cb(port));
+      return;
+    }
     this.lastError = { message: detail };
-    port.disconnectListeners.forEach((cb) => cb());
+    port.disconnectListeners.forEach((cb) => cb(port));
     this.lastError = undefined;
   }
 
