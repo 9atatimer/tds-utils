@@ -43,6 +43,7 @@ max_backoff_ms = 600000
 fetch_timeout_s = 7.5
 max_bytes = 1000000
 private_addresses = true
+vet_timeout_s = 1.5
 """
 
 
@@ -77,6 +78,7 @@ def test_no_config_file_gives_documented_defaults_with_role_reader() -> None:
     assert config.owned_roots.dynomark.root is RootKey.BAR
     assert config.owned_roots.dynomark.names == ("Dynomark",)
     assert settings.capture.private_addresses is False
+    assert settings.capture.vet_timeout_s == 3.0
     assert not settings.config_found
 
 
@@ -104,6 +106,7 @@ def test_a_full_config_file_sets_every_value() -> None:
         1_000_000,
     )
     assert settings.capture.private_addresses is True
+    assert settings.capture.vet_timeout_s == 1.5
     assert settings.config_found
 
 
