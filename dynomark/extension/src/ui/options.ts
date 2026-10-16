@@ -9,6 +9,7 @@ import type { SettingsChange } from '../domain/settings.js';
 import type { WriterStatus } from '../domain/writer.js';
 import type { BackfillView, Overview, PageClient } from '../ports/pages.js';
 import { byId, el } from './dom.js';
+import { modelText } from './models.js';
 import { renderWriterBanner } from './writerBanner.js';
 
 // --- Pure helpers ---
@@ -22,10 +23,6 @@ function linkText(overview: Overview): string {
 function connectionText(overview: Overview): string {
   const c = overview.connection;
   return c === undefined ? 'no hello yet' : `contract v${c.v}, mode ${c.mode}, role ${c.role}, host ${c.host_id}`;
-}
-
-function modelText(model: { readonly id: string; readonly local: boolean }): string {
-  return `${model.id} (${model.local ? 'local' : 'cloud'})`;
 }
 
 function writerText(writer: WriterStatus | undefined, error: string | undefined): string {

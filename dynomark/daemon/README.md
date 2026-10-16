@@ -92,6 +92,8 @@ role = "writer"                 # default: "reader"
 embedding = "nomic-embed-text"  # default (design Open Question 4, provisional)
 completion = "llama3.1:8b"      # default
 timeout_s = 120
+remote = false                  # true: Ollama is reached through a tunnel or
+                                # proxy on loopback; no model is local
 
 [store]
 path = "~/.local/state/dynomark/corpus.sqlite3"
@@ -115,8 +117,11 @@ rebuild_every_hours = 168       # the job loop proposes a rebuild this often
 ```
 
 Environment: `XDG_STATE_HOME`, `XDG_CONFIG_HOME`, `DYNOMARK_SOCKET` (wins
-over `[socket]`), `OLLAMA_HOST` (default `http://127.0.0.1:11434`; models
-count as local only on a loopback host). The browser starts
+over `[socket]`), `OLLAMA_HOST` (default `http://127.0.0.1:11434`). A model is marked
+local -- in `status`, on the options page and the chat surface, which show
+both models -- only when this host is loopback, its name carries no Ollama
+cloud tag (a tag containing `cloud`, e.g. `gpt-oss:120b-cloud`), and
+`[models] remote` is not set. The browser starts
 `dynomark-host` without your shell environment: it reads only
 `~/.config/dynomark/config.toml` and otherwise connects to
 `~/.local/state/dynomark/daemon.sock`. `launchd-plist` passes these

@@ -76,7 +76,9 @@ permissions, keyword and pages come from `manifest.json`.
    change), opens `chat.html` in a popup window. A citation opens in one
    click; "why here" shows the placement reason; an external URL can be
    filed into `Follow Up`. Batches that ended PARTIAL or REJECTED and FAILED
-   jobs are listed on top, each job with Retry.
+   jobs are listed on top, each job with Retry. The header names both
+   models, the completion and the embedding one, each marked local or cloud
+   (the daemon's mark: a loopback Ollama, no cloud tag, not declared remote).
 7. Diffs: `diff.html` (linked from the settings page). Propose an audit or
    a rebuild, open it, accept one item at a time; each accepted item is a
    batch whose state shows on its row. Pin or lock owned folders there.

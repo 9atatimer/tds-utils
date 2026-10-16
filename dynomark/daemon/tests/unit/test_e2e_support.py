@@ -84,4 +84,6 @@ def test_no_config_key_selects_a_fake_model() -> None:
     """Given the daemon's config schema, When its keys are read, Then none
     selects a model vendor or a fake: fakes are reachable only through the
     test-support entry point."""
-    assert SCHEMA["models"] == frozenset({"embedding", "completion", "timeout_s"})
+    assert SCHEMA["models"] == frozenset(
+        {"embedding", "completion", "timeout_s", "remote"}
+    )
