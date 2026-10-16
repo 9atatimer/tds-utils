@@ -36,6 +36,7 @@ import {
   TurnSchema,
   UndoDropSchema,
   UrlSchema,
+  VetRefusalSchema,
   WriteBatchSchema,
   count,
   text,
@@ -116,6 +117,7 @@ export const FolderFlagsSetSchema = request('folder.flags.set', {
 }).refine((m) => m.pinned !== undefined || m.locked !== undefined, { message: 'folder.flags.set changes at least one flag' });
 export const WriterStatusSchema = request('writer.status', {});
 export const StatusSchema = request('status', {});
+export const UrlVetSchema = request('url.vet', { url: UrlSchema });
 
 // --- Responses (daemon -> extension) ---
 
@@ -188,6 +190,14 @@ export const StatusResultSchema = response('status.result', {
   models: z.strictObject({ embedding: ModelInfoSchema, completion: ModelInfoSchema }),
   queue_depth: count(),
 });
+/** A refused vet says why; an allowed one carries no refusal. */
+export const UrlVetResultSchema = response('url.vet.result', {
+  allowed: z.boolean(),
+  refusal: VetRefusalSchema.exactOptional(),
+}).superRefine((m, ctx) => {
+  if (!m.allowed && m.refusal === undefined) ctx.addIssue({ code: 'custom', path: ['refusal'], message: 'a refused vet says why' });
+  if (m.allowed && m.refusal !== undefined) ctx.addIssue({ code: 'custom', path: [], message: 'an allowed vet carries no refusal' });
+});
 /** The one error response. `re` is null when the request id was unreadable, and for `superseded`. */
 export const ErrorSchema = z.strictObject({
   v: V_FROZEN,
@@ -229,6 +239,7 @@ const REQUESTS = [
   FolderFlagsSetSchema,
   WriterStatusSchema,
   StatusSchema,
+  UrlVetSchema,
 ] as const;
 
 const RESPONSES = [
@@ -255,6 +266,7 @@ const RESPONSES = [
   FolderFlagsSetResultSchema,
   WriterStatusResultSchema,
   StatusResultSchema,
+  UrlVetResultSchema,
   ErrorSchema,
 ] as const;
 

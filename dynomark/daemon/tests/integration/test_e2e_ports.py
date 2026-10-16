@@ -41,3 +41,28 @@ def test_e2e_ports_are_the_production_store_and_fetch_with_fake_models(
     finally:
         if isinstance(store, SqliteCorpusStore):
             store.close()
+
+
+@pytest.mark.parametrize(("private", "allowed"), [(False, False), (True, True)])
+def test_the_composed_vetter_honours_the_private_addresses_opt_out(
+    tmp_path: Path, private: bool, allowed: bool
+) -> None:
+    """Given ``[capture] private_addresses`` off (the default) or on, When the
+    composed ports vet a loopback URL (a literal address, so no DNS), Then it
+    is refused by default and allowed when opted out: the background tab is
+    held to the fetch fallback's own policy (issue #410)."""
+    settings = parse_settings(
+        {"role": "writer", "capture": {"private_addresses": private}},
+        {"XDG_STATE_HOME": str(tmp_path / "state")},
+        home=tmp_path,
+        hostname="mbp",
+    )
+    Path(settings.config.store_path).parent.mkdir(parents=True)
+    ports = e2e_ports(settings, load_script({}))
+    try:
+        verdict = ports.vetter.vet("http://127.0.0.1:8080/admin")
+    finally:
+        if isinstance(ports.store, SqliteCorpusStore):
+            ports.store.close()
+
+    assert verdict.allowed is allowed

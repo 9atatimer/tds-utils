@@ -289,10 +289,12 @@ export class FakeDaemon {
           re: r.id,
           role: 'writer',
           host_id: FAKE_HOST_ID,
-          contract_version: 1,
+          contract_version: 2,
           models: { embedding: { id: 'nomic-embed-text', local: true }, completion: { id: 'llama3.1:8b', local: true } },
           queue_depth: 3,
         };
+      case 'url.vet':
+        return { v: 2, type: 'url.vet.result', re: r.id, allowed: true };
       case 'search':
         return { v: 2, type: 'search.result', re: r.id, hits: this.searchHits, next_cursor: null };
       case 'batch.list':

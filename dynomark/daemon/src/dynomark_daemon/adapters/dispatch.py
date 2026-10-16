@@ -62,6 +62,7 @@ from dynomark_daemon.app.run import current_outline
 from dynomark_daemon.app.search import search_page
 from dynomark_daemon.app.tree import record_tree_snapshot
 from dynomark_daemon.app.undo import undo
+from dynomark_daemon.app.vet import vet_url
 from dynomark_daemon.app.writer import (
     ensure_writer_marker,
     writer_conflict,
@@ -87,6 +88,7 @@ from dynomark_daemon.domain.roles import HostRole, NotWriter
 from dynomark_daemon.domain.search import Query
 from dynomark_daemon.domain.tree import OwnedRoots
 from dynomark_daemon.domain.writer import WriterConflict
+from dynomark_daemon.ports.address import AddressVetPort
 from dynomark_daemon.ports.clock import Clock, IdSource
 from dynomark_daemon.ports.completion import CompletionPort
 from dynomark_daemon.ports.embedding import EmbeddingPort
@@ -133,8 +135,9 @@ log = structlog.get_logger("dynomark.transport")
 
 V: Final = CONTRACT_VERSION
 MAX_DETAIL: Final = 4096
-MODEL_REQUESTS: Final = frozenset({"ask", "search", "diff.propose"})
-"""Requests whose answer waits on a model call. They change no connection
+MODEL_REQUESTS: Final = frozenset({"ask", "search", "diff.propose", "url.vet"})
+"""Requests whose answer waits on a model call (or, for ``url.vet``, on a DNS
+lookup). They change no connection
 state and nothing a later request on the connection depends on, so the
 transport may answer them concurrently with everything else (contract v2:
 responses may arrive in any order)."""
@@ -308,6 +311,7 @@ class Dispatcher:
         clock: Clock,
         ids: IdSource,
         transport: TransportPort,
+        vetter: AddressVetPort,
         wake: Callable[[], None] = _nothing,
     ) -> None:
         self._config = config
@@ -317,6 +321,7 @@ class Dispatcher:
         self._clock = clock
         self._ids = ids
         self._transport = transport
+        self._vetter = vetter
         self._wake = wake
         self._timing = _Timing()
         self._proposing: set[RequestId] = set()
@@ -346,6 +351,7 @@ class Dispatcher:
                 _on(m.OutlineGet, self._outline_get),
                 _on(m.FolderFlagsSet, self._folder_flags_set),
                 _on(m.WriterStatus, self._writer_status),
+                _on(m.UrlVet, self._url_vet),
             ]
         )
 
@@ -943,5 +949,24 @@ class Dispatcher:
                 own_marker=standing.own_marker,
                 other_writers=list(standing.other_writers),
                 conflict=standing.conflict,
+            )
+        )
+
+    # --- Background-tab capture ---
+
+    def _url_vet(self, message: m.UrlVet, session: Session) -> Outcome:
+        verdict = vet_url(message.url, vetter=self._vetter)
+        log.info(
+            "url.vetted",
+            allowed=verdict.allowed,
+            refusal=None if verdict.refusal is None else verdict.refusal.value,
+        )
+        return Outcome(
+            m.UrlVetResult(
+                v=V,
+                type="url.vet.result",
+                re=message.id,
+                allowed=verdict.allowed,
+                refusal=None if verdict.refusal is None else verdict.refusal.value,
             )
         )

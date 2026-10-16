@@ -105,6 +105,8 @@ export const FailReasonSchema = z.enum(['parent_missing', 'browser_error']);
 export const RejectReasonSchema = z.enum(['boundary', 'invalid', 'writer_conflict']);
 export const UndoDropReasonSchema = z.enum(['node_moved', 'node_missing', 'not_empty']);
 export const DiffActionSchema = z.enum(['add', 'move', 'merge']);
+/** Why url.vet refuses a URL (contract v2, "Background-tab capture"). */
+export const VetRefusalSchema = z.enum(['scheme', 'unresolved', 'address']);
 
 // --- Tree ---
 

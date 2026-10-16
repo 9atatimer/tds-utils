@@ -30,6 +30,7 @@ import type { HelloOutcome } from './connection.js';
 import { keepMove, observeMove, resendMoves, type ReportedMoves } from './observeMove.js';
 import { sendTreeSnapshot } from './onConnected.js';
 import { submitSave, UrlTooLong, type SubmittedSaves } from './submitSave.js';
+import { vetUrl } from './vetUrl.js';
 
 // --- Constants ---
 
@@ -271,7 +272,7 @@ export class TreeWatch {
     if (content === NOTHING_OPEN && background === undefined) return NO_CAPTURE;
     if (background === undefined) return capture(bookmark, { content });
     await this.owe(bookmark.node_id);
-    return capture(bookmark, { content, background });
+    return capture(bookmark, { content, background: { tabs: background, vet: (url) => vetUrl(url, this.deps) } });
   }
 
   /**

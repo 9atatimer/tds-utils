@@ -2,7 +2,8 @@
 
 The MV3 browser extension of Dynomark, for Chrome and Firefox (`docs/design/DYNOMARK.DESIGN.md`):
 watches `Follow Up`, captures a saved page from its open tab (and, on the
-writer, from a background tab when no tab shows it), applies the daemon's
+writer, from a background tab when no tab shows it and the daemon vets
+the URL), applies the daemon's
 write batches to the native bookmark tree, and serves the `bm` omnibox
 keyword. MVP pages: the chat surface, the diff view, and the writer-marker
 status and backfill on the settings page. It talks to the daemon only
@@ -62,7 +63,9 @@ permissions, keyword and pages come from `manifest.json`.
    hello outcome, daemon role, host id, models, queue depth; the writer
    marker (a red banner while another host's marker is in `Dynomark`: no
    batch is applied until it is cleared); the two capture settings (open
-   tab; background tab on the writer, default on); Backfill existing
+   tab; background tab on the writer, default on: a tab opens only for a
+   URL the daemon's `url.vet` allows, by default a public address; a
+   refused or unanswered vet leaves the page to the daemon's fetch); Backfill existing
    bookmarks (ten ingests a second, resumes after a worker restart). The
    toolbar popup is the history page: Undo per APPLIED batch, Retry per
    FAILED job.

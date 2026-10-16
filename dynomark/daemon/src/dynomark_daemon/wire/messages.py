@@ -52,6 +52,7 @@ from dynomark_daemon.wire.values import (
     TreeOutline,
     Turn,
     UndoDrop,
+    VetRefusal,
     WriteBatch,
 )
 
@@ -486,6 +487,30 @@ class StatusResult(WireModel):
     queue_depth: Count
 
 
+# --- Background-tab capture ---
+
+
+class UrlVet(WireModel):
+    v: Version
+    type: Literal["url.vet"]
+    id: Id
+    url: Url
+
+
+class UrlVetResult(WireModel):
+    v: Version
+    type: Literal["url.vet.result"]
+    re: Id
+    allowed: bool
+    refusal: VetRefusal | None = None
+
+    @model_validator(mode="after")
+    def _refused_says_why(self) -> Self:
+        if self.allowed == (self.refusal is not None):
+            raise ValueError("a refused vet carries refusal; an allowed one none")
+        return self
+
+
 # --- The union ---
 
 AnyMessage = (
@@ -535,6 +560,8 @@ AnyMessage = (
     | WriterStatusResult
     | Status
     | StatusResult
+    | UrlVet
+    | UrlVetResult
     | Error
     | JobUpdated
     | BatchOffer

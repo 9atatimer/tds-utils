@@ -55,7 +55,7 @@ def test_every_request_of_the_wire_union_has_a_handler() -> None:
     """Given the wire union's messages that carry a request id (the extension ->
     daemon requests), When the dispatcher's handlers are listed, Then there is
     exactly one per request type."""
-    assert len(EXTENSION_REQUESTS) == 23
+    assert len(EXTENSION_REQUESTS) == 24
     assert _dispatcher().handled_types() == EXTENSION_REQUESTS
 
 

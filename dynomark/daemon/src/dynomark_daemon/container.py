@@ -26,6 +26,7 @@ import structlog
 from dynomark_daemon.adapters.dispatch import Dispatcher
 from dynomark_daemon.adapters.fetch import (
     AddressPolicy,
+    DnsAddressVet,
     FetchContentSource,
     any_address,
     is_public,
@@ -50,6 +51,7 @@ from dynomark_daemon.domain.connection import served_role
 from dynomark_daemon.domain.ids import JobId
 from dynomark_daemon.domain.job import Job
 from dynomark_daemon.logs import configure_logging
+from dynomark_daemon.ports.address import AddressVetPort
 from dynomark_daemon.ports.clock import Clock, IdSource
 from dynomark_daemon.ports.completion import CompletionPort
 from dynomark_daemon.ports.content import ContentSourcePort
@@ -99,13 +101,15 @@ class Ports:
     embedding: EmbeddingPort
     completion: CompletionPort
     content: ContentSourcePort
+    vetter: AddressVetPort
     clock: Clock
     ids: IdSource
 
 
 def fetch_policy(settings: Settings) -> AddressPolicy:
-    """Where the fetch fallback may connect: public addresses only, unless the
-    config allows private ones (``[capture] private_addresses``)."""
+    """Where the fetch fallback may connect, and what a background tab may
+    load (Key Decisions "Background-tab capture"): public addresses only,
+    unless the config allows private ones (``[capture] private_addresses``)."""
     return any_address if settings.capture.private_addresses else is_public
 
 
@@ -126,6 +130,7 @@ def build_ports(settings: Settings) -> Ports:
             max_bytes=settings.capture.max_bytes,
             address_allowed=fetch_policy(settings),
         ),
+        vetter=DnsAddressVet(allowed=fetch_policy(settings)),
         clock=SystemClock(),
         ids=RandomIds(),
     )
@@ -349,6 +354,7 @@ class Daemon:
             clock=ports.clock,
             ids=ports.ids,
             transport=self._sessions,
+            vetter=ports.vetter,
             wake=self._jobs.wake,
         )
         self._server = SocketServer(

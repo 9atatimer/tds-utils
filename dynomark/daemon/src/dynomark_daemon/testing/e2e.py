@@ -32,7 +32,7 @@ from typing import Final
 import click
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from dynomark_daemon.adapters.fetch import FetchContentSource
+from dynomark_daemon.adapters.fetch import DnsAddressVet, FetchContentSource
 from dynomark_daemon.adapters.socket_server import SocketUnavailable
 from dynomark_daemon.adapters.sqlite_store import SqliteCorpusStore
 from dynomark_daemon.container import (
@@ -158,6 +158,7 @@ def e2e_ports(settings: Settings, completion: ScriptedCompletion) -> Ports:
             max_bytes=settings.capture.max_bytes,
             address_allowed=fetch_policy(settings),
         ),
+        vetter=DnsAddressVet(allowed=fetch_policy(settings)),
         clock=SystemClock(),
         ids=RandomIds(),
     )

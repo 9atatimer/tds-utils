@@ -43,7 +43,7 @@ function statusResult(re: string): ResponseMessage {
     re,
     role: 'writer',
     host_id: 'mbp',
-    contract_version: 1,
+    contract_version: 2,
     models: { embedding: { id: 'nomic-embed-text', local: true }, completion: { id: 'llama3.1:8b', local: true } },
     queue_depth: 0,
   };

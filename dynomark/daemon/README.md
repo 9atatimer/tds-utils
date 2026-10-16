@@ -104,10 +104,11 @@ attempts = 3
 initial_backoff_ms = 5000
 max_backoff_ms = 300000
 
-[capture]                       # the fetch fallback
+[capture]                       # the fetch fallback, and url.vet
 fetch_timeout_s = 15            # for the whole fetch, not each read
 max_bytes = 5000000
-private_addresses = false       # true: also fetch loopback, link-local, LAN
+private_addresses = false       # true: also fetch (and let a background tab
+                                # open) loopback, link-local, LAN
 
 [diffs]                         # absent: rebuilds are proposed on request only
 rebuild_every_hours = 168       # the job loop proposes a rebuild this often
@@ -217,7 +218,10 @@ If NEW is switched before the old marker is gone, it reports the conflict
   Each host (a redirect's too) is resolved first and refused unless every
   address it resolves to is public; the connection goes to exactly the
   address that was checked. `private_addresses = true` lifts the refusal
-  for an install whose saves live on a LAN or localhost. Readable text via
+  for an install whose saves live on a LAN or localhost. The same policy
+  answers `url.vet`: the writer's extension opens a background tab (with the
+  user's cookies) only for a URL whose every address it allows (contract
+  v2, Background-tab capture). Readable text via
   `html.parser` (article, then main, then body; no script, style, nav,
   header, footer).
 - Ollama: `/api/embed`, `/api/generate` with `format: json`; strict

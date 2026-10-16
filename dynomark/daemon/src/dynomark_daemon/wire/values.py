@@ -56,6 +56,7 @@ SkipReason = Literal["node_missing", "parent_mismatch", "not_empty"]
 FailReason = Literal["parent_missing", "browser_error"]
 RejectReason = Literal["boundary", "invalid", "writer_conflict"]
 UndoDropReason = Literal["node_moved", "node_missing", "not_empty"]
+VetRefusal = Literal["scheme", "unresolved", "address"]
 DiffAction = Literal["add", "move", "merge"]
 
 
