@@ -83,9 +83,11 @@ def _fail(
     return failed
 
 
-def _is_duplicate(job: Job, *, store: CorpusStorePort) -> bool:
+def _is_duplicate(job: Job, roots: OwnedRoots, *, store: CorpusStorePort) -> bool:
     filed = store.list_jobs(state=JobState.FILED)
-    return is_duplicate(job, filed, store.latest_tree_snapshot())
+    return is_duplicate(
+        job, filed, store.latest_tree_snapshot(), graveyard=roots.graveyard
+    )
 
 
 def _backfill(
@@ -143,7 +145,7 @@ def _choose(
     entry = store.get_entry(job.identity)
     if entry is None:
         raise UnknownRecord(f"job {job.job_id} has no entry")
-    if _is_duplicate(job, store=store):
+    if _is_duplicate(job, roots, store=store):
         return None
     try:
         placement = place(
@@ -209,7 +211,7 @@ def _file_job(
     if placement is None:
         raise UnknownRecord(f"job {job.job_id} has no placement")
     try:
-        if _is_duplicate(job, store=store):
+        if _is_duplicate(job, roots, store=store):
             park(job, roots, role, store=store, clock=clock, ids=ids)
         else:
             file(
