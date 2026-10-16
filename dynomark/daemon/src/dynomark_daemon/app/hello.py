@@ -109,5 +109,6 @@ def release_writer_binding(*, store: CorpusStorePort) -> ProfileId | None:
     """The owner's ``rebind``: the store files for no profile until the next
     one completes a full hello, which binds it (a reinstalled extension's new
     profile id, or another browser profile). Returns the profile it was
-    bound to. A connection keeps the role its hello gave it."""
+    bound to. A connection still open on the released profile is served
+    reader from its next request on (the dispatcher re-checks the binding)."""
     return store.release_writer_profile()

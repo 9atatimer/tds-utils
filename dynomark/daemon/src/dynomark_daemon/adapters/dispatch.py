@@ -71,7 +71,7 @@ from dynomark_daemon.app.writer import (
 from dynomark_daemon.domain.bookmark import Capture, Identity
 from dynomark_daemon.domain.chat import Question
 from dynomark_daemon.domain.config import Config
-from dynomark_daemon.domain.connection import HelloMode
+from dynomark_daemon.domain.connection import HelloMode, served_role
 from dynomark_daemon.domain.diff import DiffKind
 from dynomark_daemon.domain.ids import (
     BatchId,
@@ -155,6 +155,8 @@ class Session:
     profile_id: ProfileId | None = None
     mode: HelloMode | None = None
     role: HostRole = HostRole.READER
+    """The role the first ``hello`` served; ``Dispatcher`` re-checks it
+    against the store's writer binding on every request."""
     roots: OwnedRoots | None = None
     snapshot_seen: bool = False
     replay_pending: bool = False
@@ -162,12 +164,12 @@ class Session:
     """The answer to the first ``hello``; a repeat is answered with it."""
     transport: TransportPort | None = None
 
-    def offers_ready(self, *, conflict: bool) -> bool:
-        """Full mode, served writer, not in writer conflict, and a
-        ``tree.snapshot`` recorded on it (markers re-read from it)."""
+    def offers_ready(self, *, role: HostRole, conflict: bool) -> bool:
+        """Full mode, served writer now (``role``), not in writer conflict,
+        and a ``tree.snapshot`` recorded on it (markers re-read from it)."""
         return (
             self.mode is HelloMode.FULL
-            and self.role is HostRole.WRITER
+            and role is HostRole.WRITER
             and self.snapshot_seen
             and not conflict
         )
@@ -416,15 +418,28 @@ class Dispatcher:
 
     # --- Writer standing ---
 
+    def _role(self, session: Session) -> HostRole:
+        """The role ``session`` is served now: its hello's, unless the store
+        no longer files for its profile (``dynomark-daemon rebind`` ran in
+        another process, and maybe another profile bound since). Then it is
+        served as a reader connection is, so one store has one writer."""
+        if session.profile_id is None:
+            return session.role
+        return served_role(
+            session.role, self._store.writer_profile(), session.profile_id
+        )
+
     def _conflict(self, session: Session) -> WriterConflict | None:
         if session.roots is None:
             return None
         return writer_conflict(
-            session.role, self._config.host_id, session.roots, store=self._store
+            self._role(session), self._config.host_id, session.roots, store=self._store
         )
 
     def _offers_ready(self, session: Session) -> bool:
-        return session.offers_ready(conflict=self._conflict(session) is not None)
+        return session.offers_ready(
+            role=self._role(session), conflict=self._conflict(session) is not None
+        )
 
     # --- Serving ---
 
@@ -502,7 +517,7 @@ class Dispatcher:
 
     def _status(self, message: m.Status, session: Session) -> Outcome:
         daemon = status(
-            session.role, self._config, _profile(session), store=self._store
+            self._role(session), self._config, _profile(session), store=self._store
         )
         return Outcome(
             m.StatusResult(
@@ -598,14 +613,15 @@ class Dispatcher:
     def _tree_snapshot(self, message: m.TreeSnapshot, session: Session) -> Outcome:
         # Two use cases, two units: a kill between them leaves the snapshot
         # unanswered, and its re-send runs both again (each is idempotent).
+        role = self._role(session)
         record_tree_snapshot(
             snapshot_from_wire(message.snapshot),
-            session.role,
+            role,
             _profile(session),
             store=self._store,
         )
         ensure_writer_marker(
-            session.role,
+            role,
             self._config.host_id,
             _roots(session),
             _profile(session),
@@ -625,7 +641,7 @@ class Dispatcher:
     def _move_observed(self, message: m.MoveObserved, session: Session) -> Outcome:
         feedback = record_feedback(
             move_from_wire(message.move),
-            session.role,
+            self._role(session),
             _roots(session),
             store=self._store,
         )
@@ -644,7 +660,7 @@ class Dispatcher:
     ) -> Outcome:
         recorded = receive_receipt(
             receipt_from_wire(message.receipt),
-            session.role,
+            self._role(session),
             _profile(session),
             _roots(session),
             store=self._store,
@@ -690,7 +706,7 @@ class Dispatcher:
     def _undo(self, message: m.Undo, session: Session) -> Outcome:
         result = undo(
             BatchId(message.batch_id),
-            session.role,
+            self._role(session),
             _roots(session),
             conflict=self._conflict(session),
             store=self._store,
@@ -815,7 +831,7 @@ class Dispatcher:
             diff = request_diff(
                 request_id,
                 DiffKind(message.kind),
-                session.role,
+                self._role(session),
                 _roots(session),
                 store=self._store,
                 completion=self._completion,
@@ -873,7 +889,7 @@ class Dispatcher:
     def _diff_accept(self, message: m.DiffAccept, session: Session) -> Outcome:
         accepted = accept_diff(
             ItemId(message.item_id),
-            session.role,
+            self._role(session),
             _roots(session),
             _profile(session),
             conflict=self._conflict(session),
@@ -923,7 +939,7 @@ class Dispatcher:
             folder_path_from_wire(message.path),
             message.pinned,
             message.locked,
-            session.role,
+            self._role(session),
             _roots(session),
             conflict=self._conflict(session),
             store=self._store,
@@ -941,7 +957,10 @@ class Dispatcher:
 
     def _writer_status(self, message: m.WriterStatus, session: Session) -> Outcome:
         standing = writer_status(
-            session.role, self._config.host_id, _roots(session), store=self._store
+            self._role(session),
+            self._config.host_id,
+            _roots(session),
+            store=self._store,
         )
         return Outcome(
             m.WriterStatusResult(
