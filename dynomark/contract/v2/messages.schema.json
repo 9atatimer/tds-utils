@@ -1605,7 +1605,7 @@
     },
     "JobRetry": {
       "type": "object",
-      "description": "User retry of a FAILED job (FAILED -> QUEUED). On a job in any other state: no-op.",
+      "description": "User retry of a FAILED job (FAILED -> QUEUED). On a job in any other state: no-op. On a FAILED job whose save Retention dropped: error invalid (the job is known; nothing is left to run).",
       "properties": {
         "v": {
           "const": 2,

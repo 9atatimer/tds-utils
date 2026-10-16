@@ -299,7 +299,7 @@ identity it holds, never by normalizing history URLs.
 | Request | Idempotency key | A repeat... |
 |---|---|---|
 | `ingest` | (profile, `bookmark.node_id`, identity of `bookmark.url`) | returns the same job; nothing new is queued |
-| `job.retry` | `job_id` | on a job not `FAILED`, changes nothing |
+| `job.retry` | `job_id` | on a job not `FAILED`, changes nothing; on a `FAILED` job whose save Retention dropped, is answered `invalid` again |
 | `tree.snapshot` | `snapshot.taken_at` | the daemon keeps the snapshot with the latest `taken_at` |
 | `move.observed` | (`move.node_id`, `move.observed_at`) | records nothing new |
 | `batch.receipt` | `receipt.batch_id` | records nothing new; the first receipt recorded wins |
@@ -485,7 +485,7 @@ Clearing a stale marker is a user edit in the tree.
 | `not_writer` | `undo`, `diff.accept` or `folder.flags.set` on a connection served as `reader` | no |
 | `writer_conflict` | the same three on a writer that sees another host's marker | no |
 | `not_found` | an unknown `job_id`, `batch_id`, `diff_id`, `item_id`, identity, url or folder node id (or a `folder.flags.set` whose `path` does not match its node) | no |
-| `invalid` | a body that fails the schema, a reused `diff.propose` id with a different body, or a valid body the daemon cannot act on (e.g. `undo` of a batch that is not `APPLIED`, `folder.flags.set` outside the owned roots) | no |
+| `invalid` | a body that fails the schema, a reused `diff.propose` id with a different body, or a valid body the daemon cannot act on (e.g. `undo` of a batch that is not `APPLIED`, `folder.flags.set` outside the owned roots, `job.retry` of a `FAILED` job whose save Retention dropped: the job is known, so it is not `not_found`, and the message says the save is gone) | no |
 | `stale_cursor` | a cursor that has expired, or presented with other request parameters | restart from page 1 |
 | `busy` | temporarily unable (e.g. a model loading, or `undo` before a post-receipt `tree.snapshot`) | yes, same `id`, after backoff |
 | `internal` | anything unexpected | yes, same `id`, after backoff |

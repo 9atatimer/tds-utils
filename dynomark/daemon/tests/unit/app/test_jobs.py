@@ -8,7 +8,7 @@ Pagination).
 
 import pytest
 
-from dynomark_daemon.app.errors import UnknownRecord
+from dynomark_daemon.app.errors import InvalidRequest, UnknownRecord
 from dynomark_daemon.app.jobs import list_batches_page, list_jobs_page, retry_job
 from dynomark_daemon.app.pages import StaleCursor
 from dynomark_daemon.domain.bookmark import Save
@@ -85,6 +85,22 @@ def test_retry_an_unknown_or_another_profiles_job_is_not_found() -> None:
         _retry(store, JobId("job-unknown"))
     with pytest.raises(UnknownRecord):
         _retry(store, failed.job_id, ProfileId("profile-b"))
+
+
+def test_retry_a_failed_job_whose_save_retention_dropped_is_invalid_not_unknown() -> None:
+    """Given a FAILED job whose save Retention dropped (its bookmark left the
+    tree 30 days ago), When retried, Then it raises InvalidRequest naming
+    Retention -- not UnknownRecord: the job is known, nothing is left to run --
+    and the job stays FAILED with no event."""
+    store = InMemoryCorpusStore()
+    store.put_job(failed := _failed())
+
+    with pytest.raises(InvalidRequest, match="retention") as refused:
+        _retry(store, failed.job_id)
+
+    assert not isinstance(refused.value, UnknownRecord)
+    assert store.get_job(failed.job_id) == failed
+    assert store.unacked_events(A) == []
 
 
 # --- job.list and batch.list (contract v2, Delivery and replay: Pagination) ---

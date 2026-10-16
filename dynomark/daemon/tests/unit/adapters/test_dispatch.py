@@ -368,6 +368,36 @@ def test_an_unexpected_failure_is_answered_internal() -> None:
     assert _error(reply) == ("j-1", "internal")
 
 
+def test_job_retry_answers_a_dropped_save_apart_from_an_unknown_job() -> None:
+    """Given a FAILED job whose save Retention dropped, When job.retry names it
+    and then a job id the daemon never had, Then the first is answered invalid
+    with a message naming Retention and the second not_found: the user is told
+    why a known job cannot run again, not that it does not exist."""
+    harness = Harness()
+    harness.hello()
+    harness.store.put_job(
+        Job(
+            job_id=JobId("job-1"),
+            profile_id=A,
+            node_id=NodeId("42"),
+            identity=Identity("https://tokio.rs/"),
+            state=JobState.FAILED,
+            seq=1,
+            attempts=3,
+            backfill=False,
+            updated_at=0,
+            last_error="capture: refused",
+        )
+    )
+
+    dropped = harness.send(wire.body("job.retry", "j-1", job_id="job-1"))
+    unknown = harness.send(wire.body("job.retry", "j-2", job_id="job-none"))
+
+    assert _error(dropped) == ("j-1", "invalid")
+    assert isinstance(dropped, m.Error) and "retention" in dropped.message
+    assert _error(unknown) == ("j-2", "not_found")
+
+
 # --- Events and offers (Delivery and replay) ---
 
 
