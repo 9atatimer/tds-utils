@@ -10,7 +10,7 @@ from dynomark_daemon.domain.batch import (
 )
 from dynomark_daemon.domain.bookmark import Save
 from dynomark_daemon.domain.events import BatchOffered
-from dynomark_daemon.domain.ids import NodeId
+from dynomark_daemon.domain.ids import NodeId, ProfileId
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.domain.tree import FolderPath, Snapshot, TreeOutline
@@ -78,9 +78,23 @@ class Daemon:
         assert isinstance(batch, WriteBatch)
         self.batch = batch
 
-    def receive(self, receipt: BatchReceipt) -> ReceiptRecorded:
+    def receive(
+        self,
+        receipt: BatchReceipt,
+        *,
+        role: HostRole = HostRole.WRITER,
+        profile: ProfileId | None = None,
+    ) -> ReceiptRecorded:
+        """The receipt on a connection served ``role`` for ``profile`` (by
+        default the writer connection of the job's profile)."""
         return receive_receipt(
-            receipt, make_roots(), store=self.store, clock=self.clock, ids=self.ids
+            receipt,
+            role,
+            profile or self.job.profile_id,
+            make_roots(),
+            store=self.store,
+            clock=self.clock,
+            ids=self.ids,
         )
 
     def job_now(self) -> Job:

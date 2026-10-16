@@ -21,7 +21,7 @@ from dynomark_daemon.domain.chat import DraftAnswer
 from dynomark_daemon.domain.connection import HelloMode
 from dynomark_daemon.domain.diff import DiffAction, DiffKind, DiffProposal
 from dynomark_daemon.domain.events import BatchOffered, JobUpdated
-from dynomark_daemon.domain.ids import EventId, JobId, NodeId, ProfileId
+from dynomark_daemon.domain.ids import BatchId, EventId, JobId, NodeId, ProfileId
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.domain.placement import FolderChoice
 from dynomark_daemon.domain.roles import HostRole
@@ -37,10 +37,12 @@ from dynomark_daemon.wire import messages as m
 from dynomark_daemon.wire.codec import encode_message
 from tests import _wire as wire
 from tests._factories import (
+    make_batch,
     make_bookmark,
     make_capture,
     make_config,
     make_entry,
+    make_move_op,
     make_node,
     make_path,
     make_roots,
@@ -284,6 +286,31 @@ def test_a_receipt_for_an_unknown_batch_is_not_found() -> None:
     reply = harness.send(wire.applied_receipt("r-1", "batch-404", ["16", "42"]))
 
     assert _error(reply) == ("r-1", "not_found")
+
+
+def test_a_receipt_on_a_reader_connection_mints_no_batch() -> None:
+    """Given a reader daemon holding a batch it offered while it was a writer,
+    When a PARTIAL receipt for it arrives on a reader connection, Then the
+    receipt is answered and recorded, but no inverse batch is minted (issue
+    #417: role is a value input wherever a batch could result)."""
+    harness = Harness(HostRole.READER)
+    harness.hello()
+    harness.store.put_batch(
+        make_batch(
+            "batch-offered",
+            operations=(
+                OpCreateFolder(index=0, parent=make_path("Dynomark"), title="Async"),
+                make_move_op(1),
+            ),
+        )
+    )
+
+    reply = harness.send(wire.partial_receipt("r-1", "batch-offered", ["16"]))
+
+    assert isinstance(reply, m.BatchReceiptMessageResult)
+    assert [r.batch.batch_id for r in harness.store.list_batches()] == ["batch-offered"]
+    record = harness.store.get_batch(BatchId("batch-offered"))
+    assert record is not None and record.undone_by is None
 
 
 def test_a_foreign_cursor_is_stale() -> None:

@@ -368,6 +368,8 @@ def test_an_audit_item_crosses_the_boundary_and_its_undo_carries_the_item() -> N
             pre_batch=True,
             snapshot=TREE,
         ),
+        HostRole.WRITER,
+        A,
         make_roots(),
         store=writer.store,
         clock=writer.clock,
