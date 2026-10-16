@@ -107,8 +107,12 @@ about: wip
 
 The design makes HostRole a per-host value; native messaging connects per
 browser profile, so the code had to choose a profile and chose silently
-and permanently (issue #419). Unsettled until the binding is ruled on and
-the component ships; then it belongs in `docs/arch/` for Dynomark.
+and permanently (issue #419). Ruled 2026-10-16 (bind on first hello,
+`dynomark-daemon rebind`, the role re-read on every request; revisit
+issue #527). Still `wip` only because Dynomark has not shipped: at task-027
+it goes to `docs/arch/` for Dynomark, with the rebind rule that a
+connection's cached role is never trusted (Codex found `url.vet` still
+answering a demoted writer, tds-utils PR#535).
 
 ### An accounting invariant across concurrent writers needs its state table first
 
@@ -123,6 +127,18 @@ table nobody had drawn: record status x ledgered x in-window x kind x
 billing x budget declared, crossed with every writer and the order of its
 writes. Unsettled: whether that table belongs in the coding skill as a
 pre-code gate for concurrent accounting, or is chores-specific.
+
+Recurred 2026-10-16, not chores: Dynomark's background-tab guard took
+three Codex rounds on tds-utils PR#535. The guard (DNR session rules) and
+the record of the tab it guards (`storage.local`) had different
+lifetimes. Each round found the next cell of worker terminated x close
+failed x window restored x browser restarted. The fix that closed the set
+was to give both the same lifetime (`storage.session`), which deleted a
+heuristic instead of adding one. So the lesson is not chores-specific.
+The proposal: the coding skill gains a pre-code step for any guard or
+ledger that outlives a process, which tabulates each piece of state's
+lifetime and every writer's interleaving before the first test. That is a
+Skills-repo change for the owner to land.
 
 ### Fake-driven CLI tests never exercised the composition root
 
@@ -143,6 +159,13 @@ pipeline's status is tail's. Two commits in this build landed with a red
 test for that reason and needed fix-ups. `set -o pipefail` first, or check
 `${PIPESTATUS[0]}`. Unsettled: this belongs in the global agent
 instructions (`about: global`) if it recurs across repos.
+
+Recurred 2026-10-16 in a different build (Dynomark MVP gate runs). The
+runs were written as `{ set -e; ...; npm test | grep ...; ...; echo
+ALL-GREEN; }` without `pipefail`, so they would have printed ALL-GREEN on
+a red suite. Nothing landed red, because the test counts were read every
+time, but the mechanism is identical. It is still one repo; the step to
+global waits on one recurrence outside tds-utils.
 
 ### Fakes passed what the real dependency refused
 
