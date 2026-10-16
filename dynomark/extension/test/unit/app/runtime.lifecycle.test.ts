@@ -13,6 +13,7 @@ import { RECONNECT_BACKOFF } from '../../../src/domain/backoff.js';
 import { ExtensionRuntime } from '../../../src/app/runtime.js';
 import type { LocalIndexRow } from '../../../src/domain/search.js';
 import { FakeExtensionWorld } from '../../fakes/FakeExtensionWorld.js';
+import { scriptedDaemon } from '../../fixtures/daemon.js';
 import { FOLLOW_UP, seedOwnedTree } from '../../fixtures/ownedTree.js';
 import { scriptDaemon, sentOf, sentTypes, startRuntime } from '../../fixtures/runtime.js';
 
@@ -164,6 +165,42 @@ describe('Connect routine -- a step that fails is reported, the rest still runs,
     await runtime.idle();
     expect(sentOf(w, 'index.pull')).toHaveLength(2);
     expect(sentOf(w, 'hello')).toHaveLength(1);
+  });
+});
+
+describe('Daemon restart -- the gap while no daemon listens is a lost link, retried by reconnecting, never a problem (issue #524)', () => {
+  it('Given the connect routine has an index.pull in flight, When the daemon restarts (its host answers busy until the new one listens), Then no problem is reported and after the backoff the routine and writer status run on the new daemon', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    let pullInFlight: () => void = () => undefined;
+    const pulled = new Promise<void>((resolve) => (pullInFlight = resolve));
+    let pulls = 0;
+    const lifecycle = scriptedDaemon({});
+    w.connection().autoAnswer((r) => {
+      if (r.type === 'index.pull' && (pulls += 1) === 1) {
+        pullInFlight();
+        return undefined; // the old daemon is stopped before it answers
+      }
+      return lifecycle(r);
+    });
+    const runtime = new ExtensionRuntime(w.worker());
+    await runtime.start();
+    await pulled;
+
+    w.connection().daemonNotRunning(true);
+    await w.daemon().drop('disconnected');
+    await runtime.idle();
+    w.connection().daemonNotRunning(false);
+    await w.timer().advance(RECONNECT_BACKOFF.max_ms);
+    await runtime.idle();
+
+    const page = await runtime.page({ kind: 'overview' });
+    expect(page.ok && page.kind === 'overview' ? page.overview.problems : undefined).toEqual([]);
+    const types = sentTypes(w);
+    const lastHello = types.lastIndexOf('hello');
+    expect(types.slice(lastHello)).toEqual(
+      expect.arrayContaining(['hello', 'tree.snapshot', 'events.replay', 'index.pull', 'writer.status']),
+    );
+    expect(page).toMatchObject({ ok: true, overview: { link: { state: 'connected' } } });
   });
 });
 
