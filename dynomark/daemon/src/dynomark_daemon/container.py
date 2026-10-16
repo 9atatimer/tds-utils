@@ -267,6 +267,12 @@ class JobLoop:
         except PortError as error:
             log.warning("reembed.failed", detail=str(error))
             return
+        except Exception:
+            # Any other failure (a store error) must not stop the job loop,
+            # as for retention: the entries not reached keep their vectors
+            # for a later pass.
+            log.exception("reembed.failed")
+            return
         if count:
             log.info("reembed.ran", entries=count)
         if count == REEMBED_BATCH:
