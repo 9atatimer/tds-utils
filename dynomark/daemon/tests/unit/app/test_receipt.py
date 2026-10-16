@@ -1,11 +1,12 @@
 """Behaviors row: A receipt is processed (DYNOMARK.DESIGN.md, Behaviors and
 Interfaces; The daemon, "Receipts") -- ``receive_receipt(receipt, role,
-profile, roots, *, store) -> Job or WriteBatch``: "Given APPLIED, Then the job is FILED and the
-snapshot stored; Given PARTIAL, Then the job is FAILED and a PROPOSED
-inverse of the prefix exists"; REJECTED -> FAILED (State Machine). With
-contract v1's rows (Jobs, Receipt -> job): a skipped filing op fails the
-job like PARTIAL, and a receipt delivered twice is recorded once
-(``receipt.batch_id`` is the idempotency key; "A receipt is delivered").
+profile, roots, *, store) -> Job or WriteBatch``: "Given APPLIED, Then the
+job is FILED and the snapshot stored; Given PARTIAL, Then the job is
+FAILED and a PROPOSED inverse of the prefix exists"; REJECTED -> FAILED
+(State Machine). With contract v1's rows (Jobs, Receipt -> job): a skipped
+filing op fails the job like PARTIAL, and a receipt delivered twice is
+recorded once (``receipt.batch_id`` is the idempotency key; "A receipt is
+delivered").
 """
 
 from collections.abc import Callable
