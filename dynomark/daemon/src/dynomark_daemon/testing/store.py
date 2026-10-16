@@ -313,6 +313,14 @@ class InMemoryCorpusStore:
     def profile_trees(self) -> dict[ProfileId, Snapshot]:
         return dict(self._profile_trees)
 
+    def drop_profile_trees_before(self, taken_at: int) -> list[ProfileId]:
+        dropped = sorted(
+            p for p, tree in self._profile_trees.items() if tree.taken_at < taken_at
+        )
+        for profile_id in dropped:
+            del self._profile_trees[profile_id]
+        return dropped
+
     def put_snapshot(self, snapshot_id: SnapshotId, snapshot: Snapshot) -> None:
         self._snapshots[snapshot_id] = snapshot
 

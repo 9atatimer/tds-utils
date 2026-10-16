@@ -208,6 +208,12 @@ class CorpusStorePort(Protocol):
         """Each such profile's latest tree."""
         ...
 
+    def drop_profile_trees_before(self, taken_at: int) -> list[ProfileId]:
+        """Forget every profile tree taken before ``taken_at`` (never the
+        latest tree): a profile not heard from since is no longer known to
+        Retention. The profiles dropped, in id order."""
+        ...
+
     def put_snapshot(self, snapshot_id: SnapshotId, snapshot: Snapshot) -> None:
         """Archive a batch's fallback export; never the latest tree."""
         ...

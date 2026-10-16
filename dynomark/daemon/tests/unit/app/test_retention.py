@@ -242,14 +242,15 @@ def test_an_entry_another_known_profiles_tree_still_holds_is_kept() -> None:
 def test_an_abandoned_reader_profiles_tree_stops_keeping_an_entry() -> None:
     """Given profile B, served reader, whose last tree held the bookmark and
     which never connects again, When sweeps run as the writer's tree lacks
-    it, Then B's tree is forgotten once 30 days old (B is no longer known),
-    and the entry goes 30 days after that (issue #534 T4)."""
+    it, Then B's tree is forgotten once over 30 days old (as an archived
+    snapshot is; B is no longer known), and the entry goes 30 days after
+    that (issue #534 T4)."""
     daemon = Daemon()
     daemon.tree(WITHOUT_BOOKMARK)
     _reader_tree(daemon, B, WITH_BOOKMARK)
 
     daemon.sweep()
-    daemon.clock.advance(RETENTION_MS - 1)
+    daemon.clock.advance(RETENTION_MS)
     daemon.sweep()
     known_until_due = B in daemon.store.profile_trees()
     daemon.clock.advance(1)

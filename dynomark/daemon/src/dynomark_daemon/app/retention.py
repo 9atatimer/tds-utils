@@ -4,7 +4,10 @@ Key Decisions: Retention 2026-10-16; issue #421).
 Clock-driven: the job loop runs ``enforce_retention`` on its own cadence.
 The trees it reads are every known profile's latest: the writer's latest
 tree and each reader-served profile's tree (issue #421); a host with none
-tracks no entry.
+tracks no entry. A reader-served profile's tree is forgotten once it is
+``keep_ms`` old, so a profile not heard from for the window (an abandoned
+browser profile, the old one after a reinstall) stops being known, and an
+entry's jobs from a profile that is not known keep nothing (issue #534 T4).
 
 What undo reads, and so what retention must keep: the latest tree snapshot
 (the undo guard runs against it), the batch row and its receipt (the
@@ -21,11 +24,11 @@ from dataclasses import dataclass
 
 from dynomark_daemon.app.diffs import is_answered_request
 from dynomark_daemon.domain.bookmark import Identity
-from dynomark_daemon.domain.ids import ProfileId, RequestId, SnapshotId
+from dynomark_daemon.domain.ids import RequestId, SnapshotId
 from dynomark_daemon.domain.job import Job
 from dynomark_daemon.domain.retention import (
     RETENTION_MS,
-    is_vouched_for,
+    is_tracked,
     plan_absences,
     present_in_any,
 )
@@ -50,32 +53,28 @@ def _jobs_by_identity(jobs: list[Job]) -> dict[Identity, list[Job]]:
     return grouped
 
 
-def _known_trees(
-    *, store: CorpusStorePort
-) -> tuple[frozenset[ProfileId], tuple[Snapshot, ...]]:
-    """The profiles whose latest tree this daemon keeps, and every tree it
-    keeps: each reader-served profile's, and the writer's latest tree (its
-    profile known while the store is bound)."""
+def _known_trees(*, store: CorpusStorePort) -> tuple[Snapshot, ...]:
+    """Every tree of a known profile: each reader-served profile's tree not
+    yet forgotten, and the writer's latest tree (which stands for the bound
+    profile's, should it once have been served reader)."""
     by_profile = store.profile_trees()
-    latest = store.latest_tree_snapshot()
     writer = store.writer_profile()
-    if latest is not None and writer is not None:
-        by_profile[writer] = latest
+    if writer is not None:
+        by_profile.pop(writer, None)
+    latest = store.latest_tree_snapshot()
     trees = tuple(by_profile.values())
-    if latest is not None and writer is None:
-        trees = (*trees, latest)
-    return frozenset(by_profile), trees
+    return trees if latest is None else (*trees, latest)
 
 
 def _sweep_entries(
     now: int, keep_ms: int, *, store: CorpusStorePort
 ) -> tuple[Identity, ...]:
-    known, trees = _known_trees(store=store)
+    trees = _known_trees(store=store)
     if not trees:
         return ()
     jobs = _jobs_by_identity(store.list_jobs())
     tracked = frozenset(
-        i for i in store.entry_identities() if is_vouched_for(jobs.get(i, []), known)
+        i for i in store.entry_identities() if is_tracked(jobs.get(i, []))
     )
     plan = plan_absences(
         tracked,
@@ -110,6 +109,7 @@ def enforce_retention(
     taken more than ``keep_ms`` ago, and forget answered requests. Batch
     rows and jobs stay."""
     now = clock.now_ms()
+    store.drop_profile_trees_before(now - keep_ms)
     entries = _sweep_entries(now, keep_ms, store=store)
     snapshots = tuple(store.drop_snapshots_before(now - keep_ms))
     return Retained(

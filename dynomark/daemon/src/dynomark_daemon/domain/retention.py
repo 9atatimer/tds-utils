@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from typing import Final
 
 from dynomark_daemon.domain.bookmark import Identity
-from dynomark_daemon.domain.ids import ProfileId
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.domain.tree import NodeKind, Snapshot
 
@@ -27,13 +26,14 @@ SETTLED_STATES: Final = frozenset({JobState.FILED, JobState.INDEXED, JobState.FA
 # --- Predicates ---
 
 
-def is_vouched_for(jobs: Iterable[Job], known: Collection[ProfileId]) -> bool:
-    """The known trees can tell whether an entry's bookmark is gone: every job
-    of its identity is settled and of a profile whose latest tree this daemon
-    keeps (the writer's, or one served as a reader, issue #421). A save from
-    a profile that never sent its tree cannot be vouched for; a job still
-    running needs its records."""
-    return all(j.profile_id in known and j.state in SETTLED_STATES for j in jobs)
+def is_tracked(jobs: Iterable[Job]) -> bool:
+    """The known trees judge whether an entry's bookmark is gone once every
+    job of its identity is settled: a job still running needs its records.
+    A job's profile does not matter (issue #534 T4): a profile that is not
+    known -- the old one after a reinstall and rebind, a reader that never
+    sent a tree or has not for the retention window -- vouches for nothing,
+    so its saves are judged by the trees that are known."""
+    return all(j.state in SETTLED_STATES for j in jobs)
 
 
 # --- Pure helpers ---

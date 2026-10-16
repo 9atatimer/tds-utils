@@ -825,6 +825,19 @@ class SqliteCorpusStore:
             for profile, doc in rows
         }
 
+    def drop_profile_trees_before(self, taken_at: int) -> list[ProfileId]:
+        with self._write() as db:
+            dropped = [
+                str(profile_id)
+                for (profile_id,) in db.execute(
+                    "SELECT profile_id FROM profile_trees WHERE taken_at < ?"
+                    " ORDER BY profile_id",
+                    (taken_at,),
+                ).fetchall()
+            ]
+            db.execute("DELETE FROM profile_trees WHERE taken_at < ?", (taken_at,))
+        return [ProfileId(profile_id) for profile_id in dropped]
+
     def put_snapshot(self, snapshot_id: SnapshotId, snapshot: Snapshot) -> None:
         with self._write() as db:
             db.execute(
