@@ -195,16 +195,30 @@ class InMemoryCorpusStore:
         )
 
     def knn_candidates(
-        self, vector: Sequence[float], *, limit: int, placed_only: bool = False
+        self,
+        vector: Sequence[float],
+        *,
+        model_id: str,
+        limit: int,
+        placed_only: bool = False,
     ) -> list[Candidate]:
         return _best_first(
             [
                 Candidate(entry.identity, _cosine(vector, entry.embedding.vector))
                 for entry in self._entries.values()
-                if not placed_only or entry.identity in self._placements
+                if entry.embedding.model_id == model_id
+                and (not placed_only or entry.identity in self._placements)
             ],
             limit,
         )
+
+    def entries_embedded_otherwise(
+        self, model_id: str, *, limit: int
+    ) -> list[CorpusEntry]:
+        ordered = sorted(
+            self._entries.values(), key=lambda e: self._positions[e.identity]
+        )
+        return [e for e in ordered if e.embedding.model_id != model_id][:limit]
 
     # --- Placements ---
 

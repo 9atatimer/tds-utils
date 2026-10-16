@@ -41,6 +41,7 @@ from dynomark_daemon.app.diffs import propose_scheduled_rebuild, rebuild_retry_a
 from dynomark_daemon.app.errors import TreeNotReady
 from dynomark_daemon.app.hello import owned_roots_for
 from dynomark_daemon.app.loop import Schedule, due_jobs
+from dynomark_daemon.app.reembed import reembed_corpus
 from dynomark_daemon.app.retention import enforce_retention
 from dynomark_daemon.app.run import count_crashed_attempt, run_job
 from dynomark_daemon.app.writer import writer_conflict
@@ -64,6 +65,9 @@ log = structlog.get_logger("dynomark.daemon")
 IDLE_WAIT_S: Final = 60.0
 """The longest the job loop sleeps with nothing due and nothing waking it."""
 JOIN_TIMEOUT_S: Final = 10.0
+REEMBED_BATCH: Final = 64
+"""How many entries of an old embedding model one pass re-embeds; a full
+batch wakes the loop for another pass at once."""
 RETENTION_SWEEP_MS: Final = 3_600_000
 """How often the job loop sweeps the store for what Retention drops: the
 30-day rules are kept to within this."""
@@ -244,6 +248,22 @@ class JobLoop:
             log.info("rebuild.proposed", diff_id=diff.diff_id, items=len(diff.items))
         return diff is not None
 
+    def _reembed(self) -> None:
+        """Re-embed a batch of entries an old embedding model embedded, and
+        wake the loop again at once while a full batch was found."""
+        ports = self._ports
+        try:
+            count = reembed_corpus(
+                store=ports.store, embedding=ports.embedding, limit=REEMBED_BATCH
+            )
+        except PortError as error:
+            log.warning("reembed.failed", detail=str(error))
+            return
+        if count:
+            log.info("reembed.ran", entries=count)
+        if count == REEMBED_BATCH:
+            self._wake.set()
+
     def _retain(self) -> None:
         """Sweep the store for what Retention drops, once per
         ``RETENTION_SWEEP_MS`` on the ports' clock."""
@@ -276,12 +296,11 @@ class JobLoop:
         return next((job for job in schedule.due if job.job_id not in ran), None)
 
     def run_once(self) -> Schedule:
-        """Run every job due now, each at most once, a due rebuild and a due
-        retention sweep; tell the server after each job and after a rebuild.
-        A job still due after its run (waiting for a snapshot) waits for the
-        next pass. The
-        schedule after the pass: when the next retry falls due, counting the
-        jobs that failed in it."""
+        """Run every job due now, each at most once, a due rebuild, a batch of
+        re-embedding and a due retention sweep; tell the server after each
+        job and after a rebuild. A job still due after its run (waiting for a
+        snapshot) waits for the next pass. The schedule after the pass: when
+        the next retry falls due, counting the jobs that failed in it."""
         ports, retry = self._ports, self._config.retry
         ran: set[JobId] = set()
         while (job := self._next_due(ran)) is not None:
@@ -298,6 +317,7 @@ class JobLoop:
             self._on_progress()
         if self._rebuild():
             self._on_progress()
+        self._reembed()
         self._retain()
         return due_jobs(retry, ports.clock.now_ms(), store=ports.store)
 

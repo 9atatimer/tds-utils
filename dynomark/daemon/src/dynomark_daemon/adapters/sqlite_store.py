@@ -178,6 +178,11 @@ MIGRATIONS: Final = (
     UPDATE snapshots SET taken_at = json_extract(doc, '$.taken_at');
     CREATE INDEX snapshots_by_age ON snapshots (taken_at);
     """,
+    # 4: KNN reads one embedding model's entries, and the entries another
+    # model embedded are found for re-embedding, by index (issue #423).
+    """
+    CREATE INDEX entries_by_model ON entries (model_id, position);
+    """,
 )
 SCHEMA_VERSION: Final = len(MIGRATIONS)
 
@@ -230,8 +235,8 @@ def _unpack(blob: bytes) -> "array.array[float]":
 
 
 def _knn_sql(*, placed_only: bool) -> str:
-    """Cosine similarity of every (placed) entry to ``:query``, best first,
-    ties by identity, cut to ``:limit``.
+    """Cosine similarity of every (placed) entry embedded by ``:model`` to
+    ``:query``, best first, ties by identity, cut to ``:limit``.
 
     A row scores 0.0, and stays a candidate, where there is no finite answer:
     a vector that is not a blob of exactly ``:size`` bytes (another
@@ -248,7 +253,7 @@ def _knn_sql(*, placed_only: bool) -> str:
         " AND length(e.vector) = :size"
         " THEN coalesce(1.0 - vec_distance_cosine(e.vector, :query), 0.0)"
         " ELSE 0.0 END AS score"
-        f" FROM entries e{placed}"
+        f" FROM entries e{placed} WHERE e.model_id = :model"
         " ORDER BY score DESC, e.identity LIMIT :limit"
     )
 
@@ -526,6 +531,19 @@ class SqliteCorpusStore:
         rows = self._all("SELECT identity FROM entries ORDER BY position")
         return [Identity(str(identity)) for (identity,) in rows]
 
+    def entries_embedded_otherwise(
+        self, model_id: str, *, limit: int
+    ) -> list[CorpusEntry]:
+        # Two ranges of the model index, not ``!=`` (which would scan every
+        # row, vectors and all), so the read follows how many there are.
+        found = self._all(
+            "SELECT position, doc, vector FROM entries INDEXED BY entries_by_model"
+            " WHERE model_id < :model OR model_id > :model"
+            " ORDER BY position LIMIT :limit",
+            {"model": model_id, "limit": limit},
+        )
+        return [self._entry(doc, vector) for _, doc, vector in found]
+
     # --- Retention ---
 
     def absences(self) -> dict[Identity, int]:
@@ -578,12 +596,17 @@ class SqliteCorpusStore:
         )
 
     def knn_candidates(
-        self, vector: Sequence[float], *, limit: int, placed_only: bool = False
+        self,
+        vector: Sequence[float],
+        *,
+        model_id: str,
+        limit: int,
+        placed_only: bool = False,
     ) -> list[Candidate]:
         query = _pack(vector)[0]
         rows = self._all(
             _knn_sql(placed_only=placed_only),
-            {"query": query, "size": len(query), "limit": limit},
+            {"query": query, "size": len(query), "limit": limit, "model": model_id},
         )
         return [
             Candidate(Identity(str(identity)), float(str(score)))

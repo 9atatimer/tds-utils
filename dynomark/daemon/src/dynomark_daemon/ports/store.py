@@ -107,10 +107,24 @@ class CorpusStorePort(Protocol):
         ...
 
     def knn_candidates(
-        self, vector: Sequence[float], *, limit: int, placed_only: bool = False
+        self,
+        vector: Sequence[float],
+        *,
+        model_id: str,
+        limit: int,
+        placed_only: bool = False,
     ) -> list[Candidate]:
-        """Nearest entries by cosine similarity (the ``score``), nearest first;
-        ``placed_only`` keeps entries that have a placement."""
+        """Nearest entries embedded by ``model_id`` (the model ``vector`` is
+        in) by cosine similarity (the ``score``), nearest first; an entry of
+        another model is never a candidate. ``placed_only`` keeps entries
+        that have a placement."""
+        ...
+
+    def entries_embedded_otherwise(
+        self, model_id: str, *, limit: int
+    ) -> list[CorpusEntry]:
+        """Up to ``limit`` entries embedded by a model other than ``model_id``,
+        by position; read by key, at a cost that follows how many there are."""
         ...
 
     # --- Placements ---
