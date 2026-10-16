@@ -24,6 +24,8 @@ export interface FakeFirefox {
   readonly tabs: TabsStub;
   readonly windows: BackgroundBrowserStub;
   readonly storage: StorageAreaStub;
+  /** browser.storage.session: cleared with the browser session, as its session rules are. */
+  readonly session: StorageAreaStub;
   readonly native: NativeMessagingStub;
   /** Every tab navigation and opening, in order: `update <url>`, `create <url> active=<b>`. */
   readonly opened: string[];
@@ -45,6 +47,7 @@ export function fakeFirefox(options: { readonly sidebarRefuses?: boolean } = {})
   const tabs = new TabsStub();
   const windows = new BackgroundBrowserStub();
   const storage = new StorageAreaStub();
+  const session = new StorageAreaStub();
   const native = new NativeMessagingStub({ firefox: true });
   const opened: string[] = [];
   const sidebar: string[] = [];
@@ -60,6 +63,7 @@ export function fakeFirefox(options: { readonly sidebarRefuses?: boolean } = {})
     tabs: {
       query: () => tabs.query(),
       get: (tabId) => windows.tabs.get(tabId),
+      remove: (tabId) => windows.tabs.remove(tabId),
       update: (tabOrProperties: number | { url: string }, properties?: { url: string }) =>
         typeof tabOrProperties === 'number'
           ? windows.tabs.update(tabOrProperties, properties ?? { url: '' })
@@ -78,7 +82,7 @@ export function fakeFirefox(options: { readonly sidebarRefuses?: boolean } = {})
       get: (id, populate) => windows.windows.get(id, populate),
       remove: (id) => windows.windows.remove(id),
     },
-    storage: { local: storage },
+    storage: { local: storage, session },
     declarativeNetRequest: windows.declarativeNetRequest,
     runtime: Object.assign(native, {
       id: 'dynomark@tds.dynomark',
@@ -100,5 +104,5 @@ export function fakeFirefox(options: { readonly sidebarRefuses?: boolean } = {})
     },
     commands: { onCommand: new EventStub<[string]>() },
   };
-  return { api, bookmarks, history, tabs, windows, storage, native, opened, sidebar };
+  return { api, bookmarks, history, tabs, windows, storage, session, native, opened, sidebar };
 }

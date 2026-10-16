@@ -17,7 +17,7 @@ const BLOCKED_PAGE = 'chrome-error://chromewebdata/';
 
 interface StubTab {
   readonly tabId: number;
-  readonly state: string;
+  state: string;
   url: string;
   /** The navigation was stopped by a block rule: the tab shows an error page. */
   blocked: boolean;
@@ -37,9 +37,9 @@ export class BackgroundBrowserStub {
   refuseWindows = false;
   /** When set, updateSessionRules rejects adding rules (an unsupported regex, or no permission). */
   refuseRules = false;
-  /** When set, windows.remove rejects and the window stays open. */
+  /** When set, windows.remove and tabs.remove reject and the window stays open. */
   refuseClose = false;
-  /** How many session rules were installed at each windows.remove, in order. */
+  /** How many session rules were installed at each windows.remove or tabs.remove, in order. */
   readonly rulesAtClose: number[] = [];
   private readonly pages = new Map<string, Served>();
   private readonly redirects = new Map<string, string>();
@@ -55,6 +55,11 @@ export class BackgroundBrowserStub {
   /** Loading `from` answers a redirect to `to` (a 302). */
   redirect(from: string, to: string): void {
     this.redirects.set(from, to);
+  }
+
+  /** The user restores every minimized window (it is no longer minimized). */
+  restoreWindows(): void {
+    for (const win of this.open.values()) win.state = 'normal';
   }
 
   /** How many windows are open now. */
@@ -99,6 +104,16 @@ export class BackgroundBrowserStub {
       if (tab === undefined) return Promise.reject(new Error(`No tab with id: ${tabId}.`));
       const loading = !tab.blocked && this.pages.get(tab.url) === 'never-loads';
       return Promise.resolve({ status: loading ? 'loading' : 'complete', url: tab.url });
+    },
+    /** Closing a window's one tab closes the window. */
+    remove: (tabId: number): Promise<void> => {
+      this.rulesAtClose.push(this.rules.size);
+      if (this.refuseClose) return Promise.reject(new Error(`Could not close tab ${tabId}.`));
+      const entry = [...this.open.entries()].find(([, tab]) => tab.tabId === tabId);
+      if (entry === undefined) return Promise.reject(new Error(`No tab with id: ${tabId}.`));
+      this.open.delete(entry[0]);
+      this.log.push(`close ${entry[1].url}`);
+      return Promise.resolve();
     },
     update: (tabId: number, properties: { url: string }): Promise<unknown> => {
       const tab = this.byTab(tabId);

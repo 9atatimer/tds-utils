@@ -48,6 +48,16 @@ describe('firefoxPorts', () => {
     expect(new ExtensionRuntime(firefoxPorts(fakeFirefox().api))).toBeInstanceOf(ExtensionRuntime);
   });
 
+  it('Given a guarded background capture in flight, When its window is recorded, Then the record is in storage.session (cleared with the session rules), never storage.local', async () => {
+    const fx = fakeFirefox();
+    const { background } = firefoxPorts(fx.api);
+    fx.windows.serve('https://news.example/', 'never-loads');
+    void background.readTab('https://news.example/', { blockPrivateHosts: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fx.session.keys()).toEqual(['capture_window']);
+    expect(fx.storage.keys()).toEqual([]);
+  });
+
   it('Given the native host fails, When Firefox disconnects the port with port.error set, Then the link is disconnected with that message as detail', async () => {
     const fx = fakeFirefox();
     const { transport } = firefoxPorts(fx.api);

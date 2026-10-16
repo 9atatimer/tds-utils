@@ -150,17 +150,31 @@ describe('ChromeBackgroundTab -- across worker restarts', () => {
     expect(first.stub.sessionRules()).toEqual([]);
   });
 
-  it('Given a recorded window id that now names a window this adapter did not open, When swept, Then that window is left open and the record dropped', async () => {
+  it('Given a worker terminated while its guarded page loaded, and the user restored that window since, When the next worker sweeps, Then the capture tab is closed before its block rules go (Codex on 9atatimer/tds-utils PR#535)', async () => {
+    const first = adapter();
+    first.stub.serve(URL, 'never-loads');
+    void first.source.readTab(URL, GUARDED);
+    await first.timer.advance(0);
+    const installed = first.stub.sessionRules().length;
+    first.stub.restoreWindows();
+    const next = adapter(first.stub, first.store);
+    await next.source.sweep();
+    expect(first.stub.openWindows()).toBe(0);
+    expect(first.stub.rulesAtClose).toEqual([installed]);
+    expect(first.stub.sessionRules()).toEqual([]);
+    expect(first.store.keys()).toEqual([]);
+  });
+
+  it('Given the browser restarted (its session storage and session rules gone), When the next worker sweeps, Then a window that now holds the old ids is left open', async () => {
     const first = adapter();
     first.stub.serve(URL, 'never-loads');
     void first.source.readTab(URL, OPEN);
     await first.timer.advance(0);
     const stub = new BackgroundBrowserStub();
-    await stub.windows.create({ url: 'https://mine.example/', focused: true, state: 'normal' });
-    const next = adapter(stub, first.store);
+    await stub.windows.create({ url: 'https://mine.example/', focused: false, state: 'minimized' });
+    const next = adapter(stub, new StorageAreaStub());
     await next.source.sweep();
     expect(stub.openWindows()).toBe(1);
-    expect(first.store.keys()).toEqual([]);
   });
 
   it('Given a capture that finished, When the next worker sweeps, Then nothing is closed', async () => {
