@@ -75,7 +75,7 @@ read-only and only probes the socket). Stop the agent with
 | `dynomark-daemon check` | config, sqlite-vec loads, store health, socket, Ollama reachability and models |
 | `dynomark-daemon install-host-manifest --extension-id ID [--browser chrome\|chromium\|firefox\|all] [--host-path P]` | writes `tds.dynomark.json` per browser (macOS and Linux per-user dirs) allowing that one extension: Chrome and Chromium take its 32-letter id (`allowed_origins`), Firefox its gecko id (`allowed_extensions`); `all` (the default) writes every browser whose ids take the id's form |
 | `dynomark-daemon launchd-plist [--program P]` | prints a user LaunchAgent (`RunAtLoad`, `KeepAlive`) running `serve`; refuses when the daemon's socket would not be the one `dynomark-host` connects to (see Config) |
-| `dynomark-daemon rebind` | releases the writer binding (the browser profile a writer files for: the first to complete a full hello) and prints the old and new state; the next profile to say a full hello binds. Use it after reinstalling the extension (a new profile id) or to move filing to another browser profile; reload the extension there. A connection keeps its role until it says hello again |
+| `dynomark-daemon rebind` | releases the writer binding (the browser profile a writer files for: the first to complete a full hello) and prints the old and new state; the next profile to say a full hello binds. Use it after reinstalling the extension (a new profile id) or to move filing to another browser profile; reload the extension there. A connection still open on the released profile is served reader from its next request on |
 | `dynomark-host` | started by the browser; pipes stdio frames to the socket unchanged; with no daemon it answers the first frame `error` `busy` and exits |
 
 ## Config
@@ -143,9 +143,12 @@ macOS); `serve` refuses a path it cannot bind and says so.
 Retention (the job loop sweeps hourly): a corpus entry, its saves and its
 placement go 30 days after its bookmark left every known profile's latest
 tree -- the writer's, and the tree each browser profile served as a
-reader last sent (kept for this alone) -- so a reader host prunes too;
-archived snapshots go after 30 days; batch rows stay; answered requests
-go. A `job.retry` of a job whose save went is answered `invalid`.
+reader last sent (kept for this alone) -- so a reader host prunes too.
+A reader profile's tree is forgotten once over 30 days old, and a save
+from a profile that is not known (none sent recently, or the old one
+after a reinstall and rebind) keeps nothing: it is judged by the known
+trees. Archived snapshots go after 30 days; batch rows stay; answered
+requests go. A `job.retry` of a job whose save went is answered `invalid`.
 
 Goal 2 (ingest received -> `APPLIED` under 60 s at P95) is read from the
 log: every filed job logs `job.applied` with `received_at`, `applied_at`
