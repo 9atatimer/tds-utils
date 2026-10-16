@@ -243,6 +243,14 @@
         "reader"
       ]
     },
+    "WriterBinding": {
+      "description": "Which profile a writer daemon files for, as the asking connection sees it. this_profile: this connection's profile is the bound one (served writer). other_profile: the store is bound to another profile, so this one is served reader. unbound: the binding was released (dynomark-daemon rebind) and the next profile to complete a full hello binds.",
+      "enum": [
+        "this_profile",
+        "other_profile",
+        "unbound"
+      ]
+    },
     "CaptureSource": {
       "description": "Where captured text came from. fetch is set only by the daemon.",
       "enum": [
@@ -2920,7 +2928,7 @@
     },
     "StatusResult": {
       "type": "object",
-      "description": "queue_depth counts jobs in QUEUED, CAPTURING, ENRICHED or PLACED.",
+      "description": "queue_depth counts jobs in QUEUED, CAPTURING, ENRICHED or PLACED. writer_binding is present exactly when the daemon is configured writer: other_profile with role reader is a browser served as a reader because the writer is bound to another profile (hello.result, being frozen, cannot say so).",
       "properties": {
         "v": {
           "const": 2,
@@ -2961,6 +2969,9 @@
         "queue_depth": {
           "type": "integer",
           "minimum": 0
+        },
+        "writer_binding": {
+          "$ref": "#/$defs/WriterBinding"
         }
       },
       "required": [

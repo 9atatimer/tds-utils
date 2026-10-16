@@ -147,9 +147,15 @@ identity it holds, never by normalizing history URLs.
    `role`, `owned_roots`, and `mode`. `owned_roots.follow_up` MUST equal
    `hello.follow_up` exactly. `role` is the role this connection is
    served with: a writer daemon files for one profile, the profile its
-   store is bound to (the first `profile_id` to complete a `full` hello;
-   rebinding is a user action on the daemon, outside this contract), and
-   answers `role` `reader` to every other profile.
+   store is bound to (the first `profile_id` to complete a `full` hello),
+   and answers `role` `reader` to every other profile. The owner changes
+   the binding on the daemon: `dynomark-daemon rebind` releases it, and the
+   next profile to complete a `full` hello binds (an extension reinstall
+   mints a new `profile_id`). A connection keeps the role its hello gave
+   it; the extension says hello again to pick up a new binding.
+   `hello.result` is frozen and cannot say why a profile is served
+   `reader`: `status.result` `writer_binding` does (`other_profile`: the
+   writer is bound to another profile), and the extension shows it.
 
    | Versions | `mode` | What continues |
    |---|---|---|
@@ -247,7 +253,7 @@ identity it holds, never by normalizing history URLs.
 | `writer.status` | extension -> daemon | Writer-marker status | Key Decisions: two writers (MVP writer marker) |
 | `writer.status.result` | daemon -> extension | Own marker, other writers, conflict flag | Key Decisions: two writers (MVP writer marker) |
 | `status` | extension -> daemon | Daemon status for the settings page | Security: cloud model egress shown; Config |
-| `status.result` | daemon -> extension | Role, host id, contract version, both models each with its `local` mark (loopback host, no cloud tag, endpoint not declared remote), queue depth | Security: cloud model egress shown; Config |
+| `status.result` | daemon -> extension | Role, writer binding (on a writer), host id, contract version, both models each with its `local` mark (loopback host, no cloud tag, endpoint not declared remote), queue depth | Security: cloud model egress shown; Config |
 | `url.vet` | extension -> daemon | May a background tab load this URL: the daemon resolves it and applies the fetch address policy | Key Decisions: background-tab capture (2026-10-16) |
 | `url.vet.result` | daemon -> extension | `allowed`, or the `VetRefusal` | Key Decisions: background-tab capture (2026-10-16) |
 | `error` | daemon -> extension | The one error response, closed code set | A reader host never writes (`not_writer`); Transport contract: retryable errors |

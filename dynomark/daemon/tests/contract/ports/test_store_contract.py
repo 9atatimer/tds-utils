@@ -710,6 +710,22 @@ def test_the_writer_profile_is_bound_once(store: CorpusStorePort) -> None:
     assert store.writer_profile() == PROFILE_A
 
 
+def test_releasing_the_writer_profile_lets_the_next_bind_take(
+    store: CorpusStorePort,
+) -> None:
+    """Given profile A bound, When the binding is released (``dynomark-daemon
+    rebind``) and B binds, Then the release returns A, and B is bound."""
+    store.bind_writer_profile(PROFILE_A)
+
+    released = store.release_writer_profile()
+    unbound = store.writer_profile()
+    store.bind_writer_profile(PROFILE_B)
+
+    assert (released, unbound, store.writer_profile()) == (PROFILE_A, None, PROFILE_B)
+    assert store.release_writer_profile() == PROFILE_B
+    assert store.release_writer_profile() is None
+
+
 def test_a_profiles_follow_up_folder_is_remembered(store: CorpusStorePort) -> None:
     """Given a profile's resolved Follow Up folder, When read back, Then it is
     the latest one kept; an unknown profile has none."""

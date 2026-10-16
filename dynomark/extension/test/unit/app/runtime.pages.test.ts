@@ -74,6 +74,28 @@ describe('Options page -- overview', () => {
     expect(sentOf(w, 'status')).toHaveLength(1);
   });
 
+  it('Given a writer daemon bound to another profile (this browser was reinstalled), When the overview is asked for, Then the daemon section says it serves this browser as a reader for that reason (issue #419)', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const boundElsewhere = (r: RequestMessage): ResponseMessage | undefined =>
+      r.type === 'status'
+        ? {
+            v: 2,
+            type: 'status.result',
+            re: r.id,
+            role: 'reader',
+            host_id: HOST_ID,
+            contract_version: 2,
+            models: { embedding: { id: 'nomic-embed-text', local: true }, completion: { id: 'llama3.1:8b', local: true } },
+            queue_depth: 0,
+            writer_binding: 'other_profile',
+          }
+        : answers(r);
+    scriptDaemon(w, { role: 'reader' }, boundElsewhere);
+    const runtime = await startRuntime(w);
+    const page = await runtime.page({ kind: 'overview' });
+    expect(page).toMatchObject({ ok: true, overview: { daemon: { role: 'reader', writer_binding: 'other_profile' } } });
+  });
+
   it('Given an unreachable daemon, When the overview is asked for, Then it still answers, with the link down and the daemon error', async () => {
     const w = new FakeExtensionWorld({ flavor: 'chrome' });
     scriptDaemon(w, {}, answers);

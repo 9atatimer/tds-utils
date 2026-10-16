@@ -14,6 +14,7 @@ from click.testing import CliRunner
 
 from dynomark_daemon.adapters.sqlite_store import SqliteCorpusStore
 from dynomark_daemon.cli import main
+from dynomark_daemon.domain.ids import ProfileId
 from tests._fake_ollama import Script, fake_ollama
 from tests._server import build_server, running
 
@@ -325,3 +326,34 @@ def test_serve_on_a_socket_path_too_long_exits_1_saying_why(tmp_path: Path) -> N
 
     assert result.exit_code == 1
     assert "cannot listen" in result.output and "Traceback" not in result.output
+
+
+def test_rebind_releases_the_writer_binding_and_prints_old_and_new(
+    tmp_path: Path,
+) -> None:
+    """Given a writer store bound to a profile (the extension before a
+    reinstall), When ``dynomark-daemon rebind`` runs, Then it prints the old
+    binding and the new state (unbound until the next full hello), exits 0,
+    and the store is unbound; run again, it says nothing was bound (Key
+    Decisions "Writer binding", issue #419)."""
+    env = _env(tmp_path, "")
+    (tmp_path / "config" / "dynomark").mkdir(parents=True)
+    (tmp_path / "config" / "dynomark" / "config.toml").write_text('role = "writer"\n')
+    path = tmp_path / "state" / "dynomark" / "corpus.sqlite3"
+    store = SqliteCorpusStore.open(path)
+    store.bind_writer_profile(ProfileId("prof-before-reinstall"))
+    store.close()
+
+    first = CliRunner().invoke(main, ["rebind"], env=env)
+    again = CliRunner().invoke(main, ["rebind"], env=env)
+
+    assert first.exit_code == 0, first.output
+    assert "prof-before-reinstall" in first.output and "unbound" in first.output
+    reopened = SqliteCorpusStore.open(path)
+    try:
+        assert reopened.writer_profile() is None
+    finally:
+        reopened.close()
+    assert again.exit_code == 0, again.output
+    assert "prof-before-reinstall" not in again.output
+    assert "unbound" in again.output

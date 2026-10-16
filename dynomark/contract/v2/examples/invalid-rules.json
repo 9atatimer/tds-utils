@@ -279,6 +279,11 @@
     "path": "/queue_depth",
     "rule": "queue depth is a count"
   },
+  "status-writer-binding-unknown.json": {
+    "keyword": "enum",
+    "path": "/writer_binding",
+    "rule": "WriterBinding is a closed set"
+  },
   "undo-result-missing-undoes.json": {
     "keyword": "required",
     "path": "/undoes",

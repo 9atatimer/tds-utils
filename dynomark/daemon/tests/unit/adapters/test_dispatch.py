@@ -843,6 +843,25 @@ def test_the_first_snapshot_of_a_fresh_tree_offers_the_writer_marker() -> None:
     assert titles == ["Dynomark", "dynomark-writer:mbp"]
 
 
+def test_status_tells_a_profile_served_reader_that_the_writer_is_bound_elsewhere() -> (
+    None
+):
+    """Given a writer daemon bound to profile A, When profile B asks status,
+    Then status.result says role reader and writer_binding other_profile;
+    A's status says this_profile (issue #419)."""
+    harness = Harness()
+    harness.hello()
+    other = Session()
+    harness.dispatcher.handle(wire.hello("h-b", profile="profile-b"), other)
+
+    mine = harness.send(wire.body("status", "s-a"))
+    theirs = harness.dispatcher.handle(wire.body("status", "s-b"), other).reply
+
+    assert isinstance(mine, m.StatusResult) and isinstance(theirs, m.StatusResult)
+    assert (mine.role, mine.writer_binding) == ("writer", "this_profile")
+    assert (theirs.role, theirs.writer_binding) == ("reader", "other_profile")
+
+
 def test_writer_status_reports_another_hosts_marker_as_a_conflict() -> None:
     """Given a writer whose tree holds another host's marker, When writer.status
     arrives, Then the answer names it and says conflict."""
