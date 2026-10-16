@@ -216,6 +216,15 @@ MIGRATIONS: Final[tuple[str | Callable[[sqlite3.Connection], None], ...]] = (
     # 5: folder flags keyed by folder path, stable across writers (issue
     # #423); a node id is resolved to its path in the latest tree.
     _flags_by_path,
+    # 6: the latest tree of each profile served as a reader, for Retention
+    # only (issue #421).
+    """
+    CREATE TABLE profile_trees (
+        profile_id TEXT PRIMARY KEY,
+        taken_at INTEGER NOT NULL,
+        doc TEXT NOT NULL
+    );
+    """,
 )
 SCHEMA_VERSION: Final = len(MIGRATIONS)
 """Each migration is a SQL script, or a step run on the connection for what
@@ -799,6 +808,22 @@ class SqliteCorpusStore:
     def latest_tree_snapshot(self) -> Snapshot | None:
         doc = self._doc("SELECT doc FROM tree_snapshot WHERE slot = 1")
         return None if doc is None else load_record(doc, Snapshot)
+
+    def put_profile_tree(self, profile_id: ProfileId, snapshot: Snapshot) -> None:
+        with self._write() as db:
+            db.execute(
+                "INSERT INTO profile_trees (profile_id, taken_at, doc) VALUES (?, ?, ?)"
+                " ON CONFLICT (profile_id) DO UPDATE SET taken_at = excluded.taken_at,"
+                " doc = excluded.doc WHERE excluded.taken_at >= profile_trees.taken_at",
+                (profile_id, snapshot.taken_at, dump_record(snapshot)),
+            )
+
+    def profile_trees(self) -> dict[ProfileId, Snapshot]:
+        rows = self._all("SELECT profile_id, doc FROM profile_trees")
+        return {
+            ProfileId(str(profile)): load_record(str(doc), Snapshot)
+            for profile, doc in rows
+        }
 
     def put_snapshot(self, snapshot_id: SnapshotId, snapshot: Snapshot) -> None:
         with self._write() as db:

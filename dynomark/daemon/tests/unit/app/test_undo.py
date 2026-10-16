@@ -234,6 +234,7 @@ def _filed_into_a_fresh_tree() -> Daemon:
     record_tree_snapshot(
         _after(make_node("42", "14", "Tokio tutorial", url=URL)),
         HostRole.WRITER,
+        A,
         store=daemon.store,
     )
     return daemon

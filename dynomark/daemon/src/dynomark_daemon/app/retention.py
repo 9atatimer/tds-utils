@@ -2,7 +2,9 @@
 Key Decisions: Retention 2026-10-16; issue #421).
 
 Clock-driven: the job loop runs ``enforce_retention`` on its own cadence.
-Only the writer keeps tree snapshots, so a host with none tracks no entry.
+The trees it reads are every known profile's latest: the writer's latest
+tree and each reader-served profile's tree (issue #421); a host with none
+tracks no entry.
 
 What undo reads, and so what retention must keep: the latest tree snapshot
 (the undo guard runs against it), the batch row and its receipt (the
@@ -19,14 +21,15 @@ from dataclasses import dataclass
 
 from dynomark_daemon.app.diffs import is_answered_request
 from dynomark_daemon.domain.bookmark import Identity
-from dynomark_daemon.domain.ids import RequestId, SnapshotId
+from dynomark_daemon.domain.ids import ProfileId, RequestId, SnapshotId
 from dynomark_daemon.domain.job import Job
 from dynomark_daemon.domain.retention import (
     RETENTION_MS,
     is_vouched_for,
     plan_absences,
-    present_identities,
+    present_in_any,
 )
+from dynomark_daemon.domain.tree import Snapshot
 from dynomark_daemon.ports.clock import Clock
 from dynomark_daemon.ports.store import CorpusStorePort
 
@@ -47,20 +50,36 @@ def _jobs_by_identity(jobs: list[Job]) -> dict[Identity, list[Job]]:
     return grouped
 
 
+def _known_trees(
+    *, store: CorpusStorePort
+) -> tuple[frozenset[ProfileId], tuple[Snapshot, ...]]:
+    """The profiles whose latest tree this daemon keeps, and every tree it
+    keeps: each reader-served profile's, and the writer's latest tree (its
+    profile known while the store is bound)."""
+    by_profile = store.profile_trees()
+    latest = store.latest_tree_snapshot()
+    writer = store.writer_profile()
+    if latest is not None and writer is not None:
+        by_profile[writer] = latest
+    trees = tuple(by_profile.values())
+    if latest is not None and writer is None:
+        trees = (*trees, latest)
+    return frozenset(by_profile), trees
+
+
 def _sweep_entries(
     now: int, keep_ms: int, *, store: CorpusStorePort
 ) -> tuple[Identity, ...]:
-    tree = store.latest_tree_snapshot()
-    writer = store.writer_profile()
-    if tree is None or writer is None:
+    known, trees = _known_trees(store=store)
+    if not trees:
         return ()
     jobs = _jobs_by_identity(store.list_jobs())
     tracked = frozenset(
-        i for i in store.entry_identities() if is_vouched_for(jobs.get(i, []), writer)
+        i for i in store.entry_identities() if is_vouched_for(jobs.get(i, []), known)
     )
     plan = plan_absences(
         tracked,
-        present_identities(tree),
+        present_in_any(trees),
         store.absences(),
         now=now,
         keep_ms=keep_ms,

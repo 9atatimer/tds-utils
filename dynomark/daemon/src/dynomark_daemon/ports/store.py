@@ -198,6 +198,16 @@ class CorpusStorePort(Protocol):
 
     def latest_tree_snapshot(self) -> Snapshot | None: ...
 
+    def put_profile_tree(self, profile_id: ProfileId, snapshot: Snapshot) -> None:
+        """Keep ``snapshot`` as ``profile_id``'s latest tree unless a later one
+        is kept: a profile served as a reader, for Retention only (issue
+        #421). Never the latest tree filing, outline and undo read."""
+        ...
+
+    def profile_trees(self) -> dict[ProfileId, Snapshot]:
+        """Each such profile's latest tree."""
+        ...
+
     def put_snapshot(self, snapshot_id: SnapshotId, snapshot: Snapshot) -> None:
         """Archive a batch's fallback export; never the latest tree."""
         ...

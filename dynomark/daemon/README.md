@@ -139,6 +139,13 @@ whose `XDG_CONFIG_HOME` and `DYNOMARK_SOCKET` do not point elsewhere.
 JSON lines). The socket must fit a unix socket address (104 bytes on
 macOS); `serve` refuses a path it cannot bind and says so.
 
+Retention (the job loop sweeps hourly): a corpus entry, its saves and its
+placement go 30 days after its bookmark left every known profile's latest
+tree -- the writer's, and the tree each browser profile served as a
+reader last sent (kept for this alone) -- so a reader host prunes too;
+archived snapshots go after 30 days; batch rows stay; answered requests
+go. A `job.retry` of a job whose save went is answered `invalid`.
+
 Goal 2 (ingest received -> `APPLIED` under 60 s at P95) is read from the
 log: every filed job logs `job.applied` with `received_at`, `applied_at`
 and `interval_ms` (`received_at` is null if the daemon restarted in

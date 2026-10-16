@@ -27,12 +27,13 @@ SETTLED_STATES: Final = frozenset({JobState.FILED, JobState.INDEXED, JobState.FA
 # --- Predicates ---
 
 
-def is_vouched_for(jobs: Iterable[Job], writer: ProfileId) -> bool:
-    """The writer's tree can tell whether an entry's bookmark is gone: every
-    job of its identity is the writer profile's, and settled. A save from a
-    profile served as a reader lives in a tree this daemon never keeps; a
-    job still running needs its records."""
-    return all(j.profile_id == writer and j.state in SETTLED_STATES for j in jobs)
+def is_vouched_for(jobs: Iterable[Job], known: Collection[ProfileId]) -> bool:
+    """The known trees can tell whether an entry's bookmark is gone: every job
+    of its identity is settled and of a profile whose latest tree this daemon
+    keeps (the writer's, or one served as a reader, issue #421). A save from
+    a profile that never sent its tree cannot be vouched for; a job still
+    running needs its records."""
+    return all(j.profile_id in known and j.state in SETTLED_STATES for j in jobs)
 
 
 # --- Pure helpers ---
@@ -45,6 +46,12 @@ def present_identities(tree: Snapshot) -> frozenset[Identity]:
         for node in tree.nodes
         if node.kind is NodeKind.BOOKMARK and node.url is not None
     )
+
+
+def present_in_any(trees: Iterable[Snapshot]) -> frozenset[Identity]:
+    """The identities some known profile's latest tree holds: an entry is
+    absent only when none of them holds its URL."""
+    return frozenset().union(*(present_identities(tree) for tree in trees))
 
 
 @dataclass(frozen=True, slots=True)

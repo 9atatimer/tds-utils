@@ -50,6 +50,7 @@ TABLES: Final = (
     "_saves",
     "_batches",
     "_latest_tree",
+    "_profile_trees",
     "_snapshots",
     "_feedback",
     "_diffs",
@@ -117,6 +118,7 @@ class InMemoryCorpusStore:
         self._saves: dict[JobId, Save] = {}
         self._batches: dict[BatchId, BatchRecord] = {}
         self._latest_tree: Snapshot | None = None
+        self._profile_trees: dict[ProfileId, Snapshot] = {}
         self._snapshots: dict[SnapshotId, Snapshot] = {}
         self._feedback: dict[FeedbackId, MoveFeedback] = {}
         self._diffs: dict[DiffId, TreeDiff] = {}
@@ -302,6 +304,14 @@ class InMemoryCorpusStore:
 
     def latest_tree_snapshot(self) -> Snapshot | None:
         return self._latest_tree
+
+    def put_profile_tree(self, profile_id: ProfileId, snapshot: Snapshot) -> None:
+        kept = self._profile_trees.get(profile_id)
+        if kept is None or snapshot.taken_at >= kept.taken_at:
+            self._profile_trees[profile_id] = snapshot
+
+    def profile_trees(self) -> dict[ProfileId, Snapshot]:
+        return dict(self._profile_trees)
 
     def put_snapshot(self, snapshot_id: SnapshotId, snapshot: Snapshot) -> None:
         self._snapshots[snapshot_id] = snapshot

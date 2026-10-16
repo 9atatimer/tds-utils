@@ -599,7 +599,10 @@ class Dispatcher:
         # Two use cases, two units: a kill between them leaves the snapshot
         # unanswered, and its re-send runs both again (each is idempotent).
         record_tree_snapshot(
-            snapshot_from_wire(message.snapshot), session.role, store=self._store
+            snapshot_from_wire(message.snapshot),
+            session.role,
+            _profile(session),
+            store=self._store,
         )
         ensure_writer_marker(
             session.role,

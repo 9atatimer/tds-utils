@@ -563,9 +563,10 @@ connection is answered `invalid` (a reader cannot apply a diff and has no
 channel to the writer); `diff.list` and `diff.page` still read the diffs
 the store holds. It serves every other request: `ingest` indexes for its
 own search and chat and never files (the job ends `INDEXED`),
-`move.observed` is discarded for feedback, a `batch.receipt` is recorded
-but mints no batch (Jobs, Receipt -> job), and no `batch.offer` is ever
-sent.
+`move.observed` is discarded for feedback, a `tree.snapshot` is kept as
+that profile's latest tree for Retention only (never the tree filing,
+outlines and undo read), a `batch.receipt` is recorded but mints no batch
+(Jobs, Receipt -> job), and no `batch.offer` is ever sent.
 
 ## Size limits
 
