@@ -5,7 +5,9 @@
 // (Enter hands the content back) and whose description is Chrome's small XML
 // dialect, every daemon-supplied string escaped; the Ask row comes last. The
 // default row (the typed text itself) says Ask when there is no hit, because
-// Enter on it then asks.
+// Enter on it then asks. Firefox's omnibox is the same API but shows
+// descriptions as plain text; it passes its own OmniboxDialect
+// (adapters/firefox/omnibox.ts).
 
 import { askRowContent, type OmniboxRows } from '../../domain/omnibox.js';
 import type { Hit } from '../../domain/search.js';
@@ -26,6 +28,16 @@ export interface OmniboxHandlers {
 
 interface EventLike<A extends unknown[]> {
   addListener(callback: (...args: A) => void): void;
+}
+
+/** How a browser's omnibox writes a row's description. */
+export interface OmniboxDialect {
+  hit(hit: Hit): string;
+  ask(question: string): string;
+  /** The default row while Enter searches. */
+  readonly searchDefault: string;
+  /** The default row while Enter asks. */
+  readonly askDefault: string;
 }
 
 /** The part of chrome.omnibox this adapter uses. */
@@ -57,24 +69,32 @@ export function describeAsk(question: string): string {
   return `Ask: <match>${escapeXml(question)}</match>`;
 }
 
-function toSuggestions(rows: OmniboxRows): OmniboxSuggestion[] {
-  const hits = rows.hits.map((hit) => ({ content: hit.identity, description: describeHit(hit) }));
-  return rows.ask === undefined ? hits : [...hits, { content: askRowContent(rows.ask), description: describeAsk(rows.ask) }];
+/** Chrome's dialect: its small XML markup, every daemon-supplied string escaped. */
+export const XML_DIALECT: OmniboxDialect = {
+  hit: describeHit,
+  ask: describeAsk,
+  searchDefault: SEARCH_DESCRIPTION,
+  askDefault: ASK_DESCRIPTION,
+};
+
+function toSuggestions(rows: OmniboxRows, dialect: OmniboxDialect): OmniboxSuggestion[] {
+  const hits = rows.hits.map((hit) => ({ content: hit.identity, description: dialect.hit(hit) }));
+  return rows.ask === undefined ? hits : [...hits, { content: askRowContent(rows.ask), description: dialect.ask(rows.ask) }];
 }
 
 // --- Entry ---
 
-/** Wire the omnibox keyword to the background's handlers. */
-export function listenOmnibox(handlers: OmniboxHandlers, api: OmniboxApi = chrome.omnibox): void {
+/** Wire the omnibox keyword to the background's handlers, writing rows in `dialect`. */
+export function listenOmnibox(handlers: OmniboxHandlers, api: OmniboxApi = chrome.omnibox, dialect: OmniboxDialect = XML_DIALECT): void {
   let asking = false;
-  api.setDefaultSuggestion({ description: SEARCH_DESCRIPTION });
+  api.setDefaultSuggestion({ description: dialect.searchDefault });
   api.onInputChanged.addListener((text, suggest) =>
     handlers.input(text, (rows) => {
       if (rows.enter_asks !== asking) {
         asking = rows.enter_asks;
-        api.setDefaultSuggestion({ description: asking ? ASK_DESCRIPTION : SEARCH_DESCRIPTION });
+        api.setDefaultSuggestion({ description: asking ? dialect.askDefault : dialect.searchDefault });
       }
-      suggest(toSuggestions(rows));
+      suggest(toSuggestions(rows, dialect));
     }),
   );
   api.onInputEntered.addListener((text, disposition) => handlers.enter(text, disposition));
