@@ -45,6 +45,7 @@ WORD: Final = re.compile(r"\w+")
 TABLES: Final = (
     "_entries",
     "_positions",
+    "_last_position",
     "_placements",
     "_jobs",
     "_saves",
@@ -113,6 +114,9 @@ class InMemoryCorpusStore:
     def __init__(self) -> None:
         self._entries: dict[Identity, CorpusEntry] = {}
         self._positions: dict[Identity, int] = {}
+        self._last_position = 0
+        """The highest position ever given, as SQLite's AUTOINCREMENT keeps
+        it: a dropped entry put again takes a new one after it."""
         self._placements: dict[Identity, Placement] = {}
         self._jobs: dict[JobId, Job] = {}
         self._saves: dict[JobId, Save] = {}
@@ -145,7 +149,9 @@ class InMemoryCorpusStore:
     # --- Entries ---
 
     def put_entry(self, entry: CorpusEntry) -> None:
-        self._positions.setdefault(entry.identity, len(self._positions) + 1)
+        if entry.identity not in self._positions:
+            self._last_position += 1
+            self._positions[entry.identity] = self._last_position
         self._entries[entry.identity] = entry
 
     def get_entry(self, identity: Identity) -> CorpusEntry | None:
@@ -177,6 +183,7 @@ class InMemoryCorpusStore:
 
     def drop_entry(self, identity: Identity) -> None:
         self._entries.pop(identity, None)
+        self._positions.pop(identity, None)
         self._placements.pop(identity, None)
         self._absences.pop(identity, None)
         for job in self._jobs.values():
