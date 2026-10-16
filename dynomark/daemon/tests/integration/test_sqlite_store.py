@@ -46,6 +46,9 @@ from tests._factories import (
     make_snapshot,
 )
 
+MODEL = "fake:hashing"
+"""The model ``make_entry`` embeds with."""
+
 pytestmark = pytest.mark.integration
 
 A = ProfileId("profile-a")
@@ -158,7 +161,7 @@ def test_vectors_are_kept_at_float32_precision(tmp_path: Path) -> None:
 
     assert entry is not None
     assert entry.embedding.vector == tuple(array.array("f", vector))
-    (nearest,) = store.knn_candidates(vector, limit=1)
+    (nearest,) = store.knn_candidates(vector, model_id=MODEL, limit=1)
     assert nearest.identity == entry.identity and round(nearest.score, 6) == 1.0
 
 
@@ -171,7 +174,9 @@ def _traced_store(db: Path, statements: list[str]) -> SqliteCorpusStore:
 
 
 def _nearest(store: SqliteCorpusStore, *, placed_only: bool = False) -> list[str]:
-    found = store.knn_candidates((1.0, 0.0), limit=5, placed_only=placed_only)
+    found = store.knn_candidates(
+        (1.0, 0.0), model_id=MODEL, limit=5, placed_only=placed_only
+    )
     return [c.identity.value for c in found]
 
 
@@ -286,7 +291,9 @@ def test_a_vector_beyond_float32_ranks_as_unrelated_not_unordered(
         store.put_entry(make_entry(url, vector=vector))
         store.put_placement(make_placement(url))
 
-    found = store.knn_candidates((1.0, 0.0), limit=5, placed_only=placed_only)
+    found = store.knn_candidates(
+        (1.0, 0.0), model_id=MODEL, limit=5, placed_only=placed_only
+    )
 
     assert [(c.identity.value, round(c.score, 3)) for c in found] == [
         ("https://a.example/", 1.0),
@@ -314,7 +321,9 @@ def test_a_vector_that_is_not_float32_ranks_as_unrelated_not_an_error(
             " ELSE 'eight ch' END WHERE identity != 'https://a.example/'"
         )
 
-    found = store.knn_candidates((1.0, 0.0), limit=5, placed_only=placed_only)
+    found = store.knn_candidates(
+        (1.0, 0.0), model_id=MODEL, limit=5, placed_only=placed_only
+    )
 
     assert [(c.identity.value, round(c.score, 3)) for c in found] == [
         ("https://a.example/", 1.0),

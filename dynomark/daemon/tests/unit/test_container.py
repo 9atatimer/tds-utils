@@ -16,6 +16,7 @@ from dynomark_daemon.domain.bookmark import (
     Bookmark,
     Capture,
     CorpusEntry,
+    Embedding,
     Enrichment,
     Identity,
 )
@@ -470,3 +471,20 @@ def test_the_job_loop_enforces_retention_on_its_clock() -> None:
 
     assert list(tracked) == [Identity(url)]
     assert ports.store.get_entry(Identity(url)) is None
+
+
+def test_the_job_loop_re_embeds_entries_of_an_old_model() -> None:
+    """Given entries embedded by a model the daemon no longer uses, When the job
+    loop runs a pass, Then every entry is embedded by the current model (the
+    model change is caught up in the background; issue #423)."""
+    ports = _ports(ScriptedCompletion())
+    for url in ("https://a.example/", "https://b.example/"):
+        entry = make_entry(url)
+        ports.store.put_entry(
+            replace(entry, embedding=Embedding(vector=(1.0, 0.0), model_id="old:m"))
+        )
+
+    JobLoop(make_config(), ports).run_once()
+
+    models = {s.entry.embedding.model_id for s in ports.store.list_entries(limit=10)}
+    assert models == {ports.embedding.model().model_id}

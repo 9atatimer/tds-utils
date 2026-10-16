@@ -23,7 +23,7 @@ import pytest
 
 from dynomark_daemon.adapters.sqlite_store import SqliteCorpusStore
 from dynomark_daemon.domain.batch import BatchRecord, BatchState, ReceiptApplied
-from dynomark_daemon.domain.bookmark import Identity, Save
+from dynomark_daemon.domain.bookmark import CorpusEntry, Embedding, Identity, Save
 from dynomark_daemon.domain.events import JobUpdated, PendingEvent
 from dynomark_daemon.domain.ids import (
     BatchId,
@@ -55,6 +55,9 @@ from tests._factories import (
     make_placement,
     make_snapshot,
 )
+
+MODEL = "fake:hashing"
+"""The model ``make_entry`` embeds with."""
 
 pytestmark = pytest.mark.contract
 
@@ -217,7 +220,7 @@ def test_knn_candidates_are_nearest_first_and_limited(store: CorpusStorePort) ->
     store.put_entry(make_entry("https://near.example/", vector=(0.8, 0.6)))
     store.put_entry(make_entry("https://far.example/", vector=(0.0, 1.0)))
 
-    found = store.knn_candidates((1.0, 0.0), limit=2)
+    found = store.knn_candidates((1.0, 0.0), model_id=MODEL, limit=2)
 
     assert [c.identity.value for c in found] == [
         "https://same.example/",
@@ -236,13 +239,53 @@ def test_knn_candidates_placed_only_skips_unplaced_entries(
     store.put_entry(make_entry("https://loose.example/", vector=(1.0, 0.0)))
     store.put_placement(make_placement("https://placed.example/"))
 
-    found = store.knn_candidates((1.0, 0.0), limit=5, placed_only=True)
+    found = store.knn_candidates((1.0, 0.0), model_id=MODEL, limit=5, placed_only=True)
 
     assert [c.identity.value for c in found] == ["https://placed.example/"]
 
 
+def _embedded_by(url: str, model_id: str, vector: tuple[float, ...]) -> CorpusEntry:
+    entry = make_entry(url, vector=vector)
+    return replace(entry, embedding=Embedding(vector=vector, model_id=model_id))
+
+
+def test_knn_candidates_are_only_entries_of_the_querys_model(
+    store: CorpusStorePort,
+) -> None:
+    """Given entries embedded by two models, When neighbours are asked for in
+    one model, Then only that model's entries are candidates: vectors of
+    another model live in another space (issue #423)."""
+    store.put_entry(_embedded_by("https://new.example/", MODEL, (0.6, 0.8)))
+    store.put_entry(_embedded_by("https://old.example/", "old:model", (1.0, 0.0)))
+
+    found = store.knn_candidates((1.0, 0.0), model_id=MODEL, limit=5)
+
+    assert [c.identity.value for c in found] == ["https://new.example/"]
+
+
+def test_entries_embedded_otherwise_are_the_other_models_by_position(
+    store: CorpusStorePort,
+) -> None:
+    """Given entries of the current model and of two others, When the entries
+    not embedded by the current model are asked for, Then they come in
+    position order, up to the limit."""
+    store.put_entry(_embedded_by("https://a.example/", "old:one", (1.0, 0.0)))
+    store.put_entry(_embedded_by("https://b.example/", MODEL, (1.0, 0.0)))
+    store.put_entry(_embedded_by("https://c.example/", "old:two", (1.0, 0.0)))
+    store.put_entry(_embedded_by("https://d.example/", "old:one", (1.0, 0.0)))
+
+    found = store.entries_embedded_otherwise(MODEL, limit=2)
+
+    assert [e.identity.value for e in found] == [
+        "https://a.example/",
+        "https://c.example/",
+    ]
+
+
 def _nearest(store: CorpusStorePort, *, placed_only: bool = False) -> list[str]:
-    found = store.knn_candidates((1.0, 0.0), limit=5, placed_only=placed_only)
+    found = store.knn_candidates(
+        (1.0, 0.0), model_id=MODEL, limit=5, placed_only=placed_only
+    )
     return [c.identity.value for c in found]
 
 
@@ -274,7 +317,9 @@ def _scored(
     limit: int = 10,
     placed_only: bool = False,
 ) -> list[tuple[str, float]]:
-    found = store.knn_candidates(query, limit=limit, placed_only=placed_only)
+    found = store.knn_candidates(
+        query, model_id=MODEL, limit=limit, placed_only=placed_only
+    )
     return [(c.identity.value, round(c.score, 3)) for c in found]
 
 
@@ -728,9 +773,9 @@ def test_drop_entry_removes_its_entry_saves_and_placement_only(
     assert store.get_placement(Identity(tokio)) is None
     assert store.get_save(JobId("job-1")) is None
     assert store.text_candidates(Query("tokio"), limit=10) == []
-    assert [c.identity for c in store.knn_candidates((1.0, 0.0), limit=10)] == [
-        Identity(other)
-    ]
+    assert [
+        c.identity for c in store.knn_candidates((1.0, 0.0), model_id=MODEL, limit=10)
+    ] == [Identity(other)]
     assert store.absences() == {}
     assert store.get_job(JobId("job-1")) is not None
     assert store.get_save(JobId("job-2")) is not None
@@ -799,10 +844,15 @@ def _state(store: CorpusStorePort) -> object:
     return (
         [s.entry for s in store.list_entries(limit=10)],
         [c.identity for c in store.text_candidates(Query("tokio"), limit=10)],
-        [c.identity for c in store.knn_candidates((1.0, 0.0), limit=10)],
         [
             c.identity
-            for c in store.knn_candidates((1.0, 0.0), limit=10, placed_only=True)
+            for c in store.knn_candidates((1.0, 0.0), model_id=MODEL, limit=10)
+        ],
+        [
+            c.identity
+            for c in store.knn_candidates(
+                (1.0, 0.0), model_id=MODEL, limit=10, placed_only=True
+            )
         ],
         store.get_placement(Identity("https://tokio.rs/tokio/tutorial")),
         store.list_jobs(),
@@ -907,7 +957,7 @@ def test_a_unit_inside_a_unit_that_raises_undoes_only_its_own_writes(
     assert [j.job_id for j in store.list_jobs()] == ["job-1"]
     assert store.list_batches() == []
     assert store.list_entries(limit=10) == []
-    assert store.knn_candidates((1.0, 0.0), limit=10) == []
+    assert store.knn_candidates((1.0, 0.0), model_id=MODEL, limit=10) == []
     assert [p.event.event_id for p in store.unacked_events(PROFILE_A)] == ["evt-1"]
 
 
