@@ -31,13 +31,17 @@ import { fileURLToPath } from 'node:url';
 import { normalizeAnswers, unwrapResponse } from '../lib/decide/answers.mjs';
 import { USAGE, parseArgs } from '../lib/decide/args.mjs';
 import { acceptToken, buildRequest, opReadArgv, resolveConfig } from '../lib/decide/backend.mjs';
-import { FAILURE, classifyHttpFailure, classifyTransportError, exitCodeFor, failure, isSuccessStatus, redact, shouldRetry } from '../lib/decide/failure.mjs';
+import { FAILURE, classifyHttpFailure, classifyTransportError, exitCodeFor, failure, isSuccessStatus, kindOf429, redact, shouldRetry } from '../lib/decide/failure.mjs';
 import { validateRecord } from '../lib/decide/schema.mjs';
 
 // --- Constants --------------------------------------------------------------
 
 /** The pause before the one retry a network error or 502/503/504 earns. */
 export const RETRY_DELAY_MS = 2000;
+
+/** The longer pause before retrying the gateway's request-rate limit
+ * (Issue#520): a retry inside the same window is refused again. */
+export const RATE_LIMIT_RETRY_DELAY_MS = 10000;
 
 /** The probe: the smallest request a decision model can answer. */
 export const PROBE_REQUEST = Object.freeze({
@@ -119,7 +123,8 @@ export async function postOnce(request, { fetch, timeoutMs, signalFor }) {
 }
 
 /**
- * The request with its one retry: after a network error or a 502/503/504,
+ * The request with its one retry: after a network error, a 502/503/504, or
+ * a capacity or rate-limit 429 (RATE_LIMIT_RETRY_DELAY_MS for the latter),
  * wait RETRY_DELAY_MS and try once more. latency_ms is the answered
  * attempt's own HTTP time. Resolves { ok: true, body, latencyMs } or
  * { ok: false, error } (messages redacted of the token).
@@ -132,7 +137,8 @@ export async function exchange(request, { fetch, clock, timeoutMs, token, signal
     attempt = await postOnce(request, { fetch, timeoutMs, signalFor });
     latencyMs = Math.round(clock.now() - started);
     if (tries === 1 && shouldRetry(attempt)) {
-      await clock.sleep(RETRY_DELAY_MS);
+      const rateLimited = attempt.status === 429 && kindOf429(attempt.body) === 'rate';
+      await clock.sleep(rateLimited ? RATE_LIMIT_RETRY_DELAY_MS : RETRY_DELAY_MS);
       continue;
     }
     break;

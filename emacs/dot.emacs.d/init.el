@@ -27,6 +27,15 @@
   (set-selection-coding-system 'compound-text-with-extensions)) ; Extended compound-text coding for X clipboard
 
 ;; Package management setup for Emacs 24 and above
+;;
+;; Emacs 30 ships a `compat' 30 stub with no `static-when'.  A package
+;; compiled in a session that already loaded that stub (transient, magit)
+;; compiles `static-when' as a function call and then fails to load with
+;; (invalid-function static-when), even once elpa's compat 31 is installed.
+;; Repair by recompiling in a fresh process, where package-initialize puts
+;; elpa's compat first:
+;;   emacs -Q --batch --eval '(progn (package-initialize) (package-recompile-all))'
+;; Issue #505.
 (when (>= emacs-major-version 24)
   (require 'package)
   (setq package-archives '(("melpa-stable" . "https://stable.melpa.org/packages/")

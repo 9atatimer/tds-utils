@@ -72,7 +72,7 @@ for the shepherd).
 | File | Purpose |
 |------|---------|
 | `tmux.conf` | tmux hooks and TPM plugins (resurrect, continuum) -- symlink to `~/.tmux.conf` |
-| `bin/tmux-launch` | Called by `dot.zshrc` per terminal: creates session `main` or adds a window to it, then attaches. Only a shell on a terminal with no `-c` command hands off, so GUI environment probes (`zsh -ilc`) never open a window (issue #427) |
+| `bin/tmux-launch` | Called by `dot.zshrc` per terminal: creates session `main` or adds a window to it, then attaches. Only a shell on a terminal with no `-c` command hands off, so GUI environment probes (`zsh -ilc`) never open a window (issue #427); a shell the Claude desktop app opens (Terminal-panel tab, bash mode, Run button) never hands off either (issue #498) |
 | `tmux_logging.sh` | Opens pipe-pane at pane creation |
 | `tmux_shepherd.sh` | Archives logs on exit; sweeps orphans; delegates branding to cron |
 | `log_brander` | Stub — samples log, calls local LLM, writes `slug.txt` |
@@ -146,6 +146,9 @@ Set "Run command" to:
 `dot.zshrc` already ends with the tmux auto-launch block (`--- Main ---`):
 a shell on a terminal, outside tmux and with no `-c` command, execs
 `bin/tmux-launch`, or `tmux new-session` when `tmux-launch` is not on PATH.
+A shell the Claude desktop app opens is the exception: it carries
+`TERM_PROGRAM=claude-desktop` or `CLAUDE_AGENT_SDK_VERSION` and stays a plain
+shell, because in session `main` it would steer every other client's window.
 
 ### 5. Add the cron job
 

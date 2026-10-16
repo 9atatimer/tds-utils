@@ -282,6 +282,21 @@ test('502/503/504 twice fails unavailable after exactly one retry', async () => 
   }
 });
 
+test('a capacity 429 is retried once after 2 s; a rate-limit 429 after 10 s (Issue#520)', async () => {
+  const cases = [
+    ['AiError: Capacity temporarily exceeded, please try again.', 2000],
+    ['Unified billing rate limited', 10000],
+  ];
+  for (const [message, pause] of cases) {
+    const clock = fakeClock();
+    const fetch = fakeFetch(sequence(response(429, { success: false, errors: [{ message }] }), response(200, wrapped(RESULT))));
+    const io = fakeIo({ stdin: JSON.stringify(RECORD), fetch, clock });
+    assert.equal(await runCli(['run'], io), 0, message);
+    assert.equal(fetch.calls.length, 2, message);
+    assert.deepEqual(clock.sleeps, [pause], message);
+  }
+});
+
 test('a network error is retried once; a second one is unavailable', async () => {
   const recovers = fakeFetch(sequence(networkError(), response(200, wrapped(RESULT))));
   assert.equal(await runCli(['run'], fakeIo({ stdin: JSON.stringify(RECORD), fetch: recovers })), 0);

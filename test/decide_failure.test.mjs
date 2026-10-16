@@ -46,6 +46,31 @@ test('a 429 says spend limit or rate limit', () => {
   assert.match(classifyHttpFailure(429).message, /spend limit or rate limit \(HTTP 429\)/);
 });
 
+// Issue#520: three different 429s, told apart by the vendor's message.
+const CAPACITY_429 = { errors: [{ message: 'AiError: AiError: Capacity temporarily exceeded, please try again. (fec9d3c8-bb67)' }] };
+const RATE_429 = { errors: [{ message: 'Unified billing rate limited' }] };
+
+test('a Workers AI capacity 429 says capacity, not spend', () => {
+  const said = classifyHttpFailure(429, CAPACITY_429);
+  assert.equal(said.class, 'unavailable');
+  assert.match(said.message, /Workers AI capacity is temporarily exceeded \(HTTP 429\)/);
+  assert.doesNotMatch(said.message, /spend/);
+});
+
+test("a gateway rate-limit 429 says the request rate, not spend", () => {
+  const said = classifyHttpFailure(429, RATE_429);
+  assert.equal(said.class, 'unavailable');
+  assert.match(said.message, /request-rate limit \(HTTP 429\)/);
+  assert.doesNotMatch(said.message, /spend/);
+});
+
+test('a capacity or rate-limit 429 earns the retry; any other 429 does not', () => {
+  assert.equal(shouldRetry({ status: 429, body: CAPACITY_429 }), true);
+  assert.equal(shouldRetry({ status: 429, body: RATE_429 }), true);
+  assert.equal(shouldRetry({ status: 429, body: { errors: [{ message: 'spend limit exceeded' }] } }), false);
+  assert.equal(shouldRetry({ status: 429, body: null }), false);
+});
+
 test("the vendor's error message rides along, trimmed", () => {
   assert.match(classifyHttpFailure(400, { errors: [{ code: 5006, message: 'Error: questions too long' }] }).message, /: Error: questions too long$/);
   assert.equal(vendorMessage({ error: { message: 'bad' } }), 'bad');

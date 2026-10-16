@@ -113,8 +113,11 @@ Connectivity and latency: `bin/decide probe` -> `{"ok": true, "model":
   failed request is a failure line, not the end of the batch. Exit 0 when
   every line succeeded, else the exit code of the first failure in input
   order.
-- Retries: one, after 2 s, on a network error or HTTP 502/503/504. Never
-  on a timeout, a 429 or any other status.
+- Retries: one, after 2 s, on a network error, HTTP 502/503/504, or a
+  Workers AI capacity 429 ("Capacity temporarily exceeded"); one, after
+  10 s, on the gateway's request-rate 429 ("rate limited"). Never on a
+  timeout, any other 429 (a spend rule holds until its window resets), or
+  any other status.
 
 ## The answer
 
@@ -154,7 +157,7 @@ Failures still print JSON on stdout: `{"id": ..., "ok": false, "error":
 |---|---|---|---|
 | 2 | `config` | missing or bad environment or flags; `op read` failed; HTTP 404 (no such route or model) | fix the setup above |
 | 3 | `rejected` | the record failed local validation, or HTTP 400/413/422 (and other 4xx) | fix the record; the message carries the vendor's reason |
-| 4 | `unavailable` | network error, timeout, HTTP 5xx, 402, or 429 ("spend limit or rate limit (HTTP 429)") | wait; for 429 check the gateway's per-tool spend rule |
+| 4 | `unavailable` | network error, timeout, HTTP 5xx, 402, or 429. A 429 names its kind: "Workers AI capacity is temporarily exceeded", "the gateway's request-rate limit", or otherwise "spend limit or rate limit" | capacity: rerun later; request rate: lower `--concurrency`; otherwise check the gateway's per-tool spend rule |
 | 5 | `auth` | HTTP 401/403: the token was refused | check the token or item |
 | 6 | `malformed` | a 2xx that is not JSON, lacks a question, or has an answer that cannot be read | look at the vendor's answer; see "Answer shapes" |
 

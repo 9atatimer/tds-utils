@@ -155,6 +155,10 @@ Operating it (install, release, re-deriving the allow-list, diagnosis):
 
 ## Install, operate, remove
 
+The runbook -- ship, verify, roll back, debug, gotchas, known gaps -- is
+[docs/ops/ollama-gateway.md](../../../docs/ops/ollama-gateway.md); the
+as-built is [docs/arch/ollama-gateway/](../../../docs/arch/ollama-gateway/ARCHITECTURE.md).
+
 - Install: `lmde install proxy-layer` and `lmde install ollama-gateway`
   (or each `setup.sh`), in either order. Re-run the gateway's install
   after a change to the kernel's ephemeral port range (`sysctl
