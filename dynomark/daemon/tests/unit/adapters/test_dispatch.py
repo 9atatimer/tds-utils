@@ -363,14 +363,11 @@ def test_a_receipt_for_another_profiles_batch_is_recorded_and_mints_no_batch() -
     assert record.undone_by is None
 
 
-@pytest.mark.parametrize("role", [HostRole.WRITER, HostRole.READER])
-def test_url_vet_answers_whether_a_background_tab_may_load_the_url(
-    role: HostRole,
-) -> None:
-    """Given a connection of either role, When url.vet names a public URL, a
-    private one and a non-http one, Then the first is allowed and the others
-    refused with address and scheme (contract v2, Background-tab capture)."""
-    harness = Harness(role)
+def test_url_vet_answers_whether_a_background_tab_may_load_the_url() -> None:
+    """Given a writer connection, When url.vet names a public URL, a private
+    one and a non-http one, Then the first is allowed and the others refused
+    with address and scheme (contract v2, Background-tab capture)."""
+    harness = Harness()
     harness.hello()
 
     public = harness.send(wire.body("url.vet", "v-1", url="https://tokio.rs/"))
@@ -383,6 +380,18 @@ def test_url_vet_answers_whether_a_background_tab_may_load_the_url(
     assert (private.allowed, private.refusal) == (False, "address")
     assert isinstance(other, m.UrlVetResult)
     assert (other.allowed, other.refusal) == (False, "scheme")
+
+
+def test_url_vet_on_a_reader_connection_is_refused_not_writer() -> None:
+    """Given a reader connection, When url.vet arrives, Then it is answered
+    not_writer: background-tab capture is the writer's alone (contract v2,
+    Background-tab capture)."""
+    harness = Harness(HostRole.READER)
+    harness.hello()
+
+    reply = harness.send(wire.body("url.vet", "v-1", url="https://tokio.rs/"))
+
+    assert _error(reply) == ("v-1", "not_writer")
 
 
 def test_a_foreign_cursor_is_stale() -> None:
@@ -895,15 +904,17 @@ def _rebound_to_b(harness: Harness) -> Session:
             "folder.flags.set",
             {"path": {"root": "bar", "names": ["Dynomark", "Rust"]}, "locked": True},
         ),
+        ("url.vet", {"url": "https://tokio.rs/"}),
     ],
 )
 def test_after_rebind_the_old_writers_live_connection_is_refused_not_writer(
     message_type: str, fields: dict[str, object]
 ) -> None:
     """Given profile A's live writer connection, When rebind runs and profile B
-    binds, and then undo, diff.accept or folder.flags.set arrives on A's
-    connection, Then it is answered not_writer, as a reader connection's
-    would be (issue #534 T3: one writer per store)."""
+    binds, and then undo, diff.accept, folder.flags.set or url.vet arrives on
+    A's connection, Then it is answered not_writer, as a reader connection's
+    would be (issue #534 T3: one writer per store; Codex on
+    9atatimer/tds-utils PR#535 for url.vet)."""
     harness = Harness()
     _rebound_to_b(harness)
 
