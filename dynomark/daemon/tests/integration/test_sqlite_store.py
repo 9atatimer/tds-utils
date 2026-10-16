@@ -6,6 +6,7 @@ disk ... owner-only permissions in the user's state directory"); task-025
 """
 
 import array
+import json
 import sqlite3
 import stat
 from collections.abc import Sequence
@@ -22,18 +23,29 @@ from dynomark_daemon.adapters.sqlite_store import (
     SqliteCorpusStore,
     StoreError,
 )
-from dynomark_daemon.domain.batch import BatchRecord, BatchState, ReceiptApplied
+from dynomark_daemon.domain.batch import (
+    BatchRecord,
+    BatchState,
+    Expect,
+    Operation,
+    OpMove,
+    OpRemove,
+    ReceiptApplied,
+)
 from dynomark_daemon.domain.bookmark import Save
-from dynomark_daemon.domain.events import JobUpdated
+from dynomark_daemon.domain.events import BatchOffered, JobUpdated
 from dynomark_daemon.domain.ids import (
     BatchId,
     EventId,
+    ItemId,
     JobId,
+    NodeId,
     ProfileId,
     RequestId,
     SnapshotId,
 )
 from dynomark_daemon.domain.tree import FolderFlags, Snapshot
+from dynomark_daemon.wire.mapping import write_batch_to_wire
 from tests._factories import (
     make_batch,
     make_bookmark,
@@ -640,4 +652,115 @@ def test_a_version_4_file_keys_its_folder_flags_by_path(tmp_path: Path) -> None:
     assert store.folder_flags() == {
         make_path("Dynomark", "Rust"): FolderFlags(pinned=True, locked=True)
     }
+    store.close()
+
+
+def _version_6_file(db: Path) -> sqlite3.Connection:
+    """A store file at schema 6, before diff-item batches carried a scope."""
+    raw = sqlite3.connect(db, isolation_level=None)
+    for migration in MIGRATIONS[:6]:
+        if isinstance(migration, str):
+            raw.executescript(migration)
+        else:
+            migration(raw)
+    raw.execute("PRAGMA user_version = 6")
+    return raw
+
+
+def _unscoped(document: str) -> str:
+    """``document`` as written before ``WriteBatch.scope`` existed."""
+    data = json.loads(document)
+    batch = data["batch"]
+    del batch["scope"]
+    return json.dumps(data)
+
+
+def _item_record(
+    batch_id: str, item_id: str, ops: tuple[Operation, ...]
+) -> BatchRecord:
+    record = make_batch(batch_id, operations=ops)
+    return replace(record, batch=replace(record.batch, diff_item_id=ItemId(item_id)))
+
+
+def test_a_version_6_files_unscoped_item_batch_gets_its_scope_from_its_operations(
+    tmp_path: Path,
+) -> None:
+    """Given a schema-6 file holding an accepted item's batch and its pending
+    offer, both written before batches carried a scope, When opened, Then the
+    batch and the offer carry the scope its operations name, and the offer
+    can be put on the wire (issue #534 T8: it raised ValidationError)."""
+    db = tmp_path / "corpus.sqlite3"
+    move = OpMove(
+        index=0,
+        node_id=NodeId("42"),
+        to=make_path("Dynomark", "Rust"),
+        expect=Expect(parent_id=NodeId("5"), parent_path=make_path("Reading")),
+    )
+    record = _item_record("batch-item", "item-1", (move,))
+    offer = BatchOffered(event_id=EventId("event-1"), batch=record.batch)
+    raw = _version_6_file(db)
+    raw.execute(
+        "INSERT INTO batches (batch_id, created_at, profile_id, state, doc)"
+        " VALUES (?, ?, ?, ?, ?)",
+        (
+            "batch-item",
+            record.created_at,
+            "profile-a",
+            "PROPOSED",
+            _unscoped(dump_record(record)),
+        ),
+    )
+    raw.execute(
+        "INSERT INTO events (profile_id, event_id, doc) VALUES (?, ?, ?)",
+        ("profile-a", "event-1", _unscoped(dump_record(offer))),
+    )
+    raw.close()
+
+    store = SqliteCorpusStore.open(db)
+
+    scope = (make_path("Dynomark", "Rust"), make_path("Reading"))
+    migrated = store.get_batch(BatchId("batch-item"))
+    assert migrated is not None and migrated.batch.scope == scope
+    assert migrated.state is BatchState.PROPOSED
+    (pending,) = store.unacked_events(ProfileId("profile-a"))
+    assert isinstance(pending.event, BatchOffered)
+    assert pending.event.batch.scope == scope
+    assert write_batch_to_wire(pending.event.batch).scope is not None
+    store.close()
+
+
+def test_a_version_6_files_item_batch_naming_no_folder_is_rejected_unoffered(
+    tmp_path: Path,
+) -> None:
+    """Given a schema-6 file holding an unscoped item batch whose operations
+    name no folder (a remove whose parent path is unknown) and its pending
+    offer, When opened, Then the batch is REJECTED and its offer is gone:
+    it is never offered without a scope (fail-closed, issue #534 T8)."""
+    db = tmp_path / "corpus.sqlite3"
+    remove = OpRemove(index=0, node_id=NodeId("42"), expect=Expect(NodeId("5")))
+    record = _item_record("batch-bare", "item-2", (remove,))
+    offer = BatchOffered(event_id=EventId("event-2"), batch=record.batch)
+    raw = _version_6_file(db)
+    raw.execute(
+        "INSERT INTO batches (batch_id, created_at, profile_id, state, doc)"
+        " VALUES (?, ?, ?, ?, ?)",
+        (
+            "batch-bare",
+            record.created_at,
+            "profile-a",
+            "PROPOSED",
+            _unscoped(dump_record(record)),
+        ),
+    )
+    raw.execute(
+        "INSERT INTO events (profile_id, event_id, doc) VALUES (?, ?, ?)",
+        ("profile-a", "event-2", _unscoped(dump_record(offer))),
+    )
+    raw.close()
+
+    store = SqliteCorpusStore.open(db)
+
+    migrated = store.get_batch(BatchId("batch-bare"))
+    assert migrated is not None and migrated.state is BatchState.REJECTED
+    assert store.unacked_events(ProfileId("profile-a")) == []
     store.close()
