@@ -44,7 +44,7 @@ from typing import Final, Self
 import sqlite_vec
 
 from dynomark_daemon.adapters.records import dump_record, load_record
-from dynomark_daemon.domain.batch import BatchRecord, BatchState
+from dynomark_daemon.domain.batch import BatchRecord, BatchState, item_scope
 from dynomark_daemon.domain.bookmark import CorpusEntry, Embedding, Identity, Save
 from dynomark_daemon.domain.diff import DiffItem, TreeDiff
 from dynomark_daemon.domain.events import (
@@ -101,6 +101,54 @@ def _flags_by_path(db: sqlite3.Connection) -> None:
                 (dump_record(path), pinned, locked),
             )
     db.execute("DROP TABLE folder_flags")
+
+
+def _item_scopes(db: sqlite3.Connection) -> None:
+    """Migration 7: an accepted item's batch written before ``WriteBatch``
+    carried a scope (it decodes as none, and no offer of it fits the
+    contract) gets the scope its operations name -- an inverse, its
+    original's -- in its row and in its pending offer. One still PROPOSED
+    whose operations name no folder cannot be offered: it is ``REJECTED``,
+    which its batch history shows, and its offer leaves the outbox (issue
+    #534 T8)."""
+    rows = db.execute("SELECT doc FROM batches").fetchall()
+    records = {
+        r.batch.batch_id: r for r in (load_record(str(d), BatchRecord) for (d,) in rows)
+    }
+    scoped: dict[BatchId, BatchRecord] = {}
+    for batch_id, record in records.items():
+        batch = record.batch
+        if batch.diff_item_id is None or batch.scope:
+            continue
+        original = records.get(record.undoes) if record.undoes else None
+        scope = item_scope((original or record).batch.operations)
+        if scope:
+            fixed = replace(record, batch=replace(batch, scope=scope))
+        elif record.state is BatchState.PROPOSED:
+            fixed = replace(record, state=BatchState.REJECTED)
+        else:
+            continue  # answered already: never offered again
+        scoped[batch_id] = fixed
+        db.execute(
+            "UPDATE batches SET state = ?, doc = ? WHERE batch_id = ?",
+            (fixed.state.value, dump_record(fixed), batch_id),
+        )
+    if not scoped:
+        return
+    for seq, doc in db.execute("SELECT seq, doc FROM events").fetchall():
+        event = load_record(str(doc), Event, EVENT_TYPES)
+        if not isinstance(event, BatchOffered):
+            continue
+        migrated = scoped.get(event.batch.batch_id)
+        if migrated is None:
+            continue
+        if migrated.state is BatchState.REJECTED:
+            db.execute("DELETE FROM events WHERE seq = ?", (seq,))
+        else:
+            offered = replace(event, batch=migrated.batch)
+            db.execute(
+                "UPDATE events SET doc = ? WHERE seq = ?", (dump_record(offered), seq)
+            )
 
 
 MIGRATIONS: Final[tuple[str | Callable[[sqlite3.Connection], None], ...]] = (
@@ -225,6 +273,9 @@ MIGRATIONS: Final[tuple[str | Callable[[sqlite3.Connection], None], ...]] = (
         doc TEXT NOT NULL
     );
     """,
+    # 7: accepted items' batches written before they carried a scope get
+    # the scope their operations name, or are refused unoffered (#534 T8).
+    _item_scopes,
 )
 SCHEMA_VERSION: Final = len(MIGRATIONS)
 """Each migration is a SQL script, or a step run on the connection for what
