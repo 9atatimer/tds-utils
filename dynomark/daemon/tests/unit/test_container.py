@@ -12,7 +12,13 @@ from structlog.testing import capture_logs
 
 from dynomark_daemon.app.ingest import ingest
 from dynomark_daemon.container import Daemon, JobLoop, Ports
-from dynomark_daemon.domain.bookmark import Bookmark, Capture, CorpusEntry, Enrichment
+from dynomark_daemon.domain.bookmark import (
+    Bookmark,
+    Capture,
+    CorpusEntry,
+    Enrichment,
+    Identity,
+)
 from dynomark_daemon.domain.chat import DraftAnswer, Question, Turn
 from dynomark_daemon.domain.config import ModelInfo
 from dynomark_daemon.domain.diff import DiffKind, DiffProposal
@@ -20,6 +26,7 @@ from dynomark_daemon.domain.events import DiffProposed, JobUpdated
 from dynomark_daemon.domain.ids import JobId, ProfileId
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.domain.placement import EntryRef, FolderChoice, MoveFeedback
+from dynomark_daemon.domain.retention import RETENTION_MS
 from dynomark_daemon.domain.roles import HostRole
 from dynomark_daemon.domain.tree import TreeOutline
 from dynomark_daemon.ports.completion import CompletionError, CompletionPort
@@ -34,6 +41,8 @@ from tests._factories import (
     make_bookmark,
     make_capture,
     make_config,
+    make_entry,
+    make_job,
     make_node,
     make_path,
     make_tree,
@@ -439,3 +448,25 @@ def test_run_once_reports_the_retry_a_job_failing_in_this_pass_waits_for() -> No
     (job,) = ports.store.list_jobs()
     assert (job.state, job.attempts) == (JobState.CAPTURING, 1)
     assert schedule.next_retry_at == job.updated_at + config.retry.backoff_ms(1)
+
+
+def test_the_job_loop_enforces_retention_on_its_clock() -> None:
+    """Given a writer's filed entry whose bookmark left the tree, When the job
+    loop runs a pass, then another 30 days later, Then the first pass records
+    the absence and the later one drops the entry (Retention, issue #421)."""
+    clock = FakeClock(start_ms=1_000)
+    ports = replace(_ports(ScriptedCompletion()), clock=clock)
+    ports.store.bind_writer_profile(A)
+    ports.store.put_tree_snapshot(wire.TREE)
+    url = "https://example.org/gone"
+    ports.store.put_entry(make_entry(url))
+    ports.store.put_job(make_job(identity=url, state=JobState.FILED))
+    loop = JobLoop(make_config(), ports)
+
+    loop.run_once()
+    tracked = ports.store.absences()
+    clock.advance(RETENTION_MS)
+    loop.run_once()
+
+    assert list(tracked) == [Identity(url)]
+    assert ports.store.get_entry(Identity(url)) is None

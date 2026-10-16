@@ -565,3 +565,27 @@ def test_a_version_1_file_is_migrated_off_trees_in_batch_rows(tmp_path: Path) ->
     with sqlite3.connect(db) as raw:
         (doc,) = raw.execute("SELECT doc FROM batches").fetchone()
     assert "Unmistakable Bar" not in doc
+
+
+def test_a_version_2_file_drops_its_archives_by_the_time_they_were_taken(
+    tmp_path: Path,
+) -> None:
+    """Given a schema-2 file holding an archive taken long ago, When opened and
+    archives before a later time are dropped, Then that archive goes (the
+    migration reads each archive's taken_at; Retention, issue #421)."""
+    db = tmp_path / "corpus.sqlite3"
+    with sqlite3.connect(db, isolation_level=None) as raw:
+        raw.executescript(MIGRATIONS[0])
+        raw.executescript(MIGRATIONS[1])
+        raw.execute("PRAGMA user_version = 2")
+        raw.execute(
+            "INSERT INTO snapshots (snapshot_id, doc) VALUES (?, ?)",
+            ("tree-1000", dump_record(make_snapshot(taken_at=1_000))),
+        )
+    raw.close()
+
+    store = SqliteCorpusStore.open(db)
+    dropped = store.drop_snapshots_before(2_000)
+
+    assert dropped == [SnapshotId("tree-1000")]
+    store.close()

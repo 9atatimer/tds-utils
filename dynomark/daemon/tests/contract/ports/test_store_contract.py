@@ -686,6 +686,107 @@ def test_a_request_fingerprint_is_remembered_by_id(store: CorpusStorePort) -> No
     assert store.get_request(RequestId("req-2")) is None
 
 
+# --- Retention (Key Decisions, Retention 2026-10-16; issue #421) ---
+
+
+def test_entry_identities_are_every_entry_in_position_order(
+    store: CorpusStorePort,
+) -> None:
+    """Given entries put in some order, When their identities are read, Then
+    each comes once, in first-put order."""
+    for url in ("https://c.example/", "https://a.example/", "https://c.example/"):
+        store.put_entry(make_entry(url))
+
+    assert store.entry_identities() == [
+        Identity("https://c.example/"),
+        Identity("https://a.example/"),
+    ]
+
+
+def test_drop_entry_removes_its_entry_saves_and_placement_only(
+    store: CorpusStorePort,
+) -> None:
+    """Given an entry with a placement, a job and its save, and another entry
+    with its own save, When the first entry is dropped, Then its entry, text
+    and vector candidates, placement and save are gone, its job and the other
+    entry's records stay."""
+    tokio, other = "https://tokio.rs/tokio/tutorial", "https://other.example/"
+    store.put_entry(make_entry(tokio, text="tokio"))
+    store.put_entry(make_entry(other, text="other"))
+    store.put_placement(make_placement(tokio))
+    store.put_job(make_job("job-1", identity=tokio))
+    store.put_job(make_job("job-2", identity=other, node_id="43"))
+    for job_id, url in (("job-1", tokio), ("job-2", other)):
+        store.put_save(
+            JobId(job_id), Save(bookmark=make_bookmark(url), capture=make_capture())
+        )
+    store.put_absence(Identity(tokio), 1_000)
+
+    store.drop_entry(Identity(tokio))
+
+    assert store.get_entry(Identity(tokio)) is None
+    assert store.get_placement(Identity(tokio)) is None
+    assert store.get_save(JobId("job-1")) is None
+    assert store.text_candidates(Query("tokio"), limit=10) == []
+    assert [c.identity for c in store.knn_candidates((1.0, 0.0), limit=10)] == [
+        Identity(other)
+    ]
+    assert store.absences() == {}
+    assert store.get_job(JobId("job-1")) is not None
+    assert store.get_save(JobId("job-2")) is not None
+    assert store.entry_identities() == [Identity(other)]
+
+
+def test_an_absence_keeps_its_first_time_until_cleared(store: CorpusStorePort) -> None:
+    """Given an identity marked absent, When it is marked again later, Then the
+    first time is kept; When cleared, Then it is no longer tracked."""
+    tokio = Identity("https://tokio.rs/tokio/tutorial")
+
+    store.put_absence(tokio, 1_000)
+    store.put_absence(tokio, 2_000)
+    tracked = store.absences()
+    store.clear_absence(tokio)
+
+    assert tracked == {tokio: 1_000}
+    assert store.absences() == {}
+
+
+def test_archived_snapshots_taken_before_a_time_are_dropped_and_unnamed(
+    store: CorpusStorePort,
+) -> None:
+    """Given an old archive a batch names and a newer one, When archives taken
+    before a time between them are dropped, Then only the old one goes, the
+    batch row stays naming no archive, and the latest tree is untouched."""
+    old, new = SnapshotId("tree-1000"), SnapshotId("tree-5000")
+    store.put_snapshot(old, make_snapshot(taken_at=1_000))
+    store.put_snapshot(new, make_snapshot(taken_at=5_000))
+    store.put_tree_snapshot(make_snapshot(taken_at=500))
+    store.put_batch(replace(make_batch("batch-1"), snapshot_id=old))
+
+    dropped = store.drop_snapshots_before(2_000)
+
+    assert dropped == [old]
+    assert store.get_snapshot(old) is None
+    assert store.get_snapshot(new) == make_snapshot(taken_at=5_000)
+    batch = store.get_batch(BatchId("batch-1"))
+    assert batch is not None and batch.snapshot_id is None
+    assert store.latest_tree_snapshot() == make_snapshot(taken_at=500)
+
+
+def test_a_forgotten_request_is_no_longer_remembered(store: CorpusStorePort) -> None:
+    """Given two remembered request ids, When one is forgotten, Then only the
+    other is listed and remembered."""
+    store.put_request(RequestId("req-2"), "sha256:b")
+    store.put_request(RequestId("req-1"), "sha256:a")
+    listed = store.list_requests()
+
+    store.forget_request(RequestId("req-1"))
+
+    assert listed == [RequestId("req-1"), RequestId("req-2")]
+    assert store.list_requests() == [RequestId("req-2")]
+    assert store.get_request(RequestId("req-1")) is None
+
+
 # --- Units of work: a use case's writes commit together or not at all ---
 
 
