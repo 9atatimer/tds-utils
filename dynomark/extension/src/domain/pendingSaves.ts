@@ -4,7 +4,9 @@
 // answer re-sends the identical request, captured text included, rather than
 // a fresh one with no capture. Bounded: a few entries and at most one
 // maximum capture's worth of text; the oldest go first, and a save that does
-// not fit alone is not kept (it is sent all the same).
+// not fit alone is not kept (it is sent all the same). A save whose bookmark
+// has left Follow Up is never re-sent, so its entry (and page text) goes at
+// the next backlog.
 
 import type { ExtensionCapture } from './capture.js';
 import { MAX_CAPTURE_TEXT } from './limits.js';
@@ -50,4 +52,9 @@ export function withPending(saves: readonly PendingSave[], save: PendingSave): P
 /** `saves` without the request `id`. */
 export function withoutPending(saves: readonly PendingSave[], id: RequestId): PendingSave[] {
   return saves.filter((save) => save.id !== id);
+}
+
+/** `saves` without those whose node is not in `node_ids` (the bookmarks still in Follow Up). */
+export function pendingAmong(saves: readonly PendingSave[], node_ids: ReadonlySet<NodeId>): PendingSave[] {
+  return saves.filter((save) => node_ids.has(save.bookmark.node_id));
 }

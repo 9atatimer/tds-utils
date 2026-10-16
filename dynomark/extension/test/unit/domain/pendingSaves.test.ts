@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_PENDING_SAVES,
   MAX_PENDING_TEXT,
+  pendingAmong,
   pendingFor,
   withPending,
   withoutPending,
@@ -59,5 +60,11 @@ describe('Pending saves', () => {
 
   it('Given kept saves, When one request is answered, Then only that one is forgotten', () => {
     expect(withoutPending([pending(1), pending(2)], 'req-1')).toEqual([pending(2)]);
+  });
+
+  it('Given saves for three nodes, When only two of them are still in Follow Up, Then only those two are kept, in order', () => {
+    const saves = [pending(1), pending(2), pending(3)];
+    expect(pendingAmong(saves, new Set(['3', '1']))).toEqual([pending(1), pending(3)]);
+    expect(pendingAmong(saves, new Set())).toEqual([]);
   });
 });

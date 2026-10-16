@@ -18,7 +18,7 @@
 import { backoffDelay } from '../domain/backoff.js';
 import { fitBookmark } from '../domain/limits.js';
 import { isExtensionCapture, type Capture, type ExtensionCapture } from '../domain/capture.js';
-import { pendingFor, withPending, withoutPending, type PendingSave } from '../domain/pendingSaves.js';
+import { pendingAmong, pendingFor, withPending, withoutPending, type PendingSave } from '../domain/pendingSaves.js';
 import type { Bookmark } from '../domain/tree.js';
 import type { NodeId, RequestId, Url } from '../domain/values.js';
 import type { IdSource } from '../ports/idSource.js';
@@ -116,6 +116,14 @@ export class SubmittedSaves {
     await this.load();
     const current = this.pending ?? [];
     if (current.some((save) => save.id === frame.id)) await this.store(withoutPending(current, frame.id));
+  }
+
+  /** Forget every kept frame whose node is not in `node_ids` (no longer in Follow Up, so never re-sent): its page text goes. */
+  async keepOnly(node_ids: ReadonlySet<NodeId>): Promise<void> {
+    await this.load();
+    const current = this.pending ?? [];
+    const kept = pendingAmong(current, node_ids);
+    if (kept.length < current.length) await this.store(kept);
   }
 
   private async load(): Promise<void> {
