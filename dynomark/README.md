@@ -3,7 +3,7 @@
 Dynomark files the pages you save into the browser's own bookmark tree.
 You save a page into `Follow Up` with the normal bookmark dialog (Ctrl+D).
 A local daemon captures the page, summarizes and embeds it, and picks a
-folder. A thin MV3 extension then files the bookmark under `Dynomark`,
+folder. A thin MV3 extension (Chrome or Firefox) then files the bookmark under `Dynomark`,
 serves the `bm` address-bar keyword (fuzzy title search, then full-text
 and semantic search), and offers a chat grounded in what you saved. The
 filed tree is ordinary synced bookmarks, so a phone can save into it and
@@ -23,16 +23,18 @@ dynomark/
 |               socket server, native-messaging host (dynomark-host).
 |               README: config, files, commands, adapter notes.
 +-- extension/  the TypeScript MV3 extension: Follow Up watch, batch
-|               apply, omnibox, chat, diff and history pages.
-|               README: pinned id, build, test tiers.
+|               apply, omnibox, chat, diff and history pages. One source,
+|               two builds: dist/ (Chrome) and dist-firefox/ (Firefox).
+|               README: pinned ids, build, test tiers.
 +-- e2e/        the integration e2e: the built extension in Chromium, the
                 real dynomark-host and the real daemon (fake models only),
                 driven together with Playwright.
 ```
 
 ```
-Chrome + extension --native messaging--> dynomark-host --unix socket--> dynomark-daemon
-     (dist/)          (stdio frames)      (byte pipe)     (owner-only)    (launchd, Ollama)
+Chrome  + extension --native messaging--> dynomark-host --unix socket--> dynomark-daemon
+Firefox   (dist/, dist-firefox/)            (byte pipe)     (owner-only)    (launchd, Ollama)
+                     (stdio frames)
 ```
 
 ## Gates
@@ -154,3 +156,28 @@ update it with `uv tool install --reinstall ~/.tds/release/dynomark/daemon`
 followed by `launchctl kickstart -k gui/$(id -u)/tds.dynomark.daemon`.
 Rebuild the extension, then press reload on its card in
 `chrome://extensions`.
+
+### Firefox on the mbp
+
+Firefox 128 or newer, against the same daemon (steps 1 to 4 above).
+
+- **Host manifest** for Firefox, bound to the build's pinned gecko id:
+
+  ```zsh
+  dynomark-daemon install-host-manifest --extension-id dynomark@tds.dynomark --browser firefox
+  ```
+
+- **Build** as in step 6; it writes `dist-firefox/` beside `dist/`.
+- **[HUMAN] Load.** In `about:debugging#/runtime/this-firefox`, choose
+  Load Temporary Add-on and pick
+  `~/.tds/release/dynomark/extension/dist-firefox/manifest.json`. Check the
+  id shown is `dynomark@tds.dynomark`. A temporary add-on is gone when
+  Firefox quits; load it again after a restart. In `about:addons`, under
+  Dynomark's Permissions, turn on access to all websites if it is off.
+- **One writer profile.** The daemon binds the first browser profile that
+  says a full hello (design Key Decisions, Writer binding). With Chrome
+  already filing, Firefox is served as a reader. To file from Firefox,
+  release the binding with `dynomark-daemon rebind` once it lands
+  (issue #419), or run it against a daemon with a fresh store.
+- The chat is Firefox's sidebar (Alt+Shift+K). The acceptance run is
+  `tasks/task-027-dynomark-mbp-integration.md`, "Firefox acceptance".

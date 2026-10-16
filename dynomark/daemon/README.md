@@ -56,6 +56,7 @@ mkdir -p -m 700 ~/.local/state/dynomark
 dynomark-daemon launchd-plist > ~/Library/LaunchAgents/tds.dynomark.daemon.plist
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/tds.dynomark.daemon.plist
 dynomark-daemon install-host-manifest --extension-id <32-letter id from chrome://extensions>
+dynomark-daemon install-host-manifest --extension-id dynomark@tds.dynomark --browser firefox   # Firefox too
 dynomark-daemon check
 ```
 
@@ -72,7 +73,7 @@ read-only and only probes the socket). Stop the agent with
 |---|---|
 | `dynomark-daemon serve` | socket server + job loop until SIGTERM/SIGINT/SIGHUP |
 | `dynomark-daemon check` | config, sqlite-vec loads, store health, socket, Ollama reachability and models |
-| `dynomark-daemon install-host-manifest --extension-id ID [--browser chrome\|chromium\|all] [--host-path P]` | writes `tds.dynomark.json` for Chrome and Chromium (macOS and Linux per-user dirs), `allowed_origins` = that one extension |
+| `dynomark-daemon install-host-manifest --extension-id ID [--browser chrome\|chromium\|firefox\|all] [--host-path P]` | writes `tds.dynomark.json` per browser (macOS and Linux per-user dirs) allowing that one extension: Chrome and Chromium take its 32-letter id (`allowed_origins`), Firefox its gecko id (`allowed_extensions`); `all` (the default) writes every browser whose ids take the id's form |
 | `dynomark-daemon launchd-plist [--program P]` | prints a user LaunchAgent (`RunAtLoad`, `KeepAlive`) running `serve`; refuses when the daemon's socket would not be the one `dynomark-host` connects to (see Config) |
 | `dynomark-host` | started by the browser; pipes stdio frames to the socket unchanged; with no daemon it answers the first frame `error` `busy` and exits |
 
