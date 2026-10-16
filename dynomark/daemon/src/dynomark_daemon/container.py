@@ -41,6 +41,7 @@ from dynomark_daemon.app.diffs import propose_scheduled_rebuild, rebuild_retry_a
 from dynomark_daemon.app.errors import TreeNotReady
 from dynomark_daemon.app.hello import owned_roots_for
 from dynomark_daemon.app.loop import Schedule, due_jobs
+from dynomark_daemon.app.retention import enforce_retention
 from dynomark_daemon.app.run import count_crashed_attempt, run_job
 from dynomark_daemon.app.writer import writer_conflict
 from dynomark_daemon.domain.config import Config
@@ -63,6 +64,9 @@ log = structlog.get_logger("dynomark.daemon")
 IDLE_WAIT_S: Final = 60.0
 """The longest the job loop sleeps with nothing due and nothing waking it."""
 JOIN_TIMEOUT_S: Final = 10.0
+RETENTION_SWEEP_MS: Final = 3_600_000
+"""How often the job loop sweeps the store for what Retention drops: the
+30-day rules are kept to within this."""
 
 
 # --- Clock and ids ---
@@ -147,6 +151,8 @@ class JobLoop:
         self._rebuild_failures = 0
         self._rebuild_retry_at: int | None = None
         """When a failed scheduled rebuild may ask the model again."""
+        self._retention_at: int | None = None
+        """When the next retention sweep is due; the first pass sweeps."""
 
     def wake(self) -> None:
         """Run the due jobs soon (an ingest, a retry, a snapshot arrived)."""
@@ -238,6 +244,29 @@ class JobLoop:
             log.info("rebuild.proposed", diff_id=diff.diff_id, items=len(diff.items))
         return diff is not None
 
+    def _retain(self) -> None:
+        """Sweep the store for what Retention drops, once per
+        ``RETENTION_SWEEP_MS`` on the ports' clock."""
+        ports = self._ports
+        now = ports.clock.now_ms()
+        if self._retention_at is not None and now < self._retention_at:
+            return
+        self._retention_at = now + RETENTION_SWEEP_MS
+        try:
+            retained = enforce_retention(store=ports.store, clock=ports.clock)
+        except Exception:
+            # A failed sweep must not stop the job loop; the next is an
+            # interval away, and nothing it would drop is lost by waiting.
+            log.exception("retention.failed")
+            return
+        if retained.entries or retained.snapshots or retained.requests:
+            log.info(
+                "retention.dropped",
+                entries=len(retained.entries),
+                snapshots=len(retained.snapshots),
+                requests=len(retained.requests),
+            )
+
     def _next_due(self, ran: set[JobId]) -> Job | None:
         """The first job due now that this pass has not run: the schedule is
         read again after every job, so a live save ingested mid-pass runs
@@ -247,9 +276,10 @@ class JobLoop:
         return next((job for job in schedule.due if job.job_id not in ran), None)
 
     def run_once(self) -> Schedule:
-        """Run every job due now, each at most once, and a due rebuild; tell
-        the server after each job and after a rebuild. A job still due after
-        its run (waiting for a snapshot) waits for the next pass. The
+        """Run every job due now, each at most once, a due rebuild and a due
+        retention sweep; tell the server after each job and after a rebuild.
+        A job still due after its run (waiting for a snapshot) waits for the
+        next pass. The
         schedule after the pass: when the next retry falls due, counting the
         jobs that failed in it."""
         ports, retry = self._ports, self._config.retry
@@ -268,6 +298,7 @@ class JobLoop:
             self._on_progress()
         if self._rebuild():
             self._on_progress()
+        self._retain()
         return due_jobs(retry, ports.clock.now_ms(), store=ports.store)
 
     def run(self, stop: threading.Event) -> None:

@@ -46,11 +46,15 @@ def retry_job(
     """Queue a FAILED job again; any other job is returned unchanged.
 
     Raises:
-        UnknownRecord: no such job for this profile (``not_found``).
+        UnknownRecord: no such job for this profile, or its save is no longer
+            kept (Retention dropped it with its entry), so nothing is left to
+            process (``not_found``).
     """
     job = profile_job(job_id, profile_id, store=store)
     if job.state is not JobState.FAILED:
         return job
+    if store.get_save(job.job_id) is None:
+        raise UnknownRecord(f"job {job_id} has no save left to process")
     return record_job_change(job.retried(at=clock.now_ms()), store=store, ids=ids)
 
 

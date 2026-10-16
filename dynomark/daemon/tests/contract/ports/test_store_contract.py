@@ -712,7 +712,7 @@ def test_drop_entry_removes_its_entry_saves_and_placement_only(
     entry's records stay."""
     tokio, other = "https://tokio.rs/tokio/tutorial", "https://other.example/"
     store.put_entry(make_entry(tokio, text="tokio"))
-    store.put_entry(make_entry(other, text="other"))
+    store.put_entry(make_entry(other, title="Other", text="other"))
     store.put_placement(make_placement(tokio))
     store.put_job(make_job("job-1", identity=tokio))
     store.put_job(make_job("job-2", identity=other, node_id="43"))

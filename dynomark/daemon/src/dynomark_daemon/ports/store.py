@@ -74,6 +74,31 @@ class CorpusStorePort(Protocol):
         """Up to ``limit`` entries with position > ``after``, by position."""
         ...
 
+    def entry_identities(self) -> list[Identity]:
+        """The identity of every entry, by position; no entry is decoded."""
+        ...
+
+    # --- Retention (Key Decisions, Retention 2026-10-16) ---
+
+    def absences(self) -> dict[Identity, int]:
+        """When each entry tracked absent from the tree was first found so."""
+        ...
+
+    def put_absence(self, identity: Identity, since: int) -> None:
+        """Track ``identity`` absent since ``since``, unless it already is
+        (its first-absent time is kept)."""
+        ...
+
+    def clear_absence(self, identity: Identity) -> None:
+        """Stop tracking ``identity`` absent; unknown identities are ignored."""
+        ...
+
+    def drop_entry(self, identity: Identity) -> None:
+        """Delete the entry of ``identity`` (and its search candidates), its
+        placement, the save of every job of it, and its absence, in one
+        transaction. Its jobs and batch rows stay."""
+        ...
+
     # --- Candidates for hybrid search (fusion is the domain's) ---
 
     def text_candidates(self, query: Query, *, limit: int) -> list[Candidate]:
@@ -170,6 +195,12 @@ class CorpusStorePort(Protocol):
         ``snapshot_id``; a batch that moved to another archive released it."""
         ...
 
+    def drop_snapshots_before(self, taken_at: int) -> list[SnapshotId]:
+        """Delete every archived snapshot taken before ``taken_at`` (never the
+        latest tree); a batch that named one names none after. The ids
+        dropped, in id order."""
+        ...
+
     # --- Feedback ---
 
     def put_feedback(self, feedback: MoveFeedback) -> None:
@@ -251,3 +282,11 @@ class CorpusStorePort(Protocol):
         ...
 
     def get_request(self, request_id: RequestId) -> str | None: ...
+
+    def list_requests(self) -> list[RequestId]:
+        """Every remembered request id, in id order."""
+        ...
+
+    def forget_request(self, request_id: RequestId) -> None:
+        """Forget a request id; an unknown one is ignored."""
+        ...

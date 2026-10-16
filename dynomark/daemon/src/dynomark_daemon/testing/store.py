@@ -15,6 +15,7 @@ import math
 import re
 from collections.abc import Collection, Iterable, Iterator, Sequence
 from contextlib import contextmanager
+from dataclasses import replace
 from typing import Final
 
 from dynomark_daemon.domain.batch import BatchRecord, BatchState
@@ -57,6 +58,7 @@ TABLES: Final = (
     "_writer_profile",
     "_follow_ups",
     "_requests",
+    "_absences",
 )
 """Every attribute holding stored state; a unit of work restores these."""
 
@@ -123,6 +125,7 @@ class InMemoryCorpusStore:
         self._writer_profile: ProfileId | None = None
         self._follow_ups: dict[ProfileId, FolderPath] = {}
         self._requests: dict[RequestId, str] = {}
+        self._absences: dict[Identity, int] = {}
 
     # --- Units of work ---
 
@@ -155,6 +158,28 @@ class InMemoryCorpusStore:
         )
         ordered = sorted(stored, key=lambda s: s.position)
         return [s for s in ordered if after is None or s.position > after][:limit]
+
+    def entry_identities(self) -> list[Identity]:
+        return sorted(self._entries, key=lambda i: self._positions[i])
+
+    # --- Retention ---
+
+    def absences(self) -> dict[Identity, int]:
+        return dict(self._absences)
+
+    def put_absence(self, identity: Identity, since: int) -> None:
+        self._absences.setdefault(identity, since)
+
+    def clear_absence(self, identity: Identity) -> None:
+        self._absences.pop(identity, None)
+
+    def drop_entry(self, identity: Identity) -> None:
+        self._entries.pop(identity, None)
+        self._placements.pop(identity, None)
+        self._absences.pop(identity, None)
+        for job in self._jobs.values():
+            if job.identity == identity:
+                self._saves.pop(job.job_id, None)
 
     # --- Candidates ---
 
@@ -274,6 +299,15 @@ class InMemoryCorpusStore:
         if all(r.snapshot_id != snapshot_id for r in self._batches.values()):
             self._snapshots.pop(snapshot_id, None)
 
+    def drop_snapshots_before(self, taken_at: int) -> list[SnapshotId]:
+        dropped = sorted(i for i, s in self._snapshots.items() if s.taken_at < taken_at)
+        for snapshot_id in dropped:
+            del self._snapshots[snapshot_id]
+        for batch_id, record in self._batches.items():
+            if record.snapshot_id in dropped:
+                self._batches[batch_id] = replace(record, snapshot_id=None)
+        return dropped
+
     # --- Feedback ---
 
     def put_feedback(self, feedback: MoveFeedback) -> None:
@@ -361,3 +395,9 @@ class InMemoryCorpusStore:
 
     def get_request(self, request_id: RequestId) -> str | None:
         return self._requests.get(request_id)
+
+    def list_requests(self) -> list[RequestId]:
+        return sorted(self._requests)
+
+    def forget_request(self, request_id: RequestId) -> None:
+        self._requests.pop(request_id, None)

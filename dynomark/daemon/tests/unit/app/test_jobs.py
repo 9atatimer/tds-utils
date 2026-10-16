@@ -11,12 +11,13 @@ import pytest
 from dynomark_daemon.app.errors import UnknownRecord
 from dynomark_daemon.app.jobs import list_batches_page, list_jobs_page, retry_job
 from dynomark_daemon.app.pages import StaleCursor
+from dynomark_daemon.domain.bookmark import Save
 from dynomark_daemon.domain.events import JobUpdated
 from dynomark_daemon.domain.ids import BatchId, JobId, ProfileId
 from dynomark_daemon.domain.job import Job, JobState
 from dynomark_daemon.testing.clock import FakeClock, SequentialIds
 from dynomark_daemon.testing.store import InMemoryCorpusStore
-from tests._factories import make_batch, make_job
+from tests._factories import make_batch, make_bookmark, make_capture, make_job
 
 A = ProfileId("profile-a")
 
@@ -49,6 +50,9 @@ def test_retry_a_failed_job_queues_it_afresh() -> None:
     seq, no attempts, no error and no batch, and a job.updated records it."""
     store = InMemoryCorpusStore()
     store.put_job(failed := _failed())
+    store.put_save(
+        failed.job_id, Save(bookmark=make_bookmark(), capture=make_capture())
+    )
 
     job = _retry(store, failed.job_id)
 

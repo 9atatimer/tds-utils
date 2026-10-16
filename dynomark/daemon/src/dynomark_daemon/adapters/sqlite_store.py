@@ -170,6 +170,14 @@ MIGRATIONS: Final = (
         SELECT snapshot_id FROM batches WHERE snapshot_id IS NOT NULL
     );
     """,
+    # 3: retention (issue #421): when each entry was first found absent from
+    # the tree; archives dropped by the time they were taken, read by index.
+    """
+    CREATE TABLE absences (identity TEXT PRIMARY KEY, since INTEGER NOT NULL);
+    ALTER TABLE snapshots ADD COLUMN taken_at INTEGER NOT NULL DEFAULT 0;
+    UPDATE snapshots SET taken_at = json_extract(doc, '$.taken_at');
+    CREATE INDEX snapshots_by_age ON snapshots (taken_at);
+    """,
 )
 SCHEMA_VERSION: Final = len(MIGRATIONS)
 
@@ -514,6 +522,44 @@ class SqliteCorpusStore:
             for position, doc, vector in rows
         ]
 
+    def entry_identities(self) -> list[Identity]:
+        rows = self._all("SELECT identity FROM entries ORDER BY position")
+        return [Identity(str(identity)) for (identity,) in rows]
+
+    # --- Retention ---
+
+    def absences(self) -> dict[Identity, int]:
+        rows = self._all("SELECT identity, since FROM absences")
+        return {Identity(str(i)): int(str(since)) for i, since in rows}
+
+    def put_absence(self, identity: Identity, since: int) -> None:
+        with self._write() as db:
+            db.execute(
+                "INSERT OR IGNORE INTO absences (identity, since) VALUES (?, ?)",
+                (identity.value, since),
+            )
+
+    def clear_absence(self, identity: Identity) -> None:
+        with self._write() as db:
+            db.execute("DELETE FROM absences WHERE identity = ?", (identity.value,))
+
+    def drop_entry(self, identity: Identity) -> None:
+        value = identity.value
+        with self._write() as db:
+            row = db.execute(
+                "SELECT position FROM entries WHERE identity = ?", (value,)
+            ).fetchone()
+            if row is not None:
+                db.execute("DELETE FROM entries_fts WHERE rowid = ?", (row[0],))
+            db.execute("DELETE FROM entries WHERE identity = ?", (value,))
+            db.execute("DELETE FROM placements WHERE identity = ?", (value,))
+            db.execute("DELETE FROM absences WHERE identity = ?", (value,))
+            db.execute(
+                "DELETE FROM saves WHERE job_id IN"
+                " (SELECT job_id FROM jobs WHERE identity = ?)",
+                (value,),
+            )
+
     # --- Candidates ---
 
     def text_candidates(self, query: Query, *, limit: int) -> list[Candidate]:
@@ -688,8 +734,9 @@ class SqliteCorpusStore:
     def put_snapshot(self, snapshot_id: SnapshotId, snapshot: Snapshot) -> None:
         with self._write() as db:
             db.execute(
-                "INSERT OR REPLACE INTO snapshots (snapshot_id, doc) VALUES (?, ?)",
-                (snapshot_id, dump_record(snapshot)),
+                "INSERT OR REPLACE INTO snapshots (snapshot_id, taken_at, doc)"
+                " VALUES (?, ?, ?)",
+                (snapshot_id, snapshot.taken_at, dump_record(snapshot)),
             )
 
     def get_snapshot(self, snapshot_id: SnapshotId) -> Snapshot | None:
@@ -705,6 +752,28 @@ class SqliteCorpusStore:
                 " (SELECT 1 FROM batches WHERE snapshot_id = ?)",
                 (snapshot_id, snapshot_id),
             )
+
+    def drop_snapshots_before(self, taken_at: int) -> list[SnapshotId]:
+        with self._write() as db:
+            dropped = [
+                str(snapshot_id)
+                for (snapshot_id,) in db.execute(
+                    "SELECT snapshot_id FROM snapshots WHERE taken_at < ?"
+                    " ORDER BY snapshot_id",
+                    (taken_at,),
+                ).fetchall()
+            ]
+            for snapshot_id in dropped:
+                db.execute(
+                    "UPDATE batches SET snapshot_id = NULL,"
+                    " doc = json_set(doc, '$.snapshot_id', NULL)"
+                    " WHERE snapshot_id = ?",
+                    (snapshot_id,),
+                )
+                db.execute(
+                    "DELETE FROM snapshots WHERE snapshot_id = ?", (snapshot_id,)
+                )
+        return [SnapshotId(snapshot_id) for snapshot_id in dropped]
 
     # --- Feedback ---
 
@@ -860,3 +929,11 @@ class SqliteCorpusStore:
         return self._doc(
             "SELECT fingerprint FROM requests WHERE request_id = ?", (request_id,)
         )
+
+    def list_requests(self) -> list[RequestId]:
+        rows = self._all("SELECT request_id FROM requests ORDER BY request_id")
+        return [RequestId(str(request_id)) for (request_id,) in rows]
+
+    def forget_request(self, request_id: RequestId) -> None:
+        with self._write() as db:
+            db.execute("DELETE FROM requests WHERE request_id = ?", (request_id,))
