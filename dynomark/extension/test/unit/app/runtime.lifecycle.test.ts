@@ -231,3 +231,53 @@ describe('Start does not wait on frecency -- history is a ranking input, not a p
     expect(await runtime.page({ kind: 'overview' })).toMatchObject({ ok: true });
   });
 });
+
+describe('Background work that a reconnect re-runs -- a lost link in the gap is not a problem', () => {
+  it('Given a connected host whose daemon stops while a save is being ingested (the ingest is lost with the link, and its re-sends meet no daemon), When the gap lasts, Then no problem is reported, and once the daemon is back the next hello ingests it', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const lifecycle = scriptedDaemon({ role: 'reader' });
+    const URL = 'https://gap.example/';
+    let stopped = false;
+    w.connection().autoAnswer((r) => {
+      if (r.type !== 'ingest' || r.bookmark.url !== URL || stopped) return lifecycle(r);
+      stopped = true;
+      w.connection().daemonNotRunning(true);
+      void Promise.resolve().then(() => w.daemon().drop('disconnected'));
+      return undefined;
+    });
+    const ids = await seedOwnedTree(w.tree);
+    const runtime = await startRuntime(w);
+
+    const node = await w.tree.createBookmark(ids.followUp, 'Gap', URL);
+    runtime.onBookmarkEvent({ kind: 'created', node });
+    await runtime.idle();
+    const during = await runtime.page({ kind: 'overview' });
+    w.connection().daemonNotRunning(false);
+    await w.timer().advance(RECONNECT_BACKOFF.max_ms);
+    await runtime.idle();
+
+    expect(stopped).toBe(true);
+    expect(during.ok && during.kind === 'overview' ? during.overview.problems : undefined).toEqual([]);
+    expect(sentOf(w, 'ingest').filter((r) => r.bookmark.node_id === node.id).length).toBeGreaterThan(1);
+    const after = await runtime.page({ kind: 'overview' });
+    expect(after.ok && after.kind === 'overview' ? after.overview.problems : undefined).toEqual([]);
+  });
+
+  it('Given a connected writer, When a tracked step fails for a real reason (the daemon answers invalid), Then it is still reported', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    scriptDaemon(w, { role: 'writer' }, (r) =>
+      r.type === 'ingest' && r.bookmark.url === 'https://bad.example/'
+        ? { v: 2, type: 'error', re: r.id, code: 'invalid', message: 'ingest refused' }
+        : undefined,
+    );
+    const ids = await seedOwnedTree(w.tree);
+    const runtime = await startRuntime(w);
+
+    const node = await w.tree.createBookmark(ids.followUp, 'Bad', 'https://bad.example/');
+    runtime.onBookmarkEvent({ kind: 'created', node });
+    await runtime.idle();
+
+    const page = await runtime.page({ kind: 'overview' });
+    expect(page.ok && page.kind === 'overview' ? page.overview.problems.join('\n') : '').toContain('ingest refused');
+  });
+});
