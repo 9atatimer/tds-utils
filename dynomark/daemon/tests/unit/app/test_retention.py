@@ -17,6 +17,7 @@ from dynomark_daemon.app.diffs import request_diff
 from dynomark_daemon.app.errors import InvalidRequest
 from dynomark_daemon.app.jobs import retry_job
 from dynomark_daemon.app.retention import enforce_retention
+from dynomark_daemon.app.tree import record_tree_snapshot
 from dynomark_daemon.domain.bookmark import Identity, Save
 from dynomark_daemon.domain.diff import DiffKind
 from dynomark_daemon.domain.ids import BatchId, JobId, ProfileId, RequestId, SnapshotId
@@ -137,15 +138,15 @@ def test_an_entry_still_in_the_tree_is_never_dropped() -> None:
 @pytest.mark.parametrize(
     ("state", "profile"),
     [(JobState.PLACED, "profile-a"), (JobState.INDEXED, "profile-b")],
-    ids=["unfinished-job", "reader-profile"],
+    ids=["unfinished-job", "reader-profile-with-no-tree"],
 )
-def test_an_entry_this_tree_cannot_vouch_for_is_kept(
+def test_an_entry_no_known_tree_can_vouch_for_is_kept(
     state: JobState, profile: str
 ) -> None:
     """Given an entry with a job still running, or saved from a profile served
-    as a reader (its bookmark lives in a tree this daemon never keeps), When
-    sweeps run past 30 days with its bookmark absent from the writer's tree,
-    Then it is kept."""
+    as a reader whose tree this daemon has never been sent, When sweeps run
+    past 30 days with its bookmark absent from the writer's tree, Then it is
+    kept."""
     daemon = Daemon(state=state, profile=profile)
     daemon.tree(WITHOUT_BOOKMARK)
 
@@ -154,6 +155,62 @@ def test_an_entry_this_tree_cannot_vouch_for_is_kept(
     daemon.sweep()
 
     assert daemon.kept()
+
+
+def _reader_tree(daemon: Daemon, profile: ProfileId, tree: Snapshot) -> None:
+    """``profile``'s connection, served reader, sends its tree."""
+    stamped = replace(tree, taken_at=daemon.clock.now_ms())
+    record_tree_snapshot(stamped, HostRole.READER, profile, store=daemon.store)
+
+
+def test_a_reader_profiles_entry_gone_from_its_tree_for_30_days_is_dropped() -> None:
+    """Given a writer serving profile B as a reader, and B's save (INDEXED),
+    When B's own tree no longer holds the bookmark for 30 days, Then the entry
+    is dropped: Retention keeps B's latest tree though B never files (issue
+    #421)."""
+    daemon = Daemon(state=JobState.INDEXED, profile="profile-b")
+    daemon.tree(WITHOUT_BOOKMARK)
+    _reader_tree(daemon, B, WITHOUT_BOOKMARK)
+
+    daemon.sweep()
+    daemon.clock.advance(RETENTION_MS)
+    daemon.sweep()
+
+    assert not daemon.kept()
+
+
+def test_a_reader_daemon_drops_an_entry_gone_30_days_from_its_profiles_tree() -> None:
+    """Given a daemon configured reader (no writer binding, no latest tree), and
+    profile A's save, When A's tree no longer holds the bookmark for 30 days,
+    Then the entry is dropped (a reader host saw nothing disappear before)."""
+    daemon = Daemon(state=JobState.INDEXED)
+    daemon.store.release_writer_profile()
+    _reader_tree(daemon, A, WITHOUT_BOOKMARK)
+
+    daemon.sweep()
+    daemon.clock.advance(RETENTION_MS)
+    daemon.sweep()
+
+    assert not daemon.kept()
+
+
+def test_an_entry_another_known_profiles_tree_still_holds_is_kept() -> None:
+    """Given an entry the writer's profile A filed and profile B saved too, When
+    A's tree loses the bookmark but B's latest tree still holds it, Then sweeps
+    past 30 days keep it: an entry is absent only when no known profile's
+    latest tree holds its URL."""
+    daemon = Daemon()
+    daemon.store.put_job(
+        make_job("job-b", node_id="77", state=JobState.INDEXED, profile_id="profile-b")
+    )
+    daemon.tree(WITHOUT_BOOKMARK)
+    _reader_tree(daemon, B, WITH_BOOKMARK)
+
+    daemon.sweep()
+    daemon.clock.advance(RETENTION_MS)
+    daemon.sweep()
+
+    assert daemon.kept() and daemon.store.absences() == {}
 
 
 def test_no_tree_snapshot_tracks_and_drops_no_entry() -> None:

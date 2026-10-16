@@ -30,7 +30,7 @@ from dynomark_daemon.domain.batch import (
     UndoDrop,
     UndoDropReason,
 )
-from dynomark_daemon.domain.ids import NodeId
+from dynomark_daemon.domain.ids import NodeId, ProfileId
 from dynomark_daemon.domain.roles import HostRole, NotWriter
 from dynomark_daemon.domain.tree import Snapshot, SnapshotNode, TreeOutline
 from dynomark_daemon.domain.writer import WriterConflict
@@ -39,6 +39,7 @@ from tests._crash import DyingStore
 from tests._factories import make_node, make_path, make_roots, make_tree
 from tests.unit.app._filed import ASYNC, CREATED, MOVED, RUST, TREE, Daemon
 
+A = ProfileId("profile-a")
 FOLLOW_UP = make_path("Follow Up")
 BASE = TREE.nodes[3:6]  # Follow Up 10, Dynomark 11, Rust 14
 URL = "https://tokio.rs/tokio/tutorial"
@@ -76,7 +77,7 @@ def _applied_daemon(
         )
     )
     if tree_after is not None:
-        record_tree_snapshot(tree_after, HostRole.WRITER, store=daemon.store)
+        record_tree_snapshot(tree_after, HostRole.WRITER, A, store=daemon.store)
     return daemon
 
 

@@ -569,6 +569,21 @@ def test_archived_snapshot_never_replaces_the_latest_tree(
     assert store.get_snapshot(SnapshotId("snap-9")) is None
 
 
+def test_a_profile_tree_is_kept_per_profile_latest_first(
+    store: CorpusStorePort,
+) -> None:
+    """Given trees of two profiles served as readers, one arriving late and
+    older, When the profile trees are read, Then each profile keeps its own
+    latest, and the writer's latest tree is untouched (issue #421: kept for
+    Retention only)."""
+    store.put_profile_tree(PROFILE_A, newer := make_snapshot(taken_at=20, title="a"))
+    store.put_profile_tree(PROFILE_A, make_snapshot(taken_at=10, title="old"))
+    store.put_profile_tree(PROFILE_B, other := make_snapshot(taken_at=5, title="b"))
+
+    assert store.profile_trees() == {PROFILE_A: newer, PROFILE_B: other}
+    assert store.latest_tree_snapshot() is None
+
+
 def test_latest_tree_snapshot_of_an_empty_store_is_none(
     store: CorpusStorePort,
 ) -> None:

@@ -73,7 +73,7 @@ def test_a_snapshot_readies_the_receipted_batches_without_reading_every_batch() 
     store.put_batch(done := replace(_receipted("batch-done"), tree_since_receipt=True))
     store.put_batch(pending := make_batch("batch-pending", profile_id=A))
 
-    record_tree_snapshot(LATER, HostRole.WRITER, store=store)
+    record_tree_snapshot(LATER, HostRole.WRITER, A, store=store)
 
     assert store.get_batch(fresh.batch.batch_id) == replace(
         fresh, tree_since_receipt=True
@@ -96,3 +96,17 @@ def test_a_pending_marker_batch_is_found_without_reading_every_batch() -> None:
     assert second is None
     marker = store.get_batch(first.batch_id)
     assert marker is not None and marker.state is BatchState.PROPOSED
+
+
+def test_a_readers_tree_is_kept_for_retention_and_never_as_the_latest_tree() -> None:
+    """Given a writer bound to A, When profile B (served reader) sends its tree,
+    Then B's tree is kept as B's profile tree -- Retention reads it -- and the
+    latest tree, which filing, outline and undo read, stays A's (issue
+    #421)."""
+    store = InMemoryCorpusStore()
+    record_tree_snapshot(FRESH, HostRole.WRITER, A, store=store)
+
+    record_tree_snapshot(LATER, HostRole.READER, ProfileId("profile-b"), store=store)
+
+    assert store.latest_tree_snapshot() == FRESH
+    assert store.profile_trees() == {ProfileId("profile-b"): LATER}

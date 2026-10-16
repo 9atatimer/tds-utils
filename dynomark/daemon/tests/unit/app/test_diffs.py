@@ -376,7 +376,7 @@ def test_an_audit_item_crosses_the_boundary_and_its_undo_carries_the_item() -> N
         clock=writer.clock,
         ids=writer.ids,
     )
-    record_tree_snapshot(after, HostRole.WRITER, store=writer.store)
+    record_tree_snapshot(after, HostRole.WRITER, A, store=writer.store)
 
     undone = undo(
         accepted.batch_id,
