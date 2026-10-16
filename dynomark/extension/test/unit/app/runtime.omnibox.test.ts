@@ -10,7 +10,7 @@
 // background's handle in e2e.
 
 import { describe, expect, it } from 'vitest';
-import { TIER2_DEBOUNCE_MS } from '../../../src/app/omnibox.js';
+import { OMNIBOX_HIT_LIMIT, TIER2_DEBOUNCE_MS } from '../../../src/app/omnibox.js';
 import { ExtensionRuntime } from '../../../src/app/runtime.js';
 import { askRowContent, type OmniboxRows } from '../../../src/domain/omnibox.js';
 import type { LocalIndexRow } from '../../../src/domain/search.js';
@@ -103,6 +103,29 @@ describe('Omnibox bm -- tier 1 per keystroke, tier 2 after the debounce', () => 
     await w.timer().advance(TIER2_DEBOUNCE_MS);
     await runtime.idle();
     expect(rounds).toHaveLength(1);
+  });
+
+  it('Given a full tier-1 list of weak matches, When the debounce passes, Then the corpus-only hit is shown within the hit limit (issue #413)', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const weak: LocalIndexRow[] = Array.from({ length: OMNIBOX_HIT_LIMIT + 2 }, (_, k) => ({
+      identity: `https://plans.example/${k}`,
+      title: `Planning ${k}`,
+      path: { root: 'bar', names: ['Dynomark', 'Plans'] },
+      tags: [],
+      summary: '',
+    }));
+    scriptDaemon(w, {}, (r) =>
+      r.type === 'index.pull' ? { v: 1, type: 'index.pull.result', re: r.id, rows: weak, next_cursor: null } : answers(r),
+    );
+    const runtime = await startRuntime(w);
+    const rounds = type(runtime, 'pin');
+    await w.timer().advance(TIER2_DEBOUNCE_MS);
+    await runtime.idle();
+    expect(sentOf(w, 'search').map((r) => r.query)).toEqual(['pin']);
+    const shown = rounds.at(-1)?.hits ?? [];
+    expect(shown.length).toBeLessThanOrEqual(OMNIBOX_HIT_LIMIT);
+    expect(shown.map((h) => h.identity)).toContain(CORPUS_HIT.identity);
+    expect(shown[0]?.tier).toBe('local');
   });
 
   it('Given a blank query, When typed, Then there are no suggestions and nothing is sent', async () => {
