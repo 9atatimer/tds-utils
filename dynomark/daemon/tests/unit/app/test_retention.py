@@ -135,19 +135,11 @@ def test_an_entry_still_in_the_tree_is_never_dropped() -> None:
     assert daemon.kept() and daemon.store.absences() == {}
 
 
-@pytest.mark.parametrize(
-    ("state", "profile"),
-    [(JobState.PLACED, "profile-a"), (JobState.INDEXED, "profile-b")],
-    ids=["unfinished-job", "reader-profile-with-no-tree"],
-)
-def test_an_entry_no_known_tree_can_vouch_for_is_kept(
-    state: JobState, profile: str
-) -> None:
-    """Given an entry with a job still running, or saved from a profile served
-    as a reader whose tree this daemon has never been sent, When sweeps run
-    past 30 days with its bookmark absent from the writer's tree, Then it is
-    kept."""
-    daemon = Daemon(state=state, profile=profile)
+def test_an_entry_with_a_job_still_running_is_kept() -> None:
+    """Given an entry whose job is still running (PLACED), When sweeps run past
+    30 days with its bookmark absent from the writer's tree, Then it is kept:
+    a running job needs its records."""
+    daemon = Daemon(state=JobState.PLACED)
     daemon.tree(WITHOUT_BOOKMARK)
 
     daemon.sweep()
@@ -155,6 +147,40 @@ def test_an_entry_no_known_tree_can_vouch_for_is_kept(
     daemon.sweep()
 
     assert daemon.kept()
+
+
+def test_an_entry_saved_only_by_a_profile_with_no_tree_is_judged_by_known_trees() -> (
+    None
+):
+    """Given an entry saved (INDEXED) only from profile B, whose tree this
+    daemon has never been sent, When its bookmark is absent from every known
+    tree for 30 days, Then it is dropped: a profile that is not known vouches
+    for nothing, so it cannot keep captured text forever (issue #534 T4)."""
+    daemon = Daemon(state=JobState.INDEXED, profile="profile-b")
+    daemon.tree(WITHOUT_BOOKMARK)
+
+    daemon.sweep()
+    daemon.clock.advance(RETENTION_MS)
+    daemon.sweep()
+
+    assert not daemon.kept()
+
+
+def test_after_reinstall_and_rebind_the_old_profiles_entry_still_leaves() -> None:
+    """Given profile A's filed entry, When the extension is reinstalled (new
+    profile C), the owner runs rebind, C binds and C's tree lacks the
+    bookmark for 30 days, Then the entry is dropped: A's settled job no
+    longer keeps it once A is not a known profile (issue #534 T4)."""
+    daemon = Daemon()
+    daemon.store.release_writer_profile()
+    daemon.store.bind_writer_profile(ProfileId("profile-c"))
+    daemon.tree(WITHOUT_BOOKMARK)
+
+    daemon.sweep()
+    daemon.clock.advance(RETENTION_MS)
+    daemon.sweep()
+
+    assert not daemon.kept()
 
 
 def _reader_tree(daemon: Daemon, profile: ProfileId, tree: Snapshot) -> None:
@@ -211,6 +237,30 @@ def test_an_entry_another_known_profiles_tree_still_holds_is_kept() -> None:
     daemon.sweep()
 
     assert daemon.kept() and daemon.store.absences() == {}
+
+
+def test_an_abandoned_reader_profiles_tree_stops_keeping_an_entry() -> None:
+    """Given profile B, served reader, whose last tree held the bookmark and
+    which never connects again, When sweeps run as the writer's tree lacks
+    it, Then B's tree is forgotten once 30 days old (B is no longer known),
+    and the entry goes 30 days after that (issue #534 T4)."""
+    daemon = Daemon()
+    daemon.tree(WITHOUT_BOOKMARK)
+    _reader_tree(daemon, B, WITH_BOOKMARK)
+
+    daemon.sweep()
+    daemon.clock.advance(RETENTION_MS - 1)
+    daemon.sweep()
+    known_until_due = B in daemon.store.profile_trees()
+    daemon.clock.advance(1)
+    daemon.sweep()
+    forgotten = B not in daemon.store.profile_trees()
+    kept_after_forgotten = daemon.kept()
+    daemon.clock.advance(RETENTION_MS)
+    daemon.sweep()
+
+    assert known_until_due and forgotten and kept_after_forgotten
+    assert not daemon.kept()
 
 
 def test_no_tree_snapshot_tracks_and_drops_no_entry() -> None:

@@ -584,6 +584,24 @@ def test_a_profile_tree_is_kept_per_profile_latest_first(
     assert store.latest_tree_snapshot() is None
 
 
+def test_profile_trees_taken_before_a_time_are_dropped(
+    store: CorpusStorePort,
+) -> None:
+    """Given two profiles' trees, one taken before a time and one after, and a
+    writer's latest tree older still, When profile trees taken before that
+    time are dropped, Then only the old one goes (its profile is no longer
+    known to Retention) and the latest tree is untouched."""
+    store.put_profile_tree(PROFILE_A, make_snapshot(taken_at=1_000, title="a"))
+    store.put_profile_tree(PROFILE_B, newer := make_snapshot(taken_at=5_000))
+    store.put_tree_snapshot(latest := make_snapshot(taken_at=500))
+
+    dropped = store.drop_profile_trees_before(2_000)
+
+    assert dropped == [PROFILE_A]
+    assert store.profile_trees() == {PROFILE_B: newer}
+    assert store.latest_tree_snapshot() == latest
+
+
 def test_latest_tree_snapshot_of_an_empty_store_is_none(
     store: CorpusStorePort,
 ) -> None:
