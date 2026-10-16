@@ -87,7 +87,7 @@ def test_retry_an_unknown_or_another_profiles_job_is_not_found() -> None:
         _retry(store, failed.job_id, ProfileId("profile-b"))
 
 
-def test_retry_a_failed_job_whose_save_retention_dropped_is_invalid_not_unknown() -> None:
+def test_retry_a_job_whose_save_retention_dropped_is_invalid_not_unknown() -> None:
     """Given a FAILED job whose save Retention dropped (its bookmark left the
     tree 30 days ago), When retried, Then it raises InvalidRequest naming
     Retention -- not UnknownRecord: the job is known, nothing is left to run --

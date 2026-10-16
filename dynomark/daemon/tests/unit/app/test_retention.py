@@ -14,7 +14,7 @@ from dataclasses import replace
 import pytest
 
 from dynomark_daemon.app.diffs import request_diff
-from dynomark_daemon.app.errors import InvalidRequest, UnknownRecord
+from dynomark_daemon.app.errors import InvalidRequest
 from dynomark_daemon.app.jobs import retry_job
 from dynomark_daemon.app.retention import enforce_retention
 from dynomark_daemon.domain.bookmark import Identity, Save
@@ -223,17 +223,17 @@ def test_an_answered_request_is_forgotten_and_its_retry_still_answers_once() -> 
         _propose(daemon, "req-1", DiffKind.AUDIT)
 
 
-def test_retrying_a_failed_job_whose_save_was_dropped_is_not_found() -> None:
+def test_retrying_a_failed_job_whose_save_was_dropped_is_invalid() -> None:
     """Given a FAILED job whose entry and save were dropped by retention, When
-    the user retries it, Then it is not found (nothing is left to process)
-    and the job stays FAILED."""
+    the user retries it, Then it is refused as invalid -- the job is known,
+    nothing is left to process (contract v2) -- and the job stays FAILED."""
     daemon = Daemon(state=JobState.FAILED)
     daemon.tree(WITHOUT_BOOKMARK)
     daemon.sweep()
     daemon.clock.advance(RETENTION_MS)
     daemon.sweep()
 
-    with pytest.raises(UnknownRecord):
+    with pytest.raises(InvalidRequest):
         retry_job(
             JobId("job-1"),
             A,
