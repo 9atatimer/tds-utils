@@ -134,6 +134,22 @@ describe('ChromeBackgroundTab -- across worker restarts', () => {
     expect(first.stub.sessionRules()).toEqual([]);
   });
 
+  it('Given a guarded capture whose window will not close, When another capture is asked for, Then none runs while that window is open (its rules stay), and one runs once it closes', async () => {
+    const first = adapter();
+    first.stub.serve(URL, PAGE);
+    first.stub.serve('https://b.example/', { title: 'B', text: 'bee' });
+    first.stub.refuseClose = true;
+    await first.source.readTab(URL, GUARDED);
+    const rules = first.stub.sessionRules();
+    expect(await first.source.readTab('https://b.example/', GUARDED)).toBeUndefined();
+    expect(first.stub.openWindows()).toBe(1);
+    expect(first.stub.sessionRules()).toEqual(rules);
+    first.stub.refuseClose = false;
+    expect((await first.source.readTab('https://b.example/', GUARDED))?.title).toBe('B');
+    expect(first.stub.openWindows()).toBe(0);
+    expect(first.stub.sessionRules()).toEqual([]);
+  });
+
   it('Given a recorded window id that now names a window this adapter did not open, When swept, Then that window is left open and the record dropped', async () => {
     const first = adapter();
     first.stub.serve(URL, 'never-loads');
