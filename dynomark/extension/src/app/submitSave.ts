@@ -128,15 +128,16 @@ export class SubmittedSaves {
   }
 
   /**
-   * Forget every kept frame whose node is not in `node_ids` (no longer in
-   * Follow Up, so never re-sent): its page text goes. A frame kept after
-   * `since` (a mark taken before `node_ids` was read) stays: its bookmark
-   * may have been created after the read (issue #534).
+   * Forget every kept frame whose node and url are not in `present` (no
+   * longer in Follow Up, or its url edited: never re-sent): its page text
+   * goes. A frame kept after `since` (a mark taken before `present` was
+   * read) stays: its bookmark may have been created after the read (issue
+   * #534).
    */
-  async keepOnly(node_ids: ReadonlySet<NodeId>, since: number): Promise<void> {
+  async keepOnly(present: ReadonlyMap<NodeId, Url>, since: number): Promise<void> {
     await this.load();
     const current = this.pending ?? [];
-    const among = new Set(pendingAmong(current, node_ids).map((save) => save.id));
+    const among = new Set(pendingAmong(current, present).map((save) => save.id));
     const kept = current.filter((save) => among.has(save.id) || (this.heldAt.get(save.id) ?? 0) > since);
     if (kept.length < current.length) await this.store(kept);
   }

@@ -5,8 +5,8 @@
 // a fresh one with no capture. Bounded: a few entries and at most one
 // maximum capture's worth of text; the oldest go first, and a save that does
 // not fit alone is not kept (it is sent all the same). A save whose bookmark
-// has left Follow Up is never re-sent, so its entry (and page text) goes at
-// the next backlog.
+// has left Follow Up, or whose url was edited since, is never re-sent, so its
+// entry (and page text) goes at the next backlog.
 
 import type { ExtensionCapture } from './capture.js';
 import { MAX_CAPTURE_TEXT } from './limits.js';
@@ -54,7 +54,7 @@ export function withoutPending(saves: readonly PendingSave[], id: RequestId): Pe
   return saves.filter((save) => save.id !== id);
 }
 
-/** `saves` without those whose node is not in `node_ids` (the bookmarks still in Follow Up). */
-export function pendingAmong(saves: readonly PendingSave[], node_ids: ReadonlySet<NodeId>): PendingSave[] {
-  return saves.filter((save) => node_ids.has(save.bookmark.node_id));
+/** `saves` without those whose node and url are not in `present` (each bookmark still in Follow Up, by node, with its url now). */
+export function pendingAmong(saves: readonly PendingSave[], present: ReadonlyMap<NodeId, Url>): PendingSave[] {
+  return saves.filter((save) => present.get(save.bookmark.node_id) === save.bookmark.url);
 }

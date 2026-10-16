@@ -150,9 +150,10 @@ export class TreeWatch {
     const gone = [...owed].filter((node_id) => !waiting.has(node_id));
     for (const node_id of gone) owed.delete(node_id);
     if (gone.length > 0) await this.storeOwed(owed);
-    // A kept frame for a bookmark gone from Follow Up is never re-sent: its page text leaves storage now.
-    // One kept since the mark is spared: its bookmark may have been created after the read.
-    await this.deps.saves.keepOnly(waiting, mark);
+    // A kept frame for a bookmark gone from Follow Up, or whose url was edited since, is never re-sent:
+    // its page text leaves storage now. One kept since the mark is spared: its bookmark may have been created after the read.
+    const present = new Map(children.flatMap((node) => (node.kind === 'bookmark' ? [[node.id, node.url] as const] : [])));
+    await this.deps.saves.keepOnly(present, mark);
     for (const node of children) {
       const saved = this.save(node, { background: owed.has(node.id) });
       this.context.track(saved);
