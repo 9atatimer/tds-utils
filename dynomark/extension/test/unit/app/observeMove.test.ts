@@ -1,9 +1,8 @@
 // observeMove.test.ts -- design, "The extension", Record feedback:
-// record_move on every onMoved whose source and destination are owned; the
-// adapter sets origin from the batch operations the extension itself issued;
-// contract v1: each such move is reported as `move.observed` with its origin
-// (the daemon discards all but user moves on the writer), and moves of nodes
-// the in-flight batch names are origin extension.
+// every onMoved whose source and destination are owned is reported as
+// `move.observed` with its origin (contract v1); moves of nodes the in-flight
+// batch names are origin extension. The daemon's feedback_of alone decides
+// which become MoveFeedback (issue #422).
 
 import { describe, expect, it } from 'vitest';
 import { ReportedMoves, observeMove } from '../../../src/app/observeMove.js';
@@ -36,15 +35,10 @@ function deps() {
 
 // --- Tests ---
 
-describe('Behavior: A user move becomes feedback -- observeMove(observed, role, context, { transport, ids, clock, moves, timer, track })', () => {
-  it('Given the user moves a node between owned folders on the writer, When observed, Then move.observed carries it with origin user and the extension decides no feedback itself (issue #422)', async () => {
+describe('Record feedback -- observeMove(observed, context, { transport, ids, clock, moves, timer, track }) reports owned moves; the daemon decides feedback (issue #422)', () => {
+  it('Given the user moves a node between owned folders, When observed, Then move.observed carries it with origin user and the time', async () => {
     const d = deps();
-    const feedback = await observeMove(
-      { node_id: '42', url: 'https://tokio.rs/', from: ASYNC, to: RUST },
-      'writer',
-      { owned_roots: ROOTS, in_flight: new Set() },
-      d,
-    );
+    await observeMove({ node_id: '42', url: 'https://tokio.rs/', from: ASYNC, to: RUST }, { owned_roots: ROOTS, in_flight: new Set() }, d);
     expect(MoveObservedSchema.parse(d.transport.sent[0]).move).toEqual({
       node_id: '42',
       url: 'https://tokio.rs/',
@@ -53,38 +47,23 @@ describe('Behavior: A user move becomes feedback -- observeMove(observed, role, 
       origin: 'user',
       observed_at: NOW,
     });
-    // The daemon's feedback_of is the one rule: the extension reports, it does not judge.
-    expect(feedback).toBeUndefined();
   });
 
-  it('Given the node is named by the batch in flight, When its move is observed, Then move.observed carries origin extension and there is no feedback', async () => {
+  it('Given the node is named by the batch in flight, When its move is observed, Then move.observed still reports it, with origin extension', async () => {
     const d = deps();
-    const feedback = await observeMove(
-      { node_id: '42', from: ROOTS.follow_up, to: ASYNC },
-      'writer',
-      { owned_roots: ROOTS, in_flight: new Set(['42']) },
-      d,
-    );
-    expect(feedback).toBeUndefined();
+    await observeMove({ node_id: '42', from: ROOTS.follow_up, to: ASYNC }, { owned_roots: ROOTS, in_flight: new Set(['42']) }, d);
     expect(MoveObservedSchema.parse(d.transport.sent[0]).move.origin).toBe('extension');
   });
 
-  it('Given a reader host, When a user move between owned folders is observed, Then it is still reported but there is no feedback', async () => {
+  it('Given a folder (no url) moved between owned folders, When observed, Then move.observed still reports it', async () => {
     const d = deps();
-    const feedback = await observeMove({ node_id: '42', from: ASYNC, to: RUST }, 'reader', { owned_roots: ROOTS, in_flight: new Set() }, d);
-    expect(feedback).toBeUndefined();
-    expect(MoveObservedSchema.parse(d.transport.sent[0]).move.origin).toBe('user');
+    await observeMove({ node_id: '7', from: ASYNC, to: RUST }, { owned_roots: ROOTS, in_flight: new Set() }, d);
+    expect(MoveObservedSchema.parse(d.transport.sent[0]).move).toMatchObject({ node_id: '7', origin: 'user' });
   });
 
-  it('Given a move out of the owned roots, When observed, Then nothing is sent and there is no feedback', async () => {
+  it('Given a move out of the owned roots, When observed, Then nothing is sent', async () => {
     const d = deps();
-    const feedback = await observeMove(
-      { node_id: '42', from: ASYNC, to: { root: 'bar', names: [] } },
-      'writer',
-      { owned_roots: ROOTS, in_flight: new Set() },
-      d,
-    );
-    expect(feedback).toBeUndefined();
+    await observeMove({ node_id: '42', from: ASYNC, to: { root: 'bar', names: [] } }, { owned_roots: ROOTS, in_flight: new Set() }, d);
     expect(d.transport.sent).toEqual([]);
   });
 });

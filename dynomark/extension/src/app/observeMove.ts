@@ -1,7 +1,8 @@
 // observeMove.ts -- the extension's "Record feedback" responsibility (design,
 // "The extension"): on every onMoved whose source and destination are owned,
 // stamp the Move with its origin (extension for nodes the in-flight batch
-// names) and the time, report it as move.observed, and apply record_move.
+// names) and the time, and report it as move.observed. Whether it is
+// feedback is the daemon's decision alone (feedback_of; issue #422).
 // The browser adapter turns parent ids into FolderPaths before calling this.
 //
 // A report is feedback the daemon cannot recover from the tree, so it is
@@ -16,9 +17,8 @@
 
 import { backoffDelay } from '../domain/backoff.js';
 import { fitPath } from '../domain/limits.js';
-import { isOwnedMove, moveOrigin, type Move, type MoveFeedback } from '../domain/move.js';
+import { isOwnedMove, moveOrigin, type Move } from '../domain/move.js';
 import { isReportable, withPendingMove, withoutPendingMove, type PendingMove } from '../domain/pendingMoves.js';
-import type { HostRole } from '../domain/roles.js';
 import type { FolderPath, OwnedRoots } from '../domain/tree.js';
 import type { NodeId, RequestId, Url } from '../domain/values.js';
 import type { Clock } from '../ports/clock.js';
@@ -28,7 +28,6 @@ import type { Timer } from '../ports/timer.js';
 import type { TransportPort } from '../ports/transport.js';
 import { CONTRACT_VERSION, type MessageOf } from '../wire/messages.js';
 import { DaemonError, isRetryable, resultOrThrow } from './errors.js';
-import { recordMove } from './recordMove.js';
 
 // --- Types ---
 
@@ -179,15 +178,9 @@ export async function keepMove(observed: ObservedMove, in_flight: ReadonlySet<No
   await deps.moves.keep({ id: deps.ids.next(), move: stamped(observed, in_flight, deps.clock), unjudged: true });
 }
 
-/** Report an owned move to the daemon and return the feedback it is, if any; a move outside the owned roots is ignored. */
-export async function observeMove(
-  observed: ObservedMove,
-  role: HostRole,
-  context: MoveContext,
-  deps: ObserveDeps,
-): Promise<MoveFeedback | undefined> {
-  if (!isOwnedMove(observed.from, observed.to, context.owned_roots)) return undefined;
+/** Report an owned move to the daemon (it decides what is feedback); a move outside the owned roots is ignored. */
+export async function observeMove(observed: ObservedMove, context: MoveContext, deps: ObserveDeps): Promise<void> {
+  if (!isOwnedMove(observed.from, observed.to, context.owned_roots)) return;
   const move = stamped(observed, context.in_flight, deps.clock);
   await report({ v: CONTRACT_VERSION, type: 'move.observed', id: deps.ids.next(), move }, 0, deps);
-  return recordMove(move, role);
 }

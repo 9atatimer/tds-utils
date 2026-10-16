@@ -175,12 +175,8 @@ export class TreeWatch {
     if (outcome?.mode === 'full') {
       await observeMove(
         observed,
-        outcome.role,
         { owned_roots: outcome.owned_roots, in_flight },
-        {
-          ...this.deps,
-          track: (work) => this.context.track(work),
-        },
+        { ...this.deps, track: (work) => this.context.track(work) },
       );
       return;
     }

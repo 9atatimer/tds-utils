@@ -107,6 +107,17 @@ describe('Record feedback -- owned moves are reported with their origin', () => 
     });
   });
 
+  it('Given a reader connection, When the user moves a bookmark between owned folders, Then move.observed still reports it (the daemon decides feedback)', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    scriptDaemon(w, { role: 'reader' });
+    const ids = await seedOwnedTree(w.tree);
+    const runtime = await startRuntime(w);
+    await moved(w, runtime, ids.saved, ids.rust);
+    expect(sentOf(w, 'move.observed').map((r) => r.move)).toEqual([
+      expect.objectContaining({ node_id: ids.saved, to: RUST, origin: 'user' }),
+    ]);
+  });
+
   it('Given a move out of the owned roots, When seen, Then nothing is reported', async () => {
     const { w, ids, runtime } = await setup();
     await moved(w, runtime, ids.saved, ids.bar);

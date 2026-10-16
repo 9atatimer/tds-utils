@@ -1,9 +1,9 @@
-// move.ts -- observed tree moves and the feedback they become (design, "Move",
-// "MoveFeedback"; Behaviors row "A user move becomes feedback").
+// move.ts -- observed tree moves (design, "Move"; "Record feedback"). Which
+// moves become MoveFeedback is the daemon's rule alone (its feedback_of;
+// issue #422): the extension reports every owned move with its origin.
 
 import type { WriteBatch } from './batch.js';
 import { isPathInside } from './paths.js';
-import type { HostRole } from './roles.js';
 import type { FolderPath, OwnedRoots } from './tree.js';
 import type { EpochMs, NodeId, Url } from './values.js';
 
@@ -22,23 +22,15 @@ export interface Move {
   readonly observed_at: EpochMs;
 }
 
-/** A `Move` of origin `user` between two owned folders, on the writer host: a labelled placement example. */
-export type MoveFeedback = Move & { readonly origin: 'user' };
-
 // --- Predicates ---
 
 function isOwnedPath(path: FolderPath, roots: OwnedRoots): boolean {
   return [roots.follow_up, roots.dynomark, roots.graveyard].some((root) => isPathInside(path, root));
 }
 
-/** True when both the source and the destination lie inside an owned root: the only moves record_move sees. */
+/** True when both the source and the destination lie inside an owned root: the only moves reported as move.observed. */
 export function isOwnedMove(from: FolderPath, to: FolderPath, roots: OwnedRoots): boolean {
   return isOwnedPath(from, roots) && isOwnedPath(to, roots);
-}
-
-/** True when a move is placement feedback: origin user, observed on the writer. */
-export function isFeedback(move: Move, role: HostRole): move is MoveFeedback {
-  return move.origin === 'user' && role === 'writer';
 }
 
 // --- Pure helpers ---
