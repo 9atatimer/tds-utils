@@ -10,10 +10,11 @@
 import { describe, expect, it } from 'vitest';
 import { SNAPSHOT_DEBOUNCE_MS } from '../../../src/app/runtime.js';
 import { RECONNECT_BACKOFF } from '../../../src/domain/backoff.js';
-import type { ExtensionRuntime } from '../../../src/app/runtime.js';
+import { ExtensionRuntime } from '../../../src/app/runtime.js';
 import type { BookmarkEvent } from '../../../src/ports/bookmarkEvents.js';
 import type { RequestMessage, ResponseMessage } from '../../../src/wire/messages.js';
 import { FakeExtensionWorld } from '../../fakes/FakeExtensionWorld.js';
+import { scriptedDaemon } from '../../fixtures/daemon.js';
 import { DYNOMARK, RUST, seedOwnedTree, type Seeded } from '../../fixtures/ownedTree.js';
 import { scriptDaemon, sentOf, startRuntime } from '../../fixtures/runtime.js';
 
@@ -42,6 +43,11 @@ async function moved(w: FakeExtensionWorld, runtime: ExtensionRuntime, id: strin
   const old_parent_id = (await w.tree.getNode(id))?.parent_id ?? '';
   await w.tree.move(id, to);
   await deliver(runtime, { kind: 'moved', node_id: id, parent_id: to, old_parent_id });
+}
+
+/** Let every queued continuation run: one turn of the event loop (no wall-clock wait). */
+function settle(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
 }
 
 const PAGE = { title: 'Serde', text: 'Serde is a framework for serializing and deserializing Rust data structures.' };
@@ -150,6 +156,70 @@ describe('Record feedback -- a move report survives busy answers and worker rest
     scriptDaemon(w);
     await startRuntime(w);
     expect(sentOf(w, 'move.observed')).toEqual([]);
+  });
+});
+
+describe('Record feedback -- a move seen without a full session is reported once one exists (issue #412)', () => {
+  async function down(): Promise<{ w: FakeExtensionWorld; ids: Seeded; runtime: ExtensionRuntime }> {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    scriptDaemon(w);
+    w.connection().unreachable(true);
+    const ids = await seedOwnedTree(w.tree);
+    return { w, ids, runtime: await startRuntime(w) };
+  }
+
+  async function reachable(w: FakeExtensionWorld, runtime: ExtensionRuntime): Promise<void> {
+    w.connection().unreachable(false);
+    await w.timer().advance(RECONNECT_BACKOFF.max_ms);
+    await runtime.idle();
+  }
+
+  it('Given the daemon is down, When the user moves a save between owned folders and the daemon comes back, Then move.observed reports it with origin user', async () => {
+    const { w, ids, runtime } = await down();
+    await moved(w, runtime, ids.saved, ids.rust);
+    await reachable(w, runtime);
+    expect(sentOf(w, 'hello').length).toBeGreaterThan(0);
+    expect(sentOf(w, 'move.observed').map((r) => r.move)).toEqual([
+      expect.objectContaining({ node_id: ids.saved, from: { root: 'bar', names: ['Follow Up'] }, to: RUST, origin: 'user' }),
+    ]);
+  });
+
+  it('Given the daemon is down when the user moves a save, When the worker is terminated and the next one reaches the daemon, Then the move is still reported', async () => {
+    const { w, ids, runtime } = await down();
+    await moved(w, runtime, ids.saved, ids.rust);
+    w.restart();
+    scriptDaemon(w);
+    await startRuntime(w);
+    expect(sentOf(w, 'move.observed').map((r) => r.move)).toEqual([
+      expect.objectContaining({ node_id: ids.saved, to: RUST, origin: 'user' }),
+    ]);
+  });
+
+  it('Given the daemon is down, When the user moves a save out of the owned roots and the daemon comes back, Then nothing is reported and nothing stays kept', async () => {
+    const { w, ids, runtime } = await down();
+    await moved(w, runtime, ids.saved, ids.bar);
+    await reachable(w, runtime);
+    expect(sentOf(w, 'move.observed')).toEqual([]);
+    expect((await w.storage.loadPendingMoves()) ?? []).toEqual([]);
+  });
+
+  it('Given a worker woken by the move before its hello is answered, When the hello completes, Then move.observed reports the move', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const ids = await seedOwnedTree(w.tree);
+    const runtime = new ExtensionRuntime(w.worker());
+    await runtime.start();
+    const hello = await w.daemon().nextRequest();
+    await w.tree.move(ids.saved, ids.rust);
+    runtime.onBookmarkEvent({ kind: 'moved', node_id: ids.saved, parent_id: ids.rust, old_parent_id: ids.followUp });
+    await settle();
+    const early = sentOf(w, 'move.observed').length;
+    scriptDaemon(w);
+    await w.daemon().answer(scriptedDaemon()(hello));
+    await runtime.idle();
+    expect(early).toBe(0);
+    expect(sentOf(w, 'move.observed').map((r) => r.move)).toEqual([
+      expect.objectContaining({ node_id: ids.saved, to: RUST, origin: 'user' }),
+    ]);
   });
 });
 
