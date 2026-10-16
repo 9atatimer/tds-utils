@@ -195,6 +195,26 @@ describe('Background-tab capture on the writer', () => {
     expect(later?.capture).toEqual({ source: 'none', text: '' });
   });
 
+  it('Given a pending save whose answer never came, When its bookmark leaves Follow Up before the next hello, Then that backlog drops its page text from storage (issue #420)', async () => {
+    const w = new FakeExtensionWorld({ flavor: 'chrome' });
+    const internal = (r: RequestMessage): ResponseMessage | undefined =>
+      r.type === 'ingest' && r.bookmark.url === URL
+        ? { v: 1, type: 'error', re: r.id, code: 'internal', message: 'database is locked' }
+        : undefined;
+    scriptDaemon(w, { role: 'writer' }, internal);
+    const ids = await seedOwnedTree(w.tree);
+    w.backgroundTabs.serve(URL, PAGE);
+    const first = await save(w, await startRuntime(w), ids.followUp);
+    const kept = ((await w.storage.loadPendingSaves()) ?? []).map((s) => s.capture.text);
+    w.terminate();
+    await w.tree.move(first?.bookmark.node_id ?? '', ids.rust);
+    w.restart();
+    scriptDaemon(w, { role: 'writer' });
+    await startRuntime(w);
+    expect(kept).toEqual([PAGE.text]);
+    expect((await w.storage.loadPendingSaves()) ?? []).toEqual([]);
+  });
+
   /** Three worker restarts, each a full hello whose backlog re-sends Follow Up; `extra` answers first on every worker. */
   async function restartThrice(w: FakeExtensionWorld, extra?: (r: RequestMessage) => ResponseMessage | undefined): Promise<void> {
     for (let i = 0; i < 3; i++) {
