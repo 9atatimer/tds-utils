@@ -106,7 +106,7 @@ case_no_engine_names_bootstrap_and_exits_0() {
     d="$(scenario)"
     rc="$(run_lmde "${d}/home" "${d}/path")"
     [ "${rc}" = "0" ] || fail "exit ${rc}, want 0 (fail-open)" || return 1
-    grep -qF 'npx --yes @nine-at-a-time-media/sandbox setup' "${d}/home/stderr" \
+    grep -qF 'npx --yes --package @nine-at-a-time-media/sandbox@latest naatm-sandbox setup' "${d}/home/stderr" \
         || fail "stderr does not name the bootstrap: $(cat "${d}/home/stderr")"
 }
 
@@ -121,7 +121,7 @@ case_old_engine_names_rebootstrap() {
     rc="$(run_lmde "${d}/home" "${d}/path" --check)"
     [ "${rc}" = "0" ] || fail "exit ${rc}, want 0 (fail-open)" || return 1
     [ ! -f "${d}/home/argv" ] || fail "the pre-acquire engine was exec'd: $(cat "${d}/home/argv")" || return 1
-    grep -qF 'npx --yes @nine-at-a-time-media/sandbox@latest setup' "${d}/home/stderr" \
+    grep -qF 'npx --yes --package @nine-at-a-time-media/sandbox@latest naatm-sandbox setup' "${d}/home/stderr" \
         || fail "stderr does not name the re-bootstrap: $(cat "${d}/home/stderr")"
 }
 

@@ -62,7 +62,7 @@ a cloud sandbox can and should run; the platform components stay put.
 beside the fleet pins: it execs the installed `naatm-sandbox acquire` with
 its arguments unchanged (tds-utils#549). tds-utils keeps no copy of the
 engine or the pins. A machine with no engine gets a one-line bootstrap
-(`npx --yes @nine-at-a-time-media/sandbox setup`, once per machine). The
+(`npx --yes --package @nine-at-a-time-media/sandbox@latest naatm-sandbox setup`, once per machine). The
 engine installs the agent fleet's packages from GitHub Packages
 (`npm.pkg.github.com`), its own package first:
 
