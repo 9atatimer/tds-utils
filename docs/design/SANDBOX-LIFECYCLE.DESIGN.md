@@ -8,6 +8,10 @@
 > that also covers multi-repo sessions. #124's original "NO" conflated
 > settings SYNC (user-level settings are not synced to cloud) with settings
 > LOADING (a file present in the container loads normally).
+> **Revision (2026-10-16, tds-utils#549, approved by Todd):** D1 and D2
+> are revised below. The acquire engine and the fleet pins now live in ONE
+> place, `@nine-at-a-time-media/sandbox`; lmde delegates to it and keeps no
+> copy. The superseded text is kept under each decision, marked as such.
 > **Date:** 2026-08-13
 > **Authors:** Claude (from design discussion with Todd)
 > **Depends on:** [LMDE.DESIGN.md](./LMDE.DESIGN.md),
@@ -184,58 +188,73 @@ optimization.
 
 ## Decisions
 
-### D1. The fleet pins ride the skills data package
+### D1 (REVISED). The fleet pins ride the sandbox package
 
 The pins file must be readable per-session by ANY repo's session,
-including repos that carry none of our files. The skills package
-(`@nine-at-a-time-media/skills`) is already the one artifact every
-surface acquires floating on every run, and its publish gate is a PR into
-template-tools' protected main -- merge IS rollout, which is exactly the
-review-gate property pins need.
+including repos that carry none of our files, and a pin bump must reach
+every surface on its next session without a human step beyond the merge.
 
-- `packages/skills/pins.env` is committed in template-tools and ships in
-  the published payload. A pin bump is a reviewed PR there; CI publishes
-  on merge; the next session's acquire picks it up.
-- `lmde acquire` resolution order, per package: explicit `--pins <file>`
-  argument > fleet pins from the acquired skills package (at
-  `~/.local/lib/node_modules/@nine-at-a-time-media/skills/pins.env`) >
-  float to registry latest.
-- The skills row itself is processed FIRST and never takes its version
-  from the fleet pins of the payload being installed (self-reference): an
-  emergency skills freeze uses an explicit `--pins` file or takes effect
-  on the run after the frozen payload lands. Loud either way.
+- `packages/naatm-sandbox/lib/pins.env` in template-tools is the ONE
+  fleet pins file. It ships inside the published
+  `@nine-at-a-time-media/sandbox`, beside the engine that reads it. A pin
+  bump is a reviewed template-tools PR that also raises the sandbox
+  version; that repo's `gate` refuses the PR otherwise (template-tools
+  #967, #972), because `publish.yml` skips a version that is already
+  published.
+- Resolution order, per package: explicit `--pins <file>` > the pins of
+  the NEWEST sandbox package on disk (the one this run just acquired, or
+  the running engine's own, whichever has the higher version) > float to
+  registry latest.
+- The skills and sandbox rows are processed FIRST and never take their
+  version from the fleet pins (a package never pins itself from the file
+  it carries). An emergency freeze of either uses an explicit `--pins`
+  file.
 - `tds-utils/sandbox/pins.env` remains ONLY for the unmigrated
-  bootstrap-and-fetch providers (codex/jules/copilot, #139) and is marked
-  superseded for everything else. `naatm-sandbox/lib/pins.env` demotes to
-  the seed's bootstrap fallback (used only before the first skills payload
-  is on disk).
+  bootstrap-and-fetch providers (codex/jules/copilot, #139).
 
-### D2. naatm-sandbox ships the acquire engine for repo-agnostic surfaces
+*Superseded:* the pins first rode the skills data package
+(`packages/skills/pins.env`); tds-utils#243 moved them out, because
+executable version policy is environment, not skills. They then sat in
+two hand-synced twins (`lmde/lib/pins.env` here and the sandbox copy),
+which drifted (#546).
 
-`lmde acquire` lives in tds-utils, which repo-agnostic sessions do not
-have. The engine (`lmde/lib/acquire.sh`) is VENDORED into
-`packages/naatm-sandbox/lib/acquire.sh` -- the same deliberate-copy
-mechanism as the vendored session-start hook, kept in sync by hand, drift
-caught by the smoketests on both sides. bin/lmde remains the laptop and
-tds-utils surface over the canonical copy.
+### D2 (REVISED). One acquire engine, in naatm-sandbox; lmde delegates
 
-naatm-sandbox exposes the engine twice:
+The engine (`packages/naatm-sandbox/lib/acquire.sh` in template-tools) has
+one copy, published in `@nine-at-a-time-media/sandbox`. Every surface runs
+the installed package:
 
-- setup stage (`setup-core.sh`): one `acquire_run` (seeds every package,
-  fleet pins from the just-installed skills payload) + ast-mcp user-scope
-  registration + global CLAUDE.md placement. The user-scope
-  `clai hooks install` call is REMOVED -- superseded, not no-op (the
-  original "proven no-op" rationale is reversed by the corrected fact 3):
-  the setup stage now registers its OWN user-scope hook pointing at
-  naatm-sandbox-session-start instead (D3, corrected; naatm-sandbox
-  0.6.0).
-- a new `naatm-sandbox-session-start` bin: the per-session authority for
-  repos that are not tds-utils -- `acquire_run` then `clai provision`,
-  fail-open, summary on stdout. The committed per-repo shim calls it.
+- setup stage (`setup-core.sh`): one `acquire_run` (seeds every package)
+  + ast-mcp user-scope registration + global CLAUDE.md placement +
+  persist-self + the user-scope hook (D3, corrected).
+- `naatm-sandbox-session-start`: the per-session authority --
+  `acquire_run` then `clai provision`, fail-open, summary on stdout.
+- `naatm-sandbox acquire [--pins <file>] [--check] [--latest <name>]`: the
+  verb `lmde acquire` used to implement. `lmde acquire` now execs the
+  installed `naatm-sandbox acquire` with its arguments unchanged, so the
+  drift indicator, the pre-push check and the menu-bar monitor keep
+  calling `lmde acquire`. With no installed engine it names the one-time
+  bootstrap (`npx --yes @nine-at-a-time-media/sandbox setup`) and exits 0.
+- The engine acquires ITS OWN package as a floating row (`sandbox`, both
+  bins linked into `~/.local/bin`), in the first pass. The second pass
+  then reads that package's pins. So the engine and the pins a laptop or
+  a cloud session runs are current on every run, not frozen at the
+  version the environment snapshot or a one-time setup installed.
 
-Rejected: publishing acquire as its own package (a fourth moving part for
-two consumers), and npm-dependency reuse (naatm-sandbox must work before
-any npm install has happened).
+The engine's behavior suite moved with it (template-tools
+`packages/naatm-sandbox/test/acquire/`). tds-utils keeps only the tests of
+the delegation.
+
+Rejected: a parity check between twins (tds-utils CI cannot read the
+private template-tools repo without a new credential, and every pin bump
+would still be two PRs); publishing acquire as its own package (a fourth
+moving part, and the sandbox package already ships it everywhere it is
+needed).
+
+*Superseded:* the engine was canonical in tds-utils (`lmde/lib/acquire.sh`)
+and VENDORED into naatm-sandbox, synced by hand. Nothing enforced the sync
+(#226), and the copies diverged: the sandbox copy lacked the #255 bound
+fix and the #265 `--latest` query.
 
 ### D3 (CORRECTED). The setup-registered user-scope hook is the primary carrier
 
@@ -309,7 +328,12 @@ has setup only, so the committed hook is its session boundary too.
   session (the N-1 window). This is a bounded, warned exception to the
   #72 fresh-fetch stance, chosen over Approach B's spawn-time registry
   coupling; the drift summary names the running versions every session.
-- Fleet pins in the skills payload are inert data gating executable
+- The engine updates itself from the registry, floating: a newly
+  published sandbox version runs on the next acquire. That is the same
+  trust the setup stage already extends (it installs the sandbox package
+  at @latest), and publishing one is a reviewed, version-raising PR into
+  template-tools' protected main.
+- Fleet pins in the sandbox package are inert data gating executable
   VERSIONS; the executables themselves still come pinned+verified from
   the registry. A tampered pins file cannot inject code that is not a
   published, integrity-checked package version.
@@ -328,6 +352,9 @@ has setup only, so the committed hook is its session boundary too.
 | Session carrier (CORRECTED) | Setup-registered USER-SCOPE hook primary; committed repo shims redundancy | User-scope hooks written by setup DO fire (#124 corrected: YES) and cover multi-repo sessions, which repo hooks measurably do not |
 | User-scope hook registration (CORRECTED) | Restored in the setup stage, pointing at naatm-sandbox-session-start | The original removal acted on the wrong #124 answer; the carrier works and is the multi-repo fix |
 | Approach B | Future Consideration only | Elegant but swaps a solved rail for spawn-time registry coupling; its win over A is only the N-1 window |
+| Pins home (REVISED, #549) | `packages/naatm-sandbox/lib/pins.env`, one file, shipped in the sandbox package | Supersedes the skills-payload row: pins are environment (#243), and the twins drifted (#546) |
+| Engine (REVISED, #549) | One copy, in naatm-sandbox; `lmde acquire` execs `naatm-sandbox acquire` | Supersedes the vendoring row: the hand sync diverged (#226); one copy cannot |
+| Engine currency (#549) | The engine acquires its own package first, floating; the newest sandbox's pins drive the run | A pin bump reaches every surface on its next run, laptops included, without a snapshot rebuild |
 
 ---
 
@@ -354,7 +381,11 @@ has setup only, so the committed hook is its session boundary too.
   fire when written into the container, and are now the primary carrier
   (D3, corrected).
 - **A second acquire package.** Vendoring beats a new published moving
-  part for two consumers.
+  part for two consumers. (Still rejected after #549, which ended the
+  vendoring: the sandbox package is the one copy.)
+- **Twins plus a parity check (#549).** CI here cannot read the private
+  template-tools repo without a new credential, and every pin bump would
+  still be two PRs.
 - **npx-spawned MCP servers now (Approach B).** Deferred: new failure
   modes (registry reachability at spawn, cold-spawn latency, npmrc-
   before-connect ordering) for a window A already shrinks to one session.
@@ -367,5 +398,7 @@ has setup only, so the committed hook is its session boundary too.
   supersede RD4's stage assumptions).
 - [LMDE.md](../../lmde/LMDE.md) -- the acquire capability this schedules.
 - `sandbox/README.md` -- the wrapper tree this reflows.
+- tds-utils#549, #546, #226; template-tools#967, #972 -- the
+  consolidation and the publish guard it relies on.
 - tds-utils#190, #124, #120, #123, #139, #193, #194;
   template-tools#355, #381, #382 -- the observed failure class.

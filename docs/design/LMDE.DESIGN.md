@@ -686,7 +686,8 @@ deleted.
 | clai `_data` bundle | Kept as a LOUD bootstrap fallback | Surfaces without acquire still function; removal tracked in Open Questions |
 | Mid-session update path | `lmde acquire && clai refresh`, no cross-call | Preserves the never-call-each-other invariant |
 | ~~Fleet pins home: `packages/skills/pins.env`, shipped in the skills payload~~ | SUPERSEDED by the engine-sibling row below | Coupled executable version policy to the skills source; moving skills to their own repository would have dragged clai/ast-mcp/gadmin pinning along (PR #243) |
-| Fleet pins home | `lmde/lib/pins.env`, a sibling of the acquire engine (vendored twin ships in `@nine-at-a-time-media/sandbox`) | Pins are environment, not skills; the review gate is unchanged -- a pin bump is a reviewed PR (PR #243; body-text reconciliation tracked in issue #249) |
+| ~~Fleet pins home: `lmde/lib/pins.env`, a sibling of the acquire engine (vendored twin ships in `@nine-at-a-time-media/sandbox`)~~ | SUPERSEDED by the one-copy row below | The hand-synced twins drifted (issue #546) |
+| Fleet pins home and engine (#549) | One copy of each, in `@nine-at-a-time-media/sandbox` (template-tools `packages/naatm-sandbox/lib/{acquire.sh,pins.env}`); `lmde acquire` execs `naatm-sandbox acquire` | A pin bump is one reviewed template-tools PR whose version raise that repo's gate enforces; the engine acquires its own package first, so every surface runs current pins (SANDBOX-LIFECYCLE.DESIGN.md D1, D2 as revised) |
 | Pin resolution | explicit `--pins` > fleet pins > float | Explicit stays the emergency override; float stays the no-config default |
 | Skills self-reference | The skills row never pins itself from the payload being installed | Otherwise a payload would gate its own delivery; freeze uses an explicit `--pins` file |
 | Float semantics | Resolve latest, install and stamp the CONCRETE version | An `@latest` tag would make stamp == target forever and freeze the package |
@@ -888,8 +889,9 @@ moved. Full detail in SANDBOX-LIFECYCLE.DESIGN.md.
   black-box behavioral smoketest for the boundary. It stands inside a real
   laptop or cloud session and asserts the observable convention locations
   the split promises, without caring which tool placed them.
-- [`test/smoketest_lmde_acquire/`](../../test/smoketest_lmde_acquire/) --
-  the acquire engine's own suite.
+- [`test/smoketest_lmde_acquire_delegates/`](../../test/smoketest_lmde_acquire_delegates/)
+  -- `lmde acquire`'s handoff to the engine. The engine's own suite moved
+  with it to template-tools `packages/naatm-sandbox/test/acquire/` (#549).
 - [`test/smoketest_lmde_observability/`](../../test/smoketest_lmde_observability/)
   -- the observability stack's bootstrap suite.
 - `sandbox/README.md` -- the provider wrapper tree that invokes acquire.

@@ -14,10 +14,10 @@ migration (#145):
   `clai provision`. The env-setup stage runs the same acquire but is only
   the CACHE SEEDER: its work is frozen into the environment snapshot for
   up to ~7 days, so nothing it installs is the source of truth
-  (SANDBOX-LIFECYCLE.DESIGN.md). Executable pins come from the FLEET
-  pins.env shipped inside the skills payload (D1: explicit --pins > fleet
-  pins > float; skills itself floats by design, per
-  LMDE.DESIGN.md section 2.5).
+  (SANDBOX-LIFECYCLE.DESIGN.md). Executable pins come from the ONE fleet
+  pins.env, shipped in @nine-at-a-time-media/sandbox beside the one acquire
+  engine (D1 and D2 as revised, #549: explicit --pins > fleet pins > float;
+  skills and the sandbox package itself float by design).
 - BOOTSTRAP-and-FETCH (codex, copilot, jules -- not yet migrated): the shared
   `provision.sh` core installs a PINNED clai from GitHub Packages
   (`npm install @nine-at-a-time-media/clai@${CLAI_VERSION}`), then execs
@@ -35,9 +35,9 @@ precedent these generalize.
   `clai provision` (see the header note in that file)
 - `pins.env` -- CLAI_VERSION + AST_MCP_VERSION + SKILLS_VERSION; consumed
   by `provision.sh` for the not-yet-migrated providers. For acquire
-  surfaces the pins now ride the skills
-  package (template-tools packages/skills/pins.env -- see
-  SANDBOX-LIFECYCLE.DESIGN.md D1 and the rollout note below)
+  surfaces the pins ride the sandbox package (template-tools
+  packages/naatm-sandbox/lib/pins.env -- see SANDBOX-LIFECYCLE.DESIGN.md D1
+  and the rollout note below)
 - `codex/`, `copilot/`, `jules/` -- per-provider wrappers over `provision.sh`
 
 `claude-web/` is GONE (#126). Its three wrappers were duplicate
@@ -70,10 +70,12 @@ different problem), so the per-provider nail gets hammered by hand.
 ## pins.env rollout note
 
 For ACQUIRE surfaces the rollout lever has MOVED: the fleet pins live in
-template-tools `packages/skills/pins.env`, ship inside the published skills
-payload, and reach every surface on its next session via the same floating
-acquire that delivers the skills (SANDBOX-LIFECYCLE.DESIGN.md D1). A pin
-bump is a reviewed template-tools PR; the merge is the rollout. This
+template-tools `packages/naatm-sandbox/lib/pins.env`, ship inside the
+published sandbox package, and reach every surface on its next run, because
+the engine acquires its own package first (SANDBOX-LIFECYCLE.DESIGN.md D1
+and D2 as revised, #549). A pin bump is a reviewed template-tools PR that
+raises the sandbox version (that repo's gate refuses one that does not);
+the merge is the rollout. This
 repo's `pins.env` remains the lever ONLY for the not-yet-migrated
 bootstrap-and-fetch providers below.
 

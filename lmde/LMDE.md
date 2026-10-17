@@ -57,8 +57,14 @@ dnsmasq, the observability stack), which are laptop-only, `lmde` carries a
 **cloud-portable artifact-acquisition capability**. It is the subset of `lmde`
 a cloud sandbox can and should run; the platform components stay put.
 
-`lmde acquire` installs the agent fleet's packages from GitHub Packages
-(`npm.pkg.github.com`):
+`lmde acquire` runs the fleet's one acquire engine, which ships in
+`@nine-at-a-time-media/sandbox` (template-tools `packages/naatm-sandbox`)
+beside the fleet pins: it execs the installed `naatm-sandbox acquire` with
+its arguments unchanged (tds-utils#549). tds-utils keeps no copy of the
+engine or the pins. A machine with no engine gets a one-line bootstrap
+(`npx --yes @nine-at-a-time-media/sandbox setup`, once per machine). The
+engine installs the agent fleet's packages from GitHub Packages
+(`npm.pkg.github.com`), its own package first:
 
 - `@nine-at-a-time-media/clai` -- the CLI AI launcher / collator.
 - `@nine-at-a-time-media/ast-mcp` -- the AST MCP server, landing at
@@ -83,13 +89,13 @@ tokens. See tds-utils#186.
 
 It owns transport, version pins, and supply-chain integrity for the fleet, and
 is agent-agnostic. Pin resolution per package: an explicit `--pins <file>`
-wins; else the FLEET pins shipped inside the acquired skills payload
-(`~/.local/lib/node_modules/@nine-at-a-time-media/skills/pins.env`, a
-reviewed template-tools file -- SANDBOX-LIFECYCLE.DESIGN.md D1) apply; else
-the package floats -- acquire resolves the registry's
+wins; else the FLEET pins of the newest sandbox package on disk
+(`lib/pins.env`, a reviewed template-tools file -- SANDBOX-LIFECYCLE.DESIGN.md
+D1 as revised) apply; else the package floats -- acquire resolves the registry's
 latest published version and installs THAT concrete version (recording it, so a
 later run reinstalls on an upstream bump), never an `@latest` tag. The
-skills package installs first and never pins itself from its own payload. npm
+skills and sandbox packages install first and never pin themselves from
+their own payload. npm
 **registry integrity is always on**. Auth is a
 classic `read:packages` PAT in `GH_PAT_NAATM_PACKAGES_RO` (the deprecated
 `GH_AI_TOOLS_PAT` is still honoured). Acquisition never runs a

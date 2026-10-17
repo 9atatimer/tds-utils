@@ -3,7 +3,9 @@
 # machine (issue #404).
 #
 # Real-system, not hermetic: installs the exact DESIGNOMATIC_VERSION that
-# lmde/lib/pins.env pins, from GitHub Packages, into a throwaway prefix, and
+# the installed sandbox package's lib/pins.env pins (the one fleet pins file,
+# tds-utils#549; override with PINS=<file>), from GitHub Packages, into a
+# throwaway prefix, and
 # runs it. The acquire suite stubs npm, so it can never see a pinned release
 # that cannot start on real hardware -- 0.1.0 bundled a Linux x86_64 gRPC
 # extension and died at import on macOS arm64 (template-tools#792), and the
@@ -31,7 +33,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "${SCRIPT_DIR}")"
-PINS="${REPO_DIR}/lmde/lib/pins.env"
+# The newest installed engine's pins: the engine links itself from the acquire
+# prefix; setup persists it under ~/.local/lib/node_modules.
+if [[ -z "${PINS:-}" ]]; then
+    for candidate in \
+        "${HOME}/.local/share/tds-utils/acquire/_npm/node_modules/@nine-at-a-time-media/sandbox/lib/pins.env" \
+        "${HOME}/.local/lib/node_modules/@nine-at-a-time-media/sandbox/lib/pins.env"; do
+        if [[ -f "${candidate}" ]]; then PINS="${candidate}"; break; fi
+    done
+fi
+PINS="${PINS:-}"
 PACKAGE="@nine-at-a-time-media/designomatic"
 REGISTRY="https://npm.pkg.github.com"
 STEP_SECONDS=600
@@ -119,9 +130,10 @@ run_smoketest() {
     printf 'smoketest_designomatic_pin\n'
     command -v npm >/dev/null 2>&1 || { skip "npm not on PATH"; return 0; }
 
+    [ -n "${PINS}" ] || { skip "no installed sandbox package pins (run lmde acquire)"; return 0; }
     version="$(pinned_version)"
     if [ -z "${version}" ] || [ "${version}" = "UNSET" ]; then
-        fail "lmde/lib/pins.env pins no DESIGNOMATIC_VERSION"
+        fail "${PINS} pins no DESIGNOMATIC_VERSION"
         return 1
     fi
 
