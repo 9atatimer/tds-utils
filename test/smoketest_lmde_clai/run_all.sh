@@ -2,7 +2,7 @@
 # run_all.sh -- canonical entrypoint for the LMDE/CLAI behavioral smoketest,
 # matching the per-suite convention (test/smoketest_<name>/run_all.sh).
 #
-# UNLIKE the hermetic suites (smoketest_lmde_acquire, smoketest_clai_ast_mcp,
+# UNLIKE the hermetic suites (smoketest_lmde_acquire_delegates, smoketest_clai_ast_mcp,
 # ...), this one is a LIVE, non-hermetic check: it launches a real headless
 # `clai claude` session against the deployed toolchain, so it needs clai +
 # claude on PATH and costs a little quota (~30-60s). It is a manual/on-demand

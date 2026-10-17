@@ -31,6 +31,19 @@ fake_engine() {
     chmod +x "${dir}/naatm-sandbox"
 }
 
+# fake_installed_engine <home> <version> -- the layout npm leaves: a package
+# dir carrying package.json and bin/naatm-sandbox.sh, and a ~/.local/bin
+# symlink into it. The engine records its argv in <home>/argv.
+fake_installed_engine() {
+    local home="$1" version="$2" pkg
+    pkg="${home}/.local/lib/node_modules/@nine-at-a-time-media/sandbox"
+    mkdir -p "${pkg}/bin" "${home}/.local/bin"
+    printf '{"name":"@nine-at-a-time-media/sandbox","version":"%s"}\n' "${version}" > "${pkg}/package.json"
+    printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s/argv"\nexit 0\n' "${home}" > "${pkg}/bin/naatm-sandbox.sh"
+    chmod +x "${pkg}/bin/naatm-sandbox.sh"
+    ln -sfn "${pkg}/bin/naatm-sandbox.sh" "${home}/.local/bin/naatm-sandbox"
+}
+
 # run_lmde <home> <pathfront> [args...] -- run lmde acquire hermetically;
 # stderr to <home>/stderr; echo the exit code.
 run_lmde() {
@@ -97,6 +110,30 @@ case_no_engine_names_bootstrap_and_exits_0() {
         || fail "stderr does not name the bootstrap: $(cat "${d}/home/stderr")"
 }
 
+# An engine from before the acquire verb (sandbox < 0.9.0) answers
+# `acquire` with its usage and exit 0, and it has no row to update itself, so
+# exec'ing it would leave the machine silently stale forever. lmde names the
+# re-bootstrap instead.
+case_old_engine_names_rebootstrap() {
+    local d rc
+    d="$(scenario)"
+    fake_installed_engine "${d}/home" "0.8.0"
+    rc="$(run_lmde "${d}/home" "${d}/path" --check)"
+    [ "${rc}" = "0" ] || fail "exit ${rc}, want 0 (fail-open)" || return 1
+    [ ! -f "${d}/home/argv" ] || fail "the pre-acquire engine was exec'd: $(cat "${d}/home/argv")" || return 1
+    grep -qF 'npx --yes @nine-at-a-time-media/sandbox@latest setup' "${d}/home/stderr" \
+        || fail "stderr does not name the re-bootstrap: $(cat "${d}/home/stderr")"
+}
+
+case_current_engine_is_used() {
+    local d rc
+    d="$(scenario)"
+    fake_installed_engine "${d}/home" "0.9.0"
+    rc="$(run_lmde "${d}/home" "${d}/path" --latest skills)"
+    [ "${rc}" = "0" ] || fail "exit ${rc}" || return 1
+    [ "$(cat "${d}/home/argv" 2>/dev/null)" = "acquire --latest skills" ] || fail "the 0.9.0 engine was not exec'd"
+}
+
 case_no_engine_copy_in_tds_utils() {
     [ ! -e "${REPO_DIR}/lmde/lib/acquire.sh" ] || fail "lmde/lib/acquire.sh still exists" || return 1
     [ ! -e "${REPO_DIR}/lmde/lib/pins.env" ] || fail "lmde/lib/pins.env still exists" || return 1
@@ -111,7 +148,8 @@ main() {
     local c
     for c in case_passes_args_verbatim case_engine_exit_code_passes_through \
              case_prefers_local_bin_over_path case_falls_back_to_path \
-             case_no_engine_names_bootstrap_and_exits_0 case_no_engine_copy_in_tds_utils; do
+             case_no_engine_names_bootstrap_and_exits_0 case_old_engine_names_rebootstrap \
+             case_current_engine_is_used case_no_engine_copy_in_tds_utils; do
         TESTS_RUN=$((TESTS_RUN + 1))
         if "${c}"; then echo "  PASS ${c}"; else echo "  FAIL ${c}"; TESTS_FAILED=$((TESTS_FAILED + 1)); fi
     done

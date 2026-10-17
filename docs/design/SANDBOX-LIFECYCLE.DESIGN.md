@@ -333,6 +333,12 @@ has setup only, so the committed hook is its session boundary too.
   trust the setup stage already extends (it installs the sandbox package
   at @latest), and publishing one is a reviewed, version-raising PR into
   template-tools' protected main.
+- A pin value must be a version. The engine skips a row whose value is
+  anything else, because npm reads `<name>@github:x/y` or a URL as a
+  dependency fetched from outside GitHub Packages.
+- `lmde acquire` refuses to exec an engine older than the `acquire` verb
+  (sandbox < 0.9.0), which would answer with usage and exit 0, leaving the
+  machine silently stale; it names the re-bootstrap instead.
 - Fleet pins in the sandbox package are inert data gating executable
   VERSIONS; the executables themselves still come pinned+verified from
   the registry. A tampered pins file cannot inject code that is not a

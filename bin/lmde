@@ -209,6 +209,33 @@ acquire_engine() {
     command -v naatm-sandbox 2>/dev/null || true
 }
 
+# The first sandbox release whose engine has the `acquire` verb and the row
+# that keeps the engine itself current.
+ACQUIRE_ENGINE_MIN_VERSION="0.9.0"
+
+# engine_version <engine> -- the version in the package.json beside the
+# engine's real path (bin/../package.json), or "" when it cannot be read.
+engine_version() {
+    local real
+    real="$(readlink -f "$1" 2>/dev/null)" || real="$1"
+    sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+        "$(dirname "${real}")/../package.json" 2>/dev/null | head -n1 || true
+}
+
+# version_lt <a> <b> -- true when semver core <a> is below <b>.
+version_lt() {
+    local a="${1%%[-+]*}" b="${2%%[-+]*}" i x y
+    for i in 1 2 3; do
+        x="$(printf '%s' "${a}" | cut -d. -f"${i}")"
+        y="$(printf '%s' "${b}" | cut -d. -f"${i}")"
+        [[ "${x}" =~ ^[0-9]+$ ]] || x=0
+        [[ "${y}" =~ ^[0-9]+$ ]] || y=0
+        if (( x < y )); then return 0; fi
+        if (( x > y )); then return 1; fi
+    done
+    return 1
+}
+
 # do_acquire [args...] -- `naatm-sandbox acquire` with the arguments
 # unchanged; its exit code is lmde's. The engine keeps itself and the fleet
 # pins current on every run. With no engine installed, name the one-time
@@ -220,6 +247,18 @@ do_acquire() {
         echo "[lmde acquire] no acquire engine: naatm-sandbox is not installed in ~/.local/bin or on PATH." >&2
         echo "[lmde acquire] Bootstrap it once per machine (needs GH_PAT_NAATM_PACKAGES_RO, a classic PAT with read:packages):" >&2
         echo "[lmde acquire]   npx --yes @nine-at-a-time-media/sandbox setup" >&2
+        echo "[lmde acquire] Skipping acquire; keeping whatever is already installed (fail-open)." >&2
+        return 0
+    fi
+    # An engine older than the verb answers `acquire` with its usage and exit
+    # 0, and it cannot update itself, so exec'ing it would leave the machine
+    # silently stale for good. A version that cannot be read is trusted.
+    local version
+    version="$(engine_version "${engine}")" || version=""
+    if [[ -n "${version}" ]] && version_lt "${version}" "${ACQUIRE_ENGINE_MIN_VERSION}"; then
+        echo "[lmde acquire] ${engine} is sandbox ${version}, older than ${ACQUIRE_ENGINE_MIN_VERSION}: it has no acquire verb and cannot update itself." >&2
+        echo "[lmde acquire] Re-bootstrap it once (needs GH_PAT_NAATM_PACKAGES_RO, a classic PAT with read:packages):" >&2
+        echo "[lmde acquire]   npx --yes @nine-at-a-time-media/sandbox@latest setup" >&2
         echo "[lmde acquire] Skipping acquire; keeping whatever is already installed (fail-open)." >&2
         return 0
     fi
