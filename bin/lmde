@@ -246,7 +246,7 @@ do_acquire() {
     if [[ -z "${engine}" ]]; then
         echo "[lmde acquire] no acquire engine: naatm-sandbox is not installed in ~/.local/bin or on PATH." >&2
         echo "[lmde acquire] Bootstrap it once per machine (needs GH_PAT_NAATM_PACKAGES_RO, a classic PAT with read:packages):" >&2
-        echo "[lmde acquire]   npx --yes @nine-at-a-time-media/sandbox setup" >&2
+        echo "[lmde acquire]   npx --yes --package @nine-at-a-time-media/sandbox@latest naatm-sandbox setup" >&2
         echo "[lmde acquire] Skipping acquire; keeping whatever is already installed (fail-open)." >&2
         return 0
     fi
@@ -258,7 +258,7 @@ do_acquire() {
     if [[ -n "${version}" ]] && version_lt "${version}" "${ACQUIRE_ENGINE_MIN_VERSION}"; then
         echo "[lmde acquire] ${engine} is sandbox ${version}, older than ${ACQUIRE_ENGINE_MIN_VERSION}: it has no acquire verb and cannot update itself." >&2
         echo "[lmde acquire] Re-bootstrap it once (needs GH_PAT_NAATM_PACKAGES_RO, a classic PAT with read:packages):" >&2
-        echo "[lmde acquire]   npx --yes @nine-at-a-time-media/sandbox@latest setup" >&2
+        echo "[lmde acquire]   npx --yes --package @nine-at-a-time-media/sandbox@latest naatm-sandbox setup" >&2
         echo "[lmde acquire] Skipping acquire; keeping whatever is already installed (fail-open)." >&2
         return 0
     fi

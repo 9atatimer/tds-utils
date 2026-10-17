@@ -234,7 +234,7 @@ the installed package:
   installed `naatm-sandbox acquire` with its arguments unchanged, so the
   drift indicator, the pre-push check and the menu-bar monitor keep
   calling `lmde acquire`. With no installed engine it names the one-time
-  bootstrap (`npx --yes @nine-at-a-time-media/sandbox setup`) and exits 0.
+  bootstrap (`npx --yes --package @nine-at-a-time-media/sandbox@latest naatm-sandbox setup`) and exits 0.
 - The engine acquires ITS OWN package as a floating row (`sandbox`, both
   bins linked into `~/.local/bin`), in the first pass. The second pass
   then reads that package's pins. So the engine and the pins a laptop or
