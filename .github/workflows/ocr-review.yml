@@ -2,8 +2,8 @@
 # Code Review (ocr) over one pull request when a collaborator comments /ocr
 # or anyone with write access dispatches it, with completions from the
 # laptop's model through the Ollama Gateway, or -- when the owner's
-# OCR_BACKEND variable or a dispatch says cf-ai-gateway -- from Cloudflare AI
-# Gateway (Issue#481).
+# OCR_BACKEND variable or a dispatch says so -- from Cloudflare AI Gateway
+# (cf-ai-gateway, Issue#481) or the Anthropic API (anthropic).
 # Design: docs/design/OCR-ON-DEMAND.DESIGN.md (APPROVED); runbook:
 # docs/ops/ocr-review.md.
 #
@@ -41,7 +41,8 @@
 # from both owners (the review-settled.yml precedent). The workflow names no
 # hostname, vault or item: those arrive as the caller owner's variables
 # OCR_BACKEND, and the chosen backend's OLLAMA_GATEWAY_OP_ITEM, _URL and
-# _MODEL or CF_AI_GATEWAY_OP_ITEM, _URL and _MODEL.
+# _MODEL, CF_AI_GATEWAY_OP_ITEM, _URL and _MODEL, or ANTHROPIC_OP_ITEM, _URL
+# and _MODEL.
 #
 # The step commands are bin/ocr-review (decisions in lib/ocr-review/),
 # fetched at `tools_ref`. A reusable workflow cannot learn the commit it was
@@ -68,7 +69,7 @@ on:
         required: false
         default: ''
       backend:
-        description: Backend override, dispatch only (ollama-gateway or cf-ai-gateway); empty uses the owner's OCR_BACKEND, else ollama-gateway.
+        description: Backend override, dispatch only (ollama-gateway, cf-ai-gateway or anthropic); empty uses the owner's OCR_BACKEND, else ollama-gateway.
         type: string
         required: false
         default: ''
@@ -258,6 +259,9 @@ jobs:
           CF_AI_GATEWAY_URL: ${{ vars.CF_AI_GATEWAY_URL }}
           CF_AI_GATEWAY_MODEL: ${{ vars.CF_AI_GATEWAY_MODEL }}
           CF_AI_GATEWAY_REASONING: ${{ vars.CF_AI_GATEWAY_REASONING }}
+          ANTHROPIC_OP_ITEM: ${{ vars.ANTHROPIC_OP_ITEM }}
+          ANTHROPIC_URL: ${{ vars.ANTHROPIC_URL }}
+          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
           MODEL_OVERRIDE: ${{ inputs.model }}
           TRIGGER: ${{ needs.authorize.outputs.trigger }}
         run: node "$RUNNER_TEMP/ocr-review-tools/bin/ocr-review" credentials
@@ -276,8 +280,10 @@ jobs:
       # item's headers; llm_auth_token is a required input ocr sends as the
       # Authorization bearer: a fixed non-secret placeholder on the Ollama
       # Gateway, the masked run token on Cloudflare AI Gateway, which refuses
-      # a placeholder (Issue#489). The API base, the bearer and the request
-      # body are the chosen backend's profile (lib/ocr-review/gateway.mjs): on the
+      # a placeholder (Issue#489), the masked key on the Anthropic API, where
+      # llm_auth_header moves it to x-api-key. The API base, the credential,
+      # the protocol and the request body are the chosen backend's profile
+      # (lib/ocr-review/gateway.mjs): on the
       # Ollama Gateway the body streams, so a long completion's first byte
       # reaches the edge before its time-to-first-byte limit, and turns
       # reasoning off through reasoning_effort "none", which is all the
@@ -293,8 +299,9 @@ jobs:
           llm_url: ${{ steps.creds.outputs.api_base }}
           llm_auth_token: ${{ steps.creds.outputs.auth_token }}
           llm_model: ${{ steps.creds.outputs.model }}
-          llm_use_anthropic: 'false'
-          llm_protocol: openai
+          llm_use_anthropic: ${{ steps.creds.outputs.protocol == 'anthropic' }}
+          llm_protocol: ${{ steps.creds.outputs.protocol }}
+          llm_auth_header: ${{ steps.creds.outputs.auth_header }}
           llm_extra_headers: ${{ steps.creds.outputs.extra_headers }}
           llm_extra_body: ${{ steps.creds.outputs.extra_body }}
           ocr_version: '1.12.13'

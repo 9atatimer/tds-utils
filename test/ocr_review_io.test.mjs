@@ -513,6 +513,60 @@ test('credentials: an unknown backend is configuration, exit 1, op never called'
   assert.equal(op.calls.length, 0);
 });
 
+// --- the Anthropic API backend ----------------------------------------------
+
+const ANTHROPIC_ITEM = 'op://ci-vault/anthropic-ocr';
+const anthropicEnv = (over) =>
+  credEnv({
+    OCR_BACKEND: 'anthropic',
+    ANTHROPIC_OP_ITEM: ANTHROPIC_ITEM,
+    ANTHROPIC_URL: 'https://api.anthropic.com',
+    ANTHROPIC_MODEL: 'claude-sonnet-5-5',
+    ...over,
+  });
+
+test('credentials, Anthropic backend: one read of credential, masked first; outputs the base, the key, protocol anthropic and x-api-key', async () => {
+  const step = fakeStep();
+  const op = fakeCfOp();
+  const code = await runCredentials({ env: anthropicEnv(), op, step });
+  assert.equal(code, 0);
+  assert.deepEqual(op.calls.map((c) => c.argv[c.argv.length - 1]), [`${ANTHROPIC_ITEM}/credential`]);
+  const firstWrite = step.events.findIndex((e) => e[0] !== 'log');
+  assert.ok(step.events.slice(0, firstWrite).some((e) => e[1] === '::add-mask::run-token-9'), 'key masked before any output');
+  assert.equal(step.outputs.backend, 'anthropic');
+  assert.equal(step.outputs.model, 'claude-sonnet-5-5');
+  assert.equal(step.outputs.api_base, 'https://api.anthropic.com');
+  assert.equal(step.outputs.auth_token, 'run-token-9');
+  assert.equal(step.outputs.protocol, 'anthropic');
+  assert.equal(step.outputs.auth_header, 'x-api-key');
+  assert.deepEqual(JSON.parse(step.outputs.extra_body), {});
+  assert.equal(JSON.parse(step.files['/tmp/rt/ocr-gateway-headers.json'])['x-api-key'], 'run-token-9');
+});
+
+test('credentials: the OpenAI-compatible backends output protocol openai and the default auth header', async () => {
+  for (const [env, op] of [[credEnv(), fakeOp()], [cfEnv(), fakeCfOp()]]) {
+    const step = fakeStep();
+    await runCredentials({ env, op, step });
+    assert.equal(step.outputs.protocol, 'openai');
+    assert.equal(step.outputs.auth_header, '');
+  }
+});
+
+test('probe, Anthropic backend: posts to API_BASE/v1/messages; spent credits are budget', async () => {
+  const step = fakeStep();
+  const fetch = fakeFetch(() => text(400, '{"type":"error","error":{"message":"Your credit balance is too low"}}'));
+  const code = await runProbe({
+    env: { ...probeEnv, BACKEND: 'anthropic', API_BASE: 'https://api.anthropic.com' },
+    fetch,
+    readFile: readHeaders,
+    clock: instant,
+    step,
+  });
+  assert.equal(code, 1);
+  assert.equal(step.outputs.cause, 'budget');
+  assert.equal(fetch.calls[0].url, 'https://api.anthropic.com/v1/messages');
+});
+
 test('probe, Cloudflare backend: posts to API_BASE/chat/completions; a 429 is limited at once', async () => {
   const step = fakeStep();
   const fetch = fakeFetch(() => text(429, 'spend limit'));

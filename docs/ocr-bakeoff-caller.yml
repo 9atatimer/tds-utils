@@ -27,7 +27,7 @@ on:
         required: false
         default: ''
       backend:
-        description: Backend (ollama-gateway or cf-ai-gateway; empty uses the owner's OCR_BACKEND)
+        description: Backend (ollama-gateway, cf-ai-gateway or anthropic; empty uses the owner's OCR_BACKEND)
         type: string
         required: false
         default: ''
