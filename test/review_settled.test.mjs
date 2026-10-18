@@ -311,11 +311,34 @@ test('any-of group: Copilot out of quota and Codex reviewed on head -> reviewed,
   assert.doesNotMatch(v.description, /FAIL-OPEN/);
 });
 
-test('any-of group: one member out of quota waits for the other', () => {
+test('any-of group: Copilot out of quota stays red for Codex, without waiting', () => {
+  // Codex's answer starts a run of its own; holding this one for it only
+  // burned the full wait (tds-utils PR#563: 3m07s on a quota notice that
+  // arrived 1s into the run).
   const v = settle({ headSha: HEAD, reviews: [review({ body: QUOTA })], threads: [], reviewers: [EITHER] });
   assert.equal(v.state, 'failure');
-  assert.equal(v.pending, true);
+  assert.equal(v.pending, false);
   assert.match(v.description, /no review from chatgpt-codex-connector yet/);
+});
+
+test('Codex alone: silence and a stale review stay red without waiting', () => {
+  const none = settle({ headSha: HEAD, reviews: [], threads: [], reviewers: [CODEX] });
+  assert.equal(none.state, 'failure');
+  assert.equal(none.pending, false);
+  const stale = settle({ headSha: HEAD, reviews: [review({ author: CODEX, commit: OLD })], threads: [], reviewers: [CODEX] });
+  assert.equal(stale.state, 'failure');
+  assert.equal(stale.pending, false);
+});
+
+test('any-of group: Copilot stale and Codex silent still waits for Copilot', () => {
+  const v = settle({ headSha: HEAD, reviews: [review({ commit: OLD })], threads: [], reviewers: [EITHER] });
+  assert.equal(v.state, 'failure');
+  assert.equal(v.pending, true);
+});
+
+test('pending matches the bot login whatever its case or [bot] suffix', () => {
+  const v = settle({ headSha: HEAD, reviews: [], threads: [], reviewers: parseReviewers('Copilot-Pull-Request-Reviewer[bot]') });
+  assert.equal(v.pending, true);
 });
 
 // Codex's quota notice is NOT a PR review: it is an ISSUE comment on the
@@ -535,4 +558,13 @@ test('notice text inside an OCR review on the head still counts as the review', 
   const body = `<!-- ocr-review-mark sha=${HEAD} -->\n- <code>docs/unable to review this pull request.md</code>\n`;
   const r = settle({ headSha: HEAD, reviews: [mark(HEAD, { body })], threads: [], reviewers: [OCR] });
   assert.equal(r.state, 'success');
+});
+
+test('OCR answers silently: Copilot out of quota in a copilot|ocr group still waits for ocr', () => {
+  // OCR's review is posted with the workflow token, which starts no run;
+  // the /ocr comment's run must wait for it (docs/ops/ocr-review.md).
+  const v = settle({ headSha: HEAD, reviews: [review({ body: QUOTA })], threads: [], reviewers: [`${COPILOT}|${OCR}`] });
+  assert.equal(v.state, 'failure');
+  assert.equal(v.pending, true);
+  assert.match(v.description, /no review from ocr yet/);
 });

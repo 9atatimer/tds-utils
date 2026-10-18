@@ -519,13 +519,16 @@ This repo lands PRs through the tedium merge bot; the rules are in
   Copilot-or-Codex group it fails open only when both are out of quota
   (Copilot's notice is a review; Codex's is a PR comment, "You have
   reached your Codex usage limits for code reviews", read from the PR's
-  issue comments); one reviewer's notice waits for the other. A clean
+  issue comments); one reviewer's notice keeps the status red until the
+  other answers. A clean
   Codex pass is a thumbs-up reaction with no review, and it does not
   settle the group: a reaction carries no commit, so the status stays red
   until a review lands on the head. Any other failure notice
   stays red, as does silence. GitHub runs no workflow when Copilot
-  posts, so the run a review request starts waits up to 180s for the
-  answer (`wait_seconds` in `review-settled-caller.yml`); every other
+  posts, so the run a review request starts waits up to 180s for
+  Copilot's answer (`wait_seconds` in `review-settled-caller.yml`), and
+  only Copilot's: once Copilot has answered on the head it posts at once,
+  since Codex's answer starts a run of its own; every other
   event's run posts at once, and only a push or a review request cancels
   a waiting run. When the answer lands AFTER that window the status
   stays at "no review yet" until something re-runs the workflow (issue
