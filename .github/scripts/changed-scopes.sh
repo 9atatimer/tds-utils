@@ -134,7 +134,10 @@ classify_pr() {
         emit_all
         return 0
     fi
-    files="$(git diff --name-only HEAD^1 HEAD)"
+    # --no-renames: a move lists its old path too, so moving a file out of
+    # a tree still runs that tree's jobs. quotePath off: a non-ASCII path
+    # stays unquoted and keeps its tree prefix.
+    files="$(git -c core.quotePath=false diff --name-only --no-renames HEAD^1 HEAD)"
     printf '%s\n' "${files}" | classify
 }
 

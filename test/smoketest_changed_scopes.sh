@@ -164,6 +164,57 @@ test_pr_mode() {
         "$( (cd "${d}" && GITHUB_OUTPUT='' bash "${CLASSIFIER}" pr 2>/dev/null) | tr '\n' ' ' | sed 's/ $//')"
 }
 
+# pr_scopes <dir> -- `changed-scopes.sh pr` in <dir>, one line.
+pr_scopes() {
+    (cd "$1" && GITHUB_OUTPUT='' bash "${CLASSIFIER}" pr 2>/dev/null) | tr '\n' ' ' | sed 's/ $//'
+}
+
+# pr_repo_with <dir> <setup> -- a PR merge commit whose topic side runs
+# <setup> (a shell snippet, cwd the repo) over a base holding chores/x.sh
+# and dynomark/daemon/.
+pr_repo_with() {
+    local d="$1" setup="$2"
+    git init -q -b master "${d}"
+    mkdir -p "${d}/chores" "${d}/dynomark/daemon"
+    printf '#!/usr/bin/env bash\n' >"${d}/chores/x.sh"
+    git -C "${d}" add chores/x.sh
+    git -C "${d}" -c user.email=t@t -c user.name=t commit -q -m base
+    git -C "${d}" checkout -q -b topic
+    (cd "${d}" && eval "${setup}")
+    git -C "${d}" add -A
+    git -C "${d}" -c user.email=t@t -c user.name=t commit -q -m topic
+    git -C "${d}" checkout -q master
+    git -C "${d}" -c user.email=t@t -c user.name=t commit -q --allow-empty -m "base moved"
+    git -C "${d}" -c user.email=t@t -c user.name=t merge -q --no-ff -m merge topic
+}
+
+test_pr_paths() {
+    local d
+    printf 'pr mode sees moved and non-ASCII paths in their trees\n'
+    d="${WORKROOT}/pr-rename"
+    pr_repo_with "${d}" 'git mv chores/x.sh notes.md'
+    assert_eq "moving chores/x.sh to notes.md still runs chores + smoketests" \
+        "$(only smoketests chores)" "$(pr_scopes "${d}")"
+    d="${WORKROOT}/pr-utf8"
+    pr_repo_with "${d}" "printf 'x\\n' >dynomark/daemon/t$(printf '\303\253')st.py"
+    assert_eq "non-ASCII dynomark/daemon path stays in its tree" \
+        "$(only dynomark-daemon dynomark-e2e)" "$(pr_scopes "${d}")"
+}
+
+# Every scope must be wired in dist-ci.yml as a `changes` output AND as its
+# job's `if:`; a misspelling there skips the job on every PR, which gate
+# counts as a pass, and only a push would notice.
+test_workflow_wiring() {
+    local wf="${REPO_DIR}/.github/workflows/dist-ci.yml" scope
+    printf 'dist-ci.yml wires every scope\n'
+    for scope in smoketests shellcheck chores dynomark-contract dynomark-daemon dynomark-extension dynomark-e2e; do
+        assert_eq "${scope}: changes output" "1" \
+            "$(grep -cF "      ${scope}: \${{ steps.scopes.outputs.${scope} }}" "${wf}")"
+        assert_eq "${scope}: job gated on its own scope" "1" \
+            "$(grep -A2 -E "^  ${scope}:\$" "${wf}" | grep -cF "if: needs.changes.outputs.${scope} == 'true'")"
+    done
+}
+
 test_github_output() {
     local d="${WORKROOT}/empty" out="${WORKROOT}/gh_output"
     printf 'Outputs land in GITHUB_OUTPUT\n'
@@ -184,6 +235,8 @@ main() {
     test_gate_files
     test_union
     test_pr_mode
+    test_pr_paths
+    test_workflow_wiring
     test_github_output
     printf '\n%d run, %d passed, %d failed\n' "${TESTS_RUN}" "${TESTS_PASSED}" "${TESTS_FAILED}"
     [ "${TESTS_FAILED}" -eq 0 ]
