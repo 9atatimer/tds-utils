@@ -24,7 +24,7 @@ file points there.
 - Never ask with `AskUserQuestion` or a menu; ask in prose for the one value you lack.
 - Never set a timer, wakeup or schedule for yourself, and never poll on a clock.
 - Never `curl | sh` or fetch-then-run any installer script, even to install a tool; install through signed package managers.
-- When the classifier refuses a command, give the human the exact `!` line once and stop; never retry or route around it.
+- When the classifier refuses a state-changing command, give the human the exact `!` line once and stop; never retry or route around it.
 - Never use claude.ai Artifacts (the Artifact tool, any action); an HTML deliverable is a file in the repo.
 - Never run a deploy or publish command yourself; open the PR and let CI ship it.
 - Say what a command does before handing it to the human to run.
@@ -168,9 +168,9 @@ that loops on an interval, is equally banned. The test is whether work is
 deferred to a future turn on a clock you set, not which tool you called.
 
 Push-based watches are fine because nothing is on a clock: a `Monitor` `ws:`
-source, a webhook relay (`gh webhook forward`; prefer it over polling for
-GitHub), or a single `Bash` `run_in_background` command that blocks until a
-real event, then exits and notifies once.
+source, a webhook relay (`gh webhook forward`), or a command that blocks until
+a real event and then exits (in `run_in_background`, it notifies once). Prefer
+push over polling wherever `gh` offers it.
 
 The one carve-out: if the human explicitly starts a `/loop` or asks for a
 schedule, honor exactly what they asked for and do not add timers of your own
@@ -209,8 +209,8 @@ The permission classifier blocks `terraform apply` from the agent even when
 `plan` ran fine. Don't fight it. Run `plan -out=tfplan`, review it, then
 hand the human the exact `! op run ... terraform apply tfplan` line to run
 in-session, so the output lands in the conversation and work continues.
-Any other command the classifier refuses gets the same handoff (next
-sections). The iac skill owns the authority model; `/infra-handoff` writes
+Any other state-changing command the classifier refuses gets the same
+handoff (see the classifier-refusal section). The iac skill owns the authority model; `/infra-handoff` writes
 the block.
 
 ## Never deploy: land the PR, let CI ship it
@@ -518,6 +518,7 @@ instead of reading whole files. Two caveats for writes
 - Node ids regenerate after every mutation; re-run `get_outline` before the
   next edit, or the stale id fails with `not found in RemarkAdapter`.
 - A mutation re-serializes the WHOLE file in remark style (`---` -> `***`,
-  `-` -> `*`, escaped brackets; [tds-utils issue#222](https://github.com/9atatimer/tds-utils/issues/222)). Check `git diff` after the
+  `-` -> `*`, escaped brackets;
+  [9atatimer/tds-utils Issue#222](https://github.com/9atatimer/tds-utils/issues/222)). Check `git diff` after the
   first mutation on a file; if untouched lines churned, revert and use
   `Edit`.
