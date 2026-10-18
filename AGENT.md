@@ -500,40 +500,17 @@ This repo lands PRs through the tedium merge bot; the rules are in
   other job) must be green on the PR head AND on the staging commit tedium
   builds on `tedium/merge` (`status` in `tedium.toml`). The `master`
   ruleset requires `gate` and a PR; only the tedium App may bypass it.
-- **No review gate while Copilot has no quota (2026-09-26).**
-  `review-settled` (the commit status from
-  `.github/workflows/review-settled.yml`: the newest review from Copilot
-  OR Codex is on the head and every thread is resolved; the any-of group
-  is `reviewers` in `review-settled-caller.yml`) still posts, but neither
-  `pr_status` nor the ruleset requires it. Tedium therefore lands a green
-  PR on a reviewer's `r+` with no review at all. Codex is summoned by an
-  `@codex review` PR comment that a HUMAN posts; an agent never posts it
-  (gates skill, Reviewer Selection -- this line once read as an agent
-  instruction, and an agent followed it on PR #368). Restore it in
-  `pr_status` when a reviewer has quota again.
-- **`review-settled` fails open on a quota notice, and only on it
-  (tds-internal#93).** When a required reviewer's newest post on a PR is
-  "unable to review ... reached their quota limit", it will never review,
-  so the status goes green once every thread is resolved and reads
-  `FAIL-OPEN: <reviewer> is out of quota` -- never "reviewed". In the
-  Copilot-or-Codex group it fails open only when both are out of quota
-  (Copilot's notice is a review; Codex's is a PR comment, "You have
-  reached your Codex usage limits for code reviews", read from the PR's
-  issue comments); one reviewer's notice keeps the status red until the
-  other answers. A clean
-  Codex pass is a thumbs-up reaction with no review, and it does not
-  settle the group: a reaction carries no commit, so the status stays red
-  until a review lands on the head. Any other failure notice
-  stays red, as does silence. GitHub runs no workflow when Copilot
-  posts, so the run a review request starts waits up to 180s for
-  Copilot's answer (`wait_seconds` in `review-settled-caller.yml`), and
-  only Copilot's: once Copilot has answered on the head it posts at once,
-  since Codex's answer starts a run of its own; every other
-  event's run posts at once, and only a push or a review request cancels
-  a waiting run. When the answer lands AFTER that window the status
-  stays at "no review yet" until something re-runs the workflow (issue
-  #353); the fallback is `gh run rerun <id>` on the latest review-settled
-  run for the PR, after which it reads the notice and fails open.
+- **`review-settled` is off: always green (owner ruling, 2026-10-18).**
+  The status still posts on every non-fork PR head, so any repo or
+  ruleset that names it keeps reporting, but `bin/review-settled` no
+  longer judges reviews or threads and never waits: it posts `success`
+  ("review-settled is off ... always green"). It was not in this repo's
+  `pr_status` or ruleset before either. The decision code
+  (`lib/review-settled.mjs`, `decide` in `bin/review-settled`) is kept and
+  tested; `main()` names the one line that turns it back on. Codex is
+  still summoned only by an `@codex review` PR comment that a HUMAN posts;
+  an agent never posts it (gates skill, Reviewer Selection). Callers pinned
+  to an older tds-utils commit keep the old verdict until they bump.
 - **Reviewers** (who may `r+`) are the repo's direct collaborators with
   push, synced by tedium. An agent acting under a reviewer's token is a
   reviewer.
