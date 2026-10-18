@@ -115,6 +115,24 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
   - upstream's own, sticky (updated in place each run): the findings that
     could not be anchored inline and each finding that failed to post.
     Ours links it whenever the action reports its URL.
+- A whole review of the head is the review mark (design Key Decisions,
+  "Counting as a gate reviewer", Issue#568): when the run succeeded,
+  every reviewable file was reviewed and every finding posted (or nothing
+  was reviewable), this workflow's summary is posted as a COMMENT review
+  on the reviewed commit, opening with `<!-- ocr-review-mark sha=<head>
+  -->`, instead of as an issue comment.
+  - A repo whose `review-settled` caller names `ocr` among its reviewers
+    (e.g. `copilot-pull-request-reviewer|ocr`) is settled by that mark
+    while it is the newest on the head and every thread is resolved.
+  - Anything less (a file left unreviewed, a finding that failed to post,
+    a failure) posts the summary as an issue comment saying it settles no
+    review; re-run `/ocr`.
+  - The review is posted with the workflow token, which starts no
+    workflow, so `review-settled` must see it in the run the `/ocr`
+    comment started: such a caller passes a `wait_seconds` on an `/ocr`
+    comment that covers a whole run (the review job's limit is 9
+    minutes; 900 is enough). A wait that ran out is re-evaluated by the
+    next PR comment, or `gh workflow run review-settled.yml -f pr=<N>`.
 - The run's job summary and its `ocr-review-record-<attempt>` artifact
   carry the run record: the design's Data Model, plus `backend` since
   `record_version` 2 (Issue#481, Key Decisions "Run record v2"). Pinned

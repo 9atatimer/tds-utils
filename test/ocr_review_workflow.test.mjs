@@ -349,3 +349,10 @@ test('reusable: after the summary comment, the report replaces eyes with the out
   const names = stepNames('report');
   assert.ok(names.indexOf('React with the outcome') > names.indexOf('Post the summary comment'));
 });
+
+test('reusable: the summary step gets the report\'s mark sha, so a whole review posts as the mark', () => {
+  const report = jobBlock(REUSABLE, 'report');
+  const at = report.indexOf('name: Post the summary comment');
+  const step = report.slice(at, report.indexOf('- name:', at + 1));
+  assert.match(step, /MARK_SHA: \$\{\{ steps\.record\.outputs\.mark_sha \}\}/);
+});
