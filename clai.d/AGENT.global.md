@@ -241,6 +241,22 @@ deleted branch full of nothing. Before obeying the hook, check
 merge, check out a detached `origin/<default>` instead of resetting the
 session branch onto it, so the hook has nothing to see.
 
+## A classifier refusal is not lifted by the human's words
+
+Under auto mode, the permission classifier refuses a commit that touches an
+agent instruction file (`AGENT.md`, `CLAUDE.md`, `clai.d/AGENT.global.md`,
+skills) as `[Self-Modification]`. The human telling you in chat to go ahead
+does not lift it. The command typed back to you without a leading `!` is
+judged the same way. Retrying only spends the human's patience: on
+2026-10-18 it was refused three times in a row. Two ways through:
+
+- The human runs it as a `!` line in the prompt, which runs in their shell,
+  outside the classifier.
+- The human leaves auto mode.
+
+Say that once, give the exact `!` line, and stop. Never route around the
+refusal with another tool.
+
 ## Never use Artifacts: HTML is a file in the repo
 
 Never call the Artifact tool, for any action (publish, read, list, open,
