@@ -24,6 +24,7 @@ file points there.
 - Never ask with `AskUserQuestion` or a menu; ask in prose for the one value you lack.
 - Never set a timer, wakeup or schedule for yourself, and never poll on a clock.
 - Never `curl | sh` or run a fetched installer; install through signed package managers.
+- Secrets come from 1Password (`op read` with the vault token the human gives you), or rarely git-crypt; never from an env var, `.env`, or a platform secrets store.
 - Never use claude.ai Artifacts (the Artifact tool, any action); an HTML deliverable is a file in the repo.
 - Never run a deploy or publish command yourself; open the PR and let CI ship it.
 - Say what a command does before handing it to the human to run.
@@ -288,6 +289,31 @@ one line before the command is given.
 NEVER `curl ... | sh`, and never fetch-then-run an installer script, including
 when installing a tool. Install software only through package managers that
 verify signed code.
+
+## Secrets come from 1Password, never from the environment
+
+The human puts every secret in 1Password and hands you the token that
+unlocks it: a read-only service account token scoped to one vault, on the
+laptop and in a cloud session alike. Read a secret at the moment of use
+with `op read op://<vault>/<item>/<field>` or `op run`; it never lands in a
+file, a log, a transcript or a commit. The one other channel is git-crypt:
+ciphertext committed in the repo (`.env.crypt`, `secrets/**`), decrypted
+with a GPG identity the human provisions -- an edge case, not a default.
+The vault token itself is the one bootstrap credential: the human hands it
+to an agent, and a workflow gets it as a CI secret (the ci.magic
+`CI_MAGIC_OP_SA_TOKEN` pattern). Every other secret -- a model key, a
+gateway token, an OAuth token -- comes from the vault.
+
+There is no third channel. Never design, build, document or test on a
+secret arriving in an environment variable, a plaintext `.env` file, a CI
+secret other than the vault token, or an agent platform's
+environment-secrets store (Claude Code web's included):
+`.env` leaks, and platform env stores are clunky and unsafe. Never ask the
+human to put a secret there. A secret the human drops into direnv to
+unblock you is temporary: use it, and build nothing that depends on it.
+Code that needs a credential takes an `op://` reference in its config and
+resolves it at run time; the reference is configuration, the value is
+never stored.
 
 ## Markdown is ASCII only
 
