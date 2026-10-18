@@ -503,18 +503,22 @@ export async function runReport({ env, readFile, step, now, summary = () => {} }
 /** The comment step. Env: GITHUB_TOKEN, REPO, PR, COMMENT_PATH, MARK_SHA.
  * With a MARK_SHA (the report step's mark_sha) the body is posted as a
  * COMMENT review on that commit -- the mark review-settled counts as the
- * `ocr` reviewer; without one, as an issue comment. Throws when the post
- * fails, so the job (and the run) concludes red. */
+ * `ocr` reviewer; without one, as an issue comment. A refused review (the
+ * commit force-pushed away, say) still leaves the summary as an issue
+ * comment, which settles nothing. Throws when a post fails, so the job
+ * (and the run) concludes red. */
 export async function runComment({ env, fetch, readFile }) {
   const body = readFile(env.COMMENT_PATH);
-  const marked = Boolean(env.MARK_SHA);
-  const url = marked ? `${apiUrl(env)}/repos/${env.REPO}/pulls/${env.PR}/reviews` : `${apiUrl(env)}/repos/${env.REPO}/issues/${env.PR}/comments`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: githubHeaders(env.GITHUB_TOKEN),
-    body: JSON.stringify(marked ? { commit_id: env.MARK_SHA, event: 'COMMENT', body } : { body }),
-  });
-  if (!res.ok) throw new Error(`${marked ? 'review' : 'comment'} POST HTTP ${res.status}`);
+  const post = (path, payload) =>
+    fetch(`${apiUrl(env)}/repos/${env.REPO}/${path}`, { method: 'POST', headers: githubHeaders(env.GITHUB_TOKEN), body: JSON.stringify(payload) });
+  if (env.MARK_SHA) {
+    const review = await post(`pulls/${env.PR}/reviews`, { commit_id: env.MARK_SHA, event: 'COMMENT', body });
+    if (review.ok) return 0;
+    await post(`issues/${env.PR}/comments`, { body });
+    throw new Error(`review POST HTTP ${review.status}`);
+  }
+  const res = await post(`issues/${env.PR}/comments`, { body });
+  if (!res.ok) throw new Error(`comment POST HTTP ${res.status}`);
   return 0;
 }
 

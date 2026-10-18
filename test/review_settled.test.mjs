@@ -522,3 +522,17 @@ test('an OCR mark on head with an open thread still blocks', () => {
   assert.equal(r.state, 'failure');
   assert.match(r.description, /1 unresolved review thread/);
 });
+
+test('notice text inside an OCR review (a listed file name) never makes ocr fail open', () => {
+  const body = `<!-- ocr-review-mark sha=${OLD} -->\n- <code>docs/unable to review this pull request reached their quota limit.md</code>\n`;
+  const r = settle({ headSha: HEAD, reviews: [mark(OLD, { body })], threads: [], reviewers: [OCR] });
+  assert.equal(r.state, 'failure');
+  assert.doesNotMatch(r.description, /FAIL-OPEN/);
+  assert.match(r.description, /newest review by ocr is on bbbbbbb/);
+});
+
+test('notice text inside an OCR review on the head still counts as the review', () => {
+  const body = `<!-- ocr-review-mark sha=${HEAD} -->\n- <code>docs/unable to review this pull request.md</code>\n`;
+  const r = settle({ headSha: HEAD, reviews: [mark(HEAD, { body })], threads: [], reviewers: [OCR] });
+  assert.equal(r.state, 'success');
+});
