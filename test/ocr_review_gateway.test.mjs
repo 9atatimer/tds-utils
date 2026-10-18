@@ -443,6 +443,9 @@ test('the Anthropic backend: its own variables, the base URL as the API base, an
   assert.equal(c.ok, true);
   // ocr's Anthropic client appends /v1/messages itself.
   assert.equal(c.apiBase, 'https://api.anthropic.com');
+  for (const url of ['https://api.anthropic.com/v1', 'https://api.anthropic.com/v1/messages']) {
+    assert.equal(resolveGatewayConfig(config({ backend: BACKENDS.anthropic, url, configuredModel: 'claude-sonnet-5-5' })).cause, 'configuration', url);
+  }
   for (const field of ['item', 'url', 'configuredModel']) {
     const missing = resolveGatewayConfig(config({ backend: BACKENDS.anthropic, [field]: '' }));
     assert.match(missing.detail, /ANTHROPIC_/, field);
@@ -494,6 +497,7 @@ test('Anthropic answers: a message is ready; 401/403 credential; spent credits b
   assert.equal(an(MESSAGE).kind, 'ready');
   assert.equal(an(COMPLETION).cause, 'unexpected', 'a chat completion is not a Messages answer');
   for (const status of [401, 403]) assert.equal(an({ status }).cause, 'credential', String(status));
+  assert.equal(an(apiError(402, 'billing_error')).cause, 'budget');
   const spent = an(apiError(400, 'Your credit balance is too low to access the Anthropic API.'));
   assert.equal(spent.cause, 'budget');
   assert.doesNotMatch(spent.detail, /too low to access/, 'the body is never echoed');

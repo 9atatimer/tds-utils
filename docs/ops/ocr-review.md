@@ -237,7 +237,7 @@ Each backend has its own three variables; only the chosen one's are read:
 |---|---|---|---|
 | `ollama-gateway` | `OLLAMA_GATEWAY_OP_ITEM` | `OLLAMA_GATEWAY_URL` | `OLLAMA_GATEWAY_MODEL` |
 | `cf-ai-gateway` | `CF_AI_GATEWAY_OP_ITEM` | `CF_AI_GATEWAY_URL` (the gateway base, `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>`) | `CF_AI_GATEWAY_MODEL` (a gateway model id; the owner's default is `workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813`) |
-| `anthropic` | `ANTHROPIC_OP_ITEM` (an API Credential item; the key is its `credential` field) | `ANTHROPIC_URL` (`https://api.anthropic.com`; ocr appends `/v1/messages`) | `ANTHROPIC_MODEL` (a Claude model id, e.g. `claude-sonnet-5-5`) |
+| `anthropic` | `ANTHROPIC_OP_ITEM` (an API Credential item; the key is its `credential` field) | `ANTHROPIC_URL` (the bare origin `https://api.anthropic.com`; ocr appends `/v1/messages`, so a path is refused as `configuration`) | `ANTHROPIC_MODEL` (a Claude model id, e.g. `claude-sonnet-5-5`) |
 
 The Cloudflare backend has one more, optional variable:
 `CF_AI_GATEWAY_REASONING`, sent as `reasoning_effort` (e.g. `none` turns
@@ -330,7 +330,7 @@ overload during the review):
 |---|---|
 | a message | ready |
 | 401, 403 | `credential` |
-| 400 naming the credit balance | `budget` |
+| 402, or 400 naming the credit balance | `budget` |
 | 400 naming usage limits (a workspace or organization spend limit), 429 | `limited` |
 | 404 | `model-not-found` |
 | any other 4xx | `unexpected` |

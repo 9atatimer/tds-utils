@@ -360,3 +360,10 @@ test('budget and limited are closed-set causes a review step may declare, and th
   assert.match(body, /spend|credit/i);
   assert.match(body, /backend <code>cf-ai-gateway<\/code>/);
 });
+
+test('every backend-specific cause names the Anthropic API too, so its failures get its own advice', () => {
+  for (const cause of ['credential', 'gateway-down', 'budget', 'limited']) {
+    const r = buildRecord({ ...baseFacts, backend: 'anthropic', approved: true, end: { outcome: 'failure', cause, failingStep: null } });
+    assert.match(renderSummary(r, { runUrl: 'u', detail: 'd' }), /Anthropic API/, cause);
+  }
+});
