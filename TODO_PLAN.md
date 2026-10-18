@@ -69,9 +69,6 @@ discovered Issue#456. Order:
   repo copies), Issue#454 and Issue#455 (a G4 rule), and the Markdown
   decision under Blockers -- before task-053, so the fleet copies a ruled
   caller.
-- Owner ruling on Issue#559: the `anthropic` backend (PR#557, Sonnet on
-  the Console org's Max-plan API credits) shipped without a design row;
-  amend the design or remove it. Live on 9atatimer/iae since PR#355.
 - task-053 -- fleet rollout; its first public adopter proves the
   GitHub-hosted path and the G5 causes the pilot did not provoke.
 - task-046 -- the bring-up remainder (Q6, G5 through the edge, G1 from a

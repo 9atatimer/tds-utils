@@ -4,8 +4,7 @@ What is deployed, not what was designed. Living; edit it when a release
 moves the workflow or an adopter's pin.
 
 - Design: [OCR-ON-DEMAND.DESIGN.md](../../design/OCR-ON-DEMAND.DESIGN.md)
-  (APPROVED; the authority for intent). Open drift: Issue#453, Issue#454,
-  Issue#559.
+  (APPROVED; the authority for intent). Open drift: Issue#453, Issue#454.
 - Runbook: [docs/ops/ocr-review.md](../../ops/ocr-review.md) (adopt, seed,
   trigger, read results, change it).
 - Diagram: [ocr-review.html](./ocr-review.html).
@@ -161,7 +160,8 @@ Recorded here as fact; recording is not approval.
   reactions: authorized by Key Decisions rows (option A; runner host
   tools; comment reactions).
 - The `anthropic` backend (the Anthropic API direct, a second LLM protocol
-  in the workflow; tds-utils PR#557): drift, Issue#559.
+  in the workflow; tds-utils PR#557): authorized by the Key Decisions
+  row ruling Issue#559 (kept, 2026-10-18).
 - The authorize job's `if:` prefilter, so an ordinary comment costs no
   runner; the exact prefix is still judged by the Authorize step.
 
