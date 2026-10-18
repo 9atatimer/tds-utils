@@ -377,6 +377,15 @@ test('the header list ocr parses keeps the tool tag JSON whole', () => {
   );
 });
 
+test('the header list ocr parses never names a header ocr reserves (Issue#564)', async () => {
+  // ocr v1.12.13 refuses an extra header named authorization, x-api-key,
+  // content-type or user-agent, in any case; the key reaches it as the auth token.
+  assert.equal(extraHeadersValue({ 'X-Api-Key': 'k', Authorization: 'Bearer t', 'content-type': 'a', 'User-Agent': 'u', 'anthropic-version': '2023-06-01' }), 'anthropic-version=2023-06-01');
+  const c = await resolveCredentials(ITEM, { readSecret: async () => 'sk-ant-key', mask: () => {} }, BACKENDS.anthropic);
+  assert.equal(c.headers['x-api-key'], 'sk-ant-key', 'the probe still sends the key');
+  assert.doesNotMatch(extraHeadersValue(c.headers), /x-api-key/i);
+});
+
 test('Cloudflare answers: a completion is ready; 401/403 credential; 402 budget; 429 limited; other 4xx model-not-found; 5xx gateway-down', () => {
   const cf = (answer) => classifyProbeAnswer(answer, BACKENDS.cf);
   assert.equal(cf(COMPLETION).kind, 'ready');
