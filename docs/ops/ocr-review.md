@@ -115,18 +115,18 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
   - upstream's own, sticky (updated in place each run): the findings that
     could not be anchored inline and each finding that failed to post.
     Ours links it whenever the action reports its URL.
-- A whole review of the head is the review mark (design Key Decisions,
-  "Counting as a gate reviewer", Issue#568): when the run succeeded,
-  every reviewable file was reviewed and every finding posted (or nothing
-  was reviewable), this workflow's summary is posted as a COMMENT review
-  on the reviewed commit, opening with `<!-- ocr-review-mark sha=<head>
-  -->`, instead of as an issue comment.
+- A successful run leaves the review mark (design Key Decisions,
+  "Counting as a gate reviewer", Issue#568): like a Copilot review, it
+  marks the head reviewed whatever ocr skipped. This workflow's summary,
+  which lists the files ocr did not review (Markdown always), is posted
+  as a COMMENT review on the reviewed commit, opening with
+  `<!-- ocr-review-mark sha=<head> -->`, instead of as an issue comment.
   - A repo whose `review-settled` caller names `ocr` among its reviewers
     (e.g. `copilot-pull-request-reviewer|ocr`) is settled by that mark
     while it is the newest on the head and every thread is resolved.
-  - Anything less (a file left unreviewed, a finding that failed to post,
-    a failure) posts the summary as an issue comment saying it settles no
-    review; re-run `/ocr`.
+  - A failed run, or one where a finding failed to post (it has no
+    thread to resolve), posts the summary as an issue comment that
+    settles no review; re-run `/ocr`.
   - The review is posted with the workflow token, which starts no
     workflow, so `review-settled` must see it in the run the `/ocr`
     comment started: such a caller passes a `wait_seconds` on an `/ocr`

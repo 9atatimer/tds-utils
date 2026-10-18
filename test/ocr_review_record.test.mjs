@@ -384,8 +384,11 @@ test('nothing reviewable is marked: OCR judged there was nothing to review', () 
   assert.equal(markSha(record({ end: { outcome: 'success', cause: 'nothing-reviewable', failingStep: null }, judged })), SHA);
 });
 
-test('no mark when a file went unreviewed or a finding failed to post', () => {
-  assert.equal(markSha(record({ judged: { ...complete, filesReviewed: 2 } })), null);
+test('a review that skipped files (Markdown, a timeout) is still marked, like a Copilot review', () => {
+  assert.equal(markSha(record({ judged: { ...complete, filesReviewed: 2, unreviewed: ['docs/a.md'] } })), SHA);
+});
+
+test('no mark when a finding failed to post: it has no thread to resolve', () => {
   assert.equal(markSha(record({ judged: { ...complete, findingsFailed: 1 } })), null);
 });
 
@@ -402,8 +405,8 @@ test('a marked summary opens with the mark, then the summary marker', () => {
 });
 
 test('an unmarked success summary says it settles no review, and why', () => {
-  const judged = { ...complete, filesReviewed: 2, unreviewed: ['src/b.js'] };
+  const judged = { ...complete, findingsFailed: 1 };
   const body = renderSummary(record({ judged }), { runUrl: 'u', judged });
   assert.ok(body.startsWith(SUMMARY_MARKER));
-  assert.match(body, /not a review mark/i);
+  assert.match(body, /not a review mark[^\n]*finding failed to post/i);
 });
