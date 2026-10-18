@@ -20,6 +20,7 @@ import {
   resolveBackend,
   resolveGatewayConfig,
   resolveModel,
+  variablePrefix,
 } from '../lib/ocr-review/gateway.mjs';
 
 const ITEM = 'op://vault-uuid/item-title';
@@ -429,4 +430,96 @@ test('a reasoning value that is not a single lowercase word is a configuration f
     assert.match(c.detail, /CF_AI_GATEWAY_REASONING/);
   }
   assert.equal(resolveGatewayConfig(config({ backend: BACKENDS.cf, configuredModel: 'workers-ai/@cf/a/b', reasoning: 'none' })).ok, true);
+});
+
+// --- the Anthropic API backend ---------------------------------------------
+
+test('the Anthropic backend: its own variables, the base URL as the API base, and no Workers AI rule', () => {
+  assert.equal(variablePrefix(BACKENDS.anthropic), 'ANTHROPIC');
+  assert.equal(variablePrefix(BACKENDS.cf), 'CF_AI_GATEWAY');
+  assert.equal(variablePrefix(null), 'OLLAMA_GATEWAY');
+  assert.equal(resolveBackend({ trigger: 'comment', override: '', configured: 'anthropic' }), BACKENDS.anthropic);
+  const c = resolveGatewayConfig(config({ backend: BACKENDS.anthropic, url: 'https://api.anthropic.com/', configuredModel: 'claude-sonnet-5-5' }));
+  assert.equal(c.ok, true);
+  // ocr's Anthropic client appends /v1/messages itself.
+  assert.equal(c.apiBase, 'https://api.anthropic.com');
+  for (const url of ['https://api.anthropic.com/v1', 'https://api.anthropic.com/v1/messages']) {
+    assert.equal(resolveGatewayConfig(config({ backend: BACKENDS.anthropic, url, configuredModel: 'claude-sonnet-5-5' })).cause, 'configuration', url);
+  }
+  for (const field of ['item', 'url', 'configuredModel']) {
+    const missing = resolveGatewayConfig(config({ backend: BACKENDS.anthropic, [field]: '' }));
+    assert.match(missing.detail, /ANTHROPIC_/, field);
+  }
+});
+
+test('the Anthropic profile: protocol anthropic, the key on x-api-key, no placeholder, an empty body', () => {
+  const p = backendProfile(BACKENDS.anthropic, { reasoning: 'none' });
+  assert.equal(p.protocol, 'anthropic');
+  assert.equal(p.authHeader, 'x-api-key');
+  assert.equal(p.authToken, null);
+  assert.deepEqual(JSON.parse(p.extraBody), {}, 'CF_AI_GATEWAY_REASONING never reaches the Anthropic body');
+  for (const backend of [BACKENDS.ollama, BACKENDS.cf]) {
+    assert.equal(backendProfile(backend).protocol, 'openai');
+    assert.equal(backendProfile(backend).authHeader, '');
+  }
+});
+
+test('an Anthropic credential is the key in credential (an API Credential item): x-api-key, the API version, masked', async () => {
+  const masked = [];
+  const read = [];
+  const c = await resolveCredentials(
+    ITEM,
+    { readSecret: async (ref) => (read.push(ref), 'sk-ant-api03-key'), mask: (v) => masked.push(v) },
+    BACKENDS.anthropic,
+  );
+  assert.equal(c.ok, true);
+  assert.deepEqual(read, [`${ITEM}/credential`]);
+  assert.equal(c.authToken, 'sk-ant-api03-key');
+  assert.deepEqual(c.headers, { 'x-api-key': 'sk-ant-api03-key', 'anthropic-version': '2023-06-01' });
+  assert.ok(masked.includes('sk-ant-api03-key'));
+  for (const value of ['', 'a,b', 'a"b']) {
+    const bad = await resolveCredentials(ITEM, { readSecret: async () => value, mask: () => {} }, BACKENDS.anthropic);
+    assert.equal(bad.cause, 'configuration', JSON.stringify(value));
+  }
+  const refused = await resolveCredentials(
+    ITEM,
+    { readSecret: async () => { throw Object.assign(new Error('x'), { kind: 'token' }); }, mask: () => {} },
+    BACKENDS.anthropic,
+  );
+  assert.match(refused.detail, /OLLAMA_GATEWAY_OP_SA_TOKEN/);
+});
+
+const MESSAGE = { status: 200, body: JSON.stringify({ type: 'message', content: [{ type: 'text', text: 'OK' }] }) };
+const apiError = (status, message) => ({ status, body: JSON.stringify({ type: 'error', error: { message } }) });
+
+test('Anthropic answers: a message is ready; 401/403 credential; spent credits budget; a spend or rate limit limited; 404 model-not-found; 5xx down', () => {
+  const an = (answer) => classifyProbeAnswer(answer, BACKENDS.anthropic);
+  assert.equal(an(MESSAGE).kind, 'ready');
+  assert.equal(an(COMPLETION).cause, 'unexpected', 'a chat completion is not a Messages answer');
+  for (const status of [401, 403]) assert.equal(an({ status }).cause, 'credential', String(status));
+  assert.equal(an(apiError(402, 'billing_error')).cause, 'budget');
+  const spent = an(apiError(400, 'Your credit balance is too low to access the Anthropic API.'));
+  assert.equal(spent.cause, 'budget');
+  assert.doesNotMatch(spent.detail, /too low to access/, 'the body is never echoed');
+  assert.equal(an(apiError(400, 'You have reached your specified workspace API usage limits.')).cause, 'limited');
+  assert.equal(an(apiError(429, 'rate_limit_error')).cause, 'limited');
+  assert.equal(an(apiError(404, 'model: claude-x')).cause, 'model-not-found');
+  assert.equal(an(apiError(400, 'max_tokens: field required')).cause, 'unexpected');
+  for (const status of [500, 529]) assert.equal(an({ status }).cause, 'gateway-down', String(status));
+  assert.equal(an({ error: 'ENOTFOUND' }).cause, 'gateway-down');
+  assert.equal(an({ status: 507 }).kind, 'fail', 'no cold-model retry');
+});
+
+test('an Anthropic probe goes to /v1/messages with the headers and is never retried', async () => {
+  const clock = fakeClock();
+  const gw = fakeGateway(clock, [{ status: 529 }, MESSAGE]);
+  const r = await probeGateway(
+    { url: 'https://api.anthropic.com', apiBase: 'https://api.anthropic.com', backend: BACKENDS.anthropic, model: 'claude-sonnet-5-5', headers: { 'x-api-key': 'k' } },
+    { post: gw.post, clock },
+  );
+  assert.equal(r.cause, 'gateway-down');
+  assert.equal(gw.requests.length, 1);
+  assert.equal(gw.requests[0].url, 'https://api.anthropic.com/v1/messages');
+  assert.deepEqual(gw.requests[0].headers, { 'x-api-key': 'k' });
+  assert.equal(gw.requests[0].body.max_tokens, 1);
 });

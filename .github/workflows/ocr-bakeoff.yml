@@ -40,7 +40,7 @@ on:
         required: false
         default: ''
       backend:
-        description: Backend to run every model on (ollama-gateway or cf-ai-gateway); empty uses the owner's OCR_BACKEND, else ollama-gateway.
+        description: Backend to run every model on (ollama-gateway, cf-ai-gateway or anthropic); empty uses the owner's OCR_BACKEND, else ollama-gateway.
         type: string
         required: false
         default: ''
@@ -165,6 +165,9 @@ jobs:
           CF_AI_GATEWAY_URL: ${{ vars.CF_AI_GATEWAY_URL }}
           CF_AI_GATEWAY_MODEL: ${{ vars.CF_AI_GATEWAY_MODEL }}
           CF_AI_GATEWAY_REASONING: ${{ vars.CF_AI_GATEWAY_REASONING }}
+          ANTHROPIC_OP_ITEM: ${{ vars.ANTHROPIC_OP_ITEM }}
+          ANTHROPIC_URL: ${{ vars.ANTHROPIC_URL }}
+          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
           MODEL_OVERRIDE: ${{ matrix.model }}
           TRIGGER: dispatch
         run: node .ocr-bakeoff-tools/bin/ocr-review credentials
@@ -204,6 +207,8 @@ jobs:
           API_BASE: ${{ steps.creds.outputs.api_base }}
           AUTH_TOKEN: ${{ steps.creds.outputs.auth_token }}
           EXTRA_BODY: ${{ steps.creds.outputs.extra_body }}
+          PROTOCOL: ${{ steps.creds.outputs.protocol }}
+          AUTH_HEADER: ${{ steps.creds.outputs.auth_header }}
           BACKEND: ${{ steps.creds.outputs.backend }}
           EXTRA_HEADERS: ${{ steps.creds.outputs.extra_headers }}
           PROBE_OUTCOME: ${{ steps.probe.outcome }}

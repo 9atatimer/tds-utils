@@ -39,7 +39,7 @@ import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { authorizeRun } from '../lib/ocr-review/authorize.mjs';
-import { BACKENDS, backendProfile, extraHeadersValue, probeGateway, resolveBackend, resolveCredentials, resolveGatewayConfig, resolveModel } from '../lib/ocr-review/gateway.mjs';
+import { BACKENDS, backendProfile, extraHeadersValue, probeGateway, resolveBackend, resolveCredentials, resolveGatewayConfig, resolveModel, variablePrefix } from '../lib/ocr-review/gateway.mjs';
 import { HOST_TOOLS, checkHostTools, describeHostTools } from '../lib/ocr-review/host-tools.mjs';
 import { ackReaction, isCommentId, outcomeReaction, staleOutcomeIds } from '../lib/ocr-review/reaction.mjs';
 import { buildRecord, endOfRun, renderSummary, shouldComment } from '../lib/ocr-review/record.mjs';
@@ -284,16 +284,18 @@ export async function runHostTools({ onPath, step }) {
 
 /** The credentials step. Env: OP_SERVICE_ACCOUNT_TOKEN, OCR_BACKEND,
  * BACKEND_OVERRIDE, the chosen backend's variables (OLLAMA_GATEWAY_OP_ITEM,
- * _URL, _MODEL or CF_AI_GATEWAY_OP_ITEM, _URL, _MODEL, _REASONING), MODEL_OVERRIDE,
- * TRIGGER, RUNNER_TEMP. `op(argv, env)` runs the 1Password CLI without a
- * shell. Outputs the backend, model, url, api_base, the header string and
- * file, the backend's extra_body, and auth_token: ocr's bearer -- a fixed
- * placeholder on the Ollama Gateway, the masked run token on Cloudflare
- * AI Gateway (Issue#489). */
+ * _URL, _MODEL; CF_AI_GATEWAY_OP_ITEM, _URL, _MODEL, _REASONING; or
+ * ANTHROPIC_OP_ITEM, _URL, _MODEL), MODEL_OVERRIDE, TRIGGER, RUNNER_TEMP.
+ * `op(argv, env)` runs the 1Password CLI without a shell. Outputs the
+ * backend, model, url, api_base, the header string and file, the
+ * backend's extra_body, protocol and auth_header, and auth_token: ocr's
+ * credential -- a fixed placeholder on the Ollama Gateway, the masked run
+ * token on Cloudflare AI Gateway (Issue#489), the masked key on the
+ * Anthropic API. */
 export async function runCredentials({ env, op, step }) {
   const mask = (value) => step.log(`::add-mask::${commandData(value)}`);
   const backend = resolveBackend({ trigger: env.TRIGGER, override: env.BACKEND_OVERRIDE, configured: env.OCR_BACKEND });
-  const prefix = backend === BACKENDS.cf ? 'CF_AI_GATEWAY' : 'OLLAMA_GATEWAY';
+  const prefix = variablePrefix(backend);
   const item = env[`${prefix}_OP_ITEM`] || '';
   if (item) mask(item);
   const configuredModel = env[`${prefix}_MODEL`];
@@ -338,9 +340,12 @@ export async function runCredentials({ env, op, step }) {
   step.setOutput('model', config.model);
   step.setOutput('url', config.url);
   step.setOutput('api_base', config.apiBase);
-  // The Cloudflare bearer is the run token (Issue#489), already masked.
+  // The Cloudflare bearer is the run token (Issue#489) and the Anthropic
+  // credential is the key, both already masked.
   step.setOutput('auth_token', credentials.authToken ?? profile.authToken);
   step.setOutput('extra_body', profile.extraBody);
+  step.setOutput('protocol', profile.protocol);
+  step.setOutput('auth_header', profile.authHeader);
   step.setOutput('headers_file', `${env.RUNNER_TEMP}/${HEADERS_FILE}`);
   step.setOutput('extra_headers', extraHeadersValue(credentials.headers));
   step.log(`credentials: resolved ${Object.keys(credentials.headers).length} gateway headers; backend ${backend}; model ${config.model}`);

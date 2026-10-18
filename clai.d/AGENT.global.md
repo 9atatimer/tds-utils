@@ -39,7 +39,7 @@ file points there.
 - Don't write auto-memory; durable context goes in the repo or this file.
 - Never write a numbered list or a non-ASCII character in Markdown.
 - Never name a tier `staging`; it is `nonprod`.
-- Answer tersely, and stop when the answer is done.
+- Answer tersely, stop when done; append nothing unasked unless it is new, changes what the human does, and is not recorded where they will read it.
 - Link every PR and issue with repo and kind in the link text.
 - Read the repo's `AGENT.md` and its `TODO_PLAN.md` if it has one, and read a skill whole, before working.
 - Lower a gate only in a change that first clears the current gate and merges; never `--no-verify` or disable a check.
@@ -111,11 +111,17 @@ starting advice. Assume you are stepping into a problem already in progress.
 ### No Columbo "one more thing"
 
 Do not tack an extra observation onto the end of an answer that was already
-complete. When a turn is done, stop.
+complete. When a turn is done, stop. The tell is a closing paragraph that
+starts "one thing worth knowing," "also worth flagging," or "one thing to
+carry forward": if it mattered it belonged in the body, otherwise it does
+not belong at all.
 
-The tell is a closing paragraph that starts "one thing worth knowing," "also
-worth flagging," or "one thing to carry forward." If it were important it
-belonged in the body; if it is not, it does not belong at all.
+An unprompted addition must clear all four tests, or it is padding: the human
+does not already know it; it changes what they would do, not merely what they
+know; it is not already recorded where they will read it; it does not restate
+something already said this session. Re-filing a recorded fact into a nicer
+container is not new work. "Anything else?" is not a licence to append; if
+the honest answer is nothing, say nothing.
 
 **Context for future work goes where that work will read it, not into the
 transcript.** A session ends and is archived; nobody re-reads it. So:
@@ -179,9 +185,9 @@ If a command might run more than ~30 seconds, launch it with `Bash`
 from a hung one, and a long foreground call blocks the human from steering
 mid-task -- which is exactly when steering is most valuable.
 
-Typical offenders: deploys and applies (`gcloud run deploy`, `terraform apply`), cloud builds, `npm install`, full test suites,
-container builds, bulk storage deletes. This is not the banned
-self-polling above: the command runs once and notifies on exit.
+Typical offenders: `npm install`, full test suites, cloud and container
+builds, bulk storage deletes. This is not the banned self-polling above: the
+command runs once and notifies on exit.
 
 ### Stop a background process by its PID, and check it stopped
 
@@ -293,9 +299,9 @@ triage Copilot's review feedback per the gates skill.
 ## Read the repo's own instructions and plan first
 
 Read the repo's `CLAUDE.md` / `AGENT.md` and its `TODO_PLAN.md` (if any; do
-not create one) before changing anything in it. Repo instructions load alongside these global ones
-and win on specificity; the plan says what is in flight so you do not
-collide with it or redo it.
+not create one) before changing anything in it. Repo instructions load
+alongside these global ones and win on specificity; the plan says what is in
+flight so you do not collide with it or redo it.
 
 ## Gates: clear the bar before you move it
 
@@ -327,9 +333,8 @@ The auto-memory at `~/.claude/projects/<encoded>/memory/` is readable by one
 Claude Code instance at one path: no other agent (opencode, codex, gemini)
 and no session in another directory can see it. **Do not create entries.**
 Save durable context where everyone reads it: the repo's `AGENT.md`, a
-design doc, or this file (edit on a branch, PR, release). Fall back to
-auto-memory only for something Claude-Code-only and session-scoped, which is
-rare; if unsure, don't save.
+design doc, or this file (edit on a branch, PR, release). If unsure, don't
+save.
 
 ## Never `cd` -- stay at the project root and target subdirs with flags
 
@@ -448,7 +453,7 @@ Acknowledgement first, result last:
   ping. `edit_message` is only for optional mid-task progress nudges.
 
 Keep channel replies short and skimmable; they may be read aloud through
-earbuds. This applies in every repo.
+earbuds.
 
 ## Pushing when the 1Password SSH agent is locked
 
