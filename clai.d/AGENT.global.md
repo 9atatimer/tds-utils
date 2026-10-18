@@ -29,6 +29,8 @@ file points there.
 - Never run a deploy or publish command yourself; open the PR and let CI ship it.
 - Say what a command does before handing it to the human to run.
 - Run anything over ~30s with `run_in_background`; never leave the human in silence.
+- Never start long work with `&` in a tool call; it leaves no notice and no exit status.
+- In zsh, an unquoted `$VAR` is one word: put a command line in a function or array, never a string.
 - On a `<channel>` message, ack through the channel first, then work.
 - Never `cd`; scope tools with `-C` / `--directory` / `--filter`.
 - Never work on the default branch; prefer a worktree under `~/workplace/.worktrees/`.
@@ -190,6 +192,14 @@ Typical offenders: `npm install`, full test suites, cloud and container
 builds, bulk storage deletes. This is not the banned self-polling above: the
 command runs once and notifies on exit.
 
+**Never `&` instead.** A job started with `&` inside a tool call sends no
+notice when it ends and leaves no exit status to read. On 2026-10-18 an
+hour-long smoketest started that way was taken for dead, and three more
+runs were started over it on the same GPU, which made every one of them
+fail for a reason that was not theirs. `run_in_background` is the only way
+to start work that outlives the call; `&` is for a process the same call
+stops again (below).
+
 ### Stop a background process by its PID, and check it stopped
 
 A process started with `&` inside one tool call is stopped with
@@ -197,6 +207,17 @@ A process started with `&` inside one tool call is stopped with
 `kill -0 "$pid"` (or, for a listener, by checking its port is free). Never
 `kill %1`: in the tool shell (zsh 5.9, no job control) it exits 0 and
 leaves the job running.
+
+## zsh does not split an unquoted variable
+
+The tool shell is zsh, and zsh, unlike bash, does not split an unquoted
+`$VAR` into words: `C="node cli.mjs --origin $O"; $C act add` runs a
+program named the whole string and fails with "no such file". The same
+holds for a file list in a variable passed to `for f in $FILES` or to a
+command. It cost three failed steps on 2026-10-18. Put a repeated command
+line in a function (`c() { node cli.mjs --origin "$O" "$@"; }`) or an
+array (`C=(node cli.mjs); "${C[@]}" act add`), and loop over an array or
+over explicit words, never over a string.
 
 ## Bash on this machine is real
 
