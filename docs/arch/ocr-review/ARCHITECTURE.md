@@ -4,7 +4,8 @@ What is deployed, not what was designed. Living; edit it when a release
 moves the workflow or an adopter's pin.
 
 - Design: [OCR-ON-DEMAND.DESIGN.md](../../design/OCR-ON-DEMAND.DESIGN.md)
-  (APPROVED; the authority for intent). Open drift: Issue#453, Issue#454.
+  (APPROVED; the authority for intent). Open drift: Issue#453, Issue#454,
+  Issue#559.
 - Runbook: [docs/ops/ocr-review.md](../../ops/ocr-review.md) (adopt, seed,
   trigger, read results, change it).
 - Diagram: [ocr-review.html](./ocr-review.html).
@@ -53,12 +54,17 @@ moves the workflow or an adopter's pin.
 Caller -> reusable workflow (workflow_call)
   inputs:   pr (number, required)
             model (string, default ''; the caller passes it on dispatch only)
+            backend (string, default ''; dispatch only: ollama-gateway,
+              cf-ai-gateway or anthropic)
             tools_ref (string, required): the tds-utils commit bin/ocr-review
               and lib/ocr-review are checked out at; the caller sets it to
               the SHA it pins uses: at                       (Issue#453)
   secrets:  OLLAMA_GATEWAY_OP_SA_TOKEN (required: false, so a missing one
               fails as `configuration` with a record, not at call time)
-  vars:     OLLAMA_GATEWAY_OP_ITEM, OLLAMA_GATEWAY_URL, OLLAMA_GATEWAY_MODEL,
+  vars:     OCR_BACKEND (unset is ollama-gateway), and the chosen backend's
+            three: OLLAMA_GATEWAY_OP_ITEM/_URL/_MODEL,
+            CF_AI_GATEWAY_OP_ITEM/_URL/_MODEL (+ _REASONING), or
+            ANTHROPIC_OP_ITEM/_URL/_MODEL (Issue#559);
             CI_RUNS_ON (the caller's)
   permissions: contents read, pull-requests write, issues write
 ```
@@ -75,20 +81,20 @@ Caller -> reusable workflow (workflow_call)
 |---|---|---|
 | Upstream action | `alibaba/open-code-review@fabbdb296b0d97e2140ada8d54ca7d6d6d1d7ad4` (v1.12.13) | `ocr-review.yml` Review step |
 | `ocr` | `ocr_version: '1.12.13'`; job env `OCR_NO_UPDATE=1`, `OCR_ENABLE_TELEMETRY=0`, `OCR_RAW_LOGGING=0`, `OCR_CONTENT_LOGGING=0` | review job |
-| Action inputs | `llm_url: <url>/v1`, `llm_auth_token: ollama` (placeholder; Access headers authenticate), `llm_protocol: openai`, `llm_use_anthropic: false`, `llm_extra_headers` from the item, `llm_extra_body: {"thinking": {"type": "disabled"}, "stream": true}`, `pr_number`, `head_sha`, `base_ref` from authorize, `stream_progress: false`, `upload_artifacts: false`, `sticky_summary: true`, `checkpoint_range`, `incremental`, `resolve_outdated` all `false` | Review step |
+| Action inputs | From the chosen backend's profile (`BACKEND_PROFILES`): `llm_url`, `llm_auth_token`, `llm_protocol`, `llm_use_anthropic`, `llm_auth_header`, `llm_extra_headers` from the item, `llm_extra_body`. Ollama Gateway: `<url>/v1`, placeholder `ollama` (Access headers authenticate), `openai`, body `{"thinking": {"type": "disabled"}, "reasoning_effort": "none", "stream": true}`. Cloudflare AI Gateway: `<url>/compat`, the run token (Issue#489), `openai`, body `{"stream": true}` plus `reasoning_effort` when set. Anthropic: the bare origin (ocr appends `/v1/messages`), the key, `anthropic`, `llm_auth_header: x-api-key`, body `{}` (Issue#559). Then `pr_number`, `head_sha`, `base_ref` from authorize, `stream_progress: false`, `upload_artifacts: false`, `sticky_summary: true`, `checkpoint_range`, `incremental`, `resolve_outdated` all `false` | Review step |
 | Other pinned actions | `actions/checkout@3d3c42e5` (v7.0.1), `actions/setup-node@949feb24` (v7.1.0, Node 22), `1password/install-cli-action@1a3160d5` (v4.1.0, CLI 2.40.0), `actions/upload-artifact@cf430e03` (v7.0.2), `actions/download-artifact@9000827c` (v8.0.2) | `ocr-review.yml` |
-| Probe request | `POST <url>/v1/chat/completions`, `{"messages": [{"role": "user", "content": "Reply with OK."}], "max_tokens": 1, "stream": false}` | `lib/ocr-review/gateway.mjs` |
+| Probe request | `POST <api base><probe path>`, `{"model": ..., "messages": [{"role": "user", "content": "Reply with OK."}], "max_tokens": 1, "stream": false}`; the path is `/chat/completions` on the Ollama and Cloudflare backends, `/v1/messages` on Anthropic. Only the Ollama Gateway retries (the 507) | `lib/ocr-review/gateway.mjs` |
 | Probe attempt timeout | 110 s (past the gateway's 90 s deadline) | `bin/ocr-review` |
 | Cold-model retry | the 507 only; 10 s between attempts; no attempt starts after 6 min, so the worst case is about 7.5 min, inside the job's 9 | `lib/ocr-review/gateway.mjs` |
 | Gateway status contract | `GATEWAY_STATUS`: 530 tunnel down, 502 proxy down, 503 ollama down, 507 deadline (retryable); 302/403 Access | `lib/ocr-review/gateway.mjs`, mirrored by hand from the route |
-| Item fields | `access/client id header`, `access/client id`, `access/client secret header`, `password` | `lib/ocr-review/gateway.mjs` |
+| Item fields | Ollama Gateway: `access/client id header`, `access/client id`, `access/client secret header`, `password`. Cloudflare AI Gateway: `password` (the run token). Anthropic: `credential` (an API Credential item's key) | `lib/ocr-review/gateway.mjs` |
 | Artifacts | `ocr-result-<attempt>` (90 days; review job; Issue#454), `ocr-review-state-<attempt>` (1 day; review -> report hand-off; Issue#454), `ocr-review-record-<attempt>` (90 days; report job) | `ocr-review.yml` |
-| Run record | `record_version` 1, the design's Data Model fields | `lib/ocr-review/record.mjs` |
+| Run record | `record_version` 2: the design's Data Model fields plus `backend` (Issue#481) | `lib/ocr-review/record.mjs` |
 | Lockfile exclusion list | fixed in code (`LOCKFILES`) | `lib/ocr-review/verdict.mjs` |
 
 The closed cause set (`CAUSES`): `pr-not-open`, `fork`, `configuration`,
-`credential`, `gateway-down`, `model-not-found`, `cold-model`,
-`runner-tool-missing`, `unexpected`, `engine-error`, `reviewed-nothing`,
+`credential`, `gateway-down`, `model-not-found`, `cold-model`, `budget`,
+`limited`, `runner-tool-missing`, `unexpected`, `engine-error`, `reviewed-nothing`,
 `nothing-reviewable`, `cancelled`.
 
 ## Seams in the code
@@ -103,6 +109,12 @@ The closed cause set (`CAUSES`): `pr-not-open`, `fork`, `configuration`,
   (use the runner's `op`, else install it, which needs `gpg` and `unzip`;
   `git` always).
 - **Model**: the variable, overridable by dispatch only.
+- **Backend**: `OCR_BACKEND`, overridable by dispatch only; each backend is
+  a profile (API suffix, probe path, protocol, auth header, body), a
+  variable set, a credential reader and a probe reading in
+  `lib/ocr-review/gateway.mjs`. One secret and one service account serve
+  all three. The Anthropic backend's spend cap is the key's Claude Console
+  workspace limit, outside this repo.
 - **Record schema**: `record_version`; stats reads every version it has a
   reader for.
 - **Step I/O**: every `run*` flow in `bin/ocr-review` takes its effects
@@ -148,6 +160,8 @@ Recorded here as fact; recording is not approval.
 - Two summary comments per PR, the `runner-tool-missing` cause, and the
   reactions: authorized by Key Decisions rows (option A; runner host
   tools; comment reactions).
+- The `anthropic` backend (the Anthropic API direct, a second LLM protocol
+  in the workflow; tds-utils PR#557): drift, Issue#559.
 - The authorize job's `if:` prefilter, so an ordinary comment costs no
   runner; the exact prefix is still judged by the Authorize step.
 
