@@ -219,6 +219,17 @@ line in a function (`c() { node cli.mjs --origin "$O" "$@"; }`) or an
 array (`C=(node cli.mjs); "${C[@]}" act add`), and loop over an array or
 over explicit words, never over a string.
 
+## A `&` in a `sed` replacement is the whole match
+
+In `sed 's/old/new/'`, an unescaped `&` in `new` stands for the text that
+matched, so a replacement holding an HTML entity (`&lt;`) or a shell `&&`
+silently pastes the matched text into the output. On 2026-10-18 a
+`sed -i` that wrote `&lt;ROLE&gt;` into an SVG diagram line duplicated the
+old line inside the new one; only a reviewer caught it. Escape every `&`
+in the replacement as `\&`, or make the edit with a script that replaces
+literal strings (Python `str.replace`; in Perl a bare `&` in the
+replacement is literal), and read the changed line back.
+
 ## Bash on this machine is real
 
 On a laptop / real checkout the bash tool touches the real disk and network:
