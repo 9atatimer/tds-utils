@@ -13,6 +13,7 @@ import {
   buildRecord,
   endOfRun,
   isJudged,
+  markSha,
   renderSummary,
   shouldComment,
   SUMMARY_MARKER,
@@ -366,4 +367,46 @@ test('every backend-specific cause names the Anthropic API too, so its failures 
     const r = buildRecord({ ...baseFacts, backend: 'anthropic', approved: true, end: { outcome: 'failure', cause, failingStep: null } });
     assert.match(renderSummary(r, { runUrl: 'u', detail: 'd' }), /Anthropic API/, cause);
   }
+});
+
+// --- The review mark (review-settled's `ocr` reviewer) ----------------------
+
+const SHA = 'a'.repeat(40);
+const complete = { range: { base: 'b'.repeat(40), head: SHA }, filesReviewable: 3, filesReviewed: 3, findingsPosted: 2, findingsFailed: 0, unreviewed: [] };
+
+test('a complete review is marked with the head it reviewed, findings or not', () => {
+  assert.equal(markSha(record({ judged: complete })), SHA);
+  assert.equal(markSha(record({ judged: { ...complete, findingsPosted: 0 } })), SHA);
+});
+
+test('nothing reviewable is marked: OCR judged there was nothing to review', () => {
+  const judged = { ...complete, filesReviewable: 0, filesReviewed: 0, findingsPosted: 0 };
+  assert.equal(markSha(record({ end: { outcome: 'success', cause: 'nothing-reviewable', failingStep: null }, judged })), SHA);
+});
+
+test('a review that skipped files (Markdown, a timeout) is still marked, like a Copilot review', () => {
+  assert.equal(markSha(record({ judged: { ...complete, filesReviewed: 2, unreviewed: ['docs/a.md'] } })), SHA);
+});
+
+test('no mark when a finding failed to post: it has no thread to resolve', () => {
+  assert.equal(markSha(record({ judged: { ...complete, findingsFailed: 1 } })), null);
+});
+
+test('no mark on a failed or cancelled run, or with no resolved head', () => {
+  assert.equal(markSha(record({ end: { outcome: 'failure', cause: 'engine-error', failingStep: null }, judged: null })), null);
+  assert.equal(markSha(record({ end: { outcome: 'failure', cause: 'reviewed-nothing', failingStep: null }, judged: complete })), null);
+  assert.equal(markSha(record({ end: { outcome: 'cancelled', cause: 'cancelled', failingStep: null }, judged: complete })), null);
+  assert.equal(markSha(record({ judged: { ...complete, range: null } })), null);
+});
+
+test('a marked summary opens with the mark, then the summary marker', () => {
+  const body = renderSummary(record({ judged: complete }), { runUrl: 'u', judged: complete });
+  assert.ok(body.startsWith(`<!-- ocr-review-mark sha=${SHA} -->\n${SUMMARY_MARKER}\n`), body);
+});
+
+test('an unmarked success summary says it settles no review, and why', () => {
+  const judged = { ...complete, findingsFailed: 1 };
+  const body = renderSummary(record({ judged }), { runUrl: 'u', judged });
+  assert.ok(body.startsWith(SUMMARY_MARKER));
+  assert.match(body, /not a review mark[^\n]*finding failed to post/i);
 });

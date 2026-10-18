@@ -423,7 +423,10 @@ jobs:
       # One per run from this workflow, per the State Machine table (none
       # for pr-not-open), beside upstream's sticky summary. A failed post
       # fails this job, so the run concludes red; the record is already
-      # written.
+      # written. A whole review of the head (mark_sha, lib/ocr-review/
+      # record.mjs markSha) is posted as a COMMENT review on that commit,
+      # opening with the mark review-settled counts as the `ocr` reviewer;
+      # anything less is an issue comment, which settles nothing.
       - name: Post the summary comment
         if: always() && steps.record.outputs.should_comment == 'true'
         env:
@@ -431,6 +434,7 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ inputs.pr }}
           COMMENT_PATH: ${{ runner.temp }}/ocr-review-comment.md
+          MARK_SHA: ${{ steps.record.outputs.mark_sha }}
         run: node .ocr-review-tools/bin/ocr-review comment
 
       # On a comment-triggered run: +1 (success) or -1 (failure, cancelled)

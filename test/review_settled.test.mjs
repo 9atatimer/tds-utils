@@ -9,6 +9,7 @@ import {
   isQuotaNotice,
   newestReviewBy,
   normalizeLogin,
+  ocrMarkSha,
   parseReviewers,
   settle,
 } from '../lib/review-settled.mjs';
@@ -445,4 +446,93 @@ test('any-of group: a stale real review is reported before a quota notice', () =
   });
   assert.equal(v.state, 'failure');
   assert.match(v.description, /newest review by chatgpt-codex-connector is on bbbbbbb/);
+});
+
+// --- OCR as a reviewer (iae: agents land on an OCR review) -----------------
+//
+// `ocr` is a pseudo-reviewer: a review by github-actions whose body opens
+// with the OCR mark for the very commit the review is on. The OCR workflow
+// posts one on every finished run, clean or not.
+
+const OCR = 'ocr';
+const mark = (sha, over) => review({
+  author: 'github-actions',
+  body: `<!-- ocr-review-mark sha=${sha} -->\n### OCR review complete\n`,
+  commit: sha,
+  ...over,
+});
+
+test('ocrMarkSha reads the sha from a body that opens with the mark, and nothing else', () => {
+  assert.equal(ocrMarkSha(`<!-- ocr-review-mark sha=${HEAD} -->\nrest`), HEAD);
+  assert.equal(ocrMarkSha(`quoting <!-- ocr-review-mark sha=${HEAD} --> in passing`), null);
+  assert.equal(ocrMarkSha('<!-- ocr-review-summary -->'), null);
+  assert.equal(ocrMarkSha(undefined), null);
+});
+
+test('an OCR mark on the head settles the ocr reviewer', () => {
+  const r = settle({ headSha: HEAD, reviews: [mark(HEAD)], threads: [], reviewers: [OCR] });
+  assert.equal(r.state, 'success');
+  assert.match(r.description, /reviewed on head by ocr/);
+});
+
+test('an OCR mark on an older commit is stale, and pending', () => {
+  const r = settle({ headSha: HEAD, reviews: [mark(OLD)], threads: [], reviewers: [OCR] });
+  assert.equal(r.state, 'failure');
+  assert.match(r.description, /newest review by ocr is on bbbbbbb/);
+  assert.equal(r.pending, true);
+});
+
+test('a github-actions review without the mark is not an OCR review', () => {
+  const r = settle({ headSha: HEAD, reviews: [review({ author: 'github-actions[bot]', body: 'LGTM' })], threads: [], reviewers: [OCR] });
+  assert.equal(r.state, 'failure');
+  assert.match(r.description, /no review from ocr yet/);
+});
+
+test('a mark naming another commit than the review is on does not count', () => {
+  const r = settle({ headSha: HEAD, reviews: [mark(OLD, { commit: HEAD })], threads: [], reviewers: [OCR] });
+  assert.equal(r.state, 'failure');
+  assert.match(r.description, /no review from ocr yet/);
+});
+
+test('the mark counts only from github-actions: anyone else posting it is not OCR', () => {
+  const r = settle({ headSha: HEAD, reviews: [mark(HEAD, { author: 'someone' })], threads: [], reviewers: [OCR] });
+  assert.equal(r.state, 'failure');
+});
+
+test('a real account named ocr is never the ocr reviewer', () => {
+  const r = settle({ headSha: HEAD, reviews: [review({ author: 'ocr' })], threads: [], reviewers: [OCR] });
+  assert.equal(r.state, 'failure');
+  assert.match(r.description, /no review from ocr yet/);
+});
+
+test('copilot|ocr: an OCR mark on head settles the group', () => {
+  const r = settle({ headSha: HEAD, reviews: [mark(HEAD)], threads: [], reviewers: [`${COPILOT}|${OCR}`] });
+  assert.equal(r.state, 'success');
+});
+
+test('copilot|ocr: Copilot out of quota and OCR on head -> reviewed, not fail-open', () => {
+  const quota = review({ body: 'Copilot was unable to review this pull request because the user who requested the review has reached their quota limit.', commit: OLD, submittedAt: '2026-09-18T19:00:00Z' });
+  const r = settle({ headSha: HEAD, reviews: [quota, mark(HEAD)], threads: [], reviewers: [`${COPILOT}|${OCR}`] });
+  assert.equal(r.state, 'success');
+  assert.doesNotMatch(r.description, /FAIL-OPEN/);
+});
+
+test('an OCR mark on head with an open thread still blocks', () => {
+  const r = settle({ headSha: HEAD, reviews: [mark(HEAD)], threads: [{ isResolved: false }], reviewers: [OCR] });
+  assert.equal(r.state, 'failure');
+  assert.match(r.description, /1 unresolved review thread/);
+});
+
+test('notice text inside an OCR review (a listed file name) never makes ocr fail open', () => {
+  const body = `<!-- ocr-review-mark sha=${OLD} -->\n- <code>docs/unable to review this pull request reached their quota limit.md</code>\n`;
+  const r = settle({ headSha: HEAD, reviews: [mark(OLD, { body })], threads: [], reviewers: [OCR] });
+  assert.equal(r.state, 'failure');
+  assert.doesNotMatch(r.description, /FAIL-OPEN/);
+  assert.match(r.description, /newest review by ocr is on bbbbbbb/);
+});
+
+test('notice text inside an OCR review on the head still counts as the review', () => {
+  const body = `<!-- ocr-review-mark sha=${HEAD} -->\n- <code>docs/unable to review this pull request.md</code>\n`;
+  const r = settle({ headSha: HEAD, reviews: [mark(HEAD, { body })], threads: [], reviewers: [OCR] });
+  assert.equal(r.state, 'success');
 });
