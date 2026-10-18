@@ -209,11 +209,14 @@ test('reusable: the Review step takes the API base, bearer and body from the Cre
   assert.match(review, /llm_url:\s*\$\{\{\s*steps\.creds\.outputs\.api_base\s*\}\}\s*$/m);
   assert.match(review, /llm_auth_token:\s*\$\{\{\s*steps\.creds\.outputs\.auth_token\s*\}\}\s*$/m);
   assert.match(review, /llm_extra_body:\s*\$\{\{\s*steps\.creds\.outputs\.extra_body\s*\}\}\s*$/m);
+  assert.match(review, /llm_protocol:\s*\$\{\{\s*steps\.creds\.outputs\.protocol\s*\}\}\s*$/m);
+  assert.match(review, /llm_use_anthropic:\s*\$\{\{\s*steps\.creds\.outputs\.protocol == 'anthropic'\s*\}\}\s*$/m);
+  assert.match(review, /llm_auth_header:\s*\$\{\{\s*steps\.creds\.outputs\.auth_header\s*\}\}\s*$/m);
 });
 
 test('reusable: the Credentials step gets the backend selector, its dispatch override and both backends\' variables', () => {
   const review = jobBlock(REUSABLE, 'review');
-  for (const v of ['OCR_BACKEND', 'CF_AI_GATEWAY_OP_ITEM', 'CF_AI_GATEWAY_URL', 'CF_AI_GATEWAY_MODEL', 'CF_AI_GATEWAY_REASONING', 'OLLAMA_GATEWAY_OP_ITEM', 'OLLAMA_GATEWAY_URL', 'OLLAMA_GATEWAY_MODEL']) {
+  for (const v of ['OCR_BACKEND', 'ANTHROPIC_OP_ITEM', 'ANTHROPIC_URL', 'ANTHROPIC_MODEL', 'CF_AI_GATEWAY_OP_ITEM', 'CF_AI_GATEWAY_URL', 'CF_AI_GATEWAY_MODEL', 'CF_AI_GATEWAY_REASONING', 'OLLAMA_GATEWAY_OP_ITEM', 'OLLAMA_GATEWAY_URL', 'OLLAMA_GATEWAY_MODEL']) {
     assert.match(review, new RegExp(`${v}:\\s*\\$\\{\\{\\s*vars\\.${v}\\s*\\}\\}`), v);
   }
   assert.match(review, /BACKEND_OVERRIDE:\s*\$\{\{\s*inputs\.backend\s*\}\}/);

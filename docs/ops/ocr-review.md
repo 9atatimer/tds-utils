@@ -172,7 +172,7 @@ Checked 2026-10-12 by reading `action.yml`,
 `internal/llm/client.go` at that commit.
 
 - Inputs used: `llm_url`, `llm_auth_token`, `llm_model`,
-  `llm_use_anthropic`, `llm_protocol`, `llm_extra_headers` (`K=V,K=V`),
+  `llm_use_anthropic`, `llm_protocol`, `llm_auth_header`, `llm_extra_headers` (`K=V,K=V`),
   `llm_extra_body`, `ocr_version`, `pr_number`, `head_sha`, `base_ref`,
   `stream_progress`, `upload_artifacts`, `sticky_summary`,
   `checkpoint_range`, `incremental`, `resolve_outdated`.
@@ -202,9 +202,9 @@ Checked 2026-10-12 by reading `action.yml`,
   trigger the event carries no pull request, and the action would
   otherwise resolve an empty head.
 
-## Choosing the backend: laptop or Cloudflare AI Gateway
+## Choosing the backend: laptop, Cloudflare AI Gateway or Anthropic
 
-Completions come from one of two backends (Issue#481):
+Completions come from one of three backends (Issue#481 added the second):
 
 - **`ollama-gateway`** -- the laptop's sandboxed ollama through the Ollama
   Gateway (`docs/ops/ollama-gateway.md`). The default, and free.
@@ -219,6 +219,12 @@ Completions come from one of two backends (Issue#481):
   provider authentication; the Credentials step refuses one as
   `configuration`. On a Workers AI model that header carries the run
   token, which the gateway requires (Issue#489).
+- **`anthropic`** -- the Anthropic API direct, on ocr's Anthropic
+  protocol, paid from the Claude Console organization's credits (the
+  monthly API credits of the owner's Max plan) under the key's workspace
+  spend limit. Not routed through Cloudflare: the Authorization rule above
+  would refuse a Claude model there, and Unified Billing would pay from
+  Cloudflare credits instead of the Console's.
 
 The owner's variable `OCR_BACKEND` chooses (unset is `ollama-gateway`); a
 dispatch may override it with `-f backend=...`, as it may the model. A
@@ -231,6 +237,7 @@ Each backend has its own three variables; only the chosen one's are read:
 |---|---|---|---|
 | `ollama-gateway` | `OLLAMA_GATEWAY_OP_ITEM` | `OLLAMA_GATEWAY_URL` | `OLLAMA_GATEWAY_MODEL` |
 | `cf-ai-gateway` | `CF_AI_GATEWAY_OP_ITEM` | `CF_AI_GATEWAY_URL` (the gateway base, `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>`) | `CF_AI_GATEWAY_MODEL` (a gateway model id; the owner's default is `workers-ai/@cf/deepseek-ai/deepseek-v4-pro-0813`) |
+| `anthropic` | `ANTHROPIC_OP_ITEM` (an API Credential item; the key is its `credential` field) | `ANTHROPIC_URL` (`https://api.anthropic.com`; ocr appends `/v1/messages`) | `ANTHROPIC_MODEL` (a Claude model id, e.g. `claude-sonnet-5-5`) |
 
 The Cloudflare backend has one more, optional variable:
 `CF_AI_GATEWAY_REASONING`, sent as `reasoning_effort` (e.g. `none` turns
@@ -240,7 +247,7 @@ default applies, which is usually reasoning on. The owner's default
 pairing is DeepSeek V4 Pro with `none` (2026-10-14).
 
 The secret stays `OLLAMA_GATEWAY_OP_SA_TOKEN`: the same service account
-reads either item, so turning the option on adds no GitHub secret.
+reads every backend's item, so turning an option on adds no GitHub secret.
 
 **What a Cloudflare request carries.** The run token from the item's
 `password`, as `cf-aig-authorization: Bearer ...` (masked the moment it is
@@ -294,6 +301,40 @@ job took 8m56s against its `timeout-minutes: 9` (set under the pool's
 ceiling), 4 seconds to spare. At about $0.03 and over a minute a file, a
 PR any larger than seven files is likely to hit the job's timeout long
 before the spend cap.
+
+**What an Anthropic request carries.** The key from the item's
+`credential` field (masked the moment it is read) as `llm_auth_token`,
+which `llm_auth_header: x-api-key` puts on `x-api-key`: the API refuses
+the key as an `Authorization` bearer. ocr's Anthropic client does not
+stream and sends `anthropic-version` itself; the body adds nothing
+(`{}`), and `CF_AI_GATEWAY_REASONING` is never read. The probe posts the
+smallest message to `<ANTHROPIC_URL>/v1/messages`. Spend is capped by the
+key's Console workspace spend limit and the organization's credit
+balance, not by anything here.
+
+**Turning it on** (owner; the item comes from tds-internal, whose registry
+names it):
+
+```
+gh variable set ANTHROPIC_OP_ITEM -o <org> --visibility selected --repos <repo,...> --body 'op://<vault>/<item>'
+gh variable set ANTHROPIC_URL     -o <org> --visibility selected --repos <repo,...> --body 'https://api.anthropic.com'
+gh variable set ANTHROPIC_MODEL   -o <org> --visibility selected --repos <repo,...> --body 'claude-sonnet-5-5'
+# then either per run: -f backend=anthropic, or for every run:
+gh variable set OCR_BACKEND       -o <org> --visibility selected --repos <repo,...> --body anthropic
+```
+
+**Its answers** (nothing is retried by the probe; ocr's own client retries
+overload during the review):
+
+| Probe answer | Cause |
+|---|---|
+| a message | ready |
+| 401, 403 | `credential` |
+| 400 naming the credit balance | `budget` |
+| 400 naming usage limits (a workspace or organization spend limit), 429 | `limited` |
+| 404 | `model-not-found` |
+| any other 4xx | `unexpected` |
+| 5xx (529 is overload), or no answer | `gateway-down` |
 
 ## Comparing models (the bake-off)
 
@@ -383,7 +424,7 @@ design record's Key Decisions log; the umbrella issue is Issue#363.
 | Tests | `test/ocr_review_*.test.mjs`, `test/smoketest_ocr_review.sh`, `test/smoketest_seed_ocr_review.sh` | The smoketest is the list of node suites; a new suite is added there |
 | Runner image | tds-internal `services/ci-runner-pool/Dockerfile` | The pool's host tools (git, gnupg, unzip, a pinned and verified `op`); its `test/wiring.test.ts` lists them |
 | Gateway | `lmde/components/ollama-gateway/`, `lmde/components/proxy-layer/`; tds-internal `ops/terraform/ollama-gateway/` | The deadline status (507) and Host rewrite live in the route; operating the laptop side is `docs/ops/ollama-gateway.md` |
-| Backends | `lib/ocr-review/gateway.mjs` (`BACKENDS`, the per-backend variables, profiles, credential shapes and probe readings); tds-internal `ops/terraform/ai-gateway/` for Cloudflare AI Gateway | A new backend is a profile, a variable set, a credential reader and a probe reading there, plus its env lines in both workflows |
+| Backends | `lib/ocr-review/gateway.mjs` (`BACKENDS`, the per-backend variables, profiles, credential shapes and probe readings); tds-internal `ops/terraform/ai-gateway/` for Cloudflare AI Gateway | A new backend is a profile (API suffix, probe path, protocol, auth header, body), a variable set, a credential reader and a probe reading there, plus its env lines in both workflows |
 
 ### Invariants a change must keep
 

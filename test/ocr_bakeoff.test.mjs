@@ -16,6 +16,7 @@ import {
   buildMatrix,
   buildRunRecord,
   collate,
+  configArgs,
   locate,
   parseCases,
   parseModels,
@@ -527,8 +528,12 @@ test('workflow: ocr is the version and the settings OCR on Demand runs, so a bak
   const review = readFileSync(join(ROOT, '.github/workflows/ocr-review.yml'), 'utf8');
   const pin = review.match(/ocr_version: '([^']+)'/)[1];
   assert.equal(code(WORKFLOW).match(/OCR_VERSION: '([^']+)'/)[1], pin);
-  assert.match(review, /llm_protocol: openai/);
-  assert.match(review, /llm_use_anthropic: 'false'/);
+  // Both take the protocol and auth header from the Credentials step.
+  assert.match(review, /llm_protocol: \$\{\{ steps\.creds\.outputs\.protocol \}\}/);
+  assert.match(review, /llm_auth_header: \$\{\{ steps\.creds\.outputs\.auth_header \}\}/);
+  assert.match(code(WORKFLOW), /PROTOCOL: \$\{\{ steps\.creds\.outputs\.protocol \}\}/);
+  assert.match(code(WORKFLOW), /AUTH_HEADER: \$\{\{ steps\.creds\.outputs\.auth_header \}\}/);
+  for (const v of ['ANTHROPIC_OP_ITEM', 'ANTHROPIC_URL', 'ANTHROPIC_MODEL']) assert.match(code(WORKFLOW), new RegExp(`${v}: \\$\\{\\{ vars\\.${v} \\}\\}`), v);
 });
 
 test('caller: dispatch only, passes the one secret by name, pins workflow and tools_ref to one SHA', () => {
@@ -550,4 +555,16 @@ test('workflow: the backend input reaches the Credentials step as a dispatch ove
     assert.match(body, new RegExp(`${env}:\\s*\\$\\{\\{\\s*steps\\.creds\\.outputs\\.${out}\\s*\\}\\}`), env);
   }
   assert.match(code(CALLER), /backend:\s*\$\{\{\s*inputs\.backend\s*\}\}/);
+});
+
+test('configArgs: the protocol and auth header follow the backend; empty is openai with the default header', () => {
+  const setting = (args, key) => args.find((a) => a[1] === 'set' && a[2] === key)[3];
+  const openai = configArgs({ apiBase: 'https://g/v1', model: 'm', extraBody: '{}' });
+  assert.equal(setting(openai, 'llm.protocol'), 'openai');
+  assert.equal(setting(openai, 'llm.use_anthropic'), 'false');
+  assert.equal(setting(openai, 'llm.auth_header'), '');
+  const anthropic = configArgs({ apiBase: 'https://api.anthropic.com', model: 'claude-sonnet-5-5', extraBody: '{}', protocol: 'anthropic', authHeader: 'x-api-key' });
+  assert.equal(setting(anthropic, 'llm.protocol'), 'anthropic');
+  assert.equal(setting(anthropic, 'llm.use_anthropic'), 'true');
+  assert.equal(setting(anthropic, 'llm.auth_header'), 'x-api-key');
 });
