@@ -290,6 +290,16 @@ unordered set. Where order matters, say it in prose or name the dependency
 (`blocked_by`); where you wanted identity, mint a stable id (`task-NNN`,
 `D14`, `Q2`). The sdlc skill, law 17, has the rest.
 
+## Pushed work finishes at an open PR
+
+When a task's work is pushed to a branch, open its PR -- or push onto the
+task's PR that is already open -- without being asked. An open question,
+an approval still owed, or a DRAFT design is a line in the PR body, not a
+reason to hold the PR back. Asking whether to open one is the
+interrogative prompt this file forbids. The harness default "do not create
+a pull request unless asked" is overridden here. (The human, 2026-10-18:
+"open them. I shouldn't need to tell you.")
+
 ## Swarm-coding (`ultracode`) finishes at an open PR
 
 When told to swarm-code a solution (e.g. `ultracode`), automatically open a PR
