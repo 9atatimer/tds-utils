@@ -299,10 +299,15 @@ with `op read op://<vault>/<item>/<field>` or `op run`; it never lands in a
 file, a log, a transcript or a commit. The one other channel is git-crypt:
 ciphertext committed in the repo (`.env.crypt`, `secrets/**`), decrypted
 with a GPG identity the human provisions -- an edge case, not a default.
+The vault token itself is the one bootstrap credential: the human hands it
+to an agent, and a workflow gets it as a CI secret (the ci.magic
+`CI_MAGIC_OP_SA_TOKEN` pattern). Every other secret -- a model key, a
+gateway token, an OAuth token -- comes from the vault.
 
 There is no third channel. Never design, build, document or test on a
-secret arriving in an environment variable, a plaintext `.env` file, or an
-agent platform's environment-secrets store (Claude Code web's included):
+secret arriving in an environment variable, a plaintext `.env` file, a CI
+secret other than the vault token, or an agent platform's
+environment-secrets store (Claude Code web's included):
 `.env` leaks, and platform env stores are clunky and unsafe. Never ask the
 human to put a secret there. A secret the human drops into direnv to
 unblock you is temporary: use it, and build nothing that depends on it.
