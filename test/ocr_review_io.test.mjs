@@ -804,3 +804,35 @@ test('comment: posts the body to the PR; a failed post throws so the job fails',
     /HTTP 403/,
   );
 });
+
+test('report: a complete review outputs the mark sha; an incomplete one outputs none', async () => {
+  const done = { cause: null, range: { base: BASE, head: HEAD }, filesReviewable: 1, filesReviewed: 1, findingsPosted: 0, findingsFailed: 0, unreviewed: [] };
+  let step = fakeStep();
+  await runReport({ env: reportEnv(), readFile: () => JSON.stringify(done), step, now: () => 'f' });
+  assert.equal(step.outputs.mark_sha, HEAD);
+  step = fakeStep();
+  await runReport({ env: reportEnv(), readFile: () => JSON.stringify({ ...done, findingsFailed: 1 }), step, now: () => 'f' });
+  assert.equal(step.outputs.mark_sha, '');
+});
+
+test('comment: with a mark sha the body is a COMMENT review on that commit', async () => {
+  const fetch = fakeFetch(() => json(200, { id: 1 }));
+  await runComment({ env: { GITHUB_TOKEN: 't', REPO: 'o/r', PR: '7', COMMENT_PATH: '/c', MARK_SHA: HEAD }, fetch, readFile: () => 'hello' });
+  assert.equal(fetch.calls.length, 1);
+  assert.equal(fetch.calls[0].url, 'https://api.github.com/repos/o/r/pulls/7/reviews');
+  assert.deepEqual(fetch.calls[0].body, { commit_id: HEAD, event: 'COMMENT', body: 'hello' });
+  await assert.rejects(
+    runComment({ env: { GITHUB_TOKEN: 't', REPO: 'o/r', PR: '7', COMMENT_PATH: '/c', MARK_SHA: HEAD }, fetch: fakeFetch(() => json(422, {})), readFile: () => 'x' }),
+    /HTTP 422/,
+  );
+});
+
+test('comment: a refused review still leaves the summary as an issue comment, and the run fails', async () => {
+  const fetch = fakeFetch((url) => (url.endsWith('/reviews') ? json(422, {}) : json(201, {})));
+  await assert.rejects(
+    runComment({ env: { GITHUB_TOKEN: 't', REPO: 'o/r', PR: '7', COMMENT_PATH: '/c', MARK_SHA: HEAD }, fetch, readFile: () => 'hello' }),
+    /review POST HTTP 422/,
+  );
+  assert.equal(fetch.calls[1].url, 'https://api.github.com/repos/o/r/issues/7/comments');
+  assert.deepEqual(fetch.calls[1].body, { body: 'hello' });
+});

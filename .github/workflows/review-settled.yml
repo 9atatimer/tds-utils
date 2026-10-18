@@ -31,6 +31,11 @@
 # epilogue posted after resolving), on pushes, on a review request, and
 # by hand; a caller passes `wait_seconds` per event, and this repo's
 # waits only on the review request (the run Copilot's answer lands in).
+# OCR is a reviewer too (`ocr` in `reviewers`, lib/review-settled.mjs):
+# its review is posted with the workflow token, which starts no workflow,
+# so the run that sees it is the one the `/ocr` comment itself started --
+# a caller naming `ocr` waits long enough on an `/ocr` comment for a
+# whole OCR run (up to 1200 seconds; the job's timeout is 25 minutes).
 # A synchronize
 # event turns the status red at once (the newest review is on the old
 # head) until the reviewer re-reviews the new one -- that is the head-SHA
@@ -81,7 +86,8 @@ jobs:
     # can name a fork; on issue_comment a fork PR also runs on the pool,
     # which is safe because this job runs only this repo's checker.
     runs-on: ${{ fromJSON((github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_RUNS_ON || '"ubuntu-latest"') }}
-    timeout-minutes: 5
+    # Covers the longest wait a caller may pass (1200 seconds, an OCR run).
+    timeout-minutes: 25
     permissions:
       statuses: write
       pull-requests: read
