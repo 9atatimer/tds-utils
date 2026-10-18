@@ -535,11 +535,17 @@ This repo lands PRs through the tedium merge bot; the rules are in
   push, synced by tedium. An agent acting under a reviewer's token is a
   reviewer.
 - **`gate` is the only name to add to.** A new CI job goes into `gate`'s
-  `needs`; a job outside it cannot block a landing.
+  `needs`; a job outside it cannot block a landing. It also takes
+  `needs: changes` and a scope in `.github/scripts/changed-scopes.sh`: on a
+  PR, `dist-ci.yml` runs only the jobs the diff can affect (a docs-only PR
+  runs none), and `gate` counts a skipped job as a pass. A push runs
+  everything, so the staging commit is always fully gated. Never a
+  `paths:` filter: a workflow that does not run never reports `gate`.
 - **`hold` label** keeps a PR out of the queue. `tedium dryrun` builds it
   on `tedium/try` without landing.
-- **CODEOWNERS** (`tedium.toml`, `CODEOWNERS`, `.github/workflows/`) need
-  a human owner's approval before tedium lands a change to them.
+- **CODEOWNERS** (`tedium.toml`, `CODEOWNERS`, `.github/workflows/`,
+  `.github/scripts/changed-scopes.sh`) need a human owner's approval
+  before tedium lands a change to them.
 - **`tedium/merge` and `tedium/try` are the bot's build branches**: never
   protect them, never commit to them, never base work on them.
 - **Closing keywords do not fire when tedium lands.** `Closes #N` in the

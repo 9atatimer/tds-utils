@@ -3,6 +3,13 @@
 #
 # Jobs:
 #
+#   changes -- .github/scripts/changed-scopes.sh decides which jobs below
+#     the change can affect; each job runs behind an `if:` on its output and
+#     is SKIPPED otherwise. A pull request is classified by what its merge
+#     commit adds to the base; a push (master, tedium/merge, tedium/try)
+#     runs everything, so a staging commit is always fully gated. The
+#     classifier's own suite (test/smoketest_changed_scopes.sh) runs first.
+#
 #   smoketests -- runs test/syntax_sweep.sh (the same parse gate developers
 #     run locally: /bin/bash -n for bash files, zsh -n for zsh files and the
 #     extensionless macos/ zsh dotfiles) and then the five dist smoke suites,
@@ -54,7 +61,7 @@
 name: dist-ci
 
 # `gate` is the one always-present check: it needs every other job and
-# fails on any failure or cancellation, so the ruleset and tedium can
+# fails on any failure or cancellation (a skipped job is a pass), so the ruleset and tedium can
 # require a single name that exists on every head (issue #292). The
 # tedium/* branches are where tedium builds its staging commits; without
 # them in the trigger a batch waits timeout_sec for a check that never
@@ -65,7 +72,45 @@ on:
     branches: [master, tedium/merge, tedium/try]
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+    outputs:
+      smoketests: ${{ steps.scopes.outputs.smoketests }}
+      shellcheck: ${{ steps.scopes.outputs.shellcheck }}
+      chores: ${{ steps.scopes.outputs.chores }}
+      dynomark-contract: ${{ steps.scopes.outputs.dynomark-contract }}
+      dynomark-daemon: ${{ steps.scopes.outputs.dynomark-daemon }}
+      dynomark-extension: ${{ steps.scopes.outputs.dynomark-extension }}
+      dynomark-e2e: ${{ steps.scopes.outputs.dynomark-e2e }}
+    steps:
+      # Depth 2: the PR's merge commit and both its parents.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      # A rule regression would skip a suite and leave gate green having
+      # tested nothing, so the classifier proves itself before it decides.
+      - name: Classifier behaviours
+        run: /bin/bash test/smoketest_changed_scopes.sh
+
+      - name: Classify the change
+        id: scopes
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            /bin/bash .github/scripts/changed-scopes.sh pr
+          else
+            /bin/bash .github/scripts/changed-scopes.sh all
+          fi
+
   smoketests:
+    needs: changes
+    if: needs.changes.outputs.smoketests == 'true'
     strategy:
       # Let both OS legs report -- a BSD-only failure and a GNU-only
       # failure should surface in the same run, not one per push.
@@ -168,6 +213,8 @@ jobs:
         run: /bin/bash test/smoketest_cdp.sh
 
   shellcheck:
+    needs: changes
+    if: needs.changes.outputs.shellcheck == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -184,6 +231,8 @@ jobs:
         run: shellcheck -x lib/tds-dist.sh bin/tds-export bin/tds-install bin/tds-status
 
   chores:
+    needs: changes
+    if: needs.changes.outputs.chores == 'true'
     strategy:
       # The scheduler, process and store adapters have platform edges
       # (launchd, BSD ps, /private/tmp realpaths); the suite runs on both.
@@ -220,6 +269,8 @@ jobs:
         run: uv run pytest
 
   dynomark-contract:
+    needs: changes
+    if: needs.changes.outputs.dynomark-contract == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -232,6 +283,8 @@ jobs:
         run: python3 dynomark/contract/check.py
 
   dynomark-daemon:
+    needs: changes
+    if: needs.changes.outputs.dynomark-daemon == 'true'
     strategy:
       # Unix socket address limits differ (macOS 104 bytes, Linux 108);
       # both legs report.
@@ -268,6 +321,8 @@ jobs:
         run: uv run pytest
 
   dynomark-extension:
+    needs: changes
+    if: needs.changes.outputs.dynomark-extension == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -307,6 +362,8 @@ jobs:
         run: npm run e2e
 
   dynomark-e2e:
+    needs: changes
+    if: needs.changes.outputs.dynomark-e2e == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -350,8 +407,9 @@ jobs:
         working-directory: dynomark/e2e
         run: npm run e2e
 
-  # The required check. Add every new job to `needs`; a job left out is a
-  # job that cannot block a landing. `if: always()` so a failed or
+  # The required check. Add every new job to `needs`, and give it
+  # `needs: changes` plus a scope in .github/scripts/changed-scopes.sh; a
+  # job left out is a job that cannot block a landing. `if: always()` so a failed or
   # cancelled dependency still produces this check (red), never an absent
   # one -- absent is what hangs tedium.
   gate:
@@ -360,6 +418,7 @@ jobs:
     timeout-minutes: 2
     if: always()
     needs:
+      - changes
       - smoketests
       - shellcheck
       - chores
@@ -372,13 +431,16 @@ jobs:
       - name: Every needed job succeeded
         env:
           RESULTS: ${{ toJSON(needs) }}
+          EVENT: ${{ github.event_name }}
         run: |
           echo "$RESULTS"
           if echo "$RESULTS" | grep -Eq '"result": *"(failure|cancelled)"'; then
             echo "::error::a needed job failed or was cancelled"
             exit 1
           fi
-          if echo "$RESULTS" | grep -Eq '"result": *"skipped"'; then
-            echo "::error::a needed job was skipped; dist-ci has no path filters, so this is a workflow bug"
+          # A push runs every job (changed-scopes.sh all), so a skip there
+          # is a workflow bug, not a scope decision.
+          if [ "$EVENT" != pull_request ] && echo "$RESULTS" | grep -Eq '"result": *"skipped"'; then
+            echo "::error::a needed job was skipped on a push; pushes run everything, so this is a workflow bug"
             exit 1
           fi
