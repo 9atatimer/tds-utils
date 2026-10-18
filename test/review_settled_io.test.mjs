@@ -9,7 +9,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { decide, postStatus, readPullRequest } from '../bin/review-settled';
+import { ALWAYS_GREEN, alwaysGreen, decide, postStatus, readPullRequest } from '../bin/review-settled';
 
 const HEAD = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
@@ -324,6 +324,33 @@ test('decide: Copilot quota review plus Codex quota comment fails open without w
     assert.equal(verdict.state, 'success');
     assert.match(verdict.description, /^FAIL-OPEN: copilot-pull-request-reviewer, chatgpt-codex-connector are out of quota/);
     assert.equal(stub.calls.length, 1, 'both answered: nothing to wait for');
+  } finally {
+    stub.restore();
+  }
+});
+
+// --- Off (owner ruling 2026-10-18): always green ---
+
+test('off: an unreviewed head with open threads is green, after one read and no wait', async () => {
+  const stub = stubFetch(() =>
+    ok(prPage({ reviewThreads: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [{ isResolved: false }] } })),
+  );
+  try {
+    const { facts, verdict } = await alwaysGreen('t', 'o', 'n', 1);
+    assert.equal(facts.headSha, HEAD);
+    assert.deepEqual(verdict, ALWAYS_GREEN);
+    assert.equal(verdict.state, 'success');
+    assert.equal(stub.calls.length, 1);
+  } finally {
+    stub.restore();
+  }
+});
+
+test('off: a fork PR still gets no status', async () => {
+  const stub = stubFetch(() => ok(prPage({ isCrossRepository: true })));
+  try {
+    const { verdict } = await alwaysGreen('t', 'o', 'n', 1);
+    assert.equal(verdict, null);
   } finally {
     stub.restore();
   }

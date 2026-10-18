@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 // review-settled -- post the `review-settled` commit status on a PR head.
 //
+// OFF (owner ruling, 2026-10-18): the status is always green. main() posts
+// `success` on every non-fork head without judging the reviews and without
+// waiting; --reviewers and --wait are still accepted so pinned callers keep
+// working, and ignored. The decision below (decide, lib/review-settled.mjs)
+// is kept, tested and unused, so turning it back on is one line in main().
+//
+// When it was on:
 // Green iff the newest review from each required reviewer is on the
 // current head commit and every review thread is resolved; red otherwise,
 // with the first reason in the status description. A reviewer whose
@@ -219,6 +226,21 @@ export async function decide(token, owner, name, number, reviewers, waitSeconds,
 
 // --- Main -------------------------------------------------------------------
 
+/** The one verdict while the check is off. */
+export const ALWAYS_GREEN = Object.freeze({
+  state: 'success',
+  description: 'review-settled is off (owner ruling 2026-10-18): always green',
+});
+
+/**
+ * Read the head and answer ALWAYS_GREEN; a fork PR still gets no status
+ * (verdict null), as before. One read, no wait.
+ */
+export async function alwaysGreen(token, owner, name, number) {
+  const facts = await readPullRequest(token, owner, name, number);
+  return { facts, verdict: facts.isCrossRepository ? null : ALWAYS_GREEN };
+}
+
 /**
  * Best-effort `error` status when the run could not reach a verdict.
  *
@@ -251,9 +273,9 @@ async function main() {
   const token = process.env.GITHUB_TOKEN;
   if (!token) throw new Error('GITHUB_TOKEN is not set');
   const [owner, name] = args.repo.split('/');
-  const reviewers = parseReviewers(args.reviewers);
 
-  const { facts, verdict } = await decide(token, owner, name, args.pr, reviewers, args.wait);
+  // Off. Back on: `decide(token, owner, name, args.pr, parseReviewers(args.reviewers), args.wait)`.
+  const { facts, verdict } = await alwaysGreen(token, owner, name, args.pr);
   // A fork PR is not a landing candidate: its head is untrusted and it is
   // human-merge, so it never carries this status. Decided here, on the
   // API's answer, because a caller cannot tell from every event it runs
