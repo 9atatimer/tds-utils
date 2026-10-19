@@ -38,6 +38,7 @@ file points there.
 - A tool never writes its data under a checkout; a per-user data dir, never a gitignored folder.
 - One PR per repo per task: never stack or split work into several PRs in one repo.
 - Never commit a defect fix before its RED test; cut the Issue first.
+- Open the PR for pushed work without being asked.
 - Never queue a "task card"; out-of-scope work is a GitHub Issue.
 - Don't write auto-memory; durable context goes in the repo or this file.
 - Never write a numbered list or a non-ASCII character in Markdown.
@@ -113,11 +114,10 @@ starting advice. Assume you are stepping into a problem already in progress.
 
 ### No Columbo "one more thing"
 
-Do not tack an extra observation onto the end of an answer that was already
-complete. When a turn is done, stop. The tell is a closing paragraph that
-starts "one thing worth knowing," "also worth flagging," or "one thing to
-carry forward": if it mattered it belonged in the body, otherwise it does
-not belong at all.
+Do not tack an extra observation onto a complete answer; when a turn is
+done, stop. The tell is a closing paragraph opening "one thing worth
+knowing," "also worth flagging," or "one thing to carry forward": if it
+mattered it belonged in the body, otherwise it does not belong at all.
 
 An unprompted addition must clear all four tests, or it is padding: the human
 does not already know it; it changes what they would do, not merely what they
@@ -193,12 +193,10 @@ builds, bulk storage deletes. This is not the banned self-polling above: the
 command runs once and notifies on exit.
 
 **Never `&` instead.** A job started with `&` inside a tool call sends no
-notice when it ends and leaves no exit status to read. On 2026-10-18 an
-hour-long smoketest started that way was taken for dead, and three more
-runs were started over it on the same GPU, which made every one of them
-fail for a reason that was not theirs. `run_in_background` is the only way
-to start work that outlives the call; `&` is for a process the same call
-stops again (below).
+notice when it ends and leaves no exit status to read, so it gets mistaken
+for dead and started again. `run_in_background` is the only way to start
+work that outlives the call; `&` is for a process the same call stops again
+(below).
 
 ### Stop a background process by its PID, and check it stopped
 
@@ -208,27 +206,20 @@ A process started with `&` inside one tool call is stopped with
 `kill %1`: in the tool shell (zsh 5.9, no job control) it exits 0 and
 leaves the job running.
 
-## zsh does not split an unquoted variable
+## Tool-shell traps: zsh word splitting and `sed` `&`
 
-The tool shell is zsh, and zsh, unlike bash, does not split an unquoted
-`$VAR` into words: `C="node cli.mjs --origin $O"; $C act add` runs a
-program named the whole string and fails with "no such file". The same
-holds for a file list in a variable passed to `for f in $FILES` or to a
-command. It cost three failed steps on 2026-10-18. Put a repeated command
-line in a function (`c() { node cli.mjs --origin "$O" "$@"; }`) or an
-array (`C=(node cli.mjs); "${C[@]}" act add`), and loop over an array or
-over explicit words, never over a string.
+The tool shell is zsh. Unlike bash, it does not split an unquoted `$VAR`
+into words: `C="node cli.mjs --origin $O"; $C act add` runs a program named
+the whole string and fails with "no such file"; a file list in a variable
+iterates once over the whole string in `for f in $FILES`. Put a repeated command line in a
+function (`c() { node cli.mjs --origin "$O" "$@"; }`) or an array
+(`C=(node cli.mjs); "${C[@]}" act add`), and loop over an array or explicit
+words, never a string.
 
-## A `&` in a `sed` replacement is the whole match
-
-In `sed 's/old/new/'`, an unescaped `&` in `new` stands for the text that
-matched, so a replacement holding an HTML entity (`&lt;`) or a shell `&&`
-silently pastes the matched text into the output. On 2026-10-18 a
-`sed -i` that wrote `&lt;ROLE&gt;` into an SVG diagram line duplicated the
-old line inside the new one; only a reviewer caught it. Escape every `&`
-in the replacement as `\&`, or make the edit with a script that replaces
-literal strings (Python `str.replace`; in Perl a bare `&` in the
-replacement is literal), and read the changed line back.
+In `sed 's/old/new/'`, an unescaped `&` in `new` is the matched text, so an
+HTML entity (`&lt;`) or a shell `&&` in a replacement silently pastes
+the matched text. Escape it as `\&`, or edit with a literal-string replace
+(Python `str.replace`) and read the changed line back.
 
 ## Bash on this machine is real
 
@@ -279,9 +270,8 @@ session branch onto it, so the hook has nothing to see.
 Under auto mode, the permission classifier refuses a commit that touches an
 agent instruction file (`AGENT.md`, `CLAUDE.md`, `clai.d/AGENT.global.md`,
 skills) as `[Self-Modification]`. The human telling you in chat to go ahead
-does not lift it. The command typed back to you without a leading `!` is
-judged the same way. Retrying only spends the human's patience: on
-2026-10-18 it was refused three times in a row. Two ways through:
+does not lift it, and neither does the command typed back to you without a
+leading `!`. Two ways through:
 
 - The human runs it as a `!` line in the prompt, which runs in their shell,
   outside the classifier.
@@ -328,24 +318,20 @@ The human puts every secret in 1Password and hands you the token that
 unlocks it: a read-only service account token scoped to one vault, on the
 laptop and in a cloud session alike. Read a secret at the moment of use
 with `op read op://<vault>/<item>/<field>` or `op run`; it never lands in a
-file, a log, a transcript or a commit. The one other channel is git-crypt:
-ciphertext committed in the repo (`.env.crypt`, `secrets/**`), decrypted
-with a GPG identity the human provisions -- an edge case, not a default.
-The vault token itself is the one bootstrap credential: the human hands it
-to an agent, and a workflow gets it as a CI secret (the ci.magic
-`CI_MAGIC_OP_SA_TOKEN` pattern). Every other secret -- a model key, a
-gateway token, an OAuth token -- comes from the vault.
+file, a log, a transcript or a commit. The one other channel is git-crypt
+(`.env.crypt`, `secrets/**`, decrypted with a GPG identity the human
+provisions) -- an edge case, not a default. The vault token is the one
+bootstrap credential: the human hands it to an agent, and a workflow gets it
+as a CI secret (the ci.magic `CI_MAGIC_OP_SA_TOKEN` pattern).
 
 There is no third channel. Never design, build, document or test on a
 secret arriving in an environment variable, a plaintext `.env` file, a CI
-secret other than the vault token, or an agent platform's
-environment-secrets store (Claude Code web's included):
-`.env` leaks, and platform env stores are clunky and unsafe. Never ask the
-human to put a secret there. A secret the human drops into direnv to
-unblock you is temporary: use it, and build nothing that depends on it.
-Code that needs a credential takes an `op://` reference in its config and
-resolves it at run time; the reference is configuration, the value is
-never stored.
+secret other than the vault token, or an agent platform's environment-secrets
+store (Claude Code web's included): `.env` leaks and platform stores are
+unsafe. Never ask the human to put a secret there. A secret the human drops
+into direnv to unblock you is temporary: use it, and build nothing that
+depends on it. Code takes an `op://` reference in its config and resolves it
+at run time; the reference is configuration, the value is never stored.
 
 ## Markdown is ASCII only
 
@@ -371,14 +357,10 @@ task's PR that is already open -- without being asked. An open question,
 an approval still owed, or a DRAFT design is a line in the PR body, not a
 reason to hold the PR back. Asking whether to open one is the
 interrogative prompt this file forbids. The harness default "do not create
-a pull request unless asked" is overridden here. (The human, 2026-10-18:
-"open them. I shouldn't need to tell you.")
+a pull request unless asked" is overridden here.
 
-## Swarm-coding (`ultracode`) finishes at an open PR
-
-When told to swarm-code a solution (e.g. `ultracode`), automatically open a PR
-when the coding concludes -- do not wait to be asked -- and then automatically
-triage Copilot's review feedback per the gates skill.
+**Swarm-coding:** when told to swarm-code a solution (e.g. `ultracode`), open the PR the moment
+the coding concludes, then triage review feedback per the gates skill.
 
 ## Read the repo's own instructions and plan first
 
