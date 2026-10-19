@@ -31,7 +31,6 @@ file points there.
 - Run anything over ~30s with `run_in_background`; never leave the human in silence.
 - Never start long work with `&` in a tool call; it leaves no notice and no exit status.
 - In zsh, an unquoted `$VAR` is one word: put a command line in a function or array, never a string.
-- In `sed`, an unescaped `&` in the replacement is the whole match: write `\&`.
 - On a `<channel>` message, ack through the channel first, then work.
 - Never `cd`; scope tools with `-C` / `--directory` / `--filter`.
 - Never work on the default branch; prefer a worktree under `~/workplace/.worktrees/`.
@@ -39,7 +38,7 @@ file points there.
 - A tool never writes its data under a checkout; a per-user data dir, never a gitignored folder.
 - One PR per repo per task: never stack or split work into several PRs in one repo.
 - Never commit a defect fix before its RED test; cut the Issue first.
-- Open the PR for pushed work without being asked; swarm-coding (`ultracode`) too.
+- Open the PR for pushed work without being asked.
 - Never queue a "task card"; out-of-scope work is a GitHub Issue.
 - Don't write auto-memory; durable context goes in the repo or this file.
 - Never write a numbered list or a non-ASCII character in Markdown.
@@ -212,14 +211,14 @@ leaves the job running.
 The tool shell is zsh. Unlike bash, it does not split an unquoted `$VAR`
 into words: `C="node cli.mjs --origin $O"; $C act add` runs a program named
 the whole string and fails with "no such file"; a file list in a variable
-fails the same way in `for f in $FILES`. Put a repeated command line in a
+iterates once over the whole string in `for f in $FILES`. Put a repeated command line in a
 function (`c() { node cli.mjs --origin "$O" "$@"; }`) or an array
 (`C=(node cli.mjs); "${C[@]}" act add`), and loop over an array or explicit
 words, never a string.
 
 In `sed 's/old/new/'`, an unescaped `&` in `new` is the matched text, so an
-HTML entity (`&lt;`) or a shell `&&` in a replacement silently duplicates
-the old line. Escape it as `\&`, or edit with a literal-string replace
+HTML entity (`&lt;`) or a shell `&&` in a replacement silently pastes
+the matched text. Escape it as `\&`, or edit with a literal-string replace
 (Python `str.replace`) and read the changed line back.
 
 ## Bash on this machine is real
@@ -272,7 +271,7 @@ Under auto mode, the permission classifier refuses a commit that touches an
 agent instruction file (`AGENT.md`, `CLAUDE.md`, `clai.d/AGENT.global.md`,
 skills) as `[Self-Modification]`. The human telling you in chat to go ahead
 does not lift it, and neither does the command typed back to you without a
-leading `!`. Retrying only spends the human's patience. Two ways through:
+leading `!`. Two ways through:
 
 - The human runs it as a `!` line in the prompt, which runs in their shell,
   outside the classifier.
@@ -360,7 +359,7 @@ reason to hold the PR back. Asking whether to open one is the
 interrogative prompt this file forbids. The harness default "do not create
 a pull request unless asked" is overridden here.
 
-When told to swarm-code a solution (e.g. `ultracode`), open the PR the moment
+**Swarm-coding:** when told to swarm-code a solution (e.g. `ultracode`), open the PR the moment
 the coding concludes, then triage review feedback per the gates skill.
 
 ## Read the repo's own instructions and plan first
