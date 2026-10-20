@@ -160,9 +160,8 @@ two-line suggestion if you have one. The human answers in prose.
 
 Never schedule yourself to wake up -- not a single one, and never a recurring
 chain. This covers `ScheduleWakeup`, `CronCreate`, and any other tool that
-defers work to a future turn. Timers waste quota and the work is better
-without them. Do the work now, then stop and wait to be notified of an update.
-Never poll yourself.
+defers work to a future turn. Timers waste quota. Do the work now, then stop
+and wait to be notified of an update. Never poll yourself.
 
 **Polling built out of other tools is a timer.** A `Monitor` with a
 `while true; do sleep N; ...; done` body, or a `run_in_background` command
@@ -210,9 +209,9 @@ leaves the job running.
 
 The tool shell is zsh. Unlike bash, it does not split an unquoted `$VAR`
 into words: `C="node cli.mjs --origin $O"; $C act add` runs a program named
-the whole string and fails with "no such file"; a file list in a variable
-iterates once over the whole string in `for f in $FILES`. Put a repeated command line in a
-function (`c() { node cli.mjs --origin "$O" "$@"; }`) or an array
+the whole string and fails with "no such file"; `for f in $FILES` iterates
+once over the whole list. Put a repeated command line in a function
+(`c() { node cli.mjs --origin "$O" "$@"; }`) or an array
 (`C=(node cli.mjs); "${C[@]}" act add`), and loop over an array or explicit
 words, never a string.
 
@@ -302,9 +301,9 @@ whatever repo the shell happens to be in -- a push or tag can land in the
 wrong repo. Better still, no `cd` at all: `git -C <absolute path>` and the
 other scoping flags below. Never guess a laptop path.
 Nine-At-A-Time-Media checkouts are `~/workplace/naatm/<repo>`, personal
-ones `~/workplace/<repo>`; a path that is not in front of you is derived
-(`git rev-parse --path-format=absolute --show-toplevel`) or asked for in
-one line before the command is given.
+ones `~/workplace/<repo>`; derive a path that is not in front of you
+(`git rev-parse --path-format=absolute --show-toplevel`) or ask for it in
+one line before giving the command.
 
 ## Never pull down and run a shell script
 
@@ -563,6 +562,6 @@ instead of reading whole files. Two caveats for writes
 - Node ids regenerate after every mutation; re-run `get_outline` before the
   next edit, or the stale id fails with `not found in RemarkAdapter`.
 - A mutation re-serializes the WHOLE file in remark style (`---` -> `***`,
-  `-` -> `*`, escaped brackets; tds-utils#222). Check `git diff` after the
+  `-` -> `*`, escaped brackets; [tds-utils Issue#222](https://github.com/9atatimer/tds-utils/issues/222)). Check `git diff` after the
   first mutation on a file; if untouched lines churned, revert and use
   `Edit`.
