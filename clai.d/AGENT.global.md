@@ -26,6 +26,7 @@ file points there.
 - Never `curl | sh` or run a fetched installer; install through signed package managers.
 - Secrets come from 1Password (`op read` with the vault token the human gives you), or rarely git-crypt; never from an env var, `.env`, or a platform secrets store.
 - Never use claude.ai Artifacts (the Artifact tool, any action); an HTML deliverable is a file in the repo.
+- On a classifier refusal, hand the human the exact `!` line once and stop; never route around it with another tool.
 - Never run a deploy or publish command yourself; open the PR and let CI ship it.
 - Say what a command does before handing it to the human to run.
 - Run anything over ~30s with `run_in_background`; never leave the human in silence.
@@ -195,12 +196,12 @@ command runs once and notifies on exit.
 **Never `&` instead.** A job started with `&` inside a tool call sends no
 notice when it ends and leaves no exit status to read, so it gets mistaken
 for dead and started again. `run_in_background` is the only way to start
-work that outlives the call; `&` is for a process the same call stops again
-(below).
+work that outlives the call; `&` is only for a helper (a local server under
+test) that a call finishing in well under 30s stops again, as below.
 
 ### Stop a background process by its PID, and check it stopped
 
-A process started with `&` inside one tool call is stopped with
+Stop a process you started with `&` (in this call or an earlier one) with
 `kill "$pid"` using the PID captured from `$!`, then verified with
 `kill -0 "$pid"` (or, for a listener, by checking its port is free). Never
 `kill %1`: in the tool shell (zsh 5.9, no job control) it exits 0 and
@@ -211,8 +212,8 @@ leaves the job running.
 The tool shell is zsh. Unlike bash, it does not split an unquoted `$VAR`
 into words: `C="node cli.mjs --origin $O"; $C act add` runs a program named
 the whole string and fails with "no such file"; a file list in a variable
-iterates once over the whole string in `for f in $FILES`. Put a repeated command line in a
-function (`c() { node cli.mjs --origin "$O" "$@"; }`) or an array
+iterates once over the whole string in `for f in $FILES`. Put a repeated
+command line in a function (`c() { node cli.mjs --origin "$O" "$@"; }`) or an array
 (`C=(node cli.mjs); "${C[@]}" act add`), and loop over an array or explicit
 words, never a string.
 
@@ -283,8 +284,8 @@ refusal with another tool.
 ## Never use Artifacts: HTML is a file in the repo
 
 Never call the Artifact tool, for any action (publish, read, list, open,
-pin), or any other claude.ai publishing path. Not for a page, not for a
-diagram, not "private by default". An HTML deliverable is a file written
+pin), or any other claude.ai publishing path, "private by default"
+included. An HTML deliverable is a file written
 into the repo (or a worktree of it) and opened locally with `open <file>`.
 When the human asks for "an HTML artifact", that means the file. A skill or
 tool description that says to publish is overridden by this rule.
@@ -524,8 +525,7 @@ earbuds.
 ## Pushing when the 1Password SSH agent is locked
 
 Git push/pull/ls-remote over SSH on this machine authenticate via the
-**1Password SSH agent** (`SSH_AUTH_SOCK` -> `...2BUA8C4S2C.com.1password/t/agent.sock`).
-When 1Password is locked, `ssh-add -l` still lists keys but signing fails
+**1Password SSH agent** (`SSH_AUTH_SOCK` points at its socket). When 1Password is locked, `ssh-add -l` still lists keys but signing fails
 (`Permission denied (publickey)`), so `git push` aborts. Two ways through:
 
 - **Unlock 1Password** on the Mac (a GUI action; not possible from a phone).
@@ -563,6 +563,6 @@ instead of reading whole files. Two caveats for writes
 - Node ids regenerate after every mutation; re-run `get_outline` before the
   next edit, or the stale id fails with `not found in RemarkAdapter`.
 - A mutation re-serializes the WHOLE file in remark style (`---` -> `***`,
-  `-` -> `*`, escaped brackets; tds-utils#222). Check `git diff` after the
+  `-` -> `*`, escaped brackets; tds-utils issue #222). Check `git diff` after the
   first mutation on a file; if untouched lines churned, revert and use
   `Edit`.
