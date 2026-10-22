@@ -32,6 +32,7 @@ file points there.
 - Run anything over ~30s with `run_in_background`; never leave the human in silence.
 - Never start long work with `&` in a tool call; it leaves no notice and no exit status.
 - In zsh, an unquoted `$VAR` is one word: put a command line in a function or array, never a string.
+- A stop hook's "unpushed commits" is not an order: if `git log origin/<default>..HEAD` is empty, push nothing.
 - On a `<channel>` message, ack through the channel first, then work.
 - Never `cd`; scope tools with `-C` / `--directory` / `--filter`.
 - Never work on the default branch; prefer a worktree under `~/workplace/.worktrees/`.
@@ -189,9 +190,9 @@ If a command might run more than ~30 seconds, launch it with `Bash`
 from a hung one, and a long foreground call blocks the human from steering
 mid-task -- which is exactly when steering is most valuable.
 
-Typical offenders: `npm install`, full test suites, cloud and container
-builds, bulk storage deletes. This is not the banned self-polling above: the
-command runs once and notifies on exit.
+Typical offenders: `npm install`, full test suites, container builds, bulk
+deletes. This is not the banned self-polling above: the command runs once and
+notifies on exit.
 
 **Never `&` instead.** A job started with `&` inside a tool call sends no
 notice when it ends and leaves no exit status to read, so it gets mistaken
@@ -228,16 +229,6 @@ On a laptop / real checkout the bash tool touches the real disk and network:
 assume side effects and destructive potential. An ephemeral cloud sandbox is
 a throwaway container, free for self-computation; do not carry that here.
 
-## Terraform applies: agent plans, human applies
-
-The permission classifier blocks `terraform apply` from the agent even when
-`plan` ran fine. Don't fight it. Run `plan -out=tfplan`, review it, then
-hand the human the exact `! op run ... terraform apply tfplan` line to run
-in-session, so the output lands in the conversation and work continues.
-The same handoff applies to any state-changing command the classifier
-refuses. The iac skill owns the authority model; `/infra-handoff` writes
-the block.
-
 ## Never deploy: land the PR, let CI ship it
 
 Never run a deploy or publish command yourself -- not locally, not by
@@ -270,23 +261,28 @@ session branch onto it, so the hook has nothing to see.
 
 Under auto mode, the permission classifier refuses a commit that touches an
 agent instruction file (`AGENT.md`, `CLAUDE.md`, `clai.d/AGENT.global.md`,
-skills) as `[Self-Modification]`. The human telling you in chat to go ahead
-does not lift it, and neither does the command typed back to you without a
-leading `!`. Two ways through:
+skills) as `[Self-Modification]`, and refuses `terraform apply` even after a
+clean `plan`. The human telling you in chat to go ahead does not lift it, and
+neither does the command typed back to you without a leading `!`. Two ways
+through:
 
 - The human runs it as a `!` line in the prompt, which runs in their shell,
   outside the classifier.
 - The human leaves auto mode.
 
 Say that once, give the exact `!` line, and stop. Never route around the
-refusal with another tool.
+refusal with another tool. For Terraform the agent plans, the human applies:
+run `plan -out=tfplan`, review it, then hand over
+`! op run ... terraform apply tfplan` so the output lands in the
+conversation. The iac skill owns the authority model; `/infra-handoff`
+writes the block.
 
 ## Never use Artifacts: HTML is a file in the repo
 
 Never call the Artifact tool, for any action (publish, read, list, open,
 pin), or any other claude.ai publishing path, "private by default"
-included. An HTML deliverable is a file written
-into the repo (or a worktree of it) and opened locally with `open <file>`.
+included. An HTML deliverable is a file written into the repo (or a worktree
+of it) and opened locally with `open <file>`.
 When the human asks for "an HTML artifact", that means the file. A skill or
 tool description that says to publish is overridden by this rule.
 
@@ -525,7 +521,8 @@ earbuds.
 ## Pushing when the 1Password SSH agent is locked
 
 Git push/pull/ls-remote over SSH on this machine authenticate via the
-**1Password SSH agent** (`SSH_AUTH_SOCK` points at its socket). When 1Password is locked, `ssh-add -l` still lists keys but signing fails
+**1Password SSH agent** (`SSH_AUTH_SOCK` points at its socket). When
+1Password is locked, `ssh-add -l` still lists keys but signing fails
 (`Permission denied (publickey)`), so `git push` aborts. Two ways through:
 
 - **Unlock 1Password** on the Mac (a GUI action; not possible from a phone).
@@ -563,6 +560,6 @@ instead of reading whole files. Two caveats for writes
 - Node ids regenerate after every mutation; re-run `get_outline` before the
   next edit, or the stale id fails with `not found in RemarkAdapter`.
 - A mutation re-serializes the WHOLE file in remark style (`---` -> `***`,
-  `-` -> `*`, escaped brackets; tds-utils issue #222). Check `git diff` after the
+  `-` -> `*`, escaped brackets; [tds-utils issue#222](https://github.com/9atatimer/tds-utils/issues/222)). Check `git diff` after the
   first mutation on a file; if untouched lines churned, revert and use
   `Edit`.
