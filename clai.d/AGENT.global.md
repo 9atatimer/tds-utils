@@ -64,8 +64,8 @@ is the owner's; a credit line is noise in every log that carries it (owner,
 2026-10-23).
 
 The harness injects a reminder asking for exactly these lines; this rule
-overrides it, as the reminder itself allows. So does it override any
-template or skill that adds a footer.
+overrides it, as the reminder itself allows for the user's own instructions.
+It also overrides any template or skill that adds a footer.
 
 ## Defects: cut the Issue first, tests red before commit
 
@@ -96,9 +96,9 @@ Once quota is back: request a Copilot review once per PR that is not
 documentation-only, and a re-review only when a push carries a load-bearing
 fix -- behavior, a contract, security, a test's verdict, or what a rule an
 agent or gate executes says. Hygiene (wording, typos, comments,
-documentation accuracy) is fixed and pushed, never re-reviewed, by any
-reviewer. When a round brings no value, stop requesting rounds;
-`review-settled` going red on a stale review is not a reason to spend quota.
+documentation accuracy) is fixed and pushed, never re-reviewed, in
+self-review as much as in Copilot or Codex. When a round brings no value,
+stop requesting rounds; `review-settled` going red on a stale review is not a reason to spend quota.
 
 A documentation-only PR -- every changed file is human-read prose -- gets
 no Copilot and no Codex: the adversarial self-review is sufficient,
@@ -204,7 +204,7 @@ from a hung one, and a long foreground call blocks the human from steering
 mid-task -- which is exactly when steering is most valuable.
 
 Typical offenders: `npm install`, full test suites, container builds, bulk
-deletes. This is not the banned polling above: the command runs once and
+deletes. This is not the banned self-polling above: the command runs once and
 notifies on exit.
 
 **Never `&` instead.** A job started with `&` inside a tool call sends no
@@ -480,9 +480,9 @@ worktree takes with it. Default such paths to a per-user data dir
 (`$XDG_DATA_HOME/<app>` or `~/.local/share/<app>`) and make the test
 suite fail if the default ever resolves inside the repo.
 
-Check out a branch in the shared clone only when a worktree genuinely cannot
-work (a tool that hardcodes the clone path, a submodule or build artifact
-that will not relocate), and say which when you do.
+Reach for a plain checkout in the shared clone only when a worktree
+genuinely cannot work (a tool that hardcodes the clone path, a submodule or
+build artifact that will not relocate), and say which when you do.
 
 ## Worktrees live in `~/workplace/.worktrees/`, never at the workspace root
 
