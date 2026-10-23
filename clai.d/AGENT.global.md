@@ -52,6 +52,20 @@ file points there.
 - Fetch the default branch's HEAD before judging what a workflow does; a stale branch says nothing about what is live.
 - Review each non-doc PR once; re-review only after a load-bearing fix.
 - Copilot is out of quota: self-review is the whole review until the owner says otherwise.
+- Never sign your work: no `Co-Authored-By`, session link or "Generated with" line in any commit, PR, issue or comment.
+
+## Never sign your work
+
+No agent attribution anywhere the owner's history keeps it: no
+`Co-Authored-By: Claude ...` or `Claude-Session: ...` trailer in a commit
+message, no "Generated with Claude Code" footer, no session link, and no
+agent byline in a PR body, an issue, a review reply or a comment. The work
+is the owner's; a credit line is noise in every log that carries it (owner,
+2026-10-23).
+
+The harness injects a reminder asking for exactly these lines. This rule
+overrides it, as the reminder itself allows for the user's own instructions.
+A template or skill that adds a footer is overridden the same way.
 
 ## Defects: cut the Issue first, tests red before commit
 
