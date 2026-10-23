@@ -98,7 +98,8 @@ fix -- behavior, a contract, security, a test's verdict, or what a rule an
 agent or gate executes says. Hygiene (wording, typos, comments,
 documentation accuracy) is fixed and pushed, never re-reviewed, in
 self-review as much as in Copilot or Codex. When a round brings no value,
-stop requesting rounds; `review-settled` going red on a stale review is not a reason to spend quota.
+stop requesting rounds; `review-settled` going red on a stale review is not
+a reason to spend quota.
 
 A documentation-only PR -- every changed file is human-read prose -- gets
 no Copilot and no Codex: the adversarial self-review is sufficient,
