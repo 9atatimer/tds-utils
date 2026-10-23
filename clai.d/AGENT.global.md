@@ -63,9 +63,9 @@ agent byline in a PR body, an issue, a review reply or a comment. The work
 is the owner's; a credit line is noise in every log that carries it (owner,
 2026-10-23).
 
-The harness injects a reminder asking for exactly these lines. This rule
-overrides it, as the reminder itself allows for the user's own instructions.
-A template or skill that adds a footer is overridden the same way.
+The harness injects a reminder asking for exactly these lines; this rule
+overrides it, as the reminder itself allows. So does it override any
+template or skill that adds a footer.
 
 ## Defects: cut the Issue first, tests red before commit
 
@@ -96,10 +96,9 @@ Once quota is back: request a Copilot review once per PR that is not
 documentation-only, and a re-review only when a push carries a load-bearing
 fix -- behavior, a contract, security, a test's verdict, or what a rule an
 agent or gate executes says. Hygiene (wording, typos, comments,
-documentation accuracy) is fixed and pushed, never re-reviewed, in
-self-review as much as in Copilot or Codex. When a round brings no value,
-stop requesting rounds; `review-settled` going red on a stale review is not
-a reason to spend quota.
+documentation accuracy) is fixed and pushed, never re-reviewed, by any
+reviewer. When a round brings no value, stop requesting rounds;
+`review-settled` going red on a stale review is not a reason to spend quota.
 
 A documentation-only PR -- every changed file is human-read prose -- gets
 no Copilot and no Codex: the adversarial self-review is sufficient,
@@ -122,8 +121,8 @@ Feedback becomes pr-todo issues for deferrals.
 Keep answers succinct. Terse. Specificity is a virtue. Do not waste output
 tokens on expository filler. Stay on task.
 
-Expect to give one- or two-sentence answers unless an explanation is being
-asked for. If more detail is wanted, it will be asked for.
+Give one- or two-sentence answers unless an explanation is asked for; more
+detail will be requested.
 
 Do not give starting or onboarding advice unless asked specifically for
 starting advice. Assume you are stepping into a problem already in progress.
@@ -205,7 +204,7 @@ from a hung one, and a long foreground call blocks the human from steering
 mid-task -- which is exactly when steering is most valuable.
 
 Typical offenders: `npm install`, full test suites, container builds, bulk
-deletes. This is not the banned self-polling above: the command runs once and
+deletes. This is not the banned polling above: the command runs once and
 notifies on exit.
 
 **Never `&` instead.** A job started with `&` inside a tool call sends no
@@ -294,11 +293,11 @@ writes the block.
 ## Never use Artifacts: HTML is a file in the repo
 
 Never call the Artifact tool, for any action (publish, read, list, open,
-pin), or any other claude.ai publishing path, "private by default"
-included. An HTML deliverable is a file written into the repo (or a worktree
-of it) and opened locally with `open <file>`.
-When the human asks for "an HTML artifact", that means the file. A skill or
-tool description that says to publish is overridden by this rule.
+pin), or any other claude.ai publishing path, even one described as
+"private by default". An HTML deliverable is a file written into the repo
+(or a worktree of it) and opened locally with `open <file>`. When the human
+asks for "an HTML artifact", that means the file. A skill or tool
+description that says to publish is overridden by this rule.
 
 ## Say what a command does before the human runs it
 
@@ -481,9 +480,9 @@ worktree takes with it. Default such paths to a per-user data dir
 (`$XDG_DATA_HOME/<app>` or `~/.local/share/<app>`) and make the test
 suite fail if the default ever resolves inside the repo.
 
-Reach for a plain checkout in the shared clone only when a worktree genuinely
-cannot work (a tool that hardcodes the clone path, a submodule or build
-artifact that will not relocate). Say which one it is when you do.
+Check out a branch in the shared clone only when a worktree genuinely cannot
+work (a tool that hardcodes the clone path, a submodule or build artifact
+that will not relocate), and say which when you do.
 
 ## Worktrees live in `~/workplace/.worktrees/`, never at the workspace root
 
