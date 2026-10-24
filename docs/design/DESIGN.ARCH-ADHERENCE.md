@@ -1,6 +1,6 @@
 # Architectural Adherence
 
-> **Status:** DRAFT
+> **Status:** APPROVED (Todd, 2026-10-24, after tds-utils PR#605; the Open Questions are ruled by Key Decisions appends under tds-utils Issue#590, never by body edits)
 > **Date:** 2026-10-24
 > **Authors:** Todd Stumpf, Claude
 > **Depends on:** [LMDE](./LMDE.DESIGN.md)
