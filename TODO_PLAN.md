@@ -79,6 +79,22 @@ discovered Issue#456. Order:
 `ls tasks/` is the index. This file is still the legacy mono-file below
 this section; issue #289 owns the migration into `tasks/`.
 
+Architectural Adherence (`docs/design/DESIGN.ARCH-ADHERENCE.md` and
+`docs/design/ARCHITECTURE.ARCH-ADHERENCE.md`, both DRAFT, 2026-10-24;
+concept under `docs/concepts/arch-adherence/`): the suite that executes
+the coding skill's mechanical tests over a repository, scores eight
+qualities, and refuses a change that lowers a score. No code yet. Order:
+
+- Todd rules on the design's Q1-Q7 and marks it APPROVED; the architecture
+  record is then re-read against the frozen design and goes to its own
+  review (the seam-review panel, then Todd).
+- Planning (phase 3b) cuts the route into `tasks/` only after both records
+  are APPROVED; the first behaviors to go RED are Grep, Arrow and Purity
+  over `chores/` under a declaration, with the judge faked.
+- The ledger bucket and the `naatm-hooks` pre-commit stage are consumer
+  changes in tds-internal and template-tools, cross-linked from the first
+  implementation PR, never before it.
+
 ## Blockers
 
 - 2026-09-17: `lmde/TECH_RADAR.md` rows for Textual, PyYAML, rumps and
