@@ -222,13 +222,17 @@ A repository declares, once, in one place:
 - its drop tickets, each with a reason.
 
 The declaration changes only with the owner's approval (G9). A change is
-judged under the declaration in force before it, with one addition: layer
-assignments in the change's own declaration for units the declaration in
-force does not cover are honored, because widening can only add checks.
-Everything else a change's declaration does, removing or moving an
-assignment, adding an exemption, setting a floor, writing a drop ticket,
-takes effect from the next change. Every edit to the declaration is a
-notice in the report, so a reviewer sees it beside the verdict.
+judged under the declaration in force before it, with two additions that
+cannot lower anything: layer assignments in the change's own declaration
+for units the change creates are honored, because widening can only add
+checks; and the change may mark a drop ticket used, because that only
+spends a permission. Everything else a change's declaration does,
+removing or moving an assignment, covering an existing unit, adding an
+exemption, setting a floor, writing a drop ticket, takes effect from the
+next change. An existing unit the declaration newly covers is therefore
+measured at the next change's base first, so its flaws are existing, not
+introduced. Every edit to the declaration is a notice in the report, so
+a reviewer sees it beside the verdict.
 
 When the declaration and the code disagree, for example a declared runtime
 with no composition root, the suite reports the disagreement as a finding
@@ -277,14 +281,15 @@ the same result on every machine.
 ### Judging a change
 
 A change is judged by comparing its head's report with its base's. Both
-are measured under the same suite, declaration, measured languages and
-judge availability. Where the base cannot be measured under the same, it
-is not compared against: the verdict is inconclusive and the report names
+are measured under the same suite, measured languages and judge
+availability, and under the declaration in force, the head with its
+widening added. Where the base cannot be measured under the same, it is
+not compared against: the verdict is inconclusive and the report names
 what differs. The compared score for a quality is taken over the units
-both reports cover and the units the change created; a unit the change
-deleted or that only one side could check counts on neither side. That is
-what keeps a deletion of clean code, or a judge that answered on one side
-only, from moving a verdict (G3, G7).
+both reports cover, plus, on the head's side only, the units the change
+created; a unit the change deleted or that only one side could check
+counts on neither side. That is what keeps a deletion of clean code, or a
+judge that answered on one side only, from moving a verdict (G3, G7).
 
 | Verdict | Meaning |
 |---|---|
@@ -306,21 +311,24 @@ finding on the behavior or the port. A renamed unit keeps its base
 identity, so its findings are existing. A finding present at the base is
 existing (G7).
 
-The baseline per quality is the base's compared score: the same units the
-head is scored over, scored at the base. Each landed change's head is the
-next change's base, so a rise holds with nothing to configure. Through the
-gate a baseline falls only by a drop ticket: the owner's statement, in the
-declaration in force, of the quality, the compared score it accepts a fall
-from, the compared score it accepts a fall to, and the reason. A ticket
-lands in a change before the one it covers; a ticket a change writes takes
-effect from the next change. A fall the ticket covers, from a base
-compared score at or below its from-score to a head compared score at or
-above its to-score, is a notice, not a lowering, and the ticket stays in
-every later report until the quality's compared score regains its
-from-score (G6). A ticket names scores, not a commit, so it survives the
-base moving under the change while it waits to land. Once the from-score
-is regained the ticket is spent: it covers no second fall, and the report
-says it can be removed.
+The baseline per quality is the base's compared score: the units both
+sides cover, scored at the base. Each landed change's head is the next
+change's base, so a rise holds with nothing to configure. Through the
+gate a baseline falls only by a drop ticket: the owner's statement, in
+the declaration in force, of the quality, the compared score it accepts a
+fall from, the compared score it accepts a fall to, and the reason. A
+ticket lands in a change before the one it covers; a ticket a change
+writes takes effect from the next change. The change that takes the fall
+marks the ticket used in its own declaration, and that mark is honored
+for the change itself, since it only spends a permission. A fall an
+unused ticket covers, from a base compared score at or below its
+from-score to a head compared score at or above its to-score, marked
+used by that change, is a notice, not a lowering (G6). A used ticket
+covers nothing more, so there is no second fall to tell from a first,
+and it stays in every later report until the quality's compared score
+regains its from-score; then the report says it can be removed. A ticket
+names scores, not a commit, so it survives the base moving under the
+change while it waits to land.
 
 A floor is a bound the owner sets. It binds once the base's compared score
 is at or above it: from then on a head compared score below it is lowered
@@ -440,11 +448,13 @@ exempt the Declared quality's checks.
 | CI out of time is coverage | Given a CI run whose gate time ends before every check has run, When the change is judged, Then the checks that did not finish are coverage and the verdict is inconclusive at best |
 | A suite that cannot run says so | Given a repository that cannot be read, or that has no unit in a measured language, When a run is asked for, Then the verdict is not run with the reason, and nothing reads as a pass |
 | The baseline ratchets up | Given a change with the verdict raised that has landed, When the next change is judged, Then its baseline for each quality is that landed head's compared score, with nothing configured |
-| A drop ticket accepts a fall | Given a drop ticket in the declaration in force for a quality, with a from-score, a to-score and a reason, When a change's base compared score is at most the from-score and its head compared score is at least the to-score, Then the fall is a notice with the reason and the verdict is not lowered by it |
-| A drop ticket survives a moving base | Given a drop ticket in the declaration in force and a base that moved to another commit with the same compared score before the change landed, When the change is judged again, Then the ticket still covers the fall |
-| A drop ticket covers no second fall | Given a quality whose compared score regained its ticket's from-score, When a later change falls on it again, Then the ticket does not cover it and the report says the ticket can be removed |
-| A drop ticket is shown until regained | Given an accepted drop, When later reports are produced, Then each shows the ticket and its reason until the quality's compared score regains the ticket's from-score |
-| A change cannot narrow its own declaration | Given a change that removes an assignment, adds an exemption, sets a floor or writes a ticket, When it is judged, Then it is judged as if that edit were absent, and the edit is a notice |
+| A drop ticket accepts a fall | Given an unused drop ticket in the declaration in force for a quality, with a from-score, a to-score and a reason, When a change marks it used, its base compared score is at most the from-score and its head compared score is at least the to-score, Then the fall is a notice with the reason and the verdict is not lowered by it |
+| A drop ticket survives a moving base | Given an unused drop ticket in the declaration in force and a base that moved to another commit with the same compared score before the change landed, When the change is judged again, Then the ticket still covers the fall |
+| A drop ticket covers no second fall | Given a drop ticket already marked used, When a later change falls on that quality, Then the ticket does not cover it |
+| An unmarked ticket covers nothing | Given an unused drop ticket in the declaration in force, When a change falls within its scores but does not mark it used, Then the verdict is lowered and the report names the ticket it could have used |
+| A drop ticket is shown until regained | Given a used drop ticket, When later changes are judged, Then each report shows the ticket and its reason until the quality's compared score regains the ticket's from-score, and then says it can be removed |
+| A change cannot narrow its own declaration | Given a change that removes an assignment, covers an existing unit, adds an exemption, sets a floor or writes a ticket, When it is judged, Then it is judged as if that edit were absent, and the edit is a notice |
+| A newly covered unit's flaws are existing | Given a declaration edit that covers an existing unit, landed in one change, When the next change is judged, Then that unit's flaws are in the base's report and marked existing |
 | An exemption carries its reason | Given an exempted unit, When a run reports, Then the exemption and its reason appear beside the check it silenced |
 | An added exemption is inert for its change | Given a change that adds an exemption for a flaw it introduces, When it is judged, Then the flaw lowers the verdict and the exemption is a notice |
 | The Declared quality cannot be exempted | Given a declaration that exempts Covered or Record kept, When a run is asked for, Then the exemption is refused and reported |
@@ -539,8 +549,9 @@ exempt the Declared quality's checks.
   Invariant: an edit without it never becomes the declaration in force;
   where the owner is the author, see Q11.
 - **Widening.** A layer assignment in a change's own declaration for a
-  unit the declaration in force does not cover. Invariant: honored for the
-  change itself; it can only add checks.
+  unit the change creates. Invariant: honored for the change itself; it
+  can only add checks. Covering an existing unit is not widening and takes
+  effect from the next change.
 - **Design record.** The approved design and architecture records of the
   code under measurement, read for their Behaviors table, Domain
   Language, use-case surface and seam list, at the revision of the code.
@@ -564,9 +575,10 @@ exempt the Declared quality's checks.
   combination per kind of unit is pending Q8. Invariant: between zero and
   one.
 - **Compared score.** Per quality, the score taken over the units both the
-  base and the head reports cover, plus the units the change created.
-  Invariant: a deleted unit, and a unit only one side could check, is on
-  neither side.
+  base and the head reports cover, plus, on the head's side only, the
+  units the change created. Invariant: a deleted unit, and a unit only one
+  side could check, is on neither side; a created unit is on the head's
+  side.
 - **Finding.** One check failing on one unit: the quality, check, kind,
   unit, evidence, provenance, and for a layer check the layer reached.
   Invariant: carries a stable identity that survives a rename.
@@ -587,9 +599,10 @@ exempt the Declared quality's checks.
   gate it falls only by a drop ticket.
 - **Drop ticket.** The owner's statement in the declaration accepting a
   fall on one quality from a from-score to a to-score, both compared
-  scores, with a reason. Invariant: names scores, never a commit; covers a
-  change only from the declaration in force; spent once the compared score
-  regains the from-score; shown until then.
+  scores, with a reason. Unused until a change marks it used. Invariant:
+  names scores, never a commit; covers only the change that marks it used,
+  from the declaration in force; a used ticket covers nothing more and is
+  shown until the from-score is regained.
 - **Floor.** An owner-set score per quality, tested against compared
   scores. Invariant: binds once the base's compared score reaches it; an
   aim until then.
@@ -599,6 +612,10 @@ exempt the Declared quality's checks.
 - **Exemption.** An owner's statement that a unit is not checked by one
   check, or that one finding is dismissed, with a reason. Invariant:
   cannot cover the Declared quality; inert for the change that adds it.
+- **Place.** Where a run happens: the laptop on demand, the pre-commit
+  hook (the hook), CI as the gate, an agent's self-review before a PR, or
+  a cloud session. The terminal is the laptop's and the agent's view of a
+  report. Invariant: a finding has the same identity in every place.
 - **Owner.** The human who owns the repository under measurement.
 
 ---
@@ -687,7 +704,7 @@ The owner's laptop as part of the LMDE contract, the adopting repositories' CI a
 | The bar | A per-repository, per-quality baseline that is the base's compared score, so it ratchets up as changes land, and falls through the gate only by a drop ticket in the declaration in force naming scores, not a commit | A fixed bar nobody clears is switched off; a ratchet holds; a ticket makes the owner's reason part of the record and survives the base moving while a change waits to land | the sdlc skill, law 11; self-review panel 2026-10-24, both rounds |
 | What a score comparison sees | The units both sides cover and the units the change created | Deleting clean code is not regression, and a judge that answered on one side only is not a rise | self-review panel 2026-10-24 |
 | Provenance | Introduced is absent-at-base, whatever unit the finding names; existing reports; a rename keeps identity | A change is judged on what it did, including what it broke from under another unit | Todd, 2026-10-24 (concept, gating stories); self-review panel 2026-10-24, both rounds |
-| The declaration's source | The one in force before the change, plus the change's own widening; the owner approves every change to it | A change that could narrow its own judge judges nothing; one that can only widen adds checks | template-tools ci.magic toolkit, G3; self-review panel 2026-10-24 |
+| The declaration's source | The one in force before the change, plus the change's own widening for the units it creates and the ticket it marks used; the owner approves every change to it | A change that could narrow its own judge judges nothing; widening adds checks and marking a ticket used spends a permission, and neither can lower a bar | template-tools ci.magic toolkit, G3; self-review panel 2026-10-24, both passes |
 | Design records | Read as input at the code's revision, never copied; narrowing an approved record is a finding | A copy drifts and becomes a second, unreviewed design; a record pinned to the base could not be grown with its code | the sdlc skill, laws 2 and 3; self-review panel 2026-10-24 |
 | Floors | Bind once reached; an aim until then | A floor above today's score would make every change unlandable | self-review panel 2026-10-24 |
 | Dogfood | The suite measures itself in its own gate | A guardrail that does not hold its own author is not believed | this record |
