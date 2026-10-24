@@ -79,7 +79,7 @@ subprocess, a file system call, an environment variable or a vendor name.
 | What counts as a stub, a vendor name, an environment read, a model id, a region marker, per language | `Vocabulary` | policy | Retuned as the fleet's languages and vendors change; the declaration may extend it, never empty it |
 | The complexity and duplication ceilings, the judged-check budget, the analyzer bound, the evidence bound, the record statuses that count | `Limits` | parameter set | Tuned values the composition root supplies from the suite's shipped defaults; the as-built holds them |
 | What a repository declares: layers, runtimes, records, radar, exemptions, floors, drop tickets | `Declaration` | parameter (a domain value read through `RepositoryPort` at the base, with the head's widening) | Per repository, never per run |
-| When a bounded run must end | `Deadline` | parameter (an instant the entry point computes and passes in) | The hook sets it from the commit-time bound; every other stage passes none |
+| When a bounded run must end | `Deadline` | parameter (an instant the entry point computes; every port method that does work takes it and returns `TimedOut` rather than overrun it) | The hook sets it from the commit-time bound; every other stage passes none |
 | How findings are presented (terminal, JSON, SARIF, PR check summary) | presenters in `cli/` | entry-point concern, not a seam | Presentation of one `Report` value; no port, because nothing behind it does I/O the domain depends on |
 
 A judged question's kind, binary, choice or score, is fixed by this record
@@ -101,16 +101,17 @@ or option is a migration of the threshold policy and the labelled set.
 | `domain/checks/layered.py` -- Trace, Purity, Wiring, Anatomy; the Two-jobs question | domain | all |
 | `domain/checks/ddd.py` -- Language (rule part and question), Anemic, Boundary (rule part and question); the Decision question | domain | all |
 | `domain/checks/composable.py` -- Values in and out, No nesting, Helpers take values | domain | all |
-| `domain/checks/injectable.py` -- Ports as keywords, No self-wiring, No reach, Fakeable | domain | all |
+| `domain/checks/injectable.py` -- Ports as keywords, No self-wiring, No reach | domain | all |
 | `domain/checks/behavior.py` -- Kept test, Public surface, Real assertion; the Then-asserted question | domain | all |
 | `domain/checks/complete.py` -- Stub, Complexity, Duplication; the Done and Hand-rolled questions | domain | all |
 | `domain/checks/radar.py` -- Dependency, Edge only | domain | all |
-| `domain/checks/declared.py` -- Covered, Record kept; the declaration-edit notices | domain | all |
+| `domain/checks/declared.py` -- Covered (over a `CodeModel` and the created units) and Record kept (over two `DesignRecords`), both change-level; the declaration-edit notices | domain | all |
 | `domain/questions.py` -- `Question`, `Schema`, `Decision`; `ThresholdPolicy` applied per question kind: finding, pass or abstention | domain | all |
 | `domain/score.py` -- per-quality `Score` over covered units; `ComparedScore` over shared and created units; `Coverage` | domain | all |
 | `domain/verdict.py` -- two `Report`s and a `Change` to a `Verdict` in the design's order; provenance with renames; floors reached or not; drop tickets against the named base | domain | all |
 | `domain/finding.py` -- `Finding`, its stable identity, `Evidence` bound; `Notice` | domain | all |
 | `domain/report.py` -- `Report`, its identity (suite version, policies digest, declaration digest, analyzer set, judge availability) | domain | all |
+| `application/load.py` -- `load_declaration` | application | all |
 | `application/measure.py` -- `measure` | application | all |
 | `application/judge.py` -- `judge_change` | application | all |
 | `application/explain.py` -- `explain` | application | all |
@@ -127,16 +128,16 @@ or option is a migration of the threshold policy and the labelled set.
 | `adapters/no_judge.py` -- `DecisionPort` that answers every schema with the typed `unavailable` failure | adapters | all |
 | `adapters/claude_cli.py` -- `ExplanationPort` over the CLI run in print mode with every tool disallowed; `adapters/no_explainer.py` | adapters | all |
 | `adapters/file_store.py`, `adapters/warehouse.py` -- `ReportStore` | adapters | all |
-| `adapters/fakes.py` -- an in-memory adapter per port, shipped so the composition root is buildable with every port faked | adapters | tests, and Fakeable's own evidence |
-| `container.py` -- the composition root: receives adapters as values, binds them by stage (`laptop`, `hook`, `ci`, `cloud`) and by the declaration's languages | composition root | the `adhere` CLI |
+| `adapters/fakes.py` -- an in-memory adapter per port, each honoring `Deadline` by returning `TimedOut` when it has passed, shipped so the composition root is buildable with every port faked | adapters | tests, and Swap's own evidence |
+| `container.py` -- the composition root: constructs the concrete adapters and binds them by stage (`laptop`, `hook`, `ci`, `cloud`) and by the declaration's languages; takes an override per port so a test builds it with fakes | composition root | the `adhere` CLI |
 | `cli/main.py` -- Click entry: `measure`, `judge`, `explain`, `declaration check`; presenters for terminal, JSON, SARIF, PR summary; computes the `Deadline` for the hook | composition root | the `adhere` CLI |
 | `bin/adhere` -- the launcher that resolves the uv project, as `bin/chores` does | composition root | the laptop |
 | `.github/workflows/adherence.yml` -- the reusable workflow: checkout, `bin/adhere judge --base --head`, SARIF upload, PR check summary | composition root | the `adhere` CLI, `ci` stage |
 
 One composition root per runtime: there is one runtime, the `adhere` CLI,
-and `container.py` is the one unit in it that names concrete adapters.
-`cli/main.py`, `bin/adhere` and the workflow sit in the same layer and
-name none. The hook, CI, the agent and the cloud session are stages of
+and `container.py` is the one unit in it that constructs concrete
+adapters. `cli/main.py`, `bin/adhere` and the workflow sit in the same
+layer and name none; tests name fakes, which are not concrete adapters. The hook, CI, the agent and the cloud session are stages of
 that runtime; the ci-magic toolkit manifest line and the pre-commit stage
 both invoke the same CLI.
 
@@ -146,7 +147,7 @@ both invoke the same CLI.
 
 | Design behavior | Use case (signature) | Ports |
 |---|---|---|
-| A repository is measured | `measure(target: Target, *, repository: RepositoryPort, analyzers: AnalyzerSet, metrics: MetricsPort, records: RecordsPort, judge: DecisionPort, policies: Policies, deadline: Deadline | None) -> Report` | RepositoryPort, CodeModelPort (via `AnalyzerSet`), MetricsPort, RecordsPort, DecisionPort |
+| A repository is measured | `measure(target: Target, declaration: Declaration, *, repository: RepositoryPort, analyzers: AnalyzerSet, metrics: MetricsPort, records: RecordsPort, judge: DecisionPort, policies: Policies, deadline: Deadline | None) -> Report` | RepositoryPort, CodeModelPort (via `AnalyzerSet`), MetricsPort, RecordsPort, DecisionPort |
 | A domain leak is found | (`measure`; a scenario of Grep) | CodeModelPort |
 | An inward arrow holds | (`measure`; Arrow) | CodeModelPort |
 | A cycle is found | (`measure`; Arrow) | CodeModelPort |
@@ -172,7 +173,6 @@ both invoke the same CLI.
 | A port taken by position is found | (`measure`; Ports as keywords) | CodeModelPort |
 | A self-wired use case is found | (`measure`; No self-wiring) | CodeModelPort |
 | A reach is found | (`measure`; No reach) | CodeModelPort |
-| A root that builds its own adapters is found | (`measure`; Fakeable) | CodeModelPort |
 | A behavior with no kept test is found | (`measure`; Kept test) | CodeModelPort, RecordsPort |
 | A test that cannot fail is found | (`measure`; Real assertion) | CodeModelPort |
 | A test past the surface is found | (`measure`; Public surface) | CodeModelPort |
@@ -185,53 +185,61 @@ both invoke the same CLI.
 | A disallowed dependency is found | (`measure`; Dependency) | CodeModelPort, RecordsPort |
 | A radar entry in the core is found | (`measure`; Edge only) | CodeModelPort, RecordsPort |
 | An undeclared new unit is found | `judge_change(change: Change, *, repository: RepositoryPort, analyzers: AnalyzerSet, metrics: MetricsPort, records: RecordsPort, judge: DecisionPort, reports: ReportStore, policies: Policies, deadline: Deadline | None) -> Report` (Covered over `change.created`) | all of `measure`'s, plus ReportStore |
-| A widening is honored | (`judge_change`; the head declaration's assignments for units the base declaration does not cover are merged before measuring) | RepositoryPort |
-| A narrowed record is found | (`measure`; Record kept, over the records at target and at `change.base`) | RecordsPort |
+| A widening is honored | (`judge_change`; `load_declaration` at base and at head, the merged `Declaration` passed to `measure` for the head) | RepositoryPort |
+| A narrowed record is found | (`judge_change`; Record kept over `RecordsPort.records` at `change.base` and at `change.head`) | RecordsPort |
 | A record is read with its code | (`measure`; `RecordsPort.records(target, declaration)`) | RecordsPort |
 | A one-file tool is measured | (`measure`; regions from the declaration, by marker or by lines) | CodeModelPort |
 | An uncovered language is reported | (`measure`; coverage) | RepositoryPort |
 | A missing design record is reported | (`measure`; coverage) | RecordsPort |
 | A missing record on both sides is not inconclusive | (`judge_change`; coverage equal on both sides is not lost coverage) | RecordsPort |
 | An untraceable row is a finding against the record | (`measure`; Trace) | RecordsPort |
-| An undeclared repository is measured | (`measure`; `Declaration.none`) | RepositoryPort |
-| An unreadable declaration is not run | (`measure`; `Report.not_run`) | RepositoryPort |
+| An undeclared repository is measured | (`load_declaration` returns `Declaration.none`; `measure` with it) | RepositoryPort |
+| An unreadable declaration is not run | `load_declaration(target: Target, *, repository: RepositoryPort) -> Declaration | DeclarationUnreadable`; the CLI and `judge_change` turn `DeclarationUnreadable` into `Report.not_run` | RepositoryPort |
 | A change that raises is raised | (`judge_change`; `domain/verdict`) | as above |
 | A change that lowers is lowered | (`judge_change`) | as above |
 | A floor holds | (`judge_change`; floors from the base `Declaration`, reached at the base) | as above |
 | An unreached floor is a target | (`judge_change`; the floor becomes a notice) | as above |
 | An introduced flaw lowers | (`judge_change`; provenance) | as above |
 | An existing flaw does not block | (`judge_change`; provenance) | as above |
+| A break on an untouched unit is introduced | (`judge_change`; provenance is absence from the base report, by identity) | as above |
 | A rename introduces nothing | (`judge_change`; `RepositoryPort.changed` reports renames, identity follows them) | RepositoryPort |
 | Deleting clean code moves nothing | (`judge_change`; `ComparedScore`) | as above |
 | An abstention is inconclusive | (`judge_change`) | as above |
 | An unavailable judge is inconclusive, never raised | (`judge_change`; judged units absent at the head leave `ComparedScore` on both sides) | DecisionPort |
 | A suite that cannot run says so | (`judge_change` and `measure`; `Report.not_run`) | RepositoryPort |
 | The baseline ratchets up | (`judge_change`; the baseline is the base revision's `Report`) | ReportStore (a comparable hit) or `measure` of the base |
-| A drop ticket accepts a fall | (`judge_change`; tickets from the head `Declaration` whose `base` equals `change.base`) | RepositoryPort |
-| A drop ticket is spent once | (`judge_change`; a ticket naming another base is ignored) | RepositoryPort |
-| A drop ticket is shown until regained | (`measure`; a ticket in the declaration in force whose `from` score is not yet regained is a notice) | RepositoryPort |
+| A drop ticket accepts a fall | (`judge_change`; tickets from the head `Declaration` whose `from` is at least the base's score and whose `to` is at most the head's) | RepositoryPort |
+| A drop ticket survives a moving base | (`judge_change`; the ticket names scores, so the base commit is not consulted) | RepositoryPort |
+| A drop ticket covers no second fall | (`judge_change`; a ticket whose `from` the base's score has regained is spent and becomes a removable notice) | RepositoryPort |
+| A drop ticket is shown until regained | (`measure`; a ticket in the declaration whose `from` is not yet regained is a notice) | RepositoryPort |
 | A change cannot narrow its own declaration | (`judge_change`; everything in the head declaration but widening and tickets is ignored and noticed) | RepositoryPort |
 | An exemption carries its reason | (`measure`; `Declaration`) | RepositoryPort |
 | An added exemption is inert for its change | (`judge_change`; exemptions from the base declaration only) | RepositoryPort |
 | The Declared quality cannot be exempted | (`measure`; `Declaration` validation) | RepositoryPort |
 | A finding is fixable | (`measure`; `Finding` carries every field) | none beyond `measure`'s |
 | The same finding everywhere | (`measure`; `Finding.identity` is a digest of quality, check, the unit's symbol and layer, and the normalised evidence, with the path resolved through renames at judging) | none |
-| The hook ends within its bound | (`measure` with `deadline`; `cli/main.py` computes it from the commit-time bound and the `hook` stage binds `judge` to `no_judge`) | RepositoryPort (staged index) |
+| The hook ends within its bound | (`measure` with `deadline`, passed into every `CodeModelPort`, `MetricsPort`, `RecordsPort` and `DecisionPort` call; each returns `TimedOut` for coverage rather than overrun; `cli/main.py` computes it from the commit-time bound and the `hook` stage binds `judge` to `no_judge`) | RepositoryPort (staged index), every port |
 | An explanation changes nothing | `explain(finding: Finding, report: Report, *, repository: RepositoryPort, explainer: ExplanationPort) -> Explanation` | RepositoryPort, ExplanationPort |
 | A disagreeing explanation shows both | (`explain`; `Explanation.agrees` is a field the presenter shows) | ExplanationPort |
 | The judge is given data | (`measure`; `Schema` is fixed by the domain, the unit is the `State`) | DecisionPort |
-| The explainer can act on nothing | (`explain`; `claude_cli` runs with every tool disallowed; the contract suite proves `none` and `claude_cli` make no read, write or spawn) | ExplanationPort |
+| The explainer can act on nothing | (`explain`; `claude_cli` runs the CLI with every tool disallowed and the repository outside its working directory; the port's contract suite asserts the adapter reads no repository file and spawns nothing but the model's own process with those flags; what the model does behind those flags is the CLI's guarantee, named as such) | ExplanationPort |
 | Repository code is never run | (`measure`; every adapter reads bytes and spawns only the analyzers, each told its configuration explicitly) | RepositoryPort, CodeModelPort |
 | A report persists | `record_report(report: Report, *, reports: ReportStore) -> Recorded` | ReportStore |
 | A base report is reused only when comparable | (`judge_change`; `ReportStore.get(repo, rev, identity)` with the identity the head run will have) | ReportStore |
 | The suite adheres | (`judge_change` in this repository's gate, over `adherence/` under its own declaration) | all |
 
 `Target` is a repository at one revision or its working tree or staged
-index. `AnalyzerSet` is the mapping from language to `CodeModelPort` the
-composition root built; the use case asks it which languages are covered
+index. `Declaration` arrives as a value: `load_declaration` reads it, and
+for a change `judge_change` merges the base's with the head's widening
+before calling `measure`. `AnalyzerSet` is the mapping from language to
+`CodeModelPort` the composition root built; the use case asks it which languages are covered
 and reports the rest as coverage. `Policies` bundles `ThresholdPolicy`,
 `Vocabulary` and `Limits`. `Deadline` is an instant; `None` means
-unbounded. Every return is a domain value: `Report` (for a change, with
+unbounded; every port method that does work takes it, and an adapter
+that cannot finish by it returns `TimedOut`, which the use case records
+as coverage. A fake that ignores the deadline fails the port's contract
+suite, so a RED test of the bound drives `measure` with a fake that
+returns `TimedOut` once the deadline has passed. Every return is a domain value: `Report` (for a change, with
 its verdict, compared scores and provenance), `Explanation`, `Recorded`.
 The CLI calls `judge_change` and then `record_report`, in that order, so
 the store can never touch the verdict.
@@ -244,11 +252,11 @@ the store can never touch the verdict.
 
 | Responsibility | Component | Seams crossed |
 |---|---|---|
-| Read the declaration in force | `measure` -> `RepositoryPort.read(declaration path, base)` -> `domain/declaration`; for a change, the head's widening is merged in | RepositoryPort |
-| Build the code model | one `CodeModelPort` per declared language over the files the declaration covers; each returns `Unit`s with their `Layer` from the declaration's assignments (directory, file or region) | CodeModelPort |
+| Read the declaration in force | `load_declaration(target)` -> `RepositoryPort.read(declaration path, target)` -> `domain/declaration`; for a change, `judge_change` loads base and head and merges the head's widening into the base's before calling `measure` | RepositoryPort |
+| Build the code model | one `CodeModelPort` per declared language over the files the declaration covers, each call carrying the `Deadline`; each returns `Unit`s with their `Layer` from the declaration's assignments (directory, file or region), or `TimedOut` | CodeModelPort |
 | Measure complexity and duplication | `MetricsPort.measure(units)` -> `Metrics`, merged into the `CodeModel` | MetricsPort |
 | Read the records | `RecordsPort.records(target, declaration)`, `RecordsPort.radar(target, declaration)` | RecordsPort |
-| Run the rule checks | every `domain/checks/*` function: `(CodeModel, Declaration, DesignRecords, Radar, Policies) -> (findings, questions, notices)`; pure; `Metrics` is part of the `CodeModel` | none |
+| Run the rule checks | every target-level check in `domain/checks/*`: `(CodeModel, Declaration, DesignRecords, Radar, Policies) -> (findings, questions, notices)`; pure; `Metrics` is part of the `CodeModel`. The two change-level checks run in `judge_change`: Covered over the head `CodeModel` and `change.created`, Record kept over the base and head `DesignRecords` | none |
 | Ask the judged questions | `questions` grouped per unit into one `Schema` each, within `Limits.judged_budget`; `DecisionPort.decide(state, schema)`; `ThresholdPolicy` applied in `domain/questions` | DecisionPort |
 | Score and cover | `domain/score`: per quality, passing units over covered units; everything unread, unanalyzed, unanswered or cut off by the deadline into `Coverage` with its reason | none |
 | Report | `Report` value with its identity; presenters shape it | none |
@@ -302,19 +310,20 @@ incumbent prompt to wrap.
 | Responsibility | Component | Seams crossed |
 |---|---|---|
 | Two reports | `judge_change` measures `change.head`; for `change.base` it asks `ReportStore.get(repo, base, identity)` with the identity the head run has (suite version, policies digest, base declaration digest, analyzer set, judge availability) and measures on a miss or a mismatch | ReportStore, then `measure`'s seams |
-| The declaration in force | read at `change.base`; the head's declaration is read too, and only its widening (assignments for uncovered units) and its drop tickets naming `change.base` are used; every other difference is a notice | RepositoryPort |
-| Provenance | `domain/verdict`: `RepositoryPort.changed` gives created, edited, deleted and renamed units; a head finding whose identity, path resolved through the renames, is absent from the base report and whose unit is created or edited is introduced; else existing | RepositoryPort |
+| The declaration in force | `load_declaration` at `change.base` and at `change.head`; only the head's widening (assignments for uncovered units) and its drop tickets are used; every other difference is a notice | RepositoryPort |
+| Provenance | `domain/verdict`: `RepositoryPort.changed` gives created, deleted and renamed units; a head finding whose identity, path resolved through the renames, is absent from the base report is introduced, whatever unit it names; one present at the base is existing | RepositoryPort |
 | Compared score | `domain/score`: per quality, over the units covered in both reports plus `change.created`; a deleted unit or one covered on one side only is on neither side | none |
-| Verdict | `domain/verdict`, in the design's order: not run; lowered on an introduced finding, a compared score below the base's, or a score below a floor the base had reached; inconclusive on an abstention or lost judged coverage on a touched unit, or a check that ran at the base and not at the head; raised on a risen compared score; else held. A fall covered by a ticket naming this base is a notice | none |
+| Verdict | `domain/verdict`, in the design's order: not run; lowered on an introduced finding, a compared score below the base's, or a score below a floor the base had reached; inconclusive on an abstention or lost judged coverage on a touched unit, or a check that ran at the base and not at the head; raised on a risen compared score; else held. A fall from a base score at most a ticket's `from` to a head score at least its `to` is a notice; a ticket whose `from` the base has regained is spent | none |
 | Floors | from the base declaration; a floor the base's score has not reached is a notice, not a bound | none |
-| The hook | the `hook` stage binds `RepositoryPort` to the staged index and `DecisionPort` to `no_judge`; `cli/main.py` computes `Deadline` from `Limits.commit_time_bound`; `measure` starts no check past it, every analyzer subprocess runs under `Limits.analyzer_bound`, and whatever did not finish is coverage | RepositoryPort |
+| The hook | the `hook` stage binds `RepositoryPort` to the staged index and `DecisionPort` to `no_judge`; `cli/main.py` computes `Deadline` from `Limits.commit_time_bound`; `measure` starts no check past it and passes it into every port call; each analyzer adapter caps its subprocess at the smaller of `Limits.analyzer_bound` and the time remaining, kills it at that cap, and returns `TimedOut`; whatever did not finish is coverage | every port |
 
 The baseline is not stored. It is the base revision's report, and the base
 of a landed change is the default branch, so the bar is whatever last
 landed: it rises when a raised change lands and falls, past the gate, only
-with a ticket. The ticket lives in the declaration the owner approves, is
-honored for the one base it names, and stays a notice in every later
-report until the quality regains the score it names as `from`.
+with a ticket. The ticket lives in the declaration the owner approves and
+names scores, not a commit, so it holds on the PR's merge-base and again
+on the staging commit tedium builds; it stays a notice in every later
+report until the quality regains its `from`, and is spent then.
 `ReportStore` is a cache keyed by report identity and a ledger, never the
 authority: a miss or a mismatch measures again.
 
@@ -326,7 +335,7 @@ authority: a miss or a mismatch measures again.
 | Evidence bound | `domain/finding` truncates to `Limits.evidence_bound`; the ledger record carries the location and no quoted text | none |
 | SARIF | `cli/presenters/sarif.py`: one SARIF `rule` per check, one `result` per finding, the identity as `partialFingerprints`, provenance and kind as properties, notices as `notifications` | none |
 | PR surface | the reusable workflow uploads the SARIF to code scanning and writes the scores, notices and verdict to the job summary; the ci-magic toolkit line lets ci.magic's judge call `adhere measure --json` and quote it | the workflow |
-| Explanation | `explain` gives `ExplanationPort` the finding, the unit and the rule's text; the `Explanation` value holds the prose and `agrees`; the presenter labels it. `claude_cli` runs the CLI in print mode with every tool disallowed and no working directory in the repository; `ExplanationPort`'s contract suite asserts no file read, write or process spawn for every adapter | ExplanationPort |
+| Explanation | `explain` gives `ExplanationPort` the finding, the unit and the rule's text; the `Explanation` value holds the prose and `agrees`; the presenter labels it. `claude_cli` runs the CLI in print mode with every tool disallowed and no working directory in the repository; `ExplanationPort`'s contract suite asserts that each adapter reads no repository file and spawns nothing but the model's own process, with the disallow flags on its command line; the model's containment behind those flags is the CLI's guarantee, not the suite's | ExplanationPort |
 
 ### Where it runs
 
@@ -355,7 +364,7 @@ verdict.
 
 | Threat (design) | Mitigation |
 |---|---|
-| The code under measurement is untrusted | Every adapter reads bytes; the only subprocesses are the pinned analyzers over paths, each given its configuration on the command line with discovery of repository configuration disabled, and run outside the repository's working directory; nothing imports, builds or runs repository code. `DecisionPort` and `ExplanationPort` carry no tool-calling surface: the `decide` client cannot call tools, and `claude_cli` runs with every tool disallowed; each port's contract suite asserts no read, write or spawn |
+| The code under measurement is untrusted | Every adapter reads bytes; the only subprocesses are the pinned analyzers over paths, each given its configuration on the command line with discovery of repository configuration disabled, and run outside the repository's working directory; nothing imports, builds or runs repository code. `DecisionPort` and `ExplanationPort` carry no tool-calling surface: the `decide` client cannot call tools, and `claude_cli` runs with every tool disallowed; each port's contract suite asserts the adapter reads no repository file and spawns nothing but its own client with those flags |
 | A change rewrites its own bar | `Declaration` is read at `change.base`; of the head's declaration only widening and tickets for this base are used; the rest is a notice; `adherence.toml` is a CODEOWNERS path |
 | A change writes outside the bar | Covered runs over `change.created` against the merged declaration and lowers |
 | A change shrinks the contract | Record kept diffs the records at the target against the base and lowers on a removed behavior or term |
@@ -373,7 +382,7 @@ verdict.
 | Threshold, per judged check | `ThresholdPolicy` (policy value, per question kind) | the composition root, from the suite's shipped defaults, chosen from `adherence/evals/` |
 | Abstention band, per judged check | `ThresholdPolicy` | as above |
 | Commit-time bound | `Limits.commit_time_bound`, turned into a `Deadline` by `cli/main.py` | the `hook` stage's entry, overridable by the hook's own configuration |
-| Analyzer bound | `Limits.analyzer_bound`, the subprocess timeout every analyzer adapter applies | the composition root; shorter than the commit-time bound |
+| Analyzer bound | `Limits.analyzer_bound`, the subprocess timeout every analyzer adapter applies, cut to the time remaining before `Deadline` | the composition root |
 | Judged-check budget, per run | `Limits.judged_budget` | the composition root, per stage |
 | Complexity ceiling | `Limits.complexity_ceiling` | shipped default; the declaration may lower it, never raise it |
 | Duplication ceiling | `Limits.duplication_ceiling` | as above |
@@ -432,12 +441,12 @@ No values here. The as-built holds them.
 | Engine language | Python, a uv project at `adherence/`, launched by `bin/adhere` as `bin/chores` launches `chores/` | The richest analyzer for the fleet's most-measured language is the standard library's `ast`; grimp, lizard and ast-grep install by pip; the radar's Python stack (uv, Ruff, strict mypy, pytest) is Adopt; cross-language analyzers are subprocesses behind ports either way |
 | One runtime | The `adhere` CLI, with stages bound in one composition root | The hook, CI, the agent and the cloud session differ only in which adapter sits behind four ports and whether a deadline is set; a second root would be the same wiring twice |
 | Where the baseline lives | Nowhere: it is the base revision's report, cached in `ReportStore` by report identity | A committed baseline file needs a bot commit on every landing, which tedium does not make; a derived baseline ratchets by construction, the owner's drops are tickets in the declaration, and an identity on the cache keeps a hook or an older suite's report from standing in for a CI base |
-| Which declaration a change is judged under | The base's, merged with the head's widening and the head's tickets for this base; `adherence.toml` under CODEOWNERS | Widening can only add checks and a ticket can only be honored once against a named base; everything else from the head would let a change narrow its own judge |
+| Which declaration a change is judged under | The base's, merged with the head's widening and the head's tickets; `adherence.toml` under CODEOWNERS; the merged value is passed into `measure` | Widening can only add checks and a ticket can only be honored once against a named base; everything else from the head would let a change narrow its own judge |
 | Code model, not per-language checks | Every analyzer produces one `CodeModel`; every check reads only that | Nine checks times three languages as separate code is twenty-seven checks; one model keeps each check written once |
 | Structural facts from ast-grep | One rule format for stubs, nesting, regions, tests and assertions across languages | The TypeScript compiler API would need a node sidecar for what tree-sitter answers from a rule file |
 | Questions batched per unit | One `Schema` per unit, every question about that unit together | The decision-models skill: each call pays to read the state again |
 | Finding identity | A digest without line numbers or path; the path joined through renames at judging | The same flaw must be the same finding after an unrelated edit moves it or a rename relocates it |
-| The bound is a deadline, not a clock | The entry point computes an instant; `measure` and every analyzer adapter honor it | A clock port would be a fake that returns a constant; a deadline is a value a test sets in the past |
+| The bound is a deadline, not a clock | The entry point computes an instant; every port method takes it, every adapter caps its work at the time remaining and returns `TimedOut` | A clock port would be a fake that returns a constant; a deadline is a value every call can be held to, and a fake that ignores it fails the contract suite |
 | Findings as SARIF | The CLI's machine format and the PR's surface | Code scanning renders SARIF at the line with no comment code to write; editors read it |
 | The declaration's form | TOML at the repository root; regions by marker or by line range | Read with the standard library in Python; one visible file an owner edits; a line range covers files written to no marker convention |
 | The ledger carries no quoted code | Location and identity only | The warehouse admits raw output text; this producer does not need the exemption |

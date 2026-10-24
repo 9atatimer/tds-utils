@@ -97,9 +97,9 @@ not exist for our languages and our rules.
   owner's act: a drop ticket with a reason, shown in every later report
   until the score regains what it was.
 - **G7 Existing flaws do not block.** Every finding is marked introduced
-  or existing. Only introduced findings, a fallen compared score and an
-  unreached floor move a verdict. Deleting or renaming units introduces
-  nothing.
+  or existing: introduced when it was absent before the change, whatever
+  unit it names. Only introduced findings, a fallen compared score and a
+  reached floor move a verdict. Renaming a unit introduces nothing.
 - **G8 Findings are fixable.** A finding names the unit, the quality, the
   check, and the evidence. A layer finding also names the layer the unit
   is in and the layer it reached.
@@ -182,11 +182,11 @@ judged part runs only on what the rule part could not decide.
 
 | Quality | Adherence means | Checks |
 |---|---|---|
-| Layered | Rules, workflow and wiring are three separate jobs | Trace (R): every design behavior resolves to one application unit, by the use-case surface's signature. Purity (R): no domain unit takes a port, a callable that does I/O, or a clock. Wiring (R): per declared runtime, exactly one unit names concrete adapters, that unit is in the composition-root layer, and no unit outside that layer names one. Anatomy (R): a file's regions run header, imports, constants, flags, predicates, helpers, flow, entry, in that order. Two jobs (J): a unit that does two of rules, workflow and wiring |
+| Layered | Rules, workflow and wiring are three separate jobs | Trace (R): every design behavior resolves to one application unit, by the use-case surface's signature. Purity (R): no domain unit takes a port, a callable that does I/O, or a clock. Wiring (R): per declared runtime, exactly one unit constructs concrete adapters, that unit is in the composition-root layer, and no unit outside that layer names one; a fake is not a concrete adapter. Anatomy (R): a file's regions run header, imports, constants, flags, predicates, helpers, flow, entry, in that order. Two jobs (J): a unit that does two of rules, workflow and wiring |
 | Hexagonal | The core depends on no mechanism | Grep (R): no domain or application unit names a vendor, an SDK, the environment, the filesystem, the network, or a model id. Arrow (R): every import crosses inward and no import cycle exists. Swap (R): every port has at least one fake and the core imports only the port. Change (R): every seam the architecture record names exists as exactly one port, policy or parameter |
 | Domain-driven | Each concept is named once, in the problem's words, with one owner | Language (R/J): every noun in a use-case signature is defined in the design's Domain Language under that spelling; the judged part asks whether two differently spelled nouns are one concept. Decision (J): a choice spread across conditionals on the same discriminant instead of one named policy. Boundary (R/J): a value type whose fields are written outside its owning unit; the judged part asks whether that write can break an invariant. Anemic (R): a type that is all fields and no behavior while its rules live elsewhere |
 | Composable | A use case can be called by another with nothing in front | Values in and out (R): no use-case signature carries a wire format, an SDK type or an adapter handle. No nesting (R): no function defined inside another. Helpers take values (R): no pure helper takes a port or a callable |
-| Injectable | Dependencies arrive at the flow function and never below it | Ports as keywords (R): every port a use case takes is a named dependency after the values. No self-wiring (R): no use case constructs an adapter. No reach (R): no use case or domain unit reads a global, a singleton, or the environment. Fakeable (R): the composition root receives its adapters as values, names a fake for every port it binds, and no unit below it names a concrete adapter |
+| Injectable | Dependencies arrive at the flow function and never below it | Ports as keywords (R): every port a use case takes is a named dependency after the values. No self-wiring (R): no use case constructs a concrete adapter. No reach (R): no use case or domain unit reads a global, a singleton, or the environment |
 | Behavior-driven | Every kept test asserts a design behavior through the public surface | Kept test (R): every design behavior has a test that calls its use case by the surface's signature. Then asserted (J): that test asserts the row's Then, not merely that nothing raised. Public surface (R): no test reaches past a use case into a helper or an internal. Real assertion (R): no test without an assertion and no placeholder assertion |
 | Complete | The code does the work it claims to | Stub (R): no stub marker, placeholder body, or sleep standing in for work, in a non-test unit; the stub vocabulary is a parameter. Done (J): a unit whose body does not implement what its name and docstring claim. Hand-rolled (J): a primitive written by hand where a radar-adopted library provides it. Complexity (R): no function over the complexity ceiling. Duplication (R): no clone over the duplication ceiling |
 | Radar-true | Every dependency is one the radar allows | Dependency (R): every dependency a change introduces is on Adopt or Trial of the radar the repository names. Edge only (R): every radar entry is imported from an adapter, never from the core |
@@ -294,18 +294,23 @@ The rows are read in that order; the first that applies is the verdict.
 Only lowered fails a gate. Inconclusive and not run never read as pass,
 and inconclusive never ratchets (G3, G4).
 
-Provenance: a finding is introduced when the unit it names is one the
-change created or edited and the finding was absent before the change. A
-renamed unit keeps its base identity, so its findings are existing.
-Otherwise a finding is existing (G7).
+Provenance: a finding is introduced when its identity is absent from the
+base's report, whatever unit it names; a use case deleted from under a
+design behavior, or a fake deleted from behind a port, introduces the
+finding on the behavior or the port. A renamed unit keeps its base
+identity, so its findings are existing. A finding present at the base is
+existing (G7).
 
 The baseline per quality is the base's score. It rises when a raised
 change lands. It falls past the gate only with a drop ticket: the owner's
-statement, in the declaration, of the quality, the score it accepts, the
-base it accepts it against, and the reason. A fall the ticket covers is a
-notice, not a lowering, and the ticket stays in every later report until
-the score regains what it was (G6). A ticket is honored only against the
-base it names, so it cannot be written once and spent twice.
+statement, in the declaration, of the quality, the score it accepts a
+fall from, the score it accepts a fall to, and the reason. A fall the
+ticket covers, from a base at or below its from-score to a head at or
+above its to-score, is a notice, not a lowering, and the ticket stays in
+every later report until the score regains its from-score (G6). A ticket
+names scores, not a commit, so it survives the base moving under the
+change while it waits to land. Once the from-score is regained the ticket
+is spent: it covers no second fall, and the report says it can be removed.
 
 A floor is a bound the owner sets. It binds once the base's score is at or
 above it: from then on a score below it is lowered whatever the baseline
@@ -382,7 +387,6 @@ exempt the Declared quality's checks.
 | A port taken by position is found | Given a use case that takes a port before its values or without a name, When Ports as keywords runs, Then a finding names the use case and the port |
 | A self-wired use case is found | Given a use case that constructs an adapter, When No self-wiring runs, Then a finding names the use case and the adapter |
 | A reach is found | Given a use case or domain unit that reads a global, a singleton or the environment, When No reach runs, Then a finding names the unit and what it reached |
-| A root that builds its own adapters is found | Given a composition root that constructs an adapter it binds, or binds a port with no fake in the repository, When Fakeable runs, Then a finding names the root and the port |
 | A behavior with no kept test is found | Given a design behavior whose use case no test calls by the surface's signature, When Kept test runs, Then a finding names the behavior |
 | A test that cannot fail is found | Given a test with no assertion, When Real assertion runs, Then a finding names the test |
 | A test past the surface is found | Given a test that calls a helper or an internal instead of a use case, When Public surface runs, Then a finding names the test and what it reached |
@@ -410,23 +414,25 @@ exempt the Declared quality's checks.
 | A floor holds | Given a quality whose base score is at or above the owner's floor, When a change takes it below the floor, Then the verdict is lowered and the report names the floor |
 | An unreached floor is a target | Given a quality whose base score is below the owner's floor, When a change raises it but not to the floor, Then the verdict is raised and the report says the floor is not yet reached |
 | An introduced flaw lowers | Given a change that creates a unit a rule check fails, When it is judged, Then the verdict is lowered and the finding is marked introduced |
-| An existing flaw does not block | Given a unit a rule check failed before the change and the change did not touch it, When the change is judged, Then the finding is marked existing and the verdict is not lowered by it |
+| An existing flaw does not block | Given a finding present in the base's report, When the change is judged, Then the finding is marked existing and the verdict is not lowered by it |
+| A break on an untouched unit is introduced | Given a change that deletes a use case or a fake and does not edit the design behavior or port that depended on it, When the change is judged, Then the new finding on the behavior or the port is marked introduced and the verdict is lowered |
 | A rename introduces nothing | Given a unit with an existing flaw that the change renames and does not edit, When the change is judged, Then its finding is marked existing and keeps its identity |
 | Deleting clean code moves nothing | Given a change that only deletes units with no findings in a repository with existing flaws, When it is judged, Then no compared score falls and the verdict is held |
 | An abstention is inconclusive | Given a change whose only unresolved item is a judged check that abstained on a unit it touched, When it is judged, Then the verdict is inconclusive, never lowered |
 | An unavailable judge is inconclusive, never raised | Given no judge reachable at the head and a judge that answered at the base, When a change is judged, Then every judged check reports coverage missing, the judged units count on neither side, and the verdict is inconclusive at best |
 | A suite that cannot run says so | Given a repository the suite cannot measure, When a run is asked for, Then the verdict is not run with the reason, and nothing reads as a pass |
 | The baseline ratchets up | Given a change with the verdict raised, When it lands, Then the baseline for each risen quality is the new score, with nothing configured |
-| A drop ticket accepts a fall | Given a change whose declaration carries a drop ticket naming its base, the quality and a reason, When its compared score falls no further than the ticket accepts, Then the fall is a notice with the reason and the verdict is not lowered by it |
-| A drop ticket is spent once | Given a drop ticket naming one base, When a later change against a different base falls on that quality, Then the ticket does not cover it |
-| A drop ticket is shown until regained | Given an accepted drop, When later reports are produced, Then each shows the ticket and its reason until the quality's score regains the score before the drop |
+| A drop ticket accepts a fall | Given a change whose declaration carries a drop ticket for a quality with a from-score, a to-score and a reason, When its base's score is at most the from-score and its head's score is at least the to-score, Then the fall is a notice with the reason and the verdict is not lowered by it |
+| A drop ticket survives a moving base | Given a drop ticket and a base that moved to another commit with the same score before the change landed, When the change is judged again, Then the ticket still covers the fall |
+| A drop ticket covers no second fall | Given a quality that regained its ticket's from-score, When a later change falls on it again, Then the ticket does not cover it and the report says the ticket can be removed |
+| A drop ticket is shown until regained | Given an accepted drop, When later reports are produced, Then each shows the ticket and its reason until the quality's score regains the ticket's from-score |
 | A change cannot narrow its own declaration | Given a change that removes an assignment, adds an exemption, sets a floor or writes a ticket, When it is judged, Then it is judged as if that edit were absent, and the edit is a notice |
 | An exemption carries its reason | Given an exempted unit, When a run reports, Then the exemption and its reason appear beside the check it silenced |
 | An added exemption is inert for its change | Given a change that adds an exemption for a flaw it introduces, When it is judged, Then the flaw lowers the verdict and the exemption is a notice |
 | The Declared quality cannot be exempted | Given a declaration that exempts Covered or Record kept, When a run is asked for, Then the exemption is refused and reported |
 | A finding is fixable | Given any finding, When an agent reads it, Then it holds the quality, the check, the kind, the unit, the evidence and the provenance, and a layer finding names the layer reached |
 | The same finding everywhere | Given one flaw, When the laptop, the hook, CI and the self-review each run, Then each reports a finding with the same identity |
-| The hook ends within its bound | Given a staged change and an analyzer that does not return, When the pre-commit hook runs, Then the run ends within the commit-time bound, the checks that did not finish are coverage, and the commit is not blocked past the bound |
+| The hook ends within its bound | Given a staged change and an analyzer that does not return, When the pre-commit hook runs, Then every analyzer is given the time remaining and no more, the run ends within the commit-time bound, the checks that did not finish are coverage, and the commit is not blocked past the bound |
 | An explanation changes nothing | Given a finding, When an explanation is asked for, Then prose labelled as an explanation is returned and the score and verdict are unchanged |
 | A disagreeing explanation shows both | Given an explanation that disagrees with its finding, When it is shown, Then the finding stands and the disagreement is visible |
 | The judge is given data | Given a unit whose text addresses the judge, When a judged check runs, Then the text is judged as the unit's content and nothing in it changes which question is asked |
@@ -476,7 +482,7 @@ exempt the Declared quality's checks.
 |---|---|---|---|
 | absent | set | the owner adopts the suite on the repository | the first report's scores become the baseline |
 | set, ratcheted | ratcheted | a change with the verdict raised lands | the risen scores become the baseline |
-| set, ratcheted | set | a change with an accepted drop lands | a drop ticket names that base and a reason; the ticket is shown until the old score is regained |
+| set, ratcheted | set | a change with an accepted drop lands | a drop ticket covers the fall with a reason; the ticket is shown until its from-score is regained |
 
 ---
 
@@ -511,14 +517,16 @@ exempt the Declared quality's checks.
   test. Invariant: a covered unit is in exactly one.
 - **Port.** A named interface the core owns at one axis of change; the
   architecture record's seam list names them.
-- **Fake.** An in-memory implementation of a port, for tests and for the
-  Fakeable check.
+- **Adapter.** A unit that implements a port. A concrete adapter does so
+  over a mechanism; a fake does so in memory.
+- **Fake.** An in-memory adapter, for tests. Invariant: not a concrete
+  adapter, so a test that names one breaks no Wiring rule.
 - **Seam.** An axis of change the architecture record maps to one port,
   policy or parameter.
 - **Use case.** One application-layer function carrying one or more
   design behaviors, with the signature the use-case surface gives it.
-- **Composition root.** The one unit per runtime that names concrete
-  adapters.
+- **Composition root.** The one unit per runtime that constructs concrete
+  adapters and binds them to the use cases' ports.
 - **Runtime.** A declared entry the repository can be run as, each with
   one composition root.
 - **Region.** A span of one file assigned to one layer, named by a marker
@@ -553,8 +561,8 @@ exempt the Declared quality's checks.
   unit, evidence, provenance, and for a layer check the layer reached.
   Invariant: carries a stable identity that survives a rename.
 - **Evidence.** The location and at most the offending line.
-- **Provenance.** Introduced, when the change made the finding appear on a
-  unit it created or edited; else existing.
+- **Provenance.** Introduced, when the finding's identity is absent from
+  the base's report; existing, when it is present there.
 - **Abstention.** A judged check's answer when its probabilities fall in
   the abstention band. Counted as inconclusive, never as a pass or a
   finding.
@@ -566,8 +574,9 @@ exempt the Declared quality's checks.
 - **Baseline.** The base's score per quality that the change is held to.
   Invariant: rises on its own, falls past the gate only by a drop ticket.
 - **Drop ticket.** The owner's statement in the declaration accepting a
-  fall on one quality against one named base, with a reason. Invariant:
-  covers one base; shown until the score regains what it was.
+  fall on one quality from a from-score to a to-score, with a reason.
+  Invariant: names scores, never a commit; spent once the from-score is
+  regained; shown until then.
 - **Floor.** An owner-set score per quality. Invariant: binds once the
   base's score reaches it; a target until then.
 - **Verdict.** Not run, lowered, inconclusive, raised, or held, read in
@@ -577,6 +586,10 @@ exempt the Declared quality's checks.
   cannot cover the Declared quality; inert for the change that adds it.
 - **Policies.** The suite's thresholds, abstention bands, vocabulary and
   limits, as one value a run is given.
+- **Deadline.** The instant by which a bounded run must end, derived from
+  the commit-time bound; absent for an unbounded run. Invariant: every
+  analyzer and every judge call in a bounded run is given the time
+  remaining and no more.
 - **Recorded.** The outcome of keeping a report: kept, or not kept with the
   reason. Invariant: never changes a verdict.
 - **Owner.** The human who owns the repository under measurement.
@@ -590,7 +603,7 @@ exempt the Declared quality's checks.
 | Threshold, per judged check | The rule over the judge's probabilities above which a judged check is a finding; chosen from a labelled set per check, never by eye |
 | Abstention band, per judged check | The probabilities that are neither a finding nor a pass; non-empty for every judged check |
 | Commit-time bound | How long a pre-commit run may take in total; short enough that a developer does not bypass it |
-| Analyzer bound | How long one analyzer may run inside a bounded run; shorter than the commit-time bound |
+| Analyzer bound | How long one analyzer may run; inside a bounded run it is cut to the time remaining before the deadline |
 | Judged-check budget, per run | How many judged questions one run may ask; large enough for a typical change, bounded so a large change degrades to abstentions and coverage, never to a hung run |
 | Complexity ceiling | The per-function complexity above which Complexity finds; a ratchet, never raised to fit a file |
 | Duplication ceiling | The clone size above which Duplication finds; a ratchet |
@@ -652,9 +665,9 @@ it on demand. No nonprod stage; the runbook names the stand-in.
 | The qualities | A closed set of nine, each defined by an SDLC rule, the ninth being the suite's own Declared | The suite executes the skills' rules; it does not invent its own. Declared makes the other eight unavoidable | Todd, 2026-10-24 (concept); the coding skill, Section 1.2; self-review panel 2026-10-24 |
 | Kinds of check | Rule, judged, explanation; told apart in every report | A fact and a judgement fail differently and are trusted differently | the decision-models skill, The ladder |
 | Inconclusive never fails and never raises | An abstention or an unrun check is at worst inconclusive and at best inconclusive | A forced low-confidence verdict fails clean changes; a raise on missing coverage ratchets a number nobody measured | ci.magic's inconclusive verdict; Slater's maintainability paradox; self-review panel 2026-10-24 |
-| The bar | A per-repository, per-quality baseline that ratchets up on its own and down only by a drop ticket | A fixed bar nobody clears is switched off; a ratchet holds; a ticket makes the owner's reason part of the record | the sdlc skill, law 11; self-review panel 2026-10-24 |
+| The bar | A per-repository, per-quality baseline that ratchets up on its own and down only by a drop ticket naming scores, not a commit | A fixed bar nobody clears is switched off; a ratchet holds; a ticket makes the owner's reason part of the record and survives the base moving while a change waits to land | the sdlc skill, law 11; self-review panel 2026-10-24, both rounds |
 | What a score comparison sees | The units both sides cover and the units the change created | Deleting clean code is not regression, and a judge that answered on one side only is not a rise | self-review panel 2026-10-24 |
-| Provenance | Introduced blocks; existing reports; a rename keeps identity | A change is judged on what it did | Todd, 2026-10-24 (concept, gating stories); self-review panel 2026-10-24 |
+| Provenance | Introduced is absent-at-base, whatever unit the finding names; existing reports; a rename keeps identity | A change is judged on what it did, including what it broke from under another unit | Todd, 2026-10-24 (concept, gating stories); self-review panel 2026-10-24, both rounds |
 | The declaration's source | The one in force before the change, plus the change's own widening; the owner approves every change to it | A change that could narrow its own judge judges nothing; one that can only widen adds checks | template-tools ci.magic toolkit, G3; self-review panel 2026-10-24 |
 | Design records | Read as input at the code's revision, never copied; narrowing an approved record is a finding | A copy drifts and becomes a second, unreviewed design; a record pinned to the base could not be grown with its code | the sdlc skill, laws 2 and 3; self-review panel 2026-10-24 |
 | Floors | Bind once reached; a target until then | A floor above today's score would make every change unlandable | self-review panel 2026-10-24 |
@@ -710,6 +723,12 @@ it on demand. No nonprod stage; the runbook names the stand-in.
   tuning as a capability and is unreachable at adoption.
 - **Blocking on existing debt** -- stalls every repository at adoption
   and blames the wrong author.
+- **A drop ticket naming a commit** -- the base moves under a change while
+  it waits to land, so the ticket would be ignored at the gate it was
+  written for.
+- **A Fakeable check** -- "the root receives its adapters as values"
+  contradicts "the root is the one unit that constructs them"; Wiring and
+  Swap already cover what it meant.
 - **Honoring a change's whole declaration** -- a change could exempt what
   it broke; honoring only its widening cannot lower anything.
 - **Pinning design records to the base** -- a behavior and its use case
