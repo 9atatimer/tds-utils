@@ -10,9 +10,9 @@ implements: docs/design/ARCHITECTURE.ARCH-ADHERENCE.md
 `container.py` binding the `laptop`, `ci` and `cloud` stages (the `hook`
 stage is task-065's): the decide adapter hosted or through the door,
 `github_reviews` in `ci`, `no_reviews` elsewhere, `file_store` outside
-`ci`, `no_explainer` everywhere until task-071; `cli/main.py` choosing
-the stage from one flag and mapping the verdict to the exit status per
-stage; the presenters for the terminal (control characters and ANSI
+`ci` (`ExplanationPort` is task-071's, which binds it); `cli/main.py`
+choosing the stage from one flag and mapping the verdict to the exit
+status per stage; the presenters for the terminal (control characters and ANSI
 stripped from evidence), SARIF 2.1.0 (one rule per check, one result per
 finding, identity as the fingerprint, provenance and kind as properties,
 notices as notifications) and the PR job summary (markdown escaped). RED

@@ -10,7 +10,9 @@ implements: docs/design/ARCHITECTURE.ARCH-ADHERENCE.md
 `explain` by the architecture's signature and the `explain` command;
 `ExplanationPort` with `no_explainer` (the default), `claude_cli` (print
 mode, every tool disallowed, the repository outside its working
-directory, an allowlisted environment) and the fake; the port's contract
+directory, an allowlisted environment) and the fake, `container.py`
+binding `claude_cli` in `laptop` and `no_explainer` in every other
+stage; the port's contract
 suite asserting the adapter reads no repository file and spawns nothing
 but the model's own process with those flags. RED first:
 
