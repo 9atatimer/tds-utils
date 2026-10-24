@@ -224,13 +224,13 @@ leaves the job running.
 
 ## Tool-shell traps: zsh word splitting and `sed` `&`
 
-The tool shell is zsh. Unlike bash, it does not split an unquoted `$VAR`
-into words: `C="node cli.mjs --origin $O"; $C act add` runs a program named
-the whole string and fails with "no such file"; a file list in a variable
-iterates once over the whole string in `for f in $FILES`. Put a repeated
-command line in a function (`c() { node cli.mjs --origin "$O" "$@"; }`) or an array
-(`C=(node cli.mjs); "${C[@]}" act add`), and loop over an array or explicit
-words, never a string.
+The tool shell is zsh. Unlike bash, it does not split an
+unquoted `$VAR` into words: `C="node cli.mjs --origin $O"; $C act add` runs a
+program named the whole string and fails with "no such file"; a file list in
+a variable iterates once over the whole string in `for f in $FILES`. Put a
+repeated command line in a function (`c() { node cli.mjs --origin "$O" "$@"; }`)
+or an array (`C=(node cli.mjs); "${C[@]}" act add`), and loop over an array
+or explicit words, never a string.
 
 In `sed 's/old/new/'`, an unescaped `&` in `new` is the matched text, so an
 HTML entity (`&lt;`) or a shell `&&` in a replacement silently pastes
@@ -370,8 +370,9 @@ reason to hold the PR back. Asking whether to open one is the
 interrogative prompt this file forbids. The harness default "do not create
 a pull request unless asked" is overridden here.
 
-**Swarm-coding:** when told to swarm-code a solution (e.g. `ultracode`), open the PR the moment
-the coding concludes, then triage review feedback per the gates skill.
+**Swarm-coding:** when told to swarm-code a solution (e.g. `ultracode`),
+open the PR the moment the coding concludes, then triage review feedback per
+the gates skill.
 
 ## Read the repo's own instructions and plan first
 
@@ -419,7 +420,8 @@ save.
 stops the agent for a permission prompt, and shell state does not persist
 between Bash calls anyway.
 
-**Stay in the project root. For every tool that needs to operate on a subdir,
+**Stay in the project root (the root of the checkout or worktree you work
+in). For every tool that needs to operate on a subdir or another checkout,
 use that tool's native scoping flag:**
 
 - `git -C <path> <subcmd>` -- git operations on a different worktree
@@ -431,7 +433,7 @@ use that tool's native scoping flag:**
 When a tool truly lacks a `-C`/`--directory`/`--filter` flag, prefer passing
 absolute paths to it rather than `cd`-ing. Only reach for `cd` after confirming
 none of the above applies *and* that the command must run with that dir as
-cwd -- and in that case, ask first or expect to be interrupted.
+cwd -- and in that case, say why in one line and expect a permission prompt.
 
 **`-C` changes where git looks, not where its printed paths are relative
 to.** `git -C ~/workplace/<repo> rev-parse --git-common-dir` (and
@@ -574,6 +576,7 @@ instead of reading whole files. Two caveats for writes
 - Node ids regenerate after every mutation; re-run `get_outline` before the
   next edit, or the stale id fails with `not found in RemarkAdapter`.
 - A mutation re-serializes the WHOLE file in remark style (`---` -> `***`,
-  `-` -> `*`, escaped brackets; [tds-utils issue#222](https://github.com/9atatimer/tds-utils/issues/222)). Check `git diff` after the
-  first mutation on a file; if untouched lines churned, revert and use
-  `Edit`.
+  `-` -> `*`, escaped brackets;
+  [tds-utils issue#222](https://github.com/9atatimer/tds-utils/issues/222)).
+  Check `git diff` after the first mutation on a file; if untouched lines
+  churned, revert and use `Edit`.
