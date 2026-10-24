@@ -3,7 +3,7 @@
 > **Status:** DRAFT
 > **Date:** 2026-10-24 (self-review panel findings folded in the same day)
 > **Authors:** Todd Stumpf, Claude
-> **Depends on:** [LMDE](./LMDE.DESIGN.md); the decide route, [DECIDE-ROUTE](./DECIDE-ROUTE.DESIGN.md) (DRAFT), for the laptop's judge; template-tools [ci.magic toolkit](https://github.com/Nine-At-A-Time-Media/template-tools/blob/main/docs/design/DESIGN.CI-MAGIC-TOOLKIT.md) for the CI judge's hand-off
+> **Depends on:** [LMDE](./LMDE.DESIGN.md)
 > **Origin:** [concept: arch-adherence](../concepts/arch-adherence/CONCEPT.md); Slater, [arXiv 2512.04273](https://arxiv.org/pdf/2512.04273)
 
 ---
@@ -16,8 +16,7 @@ composable, injectable, behavior-driven, complete, on the tech radar, and
 declared. It turns the coding skill's review-time tests into checks that
 run, scores each quality, refuses a change that lowers a score, and names
 every flaw well enough that an agent can fix it. It is product, not
-tooling: the gate, the merge bot, the hooks and the agents all code
-against its verdict.
+tooling: the gate, the hooks and the agents all code against its verdict.
 
 ---
 
@@ -92,11 +91,12 @@ not exist for our languages and our rules.
 - **G5 Regression is refused.** A change that introduces a finding, or
   whose compared score on any quality falls below the baseline, or below
   a floor the repository had reached, gets the verdict lowered.
-- **G6 The bar ratchets.** The baseline is the base's compared score, so
-  a change that lands with a raised score raises the bar with nothing to
-  configure. A fall through the gate is an owner's act: a drop ticket with
-  a reason, in the declaration in force, shown in every later report until
-  the score regains what it was.
+- **G6 The bar ratchets.** The baseline is the base's compared score,
+  derived for each change and never stored, so a change that lands with a
+  raised score raises the bar with nothing to configure. A fall through
+  the gate is an owner's act: a drop ticket with a reason, in the
+  declaration in force, shown in every later report until the compared
+  score regains the ticket's from-score.
 - **G7 Existing flaws do not block.** Every finding is marked introduced
   or existing: introduced when it was absent before the change, whatever
   unit it names. Only introduced findings, a fallen compared score and a
@@ -118,8 +118,8 @@ not exist for our languages and our rules.
   of either, and a change that narrows an approved record introduces a
   finding.
 - **G11 Many languages, one suite.** Python, TypeScript with JavaScript,
-  and shell are measured at the MVP. A unit in a language with no
-  analyzer is reported as uncovered, never passed.
+  and shell are measured at the MVP. A unit in a language the suite does
+  not measure is reported as uncovered, never passed.
 - **G12 Layers are not directories.** A file that keeps domain,
   application and wiring as three regions is measured by the same checks
   as a package that keeps them as directories.
@@ -128,7 +128,7 @@ not exist for our languages and our rules.
   agent's self-review before a PR. A finding is the same finding in all
   four.
 - **G14 Commit time is bounded.** A pre-commit run ends within the
-  commit-time bound, whatever an analyzer does. Checks that cannot run
+  commit-time bound, whatever a check does. Checks that cannot run
   where somebody is waiting.
 - **G15 Explanations on demand.** Any finding can be explained in prose.
   The explanation is labelled as such, changes no score and no verdict,
@@ -162,7 +162,7 @@ not exist for our languages and our rules.
 - **Security scanning.** The pre-commit gate's scanners own that.
 - **A score comparable across repositories.** Deferred; see Q2.
 - **Languages beyond the MVP three.** Go and GDScript are later
-  analyzers, not later designs.
+  languages, not later designs.
 - **A hosted service or a dashboard.** Reports persist; a view over them
   is a later consumer of the data.
 - **Judging a repository with no declaration on layer checks.** It gets
@@ -210,8 +210,7 @@ created it, Covered finds it.
 
 Layers are not directories. A declaration may assign a whole directory, a
 file, or a region of a file, so a one-file tool and a package are measured
-alike (G12). A region is named by a marker the file carries or by the
-lines it spans.
+alike (G12).
 
 ### The declaration
 
@@ -235,8 +234,10 @@ notice in the report, so a reviewer sees it beside the verdict.
 
 When the declaration and the code disagree, for example a declared runtime
 with no composition root, the suite reports the disagreement as a finding
-and does not guess which is right. A declaration that cannot be read ends
-the run as not run.
+and does not guess which is right. A declaration in force that cannot be
+read ends the run as not run. A change whose own declaration cannot be
+read is judged under the declaration in force, and the unreadable edit is
+a notice.
 
 ### Design records as input
 
@@ -278,24 +279,25 @@ the same result on every machine.
 ### Judging a change
 
 A change is judged by comparing its head's report with its base's. Both
-are measured under the same suite, declaration, analyzer set and judge
-availability; a base measured under any other is not compared against.
-The compared score for a quality is taken over the units both reports
-cover and the units the change created; a unit the change deleted or that
-only one side could check counts on neither side. That is what keeps a
-deletion of clean code, or a judge that answered on one side only, from
-moving a verdict (G3, G7).
+are measured under the same suite, declaration, measured languages and
+judge availability. Where the base cannot be measured under the same, it
+is not compared against: the verdict is inconclusive and the report names
+what differs. The compared score for a quality is taken over the units
+both reports cover and the units the change created; a unit the change
+deleted or that only one side could check counts on neither side. That is
+what keeps a deletion of clean code, or a judge that answered on one side
+only, from moving a verdict (G3, G7).
 
 | Verdict | Meaning |
 |---|---|
 | not run | The suite could not measure; the reason is reported |
-| lowered | An introduced finding from a rule check or from a judged check above its threshold, a head compared score below the baseline, or a head compared score below a floor the repository had reached |
-| inconclusive | Not lowered, and a judged check abstained or did not run on a unit the change touched, or a check that ran at the base could not run at the head |
+| lowered | An introduced finding from a rule check or from a judged check above its threshold, a head compared score below the baseline that no drop ticket in the declaration in force covers, or a head compared score below a floor the repository had reached |
+| inconclusive | Not lowered, and a judged check abstained or did not run on a unit the change touched, a check that ran at the base could not run at the head, or the base could not be measured under the same suite, declaration, measured languages and judge availability as the head |
 | raised | Not lowered, not inconclusive, and at least one compared score rose |
 | held | None of the above |
 
 The rows are read in that order; the first that applies is the verdict.
-Only lowered fails a gate; whether not run blocks a merge is Q10.
+Lowered fails a gate; whether not run also blocks a merge is Q10.
 Inconclusive and not run never read as pass, and inconclusive is never
 reported as raised (G3, G4).
 
@@ -307,25 +309,26 @@ identity, so its findings are existing. A finding present at the base is
 existing (G7).
 
 The baseline per quality is the base's compared score: the same units the
-head is scored over, scored at the base. Each landed change's head is the
-next change's base, so a rise holds with nothing to configure. Through the
-gate a baseline falls only by a drop ticket: the owner's statement, in the
-declaration in force, of the quality, the score it accepts a fall from,
-the score it accepts a fall to, and the reason. A ticket lands in a change
-before the one it covers; a ticket a change writes takes effect from the
-next change. A fall the ticket covers, from a base at or below its
-from-score to a head at or above its to-score, is a notice, not a
-lowering, and the ticket stays in every later report until the score
-regains its from-score (G6). A ticket names scores, not a commit, so it
-survives the base moving under the change while it waits to land. Once
-the from-score is regained the ticket is spent: it covers no second fall,
-and the report says it can be removed.
+head is scored over, scored at the base, derived for each change and never
+stored. Each landed change's head is the next change's base, so a rise
+holds with nothing to configure. Through the gate a baseline falls only by
+a drop ticket: the owner's statement, in the declaration in force, of the
+quality, the compared score it accepts a fall from, the compared score it
+accepts a fall to, and the reason. A ticket lands in a change before the
+one it covers; a ticket a change writes takes effect from the next change.
+A fall the ticket covers, from a base compared score at or below its
+from-score to a head compared score at or above its to-score, is a notice,
+not a lowering, and the ticket stays in every later report until the
+quality's compared score regains its from-score (G6). A ticket names
+scores, not a commit, so it survives the base moving under the change
+while it waits to land. Once the from-score is regained the ticket is
+spent: it covers no second fall, and the report says it can be removed.
 
-A floor is a bound the owner sets. It binds once the base's score is at or
-above it: from then on a head score below it is lowered whatever the
-baseline says. Below it, the baseline comparison alone judges and the
-report says the floor is not yet reached, so a floor set above today's
-score is an aim, not a wall.
+A floor is a bound the owner sets. It binds once the base's compared score
+is at or above it: from then on a head compared score below it is lowered
+whatever the baseline says. Below it, the baseline comparison alone judges
+and the report says the floor is not yet reached, so a floor set above
+today's score is an aim, not a wall.
 
 ### Findings and explanations
 
@@ -381,11 +384,15 @@ exempt the Declared quality's checks.
 | A missing composition root is a disagreement | Given a declared runtime with no unit that names concrete adapters, When Wiring runs, Then a finding says the declaration and the code disagree, and names the runtime |
 | An adapter named below the root is found | Given a unit outside the composition-root layer that names a concrete adapter, When Wiring runs, Then a finding names the unit and the adapter |
 | A file out of order is found | Given a file whose regions are not in the anatomy order, When Anatomy runs, Then a finding names the file and the first region out of place |
+| A unit doing two jobs is found | Given a unit that does two of rules, workflow and wiring, When Two jobs runs and the judge's answer is above its threshold, Then a finding names the unit and the jobs it does, with its confidence |
 | A judged check answers with a confidence | Given a unit a judged check asks about, When that judged check runs, Then the finding, pass or abstention carries a confidence |
 | A port without a fake is found | Given a port with no fake behind it anywhere in the repository, When Swap runs, Then a finding names the port |
 | A named seam is missing | Given a seam the architecture record names with no port, policy or parameter in the code, When Change runs, Then a finding names the seam |
 | A foreign noun is found | Given a use-case signature with a noun the Domain Language does not define, When Language runs, Then a finding names the noun and the signature |
+| Two spellings of one concept are found | Given two differently spelled nouns that are one concept, When Language's judged part runs and the judge's answer is above its threshold, Then a finding names both nouns, with its confidence |
+| A hidden policy is found | Given a choice spread across conditionals on one discriminant with no named policy, When Decision runs and the judge's answer is above its threshold, Then a finding names the conditionals and the discriminant, with its confidence |
 | A foreign write is found | Given a value type whose field is written outside its owning unit, When Boundary runs, Then a finding names the type, the writer, and the owning unit |
+| A write that breaks an invariant is found | Given a field written outside its owning unit, When Boundary's judged part runs and the judge's answer is above its threshold, Then the finding names the write and the invariant at risk, with its confidence |
 | An anemic type is found | Given a type that is all fields while its rules live in another unit, When Anemic runs, Then a finding names the type and the unit holding its rules |
 | A wire format in a signature is found | Given a use case whose signature carries a wire format, an SDK type or an adapter handle, When Values in and out runs, Then a finding names the parameter |
 | A nested function is found | Given a function defined inside another in a non-test unit, When No nesting runs, Then a finding names both |
@@ -394,9 +401,12 @@ exempt the Declared quality's checks.
 | A self-wired use case is found | Given a use case that constructs an adapter, When No self-wiring runs, Then a finding names the use case and the adapter |
 | A reach is found | Given a use case or domain unit that reads a global, a singleton or the environment, When No reach runs, Then a finding names the unit and what it reached |
 | A behavior with no kept test is found | Given a design behavior whose use case no test calls by the surface's signature, When Kept test runs, Then a finding names the behavior |
+| A test that skips the Then is found | Given a kept test that calls its use case but does not assert the row's Then, When Then asserted runs and the judge's answer is above its threshold, Then a finding names the test and the behavior, with its confidence |
 | A test that cannot fail is found | Given a test with no assertion, When Real assertion runs, Then a finding names the test |
 | A test past the surface is found | Given a test that calls a helper or an internal instead of a use case, When Public surface runs, Then a finding names the test and what it reached |
 | A stub is found | Given a non-test function whose body is a stub, When Stub runs, Then a finding names the function |
+| An unfinished unit is found | Given a non-test unit whose body does not do what its name and docstring claim, When Done runs and the judge's answer is above its threshold, Then a finding names the unit, with its confidence |
+| A hand-rolled primitive is found | Given a primitive written by hand where a radar-adopted library provides it, When Hand-rolled runs and the judge's answer is above its threshold, Then a finding names the unit and the library, with its confidence |
 | A function over the complexity ceiling is found | Given a function whose complexity is over the ceiling, When Complexity runs, Then a finding names the function and the ceiling |
 | A clone over the duplication ceiling is found | Given two stretches of code alike beyond the ceiling, When Duplication runs, Then one finding names both |
 | A disallowed dependency is found | Given a change that introduces a dependency not on Adopt or Trial of the declared radar, When Dependency runs, Then a finding names the dependency and the ring it is on, or that it is absent |
@@ -405,17 +415,19 @@ exempt the Declared quality's checks.
 | A widening is honored | Given a change that creates a unit and assigns it a layer in its own declaration, When the change is judged, Then the unit is checked under that layer and Covered finds nothing |
 | A narrowed record is found | Given a change that removes a behavior or a term from an approved record, When Record kept runs, Then a finding names the record and what was removed |
 | A record is read with its code | Given a change that adds a behavior to the record and its use case in the same change, When Trace runs, Then there is no Trace finding for it |
-| A one-file tool is measured | Given a file whose declaration assigns its regions to layers, by marker or by lines, When a run is asked for, Then the layer checks score its regions as they would score packages |
-| An uncovered language is reported | Given a unit in a language with no analyzer, When a run is asked for, Then coverage names the unit and the language, and no score counts it as passing |
+| A one-file tool is measured | Given a file whose declaration assigns its regions to layers, When a run is asked for, Then the layer checks score its regions as they would score packages |
+| An uncovered language is reported | Given a unit in a language the suite does not measure, When a run is asked for, Then coverage names the unit and the language, and no score counts it as passing |
 | A missing design record is reported | Given a declared repository whose design record is absent or in draft, When a run is asked for, Then Trace, Language, Change, Kept test and Record kept report coverage missing and name the record, and the other qualities are scored |
 | A missing record on both sides is not inconclusive | Given a repository whose design record is missing at the base and at the head, When a change is judged, Then the missing record alone does not make the verdict inconclusive |
 | An untraceable row is a finding against the record | Given a behavior row with no nameable action or observation, When Trace runs, Then a finding names the row and the record |
 | An undeclared repository is measured | Given a repository with no declaration, When a run is asked for, Then the checks that need no declaration run, and coverage names every check that needed one |
-| An unreadable declaration is not run | Given a declaration that cannot be read, When a run is asked for, Then the verdict is not run and the report names the error |
+| An unreadable declaration is not run | Given a declaration in force that cannot be read, When a run is asked for, Then the verdict is not run and the report names the error |
+| An unreadable edit is a notice | Given a readable declaration in force and a change whose own declaration cannot be read, When the change is judged, Then it is judged under the declaration in force and the unreadable edit is a notice |
+| An unmeasurable base is inconclusive | Given a base the gate cannot measure under the same suite, declaration, measured languages and judge availability as the head, When the change is judged, Then the verdict is inconclusive and the report names what differs |
 | A change that raises is raised | Given a change on which one compared score rose and none fell and no rule check found an introduced flaw, When it is judged, Then the verdict is raised |
 | A change that lowers is lowered | Given a change on which one compared score fell below the baseline, When it is judged, Then the verdict is lowered and the report names the quality |
-| A floor holds | Given a quality whose base score is at or above the owner's floor, When a change takes it below the floor, Then the verdict is lowered and the report names the floor |
-| An unreached floor does not bind | Given a quality whose base score is below the owner's floor, When a change raises it but not to the floor, Then the verdict is raised and the report says the floor is not yet reached |
+| A floor holds | Given a quality whose base compared score is at or above the owner's floor, When a change takes its head compared score below the floor, Then the verdict is lowered and the report names the floor |
+| An unreached floor does not bind | Given a quality whose base compared score is below the owner's floor, When a change raises its compared score but not to the floor, Then the verdict is raised and the report says the floor is not yet reached |
 | An introduced flaw lowers | Given a change that creates a unit a rule check fails, When it is judged, Then the verdict is lowered and the finding is marked introduced |
 | An existing flaw does not block | Given a finding present in the base's report, When the change is judged, Then the finding is marked existing and the verdict is not lowered by it |
 | A break on an untouched unit is introduced | Given a change that deletes a use case or a fake and does not edit the design behavior or port that depended on it, When the change is judged, Then the new finding on the behavior or the port is marked introduced and the verdict is lowered |
@@ -425,25 +437,25 @@ exempt the Declared quality's checks.
 | An unavailable judge is inconclusive, never raised | Given no judge reachable at the head and a judge that answered at the base, When a change is judged, Then every judged check reports coverage missing, the judged units count on neither side, and the verdict is inconclusive at best |
 | An exhausted judged-check budget is inconclusive | Given a change whose judged questions exceed the judged-check budget, When it is judged, Then coverage names the questions not asked and the verdict is inconclusive at best |
 | A suite that cannot run says so | Given a repository the suite cannot measure, When a run is asked for, Then the verdict is not run with the reason, and nothing reads as a pass |
-| The baseline ratchets up | Given a change with the verdict raised, When it lands, Then the baseline for each risen quality is the new score, with nothing configured |
-| A drop ticket accepts a fall | Given a drop ticket in the declaration in force for a quality, with a from-score, a to-score and a reason, When a change's base score is at most the from-score and its head score is at least the to-score, Then the fall is a notice with the reason and the verdict is not lowered by it |
-| A drop ticket survives a moving base | Given a drop ticket in the declaration in force and a base that moved to another commit with the same score before the change landed, When the change is judged again, Then the ticket still covers the fall |
-| A drop ticket covers no second fall | Given a quality that regained its ticket's from-score, When a later change falls on it again, Then the ticket does not cover it and the report says the ticket can be removed |
-| A drop ticket is shown until regained | Given an accepted drop, When later reports are produced, Then each shows the ticket and its reason until the quality's score regains the ticket's from-score |
+| The baseline ratchets up | Given a change with the verdict raised that has landed, When the next change is judged, Then its baseline for each quality is that landed head's compared score, with nothing configured |
+| A drop ticket accepts a fall | Given a drop ticket in the declaration in force for a quality, with a from-score, a to-score and a reason, When a change's base compared score is at most the from-score and its head compared score is at least the to-score, Then the fall is a notice with the reason and the verdict is not lowered by it |
+| A drop ticket survives a moving base | Given a drop ticket in the declaration in force and a base that moved to another commit with the same compared score before the change landed, When the change is judged again, Then the ticket still covers the fall |
+| A drop ticket covers no second fall | Given a quality whose compared score regained its ticket's from-score, When a later change falls on it again, Then the ticket does not cover it and the report says the ticket can be removed |
+| A drop ticket is shown until regained | Given an accepted drop, When later reports are produced, Then each shows the ticket and its reason until the quality's compared score regains the ticket's from-score |
 | A change cannot narrow its own declaration | Given a change that removes an assignment, adds an exemption, sets a floor or writes a ticket, When it is judged, Then it is judged as if that edit were absent, and the edit is a notice |
 | An exemption carries its reason | Given an exempted unit, When a run reports, Then the exemption and its reason appear beside the check it silenced |
 | An added exemption is inert for its change | Given a change that adds an exemption for a flaw it introduces, When it is judged, Then the flaw lowers the verdict and the exemption is a notice |
 | The Declared quality cannot be exempted | Given a declaration that exempts Covered or Record kept, When a run is asked for, Then the exemption is refused and reported |
 | A finding is fixable | Given any finding, When an agent reads it, Then it holds the quality, the check, the kind, the unit, the evidence and the provenance, and a layer finding names the layer reached |
+| A report quotes no more than the evidence | Given a finding on a unit, When the report is written, Then it holds the unit's path, the symbol and at most the offending line, and never more of the unit's body |
 | The same finding everywhere | Given one flaw, When the laptop, the hook, CI and the self-review each run, Then each reports a finding with the same identity |
-| The hook ends within its bound | Given a staged change and an analyzer that does not return, When the pre-commit hook runs, Then the run ends within the commit-time bound, the checks that did not finish are coverage, and the commit is not blocked past the bound |
+| The hook ends within its bound | Given a staged change and a check that does not return, When the pre-commit hook runs, Then the run ends within the commit-time bound, the checks that did not finish are coverage, and the commit is not blocked past the bound |
 | An explanation changes nothing | Given a finding, When an explanation is asked for, Then prose labelled as an explanation is returned and the score and verdict are unchanged |
 | A disagreeing explanation shows both | Given an explanation that disagrees with its finding, When it is shown, Then the finding stands and the disagreement is visible |
 | The judge is given data | Given a unit whose text addresses the judge, When a judged check runs, Then the text is judged as the unit's content and nothing in it changes which question is asked |
 | The explainer can act on nothing | Given a unit whose text instructs the explainer to read a file or run a command, When an explanation is asked for, Then nothing is read or run and the explanation is returned or refused |
 | Repository code is never run | Given any run, When it completes, Then no code from the repository under measurement was executed |
 | A report persists | Given a completed run, When it reports, Then the report is kept durably with the repository, the change and the time, and a failure to keep it never changes the verdict |
-| The suite adheres | Given the suite's own repository, When its gate runs, Then the suite measures itself and its verdict counts |
 
 ---
 
@@ -466,26 +478,9 @@ exempt the Declared quality's checks.
 |---|---|---|---|
 | requested | declared | the declaration in force is read | it exists and is well-formed |
 | requested | undeclared | no declaration | the repository has none |
-| requested | not run | the suite cannot proceed | the declaration cannot be read, no analyzer for any unit, or the repository cannot be read |
+| requested | not run | the suite cannot proceed | the declaration in force cannot be read, no unit is in a measured language, or the repository cannot be read |
 | declared, undeclared | measured | every check that can run has run | always |
 | measured | reported | the report is written and, for a change, the verdict is set | always; a failure to persist is noted, not fatal |
-
-### The baseline
-
-```
-+--------+    +------+
-| absent |--->| held |<--+
-+--------+    +------+   |
-                 |       |
-                 +-------+
-           each landed change
-```
-
-| From | To | Trigger | Condition |
-|---|---|---|---|
-| absent | held | the owner adopts the suite on the repository | the first report's scores are the baseline |
-| held | held | a change lands through the gate | its head is the next base; a fall is covered by a drop ticket in the declaration in force, shown until its from-score is regained |
-| held | held | a change lands bypassing the gate | its head is the next base, with no reason recorded (see Tradeoffs) |
 
 ---
 
@@ -509,8 +504,6 @@ exempt the Declared quality's checks.
   judge.
 - **Abstention band.** Per judged check, the probabilities that are
   neither a finding nor a pass.
-- **Analyzer.** Whatever performs rule checks for one language.
-- **Analyzer set.** The languages a run can analyze.
 - **Explanation.** Prose about one finding, produced on request by
   something that can act on nothing. Invariant: never an input to a score
   or a verdict.
@@ -532,8 +525,7 @@ exempt the Declared quality's checks.
   adapters and binds them to the use cases' ports.
 - **Runtime.** A declared entry the repository can be run as, each with
   one composition root.
-- **Region.** A span of one file assigned to one layer, named by a marker
-  the file carries or by the lines it spans.
+- **Region.** A span of one file assigned to one layer.
 - **Declaration.** A repository's statement of its layers, runtimes,
   design records, radar, exemptions, floors and drop tickets. Invariant:
   changes only with the owner's approval; a change is judged under the one
@@ -547,15 +539,22 @@ exempt the Declared quality's checks.
 - **Design behavior.** One row of a design record's Behaviors table.
 - **Radar.** The tech radar the declaration names, read for its rings.
 - **Run.** One measurement of a repository or a change.
-- **Target.** What a run measures: a repository at one revision, its
-  working tree, or its staged index.
 - **Change.** A repository's head against its base, or a working tree or
   staged index against its base.
+- **Base.** The revision a change is judged against. Invariant: measured
+  by the gate's own run, never by a report the change supplies.
+- **Head.** What a change produces: a revision, a working tree, or a
+  staged index.
+- **Gate.** The required check that runs the suite over a change before it
+  lands. Invariant: refuses a change whose verdict is lowered; whether it
+  refuses not run is pending Q10.
 - **Report.** A run's outcome: the scores, findings, abstentions, notices
   and coverage, and for a change the verdict, the compared scores and the
   provenance of each finding.
 - **Score.** Per quality, the units that pass every check of that quality
-  as a fraction of the units covered. Invariant: between zero and one.
+  as a fraction of the units covered; whether that is one fraction or a
+  combination per kind of unit is pending Q8. Invariant: between zero and
+  one.
 - **Compared score.** Per quality, the score taken over the units both the
   base and the head reports cover, plus the units the change created.
   Invariant: a deleted unit, and a unit only one side could check, is on
@@ -563,6 +562,7 @@ exempt the Declared quality's checks.
 - **Finding.** One check failing on one unit: the quality, check, kind,
   unit, evidence, provenance, and for a layer check the layer reached.
   Invariant: carries a stable identity that survives a rename.
+- **Kind.** Of a finding: rule or judged, by the check that produced it.
 - **Evidence.** The location and at most the offending line.
 - **Provenance.** Introduced, when the finding's identity is absent from
   the base's report; existing, when it is present there.
@@ -575,17 +575,19 @@ exempt the Declared quality's checks.
 - **Coverage.** Every unit and check a run did not perform, with the
   reason.
 - **Baseline.** Per quality, the base's compared score, which the head's
-  compared score is held to. Invariant: through the gate it falls only by
-  a drop ticket.
+  compared score is held to. Invariant: derived for each change, never
+  stored; through the gate it falls only by a drop ticket.
 - **Drop ticket.** The owner's statement in the declaration accepting a
-  fall on one quality from a from-score to a to-score, with a reason.
-  Invariant: names scores, never a commit; covers a change only from the
-  declaration in force; spent once the from-score is regained; shown
-  until then.
-- **Floor.** An owner-set score per quality. Invariant: binds once the
-  base's score reaches it; an aim until then.
+  fall on one quality from a from-score to a to-score, both compared
+  scores, with a reason. Invariant: names scores, never a commit; covers a
+  change only from the declaration in force; spent once the compared score
+  regains the from-score; shown until then.
+- **Floor.** An owner-set score per quality, tested against compared
+  scores. Invariant: binds once the base's compared score reaches it; an
+  aim until then.
 - **Verdict.** Not run, lowered, inconclusive, raised, or held, read in
-  that order. Invariant: only lowered fails a gate.
+  that order. Invariant: lowered fails a gate; whether not run does is
+  pending Q10.
 - **Exemption.** An owner's statement that a unit is not checked by one
   check, or that one finding is dismissed, with a reason. Invariant:
   cannot cover the Declared quality; inert for the change that adds it.
@@ -600,15 +602,12 @@ exempt the Declared quality's checks.
 | Threshold, per judged check | The rule over the judge's probabilities above which a judged check is a finding; chosen from a labelled set per check, never by eye |
 | Abstention band, per judged check | The probabilities that are neither a finding nor a pass; non-empty for every judged check |
 | Commit-time bound | How long a pre-commit run may take in total; short enough that a developer does not bypass it |
-| Analyzer bound | How long one analyzer may run; a pre-commit run still ends within the commit-time bound |
 | Judged-check budget, per run | How many judged questions one run may ask; large enough for a typical change, bounded so a large change degrades to abstentions and coverage, never to a hung run |
 | Complexity ceiling | The per-function complexity above which Complexity finds; a ratchet, never raised to fit a file |
 | Duplication ceiling | The clone size above which Duplication finds; a ratchet |
 | Floor, per quality | Set by the owner, or absent |
 | Evidence bound | How much of a unit a finding may quote; at most the offending line |
-| Analyzer set | The languages the suite measures; at least Python, TypeScript with JavaScript, and shell |
 | Stub vocabulary | The markers Stub recognises; extended by the owner, never emptied |
-| Region markers | The marker forms that name a region and the layer each maps to; extended by the owner |
 | Design-record status that counts | Which statuses make a record readable for Trace and Language; at least APPROVED and IMPLEMENTED |
 
 ---
@@ -623,13 +622,17 @@ exempt the Declared quality's checks.
   what the repository supplies is its data. Neither the judge nor the
   explainer has any way to act: no tools, no files, no network beyond the
   model asked.
+- **The first declaration is the owner's.** The declaration in force at
+  adoption is one the owner wrote or approved; until then the repository
+  is undeclared. A declaration the owner did not approve stays untrusted
+  data and is never the declaration in force.
 - **A change can try to rewrite its own bar.** The declaration, the
   baseline and the exemptions a change is judged under are the ones in
   force before it; its own declaration can only widen (G9, G17). The edit
   itself is a notice.
 - **A change's author cannot approve its declaration edits.** The owner's
   approval of a declaration edit never comes from the author of the
-  change that carries it.
+  change that carries it. Where the owner is the author, see Q11.
 - **A change cannot supply its own baseline.** A baseline comes only from
   the gate's own run over the base; a report a change's own run produced
   never becomes the base it is judged against.
@@ -640,9 +643,9 @@ exempt the Declared quality's checks.
 - **An unavailable judge must not open the gate.** A judge that cannot be
   reached yields coverage missing and at best inconclusive, never a pass
   or a raised verdict (G3, G4).
-- **The judge's credential is out of the repository's reach.** Only the
-  suite's asking of the judge can read it; nothing the repository
-  supplies, and nothing an analyzer does, can.
+- **The judge's access is out of the repository's reach.** Nothing the
+  repository supplies, and nothing a check does with it, can obtain what
+  the judge or the explainer is authorised with.
 - **Reports may name files and symbols.** A report holds paths, symbol
   names and at most one quoted line per finding, never a file's body.
   Where reports persist is the architecture record's.
@@ -655,9 +658,7 @@ exempt the Declared quality's checks.
 
 ## Ships where
 
-Two stages: the owner's laptop, as part of the LMDE contract, and the
-adopting repositories' CI as a required check. A cloud agent session runs
-it on demand. No nonprod stage.
+The owner's laptop as part of the LMDE contract, the adopting repositories' CI as a required check, and a cloud agent session on demand.
 
 ---
 
@@ -665,10 +666,10 @@ it on demand. No nonprod stage.
 
 | Decision | Choice | Rationale | Origin |
 |---|---|---|---|
-| Product or tooling | Product: design, architecture and as-built records | The gate, the hooks, the merge bot and the agents code against its verdict, so it is not self-contained | the sdlc skill, Product or tooling |
+| Product or tooling | Product: design, architecture and as-built records | The gate, the hooks and the agents code against its verdict, so it is not self-contained | the sdlc skill, Product or tooling |
 | The qualities | A closed set of nine, each defined by an SDLC rule, the ninth being the suite's own Declared | The suite executes the skills' rules; it does not invent its own. Declared makes the other eight unavoidable | Todd, 2026-10-24 (concept); the coding skill, Section 1.2; self-review panel 2026-10-24 |
 | Kinds of check | Rule, judged, explanation; told apart in every report | A fact and a judgement fail differently and are trusted differently | the decision-models skill, The ladder |
-| Inconclusive never fails and never raises | An abstention or an unrun check is at worst inconclusive and at best inconclusive | A forced low-confidence verdict fails clean changes; a raise on missing coverage ratchets a number nobody measured | ci.magic's inconclusive verdict; Slater's maintainability paradox; self-review panel 2026-10-24 |
+| Inconclusive never fails and never raises | An abstention or an unrun check never yields lowered and never yields raised; the change it touches is inconclusive | A forced low-confidence verdict fails clean changes; a raise on missing coverage ratchets a number nobody measured | ci.magic's inconclusive verdict; Slater's maintainability paradox; self-review panel 2026-10-24 |
 | The bar | A per-repository, per-quality baseline that is the base's compared score, so it ratchets up as changes land, and falls through the gate only by a drop ticket in the declaration in force naming scores, not a commit | A fixed bar nobody clears is switched off; a ratchet holds; a ticket makes the owner's reason part of the record and survives the base moving while a change waits to land | the sdlc skill, law 11; self-review panel 2026-10-24, both rounds |
 | What a score comparison sees | The units both sides cover and the units the change created | Deleting clean code is not regression, and a judge that answered on one side only is not a rise | self-review panel 2026-10-24 |
 | Provenance | Introduced is absent-at-base, whatever unit the finding names; existing reports; a rename keeps identity | A change is judged on what it did, including what it broke from under another unit | Todd, 2026-10-24 (concept, gating stories); self-review panel 2026-10-24, both rounds |
@@ -692,8 +693,9 @@ it on demand. No nonprod stage.
   Kept test and Record kept uncovered until a record exists. Rows it
   changes: Design records as input; the missing-record behaviors.
 - **Q4 The judge off the laptop.** Whether a cloud session asks a hosted
-  judge directly, or runs rule checks only. Rows it changes: Where it
-  runs.
+  judge directly, or runs rule checks only. Whether a change from a
+  contributor the owner does not trust can cause the judge to be asked at
+  all. Rows it changes: Where it runs; Security Considerations.
 - **Q5 First adopters.** Which repositories are measured first; the
   candidates are this repository, template-tools and GammaGo, one per MVP
   language. Rows it changes: none here; the plan.
@@ -711,13 +713,26 @@ it on demand. No nonprod stage.
   or term (Record kept), a revert of a landed change, and a judged false
   positive in its own change all lower, and a ticket or exemption the
   change writes is inert for it. Whether the owner's bypass is the
-  sanctioned route and what it records, or the suite grants another path.
-  Rows it changes: Exemptions; Judging a change; the Declared and drop
-  ticket behaviors.
+  sanctioned route, whether the next report shows a bypassed landing as a
+  notice, and what it records; or whether the suite grants another path.
+  Rows it changes: Tradeoffs; Exemptions; Judging a change; the Declared
+  and drop ticket behaviors.
 - **Q10 Not run at the gate.** Whether a required check whose verdict is
-  not run blocks a merge, and how the suite's own gate (G19) recovers when
-  the suite cannot run on its own fix. Rows it changes: the Verdict table;
-  the not-run behaviors; G19.
+  not run blocks a merge. How a repository recovers when its declaration
+  in force cannot be read, since the change that fixes it is judged under
+  it. How the suite's own gate (G19) recovers when the suite cannot run on
+  its own fix. Rows it changes: the Verdict table; Gate; the not-run and
+  unreadable-declaration behaviors; G19.
+- **Q11 An owner who is the author.** In a repository with one human, the
+  owner authors the changes that carry declaration edits. Whether the
+  owner's approval may then come from the same person, and what the
+  report shows when it does. Rows it changes: G9; Security
+  Considerations; the declaration behaviors.
+- **Q12 A judged rerun.** Whether a rerun of the same head against the
+  same base reuses each judged answer, so a required check cannot flip
+  between verdicts on retry. Whether the base's and the head's judged
+  answers may be taken at different times. Rows it changes: Measurement;
+  Judging a change; the judged behaviors.
 
 ---
 
@@ -773,7 +788,7 @@ it on demand. No nonprod stage.
   per Slater's proposed index; pending Q7.
 - **A fleet view** -- adherence over time per repository in the LMDE
   observability stack, as a consumer of persisted reports.
-- **More analyzers** -- Go and GDScript, as the fleet's code demands.
+- **More languages** -- Go and GDScript, as the fleet's code demands.
 - **A reviewer that reads the report** -- designomatic or the self-review
   panel given the report as context, so review spends its turns on what
   the suite cannot see.
@@ -789,13 +804,10 @@ it on demand. No nonprod stage.
 - [concept: arch-adherence](../concepts/arch-adherence/CONCEPT.md) -- the
   origin
 - [ARCHITECTURE.ARCH-ADHERENCE.md](./ARCHITECTURE.ARCH-ADHERENCE.md) --
-  how this record intends to be delivered
+  how this record intends to be delivered, including how a judge is
+  reached
 - [LMDE.DESIGN.md](./LMDE.DESIGN.md) -- the platform the laptop stage is
   part of
-- [DECIDE-ROUTE.DESIGN.md](./DECIDE-ROUTE.DESIGN.md) -- how a local tool
-  asks the judge on the laptop
-- template-tools `docs/design/DESIGN.CI-MAGIC-TOOLKIT.md` -- the hand-off
-  of a repository's checker to the CI judge
 - the coding skill, Section 1.2; the testing skill, Where behaviors come
   from; the decision-models skill -- the rules the checks execute
 - Slater, T. (2025). Quantitative Analysis of Technical Debt and Pattern
