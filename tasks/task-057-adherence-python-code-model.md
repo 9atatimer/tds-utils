@@ -17,6 +17,7 @@ line range). The fixture is a small copy of `chores/`'s shape under
 `adherence/tests/fixtures/`, never `chores/` itself. RED first, per
 member: a test that asks the adapter for that member over the fixture and
 asserts the value, with the port's contract suite shared by the fake.
-The grimp row must be on `lmde/TECH_RADAR.md` before the adapter lands
-(Issue#599). Done when every `CodeModel` member the architecture names
-has a test and the fake passes the same suite.
+
+Radar gate: the grimp row must be on `lmde/TECH_RADAR.md` before the
+adapter lands (Issue#599). Done when every `CodeModel` member the
+architecture names has a test and the fake passes the same suite.

@@ -94,11 +94,9 @@ behavior per commit. Order:
   score that prints.
 - task-059 -- the design records as input and the Layered checks; Trace
   is the row the paper's remedy turns on.
-- task-060, task-061 -- the remaining rule checks; task-061 waits on the
-  radar rows (Issue#599).
-- task-062 -- `judge_change`: the gate exists only from here.
-- task-064 -- the judged checks through the decide client; can run beside
-  task-062 once task-061 lands.
+- task-060, task-061 -- the remaining target-level rule checks.
+- task-062 -- `judge_change`: the gate exists only from here; task-063,
+  task-064 and task-065 each wait on it.
 
 The owner's rulings on the design's Q1-Q12 and the architecture's Q5-Q7
 land as Key Decisions appends under Issue#590 while the route runs; the
@@ -106,12 +104,14 @@ tasks name the row each ruling changes.
 
 ## Blockers
 
-- 2026-10-24: Adherence task-061, task-069 and task-057 need `lmde/TECH_RADAR.md`
-  rows for grimp, dependency-cruiser, ast-grep, lizard, jscpd and
-  markdown-it-py (Issue#599); the file is human-maintained. Unblock: Todd
-  rules a ring for each. task-067's ledger bucket is tds-internal
-  Issue#276 (a human applies); until then the `ci` stage uses the file
-  cache and says so.
+- 2026-10-24: Adherence tasks 057, 059, 061, 067, 069, 070 and 071 each
+  land a dependency `lmde/TECH_RADAR.md` does not yet carry: grimp,
+  markdown-it-py, lizard and jscpd, `codeql-action/upload-sarif`,
+  dependency-cruiser and ast-grep, the Claude CLI as an explanation
+  adapter (Issue#599); the file is human-maintained. Unblock: Todd rules a
+  ring for each. task-067's ledger bucket is tds-internal Issue#276 (a
+  human applies); until then the `ci` stage uses the file cache and says
+  so.
 - 2026-09-17: `lmde/TECH_RADAR.md` rows for Textual, PyYAML, rumps and
   Click (issue #288) -- human-maintained file; the code already depends on
   them. Unblock: Todd lands the rows or refuses a ring.

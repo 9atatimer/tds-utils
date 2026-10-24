@@ -8,8 +8,8 @@ blocked_by: [task-060]
 implements: docs/design/ARCHITECTURE.ARCH-ADHERENCE.md
 ---
 `ComplexityPort` (lizard) and `DuplicationPort` (jscpd) with their fakes,
-the radar read through `RecordsPort`, and the remaining rule checks, RED
-first against `measure`:
+the radar read through `RecordsPort`, and the remaining target-level rule
+checks, RED first against `measure`:
 
 - A behavior with no kept test is found
 - A test that cannot fail is found
@@ -20,7 +20,9 @@ first against `measure`:
 - A disallowed dependency is found
 - A radar entry in the core is found
 
-The lizard and jscpd rows must be on `lmde/TECH_RADAR.md` first
-(Issue#599). Done when every rule check in the design's Qualities table
-has a GREEN test and `bin/adhere measure` prints all nine scores over the
-fixture, with the judged checks as coverage missing.
+Radar gate: the lizard and jscpd rows must be on `lmde/TECH_RADAR.md`
+first (Issue#599). Done when every target-level rule check in the
+design's Qualities table has a GREEN test and `bin/adhere measure` prints
+eight scores over the fixture; the Declared quality's two checks are
+change-level and land with task-062, and the judged checks read as
+coverage missing until task-064.

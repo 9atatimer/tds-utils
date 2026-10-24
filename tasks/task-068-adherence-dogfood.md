@@ -11,6 +11,10 @@ implements: docs/design/ARCHITECTURE.ARCH-ADHERENCE.md
 layer, the `adhere` runtime, the two Adherence records as its design
 records and `lmde/TECH_RADAR.md` as its radar; a CODEOWNERS line for the
 file; an adherence job in `dist-ci.yml` under a `changed-scopes.sh` scope
-for `adherence/`, in `gate`'s `needs`; the first run green with no floor.
-Done when a PR that moves a port import into `adherence/domain/` is
-lowered by its own gate (prove it on a throwaway branch, then revert).
+for `adherence/`, in `gate`'s `needs`. RED first: a case in
+`test/smoketest_changed_scopes.sh` that a change under `adherence/`
+selects the new scope and a change elsewhere does not (that script's
+own header says a wrong rule skips a suite and leaves `gate` green),
+then the scope and the job. Done when the first run is green with no
+floor, and a throwaway branch that moves a port import into
+`adherence/domain/` is lowered by its own gate, then reverted.

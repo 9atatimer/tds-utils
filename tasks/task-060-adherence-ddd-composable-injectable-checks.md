@@ -10,7 +10,7 @@ implements: docs/design/ARCHITECTURE.ARCH-ADHERENCE.md
 The rule parts of the three qualities, RED first against `measure`:
 
 - A foreign noun is found
-- An anemic type is found (rule part)
+- An anemic type is found (rule part; the judged part is task-064)
 - A foreign write is found
 - A wire format in a signature is found
 - A nested function is found
