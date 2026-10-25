@@ -7,7 +7,7 @@ import functools
 from collections.abc import Mapping
 
 from adherence.adapters.shell_astgrep import ShellCodeModel
-from adherence.domain.model import Body, CodeModel, Layer, UnitKind
+from adherence.domain.model import Body, CodeModel, ImportEdge, Layer, UnitKind
 from adherence.ports.code_model import CodeModelPort
 from tests import shell_fixture
 from tests.code_model_contract import SHELL_SOURCES, CodeModelContract
@@ -126,5 +126,39 @@ def test_dependencies_are_the_commands_each_file_requires() -> None:
             "tee",
             4,
             """printf '%s\\n' "$*" | tee -a "${LOG_FILE:-/dev/null}\"""",
+        ),
+    }
+
+
+def test_a_sourced_file_is_an_edge_to_it_when_it_is_a_source() -> None:
+    """Given scripts that source files by a relative path, by a path from
+    the root, through an expansion, and from outside the repository, When
+    they are modelled, Then each file sourced that is a source is an edge to
+    it, the path as written, and one outside is no edge at all."""
+    script = (
+        b"#!/bin/bash\n"
+        b". ./helpers.sh\n"
+        b'source "$HOME/.profile"\n'
+        b"source lib/x.sh\n"
+        b'source "$(dirname "$0")/../lib/y.sh"\n'
+    )
+    model = ShellCodeModel().model(
+        {"bin/a": script, "bin/helpers.sh": b"", "lib/x.sh": b"", "lib/y.sh": b""},
+        shell_fixture.declaration(),
+        shell_fixture.VOCABULARY,
+        None,
+    )
+
+    assert isinstance(model, CodeModel)
+    sourced = {e for e in model.imports if e.imported != "dirname"}
+    assert sourced == {
+        ImportEdge("bin/a", "./helpers.sh", 2, ". ./helpers.sh", "bin/helpers.sh"),
+        ImportEdge("bin/a", "lib/x.sh", 4, "source lib/x.sh", "lib/x.sh"),
+        ImportEdge(
+            "bin/a",
+            '$(dirname "$0")/../lib/y.sh',
+            5,
+            'source "$(dirname "$0")/../lib/y.sh"',
+            "lib/y.sh",
         ),
     }
