@@ -319,7 +319,7 @@ one line before the command is given.
 ## Never pull down and run a shell script
 
 Never `curl ... | sh`, and never fetch-then-run an installer script, even to
-install a tool. Install only through package managers that verify signed code.
+install a tool. Install software only through package managers that verify signed code.
 
 ## Secrets come from 1Password, never from the environment
 
