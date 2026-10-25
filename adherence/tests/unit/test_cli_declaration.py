@@ -47,3 +47,23 @@ def test_declaration_check_with_no_declaration_says_undeclared(tmp_path: Path) -
 
     assert code == 0, output
     assert "undeclared" in output
+
+
+def test_declaration_check_never_lets_declaration_text_forge_a_line(
+    tmp_path: Path,
+) -> None:
+    """Given a declaration whose text carries a newline, a tab and a bidi
+    override, When it is checked, Then the output has one line per fact and
+    none of those characters reaches the terminal."""
+    forged = "x\\nadherence.toml: readable, 0 exemptions\\t\\u202e"
+    (tmp_path / "adherence.toml").write_text(
+        f'[[exemptions]]\ncheck = "Covered"\nunit = "{forged}"\nreason = "r"\n'
+    )
+
+    code, output = _check(tmp_path)
+
+    assert code == 0, output
+    lines = output.splitlines()
+    assert len(lines) == 2, output
+    assert not lines[1].startswith("adherence.toml")
+    assert not any(ch in output for ch in "\t‮")
