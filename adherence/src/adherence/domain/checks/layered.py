@@ -386,13 +386,30 @@ def _rooted(
     )
 
 
+def _below_root(construction: _Construction) -> Finding | None:
+    """A finding naming a unit outside the composition-root layer and the
+    concrete adapter it constructs; an uncovered unit is never checked."""
+    if construction.layer in (None, Layer.COMPOSITION_ROOT):
+        return None
+    call = construction.call
+    return Finding(
+        WIRING,
+        construction.unit,
+        construction.layer,
+        construction.adapter,
+        Evidence(call.path, call.line, call.callee),
+        reached=Layer.ADAPTERS,
+    )
+
+
 def wiring(
     model: CodeModel,
     declaration: Declaration,
     records: DesignRecords | RecordsUnavailable,
     parameters: Parameters,
 ) -> CheckOutcome:
-    """Per declared runtime, exactly one unit constructs concrete adapters."""
+    """Per declared runtime, exactly one unit constructs concrete adapters,
+    and no unit outside the composition-root layer constructs one."""
     if not declaration.declared:
         return undeclared(WIRING.name)
     adapters = _concrete_adapters(model, parameters.vocabulary)
@@ -402,4 +419,9 @@ def wiring(
         for runtime in declaration.runtimes
         if (finding := _rooted(runtime, _roots(runtime, constructions))) is not None
     ]
+    findings.extend(
+        finding
+        for construction in constructions
+        if (finding := _below_root(construction)) is not None
+    )
     return CheckOutcome(tuple(findings))
