@@ -14,6 +14,7 @@ from adherence.domain.model import (
     CodeModel,
     Definition,
     Layer,
+    MemberKind,
     Parameter,
     ReferenceKind,
     Region,
@@ -460,3 +461,47 @@ def test_conditionals_see_through_logic_switches_and_instanceof() -> None:
         (4, "x"),
         (5, "isReady"),
     ]
+
+
+def test_members_are_each_types_fields_and_methods() -> None:
+    """Given a class with fields, a class with a parameter property and a
+    field set in its constructor, and an interface, When the fixture is
+    modelled, Then each type's fields (declared, a parameter property, or
+    assigned on this) and methods are its members."""
+    members = {(m.path, m.owner, m.name, m.kind) for m in fixture_model().members}
+
+    rules, ports, fs = (
+        "lib/tool/rules.ts",
+        "lib/tool/ports.ts",
+        "lib/tool/fs-store.ts",
+    )
+    assert members == {
+        (rules, "Order", "total", MemberKind.FIELD),
+        (rules, "Order", "status", MemberKind.FIELD),
+        (rules, "Order", "isLarge", MemberKind.METHOD),
+        (ports, "Store", "save", MemberKind.METHOD),
+        (fs, "FsStore", "constructor", MemberKind.METHOD),
+        (fs, "FsStore", "root", MemberKind.FIELD),
+        (fs, "FsStore", "opened", MemberKind.FIELD),
+        (fs, "FsStore", "save", MemberKind.METHOD),
+    }
+
+
+def test_an_object_type_alias_has_members_and_a_parameter_type_none() -> None:
+    """Given a type alias of an object type and a method whose parameter is
+    typed by an object type, When they are modelled, Then the alias's
+    members are its own and the parameter's type adds none to the class."""
+    source = (
+        b"type Ports = { save(o: O): void; name: string };\n"
+        b"class C {\n"
+        b"  m(o: { x: number }): void {}\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.ts": source})
+
+    assert {(m.owner, m.name, m.kind) for m in model.members} == {
+        ("Ports", "save", MemberKind.METHOD),
+        ("Ports", "name", MemberKind.FIELD),
+        ("C", "m", MemberKind.METHOD),
+    }
