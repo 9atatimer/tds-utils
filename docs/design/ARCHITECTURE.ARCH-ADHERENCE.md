@@ -1,9 +1,9 @@
 # Architectural Adherence -- architecture
 
-> **Status:** DRAFT
+> **Status:** APPROVED (Todd, 2026-10-24, after tds-utils PR#605; the Open Questions are ruled by Key Decisions appends under tds-utils Issue#590, never by body edits)
 > **Date:** 2026-10-24 (self-review panel findings folded in the same day)
 > **Authors:** Todd Stumpf, Claude
-> **Implements:** [DESIGN.ARCH-ADHERENCE.md](./DESIGN.ARCH-ADHERENCE.md) (status: DRAFT; this record was written ahead of the design's approval at the owner's request and is re-read against the design the day it is APPROVED)
+> **Implements:** [DESIGN.ARCH-ADHERENCE.md](./DESIGN.ARCH-ADHERENCE.md) (status: APPROVED 2026-10-24; this record was re-read against it the same day)
 > **As-built read:** `docs/arch/ARCHITECTURE.md` as of 2026-10-24: the proxy layer, the Ollama Gateway and OCR on Demand; no as-built exists for `bin/decide`, `chores/` or the dist tools, so their shapes were read from code
 
 ---

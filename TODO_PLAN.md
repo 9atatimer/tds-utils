@@ -80,23 +80,38 @@ discovered Issue#456. Order:
 this section; issue #289 owns the migration into `tasks/`.
 
 Architectural Adherence (`docs/design/DESIGN.ARCH-ADHERENCE.md` and
-`docs/design/ARCHITECTURE.ARCH-ADHERENCE.md`, both DRAFT, 2026-10-24;
-concept under `docs/concepts/arch-adherence/`): the suite that executes
-the coding skill's mechanical tests over a repository, scores eight
-qualities, and refuses a change that lowers a score. No code yet. Order:
+`docs/design/ARCHITECTURE.ARCH-ADHERENCE.md`, both APPROVED 2026-10-24
+after the designomatic and self-review passes of tds-utils PR#605; epic
+Issue#588): the suite that executes the coding skill's mechanical tests
+over a repository, scores nine qualities, and refuses a change that lowers
+a score. No code yet; the route is tasks 056-072, each RED first, one
+behavior per commit. Order:
 
-- Todd rules on the design's Q1-Q7 and marks it APPROVED; the architecture
-  record is then re-read against the frozen design and goes to its own
-  review (the seam-review panel, then Todd).
-- Planning (phase 3b) cuts the route into `tasks/` only after both records
-  are APPROVED; the first behaviors to go RED are Grep, Arrow and Purity
-  over `chores/` under a declaration, with the judge faked.
-- The ledger bucket and the `naatm-hooks` pre-commit stage are consumer
-  changes in tds-internal and template-tools, cross-linked from the first
-  implementation PR, never before it.
+- task-056 -- the engine skeleton, `bin/adhere`, `load_declaration`, and
+  the engine's own architect tests; nothing else can start before it.
+- task-057 -- the Python code model; every check reads only this.
+- task-058 -- `measure`, the `Report`, the Hexagonal checks: the first
+  score that prints.
+- task-059 -- the design records as input and the Layered checks; Trace
+  is the row the paper's remedy turns on.
+- task-060, task-061 -- the remaining target-level rule checks.
+- task-062 -- `judge_change`: the gate exists only from here; task-063,
+  task-064 and task-065 each wait on it.
+
+The owner's rulings on the design's Q1-Q12 and the architecture's Q5-Q7
+land as Key Decisions appends under Issue#590 while the route runs; the
+tasks name the row each ruling changes.
 
 ## Blockers
 
+- 2026-10-24: Adherence tasks 057, 059, 061, 067, 069, 070 and 071 each
+  land a dependency `lmde/TECH_RADAR.md` does not yet carry: grimp,
+  markdown-it-py, lizard and jscpd, `codeql-action/upload-sarif`,
+  dependency-cruiser and ast-grep, the Claude CLI as an explanation
+  adapter (Issue#599); the file is human-maintained. Unblock: Todd rules a
+  ring for each. task-067's ledger bucket is tds-internal Issue#276 (a
+  human applies); until then the `ci` stage uses the file cache and says
+  so.
 - 2026-09-17: `lmde/TECH_RADAR.md` rows for Textual, PyYAML, rumps and
   Click (issue #288) -- human-maintained file; the code already depends on
   them. Unblock: Todd lands the rows or refuses a ring.
