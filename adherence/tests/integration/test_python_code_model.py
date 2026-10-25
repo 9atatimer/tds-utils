@@ -505,3 +505,20 @@ def test_environment_reads_sleeps_and_stubs_come_from_the_vocabulary() -> None:
     bodies = {d.unit.symbol: d.body for d in model.definitions}
     assert bodies["b"].sleeps == (4,)
     assert (bodies["c"].stub_markers, bodies["d"].stub_markers) == ((), ("pass",))
+
+
+def test_an_environment_read_through_a_method_is_an_access() -> None:
+    """Given `os.environ.get(...)`, `os.environ[...]` and `os.getenv(...)`,
+    When they are modelled, Then each is an environment access, the first
+    included though its chain runs past the vocabulary's name."""
+    source = (
+        b"import os\na = os.environ.get('A')\nb = os.environ['B']\nc = os.getenv('C')\n"
+    )
+
+    model = _model_of({"m.py": source})
+
+    assert sorted((a.line, a.target) for a in model.accesses) == [
+        (2, "os.environ.get"),
+        (3, "os.environ"),
+        (4, "os.getenv"),
+    ]
