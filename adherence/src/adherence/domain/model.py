@@ -173,6 +173,18 @@ class Access:
 
 
 @dataclass(frozen=True, slots=True)
+class Write:
+    """An assignment to a field: the object written (as written), the
+    field, its line, and the definition that makes it."""
+
+    path: str
+    line: int
+    within: str | None
+    target: str
+    field: str
+
+
+@dataclass(frozen=True, slots=True)
 class Unparsed:
     """A source the analyzer could not read as its language, with the reason."""
 
@@ -190,5 +202,6 @@ class CodeModel:
     references: tuple[Reference, ...] = ()
     calls: tuple[Call, ...] = ()
     accesses: tuple[Access, ...] = ()
+    writes: tuple[Write, ...] = ()
     regions: tuple[Region, ...] = ()
     unparsed: tuple[Unparsed, ...] = ()

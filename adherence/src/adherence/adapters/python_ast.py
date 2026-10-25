@@ -31,6 +31,7 @@ from adherence.domain.model import (
     Unit,
     UnitKind,
     Unparsed,
+    Write,
 )
 from adherence.domain.parameters import Vocabulary
 
@@ -285,6 +286,23 @@ def _accesses(path: str, scoped: Sequence[tuple[str | None, ast.AST]]) -> list[A
     return found
 
 
+def _assigned(node: ast.AST) -> list[ast.expr]:
+    if isinstance(node, ast.Assign):
+        return list(node.targets)
+    if isinstance(node, ast.AugAssign | ast.AnnAssign):
+        return [node.target]
+    return []
+
+
+def _writes(path: str, scoped: Sequence[tuple[str | None, ast.AST]]) -> list[Write]:
+    return [
+        Write(path, target.lineno, within, ast.unparse(target.value), target.attr)
+        for within, node in scoped
+        for target in _assigned(node)
+        if isinstance(target, ast.Attribute)
+    ]
+
+
 # --- Adapter -----------------------------------------------------------------
 
 
@@ -313,6 +331,7 @@ class PythonCodeModel:
         references: list[Reference] = []
         calls: list[Call] = []
         accesses: list[Access] = []
+        writes: list[Write] = []
         unparsed: list[Unparsed] = []
         trees: dict[str, ast.Module] = {}
         for path in sorted(sources):
@@ -333,6 +352,7 @@ class PythonCodeModel:
             references.extend(_references(path, tree, scoped))
             calls.extend(_calls(path, scoped))
             accesses.extend(_accesses(path, scoped))
+            writes.extend(_writes(path, scoped))
         try:
             imports = import_edges(sources, trees, deadline)
         except ImportGraphFailed as failure:
@@ -347,6 +367,7 @@ class PythonCodeModel:
             references=tuple(references),
             calls=tuple(calls),
             accesses=tuple(accesses),
+            writes=tuple(writes),
             regions=regions,
             unparsed=tuple(unparsed),
         )
