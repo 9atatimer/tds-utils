@@ -67,6 +67,39 @@ class Unit:
 
 
 @dataclass(frozen=True, slots=True)
+class Parameter:
+    """One parameter of a function: its name (`*args` and `**kwargs` keep
+    their stars), its annotation's text, and how it is passed."""
+
+    name: str
+    annotation: str | None
+    keyword_only: bool
+    has_default: bool
+
+
+@dataclass(frozen=True, slots=True)
+class Signature:
+    """A function's parameters, in order, and its return annotation's text."""
+
+    parameters: tuple[Parameter, ...]
+    returns: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class Definition:
+    """A function or type: its unit, its signature (None for a type), its
+    bases and decorators as written, the symbol it is defined in, and
+    whether a function encloses it."""
+
+    unit: Unit
+    signature: Signature | None
+    bases: tuple[str, ...]
+    decorators: tuple[str, ...]
+    parent: str | None
+    nested: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ImportEdge:
     """One import: the importing file, the module it resolves to, the line
     and its text, and the imported module's file when it is a source."""
@@ -92,5 +125,6 @@ class CodeModel:
 
     units: tuple[Unit, ...] = ()
     imports: tuple[ImportEdge, ...] = ()
+    definitions: tuple[Definition, ...] = ()
     regions: tuple[Region, ...] = ()
     unparsed: tuple[Unparsed, ...] = ()

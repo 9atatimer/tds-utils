@@ -11,11 +11,21 @@ from __future__ import annotations
 import ast
 import time
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 from adherence.adapters.python_imports import ImportGraphFailed, import_edges
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, layer_of, marker_regions
-from adherence.domain.model import CodeModel, Region, Unit, UnitKind, Unparsed
+from adherence.domain.model import (
+    CodeModel,
+    Definition,
+    Parameter,
+    Region,
+    Signature,
+    Unit,
+    UnitKind,
+    Unparsed,
+)
 from adherence.domain.parameters import Vocabulary
 
 # --- Constants ---------------------------------------------------------------
@@ -36,37 +46,87 @@ def _parse(path: str, data: bytes) -> ast.Module | Unparsed:
         return Unparsed(path, f"not Python: {error}")
 
 
-def _definitions(
-    tree: ast.AST, scope: str | None = None
-) -> list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef]]:
+DefinitionNode = ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
+
+
+@dataclass(frozen=True, slots=True)
+class _Found:
+    symbol: str
+    node: DefinitionNode
+    parent: str | None
+    nested: bool
+
+
+def _walk_definitions(
+    tree: ast.AST, scope: str | None = None, in_function: bool = False
+) -> list[_Found]:
     """Every definition under a node, with its qualified symbol, in order."""
-    found: list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef]] = []
+    found: list[_Found] = []
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, DEFINITIONS):
             symbol = f"{scope}.{node.name}" if scope else node.name
-            found.append((symbol, node))
-            found.extend(_definitions(node, symbol))
+            found.append(_Found(symbol, node, scope, in_function))
+            is_function = not isinstance(node, ast.ClassDef)
+            found.extend(_walk_definitions(node, symbol, in_function or is_function))
         else:
-            found.extend(_definitions(node, scope))
+            found.extend(_walk_definitions(node, scope, in_function))
     return found
 
 
-def _units(
-    path: str,
-    tree: ast.Module,
-    lines: int,
-    declaration: Declaration,
-    regions: Sequence[Region],
-) -> list[Unit]:
-    units = [
-        Unit(path, UnitKind.FILE, None, 1, lines, layer_of(path, None, declaration))
+def _text(node: ast.expr | None) -> str | None:
+    return None if node is None else ast.unparse(node)
+
+
+def _signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> Signature:
+    arguments = node.args
+    positional = [*arguments.posonlyargs, *arguments.args]
+    first_default = len(positional) - len(arguments.defaults)
+    parameters = [
+        Parameter(arg.arg, _text(arg.annotation), False, index >= first_default)
+        for index, arg in enumerate(positional)
     ]
-    for symbol, node in _definitions(tree):
-        kind = UnitKind.TYPE if isinstance(node, ast.ClassDef) else UnitKind.FUNCTION
-        end = node.end_lineno or node.lineno
-        layer = layer_of(path, node.lineno, declaration, regions)
-        units.append(Unit(path, kind, symbol, node.lineno, end, layer))
-    return units
+    if arguments.vararg is not None:
+        vararg = arguments.vararg
+        parameters.append(
+            Parameter(f"*{vararg.arg}", _text(vararg.annotation), False, False)
+        )
+    parameters.extend(
+        Parameter(arg.arg, _text(arg.annotation), True, default is not None)
+        for arg, default in zip(
+            arguments.kwonlyargs, arguments.kw_defaults, strict=True
+        )
+    )
+    if arguments.kwarg is not None:
+        kwarg = arguments.kwarg
+        parameters.append(
+            Parameter(f"**{kwarg.arg}", _text(kwarg.annotation), False, False)
+        )
+    return Signature(tuple(parameters), _text(node.returns))
+
+
+def _definition(
+    path: str, found: _Found, declaration: Declaration, regions: Sequence[Region]
+) -> Definition:
+    node = found.node
+    is_type = isinstance(node, ast.ClassDef)
+    unit = Unit(
+        path,
+        UnitKind.TYPE if is_type else UnitKind.FUNCTION,
+        found.symbol,
+        node.lineno,
+        node.end_lineno or node.lineno,
+        layer_of(path, node.lineno, declaration, regions),
+    )
+    return Definition(
+        unit=unit,
+        signature=None if isinstance(node, ast.ClassDef) else _signature(node),
+        bases=tuple(ast.unparse(b) for b in node.bases)
+        if isinstance(node, ast.ClassDef)
+        else (),
+        decorators=tuple(ast.unparse(d) for d in node.decorator_list),
+        parent=found.parent,
+        nested=found.nested,
+    )
 
 
 # --- Adapter -----------------------------------------------------------------
@@ -93,6 +153,7 @@ class PythonCodeModel:
             )
         )
         units: list[Unit] = []
+        definitions: list[Definition] = []
         unparsed: list[Unparsed] = []
         trees: dict[str, ast.Module] = {}
         for path in sorted(sources):
@@ -102,7 +163,14 @@ class PythonCodeModel:
                 continue
             trees[path] = tree
             lines = sources[path].count(b"\n") or 1
-            units.extend(_units(path, tree, lines, declaration, regions))
+            file_layer = layer_of(path, None, declaration)
+            units.append(Unit(path, UnitKind.FILE, None, 1, lines, file_layer))
+            found = [
+                _definition(path, f, declaration, regions)
+                for f in _walk_definitions(tree)
+            ]
+            definitions.extend(found)
+            units.extend(d.unit for d in found)
         try:
             imports = import_edges(sources, trees, deadline)
         except ImportGraphFailed as failure:
@@ -113,6 +181,7 @@ class PythonCodeModel:
         return CodeModel(
             units=tuple(units),
             imports=tuple(imports),
+            definitions=tuple(definitions),
             regions=regions,
             unparsed=tuple(unparsed),
         )
