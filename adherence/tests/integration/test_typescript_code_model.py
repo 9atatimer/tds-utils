@@ -406,3 +406,22 @@ def test_an_environment_read_by_subscript_or_destructuring_is_an_access() -> Non
         (1, AccessKind.ENVIRONMENT, "process.env"),
         (2, AccessKind.ENVIRONMENT, "process.env"),
     ]
+
+
+def test_writes_are_field_assignments_with_the_unit_that_makes_them() -> None:
+    """Given a use case assigning a domain value's field, a constructor
+    assigning its own, a global incremented in place, and an update and a
+    logical assignment, When they are modelled, Then each is a write of that
+    field, on that object, by the definition it sits in."""
+    writes = {(w.path, w.within, w.target, w.field) for w in fixture_model().writes}
+    updated = _model_of({"m.ts": b"function f(o) {\n  o.n++;\n  o.m ||= 1;\n}\n"})
+
+    assert writes == {
+        ("lib/tool/run.ts", "closeOrder", "order", "status"),
+        ("lib/tool/fs-store.ts", "FsStore.constructor", "this", "opened"),
+        ("bin/tool.mjs", "load", "globalThis", "counter"),
+    }
+    assert [(w.line, w.target, w.field) for w in updated.writes] == [
+        (2, "o", "n"),
+        (3, "o", "m"),
+    ]
