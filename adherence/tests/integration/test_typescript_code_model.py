@@ -615,6 +615,34 @@ def test_a_file_nested_past_the_walk_is_unparsed_and_the_rest_modelled() -> None
     assert any(d.unit.symbol == "f" for d in model.definitions)
 
 
+@typescript_fixture.needs_cruiser
+def test_a_file_the_cruiser_cannot_read_is_unparsed_alone_by_name() -> None:
+    """Given a file nested deeper than dependency-cruiser can extract beside
+    files whose imports it can, When they are modelled, Then that file alone
+    is Unparsed, with a reason naming it, and holds no fact, and the other
+    files' imports still resolve."""
+    deep = "f(" * 4000 + "1" + ")" * 4000
+    culprit = "lib/deep.ts"
+
+    model = _model_of(
+        {
+            culprit: f"import {{ z }} from './z';\nexport const v = {deep};\n".encode(),
+            "lib/z.ts": b"import { w } from './w';\nexport function z() {}\n",
+            "lib/w.ts": b"export const w = 1;\n",
+        }
+    )
+
+    assert [u.path for u in model.unparsed] == [culprit]
+    [reason] = [u.reason for u in model.unparsed]
+    assert "dependency-cruiser" in reason
+    assert culprit in reason
+    assert {(e.path, e.imported_path) for e in model.imports} == {
+        ("lib/z.ts", "lib/w.ts")
+    }
+    facts = (*model.units, *model.calls, *model.references)
+    assert not [fact for fact in facts if fact.path == culprit]
+
+
 IMPORTING = {
     "a.mjs": b"import { b } from './b.mjs';\nexport function f() {}\n",
     "b.mjs": b"export const b = 1;\n",
