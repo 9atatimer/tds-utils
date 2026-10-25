@@ -310,6 +310,24 @@ def test_measure_domain_function_taking_a_port_or_a_clock_is_found() -> None:
     assert "total" in judged[0].reason and "fetch" in judged[0].reason
 
 
+def test_measure_domain_function_taking_a_literal_naming_a_clock_is_not_found() -> None:
+    """Given a domain function taking a Literal whose value spells a clock's
+    name, and one taking the clock by a string forward reference, When
+    Purity runs, Then only the forward reference is found: a Literal's
+    values are data, not type names."""
+    definitions = (
+        _function(RULES, "label", _annotated(("kind", "Literal['Clock', 'x']"))),
+        _function(RULES, "stamp", _annotated(("now", "'Clock'")), line=4),
+    )
+    files = {RULES: b"x\n"}
+
+    report = measure_with(
+        files, CodeModel(definitions=definitions), vocabulary=_purity_vocabulary()
+    )
+
+    assert [f.unit.symbol for f in _of(report, "Purity")] == ["stamp"]
+
+
 FS = "src/app/adapters/fs.py"
 ROOT = "src/app/container.py"
 CLI = "src/app/cli.py"
