@@ -51,9 +51,10 @@ TRACE = catalog_check("Trace")
 # A row's action is its When clause and its observation its Then clause;
 # each must hold a word for anything to trace to a function. The Then
 # that opens the observation is the first after a word of the action, so
-# a When clause may itself name the word (the check Then asserted).
-WHEN = re.compile(r"\bWhen\b")
-THEN = re.compile(r"\bThen\b")
+# a When clause may itself name the word (the check Then asserted). The
+# keywords are read whatever their case.
+WHEN = re.compile(r"\bwhen\b", re.IGNORECASE)
+THEN = re.compile(r"\bthen\b", re.IGNORECASE)
 WORD = re.compile(r"\w")
 UNTRACEABLE = "the row has no nameable action (When) or observation (Then)"
 PURITY = catalog_check("Purity")
