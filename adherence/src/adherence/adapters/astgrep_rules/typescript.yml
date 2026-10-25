@@ -498,3 +498,9 @@ rule:
               any:
                 - kind: arrow_function
                 - kind: function_expression
+---
+id: syntax-error
+language: TypeScript
+severity: hint
+rule:
+  kind: ERROR

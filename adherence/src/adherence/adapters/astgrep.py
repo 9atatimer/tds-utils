@@ -68,7 +68,7 @@ PARAMETER_PROPERTY, PROPERTY_DEFAULT, PROPERTY_TYPE = (
     "property-type",
 )
 BODY, STUB, CALL, NAME_FACT, STRING = "body", "stub", "call", "name", "string"
-GLOBAL, WRITE = "global", "write"
+GLOBAL, WRITE, SYNTAX_ERROR = "global", "write", "syntax-error"
 MEMBER_METHOD, MEMBER_FIELD, TEST_CALL = "member-method", "member-field", "test-call"
 CONDITIONAL, EITHER, COMPARE, NEGATE, GROUP = (
     "conditional",
@@ -686,6 +686,14 @@ def file_model(
         members=tuple(members(path, matches, defined)),
         test_cases=tuple(test_cases(path, matches, defined, vocabulary)),
     )
+
+
+def syntax_errors(matches: Sequence[Match]) -> dict[str, int]:
+    """The first line the parser could not read, per file that has one."""
+    found: dict[str, int] = {}
+    for m in sorted(_of(matches, SYNTAX_ERROR), key=lambda m: m.line):
+        found.setdefault(m.path, m.line)
+    return found
 
 
 def merged(models: Sequence[CodeModel], **rest: object) -> CodeModel:

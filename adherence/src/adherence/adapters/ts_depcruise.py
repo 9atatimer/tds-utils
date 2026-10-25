@@ -31,11 +31,12 @@ from adherence.adapters.astgrep import (
     file_model,
     merged,
     scan,
+    syntax_errors,
     write_tree,
 )
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, marker_regions
-from adherence.domain.model import CodeModel, ImportEdge
+from adherence.domain.model import CodeModel, ImportEdge, Unparsed
 from adherence.domain.parameters import Vocabulary
 
 # --- Constants ---------------------------------------------------------------
@@ -64,6 +65,22 @@ Resolved = dict[tuple[str, str], str]
 
 def _passed(deadline: Deadline | None, now: float) -> bool:
     return deadline is not None and deadline.epoch_seconds <= now
+
+
+def _readable(
+    sources: Mapping[str, bytes],
+) -> tuple[dict[str, bytes], list[Unparsed]]:
+    """The sources that are UTF-8, and why each other one is not read."""
+    readable: dict[str, bytes] = {}
+    unreadable: list[Unparsed] = []
+    for path in sorted(sources):
+        try:
+            sources[path].decode("utf-8")
+        except UnicodeDecodeError as error:
+            unreadable.append(Unparsed(path, f"not utf-8: {error}"))
+            continue
+        readable[path] = sources[path]
+    return readable, unreadable
 
 
 def _resolved(answer: Mapping[str, object]) -> Resolved:
@@ -157,8 +174,9 @@ class TypeScriptCodeModel:
     ) -> CodeModel | TimedOut:
         if _passed(deadline, self._clock()):
             return TimedOut("model the TypeScript sources")
+        readable, unparsed = _readable(sources)
         matches = scan(
-            sources,
+            readable,
             GRAMMAR,
             binary=self._ast_grep,
             deadline=deadline,
@@ -173,25 +191,31 @@ class TypeScriptCodeModel:
             )
         )
         declared = tuple(r for r in declaration.layers.regions if r.path in sources)
-        by_path: dict[str, list[Match]] = {path: [] for path in sources}
+        errors = syntax_errors(matches)
+        unparsed.extend(
+            Unparsed(path, f"not TypeScript: syntax error at line {line}")
+            for path, line in sorted(errors.items())
+        )
+        parsed = {p: data for p, data in readable.items() if p not in errors}
+        by_path: dict[str, list[Match]] = {path: [] for path in parsed}
         for match in matches:
-            by_path.setdefault(match.path, []).append(match)
+            if match.path in by_path:
+                by_path[match.path].append(match)
         files = [
             file_model(
-                path, sources[path], by_path[path], declaration, found, vocabulary
+                path, parsed[path], by_path[path], declaration, found, vocabulary
             )
-            for path in sorted(sources)
+            for path in sorted(parsed)
         ]
         edges = [edge for f in files for edge in f.imports]
         resolved = (
-            _cruise(
-                sources, cruiser=self._cruiser, deadline=deadline, clock=self._clock
-            )
+            _cruise(parsed, cruiser=self._cruiser, deadline=deadline, clock=self._clock)
             if edges
             else {}
         )
         return merged(
             files,
-            imports=_resolve(edges, resolved, sources),
+            imports=_resolve(edges, resolved, parsed),
             regions=declared + found,
+            unparsed=tuple(sorted(unparsed, key=lambda u: u.path)),
         )
