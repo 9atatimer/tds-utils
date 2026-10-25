@@ -32,6 +32,8 @@ from adherence.domain.model import (
     Definition,
     ImportEdge,
     Parameter,
+    Reference,
+    ReferenceKind,
     Region,
     Signature,
     Unit,
@@ -57,7 +59,7 @@ PARAMETER_PROPERTY, PROPERTY_DEFAULT, PROPERTY_TYPE = (
     "property-default",
     "property-type",
 )
-BODY, STUB, CALL = "body", "stub", "call"
+BODY, STUB, CALL, NAME_FACT, STRING = "body", "stub", "call", "name", "string"
 RETURNS, BASE, DECORATOR, DECORATOR_NEXT = (
     "returns",
     "base",
@@ -430,6 +432,51 @@ def imports(
         for m in sorted(matches, key=lambda m: m.start)
         if m.fact == IMPORT and (source := m.captured(SOURCE)) is not None
     ]
+
+
+def _within(defined: Sequence[_Defined], match: Match) -> str | None:
+    owner = _owner(defined, match)
+    return None if owner is None else owner.symbol
+
+
+def references(
+    path: str, matches: Sequence[Match], defined: Sequence[_Defined]
+) -> list[Reference]:
+    """Every name, dotted chain and type name, and every string literal but
+    an import's module, with the definition each sits in."""
+    found = [
+        Reference(path, m.line, _within(defined, m), ReferenceKind.NAME, m.text)
+        for m in _of(matches, NAME_FACT)
+    ]
+    found.extend(
+        Reference(path, m.line, _within(defined, m), ReferenceKind.STRING, m.text[1:-1])
+        for m in _of(matches, STRING)
+    )
+    return sorted(found, key=lambda r: r.line)
+
+
+def file_model(
+    path: str,
+    data: bytes,
+    matches: Sequence[Match],
+    declaration: Declaration,
+    regions: Sequence[Region],
+    vocabulary: Vocabulary,
+) -> CodeModel:
+    """Every fact of one file, as a CodeModel of that file alone; its imports
+    say which file each resolves to only once the language adapter has."""
+    lines = source_lines(data.decode("utf-8", "replace"))
+    file_unit = Unit(
+        path, UnitKind.FILE, None, 1, len(lines), layer_of(path, None, declaration)
+    )
+    defined = _defined(matches)
+    found = definitions(path, matches, declaration, regions, vocabulary)
+    return CodeModel(
+        units=(file_unit, *(d.unit for d in found)),
+        definitions=tuple(found),
+        imports=tuple(imports(path, matches, lines)),
+        references=tuple(references(path, matches, defined)),
+    )
 
 
 def merged(models: Sequence[CodeModel], **rest: object) -> CodeModel:

@@ -266,3 +266,73 @@ rule:
     - all:
         - kind: new_expression
         - has: {field: constructor, pattern: $CALLEE}
+---
+id: name
+language: TypeScript
+severity: hint
+rule:
+  kind: identifier
+  not:
+    any:
+      - inside: {kind: member_expression, field: object}
+      - inside: {kind: nested_identifier}
+      - inside: {kind: nested_type_identifier}
+      - inside: {kind: import_specifier}
+      - inside: {kind: import_clause}
+      - inside: {kind: namespace_import}
+      - inside: {kind: export_specifier}
+      - inside: {kind: required_parameter, field: pattern}
+      - inside: {kind: optional_parameter, field: pattern}
+      - inside: {kind: arrow_function, field: parameter}
+      - inside: {kind: function_declaration, field: name}
+      - inside: {kind: generator_function_declaration, field: name}
+      - inside: {kind: function_expression, field: name}
+      - inside: {kind: class_declaration, field: name}
+      - inside:
+          kind: variable_declarator
+          field: name
+          has:
+            field: value
+            any:
+              - kind: arrow_function
+              - kind: function_expression
+              - kind: generator_function
+---
+id: name.type
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: type_identifier
+    - kind: nested_type_identifier
+  not:
+    any:
+      - inside: {kind: nested_type_identifier}
+      - inside: {kind: class_declaration, field: name}
+      - inside: {kind: abstract_class_declaration, field: name}
+      - inside: {kind: interface_declaration, field: name}
+      - inside: {kind: type_alias_declaration, field: name}
+---
+id: name.chain
+language: TypeScript
+severity: hint
+rule:
+  kind: member_expression
+  regex: '^[A-Za-z_$][\w$]*(\.#?[A-Za-z_$][\w$]*)+$'
+  not:
+    inside:
+      kind: member_expression
+      field: object
+      regex: '^[A-Za-z_$][\w$]*(\.#?[A-Za-z_$][\w$]*)+$'
+---
+id: string
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: string
+    - kind: template_string
+  not:
+    any:
+      - inside: {kind: import_statement}
+      - inside: {kind: export_statement}

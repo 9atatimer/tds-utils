@@ -28,17 +28,15 @@ from adherence.adapters.astgrep import (
     BINARY,
     Grammar,
     Match,
-    definitions,
-    imports,
+    file_model,
     merged,
     scan,
     write_tree,
 )
 from adherence.domain.deadline import Deadline, TimedOut
-from adherence.domain.declaration import Declaration, layer_of, marker_regions
-from adherence.domain.model import CodeModel, ImportEdge, Region, Unit, UnitKind
+from adherence.domain.declaration import Declaration, marker_regions
+from adherence.domain.model import CodeModel, ImportEdge
 from adherence.domain.parameters import Vocabulary
-from adherence.domain.source import source_lines
 
 # --- Constants ---------------------------------------------------------------
 
@@ -66,27 +64,6 @@ Resolved = dict[tuple[str, str], str]
 
 def _passed(deadline: Deadline | None, now: float) -> bool:
     return deadline is not None and deadline.epoch_seconds <= now
-
-
-def _file_model(
-    path: str,
-    data: bytes,
-    matches: Sequence[Match],
-    declaration: Declaration,
-    regions: Sequence[Region],
-    vocabulary: Vocabulary,
-) -> CodeModel:
-    """Every fact of one file, as a CodeModel of that file alone."""
-    lines = source_lines(data.decode("utf-8", "replace"))
-    file_unit = Unit(
-        path, UnitKind.FILE, None, 1, len(lines), layer_of(path, None, declaration)
-    )
-    found = definitions(path, matches, declaration, regions, vocabulary)
-    return CodeModel(
-        units=(file_unit, *(d.unit for d in found)),
-        definitions=tuple(found),
-        imports=tuple(imports(path, matches, lines)),
-    )
 
 
 def _resolved(answer: Mapping[str, object]) -> Resolved:
@@ -200,7 +177,7 @@ class TypeScriptCodeModel:
         for match in matches:
             by_path.setdefault(match.path, []).append(match)
         files = [
-            _file_model(
+            file_model(
                 path, sources[path], by_path[path], declaration, found, vocabulary
             )
             for path in sorted(sources)
