@@ -1,7 +1,7 @@
 """domain/checks/layered.py -- rules, workflow and wiring are three jobs.
 
-Trace, Purity's rule part and Wiring (DESIGN.ARCH-ADHERENCE.md, The
-Qualities table: Layered), each a pure function over the CodeModel and the design
+Trace, Purity's rule part, Wiring and Anatomy (DESIGN.ARCH-ADHERENCE.md,
+The Qualities table: Layered), each a pure function over the CodeModel and the design
 records. Purity's judged part, whether a callable a domain function takes
 does I/O, is a question for the judge and reads as coverage here.
 """
@@ -29,6 +29,7 @@ from adherence.domain.model import (
     Definition,
     Layer,
     Parameter,
+    Region,
     Signature,
     Unit,
     UnitKind,
@@ -55,6 +56,18 @@ PURITY = catalog_check("Purity")
 NAME = re.compile(r"[A-Za-z_]\w*")
 DOES_IO_UNASKED = "the judged part (does_io) is not asked in this suite version"
 WIRING = catalog_check("Wiring")
+ANATOMY = catalog_check("Anatomy")
+# The coding skill's file anatomy, as the layers of a file's regions:
+# predicates and pure helpers, then the effectful helpers, then the flow
+# functions, then the entry points.
+ANATOMY_ORDER: tuple[Layer, ...] = (
+    Layer.DOMAIN,
+    Layer.PORTS,
+    Layer.ADAPTERS,
+    Layer.APPLICATION,
+    Layer.COMPOSITION_ROOT,
+    Layer.TEST,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -424,4 +437,49 @@ def wiring(
         for construction in constructions
         if (finding := _below_root(construction)) is not None
     )
+    return CheckOutcome(tuple(findings))
+
+
+def _out_of_place(regions: Sequence[Region]) -> tuple[Region, Region] | None:
+    """The first region, in line order, whose layer comes earlier in the
+    anatomy than a region above it, with that region; None when in order."""
+    furthest: Region | None = None
+    for region in sorted(regions, key=lambda r: (r.start, r.end)):
+        rank = ANATOMY_ORDER.index(region.layer)
+        if furthest is not None and rank < ANATOMY_ORDER.index(furthest.layer):
+            return region, furthest
+        if furthest is None or rank > ANATOMY_ORDER.index(furthest.layer):
+            furthest = region
+    return None
+
+
+def anatomy(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """A file's regions run in the coding skill's file-anatomy order."""
+    if not declaration.declared:
+        return undeclared(ANATOMY.name)
+    by_file: dict[str, set[Region]] = {}
+    for region in (*declaration.layers.regions, *model.regions):
+        by_file.setdefault(region.path, set()).add(region)
+    files = {u.path: u for u in model.units if u.kind is UnitKind.FILE}
+    findings: list[Finding] = []
+    for path in sorted(by_file.keys() & files.keys()):
+        disorder = _out_of_place(tuple(by_file[path]))
+        if disorder is None:
+            continue
+        region, above = disorder
+        findings.append(
+            Finding(
+                ANATOMY,
+                files[path],
+                region.layer,
+                f"the {region.layer.value} region at line {region.start} follows "
+                f"the {above.layer.value} region at line {above.start}",
+                Evidence(path, region.start, region.layer.value),
+            )
+        )
     return CheckOutcome(tuple(findings))
