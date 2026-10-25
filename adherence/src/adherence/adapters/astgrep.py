@@ -28,6 +28,7 @@ from adherence.domain.deadline import Deadline
 from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.model import (
     Body,
+    Call,
     CodeModel,
     Definition,
     ImportEdge,
@@ -455,6 +456,15 @@ def references(
     return sorted(found, key=lambda r: r.line)
 
 
+def calls(
+    path: str, matches: Sequence[Match], defined: Sequence[_Defined]
+) -> list[Call]:
+    """Every function and constructor call, with the definition it sits in."""
+    return [
+        Call(path, m.line, _within(defined, m), _callee(m)) for m in _of(matches, CALL)
+    ]
+
+
 def file_model(
     path: str,
     data: bytes,
@@ -476,6 +486,7 @@ def file_model(
         definitions=tuple(found),
         imports=tuple(imports(path, matches, lines)),
         references=tuple(references(path, matches, defined)),
+        calls=tuple(calls(path, matches, defined)),
     )
 
 
