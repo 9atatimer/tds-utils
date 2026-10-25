@@ -32,6 +32,7 @@ needs_cruiser = pytest.mark.skipif(
 SUFFIXES = {".ts", ".mts", ".cts", ".tsx", ".js", ".mjs", ".cjs", ".jsx"}
 VOCABULARY = Vocabulary(
     regions={"predicates": Layer.DOMAIN, "action functions": Layer.ADAPTERS},
+    environment_reads=frozenset({"process.env"}),
     sleeps=frozenset({"sleep", "setTimeout"}),
     stubs=frozenset({"{}", "NotImplementedError"}),
     options_objects=frozenset({"deps"}),

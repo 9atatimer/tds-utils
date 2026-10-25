@@ -10,6 +10,7 @@ from pathlib import Path
 from adherence.adapters.ts_depcruise import TypeScriptCodeModel
 from adherence.domain.declaration import Declaration, parse_declaration
 from adherence.domain.model import (
+    AccessKind,
     CodeModel,
     Definition,
     Layer,
@@ -375,3 +376,33 @@ def test_calls_name_their_callee_and_the_definition_they_sit_in() -> None:
     assert (run, "closeOrder", "classify", 13) in calls
     assert ("lib/tool/rules.ts", "unfinished", "NotImplementedError", 21) in calls
     assert [(c.within, c.callee, c.line) for c in chained.calls] == [("f", "a.b.c", 2)]
+
+
+def test_accesses_are_environment_reads_and_globals() -> None:
+    """Given a read of the environment and a write through globalThis, When
+    the fixture is modelled, Then each is an access of its kind in the
+    definition it sits in."""
+    accesses = {(a.path, a.within, a.kind, a.target) for a in fixture_model().accesses}
+
+    assert accesses == {
+        (
+            "lib/tool/fs-store.ts",
+            "FsStore.save",
+            AccessKind.ENVIRONMENT,
+            "process.env.HOME",
+        ),
+        ("bin/tool.mjs", "load", AccessKind.GLOBAL, "globalThis.counter"),
+    }
+
+
+def test_an_environment_read_by_subscript_or_destructuring_is_an_access() -> None:
+    """Given `process.env[...]` and `const { A } = process.env`, When they
+    are modelled, Then each is an environment access of process.env."""
+    model = _model_of(
+        {"m.mjs": b"const a = process.env['A'];\nconst { B } = process.env;\n"}
+    )
+
+    assert sorted((a.line, a.kind, a.target) for a in model.accesses) == [
+        (1, AccessKind.ENVIRONMENT, "process.env"),
+        (2, AccessKind.ENVIRONMENT, "process.env"),
+    ]
