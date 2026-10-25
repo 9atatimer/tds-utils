@@ -43,6 +43,9 @@ LANGUAGE = catalog_check("Language")
 ANEMIC = catalog_check("Anemic")
 # A method that only sets a type's fields up is no behavior of its own.
 INITIALISER = "__init__"
+# The bases that make a type an enumeration: a closed set of names, whose
+# members are no fields awaiting rules.
+ENUM_BASES = frozenset({"Enum", "IntEnum", "StrEnum", "Flag", "IntFlag"})
 # One word of an identifier or a term: an acronym, a capitalised or
 # lower-case word, or a number (`SARIFReport` -> SARIF, Report).
 WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
@@ -88,6 +91,11 @@ def defines(term: Sequence[str], noun: Sequence[str]) -> bool:
     if _spelled_alike(term, noun):
         return True
     return len(noun) > 1 and noun[-1] == PORT_SUFFIX and _spelled_alike(term, noun[:-1])
+
+
+def is_enum(definition: Definition) -> bool:
+    """Whether a type is an enumeration, by a base it names."""
+    return any(short_name(base) in ENUM_BASES for base in definition.bases)
 
 
 # --- Pure helpers ------------------------------------------------------------
@@ -256,7 +264,8 @@ def anemic(
     parameters: Parameters,
 ) -> CheckOutcome:
     """The rule part finds each domain type that is all fields and no
-    behavior -- fields, and no method but an initialiser. Whether such a
+    behavior -- fields, and no method but an initialiser -- and is no
+    enumeration. Whether such a
     type is anemic, its rules living in another unit, is the judged part's
     question, so the rule part finds nothing by itself: each type it finds
     is coverage until a judge answers."""
@@ -276,6 +285,7 @@ def anemic(
         for d in model.definitions
         if d.unit.kind is UnitKind.TYPE
         and d.unit.layer is Layer.DOMAIN
+        and not is_enum(d)
         and (key := (d.unit.path, d.unit.symbol or "")) in fields
         and key not in behaving
     ]
