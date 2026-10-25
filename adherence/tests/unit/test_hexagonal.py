@@ -9,6 +9,7 @@ from adherence.domain.model import (
     Access,
     AccessKind,
     Body,
+    Call,
     CodeModel,
     Definition,
     ImportEdge,
@@ -80,6 +81,37 @@ def test_measure_domain_importing_a_vendor_shadowed_in_repo_finds_a_leak() -> No
 
     assert {(f.unit.path, f.subject, f.layer) for f in _of(report, "Grep")} == {
         (RULES, "boto3", Layer.DOMAIN)
+    }
+
+
+def test_measure_domain_opening_a_file_or_loading_a_module_finds_a_leak() -> None:
+    """Given a domain unit that calls the builtin open, __import__ and
+    importlib.import_module, When Grep runs, Then each call is a finding: a
+    core unit reaching the filesystem or loading code by name is a leak,
+    though it imports no vendor."""
+    files = {
+        RULES: b'def load(p):\n    open(p)\n    __import__("x")\n'
+        b'    importlib.import_module("y")\n',
+        HTTP: b"def read(p):\n    open(p)\n",
+    }
+    load = Unit(RULES, UnitKind.FUNCTION, "load", 1, 4, Layer.DOMAIN)
+    read = Unit(HTTP, UnitKind.FUNCTION, "read", 1, 2, Layer.ADAPTERS)
+    facts = CodeModel(
+        units=(load, read),
+        calls=(
+            Call(RULES, 2, "load", "open"),
+            Call(RULES, 3, "load", "__import__"),
+            Call(RULES, 4, "load", "importlib.import_module"),
+            Call(HTTP, 2, "read", "open"),
+        ),
+    )
+
+    report = measure_with(files, facts)
+
+    assert {(f.unit.symbol, f.subject, f.layer) for f in _of(report, "Grep")} == {
+        ("load", "open", Layer.DOMAIN),
+        ("load", "__import__", Layer.DOMAIN),
+        ("load", "importlib.import_module", Layer.DOMAIN),
     }
 
 
