@@ -210,3 +210,59 @@ rule:
     - inside: {kind: extends_clause, field: value}
     - inside: {kind: implements_clause}
     - inside: {kind: extends_type_clause}
+---
+id: body
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: function_declaration
+    - kind: generator_function_declaration
+    - kind: function_expression
+    - kind: generator_function
+    - kind: arrow_function
+    - kind: method_definition
+    - kind: class_declaration
+    - kind: abstract_class_declaration
+    - kind: interface_declaration
+    - kind: type_alias_declaration
+  all:
+    - any:
+        - has: {field: body, pattern: $BODY}
+        - has: {field: value, pattern: $BODY}
+---
+id: stub
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: function_declaration
+    - kind: generator_function_declaration
+    - kind: function_expression
+    - kind: generator_function
+    - kind: arrow_function
+    - kind: method_definition
+  has:
+    field: body
+    kind: statement_block
+    any:
+      - regex: '^\{\s*\}$'
+      - all:
+          - has:
+              kind: throw_statement
+              has:
+                kind: new_expression
+                has: {field: constructor, pattern: $THROWN}
+          - not: {has: {nthChild: 2}}
+---
+id: call
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - all:
+        - kind: call_expression
+        - has: {field: function, pattern: $CALLEE}
+    - all:
+        - kind: new_expression
+        - has: {field: constructor, pattern: $CALLEE}

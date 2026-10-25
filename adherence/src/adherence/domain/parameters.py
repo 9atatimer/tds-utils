@@ -36,3 +36,7 @@ class Vocabulary:
     sleeps: frozenset[str] = field(default_factory=frozenset)
     stubs: frozenset[str] = field(default_factory=frozenset)
     options_objects: frozenset[str] = field(default_factory=frozenset)
+
+    def is_sleep(self, callee: str) -> bool:
+        """Whether a callee waits, by its full dotted name or its last part."""
+        return callee in self.sleeps or callee.split(".")[-1] in self.sleeps

@@ -158,11 +158,6 @@ def _placeholder(node: DefinitionNode) -> str | None:
     return None
 
 
-def is_sleep(callee: str, vocabulary: Vocabulary) -> bool:
-    """Whether a callee waits, by its full dotted name or its last part."""
-    return callee in vocabulary.sleeps or callee.split(".")[-1] in vocabulary.sleeps
-
-
 def _callee(call: ast.Call) -> str:
     return ast.unparse(call.func)
 
@@ -175,7 +170,7 @@ def _body(node: DefinitionNode, text: str, vocabulary: Vocabulary) -> Body:
         {
             n.lineno
             for n in own_nodes(node)
-            if isinstance(n, ast.Call) and is_sleep(_callee(n), vocabulary)
+            if isinstance(n, ast.Call) and vocabulary.is_sleep(_callee(n))
         }
     )
     form = _placeholder(node)

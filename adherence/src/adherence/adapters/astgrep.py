@@ -38,6 +38,7 @@ from adherence.domain.model import (
     UnitKind,
 )
 from adherence.domain.parameters import Vocabulary
+from adherence.domain.source import source_lines
 
 # --- Constants ---------------------------------------------------------------
 
@@ -56,6 +57,7 @@ PARAMETER_PROPERTY, PROPERTY_DEFAULT, PROPERTY_TYPE = (
     "property-default",
     "property-type",
 )
+BODY, STUB, CALL = "body", "stub", "call"
 RETURNS, BASE, DECORATOR, DECORATOR_NEXT = (
     "returns",
     "base",
@@ -64,6 +66,8 @@ RETURNS, BASE, DECORATOR, DECORATOR_NEXT = (
 )
 # Captures: each names a part of its fact.
 NAME, SOURCE, TYPE_CAPTURE = "NAME", "SOURCE", "TYPE"
+BODY_CAPTURE, THROWN, CALLEE = "BODY", "THROWN", "CALLEE"
+EMPTY_BLOCK = "{}"
 
 # --- Values ------------------------------------------------------------------
 
@@ -301,6 +305,55 @@ def _signature(
     )
 
 
+def body_text(text: str) -> str:
+    """A body as written: a block's lines inside its braces, from the first
+    to the last holding anything, or an arrow's expression."""
+    if not (text.startswith("{") and text.endswith("}")):
+        return text
+    inner = text[1:-1]
+    lines = source_lines(inner)
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if len(lines) == 1:
+        return lines[0].strip() if "\n" not in inner else lines[0].rstrip()
+    return "\n".join(line.rstrip() for line in lines)
+
+
+def _body(
+    defined: _Defined,
+    every: Sequence[_Defined],
+    matches: Sequence[Match],
+    vocabulary: Vocabulary,
+) -> Body:
+    """A definition's body: its text, the placeholder it is if it is nothing
+    but one, and the lines it calls a sleep on outside nested definitions."""
+    span = (defined.match.start, defined.match.end)
+    body = _at(matches, BODY).get(span)
+    stub = _at(matches, STUB).get(span)
+    form = None if stub is None else stub.captured(THROWN) or EMPTY_BLOCK
+    sleeps = sorted(
+        {
+            call.line
+            for call in _of(matches, CALL)
+            if vocabulary.is_sleep(_callee(call))
+            and (owner := _owner(every, call)) is not None
+            and owner.symbol == defined.symbol
+        }
+    )
+    return Body(
+        body_text(body.captured(BODY_CAPTURE) or "") if body else "",
+        (form,) if form is not None and form in vocabulary.stubs else (),
+        tuple(sleeps),
+    )
+
+
+def _callee(call: Match) -> str:
+    """A call's callee as written, a chain broken over lines joined up."""
+    return "".join(part.strip() for part in (call.captured(CALLEE) or "").splitlines())
+
+
 def _owner(defined: Sequence[_Defined], match: Match) -> _Defined | None:
     """The innermost definition holding a match."""
     found = innermost([d.match for d in defined], match)
@@ -355,7 +408,7 @@ def definitions(
             signature=_signature(d.match, matches, vocabulary)
             if d.kind is UnitKind.FUNCTION
             else None,
-            body=Body("", (), ()),
+            body=_body(d, defined, matches, vocabulary),
             bases=tuple(bases.get(d.symbol, ())),
             decorators=tuple(decorators.get(d.symbol, ())),
             parent=d.parent,
