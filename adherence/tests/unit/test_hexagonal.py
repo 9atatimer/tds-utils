@@ -8,11 +8,15 @@ from adherence.domain.finding import Finding
 from adherence.domain.model import (
     Access,
     AccessKind,
+    Body,
     CodeModel,
+    Definition,
     ImportEdge,
     Layer,
     Reference,
     ReferenceKind,
+    Unit,
+    UnitKind,
 )
 from adherence.domain.report import Report
 from tests.measure_kit import measure_with
@@ -121,3 +125,41 @@ def test_measure_with_two_units_importing_each_other_finds_one_cycle() -> None:
     (cycle,) = _of(report, "Arrow")
     assert RULES in cycle.subject and values in cycle.subject
     assert cycle.unit.path in (RULES, values)
+
+
+def _type(path: str, name: str, start: int, bases: tuple[str, ...] = ()) -> Definition:
+    unit = Unit(path, UnitKind.TYPE, name, start, start + 2, None)
+    return Definition(unit, None, Body("", (), ()), bases, (), None, False)
+
+
+def _method(path: str, owner: str, name: str, line: int, stub: bool) -> Definition:
+    unit = Unit(path, UnitKind.FUNCTION, f"{owner}.{name}", line, line, None)
+    body = Body("..." if stub else "return 1", ("...",) if stub else (), ())
+    return Definition(unit, None, body, (), (), owner, False)
+
+
+def test_measure_with_a_port_no_fake_implements_finds_the_port() -> None:
+    """Given a port no fake implements (only a concrete adapter does), a port
+    a fake implements by its methods, and a value type among the ports, When
+    Swap runs, Then one finding names the port without a fake."""
+    clock = "src/app/ports/clock.py"
+    fakes = "tests/fakes.py"
+    files = {STORE: b"x\n", clock: b"x\n", FS: b"x\n", fakes: b"x\n"}
+    definitions = (
+        _type(STORE, "Store", 1, ("Protocol",)),
+        _method(STORE, "Store", "save", 2, stub=True),
+        _type(STORE, "Absent", 5),
+        _type(clock, "Clock", 1, ("Protocol",)),
+        _method(clock, "Clock", "now", 2, stub=True),
+        _type(FS, "FsStore", 1),
+        _method(FS, "FsStore", "save", 2, stub=False),
+        _type(fakes, "FakeClock", 1),
+        _method(fakes, "FakeClock", "now", 2, stub=False),
+    )
+    facts = CodeModel(units=tuple(d.unit for d in definitions), definitions=definitions)
+
+    report = measure_with(files, facts)
+
+    (unfaked,) = _of(report, "Swap")
+    assert (unfaked.subject, unfaked.unit.symbol) == ("Store", "Store")
+    assert (unfaked.unit.path, unfaked.layer) == (STORE, Layer.PORTS)
