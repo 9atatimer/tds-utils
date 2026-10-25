@@ -274,6 +274,30 @@ def test_measure_with_docstring_only_protocol_and_abc_ports_finds_them() -> None
     }
 
 
+def test_measure_with_a_fake_of_one_port_does_not_cover_another() -> None:
+    """Given two ports declaring the same method, measure, and one fake,
+    FakeComplexity, behind only the first, When Swap runs, Then a finding
+    names the second port: a fake of one port is not a fake of another
+    that happens to share its method names."""
+    complexity = "src/app/ports/complexity.py"
+    duplication = "src/app/ports/duplication.py"
+    fakes = "tests/fakes.py"
+    files = {complexity: b"x\n", duplication: b"x\n", fakes: b"x\n"}
+    definitions = (
+        _type(complexity, "ComplexityPort", 1, ("Protocol",)),
+        _method(complexity, "ComplexityPort", "measure", 2, stub=True),
+        _type(duplication, "DuplicationPort", 1, ("Protocol",)),
+        _method(duplication, "DuplicationPort", "measure", 2, stub=True),
+        _type(fakes, "FakeComplexity", 1),
+        _method(fakes, "FakeComplexity", "measure", 2, stub=False),
+    )
+    facts = CodeModel(units=tuple(d.unit for d in definitions), definitions=definitions)
+
+    report = measure_with(files, facts)
+
+    assert [f.subject for f in _of(report, "Swap")] == ["DuplicationPort"]
+
+
 ARCHITECTURE = "docs/design/ARCHITECTURE.APP.md"
 
 
