@@ -531,3 +531,16 @@ def test_a_file_without_a_final_newline_ends_on_its_last_line() -> None:
 
     ends = {u.path: u.end for u in model.units if u.kind is UnitKind.FILE}
     assert ends == {"a.py": 2, "b.py": 2, "c.py": 1}
+
+
+def test_a_form_feed_shifts_no_line_numbers() -> None:
+    """Given a script with a form feed inside an early line, When it is
+    modelled, Then bodies and import edges keep the lines Python gives them."""
+    source = b"# page one\x0c\nimport os\n\ndef f():\n    return 42\n"
+
+    model = _model_of({"s.py": source})
+
+    [edge] = model.imports
+    assert (edge.line, edge.text) == (2, "import os")
+    [definition] = model.definitions
+    assert definition.body.text == "    return 42"

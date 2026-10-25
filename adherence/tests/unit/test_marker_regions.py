@@ -54,3 +54,13 @@ def test_marker_regions_of_a_file_without_markers_are_none() -> None:
     """Given a file with no section marker, When its regions are found,
     Then there are none."""
     assert marker_regions("bin/plain", "echo hi\n", VOCABULARY) == ()
+
+
+def test_marker_regions_count_lines_as_python_does() -> None:
+    """Given a form feed before a marker, When regions are found, Then the
+    region starts on the marker's line as Python numbers it."""
+    text = "x = 1\x0c\n# --- Predicates ---\ndef f(): pass\n"
+
+    assert marker_regions("t.py", text, VOCABULARY) == (
+        Region("t.py", 2, 3, Layer.DOMAIN),
+    )
