@@ -8,7 +8,14 @@ CodeModel.
 from __future__ import annotations
 
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
-from adherence.domain.checks.roles import is_use_case, named_in, port_names
+from adherence.domain.checks.roles import (
+    adapter_names,
+    is_use_case,
+    is_within,
+    named_in,
+    port_names,
+    short_name,
+)
 from adherence.domain.declaration import Declaration
 from adherence.domain.finding import Evidence, Finding
 from adherence.domain.model import CodeModel
@@ -19,6 +26,7 @@ from adherence.domain.records import DesignRecords, RecordsUnavailable
 # --- Constants ---------------------------------------------------------------
 
 PORTS_AS_KEYWORDS = catalog_check("Ports as keywords")
+NO_SELF_WIRING = catalog_check("No self-wiring")
 
 # --- Pure helpers ------------------------------------------------------------
 
@@ -50,5 +58,37 @@ def ports_as_keywords(
             )
             for p in signature.parameters
             if not p.keyword_only and named_in(p, ports) is not None
+        )
+    return CheckOutcome(tuple(findings))
+
+
+def no_self_wiring(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """No use case constructs a concrete adapter: no call in it, or in a
+    function nested in it, names a concrete adapter the model defines."""
+    if not declaration.declared:
+        return undeclared(NO_SELF_WIRING.name)
+    adapters = adapter_names(model, parameters.vocabulary)
+    findings: list[Finding] = []
+    for use_case in model.definitions:
+        if not is_use_case(use_case):
+            continue
+        unit = use_case.unit
+        findings.extend(
+            Finding(
+                NO_SELF_WIRING,
+                unit,
+                unit.layer,
+                call.callee,
+                Evidence(call.path, call.line, call.callee),
+            )
+            for call in model.calls
+            if call.path == unit.path
+            and is_within(call.within, unit.symbol)
+            and short_name(call.callee) in adapters
         )
     return CheckOutcome(tuple(findings))
