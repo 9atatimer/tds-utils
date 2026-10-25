@@ -58,6 +58,8 @@ CRUISER = (
     / "dependency-cruiser.mjs"
 )
 
+NESTED_TOO_DEEPLY = "nested deeper than the analyzer can walk"
+
 Resolved = dict[tuple[str, str], str]
 
 # --- Helpers -----------------------------------------------------------------
@@ -65,6 +67,10 @@ Resolved = dict[tuple[str, str], str]
 
 def _passed(deadline: Deadline | None, now: float) -> bool:
     return deadline is not None and deadline.epoch_seconds <= now
+
+
+def _paths(unparsed: Sequence[Unparsed]) -> set[str]:
+    return {u.path for u in unparsed}
 
 
 def _readable(
@@ -201,12 +207,22 @@ class TypeScriptCodeModel:
         for match in matches:
             if match.path in by_path:
                 by_path[match.path].append(match)
-        files = [
-            file_model(
-                path, parsed[path], by_path[path], declaration, found, vocabulary
-            )
-            for path in sorted(parsed)
-        ]
+        files: list[CodeModel] = []
+        for path in sorted(parsed):
+            try:
+                files.append(
+                    file_model(
+                        path,
+                        parsed[path],
+                        by_path[path],
+                        declaration,
+                        found,
+                        vocabulary,
+                    )
+                )
+            except RecursionError:
+                unparsed.append(Unparsed(path, NESTED_TOO_DEEPLY))
+        parsed = {p: data for p, data in parsed.items() if p not in _paths(unparsed)}
         edges = [edge for f in files for edge in f.imports]
         resolved = (
             _cruise(parsed, cruiser=self._cruiser, deadline=deadline, clock=self._clock)
