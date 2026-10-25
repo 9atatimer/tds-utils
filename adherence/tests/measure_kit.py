@@ -18,7 +18,7 @@ from adherence.adapters.fakes import (
     FakeRepository,
 )
 from adherence.application.measure import measure
-from adherence.domain.deadline import TimedOut
+from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
     Declaration,
     DeclarationUnreadable,
@@ -78,6 +78,9 @@ def measure_with(
     records: DesignRecords | RecordsUnavailable | TimedOut | None = None,
     analyzers: Mapping[CodeLanguage, CodeModelPort] | None = None,
     limits: Limits = LIMITS,
+    complexity: FakeComplexity | None = None,
+    duplication: FakeDuplication | None = None,
+    deadline: Deadline | None = None,
 ) -> Report:
     """measure over a repository holding `files` at the working tree, whose
     Python analyzer answers with `facts`."""
@@ -90,10 +93,10 @@ def measure_with(
             if analyzers is not None
             else {CodeLanguage.PYTHON: FakeCodeModel(facts=facts or CodeModel())}
         ),
-        complexity=FakeComplexity(),
-        duplication=FakeDuplication(),
+        complexity=complexity or FakeComplexity(),
+        duplication=duplication or FakeDuplication(),
         records=FakeRecords({} if records is None else {HEAD: records}),
         judge=FakeDecision(Unavailable("no judge in the unit tier")),
         parameters=parameters(limits=limits),
-        deadline=None,
+        deadline=deadline,
     )
