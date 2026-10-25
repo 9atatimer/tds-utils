@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from adherence.domain.checks.run import run_checks
-from adherence.domain.coverage import Coverage, unmodelled
+from adherence.domain.coverage import Coverage, unmeasured, unmodelled
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
     Declaration,
@@ -115,7 +115,7 @@ def measure(
         return Report()
     models: list[CodeModel] = []
     sources: dict[str, bytes] = {}
-    coverage: list[Coverage] = []
+    coverage: list[Coverage] = list(unmeasured(paths, analyzers.keys()))
     for language, analyzer in analyzers.items():
         read = _read_sources(paths, language, at, repository, deadline)
         sources.update(read.sources)

@@ -8,10 +8,11 @@ Measurement).
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass
 
 from adherence.domain.declaration import Declaration
-from adherence.domain.model import CodeModel, UnitKind
+from adherence.domain.model import CodeLanguage, CodeModel, UnitKind, language_of
 
 # --- Constants ---------------------------------------------------------------
 
@@ -44,4 +45,16 @@ def unmodelled(model: CodeModel, declaration: Declaration) -> tuple[Coverage, ..
             for path in files
             if declaration.declared and path not in covered
         ),
+    )
+
+
+def unmeasured(
+    paths: Collection[str], measured: Collection[CodeLanguage]
+) -> tuple[Coverage, ...]:
+    """Every source in a language no bound analyzer measures, naming it."""
+    names = {language.value for language in measured}
+    return tuple(
+        Coverage(f"{language}: no analyzer measures this language", path=path)
+        for path in sorted(paths)
+        if (language := language_of(path)) is not None and language not in names
     )

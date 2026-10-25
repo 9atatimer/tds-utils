@@ -20,8 +20,37 @@ class CodeLanguage(enum.Enum):
     PYTHON = "python"
 
 
-# A source's language by its file extension.
-LANGUAGE_EXTENSIONS: dict[str, str] = {".py": CodeLanguage.PYTHON.value}
+# A source's language by its file extension: the languages the suite
+# measures, and the others it recognises so it can say it does not.
+LANGUAGE_EXTENSIONS: dict[str, str] = {
+    ".py": CodeLanguage.PYTHON.value,
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".mts": "typescript",
+    ".cts": "typescript",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".vue": "vue",
+    ".sh": "shell",
+    ".bash": "shell",
+    ".zsh": "shell",
+    ".go": "go",
+    ".gd": "gdscript",
+    ".rb": "ruby",
+    ".rs": "rust",
+    ".java": "java",
+    ".kt": "kotlin",
+    ".swift": "swift",
+    ".c": "c",
+    ".h": "c",
+    ".cc": "c++",
+    ".cpp": "c++",
+    ".el": "emacs lisp",
+    ".lua": "lua",
+    ".php": "php",
+}
 
 
 def language_of(path: str) -> str | None:
