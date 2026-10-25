@@ -20,7 +20,7 @@ from adherence.adapters.astgrep import (
     scan,
 )
 from adherence.domain.deadline import Deadline, TimedOut
-from adherence.domain.declaration import Declaration, layer_of
+from adherence.domain.declaration import Declaration, layer_of, marker_regions
 from adherence.domain.model import CodeModel, Region, Unit, UnitKind
 from adherence.domain.parameters import Vocabulary
 from adherence.domain.source import source_lines
@@ -94,14 +94,24 @@ class TypeScriptCodeModel:
             deadline=deadline,
             clock=self._clock,
         )
+        found = tuple(
+            region
+            for path in declaration.layers.marker_files
+            if path in sources
+            for region in marker_regions(
+                path, sources[path].decode("utf-8", "replace"), vocabulary
+            )
+        )
+        declared = tuple(r for r in declaration.layers.regions if r.path in sources)
         by_path: dict[str, list[Match]] = {path: [] for path in sources}
         for match in matches:
             by_path.setdefault(match.path, []).append(match)
         files = [
-            _file_model(path, sources[path], by_path[path], declaration, ())
+            _file_model(path, sources[path], by_path[path], declaration, found)
             for path in sorted(sources)
         ]
         return CodeModel(
             units=tuple(u for f in files for u in f.units),
             definitions=tuple(d for f in files for d in f.definitions),
+            regions=declared + found,
         )
