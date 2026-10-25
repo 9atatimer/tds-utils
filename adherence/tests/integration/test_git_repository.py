@@ -173,3 +173,19 @@ def test_read_under_a_directory_that_cannot_be_opened_is_refused(
 
     assert isinstance(answer, Refused)
     assert "permission" in answer.reason.lower()
+
+
+def test_tree_of_a_root_git_cannot_list_is_refused(tmp_path: Path) -> None:
+    """Given a root that is no git repository, and a revision the repository
+    lacks, When the tree is listed, Then the answer is Refused with git's
+    reason, never an exception."""
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    root = tmp_path / "repo"
+    make_repository(root, base={"a.py": b"a\n"}, staged={}, working={})
+
+    unlisted = GitRepository(str(plain)).tree(Head.working_tree(), None)
+    unknown = GitRepository(str(root)).tree(Base("0" * 40), None)
+
+    assert isinstance(unlisted, Refused) and unlisted.reason
+    assert isinstance(unknown, Refused) and unknown.reason

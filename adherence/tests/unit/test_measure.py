@@ -191,3 +191,17 @@ def test_measure_cuts_the_quoted_line_at_the_evidence_bound() -> None:
 
     (leak,) = report.findings
     assert leak.evidence.text == LONG[:40]
+
+
+def test_measure_of_a_repository_that_cannot_be_listed_is_not_run() -> None:
+    """Given a repository whose tree cannot be listed, or not within the
+    deadline, When a run is asked for, Then the report is not run and names
+    why, and nothing reads as a pass."""
+    for unlisted in (Refused(".", "not a git repository"), TimedOut("list the tree")):
+        report = measure_with({RULES: b"x = 1\n"}, unlisted=unlisted)
+
+        assert report.not_run_reason is not None
+        assert ("not a git repository" in report.not_run_reason) or (
+            "list the tree" in report.not_run_reason
+        )
+        assert report.ran == () and report.findings == ()

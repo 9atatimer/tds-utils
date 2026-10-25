@@ -81,13 +81,14 @@ def measure_with(
     complexity: FakeComplexity | None = None,
     duplication: FakeDuplication | None = None,
     deadline: Deadline | None = None,
+    unlisted: Refused | TimedOut | None = None,
 ) -> Report:
     """measure over a repository holding `files` at the working tree, whose
     Python analyzer answers with `facts`."""
     return measure(
         HEAD,
         declaration if declaration is not None else declared(),
-        repository=FakeRepository({HEAD: files}),
+        repository=FakeRepository({HEAD: files}, unlisted=unlisted),
         analyzers=(
             analyzers
             if analyzers is not None
