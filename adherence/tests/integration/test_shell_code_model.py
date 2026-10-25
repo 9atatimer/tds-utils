@@ -97,3 +97,34 @@ def test_bodies_are_their_text_with_stub_and_sleep() -> None:
     assert bodies["wait_for_lock"] == Body("    sleep 1", (), (22,))
     assert bodies["pending"] == Body(":;", (":",), ())
     assert bodies["die"] == Body('echo "tool: $*" >&2; exit 1;', (), ())
+
+
+def test_dependencies_are_the_commands_each_file_requires() -> None:
+    """Given scripts that run tools, builtins and their own functions, When
+    the fixture is modelled, Then each file's dependencies are the tools it
+    runs, each once at its first use with its line's text, through
+    `command` too; never a builtin, nor a function a source defines."""
+    commands = {
+        (e.path, e.imported, e.line, e.text)
+        for e in fixture_model().imports
+        if e.imported_path is None
+    }
+
+    assert commands == {
+        (
+            TOOL,
+            "dirname",
+            9,
+            'source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"',
+        ),
+        (TOOL, "git", 17, 'git -C "$1" rev-parse HEAD'),
+        (TOOL, "sleep", 22, "sleep 1"),
+        (TOOL, "head", 32, 'dirt="$(git -C "$1" status --porcelain | head -n 1)"'),
+        (TOOL, "jq", 40, """command jq -n --arg h "$(head_of "$1")" '$h'"""),
+        (
+            "lib/common.sh",
+            "tee",
+            4,
+            """printf '%s\\n' "$*" | tee -a "${LOG_FILE:-/dev/null}\"""",
+        ),
+    }
