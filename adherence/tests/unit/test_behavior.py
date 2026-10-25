@@ -17,6 +17,12 @@ from adherence.domain.model import (
     Unit,
     UnitKind,
 )
+from adherence.domain.records import (
+    Behavior,
+    DesignRecords,
+    RecordsUnavailable,
+    UseCase,
+)
 from adherence.domain.report import Report
 from tests.measure_kit import measure_with
 
@@ -110,3 +116,58 @@ def test_measure_with_a_test_past_the_surface_finds_what_it_reached() -> None:
         ("test_reach", "test_reach -> rules._round", 11),
         ("test_reach", "test_reach -> store._load", 12),
     }
+
+
+DESIGN = "docs/design/DESIGN.APP.md"
+ARCHITECTURE = "docs/design/ARCHITECTURE.APP.md"
+MEASURED = "A repository is measured"
+EXPLAINED = "An explanation changes nothing"
+PERSISTS = "A report persists"
+UNHOMED = "A behavior with no use case"
+
+
+def test_measure_with_a_behavior_no_test_calls_finds_the_behavior() -> None:
+    """Given design behaviors whose use cases a test calls, one whose use
+    case only non-test code calls, and one with no use case on the surface,
+    When Kept test runs, Then one finding names the behavior no test keeps,
+    at its row in the design record."""
+    files = {TEST: b"x\n" * 10, USE: b"x\n" * 10}
+    records = DesignRecords(
+        behaviors=(
+            Behavior(MEASURED, DESIGN, 10),
+            Behavior(EXPLAINED, DESIGN, 11),
+            Behavior(PERSISTS, DESIGN, 12),
+            Behavior(UNHOMED, DESIGN, 13),
+        ),
+        surface=(
+            UseCase(MEASURED, "measure", ARCHITECTURE, 20),
+            UseCase(EXPLAINED, "explain", ARCHITECTURE, 21),
+            UseCase(PERSISTS, "record_report", ARCHITECTURE, 22),
+        ),
+    )
+    facts = CodeModel(
+        calls=(Call(USE, 3, "run", "record_report"),),
+        test_cases=(
+            TestCase(TEST, "test_measure", 1, ("measure",), ("r",)),
+            TestCase(TEST, "test_explain", 5, ("app.explain",), ("r",)),
+        ),
+    )
+
+    report = measure_with(files, facts, records=records)
+
+    assert "Kept test" in {c.name for c in report.ran}
+    (unkept,) = _of(report, "Kept test")
+    assert (unkept.unit.path, unkept.unit.symbol) == (DESIGN, PERSISTS)
+    assert unkept.unit.kind is UnitKind.BEHAVIOR
+    assert unkept.evidence.line == 12 and "record_report" in unkept.subject
+
+
+def test_measure_without_a_readable_record_covers_kept_test() -> None:
+    """Given no readable design record, When Kept test runs, Then it is
+    coverage naming the record, never a clean result."""
+    report = measure_with(
+        {TEST: b"x\n"}, records=RecordsUnavailable(f"{DESIGN} is in draft")
+    )
+
+    assert "Kept test" not in {c.name for c in report.ran}
+    assert any(c.check == "Kept test" and DESIGN in c.reason for c in report.coverage)
