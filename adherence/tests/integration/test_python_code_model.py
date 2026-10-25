@@ -4,6 +4,7 @@ time (task-057), after the shared contract."""
 from __future__ import annotations
 
 import functools
+from pathlib import Path
 
 from adherence.adapters.python_ast import PythonCodeModel
 from adherence.domain.model import (
@@ -365,3 +366,41 @@ def test_test_cases_include_methods_of_test_classes() -> None:
     assert [(t.symbol, t.calls, t.assertions) for t in model.test_cases] == [
         ("TestThing.test_it", ("run",), ("run() == 1",))
     ]
+
+
+def _model_of(sources: dict[str, bytes]) -> CodeModel:
+    model = PythonCodeModel().model(
+        sources, python_fixture.declaration(), python_fixture.VOCABULARY, None
+    )
+    assert isinstance(model, CodeModel), model
+    return model
+
+
+def test_measured_code_is_never_run_even_when_it_shadows_the_analyzer(
+    tmp_path: Path,
+) -> None:
+    """Given measured packages named like modules the import analyzer itself
+    runs on (grimp, logging), each of which would write a marker when
+    executed, When they are modelled, Then no marker is written and those
+    packages are Unparsed with the reason, never run."""
+    marker = tmp_path / "ran"
+    payload = f"open({str(marker)!r}, 'w').write('ran')\n".encode()
+    sources = {
+        "grimp/__init__.py": payload,
+        "grimp/a.py": b"",
+        "logging/__init__.py": payload,
+        "logging/b.py": b"",
+        "ok/__init__.py": b"",
+        "ok/c.py": b"from ok import d\n",
+        "ok/d.py": payload,
+    }
+
+    model = _model_of(sources)
+
+    assert not marker.exists(), "measured code ran"
+    assert {(e.path, e.imported_path) for e in model.imports} == {
+        ("ok/c.py", "ok/d.py")
+    }
+    unparsed = {u.path for u in model.unparsed}
+    assert {"grimp/__init__.py", "logging/b.py"} <= unparsed
+    assert not unparsed & {"ok/c.py", "ok/d.py"}
