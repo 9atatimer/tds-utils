@@ -8,16 +8,17 @@ library; its tables are the architecture's (Mechanism, Measurement).
 
 from __future__ import annotations
 
+import dataclasses
 import fnmatch
 import re
 import tomllib
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import ClassVar
 
 from adherence.domain.finding import Notice
 from adherence.domain.model import Layer, Region
-from adherence.domain.parameters import Vocabulary
+from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import Quality, check_named
 from adherence.domain.source import source_lines
 
@@ -35,6 +36,10 @@ LAYER_NAMES = {layer.value: layer for layer in Layer}
 GLOB_CHARACTERS = frozenset("*?[")
 # `# --- Action functions ---`, with any run of trailing dashes.
 SECTION_MARKER = re.compile(r"^\s*#\s*---\s*(?P<name>[^-].*?)\s*-*\s*$")
+# The [vocabulary] keys: every word set Vocabulary carries, and regions.
+WORD_SETS = frozenset(
+    f.name for f in dataclasses.fields(Vocabulary) if f.name != REGIONS_KEY
+)
 
 # --- Values ------------------------------------------------------------------
 
@@ -69,6 +74,15 @@ class Layers:
 
 
 @dataclass(frozen=True, slots=True)
+class VocabularyExtension:
+    """The [vocabulary] table: the words added to each word set, and the
+    region markers added, each to the layer its region is in."""
+
+    words: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    regions: tuple[tuple[str, Layer], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class Declaration:
     """A repository's statement of its layers, runtimes, records, radar and
     exemptions. Declaration.none is the value for a repository that has none.
@@ -78,6 +92,7 @@ class Declaration:
     layers: Layers = field(default_factory=Layers)
     exemptions: tuple[Exemption, ...] = ()
     refused_exemptions: tuple[RefusedExemption, ...] = ()
+    vocabulary: VocabularyExtension = field(default_factory=VocabularyExtension)
 
     none: ClassVar[Declaration]
 
@@ -295,6 +310,69 @@ def _exemptions(value: object) -> tuple[Exemption, ...] | DeclarationUnreadable:
     return tuple(parsed)
 
 
+def _vocabulary_regions(value: object) -> tuple[tuple[str, Layer], ...] | str:
+    """The [vocabulary.regions] table, or why it cannot be read."""
+    if not isinstance(value, dict):
+        return "vocabulary.regions is a table of marker = layer"
+    regions: list[tuple[str, Layer]] = []
+    for marker, name in value.items():
+        layer = LAYER_NAMES.get(name) if isinstance(name, str) else None
+        if layer is None:
+            return f"vocabulary.regions: {marker} names no known layer"
+        regions.append((marker.lower(), layer))
+    return tuple(regions)
+
+
+def _vocabulary(value: object) -> VocabularyExtension | DeclarationUnreadable:
+    """The [vocabulary] table, or why it cannot be read."""
+    if not isinstance(value, dict):
+        return DeclarationUnreadable(f"{DECLARATION_PATH}: vocabulary is a table")
+    words: list[tuple[str, tuple[str, ...]]] = []
+    regions: tuple[tuple[str, Layer], ...] = ()
+    for key, entry in value.items():
+        if key == REGIONS_KEY:
+            found = _vocabulary_regions(entry)
+            if isinstance(found, str):
+                return DeclarationUnreadable(f"{DECLARATION_PATH}: {found}")
+            regions = found
+        elif key not in WORD_SETS:
+            return DeclarationUnreadable(
+                f"{DECLARATION_PATH}: vocabulary.{key} is no vocabulary"
+            )
+        elif not isinstance(entry, list) or not all(
+            isinstance(word, str) and word for word in entry
+        ):
+            return DeclarationUnreadable(
+                f"{DECLARATION_PATH}: vocabulary.{key} is a list of words"
+            )
+        else:
+            words.append((key, tuple(entry)))
+    return VocabularyExtension(tuple(words), regions)
+
+
+def extended(vocabulary: Vocabulary, extension: VocabularyExtension) -> Vocabulary:
+    """The vocabulary with the extension's words and region markers added:
+    a word set only grows, and a marker the vocabulary already maps keeps
+    its layer."""
+    grown = {
+        name: getattr(vocabulary, name) | frozenset(added)
+        for name, added in extension.words
+    }
+    regions = {
+        **{marker: layer for marker, layer in extension.regions},
+        **vocabulary.regions,
+    }
+    return replace(vocabulary, regions=regions, **grown)
+
+
+def with_overrides(parameters: Parameters, declaration: Declaration) -> Parameters:
+    """The parameters a run under the declaration is given: the shipped ones
+    with the declaration's overrides merged in, which only extend."""
+    return replace(
+        parameters, vocabulary=extended(parameters.vocabulary, declaration.vocabulary)
+    )
+
+
 def refusal_notices(declaration: Declaration) -> tuple[Notice, ...]:
     """A notice per exemption the declaration states and the suite refuses,
     naming what it would exempt and why it is refused."""
@@ -334,6 +412,9 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
     exemptions = _exemptions(document.get("exemptions", []))
     if isinstance(exemptions, DeclarationUnreadable):
         return exemptions
+    vocabulary = _vocabulary(document.get("vocabulary", {}))
+    if isinstance(vocabulary, DeclarationUnreadable):
+        return vocabulary
     return Declaration(
         layers=layers,
         exemptions=tuple(e for e in exemptions if not is_declared_check(e.check)),
@@ -342,4 +423,5 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
             for e in exemptions
             if is_declared_check(e.check)
         ),
+        vocabulary=vocabulary,
     )
