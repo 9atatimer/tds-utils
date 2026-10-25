@@ -82,3 +82,7 @@ def test_measure_with_a_field_written_outside_its_type_finds_the_write() -> None
     assert all(
         f.check.quality.value == "Domain-driven" for f in _of(report, "Boundary")
     )
+    assert any(
+        c.check == "Boundary" and "invariant_broken" in c.reason
+        for c in report.coverage
+    ), "the judged part is coverage, never a silent pass"
