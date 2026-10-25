@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from adherence.adapters.git import GitRepository
 from adherence.adapters.python_ast import PythonCodeModel
+from adherence.adapters.shell_astgrep import ShellCodeModel
 from adherence.adapters.ts_depcruise import TypeScriptCodeModel
 from adherence.domain.model import CodeLanguage
 from adherence.ports.code_model import CodeModelPort
@@ -57,6 +58,7 @@ def build(
             CodeLanguage.PYTHON: PythonCodeModel(),
             CodeLanguage.TYPESCRIPT: typescript,
             CodeLanguage.JAVASCRIPT: typescript,
+            CodeLanguage.SHELL: ShellCodeModel(),
         }
     return Container(
         stage=stage,

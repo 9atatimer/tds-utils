@@ -19,6 +19,7 @@ class CodeLanguage(enum.Enum):
     PYTHON = "python"
     TYPESCRIPT = "typescript"
     JAVASCRIPT = "javascript"
+    SHELL = "shell"
 
 
 class Layer(enum.Enum):
