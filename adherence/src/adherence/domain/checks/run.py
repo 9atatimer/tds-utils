@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from adherence.domain.checks import hexagonal
+from adherence.domain.checks import hexagonal, layered
 from adherence.domain.checks.outcome import CheckFunction
 from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import Declaration
@@ -26,6 +26,7 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Arrow": hexagonal.arrow,
     "Swap": hexagonal.swap,
     "Change": hexagonal.change,
+    "Trace": layered.trace,
 }
 CHANGE_LEVEL = "a change-level check: it runs when a change is judged"
 NOT_IN_SUITE = "not implemented in this suite version"

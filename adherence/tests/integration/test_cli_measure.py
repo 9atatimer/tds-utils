@@ -44,7 +44,7 @@ def _measure(root: Path) -> tuple[int, str]:
 def test_measure_json_over_the_fixture_prints_the_hexagonal_findings() -> None:
     """Given the fixture and records naming a seam it has and one it lacks,
     When `adhere measure --json` runs, Then it prints the Hexagonal checks
-    that ran and their findings, and every other quality's checks as
+    that ran and their findings, and every check that did not run as
     coverage missing with a reason."""
     code, output = _measure(FIXTURE)
 
@@ -59,10 +59,9 @@ def test_measure_json_over_the_fixture_prints_the_hexagonal_findings() -> None:
     assert ("Change", RECORD, "Clock: no port") in found
     assert all(f["identity"] and f["evidence"]["text"] for f in hexagonal["findings"])
     covered = {c["check"]: c["reason"] for c in document["coverage"] if c["check"]}
+    ran = {name for q in document["qualities"] for name in q["ran"]}
     for check in CATALOG:
-        if check.quality is not Quality.HEXAGONAL:
-            assert covered.get(check.name), check.name
-            assert qualities[check.quality.value]["findings"] == []
+        assert check.name in ran or covered.get(check.name), check.name
 
 
 def test_measure_of_a_root_git_cannot_list_says_not_run(tmp_path: Path) -> None:
