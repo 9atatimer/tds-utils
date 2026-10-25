@@ -35,6 +35,14 @@ class _Expired(Exception):
     """The deadline passed before or during a git call."""
 
 
+class GitFailure(Exception):
+    """git could not answer: it exited non-zero or could not be started.
+
+    read answers it as Refused; tree raises it, and the use case that first
+    lists a tree (task-058) decides how it becomes coverage.
+    """
+
+
 # --- Predicates --------------------------------------------------------------
 
 
@@ -116,6 +124,11 @@ class GitRepository:
             )
         except subprocess.TimeoutExpired as expired:
             raise _Expired from expired
+        except subprocess.CalledProcessError as failed:
+            complaint = failed.stderr.decode("utf-8", "replace").strip()
+            raise GitFailure(complaint or f"git exited {failed.returncode}") from failed
+        except OSError as unstartable:
+            raise GitFailure(f"git could not run: {unstartable}") from unstartable
         return done.stdout
 
     def _listing(
@@ -151,9 +164,14 @@ class GitRepository:
                 return Refused(path, LINK_REFUSAL)
         if not current.resolve().is_relative_to(self._root):
             return Refused(path, OUTSIDE_REFUSAL)
-        if not current.is_file():
+        if not current.exists():
             return Absent(path)
-        return current.read_bytes()
+        if not current.is_file():
+            return Refused(path, "not a regular file")
+        try:
+            return current.read_bytes()
+        except OSError as error:
+            return Refused(path, error.strerror or str(error))
 
     def read(
         self, path: str, at: Base | Head, deadline: Deadline | None
@@ -169,6 +187,8 @@ class GitRepository:
                 answer = self._read_object(normal, at, deadline)
         except _Expired:
             return TimedOut(f"read {path}")
+        except GitFailure as failure:
+            return Refused(path, str(failure))
         return answer
 
     def tree(
