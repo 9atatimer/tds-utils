@@ -21,9 +21,7 @@ from adherence.domain.target import Head
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "python"
 DESIGN = "docs/design/DESIGN.TOOL.md"
-RECORDS = DesignRecords(
-    domain_language=(Term("Order", DESIGN, 40), Term("Entry", DESIGN, 41))
-)
+RECORDS = DesignRecords(domain_language=(Term("Order", DESIGN, 40),))
 USE = "src/tool/application/use.py"
 SHIP = "src/tool/application/ship.py"
 LEDGER = "src/tool/domain/ledger.py"
@@ -60,23 +58,26 @@ def _ran(document: dict[str, object], quality: Quality) -> list[str]:
 
 
 def test_measure_json_over_the_fixture_prints_the_ddd_findings() -> None:
-    """Given the fixture and a Domain Language defining Order and Entry, When
-    `adhere measure --json` runs, Then Language names the undefined noun and
-    the signature, Boundary names the type, the writer and the owning unit,
-    and Anemic's all-fields type is coverage awaiting its judged part."""
+    """Given the fixture and a Domain Language defining Order, When `adhere
+    measure --json` runs, Then Language names the undefined noun and the
+    signature -- never the port a use case takes -- Boundary names the type,
+    the writer and the owning unit, and Anemic's all-fields type is coverage
+    awaiting its judged part."""
     document = _document()
 
     assert _ran(document, Quality.DOMAIN_DRIVEN) == ["Language", "Boundary", "Anemic"]
     found = _findings(document, Quality.DOMAIN_DRIVEN)
-    assert ("Language", USE, "close_order", "Store in close_order") in found
-    assert ("Language", SHIP, "ship", "Store in ship") in found
+    assert ("Language", SHIP, "restock", "Entry in restock") in found
     assert (
         "Boundary",
         USE,
         "close_order",
         f"Order.status written by close_order; owned by Order in {RULES}",
     ) in found
-    assert not any(check == "Language" and "Order" in s for check, _, _, s in found)
+    assert not any(
+        check == "Language" and ("Order" in s or "Store" in s)
+        for check, _, _, s in found
+    )
     anemic = [c for c in document["coverage"] if c["check"] == "Anemic"]
     assert [(c["path"], c["reason"].split(":")[0]) for c in anemic] == [
         (LEDGER, "Entry")

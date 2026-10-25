@@ -18,6 +18,7 @@ from adherence.domain.checks.roles import (
     by_symbol,
     is_use_case,
     is_within,
+    port_names,
     short_name,
 )
 from adherence.domain.coverage import Coverage
@@ -46,6 +47,11 @@ INITIALISER = "__init__"
 # lower-case word, or a number (`SARIFReport` -> SARIF, Report).
 WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
 PLURAL = "s"
+# A port's role suffix: `RepositoryPort` is the term Repository's port.
+PORT_SUFFIX = "port"
+# The layers whose types are the mechanism, not the problem: a port, an
+# adapter or the composition root's wiring is no noun of the domain.
+MECHANISM_LAYERS = frozenset({Layer.PORTS, Layer.ADAPTERS, Layer.COMPOSITION_ROOT})
 NO_JUDGE = "no judged question is asked in this suite version"
 BOUNDARY_JUDGED = (
     f"the judged part (invariant_broken: does the foreign write break an "
@@ -64,9 +70,8 @@ ANEMIC_JUDGED = (
 # --- Predicates --------------------------------------------------------------
 
 
-def defines(term: Sequence[str], noun: Sequence[str]) -> bool:
-    """Whether a term's words define a noun's: the same words, or the same
-    with the last one plural."""
+def _spelled_alike(term: Sequence[str], noun: Sequence[str]) -> bool:
+    """The same words, or the same with the last one plural."""
     if tuple(term) == tuple(noun):
         return True
     return (
@@ -74,6 +79,15 @@ def defines(term: Sequence[str], noun: Sequence[str]) -> bool:
         and tuple(term[:-1]) == tuple(noun[:-1])
         and noun[-1] == term[-1] + PLURAL
     )
+
+
+def defines(term: Sequence[str], noun: Sequence[str]) -> bool:
+    """Whether a term's words define a noun's: the same words, or the same
+    with the last one plural, with or without a port's role suffix on the
+    noun (`RepositoryPort` for Repository)."""
+    if _spelled_alike(term, noun):
+        return True
+    return len(noun) > 1 and noun[-1] == PORT_SUFFIX and _spelled_alike(term, noun[:-1])
 
 
 # --- Pure helpers ------------------------------------------------------------
@@ -85,9 +99,21 @@ def words(text: str) -> tuple[str, ...]:
     return tuple(w.lower() for w in WORD.findall(text))
 
 
-def signature_nouns(use_case: Definition, vocabulary: Vocabulary) -> list[str]:
+def mechanism_names(model: CodeModel) -> frozenset[str]:
+    """The names that are no noun of the problem: every port, and every type
+    the ports, adapters and composition-root layers define."""
+    return port_names(model) | frozenset(
+        short_name(d.unit.symbol)
+        for d in model.definitions
+        if d.unit.kind is UnitKind.TYPE and d.unit.layer in MECHANISM_LAYERS
+    )
+
+
+def signature_nouns(
+    use_case: Definition, vocabulary: Vocabulary, mechanism: frozenset[str]
+) -> list[str]:
     """The type names a use case's signature carries, each once, in order,
-    without the language's own types."""
+    without the language's own types and without the mechanism's."""
     signature = use_case.signature
     if signature is None:
         return []
@@ -96,7 +122,11 @@ def signature_nouns(use_case: Definition, vocabulary: Vocabulary) -> list[str]:
     for annotation in annotations:
         for name in annotation_names(annotation):
             noun = short_name(name)
-            if noun not in vocabulary.plain_types and noun not in nouns:
+            if (
+                noun not in vocabulary.plain_types
+                and noun not in mechanism
+                and noun not in nouns
+            ):
                 nouns.append(noun)
     return nouns
 
@@ -111,15 +141,16 @@ def language(
     records: DesignRecords | RecordsUnavailable,
     parameters: Parameters,
 ) -> CheckOutcome:
-    """Every noun in a use-case signature -- every type name it carries --
-    is defined in the design's Domain Language under that spelling. The
-    judged part is coverage."""
+    """Every noun in a use-case signature -- every type name it carries but
+    a port's or another mechanism type's -- is defined in the design's
+    Domain Language under that spelling. The judged part is coverage."""
     if not declaration.declared:
         return undeclared(LANGUAGE.name)
     if isinstance(records, RecordsUnavailable):
         return CheckOutcome(
             coverage=(Coverage(records.reason, check=LANGUAGE.name),), ran=False
         )
+    mechanism = mechanism_names(model)
     findings: list[Finding] = []
     for use_case in model.definitions:
         if not is_use_case(use_case):
@@ -133,7 +164,7 @@ def language(
                 f"{noun} in {unit.symbol}",
                 Evidence(unit.path, unit.start, unit.symbol or ""),
             )
-            for noun in signature_nouns(use_case, parameters.vocabulary)
+            for noun in signature_nouns(use_case, parameters.vocabulary, mechanism)
             if not _defined(noun, records.domain_language)
         )
     return CheckOutcome(
