@@ -5,6 +5,7 @@ Use-case surface)."""
 
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 
 from adherence.domain.finding import Finding
@@ -231,6 +232,18 @@ def test_measure_row_whose_when_names_the_word_then_is_traced() -> None:
     When clause names the check Then asserted, carried by its use case, When
     Trace runs, Then the row is read whole and there is no Trace finding."""
     assert _traced(SKIPS_THE_THEN) == []
+
+
+def test_measure_row_of_repeated_whens_is_read_in_linear_time() -> None:
+    """Given a 100 KB row of nothing but "When " (records are untrusted
+    data), When Trace runs, Then the row is untraceable and is read in well
+    under a second -- the lazy When/Then regex took ten seconds here."""
+    started = time.perf_counter()
+
+    (finding,) = _traced("When " * 20_000)
+
+    assert "no nameable" in finding.subject
+    assert time.perf_counter() - started < 1.0
 
 
 STORE = "src/app/ports/store.py"
