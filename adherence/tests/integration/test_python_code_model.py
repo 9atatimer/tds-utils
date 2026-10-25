@@ -7,6 +7,7 @@ import functools
 
 from adherence.adapters.python_ast import PythonCodeModel
 from adherence.domain.model import (
+    AccessKind,
     CodeModel,
     Definition,
     Layer,
@@ -231,3 +232,20 @@ def test_calls_name_their_callee_and_the_definition_they_sit_in() -> None:
     assert (use, "close_order", "store.save", 11) in calls
     assert (use, "close_order", "classify", 16) in calls
     assert ("src/tool/container.py", "build", "FsStore", 7) in calls
+
+
+def test_accesses_are_environment_reads_and_declared_globals() -> None:
+    """Given a read of the environment and a function that declares a global,
+    When the fixture is modelled, Then each is an access of its kind in the
+    definition it sits in."""
+    accesses = {(a.path, a.within, a.kind, a.target) for a in fixture_model().accesses}
+
+    assert accesses == {
+        (
+            "src/tool/adapters/fs_store.py",
+            "FsStore.save",
+            AccessKind.ENVIRONMENT,
+            "os.environ",
+        ),
+        ("bin/onefile.py", "load", AccessKind.GLOBAL, "COUNTER"),
+    }
