@@ -41,6 +41,11 @@ SEAM_LAYERS = frozenset(
     {Layer.DOMAIN, Layer.PORTS, Layer.APPLICATION, Layer.COMPOSITION_ROOT}
 )
 CORE = frozenset({Layer.DOMAIN, Layer.APPLICATION})
+# A type declaring an interface by its base (the last dotted part, any
+# subscript dropped), and a method declared abstract by its decorator: a
+# port whose methods are only docstrings carries no stub marker.
+INTERFACE_BASES = frozenset({"Protocol"})
+ABSTRACT_DECORATORS = frozenset({"abstractmethod"})
 _EVERY_LAYER = frozenset(Layer)
 # The layers each layer may import: cli -> application -> domain and
 # adapters -> ports -> domain; the composition root and tests reach any.
@@ -318,13 +323,24 @@ def _types(model: CodeModel) -> list[Definition]:
     return [d for d in model.definitions if d.unit.kind is UnitKind.TYPE]
 
 
+def _last_part(written: str) -> str:
+    """A base or decorator as written, without its subscript or call and
+    its dotted prefix."""
+    return written.partition("[")[0].partition("(")[0].rpartition(".")[2].strip()
+
+
 def is_port(definition: Definition, methods: Sequence[Definition]) -> bool:
-    """Whether a type is a port: in the ports layer, declaring methods and
-    implementing none of them."""
+    """Whether a type is a port: in the ports layer, declaring methods, and
+    either an interface by its base (a Protocol), declaring an abstract
+    method, or implementing none of its methods."""
+    if definition.unit.layer is not Layer.PORTS or not methods:
+        return False
     return (
-        definition.unit.layer is Layer.PORTS
-        and bool(methods)
-        and all(m.body.stub_markers for m in methods)
+        any(_last_part(b) in INTERFACE_BASES for b in definition.bases)
+        or any(
+            _last_part(d) in ABSTRACT_DECORATORS for m in methods for d in m.decorators
+        )
+        or all(m.body.stub_markers for m in methods)
     )
 
 
