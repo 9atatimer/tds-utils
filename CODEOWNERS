@@ -6,9 +6,10 @@
 
 # Catch-all (9atatimer/tds-internal#285): this repo's contents run on the owner's laptop at
 # session start, so every landing needs the owner's approval. tedium
-# enforces it on its path; the Landing ruleset's code-owner rule enforces
-# it on GitHub's merge button, so the agents' identity (9atatimer-bot,
-# push) cannot land a change alone. Agents open PRs as that identity so
+# enforces it on its path. The Landing ruleset is configured separately
+# to require a code-owner approval on GitHub's merge button and to
+# dismiss a stale approval on push; with both in force, the agents'
+# identity (9atatimer-bot, push) cannot land a change alone. Agents open PRs as that identity so
 # the owner can approve them (GitHub refuses self-approval). Listed
 # first: last match wins, and every narrower line below names the same
 # owner.
