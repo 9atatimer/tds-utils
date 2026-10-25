@@ -13,6 +13,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import ClassVar
 
+from adherence.domain.qualities import Quality, check_named
+
 # --- Constants ---------------------------------------------------------------
 
 DECLARATION_PATH = "adherence.toml"
@@ -21,6 +23,7 @@ TABLES = frozenset(
     {"layers", "runtimes", "records", "radar", "exemptions", "limits", "vocabulary"}
 )
 EXEMPTION_KEYS = frozenset({"check", "unit", "finding", "reason"})
+DECLARED_REFUSAL = "the Declared quality's checks cannot be exempted"
 
 # --- Values ------------------------------------------------------------------
 
@@ -37,6 +40,14 @@ class Exemption:
 
 
 @dataclass(frozen=True, slots=True)
+class RefusedExemption:
+    """An exemption the declaration states and the suite will not honor."""
+
+    exemption: Exemption
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class Declaration:
     """A repository's statement of its layers, runtimes, records, radar and
     exemptions. Declaration.none is the value for a repository that has none.
@@ -44,6 +55,7 @@ class Declaration:
 
     declared: bool = True
     exemptions: tuple[Exemption, ...] = ()
+    refused_exemptions: tuple[RefusedExemption, ...] = ()
 
     none: ClassVar[Declaration]
 
@@ -56,6 +68,15 @@ class DeclarationUnreadable:
     """The outcome of a declaration that cannot be read, with the reason."""
 
     reason: str
+
+
+# --- Predicates --------------------------------------------------------------
+
+
+def is_declared_check(name: str | None) -> bool:
+    """Whether the check named is one of the Declared quality's."""
+    check = check_named(name) if name else None
+    return check is not None and check.quality is Quality.DECLARED
 
 
 # --- Pure helpers ------------------------------------------------------------
@@ -126,4 +147,11 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
     exemptions = _exemptions(document.get("exemptions", []))
     if isinstance(exemptions, DeclarationUnreadable):
         return exemptions
-    return Declaration(exemptions=exemptions)
+    return Declaration(
+        exemptions=tuple(e for e in exemptions if not is_declared_check(e.check)),
+        refused_exemptions=tuple(
+            RefusedExemption(e, DECLARED_REFUSAL)
+            for e in exemptions
+            if is_declared_check(e.check)
+        ),
+    )

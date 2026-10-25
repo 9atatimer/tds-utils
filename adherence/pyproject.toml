@@ -27,8 +27,7 @@ build-backend = "uv_build"
 # flawed (task-057 onward): never collected, linted or type-checked.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
-norecursedirs = ["fixtures"]
+addopts = "-q --ignore=tests/fixtures"
 
 [tool.mypy]
 strict = true
