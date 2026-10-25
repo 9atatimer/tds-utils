@@ -6,7 +6,13 @@ Use-case surface)."""
 from __future__ import annotations
 
 from adherence.domain.finding import Finding
-from adherence.domain.model import Call
+from adherence.domain.model import (
+    Access,
+    AccessKind,
+    Call,
+    Reference,
+    ReferenceKind,
+)
 from adherence.domain.report import Report
 from tests.facts_kit import (
     FS,
@@ -94,3 +100,43 @@ def test_measure_with_a_use_case_constructing_an_adapter_finds_it() -> None:
         for f in _of(report, "No self-wiring")
     }
     assert found == {("close", "FsStore", 2), ("close", "fs.FsStore", 7)}
+
+
+def test_measure_with_a_core_unit_reading_a_global_finds_the_reach() -> None:
+    """Given a domain function and a domain module reading the environment, a
+    use case declaring a global, and a use case reading a singleton, and an
+    adapter and a composition root reading the environment, When No reach
+    runs, Then a finding names each core unit and what it reached, and the
+    adapter and the root are clean."""
+    files = {RULES: b"x\n" * 9, USE: b"x\n" * 9, FS: b"x\n" * 9, ROOT: b"x\n" * 9}
+    definitions = [
+        function(RULES, "price", 2, end=4),
+        function(USE, "close", 1, end=3),
+        function(USE, "run", 5, end=7),
+        function(FS, "save", 1, end=3),
+        function(ROOT, "build", 1, end=3),
+    ]
+    accesses = (
+        Access(RULES, 3, "price", AccessKind.ENVIRONMENT, "os.environ"),
+        Access(RULES, 8, None, AccessKind.ENVIRONMENT, "os.getenv"),
+        Access(USE, 2, "close", AccessKind.GLOBAL, "COUNTER"),
+        Access(FS, 2, "save", AccessKind.ENVIRONMENT, "os.environ"),
+        Access(ROOT, 2, "build", AccessKind.ENVIRONMENT, "os.environ"),
+    )
+    references = (
+        Reference(USE, 6, "run", ReferenceKind.NAME, "sys.argv"),
+        Reference(USE, 6, "run", ReferenceKind.NAME, "sys.version_info"),
+    )
+
+    report = measure_with(
+        files, facts(definitions, accesses=accesses, references=references)
+    )
+
+    assert "No reach" in {c.name for c in report.ran}
+    found = {(f.unit.path, f.unit.symbol, f.subject) for f in _of(report, "No reach")}
+    assert found == {
+        (RULES, "price", "the environment: os.environ"),
+        (RULES, None, "the environment: os.getenv"),
+        (USE, "close", "a global: COUNTER"),
+        (USE, "run", "a singleton: sys.argv"),
+    }
