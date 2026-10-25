@@ -218,3 +218,16 @@ def test_references_are_names_and_string_literals_but_not_docstrings() -> None:
         "LIMIT",
     ) in references
     assert not any(r[3] == "Rules." for r in references)
+
+
+def test_calls_name_their_callee_and_the_definition_they_sit_in() -> None:
+    """Given function, method and constructor calls, When the fixture is
+    modelled, Then each call names its callee as written, its line, and the
+    definition it sits in."""
+    calls = {(c.path, c.within, c.callee, c.line) for c in fixture_model().calls}
+
+    use = "src/tool/application/use.py"
+    assert (use, "close_order", "time.sleep", 10) in calls
+    assert (use, "close_order", "store.save", 11) in calls
+    assert (use, "close_order", "classify", 16) in calls
+    assert ("src/tool/container.py", "build", "FsStore", 7) in calls
