@@ -138,3 +138,6 @@ def test_measure_with_a_noun_the_domain_language_lacks_finds_it() -> None:
         ("close", "Receipt in close"),
     }
     assert all(f.layer is Layer.APPLICATION for f in _of(report, "Language"))
+    assert any(
+        c.check == "Language" and "same_concept" in c.reason for c in report.coverage
+    ), "the judged part is coverage, never a silent pass"

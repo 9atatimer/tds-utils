@@ -32,7 +32,9 @@ class Vocabulary:
     callables are the type names that make a parameter a callable;
     wire_formats the type names -- a wire format, or an SDK type or handle
     known by name -- that no use-case signature may carry; singletons the
-    dotted names that reach a process-wide instance.
+    dotted names that reach a process-wide instance; plain_types the
+    language's own type names, which a signature names but which are no
+    noun of the problem.
     """
 
     regions: Mapping[str, Layer]
@@ -45,6 +47,7 @@ class Vocabulary:
     callables: frozenset[str] = field(default_factory=frozenset)
     wire_formats: frozenset[str] = field(default_factory=frozenset)
     singletons: frozenset[str] = field(default_factory=frozenset)
+    plain_types: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True, slots=True)

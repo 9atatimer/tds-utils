@@ -32,6 +32,7 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Ports as keywords": injectable.ports_as_keywords,
     "No self-wiring": injectable.no_self_wiring,
     "No reach": injectable.no_reach,
+    "Language": ddd.language,
     "Boundary": ddd.boundary,
 }
 CHANGE_LEVEL = "a change-level check: it runs when a change is judged"

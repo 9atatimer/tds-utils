@@ -9,12 +9,14 @@ suite version; what they would be asked about is coverage.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import re
+from collections.abc import Mapping, Sequence
 
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.checks.roles import (
     annotation_names,
     by_symbol,
+    is_use_case,
     is_within,
     short_name,
 )
@@ -28,20 +30,106 @@ from adherence.domain.model import (
     UnitKind,
     Write,
 )
-from adherence.domain.parameters import Parameters
+from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
-from adherence.domain.records import DesignRecords, RecordsUnavailable
+from adherence.domain.records import DesignRecords, RecordsUnavailable, Term
 
 # --- Constants ---------------------------------------------------------------
 
 BOUNDARY = catalog_check("Boundary")
+LANGUAGE = catalog_check("Language")
+# One word of an identifier or a term: an acronym, a capitalised or
+# lower-case word, or a number (`SARIFReport` -> SARIF, Report).
+WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
+PLURAL = "s"
 NO_JUDGE = "no judged question is asked in this suite version"
 BOUNDARY_JUDGED = (
     f"the judged part (invariant_broken: does the foreign write break an "
     f"invariant?) {NO_JUDGE}"
 )
+LANGUAGE_JUDGED = (
+    f"the judged part (same_concept: are two differently spelled nouns one "
+    f"concept?) {NO_JUDGE}"
+)
+
+# --- Predicates --------------------------------------------------------------
+
+
+def defines(term: Sequence[str], noun: Sequence[str]) -> bool:
+    """Whether a term's words define a noun's: the same words, or the same
+    with the last one plural."""
+    if tuple(term) == tuple(noun):
+        return True
+    return (
+        len(term) == len(noun) > 0
+        and tuple(term[:-1]) == tuple(noun[:-1])
+        and noun[-1] == term[-1] + PLURAL
+    )
+
 
 # --- Pure helpers ------------------------------------------------------------
+
+
+def words(text: str) -> tuple[str, ...]:
+    """An identifier's or a term's words, lower-cased: CamelCase, snake_case
+    and spaced spellings of one name give the same words."""
+    return tuple(w.lower() for w in WORD.findall(text))
+
+
+def signature_nouns(use_case: Definition, vocabulary: Vocabulary) -> list[str]:
+    """The type names a use case's signature carries, each once, in order,
+    without the language's own types."""
+    signature = use_case.signature
+    if signature is None:
+        return []
+    annotations = [*(p.annotation for p in signature.parameters), signature.returns]
+    nouns: list[str] = []
+    for annotation in annotations:
+        for name in annotation_names(annotation):
+            noun = short_name(name)
+            if noun not in vocabulary.plain_types and noun not in nouns:
+                nouns.append(noun)
+    return nouns
+
+
+def _defined(noun: str, terms: Sequence[Term]) -> bool:
+    return any(defines(words(t.name), words(noun)) for t in terms)
+
+
+def language(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """Every noun in a use-case signature -- every type name it carries --
+    is defined in the design's Domain Language under that spelling. The
+    judged part is coverage."""
+    if not declaration.declared:
+        return undeclared(LANGUAGE.name)
+    if isinstance(records, RecordsUnavailable):
+        return CheckOutcome(
+            coverage=(Coverage(records.reason, check=LANGUAGE.name),), ran=False
+        )
+    findings: list[Finding] = []
+    for use_case in model.definitions:
+        if not is_use_case(use_case):
+            continue
+        unit = use_case.unit
+        findings.extend(
+            Finding(
+                LANGUAGE,
+                unit,
+                unit.layer,
+                f"{noun} in {unit.symbol}",
+                Evidence(unit.path, unit.start, unit.symbol or ""),
+            )
+            for noun in signature_nouns(use_case, parameters.vocabulary)
+            if not _defined(noun, records.domain_language)
+        )
+    return CheckOutcome(
+        tuple(findings), (Coverage(LANGUAGE_JUDGED, check=LANGUAGE.name),)
+    )
 
 
 def _types_by_name(model: CodeModel) -> dict[str, list[Definition]]:
