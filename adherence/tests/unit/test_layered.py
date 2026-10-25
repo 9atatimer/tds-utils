@@ -5,16 +5,20 @@ Use-case surface)."""
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from adherence.domain.finding import Finding
 from adherence.domain.model import (
     Body,
     CodeModel,
     Definition,
+    Layer,
     Parameter,
     Signature,
     Unit,
     UnitKind,
 )
+from adherence.domain.parameters import Vocabulary
 from adherence.domain.records import (
     Behavior,
     DesignRecords,
@@ -22,7 +26,7 @@ from adherence.domain.records import (
     UseCase,
 )
 from adherence.domain.report import Report
-from tests.measure_kit import measure_with
+from tests.measure_kit import VOCABULARY, measure_with
 
 DESIGN = "docs/design/DESIGN.TOOL.md"
 ARCHITECTURE = "docs/design/ARCHITECTURE.TOOL.md"
@@ -188,3 +192,60 @@ def test_measure_behavior_row_naming_no_action_or_observation_is_found() -> None
         assert finding.unit.path == DESIGN
         assert "no nameable" in finding.subject
     assert untraceable["Orders exist"].evidence.line == 20
+
+
+STORE = "src/app/ports/store.py"
+
+
+def _purity_vocabulary() -> Vocabulary:
+    return replace(
+        VOCABULARY, clocks=frozenset({"Clock"}), callables=frozenset({"Callable"})
+    )
+
+
+def _type(path: str, name: str, line: int) -> Definition:
+    unit = Unit(path, UnitKind.TYPE, name, line, line + 2, None)
+    return Definition(unit, None, Body("", (), ()), ("Protocol",), (), None, False)
+
+
+def _stub_method(path: str, owner: str, name: str, line: int) -> Definition:
+    unit = Unit(path, UnitKind.FUNCTION, f"{owner}.{name}", line, line, None)
+    return Definition(unit, None, Body("...", ("...",), ()), (), (), owner, False)
+
+
+def _annotated(*pairs: tuple[str, str]) -> tuple[Parameter, ...]:
+    return tuple(Parameter(name, kind, False, False) for name, kind in pairs)
+
+
+def test_measure_domain_function_taking_a_port_or_a_clock_is_found() -> None:
+    """Given domain functions that take a port and a clock, one that takes a
+    callable, and a use case that takes the port, When Purity runs, Then a
+    finding names each domain function and the parameter, the port's
+    reaching the ports layer; the callable is coverage for the judged part,
+    and the use case is not found."""
+    definitions = (
+        _type(STORE, "Store", 1),
+        _stub_method(STORE, "Store", "save", 2),
+        _function(RULES, "price", _annotated(("order", "Order"), ("store", "Store"))),
+        _function(RULES, "stamp", _annotated(("order", "Order"), ("now", "Clock")), 4),
+        _function(
+            RULES, "total", _annotated(("fetch", "Callable[[str], bytes]")), line=7
+        ),
+        _function(USE, "close_order", _annotated(("store", "ports.Store"))),
+    )
+    facts = CodeModel(definitions=definitions)
+    files = {STORE: b"x\n", RULES: b"x\n", USE: b"x\n"}
+
+    report = measure_with(files, facts, vocabulary=_purity_vocabulary())
+
+    assert "Purity" in [c.name for c in report.ran]
+    found = {(f.unit.symbol, f.layer, f.reached) for f in _of(report, "Purity")}
+    assert found == {
+        ("price", Layer.DOMAIN, Layer.PORTS),
+        ("stamp", Layer.DOMAIN, None),
+    }
+    subjects = {f.unit.symbol: f.subject for f in _of(report, "Purity")}
+    assert "store" in subjects["price"] and "now" in subjects["stamp"]
+    judged = [c for c in report.coverage if c.check == "Purity"]
+    assert [c.path for c in judged] == [RULES]
+    assert "total" in judged[0].reason and "fetch" in judged[0].reason

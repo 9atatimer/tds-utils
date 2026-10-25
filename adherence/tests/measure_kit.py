@@ -82,6 +82,7 @@ def measure_with(
     duplication: FakeDuplication | None = None,
     deadline: Deadline | None = None,
     unlisted: Refused | TimedOut | None = None,
+    vocabulary: Vocabulary = VOCABULARY,
 ) -> Report:
     """measure over a repository holding `files` at the working tree, whose
     Python analyzer answers with `facts`."""
@@ -98,6 +99,6 @@ def measure_with(
         duplication=duplication or FakeDuplication(),
         records=FakeRecords({} if records is None else {HEAD: records}),
         judge=FakeDecision(Unavailable("no judge in the unit tier")),
-        parameters=parameters(limits=limits),
+        parameters=parameters(vocabulary=vocabulary, limits=limits),
         deadline=deadline,
     )
