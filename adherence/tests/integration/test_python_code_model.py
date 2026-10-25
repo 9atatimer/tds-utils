@@ -544,3 +544,29 @@ def test_a_form_feed_shifts_no_line_numbers() -> None:
     assert (edge.line, edge.text) == (2, "import os")
     [definition] = model.definitions
     assert definition.body.text == "    return 42"
+
+
+def test_field_writes_through_unpacking_and_loop_targets_are_writes() -> None:
+    """Given fields assigned by tuple unpacking, a starred target, a for
+    target and a with target, When they are modelled, Then each is a write
+    and the fields set on self are members."""
+    source = (
+        b"class T:\n"
+        b"    def __init__(self, o):\n"
+        b"        self.a, (self.b, *self.c) = 1, (2, 3)\n"
+        b"        for self.d in []:\n"
+        b"            pass\n"
+        b"        with open('x') as o.e:\n"
+        b"            pass\n"
+    )
+
+    model = _model_of({"m.py": source})
+
+    assert sorted((w.target, w.field) for w in model.writes) == [
+        ("o", "e"),
+        ("self", "a"),
+        ("self", "b"),
+        ("self", "c"),
+        ("self", "d"),
+    ]
+    assert {m.name for m in model.members} == {"__init__", "a", "b", "c", "d"}
