@@ -348,3 +348,37 @@ def test_measure_runtime_no_unit_constructs_adapters_for_is_a_disagreement() -> 
     assert "worker" in disagreement.subject
     assert "disagree" in disagreement.subject
     assert disagreement.unit.path == "adherence.toml"
+
+
+def test_measure_adapter_constructed_outside_the_root_is_found() -> None:
+    """Given a use case and a test that each construct the concrete adapter,
+    a test that constructs the fake, and the root that constructs it, When
+    Wiring runs, Then a finding names the use case and the adapter, and one
+    the test and the adapter (only a fake is exempt, by the design's Fake
+    invariant), each reaching the adapters layer; the root and the fake are
+    not found."""
+    definitions = _wired(
+        _function(ROOT, "build", (), line=5),
+        _function(USE, "close_order", _parameters("order"), line=5),
+        _function(TEST, "test_save", (), line=20),
+        _function(TEST, "test_close", (), line=30),
+    )
+    calls = (
+        Call(ROOT, 6, "build", "FsStore"),
+        Call(USE, 6, "close_order", "FsStore"),
+        Call(TEST, 21, "test_save", "fs.FsStore"),
+        Call(TEST, 31, "test_close", "FakeStore"),
+    )
+    files = {path: b"x\n" for path in (STORE, FS, ROOT, USE, TEST)}
+
+    report = measure_with(files, _wiring_facts(definitions, calls), declared(WIRED))
+
+    below = {
+        (f.unit.symbol, f.layer, f.subject)
+        for f in _of(report, "Wiring")
+        if f.reached is Layer.ADAPTERS
+    }
+    assert below == {
+        ("close_order", Layer.APPLICATION, "FsStore"),
+        ("test_save", Layer.TEST, "FsStore"),
+    }
