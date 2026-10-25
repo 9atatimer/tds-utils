@@ -11,6 +11,7 @@ from adherence.domain.model import (
     Definition,
     Layer,
     Parameter,
+    ReferenceKind,
     Signature,
     UnitKind,
 )
@@ -196,3 +197,24 @@ def test_bodies_carry_their_text_stub_markers_and_sleeps() -> None:
     assert close.stub_markers == ()
     assert close.sleeps == (10,)
     assert "store.save(order)" in close.text
+
+
+def test_references_are_names_and_string_literals_but_not_docstrings() -> None:
+    """Given code naming a module attribute and quoting a model id, When the
+    fixture is modelled, Then each name chain and string literal is a
+    reference in the definition it sits in, and a docstring is none."""
+    references = {
+        (r.path, r.within, r.kind, r.text) for r in fixture_model().references
+    }
+
+    save = ("src/tool/adapters/fs_store.py", "FsStore.save")
+    assert (*save, ReferenceKind.STRING, "claude-opus") in references
+    assert (*save, ReferenceKind.NAME, "os.environ") in references
+    assert (*save, ReferenceKind.NAME, "os") not in references
+    assert (
+        "src/tool/domain/rules.py",
+        "Order.is_large",
+        ReferenceKind.NAME,
+        "LIMIT",
+    ) in references
+    assert not any(r[3] == "Rules." for r in references)
