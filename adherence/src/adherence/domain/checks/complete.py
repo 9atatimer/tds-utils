@@ -113,15 +113,15 @@ def stub(
 def _function_unit(
     model: CodeModel, path: str, symbol: str, line: int, layer: Layer | None
 ) -> Unit:
-    """The model's unit for a function the tooling names, or one built from
-    what the tooling reports when the analyzer has none."""
-    named = next(
-        (
-            u
-            for u in model.units
-            if u.path == path and u.kind is UnitKind.FUNCTION and u.symbol == symbol
-        ),
-        None,
+    """The model's unit for a function the tooling names -- the one starting
+    on that line of that file, else the one of that symbol -- or one built
+    from what the tooling reports when the analyzer has none. The tooling's
+    symbol may lack the type a method belongs to."""
+    functions = [
+        u for u in model.units if u.path == path and u.kind is UnitKind.FUNCTION
+    ]
+    named = next((u for u in functions if u.start == line), None) or next(
+        (u for u in functions if u.symbol == symbol), None
     )
     return named or Unit(path, UnitKind.FUNCTION, symbol, line, line, layer)
 
