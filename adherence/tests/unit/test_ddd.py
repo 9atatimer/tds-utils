@@ -141,3 +141,40 @@ def test_measure_with_a_noun_the_domain_language_lacks_finds_it() -> None:
     assert any(
         c.check == "Language" and "same_concept" in c.reason for c in report.coverage
     ), "the judged part is coverage, never a silent pass"
+
+
+def test_measure_with_an_all_fields_type_leaves_its_rules_to_the_judge() -> None:
+    """Given domain types that are all fields (one with only an initialiser),
+    a domain type with behavior, a domain type with no fields, and an
+    adapter type that is all fields, When Anemic's rule part runs, Then it
+    finds each all-fields domain type and, with no judge to ask whether its
+    rules live in another unit (rules_elsewhere), reports each as coverage
+    naming the type -- never a pass, and never a rule finding, since a
+    plain value is not anemic by itself."""
+    files = {RULES: b"x\n" * 20, FS: b"x\n" * 9}
+    definitions = [
+        type_(RULES, "Order", 1, end=4),
+        type_(RULES, "Receipt", 6, end=8),
+        type_(RULES, "Money", 10, end=13),
+        type_(RULES, "Refused", 15, end=16),
+        type_(FS, "Config", 1, end=3),
+    ]
+    members = (
+        field(RULES, "Order", "total", 2),
+        method(RULES, "Order", "is_large", 3),
+        field(RULES, "Receipt", "number", 7),
+        field(RULES, "Money", "cents", 12),
+        method(RULES, "Money", "__init__", 11),
+        field(FS, "Config", "root", 2),
+    )
+
+    report = measure_with(files, facts(definitions, members=members))
+
+    assert "Anemic" in {c.name for c in report.ran}
+    assert _of(report, "Anemic") == []
+    asked = [c for c in report.coverage if c.check == "Anemic"]
+    assert {(c.path, c.reason.split(":")[0]) for c in asked} == {
+        (RULES, "Receipt"),
+        (RULES, "Money"),
+    }
+    assert all("rules_elsewhere" in c.reason for c in asked)
