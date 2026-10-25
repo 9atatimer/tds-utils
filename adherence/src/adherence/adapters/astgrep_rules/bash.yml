@@ -1,0 +1,13 @@
+# Shell structural facts for adapters/astgrep.py.
+#
+# Written for Bash; the adapter claims every file handed to it, whatever
+# its name, since a shell tool is often a bare name under bin/ and zsh is
+# read with the Bash grammar. Each rule's id names the fact it yields, the
+# same ids the TypeScript rules use, and its captures are the fact's
+# parts; an id may carry a `.variant` when two rules yield one fact.
+# Every rule is a hint, so a match never fails the scan.
+id: syntax-error
+language: Bash
+severity: hint
+rule:
+  kind: ERROR
