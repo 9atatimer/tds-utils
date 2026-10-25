@@ -5,6 +5,7 @@ surface). The judged parts are task-064's."""
 
 from __future__ import annotations
 
+from adherence.container import SHIPPED_VOCABULARY
 from adherence.domain.finding import Finding
 from adherence.domain.model import Layer, Write
 from adherence.domain.records import DesignRecords, Term
@@ -219,3 +220,40 @@ def test_measure_with_a_port_in_a_use_case_names_no_foreign_noun() -> None:
 
     assert "Language" in {c.name for c in report.ran}
     assert _of(report, "Language") == []
+
+
+def test_measure_with_literals_and_library_types_names_no_foreign_noun() -> None:
+    """Given a use case whose signature carries a literal's contents
+    (`Literal["fast"]`), annotation metadata, and the standard library's
+    and typing's own types (datetime, Path, Dict, List, Tuple), under the
+    shipped vocabulary, When Language runs, Then no finding names any of
+    them: only type names are read, never a literal's contents, and the
+    language's own types are no noun of the problem."""
+    files = {USE: b"x\n" * 9}
+    definitions = [
+        function(
+            USE,
+            "lit",
+            1,
+            (
+                value("order", "Order"),
+                value("mode", 'Literal["fast", "slow"]'),
+                value("note", 'Annotated[Order, "a memo"]'),
+                value("when", "datetime"),
+                value("day", "datetime.date"),
+                value("path", "Path"),
+                value("xs", "Dict[str, int]"),
+                value("ys", "List[Order]"),
+                value("pair", "Tuple[int, Decimal]"),
+                value("key", "UUID"),
+            ),
+            returns="Order",
+        ),
+    ]
+
+    report = measure_with(
+        files, facts(definitions), records=LANGUAGE, vocabulary=SHIPPED_VOCABULARY
+    )
+
+    assert "Language" in {c.name for c in report.ran}
+    assert [f.subject for f in _of(report, "Language")] == []

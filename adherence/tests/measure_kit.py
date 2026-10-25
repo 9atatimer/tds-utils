@@ -82,6 +82,7 @@ def measure_with(
     records: DesignRecords | RecordsUnavailable | TimedOut | None = None,
     analyzers: Mapping[CodeLanguage, CodeModelPort] | None = None,
     limits: Limits = LIMITS,
+    vocabulary: Vocabulary = VOCABULARY,
     complexity: FakeComplexity | None = None,
     duplication: FakeDuplication | None = None,
     deadline: Deadline | None = None,
@@ -102,6 +103,6 @@ def measure_with(
         duplication=duplication or FakeDuplication(),
         records=FakeRecords({} if records is None else {HEAD: records}),
         judge=FakeDecision(Unavailable("no judge in the unit tier")),
-        parameters=parameters(limits=limits),
+        parameters=parameters(vocabulary=vocabulary, limits=limits),
         deadline=deadline,
     )
