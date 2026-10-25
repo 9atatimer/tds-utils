@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import ClassVar
 
 from adherence.domain.model import Layer, Region
+from adherence.domain.parameters import Vocabulary
 from adherence.domain.qualities import Quality, check_named
 
 # --- Constants ---------------------------------------------------------------
@@ -29,6 +30,8 @@ DECLARED_REFUSAL = "the Declared quality's checks cannot be exempted"
 REGIONS_KEY = "regions"
 LAYER_NAMES = {layer.value: layer for layer in Layer}
 GLOB_CHARACTERS = frozenset("*?[")
+# `# --- Action functions ---`, with any run of trailing dashes.
+SECTION_MARKER = re.compile(r"^\s*#\s*---\s*(?P<name>[^-].*?)\s*-*\s*$")
 
 # --- Values ------------------------------------------------------------------
 
@@ -129,6 +132,26 @@ def _glob_regex(pattern: str) -> str:
             out.append(re.escape(pattern[index]))
             index += 1
     return "".join(out)
+
+
+def marker_regions(path: str, text: str, vocabulary: Vocabulary) -> tuple[Region, ...]:
+    """The regions a file's section markers open: from each marker the
+    vocabulary knows to the line before the next marker, or the end of the
+    file. A marker it does not know closes the region before it."""
+    lines = text.splitlines()
+    markers = [
+        (number, match.group("name").lower())
+        for number, line in enumerate(lines, start=1)
+        if (match := SECTION_MARKER.match(line))
+    ]
+    regions: list[Region] = []
+    for index, (start, name) in enumerate(markers):
+        layer = vocabulary.regions.get(name)
+        if layer is None:
+            continue
+        end = markers[index + 1][0] - 1 if index + 1 < len(markers) else len(lines)
+        regions.append(Region(path, start, end, layer))
+    return tuple(regions)
 
 
 def layer_of(
