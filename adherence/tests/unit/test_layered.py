@@ -234,6 +234,13 @@ def test_measure_row_whose_when_names_the_word_then_is_traced() -> None:
     assert _traced(SKIPS_THE_THEN) == []
 
 
+def test_measure_row_with_lowercase_keywords_is_traced() -> None:
+    """Given a row written "Given x, when y, then z", carried by its use
+    case, When Trace runs, Then its keywords are read whatever their case
+    and there is no Trace finding."""
+    assert _traced("Given an open order, when it is closed, then it is closed") == []
+
+
 def test_measure_row_of_repeated_whens_is_read_in_linear_time() -> None:
     """Given a 100 KB row of nothing but "When " (records are untrusted
     data), When Trace runs, Then the row is untraceable and is read in well
