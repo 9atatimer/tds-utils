@@ -4,6 +4,8 @@ one member at a time (task-069), after the shared contract."""
 from __future__ import annotations
 
 import functools
+import tempfile
+import uuid
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -656,3 +658,28 @@ def test_model_past_the_deadline_between_analyzers_times_out(passes_after: int) 
     )
 
     assert isinstance(answer, TimedOut)
+
+
+def test_a_path_that_leaves_the_repository_is_unparsed_and_never_written(
+    tmp_path: Path,
+) -> None:
+    """Given sources keyed by a path climbing out of the repository and by an
+    absolute path, When they are modelled, Then each is Unparsed with the
+    reason, nothing is written where it points, and the rest is modelled."""
+    climbing = f"../../adhere-escape-{uuid.uuid4().hex}.ts"
+    absolute = tmp_path / "absolute.ts"
+
+    model = _model_of(
+        {
+            climbing: b"export const x = 1;\n",
+            str(absolute): b"export const y = 2;\n",
+            "fine.ts": b"export function f(): number {\n  return 1;\n}\n",
+        }
+    )
+
+    assert not Path(tempfile.gettempdir(), Path(climbing).name).exists()
+    assert not absolute.exists()
+    reasons = {u.path: u.reason for u in model.unparsed}
+    assert set(reasons) == {climbing, str(absolute)}
+    assert all("leaves the repository" in r for r in reasons.values())
+    assert {u.path for u in model.units} == {"fine.ts"}
