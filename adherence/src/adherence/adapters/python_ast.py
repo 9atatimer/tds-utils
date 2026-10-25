@@ -309,12 +309,27 @@ def _accesses(
     return found
 
 
+def _unpacked(target: ast.expr) -> list[ast.expr]:
+    """The single targets inside a tuple, list or starred target."""
+    if isinstance(target, ast.Tuple | ast.List):
+        return [single for element in target.elts for single in _unpacked(element)]
+    if isinstance(target, ast.Starred):
+        return _unpacked(target.value)
+    return [target]
+
+
 def _assigned(node: ast.AST) -> list[ast.expr]:
+    """Every single target a statement binds: assignments, for loops and
+    with blocks, through any unpacking."""
     if isinstance(node, ast.Assign):
-        return list(node.targets)
-    if isinstance(node, ast.AugAssign | ast.AnnAssign):
-        return [node.target]
-    return []
+        targets = list(node.targets)
+    elif isinstance(node, ast.AugAssign | ast.AnnAssign | ast.For | ast.AsyncFor):
+        targets = [node.target]
+    elif isinstance(node, ast.With | ast.AsyncWith):
+        targets = [i.optional_vars for i in node.items if i.optional_vars is not None]
+    else:
+        targets = []
+    return [single for target in targets for single in _unpacked(target)]
 
 
 def _writes(path: str, scoped: Sequence[tuple[str | None, ast.AST]]) -> list[Write]:
