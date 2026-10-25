@@ -18,8 +18,7 @@ import os
 import subprocess
 import sys
 import tempfile
-import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -175,6 +174,7 @@ def _grimp_edges(
     packages: list[_Package],
     modules: Modules,
     deadline: Deadline | None,
+    clock: Callable[[], float],
 ) -> tuple[list[ImportEdge], list[tuple[str, str]]]:
     """The packages' import edges, and the (root, name) of packages grimp
     could not model because they shadow a module it runs on."""
@@ -192,7 +192,7 @@ def _grimp_edges(
                 target.write_bytes(data)
         for root, names in roots.items():
             found, skipped = _run_grimp(
-                Path(scratch), Path(scratch, "tree", root), names, deadline
+                Path(scratch), Path(scratch, "tree", root), names, deadline, clock
             )
             shadowed.extend((root, name) for name in skipped)
             table = modules.get(root, {})
@@ -208,11 +208,15 @@ def _grimp_edges(
 
 
 def _run_grimp(
-    scratch: Path, root: Path, names: list[str], deadline: Deadline | None
+    scratch: Path,
+    root: Path,
+    names: list[str],
+    deadline: Deadline | None,
+    clock: Callable[[], float],
 ) -> tuple[list[tuple[str, str, int, str]], list[str]]:
     timeout = None
     if deadline is not None:
-        timeout = deadline.epoch_seconds - time.time()
+        timeout = deadline.epoch_seconds - clock()
         if timeout <= 0:
             raise ImportGraphFailed("build the import graph", timed_out=True)
     environment = {
@@ -252,6 +256,7 @@ def import_edges(
     sources: Mapping[str, bytes],
     trees: Mapping[str, ast.Module],
     deadline: Deadline | None,
+    clock: Callable[[], float],
 ) -> tuple[list[ImportEdge], list[Unparsed]]:
     """Every import edge of the parsed sources (grimp for package modules,
     ast for the rest) and the package files that could not be modelled.
@@ -262,7 +267,9 @@ def import_edges(
     packages = _packages(parsed)
     modules = _modules(parsed, packages)
     edges, shadowed = (
-        _grimp_edges(parsed, packages, modules, deadline) if packages else ([], [])
+        _grimp_edges(parsed, packages, modules, deadline, clock)
+        if packages
+        else ([], [])
     )
     unparsed = [
         Unparsed(path, SHADOWED)

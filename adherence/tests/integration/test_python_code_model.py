@@ -7,6 +7,7 @@ import functools
 from pathlib import Path
 
 from adherence.adapters.python_ast import PythonCodeModel
+from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.model import (
     AccessKind,
     CodeModel,

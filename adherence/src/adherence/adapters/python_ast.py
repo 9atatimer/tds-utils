@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import ast
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, fields
 
 from adherence.adapters.python_imports import ImportGraphFailed, import_edges
@@ -49,8 +49,8 @@ ENVIRONMENT_READS = frozenset({"os.environ", "os.getenv", "environ", "getenv"})
 # --- Helpers -----------------------------------------------------------------
 
 
-def _passed(deadline: Deadline | None) -> bool:
-    return deadline is not None and deadline.epoch_seconds <= time.time()
+def _passed(deadline: Deadline | None, now: float) -> bool:
+    return deadline is not None and deadline.epoch_seconds <= now
 
 
 def _parse(path: str, data: bytes) -> ast.Module | Unparsed:
@@ -467,7 +467,11 @@ def _merged(models: Sequence[CodeModel], **rest: object) -> CodeModel:
 
 
 class PythonCodeModel:
-    """CodeModelPort over Python sources."""
+    """CodeModelPort over Python sources. The clock is the edge's own, read
+    before each file and handed to the import analyzer."""
+
+    def __init__(self, *, clock: Callable[[], float] = time.time) -> None:
+        self._clock = clock
 
     def model(
         self,
@@ -476,7 +480,7 @@ class PythonCodeModel:
         vocabulary: Vocabulary,
         deadline: Deadline | None,
     ) -> CodeModel | TimedOut:
-        if _passed(deadline):
+        if _passed(deadline, self._clock()):
             return TimedOut("model the Python sources")
         regions = tuple(
             region
@@ -490,6 +494,8 @@ class PythonCodeModel:
         unparsed: list[Unparsed] = []
         trees: dict[str, ast.Module] = {}
         for path in sorted(sources):
+            if _passed(deadline, self._clock()):
+                return TimedOut("model the Python sources")
             tree = _parse(path, sources[path])
             if isinstance(tree, Unparsed):
                 unparsed.append(tree)
@@ -503,7 +509,7 @@ class PythonCodeModel:
                 continue
             trees[path] = tree
         try:
-            imports, not_modelled = import_edges(sources, trees, deadline)
+            imports, not_modelled = import_edges(sources, trees, deadline, self._clock)
             unparsed.extend(not_modelled)
         except ImportGraphFailed as failure:
             if failure.timed_out:
