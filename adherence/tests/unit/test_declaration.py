@@ -57,3 +57,11 @@ def test_parse_declaration_nested_past_the_parser_is_unreadable() -> None:
     text = b"a = " + b"[" * 5000 + b"]" * 5000 + b"\n"
 
     assert isinstance(parse_declaration(text), DeclarationUnreadable)
+
+
+def test_parse_declaration_with_an_integer_past_the_parser_is_unreadable() -> None:
+    """Given an adherence.toml holding an integer longer than Python will
+    convert, When it is parsed, Then it is DeclarationUnreadable, never a crash."""
+    text = b"[limits]\ncomplexity = " + b"1" * 5000 + b"\n"
+
+    assert isinstance(parse_declaration(text), DeclarationUnreadable)
