@@ -4,6 +4,7 @@ Behaviors; ARCHITECTURE.ARCH-ADHERENCE.md, Use-case surface)."""
 
 from __future__ import annotations
 
+from adherence.cli.presenters.json_report import report_json
 from adherence.domain.finding import Finding
 from adherence.domain.model import (
     Access,
@@ -19,6 +20,7 @@ from adherence.domain.model import (
     Unit,
     UnitKind,
 )
+from adherence.domain.parameters import Limits
 from adherence.domain.records import (
     DesignRecords,
     RecordsUnavailable,
@@ -113,6 +115,25 @@ def test_measure_domain_opening_a_file_or_loading_a_module_finds_a_leak() -> Non
         ("load", "__import__", Layer.DOMAIN),
         ("load", "importlib.import_module", Layer.DOMAIN),
     }
+
+
+def test_measure_model_id_finding_quotes_no_more_than_the_evidence() -> None:
+    """Given a domain unit holding a multi-line string literal that names a
+    model, When the report is written, Then no part of the finding -- its
+    subject included -- carries the literal's other lines or more of its
+    line than the evidence bound."""
+    files = {RULES: b'M = """claude-model-with-a-long-name\nSECRET line two\n"""\n'}
+    literal = "claude-model-with-a-long-name\nSECRET line two\n"
+    facts = CodeModel(
+        references=(Reference(RULES, 1, None, ReferenceKind.STRING, literal),)
+    )
+
+    report = measure_with(files, facts, limits=Limits(evidence_bound=12))
+
+    (leak,) = _of(report, "Grep")
+    assert len(leak.subject) <= 12 and len(leak.evidence.text) <= 12
+    assert leak.subject.startswith("claude-")
+    assert "SECRET" not in report_json(report)
 
 
 USE = "src/app/application/use.py"
