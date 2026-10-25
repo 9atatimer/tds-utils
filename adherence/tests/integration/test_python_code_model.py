@@ -4,7 +4,14 @@ time (task-057), after the shared contract."""
 from __future__ import annotations
 
 from adherence.adapters.python_ast import PythonCodeModel
-from adherence.domain.model import CodeModel, Layer, UnitKind
+from adherence.domain.model import (
+    CodeModel,
+    Definition,
+    Layer,
+    Parameter,
+    Signature,
+    UnitKind,
+)
 from adherence.ports.code_model import CodeModelPort
 from tests import python_fixture
 from tests.code_model_contract import CodeModelContract
@@ -134,3 +141,37 @@ def test_imports_resolve_against_the_sources_never_the_engine() -> None:
     assert {(e.path, e.imported_path) for e in model.imports} == {
         ("src/adherence/a.py", "src/adherence/b.py")
     }
+
+
+def _definition(path: str, symbol: str) -> Definition:
+    [found] = [
+        d
+        for d in fixture_model().definitions
+        if d.unit.path == path and d.unit.symbol == symbol
+    ]
+    return found
+
+
+def test_definitions_carry_signature_bases_decorators_and_nesting() -> None:
+    """Given functions, methods, a nested function, a dataclass and a Protocol,
+    When the fixture is modelled, Then each definition carries its signature
+    (parameters with annotation, keyword-only and default), its return
+    annotation, its bases and decorators, and whether a function encloses it."""
+    classify = _definition("src/tool/domain/rules.py", "classify")
+    order = _definition("src/tool/domain/rules.py", "Order")
+    store = _definition("src/tool/ports/store.py", "Store")
+    helper = _definition("src/tool/application/use.py", "close_order.helper")
+    method = _definition("src/tool/domain/rules.py", "Order.is_large")
+
+    assert classify.signature == Signature(
+        parameters=(
+            Parameter("order", "Order", keyword_only=False, has_default=False),
+            Parameter("strict", "bool", keyword_only=True, has_default=True),
+        ),
+        returns="str",
+    )
+    assert order.signature is None
+    assert order.decorators == ("dataclass(frozen=True)",)
+    assert store.bases == ("Protocol",)
+    assert (helper.parent, helper.nested) == ("close_order", True)
+    assert (method.parent, method.nested) == ("Order", False)
