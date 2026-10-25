@@ -59,6 +59,15 @@ WORD = re.compile(r"\w")
 UNTRACEABLE = "the row has no nameable action (When) or observation (Then)"
 PURITY = catalog_check("Purity")
 NAME = re.compile(r"[A-Za-z_]\w*")
+# An annotation's text read as tokens: a string literal, a dotted name, or
+# a bracket. A string is a forward reference unless it sits inside the
+# brackets of a Literal, whose values are data.
+ANNOTATION_TOKEN = re.compile(
+    r"""(?P<string>'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")"""
+    r"|(?P<name>[A-Za-z_][\w.]*)|(?P<open>\[)|(?P<close>\])",
+    re.DOTALL,
+)
+LITERAL = "Literal"
 DOES_IO_UNASKED = "the judged part (does_io) is not asked in this suite version"
 WIRING = catalog_check("Wiring")
 NO_RUNTIME = "the per-runtime half needs a declared runtime; the declaration has none"
@@ -258,9 +267,31 @@ def _port_names(model: CodeModel) -> frozenset[str]:
     )
 
 
+def _opens_literal(previous: str, inside: Sequence[bool]) -> bool:
+    """Whether a bracket after the token `previous` holds Literal values:
+    it subscripts Literal, or sits inside brackets that do."""
+    return previous.rpartition(".")[2] == LITERAL or bool(inside and inside[-1])
+
+
 def annotation_names(parameter: Parameter) -> frozenset[str]:
-    """Every name a parameter's annotation mentions, dotted parts apart."""
-    return frozenset(NAME.findall(parameter.annotation or ""))
+    """Every name a parameter's annotation mentions, dotted parts apart: a
+    string forward reference by the names it holds, a Literal's values not
+    at all."""
+    names: set[str] = set()
+    inside: list[bool] = []
+    previous = ""
+    for token in ANNOTATION_TOKEN.finditer(parameter.annotation or ""):
+        kind, text = token.lastgroup, token.group()
+        if kind == "open":
+            inside.append(_opens_literal(previous, inside))
+        elif kind == "close" and inside:
+            inside.pop()
+        elif kind == "string" and not (inside and inside[-1]):
+            names.update(NAME.findall(text[1:-1]))
+        elif kind == "name":
+            names.update(NAME.findall(text))
+        previous = text if kind == "name" else ""
+    return frozenset(names)
 
 
 def _taken(
