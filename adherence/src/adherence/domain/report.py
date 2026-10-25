@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from adherence.domain.coverage import Coverage
-from adherence.domain.finding import Finding
+from adherence.domain.finding import Finding, Notice
 from adherence.domain.qualities import Check, Quality
 
 # --- Values ------------------------------------------------------------------
@@ -19,11 +19,12 @@ from adherence.domain.qualities import Check, Quality
 @dataclass(frozen=True, slots=True)
 class Report:
     """One run's outcome: the checks that ran, every finding each produced,
-    and the coverage. A run the suite could not perform is not run and
+    the notices and the coverage. A run the suite could not perform is not run and
     carries the reason; it holds nothing else, so it never reads as a pass."""
 
     ran: tuple[Check, ...] = ()
     findings: tuple[Finding, ...] = ()
+    notices: tuple[Notice, ...] = ()
     coverage: tuple[Coverage, ...] = ()
     not_run_reason: str | None = None
 

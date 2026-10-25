@@ -15,6 +15,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import ClassVar
 
+from adherence.domain.finding import Notice
 from adherence.domain.model import Layer, Region
 from adherence.domain.parameters import Vocabulary
 from adherence.domain.qualities import Quality, check_named
@@ -292,6 +293,17 @@ def _exemptions(value: object) -> tuple[Exemption, ...] | DeclarationUnreadable:
             return exemption
         parsed.append(exemption)
     return tuple(parsed)
+
+
+def refusal_notices(declaration: Declaration) -> tuple[Notice, ...]:
+    """A notice per exemption the declaration states and the suite refuses,
+    naming what it would exempt and why it is refused."""
+    return tuple(
+        Notice(
+            f"exemption refused: {r.exemption.check} on {r.exemption.unit}: {r.reason}"
+        )
+        for r in declaration.refused_exemptions
+    )
 
 
 def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:

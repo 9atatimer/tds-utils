@@ -1,6 +1,8 @@
 """domain/finding.py -- one check failing on one unit.
 
-A Finding names the quality and check (and so its kind), the unit, the
+A Notice is what a reviewer should see that is not a finding: a refused
+exemption, a declaration edit, a report not kept; it never moves a
+verdict. A Finding names the quality and check (and so its kind), the unit, the
 layer at the offending location, what it names, and the evidence: the
 location and at most the offending line (DESIGN.ARCH-ADHERENCE.md,
 Findings and explanations; ARCHITECTURE.ARCH-ADHERENCE.md, Module map).
@@ -38,3 +40,10 @@ class Finding:
     evidence: Evidence
     reached: Layer | None = None
     kind: CheckKind = CheckKind.RULE
+
+
+@dataclass(frozen=True, slots=True)
+class Notice:
+    """Something a reviewer should see that is not a finding."""
+
+    message: str

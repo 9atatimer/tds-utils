@@ -15,7 +15,11 @@ from dataclasses import dataclass
 from adherence.domain.checks.run import run_checks
 from adherence.domain.coverage import Coverage, unmodelled
 from adherence.domain.deadline import Deadline, TimedOut
-from adherence.domain.declaration import Declaration, DeclarationUnreadable
+from adherence.domain.declaration import (
+    Declaration,
+    DeclarationUnreadable,
+    refusal_notices,
+)
 from adherence.domain.model import (
     CodeLanguage,
     CodeModel,
@@ -142,5 +146,6 @@ def measure(
     return Report(
         ran=checked.ran,
         findings=checked.findings,
+        notices=refusal_notices(declaration),
         coverage=(*coverage, *unmodelled(whole, declaration), *checked.coverage),
     )
