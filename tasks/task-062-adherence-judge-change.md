@@ -16,8 +16,8 @@ renamed) and `history`, `ReportStore` with its file cache keyed by report
 identity and its fake, `record_report`, and the domain's provenance
 with file and definition renames, the removed-finding rule, the verdict
 in the design's order, exempt findings counting as neither, widening for
-created units, and the Declared quality's change-level checks. RED first, one row per
-commit, in this order:
+created units, and the Declared quality's change-level checks. RED
+first, one row per commit, in this order:
 
 - A change that raises is raised
 - A change that lowers is lowered
