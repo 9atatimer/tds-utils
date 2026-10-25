@@ -215,6 +215,20 @@ class Member:
 
 
 @dataclass(frozen=True, slots=True)
+class TestCase:
+    """A test: its symbol, its line, the callees it calls, and the
+    expressions it asserts, as written."""
+
+    __test__ = False  # a domain value, not a pytest class
+
+    path: str
+    symbol: str
+    line: int
+    calls: tuple[str, ...]
+    assertions: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class Unparsed:
     """A source the analyzer could not read as its language, with the reason."""
 
@@ -235,5 +249,6 @@ class CodeModel:
     writes: tuple[Write, ...] = ()
     conditionals: tuple[Conditional, ...] = ()
     members: tuple[Member, ...] = ()
+    test_cases: tuple[TestCase, ...] = ()
     regions: tuple[Region, ...] = ()
     unparsed: tuple[Unparsed, ...] = ()

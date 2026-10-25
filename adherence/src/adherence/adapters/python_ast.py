@@ -31,6 +31,7 @@ from adherence.domain.model import (
     ReferenceKind,
     Region,
     Signature,
+    TestCase,
     Unit,
     UnitKind,
     Unparsed,
@@ -389,6 +390,37 @@ def _members(path: str, walked: Sequence[_Found]) -> list[Member]:
     return list(first.values())
 
 
+TEST_PREFIX = "test"
+TEST_CLASS_PREFIX = "Test"
+
+
+def is_test(found: _Found, classes: set[str]) -> bool:
+    """Whether a definition is a test: a function named test* at module
+    level, or a method named test* of a class named Test*."""
+    if isinstance(found.node, ast.ClassDef) or not found.node.name.startswith(
+        TEST_PREFIX
+    ):
+        return False
+    if found.parent is None:
+        return True
+    return found.parent in classes and found.parent.split(".")[-1].startswith(
+        TEST_CLASS_PREFIX
+    )
+
+
+def _test_cases(path: str, walked: Sequence[_Found]) -> list[TestCase]:
+    classes = {f.symbol for f in walked if isinstance(f.node, ast.ClassDef)}
+    cases: list[TestCase] = []
+    for f in walked:
+        if not is_test(f, classes):
+            continue
+        nodes = own_nodes(f.node)
+        calls = tuple(_callee(n) for n in nodes if isinstance(n, ast.Call))
+        asserts = tuple(ast.unparse(n.test) for n in nodes if isinstance(n, ast.Assert))
+        cases.append(TestCase(path, f.symbol, f.node.lineno, calls, asserts))
+    return cases
+
+
 # --- Adapter -----------------------------------------------------------------
 
 
@@ -420,6 +452,7 @@ class PythonCodeModel:
         writes: list[Write] = []
         conditionals: list[Conditional] = []
         members: list[Member] = []
+        test_cases: list[TestCase] = []
         unparsed: list[Unparsed] = []
         trees: dict[str, ast.Module] = {}
         for path in sorted(sources):
@@ -443,6 +476,7 @@ class PythonCodeModel:
             writes.extend(_writes(path, scoped))
             conditionals.extend(_conditionals(path, scoped))
             members.extend(_members(path, walked))
+            test_cases.extend(_test_cases(path, walked))
         try:
             imports = import_edges(sources, trees, deadline)
         except ImportGraphFailed as failure:
@@ -460,6 +494,7 @@ class PythonCodeModel:
             writes=tuple(writes),
             conditionals=tuple(conditionals),
             members=tuple(members),
+            test_cases=tuple(test_cases),
             regions=regions,
             unparsed=tuple(unparsed),
         )
