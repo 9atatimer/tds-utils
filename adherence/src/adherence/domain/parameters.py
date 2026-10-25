@@ -37,6 +37,15 @@ class Vocabulary:
     stubs: frozenset[str] = field(default_factory=frozenset)
     options_objects: frozenset[str] = field(default_factory=frozenset)
 
+    def reads_environment(self, chain: str) -> bool:
+        """Whether a name chain is, or runs through, an environment read
+        (`os.environ.get` runs through `os.environ`)."""
+        parts = chain.split(".")
+        return any(
+            ".".join(parts[:end]) in self.environment_reads
+            for end in range(1, len(parts) + 1)
+        )
+
     def is_sleep(self, callee: str) -> bool:
         """Whether a callee waits, by its full dotted name or its last part."""
         return callee in self.sleeps or callee.split(".")[-1] in self.sleeps

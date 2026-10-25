@@ -272,16 +272,6 @@ def _calls(path: str, scoped: Sequence[tuple[str | None, ast.AST]]) -> list[Call
     ]
 
 
-def reads_environment(chain: str, vocabulary: Vocabulary) -> bool:
-    """Whether a name chain is, or runs through, an environment read
-    (`os.environ.get` runs through `os.environ`)."""
-    parts = chain.split(".")
-    return any(
-        ".".join(parts[:end]) in vocabulary.environment_reads
-        for end in range(1, len(parts) + 1)
-    )
-
-
 def _accesses(
     path: str, scoped: Sequence[tuple[str | None, ast.AST]], vocabulary: Vocabulary
 ) -> list[Access]:
@@ -297,7 +287,7 @@ def _accesses(
             )
         elif isinstance(node, ast.Attribute | ast.Name) and id(node) not in inner:
             text = ast.unparse(node)
-            if reads_environment(text, vocabulary):
+            if vocabulary.reads_environment(text):
                 found.append(
                     Access(path, node.lineno, within, AccessKind.ENVIRONMENT, text)
                 )

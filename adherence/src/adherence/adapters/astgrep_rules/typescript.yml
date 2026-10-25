@@ -336,3 +336,11 @@ rule:
     any:
       - inside: {kind: import_statement}
       - inside: {kind: export_statement}
+---
+id: global
+language: TypeScript
+severity: hint
+rule:
+  kind: member_expression
+  regex: '^globalThis\.'
+  not: {inside: {kind: member_expression, field: object}}

@@ -27,6 +27,8 @@ from pathlib import Path, PurePosixPath
 from adherence.domain.deadline import Deadline
 from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.model import (
+    Access,
+    AccessKind,
     Body,
     Call,
     CodeModel,
@@ -61,6 +63,7 @@ PARAMETER_PROPERTY, PROPERTY_DEFAULT, PROPERTY_TYPE = (
     "property-type",
 )
 BODY, STUB, CALL, NAME_FACT, STRING = "body", "stub", "call", "name", "string"
+GLOBAL = "global"
 RETURNS, BASE, DECORATOR, DECORATOR_NEXT = (
     "returns",
     "base",
@@ -465,6 +468,26 @@ def calls(
     ]
 
 
+def accesses(
+    path: str,
+    matches: Sequence[Match],
+    defined: Sequence[_Defined],
+    vocabulary: Vocabulary,
+) -> list[Access]:
+    """Every name chain Vocabulary counts as reading the environment, and
+    every read of the language's global object, with its definition."""
+    found = [
+        Access(path, m.line, _within(defined, m), AccessKind.ENVIRONMENT, m.text)
+        for m in _of(matches, NAME_FACT)
+        if vocabulary.reads_environment(m.text)
+    ]
+    found.extend(
+        Access(path, m.line, _within(defined, m), AccessKind.GLOBAL, m.text)
+        for m in _of(matches, GLOBAL)
+    )
+    return sorted(found, key=lambda a: a.line)
+
+
 def file_model(
     path: str,
     data: bytes,
@@ -487,6 +510,7 @@ def file_model(
         imports=tuple(imports(path, matches, lines)),
         references=tuple(references(path, matches, defined)),
         calls=tuple(calls(path, matches, defined)),
+        accesses=tuple(accesses(path, matches, defined, vocabulary)),
     )
 
 
