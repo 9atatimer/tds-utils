@@ -581,3 +581,32 @@ def test_a_standalone_module_resolves_its_sibling() -> None:
         ("a.py", "b", "b.py"),
         ("tools/c.py", "b", None),
     }
+
+
+def test_a_package_resolves_imports_into_a_package_under_another_root() -> None:
+    """Given a tests/ package importing tool.domain.rules from src/, and two
+    same-named packages elsewhere, When they are modelled, Then the edge
+    names the exact module and its file, and the same-named packages still
+    resolve each inside its own root."""
+    sources = {
+        "src/tool/__init__.py": b"",
+        "src/tool/domain/__init__.py": b"",
+        "src/tool/domain/rules.py": b"",
+        "tests/__init__.py": b"",
+        "tests/test_rules.py": b"from tool.domain import rules\n",
+        "a/pkg/__init__.py": b"",
+        "a/pkg/m.py": b"from . import z\n",
+        "a/pkg/z.py": b"",
+        "b/pkg/__init__.py": b"",
+        "b/pkg/m.py": b"from pkg import r\n",
+        "b/pkg/r.py": b"",
+    }
+
+    model = _model_of(sources)
+
+    assert model.unparsed == ()
+    assert {(e.path, e.imported, e.imported_path) for e in model.imports} == {
+        ("tests/test_rules.py", "tool.domain.rules", "src/tool/domain/rules.py"),
+        ("a/pkg/m.py", "pkg.z", "a/pkg/z.py"),
+        ("b/pkg/m.py", "pkg.r", "b/pkg/r.py"),
+    }
