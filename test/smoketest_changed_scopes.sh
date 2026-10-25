@@ -15,7 +15,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "${SCRIPT_DIR}")"
 CLASSIFIER="${REPO_DIR}/.github/scripts/changed-scopes.sh"
 
-ALL_TRUE="smoketests=true shellcheck=true chores=true dynomark-contract=true dynomark-daemon=true dynomark-extension=true dynomark-e2e=true"
+ALL_TRUE="smoketests=true shellcheck=true chores=true adherence=true dynomark-contract=true dynomark-daemon=true dynomark-extension=true dynomark-e2e=true"
 
 # --- Test harness ---
 
@@ -55,7 +55,7 @@ classify() {
 # only <scope>... -- the expected output line with just those scopes true.
 only() {
     local scope out="" want
-    for scope in smoketests shellcheck chores dynomark-contract dynomark-daemon dynomark-extension dynomark-e2e; do
+    for scope in smoketests shellcheck chores adherence dynomark-contract dynomark-daemon dynomark-extension dynomark-e2e; do
         want=false
         case " $* " in *" ${scope} "*) want=true ;; esac
         out="${out}${scope}=${want} "
@@ -90,7 +90,7 @@ test_catch_all() {
 
 test_trees() {
     local d="${WORKROOT}/empty"
-    printf 'dynomark/ and chores/ run their own jobs, Markdown included\n'
+    printf 'dynomark/, chores/ and adherence/ run their own jobs, Markdown included\n'
     assert_eq "contract change runs every dynomark job" \
         "$(only dynomark-contract dynomark-daemon dynomark-extension dynomark-e2e)" \
         "$(classify "${d}" dynomark/contract/README.md)"
@@ -105,6 +105,11 @@ test_trees() {
     assert_eq "chores/ Markdown runs chores" "$(only chores)" "$(classify "${d}" chores/README.md)"
     assert_eq "chores/ .sh also runs smoketests (syntax sweep)" "$(only smoketests chores)" \
         "$(classify "${d}" chores/verify.sh)"
+    assert_eq "adherence/ source runs adherence" "$(only adherence)" \
+        "$(classify "${d}" adherence/src/adherence/domain/declaration.py)"
+    assert_eq "adherence/ Markdown runs adherence" "$(only adherence)" "$(classify "${d}" adherence/README.md)"
+    assert_eq "a change outside adherence/ does not run adherence" "$(only chores)" \
+        "$(classify "${d}" chores/src/x.py)"
 }
 
 test_shebang() {
@@ -201,17 +206,20 @@ test_pr_paths() {
         "$(only dynomark-daemon dynomark-e2e)" "$(pr_scopes "${d}")"
 }
 
-# Every scope must be wired in dist-ci.yml as a `changes` output AND as its
-# job's `if:`; a misspelling there skips the job on every PR, which gate
-# counts as a pass, and only a push would notice.
+# Every scope must be wired in dist-ci.yml as a `changes` output, as its
+# job's `if:`, and in gate's `needs`; a misspelling there skips the job on
+# every PR, which gate counts as a pass, and a job missing from `needs`
+# cannot block a landing at all.
 test_workflow_wiring() {
     local wf="${REPO_DIR}/.github/workflows/dist-ci.yml" scope
     printf 'dist-ci.yml wires every scope\n'
-    for scope in smoketests shellcheck chores dynomark-contract dynomark-daemon dynomark-extension dynomark-e2e; do
+    for scope in smoketests shellcheck chores adherence dynomark-contract dynomark-daemon dynomark-extension dynomark-e2e; do
         assert_eq "${scope}: changes output" "1" \
             "$(grep -cF "      ${scope}: \${{ steps.scopes.outputs.${scope} }}" "${wf}")"
         assert_eq "${scope}: job gated on its own scope" "1" \
             "$(grep -A2 -E "^  ${scope}:\$" "${wf}" | grep -cF "if: needs.changes.outputs.${scope} == 'true'")"
+        assert_eq "${scope}: in gate's needs" "1" \
+            "$(sed -n '/^  gate:$/,/^    permissions:/p' "${wf}" | grep -cE "^      - ${scope}\$")"
     done
 }
 
@@ -220,7 +228,7 @@ test_github_output() {
     printf 'Outputs land in GITHUB_OUTPUT\n'
     : >"${out}"
     (cd "${d}" && printf 'chores/x.py\n' | GITHUB_OUTPUT="${out}" bash "${CLASSIFIER}" classify >/dev/null)
-    assert_eq "seven lines written" "7" "$(wc -l <"${out}" | tr -d ' ')"
+    assert_eq "eight lines written" "8" "$(wc -l <"${out}" | tr -d ' ')"
     assert_eq "chores=true written" "chores=true" "$(grep '^chores=' "${out}")"
 }
 

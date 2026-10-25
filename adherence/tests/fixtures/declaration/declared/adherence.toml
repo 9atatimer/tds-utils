@@ -1,0 +1,15 @@
+# A well-formed declaration: one exemption honored, one refused (Covered
+# belongs to the Declared quality and cannot be exempted).
+
+[layers]
+domain = ["src/tool/domain/**"]
+
+[[exemptions]]
+check = "Stub"
+unit = "bin/legacy"
+reason = "kept until the rewrite"
+
+[[exemptions]]
+check = "Covered"
+unit = "src/tool/new.py"
+reason = "the owner says so"

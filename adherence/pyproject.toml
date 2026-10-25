@@ -1,0 +1,46 @@
+[project]
+name = "adherence"
+version = "0.1.0"
+description = "Architectural adherence engine (docs/design/DESIGN.ARCH-ADHERENCE.md)"
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1",
+]
+
+[project.scripts]
+adhere = "adherence.cli.main:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-randomly>=3.15",
+    "hypothesis>=6.100",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[build-system]
+requires = ["uv_build>=0.8,<0.9"]
+build-backend = "uv_build"
+
+# tests/fixtures/ holds trees the engine measures, some deliberately
+# flawed (task-057 onward): never collected, linted or type-checked.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --ignore=tests/fixtures"
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+mypy_path = "src"
+packages = ["adherence"]
+exclude = ["tests/fixtures/"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = ["tests/fixtures"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
