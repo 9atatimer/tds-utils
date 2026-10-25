@@ -8,6 +8,7 @@ from pathlib import Path
 
 from adherence.adapters.python_ast import PythonCodeModel
 from adherence.domain.deadline import Deadline, TimedOut
+from adherence.domain.declaration import Declaration, parse_declaration
 from adherence.domain.model import (
     AccessKind,
     CodeModel,
@@ -16,6 +17,7 @@ from adherence.domain.model import (
     MemberKind,
     Parameter,
     ReferenceKind,
+    Region,
     Signature,
     UnitKind,
 )
@@ -610,3 +612,27 @@ def test_a_package_resolves_imports_into_a_package_under_another_root() -> None:
         ("a/pkg/m.py", "pkg.z", "a/pkg/z.py"),
         ("b/pkg/m.py", "pkg.r", "b/pkg/r.py"),
     }
+
+
+def test_declared_line_regions_are_in_the_model() -> None:
+    """Given a declaration that assigns a region by lines, When its file is
+    modelled, Then that region is in the model beside the layer it gives,
+    and a region of a file not handed over is not."""
+    declaration = parse_declaration(
+        b"[layers]\nregions = [\n"
+        b'  { file = "m.py", layer = "domain", lines = [1, 2] },\n'
+        b'  { file = "absent.py", layer = "domain", lines = [1, 2] },\n'
+        b"]\n"
+    )
+    assert isinstance(declaration, Declaration)
+
+    model = PythonCodeModel().model(
+        {"m.py": b"def f():\n    return 1\n"},
+        declaration,
+        python_fixture.VOCABULARY,
+        None,
+    )
+
+    assert isinstance(model, CodeModel)
+    assert model.regions == (Region("m.py", 1, 2, Layer.DOMAIN),)
+    assert [d.unit.layer for d in model.definitions] == [Layer.DOMAIN]
