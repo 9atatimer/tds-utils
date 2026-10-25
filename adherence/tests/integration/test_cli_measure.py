@@ -1,7 +1,8 @@
 """`adhere measure --json` through the composition root over the task-057
-fixture: real git and the real Python analyzer, with records, complexity
-and duplication overridden by their fakes until their adapters land
-(tasks 059 and 061). The task-058 done check."""
+fixture: real git, the real Python analyzer and the real markdown records
+adapter over the fixture's design records, with complexity and
+duplication overridden by their fakes until their adapters land
+(task-061). The task-058 and task-059 done checks."""
 
 from __future__ import annotations
 
@@ -11,27 +12,19 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from adherence.adapters.fakes import FakeComplexity, FakeDuplication, FakeRecords
+from adherence.adapters.fakes import FakeComplexity, FakeDuplication
 from adherence.cli.main import main
 from adherence.container import build
 from adherence.domain.qualities import CATALOG, Quality
-from adherence.domain.records import DesignRecords, Seam, SeamKind
-from adherence.domain.target import Head
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "python"
 RECORD = "docs/design/ARCHITECTURE.TOOL.md"
-SEAMS = DesignRecords(
-    seams=(
-        Seam("Store", SeamKind.PORT, RECORD, 30),
-        Seam("Clock", SeamKind.PORT, RECORD, 31),
-    )
-)
+DESIGN = "docs/design/DESIGN.TOOL.md"
 
 
 def _measure(root: Path) -> tuple[int, str]:
     builder = functools.partial(
         build,
-        records=FakeRecords({Head.working_tree(): SEAMS}),
         complexity=FakeComplexity(),
         duplication=FakeDuplication(),
     )
@@ -42,8 +35,8 @@ def _measure(root: Path) -> tuple[int, str]:
 
 
 def test_measure_json_over_the_fixture_prints_the_hexagonal_findings() -> None:
-    """Given the fixture and records naming a seam it has and one it lacks,
-    When `adhere measure --json` runs, Then it prints the Hexagonal checks
+    """Given the fixture and its architecture record naming a seam it has and
+    one it lacks, When `adhere measure --json` runs, Then it prints the Hexagonal checks
     that ran and their findings, and every check that did not run as
     coverage missing with a reason."""
     code, output = _measure(FIXTURE)
@@ -71,3 +64,27 @@ def test_measure_of_a_root_git_cannot_list_says_not_run(tmp_path: Path) -> None:
 
     assert code == 1
     assert "not a git repository" in json.loads(output)["not_run"]
+
+
+def test_measure_json_over_the_fixture_prints_the_layered_findings() -> None:
+    """Given the fixture, its design record with a behavior the code carries,
+    one it does not and a row nothing could trace, and its declaration with
+    a runtime no unit wires, When `adhere measure --json` runs, Then the
+    Layered rule checks ran, Trace driven by the record, and their findings
+    print."""
+    code, output = _measure(FIXTURE)
+
+    assert code == 0, output
+    layered = next(
+        q for q in json.loads(output)["qualities"] if q["quality"] == "Layered"
+    )
+    assert layered["ran"] == ["Trace", "Purity", "Wiring", "Anatomy"]
+    found = {(f["check"], f["path"], f["symbol"]) for f in layered["findings"]}
+    assert found == {
+        ("Trace", DESIGN, "An order is reopened"),
+        ("Trace", DESIGN, "Orders"),
+        ("Wiring", "adherence.toml", None),
+    }
+    subjects = " ".join(f["subject"] for f in layered["findings"])
+    assert "reopen_order(order, store)" in subjects
+    assert "runtime onefile" in subjects
