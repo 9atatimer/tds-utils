@@ -5,14 +5,16 @@ Done and Hand-rolled are judged and stay coverage until task-064."""
 
 from __future__ import annotations
 
-from adherence.adapters.fakes import FakeComplexity
+from adherence.adapters.fakes import FakeComplexity, FakeDuplication
 from adherence.domain.finding import Finding
 from adherence.domain.model import (
     Body,
+    Clone,
     CodeModel,
     Complexity,
     Definition,
     Layer,
+    Span,
     Unit,
     UnitKind,
 )
@@ -130,4 +132,44 @@ def test_measure_with_no_complexity_ceiling_covers_complexity() -> None:
     assert "Complexity" not in {c.name for c in report.ran}
     assert any(
         c.check == "Complexity" and "ceiling" in c.reason for c in report.coverage
+    )
+
+
+def test_measure_with_a_clone_over_the_ceiling_finds_both_stretches() -> None:
+    """Given a clone longer than the duplication ceiling across two covered
+    files, one at the ceiling, and one reaching a file no layer covers, When
+    Duplication runs, Then one finding names both stretches of the clone over
+    the ceiling."""
+    scratch = "scratch.py"
+    files = {RULES: b"x\n" * 40, USE: b"x\n" * 40, scratch: b"x\n" * 40}
+    duplication = FakeDuplication(
+        (
+            Clone(Span(RULES, 3, 16), Span(USE, 20, 33), 14),
+            Clone(Span(RULES, 20, 29), Span(USE, 1, 10), 10),
+            Clone(Span(USE, 1, 20), Span(scratch, 1, 20), 20),
+        )
+    )
+
+    report = measure_with(
+        files,
+        duplication=duplication,
+        limits=Limits(evidence_bound=200, duplication_ceiling=10),
+    )
+
+    (clone,) = _of(report, "Duplication")
+    assert (clone.unit.path, clone.evidence.line) == (RULES, 3)
+    assert f"{RULES}:3-16" in clone.subject and f"{USE}:20-33" in clone.subject
+    assert clone.layer is Layer.DOMAIN
+
+
+def test_measure_with_no_duplication_ceiling_covers_duplication() -> None:
+    """Given no duplication ceiling supplied, When Duplication runs, Then it
+    is coverage naming the missing ceiling, never a clean result."""
+    clones = (Clone(Span(RULES, 1, 50), Span(USE, 1, 50), 50),)
+
+    report = measure_with({RULES: b"x\n"}, duplication=FakeDuplication(clones))
+
+    assert "Duplication" not in {c.name for c in report.ran}
+    assert any(
+        c.check == "Duplication" and "ceiling" in c.reason for c in report.coverage
     )
