@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Architectural adherence engine (docs/design/DESIGN.ARCH-ADHERENCE.md)"
 requires-python = ">=3.11"
 dependencies = [
+    "ast-grep-cli>=0.50",
     "click>=8.1",
     "grimp>=3.5",
 ]

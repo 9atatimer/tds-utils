@@ -1,0 +1,43 @@
+# TypeScript and JavaScript structural facts for adapters/astgrep.py.
+#
+# Written for TypeScript; the adapter runs a copy as Tsx, which also reads
+# JavaScript. Each rule's id names the fact it yields and its captures are
+# the fact's parts; an id may carry a `.variant` when two rules yield one
+# fact. Every rule is a hint, so a match never fails the scan.
+id: function
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - all:
+        - any:
+            - kind: function_declaration
+            - kind: generator_function_declaration
+        - has: {field: name, pattern: $NAME}
+    - all:
+        - kind: method_definition
+        - inside: {kind: class_body}
+        - has: {field: name, pattern: $NAME}
+    - all:
+        - any:
+            - kind: arrow_function
+            - kind: function_expression
+            - kind: generator_function
+        - any:
+            - inside:
+                kind: variable_declarator
+                has: {field: name, kind: identifier, pattern: $NAME}
+            - inside:
+                kind: public_field_definition
+                has: {field: name, pattern: $NAME}
+---
+id: type
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: class_declaration
+    - kind: abstract_class_declaration
+    - kind: interface_declaration
+    - kind: type_alias_declaration
+  has: {field: name, pattern: $NAME}
