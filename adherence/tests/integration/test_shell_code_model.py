@@ -7,7 +7,7 @@ import functools
 from collections.abc import Mapping
 
 from adherence.adapters.shell_astgrep import ShellCodeModel
-from adherence.domain.model import CodeModel, Layer, UnitKind
+from adherence.domain.model import Body, CodeModel, Layer, UnitKind
 from adherence.ports.code_model import CodeModelPort
 from tests import shell_fixture
 from tests.code_model_contract import SHELL_SOURCES, CodeModelContract
@@ -80,3 +80,20 @@ def test_every_command_is_a_call_with_its_function() -> None:
         (None, "source", 9),
         (None, "main", 57),
     } <= calls
+
+
+def test_bodies_are_their_text_with_stub_and_sleep() -> None:
+    """Given functions that do work, wait, and are nothing but a no-op,
+    When the fixture is modelled, Then each body is its text inside the
+    braces, the no-op the Vocabulary counts is its stub marker, and a
+    sleep's line is where it waits."""
+    bodies = {
+        d.unit.symbol: d.body
+        for d in fixture_model().definitions
+        if d.unit.path == TOOL
+    }
+
+    assert bodies["head_of"] == Body('    git -C "$1" rev-parse HEAD', (), ())
+    assert bodies["wait_for_lock"] == Body("    sleep 1", (), (22,))
+    assert bodies["pending"] == Body(":;", (":",), ())
+    assert bodies["die"] == Body('echo "tool: $*" >&2; exit 1;', (), ())
