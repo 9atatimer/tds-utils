@@ -19,5 +19,5 @@ runtime, records and radar the file declares, then a case in
 `test/smoketest_changed_scopes.sh` that a change to `adherence.toml`
 alone selects the `adherence` scope, made GREEN by its arm in
 `changed-scopes.sh`. Done when the first run is green
-with no floor, and a throwaway branch that moves a port import into
+on its own base, and a throwaway branch that moves a port import into
 `adherence/domain/` is lowered by its own gate, then reverted.
