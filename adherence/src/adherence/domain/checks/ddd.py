@@ -71,20 +71,20 @@ ANEMIC_JUDGED = (
 
 
 def _spelled_alike(term: Sequence[str], noun: Sequence[str]) -> bool:
-    """The same words, or the same with the last one plural."""
+    """The same words, or the same with the last one plural in either."""
     if tuple(term) == tuple(noun):
         return True
     return (
         len(term) == len(noun) > 0
         and tuple(term[:-1]) == tuple(noun[:-1])
-        and noun[-1] == term[-1] + PLURAL
+        and PLURAL in (noun[-1].removeprefix(term[-1]), term[-1].removeprefix(noun[-1]))
     )
 
 
 def defines(term: Sequence[str], noun: Sequence[str]) -> bool:
     """Whether a term's words define a noun's: the same words, or the same
-    with the last one plural, with or without a port's role suffix on the
-    noun (`RepositoryPort` for Repository)."""
+    with the last one plural in the term or the noun, with or without a
+    port's role suffix on the noun (`RepositoryPort` for Repository)."""
     if _spelled_alike(term, noun):
         return True
     return len(noun) > 1 and noun[-1] == PORT_SUFFIX and _spelled_alike(term, noun[:-1])
