@@ -49,8 +49,11 @@ from adherence.domain.records import (
 
 TRACE = catalog_check("Trace")
 # A row's action is its When clause and its observation its Then clause;
-# each must hold a word for anything to trace to a function.
-WHEN_THEN = re.compile(r"\bWhen\b(?P<when>.*?)\bThen\b(?P<then>.*)", re.DOTALL)
+# each must hold a word for anything to trace to a function. The Then
+# that opens the observation is the first after a word of the action, so
+# a When clause may itself name the word (the check Then asserted).
+WHEN = re.compile(r"\bWhen\b")
+THEN = re.compile(r"\bThen\b")
 WORD = re.compile(r"\w")
 UNTRACEABLE = "the row has no nameable action (When) or observation (Then)"
 PURITY = catalog_check("Purity")
@@ -104,13 +107,12 @@ def is_use_case_function(definition: Definition) -> bool:
 
 def is_traceable(scenario: str) -> bool:
     """Whether a behavior row names an action and an observation: a When
-    clause and a Then clause after it, each with a word in it."""
-    match = WHEN_THEN.search(scenario)
-    return (
-        match is not None
-        and WORD.search(match.group("when")) is not None
-        and WORD.search(match.group("then")) is not None
-    )
+    clause and a Then clause after it, each with a word in it. Each search
+    starts where the last ended, so the read is linear in the row."""
+    when = WHEN.search(scenario)
+    action = WORD.search(scenario, when.end()) if when else None
+    then = THEN.search(scenario, action.end()) if action else None
+    return then is not None and WORD.search(scenario, then.end()) is not None
 
 
 def is_rule(definition: Definition) -> bool:
