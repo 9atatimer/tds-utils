@@ -1,9 +1,10 @@
 """domain/checks/layered.py -- rules, workflow and wiring are three jobs.
 
 Trace, Purity's rule part, Wiring and Anatomy (DESIGN.ARCH-ADHERENCE.md,
-The Qualities table: Layered), each a pure function over the CodeModel and the design
-records. Purity's judged part, whether a callable a domain function takes
-does I/O, is a question for the judge and reads as coverage here.
+The Qualities table: Layered), each a pure function over the CodeModel
+and the design records. Purity's judged part, whether a callable a domain
+function takes does I/O, is a question for the judge and reads as
+coverage here.
 """
 
 from __future__ import annotations
@@ -118,6 +119,11 @@ def is_rule(definition: Definition) -> bool:
         and definition.unit.layer is Layer.DOMAIN
         and definition.signature is not None
     )
+
+
+def is_in_runtime(path: str, runtime: Runtime) -> bool:
+    """Whether a path is one of the runtime's units."""
+    return any(matches(pattern, path) for pattern in runtime.patterns)
 
 
 # --- Pure helpers ------------------------------------------------------------
@@ -340,11 +346,6 @@ def _constructions(
         layer = layer_of(call.path, call.line, declaration, model.regions)
         found.append(_Construction(unit, layer, adapter, call))
     return found
-
-
-def is_in_runtime(path: str, runtime: Runtime) -> bool:
-    """Whether a path is one of the runtime's units."""
-    return any(matches(pattern, path) for pattern in runtime.patterns)
 
 
 def _named(unit: Unit) -> str:
