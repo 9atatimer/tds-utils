@@ -185,6 +185,17 @@ class Write:
 
 
 @dataclass(frozen=True, slots=True)
+class Conditional:
+    """A branch: the expression it discriminates on (as written), its line,
+    and the definition it sits in. A branch on several is one per each."""
+
+    path: str
+    line: int
+    within: str | None
+    discriminant: str
+
+
+@dataclass(frozen=True, slots=True)
 class Unparsed:
     """A source the analyzer could not read as its language, with the reason."""
 
@@ -203,5 +214,6 @@ class CodeModel:
     calls: tuple[Call, ...] = ()
     accesses: tuple[Access, ...] = ()
     writes: tuple[Write, ...] = ()
+    conditionals: tuple[Conditional, ...] = ()
     regions: tuple[Region, ...] = ()
     unparsed: tuple[Unparsed, ...] = ()

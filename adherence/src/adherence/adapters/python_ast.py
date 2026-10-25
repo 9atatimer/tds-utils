@@ -22,6 +22,7 @@ from adherence.domain.model import (
     Body,
     Call,
     CodeModel,
+    Conditional,
     Definition,
     Parameter,
     Reference,
@@ -303,6 +304,37 @@ def _writes(path: str, scoped: Sequence[tuple[str | None, ast.AST]]) -> list[Wri
     ]
 
 
+def _discriminants(test: ast.expr) -> list[str]:
+    """What a branch's test discriminates on: the left of a comparison, the
+    value an isinstance tests, each operand of a bool op, a bare name."""
+    if isinstance(test, ast.BoolOp):
+        return [d for value in test.values for d in _discriminants(value)]
+    if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+        return _discriminants(test.operand)
+    if isinstance(test, ast.Compare):
+        return [ast.unparse(test.left)]
+    if isinstance(test, ast.Call):
+        if _callee(test) == "isinstance" and test.args:
+            return [ast.unparse(test.args[0])]
+        return [_callee(test)]
+    return [ast.unparse(test)]
+
+
+def _conditionals(
+    path: str, scoped: Sequence[tuple[str | None, ast.AST]]
+) -> list[Conditional]:
+    found: list[Conditional] = []
+    for within, node in scoped:
+        if isinstance(node, ast.If | ast.While | ast.IfExp):
+            tests = _discriminants(node.test)
+        elif isinstance(node, ast.Match):
+            tests = [ast.unparse(node.subject)]
+        else:
+            continue
+        found.extend(Conditional(path, node.lineno, within, t) for t in tests)
+    return found
+
+
 # --- Adapter -----------------------------------------------------------------
 
 
@@ -332,6 +364,7 @@ class PythonCodeModel:
         calls: list[Call] = []
         accesses: list[Access] = []
         writes: list[Write] = []
+        conditionals: list[Conditional] = []
         unparsed: list[Unparsed] = []
         trees: dict[str, ast.Module] = {}
         for path in sorted(sources):
@@ -353,6 +386,7 @@ class PythonCodeModel:
             calls.extend(_calls(path, scoped))
             accesses.extend(_accesses(path, scoped))
             writes.extend(_writes(path, scoped))
+            conditionals.extend(_conditionals(path, scoped))
         try:
             imports = import_edges(sources, trees, deadline)
         except ImportGraphFailed as failure:
@@ -368,6 +402,7 @@ class PythonCodeModel:
             calls=tuple(calls),
             accesses=tuple(accesses),
             writes=tuple(writes),
+            conditionals=tuple(conditionals),
             regions=regions,
             unparsed=tuple(unparsed),
         )
