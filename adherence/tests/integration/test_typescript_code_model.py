@@ -282,3 +282,54 @@ def test_options_objects_are_keyword_parameters_by_the_vocabulary() -> None:
         parameters=(Parameter("x", None, keyword_only=False, has_default=False),),
         returns=None,
     )
+
+
+def test_bodies_carry_their_text_stub_markers_and_sleeps() -> None:
+    """Given a body that only throws NotImplementedError, an empty one, one
+    that sleeps and an arrow whose body is an expression, When the fixture is
+    modelled, Then each body carries its text, the placeholder it consists
+    of, and the lines it sleeps on."""
+    unfinished = _definition("lib/tool/rules.ts", "unfinished").body
+    helper = _definition("lib/tool/run.ts", "closeOrder.helper").body
+    close = _definition("lib/tool/run.ts", "closeOrder").body
+    schema = "lib/tool/schema.mjs"
+
+    assert unfinished.stub_markers == ("NotImplementedError",)
+    assert helper.stub_markers == ("{}",)
+    assert close.stub_markers == ()
+    assert close.sleeps == (8,)
+    assert "deps.store.save(order);" in close.text
+    assert _definition(schema, "hasState").body.text == (
+        "  return isPlainObject(record) && 'state' in record;"
+    )
+    assert _definition(schema, "isPlainObject").body.text == (
+        "value !== null && typeof value === 'object'"
+    )
+
+
+def test_sleeps_and_stubs_come_from_the_vocabulary() -> None:
+    """Given a vocabulary that counts `pause` as a sleep and only an empty
+    body as a stub, When code is modelled with it, Then the model follows
+    that vocabulary, not a fixed list."""
+    vocabulary = Vocabulary(
+        regions={}, sleeps=frozenset({"pause"}), stubs=frozenset({"{}"})
+    )
+    source = (
+        b"function b() {\n"
+        b"  pause(1);\n"
+        b"  setTimeout(go, 1);\n"
+        b"}\n"
+        b"function c() {\n"
+        b"  throw new NotImplementedError();\n"
+        b"}\n"
+        b"function d() {}\n"
+    )
+
+    model = TypeScriptCodeModel().model(
+        {"m.ts": source}, typescript_fixture.declaration(), vocabulary, None
+    )
+
+    assert isinstance(model, CodeModel)
+    bodies = {d.unit.symbol: d.body for d in model.definitions}
+    assert bodies["b"].sleeps == (2,)
+    assert (bodies["c"].stub_markers, bodies["d"].stub_markers) == ((), ("{}",))
