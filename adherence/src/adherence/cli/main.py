@@ -8,8 +8,8 @@ reaches the terminal (Security mitigations).
 
 from __future__ import annotations
 
-import re
 import sys
+import unicodedata
 
 import click
 
@@ -25,14 +25,19 @@ from adherence.domain.target import Head
 
 # --- Constants ---------------------------------------------------------------
 
-CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+# Unicode control (newline and tab included) and format (bidi overrides,
+# zero-width) characters: none of them may reach the terminal.
+STRIPPED_CATEGORIES = frozenset({"Cc", "Cf"})
 
 # --- Presenters --------------------------------------------------------------
 
 
 def _safe(text: str) -> str:
-    """Author-controlled text with every control character removed."""
-    return CONTROL.sub("", text)
+    """Author-controlled text with every control and format character removed,
+    so it can neither start a line nor reorder one."""
+    return "".join(
+        ch for ch in text if unicodedata.category(ch) not in STRIPPED_CATEGORIES
+    )
 
 
 def _refusal_line(refusal: RefusedExemption) -> str:
