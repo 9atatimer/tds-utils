@@ -15,7 +15,10 @@ from adherence.domain.parameters import Vocabulary
 
 ROOT = Path(__file__).resolve().parent / "fixtures" / "python"
 VOCABULARY = Vocabulary(
-    regions={"predicates": Layer.DOMAIN, "action functions": Layer.ADAPTERS}
+    regions={"predicates": Layer.DOMAIN, "action functions": Layer.ADAPTERS},
+    environment_reads=frozenset({"os.environ", "os.getenv"}),
+    sleeps=frozenset({"sleep"}),
+    stubs=frozenset({"pass", "...", "NotImplementedError"}),
 )
 
 

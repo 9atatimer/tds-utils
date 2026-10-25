@@ -42,9 +42,6 @@ from adherence.domain.parameters import Vocabulary
 # --- Constants ---------------------------------------------------------------
 
 DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-SLEEP = "sleep"
-# Python's ways to read the process environment.
-ENVIRONMENT_READS = frozenset({"os.environ", "os.getenv", "environ", "getenv"})
 
 # --- Helpers -----------------------------------------------------------------
 
@@ -142,28 +139,34 @@ def _statements(node: DefinitionNode) -> list[ast.stmt]:
     return body
 
 
-def _stub_markers(node: DefinitionNode) -> tuple[str, ...]:
+def _placeholder(node: DefinitionNode) -> str | None:
+    """The placeholder form a body consists of, if it is nothing but one."""
     statements = _statements(node)
     if len(statements) != 1:
-        return ()
+        return None
     only = statements[0]
     if isinstance(only, ast.Pass):
-        return ("pass",)
+        return "pass"
     if isinstance(only, ast.Expr) and isinstance(only.value, ast.Constant):
         if only.value.value is Ellipsis:
-            return ("...",)
+            return "..."
     if isinstance(only, ast.Raise) and only.exc is not None:
         raised = only.exc.func if isinstance(only.exc, ast.Call) else only.exc
-        if isinstance(raised, ast.Name) and raised.id == "NotImplementedError":
-            return ("NotImplementedError",)
-    return ()
+        if isinstance(raised, ast.Name):
+            return raised.id
+    return None
+
+
+def is_sleep(callee: str, vocabulary: Vocabulary) -> bool:
+    """Whether a callee waits, by its full dotted name or its last part."""
+    return callee in vocabulary.sleeps or callee.split(".")[-1] in vocabulary.sleeps
 
 
 def _callee(call: ast.Call) -> str:
     return ast.unparse(call.func)
 
 
-def _body(node: DefinitionNode, text: str) -> Body:
+def _body(node: DefinitionNode, text: str, vocabulary: Vocabulary) -> Body:
     statements = node.body
     first, last = statements[0], statements[-1]
     lines = text.splitlines()[first.lineno - 1 : (last.end_lineno or last.lineno)]
@@ -171,10 +174,12 @@ def _body(node: DefinitionNode, text: str) -> Body:
         {
             n.lineno
             for n in own_nodes(node)
-            if isinstance(n, ast.Call) and _callee(n).split(".")[-1] == SLEEP
+            if isinstance(n, ast.Call) and is_sleep(_callee(n), vocabulary)
         }
     )
-    return Body("\n".join(lines), _stub_markers(node), tuple(sleeps))
+    form = _placeholder(node)
+    markers = (form,) if form is not None and form in vocabulary.stubs else ()
+    return Body("\n".join(lines), markers, tuple(sleeps))
 
 
 def _definition(
@@ -183,6 +188,7 @@ def _definition(
     text: str,
     declaration: Declaration,
     regions: Sequence[Region],
+    vocabulary: Vocabulary,
 ) -> Definition:
     node = found.node
     is_type = isinstance(node, ast.ClassDef)
@@ -197,7 +203,7 @@ def _definition(
     return Definition(
         unit=unit,
         signature=None if isinstance(node, ast.ClassDef) else _signature(node),
-        body=_body(node, text),
+        body=_body(node, text, vocabulary),
         bases=tuple(ast.unparse(b) for b in node.bases)
         if isinstance(node, ast.ClassDef)
         else (),
@@ -270,7 +276,9 @@ def _calls(path: str, scoped: Sequence[tuple[str | None, ast.AST]]) -> list[Call
     ]
 
 
-def _accesses(path: str, scoped: Sequence[tuple[str | None, ast.AST]]) -> list[Access]:
+def _accesses(
+    path: str, scoped: Sequence[tuple[str | None, ast.AST]], vocabulary: Vocabulary
+) -> list[Access]:
     inner = {
         id(n.value) for _, n in scoped if isinstance(n, ast.Attribute) and _chain(n)
     }
@@ -283,7 +291,7 @@ def _accesses(path: str, scoped: Sequence[tuple[str | None, ast.AST]]) -> list[A
             )
         elif isinstance(node, ast.Attribute | ast.Name) and id(node) not in inner:
             text = ast.unparse(node)
-            if text in ENVIRONMENT_READS:
+            if text in vocabulary.environment_reads:
                 found.append(
                     Access(path, node.lineno, within, AccessKind.ENVIRONMENT, text)
                 )
@@ -430,6 +438,7 @@ def _file_model(
     tree: ast.Module,
     declaration: Declaration,
     regions: Sequence[Region],
+    vocabulary: Vocabulary,
 ) -> CodeModel:
     """Every fact of one parsed file, as a CodeModel of that file alone."""
     lines = data.count(b"\n") or 1
@@ -438,14 +447,16 @@ def _file_model(
     )
     text = data.decode("utf-8", "replace")
     walked = _walk_definitions(tree)
-    found = [_definition(path, f, text, declaration, regions) for f in walked]
+    found = [
+        _definition(path, f, text, declaration, regions, vocabulary) for f in walked
+    ]
     scoped = _scoped(tree, walked)
     return CodeModel(
         units=(file_unit, *(d.unit for d in found)),
         definitions=tuple(found),
         references=tuple(_references(path, tree, scoped)),
         calls=tuple(_calls(path, scoped)),
-        accesses=tuple(_accesses(path, scoped)),
+        accesses=tuple(_accesses(path, scoped, vocabulary)),
         writes=tuple(_writes(path, scoped)),
         conditionals=tuple(_conditionals(path, scoped)),
         members=tuple(_members(path, walked)),
@@ -502,7 +513,9 @@ class PythonCodeModel:
                 continue
             try:
                 files.append(
-                    _file_model(path, sources[path], tree, declaration, regions)
+                    _file_model(
+                        path, sources[path], tree, declaration, regions, vocabulary
+                    )
                 )
             except RecursionError:
                 unparsed.append(Unparsed(path, NESTED_TOO_DEEPLY))

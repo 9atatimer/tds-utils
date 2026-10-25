@@ -8,7 +8,6 @@ from pathlib import Path
 
 from adherence.adapters.python_ast import PythonCodeModel
 from adherence.domain.deadline import Deadline, TimedOut
-from adherence.domain.parameters import Vocabulary
 from adherence.domain.model import (
     AccessKind,
     CodeModel,
@@ -20,6 +19,7 @@ from adherence.domain.model import (
     Signature,
     UnitKind,
 )
+from adherence.domain.parameters import Vocabulary
 from adherence.ports.code_model import CodeModelPort
 from tests import python_fixture
 from tests.code_model_contract import CodeModelContract
