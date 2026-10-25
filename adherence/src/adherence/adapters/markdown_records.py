@@ -41,7 +41,10 @@ BEHAVIORS = "Behaviors"
 DOMAIN_LANGUAGE = "Domain Language"
 SURFACE = "Use-case surface"
 SEAMS = "Seams"
-SECTION_LEVELS = frozenset({"h1", "h2"})
+SECTIONS = (BEHAVIORS, DOMAIN_LANGUAGE, SURFACE, SEAMS)
+# A heading names a section when its first words, markup dropped and case
+# folded, are the section's: `### **Behaviors** (v2)` is the Behaviors.
+HEADING_WORD = re.compile(r"[\w-]+")
 IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
 SIGNATURE = re.compile(
     r"(?P<name>[A-Za-z_]\w*)\((?P<parameters>.*)\)\s*(?:->\s*(?P<returns>.+))?",
@@ -71,15 +74,40 @@ def _line(token: Token) -> int:
     return token.map[0] + 1 if token.map else 0
 
 
+def _section_named(heading: str) -> str | None:
+    """The section a heading's plain text names, or None."""
+    words = HEADING_WORD.findall(heading.casefold())
+    return next(
+        (
+            section
+            for section in SECTIONS
+            if (wanted := HEADING_WORD.findall(section.casefold()))
+            == words[: len(wanted)]
+        ),
+        None,
+    )
+
+
+def _level(heading_open: Token) -> int:
+    return int(heading_open.tag[1:])
+
+
 def _sections(tokens: Sequence[Token]) -> dict[str, list[Token]]:
-    """Each top- or second-level section's tokens, by its heading's text."""
+    """Each section's tokens, by the section its heading names at any level:
+    a section runs to the next heading as high as its own, and holds the
+    deeper headings inside it."""
     sections: dict[str, list[Token]] = {}
     current: list[Token] | None = None
+    level = 0
     for index, token in enumerate(tokens):
-        if token.type == "heading_open" and token.tag in SECTION_LEVELS:
-            heading = tokens[index + 1].content.strip()
-            current = sections.setdefault(heading, [])
-        elif current is not None:
+        if token.type == "heading_open":
+            named = _section_named(_plain(tokens[index + 1]))
+            if named is not None:
+                current, level = sections.setdefault(named, []), _level(token)
+                continue
+            if _level(token) <= level:
+                current, level = None, 0
+        if current is not None:
             current.append(token)
     return sections
 

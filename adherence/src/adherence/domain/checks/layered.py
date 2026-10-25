@@ -57,6 +57,10 @@ WHEN = re.compile(r"\bwhen\b", re.IGNORECASE)
 THEN = re.compile(r"\bthen\b", re.IGNORECASE)
 WORD = re.compile(r"\w")
 UNTRACEABLE = "the row has no nameable action (When) or observation (Then)"
+NO_BEHAVIORS = (
+    "the design record states no behaviors (no Behaviors section with a "
+    "table row), so there is no contract to trace"
+)
 PURITY = catalog_check("Purity")
 NAME = re.compile(r"[A-Za-z_]\w*")
 # An annotation's text read as tokens: a string literal, a dotted name, or
@@ -227,6 +231,10 @@ def trace(
         return CheckOutcome(
             coverage=(Coverage(records.reason, check=TRACE.name),), ran=False
         )
+    if not records.behaviors:
+        named = declaration.records.design if declaration.records else None
+        reason = f"{named}: {NO_BEHAVIORS}" if named else NO_BEHAVIORS
+        return CheckOutcome(coverage=(Coverage(reason, check=TRACE.name),), ran=False)
     rows = {normalised(r.behavior): r for r in records.surface}
     use_cases = {u.name: u for u in records.use_cases}
     homes = _homes(model)
