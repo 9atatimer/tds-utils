@@ -63,7 +63,12 @@ NESTED_TOO_DEEPLY = "nested deeper than the analyzer can walk"
 
 
 class CruiseFailed(Exception):
-    """dependency-cruiser, or the node it runs on, could not answer."""
+    """dependency-cruiser, or the node it runs on, could not answer, or ran
+    past the deadline."""
+
+    def __init__(self, reason: str, *, timed_out: bool = False) -> None:
+        super().__init__(reason)
+        self.timed_out = timed_out
 
 
 Resolved = dict[tuple[str, str], str]
@@ -130,6 +135,8 @@ def _cruise(
 ) -> Resolved:
     """Where each import of the sources resolves, by dependency-cruiser."""
     timeout = None if deadline is None else deadline.epoch_seconds - clock()
+    if timeout is not None and timeout <= 0:
+        raise CruiseFailed("resolve the imports", timed_out=True)
     with tempfile.TemporaryDirectory(prefix="adhere-depcruise-") as scratch:
         tree = Path(scratch, "tree")
         write_tree(tree, sources)
@@ -166,6 +173,8 @@ def _cruise(
                 env=environment,
                 timeout=timeout,
             )
+        except subprocess.TimeoutExpired as expired:
+            raise CruiseFailed("resolve the imports", timed_out=True) from expired
         except subprocess.CalledProcessError as failed:
             complaint = failed.stderr.decode("utf-8", "replace").strip().splitlines()
             reason = complaint[0] if complaint else f"exit {failed.returncode}"
@@ -210,6 +219,8 @@ class TypeScriptCodeModel:
                 clock=self._clock,
             )
         except ScanFailed as failure:
+            if failure.timed_out:
+                return TimedOut(str(failure))
             unparsed.extend(Unparsed(path, str(failure)) for path in readable)
             return CodeModel(unparsed=tuple(sorted(unparsed, key=lambda u: u.path)))
         found = tuple(
@@ -255,6 +266,8 @@ class TypeScriptCodeModel:
                     parsed, cruiser=self._cruiser, deadline=deadline, clock=self._clock
                 )
         except CruiseFailed as failure:
+            if failure.timed_out:
+                return TimedOut(str(failure))
             unparsed.extend(Unparsed(path, str(failure)) for path in parsed)
         return merged(
             files,
