@@ -98,7 +98,8 @@ behavior per commit. Order:
 - task-062 -- `judge_change`: the gate exists only from here; task-063,
   task-064 and task-065 each wait on it.
 
-The owner's rulings on the design's Q1-Q12 and the architecture's Q5-Q7
+The owner's rulings on the design's open questions (Q1, Q3-Q7, Q9-Q12)
+and the architecture's Q6-Q7
 land as Key Decisions appends under Issue#590 while the route runs; the
 tasks name the row each ruling changes.
 

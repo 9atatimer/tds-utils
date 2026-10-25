@@ -3,7 +3,7 @@
 > **Status:** APPROVED (Todd, 2026-10-24, after tds-utils PR#605; the Open Questions are ruled by Key Decisions appends under tds-utils Issue#590, never by body edits). Amended 2026-10-25 with the design (Issue#590): `domain/score`, floors and drop tickets removed; the verdict compares findings by identity
 > **Date:** 2026-10-24 (self-review panel findings folded in the same day)
 > **Authors:** Todd Stumpf, Claude
-> **Implements:** [DESIGN.ARCH-ADHERENCE.md](./DESIGN.ARCH-ADHERENCE.md) (status: APPROVED 2026-10-24; this record was re-read against it the same day)
+> **Implements:** [DESIGN.ARCH-ADHERENCE.md](./DESIGN.ARCH-ADHERENCE.md) (status: APPROVED 2026-10-24, amended 2026-10-25; this record was re-read against the amended record on 2026-10-25)
 > **As-built read:** `docs/arch/ARCHITECTURE.md` as of 2026-10-24: the proxy layer, the Ollama Gateway and OCR on Demand; no as-built exists for `bin/decide`, `chores/` or the dist tools, so their shapes were read from code
 
 ---
@@ -92,7 +92,8 @@ vendor name.
 | When a bounded run must end | `Deadline` | parameter (an instant the entry point computes) | The hook sets it from the commit-time bound and CI from the job's remaining time; laptop and cloud pass none. It is taken by every method of `RepositoryPort`, `ReviewPort`, `CodeModelPort`, `ComplexityPort`, `DuplicationPort`, `RecordsPort` and `DecisionPort`, and by `ReportStore.get`; not by `ReportStore.put`, which runs after the verdict, nor by `ExplanationPort`, which runs outside judging. Each adapter compares it to the clock at the edge and returns `TimedOut` rather than overrun it; the core reads no time. This record calls these the deadline-bound ports |
 | How findings are presented (terminal, JSON, SARIF, PR check summary) | presenters in `cli/` | entry-point concern, not a seam | Presentation of one `Report` value; no port, because nothing behind it does I/O the domain depends on |
 
-A judged question's kind, binary, choice or score, is fixed by this record
+A judged question's kind, binary, choice or score (the decision-models
+skill's kinds; not a score of the suite's, which has none), is fixed by this record
 per question, with its id and options; the design says only that a judged
 check receives a probability per allowed answer. Renaming a question's id
 or option is a migration of the threshold policy and the labelled set.
@@ -118,7 +119,7 @@ or option is a migration of the threshold policy and the labelled set.
 | `domain/checks/declared.py` -- Covered (over a `CodeModel` and the created units) and Record kept (over two `DesignRecords`), both change-level; the declaration-edit notices | domain | all |
 | `domain/questions.py` -- `Question`, `Schema`, `Decision`; `ThresholdPolicy` applied per question id: finding, pass or abstention | domain | all |
 | `domain/coverage.py` -- `Coverage` | domain | all |
-| `domain/verdict.py` -- two `Report`s and a `Change` to a `Verdict` in the design's order; provenance with renames; removed findings (a base finding absent at the head, on a unit the head covers and a check that ran there); the exemptions of the declaration in force, applied and spent | domain | all |
+| `domain/verdict.py` -- two `Report`s and a `Change` to a `Verdict` in the design's order; provenance with renames; removed findings (a base finding absent at the head whose units the head still covers and whose check ran there and passed); exempt findings on either side counted as neither | domain | all |
 | `domain/finding.py` -- `Finding`, its stable identity, `Evidence` bound; `Notice` | domain | all |
 | `domain/report.py` -- `Report`, `Report.not_run`, its identity (suite version, parameters digest, declaration digest, analyzer set, judge availability) | domain | all |
 | `application/load.py` -- `load_declaration` | application | all |
@@ -241,7 +242,6 @@ both invoke the same CLI.
 | A change cannot narrow its own declaration | (`judge_change`; everything in the head declaration but widening for created units is ignored and noticed) | RepositoryPort |
 | A newly covered unit's flaws are existing | (`judge_change`; the base is measured under the declaration in force, which now covers the unit, so its findings are in the base report and present-at-base is existing) | RepositoryPort, CodeModelPort |
 | An exemption carries its reason | (`measure`; `Declaration`) | RepositoryPort |
-| A spent exemption is removable | (`measure`; an exemption of the declaration in force that silenced no finding is a removable `Notice`) | RepositoryPort |
 | An added exemption is inert for its change | (`judge_change`; exemptions from the declaration in force only) | RepositoryPort |
 | The Declared quality cannot be exempted | (`measure`; `Declaration` validation) | RepositoryPort |
 | A report quotes no more than the evidence | (`measure`; `domain/finding` truncates `Evidence` to `Limits.evidence_bound`) | none |
@@ -274,7 +274,8 @@ the use case records as coverage, and the application and domain read no
 time. Each real adapter's contract suite gives it a passed deadline and
 expects `TimedOut`; a RED test of the bound drives `measure` with a fake
 scripted to return `TimedOut`. Every return is a domain value: `Report`
-(for a change, with its verdict and provenance),
+(for a change, with its verdict, the provenance of each finding and the
+findings removed),
 `Explanation`, `Recorded`. The CLI calls `judge_change` and then
 `record_report`, in that order, so writing the report can never touch the
 verdict; reading a base from `ReportStore` only spares a measurement of
@@ -361,9 +362,9 @@ wrap.
 |---|---|---|
 | Two reports | `judge_change` measures `change.head` under the merged declaration; for `change.base` it asks `ReportStore.get(repo, base, identity, deadline)` with the base identity: the head run's suite version, parameters digest, analyzer set and judge availability, with the digest of the declaration in force. A stored report is comparable only when its identity equals the base identity; on a miss or a mismatch it measures the base under the declaration in force | ReportStore, then `measure`'s seams |
 | The declaration in force | the newest landed revision of `adherence.toml` on the base's history whose landing carried a counted approval (the unapproved-declaration row); `load_declaration` at that revision and at `change.head`; from the head only widening for created units is taken; every other difference is a notice | RepositoryPort, ReviewPort |
-| Provenance | `judge_change` reads created, deleted and renamed units from `RepositoryPort.changed` and passes them to the domain as the `Change` value; `domain/verdict`: a head finding whose identity, path resolved through the renames, is absent from the base report is introduced, whatever unit it names; one present at the base is existing | RepositoryPort |
-| Removed findings | `domain/verdict`: a base finding absent from the head report, on a unit the head covers and a check that ran there; a deleted unit's findings, and a check in `Coverage` at the head, remove nothing | none |
-| Verdict | `domain/verdict`: the two `Report`s, the `Change`, the exemptions of the declaration in force, to a `Verdict` by the design's verdict rules and order (DESIGN.ARCH-ADHERENCE.md); the rules are the design's and are not restated here | none |
+| Provenance | `judge_change` reads created, deleted and renamed units from `RepositoryPort.changed` and passes them to the domain as the `Change` value; `domain/verdict`, with every path resolved through the renames: a head finding whose key (identity, resolved path) is absent from the base report is introduced, whatever unit it names, a created unit's findings among them; one present at the base is existing; a finding marked exempt on either side counts as neither | RepositoryPort |
+| Removed findings | `domain/verdict`: a base finding, path resolved through the renames, absent from the head report, where every unit it names is still covered at the head and its check ran there and passed; an abstention, a check in `Coverage` at the head and a deleted unit remove nothing; the removed findings ride on the `Report` for the presenters | none |
+| Verdict | `domain/verdict`: the two `Report`s, the `Change`, exempt findings on either side counting as neither, to a `Verdict` by the design's verdict rules and order (DESIGN.ARCH-ADHERENCE.md); the rules are the design's and are not restated here | none |
 | The hook | the `hook` stage binds `RepositoryPort` to the staged index as head and `HEAD` as base, `DecisionPort` to `no_judge`, `ReviewPort` to `no_reviews` and `WorkerPort` to `process_worker`; `cli/main.py` computes `Deadline` from `Limits.commit_time_bound` and calls `judge_bounded`, which runs `judge_change` as the worker's job and, if the worker ends it at the deadline, assembles the `Report` from the finished checks with the rest as coverage; inside the job the deadline reaches every deadline-bound port call, each analyzer adapter caps its subprocess at the smaller of `Limits.analyzer_bound` and the time remaining and returns `TimedOut`, and `judge_change` makes no port call after the first `TimedOut`; `cli/main.py` maps the verdict to the exit status, and in the `hook` stage inconclusive exits zero, so the commit proceeds | WorkerPort, the deadline-bound ports |
 
 The known flaws are not stored. They are the base revision's report, and
@@ -373,8 +374,7 @@ lowers the bar past the gate. An exemption lives in the declaration the
 owner approves, lands in a change before the one it covers and is honored
 from the declaration in force, so it holds on the PR's merge-base and
 again on the staging commit tedium builds; widening needs no approval, so
-it holds there too. An exemption that silences no finding at the head is
-a removable notice.
+it holds there too.
 `ReportStore` is a cache keyed by report identity and a ledger, never the
 authority: `get` reads only lookup keys that default-branch runs wrote
 (Persistence), and a miss or a mismatch measures again. A PR run cannot
@@ -385,7 +385,7 @@ back as its base.
 
 | Responsibility | Component | Seams crossed |
 |---|---|---|
-| Stable identity | `domain/finding`: a digest of quality, check, the unit's layer and kind, and the normalised evidence (whitespace collapsed, line numbers removed); neither path nor symbol is in the digest. At judging the base's and head's units are paired by path through the repository's file renames, and by symbol through definition renames (a head definition whose normalised body digest equals a base definition that disappeared), so a moved file and a renamed function keep their findings | none |
+| Stable identity | `domain/finding`: a digest of quality, check, the unit's layer and kind, and the normalised evidence (whitespace collapsed, line numbers removed); neither path nor symbol is in the digest; the comparison key at judging is the identity with the path resolved through the renames, so a second copy of a known flaw in another file is introduced. At judging the base's and head's units are paired by path through the repository's file renames, and by symbol through definition renames (a head definition whose normalised body digest equals a base definition that disappeared), so a moved file and a renamed function keep their findings | none |
 | Evidence bound | `domain/finding` truncates to `Limits.evidence_bound`; the ledger record carries the location and no quoted text | none |
 | SARIF | `cli/presenters/sarif.py`: one SARIF `rule` per check, one `result` per finding, the identity as `partialFingerprints`, provenance and kind as properties, notices as `notifications` | none |
 | PR surface | the reusable workflow uploads the SARIF to code scanning and writes the findings, notices and verdict to the job summary; the ci-magic toolkit line lets ci.magic's judge call `adhere measure --json` and quote it | the workflow |
@@ -414,9 +414,11 @@ the default branch and is scoped to that repository's own
 `adherence/v1/by-rev/<repo>/` prefix, so no repository can seed another's
 base; a PR run's credential cannot write `by-rev/`, and the scoping lives
 in the infra module. The record holds the identity, the verdict, each
-finding's identity, check, path,
-symbol, line and provenance, the notices, the abstentions and the
-coverage. No quoted code. A write failure is returned on `Recorded` with
+finding's identity, check, path, symbol, line, provenance and exempt
+mark, the removed findings, the notices, the abstentions, the coverage,
+the covered units with the checks that ran on each, and each
+definition's normalised body digest, so a cached base serves rename
+pairing and the removed-finding rule. No quoted code. A write failure is returned on `Recorded` with
 its reason; the CLI presents it as a `Notice` beside the report, and it
 never changes the verdict.
 
@@ -513,7 +515,7 @@ library; no new row.
 | Which declaration a change is judged under | The newest landed revision a code owner approved, merged with the head's widening for created units and the ticket it marks used; `adherence.toml` under CODEOWNERS; the merged value is passed into `measure` | Widening adds checks and marking a ticket used spends a permission; every other head edit takes effect from the next change, so nothing from the head can narrow its own judge, and a bypass-landed edit is never in force |
 | Code model, not per-language checks | Every analyzer produces one `CodeModel`; every check reads only that | Writing each check per language multiplies the checks by the languages; one model keeps each check written once |
 | Structural facts from ast-grep | One rule format for stubs, nesting, regions, tests and assertions across languages | The TypeScript compiler API would need a node sidecar for what tree-sitter answers from a rule file |
-| No score (design amended 2026-10-25) | `domain/score` and `ComparedScore` are gone; `domain/verdict` compares the two reports' findings by identity (introduced, existing, removed); `Declaration`, the TOML and the ledger record carry no floors or drop tickets; supersedes the ticket and score clauses of the two rows above | The design's No score decision (Issue#590): nothing is derived from findings but the list of them, so the verdict has nothing to compare but that list |
+| No score (design amended 2026-10-25) | `domain/score` and `ComparedScore` are gone; `domain/verdict` compares the two reports' findings by identity (introduced, existing, removed); `Declaration`, the TOML and the ledger record carry no floors or drop tickets; supersedes the ticket and score clauses of Where the baseline lives and Which declaration a change is judged under; Q5 (one fraction per quality) leaves Open Questions as moot | The design's No score decision (Issue#590): nothing is derived from findings but the list of them, so the verdict has nothing to compare but that list |
 | Questions batched per unit | One `Schema` per unit, every question about that unit together | The decision-models skill: each call pays to read the state again |
 | Finding identity | A digest without line numbers or path; the path joined through renames at judging | The same flaw must be the same finding after an unrelated edit moves it or a rename relocates it |
 | The bound is a deadline, not a clock | The entry point computes an instant; every deadline-bound port method takes it; each adapter compares it to the time at the edge, caps its work, and returns `TimedOut`; the core reads no time and makes no port call after the first `TimedOut`; `judge_bounded` runs the engine through `WorkerPort`, which ends the job at the deadline, so a pure check that does not return cannot hold the commit | Reading the time and ending a process are I/O and belong at the edge; the core's reaction to the bound is tested by a fake scripted to return `TimedOut`, and the total bound by `inline_worker` scripted to end early, with no clock in the core |

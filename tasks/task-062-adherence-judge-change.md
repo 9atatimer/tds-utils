@@ -13,11 +13,10 @@ ReviewPort`, so this task also defines `ReviewPort`'s protocol, its
 stands) and its fake; `github_reviews` and the approval walk are
 task-063. With it: the `git` adapter's `changed` (created, deleted,
 renamed) and `history`, `ReportStore` with its file cache keyed by report
-identity and its fake, `record_report`, and the domain's provenance with
-file and definition renames, the removed-finding rule, the verdict in the
-design's order, the exemptions of the declaration in force applied and
-spent, widening for created units, and the Declared quality's
-change-level checks. RED first, one row per
+identity and its fake, `record_report`, and the domain's provenance
+with file and definition renames, the removed-finding rule, the verdict
+in the design's order, exempt findings counting as neither, widening for
+created units, and the Declared quality's change-level checks. RED first, one row per
 commit, in this order:
 
 - A change that raises is raised
@@ -38,7 +37,6 @@ commit, in this order:
 - A change cannot narrow its own declaration
 - An added exemption is inert for its change
 - An exemption carries its reason
-- A spent exemption is removable
 - An unmeasurable base is inconclusive
 - A missing record on both sides is not inconclusive
 - A rule check that errors is coverage

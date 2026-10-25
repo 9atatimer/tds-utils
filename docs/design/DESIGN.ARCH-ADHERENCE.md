@@ -93,9 +93,10 @@ not exist for our languages and our rules.
   it can be fixed.
 - **G6 The bar ratchets.** The known flaws are the base's own findings,
   so a change that fixes a flaw and lands removes it from the known set
-  with nothing to configure, and reintroducing it later lowers. The only
-  way to introduce a flaw through the gate is an owner's exemption with a
-  reason, landed before the change and shown in every report it silences.
+  with nothing to configure, and reintroducing it later lowers. Within
+  the suite, the one way to introduce a flaw through the gate is an
+  owner's exemption with a reason, landed before the change and shown in
+  every report it silences (Q9 and Q10 stay open).
 - **G7 Existing flaws do not block.** Every finding is marked introduced
   or existing: introduced when it was absent before the change, whatever
   unit it names. Only introduced findings move a verdict down. Renaming a
@@ -108,8 +109,8 @@ not exist for our languages and our rules.
   records are, which radar it is held to, and what it exempts; the
   declaration changes only with the owner's approval. A change is judged
   under the declaration in force before it, plus the coverage its own
-  declaration adds. What its own declaration removes, exempts or accepts
-  takes effect from the next change.
+  declaration adds. What its own declaration removes or exempts takes
+  effect from the next change.
 - **G10 Design records are read, not restated.** Trace reads the design's
   Behaviors table and the architecture record's use-case surface.
   Language reads the design's Domain Language. Each is read at the
@@ -133,7 +134,7 @@ not exist for our languages and our rules.
   The explanation is labelled as such, changes no finding and no verdict,
   and is produced by something that can act on nothing.
 - **G16 Reports persist.** Every run's report is kept durably, so
-  adherence over time, per repository and per quality, is a query.
+  the findings over time, per repository and per quality, are a query.
 - **G17 Exemptions are visible and reasoned.** An exemption carries a
   reason, appears in every report it affects, and an exemption a change
   adds is reported and inert for that change.
@@ -282,12 +283,17 @@ are measured under the same suite, measured languages and judge
 availability, and under the declaration in force, the head with its
 widening added. Where the base cannot be measured under the same, it is
 not compared against: the verdict is inconclusive and the report names
-what differs. The comparison is of findings, by identity: a head finding
-absent from the base's report is introduced; a base finding absent from
-the head's report, on a unit the head still covers and a check that ran
-there, is removed. A finding on a unit the change deleted, or on a unit
-only one side could check, is neither. That is what keeps a deletion, or
-a judge that answered on one side only, from moving a verdict (G3, G7).
+what differs. The comparison is of findings, by identity, with paths
+resolved through the change's renames. A head finding absent from the
+base's report is introduced, a created unit's findings among them. A
+base finding absent from the head's report is removed only when every
+unit it names is still covered at the head and its check ran there and
+passed; an abstention, an unavailable judge or a check in coverage
+removes nothing (G3). A finding on a unit the change deleted is neither
+introduced nor removed, so deleting a unit moves nothing by its own
+findings; what the deletion breaks elsewhere is introduced (G7). A
+finding an exemption silences stays in the report marked exempt and
+counts as neither, on either side.
 
 | Verdict | Meaning |
 |---|---|
@@ -314,8 +320,7 @@ the next change's base, so a flaw fixed and landed leaves the known set
 with nothing to configure, and a change that brings it back introduces
 it. Nothing lowers the bar through the gate: a flaw a change must
 introduce is silenced by an exemption the owner lands in an earlier
-change, with a reason, and an exemption that silences nothing is reported
-as removable. A lowered report lists every introduced finding with what
+change, with a reason. A lowered report lists every introduced finding with what
 G8 requires, so the remediation is read from the report and not
 rediscovered.
 
@@ -352,10 +357,13 @@ that cannot run a check reports it as coverage missing, never as a pass.
 An owner may exempt a unit from a check, or dismiss one finding, with a
 reason. The reason is in the declaration and in every report the exemption
 touches (G17). An exemption a change adds is a notice and is inert for
-that change, so a change cannot exempt what it broke; a flaw a change
-must introduce is exempted in a change before it. An exemption that
-silences no finding is reported as removable. No exemption can exempt
-the Declared quality's checks.
+that change, so a change cannot exempt what it broke. An exemption names
+a unit and a check, or dismisses one existing finding by its identity; a
+flaw a change must introduce is exempted by unit and check in a change
+before it, since the finding does not exist yet. A silenced finding stays
+in the report, marked exempt with the reason, and counts as neither
+introduced nor removed. No exemption can exempt the Declared quality's
+checks.
 
 ---
 
@@ -416,7 +424,7 @@ the Declared quality's checks.
 | An unapproved declaration is not in force | Given a declaration edit that landed without the owner's approval, When the next change is judged, Then it is judged under the last approved declaration and the unapproved edit is a notice |
 | An author's approval is refused | Given a declaration edit approved only by the author of the change that carries it, who is not the owner, When the change lands, Then the edit does not become the declaration in force and the report says why |
 | An unmeasurable base is inconclusive | Given a base the gate cannot measure under the same suite, declaration, measured languages and judge availability as the head, When the change is judged, Then the verdict is inconclusive and the report names what differs |
-| A change that raises is raised | Given a change on which a base finding is absent at the head, on a unit the head still covers and a check that ran there, and no finding is introduced, When it is judged, Then the verdict is raised and the report names the removed finding |
+| A change that raises is raised | Given a change on which a base finding is absent at the head, on a unit the head still covers and a check that ran there and passed, with no finding introduced and nothing that makes the verdict inconclusive, When it is judged, Then the verdict is raised and the report names the removed finding |
 | A change that lowers is lowered | Given a change that introduces a finding from a judged check above its threshold, When it is judged, Then the verdict is lowered and the report names the finding with its confidence |
 | An introduced flaw lowers | Given a change that creates a unit a rule check fails, When it is judged, Then the verdict is lowered and the finding is marked introduced |
 | An existing flaw does not block | Given a finding present in the base's report, When the change is judged, Then the finding is marked existing and the verdict is not lowered by it |
@@ -425,7 +433,7 @@ the Declared quality's checks.
 | Deleting clean code moves nothing | Given a change that only deletes units with no findings in a repository with existing flaws, When it is judged, Then nothing is introduced or removed and the verdict is held |
 | Deleting a flawed unit moves nothing | Given a change that only deletes a unit with an existing flaw, When it is judged, Then that flaw is neither introduced nor removed and the verdict is held |
 | An abstention is inconclusive | Given a change whose only unresolved item is a judged check that abstained on a unit it touched, When it is judged, Then the verdict is inconclusive, never lowered |
-| An unavailable judge is inconclusive, never raised | Given no judge reachable at the head and a judge that answered at the base, When a change is judged, Then every judged check reports coverage missing, no judged finding counts as removed, and the verdict is inconclusive at best |
+| An unavailable judge is inconclusive, never raised | Given no judge reachable at the head, When a change is judged, Then every judged check reports coverage missing, no judged finding counts as removed, an introduced rule finding still lowers, and the verdict is otherwise inconclusive |
 | An exhausted judged-check budget is inconclusive | Given a change whose judged questions exceed the judged-check budget, When it is judged, Then coverage names the questions not asked and the verdict is inconclusive at best |
 | A rule check that errors is coverage | Given a rule check that errors on a unit the change touched, When the change is judged, Then coverage names the check, the unit and the error, and the verdict is inconclusive at best |
 | An unreadable file is coverage | Given a file in a measured language that cannot be read at the head, When the change is judged, Then coverage names the file, nothing reports it as clean, and the verdict is inconclusive at best |
@@ -435,7 +443,6 @@ the Declared quality's checks.
 | A change cannot narrow its own declaration | Given a change that removes an assignment, covers an existing unit or adds an exemption, When it is judged, Then it is judged as if that edit were absent, and the edit is a notice |
 | A newly covered unit's flaws are existing | Given a declaration edit that covers an existing unit, landed in one change, When the next change is judged, Then that unit's flaws are in the base's report and marked existing |
 | An exemption carries its reason | Given an exempted unit, When a run reports, Then the exemption and its reason appear beside the check it silenced |
-| A spent exemption is removable | Given an exemption that silences no finding at the head, When a run reports, Then the report says the exemption can be removed |
 | An added exemption is inert for its change | Given a change that adds an exemption for a flaw it introduces, When it is judged, Then the flaw lowers the verdict and the exemption is a notice |
 | The Declared quality cannot be exempted | Given a declaration that exempts Covered or Record kept, When a run is asked for, Then the exemption is refused and reported |
 | A report quotes no more than the evidence | Given a finding on a unit, When the report is written, Then it holds the unit's path, the symbol and at most the offending line, and never more of the unit's body |
@@ -548,9 +555,9 @@ the Declared quality's checks.
   lands. Invariant: refuses a change whose verdict is lowered; whether it
   refuses not run or inconclusive is pending Q10.
 - **Report.** A run's outcome: the checks that ran, the findings,
-  abstentions, notices and coverage, and for a change the verdict and the
-  provenance of each finding. Invariant: derives no number from the
-  findings.
+  abstentions, notices and coverage, and for a change the verdict, the
+  provenance of each finding and the findings removed. Invariant: derives
+  no number from the findings.
 - **Finding.** One check failing on one unit: the quality, check, kind,
   unit, evidence, provenance, and for a layer check the layer reached.
   Invariant: carries a stable identity that survives a rename.
@@ -558,17 +565,20 @@ the Declared quality's checks.
 - **Evidence.** The location and at most the offending line.
 - **Provenance.** Introduced, when the finding's identity is absent from
   the base's report; existing, when it is present there.
-- **Removed.** A base finding absent from the head's report, on a unit
-  the head still covers and a check that ran there. Invariant: a deleted
-  unit's findings, and a check that did not run at the head, remove
-  nothing.
+- **Removed.** A base finding absent from the head's report, with paths
+  resolved through the renames, where every unit it names is still
+  covered at the head and its check ran there and passed. Invariant: a
+  deleted unit's findings, an abstention, an unavailable judge and a check
+  in coverage remove nothing; the removed findings are in the report.
+- **Sensor.** A check, as the gate sees it: it trips, which is a finding,
+  or it does not. Not a third kind of check.
 - **Known flaws.** The base's findings. Invariant: never configured or
   stored as a bar; they are the base report.
 - **Abstention.** A judged check's answer when its probabilities fall in
   the abstention band. Counted as inconclusive, never as a pass or a
   finding.
 - **Notice.** Something a reviewer should see that is not a finding: a
-  declaration edit, an exemption applied or spent, a report not kept.
+  declaration edit, an exemption applied, a report not kept.
   Invariant: never moves a verdict.
 - **Coverage.** Every unit and check a run did not perform, with the
   reason.
@@ -578,7 +588,9 @@ the Declared quality's checks.
 - **Exemption.** An owner's statement that a unit is not checked by one
   check, or that one finding is dismissed, with a reason. Invariant:
   cannot cover the Declared quality; inert for the change that adds it;
-  the one way a flaw is introduced through the gate.
+  within the suite, the one way a flaw is introduced through the gate. A
+  silenced finding stays in the report marked exempt and counts as
+  neither introduced nor removed.
 - **Place.** Where a run happens: the laptop on demand, the pre-commit
   hook (the hook), CI as the gate, an agent's self-review before a PR, or
   a cloud session. The terminal is the laptop's and the agent's view of a
@@ -674,7 +686,7 @@ The owner's laptop as part of the LMDE contract, the adopting repositories' CI a
 | Design records | Read as input at the code's revision, never copied; narrowing an approved record is a finding | A copy drifts and becomes a second, unreviewed design; a record pinned to the base could not be grown with its code | the sdlc skill, laws 2 and 3; self-review panel 2026-10-24 |
 | Floors | Bind once reached; an aim until then | A floor above today's score would make every change unlandable | self-review panel 2026-10-24 |
 | Dogfood | The suite measures itself in its own gate | A guardrail that does not hold its own author is not believed | this record |
-| No score: sensors | Supersedes The bar, What a score comparison sees and Floors. No number is derived from findings. A change is judged on findings by identity: an introduced finding lowers, a removed one raises, a deleted unit's findings do neither. Floors and drop tickets are removed; an owner's exemption landed in an earlier change is the one way to introduce a flaw through the gate | A fraction over files and design behaviors weighs incommensurable things, and a change that fixes one flaw and introduces another leaves it unchanged; the finding itself is the failure and already carries what a fix needs (G8). Rules Q2 and Q8 moot | Todd, 2026-10-25, Issue#590 |
+| No score: sensors | Supersedes The bar, What a score comparison sees, Floors, and the ticket clause of The declaration's source. No number is derived from findings. A change is judged on findings by identity: an introduced finding lowers, a removed one raises, a deleted unit's findings do neither. Floors and drop tickets are removed; an owner's exemption landed in an earlier change is the one way to introduce a flaw through the gate | A fraction over files and design behaviors weighs incommensurable things, and a change that fixes one flaw and introduces another leaves it unchanged; the finding itself is the failure and already carries what a fix needs (G8). Rules moot, and removes from Open Questions, Q2 (whether a score compares across repositories) and Q8 (a score over mixed kinds of unit) | Todd, 2026-10-25, Issue#590 |
 
 ---
 
@@ -782,7 +794,7 @@ The owner's laptop as part of the LMDE contract, the adopting repositories' CI a
   input, so it waits on Change reading rationale, not only names.
 - **Remediation cost** -- turns, time and lines to close a finding class,
   per Slater's proposed index; pending Q7.
-- **A fleet view** -- adherence over time per repository in the LMDE
+- **A fleet view** -- the findings over time per repository in the LMDE
   observability stack, as a consumer of persisted reports.
 - **More languages** -- Go and GDScript, as the fleet's code demands.
 - **A reviewer that reads the report** -- designomatic or the self-review
