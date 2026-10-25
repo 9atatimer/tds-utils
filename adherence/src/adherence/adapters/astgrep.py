@@ -25,8 +25,8 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, fields
 from pathlib import Path, PurePosixPath
 
-from adherence.domain.deadline import Deadline
-from adherence.domain.declaration import Declaration, layer_of
+from adherence.domain.deadline import Deadline, TimedOut
+from adherence.domain.declaration import Declaration, layer_of, marker_regions
 from adherence.domain.model import (
     Access,
     AccessKind,
@@ -46,6 +46,7 @@ from adherence.domain.model import (
     TestCase,
     Unit,
     UnitKind,
+    Unparsed,
     Write,
 )
 from adherence.domain.parameters import Vocabulary
@@ -98,6 +99,8 @@ CONDITION, SUBJECT, LEFT, RIGHT, OPERAND, INNER = (
     "INNER",
 )
 EMPTY_BLOCK = "{}"
+NESTED_TOO_DEEPLY = "nested deeper than the analyzer can walk"
+LEAVES = "the path leaves the repository; not read"
 
 # --- Values ------------------------------------------------------------------
 
@@ -157,6 +160,20 @@ class ScanFailed(Exception):
 
 
 Span = tuple[int, int]
+
+
+@dataclass(frozen=True, slots=True)
+class Scanned:
+    """The structural pass over one language's sources: each parsed file's
+    CodeModel, the sources parsed, why each other source is not, and the
+    regions (declared by lines, then found by marker) of the files handed
+    over. A language adapter adds what ast-grep cannot say, such as where
+    an import resolves."""
+
+    files: tuple[CodeModel, ...]
+    parsed: Mapping[str, bytes]
+    unparsed: tuple[Unparsed, ...]
+    regions: tuple[Region, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -770,6 +787,74 @@ def merged(models: Sequence[CodeModel], **rest: object) -> CodeModel:
     return CodeModel(**joined)  # type: ignore[arg-type]  # every field is a tuple
 
 
+def passed(deadline: Deadline | None, now: float) -> bool:
+    """Whether the deadline is already behind the time given."""
+    return deadline is not None and deadline.epoch_seconds <= now
+
+
+def readable(
+    sources: Mapping[str, bytes],
+) -> tuple[dict[str, bytes], list[Unparsed]]:
+    """The sources inside the repository that are UTF-8, and why each other
+    one is not read."""
+    found: dict[str, bytes] = {}
+    unreadable: list[Unparsed] = []
+    for path in sorted(sources):
+        if not stays_inside(path):
+            unreadable.append(Unparsed(path=path, reason=LEAVES))
+            continue
+        try:
+            sources[path].decode("utf-8")
+        except UnicodeDecodeError as error:
+            unreadable.append(Unparsed(path=path, reason=f"not utf-8: {error}"))
+            continue
+        found[path] = sources[path]
+    return found, unreadable
+
+
+def regions_of(
+    sources: Mapping[str, bytes], declaration: Declaration, vocabulary: Vocabulary
+) -> tuple[tuple[Region, ...], tuple[Region, ...]]:
+    """The declaration's line regions of the files handed over, and the
+    regions their section markers open."""
+    declared = tuple(r for r in declaration.layers.regions if r.path in sources)
+    found = tuple(
+        region
+        for path in declaration.layers.marker_files
+        if path in sources
+        for region in marker_regions(
+            path, sources[path].decode("utf-8", "replace"), vocabulary
+        )
+    )
+    return declared, found
+
+
+def file_models(
+    parsed: Mapping[str, bytes],
+    matches: Sequence[Match],
+    declaration: Declaration,
+    regions: Sequence[Region],
+    vocabulary: Vocabulary,
+) -> tuple[list[CodeModel], list[Unparsed]]:
+    """Each parsed file's facts, and the files nested past the walk."""
+    by_path: dict[str, list[Match]] = {path: [] for path in parsed}
+    for match in matches:
+        if match.path in by_path:
+            by_path[match.path].append(match)
+    files: list[CodeModel] = []
+    deep: list[Unparsed] = []
+    for path in sorted(parsed):
+        try:
+            files.append(
+                file_model(
+                    path, parsed[path], by_path[path], declaration, regions, vocabulary
+                )
+            )
+        except RecursionError:
+            deep.append(Unparsed(path=path, reason=NESTED_TOO_DEEPLY))
+    return files, deep
+
+
 # --- Effectful helpers -------------------------------------------------------
 
 
@@ -845,3 +930,51 @@ def scan(
         for line in done.stdout.decode("utf-8", "replace").splitlines()
         if line.strip()
     ]
+
+
+def structure(
+    sources: Mapping[str, bytes],
+    declaration: Declaration,
+    vocabulary: Vocabulary,
+    deadline: Deadline | None,
+    *,
+    grammar: Grammar,
+    language: str,
+    binary: Path,
+    clock: Callable[[], float],
+) -> Scanned | TimedOut:
+    """The structural pass of one language over the sources: unreadable
+    files and files the grammar cannot parse are unparsed with the reason,
+    and ast-grep failing leaves every readable file unparsed; TimedOut
+    when the deadline passes first."""
+    if passed(deadline, clock()):
+        return TimedOut(f"model the {language} sources")
+    found, unparsed = readable(sources)
+    try:
+        matches = scan(found, grammar, binary=binary, deadline=deadline, clock=clock)
+    except ScanFailed as failure:
+        if failure.timed_out:
+            return TimedOut(str(failure))
+        unparsed.extend(Unparsed(path=path, reason=str(failure)) for path in found)
+        return Scanned(
+            files=(),
+            parsed={},
+            unparsed=tuple(sorted(unparsed, key=lambda u: u.path)),
+            regions=(),
+        )
+    declared, marked = regions_of(sources, declaration, vocabulary)
+    errors = syntax_errors(matches)
+    unparsed.extend(
+        Unparsed(path=path, reason=f"not {language}: syntax error at line {line}")
+        for path, line in sorted(errors.items())
+    )
+    parsed = {p: data for p, data in found.items() if p not in errors}
+    files, deep = file_models(parsed, matches, declaration, marked, vocabulary)
+    unparsed.extend(deep)
+    deep_paths = {u.path for u in deep}
+    return Scanned(
+        files=tuple(files),
+        parsed={p: data for p, data in parsed.items() if p not in deep_paths},
+        unparsed=tuple(sorted(unparsed, key=lambda u: u.path)),
+        regions=declared + marked,
+    )

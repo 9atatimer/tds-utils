@@ -27,18 +27,14 @@ from pathlib import Path
 from adherence.adapters.astgrep import (
     BINARY,
     Grammar,
-    Match,
-    ScanFailed,
-    file_model,
+    Scanned,
     merged,
-    scan,
-    stays_inside,
-    syntax_errors,
+    structure,
     write_tree,
 )
 from adherence.domain.deadline import Deadline, TimedOut
-from adherence.domain.declaration import Declaration, marker_regions
-from adherence.domain.model import CodeModel, ImportEdge, Region, Unparsed
+from adherence.domain.declaration import Declaration
+from adherence.domain.model import CodeModel, ImportEdge, Unparsed
 from adherence.domain.parameters import Vocabulary
 
 # --- Constants ---------------------------------------------------------------
@@ -60,9 +56,6 @@ CRUISER = (
     / "dependency-cruiser.mjs"
 )
 
-NESTED_TOO_DEEPLY = "nested deeper than the analyzer can walk"
-LEAVES = "the path leaves the repository; not read"
-
 
 class CruiseFailed(Exception):
     """dependency-cruiser, or the node it runs on, could not answer, or ran
@@ -76,34 +69,6 @@ class CruiseFailed(Exception):
 Resolved = dict[tuple[str, str], str]
 
 # --- Pure helpers ------------------------------------------------------------
-
-
-def _passed(deadline: Deadline | None, now: float) -> bool:
-    return deadline is not None and deadline.epoch_seconds <= now
-
-
-def _paths(unparsed: Sequence[Unparsed]) -> set[str]:
-    return {u.path for u in unparsed}
-
-
-def _readable(
-    sources: Mapping[str, bytes],
-) -> tuple[dict[str, bytes], list[Unparsed]]:
-    """The sources inside the repository that are UTF-8, and why each other
-    one is not read."""
-    readable: dict[str, bytes] = {}
-    unreadable: list[Unparsed] = []
-    for path in sorted(sources):
-        if not stays_inside(path):
-            unreadable.append(Unparsed(path=path, reason=LEAVES))
-            continue
-        try:
-            sources[path].decode("utf-8")
-        except UnicodeDecodeError as error:
-            unreadable.append(Unparsed(path=path, reason=f"not utf-8: {error}"))
-            continue
-        readable[path] = sources[path]
-    return readable, unreadable
 
 
 def _resolved(answer: Mapping[str, object]) -> Resolved:
@@ -130,49 +95,6 @@ def _resolve(
         inside = target is not None and target in sources
         found.append(replace(edge, imported_path=target if inside else None))
     return tuple(found)
-
-
-def _regions(
-    sources: Mapping[str, bytes], declaration: Declaration, vocabulary: Vocabulary
-) -> tuple[tuple[Region, ...], tuple[Region, ...]]:
-    """The declaration's line regions of the files handed over, and the
-    regions their section markers open."""
-    declared = tuple(r for r in declaration.layers.regions if r.path in sources)
-    found = tuple(
-        region
-        for path in declaration.layers.marker_files
-        if path in sources
-        for region in marker_regions(
-            path, sources[path].decode("utf-8", "replace"), vocabulary
-        )
-    )
-    return declared, found
-
-
-def _file_models(
-    parsed: Mapping[str, bytes],
-    matches: Sequence[Match],
-    declaration: Declaration,
-    regions: Sequence[Region],
-    vocabulary: Vocabulary,
-) -> tuple[list[CodeModel], list[Unparsed]]:
-    """Each parsed file's facts, and the files nested past the walk."""
-    by_path: dict[str, list[Match]] = {path: [] for path in parsed}
-    for match in matches:
-        if match.path in by_path:
-            by_path[match.path].append(match)
-    files: list[CodeModel] = []
-    deep: list[Unparsed] = []
-    for path in sorted(parsed):
-        try:
-            files.append(
-                file_model(
-                    path, parsed[path], by_path[path], declaration, regions, vocabulary
-                )
-            )
-        except RecursionError:
-            deep.append(Unparsed(path=path, reason=NESTED_TOO_DEEPLY))
-    return files, deep
 
 
 # --- Effectful helpers -------------------------------------------------------
@@ -259,48 +181,45 @@ class TypeScriptCodeModel:
         vocabulary: Vocabulary,
         deadline: Deadline | None,
     ) -> CodeModel | TimedOut:
-        if _passed(deadline, self._clock()):
-            return TimedOut("model the TypeScript sources")
-        readable, unparsed = _readable(sources)
-        try:
-            matches = scan(
-                readable,
-                GRAMMAR,
-                binary=self._ast_grep,
-                deadline=deadline,
-                clock=self._clock,
-            )
-        except ScanFailed as failure:
-            if failure.timed_out:
-                return TimedOut(str(failure))
-            unparsed.extend(
-                Unparsed(path=path, reason=str(failure)) for path in readable
-            )
-            return CodeModel(unparsed=tuple(sorted(unparsed, key=lambda u: u.path)))
-        declared, found = _regions(sources, declaration, vocabulary)
-        errors = syntax_errors(matches)
-        unparsed.extend(
-            Unparsed(path=path, reason=f"not TypeScript: syntax error at line {line}")
-            for path, line in sorted(errors.items())
+        scanned = structure(
+            sources,
+            declaration,
+            vocabulary,
+            deadline,
+            grammar=GRAMMAR,
+            language="TypeScript",
+            binary=self._ast_grep,
+            clock=self._clock,
         )
-        parsed = {p: data for p, data in readable.items() if p not in errors}
-        files, deep = _file_models(parsed, matches, declaration, found, vocabulary)
-        unparsed.extend(deep)
-        parsed = {p: data for p, data in parsed.items() if p not in _paths(deep)}
-        edges = [edge for f in files for edge in f.imports]
+        if isinstance(scanned, TimedOut):
+            return scanned
+        return self._resolved_model(scanned, deadline)
+
+    def _resolved_model(
+        self, scanned: Scanned, deadline: Deadline | None
+    ) -> CodeModel | TimedOut:
+        """The structural pass with each import resolved to its file by
+        dependency-cruiser; a failure leaves every parsed file unparsed."""
+        unparsed = list(scanned.unparsed)
+        edges = [edge for f in scanned.files for edge in f.imports]
         resolved: Resolved = {}
         try:
             if edges:
                 resolved = _cruise(
-                    parsed, cruiser=self._cruiser, deadline=deadline, clock=self._clock
+                    scanned.parsed,
+                    cruiser=self._cruiser,
+                    deadline=deadline,
+                    clock=self._clock,
                 )
         except CruiseFailed as failure:
             if failure.timed_out:
                 return TimedOut(str(failure))
-            unparsed.extend(Unparsed(path=path, reason=str(failure)) for path in parsed)
+            unparsed.extend(
+                Unparsed(path=path, reason=str(failure)) for path in scanned.parsed
+            )
         return merged(
-            files,
-            imports=_resolve(edges, resolved, parsed),
-            regions=declared + found,
+            scanned.files,
+            imports=_resolve(edges, resolved, scanned.parsed),
+            regions=scanned.regions,
             unparsed=tuple(sorted(unparsed, key=lambda u: u.path)),
         )
