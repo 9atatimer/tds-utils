@@ -425,3 +425,38 @@ def test_writes_are_field_assignments_with_the_unit_that_makes_them() -> None:
         (2, "o", "n"),
         (3, "o", "m"),
     ]
+
+
+def test_conditionals_name_their_discriminant() -> None:
+    """Given a branch on a value's field, When the fixture is modelled, Then
+    the conditional names the expression it discriminates on, its line and
+    the definition it sits in."""
+    conditionals = {
+        (c.path, c.within, c.discriminant, c.line) for c in fixture_model().conditionals
+    }
+
+    assert conditionals == {("lib/tool/rules.ts", "classify", "order.status", 14)}
+
+
+def test_conditionals_see_through_logic_switches_and_instanceof() -> None:
+    """Given branches joined by `&&` and `!`, a switch, an instanceof test
+    and a ternary on a call, When they are modelled, Then each names what it
+    discriminates on."""
+    source = (
+        b"function f(x, y, kind) {\n"
+        b"  if (x.a === 1 && !y) {}\n"
+        b"  switch (kind) { case 1: break; }\n"
+        b"  if (x instanceof Foo) {}\n"
+        b"  const v = isReady(x) ? 1 : 2;\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.mjs": source})
+
+    assert sorted((c.line, c.discriminant) for c in model.conditionals) == [
+        (2, "x.a"),
+        (2, "y"),
+        (3, "kind"),
+        (4, "x"),
+        (5, "isReady"),
+    ]
