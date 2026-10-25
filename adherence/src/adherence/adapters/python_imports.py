@@ -18,7 +18,7 @@ import os
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -144,10 +144,25 @@ def _flat(modules: Modules) -> dict[str, str]:
     return flat
 
 
+def _beside(path: str, name: str, present: Collection[str]) -> str | None:
+    """The source a script's import names in the script's own directory,
+    which Python searches first: a module file, or a package's __init__."""
+    base = PurePosixPath(path).parent.joinpath(*name.split("."))
+    for candidate in (base.with_suffix(".py"), base / INIT):
+        if candidate.as_posix() in present:
+            return candidate.as_posix()
+    return None
+
+
 def _script_edges(
-    path: str, tree: ast.Module, lines: list[str], modules: Mapping[str, str]
+    path: str,
+    tree: ast.Module,
+    lines: list[str],
+    modules: Mapping[str, str],
+    present: Collection[str],
 ) -> list[ImportEdge]:
-    """The absolute imports of a file outside any package."""
+    """The absolute imports of a file outside any package, resolved first
+    beside the file, then among the packages."""
     edges: list[ImportEdge] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -163,7 +178,8 @@ def _script_edges(
             continue
         text = lines[node.lineno - 1].strip()
         for name in dict.fromkeys(names):
-            edges.append(ImportEdge(path, name, node.lineno, text, modules.get(name)))
+            target = _beside(path, name, present) or modules.get(name)
+            edges.append(ImportEdge(path, name, node.lineno, text, target))
     return edges
 
 
@@ -283,5 +299,5 @@ def import_edges(
     for path, tree in trees.items():
         if path not in in_packages:
             lines = source_lines(sources[path].decode("utf-8", "replace"))
-            edges.extend(_script_edges(path, tree, lines, flat))
+            edges.extend(_script_edges(path, tree, lines, flat, parsed.keys()))
     return sorted(edges, key=lambda e: (e.path, e.line, e.imported)), unparsed
