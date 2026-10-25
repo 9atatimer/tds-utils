@@ -276,3 +276,28 @@ def test_measure_with_a_singular_noun_for_a_plural_term_finds_it_defined() -> No
 
     assert "Language" in {c.name for c in report.ran}
     assert [f.subject for f in _of(report, "Language")] == []
+
+
+def test_measure_with_a_domain_enum_asks_no_anemic_question() -> None:
+    """Given domain enums (by `Enum`, `enum.IntEnum` and `StrEnum`) that are
+    all members and no behavior, beside an all-fields value type, When
+    Anemic's rule part runs, Then only the value type awaits the judge: an
+    enum is a closed set of names, not an anemic candidate."""
+    files = {RULES: b"x\n" * 20}
+    definitions = [
+        type_(RULES, "Colour", 1, end=3, bases=("Enum",)),
+        type_(RULES, "Size", 5, end=7, bases=("enum.IntEnum",)),
+        type_(RULES, "Mode", 9, end=11, bases=("StrEnum",)),
+        type_(RULES, "Receipt", 13, end=15),
+    ]
+    members = (
+        field(RULES, "Colour", "RED", 2),
+        field(RULES, "Size", "BIG", 6),
+        field(RULES, "Mode", "FAST", 10),
+        field(RULES, "Receipt", "number", 14),
+    )
+
+    report = measure_with(files, facts(definitions, members=members))
+
+    asked = [c.reason.split(":")[0] for c in report.coverage if c.check == "Anemic"]
+    assert asked == ["Receipt"]
