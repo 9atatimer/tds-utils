@@ -20,6 +20,7 @@ from adherence.domain.declaration import (
     DeclarationUnreadable,
     refusal_notices,
 )
+from adherence.domain.finding import quoted
 from adherence.domain.model import (
     CodeLanguage,
     CodeModel,
@@ -145,7 +146,7 @@ def measure(
     checked = run_checks(whole, declaration, design, parameters)
     return Report(
         ran=checked.ran,
-        findings=checked.findings,
+        findings=quoted(checked.findings, sources, parameters.limits.evidence_bound),
         notices=refusal_notices(declaration),
         coverage=(*coverage, *unmodelled(whole, declaration), *checked.coverage),
     )
