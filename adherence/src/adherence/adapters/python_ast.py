@@ -519,7 +519,7 @@ class PythonCodeModel:
     ) -> CodeModel | TimedOut:
         if _passed(deadline, self._clock()):
             return TimedOut("model the Python sources")
-        regions = tuple(
+        found = tuple(
             region
             for path in declaration.layers.marker_files
             if path in sources
@@ -527,6 +527,7 @@ class PythonCodeModel:
                 path, sources[path].decode("utf-8", "replace"), vocabulary
             )
         )
+        declared = tuple(r for r in declaration.layers.regions if r.path in sources)
         files: list[CodeModel] = []
         unparsed: list[Unparsed] = []
         trees: dict[str, ast.Module] = {}
@@ -540,7 +541,7 @@ class PythonCodeModel:
             try:
                 files.append(
                     _file_model(
-                        path, sources[path], tree, declaration, regions, vocabulary
+                        path, sources[path], tree, declaration, found, vocabulary
                     )
                 )
             except RecursionError:
@@ -558,6 +559,6 @@ class PythonCodeModel:
         return _merged(
             files,
             imports=tuple(imports),
-            regions=regions,
+            regions=declared + found,
             unparsed=tuple(unparsed),
         )
