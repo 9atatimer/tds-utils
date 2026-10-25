@@ -12,6 +12,7 @@ from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.model import CodeModel, Unit, UnitKind
 from adherence.domain.parameters import Vocabulary
+from adherence.domain.questions import Decision, Schema, State, Unavailable
 from adherence.domain.target import Base, Head
 from adherence.ports.repository import Absent, Refused
 
@@ -73,3 +74,19 @@ class FakeCodeModel:
             if u.path in sources
         )
         return CodeModel(units=files + defined)
+
+
+class FakeDecision:
+    """DecisionPort that gives every schema the one answer the test scripts:
+    a Decision, Unavailable, or TimedOut. It keeps every state it was asked
+    about, in order."""
+
+    def __init__(self, answer: Decision | Unavailable | TimedOut) -> None:
+        self._answer = answer
+        self.asked: list[tuple[State, Schema]] = []
+
+    def decide(
+        self, state: State, schema: Schema, deadline: Deadline | None
+    ) -> Decision | Unavailable | TimedOut:
+        self.asked.append((state, schema))
+        return self._answer

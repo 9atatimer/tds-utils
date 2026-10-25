@@ -12,9 +12,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from adherence.adapters.git import GitRepository
+from adherence.adapters.no_judge import NoJudge
 from adherence.adapters.python_ast import PythonCodeModel
 from adherence.domain.model import CodeLanguage
 from adherence.ports.code_model import CodeModelPort
+from adherence.ports.decision import DecisionPort
 from adherence.ports.repository import RepositoryPort
 
 
@@ -34,6 +36,7 @@ class Container:
     stage: Stage
     repository: RepositoryPort
     analyzers: Mapping[CodeLanguage, CodeModelPort]
+    judge: DecisionPort
 
 
 def build(
@@ -42,11 +45,14 @@ def build(
     root: str,
     repository: RepositoryPort | None = None,
     analyzers: Mapping[CodeLanguage, CodeModelPort] | None = None,
+    judge: DecisionPort | None = None,
 ) -> Container:
     """Bind every port for the stage, over the repository at root.
 
     Every stage reads the repository through git; which target it reads
     (working tree, staged index, revisions) is the entry point's choice.
+    Every stage binds no_judge until the decide adapter lands (task-064);
+    the judged checks read as coverage meanwhile.
     """
     return Container(
         stage=stage,
@@ -56,4 +62,5 @@ def build(
             if analyzers is not None
             else {CodeLanguage.PYTHON: PythonCodeModel()}
         ),
+        judge=judge if judge is not None else NoJudge(),
     )

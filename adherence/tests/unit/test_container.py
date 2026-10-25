@@ -13,10 +13,12 @@ from pathlib import Path
 from typing import Protocol, get_args, get_type_hints
 
 import adherence.ports
-from adherence.adapters.fakes import FakeCodeModel, FakeRepository
+from adherence.adapters.fakes import FakeCodeModel, FakeDecision, FakeRepository
 from adherence.container import Stage, build
 from adherence.domain.model import CodeLanguage
+from adherence.domain.questions import Unavailable
 from adherence.ports.code_model import CodeModelPort
+from adherence.ports.decision import DecisionPort
 from adherence.ports.repository import RepositoryPort
 
 # Each port: the override build() takes for it, and the fake passed there
@@ -24,6 +26,7 @@ from adherence.ports.repository import RepositoryPort
 OVERRIDES: dict[type, tuple[str, object]] = {
     RepositoryPort: ("repository", FakeRepository({})),
     CodeModelPort: ("analyzers", {CodeLanguage.PYTHON: FakeCodeModel()}),
+    DecisionPort: ("judge", FakeDecision(Unavailable("faked"))),
 }
 
 
