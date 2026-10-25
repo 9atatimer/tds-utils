@@ -206,17 +206,20 @@ test_pr_paths() {
         "$(only dynomark-daemon dynomark-e2e)" "$(pr_scopes "${d}")"
 }
 
-# Every scope must be wired in dist-ci.yml as a `changes` output AND as its
-# job's `if:`; a misspelling there skips the job on every PR, which gate
-# counts as a pass, and only a push would notice.
+# Every scope must be wired in dist-ci.yml as a `changes` output, as its
+# job's `if:`, and in gate's `needs`; a misspelling there skips the job on
+# every PR, which gate counts as a pass, and a job missing from `needs`
+# cannot block a landing at all.
 test_workflow_wiring() {
     local wf="${REPO_DIR}/.github/workflows/dist-ci.yml" scope
     printf 'dist-ci.yml wires every scope\n'
-    for scope in smoketests shellcheck chores dynomark-contract dynomark-daemon dynomark-extension dynomark-e2e; do
+    for scope in smoketests shellcheck chores adherence dynomark-contract dynomark-daemon dynomark-extension dynomark-e2e; do
         assert_eq "${scope}: changes output" "1" \
             "$(grep -cF "      ${scope}: \${{ steps.scopes.outputs.${scope} }}" "${wf}")"
         assert_eq "${scope}: job gated on its own scope" "1" \
             "$(grep -A2 -E "^  ${scope}:\$" "${wf}" | grep -cF "if: needs.changes.outputs.${scope} == 'true'")"
+        assert_eq "${scope}: in gate's needs" "1" \
+            "$(sed -n '/^  gate:$/,/^    permissions:/p' "${wf}" | grep -cE "^      - ${scope}\$")"
     done
 }
 
