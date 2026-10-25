@@ -30,6 +30,19 @@ Then the first use case, RED first, one behavior per commit, against
 `adherence.toml` is parsed with the standard library. `RepositoryPort`
 gets its protocol, its `git` adapter for `read`, `tree` and the staged
 index, and its fake. `cli/main.py` gets the thin `declaration check`
-command only. Done when `bin/adhere declaration check` runs over a
-fixture declaration under `adherence/tests/fixtures/` and the two
-architect tests are GREEN.
+command only.
+
+The gate lands in this task, not with the dogfood: an `adherence` scope
+in `.github/scripts/changed-scopes.sh` and an `adherence` job in
+`dist-ci.yml` (lint, format, strict types and unit tests, as the
+`chores` job runs them) in `gate`'s `needs`. RED first: a case in
+`test/smoketest_changed_scopes.sh` that a change under `adherence/`
+selects the scope and a change elsewhere does not (that script's own
+header says a wrong rule skips a suite and leaves `gate` green). Both
+paths are CODEOWNERS, so this task's PR needs the owner's approval.
+Without the job, every task from 057 to 067 would land with `gate`
+green and its tests never run in CI.
+
+Done when `bin/adhere declaration check` runs over a fixture declaration
+under `adherence/tests/fixtures/`, the two architect tests are GREEN, and
+the `adherence` job ran them on this task's PR head.
