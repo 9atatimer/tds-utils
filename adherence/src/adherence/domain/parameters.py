@@ -14,6 +14,11 @@ from dataclasses import dataclass, field
 from adherence.domain.model import Layer
 
 
+def _is_or_on(callee: str, name: str) -> bool:
+    """Whether a callee is the name, or a chain or call on it."""
+    return callee == name or callee.startswith((f"{name}.", f"{name}("))
+
+
 @dataclass(frozen=True, slots=True)
 class Vocabulary:
     """What counts as a marker of each kind (ARCHITECTURE.ARCH-ADHERENCE.md,
@@ -28,7 +33,10 @@ class Vocabulary:
     options_objects are the parameter names that hold an options object in
     a language with no keyword-only parameters (JavaScript): such a
     parameter, like a destructured object's members, is passed by name, the
-    options-object form of ports as keywords.
+    options-object form of ports as keywords. tests are the callees that
+    declare a test case and assertions those that assert (Vitest, Jest,
+    node:test); a callee counts when it is one, or a chain or call on one
+    (`test.only`, `expect(x).toBe`).
     """
 
     regions: Mapping[str, Layer]
@@ -36,6 +44,8 @@ class Vocabulary:
     sleeps: frozenset[str] = field(default_factory=frozenset)
     stubs: frozenset[str] = field(default_factory=frozenset)
     options_objects: frozenset[str] = field(default_factory=frozenset)
+    tests: frozenset[str] = field(default_factory=frozenset)
+    assertions: frozenset[str] = field(default_factory=frozenset)
 
     def reads_environment(self, chain: str) -> bool:
         """Whether a name chain is, or runs through, an environment read
@@ -45,6 +55,14 @@ class Vocabulary:
             ".".join(parts[:end]) in self.environment_reads
             for end in range(1, len(parts) + 1)
         )
+
+    def declares_test(self, callee: str) -> bool:
+        """Whether a callee declares a test case."""
+        return any(_is_or_on(callee, name) for name in self.tests)
+
+    def asserts(self, callee: str) -> bool:
+        """Whether a callee asserts."""
+        return any(_is_or_on(callee, name) for name in self.assertions)
 
     def is_sleep(self, callee: str) -> bool:
         """Whether a callee waits, by its full dotted name or its last part."""

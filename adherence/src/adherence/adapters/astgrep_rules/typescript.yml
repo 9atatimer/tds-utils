@@ -481,3 +481,20 @@ rule:
     all:
       - has: {field: object, kind: this}
       - has: {field: property, pattern: $NAME}
+---
+id: test-call
+language: TypeScript
+severity: hint
+rule:
+  kind: call_expression
+  has: {field: function, pattern: $CALLEE}
+  all:
+    - has:
+        field: arguments
+        all:
+          - has: {nthChild: 1, pattern: $TITLE}
+          - has:
+              pattern: $CASE
+              any:
+                - kind: arrow_function
+                - kind: function_expression

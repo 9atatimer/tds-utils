@@ -42,6 +42,7 @@ from adherence.domain.model import (
     ReferenceKind,
     Region,
     Signature,
+    TestCase,
     Unit,
     UnitKind,
     Write,
@@ -68,7 +69,7 @@ PARAMETER_PROPERTY, PROPERTY_DEFAULT, PROPERTY_TYPE = (
 )
 BODY, STUB, CALL, NAME_FACT, STRING = "body", "stub", "call", "name", "string"
 GLOBAL, WRITE = "global", "write"
-MEMBER_METHOD, MEMBER_FIELD = "member-method", "member-field"
+MEMBER_METHOD, MEMBER_FIELD, TEST_CALL = "member-method", "member-field", "test-call"
 CONDITIONAL, EITHER, COMPARE, NEGATE, GROUP = (
     "conditional",
     "either",
@@ -85,7 +86,8 @@ RETURNS, BASE, DECORATOR, DECORATOR_NEXT = (
 # Captures: each names a part of its fact.
 NAME, SOURCE, TYPE_CAPTURE = "NAME", "SOURCE", "TYPE"
 BODY_CAPTURE, THROWN, CALLEE = "BODY", "THROWN", "CALLEE"
-OBJECT, FIELD = "OBJECT", "FIELD"
+OBJECT, FIELD, TITLE, CASE = "OBJECT", "FIELD", "TITLE", "CASE"
+QUOTES = ("'", '"', "`")
 CONDITION, SUBJECT, LEFT, RIGHT, OPERAND, INNER = (
     "CONDITION",
     "SUBJECT",
@@ -376,9 +378,21 @@ def _body(
     )
 
 
+def joined(text: str) -> str:
+    """Code as written with its lines joined up, a chain broken over lines
+    read as one."""
+    return "".join(part.strip() for part in text.splitlines())
+
+
 def _callee(call: Match) -> str:
-    """A call's callee as written, a chain broken over lines joined up."""
-    return "".join(part.strip() for part in (call.captured(CALLEE) or "").splitlines())
+    return joined(call.captured(CALLEE) or "")
+
+
+def _title(text: str) -> str:
+    """A test's title: a string literal's text, or the expression as written."""
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in QUOTES:
+        return text[1:-1]
+    return joined(text)
 
 
 def _owner(defined: Sequence[_Defined], match: Match) -> _Defined | None:
@@ -606,6 +620,44 @@ def members(
     return list(first.values())
 
 
+def test_cases(
+    path: str,
+    matches: Sequence[Match],
+    defined: Sequence[_Defined],
+    vocabulary: Vocabulary,
+) -> list[TestCase]:
+    """Every call Vocabulary counts as declaring a test, with the callees its
+    case calls outside nested definitions and the outermost calls in it that
+    Vocabulary counts as asserting."""
+    every = _of(matches, CALL)
+    cases: list[TestCase] = []
+    for m in _of(matches, TEST_CALL):
+        if not vocabulary.declares_test(_callee(m)):
+            continue
+        case, within = m.captures[CASE], _within(defined, m)
+        inside = [
+            c
+            for c in every
+            if case.start <= c.start
+            and c.end <= case.end
+            and _within(defined, c) == within
+        ]
+        asserting = [c for c in inside if vocabulary.asserts(_callee(c))]
+        outermost = [
+            a for a in asserting if not any(o.holds(a) and o != a for o in asserting)
+        ]
+        cases.append(
+            TestCase(
+                path,
+                _title(m.captured(TITLE) or ""),
+                m.line,
+                tuple(_callee(c) for c in inside if c not in asserting),
+                tuple(joined(a.text) for a in outermost),
+            )
+        )
+    return cases
+
+
 def file_model(
     path: str,
     data: bytes,
@@ -632,6 +684,7 @@ def file_model(
         writes=tuple(writes(path, matches, defined)),
         conditionals=tuple(conditionals(path, matches, defined)),
         members=tuple(members(path, matches, defined)),
+        test_cases=tuple(test_cases(path, matches, defined, vocabulary)),
     )
 
 
