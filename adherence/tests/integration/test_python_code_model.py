@@ -570,3 +570,14 @@ def test_field_writes_through_unpacking_and_loop_targets_are_writes() -> None:
         ("self", "d"),
     ]
     assert {m.name for m in model.members} == {"__init__", "a", "b", "c", "d"}
+
+
+def test_a_standalone_module_resolves_its_sibling() -> None:
+    """Given a flat layout with no packages, where a.py imports its sibling
+    b.py, When it is modelled, Then the edge names b.py as its target."""
+    model = _model_of({"a.py": b"import b\n", "b.py": b"", "tools/c.py": b"import b\n"})
+
+    assert {(e.path, e.imported, e.imported_path) for e in model.imports} == {
+        ("a.py", "b", "b.py"),
+        ("tools/c.py", "b", None),
+    }
