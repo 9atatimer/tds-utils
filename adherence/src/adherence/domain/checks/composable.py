@@ -8,7 +8,12 @@ the CodeModel.
 from __future__ import annotations
 
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
-from adherence.domain.checks.roles import by_symbol, enclosing_function
+from adherence.domain.checks.roles import (
+    by_symbol,
+    enclosing_function,
+    named_in,
+    port_names,
+)
 from adherence.domain.declaration import Declaration
 from adherence.domain.finding import Evidence, Finding
 from adherence.domain.model import CodeModel, Layer, UnitKind
@@ -19,6 +24,7 @@ from adherence.domain.records import DesignRecords, RecordsUnavailable
 # --- Constants ---------------------------------------------------------------
 
 NO_NESTING = catalog_check("No nesting")
+HELPERS_TAKE_VALUES = catalog_check("Helpers take values")
 
 # --- Pure helpers ------------------------------------------------------------
 
@@ -53,4 +59,35 @@ def no_nesting(
                 Evidence(unit.path, unit.start, unit.symbol or ""),
             )
         )
+    return CheckOutcome(tuple(findings))
+
+
+def helpers_take_values(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """No pure helper -- a function in the domain -- takes a port or a
+    callable."""
+    if not declaration.declared:
+        return undeclared(HELPERS_TAKE_VALUES.name)
+    taken = port_names(model) | parameters.vocabulary.callables
+    findings: list[Finding] = []
+    for helper in model.definitions:
+        unit = helper.unit
+        if unit.layer is not Layer.DOMAIN or helper.signature is None:
+            continue
+        for parameter in helper.signature.parameters:
+            if named_in(parameter, taken) is None:
+                continue
+            findings.append(
+                Finding(
+                    HELPERS_TAKE_VALUES,
+                    unit,
+                    unit.layer,
+                    f"{parameter.name}: {parameter.annotation}",
+                    Evidence(unit.path, unit.start, unit.symbol or ""),
+                )
+            )
     return CheckOutcome(tuple(findings))

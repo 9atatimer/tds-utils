@@ -11,7 +11,8 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
-from adherence.domain.model import CodeModel, Definition, Layer, UnitKind
+from adherence.domain.checks.hexagonal import is_port
+from adherence.domain.model import CodeModel, Definition, Layer, Parameter, UnitKind
 
 # --- Constants ---------------------------------------------------------------
 
@@ -75,3 +76,32 @@ def enclosing_function(
 def annotation_names(annotation: str | None) -> tuple[str, ...]:
     """Every dotted name an annotation's text carries, in order."""
     return tuple(ANNOTATION_NAME.findall(annotation or ""))
+
+
+def _methods(model: CodeModel) -> dict[tuple[str, str], list[Definition]]:
+    """Each type's methods, keyed by the type's path and symbol."""
+    methods: dict[tuple[str, str], list[Definition]] = {}
+    for d in model.definitions:
+        if d.unit.kind is UnitKind.FUNCTION and d.parent is not None:
+            methods.setdefault((d.unit.path, d.parent), []).append(d)
+    return methods
+
+
+def port_names(model: CodeModel) -> frozenset[str]:
+    """The names of every port the model defines."""
+    methods = _methods(model)
+    return frozenset(
+        short_name(d.unit.symbol)
+        for d in model.definitions
+        if d.unit.kind is UnitKind.TYPE
+        and is_port(d, methods.get((d.unit.path, d.unit.symbol or ""), []))
+    )
+
+
+def named_in(parameter: Parameter, names: frozenset[str]) -> str | None:
+    """The first name the parameter's annotation carries, by its last part,
+    that is one of `names`; None if it carries none."""
+    return next(
+        (n for n in annotation_names(parameter.annotation) if short_name(n) in names),
+        None,
+    )

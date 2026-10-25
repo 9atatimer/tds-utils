@@ -29,6 +29,7 @@ class Vocabulary:
     the filesystem or the network; model_ids the prefixes of a string that
     names a model; fakes the name prefixes that mark an implementation of a
     port as a fake.
+    callables are the type names that make a parameter a callable.
     """
 
     regions: Mapping[str, Layer]
@@ -38,6 +39,7 @@ class Vocabulary:
     vendors: frozenset[str] = field(default_factory=frozenset)
     model_ids: frozenset[str] = field(default_factory=frozenset)
     fakes: frozenset[str] = field(default_factory=frozenset)
+    callables: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True, slots=True)

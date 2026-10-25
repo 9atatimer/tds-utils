@@ -42,6 +42,7 @@ VOCABULARY = Vocabulary(
     vendors=frozenset({"requests", "os", "boto3"}),
     model_ids=frozenset({"claude-", "gpt-"}),
     fakes=frozenset({"Fake"}),
+    callables=frozenset({"Callable"}),
 )
 LIMITS = Limits(evidence_bound=200)
 
