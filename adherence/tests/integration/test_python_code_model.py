@@ -261,3 +261,42 @@ def test_writes_are_field_assignments_with_the_unit_that_makes_them() -> None:
         ("src/tool/application/use.py", "close_order", "order", "status"),
         ("src/tool/adapters/fs_store.py", "FsStore.__init__", "self", "root"),
     }
+
+
+def test_conditionals_name_their_discriminant() -> None:
+    """Given a branch on a value's field, When the fixture is modelled, Then
+    the conditional names the expression it discriminates on, its line and
+    the definition it sits in."""
+    conditionals = {
+        (c.path, c.within, c.discriminant, c.line) for c in fixture_model().conditionals
+    }
+
+    assert conditionals == {
+        ("src/tool/domain/rules.py", "classify", "order.status", 18)
+    }
+
+
+def test_conditionals_see_through_bool_ops_matches_and_isinstance() -> None:
+    """Given branches joined by `and`, a `match`, and an isinstance test,
+    When they are modelled, Then each names what it discriminates on."""
+    source = (
+        b"def f(x, y, kind):\n"
+        b"    if x.a == 1 and not y:\n"
+        b"        pass\n"
+        b"    match kind:\n"
+        b"        case 1:\n"
+        b"            pass\n"
+        b"    if isinstance(x, int):\n"
+        b"        pass\n"
+    )
+    model = PythonCodeModel().model(
+        {"m.py": source}, python_fixture.declaration(), python_fixture.VOCABULARY, None
+    )
+
+    assert isinstance(model, CodeModel)
+    assert sorted((c.line, c.discriminant) for c in model.conditionals) == [
+        (2, "x.a"),
+        (2, "y"),
+        (4, "kind"),
+        (7, "x"),
+    ]
