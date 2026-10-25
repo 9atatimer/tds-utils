@@ -139,6 +139,10 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
         return DeclarationUnreadable(f"{DECLARATION_PATH} is not utf-8: {error}")
     except tomllib.TOMLDecodeError as error:
         return DeclarationUnreadable(f"{DECLARATION_PATH}: {error}")
+    except RecursionError:
+        return DeclarationUnreadable(
+            f"{DECLARATION_PATH} is nested deeper than the parser can follow"
+        )
     unknown = sorted(set(document) - TABLES)
     if unknown:
         return DeclarationUnreadable(
