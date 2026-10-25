@@ -18,6 +18,12 @@ from adherence.domain.model import (
     Unit,
     UnitKind,
 )
+from adherence.domain.records import (
+    DesignRecords,
+    RecordsUnavailable,
+    Seam,
+    SeamKind,
+)
 from adherence.domain.report import Report
 from tests.measure_kit import measure_with
 
@@ -163,3 +169,53 @@ def test_measure_with_a_port_no_fake_implements_finds_the_port() -> None:
     (unfaked,) = _of(report, "Swap")
     assert (unfaked.subject, unfaked.unit.symbol) == ("Store", "Store")
     assert (unfaked.unit.path, unfaked.layer) == (STORE, Layer.PORTS)
+
+
+ARCHITECTURE = "docs/design/ARCHITECTURE.APP.md"
+
+
+def test_measure_with_a_seam_the_code_lacks_finds_the_seam() -> None:
+    """Given an architecture record naming seams, one with no port, policy or
+    parameter in the code (only a test defines it) and one defined twice,
+    When Change runs, Then a finding names each, and the seams that exist
+    once are clean."""
+    policy = "src/app/domain/policy.py"
+    files = {STORE: b"x\n", policy: b"x\n", USE: b"x\n", TEST: b"x\n"}
+    definitions = (
+        _type(STORE, "Store", 1, ("Protocol",)),
+        _type(policy, "ThresholdPolicy", 1),
+        _type(policy, "Limits", 5),
+        _type(policy, "Twice", 9),
+        _type(USE, "Twice", 1),
+        _type(TEST, "Clock", 1),
+    )
+    seams = DesignRecords(
+        seams=(
+            Seam("Store", SeamKind.PORT, ARCHITECTURE, 10),
+            Seam("ThresholdPolicy", SeamKind.POLICY, ARCHITECTURE, 11),
+            Seam("Limits", SeamKind.PARAMETER, ARCHITECTURE, 12),
+            Seam("Clock", SeamKind.PORT, ARCHITECTURE, 13),
+            Seam("Twice", SeamKind.PARAMETER, ARCHITECTURE, 14),
+        )
+    )
+    facts = CodeModel(units=tuple(d.unit for d in definitions), definitions=definitions)
+
+    report = measure_with(files, facts, records=seams)
+
+    found = {
+        (f.unit.path, f.unit.symbol, f.evidence.line) for f in _of(report, "Change")
+    }
+    assert found == {(ARCHITECTURE, "Clock", 13), (ARCHITECTURE, "Twice", 14)}
+
+
+def test_measure_without_a_readable_record_covers_change_naming_it() -> None:
+    """Given no readable architecture record, When Change runs, Then Change is
+    coverage naming the record, never a clean result."""
+    report = measure_with(
+        {STORE: b"x\n"}, records=RecordsUnavailable(f"{ARCHITECTURE} is in draft")
+    )
+
+    assert "Change" not in {c.name for c in report.ran}
+    assert any(
+        c.check == "Change" and ARCHITECTURE in c.reason for c in report.coverage
+    )
