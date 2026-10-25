@@ -9,6 +9,7 @@ from adherence.domain.finding import Finding
 from adherence.domain.model import Layer
 from adherence.domain.report import Report
 from tests.facts_kit import (
+    FS,
     RULES,
     STORE,
     TEST,
@@ -91,4 +92,47 @@ def test_measure_with_a_helper_taking_a_port_or_callable_finds_both() -> None:
         ("Order.keep", 'store: "Store"'),
         ("price", "store: Store"),
         ("apply", "rule: Callable[[int], int]"),
+    }
+
+
+def test_measure_with_a_wire_format_in_a_signature_finds_the_parameter() -> None:
+    """Given use cases whose signatures carry a wire format (a parameter and
+    a return), an SDK type and a concrete adapter, a private application
+    helper taking a wire format, and a use case taking values and a port,
+    When Values in and out runs, Then a finding names each parameter of a
+    use case that carries one, and the rest are clean."""
+    files = {USE: b"x\n" * 9, STORE: b"x\n" * 9, FS: b"x\n" * 9}
+    definitions = [
+        *port(STORE, "Store", 1),
+        type_(FS, "FsStore", 1),
+        function(
+            USE,
+            "fetch",
+            1,
+            (value("payload", "dict[str, object]"), keyword("store", "Store")),
+            returns="Response",
+        ),
+        function(USE, "send", 2, (keyword("session", "requests.Session"),)),
+        function(
+            USE, "save", 3, (value("order", "Order"), keyword("store", "FsStore"))
+        ),
+        function(USE, "_parse", 4, (value("raw", "dict"),)),
+        function(
+            USE,
+            "close",
+            5,
+            (value("order", "Order"), keyword("store", "Store")),
+            returns="str",
+        ),
+    ]
+
+    report = measure_with(files, facts(definitions))
+
+    assert "Values in and out" in {c.name for c in report.ran}
+    found = {(f.unit.symbol, f.subject) for f in _of(report, "Values in and out")}
+    assert found == {
+        ("fetch", "payload: dict[str, object]"),
+        ("fetch", "return: Response"),
+        ("send", "session: requests.Session"),
+        ("save", "store: FsStore"),
     }
