@@ -41,7 +41,9 @@ class CodeModelContract:
         """Given sources and a declaration covering some of them, When they are
         modelled, Then each source is one file unit, in its declared layer or
         none when uncovered."""
-        files = {u.path: u.layer for u in self._model().units if u.kind is UnitKind.FILE}
+        files = {
+            u.path: u.layer for u in self._model().units if u.kind is UnitKind.FILE
+        }
 
         assert files == {
             "src/pkg/__init__.py": Layer.DOMAIN,

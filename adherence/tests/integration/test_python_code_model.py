@@ -59,4 +59,7 @@ def test_regions_found_by_marker_are_in_the_model() -> None:
     marker regions are part of the model."""
     regions = [(r.path, r.layer) for r in fixture_model().regions]
 
-    assert regions == [("bin/onefile.py", Layer.DOMAIN), ("bin/onefile.py", Layer.ADAPTERS)]
+    assert regions == [
+        ("bin/onefile.py", Layer.DOMAIN),
+        ("bin/onefile.py", Layer.ADAPTERS),
+    ]

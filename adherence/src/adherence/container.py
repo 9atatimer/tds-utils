@@ -8,9 +8,13 @@ imports the fakes; a test passes them in through the overrides.
 from __future__ import annotations
 
 import enum
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from adherence.adapters.git import GitRepository
+from adherence.adapters.python_ast import PythonCodeModel
+from adherence.domain.model import CodeLanguage
+from adherence.ports.code_model import CodeModelPort
 from adherence.ports.repository import RepositoryPort
 
 
@@ -29,10 +33,15 @@ class Container:
 
     stage: Stage
     repository: RepositoryPort
+    analyzers: Mapping[CodeLanguage, CodeModelPort]
 
 
 def build(
-    stage: Stage, *, root: str, repository: RepositoryPort | None = None
+    stage: Stage,
+    *,
+    root: str,
+    repository: RepositoryPort | None = None,
+    analyzers: Mapping[CodeLanguage, CodeModelPort] | None = None,
 ) -> Container:
     """Bind every port for the stage, over the repository at root.
 
@@ -42,4 +51,9 @@ def build(
     return Container(
         stage=stage,
         repository=repository if repository is not None else GitRepository(root),
+        analyzers=(
+            analyzers
+            if analyzers is not None
+            else {CodeLanguage.PYTHON: PythonCodeModel()}
+        ),
     )

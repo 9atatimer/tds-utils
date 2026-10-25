@@ -5,7 +5,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from adherence.domain.declaration import DECLARATION_PATH, Declaration, parse_declaration
+from adherence.domain.declaration import (
+    DECLARATION_PATH,
+    Declaration,
+    parse_declaration,
+)
 from adherence.domain.model import Layer
 from adherence.domain.parameters import Vocabulary
 

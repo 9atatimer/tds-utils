@@ -10,15 +10,21 @@ from __future__ import annotations
 import importlib
 import pkgutil
 from pathlib import Path
-from typing import Protocol, get_type_hints
+from typing import Protocol, get_args, get_type_hints
 
 import adherence.ports
-from adherence.adapters.fakes import FakeRepository
+from adherence.adapters.fakes import FakeCodeModel, FakeRepository
 from adherence.container import Stage, build
+from adherence.domain.model import CodeLanguage
+from adherence.ports.code_model import CodeModelPort
 from adherence.ports.repository import RepositoryPort
 
-FAKES: dict[type, object] = {RepositoryPort: FakeRepository({})}
-OVERRIDE = {RepositoryPort: "repository"}
+# Each port: the override build() takes for it, and the fake passed there
+# (a port bound per language takes a mapping of fakes).
+OVERRIDES: dict[type, tuple[str, object]] = {
+    RepositoryPort: ("repository", FakeRepository({})),
+    CodeModelPort: ("analyzers", {CodeLanguage.PYTHON: FakeCodeModel()}),
+}
 
 
 def _ports() -> set[type]:
@@ -35,6 +41,11 @@ def _ports() -> set[type]:
     return found
 
 
+def _mentions(hint: object, port: type) -> bool:
+    """Whether a type hint names the port, at any depth (Mapping[K, Port])."""
+    return hint is port or any(_mentions(arg, port) for arg in get_args(hint))
+
+
 def test_every_port_has_a_fake_and_an_override() -> None:
     """Given every Protocol under ports/, When the fakes and the composition
     root's overrides are listed, Then each port has a fake and an override."""
@@ -42,10 +53,9 @@ def test_every_port_has_a_fake_and_an_override() -> None:
     hints = get_type_hints(build)
 
     assert ports, "no ports found; the discovery is broken"
-    assert ports == set(FAKES), "a port without a fake, or a fake without a port"
-    for port in ports:
-        name = OVERRIDE[port]
-        assert name in hints and port in getattr(hints[name], "__args__", ()), (
+    assert ports == set(OVERRIDES), "a port without a fake, or a fake without a port"
+    for port, (name, _fake) in OVERRIDES.items():
+        assert name in hints and _mentions(hints[name], port), (
             f"build() takes no override for {port.__name__}"
         )
 
@@ -53,7 +63,7 @@ def test_every_port_has_a_fake_and_an_override() -> None:
 def test_build_with_every_port_faked_binds_the_fakes(tmp_path: Path) -> None:
     """Given a fake for every port, When the composition root is built for each
     stage, Then every port it binds is the fake passed in."""
-    overrides = {OVERRIDE[port]: fake for port, fake in FAKES.items()}
+    overrides = dict(OVERRIDES.values())
 
     for stage in Stage:
         built = build(stage, root=str(tmp_path), **overrides)
