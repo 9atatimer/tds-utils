@@ -46,6 +46,9 @@ CORE = frozenset({Layer.DOMAIN, Layer.APPLICATION})
 # port whose methods are only docstrings carries no stub marker.
 INTERFACE_BASES = frozenset({"Protocol"})
 ABSTRACT_DECORATORS = frozenset({"abstractmethod"})
+# The suffix a port's name may carry that its fake's name drops
+# (CodeModelPort, FakeCodeModel).
+PORT_SUFFIX = "Port"
 _EVERY_LAYER = frozenset(Layer)
 # The layers each layer may import: cli -> application -> domain and
 # adapters -> ports -> domain; the composition root and tests reach any.
@@ -354,14 +357,21 @@ def implements(
     port: Definition,
     port_methods: Sequence[Definition],
 ) -> bool:
-    """Whether a type implements a port: it names the port as a base, or it
-    has every method the port declares."""
+    """Whether a type implements a port: it names the port as a base, or its
+    name ends with the port's (less any Port suffix) and it has every method
+    the port declares. Shared method names alone do not make a fake of one
+    port a fake of another."""
     if candidate is port:
         return False
     if any(base.rpartition(".")[2] == _name(port) for base in candidate.bases):
         return True
+    stem = _name(port).removesuffix(PORT_SUFFIX) or _name(port)
     wanted = _method_names(port_methods)
-    return bool(wanted) and wanted <= _method_names(candidate_methods)
+    return (
+        _name(candidate).endswith(stem)
+        and bool(wanted)
+        and wanted <= _method_names(candidate_methods)
+    )
 
 
 def is_fake(definition: Definition, vocabulary: Vocabulary) -> bool:
