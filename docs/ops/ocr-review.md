@@ -155,6 +155,10 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
   - `engine-error`: ocr failed, its result lacked the resolved range or the
     reviewed-file list, or the action's post counts were missing,
     unparseable or inconsistent with ocr's findings.
+  - `timeout`: the review job's `timeout-minutes` cancelled ocr before it
+    finished, and nothing it did not finish is posted. A re-run reviews
+    the same range and takes as long; split the PR, push fewer files per
+    round, or review on a faster backend (a dispatch with `backend`).
   - `reviewed-nothing`: reviewable files existed and ocr reviewed none.
 - Trends across repos: `bin/ocr-review-stats` (read-only; `-p day|week|month`,
   `-d DAYS`, `-j`).
@@ -309,8 +313,10 @@ no cold model and the gateway applies its own retry policy):
 The pool's 10-minute ceiling is the limit on either backend, by decision
 (design Key Decisions, a review's length; Issue#478): a PR that does not
 finish in it is not reviewed, and the run fails at the job timeout as
-`unexpected` (Known gaps). A hosted model is far faster than the laptop,
-so it is the likelier backend to fit it.
+`timeout` (Issue#553). ocr's own `review_task_timeout` (15 minutes at the
+pin) is per task, not per review, so it never fires first; the job's
+`timeout-minutes` is the bound. A hosted model is far faster than the
+laptop, so it is the likelier backend to fit it.
 
 Measured on the first Cloudflare run (2026-10-14, run 38539937733, DeepSeek
 V4 Pro with `reasoning_effort` none): 7 code files, ocr's own elapsed time
@@ -411,9 +417,11 @@ settings as OCR on Demand, with nothing posted anywhere.
   Ready (the deadline answer, the one retryable code) as the LMDE proxy
   layer's `ollama-gateway` route serves them; a change there must change
   it too.
-- **A timed-out job cannot name its step.** The token holds no `actions`
-  scope (design permissions), so a timeout reads `unexpected` with
-  "(no step failed: job timeout or runner lost)".
+- **A job cut before the review started cannot name its step.** The token
+  holds no `actions` scope (design permissions), so a timeout in a setup
+  step or the probe reads `unexpected` with "(no step failed: job timeout
+  or runner lost)". A timeout during the review itself reads `timeout`:
+  the Verdict step runs after the cancellation and declares it.
 - **The probe and the review share 9 minutes** under the pool's 10-minute
   container ceiling. The probe starts no attempt after 6 minutes, but the
   last one can run to the gateway's 90 s deadline, so a cold model that

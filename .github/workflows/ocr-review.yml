@@ -315,11 +315,14 @@ jobs:
           incremental: 'false'
           resolve_outdated: 'false'
 
-      # Runs after the review whether it passed or failed: it marks an ocr
-      # exit as engine-error, and judges a completed review (G4) by the
-      # action's post counts -- at this pin it reports post outcomes only as
-      # counts (Key Decisions, per-finding post status). An output the
-      # action did not set arrives empty and is engine-error, never zero.
+      # Runs after the review whether it passed, failed or was cut by the
+      # job's timeout-minutes (always(), which the runner honours after a
+      # job cancellation): it marks an ocr exit as engine-error, a cancelled
+      # Review step as timeout (Issue#553), and judges a completed review
+      # (G4) by the action's post counts -- at this pin it reports post
+      # outcomes only as counts (Key Decisions, per-finding post status).
+      # An output the action did not set arrives empty and is engine-error,
+      # never zero.
       - name: Verdict
         id: verdict
         if: always() && steps.ocr.outcome != 'skipped'

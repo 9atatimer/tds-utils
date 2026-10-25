@@ -118,10 +118,12 @@ function stepsFrom(table, outputs) {
   }));
 }
 
-/** The one-line detail of the step that ended the run, if it gave one. */
+/** The one-line detail of the step that ended the run, if it gave one. A
+ * step the job's timeout cancelled has one only when a later step declared
+ * its cause (the Verdict step, for Review). */
 function failingDetail(table, outputs, authorizeOutputs) {
   if (authorizeOutputs.decision === 'fail') return authorizeOutputs.reason || null;
-  const failed = table.find(({ key }) => outputs[key] === 'failure');
+  const failed = table.find(({ key, cause }) => outputs[key] === 'failure' || (outputs[key] === 'cancelled' && cause && outputs[cause]));
   return failed?.detail ? outputs[failed.detail] || null : null;
 }
 
@@ -406,7 +408,11 @@ async function reviewableOver(range, git) {
  * counts), RUNNER_TEMP. OCR_EXIT_CODE has no env: entry in the workflow:
  * the pinned upstream action writes it to GITHUB_ENV after `ocr review`, so
  * it reaches this later step; it is unset when the action failed before
- * running ocr. `git(argv, stdin)` runs git in the reviewed checkout. */
+ * running ocr. A Review step outcome of `cancelled` means the job's own
+ * timeout-minutes cut it (a run cancelled by hand is `cancelled` in the
+ * report job, which wins): this step still runs under `always()` and
+ * declares `timeout`, since the report job cannot see the step itself
+ * (Issue#553). `git(argv, stdin)` runs git in the reviewed checkout. */
 export async function runVerdict({ env, git, readFile, step }) {
   const statePath = `${env.RUNNER_TEMP}/${STATE_FILE}`;
   const resultText = (() => {
@@ -419,11 +425,15 @@ export async function runVerdict({ env, git, readFile, step }) {
   const engine = readEngineResult(resultText);
   if (env.OCR_STEP_OUTCOME !== 'success') {
     const exit = String(env.OCR_EXIT_CODE ?? '');
-    if (exit && exit !== '0') {
-      step.setOutput('review_cause', 'engine-error');
+    const cause = env.OCR_STEP_OUTCOME === 'cancelled' ? 'timeout' : exit && exit !== '0' ? 'engine-error' : null;
+    if (cause === 'timeout') {
+      step.setOutput('review_cause', cause);
+      step.setOutput('review_detail', "the job's time limit cancelled the Review step while ocr was still running");
+    } else if (cause === 'engine-error') {
+      step.setOutput('review_cause', cause);
       step.setOutput('review_detail', `ocr exited ${exit}`);
     }
-    step.writeFile(statePath, JSON.stringify({ cause: exit && exit !== '0' ? 'engine-error' : null, range: engine.range ?? null }));
+    step.writeFile(statePath, JSON.stringify({ cause, range: engine.range ?? null }));
     return 0;
   }
   const reviewable = engine.ok ? await reviewableOver(engine.range, git) : [];

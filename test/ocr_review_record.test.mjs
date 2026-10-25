@@ -119,11 +119,32 @@ test('an authorize job that crashed before deciding is unexpected, naming its st
   assert.deepEqual(end, { outcome: 'failure', cause: 'unexpected', failingStep: 'authorize / Authorize' });
 });
 
-test('a job that ended badly with no failed step (a timeout) is unexpected, naming the job', () => {
+test('a job that ended badly with no failed step (cut before the review) is unexpected, naming the job', () => {
   const end = endOfRun({ runCancelled: false, authorize: approved, review: { result: 'cancelled', steps: [ok('Credentials')] } });
   assert.equal(end.outcome, 'failure');
   assert.equal(end.cause, 'unexpected');
   assert.match(end.failingStep, /^review \/ .*timeout/);
+});
+
+test('the Review step cut by the job timeout, declared by the verdict, is timeout (Issue#553)', () => {
+  const cut = { name: 'Review', outcome: 'cancelled', cause: 'timeout' };
+  const steps = [ok('Credentials'), ok('Probe'), cut, ok('Verdict')];
+  const end = endOfRun({ runCancelled: false, authorize: approved, review: { result: 'cancelled', steps } });
+  assert.deepEqual(end, { outcome: 'failure', cause: 'timeout', failingStep: null });
+  assert.equal(isJudged(end), false);
+});
+
+test('a cancelled step with no declared cause does not become a failing step', () => {
+  const steps = [ok('Credentials'), { name: 'Probe', outcome: 'cancelled', cause: null }, skipped('Review')];
+  const end = endOfRun({ runCancelled: false, authorize: approved, review: { result: 'cancelled', steps } });
+  assert.equal(end.cause, 'unexpected');
+  assert.match(end.failingStep, /no step failed/);
+});
+
+test('a run cancelled by hand stays cancelled even when the verdict declared timeout', () => {
+  const steps = [ok('Credentials'), { name: 'Review', outcome: 'cancelled', cause: 'timeout' }, ok('Verdict')];
+  const end = endOfRun({ runCancelled: true, authorize: approved, review: { result: 'cancelled', steps } });
+  assert.deepEqual(end, { outcome: 'cancelled', cause: 'cancelled', failingStep: null });
 });
 
 test('a cause outside the closed set is never passed through: it becomes unexpected', () => {
@@ -158,6 +179,7 @@ test('every cause the State Machine names is in the closed set', () => {
     'runner-tool-missing',
     'unexpected',
     'engine-error',
+    'timeout',
     'reviewed-nothing',
     'nothing-reviewable',
     'cancelled',

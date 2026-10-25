@@ -93,8 +93,8 @@ Caller -> reusable workflow (workflow_call)
 
 The closed cause set (`CAUSES`): `pr-not-open`, `fork`, `configuration`,
 `credential`, `gateway-down`, `model-not-found`, `cold-model`, `budget`,
-`limited`, `runner-tool-missing`, `unexpected`, `engine-error`, `reviewed-nothing`,
-`nothing-reviewable`, `cancelled`.
+`limited`, `runner-tool-missing`, `unexpected`, `engine-error`, `timeout`,
+`reviewed-nothing`, `nothing-reviewable`, `cancelled`.
 
 ## Seams in the code
 
@@ -199,3 +199,9 @@ Recorded here as fact; recording is not approval.
 - **The pool's 10-minute ceiling shapes the timeouts.** The review job
   gets 9 minutes; a cold model on a cold OS cache can spend most of it in
   the probe. The pilot's review took 65 s with a warm OS cache.
+- **A job timeout cancels the running step but still runs the `always()`
+  steps after it.** The Review step ends `cancelled` (not `failure`), the
+  Verdict step runs and sees that outcome, and it is the one place the
+  timeout can be named: the report job holds no `actions` scope and sees
+  only job outputs. Before this, every timeout read `unexpected` with
+  "no step failed" (Issue#553, Issue#584; tds-internal PR#286).

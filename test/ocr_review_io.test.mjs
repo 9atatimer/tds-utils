@@ -639,6 +639,15 @@ test('verdict: the upstream action failing with no ocr exit code is left for rep
   assert.equal(step.outputs.review_cause ?? '', '');
 });
 
+test('verdict: a Review step the job timeout cancelled is declared timeout, with the state carrying it (Issue#553)', async () => {
+  const step = fakeStep();
+  const code = await runVerdict({ env: verdictEnv({ OCR_STEP_OUTCOME: 'cancelled', OCR_EXIT_CODE: '' }), git: fakeGit(), readFile: () => '', step });
+  assert.equal(code, 0);
+  assert.equal(step.outputs.review_cause, 'timeout');
+  assert.match(step.outputs.review_detail, /time limit/);
+  assert.equal(JSON.parse(step.files['/tmp/rt/ocr-review-state/state.json']).cause, 'timeout');
+});
+
 test('verdict: a completed review is judged by the action\'s counts', async () => {
   const step = fakeStep();
   const git = fakeGit();
@@ -735,6 +744,26 @@ test('report: a cancelled run is recorded cancelled', async () => {
   const step = fakeStep();
   await runReport({ env: reportEnv({ RUN_CANCELLED: 'true', REVIEW_RESULT: 'cancelled' }), readFile: noState, step, now: () => 'f' });
   assert.equal(JSON.parse(step.files['/tmp/rt/record/ocr-review-record.json']).outcome, 'cancelled');
+});
+
+test('report: the Review step cut by the job timeout is recorded timeout, not unexpected (Issue#553; tds-internal PR#286 run 40236105719)', async () => {
+  const step = fakeStep();
+  // The review job ended `cancelled`; the Review step `cancelled`; the Verdict
+  // step still ran and declared the cause; the state file carries it.
+  const env = reportEnv({
+    REVIEW_RESULT: 'cancelled',
+    REVIEW_OUTPUTS: reviewOutputs({ ocr: 'cancelled', ocr_cause: 'timeout', ocr_detail: "the job's time limit cancelled the Review step while ocr was still running", verdict: 'success' }),
+  });
+  await runReport({ env, readFile: () => JSON.stringify({ cause: 'timeout', range: null }), step, now: () => 'f' });
+  const record = JSON.parse(step.files[env.RECORD_PATH]);
+  assert.equal(record.outcome, 'failure');
+  assert.equal(record.cause, 'timeout');
+  assert.equal(record.failing_step, null);
+  assert.match(step.files[env.COMMENT_PATH], /OCR review failed: timeout/);
+  assert.match(step.files[env.COMMENT_PATH], /Detail: the job&#39;s time limit/);
+  assert.doesNotMatch(step.files[env.COMMENT_PATH], /no step failed/);
+  assert.equal(step.outputs.should_comment, 'true');
+  assert.equal(step.outputs.mark_sha, '');
 });
 
 test('report: a failed setup step is unexpected naming review and the step', async () => {
