@@ -6,12 +6,20 @@ table: Hexagonal), each a pure function over the CodeModel.
 
 from __future__ import annotations
 
+from collections import deque
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from adherence.domain.checks.outcome import CheckOutcome
 from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.finding import Evidence, Finding
-from adherence.domain.model import AccessKind, CodeModel, Layer, ReferenceKind
+from adherence.domain.model import (
+    AccessKind,
+    CodeModel,
+    ImportEdge,
+    Layer,
+    ReferenceKind,
+)
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
 from adherence.domain.records import DesignRecords, RecordsUnavailable
@@ -141,11 +149,120 @@ def _outward(model: CodeModel, declaration: Declaration) -> list[Finding]:
     return findings
 
 
+def strongly_connected(graph: Mapping[str, Sequence[str]]) -> list[list[str]]:
+    """The strongly connected components of a graph, each sorted, by
+    Tarjan's algorithm walked with an explicit stack (no recursion limit)."""
+    index: dict[str, int] = {}
+    low: dict[str, int] = {}
+    on_stack: set[str] = set()
+    stack: list[str] = []
+    components: list[list[str]] = []
+    for root in sorted(graph):
+        if root in index:
+            continue
+        work = [(root, 0)]
+        while work:
+            node, child = work.pop()
+            if child == 0:
+                index[node] = low[node] = len(index)
+                stack.append(node)
+                on_stack.add(node)
+            successors = graph.get(node, ())
+            if child < len(successors):
+                work.append((node, child + 1))
+                successor = successors[child]
+                if successor not in index:
+                    work.append((successor, 0))
+                elif successor in on_stack:
+                    low[node] = min(low[node], index[successor])
+                continue
+            if low[node] == index[node]:
+                component: list[str] = []
+                while not component or component[-1] != node:
+                    member = stack.pop()
+                    on_stack.discard(member)
+                    component.append(member)
+                components.append(sorted(component))
+            if work:
+                parent = work[-1][0]
+                low[parent] = min(low[parent], low[node])
+    return components
+
+
+def cycle_through(
+    start: str, members: Sequence[str], graph: Mapping[str, Sequence[str]]
+) -> list[str]:
+    """The shortest path from start back to itself through another member of
+    one strongly connected component, start repeated at the end; a
+    self-import is not such a path."""
+    inside = set(members)
+    previous: dict[str, str] = {}
+    queue = deque([start])
+    while queue:
+        node = queue.popleft()
+        for successor in graph.get(node, ()):
+            if successor == start and node != start:
+                path = [node]
+                while path[-1] != start:
+                    path.append(previous[path[-1]])
+                return [*reversed(path), start]
+            if successor in inside and successor not in previous:
+                previous[successor] = node
+                queue.append(successor)
+    return [start]
+
+
+def _import_graph(
+    model: CodeModel, declaration: Declaration
+) -> tuple[dict[str, list[str]], dict[tuple[str, str], ImportEdge]]:
+    """The file-to-file import graph over the units a check may read (every
+    file of an undeclared repository), and the first edge of each arc."""
+    covered = {
+        u.path for u in model.units if u.layer is not None or not declaration.declared
+    }
+    graph: dict[str, list[str]] = {}
+    first: dict[tuple[str, str], ImportEdge] = {}
+    for edge in model.imports:
+        target = edge.imported_path
+        if target is None or target == edge.path:
+            continue
+        if edge.path not in covered or target not in covered:
+            continue
+        if (edge.path, target) not in first:
+            first[(edge.path, target)] = edge
+            graph.setdefault(edge.path, []).append(target)
+    return {k: sorted(v) for k, v in graph.items()}, first
+
+
+def _cycles(model: CodeModel, declaration: Declaration) -> list[Finding]:
+    """One finding per import cycle, on its first file, naming the cycle."""
+    graph, first = _import_graph(model, declaration)
+    findings: list[Finding] = []
+    for members in strongly_connected(graph):
+        if len(members) < 2:
+            continue
+        path = cycle_through(members[0], members, graph)
+        edge = first[(path[0], path[1])]
+        unit = model.unit_at(edge.path, edge.line)
+        if unit is None:
+            continue
+        findings.append(
+            Finding(
+                ARROW,
+                unit,
+                layer_of(edge.path, edge.line, declaration, model.regions),
+                " -> ".join(path),
+                Evidence(edge.path, edge.line, edge.text),
+            )
+        )
+    return findings
+
+
 def arrow(
     model: CodeModel,
     declaration: Declaration,
     records: DesignRecords | RecordsUnavailable,
     parameters: Parameters,
 ) -> CheckOutcome:
-    """Every import crosses inward."""
-    return CheckOutcome(tuple(_outward(model, declaration)))
+    """Every import crosses inward and no import cycle exists."""
+    return CheckOutcome((*_outward(model, declaration), *_cycles(model, declaration)))
