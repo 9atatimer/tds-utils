@@ -29,6 +29,9 @@ class Vocabulary:
     the filesystem or the network; model_ids the prefixes of a string that
     names a model; fakes the name prefixes that mark an implementation of a
     port as a fake.
+
+    abstract_markers are the bases and decorators (a full dotted name, or
+    its last part) that make a placeholder body a declaration, not a stub.
     """
 
     regions: Mapping[str, Layer]
@@ -38,6 +41,7 @@ class Vocabulary:
     vendors: frozenset[str] = field(default_factory=frozenset)
     model_ids: frozenset[str] = field(default_factory=frozenset)
     fakes: frozenset[str] = field(default_factory=frozenset)
+    abstract_markers: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True, slots=True)

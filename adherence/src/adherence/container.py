@@ -70,6 +70,9 @@ SHIPPED_VOCABULARY = Vocabulary(
         {"claude-", "gpt-", "gemini-", "llama", "mistral-", "o1-", "o3-", "o4-"}
     ),
     fakes=frozenset({"Fake", "InMemory"}),
+    abstract_markers=frozenset(
+        {"Protocol", "ABC", "ABCMeta", "abstractmethod", "overload"}
+    ),
 )
 SHIPPED_LIMITS = Limits(evidence_bound=200)
 SHIPPED_PARAMETERS = Parameters(
