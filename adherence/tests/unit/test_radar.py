@@ -80,3 +80,32 @@ def test_measure_without_a_readable_radar_covers_dependency() -> None:
     assert any(
         c.check == "Dependency" and RADAR_PATH in c.reason for c in report.coverage
     )
+
+
+def test_measure_with_a_radar_entry_in_the_core_finds_the_unit_and_entry() -> None:
+    """Given a domain unit and a use case that import radar entries, an
+    adapter importing one, and core imports of the standard library and of a
+    package the radar lacks, When Edge only runs, Then a finding names each
+    core unit and the entry it imports."""
+    files = {RULES: b"x\n" * 10, USE: b"x\n" * 10, FS: b"x\n" * 10}
+    facts = CodeModel(
+        imports=(
+            _import(RULES, "requests", 1),
+            _import(RULES, "yaml", 2),
+            _import(RULES, "dataclasses", 3),
+            _import(USE, "markdown_it", 4),
+            _import(FS, "requests", 1),
+        )
+    )
+
+    report = measure_with(files, facts, radar=RADAR)
+
+    assert "Edge only" in {c.name for c in report.ran}
+    found = {
+        (f.unit.path, f.layer, f.subject, f.evidence.line)
+        for f in _of(report, "Edge only")
+    }
+    assert found == {
+        (RULES, Layer.DOMAIN, "Requests", 1),
+        (USE, Layer.APPLICATION, "markdown-it-py", 4),
+    }
