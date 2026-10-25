@@ -404,3 +404,22 @@ def test_measured_code_is_never_run_even_when_it_shadows_the_analyzer(
     unparsed = {u.path for u in model.unparsed}
     assert {"grimp/__init__.py", "logging/b.py"} <= unparsed
     assert not unparsed & {"ok/c.py", "ok/d.py"}
+
+
+def test_one_unparsable_file_leaves_the_rest_of_its_package_modelled() -> None:
+    """Given a package with one file that is not Python, When it is modelled,
+    Then only that file is Unparsed, the others keep their import edges, and
+    the reason names the file by its repository path."""
+    sources = {
+        "pkg/__init__.py": b"",
+        "pkg/a.py": b"from pkg import c\n",
+        "pkg/bad.py": b"def (:\n",
+        "pkg/c.py": b"",
+    }
+
+    model = _model_of(sources)
+
+    assert [u.path for u in model.unparsed] == ["pkg/bad.py"]
+    assert {(e.path, e.imported_path) for e in model.imports} == {
+        ("pkg/a.py", "pkg/c.py")
+    }
