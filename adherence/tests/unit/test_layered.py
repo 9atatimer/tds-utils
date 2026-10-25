@@ -10,6 +10,7 @@ from dataclasses import replace
 from adherence.domain.finding import Finding
 from adherence.domain.model import (
     Body,
+    Call,
     CodeModel,
     Definition,
     Layer,
@@ -26,7 +27,7 @@ from adherence.domain.records import (
     UseCase,
 )
 from adherence.domain.report import Report
-from tests.measure_kit import VOCABULARY, measure_with
+from tests.measure_kit import VOCABULARY, declared, measure_with
 
 DESIGN = "docs/design/DESIGN.TOOL.md"
 ARCHITECTURE = "docs/design/ARCHITECTURE.TOOL.md"
@@ -249,3 +250,83 @@ def test_measure_domain_function_taking_a_port_or_a_clock_is_found() -> None:
     judged = [c for c in report.coverage if c.check == "Purity"]
     assert [c.path for c in judged] == [RULES]
     assert "total" in judged[0].reason and "fetch" in judged[0].reason
+
+
+FS = "src/app/adapters/fs.py"
+ROOT = "src/app/container.py"
+CLI = "src/app/cli.py"
+TEST = "tests/test_use.py"
+WIRED = b"""
+[layers]
+domain = ["src/app/domain/**"]
+application = ["src/app/application/**"]
+ports = ["src/app/ports/**"]
+adapters = ["src/app/adapters/**"]
+"composition root" = ["src/app/container.py", "src/app/cli.py"]
+test = ["tests/**"]
+
+[runtimes]
+cli = ["src/app/**"]
+"""
+
+
+def _concrete(path: str, name: str, line: int = 1) -> tuple[Definition, ...]:
+    """A type implementing the Store port by its method, over a mechanism."""
+    unit = Unit(path, UnitKind.TYPE, name, line, line + 3, None)
+    method = Unit(path, UnitKind.FUNCTION, f"{name}.save", line + 1, line + 2, None)
+    return (
+        Definition(unit, None, Body("", (), ()), (), (), None, False),
+        Definition(
+            method,
+            Signature(_parameters("self order"), None),
+            Body("write(order)", (), ()),
+            (),
+            (),
+            name,
+            False,
+        ),
+    )
+
+
+def _wired(*extra: Definition) -> tuple[Definition, ...]:
+    """The Store port, its concrete adapter FsStore and its fake FakeStore,
+    and whatever else the test adds."""
+    return (
+        _type(STORE, "Store", 1),
+        _stub_method(STORE, "Store", "save", 2),
+        *_concrete(FS, "FsStore"),
+        *_concrete(TEST, "FakeStore", 10),
+        *extra,
+    )
+
+
+def _wiring_facts(
+    definitions: tuple[Definition, ...], calls: tuple[Call, ...]
+) -> CodeModel:
+    return CodeModel(
+        units=tuple(d.unit for d in definitions), definitions=definitions, calls=calls
+    )
+
+
+def test_measure_runtime_with_two_units_constructing_adapters_is_found() -> None:
+    """Given a declared runtime with two units that construct concrete
+    adapters, and a test that constructs a fake, When Wiring runs, Then one
+    finding names both units."""
+    definitions = _wired(
+        _function(ROOT, "build", (), line=5),
+        _function(CLI, "main", (), line=5),
+        _function(TEST, "test_close", (), line=20),
+    )
+    calls = (
+        Call(ROOT, 6, "build", "FsStore"),
+        Call(CLI, 6, "main", "fs.FsStore"),
+        Call(TEST, 21, "test_close", "FakeStore"),
+    )
+    files = {path: b"x\n" for path in (STORE, FS, ROOT, CLI, TEST)}
+
+    report = measure_with(files, _wiring_facts(definitions, calls), declared(WIRED))
+
+    assert "Wiring" in [c.name for c in report.ran]
+    (second,) = _of(report, "Wiring")
+    assert "cli" in second.subject
+    assert f"{ROOT}:build" in second.subject and f"{CLI}:main" in second.subject
