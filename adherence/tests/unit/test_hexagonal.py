@@ -67,6 +67,22 @@ def test_measure_domain_naming_a_vendor_env_or_model_id_finds_a_leak() -> None:
     assert all(f.check.quality.value == "Hexagonal" for f in leaks)
 
 
+def test_measure_domain_importing_a_vendor_shadowed_in_repo_finds_a_leak() -> None:
+    """Given a domain unit that imports a vendor the repository also holds a
+    package of that name for (vendor/boto3/, in no declared layer), When Grep
+    runs, Then the import is still a leak: an in-repo copy of a vendor must
+    not hide the vendor from the domain check."""
+    shadow = "vendor/boto3/__init__.py"
+    files = {RULES: b"import boto3\n", shadow: b""}
+    facts = CodeModel(imports=(ImportEdge(RULES, "boto3", 1, "import boto3", shadow),))
+
+    report = measure_with(files, facts)
+
+    assert {(f.unit.path, f.subject, f.layer) for f in _of(report, "Grep")} == {
+        (RULES, "boto3", Layer.DOMAIN)
+    }
+
+
 USE = "src/app/application/use.py"
 STORE = "src/app/ports/store.py"
 FS = "src/app/adapters/fs.py"
