@@ -15,6 +15,7 @@ before the deadline is its bound (Security mitigations).
 
 from __future__ import annotations
 
+import bisect
 import json
 import os
 import subprocess
@@ -155,6 +156,54 @@ class ScanFailed(Exception):
         self.timed_out = timed_out
 
 
+Span = tuple[int, int]
+
+
+@dataclass(frozen=True, slots=True)
+class _Defined:
+    """A named definition: its node, its kind, its qualified symbol and the
+    symbol of the definition holding it."""
+
+    match: Match
+    kind: UnitKind
+    symbol: str
+    parent: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _File:
+    """One file's matches by fact, its definitions, and the innermost
+    definition holding each match."""
+
+    path: str
+    facts: Mapping[str, Sequence[Match]]
+    defined: Sequence[_Defined]
+    owner: Mapping[tuple[int, int, str], _Defined]
+
+    def of(self, fact: str) -> Sequence[Match]:
+        """A fact's matches, in the order they start."""
+        return self.facts.get(fact, ())
+
+    def owner_of(self, match: Match) -> _Defined | None:
+        return self.owner.get((match.start, match.end, match.fact))
+
+    def within(self, match: Match) -> str | None:
+        """The symbol of the definition a match sits in; None at the top."""
+        owner = self.owner_of(match)
+        return None if owner is None else owner.symbol
+
+
+@dataclass(frozen=True, slots=True)
+class _Expressions:
+    """One file's expressions a discriminant is read through, by span."""
+
+    either: Mapping[Span, Match]
+    compare: Mapping[Span, Match]
+    negate: Mapping[Span, Match]
+    group: Mapping[Span, Match]
+    call: Mapping[Span, Match]
+
+
 # --- Pure helpers ------------------------------------------------------------
 
 
@@ -217,35 +266,58 @@ def parse_match(record: Mapping[str, object], tree: str) -> Match:
     )
 
 
-@dataclass(frozen=True, slots=True)
-class _Defined:
-    match: Match
-    kind: UnitKind
-    symbol: str
-    parent: str | None
+def innermost_each(
+    nodes: Sequence[Match], items: Sequence[Match], *, strict: bool = False
+) -> list[Match | None]:
+    """For each item, the smallest node whose span holds it (with strict,
+    never one of the item's own span), in one sweep: the spans are a
+    syntax tree's, so any two are nested or apart."""
+    ordered = sorted(nodes, key=lambda n: (n.start, -n.end))
+    found: list[Match | None] = [None] * len(items)
+    stack: list[Match] = []
+    taken = 0
+    for index in sorted(
+        range(len(items)), key=lambda i: (items[i].start, -items[i].end)
+    ):
+        item = items[index]
+        while taken < len(ordered) and (ordered[taken].start, -ordered[taken].end) <= (
+            item.start,
+            -item.end,
+        ):
+            while stack and not stack[-1].holds(ordered[taken]):
+                stack.pop()
+            stack.append(ordered[taken])
+            taken += 1
+        while stack and not stack[-1].holds(item):
+            stack.pop()
+        holding = [n for n in stack[-2:] if not (strict and n.same_node(item))]
+        found[index] = holding[-1] if holding else None
+    return found
 
 
-def innermost(
-    nodes: Sequence[Match], inner: Match, *, strict: bool = False
-) -> Match | None:
-    """The smallest node whose span holds the inner one; with strict, never a
-    node of the inner one's own span."""
-    holding = [
-        n for n in nodes if n.holds(inner) and not (strict and n.same_node(inner))
-    ]
-    return min(holding, key=lambda n: n.end - n.start, default=None)
+def _by_fact(matches: Sequence[Match]) -> dict[str, list[Match]]:
+    found: dict[str, list[Match]] = {}
+    for m in sorted(matches, key=lambda m: m.start):
+        found.setdefault(m.fact, []).append(m)
+    return found
 
 
-def _defined(matches: Sequence[Match]) -> list[_Defined]:
-    """Every definition of one file with its qualified symbol, in order."""
+def _spans(matches: Sequence[Match]) -> dict[Span, Match]:
+    """Matches by node span, to join a fact to the node it describes."""
+    return {(m.start, m.end): m for m in matches}
+
+
+def _defined(functions: Sequence[Match], types: Sequence[Match]) -> list[_Defined]:
+    """Every named definition of one file with its qualified symbol, in order."""
     nodes = sorted(
-        (m for m in matches if m.fact in (FUNCTION, TYPE) and m.captured(NAME)),
+        (m for m in (*functions, *types) if m.captured(NAME)),
         key=lambda m: (m.start, -m.end),
     )
-    symbols: dict[tuple[int, int], str] = {}
+    symbols: dict[Span, str] = {}
     found: list[_Defined] = []
-    for node in nodes:
-        parent = innermost(nodes, node, strict=True)
+    for node, parent in zip(
+        nodes, innermost_each(nodes, nodes, strict=True), strict=True
+    ):
         parent_symbol = symbols.get((parent.start, parent.end)) if parent else None
         name = node.captured(NAME) or ""
         symbol = f"{parent_symbol}.{name}" if parent_symbol else name
@@ -255,13 +327,23 @@ def _defined(matches: Sequence[Match]) -> list[_Defined]:
     return found
 
 
-def _of(matches: Sequence[Match], fact: str) -> list[Match]:
-    return sorted((m for m in matches if m.fact == fact), key=lambda m: m.start)
-
-
-def _at(matches: Sequence[Match], fact: str) -> dict[tuple[int, int], Match]:
-    """A fact's matches by node span, to join it to the node it describes."""
-    return {(m.start, m.end): m for m in matches if m.fact == fact}
+def _index(path: str, matches: Sequence[Match]) -> _File:
+    """One file's matches, indexed once for every fact built from them."""
+    facts = _by_fact(matches)
+    defined = _defined(facts.get(FUNCTION, []), facts.get(TYPE, []))
+    by_span = {(d.match.start, d.match.end): d for d in defined}
+    every = [m for group in facts.values() for m in group]
+    owners = innermost_each([d.match for d in defined], every)
+    return _File(
+        path=path,
+        facts=facts,
+        defined=defined,
+        owner={
+            (m.start, m.end, m.fact): by_span[(o.start, o.end)]
+            for m, o in zip(every, owners, strict=True)
+            if o is not None
+        },
+    )
 
 
 def _annotation(text: str | None) -> str | None:
@@ -282,63 +364,58 @@ def _member_type(
     return f'{annotation}["{name}"]'
 
 
-def _members_of(
-    parameter: Match,
-    matches: Sequence[Match],
-    annotation: str | None,
-    has_default: bool,
-) -> list[Parameter]:
-    """A destructured options object's members, each a keyword parameter."""
-    parameters = _of(matches, PARAMETER)
-    defaults = _at(matches, PROPERTY_DEFAULT)
-    typed = [m for m in _of(matches, PROPERTY_TYPE) if parameter.holds(m)]
-    return [
-        Parameter(
-            name,
-            _member_type(name, annotation, typed),
-            True,
-            has_default or (member.start, member.end) in defaults,
-        )
-        for member in _of(matches, PARAMETER_PROPERTY)
-        if parameter.holds(member)
-        and (owner := innermost(parameters, member)) is not None
-        and owner.same_node(parameter)
-        and (name := member.captured(NAME)) is not None
-    ]
-
-
-def _signature(
-    node: Match, matches: Sequence[Match], vocabulary: Vocabulary
-) -> Signature:
-    """A function's parameters, in order, and its return annotation."""
-    functions = _of(matches, FUNCTION_NODE)
-    typed = _at(matches, PARAMETER_TYPE)
-    defaults = _at(matches, PARAMETER_DEFAULT)
-    parameters: list[Parameter] = []
-    for parameter in _of(matches, PARAMETER):
-        owner = innermost(functions, parameter)
-        if owner is None or not owner.same_node(node):
+def _signatures(file: _File, vocabulary: Vocabulary) -> dict[Span, Signature]:
+    """Each function node's parameters, in order, and its return annotation:
+    a parameter is the innermost function node's holding it, a destructured
+    object's members are keyword parameters, and so is a parameter that
+    Vocabulary names as an options object."""
+    parameters = file.of(PARAMETER)
+    typed = _spans(file.of(PARAMETER_TYPE))
+    defaults = _spans(file.of(PARAMETER_DEFAULT))
+    member_defaults = _spans(file.of(PROPERTY_DEFAULT))
+    properties = file.of(PARAMETER_PROPERTY)
+    member_types = file.of(PROPERTY_TYPE)
+    owners = innermost_each(file.of(FUNCTION_NODE), parameters)
+    members: dict[Span, list[Match]] = {}
+    for member, holder in zip(
+        properties, innermost_each(parameters, properties), strict=True
+    ):
+        if holder is not None:
+            members.setdefault((holder.start, holder.end), []).append(member)
+    found: dict[Span, list[Parameter]] = {}
+    for parameter, owner in zip(parameters, owners, strict=True):
+        if owner is None:
             continue
         span = (parameter.start, parameter.end)
         annotation = (
             _annotation(typed[span].captured(TYPE_CAPTURE)) if span in typed else None
         )
         has_default = span in defaults
-        members = _members_of(parameter, matches, annotation, has_default)
         name = parameter.captured(NAME) or parameter.text
-        parameters.extend(
-            members
-            or [
-                Parameter(
-                    name, annotation, name in vocabulary.options_objects, has_default
-                )
-            ]
+        written = [m for m in member_types if parameter.holds(m)] if annotation else []
+        given = [
+            Parameter(
+                member_name,
+                _member_type(member_name, annotation, written),
+                True,
+                has_default or (member.start, member.end) in member_defaults,
+            )
+            for member in members.get(span, [])
+            if (member_name := member.captured(NAME)) is not None
+        ] or [
+            Parameter(name, annotation, name in vocabulary.options_objects, has_default)
+        ]
+        found.setdefault((owner.start, owner.end), []).extend(given)
+    returns = _spans(file.of(RETURNS))
+    return {
+        span: Signature(
+            tuple(found.get(span, [])),
+            _annotation(returns[span].captured(TYPE_CAPTURE))
+            if span in returns
+            else None,
         )
-    returns = _at(matches, RETURNS).get((node.start, node.end))
-    return Signature(
-        tuple(parameters),
-        _annotation(returns.captured(TYPE_CAPTURE)) if returns else None,
-    )
+        for span in {(f.start, f.end) for f in file.of(FUNCTION_NODE)}
+    }
 
 
 def body_text(text: str) -> str:
@@ -357,32 +434,29 @@ def body_text(text: str) -> str:
     return "\n".join(line.rstrip() for line in lines)
 
 
-def _body(
-    defined: _Defined,
-    every: Sequence[_Defined],
-    matches: Sequence[Match],
-    vocabulary: Vocabulary,
-) -> Body:
-    """A definition's body: its text, the placeholder it is if it is nothing
-    but one, and the lines it calls a sleep on outside nested definitions."""
-    span = (defined.match.start, defined.match.end)
-    body = _at(matches, BODY).get(span)
-    stub = _at(matches, STUB).get(span)
-    form = None if stub is None else stub.captured(THROWN) or EMPTY_BLOCK
-    sleeps = sorted(
-        {
-            call.line
-            for call in _of(matches, CALL)
-            if vocabulary.is_sleep(_callee(call))
-            and (owner := _owner(every, call)) is not None
-            and owner.symbol == defined.symbol
-        }
-    )
-    return Body(
-        body_text(body.captured(BODY_CAPTURE) or "") if body else "",
-        (form,) if form is not None and form in vocabulary.stubs else (),
-        tuple(sleeps),
-    )
+def _bodies(file: _File, vocabulary: Vocabulary) -> dict[str, Body]:
+    """Each definition's body by symbol: its text, the placeholder it is if
+    it is nothing but one, and the lines it calls a sleep on outside nested
+    definitions."""
+    bodies = _spans(file.of(BODY))
+    stubs = _spans(file.of(STUB))
+    sleeps: dict[str, set[int]] = {}
+    for call in file.of(CALL):
+        owner = file.owner_of(call)
+        if owner is not None and vocabulary.is_sleep(_callee(call)):
+            sleeps.setdefault(owner.symbol, set()).add(call.line)
+    found: dict[str, Body] = {}
+    for d in file.defined:
+        span = (d.match.start, d.match.end)
+        stub = stubs.get(span)
+        form = None if stub is None else stub.captured(THROWN) or EMPTY_BLOCK
+        body = bodies.get(span)
+        found[d.symbol] = Body(
+            body_text(body.captured(BODY_CAPTURE) or "") if body else "",
+            (form,) if form is not None and form in vocabulary.stubs else (),
+            tuple(sorted(sleeps.get(d.symbol, ()))),
+        )
+    return found
 
 
 def joined(text: str) -> str:
@@ -402,163 +476,122 @@ def _title(text: str) -> str:
     return joined(text)
 
 
-def _owner(defined: Sequence[_Defined], match: Match) -> _Defined | None:
-    """The innermost definition holding a match."""
-    found = innermost([d.match for d in defined], match)
-    return next((d for d in defined if found and d.match.same_node(found)), None)
-
-
-def _decorated(
-    defined: Sequence[_Defined], matches: Sequence[Match]
-) -> dict[str, list[str]]:
+def _decorated(file: _File) -> dict[str, list[str]]:
     """Each definition's decorators by symbol: one inside a class is the
     class's; one before an export or a method is the next definition's."""
     found: dict[str, list[str]] = {}
-    for decorator in _of(matches, DECORATOR):
-        owner = _owner(defined, decorator)
+    for decorator in file.of(DECORATOR):
+        owner = file.owner_of(decorator)
         if owner is not None:
             found.setdefault(owner.symbol, []).append(decorator.captured(NAME) or "")
-    for decorator in _of(matches, DECORATOR_NEXT):
-        following = [d for d in defined if d.match.start >= decorator.end]
-        if following:
-            found.setdefault(following[0].symbol, []).append(
+    starts = [d.match.start for d in file.defined]
+    for decorator in file.of(DECORATOR_NEXT):
+        following = bisect.bisect_left(starts, decorator.end)
+        if following < len(file.defined):
+            found.setdefault(file.defined[following].symbol, []).append(
                 decorator.captured(NAME) or ""
             )
     return found
 
 
 def definitions(
-    path: str,
-    matches: Sequence[Match],
+    file: _File,
     declaration: Declaration,
     regions: Sequence[Region],
     vocabulary: Vocabulary,
 ) -> list[Definition]:
     """The definitions of one file, each in the layer of its first line."""
-    defined = _defined(matches)
-    functions = _of(matches, FUNCTION_NODE)
     bases: dict[str, list[str]] = {}
-    for base in _of(matches, BASE):
-        owner = _owner(defined, base)
+    for base in file.of(BASE):
+        owner = file.owner_of(base)
         if owner is not None and owner.kind is UnitKind.TYPE:
             bases.setdefault(owner.symbol, []).append(base.captured(NAME) or "")
-    decorators = _decorated(defined, matches)
+    decorators = _decorated(file)
+    signatures = _signatures(file, vocabulary)
+    bodies = _bodies(file, vocabulary)
+    enclosing = innermost_each(
+        file.of(FUNCTION_NODE), [d.match for d in file.defined], strict=True
+    )
     return [
         Definition(
             unit=Unit(
-                path,
+                file.path,
                 d.kind,
                 d.symbol,
                 d.match.line,
                 d.match.end_line,
-                layer_of(path, d.match.line, declaration, regions),
+                layer_of(file.path, d.match.line, declaration, regions),
             ),
-            signature=_signature(d.match, matches, vocabulary)
+            signature=signatures.get((d.match.start, d.match.end))
             if d.kind is UnitKind.FUNCTION
             else None,
-            body=_body(d, defined, matches, vocabulary),
+            body=bodies[d.symbol],
             bases=tuple(bases.get(d.symbol, ())),
             decorators=tuple(decorators.get(d.symbol, ())),
             parent=d.parent,
-            nested=any(
-                f.holds(d.match) and not f.same_node(d.match) for f in functions
-            ),
+            nested=function is not None,
         )
-        for d in defined
+        for d, function in zip(file.defined, enclosing, strict=True)
     ]
 
 
-def imports(
-    path: str, matches: Sequence[Match], lines: Sequence[str]
-) -> list[ImportEdge]:
+def imports(file: _File, lines: Sequence[str]) -> list[ImportEdge]:
     """The imports of one file: the module as written, the line and its
     text; which file each resolves to is the language adapter's to say."""
     return [
-        ImportEdge(path, source, m.line, lines[m.line - 1].strip(), None)
-        for m in sorted(matches, key=lambda m: m.start)
-        if m.fact == IMPORT and (source := m.captured(SOURCE)) is not None
+        ImportEdge(file.path, source, m.line, lines[m.line - 1].strip(), None)
+        for m in file.of(IMPORT)
+        if (source := m.captured(SOURCE)) is not None
     ]
 
 
-def _within(defined: Sequence[_Defined], match: Match) -> str | None:
-    owner = _owner(defined, match)
-    return None if owner is None else owner.symbol
-
-
-def references(
-    path: str, matches: Sequence[Match], defined: Sequence[_Defined]
-) -> list[Reference]:
+def references(file: _File) -> list[Reference]:
     """Every name, dotted chain and type name, and every string literal but
     an import's module, with the definition each sits in."""
     found = [
-        Reference(path, m.line, _within(defined, m), ReferenceKind.NAME, m.text)
-        for m in _of(matches, NAME_FACT)
+        Reference(file.path, m.line, file.within(m), ReferenceKind.NAME, m.text)
+        for m in file.of(NAME_FACT)
     ]
     found.extend(
-        Reference(path, m.line, _within(defined, m), ReferenceKind.STRING, m.text[1:-1])
-        for m in _of(matches, STRING)
+        Reference(file.path, m.line, file.within(m), ReferenceKind.STRING, m.text[1:-1])
+        for m in file.of(STRING)
     )
     return sorted(found, key=lambda r: r.line)
 
 
-def calls(
-    path: str, matches: Sequence[Match], defined: Sequence[_Defined]
-) -> list[Call]:
+def calls(file: _File) -> list[Call]:
     """Every function and constructor call, with the definition it sits in."""
-    return [
-        Call(path, m.line, _within(defined, m), _callee(m)) for m in _of(matches, CALL)
-    ]
+    return [Call(file.path, m.line, file.within(m), _callee(m)) for m in file.of(CALL)]
 
 
-def accesses(
-    path: str,
-    matches: Sequence[Match],
-    defined: Sequence[_Defined],
-    vocabulary: Vocabulary,
-) -> list[Access]:
+def accesses(file: _File, vocabulary: Vocabulary) -> list[Access]:
     """Every name chain Vocabulary counts as reading the environment, and
     every read of the language's global object, with its definition."""
     found = [
-        Access(path, m.line, _within(defined, m), AccessKind.ENVIRONMENT, m.text)
-        for m in _of(matches, NAME_FACT)
+        Access(file.path, m.line, file.within(m), AccessKind.ENVIRONMENT, m.text)
+        for m in file.of(NAME_FACT)
         if vocabulary.reads_environment(m.text)
     ]
     found.extend(
-        Access(path, m.line, _within(defined, m), AccessKind.GLOBAL, m.text)
-        for m in _of(matches, GLOBAL)
+        Access(file.path, m.line, file.within(m), AccessKind.GLOBAL, m.text)
+        for m in file.of(GLOBAL)
     )
     return sorted(found, key=lambda a: a.line)
 
 
-def writes(
-    path: str, matches: Sequence[Match], defined: Sequence[_Defined]
-) -> list[Write]:
+def writes(file: _File) -> list[Write]:
     """Every assignment, update or compound assignment to an object's field,
     with the definition that makes it."""
     return [
         Write(
-            path,
+            file.path,
             m.line,
-            _within(defined, m),
+            file.within(m),
             m.captured(OBJECT) or "",
             m.captured(FIELD) or "",
         )
-        for m in _of(matches, WRITE)
+        for m in file.of(WRITE)
     ]
-
-
-Span = tuple[int, int]
-
-
-@dataclass(frozen=True, slots=True)
-class _Expressions:
-    """One file's expressions a discriminant is read through, by span."""
-
-    either: Mapping[Span, Match]
-    compare: Mapping[Span, Match]
-    negate: Mapping[Span, Match]
-    group: Mapping[Span, Match]
-    call: Mapping[Span, Match]
 
 
 def _span(capture: Capture) -> Span:
@@ -584,70 +617,63 @@ def discriminants(capture: Capture, found: _Expressions) -> list[str]:
     return [capture.text]
 
 
-def conditionals(
-    path: str, matches: Sequence[Match], defined: Sequence[_Defined]
-) -> list[Conditional]:
+def conditionals(file: _File) -> list[Conditional]:
     """Every branch, one per expression it discriminates on; a switch on its
     subject as written."""
     found = _Expressions(
-        either=_at(matches, EITHER),
-        compare=_at(matches, COMPARE),
-        negate=_at(matches, NEGATE),
-        group=_at(matches, GROUP),
-        call=_at(matches, CALL),
+        either=_spans(file.of(EITHER)),
+        compare=_spans(file.of(COMPARE)),
+        negate=_spans(file.of(NEGATE)),
+        group=_spans(file.of(GROUP)),
+        call=_spans(file.of(CALL)),
     )
     branches: list[Conditional] = []
-    for m in _of(matches, CONDITIONAL):
-        within = _within(defined, m)
+    for m in file.of(CONDITIONAL):
+        within = file.within(m)
         if CONDITION in m.captures:
             tests = discriminants(m.captures[CONDITION], found)
         else:
             tests = [m.captured(SUBJECT) or ""]
-        branches.extend(Conditional(path, m.line, within, test) for test in tests)
+        branches.extend(Conditional(file.path, m.line, within, test) for test in tests)
     return branches
 
 
-def members(
-    path: str, matches: Sequence[Match], defined: Sequence[_Defined]
-) -> list[Member]:
+def members(file: _File) -> list[Member]:
     """Every type's fields and methods, each name once at its first line:
     declared, a constructor's parameter property, or assigned on `this`."""
-    types = [d for d in defined if d.kind is UnitKind.TYPE]
+    types = [d for d in file.defined if d.kind is UnitKind.TYPE]
+    by_span = {(d.match.start, d.match.end): d for d in types}
     kinds = {MEMBER_METHOD: MemberKind.METHOD, MEMBER_FIELD: MemberKind.FIELD}
-    first: dict[tuple[str, str], Member] = {}
     found = sorted(
-        (m for m in matches if m.fact in kinds), key=lambda m: (m.line, m.start)
+        (m for fact in kinds for m in file.of(fact)), key=lambda m: (m.line, m.start)
     )
-    for m in found:
-        owner = _owner(types, m)
+    first: dict[tuple[str, str], Member] = {}
+    for m, holder in zip(
+        found, innermost_each([d.match for d in types], found), strict=True
+    ):
         name = m.captured(NAME)
-        if owner is not None and name is not None:
-            member = Member(path, owner.symbol, name, kinds[m.fact], m.line)
+        if holder is not None and name is not None:
+            owner = by_span[(holder.start, holder.end)]
+            member = Member(file.path, owner.symbol, name, kinds[m.fact], m.line)
             first.setdefault((owner.symbol, name), member)
     return list(first.values())
 
 
-def test_cases(
-    path: str,
-    matches: Sequence[Match],
-    defined: Sequence[_Defined],
-    vocabulary: Vocabulary,
-) -> list[TestCase]:
+def test_cases(file: _File, vocabulary: Vocabulary) -> list[TestCase]:
     """Every call Vocabulary counts as declaring a test, with the callees its
     case calls outside nested definitions and the outermost calls in it that
     Vocabulary counts as asserting."""
-    every = _of(matches, CALL)
+    every = file.of(CALL)
+    starts = [c.start for c in every]
     cases: list[TestCase] = []
-    for m in _of(matches, TEST_CALL):
+    for m in file.of(TEST_CALL):
         if not vocabulary.declares_test(_callee(m)):
             continue
-        case, within = m.captures[CASE], _within(defined, m)
+        case, within = m.captures[CASE], file.within(m)
         inside = [
             c
-            for c in every
-            if case.start <= c.start
-            and c.end <= case.end
-            and _within(defined, c) == within
+            for c in every[bisect.bisect_left(starts, case.start) :]
+            if c.start < case.end and c.end <= case.end and file.within(c) == within
         ]
         asserting = [c for c in inside if vocabulary.asserts(_callee(c))]
         outermost = [
@@ -655,7 +681,7 @@ def test_cases(
         ]
         cases.append(
             TestCase(
-                path,
+                file.path,
                 _title(m.captured(TITLE) or ""),
                 m.line,
                 tuple(_callee(c) for c in inside if c not in asserting),
@@ -679,26 +705,27 @@ def file_model(
     file_unit = Unit(
         path, UnitKind.FILE, None, 1, len(lines), layer_of(path, None, declaration)
     )
-    defined = _defined(matches)
-    found = definitions(path, matches, declaration, regions, vocabulary)
+    file = _index(path, matches)
+    found = definitions(file, declaration, regions, vocabulary)
     return CodeModel(
         units=(file_unit, *(d.unit for d in found)),
         definitions=tuple(found),
-        imports=tuple(imports(path, matches, lines)),
-        references=tuple(references(path, matches, defined)),
-        calls=tuple(calls(path, matches, defined)),
-        accesses=tuple(accesses(path, matches, defined, vocabulary)),
-        writes=tuple(writes(path, matches, defined)),
-        conditionals=tuple(conditionals(path, matches, defined)),
-        members=tuple(members(path, matches, defined)),
-        test_cases=tuple(test_cases(path, matches, defined, vocabulary)),
+        imports=tuple(imports(file, lines)),
+        references=tuple(references(file)),
+        calls=tuple(calls(file)),
+        accesses=tuple(accesses(file, vocabulary)),
+        writes=tuple(writes(file)),
+        conditionals=tuple(conditionals(file)),
+        members=tuple(members(file)),
+        test_cases=tuple(test_cases(file, vocabulary)),
     )
 
 
 def syntax_errors(matches: Sequence[Match]) -> dict[str, int]:
     """The first line the parser could not read, per file that has one."""
     found: dict[str, int] = {}
-    for m in sorted(_of(matches, SYNTAX_ERROR), key=lambda m: m.line):
+    errors = (m for m in matches if m.fact == SYNTAX_ERROR)
+    for m in sorted(errors, key=lambda m: m.line):
         found.setdefault(m.path, m.line)
     return found
 
