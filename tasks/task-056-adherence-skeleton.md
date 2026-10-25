@@ -30,6 +30,29 @@ Then the first use case, RED first, one behavior per commit, against
 `adherence.toml` is parsed with the standard library. `RepositoryPort`
 gets its protocol, its `git` adapter for `read`, `tree` and the staged
 index, and its fake. `cli/main.py` gets the thin `declaration check`
-command only. Done when `bin/adhere declaration check` runs over a
-fixture declaration under `adherence/tests/fixtures/` and the two
-architect tests are GREEN.
+command only.
+
+The gate lands in this task, not with the dogfood, and it stays here
+rather than in a task of its own because this task's own tests must run
+in CI before they land. In order: a case in
+`test/smoketest_changed_scopes.sh` that a change under `adherence/`
+selects an `adherence` scope and a change elsewhere does not (RED; the
+script's own header says a wrong rule skips a suite and leaves `gate`
+green), then the scope in `.github/scripts/changed-scopes.sh` (`SCOPES`
+and a `scopes_for` arm, with the smoketest's own scope lists and counts)
+and the `changes` output in `dist-ci.yml` (GREEN), then the skeleton and
+the architect tests, then the `adherence` job: `needs: changes`, the
+scope's `if:`, the ubuntu leg of the `chores` job's steps (lint, format,
+strict types, unit tests; task-065 adds macOS with the hook), in `gate`'s
+`needs`, with the header comments of both files updated. The job runs
+after the project exists because `uv sync` needs the project and pytest
+fails on an empty collection. `adherence/tests/fixtures/` is excluded
+from ruff, mypy and collection from the start, since task-057 puts a
+deliberately flawed tree there. `changed-scopes.sh` and
+`.github/workflows/` are CODEOWNERS, so this task's PR waits on the
+owner; accepted. Without the job, every task from 057 to 067 would land
+with `gate` green and its tests never run in CI.
+
+Done when `bin/adhere declaration check` runs over a fixture declaration
+under `adherence/tests/fixtures/`, the two architect tests are GREEN, and
+the `adherence` job ran them on this task's PR head.

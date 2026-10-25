@@ -87,8 +87,10 @@ over a repository as sensors on nine qualities, and refuses a change that
 trips one that was not already tripped. No code yet; the route is tasks 056-072, each RED first, one
 behavior per commit. Order:
 
-- task-056 -- the engine skeleton, `bin/adhere`, `load_declaration`, and
-  the engine's own architect tests; nothing else can start before it.
+- task-056 -- the engine skeleton, `bin/adhere`, `load_declaration`, the
+  engine's own architect tests, and the `adherence` CI job that gates
+  every task after it; nothing else can start before it, and its PR
+  waits on the owner (CODEOWNERS paths).
 - task-057 -- the Python code model; every check reads only this.
 - task-058 -- `measure`, the `Report`, the Hexagonal checks: the first
   findings that print.
