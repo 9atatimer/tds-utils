@@ -330,3 +330,21 @@ def test_measure_runtime_with_two_units_constructing_adapters_is_found() -> None
     (second,) = _of(report, "Wiring")
     assert "cli" in second.subject
     assert f"{ROOT}:build" in second.subject and f"{CLI}:main" in second.subject
+
+
+def test_measure_runtime_no_unit_constructs_adapters_for_is_a_disagreement() -> None:
+    """Given a declared runtime one unit wires and a second declared runtime
+    no unit constructs a concrete adapter for, When Wiring runs, Then one
+    finding says the declaration and the code disagree and names the second
+    runtime."""
+    definitions = _wired(_function(ROOT, "build", (), line=5))
+    calls = (Call(ROOT, 6, "build", "FsStore"),)
+    files = {path: b"x\n" for path in (STORE, FS, ROOT)}
+    declaration = declared(WIRED + b'worker = ["src/worker/**"]\n')
+
+    report = measure_with(files, _wiring_facts(definitions, calls), declaration)
+
+    (disagreement,) = _of(report, "Wiring")
+    assert "worker" in disagreement.subject
+    assert "disagree" in disagreement.subject
+    assert disagreement.unit.path == "adherence.toml"
