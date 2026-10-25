@@ -30,4 +30,4 @@ where the last of them exists.
 
 Radar gate: the markdown-it-py row must be on `lmde/TECH_RADAR.md` first
 (Issue#599). Done when the fixture's design record drives Trace and the
-Layered score prints.
+Layered findings print.

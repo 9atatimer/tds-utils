@@ -17,7 +17,7 @@ and `Parameters` as the one value bundling `ThresholdPolicy` (no
 entries until task-064), `Vocabulary` (the shipped defaults; task-060
 fills it) and `Limits` (the shipped defaults, `evidence_bound` among
 them). The real adapters are later tasks: markdown records task-059,
-lizard and jscpd task-061, decide task-064. With it: `Report`, `Score`,
+lizard and jscpd task-061, decide task-064. With it: `Report`,
 `Coverage`, `Finding` (identity, evidence bound), `Notice`, and the
 Hexagonal rule checks over the `CodeModel`. RED first, one row per
 commit, against `measure` with fakes behind every port:
@@ -43,5 +43,5 @@ when the `measure` command, run through the composition root with
 `records`, `complexity` and `duplication` overridden by their fakes
 (`container.py` imports no fake, so the override is the test's; the
 command runs unaided from task-061, where the last real adapter lands),
-prints the Hexagonal score and its findings as JSON over the task-057
+prints the Hexagonal findings as JSON over the task-057
 fixture, with every other quality as coverage missing with its reason.

@@ -1,7 +1,7 @@
 ---
 id: task-062
 kind: task
-title: "adherence: judge_change -- compared score, provenance, verdict, tickets, floors, Declared"
+title: "adherence: judge_change -- provenance, removed findings, verdict, exemptions, Declared"
 created: 2026-10-24
 issue: 596
 blocked_by: [task-061]
@@ -13,20 +13,21 @@ ReviewPort`, so this task also defines `ReviewPort`'s protocol, its
 stands) and its fake; `github_reviews` and the approval walk are
 task-063. With it: the `git` adapter's `changed` (created, deleted,
 renamed) and `history`, `ReportStore` with its file cache keyed by report
-identity and its fake, `record_report`, and the domain's `ComparedScore`,
-provenance with file and definition renames, the verdict in the design's
-order, floors, drop tickets marked used, widening for created units, and
-the Declared quality's change-level checks. RED first, one row per
-commit, in this order:
+identity and its fake, `record_report`, and the domain's provenance
+with file and definition renames, the removed-finding rule, the verdict
+in the design's order, exempt findings counting as neither, widening for
+created units, and the Declared quality's change-level checks. RED
+first, one row per commit, in this order:
 
 - A change that raises is raised
 - A change that lowers is lowered
-- The baseline ratchets up
+- A fixed flaw stays fixed
 - An introduced flaw lowers
 - An existing flaw does not block
 - A break on an untouched unit is introduced
 - A rename introduces nothing
 - Deleting clean code moves nothing
+- Deleting a flawed unit moves nothing
 - An undeclared new unit is found
 - A widening is honored
 - A narrowed record is found
@@ -36,13 +37,6 @@ commit, in this order:
 - A change cannot narrow its own declaration
 - An added exemption is inert for its change
 - An exemption carries its reason
-- A floor holds
-- An unreached floor does not bind
-- A drop ticket accepts a fall
-- A drop ticket survives a moving base
-- A drop ticket covers no second fall
-- An unmarked ticket covers nothing
-- A drop ticket is shown until regained
 - An unmeasurable base is inconclusive
 - A missing record on both sides is not inconclusive
 - A rule check that errors is coverage
