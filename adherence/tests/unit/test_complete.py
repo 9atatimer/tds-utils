@@ -5,15 +5,18 @@ Done and Hand-rolled are judged and stay coverage until task-064."""
 
 from __future__ import annotations
 
+from adherence.adapters.fakes import FakeComplexity
 from adherence.domain.finding import Finding
 from adherence.domain.model import (
     Body,
     CodeModel,
+    Complexity,
     Definition,
     Layer,
     Unit,
     UnitKind,
 )
+from adherence.domain.parameters import Limits
 from adherence.domain.report import Report
 from tests.measure_kit import measure_with
 
@@ -82,3 +85,49 @@ def test_measure_with_a_stubbed_function_finds_the_stub() -> None:
         Layer.DOMAIN,
         Layer.APPLICATION,
     }
+
+
+def test_measure_with_a_function_over_the_ceiling_finds_its_complexity() -> None:
+    """Given functions whose complexity is under, at and over the complexity
+    ceiling, and one over it in a file no layer covers, When Complexity runs,
+    Then one finding names the covered function over the ceiling, and the
+    ceiling."""
+    scratch = "scratch.py"
+    files = {RULES: b"x\n" * 12, USE: b"x\n" * 12, scratch: b"x\n" * 12}
+    units = (
+        Unit(RULES, UnitKind.FUNCTION, "price", 3, 9, None),
+        Unit(USE, UnitKind.FUNCTION, "run", 1, 9, None),
+    )
+    complexity = FakeComplexity(
+        (
+            Complexity(RULES, "price", 3, 12),
+            Complexity(USE, "run", 1, 10),
+            Complexity(RULES, "small", 10, 2),
+            Complexity(scratch, "tangle", 1, 50),
+        )
+    )
+
+    report = measure_with(
+        files,
+        CodeModel(units=units),
+        complexity=complexity,
+        limits=Limits(evidence_bound=200, complexity_ceiling=10),
+    )
+
+    (over,) = _of(report, "Complexity")
+    assert (over.unit.path, over.unit.symbol, over.evidence.line) == (RULES, "price", 3)
+    assert "12" in over.subject and "10" in over.subject
+    assert over.layer is Layer.DOMAIN
+
+
+def test_measure_with_no_complexity_ceiling_covers_complexity() -> None:
+    """Given no complexity ceiling supplied, When Complexity runs, Then it is
+    coverage naming the missing ceiling, never a clean result."""
+    report = measure_with(
+        {RULES: b"x\n"}, complexity=FakeComplexity((Complexity(RULES, "f", 1, 99),))
+    )
+
+    assert "Complexity" not in {c.name for c in report.ran}
+    assert any(
+        c.check == "Complexity" and "ceiling" in c.reason for c in report.coverage
+    )
