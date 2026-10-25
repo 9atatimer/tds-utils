@@ -35,6 +35,8 @@ from adherence.domain.model import (
     Conditional,
     Definition,
     ImportEdge,
+    Member,
+    MemberKind,
     Parameter,
     Reference,
     ReferenceKind,
@@ -66,6 +68,7 @@ PARAMETER_PROPERTY, PROPERTY_DEFAULT, PROPERTY_TYPE = (
 )
 BODY, STUB, CALL, NAME_FACT, STRING = "body", "stub", "call", "name", "string"
 GLOBAL, WRITE = "global", "write"
+MEMBER_METHOD, MEMBER_FIELD = "member-method", "member-field"
 CONDITIONAL, EITHER, COMPARE, NEGATE, GROUP = (
     "conditional",
     "either",
@@ -583,6 +586,26 @@ def conditionals(
     return branches
 
 
+def members(
+    path: str, matches: Sequence[Match], defined: Sequence[_Defined]
+) -> list[Member]:
+    """Every type's fields and methods, each name once at its first line:
+    declared, a constructor's parameter property, or assigned on `this`."""
+    types = [d for d in defined if d.kind is UnitKind.TYPE]
+    kinds = {MEMBER_METHOD: MemberKind.METHOD, MEMBER_FIELD: MemberKind.FIELD}
+    first: dict[tuple[str, str], Member] = {}
+    found = sorted(
+        (m for m in matches if m.fact in kinds), key=lambda m: (m.line, m.start)
+    )
+    for m in found:
+        owner = _owner(types, m)
+        name = m.captured(NAME)
+        if owner is not None and name is not None:
+            member = Member(path, owner.symbol, name, kinds[m.fact], m.line)
+            first.setdefault((owner.symbol, name), member)
+    return list(first.values())
+
+
 def file_model(
     path: str,
     data: bytes,
@@ -608,6 +631,7 @@ def file_model(
         accesses=tuple(accesses(path, matches, defined, vocabulary)),
         writes=tuple(writes(path, matches, defined)),
         conditionals=tuple(conditionals(path, matches, defined)),
+        members=tuple(members(path, matches, defined)),
     )
 
 

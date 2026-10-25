@@ -425,3 +425,59 @@ severity: hint
 rule:
   kind: parenthesized_expression
   has: {pattern: $INNER}
+---
+id: member-method
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - all:
+        - kind: method_definition
+        - inside: {kind: class_body}
+    - all:
+        - any:
+            - kind: method_signature
+            - kind: abstract_method_signature
+        - any:
+            - inside: {kind: interface_body}
+            - inside: {kind: class_body}
+            - inside: {kind: object_type, inside: {kind: type_alias_declaration}}
+  has: {field: name, pattern: $NAME}
+---
+id: member-field
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - all:
+        - kind: public_field_definition
+        - inside: {kind: class_body}
+    - all:
+        - kind: property_signature
+        - any:
+            - inside: {kind: interface_body}
+            - inside: {kind: object_type, inside: {kind: type_alias_declaration}}
+  has: {field: name, pattern: $NAME}
+---
+id: member-field.parameter
+language: TypeScript
+severity: hint
+rule:
+  kind: required_parameter
+  has: {kind: accessibility_modifier}
+  all:
+    - has: {field: pattern, pattern: $NAME}
+---
+id: member-field.this
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: assignment_expression
+    - kind: augmented_assignment_expression
+  has:
+    field: left
+    kind: member_expression
+    all:
+      - has: {field: object, kind: this}
+      - has: {field: property, pattern: $NAME}
