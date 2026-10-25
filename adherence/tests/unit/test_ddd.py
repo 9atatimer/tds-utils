@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from adherence.domain.finding import Finding
 from adherence.domain.model import Layer, Write
+from adherence.domain.records import DesignRecords, Term
 from adherence.domain.report import Report
 from tests.facts_kit import (
     FS,
@@ -15,6 +16,7 @@ from tests.facts_kit import (
     facts,
     field,
     function,
+    keyword,
     method,
     type_,
     value,
@@ -86,3 +88,53 @@ def test_measure_with_a_field_written_outside_its_type_finds_the_write() -> None
         c.check == "Boundary" and "invariant_broken" in c.reason
         for c in report.coverage
     ), "the judged part is coverage, never a silent pass"
+
+
+DESIGN = "docs/design/DESIGN.APP.md"
+LANGUAGE = DesignRecords(
+    domain_language=(
+        Term("Order", DESIGN, 40),
+        Term("Use case", DESIGN, 41),
+        Term("Known flaws", DESIGN, 42),
+    )
+)
+
+
+def test_measure_with_a_noun_the_domain_language_lacks_finds_it() -> None:
+    """Given use cases whose signatures name types the Domain Language
+    defines (under its spelling, in CamelCase, or plural), types it does not
+    define, and the language's own types, and a private application helper
+    and a domain function naming undefined types, When Language runs, Then
+    a finding names each undefined noun and the use case's signature, and
+    the rest are clean. The nouns read are the type names a signature
+    carries; parameter names are not read as nouns."""
+    files = {USE: b"x\n" * 9, RULES: b"x\n" * 9}
+    definitions = [
+        function(
+            USE,
+            "close",
+            1,
+            (value("order", "Order"), keyword("store", "OrderStore")),
+            returns="Receipt",
+        ),
+        function(USE, "flaws", 2, (value("case", "UseCase"),), returns="KnownFlaws"),
+        function(
+            USE,
+            "every",
+            3,
+            (keyword("orders", "Sequence[Order]"),),
+            returns="tuple[Orders, ...] | None",
+        ),
+        function(USE, "_parse", 4, (value("raw", "Blob"),)),
+        function(RULES, "price", 1, (value("item", "Gadget"),)),
+    ]
+
+    report = measure_with(files, facts(definitions), records=LANGUAGE)
+
+    assert "Language" in {c.name for c in report.ran}
+    found = {(f.unit.symbol, f.subject) for f in _of(report, "Language")}
+    assert found == {
+        ("close", "OrderStore in close"),
+        ("close", "Receipt in close"),
+    }
+    assert all(f.layer is Layer.APPLICATION for f in _of(report, "Language"))
