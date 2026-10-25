@@ -43,6 +43,8 @@ VOCABULARY = Vocabulary(
     model_ids=frozenset({"claude-", "gpt-"}),
     fakes=frozenset({"Fake"}),
     abstract_markers=frozenset({"Protocol", "ABC", "abstractmethod"}),
+    assertion_calls=frozenset({"pytest.raises"}),
+    placeholder_assertions=frozenset({"True", "False", "1"}),
 )
 LIMITS = Limits(evidence_bound=200)
 

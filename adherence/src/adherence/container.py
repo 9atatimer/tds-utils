@@ -73,6 +73,21 @@ SHIPPED_VOCABULARY = Vocabulary(
     abstract_markers=frozenset(
         {"Protocol", "ABC", "ABCMeta", "abstractmethod", "overload"}
     ),
+    assertion_calls=frozenset(
+        {
+            "pytest.raises",
+            "pytest.warns",
+            "pytest.fail",
+            "assert_called",
+            "assert_called_once",
+            "assert_called_with",
+            "assert_called_once_with",
+            "assert_any_call",
+            "assert_has_calls",
+            "assert_not_called",
+        }
+    ),
+    placeholder_assertions=frozenset({"True", "False", "1", "0", "None"}),
 )
 SHIPPED_LIMITS = Limits(
     evidence_bound=200, complexity_ceiling=15, duplication_ceiling=10

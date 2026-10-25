@@ -32,6 +32,9 @@ class Vocabulary:
 
     abstract_markers are the bases and decorators (a full dotted name, or
     its last part) that make a placeholder body a declaration, not a stub.
+    assertion_calls are the callees (a full dotted name, or its last part)
+    that assert, as `pytest.raises` does; placeholder_assertions the
+    asserted expressions, as written, that cannot tell a pass from a fail.
     """
 
     regions: Mapping[str, Layer]
@@ -42,6 +45,8 @@ class Vocabulary:
     model_ids: frozenset[str] = field(default_factory=frozenset)
     fakes: frozenset[str] = field(default_factory=frozenset)
     abstract_markers: frozenset[str] = field(default_factory=frozenset)
+    assertion_calls: frozenset[str] = field(default_factory=frozenset)
+    placeholder_assertions: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True, slots=True)
