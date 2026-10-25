@@ -38,6 +38,7 @@ from adherence.domain.model import (
     Write,
 )
 from adherence.domain.parameters import Vocabulary
+from adherence.domain.source import source_lines
 
 # --- Constants ---------------------------------------------------------------
 
@@ -451,11 +452,11 @@ def _file_model(
     vocabulary: Vocabulary,
 ) -> CodeModel:
     """Every fact of one parsed file, as a CodeModel of that file alone."""
-    lines = data.count(b"\n") or 1
+    text = data.decode("utf-8", "replace")
+    lines = len(source_lines(text))
     file_unit = Unit(
         path, UnitKind.FILE, None, 1, lines, layer_of(path, None, declaration)
     )
-    text = data.decode("utf-8", "replace")
     walked = _walk_definitions(tree)
     found = [
         _definition(path, f, text, declaration, regions, vocabulary) for f in walked
