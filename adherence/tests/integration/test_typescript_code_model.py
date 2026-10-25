@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from adherence.adapters.ts_depcruise import TypeScriptCodeModel
+from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, parse_declaration
 from adherence.domain.model import (
     AccessKind,
@@ -637,3 +638,21 @@ def test_without_node_every_file_is_unparsed_with_the_reason(
 
     assert [u.path for u in model.unparsed] == ["a.mjs", "b.mjs"]
     assert all("node" in u.reason for u in model.unparsed)
+
+
+@pytest.mark.parametrize("passes_after", [1, 2], ids=["ast-grep", "cruiser"])
+def test_model_past_the_deadline_between_analyzers_times_out(passes_after: int) -> None:
+    """Given a deadline that passes once the run has started, before ast-grep
+    or before dependency-cruiser runs, When sources that import are
+    modelled, Then the answer is TimedOut rather than an overrun or a
+    partial model."""
+    readings = iter([0.0] * passes_after + [10.0] * 5)
+
+    answer = TypeScriptCodeModel(clock=lambda: next(readings, 99.0)).model(
+        IMPORTING,
+        typescript_fixture.declaration(),
+        typescript_fixture.VOCABULARY,
+        Deadline(epoch_seconds=5.0),
+    )
+
+    assert isinstance(answer, TimedOut)
