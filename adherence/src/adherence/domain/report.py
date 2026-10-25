@@ -16,6 +16,13 @@ from adherence.domain.finding import Finding
 
 @dataclass(frozen=True, slots=True)
 class Report:
-    """One run's findings."""
+    """One run's findings. A run the suite could not perform is not run and
+    carries the reason; it holds nothing else, so it never reads as a pass."""
 
     findings: tuple[Finding, ...] = ()
+    not_run_reason: str | None = None
+
+    @classmethod
+    def not_run(cls, reason: str) -> Report:
+        """The Report of a run that could not be performed, naming why."""
+        return cls(not_run_reason=reason)

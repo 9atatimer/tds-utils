@@ -60,7 +60,7 @@ def measure(
 ) -> Report:
     """The Report of every target-level check over the target."""
     if isinstance(declaration, DeclarationUnreadable):
-        return Report()
+        return Report.not_run(f"the declaration cannot be read: {declaration.reason}")
     paths = repository.tree(at, deadline)
     if isinstance(paths, TimedOut):
         return Report()
