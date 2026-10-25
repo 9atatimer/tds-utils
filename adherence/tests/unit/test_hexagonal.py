@@ -107,3 +107,17 @@ def test_measure_with_an_outward_import_finds_the_arrow() -> None:
         (RULES, Layer.DOMAIN, Layer.PORTS),
         (USE, Layer.APPLICATION, Layer.ADAPTERS),
     }
+
+
+def test_measure_with_two_units_importing_each_other_finds_one_cycle() -> None:
+    """Given two domain units that import each other, When Arrow runs, Then
+    one finding names the cycle through both."""
+    values = "src/app/domain/values.py"
+    files = {RULES: b"import values\n", values: b"\nimport rules\n"}
+    facts = CodeModel(imports=(_edge(RULES, values), _edge(values, RULES, line=2)))
+
+    report = measure_with(files, facts)
+
+    (cycle,) = _of(report, "Arrow")
+    assert RULES in cycle.subject and values in cycle.subject
+    assert cycle.unit.path in (RULES, values)
