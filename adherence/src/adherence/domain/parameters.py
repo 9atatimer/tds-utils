@@ -49,10 +49,13 @@ class Limits:
     """The tuned bounds (ARCHITECTURE.ARCH-ADHERENCE.md, Parameters placed).
 
     evidence_bound is how many characters of the offending line a finding
-    may quote.
+    may quote. complexity_ceiling is the per-function complexity above which
+    Complexity finds; None, when no ceiling is supplied, leaves the check as
+    coverage.
     """
 
     evidence_bound: int
+    complexity_ceiling: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

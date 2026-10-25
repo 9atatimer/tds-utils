@@ -11,9 +11,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
-from adherence.domain.declaration import Declaration
+from adherence.domain.coverage import Coverage
+from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.finding import Evidence, Finding
-from adherence.domain.model import CodeModel, Definition, Layer, UnitKind
+from adherence.domain.model import CodeModel, Definition, Layer, Unit, UnitKind
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
 from adherence.domain.records import DesignRecords, RecordsUnavailable
@@ -21,6 +22,8 @@ from adherence.domain.records import DesignRecords, RecordsUnavailable
 # --- Constants ---------------------------------------------------------------
 
 STUB = catalog_check("Stub")
+COMPLEXITY = catalog_check("Complexity")
+NO_CEILING = "no {} ceiling is supplied"
 
 # --- Predicates --------------------------------------------------------------
 
@@ -96,4 +99,57 @@ def stub(
             continue
         owner = types.get((d.unit.path, d.parent)) if d.parent else None
         findings.extend(_stub_findings(d, owner, parameters.vocabulary))
+    return CheckOutcome(tuple(findings))
+
+
+def _function_unit(
+    model: CodeModel, path: str, symbol: str, line: int, layer: Layer | None
+) -> Unit:
+    """The model's unit for a function the tooling names, or one built from
+    what the tooling reports when the analyzer has none."""
+    named = next(
+        (
+            u
+            for u in model.units
+            if u.path == path and u.kind is UnitKind.FUNCTION and u.symbol == symbol
+        ),
+        None,
+    )
+    return named or Unit(path, UnitKind.FUNCTION, symbol, line, line, layer)
+
+
+def complexity(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """No function over the complexity ceiling. Needs no declaration; a
+    declared repository's uncovered functions are coverage, never checked."""
+    ceiling = parameters.limits.complexity_ceiling
+    if ceiling is None:
+        reason = NO_CEILING.format("complexity")
+        return CheckOutcome(
+            coverage=(Coverage(reason, check=COMPLEXITY.name),), ran=False
+        )
+    findings: list[Finding] = []
+    for measured in model.metrics.complexity:
+        layer = layer_of(measured.path, measured.line, declaration, model.regions)
+        if measured.value <= ceiling or (declaration.declared and layer is None):
+            continue
+        unit = _function_unit(
+            model, measured.path, measured.symbol, measured.line, layer
+        )
+        subject = (
+            f"{measured.symbol}: complexity {measured.value} over the ceiling {ceiling}"
+        )
+        findings.append(
+            Finding(
+                COMPLEXITY,
+                unit,
+                layer,
+                subject,
+                Evidence(measured.path, measured.line, measured.symbol),
+            )
+        )
     return CheckOutcome(tuple(findings))
