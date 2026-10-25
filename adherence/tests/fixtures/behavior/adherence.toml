@@ -1,0 +1,12 @@
+# The Behavior-driven, Complete and Radar-true fixture (task-061): a small
+# hexagon with a stub, a tangle, a clone, a dependency off the radar, a
+# radar entry in the domain, and tests that skip the surface or assert
+# nothing.
+
+[layers]
+domain = ["src/shop/domain/**"]
+application = ["src/shop/application/**"]
+ports = ["src/shop/ports/**"]
+adapters = ["src/shop/adapters/**"]
+"composition root" = ["src/shop/container.py"]
+test = ["tests/**"]
