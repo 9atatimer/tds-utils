@@ -344,3 +344,29 @@ rule:
   kind: member_expression
   regex: '^globalThis\.'
   not: {inside: {kind: member_expression, field: object}}
+---
+id: write
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: assignment_expression
+    - kind: augmented_assignment_expression
+  has:
+    field: left
+    kind: member_expression
+    all:
+      - has: {field: object, pattern: $OBJECT}
+      - has: {field: property, pattern: $FIELD}
+---
+id: write.update
+language: TypeScript
+severity: hint
+rule:
+  kind: update_expression
+  has:
+    field: argument
+    kind: member_expression
+    all:
+      - has: {field: object, pattern: $OBJECT}
+      - has: {field: property, pattern: $FIELD}

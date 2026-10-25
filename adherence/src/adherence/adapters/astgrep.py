@@ -41,6 +41,7 @@ from adherence.domain.model import (
     Signature,
     Unit,
     UnitKind,
+    Write,
 )
 from adherence.domain.parameters import Vocabulary
 from adherence.domain.source import source_lines
@@ -63,7 +64,7 @@ PARAMETER_PROPERTY, PROPERTY_DEFAULT, PROPERTY_TYPE = (
     "property-type",
 )
 BODY, STUB, CALL, NAME_FACT, STRING = "body", "stub", "call", "name", "string"
-GLOBAL = "global"
+GLOBAL, WRITE = "global", "write"
 RETURNS, BASE, DECORATOR, DECORATOR_NEXT = (
     "returns",
     "base",
@@ -73,6 +74,7 @@ RETURNS, BASE, DECORATOR, DECORATOR_NEXT = (
 # Captures: each names a part of its fact.
 NAME, SOURCE, TYPE_CAPTURE = "NAME", "SOURCE", "TYPE"
 BODY_CAPTURE, THROWN, CALLEE = "BODY", "THROWN", "CALLEE"
+OBJECT, FIELD = "OBJECT", "FIELD"
 EMPTY_BLOCK = "{}"
 
 # --- Values ------------------------------------------------------------------
@@ -488,6 +490,23 @@ def accesses(
     return sorted(found, key=lambda a: a.line)
 
 
+def writes(
+    path: str, matches: Sequence[Match], defined: Sequence[_Defined]
+) -> list[Write]:
+    """Every assignment, update or compound assignment to an object's field,
+    with the definition that makes it."""
+    return [
+        Write(
+            path,
+            m.line,
+            _within(defined, m),
+            m.captured(OBJECT) or "",
+            m.captured(FIELD) or "",
+        )
+        for m in _of(matches, WRITE)
+    ]
+
+
 def file_model(
     path: str,
     data: bytes,
@@ -511,6 +530,7 @@ def file_model(
         references=tuple(references(path, matches, defined)),
         calls=tuple(calls(path, matches, defined)),
         accesses=tuple(accesses(path, matches, defined, vocabulary)),
+        writes=tuple(writes(path, matches, defined)),
     )
 
 
