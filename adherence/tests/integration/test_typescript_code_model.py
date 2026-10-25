@@ -7,6 +7,8 @@ import functools
 from collections.abc import Mapping
 from pathlib import Path
 
+import pytest
+
 from adherence.adapters.ts_depcruise import TypeScriptCodeModel
 from adherence.domain.declaration import Declaration, parse_declaration
 from adherence.domain.model import (
@@ -582,3 +584,56 @@ def test_a_file_nested_past_the_walk_is_unparsed_and_the_rest_modelled() -> None
 
     assert [u.path for u in model.unparsed] == ["deep.ts"]
     assert any(d.unit.symbol == "f" for d in model.definitions)
+
+
+IMPORTING = {
+    "a.mjs": b"import { b } from './b.mjs';\nexport function f() {}\n",
+    "b.mjs": b"export const b = 1;\n",
+}
+
+
+def test_without_ast_grep_every_source_is_unparsed_with_the_reason(
+    tmp_path: Path,
+) -> None:
+    """Given no ast-grep where the adapter looks for it, When sources are
+    modelled, Then each is Unparsed with a reason naming ast-grep, and
+    nothing reads as clean."""
+    model = TypeScriptCodeModel(ast_grep=tmp_path / "ast-grep").model(
+        IMPORTING, typescript_fixture.declaration(), typescript_fixture.VOCABULARY, None
+    )
+
+    assert isinstance(model, CodeModel)
+    assert model.units == ()
+    assert [u.path for u in model.unparsed] == ["a.mjs", "b.mjs"]
+    assert all("ast-grep" in u.reason for u in model.unparsed)
+
+
+@typescript_fixture.needs_node
+def test_without_dependency_cruiser_every_file_is_unparsed_with_its_facts(
+    tmp_path: Path,
+) -> None:
+    """Given no dependency-cruiser where the adapter looks for it, When
+    sources that import are modelled, Then their facts stand, no import
+    resolves, and each file is Unparsed with a reason naming the tool."""
+    model = TypeScriptCodeModel(cruiser=tmp_path / "dependency-cruiser.mjs").model(
+        IMPORTING, typescript_fixture.declaration(), typescript_fixture.VOCABULARY, None
+    )
+
+    assert isinstance(model, CodeModel)
+    assert [d.unit.symbol for d in model.definitions] == ["f"]
+    assert [(e.path, e.imported_path) for e in model.imports] == [("a.mjs", None)]
+    assert [u.path for u in model.unparsed] == ["a.mjs", "b.mjs"]
+    assert all("dependency-cruiser" in u.reason for u in model.unparsed)
+
+
+def test_without_node_every_file_is_unparsed_with_the_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a PATH with no node on it, When sources that import are
+    modelled, Then each file is Unparsed with a reason naming node."""
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    model = _model_of(IMPORTING)
+
+    assert [u.path for u in model.unparsed] == ["a.mjs", "b.mjs"]
+    assert all("node" in u.reason for u in model.unparsed)

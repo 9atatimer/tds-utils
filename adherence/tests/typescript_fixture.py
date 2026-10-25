@@ -29,6 +29,9 @@ needs_cruiser = pytest.mark.skipif(
     reason="dependency-cruiser is not installed: "
     "npm ci --ignore-scripts in adherence/node",
 )
+needs_node = pytest.mark.skipif(
+    shutil.which("node") is None, reason="node is not installed"
+)
 SUFFIXES = {".ts", ".mts", ".cts", ".tsx", ".js", ".mjs", ".cjs", ".jsx"}
 VOCABULARY = Vocabulary(
     regions={"predicates": Layer.DOMAIN, "action functions": Layer.ADAPTERS},
