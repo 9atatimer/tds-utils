@@ -7,7 +7,8 @@ import functools
 from collections.abc import Mapping
 
 from adherence.adapters.ts_depcruise import TypeScriptCodeModel
-from adherence.domain.model import CodeModel, Layer, UnitKind
+from adherence.domain.declaration import Declaration, parse_declaration
+from adherence.domain.model import CodeModel, Layer, Region, UnitKind
 from adherence.ports.code_model import CodeModelPort
 from tests import typescript_fixture
 from tests.code_model_contract import TYPESCRIPT_SOURCES, CodeModelContract
@@ -56,3 +57,42 @@ def test_units_are_each_definition_in_its_layer() -> None:
     )
     assert not any(path == "test/run.test.mjs" for path, _ in units)
     assert ("notes/uncovered.mjs", None) not in units
+
+
+def test_regions_found_by_marker_are_in_the_model() -> None:
+    """Given a one-file tool whose `// --- Section ---` markers the
+    declaration names, When it is modelled, Then its marker regions are in
+    the model and each function is in the layer of its region."""
+    model = fixture_model()
+    units = {(u.path, u.symbol): u.layer for u in model.units}
+
+    assert [(r.path, r.layer) for r in model.regions] == [
+        ("bin/tool.mjs", Layer.DOMAIN),
+        ("bin/tool.mjs", Layer.ADAPTERS),
+    ]
+    assert units[("bin/tool.mjs", "isEven")] is Layer.DOMAIN
+    assert units[("bin/tool.mjs", "load")] is Layer.ADAPTERS
+
+
+def test_declared_line_regions_are_in_the_model() -> None:
+    """Given a declaration that assigns a region by lines, When its file is
+    modelled, Then that region is in the model beside the layer it gives,
+    and a region of a file not handed over is not."""
+    declaration = parse_declaration(
+        b"[layers]\nregions = [\n"
+        b'  { file = "m.ts", layer = "domain", lines = [1, 3] },\n'
+        b'  { file = "absent.ts", layer = "domain", lines = [1, 2] },\n'
+        b"]\n"
+    )
+    assert isinstance(declaration, Declaration)
+
+    model = TypeScriptCodeModel().model(
+        {"m.ts": b"function f(): number {\n  return 1;\n}\n"},
+        declaration,
+        typescript_fixture.VOCABULARY,
+        None,
+    )
+
+    assert isinstance(model, CodeModel)
+    assert model.regions == (Region("m.ts", 1, 3, Layer.DOMAIN),)
+    assert [d.unit.layer for d in model.definitions] == [Layer.DOMAIN]
