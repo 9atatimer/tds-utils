@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Mapping
+from pathlib import Path
 
 from adherence.adapters.ts_depcruise import TypeScriptCodeModel
 from adherence.domain.declaration import Declaration, parse_declaration
@@ -96,3 +97,85 @@ def test_declared_line_regions_are_in_the_model() -> None:
     assert isinstance(model, CodeModel)
     assert model.regions == (Region("m.ts", 1, 3, Layer.DOMAIN),)
     assert [d.unit.layer for d in model.definitions] == [Layer.DOMAIN]
+
+
+def _model_of(sources: dict[str, bytes]) -> CodeModel:
+    model = TypeScriptCodeModel().model(
+        sources,
+        typescript_fixture.declaration(),
+        typescript_fixture.VOCABULARY,
+        None,
+    )
+    assert isinstance(model, CodeModel), model
+    return model
+
+
+@typescript_fixture.needs_cruiser
+def test_imports_are_resolved_with_their_line_and_target_file() -> None:
+    """Given relative, type-only, extensioned, package and node: imports,
+    When the fixture is modelled, Then each is an edge to the module as
+    written, with its line and text, and to its file when the file is a
+    source."""
+    edges = {
+        (e.path, e.imported, e.line, e.imported_path)
+        for e in fixture_model().imports
+        if e.path in {"lib/tool/run.ts", "bin/tool.mjs", "test/run.test.mjs"}
+    }
+
+    run, rules = "lib/tool/run.ts", "lib/tool/rules.ts"
+    assert edges == {
+        (run, "node:timers/promises", 1, None),
+        (run, "./rules", 2, rules),
+        (run, "./rules", 3, rules),
+        (run, "./ports", 4, "lib/tool/ports.ts"),
+        ("bin/tool.mjs", "node:fs", 3, None),
+        ("test/run.test.mjs", "node:test", 1, None),
+        ("test/run.test.mjs", "node:assert/strict", 2, None),
+        ("test/run.test.mjs", "../lib/tool/run.ts", 3, run),
+    }
+    [edge] = [e for e in fixture_model().imports if e.path == "bin/tool.mjs"]
+    assert edge.text == "import { readFileSync } from 'node:fs';"
+
+
+@typescript_fixture.needs_cruiser
+def test_requires_reexports_and_dynamic_imports_are_edges() -> None:
+    """Given a require, a re-export and a dynamic import, When they are
+    modelled, Then each is an edge to the file it names."""
+    model = _model_of(
+        {
+            "a.cjs": b"const b = require('./b.cjs');\n",
+            "b.cjs": b"module.exports = {};\n",
+            "c.mjs": b"export * from './b.cjs';\nconst a = await import('./a.cjs');\n",
+        }
+    )
+
+    assert {(e.path, e.line, e.imported_path) for e in model.imports} == {
+        ("a.cjs", 1, "b.cjs"),
+        ("c.mjs", 1, "b.cjs"),
+        ("c.mjs", 2, "a.cjs"),
+    }
+
+
+@typescript_fixture.needs_cruiser
+def test_measured_code_is_never_run_even_as_the_analyzers_configuration(
+    tmp_path: Path,
+) -> None:
+    """Given a measured dependency-cruiser configuration that would write a
+    marker if it were loaded, When the sources are modelled, Then no marker
+    is written and the imports are still resolved."""
+    marker = tmp_path / "ran"
+    payload = (
+        f"require('node:fs').writeFileSync({str(marker)!r}, 'ran');\n"
+        "module.exports = {};\n"
+    ).encode()
+
+    model = _model_of(
+        {
+            ".dependency-cruiser.cjs": payload,
+            "a.mjs": b"import { b } from './b.mjs';\n",
+            "b.mjs": b"export const b = 1;\n",
+        }
+    )
+
+    assert not marker.exists(), "measured code ran"
+    assert {(e.path, e.imported_path) for e in model.imports} == {("a.mjs", "b.mjs")}

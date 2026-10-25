@@ -4,7 +4,10 @@ and its declaration."""
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
+
+import pytest
 
 from adherence.domain.declaration import (
     DECLARATION_PATH,
@@ -15,6 +18,17 @@ from adherence.domain.model import Layer
 from adherence.domain.parameters import Vocabulary
 
 ROOT = Path(__file__).resolve().parent / "fixtures" / "typescript"
+CRUISER = (
+    Path(__file__).resolve().parents[1] / "node" / "node_modules" / "dependency-cruiser"
+)
+# A claim about what dependency-cruiser resolves runs the real tool, and is
+# skipped, never faked, where it is not installed (the testing skill; the
+# adherence CI job installs no node tools yet, Issue#593).
+needs_cruiser = pytest.mark.skipif(
+    not (CRUISER.is_dir() and shutil.which("node")),
+    reason="dependency-cruiser is not installed: "
+    "npm ci --ignore-scripts in adherence/node",
+)
 SUFFIXES = {".ts", ".mts", ".cts", ".tsx", ".js", ".mjs", ".cjs", ".jsx"}
 VOCABULARY = Vocabulary(
     regions={"predicates": Layer.DOMAIN, "action functions": Layer.ADAPTERS},
