@@ -263,12 +263,11 @@ skill's Stacked PRs, the retrospective skill's separate docs-only PR).
 ## A stop hook's "unpushed commits" is not an instruction to push
 
 Cloud sessions run a stop hook that demands a push whenever the checked-out
-branch is ahead of its remote. After a PR merges, that branch is usually
-deleted on GitHub and the local branch has only been moved to the default
-branch; the "unpushed" commits are just that branch, and pushing recreates a
-deleted branch full of nothing. Before obeying the hook, check
+branch is ahead of its remote. After a PR merges, the remote branch is usually
+deleted and the local one merely sits on the default branch; pushing it
+recreates a deleted branch full of nothing. Before obeying the hook, check
 `git log origin/<default>..HEAD`: if it is empty, push nothing. After a
-merge, check out a detached `origin/<default>` instead of resetting the
+merge, check out a detached `origin/<default>` rather than resetting the
 session branch onto it, so the hook has nothing to see.
 
 ## A classifier refusal is not lifted by the human's words
@@ -319,9 +318,8 @@ one line before the command is given.
 
 ## Never pull down and run a shell script
 
-NEVER `curl ... | sh`, and never fetch-then-run an installer script, including
-when installing a tool. Install software only through package managers that
-verify signed code.
+Never `curl ... | sh`, and never fetch-then-run an installer script, even to
+install a tool. Install software only through package managers that verify signed code.
 
 ## Secrets come from 1Password, never from the environment
 
@@ -416,9 +414,9 @@ save.
 
 ## Never `cd` -- stay at the project root and target subdirs with flags
 
-`cd` and `cd path && cmd` are not in the standing auto-approval set, so each
-stops the agent for a permission prompt, and shell state does not persist
-between Bash calls anyway.
+`cd` and `cd path && cmd` are outside the standing auto-approval set, so each
+stops for a permission prompt, and shell state does not persist between Bash
+calls anyway.
 
 **Stay in the project root (the root of the checkout or worktree you work
 in). For every tool that needs to operate on a subdir or another checkout,
@@ -446,9 +444,8 @@ project root. Ask for absolute output:
 
 Two rules.
 
-**Never work on the default branch.** Every repo instruction file already
-says this; it holds even for a one-line docs edit and even when the change
-will obviously be merged.
+**Never work on the default branch.** Not even for a one-line docs edit,
+and not when the change will obviously be merged.
 
 **Prefer a worktree over checking a branch out in the shared clone.** The
 shared clone at `~/workplace/<repo>` is not yours alone: the human runs
