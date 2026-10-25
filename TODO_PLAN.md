@@ -83,15 +83,15 @@ Architectural Adherence (`docs/design/DESIGN.ARCH-ADHERENCE.md` and
 `docs/design/ARCHITECTURE.ARCH-ADHERENCE.md`, both APPROVED 2026-10-24
 after the designomatic and self-review passes of tds-utils PR#605; epic
 Issue#588): the suite that executes the coding skill's mechanical tests
-over a repository, scores nine qualities, and refuses a change that lowers
-a score. No code yet; the route is tasks 056-072, each RED first, one
+over a repository as sensors on nine qualities, and refuses a change that
+trips one that was not already tripped. No code yet; the route is tasks 056-072, each RED first, one
 behavior per commit. Order:
 
 - task-056 -- the engine skeleton, `bin/adhere`, `load_declaration`, and
   the engine's own architect tests; nothing else can start before it.
 - task-057 -- the Python code model; every check reads only this.
 - task-058 -- `measure`, the `Report`, the Hexagonal checks: the first
-  score that prints.
+  findings that print.
 - task-059 -- the design records as input and the Layered checks; Trace
   is the row the paper's remedy turns on.
 - task-060, task-061 -- the remaining target-level rule checks.

@@ -8,7 +8,7 @@ blocked_by: [task-068]
 implements: docs/design/ARCHITECTURE.ARCH-ADHERENCE.md
 ---
 `docs/ops/adhere.md` (install, stages, the hook switch, the CI caller,
-the declaration format with a worked example, drop tickets and floors,
+the declaration format with a worked example, exemptions,
 the ledger, kill switches, rollback, gotchas); `lmde/LMDE.md` listing
 `adhere` under the contract beside `decide`; and at the first release,
 `docs/arch/adherence/ARCHITECTURE.md` with every tuned value per stage

@@ -21,6 +21,6 @@ The rule parts of the three qualities, RED first against `measure`:
 
 `Vocabulary` carries what counts as a vendor, an environment read, a
 model id and a wire format per language; it ships with defaults and the
-declaration may extend it. Done when the three scores print over the
-fixture and each check's finding names what the design's row says it
+declaration may extend it. Done when the three qualities' findings print over
+the fixture and each check's finding names what the design's row says it
 names.
