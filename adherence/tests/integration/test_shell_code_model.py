@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Mapping
+from pathlib import Path
 
 from adherence.adapters.shell_astgrep import ShellCodeModel
+from adherence.domain.declaration import Declaration, parse_declaration
 from adherence.domain.model import Body, CodeModel, ImportEdge, Layer, UnitKind
 from adherence.ports.code_model import CodeModelPort
 from tests import shell_fixture
@@ -187,3 +189,34 @@ def test_a_file_the_grammar_cannot_read_is_unparsed_with_the_reason() -> None:
     assert reasons["bin/latin1"].startswith("not utf-8")
     assert reasons["../outside.sh"] == "the path leaves the repository; not read"
     assert {u.path for u in model.units} == {"bin/fine"}
+
+
+def test_the_repository_s_own_bin_is_modelled() -> None:
+    """Given every shell tool under this repository's bin/, by extension or
+    shebang, and a declaration naming bin/tds-release's markers, When they
+    are modelled, Then each tool is a file unit or unparsed with a reason,
+    and tds-release's functions sit in the layers its markers open, with
+    git among the tools it requires."""
+    bin_dir = Path(__file__).resolve().parents[3] / "bin"
+    sources = {
+        f"bin/{path}": data
+        for path, data in shell_fixture.sources_under(bin_dir).items()
+    }
+    declaration = parse_declaration(
+        b'[layers]\nregions = [{ file = "bin/tds-release" }]\n'
+    )
+    assert isinstance(declaration, Declaration)
+
+    model = ShellCodeModel().model(sources, declaration, shell_fixture.VOCABULARY, None)
+
+    assert isinstance(model, CodeModel), model
+    files = {u.path for u in model.units if u.kind is UnitKind.FILE}
+    unparsed = {u.path for u in model.unparsed if u.reason}
+    assert "bin/tds-release" in files
+    assert files | unparsed == set(sources)
+    release = "bin/tds-release"
+    layers = {u.symbol: u.layer for u in model.units if u.path == release}
+    assert layers["repo_root"] is Layer.ADAPTERS
+    assert layers["check_worktree_clean"] is Layer.APPLICATION
+    assert layers["main"] is Layer.COMPOSITION_ROOT
+    assert "git" in {e.imported for e in model.imports if e.path == release}
