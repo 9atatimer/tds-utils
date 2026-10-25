@@ -1,7 +1,7 @@
 """domain/checks/layered.py -- rules, workflow and wiring are three jobs.
 
-Trace and Purity's rule part (DESIGN.ARCH-ADHERENCE.md, The Qualities
-table: Layered), each a pure function over the CodeModel and the design
+Trace, Purity's rule part and Wiring (DESIGN.ARCH-ADHERENCE.md, The
+Qualities table: Layered), each a pure function over the CodeModel and the design
 records. Purity's judged part, whether a callable a domain function takes
 does I/O, is a question for the judge and reads as coverage here.
 """
@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
-from adherence.domain.checks.hexagonal import is_port
+from adherence.domain.checks.hexagonal import implements, is_fake, is_port
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.coverage import Coverage
-from adherence.domain.declaration import Declaration
+from adherence.domain.declaration import Declaration, Runtime, layer_of, matches
 from adherence.domain.finding import Evidence, Finding, normalised
 from adherence.domain.model import (
+    Call,
     CodeModel,
     Definition,
     Layer,
@@ -46,6 +48,19 @@ UNTRACEABLE = "the row has no nameable action (When) or observation (Then)"
 PURITY = catalog_check("Purity")
 NAME = re.compile(r"[A-Za-z_]\w*")
 DOES_IO_UNASKED = "the judged part (does_io) is not asked in this suite version"
+WIRING = catalog_check("Wiring")
+
+
+@dataclass(frozen=True, slots=True)
+class _Construction:
+    """One call that constructs a concrete adapter: the unit making it and
+    the layer of the line it is on."""
+
+    unit: Unit
+    layer: Layer | None
+    adapter: str
+    call: Call
+
 
 # A use case's home: its name and its parameter names, in order. The
 # keyword-only shape is not compared (architecture Q1 stays open).
@@ -185,17 +200,32 @@ def trace(
     return CheckOutcome(tuple(findings))
 
 
-def _port_names(model: CodeModel) -> frozenset[str]:
-    """The names of the ports the model defines."""
+def _methods(model: CodeModel) -> dict[tuple[str, str], list[Definition]]:
+    """Each type's methods, keyed by the type's path and symbol."""
     methods: dict[tuple[str, str], list[Definition]] = {}
     for d in model.definitions:
         if d.unit.kind is UnitKind.FUNCTION and d.parent is not None:
             methods.setdefault((d.unit.path, d.parent), []).append(d)
+    return methods
+
+
+def _own(
+    definition: Definition, methods: Mapping[tuple[str, str], list[Definition]]
+) -> list[Definition]:
+    return methods.get((definition.unit.path, definition.unit.symbol or ""), [])
+
+
+def _short(definition: Definition) -> str:
+    return (definition.unit.symbol or "").rpartition(".")[2]
+
+
+def _port_names(model: CodeModel) -> frozenset[str]:
+    """The names of the ports the model defines."""
+    methods = _methods(model)
     return frozenset(
-        (d.unit.symbol or "").rpartition(".")[2]
+        _short(d)
         for d in model.definitions
-        if d.unit.kind is UnitKind.TYPE
-        and is_port(d, methods.get((d.unit.path, d.unit.symbol or ""), []))
+        if d.unit.kind is UnitKind.TYPE and is_port(d, _own(d, methods))
     )
 
 
@@ -255,3 +285,99 @@ def purity(
         tuple(t for t in taken if isinstance(t, Finding)),
         tuple(t for t in taken if isinstance(t, Coverage)),
     )
+
+
+def _concrete_adapters(model: CodeModel, vocabulary: Vocabulary) -> frozenset[str]:
+    """The names of the concrete adapters: types in the adapters layer that
+    implement a port the model defines, over a mechanism, so not a fake."""
+    methods = _methods(model)
+    types = [d for d in model.definitions if d.unit.kind is UnitKind.TYPE]
+    ports = [t for t in types if is_port(t, _own(t, methods))]
+    return frozenset(
+        _short(t)
+        for t in types
+        if t.unit.layer is Layer.ADAPTERS
+        and not is_fake(t, vocabulary)
+        and any(implements(t, _own(t, methods), p, _own(p, methods)) for p in ports)
+    )
+
+
+def _constructions(
+    model: CodeModel, declaration: Declaration, adapters: frozenset[str]
+) -> list[_Construction]:
+    """Every call that constructs a concrete adapter, with the unit making it:
+    the definition it sits in, or its file at module level."""
+    units = {(d.unit.path, d.unit.symbol): d.unit for d in model.definitions}
+    found: list[_Construction] = []
+    for call in model.calls:
+        adapter = call.callee.rpartition(".")[2]
+        if adapter not in adapters:
+            continue
+        unit = units.get((call.path, call.within)) or model.unit_at(
+            call.path, call.line
+        )
+        if unit is None:
+            continue
+        layer = layer_of(call.path, call.line, declaration, model.regions)
+        found.append(_Construction(unit, layer, adapter, call))
+    return found
+
+
+def is_in_runtime(path: str, runtime: Runtime) -> bool:
+    """Whether a path is one of the runtime's units."""
+    return any(matches(pattern, path) for pattern in runtime.patterns)
+
+
+def _named(unit: Unit) -> str:
+    return f"{unit.path}:{unit.symbol}" if unit.symbol else unit.path
+
+
+def _roots(
+    runtime: Runtime, constructions: Sequence[_Construction]
+) -> dict[Unit, list[_Construction]]:
+    """The runtime's units that construct concrete adapters, in order; a
+    test is no part of a runtime."""
+    roots: dict[Unit, list[_Construction]] = {}
+    for c in sorted(constructions, key=lambda c: (c.unit.path, c.unit.start)):
+        if c.layer is not Layer.TEST and is_in_runtime(c.unit.path, runtime):
+            roots.setdefault(c.unit, []).append(c)
+    return roots
+
+
+def _second_root(
+    runtime: Runtime, roots: Mapping[Unit, Sequence[_Construction]]
+) -> Finding | None:
+    """A finding naming every root of a runtime that has more than one."""
+    if len(roots) < 2:
+        return None
+    first, second = list(roots)[:2]
+    call = roots[second][0].call
+    named = ", ".join(_named(u) for u in roots)
+    return Finding(
+        WIRING,
+        first,
+        roots[first][0].layer,
+        f"runtime {runtime.name}: {len(roots)} units construct concrete adapters: "
+        f"{named}",
+        Evidence(call.path, call.line, call.callee),
+    )
+
+
+def wiring(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """Per declared runtime, exactly one unit constructs concrete adapters."""
+    if not declaration.declared:
+        return undeclared(WIRING.name)
+    adapters = _concrete_adapters(model, parameters.vocabulary)
+    constructions = _constructions(model, declaration, adapters)
+    findings = [
+        finding
+        for runtime in declaration.runtimes
+        if (finding := _second_root(runtime, _roots(runtime, constructions)))
+        is not None
+    ]
+    return CheckOutcome(tuple(findings))

@@ -78,6 +78,15 @@ class RecordPaths:
 
 
 @dataclass(frozen=True, slots=True)
+class Runtime:
+    """A declared entry the repository can be run as, and the path patterns
+    of the units it is made of."""
+
+    name: str
+    patterns: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class Declaration:
     """A repository's statement of its layers, runtimes, records, radar and
     exemptions. Declaration.none is the value for a repository that has none.
@@ -88,6 +97,7 @@ class Declaration:
     exemptions: tuple[Exemption, ...] = ()
     refused_exemptions: tuple[RefusedExemption, ...] = ()
     records: RecordPaths | None = None
+    runtimes: tuple[Runtime, ...] = ()
 
     none: ClassVar[Declaration]
 
@@ -323,6 +333,23 @@ def _records(value: object) -> RecordPaths | DeclarationUnreadable:
     return RecordPaths(design=value["design"], architecture=value["architecture"])
 
 
+def _runtimes(value: object) -> tuple[Runtime, ...] | DeclarationUnreadable:
+    """The [runtimes] table, or why it cannot be read: each runtime names a
+    list of path patterns."""
+    if not isinstance(value, dict):
+        return DeclarationUnreadable(f"{DECLARATION_PATH}: runtimes is a table")
+    runtimes: list[Runtime] = []
+    for name, patterns in value.items():
+        if not isinstance(patterns, list) or not all(
+            isinstance(p, str) for p in patterns
+        ):
+            return DeclarationUnreadable(
+                f"{DECLARATION_PATH}: runtimes.{name} is a list of path patterns"
+            )
+        runtimes.append(Runtime(name, tuple(patterns)))
+    return tuple(runtimes)
+
+
 def refusal_notices(declaration: Declaration) -> tuple[Notice, ...]:
     """A notice per exemption the declaration states and the suite refuses,
     naming what it would exempt and why it is refused."""
@@ -365,6 +392,9 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
     records = _records(document["records"]) if "records" in document else None
     if isinstance(records, DeclarationUnreadable):
         return records
+    runtimes = _runtimes(document.get("runtimes", {}))
+    if isinstance(runtimes, DeclarationUnreadable):
+        return runtimes
     return Declaration(
         layers=layers,
         exemptions=tuple(e for e in exemptions if not is_declared_check(e.check)),
@@ -374,4 +404,5 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
             if is_declared_check(e.check)
         ),
         records=records,
+        runtimes=runtimes,
     )
