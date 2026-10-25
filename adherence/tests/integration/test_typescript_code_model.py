@@ -575,6 +575,32 @@ def test_a_file_that_does_not_parse_is_unparsed_and_the_rest_modelled() -> None:
     assert [d.unit.symbol for d in model.definitions] == ["f"]
 
 
+def test_a_file_missing_a_closing_token_is_unparsed_alone() -> None:
+    """Given files the parser repairs by inserting a missing token (an
+    unclosed block, parameter list, call and for-of header) beside a good
+    one, When they are modelled, Then each repaired file is Unparsed with
+    the line of its missing token and holds no unit, and the good file is
+    modelled."""
+    model = _model_of(
+        {
+            "block.ts": b"function f() {\n  return 1;\n",
+            "call.mjs": b"const a = 1;\ng(a, 2;\n",
+            "loop.ts": b"for (const k of ks {\n  use(k);\n}\n",
+            "params.ts": b"function g(x {\n  return x;\n}\n",
+            "fine.ts": b"export function ok(): number {\n  return 1;\n}\n",
+        }
+    )
+
+    reasons = {u.path: u.reason for u in model.unparsed}
+    assert sorted(reasons) == ["block.ts", "call.mjs", "loop.ts", "params.ts"]
+    assert "syntax error at line 3" in reasons["block.ts"]
+    assert "syntax error at line 2" in reasons["call.mjs"]
+    assert "syntax error at line 1" in reasons["loop.ts"]
+    assert "syntax error at line 1" in reasons["params.ts"]
+    assert {u.path for u in model.units} == {"fine.ts"}
+    assert [d.unit.symbol for d in model.definitions] == ["ok"]
+
+
 def test_a_file_nested_past_the_walk_is_unparsed_and_the_rest_modelled() -> None:
     """Given a file that parses but nests deeper than the analyzer can walk,
     When it is modelled with another file, Then that file is Unparsed and
