@@ -217,6 +217,7 @@ def _run_grimp(
     except subprocess.CalledProcessError as failed:
         complaint = failed.stderr.decode("utf-8", "replace").strip().splitlines()
         reason = complaint[-1] if complaint else f"exit {failed.returncode}"
+        reason = reason.replace(f"{root}/", "")
         raise ImportGraphFailed(f"the import graph failed: {reason}") from failed
     answer = json.loads(done.stdout)
     edges = [
@@ -237,10 +238,13 @@ def import_edges(
     """Every import edge of the parsed sources (grimp for package modules,
     ast for the rest) and the package files that could not be modelled.
     Raises ImportGraphFailed when grimp cannot answer."""
-    packages = _packages(sources)
-    modules = _modules(sources, packages)
+    # Only what parsed goes to grimp: one file that is not Python must not
+    # fail the graph of every file beside it.
+    parsed = {path: sources[path] for path in trees}
+    packages = _packages(parsed)
+    modules = _modules(parsed, packages)
     edges, shadowed = (
-        _grimp_edges(sources, packages, modules, deadline) if packages else ([], [])
+        _grimp_edges(parsed, packages, modules, deadline) if packages else ([], [])
     )
     unparsed = [
         Unparsed(path, SHADOWED)
