@@ -27,3 +27,8 @@ class FakeRepository:
     ) -> bytes | Absent | Refused | TimedOut:
         found = self._files.get(at, {}).get(path)
         return Absent(path) if found is None else found
+
+    def tree(
+        self, at: Base | Head, deadline: Deadline | None
+    ) -> tuple[str, ...] | TimedOut:
+        return tuple(sorted(self._files.get(at, {})))

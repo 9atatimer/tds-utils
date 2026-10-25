@@ -45,9 +45,7 @@ def _write(root: Path, files: Files) -> None:
         (root / path).write_bytes(data)
 
 
-def make_repository(
-    root: Path, *, base: Files, staged: Files, working: Files
-) -> Base:
+def make_repository(root: Path, *, base: Files, staged: Files, working: Files) -> Base:
     _git(root.parent, "init", "-q", "-b", "master", str(root))
     _write(root, base)
     _git(root, "add", "-A")
