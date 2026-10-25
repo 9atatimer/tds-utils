@@ -360,3 +360,18 @@ def test_references_are_names_types_and_strings_but_not_specifiers() -> None:
     assert not any(
         r[0] == "lib/tool/run.ts" and r[3] == "closeOrder" for r in references
     )
+
+
+def test_calls_name_their_callee_and_the_definition_they_sit_in() -> None:
+    """Given function, method and constructor calls, and a chain broken over
+    lines, When they are modelled, Then each call names its callee as
+    written (the chain joined up), its line, and the definition it sits in."""
+    calls = {(c.path, c.within, c.callee, c.line) for c in fixture_model().calls}
+    chained = _model_of({"m.ts": b"function f() {\n  a\n    .b\n    .c(1);\n}\n"})
+
+    run = "lib/tool/run.ts"
+    assert (run, "closeOrder", "sleep", 8) in calls
+    assert (run, "closeOrder", "deps.store.save", 9) in calls
+    assert (run, "closeOrder", "classify", 13) in calls
+    assert ("lib/tool/rules.ts", "unfinished", "NotImplementedError", 21) in calls
+    assert [(c.within, c.callee, c.line) for c in chained.calls] == [("f", "a.b.c", 2)]
