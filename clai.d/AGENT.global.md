@@ -284,11 +284,18 @@ through:
 - The human leaves auto mode.
 
 Say that once, give the exact `!` line, and stop. Never route around the
-refusal with another tool. For Terraform the agent plans, the human applies:
-run `plan -out=tfplan`, review it, then hand over
-`! op run ... terraform apply tfplan` so the output lands in the
-conversation. The iac skill owns the authority model; `/infra-handoff`
-writes the block.
+refusal with another tool. For Terraform the agent plans, the human applies,
+and **the Terraform Tower is the first path** (owner, 2026-10-25). For a root
+the infra repo's `atlantis.yaml` serves, the plan runs on the PR (autoplan,
+or `atlantis plan`), and the human applies by commenting `atlantis apply -p
+<name>` on that PR; the infra repo's AGENT.md says which applies an agent
+may comment itself. A routine-apply root the Tower does not serve yet is
+declared to it in the same PR, not handed to the laptop. Only a root the
+Tower cannot serve (credential minting, `import`, a root that needs a
+human's own token) takes the laptop path: run `plan -out=tfplan`, review
+it, then hand over `! op run ... terraform apply tfplan` so the output
+lands in the conversation. The iac skill owns the authority model;
+`/infra-handoff` writes the block.
 
 ## Never use Artifacts: HTML is a file in the repo
 
