@@ -19,6 +19,15 @@ from adherence.domain.parameters import Vocabulary
 
 # A dotted name inside an annotation's text (`Mapping[str, tool.Store]`).
 ANNOTATION_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
+# A subscripted name inside an annotation's text (`typing.Literal[`).
+SUBSCRIPTED = re.compile(
+    r"\b([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\["
+)
+# The subscripts whose arguments are values, not types: a literal's
+# contents, and an annotation's metadata after its first argument.
+LITERAL = "Literal"
+ANNOTATED = "Annotated"
+QUOTES = frozenset("\"'")
 PRIVATE = "_"
 
 # --- Predicates --------------------------------------------------------------
@@ -74,9 +83,74 @@ def enclosing_function(
     return None
 
 
+def _closing(text: str, opening: int) -> int:
+    """The index of the bracket closing the one at `opening`, skipping
+    quoted text; the text's length when it is never closed."""
+    depth = 0
+    quote: str | None = None
+    for index in range(opening, len(text)):
+        ch = text[index]
+        if quote is not None:
+            quote = None if ch == quote else quote
+        elif ch in QUOTES:
+            quote = ch
+        elif ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                return index
+    return len(text)
+
+
+def _first_argument_end(text: str, start: int, end: int) -> int:
+    """The index ending a subscript's first argument: its first top-level
+    comma between start and end, or end."""
+    depth = 0
+    quote: str | None = None
+    for index in range(start, end):
+        ch = text[index]
+        if quote is not None:
+            quote = None if ch == quote else quote
+        elif ch in QUOTES:
+            quote = ch
+        elif ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            return index
+    return end
+
+
+def type_text(annotation: str) -> str:
+    """An annotation's text with every value in it removed: a literal's
+    contents (`Literal["fast"]` -> `Literal`) and an annotation's metadata
+    (`Annotated[Order, "memo"]` -> `Annotated[Order]`). A quoted forward
+    reference elsewhere is a type's name and stays."""
+    kept: list[str] = []
+    at = 0
+    while (match := SUBSCRIPTED.search(annotation, at)) is not None:
+        name = short_name(match.group(1))
+        if name not in (LITERAL, ANNOTATED):
+            kept.append(annotation[at : match.end()])
+            at = match.end()
+            continue
+        opening = match.end() - 1
+        closing = _closing(annotation, opening)
+        kept.append(annotation[at : match.end(1)])
+        if name == ANNOTATED:
+            first = _first_argument_end(annotation, opening + 1, closing)
+            kept.append(f"[{type_text(annotation[opening + 1 : first])}]")
+        at = closing + 1
+    kept.append(annotation[at:])
+    return "".join(kept)
+
+
 def annotation_names(annotation: str | None) -> tuple[str, ...]:
-    """Every dotted name an annotation's text carries, in order."""
-    return tuple(ANNOTATION_NAME.findall(annotation or ""))
+    """Every dotted name an annotation's text carries, in order: the names
+    of types, never a literal's contents or an annotation's metadata."""
+    return tuple(ANNOTATION_NAME.findall(type_text(annotation or "")))
 
 
 def _methods(model: CodeModel) -> dict[tuple[str, str], list[Definition]]:
