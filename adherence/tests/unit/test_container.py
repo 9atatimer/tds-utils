@@ -69,3 +69,16 @@ def test_build_with_every_port_faked_binds_the_fakes(tmp_path: Path) -> None:
         built = build(stage, root=str(tmp_path), **overrides)
         for name, fake in overrides.items():
             assert getattr(built, name) is fake, (stage, name)
+
+
+def test_build_binds_an_analyzer_for_every_measured_language(tmp_path: Path) -> None:
+    """Given no analyzer override, When the composition root is built, Then
+    every language the suite measures has an analyzer, and TypeScript and
+    JavaScript share one, so an import from one to the other resolves."""
+    built = build(Stage.LAPTOP, root=str(tmp_path))
+
+    assert set(built.analyzers) == set(CodeLanguage)
+    assert (
+        built.analyzers[CodeLanguage.TYPESCRIPT]
+        is built.analyzers[CodeLanguage.JAVASCRIPT]
+    )
