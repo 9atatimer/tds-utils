@@ -19,26 +19,16 @@ severity: hint
 rule:
   kind: function_definition
 ---
-# A command run by a plain name; the adapter keeps the tools among them,
-# leaving builtins and the sources' own functions out.
+# `source` or `.` with the file it reads, as written; the adapter says
+# which source, if any, that is.
 id: import
 language: Bash
 severity: hint
 rule:
   kind: command
-  has:
-    field: name
-    has: {kind: word, pattern: $SOURCE}
----
-# The command `command` or `exec` runs: its first argument not an option.
-id: import.wrapped
-language: Bash
-severity: hint
-rule:
-  kind: command
-  has: {field: name, regex: '^(command|exec)$'}
+  has: {field: name, regex: '^(source|\.)$'}
   all:
-    - has: {field: argument, kind: word, not: {regex: '^-'}, pattern: $SOURCE}
+    - has: {field: argument, pattern: $SOURCE}
 ---
 id: body
 language: Bash
@@ -70,6 +60,16 @@ severity: hint
 rule:
   kind: command
   has: {field: name, pattern: $CALLEE}
+---
+# The command `command` or `exec` runs: its first argument not an option.
+id: call.wrapped
+language: Bash
+severity: hint
+rule:
+  kind: command
+  has: {field: name, regex: '^(command|exec)$'}
+  all:
+    - has: {field: argument, kind: word, not: {regex: '^-'}, pattern: $CALLEE}
 ---
 id: syntax-error
 language: Bash
