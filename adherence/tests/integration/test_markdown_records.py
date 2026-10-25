@@ -13,6 +13,7 @@ from hypothesis import strategies as st
 
 from adherence.adapters.fakes import FakeRepository
 from adherence.adapters.markdown_records import MarkdownRecords, parse_records
+from adherence.domain.checks.layered import is_traceable
 from adherence.domain.declaration import Declaration, parse_declaration
 from adherence.domain.model import Parameter
 from adherence.domain.records import (
@@ -257,6 +258,22 @@ def test_records_of_the_engines_own_design_are_read_whole() -> None:
     assert all(p.keyword_only for p in measure.signature.parameters[2:])
     assert "Quality" in {t.name for t in records.terms}
     assert "RepositoryPort" in {s.name for s in records.seams}
+
+
+def test_records_of_the_engines_own_design_state_no_untraceable_row() -> None:
+    """Given the engine's own approved design record, When its behaviors are
+    parsed, Then every row names an action and an observation -- a row whose
+    When clause names the check Then asserted included."""
+    design = "docs/design/DESIGN.ARCH-ADHERENCE.md"
+    records = parse_records(
+        design_path=design,
+        design=(ENGINE_RECORDS / "DESIGN.ARCH-ADHERENCE.md").read_text(),
+        architecture_path="docs/design/ARCHITECTURE.ARCH-ADHERENCE.md",
+        architecture="",
+    )
+
+    assert len(records.behaviors) > 50
+    assert [b.name for b in records.behaviors if not is_traceable(b.scenario)] == []
 
 
 RECORD_TEXT = st.text(

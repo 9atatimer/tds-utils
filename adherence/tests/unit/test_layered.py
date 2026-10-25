@@ -195,6 +195,44 @@ def test_measure_behavior_row_naming_no_action_or_observation_is_found() -> None
     assert untraceable["Orders exist"].evidence.line == 20
 
 
+def _one_row(scenario: str) -> DesignRecords:
+    """Records stating one behavior with that scenario, carried by its use
+    case, so only the row's own text can make it untraceable."""
+    return DesignRecords(
+        behaviors=(Behavior(CLOSED, scenario, DESIGN, 9),),
+        use_cases=(
+            UseCase(
+                "close_order", Signature(_parameters("order"), None), ARCHITECTURE, 3
+            ),
+        ),
+        surface=(SurfaceRow(CLOSED, "close_order", ARCHITECTURE, 3),),
+    )
+
+
+def _traced(scenario: str) -> list[Finding]:
+    facts = CodeModel(
+        definitions=(_function(USE, "close_order", _parameters("order")),)
+    )
+    report = measure_with({USE: b"x = 1\n"}, facts, records=_one_row(scenario))
+    return _of(report, "Trace")
+
+
+# DESIGN.ARCH-ADHERENCE.md, Behaviors: "A test that skips the Then is found".
+SKIPS_THE_THEN = (
+    "Given a kept test that calls its use case but does not assert the row's "
+    "Then, When Then asserted runs and the judge's answer is above its "
+    "threshold, Then a finding names the test and the behavior, with its "
+    "confidence"
+)
+
+
+def test_measure_row_whose_when_names_the_word_then_is_traced() -> None:
+    """Given the approved row "A test that skips the Then is found", whose
+    When clause names the check Then asserted, carried by its use case, When
+    Trace runs, Then the row is read whole and there is no Trace finding."""
+    assert _traced(SKIPS_THE_THEN) == []
+
+
 STORE = "src/app/ports/store.py"
 
 
