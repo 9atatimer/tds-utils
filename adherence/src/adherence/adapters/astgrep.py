@@ -248,9 +248,9 @@ def parse_match(record: Mapping[str, object], tree: str) -> Match:
     assert isinstance(single, dict)
     captures = {
         name: Capture(
-            str(value["text"]),
-            int(value["range"]["byteOffset"]["start"]),
-            int(value["range"]["byteOffset"]["end"]),
+            text=str(value["text"]),
+            start=int(value["range"]["byteOffset"]["start"]),
+            end=int(value["range"]["byteOffset"]["end"]),
         )
         for name, value in single.get("single", {}).items()
     }
@@ -395,15 +395,21 @@ def _signatures(file: _File, vocabulary: Vocabulary) -> dict[Span, Signature]:
         written = [m for m in member_types if parameter.holds(m)] if annotation else []
         given = [
             Parameter(
-                member_name,
-                _member_type(member_name, annotation, written),
-                True,
-                has_default or (member.start, member.end) in member_defaults,
+                name=member_name,
+                annotation=_member_type(member_name, annotation, written),
+                keyword_only=True,
+                has_default=has_default
+                or (member.start, member.end) in member_defaults,
             )
             for member in members.get(span, [])
             if (member_name := member.captured(NAME)) is not None
         ] or [
-            Parameter(name, annotation, name in vocabulary.options_objects, has_default)
+            Parameter(
+                name=name,
+                annotation=annotation,
+                keyword_only=name in vocabulary.options_objects,
+                has_default=has_default,
+            )
         ]
         found.setdefault((owner.start, owner.end), []).extend(given)
     returns = _spans(file.of(RETURNS))
@@ -515,12 +521,12 @@ def definitions(
     return [
         Definition(
             unit=Unit(
-                file.path,
-                d.kind,
-                d.symbol,
-                d.match.line,
-                d.match.end_line,
-                layer_of(file.path, d.match.line, declaration, regions),
+                path=file.path,
+                kind=d.kind,
+                symbol=d.symbol,
+                start=d.match.line,
+                end=d.match.end_line,
+                layer=layer_of(file.path, d.match.line, declaration, regions),
             ),
             signature=signatures.get((d.match.start, d.match.end))
             if d.kind is UnitKind.FUNCTION
@@ -539,7 +545,13 @@ def imports(file: _File, lines: Sequence[str]) -> list[ImportEdge]:
     """The imports of one file: the module as written, the line and its
     text; which file each resolves to is the language adapter's to say."""
     return [
-        ImportEdge(file.path, source, m.line, lines[m.line - 1].strip(), None)
+        ImportEdge(
+            path=file.path,
+            imported=source,
+            line=m.line,
+            text=lines[m.line - 1].strip(),
+            imported_path=None,
+        )
         for m in file.of(IMPORT)
         if (source := m.captured(SOURCE)) is not None
     ]
@@ -561,7 +573,10 @@ def references(file: _File) -> list[Reference]:
 
 def calls(file: _File) -> list[Call]:
     """Every function and constructor call, with the definition it sits in."""
-    return [Call(file.path, m.line, file.within(m), _callee(m)) for m in file.of(CALL)]
+    return [
+        Call(path=file.path, line=m.line, within=file.within(m), callee=_callee(m))
+        for m in file.of(CALL)
+    ]
 
 
 def accesses(file: _File, vocabulary: Vocabulary) -> list[Access]:
@@ -584,11 +599,11 @@ def writes(file: _File) -> list[Write]:
     with the definition that makes it."""
     return [
         Write(
-            file.path,
-            m.line,
-            file.within(m),
-            m.captured(OBJECT) or "",
-            m.captured(FIELD) or "",
+            path=file.path,
+            line=m.line,
+            within=file.within(m),
+            target=m.captured(OBJECT) or "",
+            field=m.captured(FIELD) or "",
         )
         for m in file.of(WRITE)
     ]
@@ -634,7 +649,10 @@ def conditionals(file: _File) -> list[Conditional]:
             tests = discriminants(m.captures[CONDITION], found)
         else:
             tests = [m.captured(SUBJECT) or ""]
-        branches.extend(Conditional(file.path, m.line, within, test) for test in tests)
+        branches.extend(
+            Conditional(path=file.path, line=m.line, within=within, discriminant=test)
+            for test in tests
+        )
     return branches
 
 
@@ -654,7 +672,13 @@ def members(file: _File) -> list[Member]:
         name = m.captured(NAME)
         if holder is not None and name is not None:
             owner = by_span[(holder.start, holder.end)]
-            member = Member(file.path, owner.symbol, name, kinds[m.fact], m.line)
+            member = Member(
+                path=file.path,
+                owner=owner.symbol,
+                name=name,
+                kind=kinds[m.fact],
+                line=m.line,
+            )
             first.setdefault((owner.symbol, name), member)
     return list(first.values())
 
@@ -681,11 +705,11 @@ def test_cases(file: _File, vocabulary: Vocabulary) -> list[TestCase]:
         ]
         cases.append(
             TestCase(
-                file.path,
-                _title(m.captured(TITLE) or ""),
-                m.line,
-                tuple(_callee(c) for c in inside if c not in asserting),
-                tuple(joined(a.text) for a in outermost),
+                path=file.path,
+                symbol=_title(m.captured(TITLE) or ""),
+                line=m.line,
+                calls=tuple(_callee(c) for c in inside if c not in asserting),
+                assertions=tuple(joined(a.text) for a in outermost),
             )
         )
     return cases
@@ -703,7 +727,12 @@ def file_model(
     say which file each resolves to only once the language adapter has."""
     lines = source_lines(data.decode("utf-8", "replace"))
     file_unit = Unit(
-        path, UnitKind.FILE, None, 1, len(lines), layer_of(path, None, declaration)
+        path=path,
+        kind=UnitKind.FILE,
+        symbol=None,
+        start=1,
+        end=len(lines),
+        layer=layer_of(path, None, declaration),
     )
     file = _index(path, matches)
     found = definitions(file, declaration, regions, vocabulary)

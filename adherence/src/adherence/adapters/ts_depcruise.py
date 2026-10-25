@@ -95,12 +95,12 @@ def _readable(
     unreadable: list[Unparsed] = []
     for path in sorted(sources):
         if not stays_inside(path):
-            unreadable.append(Unparsed(path, LEAVES))
+            unreadable.append(Unparsed(path=path, reason=LEAVES))
             continue
         try:
             sources[path].decode("utf-8")
         except UnicodeDecodeError as error:
-            unreadable.append(Unparsed(path, f"not utf-8: {error}"))
+            unreadable.append(Unparsed(path=path, reason=f"not utf-8: {error}"))
             continue
         readable[path] = sources[path]
     return readable, unreadable
@@ -227,7 +227,9 @@ class TypeScriptCodeModel:
         except ScanFailed as failure:
             if failure.timed_out:
                 return TimedOut(str(failure))
-            unparsed.extend(Unparsed(path, str(failure)) for path in readable)
+            unparsed.extend(
+                Unparsed(path=path, reason=str(failure)) for path in readable
+            )
             return CodeModel(unparsed=tuple(sorted(unparsed, key=lambda u: u.path)))
         found = tuple(
             region
@@ -240,7 +242,7 @@ class TypeScriptCodeModel:
         declared = tuple(r for r in declaration.layers.regions if r.path in sources)
         errors = syntax_errors(matches)
         unparsed.extend(
-            Unparsed(path, f"not TypeScript: syntax error at line {line}")
+            Unparsed(path=path, reason=f"not TypeScript: syntax error at line {line}")
             for path, line in sorted(errors.items())
         )
         parsed = {p: data for p, data in readable.items() if p not in errors}
@@ -262,7 +264,7 @@ class TypeScriptCodeModel:
                     )
                 )
             except RecursionError:
-                unparsed.append(Unparsed(path, NESTED_TOO_DEEPLY))
+                unparsed.append(Unparsed(path=path, reason=NESTED_TOO_DEEPLY))
         parsed = {p: data for p, data in parsed.items() if p not in _paths(unparsed)}
         edges = [edge for f in files for edge in f.imports]
         resolved: Resolved = {}
@@ -274,7 +276,7 @@ class TypeScriptCodeModel:
         except CruiseFailed as failure:
             if failure.timed_out:
                 return TimedOut(str(failure))
-            unparsed.extend(Unparsed(path, str(failure)) for path in parsed)
+            unparsed.extend(Unparsed(path=path, reason=str(failure)) for path in parsed)
         return merged(
             files,
             imports=_resolve(edges, resolved, parsed),
