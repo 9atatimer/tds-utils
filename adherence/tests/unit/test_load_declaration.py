@@ -39,7 +39,7 @@ def test_load_declaration_with_no_declaration_returns_none() -> None:
     [
         (b"[layers\n", "line 1"),
         (b"\xff\xfe not utf-8", "utf-8"),
-        (b'[surprise]\nx = 1\n', "surprise"),
+        (b"[surprise]\nx = 1\n", "surprise"),
         (b'[[exemptions]]\ncheck = "Stub"\nunit = "bin/x"\n', "reason"),
         (b'[[exemptions]]\nunit = "bin/x"\nreason = "legacy"\n', "check"),
         (b'exemptions = "Stub"\n', "exemptions"),
