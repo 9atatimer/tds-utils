@@ -1,0 +1,6 @@
+# The shell code model's fixture: a one-file tool shaped like
+# bin/tds-release, and the library it sources.
+
+[layers]
+adapters = ["lib/**"]
+regions = [{ file = "bin/tool" }]

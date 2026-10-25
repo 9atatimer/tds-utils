@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# tool -- advance a marker to a reviewed commit; a one-file tool shaped
+# like bin/tds-release.
+#
+# Usage: tool [-n] [<repo>]
+
+set -euo pipefail
+
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+
+die()  { echo "tool: $*" >&2; exit 1; }
+
+# --- Action functions ---
+
+# head_of <repo> -- the commit HEAD names.
+head_of() {
+    git -C "$1" rev-parse HEAD
+}
+
+# wait_for_lock -- stands in for waiting on the lock it never takes.
+wait_for_lock() {
+    sleep 1
+}
+
+# pending -- never written.
+pending() { :; }
+
+# --- Flow functions ---
+
+check_clean() {
+    local dirt
+    dirt="$(git -C "$1" status --porcelain | head -n 1)"
+    [ -z "${dirt}" ] || die "dirty: $1"
+}
+
+advance() {
+    check_clean "$1"
+    wait_for_lock
+    log_line "advancing $1"
+    command jq -n --arg h "$(head_of "$1")" '$h'
+}
+
+# --- Main ---
+
+main() {
+    local opt
+    while getopts ':n' opt; do
+        case "${opt}" in
+            n) ;;
+            *) die "unknown option: -${OPTARG}" ;;
+        esac
+    done
+    shift $((OPTIND - 1))
+    advance "${1:-.}"
+}
+
+main "$@"
