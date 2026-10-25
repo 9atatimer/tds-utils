@@ -82,3 +82,11 @@ def test_build_binds_an_analyzer_for_every_measured_language(tmp_path: Path) -> 
         built.analyzers[CodeLanguage.TYPESCRIPT]
         is built.analyzers[CodeLanguage.JAVASCRIPT]
     )
+
+
+def test_build_measures_shell(tmp_path: Path) -> None:
+    """Given no analyzer override, When the composition root is built, Then
+    shell is a measured language with an analyzer bound, as G11 names it."""
+    built = build(Stage.LAPTOP, root=str(tmp_path))
+
+    assert CodeLanguage.SHELL in built.analyzers
