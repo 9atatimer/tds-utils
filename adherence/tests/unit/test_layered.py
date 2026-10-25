@@ -414,3 +414,19 @@ def test_measure_file_whose_regions_run_out_of_order_is_found() -> None:
     assert disorder.evidence.line == 11
     assert disorder.layer is Layer.DOMAIN
     assert "domain" in disorder.subject and "composition root" in disorder.subject
+
+
+def test_measure_declaration_with_no_runtime_covers_wirings_per_runtime_half() -> None:
+    """Given a declaration that declares no runtime, When Wiring runs, Then
+    its per-runtime half is coverage saying why, never a clean result, and
+    the half that needs no runtime still finds a construction below the root."""
+    definitions = _wired(_function(USE, "close_order", _parameters("order"), line=5))
+    calls = (Call(USE, 6, "close_order", "FsStore"),)
+    files = {path: b"x\n" for path in (STORE, FS, USE)}
+    unwired = WIRED.split(b"[runtimes]")[0]
+
+    report = measure_with(files, _wiring_facts(definitions, calls), declared(unwired))
+
+    assert [f.unit.symbol for f in _of(report, "Wiring")] == ["close_order"]
+    (half,) = (c for c in report.coverage if c.check == "Wiring")
+    assert "runtime" in half.reason
