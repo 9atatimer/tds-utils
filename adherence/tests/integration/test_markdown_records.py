@@ -8,8 +8,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from hypothesis import given
+from hypothesis import strategies as st
+
 from adherence.adapters.fakes import FakeRepository
-from adherence.adapters.markdown_records import MarkdownRecords
+from adherence.adapters.markdown_records import MarkdownRecords, parse_records
 from adherence.domain.declaration import Declaration, parse_declaration
 from adherence.domain.model import Parameter
 from adherence.domain.records import (
@@ -254,3 +257,25 @@ def test_records_of_the_engines_own_design_are_read_whole() -> None:
     assert all(p.keyword_only for p in measure.signature.parameters[2:])
     assert "Quality" in {t.name for t in records.terms}
     assert "RepositoryPort" in {s.name for s in records.seams}
+
+
+RECORD_TEXT = st.text(
+    alphabet=st.sampled_from(list("|`*-#:()[],=\\\n abcWhenThen_>.")), max_size=400
+)
+
+
+@given(design=RECORD_TEXT, architecture=RECORD_TEXT)
+def test_records_of_any_markdown_are_read_without_raising(
+    design: str, architecture: str
+) -> None:
+    """Given any text at all as a design and an architecture record (records
+    are untrusted data), When they are parsed, Then the answer is
+    DesignRecords, never an error."""
+    records = parse_records(
+        design_path=DESIGN,
+        design=design,
+        architecture_path=ARCHITECTURE,
+        architecture=architecture,
+    )
+
+    assert isinstance(records, DesignRecords)
