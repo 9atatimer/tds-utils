@@ -10,7 +10,7 @@ from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from adherence.domain.checks.outcome import CheckOutcome
+from adherence.domain.checks.outcome import NEEDS_DECLARATION, CheckOutcome, undeclared
 from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.finding import Evidence, Finding
@@ -118,6 +118,8 @@ def grep(
 ) -> CheckOutcome:
     """No domain or application unit names a vendor, an SDK, the
     environment, the filesystem, the network, or a model id."""
+    if not declaration.declared:
+        return undeclared(GREP.name)
     findings: list[Finding] = []
     for hit in _mechanisms(model, parameters.vocabulary):
         layer = layer_of(hit.path, hit.line, declaration, model.regions)
@@ -275,7 +277,11 @@ def arrow(
     records: DesignRecords | RecordsUnavailable,
     parameters: Parameters,
 ) -> CheckOutcome:
-    """Every import crosses inward and no import cycle exists."""
+    """Every import crosses inward and no import cycle exists. The cycle half
+    needs no declaration; the inward half compares declared layers."""
+    if not declaration.declared:
+        inward = Coverage(f"the inward half {NEEDS_DECLARATION}", check=ARROW.name)
+        return CheckOutcome(tuple(_cycles(model, declaration)), (inward,))
     return CheckOutcome((*_outward(model, declaration), *_cycles(model, declaration)))
 
 
@@ -341,6 +347,8 @@ def swap(
     parameters: Parameters,
 ) -> CheckOutcome:
     """Every port has at least one fake, anywhere in the repository."""
+    if not declaration.declared:
+        return undeclared(SWAP.name)
     methods = _methods(model)
     types = _types(model)
     findings: list[Finding] = []
@@ -385,6 +393,8 @@ def change(
     """Every seam the architecture record names exists as exactly one port,
     policy or parameter: one type of that name outside the adapters and the
     tests."""
+    if not declaration.declared:
+        return undeclared(CHANGE.name)
     if isinstance(records, RecordsUnavailable):
         return CheckOutcome(
             coverage=(Coverage(records.reason, check="Change"),), ran=False

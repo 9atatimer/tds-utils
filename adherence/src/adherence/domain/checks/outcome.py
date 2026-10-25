@@ -17,6 +17,10 @@ from adherence.domain.model import CodeModel
 from adherence.domain.parameters import Parameters
 from adherence.domain.records import DesignRecords, RecordsUnavailable
 
+# --- Constants ---------------------------------------------------------------
+
+NEEDS_DECLARATION = "needs a declaration; the repository has none"
+
 # --- Values ------------------------------------------------------------------
 
 
@@ -34,3 +38,11 @@ CheckFunction = Callable[
     [CodeModel, Declaration, DesignRecords | RecordsUnavailable, Parameters],
     CheckOutcome,
 ]
+
+
+# --- Pure helpers ------------------------------------------------------------
+
+
+def undeclared(check: str) -> CheckOutcome:
+    """The outcome of a check that needs a declaration the repository lacks."""
+    return CheckOutcome(coverage=(Coverage(NEEDS_DECLARATION, check=check),), ran=False)
