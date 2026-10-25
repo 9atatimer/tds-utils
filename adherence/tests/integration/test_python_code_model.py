@@ -457,3 +457,17 @@ def test_a_file_nested_past_the_walk_is_unparsed_and_the_rest_modelled() -> None
 
     assert [u.path for u in model.unparsed] == ["deep.py"]
     assert any(d.unit.symbol == "f" for d in model.definitions)
+
+
+def test_model_past_the_deadline_between_files_times_out() -> None:
+    """Given a deadline that passes after the run has started, When the
+    files are modelled, Then the answer is TimedOut rather than an overrun."""
+    clock = iter([0.0, 10.0, 20.0, 30.0])
+    model = PythonCodeModel(clock=lambda: next(clock, 99.0)).model(
+        {"a.py": b"x = 1\n", "b.py": b"y = 2\n"},
+        python_fixture.declaration(),
+        python_fixture.VOCABULARY,
+        Deadline(epoch_seconds=5.0),
+    )
+
+    assert isinstance(model, TimedOut)
