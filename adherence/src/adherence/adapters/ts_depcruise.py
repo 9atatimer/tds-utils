@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import posixpath
 import shutil
 import subprocess
 import tempfile
@@ -62,15 +63,21 @@ CRUISER = (
 
 NESTED_TOO_DEEPLY = "nested deeper than the analyzer can walk"
 LEAVES = "the path leaves the repository; not read"
+# dependency-cruiser names the file it could not extract on a line of its own.
+CULPRIT_PREFIX = "... in "
+CRUISER_HEADER = "ERROR:"
 
 
 class CruiseFailed(Exception):
     """dependency-cruiser, or the node it runs on, could not answer, or ran
-    past the deadline."""
+    past the deadline; with the source it could not read, when it names one."""
 
-    def __init__(self, reason: str, *, timed_out: bool = False) -> None:
+    def __init__(
+        self, reason: str, *, timed_out: bool = False, culprit: str | None = None
+    ) -> None:
         super().__init__(reason)
         self.timed_out = timed_out
+        self.culprit = culprit
 
 
 Resolved = dict[tuple[str, str], str]
@@ -84,6 +91,11 @@ def _passed(deadline: Deadline | None, now: float) -> bool:
 
 def _paths(unparsed: Sequence[Unparsed]) -> set[str]:
     return {u.path for u in unparsed}
+
+
+def _without(files: Sequence[CodeModel], paths: set[str]) -> list[CodeModel]:
+    """The per-file models but those of the paths given."""
+    return [f for f in files if not ({u.path for u in f.units} & paths)]
 
 
 def _readable(
@@ -104,6 +116,28 @@ def _readable(
             continue
         readable[path] = sources[path]
     return readable, unreadable
+
+
+def culprit_of(complaint: Sequence[str]) -> str | None:
+    """The repository path of the source dependency-cruiser says it could
+    not extract (printed relative to the copy it ran in), if it names one
+    inside the copy."""
+    for line in complaint:
+        if line.startswith(CULPRIT_PREFIX):
+            path = posixpath.normpath(line.removeprefix(CULPRIT_PREFIX).strip())
+            return path if stays_inside(path) else None
+    return None
+
+
+def cause_of(complaint: Sequence[str], culprit: str) -> str:
+    """Why dependency-cruiser could not read a source, naming it."""
+    causes = [
+        line
+        for line in complaint
+        if not line.startswith((CULPRIT_PREFIX, CRUISER_HEADER))
+    ]
+    because = f": {causes[0]}" if causes else ""
+    return f"dependency-cruiser could not read {culprit}{because}"
 
 
 def _resolved(answer: Mapping[str, object]) -> Resolved:
@@ -228,10 +262,45 @@ def _cruise(
         except subprocess.TimeoutExpired as expired:
             raise CruiseFailed("resolve the imports", timed_out=True) from expired
         except subprocess.CalledProcessError as failed:
-            complaint = failed.stderr.decode("utf-8", "replace").strip().splitlines()
+            complaint = [
+                line.strip()
+                for line in failed.stderr.decode("utf-8", "replace").splitlines()
+                if line.strip()
+            ]
+            culprit = culprit_of(complaint)
+            if culprit is not None:
+                raise CruiseFailed(
+                    cause_of(complaint, culprit), culprit=culprit
+                ) from failed
             reason = complaint[0] if complaint else f"exit {failed.returncode}"
             raise CruiseFailed(f"dependency-cruiser failed: {reason}") from failed
     return _resolved(json.loads(done.stdout))
+
+
+def _cruise_around(
+    sources: Mapping[str, bytes],
+    *,
+    cruiser: Path,
+    deadline: Deadline | None,
+    clock: Callable[[], float],
+) -> tuple[Resolved, list[Unparsed]]:
+    """Where each import resolves, cruising again without each source the
+    cruiser names as one it cannot read, and why each of those is not read;
+    one such source never costs the rest their imports."""
+    left = dict(sources)
+    dropped: list[Unparsed] = []
+    while left:
+        try:
+            return (
+                _cruise(left, cruiser=cruiser, deadline=deadline, clock=clock),
+                dropped,
+            )
+        except CruiseFailed as failure:
+            if failure.culprit not in left:
+                raise
+            dropped.append(Unparsed(path=failure.culprit, reason=str(failure)))
+            del left[failure.culprit]
+    return {}, dropped
 
 
 # --- Adapter -----------------------------------------------------------------
@@ -291,9 +360,13 @@ class TypeScriptCodeModel:
         resolved: Resolved = {}
         try:
             if edges:
-                resolved = _cruise(
+                resolved, unread = _cruise_around(
                     parsed, cruiser=self._cruiser, deadline=deadline, clock=self._clock
                 )
+                unparsed.extend(unread)
+                files = _without(files, _paths(unread))
+                edges = [e for e in edges if e.path not in _paths(unread)]
+                parsed = {p: d for p, d in parsed.items() if p not in _paths(unread)}
         except CruiseFailed as failure:
             if failure.timed_out:
                 return TimedOut(str(failure))
