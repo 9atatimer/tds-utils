@@ -34,6 +34,7 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "No reach": injectable.no_reach,
     "Language": ddd.language,
     "Boundary": ddd.boundary,
+    "Anemic": ddd.anemic,
 }
 CHANGE_LEVEL = "a change-level check: it runs when a change is judged"
 NOT_IN_SUITE = "not implemented in this suite version"

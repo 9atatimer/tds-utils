@@ -26,6 +26,7 @@ from adherence.domain.finding import Evidence, Finding
 from adherence.domain.model import (
     CodeModel,
     Definition,
+    Layer,
     MemberKind,
     UnitKind,
     Write,
@@ -38,6 +39,9 @@ from adherence.domain.records import DesignRecords, RecordsUnavailable, Term
 
 BOUNDARY = catalog_check("Boundary")
 LANGUAGE = catalog_check("Language")
+ANEMIC = catalog_check("Anemic")
+# A method that only sets a type's fields up is no behavior of its own.
+INITIALISER = "__init__"
 # One word of an identifier or a term: an acronym, a capitalised or
 # lower-case word, or a number (`SARIFReport` -> SARIF, Report).
 WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
@@ -50,6 +54,11 @@ BOUNDARY_JUDGED = (
 LANGUAGE_JUDGED = (
     f"the judged part (same_concept: are two differently spelled nouns one "
     f"concept?) {NO_JUDGE}"
+)
+
+ANEMIC_JUDGED = (
+    f"all fields and no behavior; whether its rules live in another unit "
+    f"(rules_elsewhere) is the judged part, and {NO_JUDGE}"
 )
 
 # --- Predicates --------------------------------------------------------------
@@ -207,3 +216,36 @@ def boundary(
         )
     judged = (Coverage(BOUNDARY_JUDGED, check=BOUNDARY.name),) if findings else ()
     return CheckOutcome(tuple(findings), judged)
+
+
+def anemic(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """The rule part finds each domain type that is all fields and no
+    behavior -- fields, and no method but an initialiser. Whether such a
+    type is anemic, its rules living in another unit, is the judged part's
+    question, so the rule part finds nothing by itself: each type it finds
+    is coverage until a judge answers."""
+    if not declaration.declared:
+        return undeclared(ANEMIC.name)
+    fields: set[tuple[str, str]] = set()
+    behaving: set[tuple[str, str]] = set()
+    for m in model.members:
+        if m.kind is MemberKind.FIELD:
+            fields.add((m.path, m.owner))
+        elif m.name != INITIALISER:
+            behaving.add((m.path, m.owner))
+    asked = [
+        Coverage(
+            f"{d.unit.symbol}: {ANEMIC_JUDGED}", check=ANEMIC.name, path=d.unit.path
+        )
+        for d in model.definitions
+        if d.unit.kind is UnitKind.TYPE
+        and d.unit.layer is Layer.DOMAIN
+        and (key := (d.unit.path, d.unit.symbol or "")) in fields
+        and key not in behaving
+    ]
+    return CheckOutcome(coverage=tuple(asked))
