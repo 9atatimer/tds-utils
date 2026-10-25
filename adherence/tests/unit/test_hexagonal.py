@@ -55,3 +55,55 @@ def test_measure_domain_naming_a_vendor_env_or_model_id_finds_a_leak() -> None:
         (RULES, "claude-x", Layer.DOMAIN),
     }
     assert all(f.check.quality.value == "Hexagonal" for f in leaks)
+
+
+USE = "src/app/application/use.py"
+STORE = "src/app/ports/store.py"
+FS = "src/app/adapters/fs.py"
+ROOT = "src/app/container.py"
+TEST = "tests/test_use.py"
+APP = (RULES, USE, STORE, FS, ROOT, TEST)
+
+
+def _edge(path: str, imported: str, line: int = 1) -> ImportEdge:
+    return ImportEdge(path, imported, line, f"import {imported}", imported)
+
+
+def test_measure_whose_imports_all_cross_inward_has_no_arrow_finding() -> None:
+    """Given a repository whose every import crosses inward, When Arrow runs,
+    Then Arrow ran and there is no Arrow finding."""
+    files = {path: b"import x\n" for path in APP}
+    facts = CodeModel(
+        imports=(
+            _edge(USE, RULES),
+            _edge(USE, STORE),
+            _edge(STORE, RULES),
+            _edge(FS, STORE),
+            _edge(FS, RULES),
+            _edge(ROOT, FS),
+            _edge(ROOT, USE),
+            _edge(TEST, USE),
+            _edge(TEST, FS),
+            ImportEdge(RULES, "dataclasses", 1, "import dataclasses", None),
+        )
+    )
+
+    report = measure_with(files, facts)
+
+    assert "Arrow" in {c.name for c in report.ran}
+    assert _of(report, "Arrow") == []
+
+
+def test_measure_with_an_outward_import_finds_the_arrow() -> None:
+    """Given a domain unit that imports a port and a use case that imports an
+    adapter, When Arrow runs, Then each is a finding naming the unit, its
+    layer and the layer it reached."""
+    files = {path: b"import x\n" for path in APP}
+    facts = CodeModel(imports=(_edge(RULES, STORE), _edge(USE, FS)))
+
+    report = measure_with(files, facts)
+
+    assert {(f.unit.path, f.layer, f.reached) for f in _of(report, "Arrow")} == {
+        (RULES, Layer.DOMAIN, Layer.PORTS),
+        (USE, Layer.APPLICATION, Layer.ADAPTERS),
+    }
