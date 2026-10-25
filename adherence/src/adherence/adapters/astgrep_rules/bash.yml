@@ -19,6 +19,13 @@ severity: hint
 rule:
   kind: function_definition
 ---
+id: call
+language: Bash
+severity: hint
+rule:
+  kind: command
+  has: {field: name, pattern: $CALLEE}
+---
 id: syntax-error
 language: Bash
 severity: hint
