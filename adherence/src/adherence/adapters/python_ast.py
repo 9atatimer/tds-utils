@@ -11,7 +11,7 @@ from __future__ import annotations
 import ast
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 from adherence.adapters.python_imports import ImportGraphFailed, import_edges
 from adherence.domain.deadline import Deadline, TimedOut
@@ -421,6 +421,48 @@ def _test_cases(path: str, walked: Sequence[_Found]) -> list[TestCase]:
     return cases
 
 
+NESTED_TOO_DEEPLY = "nested deeper than the analyzer can walk"
+
+
+def _file_model(
+    path: str,
+    data: bytes,
+    tree: ast.Module,
+    declaration: Declaration,
+    regions: Sequence[Region],
+) -> CodeModel:
+    """Every fact of one parsed file, as a CodeModel of that file alone."""
+    lines = data.count(b"\n") or 1
+    file_unit = Unit(
+        path, UnitKind.FILE, None, 1, lines, layer_of(path, None, declaration)
+    )
+    text = data.decode("utf-8", "replace")
+    walked = _walk_definitions(tree)
+    found = [_definition(path, f, text, declaration, regions) for f in walked]
+    scoped = _scoped(tree, walked)
+    return CodeModel(
+        units=(file_unit, *(d.unit for d in found)),
+        definitions=tuple(found),
+        references=tuple(_references(path, tree, scoped)),
+        calls=tuple(_calls(path, scoped)),
+        accesses=tuple(_accesses(path, scoped)),
+        writes=tuple(_writes(path, scoped)),
+        conditionals=tuple(_conditionals(path, scoped)),
+        members=tuple(_members(path, walked)),
+        test_cases=tuple(_test_cases(path, walked)),
+    )
+
+
+def _merged(models: Sequence[CodeModel], **rest: object) -> CodeModel:
+    """One CodeModel holding every fact of each, plus the fields given."""
+    joined: dict[str, object] = {
+        f.name: tuple(fact for m in models for fact in getattr(m, f.name))
+        for f in fields(CodeModel)
+    }
+    joined.update(rest)
+    return CodeModel(**joined)  # type: ignore[arg-type]  # every field is a tuple
+
+
 # --- Adapter -----------------------------------------------------------------
 
 
@@ -444,15 +486,7 @@ class PythonCodeModel:
                 path, sources[path].decode("utf-8", "replace"), vocabulary
             )
         )
-        units: list[Unit] = []
-        definitions: list[Definition] = []
-        references: list[Reference] = []
-        calls: list[Call] = []
-        accesses: list[Access] = []
-        writes: list[Write] = []
-        conditionals: list[Conditional] = []
-        members: list[Member] = []
-        test_cases: list[TestCase] = []
+        files: list[CodeModel] = []
         unparsed: list[Unparsed] = []
         trees: dict[str, ast.Module] = {}
         for path in sorted(sources):
@@ -460,23 +494,14 @@ class PythonCodeModel:
             if isinstance(tree, Unparsed):
                 unparsed.append(tree)
                 continue
+            try:
+                files.append(
+                    _file_model(path, sources[path], tree, declaration, regions)
+                )
+            except RecursionError:
+                unparsed.append(Unparsed(path, NESTED_TOO_DEEPLY))
+                continue
             trees[path] = tree
-            lines = sources[path].count(b"\n") or 1
-            file_layer = layer_of(path, None, declaration)
-            units.append(Unit(path, UnitKind.FILE, None, 1, lines, file_layer))
-            text = sources[path].decode("utf-8", "replace")
-            walked = _walk_definitions(tree)
-            found = [_definition(path, f, text, declaration, regions) for f in walked]
-            definitions.extend(found)
-            units.extend(d.unit for d in found)
-            scoped = _scoped(tree, walked)
-            references.extend(_references(path, tree, scoped))
-            calls.extend(_calls(path, scoped))
-            accesses.extend(_accesses(path, scoped))
-            writes.extend(_writes(path, scoped))
-            conditionals.extend(_conditionals(path, scoped))
-            members.extend(_members(path, walked))
-            test_cases.extend(_test_cases(path, walked))
         try:
             imports, not_modelled = import_edges(sources, trees, deadline)
             unparsed.extend(not_modelled)
@@ -485,17 +510,9 @@ class PythonCodeModel:
                 return TimedOut(str(failure))
             imports = []
             unparsed.extend(Unparsed(path, str(failure)) for path in trees)
-        return CodeModel(
-            units=tuple(units),
+        return _merged(
+            files,
             imports=tuple(imports),
-            definitions=tuple(definitions),
-            references=tuple(references),
-            calls=tuple(calls),
-            accesses=tuple(accesses),
-            writes=tuple(writes),
-            conditionals=tuple(conditionals),
-            members=tuple(members),
-            test_cases=tuple(test_cases),
             regions=regions,
             unparsed=tuple(unparsed),
         )
