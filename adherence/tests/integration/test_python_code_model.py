@@ -423,3 +423,25 @@ def test_one_unparsable_file_leaves_the_rest_of_its_package_modelled() -> None:
     assert {(e.path, e.imported_path) for e in model.imports} == {
         ("pkg/a.py", "pkg/c.py")
     }
+
+
+def test_same_named_packages_under_two_roots_are_each_modelled() -> None:
+    """Given two top-level packages of one name under different roots, as a
+    monorepo holds them, When they are modelled, Then each resolves its own
+    imports inside its own root and neither is Unparsed."""
+    sources = {
+        "a/pkg/__init__.py": b"",
+        "a/pkg/m.py": b"from . import z\n",
+        "a/pkg/z.py": b"",
+        "b/pkg/__init__.py": b"",
+        "b/pkg/m.py": b"from pkg import r\n",
+        "b/pkg/r.py": b"",
+    }
+
+    model = _model_of(sources)
+
+    assert model.unparsed == ()
+    assert {(e.path, e.imported_path) for e in model.imports} == {
+        ("a/pkg/m.py", "a/pkg/z.py"),
+        ("b/pkg/m.py", "b/pkg/r.py"),
+    }
