@@ -370,3 +370,58 @@ rule:
     all:
       - has: {field: object, pattern: $OBJECT}
       - has: {field: property, pattern: $FIELD}
+---
+id: conditional
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: if_statement
+    - kind: while_statement
+    - kind: do_statement
+    - kind: ternary_expression
+  has: {field: condition, pattern: $CONDITION}
+---
+id: conditional.switch
+language: TypeScript
+severity: hint
+rule:
+  kind: switch_statement
+  has:
+    field: value
+    has: {pattern: $SUBJECT}
+---
+id: either
+language: TypeScript
+severity: hint
+rule:
+  kind: binary_expression
+  has: {field: operator, regex: '^(&&|\|\||\?\?)$'}
+  all:
+    - has: {field: left, pattern: $LEFT}
+    - has: {field: right, pattern: $RIGHT}
+---
+id: compare
+language: TypeScript
+severity: hint
+rule:
+  kind: binary_expression
+  has: {field: operator, regex: '^(===|!==|==|!=|<|>|<=|>=|instanceof|in)$'}
+  all:
+    - has: {field: left, pattern: $LEFT}
+---
+id: negate
+language: TypeScript
+severity: hint
+rule:
+  kind: unary_expression
+  has: {field: operator, regex: '^!$'}
+  all:
+    - has: {field: argument, pattern: $OPERAND}
+---
+id: group
+language: TypeScript
+severity: hint
+rule:
+  kind: parenthesized_expression
+  has: {pattern: $INNER}

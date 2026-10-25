@@ -32,6 +32,7 @@ from adherence.domain.model import (
     Body,
     Call,
     CodeModel,
+    Conditional,
     Definition,
     ImportEdge,
     Parameter,
@@ -65,6 +66,13 @@ PARAMETER_PROPERTY, PROPERTY_DEFAULT, PROPERTY_TYPE = (
 )
 BODY, STUB, CALL, NAME_FACT, STRING = "body", "stub", "call", "name", "string"
 GLOBAL, WRITE = "global", "write"
+CONDITIONAL, EITHER, COMPARE, NEGATE, GROUP = (
+    "conditional",
+    "either",
+    "compare",
+    "negate",
+    "group",
+)
 RETURNS, BASE, DECORATOR, DECORATOR_NEXT = (
     "returns",
     "base",
@@ -75,6 +83,14 @@ RETURNS, BASE, DECORATOR, DECORATOR_NEXT = (
 NAME, SOURCE, TYPE_CAPTURE = "NAME", "SOURCE", "TYPE"
 BODY_CAPTURE, THROWN, CALLEE = "BODY", "THROWN", "CALLEE"
 OBJECT, FIELD = "OBJECT", "FIELD"
+CONDITION, SUBJECT, LEFT, RIGHT, OPERAND, INNER = (
+    "CONDITION",
+    "SUBJECT",
+    "LEFT",
+    "RIGHT",
+    "OPERAND",
+    "INNER",
+)
 EMPTY_BLOCK = "{}"
 
 # --- Values ------------------------------------------------------------------
@@ -507,6 +523,66 @@ def writes(
     ]
 
 
+Span = tuple[int, int]
+
+
+@dataclass(frozen=True, slots=True)
+class _Expressions:
+    """One file's expressions a discriminant is read through, by span."""
+
+    either: Mapping[Span, Match]
+    compare: Mapping[Span, Match]
+    negate: Mapping[Span, Match]
+    group: Mapping[Span, Match]
+    call: Mapping[Span, Match]
+
+
+def _span(capture: Capture) -> Span:
+    return (capture.start, capture.end)
+
+
+def discriminants(capture: Capture, found: _Expressions) -> list[str]:
+    """What a branch's test discriminates on: through parentheses, each
+    operand of a logical operator, the operand of a negation, the left of a
+    comparison, the callee of a call, or else the expression as written."""
+    span = _span(capture)
+    if span in found.group:
+        return discriminants(found.group[span].captures[INNER], found)
+    if span in found.either:
+        both = found.either[span].captures
+        return discriminants(both[LEFT], found) + discriminants(both[RIGHT], found)
+    if span in found.negate:
+        return discriminants(found.negate[span].captures[OPERAND], found)
+    if span in found.compare:
+        return [found.compare[span].captures[LEFT].text]
+    if span in found.call:
+        return [_callee(found.call[span])]
+    return [capture.text]
+
+
+def conditionals(
+    path: str, matches: Sequence[Match], defined: Sequence[_Defined]
+) -> list[Conditional]:
+    """Every branch, one per expression it discriminates on; a switch on its
+    subject as written."""
+    found = _Expressions(
+        either=_at(matches, EITHER),
+        compare=_at(matches, COMPARE),
+        negate=_at(matches, NEGATE),
+        group=_at(matches, GROUP),
+        call=_at(matches, CALL),
+    )
+    branches: list[Conditional] = []
+    for m in _of(matches, CONDITIONAL):
+        within = _within(defined, m)
+        if CONDITION in m.captures:
+            tests = discriminants(m.captures[CONDITION], found)
+        else:
+            tests = [m.captured(SUBJECT) or ""]
+        branches.extend(Conditional(path, m.line, within, test) for test in tests)
+    return branches
+
+
 def file_model(
     path: str,
     data: bytes,
@@ -531,6 +607,7 @@ def file_model(
         calls=tuple(calls(path, matches, defined)),
         accesses=tuple(accesses(path, matches, defined, vocabulary)),
         writes=tuple(writes(path, matches, defined)),
+        conditionals=tuple(conditionals(path, matches, defined)),
     )
 
 
