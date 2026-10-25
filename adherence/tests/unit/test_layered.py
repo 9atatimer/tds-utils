@@ -382,3 +382,35 @@ def test_measure_adapter_constructed_outside_the_root_is_found() -> None:
         ("close_order", Layer.APPLICATION, "FsStore"),
         ("test_save", Layer.TEST, "FsStore"),
     }
+
+
+BAD = "bin/bad.py"
+GOOD = "bin/good.py"
+ONE_FILE_TOOLS = (
+    b"[layers]\nregions = [\n"
+    b'  { file = "bin/bad.py", layer = "composition root", lines = [1, 10] },\n'
+    b'  { file = "bin/bad.py", layer = "domain", lines = [11, 20] },\n'
+    b'  { file = "bin/bad.py", layer = "application", lines = [21, 30] },\n'
+    b'  { file = "bin/good.py", layer = "domain", lines = [1, 5] },\n'
+    b'  { file = "bin/good.py", layer = "adapters", lines = [6, 10] },\n'
+    b'  { file = "bin/good.py", layer = "application", lines = [11, 15] },\n'
+    b'  { file = "bin/good.py", layer = "composition root", lines = [16, 20] },\n'
+    b"]\n"
+)
+
+
+def test_measure_file_whose_regions_run_out_of_order_is_found() -> None:
+    """Given a file whose entry-point region comes before its rules and its
+    workflow, and a file whose regions run rules, adapters, workflow, entry
+    points, When Anatomy runs, Then one finding names the first file and its
+    first region out of place, and the second is not found."""
+    files = {BAD: b"x = 1\n" * 30, GOOD: b"x = 1\n" * 20}
+
+    report = measure_with(files, CodeModel(), declared(ONE_FILE_TOOLS))
+
+    assert "Anatomy" in [c.name for c in report.ran]
+    (disorder,) = _of(report, "Anatomy")
+    assert (disorder.unit.path, disorder.unit.kind) == (BAD, UnitKind.FILE)
+    assert disorder.evidence.line == 11
+    assert disorder.layer is Layer.DOMAIN
+    assert "domain" in disorder.subject and "composition root" in disorder.subject
