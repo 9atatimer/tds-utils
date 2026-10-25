@@ -12,6 +12,7 @@ import ast
 import time
 from collections.abc import Mapping, Sequence
 
+from adherence.adapters.python_imports import ImportGraphFailed, import_edges
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, layer_of, marker_regions
 from adherence.domain.model import CodeModel, Region, Unit, UnitKind, Unparsed
@@ -93,11 +94,25 @@ class PythonCodeModel:
         )
         units: list[Unit] = []
         unparsed: list[Unparsed] = []
+        trees: dict[str, ast.Module] = {}
         for path in sorted(sources):
             tree = _parse(path, sources[path])
             if isinstance(tree, Unparsed):
                 unparsed.append(tree)
                 continue
+            trees[path] = tree
             lines = sources[path].count(b"\n") or 1
             units.extend(_units(path, tree, lines, declaration, regions))
-        return CodeModel(units=tuple(units), regions=regions, unparsed=tuple(unparsed))
+        try:
+            imports = import_edges(sources, trees, deadline)
+        except ImportGraphFailed as failure:
+            if failure.timed_out:
+                return TimedOut(str(failure))
+            imports = []
+            unparsed.extend(Unparsed(path, str(failure)) for path in trees)
+        return CodeModel(
+            units=tuple(units),
+            imports=tuple(imports),
+            regions=regions,
+            unparsed=tuple(unparsed),
+        )

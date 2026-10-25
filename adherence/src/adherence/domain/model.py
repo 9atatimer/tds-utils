@@ -67,6 +67,18 @@ class Unit:
 
 
 @dataclass(frozen=True, slots=True)
+class ImportEdge:
+    """One import: the importing file, the module it resolves to, the line
+    and its text, and the imported module's file when it is a source."""
+
+    path: str
+    imported: str
+    line: int
+    text: str
+    imported_path: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class Unparsed:
     """A source the analyzer could not read as its language, with the reason."""
 
@@ -79,5 +91,6 @@ class CodeModel:
     """Every fact an analyzer read from the sources."""
 
     units: tuple[Unit, ...] = ()
+    imports: tuple[ImportEdge, ...] = ()
     regions: tuple[Region, ...] = ()
     unparsed: tuple[Unparsed, ...] = ()
