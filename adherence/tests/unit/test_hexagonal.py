@@ -240,6 +240,40 @@ def test_measure_with_a_port_no_fake_implements_finds_the_port() -> None:
     assert (unfaked.unit.path, unfaked.layer) == (STORE, Layer.PORTS)
 
 
+def _documented(
+    path: str, owner: str, name: str, line: int, decorators: tuple[str, ...] = ()
+) -> Definition:
+    """A method whose body is only its docstring: no stub marker."""
+    unit = Unit(path, UnitKind.FUNCTION, f"{owner}.{name}", line, line + 1, None)
+    body = Body(f'"""{name.title()}."""', (), ())
+    return Definition(unit, None, body, (), decorators, owner, False)
+
+
+def test_measure_with_docstring_only_protocol_and_abc_ports_finds_them() -> None:
+    """Given a Protocol and an ABC with an abstract method in the ports
+    layer, each method's body only a docstring, and no fake behind either,
+    When Swap runs, Then a finding names each port; a concrete value type
+    among the ports is still no port."""
+    sink = "src/app/ports/sink.py"
+    files = {STORE: b"x\n", sink: b"x\n"}
+    definitions = (
+        _type(STORE, "Store", 1, ("typing.Protocol",)),
+        _documented(STORE, "Store", "save", 2),
+        _type(STORE, "Absent", 5),
+        _method(STORE, "Absent", "reason", 6, stub=False),
+        _type(sink, "Sink", 1, ("abc.ABC",)),
+        _documented(sink, "Sink", "write", 2, ("abc.abstractmethod",)),
+    )
+    facts = CodeModel(units=tuple(d.unit for d in definitions), definitions=definitions)
+
+    report = measure_with(files, facts)
+
+    assert {(f.subject, f.unit.path) for f in _of(report, "Swap")} == {
+        ("Store", STORE),
+        ("Sink", sink),
+    }
+
+
 ARCHITECTURE = "docs/design/ARCHITECTURE.APP.md"
 
 
