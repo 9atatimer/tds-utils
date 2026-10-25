@@ -21,14 +21,16 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path, PurePosixPath
 
 from adherence.domain.deadline import Deadline
 from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.model import (
     Body,
+    CodeModel,
     Definition,
+    ImportEdge,
     Region,
     Unit,
     UnitKind,
@@ -39,8 +41,8 @@ from adherence.domain.model import (
 RULES = Path(__file__).resolve().parent / "astgrep_rules"
 BINARY = Path(sys.executable).with_name("ast-grep")
 IGNORE_FILES = ("hidden", "dot", "exclude", "global", "parent", "vcs")
-FUNCTION, TYPE = "function", "type"
-NAME = "NAME"
+FUNCTION, TYPE, IMPORT = "function", "type", "import"
+NAME, SOURCE = "NAME", "SOURCE"
 
 # --- Values ------------------------------------------------------------------
 
@@ -66,8 +68,9 @@ class Capture:
 
 @dataclass(frozen=True, slots=True)
 class Match:
-    """One node a rule matched: the fact it names, the repository path, its
-    byte span, its lines (from 1), its text and its captures."""
+    """One node a rule matched: the fact it names (its rule's id before any
+    `.variant`), the repository path, its byte span, its lines (from 1), its
+    text and its captures."""
 
     fact: str
     path: str
@@ -142,7 +145,7 @@ def parse_match(record: Mapping[str, object], tree: str) -> Match:
         for name, value in single.get("single", {}).items()
     }
     return Match(
-        fact=str(record["ruleId"]).split("@")[0],
+        fact=str(record["ruleId"]).split("@")[0].split(".")[0],
         path=str(PurePosixPath(str(record["file"])).relative_to(tree)),
         start=int(span["byteOffset"]["start"]),
         end=int(span["byteOffset"]["end"]),
@@ -219,10 +222,33 @@ def definitions(
     ]
 
 
+def imports(
+    path: str, matches: Sequence[Match], lines: Sequence[str]
+) -> list[ImportEdge]:
+    """The imports of one file: the module as written, the line and its
+    text; which file each resolves to is the language adapter's to say."""
+    return [
+        ImportEdge(path, source, m.line, lines[m.line - 1].strip(), None)
+        for m in sorted(matches, key=lambda m: m.start)
+        if m.fact == IMPORT and (source := m.captured(SOURCE)) is not None
+    ]
+
+
+def merged(models: Sequence[CodeModel], **rest: object) -> CodeModel:
+    """One CodeModel holding every fact of each, with the fields given in
+    place of theirs."""
+    joined: dict[str, object] = {
+        f.name: tuple(fact for m in models for fact in getattr(m, f.name))
+        for f in fields(CodeModel)
+    }
+    joined.update(rest)
+    return CodeModel(**joined)  # type: ignore[arg-type]  # every field is a tuple
+
+
 # --- Effectful helpers -------------------------------------------------------
 
 
-def _write_tree(tree: Path, sources: Mapping[str, bytes]) -> None:
+def write_tree(tree: Path, sources: Mapping[str, bytes]) -> None:
     for path, data in sources.items():
         target = tree / path
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -252,7 +278,7 @@ def scan(
         rules = (RULES / grammar.rules).read_text()
         (root / "rules" / "rules.yml").write_text(rule_text(grammar, rules))
         (root / "sgconfig.yml").write_text(config_text(grammar))
-        _write_tree(root / "tree", sources)
+        write_tree(root / "tree", sources)
         command = [
             str(binary),
             "scan",

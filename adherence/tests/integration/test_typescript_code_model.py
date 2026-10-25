@@ -178,4 +178,7 @@ def test_measured_code_is_never_run_even_as_the_analyzers_configuration(
     )
 
     assert not marker.exists(), "measured code ran"
-    assert {(e.path, e.imported_path) for e in model.imports} == {("a.mjs", "b.mjs")}
+    assert {(e.path, e.imported_path) for e in model.imports} == {
+        (".dependency-cruiser.cjs", None),
+        ("a.mjs", "b.mjs"),
+    }

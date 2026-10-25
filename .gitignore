@@ -44,7 +44,9 @@ dist/
 # chores (uv project): per-machine virtualenv
 chores/.venv/
 
-# adherence (uv project): per-machine virtualenv
+# adherence (uv project): per-machine virtualenv, and the node analyzers
+# npm ci --ignore-scripts installs from adherence/node/package-lock.json
 adherence/.venv/
+adherence/node/node_modules/
 # Rendered per machine by lmde/components/ollama-gateway/libexec/profile-render.zsh
 lmde/components/ollama-gateway/sandbox/ollama-gateway.sb

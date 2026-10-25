@@ -41,3 +41,33 @@ rule:
     - kind: interface_declaration
     - kind: type_alias_declaration
   has: {field: name, pattern: $NAME}
+---
+id: import
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: import_statement
+    - kind: export_statement
+  has:
+    field: source
+    kind: string
+    has: {kind: string_fragment, pattern: $SOURCE}
+---
+id: import.call
+language: TypeScript
+severity: hint
+rule:
+  kind: call_expression
+  has:
+    field: function
+    any:
+      - regex: '^require$'
+      - kind: import
+  all:
+    - has:
+        field: arguments
+        has:
+          kind: string
+          nthChild: 1
+          has: {kind: string_fragment, pattern: $SOURCE}
