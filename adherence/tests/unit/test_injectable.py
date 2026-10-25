@@ -6,8 +6,21 @@ Use-case surface)."""
 from __future__ import annotations
 
 from adherence.domain.finding import Finding
+from adherence.domain.model import Call
 from adherence.domain.report import Report
-from tests.facts_kit import STORE, USE, facts, function, keyword, port, value
+from tests.facts_kit import (
+    FS,
+    ROOT,
+    RULES,
+    STORE,
+    USE,
+    facts,
+    function,
+    keyword,
+    port,
+    type_,
+    value,
+)
 from tests.measure_kit import measure_with
 
 
@@ -48,3 +61,36 @@ def test_measure_with_a_port_taken_by_position_finds_the_use_case() -> None:
     assert all(
         f.check.quality.value == "Injectable" for f in _of(report, "Ports as keywords")
     )
+
+
+def test_measure_with_a_use_case_constructing_an_adapter_finds_it() -> None:
+    """Given a use case that constructs a concrete adapter (once itself, once
+    in a function nested in it) and also a fake and a domain value, and a
+    composition root that constructs the adapter, When No self-wiring runs,
+    Then a finding names the use case and the adapter for each construction
+    in it, and the fake, the value and the root are clean."""
+    files = {USE: b"x\n" * 9, FS: b"x\n" * 9, ROOT: b"x\n" * 9, RULES: b"x\n" * 9}
+    definitions = [
+        type_(FS, "FsStore", 1),
+        type_(FS, "FakeStore", 4),
+        type_(RULES, "Order", 1),
+        function(USE, "close", 1, end=8),
+        function(USE, "close.helper", 6, parent="close", nested=True),
+        function(ROOT, "build", 1, end=3),
+    ]
+    calls = (
+        Call(USE, 2, "close", "FsStore"),
+        Call(USE, 3, "close", "FakeStore"),
+        Call(USE, 4, "close", "Order"),
+        Call(USE, 7, "close.helper", "fs.FsStore"),
+        Call(ROOT, 2, "build", "FsStore"),
+    )
+
+    report = measure_with(files, facts(definitions, calls=calls))
+
+    assert "No self-wiring" in {c.name for c in report.ran}
+    found = {
+        (f.unit.symbol, f.subject, f.evidence.line)
+        for f in _of(report, "No self-wiring")
+    }
+    assert found == {("close", "FsStore", 2), ("close", "fs.FsStore", 7)}
