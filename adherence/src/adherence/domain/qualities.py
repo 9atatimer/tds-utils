@@ -92,3 +92,8 @@ _BY_NAME = {check.name: check for check in CATALOG}
 def check_named(name: str) -> Check | None:
     """The catalog's check of that name, or None if the catalog has none."""
     return _BY_NAME.get(name)
+
+
+def catalog_check(name: str) -> Check:
+    """The catalog's check of that name; the name must be one of the catalog's."""
+    return _BY_NAME[name]

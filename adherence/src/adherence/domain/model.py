@@ -7,6 +7,7 @@ Every analyzer produces one CodeModel; every check reads only that
 from __future__ import annotations
 
 import enum
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 # --- Values ------------------------------------------------------------------
@@ -17,6 +18,20 @@ class CodeLanguage(enum.Enum):
     Language check (ARCHITECTURE.ARCH-ADHERENCE.md, Use-case surface)."""
 
     PYTHON = "python"
+
+
+# A source's language by its file extension.
+LANGUAGE_EXTENSIONS: dict[str, str] = {".py": CodeLanguage.PYTHON.value}
+
+
+def language_of(path: str) -> str | None:
+    """The language a source path is written in, by its extension; None
+    when the path is not a source the suite knows."""
+    name = path.rpartition("/")[2]
+    stem, dot, extension = name.rpartition(".")
+    if not dot or not stem:
+        return None
+    return LANGUAGE_EXTENSIONS.get(f".{extension}")
 
 
 class Layer(enum.Enum):
@@ -237,8 +252,44 @@ class Unparsed:
 
 
 @dataclass(frozen=True, slots=True)
+class Complexity:
+    """One function's complexity, as the complexity tooling measures it."""
+
+    path: str
+    symbol: str
+    line: int
+    value: int
+
+
+@dataclass(frozen=True, slots=True)
+class Span:
+    """Lines start to end, inclusive, of one file."""
+
+    path: str
+    start: int
+    end: int
+
+
+@dataclass(frozen=True, slots=True)
+class Clone:
+    """Two stretches of code alike, and how many lines they share."""
+
+    first: Span
+    second: Span
+    lines: int
+
+
+@dataclass(frozen=True, slots=True)
+class Metrics:
+    """Per-function complexity and the clones, merged into the CodeModel."""
+
+    complexity: tuple[Complexity, ...] = ()
+    clones: tuple[Clone, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class CodeModel:
-    """Every fact an analyzer read from the sources."""
+    """Every fact an analyzer read from the sources, and their Metrics."""
 
     units: tuple[Unit, ...] = ()
     imports: tuple[ImportEdge, ...] = ()
@@ -252,3 +303,43 @@ class CodeModel:
     test_cases: tuple[TestCase, ...] = ()
     regions: tuple[Region, ...] = ()
     unparsed: tuple[Unparsed, ...] = ()
+    metrics: Metrics = Metrics()
+
+    def unit_at(self, path: str, line: int) -> Unit | None:
+        """The innermost unit holding that line of that file: the smallest
+        definition spanning it, else the file itself."""
+        holding = [
+            u
+            for u in self.units
+            if u.path == path and (u.kind is UnitKind.FILE or u.start <= line <= u.end)
+        ]
+        return min(
+            holding,
+            key=lambda u: (u.kind is UnitKind.FILE, u.end - u.start),
+            default=None,
+        )
+
+
+# --- Pure helpers ------------------------------------------------------------
+
+
+def merged(models: Sequence[CodeModel]) -> CodeModel:
+    """One CodeModel holding every fact and metric of each, in order."""
+    return CodeModel(
+        units=tuple(f for m in models for f in m.units),
+        imports=tuple(f for m in models for f in m.imports),
+        definitions=tuple(f for m in models for f in m.definitions),
+        references=tuple(f for m in models for f in m.references),
+        calls=tuple(f for m in models for f in m.calls),
+        accesses=tuple(f for m in models for f in m.accesses),
+        writes=tuple(f for m in models for f in m.writes),
+        conditionals=tuple(f for m in models for f in m.conditionals),
+        members=tuple(f for m in models for f in m.members),
+        test_cases=tuple(f for m in models for f in m.test_cases),
+        regions=tuple(f for m in models for f in m.regions),
+        unparsed=tuple(f for m in models for f in m.unparsed),
+        metrics=Metrics(
+            complexity=tuple(f for m in models for f in m.metrics.complexity),
+            clones=tuple(f for m in models for f in m.metrics.clones),
+        ),
+    )

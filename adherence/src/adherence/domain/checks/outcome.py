@@ -1,0 +1,32 @@
+"""domain/checks/outcome.py -- what one check returns, and its signature.
+
+Every target-level check is `(CodeModel, Declaration, DesignRecords,
+Parameters) -> CheckOutcome`, pure (ARCHITECTURE.ARCH-ADHERENCE.md,
+Mechanism > Measurement).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+
+from adherence.domain.declaration import Declaration
+from adherence.domain.finding import Finding
+from adherence.domain.model import CodeModel
+from adherence.domain.parameters import Parameters
+from adherence.domain.records import DesignRecords, RecordsUnavailable
+
+# --- Values ------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class CheckOutcome:
+    """The findings one check produced."""
+
+    findings: tuple[Finding, ...] = ()
+
+
+CheckFunction = Callable[
+    [CodeModel, Declaration, DesignRecords | RecordsUnavailable, Parameters],
+    CheckOutcome,
+]
