@@ -139,6 +139,10 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
         return DeclarationUnreadable(f"{DECLARATION_PATH} is not utf-8: {error}")
     except tomllib.TOMLDecodeError as error:
         return DeclarationUnreadable(f"{DECLARATION_PATH}: {error}")
+    except ValueError as error:
+        # tomllib's own conversions (an integer past Python's digit limit)
+        # raise a plain ValueError rather than TOMLDecodeError.
+        return DeclarationUnreadable(f"{DECLARATION_PATH}: {error}")
     except RecursionError:
         return DeclarationUnreadable(
             f"{DECLARATION_PATH} is nested deeper than the parser can follow"
