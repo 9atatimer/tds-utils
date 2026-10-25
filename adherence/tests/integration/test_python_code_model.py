@@ -11,6 +11,7 @@ from adherence.domain.model import (
     CodeModel,
     Definition,
     Layer,
+    MemberKind,
     Parameter,
     ReferenceKind,
     Signature,
@@ -300,3 +301,25 @@ def test_conditionals_see_through_bool_ops_matches_and_isinstance() -> None:
         (4, "kind"),
         (7, "x"),
     ]
+
+
+def test_members_are_each_types_fields_and_methods() -> None:
+    """Given a dataclass, a Protocol and a class that sets a field in its
+    constructor, When the fixture is modelled, Then each type's fields
+    (declared, or assigned on self) and methods are its members."""
+    members = {(m.path, m.owner, m.name, m.kind) for m in fixture_model().members}
+
+    rules, store, fs = (
+        "src/tool/domain/rules.py",
+        "src/tool/ports/store.py",
+        "src/tool/adapters/fs_store.py",
+    )
+    assert members == {
+        (rules, "Order", "total", MemberKind.FIELD),
+        (rules, "Order", "status", MemberKind.FIELD),
+        (rules, "Order", "is_large", MemberKind.METHOD),
+        (store, "Store", "save", MemberKind.METHOD),
+        (fs, "FsStore", "__init__", MemberKind.METHOD),
+        (fs, "FsStore", "save", MemberKind.METHOD),
+        (fs, "FsStore", "root", MemberKind.FIELD),
+    }
