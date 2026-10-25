@@ -24,6 +24,7 @@ from pathlib import Path, PurePosixPath
 
 from adherence.domain.deadline import Deadline
 from adherence.domain.model import ImportEdge, Unparsed
+from adherence.domain.source import source_lines
 
 # --- Constants ---------------------------------------------------------------
 
@@ -281,6 +282,6 @@ def import_edges(
     flat = _flat(modules)
     for path, tree in trees.items():
         if path not in in_packages:
-            lines = sources[path].decode("utf-8", "replace").splitlines()
+            lines = source_lines(sources[path].decode("utf-8", "replace"))
             edges.extend(_script_edges(path, tree, lines, flat))
     return sorted(edges, key=lambda e: (e.path, e.line, e.imported)), unparsed

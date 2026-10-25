@@ -17,6 +17,7 @@ from typing import ClassVar
 from adherence.domain.model import Layer, Region
 from adherence.domain.parameters import Vocabulary
 from adherence.domain.qualities import Quality, check_named
+from adherence.domain.source import source_lines
 
 # --- Constants ---------------------------------------------------------------
 
@@ -138,7 +139,7 @@ def marker_regions(path: str, text: str, vocabulary: Vocabulary) -> tuple[Region
     """The regions a file's section markers open: from each marker the
     vocabulary knows to the line before the next marker, or the end of the
     file. A marker it does not know closes the region before it."""
-    lines = text.splitlines()
+    lines = source_lines(text)
     markers = [
         (number, match.group("name").lower())
         for number, line in enumerate(lines, start=1)

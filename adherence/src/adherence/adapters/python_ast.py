@@ -170,7 +170,7 @@ def _callee(call: ast.Call) -> str:
 def _body(node: DefinitionNode, text: str, vocabulary: Vocabulary) -> Body:
     statements = node.body
     first, last = statements[0], statements[-1]
-    lines = text.splitlines()[first.lineno - 1 : (last.end_lineno or last.lineno)]
+    lines = source_lines(text)[first.lineno - 1 : (last.end_lineno or last.lineno)]
     sleeps = sorted(
         {
             n.lineno
