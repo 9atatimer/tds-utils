@@ -14,6 +14,7 @@ from adherence.domain.model import (
     Definition,
     Layer,
     Parameter,
+    ReferenceKind,
     Region,
     Signature,
     UnitKind,
@@ -333,3 +334,29 @@ def test_sleeps_and_stubs_come_from_the_vocabulary() -> None:
     bodies = {d.unit.symbol: d.body for d in model.definitions}
     assert bodies["b"].sleeps == (2,)
     assert (bodies["c"].stub_markers, bodies["d"].stub_markers) == ((), ("{}",))
+
+
+def test_references_are_names_types_and_strings_but_not_specifiers() -> None:
+    """Given code naming a chain through the environment, a module constant,
+    a type and a model id, When the fixture is modelled, Then each name
+    chain, type name and string literal is a reference in the definition it
+    sits in; an import's module and a definition's own name are none."""
+    references = {
+        (r.path, r.within, r.kind, r.text) for r in fixture_model().references
+    }
+
+    save = ("lib/tool/fs-store.ts", "FsStore.save")
+    assert (*save, ReferenceKind.STRING, "claude-opus") in references
+    assert (*save, ReferenceKind.NAME, "process.env.HOME") in references
+    assert (*save, ReferenceKind.NAME, "process") not in references
+    assert (
+        "lib/tool/rules.ts",
+        "Order.isLarge",
+        ReferenceKind.NAME,
+        "LIMIT",
+    ) in references
+    assert ("lib/tool/run.ts", "closeOrder", ReferenceKind.NAME, "Store") in references
+    assert not any(r[3] in {"./rules", "node:fs"} for r in references)
+    assert not any(
+        r[0] == "lib/tool/run.ts" and r[3] == "closeOrder" for r in references
+    )
