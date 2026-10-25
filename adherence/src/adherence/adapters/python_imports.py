@@ -29,8 +29,9 @@ from adherence.domain.source import source_lines
 # --- Constants ---------------------------------------------------------------
 
 INIT = "__init__.py"
-# Run in the child: argv is the root holding the packages, then their names.
-# The root never joins sys.path. A finder answers for the measured names
+# Run in the child: argv[1] is a JSON map of each package name to the root
+# holding it; one run never holds two packages of one name. No root joins
+# sys.path. A finder answers for the measured names
 # alone, from the root, with a loader that refuses to execute anything, so
 # grimp can locate the packages but no measured module can run, even one
 # named like a module grimp imports lazily. A measured name the child has
@@ -38,7 +39,8 @@ INIT = "__init__.py"
 # is reported as shadowed and not modelled.
 GRIMP_RUNNER = """
 import importlib.abc, importlib.machinery, json, sys
-root, names = sys.argv[1], sys.argv[2:]
+roots = json.loads(sys.argv[1])
+names = sorted(roots)
 import grimp
 
 class Refuse(importlib.abc.Loader):
@@ -49,9 +51,10 @@ class Refuse(importlib.abc.Loader):
 
 class Measured(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname.split(".")[0] not in names:
+        top = fullname.split(".")[0]
+        if top not in roots:
             return None
-        spec = importlib.machinery.PathFinder.find_spec(fullname, path or [root])
+        spec = importlib.machinery.PathFinder.find_spec(fullname, path or [roots[top]])
         if spec is not None:
             spec.loader = Refuse()
         return spec
@@ -186,6 +189,20 @@ def _script_edges(
 # --- Effectful helpers -------------------------------------------------------
 
 
+def _runs(packages: list[_Package]) -> list[list[_Package]]:
+    """The packages split into as few grimp runs as possible, no run holding
+    two packages of one name, so imports cross roots and same names stay apart."""
+    runs: list[list[_Package]] = []
+    for package in sorted(packages, key=lambda p: (p.root, p.name)):
+        for run in runs:
+            if all(other.name != package.name for other in run):
+                run.append(package)
+                break
+        else:
+            runs.append([package])
+    return runs
+
+
 def _grimp_edges(
     sources: Mapping[str, bytes],
     packages: list[_Package],
@@ -198,21 +215,24 @@ def _grimp_edges(
     edges: list[ImportEdge] = []
     shadowed: list[tuple[str, str]] = []
     in_packages = {path for table in modules.values() for path in table.values()}
-    roots: dict[str, list[str]] = {}
-    for package in packages:
-        roots.setdefault(package.root, []).append(package.name)
     with tempfile.TemporaryDirectory(prefix="adhere-imports-") as scratch:
+        tree = Path(scratch, "tree")
         for path, data in sources.items():
             if path in in_packages:
-                target = Path(scratch, "tree", path)
+                target = tree / path
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(data)
-        for root, names in roots.items():
-            found, skipped = _run_grimp(
-                Path(scratch), Path(scratch, "tree", root), names, deadline, clock
-            )
-            shadowed.extend((root, name) for name in skipped)
-            table = modules.get(root, {})
+        for run in _runs(packages):
+            roots = {p.name: str(tree / p.root) for p in run}
+            found, skipped = _run_grimp(Path(scratch), roots, deadline, clock)
+            root_of = {p.name: p.root for p in run}
+            shadowed.extend((root_of[name], name) for name in skipped)
+            table = {
+                name: path
+                for package in run
+                for name, path in modules.get(package.root, {}).items()
+                if name.split(".")[0] == package.name
+            }
             for importer, imported, line, text in found:
                 importer_path = table.get(importer)
                 if importer_path is not None:
@@ -226,8 +246,7 @@ def _grimp_edges(
 
 def _run_grimp(
     scratch: Path,
-    root: Path,
-    names: list[str],
+    roots: Mapping[str, str],
     deadline: Deadline | None,
     clock: Callable[[], float],
 ) -> tuple[list[tuple[str, str, int, str]], list[str]]:
@@ -244,7 +263,7 @@ def _run_grimp(
     }
     try:
         done = subprocess.run(
-            [sys.executable, "-I", "-c", GRIMP_RUNNER, str(root), *names],
+            [sys.executable, "-I", "-c", GRIMP_RUNNER, json.dumps(dict(roots))],
             capture_output=True,
             check=True,
             cwd=scratch,
@@ -256,7 +275,7 @@ def _run_grimp(
     except subprocess.CalledProcessError as failed:
         complaint = failed.stderr.decode("utf-8", "replace").strip().splitlines()
         reason = complaint[-1] if complaint else f"exit {failed.returncode}"
-        reason = reason.replace(f"{root}/", "")
+        reason = reason.replace(f"{scratch}/tree/", "")
         raise ImportGraphFailed(f"the import graph failed: {reason}") from failed
     answer = json.loads(done.stdout)
     edges = [
