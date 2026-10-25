@@ -38,7 +38,7 @@ from adherence.adapters.astgrep import (
 )
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, marker_regions
-from adherence.domain.model import CodeModel, ImportEdge, Unparsed
+from adherence.domain.model import CodeModel, ImportEdge, Region, Unparsed
 from adherence.domain.parameters import Vocabulary
 
 # --- Constants ---------------------------------------------------------------
@@ -75,7 +75,7 @@ class CruiseFailed(Exception):
 
 Resolved = dict[tuple[str, str], str]
 
-# --- Helpers -----------------------------------------------------------------
+# --- Pure helpers ------------------------------------------------------------
 
 
 def _passed(deadline: Deadline | None, now: float) -> bool:
@@ -130,6 +130,52 @@ def _resolve(
         inside = target is not None and target in sources
         found.append(replace(edge, imported_path=target if inside else None))
     return tuple(found)
+
+
+def _regions(
+    sources: Mapping[str, bytes], declaration: Declaration, vocabulary: Vocabulary
+) -> tuple[tuple[Region, ...], tuple[Region, ...]]:
+    """The declaration's line regions of the files handed over, and the
+    regions their section markers open."""
+    declared = tuple(r for r in declaration.layers.regions if r.path in sources)
+    found = tuple(
+        region
+        for path in declaration.layers.marker_files
+        if path in sources
+        for region in marker_regions(
+            path, sources[path].decode("utf-8", "replace"), vocabulary
+        )
+    )
+    return declared, found
+
+
+def _file_models(
+    parsed: Mapping[str, bytes],
+    matches: Sequence[Match],
+    declaration: Declaration,
+    regions: Sequence[Region],
+    vocabulary: Vocabulary,
+) -> tuple[list[CodeModel], list[Unparsed]]:
+    """Each parsed file's facts, and the files nested past the walk."""
+    by_path: dict[str, list[Match]] = {path: [] for path in parsed}
+    for match in matches:
+        if match.path in by_path:
+            by_path[match.path].append(match)
+    files: list[CodeModel] = []
+    deep: list[Unparsed] = []
+    for path in sorted(parsed):
+        try:
+            files.append(
+                file_model(
+                    path, parsed[path], by_path[path], declaration, regions, vocabulary
+                )
+            )
+        except RecursionError:
+            deep.append(Unparsed(path=path, reason=NESTED_TOO_DEEPLY))
+    return files, deep
+
+
+# --- Effectful helpers -------------------------------------------------------
 
 
 def _cruise(
@@ -231,41 +277,16 @@ class TypeScriptCodeModel:
                 Unparsed(path=path, reason=str(failure)) for path in readable
             )
             return CodeModel(unparsed=tuple(sorted(unparsed, key=lambda u: u.path)))
-        found = tuple(
-            region
-            for path in declaration.layers.marker_files
-            if path in sources
-            for region in marker_regions(
-                path, sources[path].decode("utf-8", "replace"), vocabulary
-            )
-        )
-        declared = tuple(r for r in declaration.layers.regions if r.path in sources)
+        declared, found = _regions(sources, declaration, vocabulary)
         errors = syntax_errors(matches)
         unparsed.extend(
             Unparsed(path=path, reason=f"not TypeScript: syntax error at line {line}")
             for path, line in sorted(errors.items())
         )
         parsed = {p: data for p, data in readable.items() if p not in errors}
-        by_path: dict[str, list[Match]] = {path: [] for path in parsed}
-        for match in matches:
-            if match.path in by_path:
-                by_path[match.path].append(match)
-        files: list[CodeModel] = []
-        for path in sorted(parsed):
-            try:
-                files.append(
-                    file_model(
-                        path,
-                        parsed[path],
-                        by_path[path],
-                        declaration,
-                        found,
-                        vocabulary,
-                    )
-                )
-            except RecursionError:
-                unparsed.append(Unparsed(path=path, reason=NESTED_TOO_DEEPLY))
-        parsed = {p: data for p, data in parsed.items() if p not in _paths(unparsed)}
+        files, deep = _file_models(parsed, matches, declaration, found, vocabulary)
+        unparsed.extend(deep)
+        parsed = {p: data for p, data in parsed.items() if p not in _paths(deep)}
         edges = [edge for f in files for edge in f.imports]
         resolved: Resolved = {}
         try:
