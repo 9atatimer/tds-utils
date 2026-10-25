@@ -22,6 +22,7 @@ from adherence.domain.records import DesignRecords, RecordsUnavailable
 # --- Constants ---------------------------------------------------------------
 
 REAL_ASSERTION = catalog_check("Real assertion")
+PUBLIC_SURFACE = catalog_check("Public surface")
 
 # --- Predicates --------------------------------------------------------------
 
@@ -34,6 +35,12 @@ def is_named(callee: str, names: frozenset[str]) -> bool:
 def asserts_by_call(case: TestCase, vocabulary: Vocabulary) -> bool:
     """Whether a test calls something that asserts, as `pytest.raises` does."""
     return any(is_named(c, vocabulary.assertion_calls) for c in case.calls)
+
+
+def is_internal(name: str) -> bool:
+    """Whether a name is private to its module or type: one leading
+    underscore, never a dunder."""
+    return name.startswith("_") and not name.startswith("__")
 
 
 # --- Pure helpers ------------------------------------------------------------
@@ -89,6 +96,48 @@ def real_assertion(
                     Layer.TEST,
                     why,
                     Evidence(case.path, case.line, case.symbol),
+                )
+            )
+    return CheckOutcome(tuple(findings))
+
+
+def _internals(model: CodeModel) -> frozenset[str]:
+    """The private names the covered non-test definitions carry."""
+    return frozenset(
+        name
+        for d in model.definitions
+        if d.unit.layer is not None and d.unit.layer is not Layer.TEST
+        if is_internal(name := (d.unit.symbol or "").rpartition(".")[2])
+    )
+
+
+def public_surface(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """No test reaches past a use case into a helper or an internal: a test
+    that calls a private definition of the repository's covered code is a
+    finding, at each such call."""
+    if not declaration.declared:
+        return undeclared(PUBLIC_SURFACE.name)
+    internals = _internals(model)
+    findings: list[Finding] = []
+    for case, unit in _tests(model, declaration):
+        for call in model.calls:
+            reached = call.callee.rpartition(".")[2]
+            if call.path != case.path or call.within != case.symbol:
+                continue
+            if reached not in internals:
+                continue
+            findings.append(
+                Finding(
+                    PUBLIC_SURFACE,
+                    unit,
+                    Layer.TEST,
+                    f"{case.symbol} -> {call.callee}",
+                    Evidence(call.path, call.line, call.callee),
                 )
             )
     return CheckOutcome(tuple(findings))
