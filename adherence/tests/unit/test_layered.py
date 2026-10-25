@@ -28,7 +28,7 @@ from adherence.domain.records import (
     UseCase,
 )
 from adherence.domain.report import Report
-from tests.measure_kit import VOCABULARY, declared, measure_with
+from tests.measure_kit import HEXAGON, VOCABULARY, declared, measure_with
 
 DESIGN = "docs/design/DESIGN.TOOL.md"
 ARCHITECTURE = "docs/design/ARCHITECTURE.TOOL.md"
@@ -251,6 +251,25 @@ def test_measure_row_of_repeated_whens_is_read_in_linear_time() -> None:
 
     assert "no nameable" in finding.subject
     assert time.perf_counter() - started < 1.0
+
+
+RECORDED = HEXAGON + (
+    f'[records]\ndesign = "{DESIGN}"\narchitecture = "{ARCHITECTURE}"\n'.encode()
+)
+
+
+def test_measure_record_stating_no_behaviors_leaves_trace_as_coverage() -> None:
+    """Given a design record that is present but states no behaviors (its
+    Behaviors section missing or unreadable), When Trace runs, Then Trace
+    did not run and its coverage says why and names the record, never a
+    clean pass."""
+    report = measure_with(
+        {USE: b"x = 1\n"}, CodeModel(), declared(RECORDED), records=DesignRecords()
+    )
+
+    assert "Trace" not in [c.name for c in report.ran]
+    (why,) = (c for c in report.coverage if c.check == "Trace")
+    assert DESIGN in why.reason and "no behaviors" in why.reason
 
 
 STORE = "src/app/ports/store.py"

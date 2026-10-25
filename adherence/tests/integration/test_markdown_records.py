@@ -260,6 +260,37 @@ def test_records_of_the_engines_own_design_are_read_whole() -> None:
     assert "RepositoryPort" in {s.name for s in records.seams}
 
 
+ROW = "| A row | Given a, When b, Then c |"
+TABLE = f"| Behavior | Given / When / Then |\n|---|---|\n{ROW}\n"
+
+
+def _behaviors_under(heading: str, after: str = "") -> list[str]:
+    records = parse_records(
+        design_path=DESIGN,
+        design=f"# Tool\n\n{heading}\n\n{after}{TABLE}",
+        architecture_path=ARCHITECTURE,
+        architecture=f"# Tool\n\n### *Use-case surface*\n\n{TABLE}",
+    )
+    assert [r.behavior for r in records.surface] == ["A row"]
+    return [b.name for b in records.behaviors]
+
+
+def test_records_find_a_section_by_its_heading_text_at_any_level() -> None:
+    """Given Behaviors and Use-case surface headings at another level, with
+    markup, or with words after the name, When the records are read, Then
+    each section is found by its heading's text, and a deeper heading inside
+    it does not end it."""
+    for heading in ("### Behaviors", "## Behaviors (v2)", "## **Behaviors**"):
+        assert _behaviors_under(heading) == ["A row"], heading
+    assert _behaviors_under("## Behaviors", after="### Orders\n\n") == ["A row"]
+
+
+def test_records_section_ends_at_a_heading_as_high_as_its_own() -> None:
+    """Given a table under a heading as high as the Behaviors heading, When
+    the records are read, Then it is no part of the Behaviors section."""
+    assert _behaviors_under("### Behaviors", after="### Later\n\n") == []
+
+
 def test_records_of_the_engines_own_design_state_no_untraceable_row() -> None:
     """Given the engine's own approved design record, When its behaviors are
     parsed, Then every row names an action and an observation -- a row whose
