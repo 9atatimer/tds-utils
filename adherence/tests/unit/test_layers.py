@@ -8,12 +8,15 @@ file, a literal path over a glob, a longer glob over a shorter one.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from adherence.domain.declaration import (
     Declaration,
     DeclarationUnreadable,
     layer_of,
+    matches,
     parse_declaration,
 )
 from adherence.domain.model import Layer, Region
@@ -99,3 +102,37 @@ def test_parse_declaration_with_malformed_layers_is_unreadable(
 
     assert isinstance(loaded, DeclarationUnreadable)
     assert named in loaded.reason
+
+
+def test_matches_a_glob_of_repeated_double_stars_promptly() -> None:
+    """Given a declaration glob of many `**/` segments, which the declaration's
+    author controls, When it is matched against a deep path that it misses,
+    Then the answer comes promptly: no backtracking blow-up holds the run.
+
+    A backtracking matcher takes seconds here (about 3s at nine segments on
+    an M1, growing about 14x per segment); a linear one takes microseconds,
+    so the half-second bound leaves a wide margin for a slow runner."""
+    started = time.perf_counter()
+
+    assert not matches("**/" * 9 + "x", "a/" * 30 + "y")
+    assert time.perf_counter() - started < 0.5
+
+
+@pytest.mark.parametrize(
+    ("pattern", "path", "expected"),
+    [
+        ("src/**", "src/a/b.py", True),
+        ("src/**", "src", False),
+        ("**/test_*.py", "test_a.py", True),
+        ("**/test_*.py", "x/y/test_a.py", True),
+        ("src/*.py", "src/a/b.py", False),
+        ("src/**/b.py", "src/b.py", True),
+        ("src/**/b.py", "src/a/c/b.py", True),
+        ("a?c/d", "abc/d", True),
+        ("a?c/d", "a/c/d", False),
+    ],
+)
+def test_matches_follows_glob_rules(pattern: str, path: str, expected: bool) -> None:
+    """Given a layer pattern and a path, When they are matched, Then `**`
+    crosses directories and `*` and `?` stay within one."""
+    assert matches(pattern, path) is expected
