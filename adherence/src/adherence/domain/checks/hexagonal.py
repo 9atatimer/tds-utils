@@ -90,7 +90,8 @@ def is_model_id(text: str, vocabulary: Vocabulary) -> bool:
 
 
 def _mechanisms(model: CodeModel, vocabulary: Vocabulary) -> list[_Hit]:
-    """Every vendor import, environment read and model id in the model. An
+    """Every vendor import, environment read, filesystem or module-loader
+    call, and model id in the model. An
     import naming a vendor is one whatever it resolves to: an in-repo copy
     of the vendor's package does not make it the repository's own."""
     return [
@@ -103,6 +104,11 @@ def _mechanisms(model: CodeModel, vocabulary: Vocabulary) -> list[_Hit]:
             _Hit(a.path, a.line, a.target, a.target)
             for a in model.accesses
             if a.kind is AccessKind.ENVIRONMENT
+        ),
+        *(
+            _Hit(c.path, c.line, c.callee, c.callee)
+            for c in model.calls
+            if c.callee in vocabulary.mechanism_calls
         ),
         *(
             _Hit(r.path, r.line, r.text, r.text)

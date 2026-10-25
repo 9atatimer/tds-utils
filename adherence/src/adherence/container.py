@@ -69,6 +69,15 @@ SHIPPED_VOCABULARY = Vocabulary(
     model_ids=frozenset(
         {"claude-", "gpt-", "gemini-", "llama", "mistral-", "o1-", "o3-", "o4-"}
     ),
+    mechanism_calls=frozenset(
+        {
+            "open",
+            "io.open",
+            "__import__",
+            "importlib.import_module",
+            "importlib.__import__",
+        }
+    ),
     fakes=frozenset({"Fake", "InMemory"}),
 )
 SHIPPED_LIMITS = Limits(evidence_bound=200)
