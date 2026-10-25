@@ -568,3 +568,17 @@ def test_a_file_that_does_not_parse_is_unparsed_and_the_rest_modelled() -> None:
     assert "not utf-8" in reasons["latin.mjs"]
     assert {u.path for u in model.units} == {"fine.ts"}
     assert [d.unit.symbol for d in model.definitions] == ["f"]
+
+
+def test_a_file_nested_past_the_walk_is_unparsed_and_the_rest_modelled() -> None:
+    """Given a file that parses but nests deeper than the analyzer can walk,
+    When it is modelled with another file, Then that file is Unparsed and
+    the other is modelled; the run does not end."""
+    deep = b"if (" + b" && ".join([b"a"] * 1200) + b") {}\n"
+
+    model = _model_of(
+        {"deep.ts": deep, "fine.ts": b"function f(): number {\n  return 1;\n}\n"}
+    )
+
+    assert [u.path for u in model.unparsed] == ["deep.ts"]
+    assert any(d.unit.symbol == "f" for d in model.definitions)
