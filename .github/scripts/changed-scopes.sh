@@ -17,8 +17,9 @@
 # live. Every doubt resolves toward running MORE:
 #
 #   - a gate file (this script, its test, dist-ci.yml) runs everything;
-#   - a file under dynomark/ or chores/ runs that tree's jobs, whatever
-#     its extension (dynomark/contract/README.md is itself checked);
+#   - a file under dynomark/, chores/ or adherence/ runs that tree's
+#     jobs, whatever its extension (dynomark/contract/README.md is itself
+#     checked);
 #   - a shell file anywhere (by extension or shebang) runs smoketests,
 #     whose syntax sweep covers every tracked shell file;
 #   - Markdown elsewhere and docs/**/*.html run nothing;
@@ -31,7 +32,7 @@ set -euo pipefail
 
 # --- Scope table -------------------------------------------------------------
 
-SCOPES="smoketests shellcheck chores dynomark-contract dynomark-daemon dynomark-extension dynomark-e2e"
+SCOPES="smoketests shellcheck chores adherence dynomark-contract dynomark-daemon dynomark-extension dynomark-e2e"
 
 GATE_FILES=".github/workflows/dist-ci.yml .github/scripts/changed-scopes.sh test/smoketest_changed_scopes.sh"
 
@@ -61,7 +62,7 @@ is_shell_file() {
 is_inert() {
     local file="$1"
     case "${file}" in
-        dynomark/* | chores/*) return 1 ;;
+        dynomark/* | chores/* | adherence/*) return 1 ;;
         *.md) return 0 ;;
         docs/*.html) return 0 ;;
     esac
@@ -82,6 +83,7 @@ scopes_for() {
         dynomark/e2e/*) out="dynomark-e2e" ;;
         dynomark/*) out="dynomark-contract dynomark-daemon dynomark-extension dynomark-e2e" ;;
         chores/*) out="chores" ;;
+        adherence/*) out="adherence" ;;
         *) is_inert "${file}" || out="smoketests shellcheck" ;;
     esac
     if is_shell_file "${file}"; then
