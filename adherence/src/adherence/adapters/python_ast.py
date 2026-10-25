@@ -17,6 +17,8 @@ from adherence.adapters.python_imports import ImportGraphFailed, import_edges
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, layer_of, marker_regions
 from adherence.domain.model import (
+    Access,
+    AccessKind,
     Body,
     Call,
     CodeModel,
@@ -36,6 +38,8 @@ from adherence.domain.parameters import Vocabulary
 
 DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 SLEEP = "sleep"
+# Python's ways to read the process environment.
+ENVIRONMENT_READS = frozenset({"os.environ", "os.getenv", "environ", "getenv"})
 
 # --- Helpers -----------------------------------------------------------------
 
@@ -261,6 +265,26 @@ def _calls(path: str, scoped: Sequence[tuple[str | None, ast.AST]]) -> list[Call
     ]
 
 
+def _accesses(path: str, scoped: Sequence[tuple[str | None, ast.AST]]) -> list[Access]:
+    inner = {
+        id(n.value) for _, n in scoped if isinstance(n, ast.Attribute) and _chain(n)
+    }
+    found: list[Access] = []
+    for within, node in scoped:
+        if isinstance(node, ast.Global):
+            found.extend(
+                Access(path, node.lineno, within, AccessKind.GLOBAL, name)
+                for name in node.names
+            )
+        elif isinstance(node, ast.Attribute | ast.Name) and id(node) not in inner:
+            text = ast.unparse(node)
+            if text in ENVIRONMENT_READS:
+                found.append(
+                    Access(path, node.lineno, within, AccessKind.ENVIRONMENT, text)
+                )
+    return found
+
+
 # --- Adapter -----------------------------------------------------------------
 
 
@@ -288,6 +312,7 @@ class PythonCodeModel:
         definitions: list[Definition] = []
         references: list[Reference] = []
         calls: list[Call] = []
+        accesses: list[Access] = []
         unparsed: list[Unparsed] = []
         trees: dict[str, ast.Module] = {}
         for path in sorted(sources):
@@ -307,6 +332,7 @@ class PythonCodeModel:
             scoped = _scoped(tree, walked)
             references.extend(_references(path, tree, scoped))
             calls.extend(_calls(path, scoped))
+            accesses.extend(_accesses(path, scoped))
         try:
             imports = import_edges(sources, trees, deadline)
         except ImportGraphFailed as failure:
@@ -320,6 +346,7 @@ class PythonCodeModel:
             definitions=tuple(definitions),
             references=tuple(references),
             calls=tuple(calls),
+            accesses=tuple(accesses),
             regions=regions,
             unparsed=tuple(unparsed),
         )

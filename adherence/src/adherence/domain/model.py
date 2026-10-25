@@ -153,6 +153,25 @@ class Call:
     callee: str
 
 
+class AccessKind(enum.Enum):
+    """A read of the process environment, or of a declared global."""
+
+    ENVIRONMENT = "environment"
+    GLOBAL = "global"
+
+
+@dataclass(frozen=True, slots=True)
+class Access:
+    """A read of the environment or a global: what is read, its line, and
+    the definition it sits in."""
+
+    path: str
+    line: int
+    within: str | None
+    kind: AccessKind
+    target: str
+
+
 @dataclass(frozen=True, slots=True)
 class Unparsed:
     """A source the analyzer could not read as its language, with the reason."""
@@ -170,5 +189,6 @@ class CodeModel:
     definitions: tuple[Definition, ...] = ()
     references: tuple[Reference, ...] = ()
     calls: tuple[Call, ...] = ()
+    accesses: tuple[Access, ...] = ()
     regions: tuple[Region, ...] = ()
     unparsed: tuple[Unparsed, ...] = ()
