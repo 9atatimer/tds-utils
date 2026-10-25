@@ -1,0 +1,9 @@
+# The TypeScript code model's fixture: a small copy of lib/decide/'s shape.
+
+[layers]
+domain = ["lib/tool/schema.mjs", "lib/tool/rules.ts"]
+application = ["lib/tool/run.ts"]
+ports = ["lib/tool/ports.ts"]
+adapters = ["lib/tool/fs-store.ts"]
+test = ["test/**"]
+regions = [{ file = "bin/tool.mjs" }]
