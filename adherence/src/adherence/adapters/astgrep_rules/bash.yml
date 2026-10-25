@@ -6,6 +6,19 @@
 # same ids the TypeScript rules use, and its captures are the fact's
 # parts; an id may carry a `.variant` when two rules yield one fact.
 # Every rule is a hint, so a match never fails the scan.
+id: function
+language: Bash
+severity: hint
+rule:
+  kind: function_definition
+  has: {field: name, pattern: $NAME}
+---
+id: function-node
+language: Bash
+severity: hint
+rule:
+  kind: function_definition
+---
 id: syntax-error
 language: Bash
 severity: hint
