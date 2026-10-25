@@ -505,3 +505,46 @@ def test_an_object_type_alias_has_members_and_a_parameter_type_none() -> None:
         ("Ports", "name", MemberKind.FIELD),
         ("C", "m", MemberKind.METHOD),
     }
+
+
+def test_test_cases_carry_their_calls_and_assertions() -> None:
+    """Given node:test and Vitest-style tests, one of which only calls, inside
+    and outside a describe block, When the fixture is modelled, Then each
+    test case carries its title, what it calls and what it asserts, so a test
+    that cannot fail is visible; the describe block is no test."""
+    cases = {
+        (t.path, t.symbol, t.line, t.calls, t.assertions)
+        for t in fixture_model().test_cases
+    }
+
+    path = "test/run.test.mjs"
+    assert cases == {
+        (
+            path,
+            "closeOrder saves",
+            5,
+            ("closeOrder", "order"),
+            ("assert.equal(await closeOrder(order(), { store }), 'pending')",),
+        ),
+        (path, "nothing", 9, ("closeOrder",), ()),
+        (path, "is large", 14, ("isLarge",), ("expect(isLarge(5)).toBe(true)",)),
+    }
+
+
+def test_tests_and_assertions_come_from_the_vocabulary() -> None:
+    """Given a vocabulary whose test function is `spec` and whose assertion
+    is `check`, When code is modelled with it, Then only a `spec` call is a
+    test case and only a `check` call is its assertion."""
+    vocabulary = Vocabulary(
+        regions={}, tests=frozenset({"spec"}), assertions=frozenset({"check"})
+    )
+    source = b"spec('a', () => {\n  check(run());\n});\ntest('b', () => run());\n"
+
+    model = TypeScriptCodeModel().model(
+        {"t.mjs": source}, typescript_fixture.declaration(), vocabulary, None
+    )
+
+    assert isinstance(model, CodeModel)
+    assert [(t.symbol, t.calls, t.assertions) for t in model.test_cases] == [
+        ("a", ("run",), ("check(run())",))
+    ]

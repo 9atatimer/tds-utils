@@ -36,6 +36,8 @@ VOCABULARY = Vocabulary(
     sleeps=frozenset({"sleep", "setTimeout"}),
     stubs=frozenset({"{}", "NotImplementedError"}),
     options_objects=frozenset({"deps"}),
+    tests=frozenset({"test", "it"}),
+    assertions=frozenset({"assert", "expect"}),
 )
 
 
