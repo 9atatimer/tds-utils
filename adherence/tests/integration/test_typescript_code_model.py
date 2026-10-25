@@ -548,3 +548,23 @@ def test_tests_and_assertions_come_from_the_vocabulary() -> None:
     assert [(t.symbol, t.calls, t.assertions) for t in model.test_cases] == [
         ("a", ("run",), ("check(run())",))
     ]
+
+
+def test_a_file_that_does_not_parse_is_unparsed_and_the_rest_modelled() -> None:
+    """Given a file with a syntax error and a file that is not UTF-8 beside a
+    good one, When they are modelled, Then each of the two is Unparsed with
+    its reason and holds no unit, and the good file is modelled."""
+    model = _model_of(
+        {
+            "bad.ts": b"export const x = (;\n",
+            "fine.ts": b"export function f(): number {\n  return 1;\n}\n",
+            "latin.mjs": b"const s = '\xe9';\n",
+        }
+    )
+
+    reasons = {u.path: u.reason for u in model.unparsed}
+    assert sorted(reasons) == ["bad.ts", "latin.mjs"]
+    assert "syntax error at line 1" in reasons["bad.ts"]
+    assert "not utf-8" in reasons["latin.mjs"]
+    assert {u.path for u in model.units} == {"fine.ts"}
+    assert [d.unit.symbol for d in model.definitions] == ["f"]
