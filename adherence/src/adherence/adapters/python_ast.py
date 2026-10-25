@@ -24,6 +24,8 @@ from adherence.domain.model import (
     CodeModel,
     Conditional,
     Definition,
+    Member,
+    MemberKind,
     Parameter,
     Reference,
     ReferenceKind,
@@ -335,6 +337,58 @@ def _conditionals(
     return found
 
 
+SELF = "self"
+
+
+def _self_fields(method: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.Attribute]:
+    """The `self.<field> = ...` targets in a method."""
+    return [
+        target
+        for node in own_nodes(method)
+        for target in _assigned(node)
+        if isinstance(target, ast.Attribute)
+        and isinstance(target.value, ast.Name)
+        and target.value.id == SELF
+    ]
+
+
+def _type_members(path: str, found: _Found) -> list[Member]:
+    """One type's declared fields, methods and self-assigned fields, in order."""
+    members: list[Member] = []
+    for statement in found.node.body:
+        if isinstance(statement, ast.FunctionDef | ast.AsyncFunctionDef):
+            members.append(
+                Member(
+                    path,
+                    found.symbol,
+                    statement.name,
+                    MemberKind.METHOD,
+                    statement.lineno,
+                )
+            )
+            members.extend(
+                Member(path, found.symbol, t.attr, MemberKind.FIELD, t.lineno)
+                for t in _self_fields(statement)
+            )
+        else:
+            members.extend(
+                Member(path, found.symbol, t.id, MemberKind.FIELD, t.lineno)
+                for t in _assigned(statement)
+                if isinstance(t, ast.Name)
+            )
+    return members
+
+
+def _members(path: str, walked: Sequence[_Found]) -> list[Member]:
+    """Every type's members, each name once, at its first occurrence."""
+    first: dict[tuple[str, str], Member] = {}
+    for f in walked:
+        if isinstance(f.node, ast.ClassDef):
+            for member in _type_members(path, f):
+                first.setdefault((member.owner, member.name), member)
+    return list(first.values())
+
+
 # --- Adapter -----------------------------------------------------------------
 
 
@@ -365,6 +419,7 @@ class PythonCodeModel:
         accesses: list[Access] = []
         writes: list[Write] = []
         conditionals: list[Conditional] = []
+        members: list[Member] = []
         unparsed: list[Unparsed] = []
         trees: dict[str, ast.Module] = {}
         for path in sorted(sources):
@@ -387,6 +442,7 @@ class PythonCodeModel:
             accesses.extend(_accesses(path, scoped))
             writes.extend(_writes(path, scoped))
             conditionals.extend(_conditionals(path, scoped))
+            members.extend(_members(path, walked))
         try:
             imports = import_edges(sources, trees, deadline)
         except ImportGraphFailed as failure:
@@ -403,6 +459,7 @@ class PythonCodeModel:
             accesses=tuple(accesses),
             writes=tuple(writes),
             conditionals=tuple(conditionals),
+            members=tuple(members),
             regions=regions,
             unparsed=tuple(unparsed),
         )

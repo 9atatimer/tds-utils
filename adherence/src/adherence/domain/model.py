@@ -195,6 +195,25 @@ class Conditional:
     discriminant: str
 
 
+class MemberKind(enum.Enum):
+    """A field or a method of a type."""
+
+    FIELD = "field"
+    METHOD = "method"
+
+
+@dataclass(frozen=True, slots=True)
+class Member:
+    """A field or method of a type: the type's symbol, the member's name,
+    and the line it is first declared or assigned on."""
+
+    path: str
+    owner: str
+    name: str
+    kind: MemberKind
+    line: int
+
+
 @dataclass(frozen=True, slots=True)
 class Unparsed:
     """A source the analyzer could not read as its language, with the reason."""
@@ -215,5 +234,6 @@ class CodeModel:
     accesses: tuple[Access, ...] = ()
     writes: tuple[Write, ...] = ()
     conditionals: tuple[Conditional, ...] = ()
+    members: tuple[Member, ...] = ()
     regions: tuple[Region, ...] = ()
     unparsed: tuple[Unparsed, ...] = ()
