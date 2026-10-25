@@ -31,7 +31,8 @@ class Vocabulary:
     port as a fake.
     callables are the type names that make a parameter a callable;
     wire_formats the type names -- a wire format, or an SDK type or handle
-    known by name -- that no use-case signature may carry.
+    known by name -- that no use-case signature may carry; singletons the
+    dotted names that reach a process-wide instance.
     """
 
     regions: Mapping[str, Layer]
@@ -43,6 +44,7 @@ class Vocabulary:
     fakes: frozenset[str] = field(default_factory=frozenset)
     callables: frozenset[str] = field(default_factory=frozenset)
     wire_formats: frozenset[str] = field(default_factory=frozenset)
+    singletons: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True, slots=True)

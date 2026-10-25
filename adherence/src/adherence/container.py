@@ -92,6 +92,9 @@ SHIPPED_VOCABULARY = Vocabulary(
             "CompletedProcess",
         }
     ),
+    singletons=frozenset(
+        {"sys.argv", "sys.stdin", "sys.stdout", "sys.stderr", "sys.modules", "sys.path"}
+    ),
 )
 SHIPPED_LIMITS = Limits(evidence_bound=200)
 SHIPPED_PARAMETERS = Parameters(

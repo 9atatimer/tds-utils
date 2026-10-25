@@ -31,6 +31,7 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Values in and out": composable.values_in_and_out,
     "Ports as keywords": injectable.ports_as_keywords,
     "No self-wiring": injectable.no_self_wiring,
+    "No reach": injectable.no_reach,
 }
 CHANGE_LEVEL = "a change-level check: it runs when a change is judged"
 NOT_IN_SUITE = "not implemented in this suite version"

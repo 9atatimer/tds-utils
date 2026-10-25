@@ -7,6 +7,7 @@ CodeModel.
 
 from __future__ import annotations
 
+from adherence.domain.checks.hexagonal import CORE
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.checks.roles import (
     adapter_names,
@@ -16,10 +17,10 @@ from adherence.domain.checks.roles import (
     port_names,
     short_name,
 )
-from adherence.domain.declaration import Declaration
+from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.finding import Evidence, Finding
-from adherence.domain.model import CodeModel
-from adherence.domain.parameters import Parameters
+from adherence.domain.model import AccessKind, CodeModel, ReferenceKind
+from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
 from adherence.domain.records import DesignRecords, RecordsUnavailable
 
@@ -27,6 +28,20 @@ from adherence.domain.records import DesignRecords, RecordsUnavailable
 
 PORTS_AS_KEYWORDS = catalog_check("Ports as keywords")
 NO_SELF_WIRING = catalog_check("No self-wiring")
+NO_REACH = catalog_check("No reach")
+REACHED = {
+    AccessKind.ENVIRONMENT: "the environment",
+    AccessKind.GLOBAL: "a global",
+}
+SINGLETON = "a singleton"
+
+# --- Predicates --------------------------------------------------------------
+
+
+def is_singleton(name: str, vocabulary: Vocabulary) -> bool:
+    """Whether a name chain is, or runs through, a singleton."""
+    return any(name == s or name.startswith(f"{s}.") for s in vocabulary.singletons)
+
 
 # --- Pure helpers ------------------------------------------------------------
 
@@ -91,4 +106,38 @@ def no_self_wiring(
             and is_within(call.within, unit.symbol)
             and short_name(call.callee) in adapters
         )
+    return CheckOutcome(tuple(findings))
+
+
+def _reaches(model: CodeModel, vocabulary: Vocabulary) -> list[tuple[str, int, str]]:
+    """Every read of the environment, a global or a singleton: its path,
+    its line and what it reached."""
+    return [
+        *((a.path, a.line, f"{REACHED[a.kind]}: {a.target}") for a in model.accesses),
+        *(
+            (r.path, r.line, f"{SINGLETON}: {r.text}")
+            for r in model.references
+            if r.kind is ReferenceKind.NAME and is_singleton(r.text, vocabulary)
+        ),
+    ]
+
+
+def no_reach(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """No use case or domain unit -- nothing in the application or domain
+    layer -- reads a global, a singleton or the environment."""
+    if not declaration.declared:
+        return undeclared(NO_REACH.name)
+    findings: list[Finding] = []
+    for path, line, reached in _reaches(model, parameters.vocabulary):
+        layer = layer_of(path, line, declaration, model.regions)
+        unit = model.unit_at(path, line)
+        if layer in CORE and unit is not None:
+            findings.append(
+                Finding(NO_REACH, unit, layer, reached, Evidence(path, line, reached))
+            )
     return CheckOutcome(tuple(findings))

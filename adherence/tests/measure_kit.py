@@ -44,6 +44,7 @@ VOCABULARY = Vocabulary(
     fakes=frozenset({"Fake"}),
     callables=frozenset({"Callable"}),
     wire_formats=frozenset({"dict", "Response"}),
+    singletons=frozenset({"sys.argv"}),
 )
 LIMITS = Limits(evidence_bound=200)
 
