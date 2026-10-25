@@ -257,3 +257,22 @@ def test_measure_with_literals_and_library_types_names_no_foreign_noun() -> None
 
     assert "Language" in {c.name for c in report.ran}
     assert [f.subject for f in _of(report, "Language")] == []
+
+
+def test_measure_with_a_singular_noun_for_a_plural_term_finds_it_defined() -> None:
+    """Given a Domain Language whose term is plural (Items, Known flaws) and
+    use cases naming the singular type (`Item`, `KnownFlaw`), When Language
+    runs, Then no finding names them: a singular noun matches its plural
+    term as a plural noun matches its singular one."""
+    files = {USE: b"x\n" * 9}
+    definitions = [
+        function(USE, "pick", 1, (value("item", "Item"),), returns="KnownFlaw"),
+    ]
+    records = DesignRecords(
+        domain_language=(Term("Items", DESIGN, 40), Term("Known flaws", DESIGN, 41))
+    )
+
+    report = measure_with(files, facts(definitions), records=records)
+
+    assert "Language" in {c.name for c in report.ran}
+    assert [f.subject for f in _of(report, "Language")] == []
