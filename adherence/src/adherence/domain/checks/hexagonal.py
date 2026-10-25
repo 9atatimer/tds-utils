@@ -27,6 +27,7 @@ from adherence.domain.model import (
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
 from adherence.domain.records import DesignRecords, RecordsUnavailable, Seam
+from adherence.domain.source import source_lines
 
 # --- Constants ---------------------------------------------------------------
 
@@ -89,6 +90,12 @@ def is_model_id(text: str, vocabulary: Vocabulary) -> bool:
 # --- Pure helpers ------------------------------------------------------------
 
 
+def bounded(text: str, bound: int) -> str:
+    """The first line of a text, stripped and cut at the evidence bound: what
+    a finding may name of source text (a string literal may span lines)."""
+    return next(iter(source_lines(text)), "").strip()[:bound]
+
+
 def _mechanisms(model: CodeModel, vocabulary: Vocabulary) -> list[_Hit]:
     """Every vendor import, environment read, filesystem or module-loader
     call, and model id in the model. An
@@ -129,6 +136,7 @@ def grep(
     if not declaration.declared:
         return undeclared(GREP.name)
     findings: list[Finding] = []
+    bound = parameters.limits.evidence_bound
     for hit in _mechanisms(model, parameters.vocabulary):
         layer = layer_of(hit.path, hit.line, declaration, model.regions)
         unit = model.unit_at(hit.path, hit.line)
@@ -138,7 +146,7 @@ def grep(
                     GREP,
                     unit,
                     layer,
-                    hit.subject,
+                    bounded(hit.subject, bound),
                     Evidence(hit.path, hit.line, hit.text),
                 )
             )
