@@ -61,3 +61,22 @@ def test_functions_are_units_in_the_layer_of_their_marker_region() -> None:
     assert units[(TOOL, "advance")] == (function, Layer.APPLICATION)
     assert units[(TOOL, "main")] == (function, Layer.COMPOSITION_ROOT)
     assert units[("lib/common.sh", "log_line")] == (function, Layer.ADAPTERS)
+
+
+def test_every_command_is_a_call_with_its_function() -> None:
+    """Given the fixture, When it is modelled, Then every command run is a
+    call to its name as written, in a pipeline or a substitution alike,
+    with the function it sits in, or none at the top."""
+    calls = {(c.within, c.callee, c.line) for c in fixture_model().calls}
+
+    assert {
+        ("head_of", "git", 17),
+        ("check_clean", "git", 32),
+        ("check_clean", "head", 32),
+        ("check_clean", "die", 33),
+        ("advance", "check_clean", 37),
+        ("advance", "command", 40),
+        ("advance", "head_of", 40),
+        (None, "source", 9),
+        (None, "main", 57),
+    } <= calls
