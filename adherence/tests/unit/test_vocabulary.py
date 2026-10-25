@@ -8,7 +8,8 @@ import pytest
 
 from adherence.domain.declaration import DeclarationUnreadable, parse_declaration
 from adherence.domain.model import ImportEdge
-from tests.facts_kit import RULES, USE, facts, function, value
+from adherence.domain.records import DesignRecords, Term
+from tests.facts_kit import FS, RULES, STORE, USE, facts, function, port, type_, value
 from tests.measure_kit import HEXAGON, declared, measure_with
 
 
@@ -61,3 +62,37 @@ def test_parse_declaration_with_an_unreadable_vocabulary_says_why(table: bytes) 
 
     assert isinstance(parsed, DeclarationUnreadable)
     assert "vocabulary" in parsed.reason
+
+
+def test_measure_under_an_excusing_vocabulary_refuses_it_and_says_so() -> None:
+    """Given a declaration whose [vocabulary] adds words to the sets that
+    excuse -- a fake prefix that makes the real adapter a fake, a plain
+    type that makes a foreign noun the language's own -- When the checks
+    run, Then neither word is read: the port is still unfaked and the noun
+    still foreign, and the report says each set was refused and why, as
+    it says a refused exemption."""
+    extension = HEXAGON + (
+        b'\n[vocabulary]\nfakes = ["Fs"]\nplain_types = ["Gadget"]\nstubs = ["todo"]\n'
+    )
+    files = {USE: b"x\n" * 9, STORE: b"x\n" * 9, FS: b"x\n" * 9}
+    definitions = [
+        *port(STORE, "Store", 1),
+        type_(FS, "FsStore", 1, bases=("Store",)),
+        function(USE, "pick", 1, (value("item", "Gadget"),)),
+    ]
+
+    report = measure_with(
+        files,
+        facts(definitions),
+        declared(extension),
+        records=DesignRecords(domain_language=(Term("Order", "docs/D.md", 1),)),
+    )
+
+    assert {(f.check.name, f.subject) for f in report.findings} >= {
+        ("Swap", "Store"),
+        ("Language", "Gadget in pick"),
+    }
+    messages = [n.message for n in report.notices]
+    assert any("fakes" in m and "vocabulary" in m for m in messages), messages
+    assert any("plain_types" in m and "vocabulary" in m for m in messages), messages
+    assert not any("stubs" in m for m in messages), messages
