@@ -14,6 +14,7 @@ from adherence.domain.model import (
     Complexity,
     Definition,
     Layer,
+    MetricsUnavailable,
     Span,
     Unit,
     UnitKind,
@@ -172,4 +173,20 @@ def test_measure_with_no_duplication_ceiling_covers_duplication() -> None:
     assert "Duplication" not in {c.name for c in report.ran}
     assert any(
         c.check == "Duplication" and "ceiling" in c.reason for c in report.coverage
+    )
+
+
+def test_measure_with_the_complexity_tool_unavailable_covers_it() -> None:
+    """Given complexity tooling that is not installed, When a run is asked
+    for, Then Complexity is coverage naming why, never a clean result."""
+    report = measure_with(
+        {RULES: b"x\n"},
+        complexity=FakeComplexity(MetricsUnavailable("lizard is not installed")),
+        limits=Limits(evidence_bound=200, complexity_ceiling=10),
+    )
+
+    assert "Complexity" not in {c.name for c in report.ran}
+    assert any(
+        c.check == "Complexity" and "lizard is not installed" in c.reason
+        for c in report.coverage
     )
