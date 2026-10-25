@@ -10,6 +10,7 @@ Findings and explanations; ARCHITECTURE.ARCH-ADHERENCE.md, Module map).
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
@@ -43,6 +44,22 @@ class Finding:
     reached: Layer | None = None
     kind: CheckKind = CheckKind.RULE
 
+    @property
+    def identity(self) -> str:
+        """The finding's stable identity: a digest of the quality, the check,
+        the layer and kind of its unit, and the offending line with its
+        whitespace collapsed. No path, symbol or line number is in it, so a
+        moved file, a renamed function or an edit above leaves it alone; the
+        path is joined at judging, through the renames."""
+        parts = (
+            self.check.quality.value,
+            self.check.name,
+            self.layer.value if self.layer is not None else "",
+            self.unit.kind.value,
+            normalised(self.evidence.text),
+        )
+        return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+
 
 @dataclass(frozen=True, slots=True)
 class Notice:
@@ -52,6 +69,12 @@ class Notice:
 
 
 # --- Pure helpers ------------------------------------------------------------
+
+
+def normalised(line: str) -> str:
+    """An offending line as identity reads it: every run of whitespace one
+    space, none at either end."""
+    return " ".join(line.split())
 
 
 def _offending_line(evidence: Evidence, sources: Mapping[str, bytes]) -> str:
