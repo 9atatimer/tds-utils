@@ -31,18 +31,39 @@ from adherence.domain.model import (
     CodeModel,
     Definition,
     ImportEdge,
+    Parameter,
     Region,
+    Signature,
     Unit,
     UnitKind,
 )
+from adherence.domain.parameters import Vocabulary
 
 # --- Constants ---------------------------------------------------------------
 
 RULES = Path(__file__).resolve().parent / "astgrep_rules"
 BINARY = Path(sys.executable).with_name("ast-grep")
 IGNORE_FILES = ("hidden", "dot", "exclude", "global", "parent", "vcs")
-FUNCTION, TYPE, IMPORT = "function", "type", "import"
-NAME, SOURCE = "NAME", "SOURCE"
+# Facts: each rule's id names one.
+FUNCTION, FUNCTION_NODE, TYPE, IMPORT = "function", "function-node", "type", "import"
+PARAMETER, PARAMETER_TYPE, PARAMETER_DEFAULT = (
+    "parameter",
+    "parameter-type",
+    "parameter-default",
+)
+PARAMETER_PROPERTY, PROPERTY_DEFAULT, PROPERTY_TYPE = (
+    "parameter-property",
+    "property-default",
+    "property-type",
+)
+RETURNS, BASE, DECORATOR, DECORATOR_NEXT = (
+    "returns",
+    "base",
+    "decorator",
+    "decorator-next",
+)
+# Captures: each names a part of its fact.
+NAME, SOURCE, TYPE_CAPTURE = "NAME", "SOURCE", "TYPE"
 
 # --- Values ------------------------------------------------------------------
 
@@ -194,13 +215,133 @@ def _defined(matches: Sequence[Match]) -> list[_Defined]:
     return found
 
 
+def _of(matches: Sequence[Match], fact: str) -> list[Match]:
+    return sorted((m for m in matches if m.fact == fact), key=lambda m: m.start)
+
+
+def _at(matches: Sequence[Match], fact: str) -> dict[tuple[int, int], Match]:
+    """A fact's matches by node span, to join it to the node it describes."""
+    return {(m.start, m.end): m for m in matches if m.fact == fact}
+
+
+def _annotation(text: str | None) -> str | None:
+    """A type annotation's type as written, without the colon opening it."""
+    return None if text is None else text.removeprefix(":").strip()
+
+
+def _member_type(
+    name: str, annotation: str | None, typed: Sequence[Match]
+) -> str | None:
+    """An options object member's type: from the object type written in
+    place, or as the named type's member; None when there is no type."""
+    if annotation is None:
+        return None
+    if annotation.startswith("{"):
+        found = [m for m in typed if m.captured(NAME) == name]
+        return _annotation(found[0].captured(TYPE_CAPTURE)) if found else None
+    return f'{annotation}["{name}"]'
+
+
+def _members_of(
+    parameter: Match,
+    matches: Sequence[Match],
+    annotation: str | None,
+    has_default: bool,
+) -> list[Parameter]:
+    """A destructured options object's members, each a keyword parameter."""
+    parameters = _of(matches, PARAMETER)
+    defaults = _at(matches, PROPERTY_DEFAULT)
+    typed = [m for m in _of(matches, PROPERTY_TYPE) if parameter.holds(m)]
+    return [
+        Parameter(
+            name,
+            _member_type(name, annotation, typed),
+            True,
+            has_default or (member.start, member.end) in defaults,
+        )
+        for member in _of(matches, PARAMETER_PROPERTY)
+        if parameter.holds(member)
+        and (owner := innermost(parameters, member)) is not None
+        and owner.same_node(parameter)
+        and (name := member.captured(NAME)) is not None
+    ]
+
+
+def _signature(
+    node: Match, matches: Sequence[Match], vocabulary: Vocabulary
+) -> Signature:
+    """A function's parameters, in order, and its return annotation."""
+    functions = _of(matches, FUNCTION_NODE)
+    typed = _at(matches, PARAMETER_TYPE)
+    defaults = _at(matches, PARAMETER_DEFAULT)
+    parameters: list[Parameter] = []
+    for parameter in _of(matches, PARAMETER):
+        owner = innermost(functions, parameter)
+        if owner is None or not owner.same_node(node):
+            continue
+        span = (parameter.start, parameter.end)
+        annotation = (
+            _annotation(typed[span].captured(TYPE_CAPTURE)) if span in typed else None
+        )
+        has_default = span in defaults
+        members = _members_of(parameter, matches, annotation, has_default)
+        name = parameter.captured(NAME) or parameter.text
+        parameters.extend(
+            members
+            or [
+                Parameter(
+                    name, annotation, name in vocabulary.options_objects, has_default
+                )
+            ]
+        )
+    returns = _at(matches, RETURNS).get((node.start, node.end))
+    return Signature(
+        tuple(parameters),
+        _annotation(returns.captured(TYPE_CAPTURE)) if returns else None,
+    )
+
+
+def _owner(defined: Sequence[_Defined], match: Match) -> _Defined | None:
+    """The innermost definition holding a match."""
+    found = innermost([d.match for d in defined], match)
+    return next((d for d in defined if found and d.match.same_node(found)), None)
+
+
+def _decorated(
+    defined: Sequence[_Defined], matches: Sequence[Match]
+) -> dict[str, list[str]]:
+    """Each definition's decorators by symbol: one inside a class is the
+    class's; one before an export or a method is the next definition's."""
+    found: dict[str, list[str]] = {}
+    for decorator in _of(matches, DECORATOR):
+        owner = _owner(defined, decorator)
+        if owner is not None:
+            found.setdefault(owner.symbol, []).append(decorator.captured(NAME) or "")
+    for decorator in _of(matches, DECORATOR_NEXT):
+        following = [d for d in defined if d.match.start >= decorator.end]
+        if following:
+            found.setdefault(following[0].symbol, []).append(
+                decorator.captured(NAME) or ""
+            )
+    return found
+
+
 def definitions(
     path: str,
     matches: Sequence[Match],
     declaration: Declaration,
     regions: Sequence[Region],
+    vocabulary: Vocabulary,
 ) -> list[Definition]:
     """The definitions of one file, each in the layer of its first line."""
+    defined = _defined(matches)
+    functions = _of(matches, FUNCTION_NODE)
+    bases: dict[str, list[str]] = {}
+    for base in _of(matches, BASE):
+        owner = _owner(defined, base)
+        if owner is not None and owner.kind is UnitKind.TYPE:
+            bases.setdefault(owner.symbol, []).append(base.captured(NAME) or "")
+    decorators = _decorated(defined, matches)
     return [
         Definition(
             unit=Unit(
@@ -211,14 +352,18 @@ def definitions(
                 d.match.end_line,
                 layer_of(path, d.match.line, declaration, regions),
             ),
-            signature=None,
+            signature=_signature(d.match, matches, vocabulary)
+            if d.kind is UnitKind.FUNCTION
+            else None,
             body=Body("", (), ()),
-            bases=(),
-            decorators=(),
+            bases=tuple(bases.get(d.symbol, ())),
+            decorators=tuple(decorators.get(d.symbol, ())),
             parent=d.parent,
-            nested=False,
+            nested=any(
+                f.holds(d.match) and not f.same_node(d.match) for f in functions
+            ),
         )
-        for d in _defined(matches)
+        for d in defined
     ]
 
 

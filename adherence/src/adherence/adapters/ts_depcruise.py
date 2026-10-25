@@ -74,13 +74,14 @@ def _file_model(
     matches: Sequence[Match],
     declaration: Declaration,
     regions: Sequence[Region],
+    vocabulary: Vocabulary,
 ) -> CodeModel:
     """Every fact of one file, as a CodeModel of that file alone."""
     lines = source_lines(data.decode("utf-8", "replace"))
     file_unit = Unit(
         path, UnitKind.FILE, None, 1, len(lines), layer_of(path, None, declaration)
     )
-    found = definitions(path, matches, declaration, regions)
+    found = definitions(path, matches, declaration, regions, vocabulary)
     return CodeModel(
         units=(file_unit, *(d.unit for d in found)),
         definitions=tuple(found),
@@ -199,7 +200,9 @@ class TypeScriptCodeModel:
         for match in matches:
             by_path.setdefault(match.path, []).append(match)
         files = [
-            _file_model(path, sources[path], by_path[path], declaration, found)
+            _file_model(
+                path, sources[path], by_path[path], declaration, found, vocabulary
+            )
             for path in sorted(sources)
         ]
         edges = [edge for f in files for edge in f.imports]

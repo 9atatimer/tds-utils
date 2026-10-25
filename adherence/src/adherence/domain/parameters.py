@@ -24,9 +24,15 @@ class Vocabulary:
     process environment; sleeps the callees (a full dotted name, or its last
     part) that wait; stubs the placeholder forms a body that is nothing but
     one names (`pass`, `...`, `NotImplementedError`).
+
+    options_objects are the parameter names that hold an options object in
+    a language with no keyword-only parameters (JavaScript): such a
+    parameter, like a destructured object's members, is passed by name, the
+    options-object form of ports as keywords.
     """
 
     regions: Mapping[str, Layer]
     environment_reads: frozenset[str] = field(default_factory=frozenset)
     sleeps: frozenset[str] = field(default_factory=frozenset)
     stubs: frozenset[str] = field(default_factory=frozenset)
+    options_objects: frozenset[str] = field(default_factory=frozenset)

@@ -71,3 +71,142 @@ rule:
           kind: string
           nthChild: 1
           has: {kind: string_fragment, pattern: $SOURCE}
+---
+id: function-node
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: function_declaration
+    - kind: generator_function_declaration
+    - kind: function_expression
+    - kind: generator_function
+    - kind: arrow_function
+    - kind: method_definition
+---
+id: parameter
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - all:
+        - any:
+            - kind: required_parameter
+            - kind: optional_parameter
+        - has: {field: pattern, pattern: $NAME}
+    - all:
+        - kind: identifier
+        - inside: {kind: arrow_function, field: parameter}
+        - pattern: $NAME
+---
+id: parameter-type
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: required_parameter
+    - kind: optional_parameter
+  has: {field: type, pattern: $TYPE}
+---
+id: parameter-default
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: optional_parameter
+    - all:
+        - kind: required_parameter
+        - has: {field: value, pattern: $DEFAULT}
+---
+id: parameter-property
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - all:
+        - kind: shorthand_property_identifier_pattern
+        - pattern: $NAME
+    - all:
+        - kind: object_assignment_pattern
+        - has: {field: left, pattern: $NAME}
+    - all:
+        - kind: pair_pattern
+        - has: {field: key, pattern: $NAME}
+  inside:
+    kind: object_pattern
+    inside:
+      any:
+        - kind: required_parameter
+        - kind: optional_parameter
+---
+id: property-default
+language: TypeScript
+severity: hint
+rule:
+  kind: object_assignment_pattern
+---
+id: property-type
+language: TypeScript
+severity: hint
+rule:
+  kind: property_signature
+  has: {field: name, pattern: $NAME}
+  all:
+    - has: {field: type, pattern: $TYPE}
+---
+id: returns
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: function_declaration
+    - kind: generator_function_declaration
+    - kind: function_expression
+    - kind: generator_function
+    - kind: arrow_function
+    - kind: method_definition
+  has: {field: return_type, pattern: $TYPE}
+---
+id: decorator
+language: TypeScript
+severity: hint
+rule:
+  kind: decorator
+  has: {pattern: $NAME}
+  inside:
+    any:
+      - kind: class_declaration
+      - kind: abstract_class_declaration
+---
+id: decorator-next
+language: TypeScript
+severity: hint
+rule:
+  kind: decorator
+  has: {pattern: $NAME}
+  any:
+    - inside: {kind: export_statement}
+    - precedes:
+        any:
+          - kind: method_definition
+          - kind: class_declaration
+          - kind: abstract_class_declaration
+        stopBy: {not: {kind: decorator}}
+---
+id: base
+language: TypeScript
+severity: hint
+rule:
+  pattern: $NAME
+  all:
+    - any:
+        - kind: identifier
+        - kind: member_expression
+        - kind: call_expression
+        - kind: type_identifier
+        - kind: nested_type_identifier
+        - kind: generic_type
+  any:
+    - inside: {kind: extends_clause, field: value}
+    - inside: {kind: implements_clause}
+    - inside: {kind: extends_type_clause}
