@@ -140,3 +140,24 @@ def test_measure_reports_a_refused_exemption_of_a_declared_check() -> None:
     assert any("Covered" in m and "src/app/new.py" in m for m in messages)
     assert any("Record kept" in m and "docs/x.md" in m for m in messages)
     assert all("Declared" in m for m in messages)
+
+
+def test_measure_reports_each_unit_in_an_unmeasured_language() -> None:
+    """Given sources in TypeScript and shell and no analyzer for them, When a
+    run is asked for, Then coverage names each unit and its language."""
+    files = {RULES: b"x = 1\n", "web/app.ts": b"let x = 1\n", "bin/run.sh": b"true\n"}
+
+    report = measure_with(files)
+
+    by_path = {c.path: c.reason for c in report.coverage if c.path}
+    assert "typescript" in by_path["web/app.ts"]
+    assert "shell" in by_path["bin/run.sh"]
+    assert RULES not in by_path
+
+
+def test_measure_with_no_analyzer_for_python_reports_its_units() -> None:
+    """Given Python sources and no analyzer bound for Python, When a run is
+    asked for, Then coverage names each Python unit and the language."""
+    report = measure_with({RULES: b"x = 1\n"}, analyzers={})
+
+    assert any(c.path == RULES and "python" in c.reason for c in report.coverage)
