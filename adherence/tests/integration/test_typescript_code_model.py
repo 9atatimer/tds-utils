@@ -9,7 +9,16 @@ from pathlib import Path
 
 from adherence.adapters.ts_depcruise import TypeScriptCodeModel
 from adherence.domain.declaration import Declaration, parse_declaration
-from adherence.domain.model import CodeModel, Layer, Region, UnitKind
+from adherence.domain.model import (
+    CodeModel,
+    Definition,
+    Layer,
+    Parameter,
+    Region,
+    Signature,
+    UnitKind,
+)
+from adherence.domain.parameters import Vocabulary
 from adherence.ports.code_model import CodeModelPort
 from tests import typescript_fixture
 from tests.code_model_contract import TYPESCRIPT_SOURCES, CodeModelContract
@@ -182,3 +191,94 @@ def test_measured_code_is_never_run_even_as_the_analyzers_configuration(
         (".dependency-cruiser.cjs", None),
         ("a.mjs", "b.mjs"),
     }
+
+
+def _definition(path: str, symbol: str) -> Definition:
+    [found] = [
+        d
+        for d in fixture_model().definitions
+        if d.unit.path == path and d.unit.symbol == symbol
+    ]
+    return found
+
+
+def test_definitions_carry_signature_bases_decorators_and_nesting() -> None:
+    """Given functions, methods, a nested function, a decorated class and an
+    interface, When the fixture is modelled, Then each definition carries its
+    signature (an options object's members as keyword parameters), its return
+    annotation, its bases and decorators, and whether a function encloses it."""
+    rules, run = "lib/tool/rules.ts", "lib/tool/run.ts"
+    classify = _definition(rules, "classify")
+    close = _definition(run, "closeOrder")
+    store = _definition("lib/tool/fs-store.ts", "FsStore")
+    helper = _definition(run, "closeOrder.helper")
+    method = _definition(rules, "Order.isLarge")
+
+    assert classify.signature == Signature(
+        parameters=(
+            Parameter("order", "Order", keyword_only=False, has_default=False),
+            Parameter("strict", "boolean", keyword_only=True, has_default=True),
+        ),
+        returns="string",
+    )
+    assert close.signature == Signature(
+        parameters=(
+            Parameter("order", "Order", keyword_only=False, has_default=False),
+            Parameter("deps", "{ store: Store }", keyword_only=True, has_default=False),
+        ),
+        returns="Promise<string>",
+    )
+    assert _definition(rules, "Order").signature is None
+    assert store.decorators == ("injectable()",)
+    assert store.bases == ("Store",)
+    assert (helper.parent, helper.nested) == ("closeOrder", True)
+    assert (method.parent, method.nested) == ("Order", False)
+
+
+def test_options_objects_are_keyword_parameters_by_the_vocabulary() -> None:
+    """Given a destructured options object typed by name, a parameter the
+    vocabulary names as an options object, a rest parameter and a bare arrow
+    parameter, When they are modelled, Then the options object's members and
+    the named parameter are keyword parameters and the rest are not."""
+    source = (
+        b"export function judge(\n"
+        b"  change: Change, { repository, reviews = null }: Ports, ...rest: string[]\n"
+        b"): void {}\n"
+        b"function plain(change, ports) {}\n"
+        b"const one = x => x;\n"
+    )
+    vocabulary = Vocabulary(regions={}, options_objects=frozenset({"ports"}))
+
+    model = TypeScriptCodeModel().model(
+        {"m.ts": source}, typescript_fixture.declaration(), vocabulary, None
+    )
+
+    assert isinstance(model, CodeModel)
+    signatures = {d.unit.symbol: d.signature for d in model.definitions}
+    assert signatures["judge"] == Signature(
+        parameters=(
+            Parameter("change", "Change", keyword_only=False, has_default=False),
+            Parameter(
+                "repository",
+                'Ports["repository"]',
+                keyword_only=True,
+                has_default=False,
+            ),
+            Parameter(
+                "reviews", 'Ports["reviews"]', keyword_only=True, has_default=True
+            ),
+            Parameter("...rest", "string[]", keyword_only=False, has_default=False),
+        ),
+        returns="void",
+    )
+    assert signatures["plain"] == Signature(
+        parameters=(
+            Parameter("change", None, keyword_only=False, has_default=False),
+            Parameter("ports", None, keyword_only=True, has_default=False),
+        ),
+        returns=None,
+    )
+    assert signatures["one"] == Signature(
+        parameters=(Parameter("x", None, keyword_only=False, has_default=False),),
+        returns=None,
+    )
