@@ -57,6 +57,7 @@ PURITY = catalog_check("Purity")
 NAME = re.compile(r"[A-Za-z_]\w*")
 DOES_IO_UNASKED = "the judged part (does_io) is not asked in this suite version"
 WIRING = catalog_check("Wiring")
+NO_RUNTIME = "the per-runtime half needs a declared runtime; the declaration has none"
 ANATOMY = catalog_check("Anatomy")
 # The coding skill's file anatomy, as the layers of a file's regions:
 # predicates and pure helpers, then the effectful helpers, then the flow
@@ -438,7 +439,10 @@ def wiring(
         for construction in constructions
         if (finding := _below_root(construction)) is not None
     )
-    return CheckOutcome(tuple(findings))
+    unchecked = (
+        () if declaration.runtimes else (Coverage(NO_RUNTIME, check=WIRING.name),)
+    )
+    return CheckOutcome(tuple(findings), unchecked)
 
 
 def _out_of_place(regions: Sequence[Region]) -> tuple[Region, Region] | None:
