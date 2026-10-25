@@ -190,3 +190,21 @@ def test_measure_with_the_complexity_tool_unavailable_covers_it() -> None:
         c.check == "Complexity" and "lizard is not installed" in c.reason
         for c in report.coverage
     )
+
+
+def test_measure_names_a_method_over_the_ceiling_by_its_qualified_symbol() -> None:
+    """Given complexity tooling that names a method without its type, as
+    lizard does for Python, When Complexity finds it, Then the finding names
+    the analyzer's unit for that method, its type included."""
+    files = {RULES: b"x\n" * 12}
+    units = (Unit(RULES, UnitKind.FUNCTION, "Order.total", 4, 9, None),)
+
+    report = measure_with(
+        files,
+        CodeModel(units=units),
+        complexity=FakeComplexity((Complexity(RULES, "total", 4, 20),)),
+        limits=Limits(evidence_bound=200, complexity_ceiling=10),
+    )
+
+    (over,) = _of(report, "Complexity")
+    assert over.unit.symbol == "Order.total"
