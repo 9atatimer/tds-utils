@@ -43,6 +43,7 @@ VOCABULARY = Vocabulary(
     model_ids=frozenset({"claude-", "gpt-"}),
     fakes=frozenset({"Fake"}),
     callables=frozenset({"Callable"}),
+    wire_formats=frozenset({"dict", "Response"}),
 )
 LIMITS = Limits(evidence_bound=200)
 

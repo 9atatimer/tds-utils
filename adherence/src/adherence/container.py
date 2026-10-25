@@ -71,6 +71,27 @@ SHIPPED_VOCABULARY = Vocabulary(
     ),
     fakes=frozenset({"Fake", "InMemory"}),
     callables=frozenset({"Callable"}),
+    wire_formats=frozenset(
+        {
+            "dict",
+            "Dict",
+            "bytes",
+            "bytearray",
+            "memoryview",
+            "Request",
+            "Response",
+            "HTTPResponse",
+            "JSONResponse",
+            "ClientResponse",
+            "ClientSession",
+            "Session",
+            "Connection",
+            "Cursor",
+            "Namespace",
+            "Popen",
+            "CompletedProcess",
+        }
+    ),
 )
 SHIPPED_LIMITS = Limits(evidence_bound=200)
 SHIPPED_PARAMETERS = Parameters(

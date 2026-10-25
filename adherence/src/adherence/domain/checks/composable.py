@@ -7,17 +7,22 @@ the CodeModel.
 
 from __future__ import annotations
 
+from adherence.domain.checks.hexagonal import names_vendor
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.checks.roles import (
+    adapter_names,
+    annotation_names,
     by_symbol,
     enclosing_function,
+    is_use_case,
     named_in,
     port_names,
+    short_name,
 )
 from adherence.domain.declaration import Declaration
 from adherence.domain.finding import Evidence, Finding
 from adherence.domain.model import CodeModel, Layer, UnitKind
-from adherence.domain.parameters import Parameters
+from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
 from adherence.domain.records import DesignRecords, RecordsUnavailable
 
@@ -25,6 +30,24 @@ from adherence.domain.records import DesignRecords, RecordsUnavailable
 
 NO_NESTING = catalog_check("No nesting")
 HELPERS_TAKE_VALUES = catalog_check("Helpers take values")
+VALUES_IN_AND_OUT = catalog_check("Values in and out")
+RETURN = "return"
+
+# --- Predicates --------------------------------------------------------------
+
+
+def carries_mechanism(
+    annotation: str | None, adapters: frozenset[str], vocabulary: Vocabulary
+) -> bool:
+    """Whether an annotation carries a wire format, an SDK type or a
+    concrete adapter."""
+    return any(
+        short_name(name) in vocabulary.wire_formats
+        or short_name(name) in adapters
+        or ("." in name and names_vendor(name, vocabulary))
+        for name in annotation_names(annotation)
+    )
+
 
 # --- Pure helpers ------------------------------------------------------------
 
@@ -90,4 +113,40 @@ def helpers_take_values(
                     Evidence(unit.path, unit.start, unit.symbol or ""),
                 )
             )
+    return CheckOutcome(tuple(findings))
+
+
+def values_in_and_out(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """No use-case signature carries a wire format, an SDK type or an
+    adapter handle, in a parameter or its return."""
+    if not declaration.declared:
+        return undeclared(VALUES_IN_AND_OUT.name)
+    vocabulary = parameters.vocabulary
+    adapters = adapter_names(model, vocabulary)
+    findings: list[Finding] = []
+    for use_case in model.definitions:
+        signature = use_case.signature
+        if signature is None or not is_use_case(use_case):
+            continue
+        carried = [
+            *((p.name, p.annotation) for p in signature.parameters),
+            (RETURN, signature.returns),
+        ]
+        unit = use_case.unit
+        findings.extend(
+            Finding(
+                VALUES_IN_AND_OUT,
+                unit,
+                unit.layer,
+                f"{name}: {annotation}",
+                Evidence(unit.path, unit.start, unit.symbol or ""),
+            )
+            for name, annotation in carried
+            if carries_mechanism(annotation, adapters, vocabulary)
+        )
     return CheckOutcome(tuple(findings))

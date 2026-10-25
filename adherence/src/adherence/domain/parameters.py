@@ -29,7 +29,9 @@ class Vocabulary:
     the filesystem or the network; model_ids the prefixes of a string that
     names a model; fakes the name prefixes that mark an implementation of a
     port as a fake.
-    callables are the type names that make a parameter a callable.
+    callables are the type names that make a parameter a callable;
+    wire_formats the type names -- a wire format, or an SDK type or handle
+    known by name -- that no use-case signature may carry.
     """
 
     regions: Mapping[str, Layer]
@@ -40,6 +42,7 @@ class Vocabulary:
     model_ids: frozenset[str] = field(default_factory=frozenset)
     fakes: frozenset[str] = field(default_factory=frozenset)
     callables: frozenset[str] = field(default_factory=frozenset)
+    wire_formats: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True, slots=True)
