@@ -28,6 +28,7 @@ from adherence.adapters.astgrep import (
     BINARY,
     Grammar,
     Match,
+    ScanFailed,
     file_model,
     merged,
     scan,
@@ -59,6 +60,11 @@ CRUISER = (
 )
 
 NESTED_TOO_DEEPLY = "nested deeper than the analyzer can walk"
+
+
+class CruiseFailed(Exception):
+    """dependency-cruiser, or the node it runs on, could not answer."""
+
 
 Resolved = dict[tuple[str, str], str]
 
@@ -133,23 +139,37 @@ def _cruise(
             "HOME": scratch,
             "TMPDIR": scratch,
         }
-        node = shutil.which("node", path=environment["PATH"]) or "node"
-        done = subprocess.run(
-            [
-                node,
-                str(cruiser),
-                "--no-config",
-                "--ts-pre-compilation-deps",
-                "--output-type",
-                "json",
-                ".",
-            ],
-            capture_output=True,
-            check=True,
-            cwd=tree,
-            env=environment,
-            timeout=timeout,
-        )
+        node = shutil.which("node", path=environment["PATH"])
+        if node is None:
+            raise CruiseFailed(
+                "node is not installed, so dependency-cruiser cannot run"
+            )
+        if not cruiser.is_file():
+            raise CruiseFailed(
+                f"dependency-cruiser is not installed at {cruiser}: "
+                "npm ci --ignore-scripts in adherence/node"
+            )
+        try:
+            done = subprocess.run(
+                [
+                    node,
+                    str(cruiser),
+                    "--no-config",
+                    "--ts-pre-compilation-deps",
+                    "--output-type",
+                    "json",
+                    ".",
+                ],
+                capture_output=True,
+                check=True,
+                cwd=tree,
+                env=environment,
+                timeout=timeout,
+            )
+        except subprocess.CalledProcessError as failed:
+            complaint = failed.stderr.decode("utf-8", "replace").strip().splitlines()
+            reason = complaint[0] if complaint else f"exit {failed.returncode}"
+            raise CruiseFailed(f"dependency-cruiser failed: {reason}") from failed
     return _resolved(json.loads(done.stdout))
 
 
@@ -181,13 +201,17 @@ class TypeScriptCodeModel:
         if _passed(deadline, self._clock()):
             return TimedOut("model the TypeScript sources")
         readable, unparsed = _readable(sources)
-        matches = scan(
-            readable,
-            GRAMMAR,
-            binary=self._ast_grep,
-            deadline=deadline,
-            clock=self._clock,
-        )
+        try:
+            matches = scan(
+                readable,
+                GRAMMAR,
+                binary=self._ast_grep,
+                deadline=deadline,
+                clock=self._clock,
+            )
+        except ScanFailed as failure:
+            unparsed.extend(Unparsed(path, str(failure)) for path in readable)
+            return CodeModel(unparsed=tuple(sorted(unparsed, key=lambda u: u.path)))
         found = tuple(
             region
             for path in declaration.layers.marker_files
@@ -224,11 +248,14 @@ class TypeScriptCodeModel:
                 unparsed.append(Unparsed(path, NESTED_TOO_DEEPLY))
         parsed = {p: data for p, data in parsed.items() if p not in _paths(unparsed)}
         edges = [edge for f in files for edge in f.imports]
-        resolved = (
-            _cruise(parsed, cruiser=self._cruiser, deadline=deadline, clock=self._clock)
-            if edges
-            else {}
-        )
+        resolved: Resolved = {}
+        try:
+            if edges:
+                resolved = _cruise(
+                    parsed, cruiser=self._cruiser, deadline=deadline, clock=self._clock
+                )
+        except CruiseFailed as failure:
+            unparsed.extend(Unparsed(path, str(failure)) for path in parsed)
         return merged(
             files,
             imports=_resolve(edges, resolved, parsed),
