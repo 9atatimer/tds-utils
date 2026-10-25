@@ -15,7 +15,13 @@ from dataclasses import dataclass
 from adherence.domain.checks.hexagonal import implements, is_fake, is_port
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.coverage import Coverage
-from adherence.domain.declaration import Declaration, Runtime, layer_of, matches
+from adherence.domain.declaration import (
+    DECLARATION_PATH,
+    Declaration,
+    Runtime,
+    layer_of,
+    matches,
+)
 from adherence.domain.finding import Evidence, Finding, normalised
 from adherence.domain.model import (
     Call,
@@ -344,10 +350,27 @@ def _roots(
     return roots
 
 
-def _second_root(
+def _no_root(runtime: Runtime) -> Finding:
+    """A finding on the declaration: it declares a runtime that no unit
+    wires, and the suite does not guess which of the two is right."""
+    unit = Unit(DECLARATION_PATH, UnitKind.FILE, None, 1, 1, None)
+    return Finding(
+        WIRING,
+        unit,
+        None,
+        f"runtime {runtime.name}: the declaration and the code disagree: no unit "
+        "constructs a concrete adapter for it",
+        Evidence(DECLARATION_PATH, 0, f"runtime {runtime.name}"),
+    )
+
+
+def _rooted(
     runtime: Runtime, roots: Mapping[Unit, Sequence[_Construction]]
 ) -> Finding | None:
-    """A finding naming every root of a runtime that has more than one."""
+    """A finding when a runtime has no root, or names every root of a
+    runtime that has more than one."""
+    if not roots:
+        return _no_root(runtime)
     if len(roots) < 2:
         return None
     first, second = list(roots)[:2]
@@ -377,7 +400,6 @@ def wiring(
     findings = [
         finding
         for runtime in declaration.runtimes
-        if (finding := _second_root(runtime, _roots(runtime, constructions)))
-        is not None
+        if (finding := _rooted(runtime, _roots(runtime, constructions))) is not None
     ]
     return CheckOutcome(tuple(findings))
