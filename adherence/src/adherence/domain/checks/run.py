@@ -24,6 +24,7 @@ from adherence.domain.records import DesignRecords, RecordsUnavailable
 TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Grep": hexagonal.grep,
     "Arrow": hexagonal.arrow,
+    "Swap": hexagonal.swap,
 }
 CHANGE_LEVEL = "a change-level check: it runs when a change is judged"
 NOT_IN_SUITE = "not implemented in this suite version"

@@ -16,9 +16,11 @@ from adherence.domain.finding import Evidence, Finding
 from adherence.domain.model import (
     AccessKind,
     CodeModel,
+    Definition,
     ImportEdge,
     Layer,
     ReferenceKind,
+    UnitKind,
 )
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
@@ -28,6 +30,7 @@ from adherence.domain.records import DesignRecords, RecordsUnavailable
 
 GREP = catalog_check("Grep")
 ARROW = catalog_check("Arrow")
+SWAP = catalog_check("Swap")
 CORE = frozenset({Layer.DOMAIN, Layer.APPLICATION})
 _EVERY_LAYER = frozenset(Layer)
 # The layers each layer may import: cli -> application -> domain and
@@ -266,3 +269,93 @@ def arrow(
 ) -> CheckOutcome:
     """Every import crosses inward and no import cycle exists."""
     return CheckOutcome((*_outward(model, declaration), *_cycles(model, declaration)))
+
+
+def _name(definition: Definition) -> str:
+    return (definition.unit.symbol or "").rpartition(".")[2]
+
+
+def _methods(model: CodeModel) -> dict[tuple[str, str], list[Definition]]:
+    """Each type's methods, keyed by the type's path and symbol."""
+    methods: dict[tuple[str, str], list[Definition]] = {}
+    for d in model.definitions:
+        if d.unit.kind is UnitKind.FUNCTION and d.parent is not None:
+            methods.setdefault((d.unit.path, d.parent), []).append(d)
+    return methods
+
+
+def _types(model: CodeModel) -> list[Definition]:
+    return [d for d in model.definitions if d.unit.kind is UnitKind.TYPE]
+
+
+def is_port(definition: Definition, methods: Sequence[Definition]) -> bool:
+    """Whether a type is a port: in the ports layer, declaring methods and
+    implementing none of them."""
+    return (
+        definition.unit.layer is Layer.PORTS
+        and bool(methods)
+        and all(m.body.stub_markers for m in methods)
+    )
+
+
+def _method_names(methods: Sequence[Definition]) -> set[str]:
+    return {_name(m) for m in methods if not _name(m).startswith("__")}
+
+
+def implements(
+    candidate: Definition,
+    candidate_methods: Sequence[Definition],
+    port: Definition,
+    port_methods: Sequence[Definition],
+) -> bool:
+    """Whether a type implements a port: it names the port as a base, or it
+    has every method the port declares."""
+    if candidate is port:
+        return False
+    if any(base.rpartition(".")[2] == _name(port) for base in candidate.bases):
+        return True
+    wanted = _method_names(port_methods)
+    return bool(wanted) and wanted <= _method_names(candidate_methods)
+
+
+def is_fake(definition: Definition, vocabulary: Vocabulary) -> bool:
+    """Whether an implementation is a fake: a test unit, or a type whose name
+    carries one of the vocabulary's fake prefixes."""
+    return definition.unit.layer is Layer.TEST or any(
+        _name(definition).startswith(prefix) for prefix in vocabulary.fakes
+    )
+
+
+def swap(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """Every port has at least one fake, anywhere in the repository."""
+    methods = _methods(model)
+    types = _types(model)
+    findings: list[Finding] = []
+    for port in types:
+        own = methods.get((port.unit.path, port.unit.symbol or ""), [])
+        if not is_port(port, own):
+            continue
+        faked = any(
+            is_fake(t, parameters.vocabulary)
+            and implements(
+                t, methods.get((t.unit.path, t.unit.symbol or ""), []), port, own
+            )
+            for t in types
+        )
+        if not faked:
+            unit = port.unit
+            findings.append(
+                Finding(
+                    SWAP,
+                    unit,
+                    unit.layer,
+                    _name(port),
+                    Evidence(unit.path, unit.start, _name(port)),
+                )
+            )
+    return CheckOutcome(tuple(findings))
