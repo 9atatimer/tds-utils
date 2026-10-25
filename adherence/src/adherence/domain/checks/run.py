@@ -28,6 +28,7 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Change": hexagonal.change,
     "Stub": complete.stub,
     "Complexity": complete.complexity,
+    "Duplication": complete.duplication,
 }
 CHANGE_LEVEL = "a change-level check: it runs when a change is judged"
 NOT_IN_SUITE = "not implemented in this suite version"

@@ -51,11 +51,13 @@ class Limits:
     evidence_bound is how many characters of the offending line a finding
     may quote. complexity_ceiling is the per-function complexity above which
     Complexity finds; None, when no ceiling is supplied, leaves the check as
-    coverage.
+    coverage. duplication_ceiling is the clone size, in lines, above which
+    Duplication finds; None likewise leaves it as coverage.
     """
 
     evidence_bound: int
     complexity_ceiling: int | None = None
+    duplication_ceiling: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

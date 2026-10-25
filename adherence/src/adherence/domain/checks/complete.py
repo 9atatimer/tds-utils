@@ -14,7 +14,14 @@ from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.finding import Evidence, Finding
-from adherence.domain.model import CodeModel, Definition, Layer, Unit, UnitKind
+from adherence.domain.model import (
+    CodeModel,
+    Definition,
+    Layer,
+    Span,
+    Unit,
+    UnitKind,
+)
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
 from adherence.domain.records import DesignRecords, RecordsUnavailable
@@ -23,6 +30,7 @@ from adherence.domain.records import DesignRecords, RecordsUnavailable
 
 STUB = catalog_check("Stub")
 COMPLEXITY = catalog_check("Complexity")
+DUPLICATION = catalog_check("Duplication")
 NO_CEILING = "no {} ceiling is supplied"
 
 # --- Predicates --------------------------------------------------------------
@@ -150,6 +158,53 @@ def complexity(
                 layer,
                 subject,
                 Evidence(measured.path, measured.line, measured.symbol),
+            )
+        )
+    return CheckOutcome(tuple(findings))
+
+
+def _stretch(span: Span) -> str:
+    return f"{span.path}:{span.start}-{span.end}"
+
+
+def duplication(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """No clone over the duplication ceiling: one finding per clone, on its
+    first stretch, naming both. Needs no declaration; in a declared
+    repository a clone reaching an uncovered file is not checked."""
+    ceiling = parameters.limits.duplication_ceiling
+    if ceiling is None:
+        reason = NO_CEILING.format("duplication")
+        return CheckOutcome(
+            coverage=(Coverage(reason, check=DUPLICATION.name),), ran=False
+        )
+    findings: list[Finding] = []
+    for clone in model.metrics.clones:
+        first, second = clone.first, clone.second
+        layer = layer_of(first.path, first.start, declaration, model.regions)
+        other = layer_of(second.path, second.start, declaration, model.regions)
+        if clone.lines <= ceiling or (
+            declaration.declared and (layer is None or other is None)
+        ):
+            continue
+        unit = model.unit_at(first.path, first.start) or Unit(
+            first.path, UnitKind.FILE, None, 1, first.end, layer
+        )
+        subject = (
+            f"{_stretch(first)} ~ {_stretch(second)}: {clone.lines} lines"
+            f" over the ceiling {ceiling}"
+        )
+        findings.append(
+            Finding(
+                DUPLICATION,
+                unit,
+                layer,
+                subject,
+                Evidence(first.path, first.start, _stretch(first)),
             )
         )
     return CheckOutcome(tuple(findings))
