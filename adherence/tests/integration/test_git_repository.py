@@ -114,3 +114,44 @@ def test_read_and_tree_past_the_deadline_time_out(tmp_path: Path) -> None:
     for at in (base, Head.staged_index(), Head.working_tree()):
         assert isinstance(repository.read("a", at, passed), TimedOut)
         assert isinstance(repository.tree(at, passed), TimedOut)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads a mode-000 file")
+def test_read_of_a_file_that_cannot_be_opened_is_refused(tmp_path: Path) -> None:
+    """Given a working-tree file the process may not open, When it is read,
+    Then it is Refused naming why, never an exception."""
+    root = tmp_path / "repo"
+    make_repository(root, base={"a": b"a\n"}, staged={}, working={})
+    (root / "a").chmod(0)
+    try:
+        answer = GitRepository(str(root)).read("a", Head.working_tree(), None)
+    finally:
+        (root / "a").chmod(0o644)
+
+    assert isinstance(answer, Refused)
+    assert "permission" in answer.reason.lower()
+
+
+def test_read_of_a_directory_is_refused_not_absent(tmp_path: Path) -> None:
+    """Given a directory where a file is asked for, When it is read in the
+    working tree, Then it is Refused, so a present declaration is never
+    mistaken for no declaration."""
+    root = tmp_path / "repo"
+    make_repository(root, base={"a": b"a\n"}, staged={}, working={})
+    (root / "adherence.toml").mkdir()
+
+    answer = GitRepository(str(root)).read("adherence.toml", Head.working_tree(), None)
+
+    assert isinstance(answer, Refused)
+
+
+def test_read_at_an_unknown_revision_is_refused(tmp_path: Path) -> None:
+    """Given a revision the repository does not have, When a file is read at
+    it, Then it is Refused naming git's complaint, never an exception."""
+    root = tmp_path / "repo"
+    make_repository(root, base={"a": b"a\n"}, staged={}, working={})
+
+    answer = GitRepository(str(root)).read("a", Base("f" * 40), None)
+
+    assert isinstance(answer, Refused)
+    assert answer.reason
