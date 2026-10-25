@@ -136,18 +136,34 @@ class FakeComplexity:
 
 
 class FakeDuplication:
-    """DuplicationPort answering the fixed clones the test configures, or the
-    TimedOut it scripts."""
+    """DuplicationPort answering the fixed clones the test configures, those
+    between sources it is handed, or the unavailable or TimedOut answer it
+    scripts. Its clock is frozen at `now`, so a deadline at or before it has
+    passed."""
 
-    def __init__(self, answer: tuple[Clone, ...] | TimedOut = ()) -> None:
+    def __init__(
+        self,
+        answer: tuple[Clone, ...] | MetricsUnavailable | TimedOut = (),
+        *,
+        now: float = 1e9,
+    ) -> None:
         self._answer = answer
+        self._now = now
 
     def measure(
         self, sources: Mapping[str, bytes], deadline: Deadline | None
-    ) -> Metrics | TimedOut:
-        if isinstance(self._answer, TimedOut):
+    ) -> Metrics | MetricsUnavailable | TimedOut:
+        if deadline is not None and deadline.epoch_seconds <= self._now:
+            return TimedOut("find clones")
+        if isinstance(self._answer, MetricsUnavailable | TimedOut):
             return self._answer
-        return Metrics(clones=self._answer)
+        return Metrics(
+            clones=tuple(
+                c
+                for c in self._answer
+                if c.first.path in sources and c.second.path in sources
+            )
+        )
 
 
 class FakeRecords:

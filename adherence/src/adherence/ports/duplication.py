@@ -11,12 +11,13 @@ from collections.abc import Mapping
 from typing import Protocol
 
 from adherence.domain.deadline import Deadline, TimedOut
-from adherence.domain.model import Metrics
+from adherence.domain.model import Metrics, MetricsUnavailable
 
 
 class DuplicationPort(Protocol):
     def measure(
         self, sources: Mapping[str, bytes], deadline: Deadline | None
-    ) -> Metrics | TimedOut:
-        """Every clone across the sources."""
+    ) -> Metrics | MetricsUnavailable | TimedOut:
+        """Every clone across the sources; unavailable when the tooling is
+        absent or fails."""
         ...

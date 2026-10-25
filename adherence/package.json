@@ -1,0 +1,9 @@
+{
+  "name": "adherence-analyzers",
+  "private": true,
+  "description": "The node analyzers the adherence engine spawns (docs/design/ARCHITECTURE.ARCH-ADHERENCE.md); install with npm ci --ignore-scripts",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "jscpd": "5.4.1"
+  }
+}
