@@ -173,6 +173,43 @@ def test_requires_reexports_and_dynamic_imports_are_edges() -> None:
     }
 
 
+TSCONFIG = b"""{
+  // the aliases live here; the base names where they start
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "paths": { "@lib/*": ["lib/*"], },
+  },
+}
+"""
+ALIASED = {
+    "src/a.ts": b"import { b } from '@lib/b';\nimport { c } from './c';\n",
+    "src/lib/b.ts": b"export const b = 1;\n",
+    "src/c.ts": b"export const c = 1;\n",
+}
+
+
+@typescript_fixture.needs_cruiser
+def test_tsconfig_path_aliases_resolve_and_the_config_is_no_unit() -> None:
+    """Given a tsconfig.json among the sources (with comments and trailing
+    commas) whose paths alias a directory under the baseUrl its in-repository
+    base sets, When the sources are modelled, Then an aliased import resolves
+    to its file, and only the TypeScript files are units."""
+    model = _model_of(
+        {
+            **ALIASED,
+            "tsconfig.json": TSCONFIG,
+            "tsconfig.base.json": b'{"compilerOptions": {"baseUrl": "src"}}\n',
+        }
+    )
+
+    assert {(e.imported, e.imported_path) for e in model.imports} == {
+        ("@lib/b", "src/lib/b.ts"),
+        ("./c", "src/c.ts"),
+    }
+    assert {u.path for u in model.units if u.kind is UnitKind.FILE} == set(ALIASED)
+    assert model.unparsed == ()
+
+
 @typescript_fixture.needs_cruiser
 def test_measured_code_is_never_run_even_as_the_analyzers_configuration(
     tmp_path: Path,
