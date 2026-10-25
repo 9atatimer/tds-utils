@@ -323,3 +323,45 @@ def test_members_are_each_types_fields_and_methods() -> None:
         (fs, "FsStore", "save", MemberKind.METHOD),
         (fs, "FsStore", "root", MemberKind.FIELD),
     }
+
+
+def test_test_cases_carry_their_calls_and_assertions() -> None:
+    """Given a test that asserts and a test that only calls, When the fixture
+    is modelled, Then each test case carries what it calls and what it
+    asserts, so a test that cannot fail is visible."""
+    cases = {
+        (t.path, t.symbol, t.calls, t.assertions) for t in fixture_model().test_cases
+    }
+
+    assert cases == {
+        (
+            "tests/test_use.py",
+            "test_close_order_saves",
+            (),
+            ("close_order is not None",),
+        ),
+        ("tests/test_use.py", "test_nothing", ("close_order",), ()),
+    }
+
+
+def test_test_cases_include_methods_of_test_classes() -> None:
+    """Given a test method in a Test class and a helper outside it, When they
+    are modelled, Then the method is a test case and the helper is not."""
+    source = (
+        b"class TestThing:\n"
+        b"    def test_it(self):\n"
+        b"        assert run() == 1\n"
+        b"def helper():\n"
+        b"    assert True\n"
+    )
+    model = PythonCodeModel().model(
+        {"tests/test_t.py": source},
+        python_fixture.declaration(),
+        python_fixture.VOCABULARY,
+        None,
+    )
+
+    assert isinstance(model, CodeModel)
+    assert [(t.symbol, t.calls, t.assertions) for t in model.test_cases] == [
+        ("TestThing.test_it", ("run",), ("run() == 1",))
+    ]
