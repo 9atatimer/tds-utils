@@ -35,6 +35,7 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
 }
 RADAR_CHECKS: Mapping[str, RadarCheckFunction] = {
     "Dependency": radar.dependency,
+    "Edge only": radar.edge_only,
 }
 NO_RADAR = RecordsUnavailable("no radar was read")
 CHANGE_LEVEL = "a change-level check: it runs when a change is judged"

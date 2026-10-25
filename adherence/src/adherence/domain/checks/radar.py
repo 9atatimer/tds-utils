@@ -19,12 +19,14 @@ from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.finding import Evidence, Finding
 from adherence.domain.model import CodeModel, ImportEdge, Layer
 from adherence.domain.parameters import Parameters, Vocabulary
-from adherence.domain.qualities import catalog_check
+from adherence.domain.qualities import Check, catalog_check
 from adherence.domain.records import Radar, RadarEntry, RecordsUnavailable, Ring
 
 # --- Constants ---------------------------------------------------------------
 
 DEPENDENCY = catalog_check("Dependency")
+EDGE_ONLY = catalog_check("Edge only")
+CORE = frozenset({Layer.DOMAIN, Layer.APPLICATION})
 ALLOWED = frozenset({Ring.ADOPT, Ring.TRIAL})
 SEPARATORS = re.compile(r"[-_.\s]+")
 
@@ -77,12 +79,12 @@ def _uses(
     return uses
 
 
-def _finding(model: CodeModel, use: _Use, subject: str) -> Finding | None:
+def _finding(check: Check, model: CodeModel, use: _Use, subject: str) -> Finding | None:
     unit = model.unit_at(use.edge.path, use.edge.line)
     if unit is None:
         return None
     evidence = Evidence(use.edge.path, use.edge.line, use.edge.text)
-    return Finding(DEPENDENCY, unit, use.layer, subject, evidence)
+    return Finding(check, unit, use.layer, subject, evidence)
 
 
 def _radar_or_coverage(
@@ -115,7 +117,28 @@ def dependency(
             subject = f"{use.package}: on {use.entry.ring.value}"
         else:
             continue
-        finding = _finding(model, use, subject)
+        finding = _finding(DEPENDENCY, model, use, subject)
+        if finding is not None:
+            findings.append(finding)
+    return CheckOutcome(tuple(findings))
+
+
+def edge_only(
+    model: CodeModel,
+    declaration: Declaration,
+    radar: Radar | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """Every radar entry is imported from an adapter, never from the core:
+    a domain or application unit importing one is a finding naming it."""
+    read = _radar_or_coverage(EDGE_ONLY.name, declaration, radar)
+    if isinstance(read, CheckOutcome):
+        return read
+    findings: list[Finding] = []
+    for use in _uses(model, declaration, read, parameters.vocabulary):
+        if use.entry is None or use.layer not in CORE:
+            continue
+        finding = _finding(EDGE_ONLY, model, use, use.entry.name)
         if finding is not None:
             findings.append(finding)
     return CheckOutcome(tuple(findings))
