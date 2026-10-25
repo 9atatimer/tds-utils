@@ -86,13 +86,25 @@ class Signature:
 
 
 @dataclass(frozen=True, slots=True)
+class Body:
+    """A definition's body: its text, the placeholder it consists of when it
+    is nothing but one (`pass`, `...`, `NotImplementedError`), and the lines
+    where it sleeps. Nested definitions are their own bodies."""
+
+    text: str
+    stub_markers: tuple[str, ...]
+    sleeps: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class Definition:
     """A function or type: its unit, its signature (None for a type), its
-    bases and decorators as written, the symbol it is defined in, and
+    body, its bases and decorators as written, the symbol it is defined in, and
     whether a function encloses it."""
 
     unit: Unit
     signature: Signature | None
+    body: Body
     bases: tuple[str, ...]
     decorators: tuple[str, ...]
     parent: str | None

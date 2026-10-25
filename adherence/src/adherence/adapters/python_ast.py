@@ -17,6 +17,7 @@ from adherence.adapters.python_imports import ImportGraphFailed, import_edges
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, layer_of, marker_regions
 from adherence.domain.model import (
+    Body,
     CodeModel,
     Definition,
     Parameter,
@@ -31,6 +32,7 @@ from adherence.domain.parameters import Vocabulary
 # --- Constants ---------------------------------------------------------------
 
 DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+SLEEP = "sleep"
 
 # --- Helpers -----------------------------------------------------------------
 
@@ -104,8 +106,71 @@ def _signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> Signature:
     return Signature(tuple(parameters), _text(node.returns))
 
 
+def own_nodes(node: ast.AST) -> list[ast.AST]:
+    """Every node inside a definition, not descending into the definitions
+    nested in it, which are their own units."""
+    found: list[ast.AST] = []
+    for child in ast.iter_child_nodes(node):
+        found.append(child)
+        if not isinstance(child, DEFINITIONS):
+            found.extend(own_nodes(child))
+    return found
+
+
+def _statements(node: DefinitionNode) -> list[ast.stmt]:
+    """The body's statements without a leading docstring."""
+    body = list(node.body)
+    first = body[0] if body else None
+    if (
+        isinstance(first, ast.Expr)
+        and isinstance(first.value, ast.Constant)
+        and isinstance(first.value.value, str)
+    ):
+        body = body[1:]
+    return body
+
+
+def _stub_markers(node: DefinitionNode) -> tuple[str, ...]:
+    statements = _statements(node)
+    if len(statements) != 1:
+        return ()
+    only = statements[0]
+    if isinstance(only, ast.Pass):
+        return ("pass",)
+    if isinstance(only, ast.Expr) and isinstance(only.value, ast.Constant):
+        if only.value.value is Ellipsis:
+            return ("...",)
+    if isinstance(only, ast.Raise) and only.exc is not None:
+        raised = only.exc.func if isinstance(only.exc, ast.Call) else only.exc
+        if isinstance(raised, ast.Name) and raised.id == "NotImplementedError":
+            return ("NotImplementedError",)
+    return ()
+
+
+def _callee(call: ast.Call) -> str:
+    return ast.unparse(call.func)
+
+
+def _body(node: DefinitionNode, text: str) -> Body:
+    statements = node.body
+    first, last = statements[0], statements[-1]
+    lines = text.splitlines()[first.lineno - 1 : (last.end_lineno or last.lineno)]
+    sleeps = sorted(
+        {
+            n.lineno
+            for n in own_nodes(node)
+            if isinstance(n, ast.Call) and _callee(n).split(".")[-1] == SLEEP
+        }
+    )
+    return Body("\n".join(lines), _stub_markers(node), tuple(sleeps))
+
+
 def _definition(
-    path: str, found: _Found, declaration: Declaration, regions: Sequence[Region]
+    path: str,
+    found: _Found,
+    text: str,
+    declaration: Declaration,
+    regions: Sequence[Region],
 ) -> Definition:
     node = found.node
     is_type = isinstance(node, ast.ClassDef)
@@ -120,6 +185,7 @@ def _definition(
     return Definition(
         unit=unit,
         signature=None if isinstance(node, ast.ClassDef) else _signature(node),
+        body=_body(node, text),
         bases=tuple(ast.unparse(b) for b in node.bases)
         if isinstance(node, ast.ClassDef)
         else (),
@@ -165,8 +231,9 @@ class PythonCodeModel:
             lines = sources[path].count(b"\n") or 1
             file_layer = layer_of(path, None, declaration)
             units.append(Unit(path, UnitKind.FILE, None, 1, lines, file_layer))
+            text = sources[path].decode("utf-8", "replace")
             found = [
-                _definition(path, f, declaration, regions)
+                _definition(path, f, text, declaration, regions)
                 for f in _walk_definitions(tree)
             ]
             definitions.extend(found)

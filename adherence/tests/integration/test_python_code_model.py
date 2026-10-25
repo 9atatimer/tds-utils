@@ -3,6 +3,8 @@ time (task-057), after the shared contract."""
 
 from __future__ import annotations
 
+import functools
+
 from adherence.adapters.python_ast import PythonCodeModel
 from adherence.domain.model import (
     CodeModel,
@@ -22,6 +24,10 @@ class TestPythonCodeModel(CodeModelContract):
         return PythonCodeModel()
 
 
+# One model of the fixture for the whole module: building it spawns grimp's
+# child interpreter, and the CodeModel is frozen, so sharing it cannot leak
+# state between tests.
+@functools.cache
 def fixture_model() -> CodeModel:
     model = PythonCodeModel().model(
         python_fixture.sources(),
