@@ -49,3 +49,11 @@ def test_parse_declaration_exempting_another_check_honors_it() -> None:
     assert isinstance(declaration, Declaration)
     assert [e.check for e in declaration.exemptions] == ["Stub"]
     assert declaration.refused_exemptions == ()
+
+
+def test_parse_declaration_nested_past_the_parser_is_unreadable() -> None:
+    """Given an adherence.toml nested deeper than the TOML parser can follow,
+    When it is parsed, Then it is DeclarationUnreadable, never a crash."""
+    text = b"a = " + b"[" * 5000 + b"]" * 5000 + b"\n"
+
+    assert isinstance(parse_declaration(text), DeclarationUnreadable)
