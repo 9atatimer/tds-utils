@@ -19,7 +19,19 @@ from adherence.domain.records import DesignRecords, RecordsUnavailable
 # --- Constants ---------------------------------------------------------------
 
 GREP = catalog_check("Grep")
+ARROW = catalog_check("Arrow")
 CORE = frozenset({Layer.DOMAIN, Layer.APPLICATION})
+_EVERY_LAYER = frozenset(Layer)
+# The layers each layer may import: cli -> application -> domain and
+# adapters -> ports -> domain; the composition root and tests reach any.
+INWARD: dict[Layer, frozenset[Layer]] = {
+    Layer.DOMAIN: frozenset({Layer.DOMAIN}),
+    Layer.PORTS: frozenset({Layer.DOMAIN, Layer.PORTS}),
+    Layer.APPLICATION: frozenset({Layer.DOMAIN, Layer.PORTS, Layer.APPLICATION}),
+    Layer.ADAPTERS: frozenset({Layer.DOMAIN, Layer.PORTS, Layer.ADAPTERS}),
+    Layer.COMPOSITION_ROOT: _EVERY_LAYER,
+    Layer.TEST: _EVERY_LAYER,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +54,11 @@ def names_vendor(module: str, vocabulary: Vocabulary) -> bool:
     return any(
         ".".join(parts[:end]) in vocabulary.vendors for end in range(1, len(parts) + 1)
     )
+
+
+def is_inward(importer: Layer, imported: Layer) -> bool:
+    """Whether an import from one layer into another crosses inward."""
+    return imported in INWARD[importer]
 
 
 def is_model_id(text: str, vocabulary: Vocabulary) -> bool:
@@ -97,3 +114,38 @@ def grep(
                 )
             )
     return CheckOutcome(tuple(findings))
+
+
+def _outward(model: CodeModel, declaration: Declaration) -> list[Finding]:
+    """Every import between two covered units that crosses outward."""
+    findings: list[Finding] = []
+    for edge in model.imports:
+        if edge.imported_path is None:
+            continue
+        layer = layer_of(edge.path, edge.line, declaration, model.regions)
+        reached = layer_of(edge.imported_path, None, declaration)
+        unit = model.unit_at(edge.path, edge.line)
+        if layer is None or reached is None or unit is None:
+            continue
+        if not is_inward(layer, reached):
+            findings.append(
+                Finding(
+                    ARROW,
+                    unit,
+                    layer,
+                    edge.imported,
+                    Evidence(edge.path, edge.line, edge.text),
+                    reached=reached,
+                )
+            )
+    return findings
+
+
+def arrow(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """Every import crosses inward."""
+    return CheckOutcome(tuple(_outward(model, declaration)))
