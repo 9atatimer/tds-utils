@@ -13,6 +13,7 @@ from dataclasses import dataclass
 
 from adherence.adapters.git import GitRepository
 from adherence.adapters.python_ast import PythonCodeModel
+from adherence.adapters.ts_depcruise import TypeScriptCodeModel
 from adherence.domain.model import CodeLanguage
 from adherence.ports.code_model import CodeModelPort
 from adherence.ports.repository import RepositoryPort
@@ -47,13 +48,18 @@ def build(
 
     Every stage reads the repository through git; which target it reads
     (working tree, staged index, revisions) is the entry point's choice.
+    TypeScript and JavaScript share one analyzer, so an import from one to
+    the other resolves.
     """
+    if analyzers is None:
+        typescript = TypeScriptCodeModel()
+        analyzers = {
+            CodeLanguage.PYTHON: PythonCodeModel(),
+            CodeLanguage.TYPESCRIPT: typescript,
+            CodeLanguage.JAVASCRIPT: typescript,
+        }
     return Container(
         stage=stage,
         repository=repository if repository is not None else GitRepository(root),
-        analyzers=(
-            analyzers
-            if analyzers is not None
-            else {CodeLanguage.PYTHON: PythonCodeModel()}
-        ),
+        analyzers=analyzers,
     )

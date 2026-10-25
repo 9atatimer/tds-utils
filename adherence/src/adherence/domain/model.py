@@ -17,6 +17,8 @@ class CodeLanguage(enum.Enum):
     Language check (ARCHITECTURE.ARCH-ADHERENCE.md, Use-case surface)."""
 
     PYTHON = "python"
+    TYPESCRIPT = "typescript"
+    JAVASCRIPT = "javascript"
 
 
 class Layer(enum.Enum):
