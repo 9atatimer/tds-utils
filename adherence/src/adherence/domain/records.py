@@ -32,10 +32,34 @@ class Seam:
 
 
 @dataclass(frozen=True, slots=True)
+class Behavior:
+    """One row of a design record's Behaviors table, by its name, and where
+    the record states it."""
+
+    name: str
+    path: str
+    line: int
+
+
+@dataclass(frozen=True, slots=True)
+class UseCase:
+    """One row of the architecture record's use-case surface: the design
+    behavior and the application function that carries it."""
+
+    behavior: str
+    function: str
+    path: str
+    line: int
+
+
+@dataclass(frozen=True, slots=True)
 class DesignRecords:
-    """What the approved records state: their seams."""
+    """What the approved records state: their seams, the design behaviors
+    and the use-case surface."""
 
     seams: tuple[Seam, ...] = ()
+    behaviors: tuple[Behavior, ...] = ()
+    surface: tuple[UseCase, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

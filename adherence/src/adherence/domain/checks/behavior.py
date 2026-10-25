@@ -12,17 +12,19 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
+from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.finding import Evidence, Finding
 from adherence.domain.model import CodeModel, Layer, TestCase, Unit, UnitKind
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
-from adherence.domain.records import DesignRecords, RecordsUnavailable
+from adherence.domain.records import Behavior, DesignRecords, RecordsUnavailable
 
 # --- Constants ---------------------------------------------------------------
 
 REAL_ASSERTION = catalog_check("Real assertion")
 PUBLIC_SURFACE = catalog_check("Public surface")
+KEPT_TEST = catalog_check("Kept test")
 
 # --- Predicates --------------------------------------------------------------
 
@@ -140,4 +142,51 @@ def public_surface(
                     Evidence(call.path, call.line, call.callee),
                 )
             )
+    return CheckOutcome(tuple(findings))
+
+
+def _behavior_finding(behavior: Behavior, function: str) -> Finding:
+    unit = Unit(
+        behavior.path,
+        UnitKind.BEHAVIOR,
+        behavior.name,
+        behavior.line,
+        behavior.line,
+        None,
+    )
+    return Finding(
+        KEPT_TEST,
+        unit,
+        None,
+        f"{behavior.name}: no test calls {function}",
+        Evidence(behavior.path, behavior.line, behavior.name),
+    )
+
+
+def kept_test(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """Every design behavior has a test that calls its use case, by the
+    use-case surface. A behavior with no use case is Trace's finding, not
+    this check's."""
+    if not declaration.declared:
+        return undeclared(KEPT_TEST.name)
+    if isinstance(records, RecordsUnavailable):
+        return CheckOutcome(
+            coverage=(Coverage(records.reason, check=KEPT_TEST.name),), ran=False
+        )
+    called = {
+        callee.rpartition(".")[2]
+        for case, _unit in _tests(model, declaration)
+        for callee in case.calls
+    }
+    functions = {row.behavior: row.function for row in records.surface}
+    findings = [
+        _behavior_finding(behavior, functions[behavior.name])
+        for behavior in records.behaviors
+        if behavior.name in functions and functions[behavior.name] not in called
+    ]
     return CheckOutcome(tuple(findings))

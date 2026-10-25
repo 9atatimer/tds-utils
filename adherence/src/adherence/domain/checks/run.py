@@ -31,6 +31,7 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Duplication": complete.duplication,
     "Real assertion": behavior.real_assertion,
     "Public surface": behavior.public_surface,
+    "Kept test": behavior.kept_test,
 }
 CHANGE_LEVEL = "a change-level check: it runs when a change is judged"
 NOT_IN_SUITE = "not implemented in this suite version"
