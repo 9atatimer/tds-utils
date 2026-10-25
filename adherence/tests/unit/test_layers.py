@@ -83,7 +83,10 @@ def test_layer_of_honors_regions_found_by_marker() -> None:
         (b'[layers]\nservices = ["src/**"]\n', "services"),
         (b'[layers]\ndomain = "src/**"\n', "domain"),
         (b'[layers]\nregions = [{ layer = "domain", lines = [1, 2] }]\n', "file"),
-        (b'[layers]\nregions = [{ file = "a", layer = "domain", lines = [5, 2] }]\n', "lines"),
+        (
+            b'[layers]\nregions = [{ file = "a", layer = "domain", lines = [5, 2] }]\n',
+            "lines",
+        ),
         (b'[layers]\nregions = [{ file = "a", layer = "domain" }]\n', "lines"),
     ],
 )
