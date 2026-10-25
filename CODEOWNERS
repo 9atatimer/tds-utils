@@ -1,7 +1,19 @@
 # CODEOWNERS -- read by tedium from master (use_codeowners = true in
 # tedium.toml): a PR touching these paths needs an approving review from
 # an owner before the bot will land it, and the ruleset's Copilot review
-# does not count. These are the files that decide what may merge.
+# does not count. Below the catch-all are the files that decide what
+# may merge.
+
+# Catch-all (9atatimer/tds-internal#285): this repo's contents run on the owner's laptop at
+# session start, so every landing needs the owner's approval. tedium
+# enforces it on its path; the Landing ruleset's code-owner rule enforces
+# it on GitHub's merge button, so the agents' identity (9atatimer-bot,
+# push) cannot land a change alone. Agents open PRs as that identity so
+# the owner can approve them (GitHub refuses self-approval). Listed
+# first: last match wins, and every narrower line below names the same
+# owner.
+*                            @9atatimer
+
 tedium.toml          @9atatimer
 CODEOWNERS           @9atatimer
 .github/workflows/   @9atatimer
