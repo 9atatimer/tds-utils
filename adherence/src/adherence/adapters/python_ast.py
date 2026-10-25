@@ -18,6 +18,7 @@ from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, layer_of, marker_regions
 from adherence.domain.model import (
     Body,
+    Call,
     CodeModel,
     Definition,
     Parameter,
@@ -252,6 +253,14 @@ def _references(
     return found
 
 
+def _calls(path: str, scoped: Sequence[tuple[str | None, ast.AST]]) -> list[Call]:
+    return [
+        Call(path, node.lineno, within, _callee(node))
+        for within, node in scoped
+        if isinstance(node, ast.Call)
+    ]
+
+
 # --- Adapter -----------------------------------------------------------------
 
 
@@ -278,6 +287,7 @@ class PythonCodeModel:
         units: list[Unit] = []
         definitions: list[Definition] = []
         references: list[Reference] = []
+        calls: list[Call] = []
         unparsed: list[Unparsed] = []
         trees: dict[str, ast.Module] = {}
         for path in sorted(sources):
@@ -296,6 +306,7 @@ class PythonCodeModel:
             units.extend(d.unit for d in found)
             scoped = _scoped(tree, walked)
             references.extend(_references(path, tree, scoped))
+            calls.extend(_calls(path, scoped))
         try:
             imports = import_edges(sources, trees, deadline)
         except ImportGraphFailed as failure:
@@ -308,6 +319,7 @@ class PythonCodeModel:
             imports=tuple(imports),
             definitions=tuple(definitions),
             references=tuple(references),
+            calls=tuple(calls),
             regions=regions,
             unparsed=tuple(unparsed),
         )

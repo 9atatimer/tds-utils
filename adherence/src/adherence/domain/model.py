@@ -143,6 +143,17 @@ class Reference:
 
 
 @dataclass(frozen=True, slots=True)
+class Call:
+    """A function or constructor call: its callee as written, its line, and
+    the definition it sits in."""
+
+    path: str
+    line: int
+    within: str | None
+    callee: str
+
+
+@dataclass(frozen=True, slots=True)
 class Unparsed:
     """A source the analyzer could not read as its language, with the reason."""
 
@@ -158,5 +169,6 @@ class CodeModel:
     imports: tuple[ImportEdge, ...] = ()
     definitions: tuple[Definition, ...] = ()
     references: tuple[Reference, ...] = ()
+    calls: tuple[Call, ...] = ()
     regions: tuple[Region, ...] = ()
     unparsed: tuple[Unparsed, ...] = ()
