@@ -522,3 +522,12 @@ def test_an_environment_read_through_a_method_is_an_access() -> None:
         (3, "os.environ"),
         (4, "os.getenv"),
     ]
+
+
+def test_a_file_without_a_final_newline_ends_on_its_last_line() -> None:
+    """Given files with and without a final newline, When they are modelled,
+    Then each file unit ends on its own last line."""
+    model = _model_of({"a.py": b"x = 1\ny = 2", "b.py": b"x = 1\ny = 2\n", "c.py": b""})
+
+    ends = {u.path: u.end for u in model.units if u.kind is UnitKind.FILE}
+    assert ends == {"a.py": 2, "b.py": 2, "c.py": 1}
