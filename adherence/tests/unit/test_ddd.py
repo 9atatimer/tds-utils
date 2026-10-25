@@ -11,13 +11,16 @@ from adherence.domain.records import DesignRecords, Term
 from adherence.domain.report import Report
 from tests.facts_kit import (
     FS,
+    ROOT,
     RULES,
+    STORE,
     USE,
     facts,
     field,
     function,
     keyword,
     method,
+    port,
     type_,
     value,
 )
@@ -178,3 +181,41 @@ def test_measure_with_an_all_fields_type_leaves_its_rules_to_the_judge() -> None
         (RULES, "Money"),
     }
     assert all("rules_elsewhere" in c.reason for c in asked)
+
+
+def test_measure_with_a_port_in_a_use_case_names_no_foreign_noun() -> None:
+    """Given a use case taking the port it is wired with, one taking an
+    adapter's type and one taking a composition root's type, and one taking
+    a port the Domain Language defines without its role suffix
+    (`RepositoryPort` for the term Repository), When Language runs, Then no
+    finding names any of them: a port, and a type of the ports, adapters or
+    composition-root layers, is no noun of the problem."""
+    files = {
+        USE: b"x\n" * 9,
+        STORE: b"x\n" * 9,
+        FS: b"x\n" * 9,
+        ROOT: b"x\n" * 9,
+    }
+    definitions = [
+        *port(STORE, "Store", 1),
+        type_(FS, "FsStore", 1),
+        type_(ROOT, "Container", 1),
+        function(
+            USE,
+            "clean",
+            1,
+            (value("order", "Order"), keyword("store", "Store")),
+            returns="Order",
+        ),
+        function(USE, "save", 2, (keyword("store", "FsStore"),)),
+        function(USE, "wire", 3, (keyword("box", "Container"),)),
+        function(USE, "keep", 4, (keyword("repo", "RepositoryPort"),)),
+    ]
+    records = DesignRecords(
+        domain_language=(Term("Order", DESIGN, 40), Term("Repository", DESIGN, 41))
+    )
+
+    report = measure_with(files, facts(definitions), records=records)
+
+    assert "Language" in {c.name for c in report.ran}
+    assert _of(report, "Language") == []
