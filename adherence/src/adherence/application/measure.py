@@ -37,7 +37,7 @@ from adherence.ports.complexity import ComplexityPort
 from adherence.ports.decision import DecisionPort
 from adherence.ports.duplication import DuplicationPort
 from adherence.ports.records import RecordsPort
-from adherence.ports.repository import Absent, RepositoryPort
+from adherence.ports.repository import Absent, Refused, RepositoryPort
 
 UNDECLARED = RecordsUnavailable("the repository has no declaration to name a record")
 
@@ -113,7 +113,9 @@ def measure(
         return Report.not_run(f"the declaration cannot be read: {declaration.reason}")
     paths = repository.tree(at, deadline)
     if isinstance(paths, TimedOut):
-        return Report()
+        return Report.not_run(f"the repository cannot be read: {paths.operation}")
+    if isinstance(paths, Refused):
+        return Report.not_run(f"the repository cannot be read: {paths.reason}")
     models: list[CodeModel] = []
     sources: dict[str, bytes] = {}
     coverage: list[Coverage] = list(unmeasured(paths, analyzers.keys()))

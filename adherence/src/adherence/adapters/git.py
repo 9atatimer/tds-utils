@@ -38,8 +38,7 @@ class _Expired(Exception):
 class GitFailure(Exception):
     """git could not answer: it exited non-zero or could not be started.
 
-    read answers it as Refused; tree raises it, and the use case that first
-    lists a tree (task-058) decides how it becomes coverage.
+    read and tree each answer it as Refused, with git's complaint.
     """
 
 
@@ -198,7 +197,7 @@ class GitRepository:
 
     def tree(
         self, at: Base | Head, deadline: Deadline | None
-    ) -> tuple[str, ...] | TimedOut:
+    ) -> tuple[str, ...] | Refused | TimedOut:
         try:
             if isinstance(at, Head) and at.kind is HeadKind.WORKING_TREE:
                 listing = self._git(
@@ -214,3 +213,5 @@ class GitRepository:
             return tuple(sorted({e[2] for e in self._listing(at, deadline)}))
         except _Expired:
             return TimedOut("list the tree")
+        except GitFailure as failure:
+            return Refused(".", str(failure))

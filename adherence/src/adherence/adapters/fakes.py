@@ -28,12 +28,17 @@ from adherence.ports.repository import Absent, Refused
 
 class FakeRepository:
     """RepositoryPort over a mapping of target -> path -> answer: the bytes,
-    or the Refused or TimedOut the test scripts for that path."""
+    or the Refused or TimedOut the test scripts for that path. `unlisted`
+    scripts the answer to every tree listing."""
 
     def __init__(
-        self, files: Mapping[Base | Head, Mapping[str, bytes | Refused | TimedOut]]
+        self,
+        files: Mapping[Base | Head, Mapping[str, bytes | Refused | TimedOut]],
+        *,
+        unlisted: Refused | TimedOut | None = None,
     ) -> None:
         self._files = files
+        self._unlisted = unlisted
 
     def read(
         self, path: str, at: Base | Head, deadline: Deadline | None
@@ -43,7 +48,9 @@ class FakeRepository:
 
     def tree(
         self, at: Base | Head, deadline: Deadline | None
-    ) -> tuple[str, ...] | TimedOut:
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        if self._unlisted is not None:
+            return self._unlisted
         return tuple(sorted(self._files.get(at, {})))
 
 
