@@ -20,7 +20,7 @@ from adherence.domain.model import (
 )
 from adherence.domain.qualities import CATALOG, CheckKind, Quality
 from adherence.ports.repository import Refused
-from tests.measure_kit import measure_with
+from tests.measure_kit import HEXAGON, declared, measure_with
 
 RULES = "src/app/domain/rules.py"
 
@@ -122,3 +122,21 @@ def test_measure_of_an_undeclared_repository_runs_what_needs_no_declaration() ->
     assert [f.check.name for f in report.findings] == ["Arrow"]
     needed = {c.check for c in report.coverage if c.check and "declaration" in c.reason}
     assert {"Grep", "Arrow", "Swap", "Change"} <= needed
+
+
+def test_measure_reports_a_refused_exemption_of_a_declared_check() -> None:
+    """Given a declaration that exempts Covered and Record kept, When a run is
+    asked for, Then each exemption is refused and the report says so, with
+    the check, the unit and why."""
+    declaration = declared(
+        HEXAGON
+        + b'[[exemptions]]\ncheck = "Covered"\nunit = "src/app/new.py"\nreason = "r"\n'
+        + b'[[exemptions]]\ncheck = "Record kept"\nunit = "docs/x.md"\nreason = "r"\n'
+    )
+
+    report = measure_with({RULES: b"x = 1\n"}, declaration=declaration)
+
+    messages = [n.message for n in report.notices]
+    assert any("Covered" in m and "src/app/new.py" in m for m in messages)
+    assert any("Record kept" in m and "docs/x.md" in m for m in messages)
+    assert all("Declared" in m for m in messages)
