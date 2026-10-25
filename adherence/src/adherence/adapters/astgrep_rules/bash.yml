@@ -19,6 +19,30 @@ severity: hint
 rule:
   kind: function_definition
 ---
+id: body
+language: Bash
+severity: hint
+rule:
+  kind: function_definition
+  has: {field: body, pattern: $BODY}
+---
+# A body that is one command with no argument: the command is the form the
+# shared code checks against the Vocabulary's stubs (`:`, the no-op).
+id: stub
+language: Bash
+severity: hint
+rule:
+  kind: function_definition
+  has:
+    field: body
+    kind: compound_statement
+    all:
+      - has:
+          kind: command
+          not: {has: {field: argument, regex: '.'}}
+          has: {field: name, pattern: $THROWN}
+      - not: {has: {nthChild: 2}}
+---
 id: call
 language: Bash
 severity: hint
