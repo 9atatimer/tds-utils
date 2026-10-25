@@ -156,7 +156,7 @@ class GitRepository:
             return Refused(path, LINK_REFUSAL)
         return self._git(["cat-file", BLOB, object_id], deadline)
 
-    def _read_working(self, path: str) -> bytes | Absent | Refused:
+    def _walk_working(self, path: str) -> bytes | Absent | Refused:
         current = self._root
         for part in Path(path).parts:
             current = current / part
@@ -168,8 +168,13 @@ class GitRepository:
             return Absent(path)
         if not current.is_file():
             return Refused(path, "not a regular file")
+        return current.read_bytes()
+
+    def _read_working(self, path: str) -> bytes | Absent | Refused:
+        """The working tree's bytes; any directory or file the process may not
+        open, anywhere along the path, is Refused."""
         try:
-            return current.read_bytes()
+            return self._walk_working(path)
         except OSError as error:
             return Refused(path, error.strerror or str(error))
 
