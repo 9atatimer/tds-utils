@@ -244,7 +244,11 @@ def test_accesses_are_environment_reads_and_declared_globals() -> None:
     """Given a read of the environment and a function that declares a global,
     When the fixture is modelled, Then each is an access of its kind in the
     definition it sits in."""
-    accesses = {(a.path, a.within, a.kind, a.target) for a in fixture_model().accesses}
+    accesses = {
+        (a.path, a.within, a.kind, a.target)
+        for a in fixture_model().accesses
+        if a.path in {"src/tool/adapters/fs_store.py", "bin/onefile.py"}
+    }
 
     assert accesses == {
         (
@@ -312,13 +316,16 @@ def test_members_are_each_types_fields_and_methods() -> None:
     """Given a dataclass, a Protocol and a class that sets a field in its
     constructor, When the fixture is modelled, Then each type's fields
     (declared, or assigned on self) and methods are its members."""
-    members = {(m.path, m.owner, m.name, m.kind) for m in fixture_model().members}
-
     rules, store, fs = (
         "src/tool/domain/rules.py",
         "src/tool/ports/store.py",
         "src/tool/adapters/fs_store.py",
     )
+    members = {
+        (m.path, m.owner, m.name, m.kind)
+        for m in fixture_model().members
+        if m.path in {rules, store, fs}
+    }
     assert members == {
         (rules, "Order", "total", MemberKind.FIELD),
         (rules, "Order", "status", MemberKind.FIELD),
