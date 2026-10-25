@@ -27,6 +27,11 @@ TYPESCRIPT_SOURCES = {
     "src/pkg/rules.ts": b"export function rule(x: number): number {\n  return x;\n}\n",
     "scratch.mjs": b"const y = 2;\n",
 }
+SHELL_SOURCES = {
+    "src/pkg/lib.sh": b"",
+    "src/pkg/rules.sh": b'rule() {\n  echo "$1"\n}\n',
+    "scratch": b"#!/usr/bin/env bash\ny=2\n",
+}
 DECLARATION = b'[layers]\ndomain = ["src/pkg/**"]\n'
 
 
