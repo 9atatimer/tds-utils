@@ -8,6 +8,7 @@ library; its tables are the architecture's (Mechanism, Measurement).
 
 from __future__ import annotations
 
+import fnmatch
 import re
 import tomllib
 from collections.abc import Mapping, Sequence
@@ -99,9 +100,33 @@ def is_literal(pattern: str) -> bool:
 
 
 def matches(pattern: str, path: str) -> bool:
-    """Whether a repository path matches a layer pattern: `**` crosses
-    directories, `*` and `?` stay within one."""
-    return re.fullmatch(_glob_regex(pattern), path) is not None
+    """Whether a repository path matches a layer pattern: `**` as a whole
+    segment crosses directories (zero or more before a further segment, one
+    or more at the end), `*`, `?` and `[...]` stay within one segment.
+
+    Matched segment by segment in one pass over a table, never by a
+    backtracking regex: the pattern is the declaration author's, and its
+    cost must stay linear in the pattern times the path."""
+    parts = pattern.split("/")
+    segments = path.split("/")
+    # tail[j]: does parts[i:] match segments[j:], for the row i being built.
+    tail = [False] * len(segments) + [True]
+    for i in range(len(parts) - 1, -1, -1):
+        row = [False] * (len(segments) + 1)
+        for j in range(len(segments), -1, -1):
+            if parts[i] == "**":
+                at_end = i == len(parts) - 1
+                row[j] = (
+                    j < len(segments) and (row[j + 1] or (at_end and tail[j + 1]))
+                ) or (not at_end and tail[j])
+            else:
+                row[j] = (
+                    j < len(segments)
+                    and fnmatch.fnmatchcase(segments[j], parts[i])
+                    and tail[j + 1]
+                )
+        tail = row
+    return tail[0]
 
 
 def is_declared_check(name: str | None) -> bool:
@@ -111,28 +136,6 @@ def is_declared_check(name: str | None) -> bool:
 
 
 # --- Pure helpers ------------------------------------------------------------
-
-
-def _glob_regex(pattern: str) -> str:
-    out: list[str] = []
-    index = 0
-    while index < len(pattern):
-        if pattern.startswith("**/", index):
-            out.append("(?:.*/)?")
-            index += 3
-        elif pattern.startswith("**", index):
-            out.append(".*")
-            index += 2
-        elif pattern[index] == "*":
-            out.append("[^/]*")
-            index += 1
-        elif pattern[index] == "?":
-            out.append("[^/]")
-            index += 1
-        else:
-            out.append(re.escape(pattern[index]))
-            index += 1
-    return "".join(out)
 
 
 def marker_regions(path: str, text: str, vocabulary: Vocabulary) -> tuple[Region, ...]:
