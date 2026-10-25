@@ -320,6 +320,14 @@ class Metrics:
 
 
 @dataclass(frozen=True, slots=True)
+class MetricsUnavailable:
+    """The complexity or duplication tooling could not measure -- absent,
+    or failed -- with the reason, naming the tool."""
+
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class CodeModel:
     """Every fact an analyzer read from the sources, and their Metrics."""
 

@@ -93,6 +93,7 @@ documents the recommended approach so it isn't reinvented per repo.
 - **Decision models** (Jev, Clef and kin): typed yes/no, pick-one and rubric judgements returned as probabilities, served locally by the decision arena.
 - **sqlite-vec**: vector search inside SQLite (a loadable extension); nearest-neighbour queries over embeddings stored in a local SQLite database.
 - **grimp** (BSD-2): the Python import graph, with relative and package imports resolved, for the adherence engine's Python code model (`adherence/`).
+- **lizard** (MIT): per-function cyclomatic complexity over Python, TypeScript and JavaScript, for the adherence engine's Complexity check (`adherence/`).
 
 ---
 
@@ -116,6 +117,10 @@ documents the recommended approach so it isn't reinvented per repo.
 ---
 
 ## Decisions Log
+
+- **2026-10-25**: Added `lizard` to Trial on Todd's ruling that every adherence
+  analyzer starts at Trial (Issue#599), landing with the code that first
+  uses it (task-061).
 
 - **2026-10-25**: Added `grimp` to Trial on Todd's ruling that every adherence
   analyzer starts at Trial (Issue#599), landing with the code that first

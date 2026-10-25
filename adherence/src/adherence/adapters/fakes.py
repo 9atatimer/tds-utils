@@ -16,6 +16,7 @@ from adherence.domain.model import (
     CodeModel,
     Complexity,
     Metrics,
+    MetricsUnavailable,
     Unit,
     UnitKind,
 )
@@ -110,18 +111,28 @@ def _relayered(unit: Unit, declaration: Declaration) -> Unit:
 
 
 class FakeComplexity:
-    """ComplexityPort answering the fixed complexity the test configures, or
-    the TimedOut it scripts."""
+    """ComplexityPort answering the fixed complexity the test configures, for
+    the sources it is handed, or the unavailable or TimedOut answer it
+    scripts. Its clock is frozen at `now`, so a deadline at or before it has
+    passed."""
 
-    def __init__(self, answer: tuple[Complexity, ...] | TimedOut = ()) -> None:
+    def __init__(
+        self,
+        answer: tuple[Complexity, ...] | MetricsUnavailable | TimedOut = (),
+        *,
+        now: float = 1e9,
+    ) -> None:
         self._answer = answer
+        self._now = now
 
     def measure(
         self, sources: Mapping[str, bytes], deadline: Deadline | None
-    ) -> Metrics | TimedOut:
-        if isinstance(self._answer, TimedOut):
+    ) -> Metrics | MetricsUnavailable | TimedOut:
+        if deadline is not None and deadline.epoch_seconds <= self._now:
+            return TimedOut("measure complexity")
+        if isinstance(self._answer, MetricsUnavailable | TimedOut):
             return self._answer
-        return Metrics(complexity=self._answer)
+        return Metrics(complexity=tuple(c for c in self._answer if c.path in sources))
 
 
 class FakeDuplication:

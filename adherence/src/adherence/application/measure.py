@@ -25,6 +25,7 @@ from adherence.domain.model import (
     CodeLanguage,
     CodeModel,
     Metrics,
+    MetricsUnavailable,
     language_of,
     merged,
 )
@@ -89,9 +90,13 @@ def _model(
     return tuple(Coverage(reason, path=path) for path in sorted(read.sources))
 
 
-def _metrics(answer: Metrics | TimedOut, check: str) -> Metrics | Coverage:
+def _metrics(
+    answer: Metrics | MetricsUnavailable | TimedOut, check: str
+) -> Metrics | Coverage:
     if isinstance(answer, Metrics):
         return answer
+    if isinstance(answer, MetricsUnavailable):
+        return Coverage(answer.reason, check=check)
     return Coverage(f"{answer.operation}: timed out", check=check)
 
 
@@ -128,6 +133,7 @@ def measure(
             models.append(model)
         else:
             coverage.extend(model)
+    unmeasured_checks: set[str] = set()
     for answer in (
         _metrics(complexity.measure(sources, deadline), "Complexity"),
         _metrics(duplication.measure(sources, deadline), "Duplication"),
@@ -136,6 +142,7 @@ def measure(
             models.append(CodeModel(metrics=answer))
         else:
             coverage.append(answer)
+            unmeasured_checks.add(answer.check or "")
     whole = merged(models)
     design: DesignRecords | RecordsUnavailable = UNDECLARED
     if declaration.declared:
@@ -155,7 +162,7 @@ def measure(
         )
     checked = run_checks(whole, declaration, design, parameters, radar=tech)
     return Report(
-        ran=checked.ran,
+        ran=tuple(c for c in checked.ran if c.name not in unmeasured_checks),
         findings=quoted(checked.findings, sources, parameters.limits.evidence_bound),
         notices=refusal_notices(declaration),
         coverage=(*coverage, *unmodelled(whole, declaration), *checked.coverage),
