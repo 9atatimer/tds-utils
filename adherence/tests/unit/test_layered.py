@@ -149,3 +149,42 @@ def test_measure_behavior_no_application_unit_carries_is_found() -> None:
         assert finding.check.quality.value == "Layered"
     lost = next(f for f in homeless if f.unit.symbol == "An order is lost")
     assert lost.evidence.line == 14
+
+
+def test_measure_behavior_row_naming_no_action_or_observation_is_found() -> None:
+    """Given behavior rows with no When, with an empty When, and with no Then,
+    each carried by its use case, When Trace runs, Then a finding names each
+    row and the record, and a row with both is not found."""
+    rows = {
+        "Orders exist": "Given orders.",
+        "Orders wait": "Given orders, When , Then they wait",
+        "Orders move": "Given orders, When they are moved",
+        CLOSED: SCENARIO,
+    }
+    behaviors = tuple(
+        Behavior(name, scenario, DESIGN, line)
+        for line, (name, scenario) in enumerate(rows.items(), start=20)
+    )
+    records = DesignRecords(
+        behaviors=behaviors,
+        use_cases=(
+            UseCase(
+                "close_order", Signature(_parameters("order"), None), ARCHITECTURE, 3
+            ),
+        ),
+        surface=tuple(
+            SurfaceRow(b.name, "close_order", ARCHITECTURE, 3) for b in behaviors
+        ),
+    )
+    facts = CodeModel(
+        definitions=(_function(USE, "close_order", _parameters("order")),)
+    )
+
+    report = measure_with({USE: b"x = 1\n"}, facts, records=records)
+
+    untraceable = {f.unit.symbol: f for f in _of(report, "Trace")}
+    assert set(untraceable) == {"Orders exist", "Orders wait", "Orders move"}
+    for finding in untraceable.values():
+        assert finding.unit.path == DESIGN
+        assert "no nameable" in finding.subject
+    assert untraceable["Orders exist"].evidence.line == 20
