@@ -41,13 +41,29 @@ def _modules(layer: str) -> list[Path]:
     return sorted((SRC / layer).rglob("*.py"))
 
 
+def _package(path: Path) -> list[str]:
+    """The dotted package a module under SRC belongs to, as parts."""
+    return ["adherence", *path.relative_to(SRC).parent.parts]
+
+
+def _from_import(node: ast.ImportFrom, path: Path) -> list[str]:
+    """The absolute modules a `from ... import` names, relative ones resolved."""
+    if node.level == 0:
+        return [node.module] if node.module else []
+    package = _package(path)
+    base = package[: len(package) - (node.level - 1)]
+    if node.module:
+        return [".".join([*base, node.module])]
+    return [".".join([*base, alias.name]) for alias in node.names]
+
+
 def _imports(path: Path) -> list[str]:
     names: list[str] = []
     for node in ast.walk(ast.parse(path.read_text())):
         if isinstance(node, ast.Import):
             names.extend(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
-            names.append(node.module)
+        elif isinstance(node, ast.ImportFrom):
+            names.extend(_from_import(node, path))
     return names
 
 
