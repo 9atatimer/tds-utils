@@ -8,6 +8,7 @@ from pathlib import Path
 
 from adherence.adapters.python_ast import PythonCodeModel
 from adherence.domain.deadline import Deadline, TimedOut
+from adherence.domain.parameters import Vocabulary
 from adherence.domain.model import (
     AccessKind,
     CodeModel,
@@ -472,3 +473,35 @@ def test_model_past_the_deadline_between_files_times_out() -> None:
     )
 
     assert isinstance(model, TimedOut)
+
+
+def test_environment_reads_sleeps_and_stubs_come_from_the_vocabulary() -> None:
+    """Given a vocabulary that counts `settings.env` as an environment read,
+    `pause` as a sleep and only `pass` as a stub, When code is modelled with
+    it, Then the model follows that vocabulary, not a fixed list."""
+    vocabulary = Vocabulary(
+        regions={},
+        environment_reads=frozenset({"settings.env"}),
+        sleeps=frozenset({"pause"}),
+        stubs=frozenset({"pass"}),
+    )
+    source = (
+        b"def a():\n"
+        b"    return settings.env\n"
+        b"def b():\n"
+        b"    pause(1)\n"
+        b"    time.sleep(1)\n"
+        b"def c():\n"
+        b"    ...\n"
+        b"def d():\n"
+        b"    pass\n"
+    )
+    model = PythonCodeModel().model(
+        {"m.py": source}, python_fixture.declaration(), vocabulary, None
+    )
+
+    assert isinstance(model, CodeModel)
+    assert [(a.within, a.target) for a in model.accesses] == [("a", "settings.env")]
+    bodies = {d.unit.symbol: d.body for d in model.definitions}
+    assert bodies["b"].sleeps == (4,)
+    assert (bodies["c"].stub_markers, bodies["d"].stub_markers) == ((), ("pass",))
