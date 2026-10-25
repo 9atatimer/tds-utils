@@ -445,3 +445,15 @@ def test_same_named_packages_under_two_roots_are_each_modelled() -> None:
         ("a/pkg/m.py", "a/pkg/z.py"),
         ("b/pkg/m.py", "b/pkg/r.py"),
     }
+
+
+def test_a_file_nested_past_the_walk_is_unparsed_and_the_rest_modelled() -> None:
+    """Given a file that parses but nests deeper than the analyzer can walk,
+    When it is modelled with another file, Then that file is Unparsed and
+    the other is modelled; the run does not end."""
+    deep = b"x = " + b"+".join([b"1"] * 5000) + b"\n"
+
+    model = _model_of({"deep.py": deep, "fine.py": b"def f() -> int:\n    return 1\n"})
+
+    assert [u.path for u in model.unparsed] == ["deep.py"]
+    assert any(d.unit.symbol == "f" for d in model.definitions)
