@@ -21,7 +21,7 @@ from adherence.domain.model import (
 )
 from adherence.domain.parameters import Vocabulary
 from adherence.domain.questions import Decision, Schema, State, Unavailable
-from adherence.domain.records import DesignRecords, RecordsUnavailable
+from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 from adherence.domain.target import Base, Head
 from adherence.ports.repository import Absent, Refused
 
@@ -142,13 +142,18 @@ class FakeDuplication:
 class FakeRecords:
     """RecordsPort over a mapping of target -> the records, the
     RecordsUnavailable or the TimedOut the test scripts for it, so base and
-    head can hold different records. A target it does not hold has none."""
+    head can hold different records. A target it does not hold has none.
+    `radar` scripts the radar per target the same way."""
 
     def __init__(
         self,
         by_target: Mapping[Base | Head, DesignRecords | RecordsUnavailable | TimedOut],
+        *,
+        radar: Mapping[Base | Head, Radar | RecordsUnavailable | TimedOut]
+        | None = None,
     ) -> None:
         self._by_target = by_target
+        self._radar = radar or {}
 
     def records(
         self, at: Base | Head, declaration: Declaration, deadline: Deadline | None
@@ -156,6 +161,11 @@ class FakeRecords:
         return self._by_target.get(
             at, RecordsUnavailable("no design record at this target")
         )
+
+    def radar(
+        self, at: Base | Head, declaration: Declaration, deadline: Deadline | None
+    ) -> Radar | RecordsUnavailable | TimedOut:
+        return self._radar.get(at, RecordsUnavailable("no radar at this target"))
 
 
 class FakeDecision:

@@ -35,6 +35,9 @@ class Vocabulary:
     assertion_calls are the callees (a full dotted name, or its last part)
     that assert, as `pytest.raises` does; placeholder_assertions the
     asserted expressions, as written, that cannot tell a pass from a fail.
+    standard_library is the top-level modules that ship with the language,
+    never a dependency; packages maps a top-level module to the name its
+    package carries on a radar, where the two differ.
     """
 
     regions: Mapping[str, Layer]
@@ -47,6 +50,8 @@ class Vocabulary:
     abstract_markers: frozenset[str] = field(default_factory=frozenset)
     assertion_calls: frozenset[str] = field(default_factory=frozenset)
     placeholder_assertions: frozenset[str] = field(default_factory=frozenset)
+    standard_library: frozenset[str] = field(default_factory=frozenset)
+    packages: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

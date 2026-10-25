@@ -15,7 +15,7 @@ from adherence.domain.declaration import Declaration
 from adherence.domain.finding import Finding
 from adherence.domain.model import CodeModel
 from adherence.domain.parameters import Parameters
-from adherence.domain.records import DesignRecords, RecordsUnavailable
+from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 
 # --- Constants ---------------------------------------------------------------
 
@@ -36,6 +36,12 @@ class CheckOutcome:
 
 CheckFunction = Callable[
     [CodeModel, Declaration, DesignRecords | RecordsUnavailable, Parameters],
+    CheckOutcome,
+]
+
+# A Radar-true check reads the radar in the records' place.
+RadarCheckFunction = Callable[
+    [CodeModel, Declaration, Radar | RecordsUnavailable, Parameters],
     CheckOutcome,
 ]
 

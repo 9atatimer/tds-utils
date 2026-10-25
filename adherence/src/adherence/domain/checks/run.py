@@ -9,15 +9,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from adherence.domain.checks import behavior, complete, hexagonal
-from adherence.domain.checks.outcome import CheckFunction
+from adherence.domain.checks import behavior, complete, hexagonal, radar
+from adherence.domain.checks.outcome import CheckFunction, RadarCheckFunction
 from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import Declaration
 from adherence.domain.finding import Finding
 from adherence.domain.model import CodeModel
 from adherence.domain.parameters import Parameters
 from adherence.domain.qualities import CATALOG, Check, CheckKind, Quality
-from adherence.domain.records import DesignRecords, RecordsUnavailable
+from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 
 # --- Constants ---------------------------------------------------------------
 
@@ -33,6 +33,10 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Public surface": behavior.public_surface,
     "Kept test": behavior.kept_test,
 }
+RADAR_CHECKS: Mapping[str, RadarCheckFunction] = {
+    "Dependency": radar.dependency,
+}
+NO_RADAR = RecordsUnavailable("no radar was read")
 CHANGE_LEVEL = "a change-level check: it runs when a change is judged"
 NOT_IN_SUITE = "not implemented in this suite version"
 NO_JUDGE_YET = "a judged check: none is implemented in this suite version"
@@ -67,18 +71,24 @@ def run_checks(
     declaration: Declaration,
     records: DesignRecords | RecordsUnavailable,
     parameters: Parameters,
+    *,
+    radar: Radar | RecordsUnavailable = NO_RADAR,
 ) -> Checked:
     """Every implemented check over the model, in catalog order; every
-    other check is coverage."""
+    other check is coverage. The Radar-true checks read the radar."""
     ran: list[Check] = []
     findings: list[Finding] = []
     coverage: list[Coverage] = []
     for check in CATALOG:
         run = TARGET_CHECKS.get(check.name)
-        if run is None:
+        on_radar = RADAR_CHECKS.get(check.name)
+        if run is not None:
+            outcome = run(model, declaration, records, parameters)
+        elif on_radar is not None:
+            outcome = on_radar(model, declaration, radar, parameters)
+        else:
             coverage.append(_not_run(check))
             continue
-        outcome = run(model, declaration, records, parameters)
         if outcome.ran:
             ran.append(check)
         findings.extend(outcome.findings)

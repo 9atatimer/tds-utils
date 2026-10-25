@@ -68,3 +68,30 @@ class RecordsUnavailable:
     with the reason, naming the record."""
 
     reason: str
+
+
+class Ring(enum.Enum):
+    """A radar's rings; only Adopt and Trial may be introduced."""
+
+    ADOPT = "Adopt"
+    TRIAL = "Trial"
+    ASSESS = "Assess"
+    HOLD = "Hold"
+    VERBOTEN = "Verboten"
+
+
+@dataclass(frozen=True, slots=True)
+class RadarEntry:
+    """One technology the radar names, its ring, and where it names it."""
+
+    name: str
+    ring: Ring
+    path: str
+    line: int
+
+
+@dataclass(frozen=True, slots=True)
+class Radar:
+    """The tech radar the declaration names, read for its rings."""
+
+    entries: tuple[RadarEntry, ...] = ()

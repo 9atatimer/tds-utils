@@ -9,6 +9,7 @@ test passes them in through the overrides.
 from __future__ import annotations
 
 import enum
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -88,6 +89,8 @@ SHIPPED_VOCABULARY = Vocabulary(
         }
     ),
     placeholder_assertions=frozenset({"True", "False", "1", "0", "None"}),
+    standard_library=frozenset(sys.stdlib_module_names),
+    packages={"markdown_it": "markdown-it-py", "yaml": "PyYAML"},
 )
 SHIPPED_LIMITS = Limits(
     evidence_bound=200, complexity_ceiling=15, duplication_ceiling=10

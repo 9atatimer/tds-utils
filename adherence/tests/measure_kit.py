@@ -27,7 +27,7 @@ from adherence.domain.declaration import (
 from adherence.domain.model import CodeLanguage, CodeModel, Layer
 from adherence.domain.parameters import Limits, Parameters, Vocabulary
 from adherence.domain.questions import ThresholdPolicy, Unavailable
-from adherence.domain.records import DesignRecords, RecordsUnavailable
+from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 from adherence.domain.report import Report
 from adherence.domain.target import Head
 from adherence.ports.code_model import CodeModelPort
@@ -45,6 +45,8 @@ VOCABULARY = Vocabulary(
     abstract_markers=frozenset({"Protocol", "ABC", "abstractmethod"}),
     assertion_calls=frozenset({"pytest.raises"}),
     placeholder_assertions=frozenset({"True", "False", "1"}),
+    standard_library=frozenset({"__future__", "dataclasses", "os"}),
+    packages={"markdown_it": "markdown-it-py"},
 )
 LIMITS = Limits(evidence_bound=200)
 
@@ -79,6 +81,7 @@ def measure_with(
     declaration: Declaration | DeclarationUnreadable | None = None,
     *,
     records: DesignRecords | RecordsUnavailable | TimedOut | None = None,
+    radar: Radar | RecordsUnavailable | TimedOut | None = None,
     analyzers: Mapping[CodeLanguage, CodeModelPort] | None = None,
     limits: Limits = LIMITS,
     complexity: FakeComplexity | None = None,
@@ -99,7 +102,10 @@ def measure_with(
         ),
         complexity=complexity or FakeComplexity(),
         duplication=duplication or FakeDuplication(),
-        records=FakeRecords({} if records is None else {HEAD: records}),
+        records=FakeRecords(
+            {} if records is None else {HEAD: records},
+            radar={} if radar is None else {HEAD: radar},
+        ),
         judge=FakeDecision(Unavailable("no judge in the unit tier")),
         parameters=parameters(limits=limits),
         deadline=deadline,

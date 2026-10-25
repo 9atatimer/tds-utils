@@ -29,7 +29,7 @@ from adherence.domain.model import (
     merged,
 )
 from adherence.domain.parameters import Parameters
-from adherence.domain.records import DesignRecords, RecordsUnavailable
+from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 from adherence.domain.report import Report
 from adherence.domain.target import Base, Head
 from adherence.ports.code_model import CodeModelPort
@@ -145,7 +145,15 @@ def measure(
             if isinstance(read_records, TimedOut)
             else read_records
         )
-    checked = run_checks(whole, declaration, design, parameters)
+    tech: Radar | RecordsUnavailable = UNDECLARED
+    if declaration.declared:
+        read_radar = records.radar(at, declaration, deadline)
+        tech = (
+            RecordsUnavailable(f"{read_radar.operation}: timed out")
+            if isinstance(read_radar, TimedOut)
+            else read_radar
+        )
+    checked = run_checks(whole, declaration, design, parameters, radar=tech)
     return Report(
         ran=checked.ran,
         findings=quoted(checked.findings, sources, parameters.limits.evidence_bound),
