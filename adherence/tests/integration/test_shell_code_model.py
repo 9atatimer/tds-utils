@@ -162,3 +162,28 @@ def test_a_sourced_file_is_an_edge_to_it_when_it_is_a_source() -> None:
             "lib/y.sh",
         ),
     }
+
+
+def test_a_file_the_grammar_cannot_read_is_unparsed_with_the_reason() -> None:
+    """Given a zsh nested expansion the Bash grammar cannot parse, bytes
+    that are not UTF-8, and a path leaving the repository, When they are
+    modelled, Then each is unparsed with its reason and no unit, and a
+    readable file beside them is still modelled."""
+    model = ShellCodeModel().model(
+        {
+            "bin/nested": b'#!/bin/zsh\nok() { :; }\nx="${${HOME}}/log"\n',
+            "bin/latin1": b"#!/bin/sh\necho caf\xe9\n",
+            "../outside.sh": b"echo hi\n",
+            "bin/fine": b"#!/bin/sh\necho fine\n",
+        },
+        shell_fixture.declaration(),
+        shell_fixture.VOCABULARY,
+        None,
+    )
+
+    assert isinstance(model, CodeModel)
+    reasons = {u.path: u.reason for u in model.unparsed}
+    assert reasons["bin/nested"] == "not shell: syntax error at line 3"
+    assert reasons["bin/latin1"].startswith("not utf-8")
+    assert reasons["../outside.sh"] == "the path leaves the repository; not read"
+    assert {u.path for u in model.units} == {"bin/fine"}
