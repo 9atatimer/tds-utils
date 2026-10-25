@@ -249,3 +249,15 @@ def test_accesses_are_environment_reads_and_declared_globals() -> None:
         ),
         ("bin/onefile.py", "load", AccessKind.GLOBAL, "COUNTER"),
     }
+
+
+def test_writes_are_field_assignments_with_the_unit_that_makes_them() -> None:
+    """Given a use case assigning a domain value's field and a constructor
+    assigning its own, When the fixture is modelled, Then each is a write of
+    that field, on that object, by the definition it sits in."""
+    writes = {(w.path, w.within, w.target, w.field) for w in fixture_model().writes}
+
+    assert writes == {
+        ("src/tool/application/use.py", "close_order", "order", "status"),
+        ("src/tool/adapters/fs_store.py", "FsStore.__init__", "self", "root"),
+    }
