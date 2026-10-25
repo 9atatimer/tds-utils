@@ -1,5 +1,5 @@
 # dist-ci.yml -- the repo's CI gate: the ENV-DISTRIBUTION toolchain (issue
-# #206), chores, and Dynomark.
+# #206), chores, the adherence engine, and Dynomark.
 #
 # Jobs:
 #
@@ -24,6 +24,10 @@
 #     uv project (docs/design/CHORES.DESIGN.md). Python is cross-platform,
 #     so one ubuntu leg; the Dock app is covered by the macos-apps
 #     smoketest in the smoketests job's macOS leg.
+#
+#   adherence -- lint, format, strict types and tests for the adherence/
+#     uv project (docs/design/DESIGN.ARCH-ADHERENCE.md). One ubuntu leg for
+#     now; task-065 adds the macOS leg with the pre-commit hook stage.
 #
 #   shellcheck -- lints exactly the four dist files named in issue #206.
 #     Scope is fixed on purpose: the rest of the repo is not shellcheck-clean
@@ -81,6 +85,7 @@ jobs:
       smoketests: ${{ steps.scopes.outputs.smoketests }}
       shellcheck: ${{ steps.scopes.outputs.shellcheck }}
       chores: ${{ steps.scopes.outputs.chores }}
+      adherence: ${{ steps.scopes.outputs.adherence }}
       dynomark-contract: ${{ steps.scopes.outputs.dynomark-contract }}
       dynomark-daemon: ${{ steps.scopes.outputs.dynomark-daemon }}
       dynomark-extension: ${{ steps.scopes.outputs.dynomark-extension }}
@@ -268,6 +273,41 @@ jobs:
       - name: Unit tests (pytest)
         run: uv run pytest
 
+  adherence:
+    needs: changes
+    if: needs.changes.outputs.adherence == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: adherence
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      # --frozen: the analyzers are pinned by hash in uv.lock (architecture,
+      # Security mitigations), so a lock that disagrees fails here.
+      - name: Sync the project (dev group)
+        run: uv sync --frozen
+
+      - name: Lint (ruff check)
+        run: uv run ruff check .
+
+      - name: Format (ruff format --check)
+        run: uv run ruff format --check .
+
+      - name: Types (mypy --strict)
+        run: uv run mypy
+
+      # Unit tests and the git adapter's integration tests, against real git.
+      - name: Tests (pytest)
+        run: uv run pytest
+
   dynomark-contract:
     needs: changes
     if: needs.changes.outputs.dynomark-contract == 'true'
@@ -422,6 +462,7 @@ jobs:
       - smoketests
       - shellcheck
       - chores
+      - adherence
       - dynomark-contract
       - dynomark-daemon
       - dynomark-extension
