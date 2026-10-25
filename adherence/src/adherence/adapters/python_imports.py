@@ -113,9 +113,13 @@ def _module_of(path: str, root: str) -> str:
     return ".".join(parts)
 
 
-def _modules(sources: Mapping[str, bytes], packages: list[_Package]) -> dict[str, str]:
-    """Module name -> source path, for every .py file inside a package."""
-    found: dict[str, str] = {}
+Modules = dict[str, dict[str, str]]
+
+
+def _modules(sources: Mapping[str, bytes], packages: list[_Package]) -> Modules:
+    """Per root, module name -> source path, for every .py file inside a
+    package. Keyed by root, because two roots may hold packages of one name."""
+    found: Modules = {}
     for package in packages:
         prefix = PurePosixPath(package.root, package.name).as_posix()
         if package.root == ".":
@@ -124,8 +128,20 @@ def _modules(sources: Mapping[str, bytes], packages: list[_Package]) -> dict[str
             if path.endswith(".py") and (
                 path == prefix or path.startswith(prefix + "/")
             ):
-                found[_module_of(path, package.root)] = path
+                found.setdefault(package.root, {})[_module_of(path, package.root)] = (
+                    path
+                )
     return found
+
+
+def _flat(modules: Modules) -> dict[str, str]:
+    """Module name -> path across every root; the first root in order wins a
+    name two roots share, which is what a script importing it would get."""
+    flat: dict[str, str] = {}
+    for root in sorted(modules):
+        for name, path in modules[root].items():
+            flat.setdefault(name, path)
+    return flat
 
 
 def _script_edges(
@@ -157,19 +173,20 @@ def _script_edges(
 def _grimp_edges(
     sources: Mapping[str, bytes],
     packages: list[_Package],
-    modules: Mapping[str, str],
+    modules: Modules,
     deadline: Deadline | None,
-) -> tuple[list[ImportEdge], list[str]]:
-    """The packages' import edges, and the names of packages grimp could
-    not model because they shadow a module it runs on."""
+) -> tuple[list[ImportEdge], list[tuple[str, str]]]:
+    """The packages' import edges, and the (root, name) of packages grimp
+    could not model because they shadow a module it runs on."""
     edges: list[ImportEdge] = []
-    shadowed: list[str] = []
+    shadowed: list[tuple[str, str]] = []
+    in_packages = {path for table in modules.values() for path in table.values()}
     roots: dict[str, list[str]] = {}
     for package in packages:
         roots.setdefault(package.root, []).append(package.name)
     with tempfile.TemporaryDirectory(prefix="adhere-imports-") as scratch:
         for path, data in sources.items():
-            if path in modules.values():
+            if path in in_packages:
                 target = Path(scratch, "tree", path)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(data)
@@ -177,13 +194,14 @@ def _grimp_edges(
             found, skipped = _run_grimp(
                 Path(scratch), Path(scratch, "tree", root), names, deadline
             )
-            shadowed.extend(skipped)
+            shadowed.extend((root, name) for name in skipped)
+            table = modules.get(root, {})
             for importer, imported, line, text in found:
-                importer_path = modules.get(importer)
+                importer_path = table.get(importer)
                 if importer_path is not None:
                     edges.append(
                         ImportEdge(
-                            importer_path, imported, line, text, modules.get(imported)
+                            importer_path, imported, line, text, table.get(imported)
                         )
                     )
     return edges, shadowed
@@ -248,12 +266,14 @@ def import_edges(
     )
     unparsed = [
         Unparsed(path, SHADOWED)
-        for name, path in modules.items()
-        if name.split(".")[0] in shadowed
+        for root, table in modules.items()
+        for name, path in table.items()
+        if (root, name.split(".")[0]) in shadowed
     ]
-    in_packages = set(modules.values())
+    in_packages = {path for table in modules.values() for path in table.values()}
+    flat = _flat(modules)
     for path, tree in trees.items():
         if path not in in_packages:
             lines = sources[path].decode("utf-8", "replace").splitlines()
-            edges.extend(_script_edges(path, tree, lines, modules))
+            edges.extend(_script_edges(path, tree, lines, flat))
     return sorted(edges, key=lambda e: (e.path, e.line, e.imported)), unparsed
