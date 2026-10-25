@@ -478,7 +478,8 @@ class PythonCodeModel:
             members.extend(_members(path, walked))
             test_cases.extend(_test_cases(path, walked))
         try:
-            imports = import_edges(sources, trees, deadline)
+            imports, not_modelled = import_edges(sources, trees, deadline)
+            unparsed.extend(not_modelled)
         except ImportGraphFailed as failure:
             if failure.timed_out:
                 return TimedOut(str(failure))

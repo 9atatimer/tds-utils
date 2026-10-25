@@ -24,29 +24,53 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from adherence.domain.deadline import Deadline
-from adherence.domain.model import ImportEdge
+from adherence.domain.model import ImportEdge, Unparsed
 
 # --- Constants ---------------------------------------------------------------
 
 INIT = "__init__.py"
-# Run in the child: argv is the root to search, then the package names.
+# Run in the child: argv is the root holding the packages, then their names.
+# The root never joins sys.path. A finder answers for the measured names
+# alone, from the root, with a loader that refuses to execute anything, so
+# grimp can locate the packages but no measured module can run, even one
+# named like a module grimp imports lazily. A measured name the child has
+# already loaded (grimp, logging) would resolve to the loaded module, so it
+# is reported as shadowed and not modelled.
 GRIMP_RUNNER = """
-import json, sys
+import importlib.abc, importlib.machinery, json, sys
 root, names = sys.argv[1], sys.argv[2:]
-sys.path.insert(0, root)
 import grimp
-graph = grimp.build_graph(*names, include_external_packages=True, cache_dir=None)
+
+class Refuse(importlib.abc.Loader):
+    def create_module(self, spec):
+        return None
+    def exec_module(self, module):
+        raise ImportError("measured code is never run: " + module.__name__)
+
+class Measured(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split(".")[0] not in names:
+            return None
+        spec = importlib.machinery.PathFinder.find_spec(fullname, path or [root])
+        if spec is not None:
+            spec.loader = Refuse()
+        return spec
+
+shadowed = sorted(n for n in names if n in sys.modules)
+names = [n for n in names if n not in sys.modules]
+sys.meta_path.insert(0, Measured())
 edges = []
-for importer in sorted(graph.modules):
-    if importer.split(".")[0] not in names:
-        continue
-    for imported in sorted(graph.find_modules_directly_imported_by(importer)):
-        for detail in graph.get_import_details(importer=importer, imported=imported):
-            edges.append(
-                [importer, imported, detail["line_number"], detail["line_contents"]]
-            )
-json.dump(edges, sys.stdout)
+if names:
+    graph = grimp.build_graph(*names, include_external_packages=True, cache_dir=None)
+    for importer in sorted(graph.modules):
+        if importer.split(".")[0] not in names:
+            continue
+        for imported in sorted(graph.find_modules_directly_imported_by(importer)):
+            for d in graph.get_import_details(importer=importer, imported=imported):
+                edges.append([importer, imported, d["line_number"], d["line_contents"]])
+json.dump({"edges": edges, "shadowed": shadowed}, sys.stdout)
 """
+SHADOWED = "named like a module the import analyzer runs on; not modelled"
 
 
 class ImportGraphFailed(Exception):
@@ -135,8 +159,11 @@ def _grimp_edges(
     packages: list[_Package],
     modules: Mapping[str, str],
     deadline: Deadline | None,
-) -> list[ImportEdge]:
+) -> tuple[list[ImportEdge], list[str]]:
+    """The packages' import edges, and the names of packages grimp could
+    not model because they shadow a module it runs on."""
     edges: list[ImportEdge] = []
+    shadowed: list[str] = []
     roots: dict[str, list[str]] = {}
     for package in packages:
         roots.setdefault(package.root, []).append(package.name)
@@ -147,9 +174,11 @@ def _grimp_edges(
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(data)
         for root, names in roots.items():
-            for importer, imported, line, text in _run_grimp(
+            found, skipped = _run_grimp(
                 Path(scratch), Path(scratch, "tree", root), names, deadline
-            ):
+            )
+            shadowed.extend(skipped)
+            for importer, imported, line, text in found:
                 importer_path = modules.get(importer)
                 if importer_path is not None:
                     edges.append(
@@ -157,12 +186,12 @@ def _grimp_edges(
                             importer_path, imported, line, text, modules.get(imported)
                         )
                     )
-    return edges
+    return edges, shadowed
 
 
 def _run_grimp(
     scratch: Path, root: Path, names: list[str], deadline: Deadline | None
-) -> list[tuple[str, str, int, str]]:
+) -> tuple[list[tuple[str, str, int, str]], list[str]]:
     timeout = None
     if deadline is not None:
         timeout = deadline.epoch_seconds - time.time()
@@ -189,10 +218,12 @@ def _run_grimp(
         complaint = failed.stderr.decode("utf-8", "replace").strip().splitlines()
         reason = complaint[-1] if complaint else f"exit {failed.returncode}"
         raise ImportGraphFailed(f"the import graph failed: {reason}") from failed
-    return [
+    answer = json.loads(done.stdout)
+    edges = [
         (str(importer), str(imported), int(line), str(text))
-        for importer, imported, line, text in json.loads(done.stdout)
+        for importer, imported, line, text in answer["edges"]
     ]
+    return edges, [str(name) for name in answer["shadowed"]]
 
 
 # --- Entry point -------------------------------------------------------------
@@ -202,15 +233,23 @@ def import_edges(
     sources: Mapping[str, bytes],
     trees: Mapping[str, ast.Module],
     deadline: Deadline | None,
-) -> list[ImportEdge]:
-    """Every import edge of the parsed sources: grimp for package modules,
-    ast for the rest. Raises ImportGraphFailed when grimp cannot answer."""
+) -> tuple[list[ImportEdge], list[Unparsed]]:
+    """Every import edge of the parsed sources (grimp for package modules,
+    ast for the rest) and the package files that could not be modelled.
+    Raises ImportGraphFailed when grimp cannot answer."""
     packages = _packages(sources)
     modules = _modules(sources, packages)
-    edges = _grimp_edges(sources, packages, modules, deadline) if packages else []
+    edges, shadowed = (
+        _grimp_edges(sources, packages, modules, deadline) if packages else ([], [])
+    )
+    unparsed = [
+        Unparsed(path, SHADOWED)
+        for name, path in modules.items()
+        if name.split(".")[0] in shadowed
+    ]
     in_packages = set(modules.values())
     for path, tree in trees.items():
         if path not in in_packages:
             lines = sources[path].decode("utf-8", "replace").splitlines()
             edges.extend(_script_edges(path, tree, lines, modules))
-    return sorted(edges, key=lambda e: (e.path, e.line, e.imported))
+    return sorted(edges, key=lambda e: (e.path, e.line, e.imported)), unparsed
