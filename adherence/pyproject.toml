@@ -45,3 +45,9 @@ extend-exclude = ["tests/fixtures"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+# A RED test imports a module that does not exist yet; naming the
+# first-party packages keeps its import block sorted the same before and
+# after the module lands.
+[tool.ruff.lint.isort]
+known-first-party = ["adherence", "tests"]
