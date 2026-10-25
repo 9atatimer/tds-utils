@@ -123,6 +123,25 @@ class ImportEdge:
     imported_path: str | None
 
 
+class ReferenceKind(enum.Enum):
+    """A name (a dotted chain, as written) or a string literal."""
+
+    NAME = "name"
+    STRING = "string"
+
+
+@dataclass(frozen=True, slots=True)
+class Reference:
+    """A name or string literal, the line it is on, and the symbol of the
+    definition it sits in (None at module level)."""
+
+    path: str
+    line: int
+    within: str | None
+    kind: ReferenceKind
+    text: str
+
+
 @dataclass(frozen=True, slots=True)
 class Unparsed:
     """A source the analyzer could not read as its language, with the reason."""
@@ -138,5 +157,6 @@ class CodeModel:
     units: tuple[Unit, ...] = ()
     imports: tuple[ImportEdge, ...] = ()
     definitions: tuple[Definition, ...] = ()
+    references: tuple[Reference, ...] = ()
     regions: tuple[Region, ...] = ()
     unparsed: tuple[Unparsed, ...] = ()

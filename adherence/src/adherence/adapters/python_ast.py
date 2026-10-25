@@ -21,6 +21,8 @@ from adherence.domain.model import (
     CodeModel,
     Definition,
     Parameter,
+    Reference,
+    ReferenceKind,
     Region,
     Signature,
     Unit,
@@ -195,6 +197,61 @@ def _definition(
     )
 
 
+def _scoped(
+    tree: ast.Module, found: Sequence[_Found]
+) -> list[tuple[str | None, ast.AST]]:
+    """Every node of a file with the symbol of the definition it sits in."""
+    nodes: list[tuple[str | None, ast.AST]] = [(None, n) for n in own_nodes(tree)]
+    for f in found:
+        nodes.extend((f.symbol, n) for n in own_nodes(f.node))
+    return nodes
+
+
+def _docstrings(tree: ast.Module) -> set[int]:
+    """The ids of every docstring constant in a file."""
+    owners = [tree, *(n for n in ast.walk(tree) if isinstance(n, DEFINITIONS))]
+    found: set[int] = set()
+    for owner in owners:
+        first = owner.body[0] if owner.body else None
+        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+            found.add(id(first.value))
+    return found
+
+
+def _chain(node: ast.expr) -> bool:
+    """Whether an expression is a dotted chain of names (os.environ.get)."""
+    while isinstance(node, ast.Attribute):
+        node = node.value
+    return isinstance(node, ast.Name)
+
+
+def _references(
+    path: str, tree: ast.Module, scoped: Sequence[tuple[str | None, ast.AST]]
+) -> list[Reference]:
+    docstrings = _docstrings(tree)
+    inner = {
+        id(n.value) for _, n in scoped if isinstance(n, ast.Attribute) and _chain(n)
+    }
+    found: list[Reference] = []
+    for within, node in scoped:
+        if id(node) in inner:
+            continue
+        if isinstance(node, ast.Attribute) and _chain(node):
+            text, kind = ast.unparse(node), ReferenceKind.NAME
+        elif isinstance(node, ast.Name):
+            text, kind = node.id, ReferenceKind.NAME
+        elif (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and id(node) not in docstrings
+        ):
+            text, kind = node.value, ReferenceKind.STRING
+        else:
+            continue
+        found.append(Reference(path, node.lineno, within, kind, text))
+    return found
+
+
 # --- Adapter -----------------------------------------------------------------
 
 
@@ -220,6 +277,7 @@ class PythonCodeModel:
         )
         units: list[Unit] = []
         definitions: list[Definition] = []
+        references: list[Reference] = []
         unparsed: list[Unparsed] = []
         trees: dict[str, ast.Module] = {}
         for path in sorted(sources):
@@ -232,12 +290,12 @@ class PythonCodeModel:
             file_layer = layer_of(path, None, declaration)
             units.append(Unit(path, UnitKind.FILE, None, 1, lines, file_layer))
             text = sources[path].decode("utf-8", "replace")
-            found = [
-                _definition(path, f, text, declaration, regions)
-                for f in _walk_definitions(tree)
-            ]
+            walked = _walk_definitions(tree)
+            found = [_definition(path, f, text, declaration, regions) for f in walked]
             definitions.extend(found)
             units.extend(d.unit for d in found)
+            scoped = _scoped(tree, walked)
+            references.extend(_references(path, tree, scoped))
         try:
             imports = import_edges(sources, trees, deadline)
         except ImportGraphFailed as failure:
@@ -249,6 +307,7 @@ class PythonCodeModel:
             units=tuple(units),
             imports=tuple(imports),
             definitions=tuple(definitions),
+            references=tuple(references),
             regions=regions,
             unparsed=tuple(unparsed),
         )
