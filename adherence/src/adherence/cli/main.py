@@ -43,7 +43,7 @@ def _refusal_line(refusal: RefusedExemption) -> str:
 
 def _declaration_lines(loaded: Declaration | DeclarationUnreadable) -> list[str]:
     if isinstance(loaded, DeclarationUnreadable):
-        return [_safe(f"{DECLARATION_PATH} unreadable: {loaded.reason}")]
+        return [_safe(f"declaration unreadable: {loaded.reason}")]
     if not loaded.declared:
         return [f"{DECLARATION_PATH}: none; the repository is measured as undeclared"]
     count = len(loaded.exemptions)
