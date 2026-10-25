@@ -175,3 +175,18 @@ def test_definitions_carry_signature_bases_decorators_and_nesting() -> None:
     assert store.bases == ("Protocol",)
     assert (helper.parent, helper.nested) == ("close_order", True)
     assert (method.parent, method.nested) == ("Order", False)
+
+
+def test_bodies_carry_their_text_stub_markers_and_sleeps() -> None:
+    """Given a body that is only `pass`, one that is only `...`, and one that
+    sleeps, When the fixture is modelled, Then each body carries its text,
+    the placeholder it consists of, and the lines it sleeps on."""
+    unfinished = _definition("src/tool/domain/rules.py", "unfinished").body
+    save = _definition("src/tool/ports/store.py", "Store.save").body
+    close = _definition("src/tool/application/use.py", "close_order").body
+
+    assert unfinished.stub_markers == ("pass",)
+    assert save.stub_markers == ("...",)
+    assert close.stub_markers == ()
+    assert close.sleeps == (10,)
+    assert "store.save(order)" in close.text
