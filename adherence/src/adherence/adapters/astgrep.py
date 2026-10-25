@@ -158,6 +158,13 @@ class ScanFailed(Exception):
 # --- Pure helpers ------------------------------------------------------------
 
 
+def stays_inside(path: str) -> bool:
+    """Whether a repository path names a file inside the repository: relative
+    and never climbing out, so a copy written by it stays in its directory."""
+    pure = PurePosixPath(path)
+    return bool(pure.parts) and not pure.is_absolute() and ".." not in pure.parts
+
+
 def rule_text(grammar: Grammar, text: str) -> str:
     """The rule file run as every language of the grammar: each copy names
     its language and suffixes its ids with it, since ids must be unique."""
@@ -711,7 +718,11 @@ def merged(models: Sequence[CodeModel], **rest: object) -> CodeModel:
 
 
 def write_tree(tree: Path, sources: Mapping[str, bytes]) -> None:
+    """Copy the sources under tree; a path leaving it is refused, never
+    written."""
     for path, data in sources.items():
+        if not stays_inside(path):
+            raise ValueError(f"{path} leaves the repository")
         target = tree / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)

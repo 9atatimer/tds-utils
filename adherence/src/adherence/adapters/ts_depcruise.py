@@ -32,6 +32,7 @@ from adherence.adapters.astgrep import (
     file_model,
     merged,
     scan,
+    stays_inside,
     syntax_errors,
     write_tree,
 )
@@ -60,6 +61,7 @@ CRUISER = (
 )
 
 NESTED_TOO_DEEPLY = "nested deeper than the analyzer can walk"
+LEAVES = "the path leaves the repository; not read"
 
 
 class CruiseFailed(Exception):
@@ -87,10 +89,14 @@ def _paths(unparsed: Sequence[Unparsed]) -> set[str]:
 def _readable(
     sources: Mapping[str, bytes],
 ) -> tuple[dict[str, bytes], list[Unparsed]]:
-    """The sources that are UTF-8, and why each other one is not read."""
+    """The sources inside the repository that are UTF-8, and why each other
+    one is not read."""
     readable: dict[str, bytes] = {}
     unreadable: list[Unparsed] = []
     for path in sorted(sources):
+        if not stays_inside(path):
+            unreadable.append(Unparsed(path, LEAVES))
+            continue
         try:
             sources[path].decode("utf-8")
         except UnicodeDecodeError as error:
