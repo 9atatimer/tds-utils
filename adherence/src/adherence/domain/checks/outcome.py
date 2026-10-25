@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import Declaration
 from adherence.domain.finding import Finding
 from adherence.domain.model import CodeModel
@@ -21,9 +22,12 @@ from adherence.domain.records import DesignRecords, RecordsUnavailable
 
 @dataclass(frozen=True, slots=True)
 class CheckOutcome:
-    """The findings one check produced."""
+    """The findings one check produced, and what it could not cover. A check
+    that could not run at all says so with `ran` false and its coverage."""
 
     findings: tuple[Finding, ...] = ()
+    coverage: tuple[Coverage, ...] = ()
+    ran: bool = True
 
 
 CheckFunction = Callable[

@@ -60,11 +60,12 @@ class Region:
 
 
 class UnitKind(enum.Enum):
-    """What a code unit is over."""
+    """What a unit is over: code, or a seam an architecture record names."""
 
     FILE = "file"
     FUNCTION = "function"
     TYPE = "type"
+    SEAM = "seam"
 
 
 @dataclass(frozen=True, slots=True)

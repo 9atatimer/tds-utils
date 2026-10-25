@@ -11,6 +11,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from adherence.domain.checks.outcome import CheckOutcome
+from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.finding import Evidence, Finding
 from adherence.domain.model import (
@@ -20,17 +21,24 @@ from adherence.domain.model import (
     ImportEdge,
     Layer,
     ReferenceKind,
+    Unit,
     UnitKind,
 )
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
-from adherence.domain.records import DesignRecords, RecordsUnavailable
+from adherence.domain.records import DesignRecords, RecordsUnavailable, Seam
 
 # --- Constants ---------------------------------------------------------------
 
 GREP = catalog_check("Grep")
 ARROW = catalog_check("Arrow")
 SWAP = catalog_check("Swap")
+CHANGE = catalog_check("Change")
+# Where a seam's port, policy or parameter may live: anywhere but an
+# adapter or a test.
+SEAM_LAYERS = frozenset(
+    {Layer.DOMAIN, Layer.PORTS, Layer.APPLICATION, Layer.COMPOSITION_ROOT}
+)
 CORE = frozenset({Layer.DOMAIN, Layer.APPLICATION})
 _EVERY_LAYER = frozenset(Layer)
 # The layers each layer may import: cli -> application -> domain and
@@ -358,4 +366,39 @@ def swap(
                     Evidence(unit.path, unit.start, _name(port)),
                 )
             )
+    return CheckOutcome(tuple(findings))
+
+
+def _seam_finding(seam: Seam, subject: str) -> Finding:
+    unit = Unit(seam.path, UnitKind.SEAM, seam.name, seam.line, seam.line, None)
+    return Finding(
+        CHANGE, unit, None, subject, Evidence(seam.path, seam.line, seam.name)
+    )
+
+
+def change(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """Every seam the architecture record names exists as exactly one port,
+    policy or parameter: one type of that name outside the adapters and the
+    tests."""
+    if isinstance(records, RecordsUnavailable):
+        return CheckOutcome(
+            coverage=(Coverage(records.reason, check="Change"),), ran=False
+        )
+    homes: dict[str, list[str]] = {}
+    for t in _types(model):
+        if t.unit.layer in SEAM_LAYERS:
+            homes.setdefault(_name(t), []).append(t.unit.path)
+    findings: list[Finding] = []
+    for seam in records.seams:
+        found = homes.get(seam.name, [])
+        if not found:
+            findings.append(_seam_finding(seam, f"{seam.name}: no {seam.kind.value}"))
+        elif len(found) > 1:
+            where = ", ".join(sorted(found))
+            findings.append(_seam_finding(seam, f"{seam.name}: defined in {where}"))
     return CheckOutcome(tuple(findings))

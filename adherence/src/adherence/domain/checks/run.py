@@ -25,6 +25,7 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Grep": hexagonal.grep,
     "Arrow": hexagonal.arrow,
     "Swap": hexagonal.swap,
+    "Change": hexagonal.change,
 }
 CHANGE_LEVEL = "a change-level check: it runs when a change is judged"
 NOT_IN_SUITE = "not implemented in this suite version"
@@ -72,6 +73,8 @@ def run_checks(
             coverage.append(_not_run(check))
             continue
         outcome = run(model, declaration, records, parameters)
-        ran.append(check)
+        if outcome.ran:
+            ran.append(check)
         findings.extend(outcome.findings)
+        coverage.extend(outcome.coverage)
     return Checked(tuple(ran), tuple(findings), tuple(coverage))
