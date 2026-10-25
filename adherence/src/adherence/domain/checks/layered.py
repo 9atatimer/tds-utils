@@ -6,6 +6,7 @@ function over the CodeModel and the design records.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
@@ -33,6 +34,11 @@ from adherence.domain.records import (
 # --- Constants ---------------------------------------------------------------
 
 TRACE = catalog_check("Trace")
+# A row's action is its When clause and its observation its Then clause;
+# each must hold a word for anything to trace to a function.
+WHEN_THEN = re.compile(r"\bWhen\b(?P<when>.*?)\bThen\b(?P<then>.*)", re.DOTALL)
+WORD = re.compile(r"\w")
+UNTRACEABLE = "the row has no nameable action (When) or observation (Then)"
 
 # A use case's home: its name and its parameter names, in order. The
 # keyword-only shape is not compared (architecture Q1 stays open).
@@ -50,6 +56,17 @@ def is_use_case_function(definition: Definition) -> bool:
         and definition.signature is not None
         and definition.parent is None
         and not definition.nested
+    )
+
+
+def is_traceable(scenario: str) -> bool:
+    """Whether a behavior row names an action and an observation: a When
+    clause and a Then clause after it, each with a word in it."""
+    match = WHEN_THEN.search(scenario)
+    return (
+        match is not None
+        and WORD.search(match.group("when")) is not None
+        and WORD.search(match.group("then")) is not None
     )
 
 
@@ -86,7 +103,10 @@ def _homeless(
     homes: Mapping[Home, Sequence[Definition]],
 ) -> str | None:
     """Why a behavior has no home, or None when one application unit
-    carries it by the surface's signature."""
+    carries it by the surface's signature. A row nothing could trace is a
+    finding against the record."""
+    if not is_traceable(behavior.scenario):
+        return UNTRACEABLE
     row = rows.get(normalised(behavior.name))
     if row is None:
         return "the use-case surface has no row for it"
