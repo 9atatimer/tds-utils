@@ -593,7 +593,7 @@ def test_a_file_missing_a_closing_token_is_unparsed_alone() -> None:
 
     reasons = {u.path: u.reason for u in model.unparsed}
     assert sorted(reasons) == ["block.ts", "call.mjs", "loop.ts", "params.ts"]
-    assert "syntax error at line 3" in reasons["block.ts"]
+    assert "syntax error at line 2" in reasons["block.ts"]
     assert "syntax error at line 2" in reasons["call.mjs"]
     assert "syntax error at line 1" in reasons["loop.ts"]
     assert "syntax error at line 1" in reasons["params.ts"]

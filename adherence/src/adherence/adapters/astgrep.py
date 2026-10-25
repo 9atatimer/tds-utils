@@ -88,6 +88,7 @@ RETURNS, BASE, DECORATOR, DECORATOR_NEXT = (
 NAME, SOURCE, TYPE_CAPTURE = "NAME", "SOURCE", "TYPE"
 BODY_CAPTURE, THROWN, CALLEE = "BODY", "THROWN", "CALLEE"
 OBJECT, FIELD, TITLE, CASE = "OBJECT", "FIELD", "TITLE", "CASE"
+MISSING = "MISSING"
 QUOTES = ("'", '"', "`")
 CONDITION, SUBJECT, LEFT, RIGHT, OPERAND, INNER = (
     "CONDITION",
@@ -114,11 +115,13 @@ class Grammar:
 
 @dataclass(frozen=True, slots=True)
 class Capture:
-    """A part of a match: its text and its byte span in the file."""
+    """A part of a match: its text, its byte span in the file and its line
+    (from 1)."""
 
     text: str
     start: int
     end: int
+    line: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,6 +254,7 @@ def parse_match(record: Mapping[str, object], tree: str) -> Match:
             text=str(value["text"]),
             start=int(value["range"]["byteOffset"]["start"]),
             end=int(value["range"]["byteOffset"]["end"]),
+            line=int(value["range"]["start"]["line"]) + 1,
         )
         for name, value in single.get("single", {}).items()
     }
@@ -751,12 +755,16 @@ def file_model(
 
 
 def syntax_errors(matches: Sequence[Match]) -> dict[str, int]:
-    """The first line the parser could not read, per file that has one."""
-    found: dict[str, int] = {}
-    errors = (m for m in matches if m.fact == SYNTAX_ERROR)
-    for m in sorted(errors, key=lambda m: m.line):
-        found.setdefault(m.path, m.line)
-    return found
+    """The first line the parser could not read, per file that has one: an
+    unreadable node's, or the line of a token the parser had to insert."""
+    lines: dict[str, set[int]] = {}
+    for m in matches:
+        if m.fact == SYNTAX_ERROR:
+            missing = m.captures.get(MISSING)
+            lines.setdefault(m.path, set()).add(
+                m.line if missing is None else missing.line
+            )
+    return {path: min(found) for path, found in lines.items()}
 
 
 def merged(models: Sequence[CodeModel], **rest: object) -> CodeModel:
