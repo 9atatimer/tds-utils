@@ -97,7 +97,7 @@ def test_measure_json_over_the_fixture_prints_the_three_qualities() -> None:
         ("Stub", TARIFF),
         ("Complexity", TARIFF),
         ("Complexity", LEGACY),
-        ("Duplication", TARIFF),
+        ("Duplication", LEGACY),
     } <= _found(complete)
     assert _found(radar) == {("Dependency", LEGACY), ("Edge only", TARIFF)}
     covered = {c["check"] for c in document["coverage"] if c["check"]}

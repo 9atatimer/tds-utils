@@ -12,8 +12,11 @@ import enum
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
 from adherence.adapters.git import GitRepository
+from adherence.adapters.jscpd import JscpdDuplication
+from adherence.adapters.lizard import LizardComplexity
 from adherence.adapters.no_judge import NoJudge
 from adherence.adapters.python_ast import PythonCodeModel
 from adherence.domain.model import CodeLanguage, Layer
@@ -99,6 +102,10 @@ SHIPPED_PARAMETERS = Parameters(
     thresholds=ThresholdPolicy(), vocabulary=SHIPPED_VOCABULARY, limits=SHIPPED_LIMITS
 )
 
+# The engine's own node analyzers, installed beside its uv project by
+# `npm ci --ignore-scripts` (adherence/package-lock.json).
+JSCPD = Path(__file__).resolve().parents[2] / "node_modules" / ".bin" / "jscpd"
+
 # --- Composition root ----------------------------------------------------------
 
 
@@ -115,8 +122,7 @@ class Stage(enum.Enum):
 class Container:
     """The ports bound for one stage, and the parameters. A port with no
     adapter in this suite version is None until a test passes a fake: the
-    complexity and duplication adapters land in task-061, the records
-    adapter in task-059."""
+    records adapter lands in task-059."""
 
     stage: Stage
     repository: RepositoryPort
@@ -155,8 +161,12 @@ def build(
             else {CodeLanguage.PYTHON: PythonCodeModel()}
         ),
         judge=judge if judge is not None else NoJudge(),
-        complexity=complexity,
-        duplication=duplication,
+        complexity=complexity if complexity is not None else LizardComplexity(),
+        duplication=(
+            duplication
+            if duplication is not None
+            else JscpdDuplication(command=(str(JSCPD),))
+        ),
         records=records,
         parameters=SHIPPED_PARAMETERS,
     )
