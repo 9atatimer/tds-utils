@@ -40,6 +40,25 @@ SECTION_MARKER = re.compile(r"^\s*#\s*---\s*(?P<name>[^-].*?)\s*-*\s*$")
 WORD_SETS = frozenset(
     f.name for f in dataclasses.fields(Vocabulary) if f.name != REGIONS_KEY
 )
+# The word sets a declaration may extend: those whose words only make more
+# things count as a flaw. Every other set's words excuse (a fake prefix, a
+# plain type), so extending it would weaken a check; it is refused.
+FINDING_SETS = frozenset(
+    {
+        "environment_reads",
+        "sleeps",
+        "stubs",
+        "vendors",
+        "model_ids",
+        "callables",
+        "wire_formats",
+        "singletons",
+    }
+)
+VOCABULARY_REFUSAL = (
+    "a declaration extends only the vocabularies whose words add findings; "
+    "this one's words would excuse them"
+)
 
 # --- Values ------------------------------------------------------------------
 
@@ -75,11 +94,13 @@ class Layers:
 
 @dataclass(frozen=True, slots=True)
 class VocabularyExtension:
-    """The [vocabulary] table: the words added to each word set, and the
-    region markers added, each to the layer its region is in."""
+    """The [vocabulary] table: the words added to each word set, the region
+    markers added, each to the layer its region is in, and the word sets it
+    names that the suite refuses to extend."""
 
     words: tuple[tuple[str, tuple[str, ...]], ...] = ()
     regions: tuple[tuple[str, Layer], ...] = ()
+    refused: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,6 +350,7 @@ def _vocabulary(value: object) -> VocabularyExtension | DeclarationUnreadable:
         return DeclarationUnreadable(f"{DECLARATION_PATH}: vocabulary is a table")
     words: list[tuple[str, tuple[str, ...]]] = []
     regions: tuple[tuple[str, Layer], ...] = ()
+    refused: list[str] = []
     for key, entry in value.items():
         if key == REGIONS_KEY:
             found = _vocabulary_regions(entry)
@@ -345,9 +367,11 @@ def _vocabulary(value: object) -> VocabularyExtension | DeclarationUnreadable:
             return DeclarationUnreadable(
                 f"{DECLARATION_PATH}: vocabulary.{key} is a list of words"
             )
+        elif key not in FINDING_SETS:
+            refused.append(key)
         else:
             words.append((key, tuple(entry)))
-    return VocabularyExtension(tuple(words), regions)
+    return VocabularyExtension(tuple(words), regions, tuple(refused))
 
 
 def extended(vocabulary: Vocabulary, extension: VocabularyExtension) -> Vocabulary:
@@ -374,13 +398,21 @@ def with_overrides(parameters: Parameters, declaration: Declaration) -> Paramete
 
 
 def refusal_notices(declaration: Declaration) -> tuple[Notice, ...]:
-    """A notice per exemption the declaration states and the suite refuses,
-    naming what it would exempt and why it is refused."""
-    return tuple(
-        Notice(
-            f"exemption refused: {r.exemption.check} on {r.exemption.unit}: {r.reason}"
-        )
-        for r in declaration.refused_exemptions
+    """A notice per exemption and per vocabulary the declaration states and
+    the suite refuses, naming what it would exempt or extend and why it is
+    refused."""
+    return (
+        *(
+            Notice(
+                f"exemption refused: {r.exemption.check} on {r.exemption.unit}: "
+                f"{r.reason}"
+            )
+            for r in declaration.refused_exemptions
+        ),
+        *(
+            Notice(f"vocabulary refused: {key}: {VOCABULARY_REFUSAL}")
+            for key in declaration.vocabulary.refused
+        ),
     )
 
 

@@ -20,6 +20,7 @@ from adherence.cli.presenters.json_report import report_json
 from adherence.container import Container, Stage, build
 from adherence.domain.declaration import (
     DECLARATION_PATH,
+    VOCABULARY_REFUSAL,
     Declaration,
     DeclarationUnreadable,
     RefusedExemption,
@@ -58,6 +59,10 @@ def _declaration_lines(loaded: Declaration | DeclarationUnreadable) -> list[str]
     return [
         f"{DECLARATION_PATH}: readable, {count} exemption{'s' if count != 1 else ''}",
         *map(_refusal_line, loaded.refused_exemptions),
+        *(
+            _safe(f"  refused vocabulary: {key}: {VOCABULARY_REFUSAL}")
+            for key in loaded.vocabulary.refused
+        ),
     ]
 
 
