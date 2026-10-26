@@ -57,9 +57,11 @@ BUILTINS = frozenset(
 )  # fmt: skip
 # A command named as a tool is: no path, no expansion, no quoting.
 PLAIN_NAME = re.compile(r"[\w.+-]+")
-# Where an expansion, a substitution or a quote ends; a sourced path's
-# literal tail follows the last of them.
-EXPANSION_END = re.compile(r"[$`})\"']")
+# What `$` expands: a variable by its name, or one positional or special
+# parameter; `${...}` and `$(...)` run to their closing bracket.
+VARIABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+SPECIAL = frozenset("0123456789@*#?$!-")
+BRACKETS = {"{": "}", "(": ")"}
 QUOTES = ("'", '"')
 
 # --- Predicates --------------------------------------------------------------
@@ -85,18 +87,79 @@ def unquoted(text: str) -> str:
     return text
 
 
+def closing(text: str, start: int) -> int:
+    """The index past the bracket closing the one at start, nesting
+    counted; the text's end when it never closes."""
+    opening, close = text[start], BRACKETS[text[start]]
+    depth = 0
+    for index in range(start, len(text)):
+        if text[index] == opening:
+            depth += 1
+        elif text[index] == close:
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return len(text)
+
+
+def expansion_at(text: str, index: int) -> int:
+    """The index past the expansion starting at index: a variable, a
+    parameter, `${...}`, `$(...)` or backticks; index itself when none
+    starts there."""
+    if text[index] == "`":
+        end = text.find("`", index + 1)
+        return len(text) if end < 0 else end + 1
+    if text[index] != "$" or index + 1 >= len(text):
+        return index
+    following = text[index + 1]
+    if following in BRACKETS:
+        return closing(text, index + 1)
+    if following in SPECIAL:
+        return index + 2
+    name = VARIABLE.match(text, index + 1)
+    return index if name is None else name.end()
+
+
+def literal_tail(written: str) -> str | None:
+    """A word's text after its last expansion, its quotes dropped; None
+    when nothing in it expands. Nothing expands inside single quotes."""
+    end: int | None = None
+    single = double = False
+    index = 0
+    while index < len(written):
+        char = written[index]
+        if char == "\\" and not single:
+            index += 2
+            continue
+        if char == "'" and not double:
+            single = not single
+        elif char == '"' and not single:
+            double = not double
+        elif not single and (past := expansion_at(written, index)) > index:
+            end = index = past
+            continue
+        index += 1
+    return None if end is None else dequoted(written[end:])
+
+
+def dequoted(text: str) -> str:
+    """A word's text without its quote characters."""
+    return text.replace("'", "").replace('"', "")
+
+
 def sourced_path(script: str, written: str, sources: Collection[str]) -> str | None:
     """The source a script's `source` reads, or None when it is none of
     them: a literal path from the script's directory or else the root; a
-    path built by an expansion by its literal tail, when exactly one
-    source ends with it."""
-    if not EXPANSION_END.search(written):
+    path built by an expansion by its literal tail after the last
+    expansion, when exactly one source ends with it. A path with no
+    literal part after its last expansion names no source."""
+    tail = literal_tail(written)
+    if tail is None:
         for base in (posixpath.dirname(script), ""):
-            candidate = posixpath.normpath(posixpath.join(base, written))
+            candidate = posixpath.normpath(posixpath.join(base, dequoted(written)))
             if candidate in sources:
                 return candidate
         return None
-    tail = EXPANSION_END.split(written)[-1]
     parts = [part for part in tail.split("/") if part not in ("", ".", "..")]
     if not parts or tail.endswith("/"):
         return None
