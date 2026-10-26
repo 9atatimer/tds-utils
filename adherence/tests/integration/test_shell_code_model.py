@@ -367,3 +367,45 @@ def test_exec_s_options_are_skipped_to_the_command_it_runs() -> None:
         ("bin/c", "run"),
         ("bin/d", "plain"),
     }
+
+
+def test_a_line_separator_in_a_source_never_breaks_the_scan() -> None:
+    """Given sources holding a line separator and a next-line character
+    inside a quoted word, When they are modelled, Then each is modelled
+    with its tool, and the model is never an exception."""
+    model = modelled(
+        {
+            "bin/ls2028": "grep 'a b' f\n".encode(),
+            "bin/nel": "grep 'a\u0085b' f\n".encode(),
+        }
+    )
+
+    assert model.unparsed == ()
+    tools = {(e.path, e.imported) for e in model.imports}
+    assert tools == {("bin/ls2028", "grep"), ("bin/nel", "grep")}
+
+
+def test_an_unreadable_line_of_analyzer_output_unparses_only_its_file(
+    tmp_path: Path,
+) -> None:
+    """Given an analyzer that answers with a line that is not JSON for one
+    file, When the sources are modelled, Then that file is unparsed with
+    the reason and the file beside it is still modelled, never an
+    exception."""
+    analyzer = tmp_path / "ast-grep"
+    analyzer.write_text(
+        '#!/bin/sh\nprintf \'%s\\n\' \'{"ruleId":"call","file":"tree/bin/a",\'\n'
+    )
+    analyzer.chmod(0o755)
+
+    model = ShellCodeModel(ast_grep=analyzer).model(
+        {"bin/a": b"echo a\n", "bin/b": b"echo b\n"},
+        shell_fixture.declaration(),
+        shell_fixture.VOCABULARY,
+        None,
+    )
+
+    assert isinstance(model, CodeModel), model
+    assert [u.path for u in model.unparsed] == ["bin/a"]
+    assert model.unparsed[0].reason.startswith("ast-grep's output for it is not JSON")
+    assert {u.path for u in model.units} == {"bin/b"}
