@@ -42,6 +42,7 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Real assertion": behavior.real_assertion,
     "Public surface": behavior.public_surface,
     "Kept test": behavior.kept_test,
+    "Then asserted": behavior.then_asserted,
     "No nesting": composable.no_nesting,
     "Helpers take values": composable.helpers_take_values,
     "Values in and out": composable.values_in_and_out,
