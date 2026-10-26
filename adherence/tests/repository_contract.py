@@ -115,3 +115,16 @@ class RepositoryContract:
         assert repository.changed(base, Head.staged_index(), None) == ChangedPaths(
             renamed=(Rename("src/old.py", "src/new.py"),)
         )
+
+    def test_history_lists_the_commits_that_changed_a_path(
+        self, tmp_path: Path
+    ) -> None:
+        """Given a base revision that adds a file, When the file's history at
+        the base is asked for, Then it is that revision; a path no commit
+        changed has none."""
+        repository, base = self.repository_with(
+            tmp_path, base={"adherence.toml": b"[layers]\n"}, staged={}, working={}
+        )
+
+        assert repository.history("adherence.toml", base, None) == (base.revision,)
+        assert repository.history("nope.toml", base, None) == ()

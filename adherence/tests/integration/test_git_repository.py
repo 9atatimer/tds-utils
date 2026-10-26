@@ -202,3 +202,27 @@ def test_tree_of_a_root_git_cannot_list_is_refused(tmp_path: Path) -> None:
 
     assert isinstance(unlisted, Refused) and unlisted.reason
     assert isinstance(unknown, Refused) and unknown.reason
+
+
+def test_history_lists_newest_first_and_stops_at_the_base(tmp_path: Path) -> None:
+    """Given three commits, two of which change adherence.toml, When its
+    history at the second commit is asked for, Then it lists only the
+    commits on that history that changed it, newest first."""
+    root = tmp_path / "repo"
+    first = make_repository(
+        root, base={"adherence.toml": b"a\n"}, staged={}, working={}
+    )
+    (root / "other.py").write_bytes(b"x\n")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "other")
+    (root / "adherence.toml").write_bytes(b"b\n")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "edit")
+    second = _git(root, "rev-parse", "HEAD")
+    (root / "adherence.toml").write_bytes(b"c\n")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "later")
+
+    history = GitRepository(str(root)).history("adherence.toml", Base(second), None)
+
+    assert history == (second, first.revision)
