@@ -322,3 +322,49 @@ def test_an_internal_reached_through_getattr_is_found() -> None:
     report = _measured({**APP, **RULES, TEST: source}, records=RECORDS)
 
     assert _past_surface(report) == {"test_getattr -> rules._round"}
+
+
+HELPED = {
+    **APP,
+    **RULES,
+    "src/app/application/use.py": (
+        APP["src/app/application/use.py"] + b"\n\ndef normalise(x):\n    return x\n"
+    ),
+}
+HELPER_TEST = (
+    b"from app.application.use import measure, normalise\n"
+    b"from app.domain.rules import Store, price\n"
+    b"def test_measure():\n"
+    b"    assert measure() == 1\n"
+    b"def test_price():\n"
+    b"    assert price(1) == 1\n"
+    b"def test_store():\n"
+    b"    assert Store() is not None\n"
+    b"def test_helper():\n"
+    b"    assert normalise(1) == 1\n"
+)
+
+
+def test_a_test_calling_an_application_helper_is_found() -> None:
+    """Given tests calling a use case, a pure domain function, a domain
+    type, and a public application function that is not a use case, When
+    Public surface runs, Then only the call to the application helper is
+    found: tests drive the use case or the pure domain beneath it
+    (Self-review R7)."""
+    report = _measured({**HELPED, TEST: HELPER_TEST}, records=RECORDS)
+
+    assert _past_surface(report) == {"test_helper -> normalise"}
+
+
+def test_without_a_readable_record_a_helper_cannot_be_told() -> None:
+    """Given no readable design record, When Public surface runs, Then which
+    application function is a use case cannot be told: that half is
+    coverage naming the record, and no helper is found (Self-review R7)."""
+    unread = RecordsUnavailable(f"{DESIGN} is in draft")
+
+    report = _measured({**HELPED, TEST: HELPER_TEST}, records=unread)
+
+    assert _past_surface(report) == set()
+    assert any(
+        c.check == "Public surface" and DESIGN in c.reason for c in report.coverage
+    )
