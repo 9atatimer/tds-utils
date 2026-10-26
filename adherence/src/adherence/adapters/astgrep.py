@@ -100,6 +100,7 @@ CONDITION, SUBJECT, LEFT, RIGHT, OPERAND, INNER = (
     "INNER",
 )
 EMPTY_BLOCK = "{}"
+REST = "..."
 THIS = "this"
 
 # --- Values ------------------------------------------------------------------
@@ -371,6 +372,12 @@ def _member_type(
     return f'{annotation}["{name}"]'
 
 
+def starred(name: str) -> str:
+    """A parameter's name, a rest parameter's in the starred form every
+    language's Parameter uses (`*rest`)."""
+    return f"*{name[len(REST) :]}" if name.startswith(REST) else name
+
+
 def _signatures(file: _File, vocabulary: Vocabulary) -> dict[Span, Signature]:
     """Each function node's parameters, in order, and its return annotation:
     a parameter is the innermost function node's holding it, a destructured
@@ -398,7 +405,7 @@ def _signatures(file: _File, vocabulary: Vocabulary) -> dict[Span, Signature]:
             _annotation(typed[span].captured(TYPE_CAPTURE)) if span in typed else None
         )
         has_default = span in defaults
-        name = parameter.captured(NAME) or parameter.text
+        name = starred(parameter.captured(NAME) or parameter.text)
         written = [m for m in member_types if parameter.holds(m)] if annotation else []
         given = [
             Parameter(

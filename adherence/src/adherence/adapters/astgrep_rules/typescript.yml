@@ -18,6 +18,16 @@ rule:
         - kind: method_definition
         - inside: {kind: class_body}
         - has: {field: name, pattern: $NAME}
+    # A type's method written as a signature only, as a port's are.
+    - all:
+        - any:
+            - kind: method_signature
+            - kind: abstract_method_signature
+        - any:
+            - inside: {kind: interface_body}
+            - inside: {kind: class_body}
+            - inside: {kind: object_type, inside: {kind: type_alias_declaration}}
+        - has: {field: name, pattern: $NAME}
     - all:
         - any:
             - kind: arrow_function
@@ -83,6 +93,8 @@ rule:
     - kind: generator_function
     - kind: arrow_function
     - kind: method_definition
+    - kind: method_signature
+    - kind: abstract_method_signature
 ---
 id: parameter
 language: TypeScript
@@ -165,6 +177,8 @@ rule:
     - kind: generator_function
     - kind: arrow_function
     - kind: method_definition
+    - kind: method_signature
+    - kind: abstract_method_signature
   has: {field: return_type, pattern: $TYPE}
 ---
 id: decorator
