@@ -422,3 +422,28 @@ def test_judge_change_cannot_narrow_its_own_declaration() -> None:
     notices = [n.message for n in report.notices]
     assert any("[layers]" in n and "next change" in n for n in notices), notices
     assert any("exemption added" in n and "inert" in n for n in notices), notices
+
+
+EXEMPT_RULES = (
+    b'\n[[exemptions]]\ncheck = "Stub"\nunit = "src/app/domain/rules.py"\n'
+    b'reason = "kept until the rewrite"\n'
+)
+
+
+def test_judge_change_adding_an_exemption_for_its_own_flaw_is_still_lowered() -> None:
+    """Given a change that adds an exemption for a flaw it introduces, When
+    it is judged, Then the flaw lowers the verdict and the exemption is a
+    notice."""
+    report = judge_with(
+        {RULES: FIXED},
+        {RULES: STUBBED, DECLARATION_PATH: HEXAGON + EXEMPT_RULES},
+        when=WHEN,
+    )
+
+    (finding,) = report.findings
+    assert finding.provenance is Provenance.INTRODUCED
+    assert report.verdict is Verdict.LOWERED
+    assert any(
+        "exemption added" in n.message and "kept until the rewrite" in n.message
+        for n in report.notices
+    )
