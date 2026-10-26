@@ -140,3 +140,33 @@ def test_measure_with_a_core_unit_reading_a_global_finds_the_reach() -> None:
         (USE, "close", "a global: COUNTER"),
         (USE, "run", "a singleton: sys.argv"),
     }
+
+
+def test_measure_with_a_keyword_port_before_its_values_finds_the_use_case() -> None:
+    """Given a use case taking every parameter by keyword, its port before
+    its value, one taking a value by position and then its port and a
+    setting by keyword, and one taking only a port, When Ports as keywords
+    runs, Then a finding names the use case whose port comes before its
+    values, and the port; a port after a value, or with no value to
+    follow, is clean."""
+    files = {USE: b"x\n" * 9, STORE: b"x\n" * 9}
+    definitions = [
+        *port(STORE, "Store", 1),
+        function(USE, "kwb", 1, (keyword("store", "Store"), keyword("order", "Order"))),
+        function(
+            USE,
+            "fine",
+            2,
+            (
+                value("order", "Order"),
+                keyword("store", "Store"),
+                keyword("limit", "int"),
+            ),
+        ),
+        function(USE, "only", 3, (keyword("store", "Store"),)),
+    ]
+
+    report = measure_with(files, facts(definitions))
+
+    found = {(f.unit.symbol, f.subject) for f in _of(report, "Ports as keywords")}
+    assert found == {("kwb", "store: Store")}
