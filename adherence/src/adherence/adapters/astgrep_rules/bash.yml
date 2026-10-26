@@ -37,8 +37,10 @@ rule:
   kind: function_definition
   has: {field: body, pattern: $BODY}
 ---
-# A body that is one command with no argument: the command is the form the
-# shared code checks against the Vocabulary's stubs (`:`, the no-op).
+# A body, braced or a subshell, whose only command, comments aside, has no
+# argument: the command's name, as written, is the form the shared code
+# checks against the Vocabulary's stubs (`:`, the no-op); the adapter
+# reads a quoted name as the name.
 id: stub
 language: Bash
 severity: hint
@@ -46,13 +48,14 @@ rule:
   kind: function_definition
   has:
     field: body
-    kind: compound_statement
+    any: [{kind: compound_statement}, {kind: subshell}]
     all:
       - has:
           kind: command
+          nthChild: {position: 1, ofRule: {not: {kind: comment}}}
           not: {has: {field: argument, regex: '.'}}
           has: {field: name, pattern: $THROWN}
-      - not: {has: {nthChild: 2}}
+      - not: {has: {nthChild: {position: 2, ofRule: {not: {kind: comment}}}}}
 ---
 id: call
 language: Bash

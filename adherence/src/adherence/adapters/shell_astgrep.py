@@ -31,7 +31,7 @@ from pathlib import Path
 from adherence.adapters.astgrep import BINARY, Grammar, Scanned, merged, structure
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration
-from adherence.domain.model import Call, CodeModel, ImportEdge
+from adherence.domain.model import Call, CodeModel, Definition, ImportEdge
 from adherence.domain.parameters import Vocabulary
 from adherence.domain.source import source_lines
 
@@ -141,6 +141,21 @@ def literal_tail(written: str) -> str | None:
             continue
         index += 1
     return None if end is None else dequoted(written[end:])
+
+
+def quoted_stubs(vocabulary: Vocabulary) -> Vocabulary:
+    """The Vocabulary with each stub form also as written in quotes, so a
+    body that is nothing but a quoted stub form is a stub too."""
+    quoted = {f"{q}{form}{q}" for form in vocabulary.stubs for q in QUOTES}
+    return replace(vocabulary, stubs=vocabulary.stubs | quoted)
+
+
+def unquoted_stubs(definition: Definition) -> Definition:
+    """A definition with its stub markers as the forms they name, a quoted
+    command name read as the name."""
+    body = definition.body
+    markers = tuple(unquoted(marker) for marker in body.stub_markers)
+    return replace(definition, body=replace(body, stub_markers=markers))
 
 
 def dequoted(text: str) -> str:
@@ -259,6 +274,9 @@ def shell_model(scanned: Scanned) -> CodeModel:
     )
     return merged(
         scanned.files,
+        definitions=tuple(
+            unquoted_stubs(d) for f in scanned.files for d in f.definitions
+        ),
         imports=tuple(sorted(edges, key=lambda e: (e.path, e.line, e.imported))),
         regions=scanned.regions,
         unparsed=scanned.unparsed,
@@ -288,7 +306,7 @@ class ShellCodeModel:
         scanned = structure(
             sources,
             declaration,
-            vocabulary,
+            quoted_stubs(vocabulary),
             deadline,
             grammar=GRAMMAR,
             language="shell",
