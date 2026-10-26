@@ -664,3 +664,22 @@ def test_a_body_raising_a_stub_exception_after_other_statements_is_a_stub() -> N
         "logged": ("NotImplementedError",),
         "partial": (),
     }
+
+
+def test_a_sleep_imported_under_another_name_is_a_sleep() -> None:
+    """Given functions that sleep through `from time import sleep as nap`
+    and `import time as clock`, When they are modelled, Then each body names
+    the line it sleeps on (Self-review R8)."""
+    source = (
+        b"import time as clock\n"
+        b"from time import sleep as nap\n"
+        b"def napping():\n"
+        b"    nap(1)\n"
+        b"def clocked():\n"
+        b"    clock.sleep(1)\n"
+    )
+
+    model = _model_of({"src/tool/application/wait.py": source})
+
+    sleeps = {d.unit.symbol: d.body.sleeps for d in model.definitions}
+    assert sleeps == {"napping": (4,), "clocked": (6,)}
