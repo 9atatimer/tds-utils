@@ -31,6 +31,61 @@ from adherence.ports.repository import RepositoryPort
 
 # --- Shipped parameters --------------------------------------------------------
 
+# A top-level import name -> the distribution a radar names it by, where the
+# two differ by more than case and separators.
+DISTRIBUTIONS = {
+    "attr": "attrs",
+    "Bio": "biopython",
+    "bs4": "beautifulsoup4",
+    "cairo": "pycairo",
+    "Crypto": "pycryptodome",
+    "cv2": "opencv-python",
+    "dateutil": "python-dateutil",
+    "dns": "dnspython",
+    "docx": "python-docx",
+    "dotenv": "python-dotenv",
+    "engineio": "python-engineio",
+    "faiss": "faiss-cpu",
+    "fitz": "PyMuPDF",
+    "gi": "PyGObject",
+    "git": "GitPython",
+    "grpc": "grpcio",
+    "jose": "python-jose",
+    "jwt": "PyJWT",
+    "kafka": "kafka-python",
+    "ldap": "python-ldap",
+    "Levenshtein": "python-Levenshtein",
+    "magic": "python-magic",
+    "markdown_it": "markdown-it-py",
+    "mpl_toolkits": "matplotlib",
+    "multipart": "python-multipart",
+    "MySQLdb": "mysqlclient",
+    "nacl": "PyNaCl",
+    "OpenGL": "PyOpenGL",
+    "OpenSSL": "pyOpenSSL",
+    "PIL": "Pillow",
+    "pkg_resources": "setuptools",
+    "pptx": "python-pptx",
+    "_pytest": "pytest",
+    "pythoncom": "pywin32",
+    "ruamel": "ruamel.yaml",
+    "serial": "pyserial",
+    "skimage": "scikit-image",
+    "sklearn": "scikit-learn",
+    "slugify": "python-slugify",
+    "socketio": "python-socketio",
+    "telegram": "python-telegram-bot",
+    "umap": "umap-learn",
+    "usb": "pyusb",
+    "websocket": "websocket-client",
+    "win32api": "pywin32",
+    "win32com": "pywin32",
+    "wx": "wxPython",
+    "Xlib": "python-xlib",
+    "yaml": "PyYAML",
+    "zmq": "pyzmq",
+}
+
 SHIPPED_VOCABULARY = Vocabulary(
     regions={
         "predicates": Layer.DOMAIN,
@@ -93,7 +148,7 @@ SHIPPED_VOCABULARY = Vocabulary(
     ),
     placeholder_assertions=frozenset({"True", "False", "1", "0", "None"}),
     standard_library=frozenset(sys.stdlib_module_names),
-    packages={"markdown_it": "markdown-it-py", "yaml": "PyYAML"},
+    packages=DISTRIBUTIONS,
 )
 SHIPPED_LIMITS = Limits(
     evidence_bound=200, complexity_ceiling=15, duplication_ceiling=10

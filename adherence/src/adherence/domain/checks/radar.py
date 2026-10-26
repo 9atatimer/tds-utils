@@ -5,7 +5,7 @@ The rule checks of the Radar-true quality: Dependency and Edge only
 function over the CodeModel and the Radar the declaration names. A
 dependency is an import that resolves to no source of the repository and
 is not the language's standard library; it is matched to a radar entry by
-its package's name, case and separators aside.
+its import name or its package's name, case and separators aside.
 """
 
 from __future__ import annotations
@@ -53,15 +53,21 @@ def comparable(name: str) -> str:
     return SEPARATORS.sub("-", name.strip().lower())
 
 
-def package_of(edge: ImportEdge, vocabulary: Vocabulary) -> str | None:
-    """The package an import is a dependency on; None for the repository's
-    own modules and the standard library."""
+def import_name(edge: ImportEdge, vocabulary: Vocabulary) -> str | None:
+    """The top-level name an import of a dependency imports; None for the
+    repository's own modules and the standard library."""
     if edge.imported_path is not None:
         return None
     top = edge.imported.split(".")[0]
     if not top or top in vocabulary.standard_library:
         return None
-    return vocabulary.packages.get(top, top)
+    return top
+
+
+def _entry(top: str, package: str, entries: dict[str, RadarEntry]) -> RadarEntry | None:
+    """The radar's entry for a dependency, by its package's name or else by
+    its import name."""
+    return entries.get(comparable(package)) or entries.get(comparable(top))
 
 
 def _uses(
@@ -71,11 +77,12 @@ def _uses(
     entries = {comparable(e.name): e for e in radar.entries}
     uses: list[_Use] = []
     for edge in model.imports:
-        package = package_of(edge, vocabulary)
+        top = import_name(edge, vocabulary)
         layer = layer_of(edge.path, edge.line, declaration, model.regions)
-        if package is None or layer is None:
+        if top is None or layer is None:
             continue
-        uses.append(_Use(edge, layer, package, entries.get(comparable(package))))
+        package = vocabulary.packages.get(top, top)
+        uses.append(_Use(edge, layer, package, _entry(top, package, entries)))
     return uses
 
 
