@@ -20,6 +20,7 @@ from adherence.domain.declaration import Declaration, layer_of, marker_regions
 from adherence.domain.model import (
     Access,
     AccessKind,
+    Assertion,
     Body,
     Call,
     CodeModel,
@@ -484,6 +485,16 @@ def is_test(found: _Found, classes: set[str]) -> bool:
     )
 
 
+def _assertion(node: ast.Assert) -> Assertion:
+    """An assert statement's expression, with its truth value when it is a
+    literal."""
+    try:
+        truth: bool | None = bool(ast.literal_eval(node.test))
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        truth = None
+    return Assertion(ast.unparse(node.test), truth)
+
+
 def _test_cases(path: str, walked: Sequence[_Found]) -> list[TestCase]:
     classes = {f.symbol for f in walked if isinstance(f.node, ast.ClassDef)}
     cases: list[TestCase] = []
@@ -492,7 +503,7 @@ def _test_cases(path: str, walked: Sequence[_Found]) -> list[TestCase]:
             continue
         nodes = own_nodes(f.node)
         calls = tuple(_callee(n) for n in nodes if isinstance(n, ast.Call))
-        asserts = tuple(ast.unparse(n.test) for n in nodes if isinstance(n, ast.Assert))
+        asserts = tuple(_assertion(n) for n in nodes if isinstance(n, ast.Assert))
         cases.append(TestCase(path, f.symbol, f.node.lineno, calls, asserts))
     return cases
 

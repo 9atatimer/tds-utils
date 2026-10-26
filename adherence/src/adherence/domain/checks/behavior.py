@@ -15,7 +15,14 @@ from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.finding import Evidence, Finding
-from adherence.domain.model import CodeModel, Layer, TestCase, Unit, UnitKind
+from adherence.domain.model import (
+    Assertion,
+    CodeModel,
+    Layer,
+    TestCase,
+    Unit,
+    UnitKind,
+)
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
 from adherence.domain.records import Behavior, DesignRecords, RecordsUnavailable
@@ -48,10 +55,17 @@ def is_internal(name: str) -> bool:
 # --- Pure helpers ------------------------------------------------------------
 
 
+def is_placeholder(assertion: Assertion, vocabulary: Vocabulary) -> bool:
+    """Whether an assertion cannot tell a pass from a fail: it asserts a
+    literal, or an expression the vocabulary names."""
+    return (
+        assertion.truth is not None
+        or assertion.text.strip() in vocabulary.placeholder_assertions
+    )
+
+
 def _placeholders(case: TestCase, vocabulary: Vocabulary) -> list[str]:
-    return [
-        a for a in case.assertions if a.strip() in vocabulary.placeholder_assertions
-    ]
+    return [a.text for a in case.assertions if is_placeholder(a, vocabulary)]
 
 
 def _tests(model: CodeModel, declaration: Declaration) -> list[tuple[TestCase, Unit]]:

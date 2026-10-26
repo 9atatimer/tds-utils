@@ -11,6 +11,7 @@ from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, parse_declaration
 from adherence.domain.model import (
     AccessKind,
+    Assertion,
     CodeModel,
     Definition,
     Layer,
@@ -343,7 +344,7 @@ def test_test_cases_carry_their_calls_and_assertions() -> None:
             "tests/test_use.py",
             "test_close_order_saves",
             (),
-            ("close_order is not None",),
+            (Assertion("close_order is not None"),),
         ),
         ("tests/test_use.py", "test_nothing", ("close_order",), ()),
     }
@@ -368,7 +369,7 @@ def test_test_cases_include_methods_of_test_classes() -> None:
 
     assert isinstance(model, CodeModel)
     assert [(t.symbol, t.calls, t.assertions) for t in model.test_cases] == [
-        ("TestThing.test_it", ("run",), ("run() == 1",))
+        ("TestThing.test_it", ("run",), (Assertion("run() == 1"),))
     ]
 
 

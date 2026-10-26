@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from adherence.domain.finding import Finding
 from adherence.domain.model import (
+    Assertion,
     Body,
     Call,
     CodeModel,
@@ -44,8 +45,8 @@ def test_measure_with_a_test_that_cannot_fail_finds_the_test() -> None:
     facts = CodeModel(
         test_cases=(
             TestCase(TEST, "test_runs", 1, ("run",), ()),
-            TestCase(TEST, "test_placeholder", 5, ("run",), ("True",)),
-            TestCase(TEST, "test_asserts", 10, ("run",), ("result == 2",)),
+            TestCase(TEST, "test_placeholder", 5, ("run",), (Assertion("True"),)),
+            TestCase(TEST, "test_asserts", 10, ("run",), (Assertion("result == 2"),)),
             TestCase(TEST, "test_raises", 15, ("pytest.raises", "run"), ()),
             TestCase(RULES, "test_helper", 1, (), ()),
         )
@@ -94,13 +95,15 @@ def test_measure_with_a_test_past_the_surface_finds_what_it_reached() -> None:
         definitions=definitions,
         calls=tuple(Call(TEST, line, within, callee) for within, line, callee in calls),
         test_cases=(
-            TestCase(TEST, "test_surface", 5, ("run", "rules.price"), ("r",)),
+            TestCase(
+                TEST, "test_surface", 5, ("run", "rules.price"), (Assertion("r"),)
+            ),
             TestCase(
                 TEST,
                 "test_reach",
                 10,
                 ("rules._round", "store._load", "mock._private", "_make"),
-                ("r",),
+                (Assertion("r"),),
             ),
         ),
     )
@@ -148,8 +151,8 @@ def test_measure_with_a_behavior_no_test_calls_finds_the_behavior() -> None:
     facts = CodeModel(
         calls=(Call(USE, 3, "run", "record_report"),),
         test_cases=(
-            TestCase(TEST, "test_measure", 1, ("measure",), ("r",)),
-            TestCase(TEST, "test_explain", 5, ("app.explain",), ("r",)),
+            TestCase(TEST, "test_measure", 1, ("measure",), (Assertion("r"),)),
+            TestCase(TEST, "test_explain", 5, ("app.explain",), (Assertion("r"),)),
         ),
     )
 

@@ -263,9 +263,18 @@ class Member:
 
 
 @dataclass(frozen=True, slots=True)
+class Assertion:
+    """One asserted expression, as written, and its truth value when it is a
+    literal (None when it is not): a literal asserts nothing about the code."""
+
+    text: str
+    truth: bool | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class TestCase:
     """A test: its symbol, its line, the callees it calls, and the
-    expressions it asserts, as written."""
+    expressions it asserts."""
 
     __test__ = False  # a domain value, not a pytest class
 
@@ -273,7 +282,7 @@ class TestCase:
     symbol: str
     line: int
     calls: tuple[str, ...]
-    assertions: tuple[str, ...]
+    assertions: tuple[Assertion, ...]
 
 
 @dataclass(frozen=True, slots=True)
