@@ -9,11 +9,13 @@ test passes them in through the overrides.
 from __future__ import annotations
 
 import enum
+import os
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from adherence.adapters.file_store import FileReportStore, default_store_dir
 from adherence.adapters.git import GitRepository
 from adherence.adapters.jscpd import JscpdDuplication
 from adherence.adapters.lizard import LizardComplexity
@@ -29,6 +31,7 @@ from adherence.ports.complexity import ComplexityPort
 from adherence.ports.decision import DecisionPort
 from adherence.ports.duplication import DuplicationPort
 from adherence.ports.records import RecordsPort
+from adherence.ports.report_store import ReportStore
 from adherence.ports.repository import RepositoryPort
 from adherence.ports.review import ReviewPort
 
@@ -392,6 +395,7 @@ class Container:
     complexity: ComplexityPort
     duplication: DuplicationPort
     records: RecordsPort
+    reports: ReportStore
     parameters: Parameters
 
 
@@ -406,6 +410,7 @@ def build(
     complexity: ComplexityPort | None = None,
     duplication: DuplicationPort | None = None,
     records: RecordsPort | None = None,
+    reports: ReportStore | None = None,
 ) -> Container:
     """Bind every port for the stage, over the repository at root.
 
@@ -413,7 +418,9 @@ def build(
     (working tree, staged index, revisions) is the entry point's choice.
     Every stage binds no_judge until the decide adapter lands (task-064);
     the judged checks read as coverage meanwhile. Every stage binds
-    no_reviews until github_reviews lands for ci (task-063).
+    no_reviews until github_reviews lands for ci (task-063), and the file
+    cache in the per-user cache directory until the warehouse lands for ci
+    (task-067).
     """
     bound = repository if repository is not None else GitRepository(root)
     return Container(
@@ -433,5 +440,12 @@ def build(
             else JscpdDuplication(command=(str(JSCPD),))
         ),
         records=records if records is not None else MarkdownRecords(bound),
+        reports=(
+            reports
+            if reports is not None
+            else FileReportStore(
+                default_store_dir(os.environ, Path.home()), root=Path(root)
+            )
+        ),
         parameters=SHIPPED_PARAMETERS,
     )

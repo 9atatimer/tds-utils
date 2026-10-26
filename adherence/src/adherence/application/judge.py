@@ -13,9 +13,10 @@ from dataclasses import replace
 from adherence.application.load import load_declaration
 from adherence.application.measure import measure
 from adherence.domain.deadline import Deadline, TimedOut
+from adherence.domain.declaration import Declaration, DeclarationUnreadable
 from adherence.domain.model import CodeLanguage
 from adherence.domain.parameters import Parameters
-from adherence.domain.report import Report
+from adherence.domain.report import Report, ReportIdentity, fingerprint
 from adherence.domain.target import Change
 from adherence.domain.verdict import compared
 from adherence.ports.code_model import CodeModelPort
@@ -23,6 +24,7 @@ from adherence.ports.complexity import ComplexityPort
 from adherence.ports.decision import DecisionPort
 from adherence.ports.duplication import DuplicationPort
 from adherence.ports.records import RecordsPort
+from adherence.ports.report_store import ReportStore
 from adherence.ports.repository import Refused, RepositoryPort
 from adherence.ports.review import ReviewPort
 
@@ -37,6 +39,7 @@ def judge_change(
     duplication: DuplicationPort,
     records: RecordsPort,
     judge: DecisionPort,
+    reports: ReportStore,
     parameters: Parameters,
     deadline: Deadline | None,
 ) -> Report:
@@ -46,7 +49,8 @@ def judge_change(
     The declaration in force is the base's; which landed revision of it a
     code owner approved is read through `reviews` (task-063), and Unknown,
     the answer of every stage without a code host, leaves the landed one
-    standing.
+    standing. The base's report is the one `reports` kept under the base
+    identity, when it kept one; else the base is measured again.
     """
     paths = repository.changed(change.base, change.head, deadline)
     if isinstance(paths, Refused | TimedOut):
@@ -70,7 +74,8 @@ def judge_change(
         parameters=parameters,
         deadline=deadline,
     )
-    base = measure(
+    stored = _stored_base(change, in_force, head.identity, reports, deadline)
+    base = stored or measure(
         change.base,
         in_force,
         repository=repository,
@@ -82,4 +87,25 @@ def judge_change(
         parameters=parameters,
         deadline=deadline,
     )
-    return compared(base, head, change)
+    return replace(compared(base, head, change), repository=change.repository)
+
+
+def _stored_base(
+    change: Change,
+    in_force: Declaration | DeclarationUnreadable,
+    head: ReportIdentity | None,
+    reports: ReportStore,
+    deadline: Deadline | None,
+) -> Report | None:
+    """The base report kept under the base identity -- the head run's, with
+    the digest of the declaration in force -- when one is kept and its
+    identity is that one."""
+    if head is None or isinstance(in_force, DeclarationUnreadable):
+        return None
+    identity = replace(head, declaration=fingerprint(in_force))
+    kept = reports.get(
+        change.repository, change.base.revision, identity.digest, deadline
+    )
+    if isinstance(kept, Report) and kept.identity == identity:
+        return kept
+    return None

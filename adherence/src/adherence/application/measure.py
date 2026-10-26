@@ -32,7 +32,13 @@ from adherence.domain.model import (
 )
 from adherence.domain.parameters import Parameters
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
-from adherence.domain.report import Report
+from adherence.domain.report import (
+    JUDGE_UNASKED,
+    SUITE_VERSION,
+    Report,
+    ReportIdentity,
+    fingerprint,
+)
 from adherence.domain.target import Base, Head
 from adherence.ports.code_model import CodeModelPort
 from adherence.ports.complexity import ComplexityPort
@@ -117,6 +123,13 @@ def measure(
     """The Report of every target-level check over the target."""
     if isinstance(declaration, DeclarationUnreadable):
         return Report.not_run(f"the declaration cannot be read: {declaration.reason}")
+    identity = ReportIdentity(
+        suite=SUITE_VERSION,
+        parameters=fingerprint(parameters),
+        declaration=fingerprint(declaration),
+        analyzers=tuple(sorted(language.value for language in analyzers)),
+        judge=JUDGE_UNASKED,
+    )
     parameters = with_overrides(parameters, declaration)
     paths = repository.tree(at, deadline)
     if isinstance(paths, TimedOut):
@@ -169,4 +182,6 @@ def measure(
         notices=refusal_notices(declaration),
         coverage=(*coverage, *unmodelled(whole, declaration), *checked.coverage),
         units=whole.units,
+        identity=identity,
+        revision=at.revision,
     )

@@ -19,6 +19,7 @@ from adherence.adapters.fakes import (
     FakeDecision,
     FakeDuplication,
     FakeRecords,
+    FakeReportStore,
     FakeRepository,
     FakeReviews,
 )
@@ -30,6 +31,7 @@ from adherence.ports.complexity import ComplexityPort
 from adherence.ports.decision import DecisionPort
 from adherence.ports.duplication import DuplicationPort
 from adherence.ports.records import RecordsPort
+from adherence.ports.report_store import ReportStore
 from adherence.ports.repository import RepositoryPort
 from adherence.ports.review import ReviewPort
 
@@ -43,6 +45,7 @@ OVERRIDES: dict[type, tuple[str, object]] = {
     ComplexityPort: ("complexity", FakeComplexity()),
     DuplicationPort: ("duplication", FakeDuplication()),
     RecordsPort: ("records", FakeRecords({})),
+    ReportStore: ("reports", FakeReportStore()),
 }
 
 

@@ -8,7 +8,24 @@ change produces, a revision, a working tree or a staged index
 from __future__ import annotations
 
 import enum
+import re
 from dataclasses import dataclass
+
+# --- Constants ---------------------------------------------------------------
+
+# A revision named by its full object id: SHA-1 or SHA-256, in hex.
+OBJECT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+# --- Predicates --------------------------------------------------------------
+
+
+def is_object_id(revision: str | None) -> bool:
+    """Whether a revision is a full object id, which names one commit for
+    good, rather than a name (`HEAD~1`, a branch) that moves."""
+    return revision is not None and OBJECT_ID.fullmatch(revision) is not None
+
+
+# --- Values ------------------------------------------------------------------
 
 
 class HeadKind(enum.Enum):

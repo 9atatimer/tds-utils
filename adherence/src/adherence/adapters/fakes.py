@@ -18,6 +18,7 @@ from adherence.domain.declaration import (
     Unknown,
     layer_of,
 )
+from adherence.domain.finding import Notice
 from adherence.domain.model import (
     Clone,
     CodeModel,
@@ -31,7 +32,9 @@ from adherence.domain.model import (
 from adherence.domain.parameters import Vocabulary
 from adherence.domain.questions import Decision, Schema, State, Unavailable
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
-from adherence.domain.target import Base, ChangedPaths, Head
+from adherence.domain.report import Recorded, Report
+from adherence.domain.target import Base, ChangedPaths, Head, is_object_id
+from adherence.ports.report_store import StoreMiss
 from adherence.ports.repository import Absent, Refused
 
 NO_REVIEWS = "the fake reviews know no landing of this commit"
@@ -302,3 +305,42 @@ class FakeReviews:
         self, commit: str, deadline: Deadline | None
     ) -> Landing | NoLandingPR | Unknown | ReviewsUnavailable | TimedOut:
         return self._answers.get(commit, Unknown(NO_REVIEWS))
+
+
+class FakeReportStore:
+    """ReportStore in memory. Every report put is kept for the scan; one of
+    a revision named by its object id is also kept for lookup, under its
+    repository, revision and identity. `failing` scripts every put to fail
+    with that reason. `hits` lists every get that found a report. Its clock
+    is frozen at `now`, so a deadline at or before it has passed."""
+
+    def __init__(self, *, failing: str | None = None, now: float = 1e9) -> None:
+        self._kept: dict[tuple[str, str, str], Report] = {}
+        self._failing = failing
+        self._now = now
+        self.scanned: list[Report] = []
+        self.hits: list[tuple[str, str]] = []
+
+    def get(
+        self, repository: str, revision: str, identity: str, deadline: Deadline | None
+    ) -> Report | StoreMiss | TimedOut:
+        if deadline is not None and deadline.epoch_seconds <= self._now:
+            return TimedOut("read a kept report")
+        found = self._kept.get((repository, revision, identity))
+        if found is None:
+            return StoreMiss(f"no report kept for {repository} at {revision}")
+        self.hits.append((repository, revision))
+        return found
+
+    def put(self, report: Report) -> Recorded:
+        if self._failing is not None:
+            return Recorded(False, Notice(f"report not kept: {self._failing}"))
+        if report.repository is None or report.identity is None:
+            return Recorded(
+                False, Notice("report not kept: it names no repository or identity")
+            )
+        self.scanned.append(report)
+        if report.revision is not None and is_object_id(report.revision):
+            key = (report.repository, report.revision, report.identity.digest)
+            self._kept[key] = report
+        return Recorded(True)
