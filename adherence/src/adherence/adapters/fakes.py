@@ -293,7 +293,8 @@ class FakeDecision:
 
 class FakeReviews:
     """ReviewPort over a mapping of commit -> the answer the test scripts;
-    a commit it does not hold is Unknown."""
+    a commit it does not hold is Unknown. Its clock is frozen at `now`, so
+    a deadline at or before it has passed."""
 
     def __init__(
         self,
@@ -301,12 +302,17 @@ class FakeReviews:
             str, Landing | NoLandingPR | Unknown | ReviewsUnavailable | TimedOut
         ]
         | None = None,
+        *,
+        now: float = 1e9,
     ) -> None:
         self._answers = answers or {}
+        self._now = now
 
     def approvals(
         self, commit: str, deadline: Deadline | None
     ) -> Landing | NoLandingPR | Unknown | ReviewsUnavailable | TimedOut:
+        if deadline is not None and deadline.epoch_seconds <= self._now:
+            return TimedOut("read the reviews of a landing")
         return self._answers.get(commit, Unknown(NO_REVIEWS))
 
 
