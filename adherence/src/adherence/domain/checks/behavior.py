@@ -35,6 +35,7 @@ from adherence.domain.records import Behavior, DesignRecords, RecordsUnavailable
 REAL_ASSERTION = catalog_check("Real assertion")
 PUBLIC_SURFACE = catalog_check("Public surface")
 KEPT_TEST = catalog_check("Kept test")
+UNTOLD_HELPERS = "which application function is a use case cannot be told"
 
 # --- Predicates --------------------------------------------------------------
 
@@ -182,6 +183,26 @@ def _reaches_internal(
     )
 
 
+def _reaches_helper(
+    call: Call,
+    definitions: Mapping[tuple[str, str], Definition],
+    use_cases: frozenset[str],
+) -> bool:
+    """Whether a call resolves to a function of the application layer that
+    is not a use case: the public API is the use-case surface and the pure
+    domain beneath it."""
+    target = call.target
+    if target is None or target.path is None or target.symbol is None:
+        return False
+    found = definitions.get((target.path, target.symbol))
+    return (
+        found is not None
+        and found.unit.kind is UnitKind.FUNCTION
+        and found.unit.layer is Layer.APPLICATION
+        and target.symbol not in use_cases
+    )
+
+
 def public_surface(
     model: CodeModel,
     declaration: Declaration,
@@ -190,16 +211,27 @@ def public_surface(
 ) -> CheckOutcome:
     """No test reaches past a use case into a helper or an internal: a test
     call that resolves to a private definition of the repository's covered
-    code is a finding, at each such call."""
+    code, or to an application function that is not a use case, is a
+    finding, at each such call. Without a readable record the helpers
+    cannot be told, and that half is coverage."""
     if not declaration.declared:
         return undeclared(PUBLIC_SURFACE.name)
     definitions = _definitions(model)
+    coverage: tuple[Coverage, ...] = ()
+    use_cases: frozenset[str] | None = None
+    if isinstance(records, RecordsUnavailable):
+        reason = f"{UNTOLD_HELPERS}: {records.reason}"
+        coverage = (Coverage(reason, check=PUBLIC_SURFACE.name),)
+    else:
+        use_cases = frozenset(row.function for row in records.surface)
     findings: list[Finding] = []
     for case, unit in _tests(model, declaration):
         for call in model.calls:
             if call.path != case.path or call.within != case.symbol:
                 continue
-            if not _reaches_internal(call, definitions):
+            if not _reaches_internal(call, definitions) and not (
+                use_cases is not None and _reaches_helper(call, definitions, use_cases)
+            ):
                 continue
             findings.append(
                 Finding(
@@ -210,7 +242,7 @@ def public_surface(
                     Evidence(call.path, call.line, call.callee),
                 )
             )
-    return CheckOutcome(tuple(findings))
+    return CheckOutcome(tuple(findings), coverage)
 
 
 def _unambiguous(model: CodeModel) -> frozenset[str]:
