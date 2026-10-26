@@ -33,18 +33,30 @@ from adherence.domain.parameters import Limits
 from adherence.domain.qualities import CheckKind
 from adherence.domain.questions import (
     DOES_IO,
+    HAND_ROLLED_ID,
     IMPLEMENTED,
     INVARIANT_BROKEN,
+    NONE,
     RULES_ELSEWHERE,
     SAME_CONCEPT,
     SCATTERED_POLICY,
     THEN_ASSERTED,
     TWO_JOBS,
     BandThreshold,
+    ChoiceThreshold,
     ThresholdPolicy,
     Unavailable,
 )
-from adherence.domain.records import Behavior, DesignRecords, SurfaceRow, Term
+from adherence.domain.records import (
+    Behavior,
+    DesignRecords,
+    Radar,
+    RadarEntry,
+    RecordsUnavailable,
+    Ring,
+    SurfaceRow,
+    Term,
+)
 from adherence.domain.report import Report
 from tests.facts_kit import (
     FS,
@@ -723,3 +735,85 @@ def test_measure_unit_whose_body_does_not_do_what_it_claims_is_found(
     assert finding.kind is CheckKind.JUDGED
     assert finding.confidence == pytest.approx(no)
     assert finding.unit.symbol == "price" and "price" in finding.subject
+
+
+# --- A hand-rolled primitive is found -------------------------------------------------
+
+RADAR = Radar(
+    entries=(
+        RadarEntry("markdown-it-py", Ring.ADOPT, "lmde/TECH_RADAR.md", 5),
+        RadarEntry("click", Ring.ADOPT, "lmde/TECH_RADAR.md", 6),
+        RadarEntry("lizard", Ring.TRIAL, "lmde/TECH_RADAR.md", 7),
+        RadarEntry("left-pad", Ring.HOLD, "lmde/TECH_RADAR.md", 8),
+    )
+)
+
+
+@pytest.mark.parametrize(("p", "found"), [(0.8, True), (0.9, True), (0.79, False)])
+def test_measure_primitive_written_by_hand_where_the_radar_adopts_one_is_found(
+    p: float, found: bool
+) -> None:
+    """Given a function parsing markdown tables by hand and a radar adopting
+    markdown-it-py and click (a Trial and a Hold entry beside them), When
+    Hand-rolled runs with the judge's most likely option, markdown-it-py,
+    at, above or just below the threshold, Then the question's options are
+    the Adopt entries and none, and a judged finding names the unit and the
+    library, with its confidence, only at or above the threshold."""
+    definitions = (
+        _bodied(function(FS, "parse_table", 1, end=9), "for line in text: ..."),
+    )
+    judge = FakeDecision(
+        {
+            HAND_ROLLED_ID: {"markdown-it-py": p, "click": 0.0, NONE: 1.0 - p},
+            TWO_JOBS.id: _yes(0.1),
+            IMPLEMENTED.id: _yes(0.9),
+        }
+    )
+
+    report = measure_with(
+        FILES,
+        CodeModel(definitions=definitions),
+        radar=RADAR,
+        judge=judge,
+        thresholds=ThresholdPolicy(
+            {HAND_ROLLED_ID: ChoiceThreshold(at=0.8), IMPLEMENTED.id: BAND}
+        ),
+    )
+
+    assert "Hand-rolled" in [c.name for c in report.ran]
+    ((question,),) = [
+        [q for q in schema.questions.values() if q.id == HAND_ROLLED_ID]
+        for _, schema in judge.asked
+    ]
+    assert question.options == ("markdown-it-py", "click", NONE)
+    findings = _of(report, "Hand-rolled")
+    if not found:
+        assert findings == []
+        return
+    (finding,) = findings
+    assert finding.kind is CheckKind.JUDGED
+    assert finding.confidence == pytest.approx(p)
+    assert "parse_table" in finding.subject and "markdown-it-py" in finding.subject
+
+
+def test_measure_hand_rolled_without_a_radar_is_coverage() -> None:
+    """Given no radar the declaration names, When Hand-rolled runs, Then it is
+    coverage naming why, asks nothing, and is not among the checks that ran."""
+    judge = FakeDecision({TWO_JOBS.id: _yes(0.1), IMPLEMENTED.id: _yes(0.9)})
+
+    report = measure_with(
+        FILES,
+        CodeModel(definitions=(function(FS, "parse_table", 1, end=9),)),
+        radar=RecordsUnavailable("no radar at this target"),
+        judge=judge,
+    )
+
+    assert "Hand-rolled" not in [c.name for c in report.ran]
+    assert [c.reason for c in report.coverage if c.check == "Hand-rolled"] == [
+        "no radar at this target"
+    ]
+    assert not any(
+        q.id == HAND_ROLLED_ID
+        for _, schema in judge.asked
+        for q in schema.questions.values()
+    )
