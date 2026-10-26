@@ -347,7 +347,7 @@ def test_options_objects_are_keyword_parameters_by_the_vocabulary() -> None:
             Parameter(
                 "reviews", 'Ports["reviews"]', keyword_only=True, has_default=True
             ),
-            Parameter("...rest", "string[]", keyword_only=False, has_default=False),
+            Parameter("*rest", "string[]", keyword_only=False, has_default=False),
         ),
         returns="void",
     )
@@ -362,6 +362,49 @@ def test_options_objects_are_keyword_parameters_by_the_vocabulary() -> None:
         parameters=(Parameter("x", None, keyword_only=False, has_default=False),),
         returns=None,
     )
+
+
+def test_a_ports_method_signatures_are_units_with_signatures() -> None:
+    """Given an interface and an object type alias whose methods are
+    signatures only, and an abstract method, When they are modelled, Then
+    each method is a function unit of its type, with its signature (a rest
+    parameter starred, as Python's is) and no body, as a Protocol's methods
+    are in Python."""
+    source = (
+        b"export interface Port {\n"
+        b"  load(key: string, ...more: number[]): string;\n"
+        b"}\n"
+        b"type Lit = { go(z: boolean): void };\n"
+        b"abstract class Base {\n"
+        b"  abstract run(n: number): void;\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.ts": source})
+
+    found = {d.unit.symbol: d for d in model.definitions}
+    load, go, run = found["Port.load"], found["Lit.go"], found["Base.run"]
+    assert (load.unit.kind, load.unit.start, load.parent) == (
+        UnitKind.FUNCTION,
+        2,
+        "Port",
+    )
+    assert load.signature == Signature(
+        parameters=(
+            Parameter("key", "string", keyword_only=False, has_default=False),
+            Parameter("*more", "number[]", keyword_only=False, has_default=False),
+        ),
+        returns="string",
+    )
+    assert go.signature == Signature(
+        parameters=(Parameter("z", "boolean", keyword_only=False, has_default=False),),
+        returns="void",
+    )
+    assert run.signature == Signature(
+        parameters=(Parameter("n", "number", keyword_only=False, has_default=False),),
+        returns="void",
+    )
+    assert (load.body.text, load.body.stub_markers, load.nested) == ("", (), False)
 
 
 def test_bodies_carry_their_text_stub_markers_and_sleeps() -> None:
