@@ -8,6 +8,7 @@ from dataclasses import replace
 
 from adherence.adapters.fakes import FakeReportStore
 from adherence.domain.finding import Provenance
+from adherence.domain.model import merged
 from adherence.domain.report import Verdict
 from adherence.ports.repository import Refused
 from tests import facts_kit as kit
@@ -136,3 +137,38 @@ def test_judge_change_deleting_a_fake_introduces_the_ports_finding() -> None:
     assert (finding.check.name, finding.unit.path) == ("Swap", kit.STORE)
     assert finding.provenance is Provenance.INTRODUCED
     assert report.verdict is Verdict.LOWERED
+
+
+def test_judge_change_renaming_a_flawed_file_introduces_nothing() -> None:
+    """Given a file with an existing flaw that the change moves and does not
+    edit, When the change is judged, Then its finding is marked existing and
+    keeps its identity, and nothing is removed."""
+    policy = "src/app/domain/policy.py"
+    facts = merged([stubbed(RULES, "tidy", 2), stubbed(policy, "tidy", 2)])
+    base = judge_with({RULES: STUBBED}, {RULES: STUBBED}, facts=facts)
+
+    report = judge_with({RULES: STUBBED}, {policy: STUBBED}, facts=facts)
+
+    (finding,) = report.findings
+    assert finding.unit.path == policy
+    assert finding.provenance is Provenance.EXISTING
+    assert finding.identity == base.findings[0].identity
+    assert (report.removed, report.verdict) == ((), Verdict.HELD)
+
+
+def test_judge_change_renaming_a_flawed_function_introduces_nothing() -> None:
+    """Given a function with an existing flaw that the change renames and
+    does not otherwise edit, When the change is judged, Then its finding is
+    marked existing and nothing is removed."""
+    renamed = b"\ndef neat():\n    pass\n"
+
+    report = judge_with(
+        {RULES: STUBBED},
+        {RULES: renamed},
+        when={STUBBED: stubbed(RULES, "tidy", 2), renamed: stubbed(RULES, "neat", 2)},
+    )
+
+    (finding,) = report.findings
+    assert finding.unit.symbol == "neat"
+    assert finding.provenance is Provenance.EXISTING
+    assert (report.removed, report.verdict) == ((), Verdict.HELD)

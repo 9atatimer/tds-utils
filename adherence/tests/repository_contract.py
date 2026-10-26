@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping
 from pathlib import Path
 
-from adherence.domain.target import Base, ChangedPaths, Head
+from adherence.domain.target import Base, ChangedPaths, Head, Rename
 from adherence.ports.repository import Absent, RepositoryPort
 
 Files = Mapping[str, bytes]
@@ -97,4 +97,21 @@ class RepositoryContract:
         assert (
             repository.changed(base, Head.at_revision(base.revision), None)
             == ChangedPaths()
+        )
+
+    def test_changed_names_a_moved_file_as_renamed(self, tmp_path: Path) -> None:
+        """Given an index that moves a file unedited, When the staged index is
+        told against the base, Then the move is one rename, neither a
+        creation nor a deletion."""
+        moved = b"def tidy():\n    pass\n" * 4
+        repository, base = self.repository_with(
+            tmp_path,
+            base={"src/old.py": moved, "keep.py": b"k\n"},
+            staged={"src/new.py": moved},
+            working={},
+            deleted=("src/old.py",),
+        )
+
+        assert repository.changed(base, Head.staged_index(), None) == ChangedPaths(
+            renamed=(Rename("src/old.py", "src/new.py"),)
         )
