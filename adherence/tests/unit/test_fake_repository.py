@@ -31,4 +31,6 @@ class TestFakeRepository(RepositoryContract):
             Head.staged_index(): staged_index,
             Head.working_tree(): {**staged_index, **working},
         }
-        return FakeRepository(files), at_base
+        return FakeRepository(
+            files, history={path: (at_base.revision,) for path in base}
+        ), at_base

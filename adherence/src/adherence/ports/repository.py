@@ -49,3 +49,10 @@ class RepositoryPort(Protocol):
         """The paths the head created, deleted and modified against the
         base, each sorted; Refused, for the root, when they cannot be told."""
         ...
+
+    def history(
+        self, path: str, base: Base, deadline: Deadline | None
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        """The commits on the base's history that changed the path, newest
+        first, each by its object id."""
+        ...

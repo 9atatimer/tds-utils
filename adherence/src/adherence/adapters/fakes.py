@@ -45,6 +45,7 @@ class FakeRepository:
     """RepositoryPort over a mapping of target -> path -> answer: the bytes,
     or the Refused or TimedOut the test scripts for that path. `unlisted`
     scripts the answer to every tree listing, `unlisted_at` to one target's.
+    `history` scripts the commits that changed each path, newest first.
     What a change did is told from the two targets' files: a path gone and
     one come with the same bytes is a rename."""
 
@@ -54,10 +55,12 @@ class FakeRepository:
         *,
         unlisted: Refused | TimedOut | None = None,
         unlisted_at: Mapping[Base | Head, Refused | TimedOut] | None = None,
+        history: Mapping[str, tuple[str, ...]] | None = None,
     ) -> None:
         self._files = files
         self._unlisted = unlisted
         self._unlisted_at = unlisted_at or {}
+        self._history = history or {}
 
     def read(
         self, path: str, at: Base | Head, deadline: Deadline | None
@@ -73,6 +76,11 @@ class FakeRepository:
         if at in self._unlisted_at:
             return self._unlisted_at[at]
         return tuple(sorted(self._files.get(at, {})))
+
+    def history(
+        self, path: str, base: Base, deadline: Deadline | None
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        return self._history.get(path, ())
 
     def changed(
         self, base: Base, head: Head, deadline: Deadline | None

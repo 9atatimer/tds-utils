@@ -259,6 +259,22 @@ class GitRepository:
         except GitFailure as failure:
             return Refused(".", str(failure))
 
+    def history(
+        self, path: str, base: Base, deadline: Deadline | None
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        if not is_inside_root(path):
+            return Refused(path, OUTSIDE_REFUSAL)
+        try:
+            listing = self._git(
+                ["log", "--format=%H", base.revision, "--", posixpath.normpath(path)],
+                deadline,
+            )
+        except _Expired:
+            return TimedOut(f"list the history of {path}")
+        except GitFailure as failure:
+            return Refused(path, str(failure))
+        return tuple(listing.decode("ascii", "replace").split())
+
     def tree(
         self, at: Base | Head, deadline: Deadline | None
     ) -> tuple[str, ...] | Refused | TimedOut:
