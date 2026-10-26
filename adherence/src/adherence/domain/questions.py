@@ -5,8 +5,8 @@ Schema over the unit's State and receives a probability per allowed answer
 (ARCHITECTURE.ARCH-ADHERENCE.md, Facts and judgements told apart). The
 nine questions, their ids, kinds and options, are fixed here; what the
 repository supplies is only ever the State's data (DESIGN.ARCH-ADHERENCE.md,
-G18). The judge's failure is typed: Unavailable is a value, never an
-exception.
+G18). The judge's failure is typed: Unavailable and Rejected are values,
+never exceptions.
 
 ThresholdPolicy holds one entry per question id, its form following the
 question's kind (the decision-models skill): a binary question thresholds
@@ -237,6 +237,14 @@ class Asking:
 @dataclass(frozen=True, slots=True)
 class Unavailable:
     """The judge could not be asked, with the reason."""
+
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class Rejected:
+    """The judge refused what one call sent it, with the reason; about that
+    call only, never the judge as a whole."""
 
     reason: str
 

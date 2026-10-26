@@ -75,7 +75,7 @@ def test_decide_sends_one_record_naming_the_model_with_the_unit_as_state(
     assert isinstance(answer, Decision), answer
     (body,) = stub.received
     assert body["model"] == "clef"
-    assert STATE.text in str(body["state"])
+    assert body["state"]["text"] == STATE.text  # type: ignore[index]
     assert set(body["questions"]) == set(SCHEMA.questions)  # type: ignore[arg-type]
 
 

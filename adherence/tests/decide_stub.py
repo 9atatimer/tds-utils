@@ -75,7 +75,9 @@ def stub_server() -> Iterator[StubServer]:
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     httpd.stub = state  # type: ignore[attr-defined]
     state.url = f"http://127.0.0.1:{httpd.server_address[1]}"
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread = threading.Thread(
+        target=httpd.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True
+    )
     thread.start()
     try:
         yield state
