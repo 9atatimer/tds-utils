@@ -447,3 +447,22 @@ def test_judge_change_adding_an_exemption_for_its_own_flaw_is_still_lowered() ->
         "exemption added" in n.message and "kept until the rewrite" in n.message
         for n in report.notices
     )
+
+
+def test_judge_change_under_an_exemption_in_force_counts_it_as_neither() -> None:
+    """Given an exemption in the declaration in force, landed before the
+    change, When the change introduces the flaw it exempts, Then the finding
+    stays in the report marked exempt with its reason, counts as neither
+    introduced nor removed, and the verdict is held."""
+    exempting = HEXAGON + EXEMPT_RULES
+
+    report = judge_with(
+        {RULES: FIXED, DECLARATION_PATH: exempting},
+        {RULES: STUBBED, DECLARATION_PATH: exempting},
+        when=WHEN,
+    )
+
+    (finding,) = report.findings
+    assert finding.exempt == "kept until the rewrite"
+    assert finding.provenance is None
+    assert (report.removed, report.verdict) == ((), Verdict.HELD)
