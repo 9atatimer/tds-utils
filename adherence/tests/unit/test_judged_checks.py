@@ -279,31 +279,33 @@ def test_measure_with_no_judge_reachable_reports_every_question_as_coverage(
 
 
 def test_measure_past_the_judged_budget_reports_the_questions_not_asked() -> None:
-    """Given three units with a question each and a judged-check budget of
-    two, When measured, Then the judge is asked about the first two units
-    only and coverage names the third unit's question as not asked for the
-    budget -- never a pass. judge_change reads it, on a touched unit, as
-    inconclusive at best."""
+    """Given three units with two questions each (Two jobs and Done) and a
+    judged-check budget of four, When measured, Then the judge is asked
+    about the first two units only and coverage names each of the third
+    unit's questions as not asked for the budget -- never a pass.
+    judge_change reads it, on a touched unit, as inconclusive at best."""
     definitions = (
         function(RULES, "price", 1, end=5),
         function(RULES, "discount", 7, end=9),
         function(USE, "close_order", 1, end=5),
     )
-    judge = FakeDecision({TWO_JOBS.id: _yes(0.1)})
+    judge = FakeDecision({TWO_JOBS.id: _yes(0.1), IMPLEMENTED.id: _yes(0.9)})
 
     report = measure_with(
         FILES,
         CodeModel(definitions=definitions),
         judge=judge,
-        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
-        limits=Limits(evidence_bound=200, judged_budget=2),
+        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND, IMPLEMENTED.id: BAND}),
+        limits=Limits(evidence_bound=200, judged_budget=4),
     )
 
     assert [state.unit.symbol for state, _ in judge.asked] == ["price", "discount"]
-    (unasked,) = [c for c in report.coverage if c.check == "Two jobs"]
-    assert unasked.path == USE
-    assert "close_order" in unasked.reason and TWO_JOBS.id in unasked.reason
-    assert "budget" in unasked.reason
+    unasked = [c for c in report.coverage if "budget" in c.reason]
+    assert sorted(c.check or "" for c in unasked) == ["Done", "Two jobs"]
+    assert all(c.path == USE and "close_order" in c.reason for c in unasked)
+    assert {TWO_JOBS.id, IMPLEMENTED.id} == {
+        q for q in (TWO_JOBS.id, IMPLEMENTED.id) for c in unasked if q in c.reason
+    }
 
 
 def test_measure_with_no_judged_budget_asks_nothing() -> None:
