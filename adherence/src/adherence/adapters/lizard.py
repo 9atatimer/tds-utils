@@ -3,8 +3,9 @@
 lizard (PyPI, MIT; lmde/TECH_RADAR.md Trial) is run as a subprocess in a
 scratch directory outside the repository, through `analyzer_process`:
 the interpreter in isolated mode (`-I`, so neither the working directory
-nor PYTHON* variables reach its import path), the file list on the
-command line, `.gitignore` reading off, CSV out. The measured source is
+nor PYTHON* variables reach its import path), the sources written under
+generated names so no repository path can split the file list, the file
+list on the command line, `.gitignore` reading off, CSV out. The measured source is
 untrusted, so the scratch copy carries none of lizard's in-source
 directives: a function cannot exempt itself. The clock is the edge's own.
 Absent or failing, it answers MetricsUnavailable naming the tool.
@@ -23,7 +24,7 @@ from adherence.adapters.analyzer_process import (
     NotRan,
     remaining,
     run_analyzer,
-    write_sources,
+    write_numbered,
 )
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.model import Complexity, Metrics, MetricsUnavailable
@@ -96,7 +97,7 @@ class LizardComplexity:
             root = Path(scratch)
             work = root / "work"
             work.mkdir()
-            written = write_sources(
+            written = write_numbered(
                 root / "src", {p: neutralised(d) for p, d in sources.items()}
             )
             files = root / "files.txt"

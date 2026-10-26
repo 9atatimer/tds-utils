@@ -12,12 +12,18 @@ imported, built or run.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from adherence.domain.deadline import Deadline
+
+# --- Constants ---------------------------------------------------------------
+
+# An extension a generated name keeps: one an analyzer reads a language by.
+PLAIN_SUFFIX = re.compile(r"\.[A-Za-z0-9_+-]{1,16}")
 
 # --- Values ------------------------------------------------------------------
 
@@ -59,6 +65,23 @@ def write_sources(root: Path, sources: Mapping[str, bytes]) -> dict[str, str]:
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
+        written[str(target)] = path
+    return written
+
+
+def write_numbered(root: Path, sources: Mapping[str, bytes]) -> dict[str, str]:
+    """Each source written flat under root by a generated name -- its index
+    and its extension, when that is plain -- so no repository path (one
+    holding a newline, say) reaches the analyzer; the written file's
+    absolute path mapped to the repository path."""
+    base = root.resolve()
+    base.mkdir(parents=True, exist_ok=True)
+    written: dict[str, str] = {}
+    for index, path in enumerate(sorted(sources)):
+        suffix = PurePosixPath(path).suffix
+        plain = suffix if PLAIN_SUFFIX.fullmatch(suffix) else ""
+        target = base / f"{index:06d}{plain}"
+        target.write_bytes(sources[path])
         written[str(target)] = path
     return written
 
