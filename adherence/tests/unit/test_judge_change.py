@@ -182,3 +182,26 @@ def test_judge_change_deleting_only_clean_code_moves_nothing() -> None:
 
     assert [f.provenance for f in report.findings] == [Provenance.EXISTING]
     assert (report.removed, report.verdict) == ((), Verdict.HELD)
+
+
+def test_judge_change_deleting_a_flawed_unit_moves_nothing() -> None:
+    """Given a change that only deletes units with an existing flaw -- a
+    whole file, and a function from a file it keeps -- When it is judged,
+    Then neither flaw is introduced or removed and the verdict is held."""
+    flawed = b"\ndef tidy():\n    pass\n\ndef keep():\n    return 1\n"
+    kept = b"\n\n\n\ndef keep():\n    return 1\n"
+    other = "src/app/domain/other.py"
+    keep = stubbed(other, "keep", 5, stub=None)
+
+    report = judge_with(
+        {RULES: STUBBED, USE: CLEAN, other: flawed},
+        {USE: CLEAN, other: kept},
+        when={
+            **WHEN,
+            flawed: merged([stubbed(other, "tidy", 2), keep]),
+            kept: keep,
+        },
+    )
+
+    assert report.findings == ()
+    assert (report.removed, report.verdict) == ((), Verdict.HELD)
