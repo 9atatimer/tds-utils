@@ -23,11 +23,13 @@ from adherence.domain.model import (
     ImportEdge,
     Layer,
     Target,
+    Write,
 )
 from adherence.domain.parameters import Limits
 from adherence.domain.qualities import CheckKind
 from adherence.domain.questions import (
     DOES_IO,
+    INVARIANT_BROKEN,
     SAME_CONCEPT,
     SCATTERED_POLICY,
     TWO_JOBS,
@@ -37,7 +39,17 @@ from adherence.domain.questions import (
 )
 from adherence.domain.records import DesignRecords, Term
 from adherence.domain.report import Report
-from tests.facts_kit import FS, ROOT, RULES, TEST, USE, function, type_, value
+from tests.facts_kit import (
+    FS,
+    ROOT,
+    RULES,
+    TEST,
+    USE,
+    field,
+    function,
+    type_,
+    value,
+)
 from tests.measure_kit import measure_with
 
 # Provisional entries for the tests alone; the shipped ones are the
@@ -449,3 +461,51 @@ def test_measure_choice_spread_across_conditionals_is_found(
     assert finding.kind is CheckKind.JUDGED
     assert "order.kind" in finding.subject
     assert "price" in finding.subject and "close_order" in finding.subject
+
+
+# --- A write that breaks an invariant is found ------------------------------------
+
+
+@pytest.mark.parametrize(("yes", "found"), [(0.8, True), (0.9, True), (0.79, False)])
+def test_measure_foreign_write_that_breaks_an_invariant_is_found(
+    yes: float, found: bool
+) -> None:
+    """Given a use case writing a domain type's field outside the type, When
+    Boundary's judged part runs with the judge's yes at, above or just below
+    the threshold, Then the rule finding on the write stands, the judge is
+    given the writer, the owning type and the write, and a judged finding
+    names the write and the invariant at risk, with its confidence and an
+    identity of its own, only at or above the threshold."""
+    definitions = (
+        _bodied(type_(RULES, "Order", 1, end=4), "status: str\ntotal: int"),
+        function(USE, "close", 1, (value("order", "Order"),), end=4),
+    )
+    members = (field(RULES, "Order", "status", 2), field(RULES, "Order", "total", 3))
+    writes = (Write(USE, 2, "close", "order", "status"),)
+    judge = FakeDecision({INVARIANT_BROKEN.id: _yes(yes), TWO_JOBS.id: _yes(0.1)})
+
+    report = measure_with(
+        FILES,
+        CodeModel(definitions=definitions, members=members, writes=writes),
+        judge=judge,
+        thresholds=ThresholdPolicy({INVARIANT_BROKEN.id: BAND, TWO_JOBS.id: BAND}),
+    )
+
+    rule = [f for f in _of(report, "Boundary") if f.kind is CheckKind.RULE]
+    judged = [f for f in _of(report, "Boundary") if f.kind is CheckKind.JUDGED]
+    assert len(rule) == 1
+    ((state, key),) = [
+        (state, key)
+        for state, schema in judge.asked
+        for key, q in schema.questions.items()
+        if q.id == INVARIANT_BROKEN.id
+    ]
+    assert state.unit.symbol == "close"
+    assert "status: str" in state.context[key] and "order.status" in state.context[key]
+    if not found:
+        assert judged == []
+        return
+    (finding,) = judged
+    assert finding.confidence == pytest.approx(yes)
+    assert "Order.status" in finding.subject and "invariant" in finding.subject
+    assert finding.identity != rule[0].identity
