@@ -6,9 +6,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from adherence.application.record import record_report
-
 from adherence.adapters.fakes import FakeReportStore
+from adherence.application.record import record_report
 from adherence.domain.report import Verdict
 from tests.judge_kit import RULES, judge_with, stubbed
 
