@@ -172,3 +172,13 @@ def test_judge_change_renaming_a_flawed_function_introduces_nothing() -> None:
     assert finding.unit.symbol == "neat"
     assert finding.provenance is Provenance.EXISTING
     assert (report.removed, report.verdict) == ((), Verdict.HELD)
+
+
+def test_judge_change_deleting_only_clean_code_moves_nothing() -> None:
+    """Given a change that only deletes units with no findings, in a
+    repository with existing flaws, When it is judged, Then nothing is
+    introduced or removed and the verdict is held."""
+    report = judge_with({RULES: STUBBED, USE: CLEAN}, {RULES: STUBBED}, when=WHEN)
+
+    assert [f.provenance for f in report.findings] == [Provenance.EXISTING]
+    assert (report.removed, report.verdict) == ((), Verdict.HELD)
