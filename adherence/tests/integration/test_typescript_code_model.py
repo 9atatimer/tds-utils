@@ -505,6 +505,45 @@ def test_writes_are_field_assignments_with_the_unit_that_makes_them() -> None:
     ]
 
 
+def test_every_field_target_is_a_write_and_a_field_of_this_a_member() -> None:
+    """Given a method that updates a field of this, assigns fields through
+    array and object destructuring, binds one as a for-of target, and only
+    reads others (on the right, or as a destructuring default), When it is
+    modelled, Then each field target is a write, each target on this is a
+    field member of the class, and no field read is either."""
+    source = (
+        b"class A {\n"
+        b"  bump(o) {\n"
+        b"    this.n++;\n"
+        b"    [this.q, o.p] = [1, 2];\n"
+        b"    ({ k: this.k } = o);\n"
+        b"    for (this.r of [1]) {}\n"
+        b"    const x = this.z;\n"
+        b"    [this.a = this.b] = [];\n"
+        b"  }\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.ts": source})
+
+    assert sorted((w.line, w.target, w.field) for w in model.writes) == [
+        (3, "this", "n"),
+        (4, "o", "p"),
+        (4, "this", "q"),
+        (5, "this", "k"),
+        (6, "this", "r"),
+        (8, "this", "a"),
+    ]
+    assert {(m.name, m.kind, m.line) for m in model.members} == {
+        ("bump", MemberKind.METHOD, 2),
+        ("n", MemberKind.FIELD, 3),
+        ("q", MemberKind.FIELD, 4),
+        ("k", MemberKind.FIELD, 5),
+        ("r", MemberKind.FIELD, 6),
+        ("a", MemberKind.FIELD, 8),
+    }
+
+
 def test_conditionals_name_their_discriminant() -> None:
     """Given a branch on a value's field, When the fixture is modelled, Then
     the conditional names the expression it discriminates on, its line and
