@@ -14,9 +14,13 @@ NO_JUDGE = "no judge is bound in this stage"
 
 
 class NoJudge:
-    """DecisionPort that answers every schema Unavailable."""
+    """DecisionPort that answers every schema Unavailable, with the reason
+    the composition root gives (why this stage has no judge)."""
+
+    def __init__(self, reason: str = NO_JUDGE) -> None:
+        self.reason = reason
 
     def decide(
         self, state: State, schema: Schema, deadline: Deadline | None
     ) -> Decision | Unavailable | Rejected | TimedOut:
-        return Unavailable(NO_JUDGE)
+        return Unavailable(self.reason)

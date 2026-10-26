@@ -12,9 +12,10 @@ import enum
 import os
 import sys
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
+from adherence.adapters.decide import DecideDecision
 from adherence.adapters.file_store import FileReportStore, default_store_dir
 from adherence.adapters.git import GitRepository
 from adherence.adapters.jscpd import JscpdDuplication
@@ -504,6 +505,19 @@ SHIPPED_PARAMETERS = Parameters(
 # `npm ci --ignore-scripts` (adherence/node/package-lock.json).
 JSCPD = Path(__file__).resolve().parents[2] / "node" / "node_modules" / ".bin" / "jscpd"
 
+# The fleet's decide client (docs/ops/decide.md), pinned to the model the
+# shipped thresholds were chosen for: two models' probabilities are not
+# interchangeable. Its spend is tagged with the suite's own tool name.
+DECIDE = Path(__file__).resolve().parents[3] / "bin" / "decide"
+DECIDE_COMMAND = (str(DECIDE), "run", "--model", "clef", "--tool", "adherence")
+# The door's address on the laptop (DECIDE-ROUTE.DESIGN.md): it speaks the
+# SystemOne contract decide's systemone backend sends, and holds the hosted
+# credential itself.
+DOOR = "DECIDE_URL"
+# The hosted gateway and its token, from the CI job's (or cloud session's)
+# environment; only the decide client's environment ever holds the token.
+HOSTED = ("DECIDE_GATEWAY_URL", "DECIDE_GATEWAY_TOKEN")
+
 # --- Composition root ----------------------------------------------------------
 
 
@@ -514,6 +528,42 @@ class Stage(enum.Enum):
     HOOK = "hook"
     CI = "ci"
     CLOUD = "cloud"
+
+
+# How many judged questions one run may ask, per stage (provisional: no run
+# against the real judge has measured a typical change yet). The hook asks
+# none; it binds no judge.
+JUDGED_BUDGETS: Mapping[Stage, int] = {
+    Stage.LAPTOP: 400,
+    Stage.HOOK: 0,
+    Stage.CI: 400,
+    Stage.CLOUD: 400,
+}
+
+
+def _judge_for(stage: Stage, environment: Mapping[str, str]) -> DecisionPort:
+    """The judge a stage asks (ARCHITECTURE.ARCH-ADHERENCE.md, Where it
+    runs): the laptop through the door alone, holding no credential; ci,
+    and cloud provisionally (Q3), the hosted gateway with its token; the
+    hook none. A stage whose judge is not configured has no judge, and
+    says what would configure it."""
+    if stage is Stage.HOOK:
+        return NoJudge("the hook asks no judge")
+    if stage is Stage.LAPTOP:
+        door = environment.get(DOOR, "").strip()
+        if not door:
+            return NoJudge(f"no door address is configured ({DOOR})")
+        return DecideDecision(
+            command=DECIDE_COMMAND,
+            configuration={"DECIDE_BACKEND": "systemone", DOOR: door},
+        )
+    hosted = {k: environment.get(k, "").strip() for k in HOSTED}
+    if not all(hosted.values()):
+        return NoJudge(f"the hosted judge is not configured ({', '.join(HOSTED)})")
+    return DecideDecision(
+        command=DECIDE_COMMAND,
+        configuration={"DECIDE_BACKEND": "cf-ai-gateway", **hosted},
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -544,6 +594,7 @@ def build(
     duplication: DuplicationPort | None = None,
     records: RecordsPort | None = None,
     reports: ReportStore | None = None,
+    environment: Mapping[str, str] | None = None,
 ) -> Container:
     """Bind every port for the stage, over the repository at root.
 
@@ -551,11 +602,11 @@ def build(
     (working tree, staged index, revisions) is the entry point's choice.
     TypeScript and JavaScript share one analyzer, so an import from one to
     the other resolves.
-    Every stage binds no_judge until the decide adapter lands (task-064);
-    the judged checks read as coverage meanwhile. Every stage binds
-    no_reviews until github_reviews lands for ci (task-063), and the file
-    cache in the per-user cache directory until the warehouse lands for ci
-    (task-067).
+    The judge is the stage's (`_judge_for`), configured from `environment`
+    (the process environment when none is given); the judged-check budget
+    is the stage's. Every stage binds no_reviews until github_reviews lands
+    for ci (task-063), and the file cache in the per-user cache directory
+    until the warehouse lands for ci (task-067).
     """
     if analyzers is None:
         typescript = TypeScriptCodeModel()
@@ -566,12 +617,13 @@ def build(
             CodeLanguage.SHELL: ShellCodeModel(),
         }
     bound = repository if repository is not None else GitRepository(root)
+    env = os.environ if environment is None else environment
     return Container(
         stage=stage,
         repository=bound,
         reviews=reviews if reviews is not None else NoReviews(),
         analyzers=analyzers,
-        judge=judge if judge is not None else NoJudge(),
+        judge=judge if judge is not None else _judge_for(stage, env),
         complexity=complexity if complexity is not None else LizardComplexity(),
         duplication=(
             duplication
@@ -586,5 +638,8 @@ def build(
                 default_store_dir(os.environ, Path.home()), root=Path(root)
             )
         ),
-        parameters=SHIPPED_PARAMETERS,
+        parameters=replace(
+            SHIPPED_PARAMETERS,
+            limits=replace(SHIPPED_LIMITS, judged_budget=JUDGED_BUDGETS[stage]),
+        ),
     )
