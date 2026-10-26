@@ -46,7 +46,8 @@ class Finding:
     """One check failing on one unit. `subject` is what the finding names
     (the vendor, the cycle, the port, the seam); `reached` is the layer a
     layer finding reached, when it reached one; `exempt` is the reason of
-    the exemption that silences it, when one does."""
+    the exemption that silences it, when one does. A judged finding carries
+    the confidence its threshold policy read; a rule finding carries none."""
 
     check: Check
     unit: Unit
@@ -57,6 +58,7 @@ class Finding:
     kind: CheckKind = CheckKind.RULE
     provenance: Provenance | None = None
     exempt: str | None = None
+    confidence: float | None = None
 
     @property
     def identity(self) -> str:

@@ -10,9 +10,15 @@ from __future__ import annotations
 
 from collections.abc import Collection
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from adherence.domain.declaration import Declaration
 from adherence.domain.model import CodeLanguage, CodeModel, UnitKind, language_of
+
+if TYPE_CHECKING:
+    # Read for its annotation only: domain/questions makes Coverage of an
+    # unanswered question and is itself read by the declaration's
+    # Parameters, so a run-time import here would close a cycle.
+    from adherence.domain.declaration import Declaration
 
 # --- Constants ---------------------------------------------------------------
 

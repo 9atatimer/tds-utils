@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from adherence.adapters.no_judge import NoJudge
 from adherence.domain.model import Unit, UnitKind
-from adherence.domain.questions import Question, Schema, State, Unavailable
+from adherence.domain.questions import IMPLEMENTED, Schema, State, Unavailable
 from adherence.ports.decision import DecisionPort
 
 UNIT = Unit("src/a.py", UnitKind.FUNCTION, "a", 1, 3, None)
@@ -17,7 +17,7 @@ def test_decide_without_a_judge_is_unavailable() -> None:
     """Given the no_judge adapter, When any schema is put to it, Then the
     answer is Unavailable with a reason, never a Decision."""
     judge: DecisionPort = NoJudge()
-    schema = Schema((Question("implemented", ("yes", "no")),))
+    schema = Schema({"implemented.1": IMPLEMENTED})
 
     answer = judge.decide(State(UNIT, "def a(): ..."), schema, None)
 
