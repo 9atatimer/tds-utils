@@ -11,6 +11,7 @@ from adherence.domain.model import (
     AccessKind,
     Binding,
     Call,
+    ImportEdge,
     Reference,
     ReferenceKind,
 )
@@ -271,3 +272,71 @@ def test_measure_with_an_exported_private_function_or_callable_class() -> None:
 
     found = {(f.unit.symbol, f.subject) for f in _of(report, "Ports as keywords")}
     assert found == {("_hidden", "s: Store"), ("Clean.__call__", "s: Store")}
+
+
+HELPERS = "src/app/application/helpers.py"
+
+
+def test_measure_with_a_use_case_wiring_through_a_helper_finds_it() -> None:
+    """Given a use case calling a private helper of its module that calls
+    another which constructs a concrete adapter, a use case calling an
+    application helper it imports from another module that constructs it,
+    a helper that calls itself, and a domain function constructing the
+    adapter that a use case calls, When No self-wiring runs, Then a
+    finding names each use case and the adapter, at the construction in
+    the application helper (the public helper is a use case of its own);
+    the domain function is no application helper and is not followed."""
+    files = {
+        USE: b"x\n" * 20,
+        HELPERS: b"x\n" * 9,
+        STORE: b"x\n" * 9,
+        FS: b"x\n" * 9,
+        RULES: b"x\n" * 9,
+    }
+    definitions = [
+        *port(STORE, "Store", 1),
+        type_(FS, "FsStore", 1, bases=("Store",)),
+        function(USE, "via_helper", 2, end=3),
+        function(USE, "_build", 4, end=5),
+        function(USE, "_deeper", 6, end=7),
+        function(USE, "imported", 8, end=9),
+        function(USE, "_loop", 10, end=11),
+        function(USE, "looping", 12, end=13),
+        function(USE, "ruled", 14, end=15),
+        function(HELPERS, "make", 1, end=2),
+        function(RULES, "assemble", 1, end=2),
+    ]
+    calls = (
+        Call(USE, 3, "via_helper", "_build"),
+        Call(USE, 5, "_build", "_deeper"),
+        Call(USE, 7, "_deeper", "FsStore"),
+        Call(USE, 9, "imported", "make"),
+        Call(USE, 11, "_loop", "_loop"),
+        Call(USE, 13, "looping", "_loop"),
+        Call(USE, 15, "ruled", "assemble"),
+        Call(HELPERS, 2, "make", "FsStore"),
+        Call(RULES, 2, "assemble", "FsStore"),
+    )
+    bindings = (
+        Binding(USE, 1, None, "make", "app.application.helpers.make"),
+        Binding(USE, 1, None, "assemble", "app.domain.rules.assemble"),
+    )
+    imports = (
+        ImportEdge(USE, "app.application.helpers", 1, "from ...", HELPERS),
+        ImportEdge(USE, "app.domain.rules", 1, "from ...", RULES),
+    )
+
+    report = measure_with(
+        files,
+        facts(definitions, calls=calls, bindings=bindings, imports=imports),
+    )
+
+    found = {
+        (f.unit.symbol, f.subject, f.evidence.path, f.evidence.line)
+        for f in _of(report, "No self-wiring")
+    }
+    assert found == {
+        ("via_helper", "FsStore", USE, 7),
+        ("imported", "FsStore", HELPERS, 2),
+        ("make", "FsStore", HELPERS, 2),
+    }
