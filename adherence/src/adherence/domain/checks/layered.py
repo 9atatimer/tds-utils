@@ -72,6 +72,11 @@ ANNOTATION_TOKEN = re.compile(
     re.DOTALL,
 )
 LITERAL = "Literal"
+# An import's line as written, `from m import A as B, C`: the names it
+# binds, read so a check compares the name an alias stands for. A
+# statement wrapped over lines is read as far as its first line goes.
+FROM_IMPORT = re.compile(r"\s*from\s+\S+\s+import\s+(?P<names>[^#]*)")
+ALIAS = re.compile(r"(?P<name>[A-Za-z_]\w*)\s+as\s+(?P<alias>[A-Za-z_]\w*)")
 DOES_IO_UNASKED = "the judged part (does_io) is not asked in this suite version"
 WIRING = catalog_check("Wiring")
 NO_RUNTIME = "the per-runtime half needs a declared runtime; the declaration has none"
@@ -148,6 +153,19 @@ def is_in_runtime(path: str, runtime: Runtime) -> bool:
 
 def parameter_names(signature: Signature) -> tuple[str, ...]:
     return tuple(p.name for p in signature.parameters)
+
+
+def _aliases(model: CodeModel) -> dict[str, dict[str, str]]:
+    """Each file's import aliases: the alias, and the name it stands for."""
+    aliases: dict[str, dict[str, str]] = {}
+    for edge in model.imports:
+        imported = FROM_IMPORT.match(edge.text)
+        if imported is None:
+            continue
+        for part in imported.group("names").strip(" ()").split(","):
+            if bound := ALIAS.fullmatch(part.strip(" ()")):
+                aliases.setdefault(edge.path, {})[bound["alias"]] = bound["name"]
+    return aliases
 
 
 def _home_of(name: str, signature: Signature) -> Home:
@@ -307,11 +325,12 @@ def _taken(
     parameter: Parameter,
     ports: frozenset[str],
     vocabulary: Vocabulary,
+    aliases: Mapping[str, str],
 ) -> Finding | Coverage | None:
     """What one parameter of a domain function makes of it: a finding for a
     port or a clock, coverage for a callable the judge would be asked about,
-    or nothing."""
-    names = annotation_names(parameter)
+    or nothing. An import alias is read as the name it stands for."""
+    names = frozenset(aliases.get(n, n) for n in annotation_names(parameter))
     unit = rule.unit
     evidence = Evidence(
         unit.path, unit.start, f"{parameter.name}: {parameter.annotation}"
@@ -343,8 +362,15 @@ def purity(
     if not declaration.declared:
         return undeclared(PURITY.name)
     ports = _port_names(model)
+    aliases = _aliases(model)
     taken = [
-        _taken(rule, parameter, ports, parameters.vocabulary)
+        _taken(
+            rule,
+            parameter,
+            ports,
+            parameters.vocabulary,
+            aliases.get(rule.unit.path, {}),
+        )
         for rule in model.definitions
         if is_rule(rule) and rule.signature is not None
         for parameter in rule.signature.parameters
@@ -374,11 +400,15 @@ def _constructions(
     model: CodeModel, declaration: Declaration, adapters: frozenset[str]
 ) -> list[_Construction]:
     """Every call that constructs a concrete adapter, with the unit making it:
-    the definition it sits in, or its file at module level."""
+    the definition it sits in, or its file at module level. A bare callee
+    that is an import alias is read as the name it stands for."""
     units = {(d.unit.path, d.unit.symbol): d.unit for d in model.definitions}
+    aliases = _aliases(model)
     found: list[_Construction] = []
     for call in model.calls:
         adapter = call.callee.rpartition(".")[2]
+        if "." not in call.callee:
+            adapter = aliases.get(call.path, {}).get(adapter, adapter)
         if adapter not in adapters:
             continue
         unit = units.get((call.path, call.within)) or model.unit_at(

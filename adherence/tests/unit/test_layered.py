@@ -508,7 +508,11 @@ def test_measure_adapter_or_port_taken_by_an_import_alias_is_found() -> None:
 
     report = measure_with(files, facts, declared(WIRED))
 
-    below = [(f.unit.symbol, f.subject) for f in _of(report, "Wiring")]
+    below = [
+        (f.unit.symbol, f.subject)
+        for f in _of(report, "Wiring")
+        if f.reached is Layer.ADAPTERS
+    ]
     assert below == [("close_order", "FsStore")]
     (port,) = _of(report, "Purity")
     assert port.unit.symbol == "price" and "Store" in port.subject
