@@ -155,3 +155,21 @@ def test_read_at_an_unknown_revision_is_refused(tmp_path: Path) -> None:
 
     assert isinstance(answer, Refused)
     assert answer.reason
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads a mode-000 directory")
+def test_read_under_a_directory_that_cannot_be_opened_is_refused(
+    tmp_path: Path,
+) -> None:
+    """Given a working-tree file under a directory the process may not open,
+    When it is read, Then it is Refused naming why, never an exception."""
+    root = tmp_path / "repo"
+    make_repository(root, base={"pkg/a.py": b"a\n"}, staged={}, working={})
+    (root / "pkg").chmod(0)
+    try:
+        answer = GitRepository(str(root)).read("pkg/a.py", Head.working_tree(), None)
+    finally:
+        (root / "pkg").chmod(0o755)
+
+    assert isinstance(answer, Refused)
+    assert "permission" in answer.reason.lower()

@@ -92,6 +92,7 @@ documents the recommended approach so it isn't reinvented per repo.
   criterion to Adopt: same as Loki.
 - **Decision models** (Jev, Clef and kin): typed yes/no, pick-one and rubric judgements returned as probabilities, served locally by the decision arena.
 - **sqlite-vec**: vector search inside SQLite (a loadable extension); nearest-neighbour queries over embeddings stored in a local SQLite database.
+- **grimp** (BSD-2): the Python import graph, with relative and package imports resolved, for the adherence engine's Python code model (`adherence/`).
 
 ---
 
@@ -115,6 +116,10 @@ documents the recommended approach so it isn't reinvented per repo.
 ---
 
 ## Decisions Log
+
+- **2026-10-25**: Added `grimp` to Trial on Todd's ruling that every adherence
+  analyzer starts at Trial (Issue#599), landing with the code that first
+  uses it (task-057).
 
 - **2026-10-12**: Moved `cloudflared` and `sandbox-exec` (the macOS Seatbelt
   sandbox) to Adopt on Todd's ruling (issue #363, third rulings comment).

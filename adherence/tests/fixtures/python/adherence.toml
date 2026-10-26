@@ -1,0 +1,10 @@
+# The Python code model's fixture: a small copy of chores/'s shape.
+
+[layers]
+domain = ["src/tool/domain/**"]
+application = ["src/tool/application/**"]
+ports = ["src/tool/ports/**"]
+adapters = ["src/tool/adapters/**"]
+"composition root" = ["src/tool/container.py"]
+test = ["tests/**"]
+regions = [{ file = "bin/onefile.py" }]

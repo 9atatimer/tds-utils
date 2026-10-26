@@ -8,12 +8,17 @@ library; its tables are the architecture's (Mechanism, Measurement).
 
 from __future__ import annotations
 
+import fnmatch
+import re
 import tomllib
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import ClassVar
 
+from adherence.domain.model import Layer, Region
+from adherence.domain.parameters import Vocabulary
 from adherence.domain.qualities import Quality, check_named
+from adherence.domain.source import source_lines
 
 # --- Constants ---------------------------------------------------------------
 
@@ -24,6 +29,11 @@ TABLES = frozenset(
 )
 EXEMPTION_KEYS = frozenset({"check", "unit", "finding", "reason"})
 DECLARED_REFUSAL = "the Declared quality's checks cannot be exempted"
+REGIONS_KEY = "regions"
+LAYER_NAMES = {layer.value: layer for layer in Layer}
+GLOB_CHARACTERS = frozenset("*?[")
+# `# --- Action functions ---`, with any run of trailing dashes.
+SECTION_MARKER = re.compile(r"^\s*#\s*---\s*(?P<name>[^-].*?)\s*-*\s*$")
 
 # --- Values ------------------------------------------------------------------
 
@@ -48,12 +58,23 @@ class RefusedExemption:
 
 
 @dataclass(frozen=True, slots=True)
+class Layers:
+    """The [layers] table: globs and literal paths per layer, line-range
+    regions, and the files whose regions come from their section markers."""
+
+    globs: tuple[tuple[Layer, str], ...] = ()
+    regions: tuple[Region, ...] = ()
+    marker_files: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class Declaration:
     """A repository's statement of its layers, runtimes, records, radar and
     exemptions. Declaration.none is the value for a repository that has none.
     """
 
     declared: bool = True
+    layers: Layers = field(default_factory=Layers)
     exemptions: tuple[Exemption, ...] = ()
     refused_exemptions: tuple[RefusedExemption, ...] = ()
 
@@ -73,6 +94,41 @@ class DeclarationUnreadable:
 # --- Predicates --------------------------------------------------------------
 
 
+def is_literal(pattern: str) -> bool:
+    """Whether a layer pattern names one path rather than a glob."""
+    return not GLOB_CHARACTERS & set(pattern)
+
+
+def matches(pattern: str, path: str) -> bool:
+    """Whether a repository path matches a layer pattern: `**` as a whole
+    segment crosses directories (zero or more before a further segment, one
+    or more at the end), `*`, `?` and `[...]` stay within one segment.
+
+    Matched segment by segment in one pass over a table, never by a
+    backtracking regex: the pattern is the declaration author's, and its
+    cost must stay linear in the pattern times the path."""
+    parts = pattern.split("/")
+    segments = path.split("/")
+    # tail[j]: does parts[i:] match segments[j:], for the row i being built.
+    tail = [False] * len(segments) + [True]
+    for i in range(len(parts) - 1, -1, -1):
+        row = [False] * (len(segments) + 1)
+        for j in range(len(segments), -1, -1):
+            if parts[i] == "**":
+                at_end = i == len(parts) - 1
+                row[j] = (
+                    j < len(segments) and (row[j + 1] or (at_end and tail[j + 1]))
+                ) or (not at_end and tail[j])
+            else:
+                row[j] = (
+                    j < len(segments)
+                    and fnmatch.fnmatchcase(segments[j], parts[i])
+                    and tail[j + 1]
+                )
+        tail = row
+    return tail[0]
+
+
 def is_declared_check(name: str | None) -> bool:
     """Whether the check named is one of the Declared quality's."""
     check = check_named(name) if name else None
@@ -80,6 +136,114 @@ def is_declared_check(name: str | None) -> bool:
 
 
 # --- Pure helpers ------------------------------------------------------------
+
+
+def marker_regions(path: str, text: str, vocabulary: Vocabulary) -> tuple[Region, ...]:
+    """The regions a file's section markers open: from each marker the
+    vocabulary knows to the line before the next marker, or the end of the
+    file. A marker it does not know closes the region before it."""
+    lines = source_lines(text)
+    markers = [
+        (number, match.group("name").lower())
+        for number, line in enumerate(lines, start=1)
+        if (match := SECTION_MARKER.match(line))
+    ]
+    regions: list[Region] = []
+    for index, (start, name) in enumerate(markers):
+        layer = vocabulary.regions.get(name)
+        if layer is None:
+            continue
+        end = markers[index + 1][0] - 1 if index + 1 < len(markers) else len(lines)
+        regions.append(Region(path, start, end, layer))
+    return tuple(regions)
+
+
+def layer_of(
+    path: str,
+    line: int | None,
+    declaration: Declaration,
+    found: Sequence[Region] = (),
+) -> Layer | None:
+    """The one layer a file, or a line of it, is in; None when uncovered.
+
+    A region (declared by lines, or found by marker and passed in) beats a
+    file; a literal path beats a glob; a longer glob beats a shorter one.
+    """
+    if line is not None:
+        for region in (*declaration.layers.regions, *found):
+            if region.holds(path, line):
+                return region.layer
+    hits = [
+        (is_literal(pattern), len(pattern), layer)
+        for layer, pattern in declaration.layers.globs
+        if matches(pattern, path)
+    ]
+    if not hits:
+        return None
+    return max(hits, key=lambda hit: (hit[0], hit[1]))[2]
+
+
+def _region(entry: object, number: int) -> Region | str | DeclarationUnreadable:
+    """One regions entry: a Region by lines, the path of a marker file, or
+    why it cannot be read."""
+    where = f"{DECLARATION_PATH}: layers region {number}"
+    if not isinstance(entry, dict) or not isinstance(entry.get("file"), str):
+        return DeclarationUnreadable(f"{where} names no file")
+    unknown = sorted(set(entry) - {"file", "layer", "lines"})
+    if unknown:
+        return DeclarationUnreadable(
+            f"{where} has unknown key(s): {', '.join(unknown)}"
+        )
+    if "layer" not in entry and "lines" not in entry:
+        return str(entry["file"])
+    layer = LAYER_NAMES.get(str(entry.get("layer")))
+    if layer is None:
+        return DeclarationUnreadable(f"{where} names no known layer")
+    lines = entry.get("lines")
+    if not (
+        isinstance(lines, list)
+        and len(lines) == 2
+        and all(isinstance(n, int) and n >= 1 for n in lines)
+        and lines[0] <= lines[1]
+    ):
+        return DeclarationUnreadable(
+            f"{where} needs lines = [first, last], first <= last"
+        )
+    return Region(str(entry["file"]), lines[0], lines[1], layer)
+
+
+def _layers(value: object) -> Layers | DeclarationUnreadable:
+    if not isinstance(value, dict):
+        return DeclarationUnreadable(f"{DECLARATION_PATH}: layers is a table")
+    globs: list[tuple[Layer, str]] = []
+    regions: list[Region] = []
+    marker_files: list[str] = []
+    for key, patterns in value.items():
+        if key == REGIONS_KEY:
+            if not isinstance(patterns, list):
+                return DeclarationUnreadable(
+                    f"{DECLARATION_PATH}: layers.regions is a list"
+                )
+            for number, entry in enumerate(patterns, start=1):
+                region = _region(entry, number)
+                if isinstance(region, DeclarationUnreadable):
+                    return region
+                if isinstance(region, Region):
+                    regions.append(region)
+                else:
+                    marker_files.append(region)
+            continue
+        layer = LAYER_NAMES.get(key)
+        if layer is None:
+            return DeclarationUnreadable(f"{DECLARATION_PATH}: {key} is not a layer")
+        if not isinstance(patterns, list) or not all(
+            isinstance(p, str) for p in patterns
+        ):
+            return DeclarationUnreadable(
+                f"{DECLARATION_PATH}: layers.{key} is a list of path patterns"
+            )
+        globs.extend((layer, pattern) for pattern in patterns)
+    return Layers(tuple(globs), tuple(regions), tuple(marker_files))
 
 
 def _text_field(entry: Mapping[str, object], key: str) -> str | None:
@@ -152,10 +316,14 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
         return DeclarationUnreadable(
             f"{DECLARATION_PATH}: unknown table(s): {', '.join(unknown)}"
         )
+    layers = _layers(document.get("layers", {}))
+    if isinstance(layers, DeclarationUnreadable):
+        return layers
     exemptions = _exemptions(document.get("exemptions", []))
     if isinstance(exemptions, DeclarationUnreadable):
         return exemptions
     return Declaration(
+        layers=layers,
         exemptions=tuple(e for e in exemptions if not is_declared_check(e.check)),
         refused_exemptions=tuple(
             RefusedExemption(e, DECLARED_REFUSAL)
