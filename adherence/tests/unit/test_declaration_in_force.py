@@ -204,3 +204,44 @@ def test_judge_change_where_reviews_are_unknown_keeps_the_landed_declaration() -
     (finding,) = report.findings
     assert finding.exempt == "kept until the rewrite"
     assert report.verdict is Verdict.HELD
+
+
+def test_judge_change_after_an_edit_approved_only_by_its_author_refuses_it() -> None:
+    """Given a declaration edit approved only by the author of the pull
+    request that landed it, a code owner by CODEOWNERS, When the next change
+    is judged, Then the edit is not in force and the report says why."""
+    report = _judged(
+        FakeReviews(
+            {
+                BASE.revision: Landing(
+                    author="Carol", approvals=(Approval("carol", REVIEWED_NEWEST),)
+                ),
+                EARLIER: _approved_earlier(),
+            }
+        ),
+        codeowners=b"/adherence.toml @owner @carol\n",
+    )
+
+    _judged_under_the_earlier(report)
+    assert any(
+        "carol" in n and "author" in n and "Q11" in n for n in _notices(report)
+    ), _notices(report)
+
+
+def test_judge_change_after_the_owner_approved_their_own_edit_refuses_it() -> None:
+    """Given a declaration edit the owner both authored and approved (design
+    Q11, still open), When the next change is judged, Then the approval is
+    refused until the owner rules, and the report says why."""
+    report = _judged(
+        FakeReviews(
+            {
+                BASE.revision: Landing(
+                    author="owner", approvals=(Approval("owner", REVIEWED_NEWEST),)
+                ),
+                EARLIER: _approved_earlier(),
+            }
+        )
+    )
+
+    _judged_under_the_earlier(report)
+    assert any("owner" in n and "Q11" in n for n in _notices(report))

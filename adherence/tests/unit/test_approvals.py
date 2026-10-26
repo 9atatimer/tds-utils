@@ -132,3 +132,15 @@ def test_a_team_or_email_entry_counts_as_no_owner_and_is_a_notice() -> None:
     assert not counting.in_force
     notices = " ".join(n.message for n in counting.notices)
     assert "@org/team" in notices and "someone@example.com" in notices
+
+
+def test_an_approval_by_the_prs_author_is_refused_whoever_they_are() -> None:
+    """Given a code owner's approval of the landed bytes, given by the PR's
+    author (any letter case), When the landing is counted, Then it is not in
+    force and the notice names the open question."""
+    counting = counted_landing(
+        _landing(Approval("owner", REVIEWED), author="OWNER"), OWNERS
+    )
+
+    assert not counting.in_force
+    assert any("author" in n.message and "Q11" in n.message for n in counting.notices)
