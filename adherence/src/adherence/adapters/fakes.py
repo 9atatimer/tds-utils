@@ -275,19 +275,50 @@ class FakeRecords:
 
 
 class FakeDecision:
-    """DecisionPort that gives every schema the one answer the test scripts:
-    a Decision, Unavailable, or TimedOut. It keeps every state it was asked
-    about, in order."""
+    """DecisionPort answering each question of a schema with the probabilities
+    the test scripts for its question id -- or, for a unit whose symbol
+    `per_symbol` names, those scripted there -- and a question nothing
+    scripts with an even spread over its options. A question id in
+    `uncalibrated` is answered label-only. `answers` may instead script one
+    failure, Unavailable or TimedOut, for every schema. It keeps every state
+    and schema it was asked about, in order."""
 
-    def __init__(self, answer: Decision | Unavailable | TimedOut) -> None:
-        self._answer = answer
+    def __init__(
+        self,
+        answers: Mapping[str, Mapping[str, float]] | Unavailable | TimedOut,
+        *,
+        per_symbol: Mapping[str, Mapping[str, Mapping[str, float]]] | None = None,
+        uncalibrated: frozenset[str] = frozenset(),
+    ) -> None:
+        self._answers = answers
+        self._per_symbol = per_symbol or {}
+        self._uncalibrated = uncalibrated
         self.asked: list[tuple[State, Schema]] = []
 
     def decide(
         self, state: State, schema: Schema, deadline: Deadline | None
     ) -> Decision | Unavailable | TimedOut:
         self.asked.append((state, schema))
-        return self._answer
+        if isinstance(self._answers, Unavailable | TimedOut):
+            return self._answers
+        scripted = {
+            **self._answers,
+            **self._per_symbol.get(state.unit.symbol or "", {}),
+        }
+        return Decision(
+            {
+                key: scripted.get(
+                    question.id,
+                    {o: 1.0 / len(question.options) for o in question.options},
+                )
+                for key, question in schema.questions.items()
+            },
+            uncalibrated=frozenset(
+                key
+                for key, question in schema.questions.items()
+                if question.id in self._uncalibrated
+            ),
+        )
 
 
 class FakeReviews:
