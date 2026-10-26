@@ -37,7 +37,9 @@ REPORT = Report(
     units=(UNIT, replace(UNIT, kind=UnitKind.FILE, symbol=None, layer=None)),
     verdict=Verdict.LOWERED,
     reasons=("Stub did not run on src/a.py",),
-    removed=(replace(FINDING, provenance=None, reached=Layer.ADAPTERS),),
+    removed=(
+        replace(FINDING, provenance=None, reached=Layer.ADAPTERS, exempt="a reason"),
+    ),
     bodies=(BodyDigest(UNIT.path, "tidy", "b" * 64),),
     identity=IDENTITY,
     repository="example",

@@ -16,7 +16,7 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import ClassVar
 
-from adherence.domain.finding import Notice
+from adherence.domain.finding import Finding, Notice
 from adherence.domain.model import Layer, Region
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import Quality, check_named
@@ -546,6 +546,46 @@ def widened(
             (*layers.regions, *regions),
             (*layers.marker_files, *markers),
         ),
+    )
+
+
+def _silencing(finding: Finding, declaration: Declaration) -> Exemption | None:
+    """The first exemption that silences the finding: one dismissing it by
+    its identity, or one naming its check and a unit pattern its path
+    matches."""
+    return next(
+        (
+            e
+            for e in declaration.exemptions
+            if e.finding == finding.identity
+            or (
+                e.check == finding.check.name
+                and e.unit is not None
+                and matches(e.unit, finding.unit.path)
+            )
+        ),
+        None,
+    )
+
+
+def exempted(
+    findings: tuple[Finding, ...], declaration: Declaration
+) -> tuple[tuple[Finding, ...], tuple[Notice, ...]]:
+    """Each finding, marked with the reason of the exemption that silences
+    it; and a notice per exemption that silenced one, naming it and its
+    reason beside the check."""
+    marked: list[Finding] = []
+    applied: list[Exemption] = []
+    for finding in findings:
+        exemption = _silencing(finding, declaration)
+        if exemption is None:
+            marked.append(finding)
+            continue
+        marked.append(replace(finding, exempt=exemption.reason))
+        if exemption not in applied:
+            applied.append(exemption)
+    return tuple(marked), tuple(
+        Notice(f"exemption applied: {_target(e)}: {e.reason}") for e in applied
     )
 
 

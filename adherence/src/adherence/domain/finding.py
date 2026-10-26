@@ -42,7 +42,8 @@ class Evidence:
 class Finding:
     """One check failing on one unit. `subject` is what the finding names
     (the vendor, the cycle, the port, the seam); `reached` is the layer a
-    layer finding reached, when it reached one."""
+    layer finding reached, when it reached one; `exempt` is the reason of
+    the exemption that silences it, when one does."""
 
     check: Check
     unit: Unit
@@ -52,6 +53,7 @@ class Finding:
     reached: Layer | None = None
     kind: CheckKind = CheckKind.RULE
     provenance: Provenance | None = None
+    exempt: str | None = None
 
     @property
     def identity(self) -> str:

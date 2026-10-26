@@ -173,9 +173,13 @@ def compared(*, base: Report, head: Report, change: Change) -> Report:
     known_flaws = tuple(
         f for f in base.findings if f.check.quality is not Quality.DECLARED
     )
+    # An exempt finding counts as neither introduced nor removed.
+    removable = tuple(f for f in known_flaws if f.exempt is None)
     known = frozenset(joins.base_key(f) for f in known_flaws)
     marked = tuple(
-        replace(
+        f
+        if f.exempt is not None
+        else replace(
             f,
             provenance=(
                 Provenance.EXISTING
@@ -186,7 +190,7 @@ def compared(*, base: Report, head: Report, change: Change) -> Report:
         for f in head.findings
     )
     seen = _seen(head, joins)
-    removed = tuple(f for f in known_flaws if _is_removed(f, joins, head, seen))
+    removed = tuple(f for f in removable if _is_removed(f, joins, head, seen))
     introduced = any(f.provenance is Provenance.INTRODUCED for f in marked)
     return replace(
         head,

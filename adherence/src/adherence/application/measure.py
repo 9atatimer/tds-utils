@@ -18,6 +18,7 @@ from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
     Declaration,
     DeclarationUnreadable,
+    exempted,
     refusal_notices,
     with_overrides,
 )
@@ -183,10 +184,14 @@ def measure(
             else read_radar
         )
     checked = run_checks(whole, declaration, design, parameters, radar=tech)
+    findings, applied = exempted(
+        quoted(checked.findings, sources, parameters.limits.evidence_bound),
+        declaration,
+    )
     return Report(
         ran=tuple(c for c in checked.ran if c.name not in unmeasured_checks),
-        findings=quoted(checked.findings, sources, parameters.limits.evidence_bound),
-        notices=refusal_notices(declaration),
+        findings=findings,
+        notices=(*refusal_notices(declaration), *applied),
         coverage=(*coverage, *unmodelled(whole, declaration), *checked.coverage),
         units=whole.units,
         bodies=tuple(

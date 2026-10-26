@@ -99,6 +99,7 @@ def _finding_data(finding: Finding) -> JSON:
         "reached": _optional(finding.reached),
         "kind": finding.kind.value,
         "provenance": _optional(finding.provenance),
+        "exempt": finding.exempt,
     }
 
 
@@ -212,6 +213,7 @@ def _finding(value: object) -> Finding:
         reached=_layer(_maybe_text(data, "reached")),
         kind=CheckKind(_text(data, "kind")),
         provenance=Provenance(provenance) if provenance is not None else None,
+        exempt=_maybe_text(data, "exempt"),
     )
 
 
