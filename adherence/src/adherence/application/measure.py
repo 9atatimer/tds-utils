@@ -21,7 +21,7 @@ from adherence.application.latch import (
     LatchedRepository,
     latched_analyzers,
 )
-from adherence.domain.checks.run import run_checks
+from adherence.domain.checks.run import each_check, gathered
 from adherence.domain.coverage import Coverage, unmeasured, unmodelled
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
@@ -51,6 +51,7 @@ from adherence.domain.report import (
     JUDGE_UNASKED,
     SUITE_VERSION,
     BodyDigest,
+    FinishedCheck,
     Report,
     ReportIdentity,
     body_digest,
@@ -63,6 +64,7 @@ from adherence.ports.decision import DecisionPort
 from adherence.ports.duplication import DuplicationPort
 from adherence.ports.records import RecordsPort
 from adherence.ports.repository import Absent, Refused, RepositoryPort
+from adherence.ports.worker import FinishedSink
 
 UNDECLARED = RecordsUnavailable("the repository has no declaration to name a record")
 
@@ -124,7 +126,24 @@ def _metrics(
     return Coverage(f"{answer.operation}: timed out", check=check)
 
 
-def measure(
+def _as_reported(
+    check: FinishedCheck,
+    sources: Mapping[str, bytes],
+    declaration: Declaration,
+    parameters: Parameters,
+    unmeasured: set[str],
+) -> FinishedCheck:
+    """A finished check as the Report shows it: evidence quoted within the
+    bound, exemptions applied, and not run when its metrics were not."""
+    findings, _ = exempted(
+        quoted(check.findings, sources, parameters.limits.evidence_bound),
+        declaration,
+    )
+    ran = check.ran and check.check.name not in unmeasured
+    return replace(check, findings=findings, ran=ran)
+
+
+def measure_reporting(
     at: Base | Head,
     declaration: Declaration | DeclarationUnreadable,
     *,
@@ -136,10 +155,11 @@ def measure(
     judge: DecisionPort,
     parameters: Parameters,
     deadline: Deadline | None,
+    finished: FinishedSink | None,
 ) -> Report:
-    """The Report of every target-level check over the target. Once any
-    port answers TimedOut, no port is asked anything more: what is left is
-    coverage."""
+    """measure, reporting each check to `finished` as it finishes, its
+    evidence quoted and its exemptions applied as the Report will have
+    them: the job judge_bounded runs reports the head's checks this way."""
     if isinstance(declaration, DeclarationUnreadable):
         return Report.not_run(f"the declaration cannot be read: {declaration.reason}")
     latch = Latch()
@@ -211,7 +231,14 @@ def measure(
             if isinstance(read_radar, TimedOut)
             else read_radar
         )
-    checked = run_checks(whole, declaration, design, parameters, radar=tech)
+    done: list[FinishedCheck] = []
+    for check in each_check(whole, declaration, design, parameters, radar=tech):
+        done.append(check)
+        if finished is not None:
+            finished(
+                _as_reported(check, sources, declaration, parameters, unmeasured_checks)
+            )
+    checked = gathered(tuple(done))
     findings, applied = exempted(
         quoted(checked.findings, sources, parameters.limits.evidence_bound),
         declaration,
@@ -229,4 +256,35 @@ def measure(
         ),
         identity=identity,
         revision=at.revision,
+    )
+
+
+def measure(
+    at: Base | Head,
+    declaration: Declaration | DeclarationUnreadable,
+    *,
+    repository: RepositoryPort,
+    analyzers: Mapping[CodeLanguage, CodeModelPort],
+    complexity: ComplexityPort,
+    duplication: DuplicationPort,
+    records: RecordsPort,
+    judge: DecisionPort,
+    parameters: Parameters,
+    deadline: Deadline | None,
+) -> Report:
+    """The Report of every target-level check over the target. Once any
+    port answers TimedOut, no port is asked anything more: what is left is
+    coverage."""
+    return measure_reporting(
+        at,
+        declaration,
+        repository=repository,
+        analyzers=analyzers,
+        complexity=complexity,
+        duplication=duplication,
+        records=records,
+        judge=judge,
+        parameters=parameters,
+        deadline=deadline,
+        finished=None,
     )

@@ -22,7 +22,7 @@ from adherence.application.latch import (
     latched_analyzers,
 )
 from adherence.application.load import load_declaration
-from adherence.application.measure import measure
+from adherence.application.measure import measure_reporting
 from adherence.domain.checks.declared import (
     COVERED,
     RECORD_KEPT,
@@ -52,6 +52,7 @@ from adherence.ports.records import RecordsPort
 from adherence.ports.report_store import ReportStore
 from adherence.ports.repository import Refused, RepositoryPort
 from adherence.ports.review import ReviewPort
+from adherence.ports.worker import FinishedSink
 
 UNMEASURABLE = (
     "the base cannot be measured under the head's suite, declaration, "
@@ -73,9 +74,12 @@ class _Measuring:
     deadline: Deadline | None
 
     def measure(
-        self, at: Base | Head, declaration: Declaration | DeclarationUnreadable
+        self,
+        at: Base | Head,
+        declaration: Declaration | DeclarationUnreadable,
+        finished: FinishedSink | None = None,
     ) -> Report:
-        return measure(
+        return measure_reporting(
             at,
             declaration,
             repository=self.repository,
@@ -86,6 +90,7 @@ class _Measuring:
             judge=self.judge,
             parameters=self.parameters,
             deadline=self.deadline,
+            finished=finished,
         )
 
 
@@ -140,7 +145,7 @@ def _not_run(change: Change, reason: str) -> Report:
     )
 
 
-def judge_change(
+def judge_change_reporting(
     change: Change,
     *,
     repository: RepositoryPort,
@@ -153,8 +158,12 @@ def judge_change(
     reports: ReportStore,
     parameters: Parameters,
     deadline: Deadline | None,
+    finished: FinishedSink | None,
 ) -> Report:
-    """The change's Report: the head's findings with their provenance, the
+    """judge_change, reporting each of the head's checks to `finished` as it
+    finishes: the job judge_bounded runs.
+
+    The change's Report: the head's findings with their provenance, the
     base findings removed, and the verdict.
 
     The declaration in force is the base's; which landed revision of it a
@@ -199,7 +208,7 @@ def judge_change(
         )
     proposed = load_declaration(change.head, repository=repository, deadline=deadline)
     declaration = widened(in_force=in_force, proposed=proposed, created=change.created)
-    head = measuring.measure(change.head, declaration)
+    head = measuring.measure(change.head, declaration, finished)
     if head.not_run_reason is not None:
         return replace(
             compared(base=Report(), head=head, change=change),
@@ -231,4 +240,36 @@ def judge_change(
     head = replace(head, notices=(*head.notices, *edits))
     return replace(
         compared(base=base, head=head, change=change), repository=change.repository
+    )
+
+
+def judge_change(
+    change: Change,
+    *,
+    repository: RepositoryPort,
+    reviews: ReviewPort,
+    analyzers: Mapping[CodeLanguage, CodeModelPort],
+    complexity: ComplexityPort,
+    duplication: DuplicationPort,
+    records: RecordsPort,
+    judge: DecisionPort,
+    reports: ReportStore,
+    parameters: Parameters,
+    deadline: Deadline | None,
+) -> Report:
+    """The change's Report: the head's findings with their provenance, the
+    base findings removed, and the verdict (judge_change_reporting)."""
+    return judge_change_reporting(
+        change,
+        repository=repository,
+        reviews=reviews,
+        analyzers=analyzers,
+        complexity=complexity,
+        duplication=duplication,
+        records=records,
+        judge=judge,
+        reports=reports,
+        parameters=parameters,
+        deadline=deadline,
+        finished=None,
     )

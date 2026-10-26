@@ -6,7 +6,7 @@ once per target.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, replace
 
 from adherence.domain.checks import (
@@ -31,6 +31,7 @@ from adherence.domain.model import CodeModel, UnitKind, within
 from adherence.domain.parameters import Parameters
 from adherence.domain.qualities import CATALOG, Check, CheckKind, Quality
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
+from adherence.domain.report import FinishedCheck
 
 # --- Constants ---------------------------------------------------------------
 
@@ -142,6 +143,43 @@ def _errored(check: Check, error: Exception, given: _Inputs) -> CheckOutcome:
     )
 
 
+def each_check(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+    *,
+    radar: Radar | RecordsUnavailable = NO_RADAR,
+    checks: Mapping[str, CheckFunction] = TARGET_CHECKS,
+) -> Iterator[FinishedCheck]:
+    """Every check over the model, in catalog order, each as it finishes: an
+    implemented one by its outcome, any other as coverage. The Radar-true
+    checks read the radar. A check that raises is caught here, once, and is
+    coverage naming the error."""
+    given = _Inputs(model, declaration, records, parameters, radar, checks)
+    for check in CATALOG:
+        try:
+            outcome = _outcome(check, given)
+        except Exception as error:  # the check boundary (Use-case surface)
+            outcome = _errored(check, error, given)
+        if outcome is None:
+            yield FinishedCheck(check, coverage=(_not_run(check),), ran=False)
+        else:
+            yield FinishedCheck(
+                check, outcome.findings, outcome.coverage, ran=outcome.ran
+            )
+
+
+def gathered(finished: Iterator[FinishedCheck] | tuple[FinishedCheck, ...]) -> Checked:
+    """What the finished checks did, together."""
+    done = tuple(finished)
+    return Checked(
+        ran=tuple(f.check for f in done if f.ran),
+        findings=tuple(finding for f in done for finding in f.findings),
+        coverage=tuple(c for f in done for c in f.coverage),
+    )
+
+
 def run_checks(
     model: CodeModel,
     declaration: Declaration,
@@ -152,22 +190,7 @@ def run_checks(
     checks: Mapping[str, CheckFunction] = TARGET_CHECKS,
 ) -> Checked:
     """Every implemented check over the model, in catalog order; every
-    other check is coverage. The Radar-true checks read the radar. A check
-    that raises is caught here, once, and is coverage naming the error."""
-    given = _Inputs(model, declaration, records, parameters, radar, checks)
-    ran: list[Check] = []
-    findings: list[Finding] = []
-    coverage: list[Coverage] = []
-    for check in CATALOG:
-        try:
-            outcome = _outcome(check, given)
-        except Exception as error:  # the check boundary (Use-case surface)
-            outcome = _errored(check, error, given)
-        if outcome is None:
-            coverage.append(_not_run(check))
-            continue
-        if outcome.ran:
-            ran.append(check)
-        findings.extend(outcome.findings)
-        coverage.extend(outcome.coverage)
-    return Checked(tuple(ran), tuple(findings), tuple(coverage))
+    other check is coverage (each_check, gathered)."""
+    return gathered(
+        each_check(model, declaration, records, parameters, radar=radar, checks=checks)
+    )
