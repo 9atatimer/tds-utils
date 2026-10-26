@@ -15,6 +15,7 @@ from adherence.cli.presenters.json_report import report_document
 from adherence.domain.deadline import TimedOut
 from adherence.domain.finding import Finding
 from adherence.domain.model import (
+    Assertion,
     Body,
     Call,
     CodeModel,
@@ -25,6 +26,7 @@ from adherence.domain.model import (
     Reference,
     ReferenceKind,
     Target,
+    TestCase,
     Write,
 )
 from adherence.domain.parameters import Limits
@@ -35,12 +37,13 @@ from adherence.domain.questions import (
     RULES_ELSEWHERE,
     SAME_CONCEPT,
     SCATTERED_POLICY,
+    THEN_ASSERTED,
     TWO_JOBS,
     BandThreshold,
     ThresholdPolicy,
     Unavailable,
 )
-from adherence.domain.records import DesignRecords, Term
+from adherence.domain.records import Behavior, DesignRecords, SurfaceRow, Term
 from adherence.domain.report import Report
 from tests.facts_kit import (
     FS,
@@ -568,3 +571,83 @@ def test_measure_all_fields_type_whose_rules_live_elsewhere_is_found(
     assert finding.kind is CheckKind.JUDGED
     assert finding.confidence == pytest.approx(yes)
     assert "Receipt" in finding.subject and "issue" in finding.subject
+
+
+# --- A test that skips the Then is found ----------------------------------------------
+
+CLOSED = "An order is closed"
+SURFACE = "docs/design/ARCHITECTURE.APP.md"
+SCENARIO = "Given an open order, When it is closed, Then the store holds it closed"
+SURFACED = DesignRecords(
+    behaviors=(
+        Behavior(CLOSED, SCENARIO, DESIGN, 9),
+        Behavior("An order is priced", "Given a, When b, Then c", DESIGN, 10),
+    ),
+    surface=(
+        SurfaceRow(CLOSED, "close_order", "docs/design/ARCHITECTURE.APP.md", 12),
+        SurfaceRow(
+            "An order is priced", "price", "docs/design/ARCHITECTURE.APP.md", 13
+        ),
+    ),
+)
+
+
+def _not_asserted(p: float) -> dict[str, float]:
+    return {"not asserted": p, "partly": 1.0 - p, "fully": 0.0}
+
+
+@pytest.mark.parametrize(("mass", "found"), [(0.8, True), (0.9, True), (0.79, False)])
+def test_measure_kept_test_that_skips_the_then_is_found(
+    mass: float, found: bool
+) -> None:
+    """Given a design behavior whose use case a test calls, and a behavior
+    whose use case no test calls, When Then asserted runs with the judge's
+    mass on `not asserted` at, above or just below the threshold, Then only
+    the kept test is asked about, its body as the state and the row's Then
+    as the data, and a judged finding names the test and the behavior, with
+    its confidence, only at or above the threshold."""
+    definitions = (
+        function(USE, "close_order", 1, end=5),
+        function(RULES, "price", 1, end=5),
+        _bodied(function(TEST, "test_close", 1, end=4), "close_order(order)"),
+    )
+    calls = (
+        Call(
+            TEST,
+            2,
+            "test_close",
+            "close_order",
+            Target("close_order", USE, "close_order"),
+        ),
+    )
+    cases = (TestCase(TEST, "test_close", 1, ("close_order",), (Assertion("order"),)),)
+    judge = FakeDecision(
+        {THEN_ASSERTED.id: _not_asserted(mass), TWO_JOBS.id: _yes(0.1)}
+    )
+
+    report = measure_with(
+        FILES,
+        CodeModel(definitions=definitions, calls=calls, test_cases=cases),
+        records=SURFACED,
+        judge=judge,
+        thresholds=ThresholdPolicy({THEN_ASSERTED.id: BAND, TWO_JOBS.id: BAND}),
+    )
+
+    assert "Then asserted" in [c.name for c in report.ran]
+    ((state, key),) = [
+        (state, key)
+        for state, schema in judge.asked
+        for key, q in schema.questions.items()
+        if q.id == THEN_ASSERTED.id
+    ]
+    assert state.unit.symbol == "test_close"
+    assert "close_order(order)" in state.text
+    assert "Then the store holds it closed" in state.context[key]
+    findings = _of(report, "Then asserted")
+    if not found:
+        assert findings == []
+        return
+    (finding,) = findings
+    assert finding.kind is CheckKind.JUDGED
+    assert finding.confidence == pytest.approx(mass)
+    assert "test_close" in finding.subject and CLOSED in finding.subject
