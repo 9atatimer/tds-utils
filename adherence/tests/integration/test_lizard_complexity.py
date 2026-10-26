@@ -11,7 +11,7 @@ import pytest
 from adherence.adapters.lizard import LizardComplexity
 from adherence.domain.model import Metrics, MetricsUnavailable
 from adherence.ports.complexity import ComplexityPort
-from tests.complexity_contract import SOURCES, ComplexityContract
+from tests.complexity_contract import RULES, SOURCES, ComplexityContract
 
 LIZARD_ABSENT = importlib.util.find_spec("lizard") is None
 
@@ -62,4 +62,22 @@ def test_measure_ignores_the_measured_sources_own_lizard_directives() -> None:
         ("forgiven", 3),
         ("generated", 3),
         ("after", 3),
+    }
+
+
+@pytest.mark.skipif(LIZARD_ABSENT, reason="lizard is not installed (uv sync)")
+def test_measure_of_a_path_holding_a_newline_still_measures_it() -> None:
+    """Given a source whose repository path holds a newline beside an
+    ordinary one, When complexity is measured, Then the functions of both
+    are named by their repository paths: no path splits the file list and
+    drops its functions (Self-review R9)."""
+    odd = "src/pkg/odd\nname.py"
+    sources = {odd: b"def odd(x):\n" + BRANCHY, RULES: b"def plain(x):\n" + BRANCHY}
+
+    answer = LizardComplexity().measure(sources, None)
+
+    assert isinstance(answer, Metrics), answer
+    assert {(c.path, c.symbol) for c in answer.complexity} == {
+        (odd, "odd"),
+        (RULES, "plain"),
     }
