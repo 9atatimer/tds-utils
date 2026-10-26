@@ -10,7 +10,7 @@ answered.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from adherence.domain.checks.run import run_checks
 from adherence.domain.coverage import Coverage, unmeasured, unmodelled
@@ -144,6 +144,16 @@ def measure(
         return Report.not_run(f"the repository cannot be read: {paths.operation}")
     if isinstance(paths, Refused):
         return Report.not_run(f"the repository cannot be read: {paths.reason}")
+    measured = {language.value for language in analyzers}
+    if not any(language_of(path) in measured for path in paths):
+        # Not run, and still naming every source no analyzer measures.
+        return replace(
+            Report.not_run(
+                "no unit in a measured language "
+                f"({', '.join(sorted(measured)) or 'none bound'})"
+            ),
+            coverage=unmeasured(paths, analyzers.keys()),
+        )
     models: list[CodeModel] = []
     sources: dict[str, bytes] = {}
     coverage: list[Coverage] = list(unmeasured(paths, analyzers.keys()))
