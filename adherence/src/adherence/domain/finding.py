@@ -67,13 +67,18 @@ class Finding:
         its whitespace collapsed, however much of it the evidence quotes.
         No path, symbol or line number is in it, so a
         moved file, a renamed function or an edit above leaves it alone; the
-        path is joined at judging, through the renames."""
+        path is joined at judging, through the renames. A judged finding's
+        kind is digested too, so it never shares an identity with the rule
+        finding of its check on the same line; a rule finding's digest is
+        as it always was."""
+        judged = (CheckKind.JUDGED.value,) if self.kind is CheckKind.JUDGED else ()
         parts = (
             self.check.quality.value,
             self.check.name,
             self.layer.value if self.layer is not None else "",
             self.unit.kind.value,
             self.evidence.digest or line_digest(self.evidence.text),
+            *judged,
         )
         return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
 
