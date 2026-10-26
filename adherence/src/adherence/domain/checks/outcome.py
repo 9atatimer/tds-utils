@@ -2,7 +2,9 @@
 
 Every target-level check is `(CodeModel, Declaration, DesignRecords,
 Parameters) -> CheckOutcome`, pure (ARCHITECTURE.ARCH-ADHERENCE.md,
-Mechanism > Measurement).
+Mechanism > Measurement). A judged check, and the judged part of a check
+with one, returns the questions it puts to the judge; it finds nothing by
+itself.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from adherence.domain.declaration import Declaration
 from adherence.domain.finding import Finding
 from adherence.domain.model import CodeModel
 from adherence.domain.parameters import Parameters
+from adherence.domain.questions import Ask
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 
 # --- Constants ---------------------------------------------------------------
@@ -26,12 +29,14 @@ NEEDS_DECLARATION = "needs a declaration; the repository has none"
 
 @dataclass(frozen=True, slots=True)
 class CheckOutcome:
-    """The findings one check produced, and what it could not cover. A check
-    that could not run at all says so with `ran` false and its coverage."""
+    """The findings one check produced, the questions it puts to the judge,
+    and what it could not cover. A check that could not run at all says so
+    with `ran` false and its coverage."""
 
     findings: tuple[Finding, ...] = ()
     coverage: tuple[Coverage, ...] = ()
     ran: bool = True
+    questions: tuple[Ask, ...] = ()
 
 
 CheckFunction = Callable[

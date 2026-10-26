@@ -26,6 +26,7 @@ from adherence.domain.finding import Finding
 from adherence.domain.model import CodeModel
 from adherence.domain.parameters import Parameters
 from adherence.domain.qualities import CATALOG, Check, CheckKind, Quality
+from adherence.domain.questions import Ask
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 
 # --- Constants ---------------------------------------------------------------
@@ -54,6 +55,7 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Purity": layered.purity,
     "Wiring": layered.wiring,
     "Anatomy": layered.anatomy,
+    "Two jobs": layered.two_jobs,
 }
 RADAR_CHECKS: Mapping[str, RadarCheckFunction] = {
     "Dependency": radar.dependency,
@@ -70,11 +72,13 @@ NO_JUDGE_YET = "a judged check: none is implemented in this suite version"
 @dataclass(frozen=True, slots=True)
 class Checked:
     """What the target-level checks did: the checks that ran, their
-    findings, and every check that did not run, with why."""
+    findings, the questions they put to the judge, and every check that did
+    not run, with why."""
 
     ran: tuple[Check, ...]
     findings: tuple[Finding, ...]
     coverage: tuple[Coverage, ...]
+    questions: tuple[Ask, ...] = ()
 
 
 # --- Pure helpers ------------------------------------------------------------
@@ -102,6 +106,7 @@ def run_checks(
     ran: list[Check] = []
     findings: list[Finding] = []
     coverage: list[Coverage] = []
+    questions: list[Ask] = []
     for check in CATALOG:
         run = TARGET_CHECKS.get(check.name)
         on_radar = RADAR_CHECKS.get(check.name)
@@ -116,4 +121,5 @@ def run_checks(
             ran.append(check)
         findings.extend(outcome.findings)
         coverage.extend(outcome.coverage)
-    return Checked(tuple(ran), tuple(findings), tuple(coverage))
+        questions.extend(outcome.questions)
+    return Checked(tuple(ran), tuple(findings), tuple(coverage), tuple(questions))
