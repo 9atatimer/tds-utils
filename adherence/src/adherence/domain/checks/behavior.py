@@ -61,7 +61,17 @@ def is_internal(name: str) -> bool:
     return name.startswith("_") and not name.startswith("__")
 
 
+def is_core_or_edge(layer: Layer | None) -> bool:
+    """Whether a unit is covered and not a test."""
+    return layer is not None and layer is not Layer.TEST
+
+
 # --- Pure helpers ------------------------------------------------------------
+
+
+def _definitions(model: CodeModel) -> dict[tuple[str, str], Definition]:
+    """Every definition, by its file and symbol."""
+    return {(d.unit.path, d.unit.symbol or ""): d for d in model.definitions}
 
 
 def calls_by_scope(model: CodeModel) -> dict[tuple[str, str | None], list[Call]]:
@@ -156,13 +166,19 @@ def real_assertion(
     return CheckOutcome(tuple(findings))
 
 
-def _internals(model: CodeModel) -> frozenset[str]:
-    """The private names the covered non-test definitions carry."""
-    return frozenset(
-        name
-        for d in model.definitions
-        if d.unit.layer is not None and d.unit.layer is not Layer.TEST
-        if is_internal(name := (d.unit.symbol or "").rpartition(".")[2])
+def _reaches_internal(
+    call: Call, definitions: Mapping[tuple[str, str], Definition]
+) -> bool:
+    """Whether a call resolves to a private definition of the repository's
+    covered non-test code."""
+    target = call.target
+    if target is None or target.path is None or target.symbol is None:
+        return False
+    found = definitions.get((target.path, target.symbol))
+    return (
+        found is not None
+        and is_core_or_edge(found.unit.layer)
+        and is_internal(target.symbol.rpartition(".")[2])
     )
 
 
@@ -173,18 +189,17 @@ def public_surface(
     parameters: Parameters,
 ) -> CheckOutcome:
     """No test reaches past a use case into a helper or an internal: a test
-    that calls a private definition of the repository's covered code is a
-    finding, at each such call."""
+    call that resolves to a private definition of the repository's covered
+    code is a finding, at each such call."""
     if not declaration.declared:
         return undeclared(PUBLIC_SURFACE.name)
-    internals = _internals(model)
+    definitions = _definitions(model)
     findings: list[Finding] = []
     for case, unit in _tests(model, declaration):
         for call in model.calls:
-            reached = call.callee.rpartition(".")[2]
             if call.path != case.path or call.within != case.symbol:
                 continue
-            if reached not in internals:
+            if not _reaches_internal(call, definitions):
                 continue
             findings.append(
                 Finding(
@@ -196,16 +211,6 @@ def public_surface(
                 )
             )
     return CheckOutcome(tuple(findings))
-
-
-def is_core_or_edge(layer: Layer | None) -> bool:
-    """Whether a unit is covered and not a test."""
-    return layer is not None and layer is not Layer.TEST
-
-
-def _definitions(model: CodeModel) -> dict[tuple[str, str], Definition]:
-    """Every definition, by its file and symbol."""
-    return {(d.unit.path, d.unit.symbol or ""): d for d in model.definitions}
 
 
 def _unambiguous(model: CodeModel) -> frozenset[str]:

@@ -75,9 +75,9 @@ def _function(path: str, symbol: str, line: int) -> Definition:
 def test_measure_with_a_test_past_the_surface_finds_what_it_reached() -> None:
     """Given a test that calls a use case and a public rule, one that reaches
     a private domain helper and an adapter's private method, and calls to a
-    private name the repository does not define and to the test file's own
-    helper, When Public surface runs, Then a finding names the test and each
-    internal it reached, at the call's line."""
+    private method of an object the analyzer cannot resolve and to the test
+    file's own helper, When Public surface runs, Then a finding names the
+    test and each internal it reached, at the call's line."""
     files = {TEST: b"x\n" * 30, RULES: b"x\n" * 10, FS: b"x\n" * 10, USE: b"x\n"}
     definitions = (
         _function(RULES, "price", 1),
@@ -87,17 +87,35 @@ def test_measure_with_a_test_past_the_surface_finds_what_it_reached() -> None:
         _function(TEST, "_make", 1),
     )
     calls = (
-        ("test_surface", 6, "run"),
-        ("test_surface", 7, "rules.price"),
-        ("test_reach", 11, "rules._round"),
-        ("test_reach", 12, "store._load"),
-        ("test_reach", 13, "mock._private"),
-        ("test_reach", 14, "_make"),
+        ("test_surface", 6, "run", Target("app.application.use.run", USE, "run")),
+        (
+            "test_surface",
+            7,
+            "rules.price",
+            Target("app.domain.rules.price", RULES, "price"),
+        ),
+        (
+            "test_reach",
+            11,
+            "rules._round",
+            Target("app.domain.rules._round", RULES, "_round"),
+        ),
+        (
+            "test_reach",
+            12,
+            "FsStore._load",
+            Target("app.adapters.fs.FsStore._load", FS, "FsStore._load"),
+        ),
+        ("test_reach", 13, "mock._private", None),
+        ("test_reach", 14, "_make", Target("_make", TEST, "_make")),
     )
     facts = CodeModel(
         units=tuple(d.unit for d in definitions),
         definitions=definitions,
-        calls=tuple(Call(TEST, line, within, callee) for within, line, callee in calls),
+        calls=tuple(
+            Call(TEST, line, within, callee, target)
+            for within, line, callee, target in calls
+        ),
         test_cases=(
             TestCase(
                 TEST, "test_surface", 5, ("run", "rules.price"), (Assertion("r"),)
@@ -106,7 +124,7 @@ def test_measure_with_a_test_past_the_surface_finds_what_it_reached() -> None:
                 TEST,
                 "test_reach",
                 10,
-                ("rules._round", "store._load", "mock._private", "_make"),
+                ("rules._round", "FsStore._load", "mock._private", "_make"),
                 (Assertion("r"),),
             ),
         ),
@@ -121,7 +139,7 @@ def test_measure_with_a_test_past_the_surface_finds_what_it_reached() -> None:
     }
     assert found == {
         ("test_reach", "test_reach -> rules._round", 11),
-        ("test_reach", "test_reach -> store._load", 12),
+        ("test_reach", "test_reach -> FsStore._load", 12),
     }
 
 
