@@ -35,8 +35,10 @@ from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 from adherence.domain.report import (
     JUDGE_UNASKED,
     SUITE_VERSION,
+    BodyDigest,
     Report,
     ReportIdentity,
+    body_digest,
     fingerprint,
 )
 from adherence.domain.target import Base, Head
@@ -182,6 +184,11 @@ def measure(
         notices=refusal_notices(declaration),
         coverage=(*coverage, *unmodelled(whole, declaration), *checked.coverage),
         units=whole.units,
+        bodies=tuple(
+            BodyDigest(d.unit.path, d.unit.symbol, body_digest(d.body.text))
+            for d in whole.definitions
+            if d.unit.symbol is not None
+        ),
         identity=identity,
         revision=at.revision,
     )

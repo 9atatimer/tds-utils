@@ -27,7 +27,13 @@ from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.finding import Evidence, Finding, Notice, Provenance
 from adherence.domain.model import Layer, Unit, UnitKind
 from adherence.domain.qualities import CheckKind, catalog_check, check_named
-from adherence.domain.report import Recorded, Report, ReportIdentity, Verdict
+from adherence.domain.report import (
+    BodyDigest,
+    Recorded,
+    Report,
+    ReportIdentity,
+    Verdict,
+)
 from adherence.domain.target import is_object_id
 from adherence.ports.report_store import StoreMiss
 
@@ -124,6 +130,10 @@ def report_data(report: Report) -> JSON:
         "verdict": report.verdict.value if report.verdict is not None else None,
         "reasons": list(report.reasons),
         "removed": [_finding_data(f) for f in report.removed],
+        "bodies": [
+            {"path": b.path, "symbol": b.symbol, "digest": b.digest}
+            for b in report.bodies
+        ],
         "identity": _identity_data(report.identity),
         "repository": report.repository,
         "revision": report.revision,
@@ -228,6 +238,11 @@ def _coverage(value: object) -> Coverage:
     )
 
 
+def _body(value: object) -> BodyDigest:
+    data = _table(value)
+    return BodyDigest(_text(data, "path"), _text(data, "symbol"), _text(data, "digest"))
+
+
 def report_from_data(data: Mapping[str, object]) -> Report:
     """The report a document holds; _Malformed when it holds none."""
     if data.get("format") != FORMAT:
@@ -250,6 +265,7 @@ def report_from_data(data: Mapping[str, object]) -> Report:
         verdict=Verdict(verdict) if verdict is not None else None,
         reasons=tuple(str(r) for r in reasons),
         removed=tuple(_finding(f) for f in _list(data, "removed")),
+        bodies=tuple(_body(b) for b in _list(data, "bodies")),
         identity=_identity(data.get("identity")),
         repository=_maybe_text(data, "repository"),
         revision=_maybe_text(data, "revision"),

@@ -17,7 +17,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from adherence.domain.coverage import Coverage
-from adherence.domain.finding import Finding, Notice
+from adherence.domain.finding import Finding, Notice, normalised
 from adherence.domain.model import Unit
 from adherence.domain.qualities import Check, Quality
 
@@ -57,6 +57,16 @@ class ReportIdentity:
 
 
 @dataclass(frozen=True, slots=True)
+class BodyDigest:
+    """A definition by path and symbol, and the digest of its normalised
+    body: what pairs a renamed definition with the one it was."""
+
+    path: str
+    symbol: str
+    digest: str
+
+
+@dataclass(frozen=True, slots=True)
 class Recorded:
     """Whether a report was kept, and, when it was not, the notice the
     presenter shows beside the report."""
@@ -80,8 +90,9 @@ class Verdict(enum.Enum):
 class Report:
     """One run's outcome: the checks that ran, every finding each produced,
     the notices and the coverage, and the units the run read, each with the
-    layer it is in. A run the suite could not perform is not run and
-    carries the reason; it holds nothing else, so it never reads as a pass.
+    layer it is in, and each definition's body digest. A run the suite
+    could not perform is not run and carries the reason; it holds nothing
+    else, so it never reads as a pass.
 
     For a change, the report is the head's, with the verdict and why, each
     finding's provenance, and the base findings the change removed."""
@@ -95,6 +106,7 @@ class Report:
     verdict: Verdict | None = None
     reasons: tuple[str, ...] = ()
     removed: tuple[Finding, ...] = ()
+    bodies: tuple[BodyDigest, ...] = ()
     identity: ReportIdentity | None = None
     repository: str | None = None
     revision: str | None = None
@@ -137,6 +149,12 @@ def _canonical(value: object) -> object:
     if value is None or isinstance(value, str | int | float | bool):
         return value
     raise TypeError(f"no canonical form for {type(value).__name__}")
+
+
+def body_digest(text: str) -> str:
+    """The digest of a body with its whitespace collapsed, so a re-indent or
+    a moved definition keeps it."""
+    return hashlib.sha256(normalised(text).encode("utf-8")).hexdigest()
 
 
 def fingerprint(value: object) -> str:

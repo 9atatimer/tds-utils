@@ -12,7 +12,10 @@ of not run, lowered, inconclusive, raised and held that applies.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+import re
+from collections import defaultdict
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 
 from adherence.domain.finding import Finding, Provenance
 from adherence.domain.model import UnitKind
@@ -24,7 +27,52 @@ from adherence.domain.target import Change
 # Units a record names rather than the code: covered wherever their check ran.
 RECORD_UNITS = frozenset({UnitKind.SEAM, UnitKind.BEHAVIOR})
 
+UnitKey = tuple[str, str | None]
+FindingKey = tuple[str, str]
+
 # --- Values ------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class _Joins:
+    """How the head names what the base named: files through the change's
+    renames, and definitions through their renames -- a head definition
+    whose body digest is that of exactly one base definition that
+    disappeared, and no other's. `definitions` maps the head's (path,
+    symbol) to the base's, its path already as the head names it."""
+
+    change: Change
+    definitions: Mapping[tuple[str, str], tuple[str, str]] = field(default_factory=dict)
+
+    def base_key(self, finding: Finding) -> FindingKey:
+        """A base finding's comparison key: its identity and its path as the
+        head names it."""
+        return finding.identity, self.change.at_head(finding.unit.path)
+
+    def head_key(self, finding: Finding) -> FindingKey:
+        """A head finding's comparison key: on a renamed definition, the
+        identity its evidence has under the old name, and the old path."""
+        unit = finding.unit
+        was = self.definitions.get((unit.path, unit.symbol or ""))
+        if was is None or unit.symbol is None:
+            return finding.identity, unit.path
+        text = re.sub(
+            rf"\b{re.escape(_short(unit.symbol))}\b",
+            _short(was[1]),
+            finding.evidence.text,
+        )
+        joined = replace(finding, evidence=replace(finding.evidence, text=text))
+        return joined.identity, was[0]
+
+    def unit_at_head(self, finding: Finding) -> UnitKey:
+        """The head's (path, symbol) for a base finding's unit."""
+        path = self.change.at_head(finding.unit.path)
+        symbol = finding.unit.symbol
+        renamed = next(
+            (now for now, was in self.definitions.items() if was == (path, symbol)),
+            None,
+        )
+        return renamed if renamed is not None else (path, symbol)
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,8 +80,8 @@ class _Head:
     """What the comparison reads of the head report: its findings' keys, the
     units it covers by path and symbol, and the checks that ran."""
 
-    keys: frozenset[tuple[str, str]]
-    covered: frozenset[tuple[str, str | None]]
+    keys: frozenset[FindingKey]
+    covered: frozenset[UnitKey]
     ran: frozenset[str]
 
 
@@ -41,9 +89,9 @@ class _Head:
 
 
 def _check_passed_on(finding: Finding, path: str, head: Report) -> bool:
-    """Whether the finding's check ran at the head and nothing kept it from
-    the head's path: no coverage of that check there or everywhere, and no
-    coverage of the path itself."""
+    """Whether nothing kept the finding's check from the head's path: no
+    coverage of that check there or everywhere, and no coverage of the path
+    itself."""
     name = finding.check.name
     return not any(
         (c.check == name and c.path in (None, path))
@@ -52,31 +100,51 @@ def _check_passed_on(finding: Finding, path: str, head: Report) -> bool:
     )
 
 
-def _is_removed(finding: Finding, change: Change, head: Report, seen: _Head) -> bool:
+def _is_removed(finding: Finding, joins: _Joins, head: Report, seen: _Head) -> bool:
     """Whether a base finding is removed: absent at the head, on a unit the
     head still covers, by a check that ran there and passed."""
-    path = change.at_head(finding.unit.path)
-    if (finding.identity, path) in seen.keys:
+    if joins.base_key(finding) in seen.keys:
         return False
     if finding.check.name not in seen.ran:
         return False
-    covered = (
-        finding.unit.kind in RECORD_UNITS or (path, finding.unit.symbol) in seen.covered
-    )
-    return covered and _check_passed_on(finding, path, head)
+    unit = joins.unit_at_head(finding)
+    covered = finding.unit.kind in RECORD_UNITS or unit in seen.covered
+    return covered and _check_passed_on(finding, unit[0], head)
 
 
 # --- Pure helpers ------------------------------------------------------------
 
 
-def _key(finding: Finding) -> tuple[str, str]:
-    """A head finding's comparison key: its identity and its path."""
-    return finding.identity, finding.unit.path
+def _short(symbol: str) -> str:
+    """A qualified symbol's own name: `neat` of `Rules.neat`."""
+    return symbol.rpartition(".")[2]
 
 
-def _seen(head: Report) -> _Head:
+def _definition_renames(
+    base: Report, head: Report, change: Change
+) -> dict[tuple[str, str], tuple[str, str]]:
+    """Each head definition paired with the base definition it was renamed
+    from, by a body digest that one definition lost and one gained."""
+    before = {(change.at_head(b.path), b.symbol): b.digest for b in base.bodies}
+    after = {(b.path, b.symbol): b.digest for b in head.bodies}
+    gone: defaultdict[str, list[tuple[str, str]]] = defaultdict(list)
+    come: defaultdict[str, list[tuple[str, str]]] = defaultdict(list)
+    for key, digest in before.items():
+        if key not in after:
+            gone[digest].append(key)
+    for key, digest in after.items():
+        if key not in before:
+            come[digest].append(key)
+    return {
+        news[0]: olds[0]
+        for digest, news in come.items()
+        if len(news) == 1 and len(olds := gone.get(digest, [])) == 1
+    }
+
+
+def _seen(head: Report, joins: _Joins) -> _Head:
     return _Head(
-        keys=frozenset(_key(f) for f in head.findings),
+        keys=frozenset(joins.head_key(f) for f in head.findings),
         covered=frozenset(
             (u.path, u.symbol) for u in head.units if u.layer is not None
         ),
@@ -97,18 +165,21 @@ def compared(base: Report, head: Report, change: Change) -> Report:
     existing, the base findings it removed, and the verdict."""
     if head.not_run_reason is not None:
         return replace(head, verdict=Verdict.NOT_RUN, reasons=(head.not_run_reason,))
-    known = frozenset((f.identity, change.at_head(f.unit.path)) for f in base.findings)
+    joins = _Joins(change, _definition_renames(base, head, change))
+    known = frozenset(joins.base_key(f) for f in base.findings)
     marked = tuple(
         replace(
             f,
             provenance=(
-                Provenance.EXISTING if _key(f) in known else Provenance.INTRODUCED
+                Provenance.EXISTING
+                if joins.head_key(f) in known
+                else Provenance.INTRODUCED
             ),
         )
         for f in head.findings
     )
-    seen = _seen(head)
-    removed = tuple(f for f in base.findings if _is_removed(f, change, head, seen))
+    seen = _seen(head, joins)
+    removed = tuple(f for f in base.findings if _is_removed(f, joins, head, seen))
     introduced = any(f.provenance is Provenance.INTRODUCED for f in marked)
     return replace(
         head,

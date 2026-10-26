@@ -33,7 +33,7 @@ from adherence.domain.parameters import Vocabulary
 from adherence.domain.questions import Decision, Schema, State, Unavailable
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 from adherence.domain.report import Recorded, Report
-from adherence.domain.target import Base, ChangedPaths, Head, is_object_id
+from adherence.domain.target import Base, ChangedPaths, Head, Rename, is_object_id
 from adherence.ports.report_store import StoreMiss
 from adherence.ports.repository import Absent, Refused
 
@@ -44,7 +44,8 @@ class FakeRepository:
     """RepositoryPort over a mapping of target -> path -> answer: the bytes,
     or the Refused or TimedOut the test scripts for that path. `unlisted`
     scripts the answer to every tree listing, `unlisted_at` to one target's.
-    What a change did is told from the two targets' files."""
+    What a change did is told from the two targets' files: a path gone and
+    one come with the same bytes is a rename."""
 
     def __init__(
         self,
@@ -77,12 +78,23 @@ class FakeRepository:
     ) -> ChangedPaths | Refused | TimedOut:
         before = self._files.get(base, {})
         after = self._files.get(head, {})
+        gone = sorted(set(before) - set(after))
+        come = sorted(set(after) - set(before))
+        renamed = [
+            Rename(old, new)
+            for old in gone
+            for new in come
+            if before[old] == after[new]
+            and [n for n in come if after[n] == before[old]] == [new]
+            and [o for o in gone if before[o] == after[new]] == [old]
+        ]
         return ChangedPaths(
-            created=tuple(sorted(set(after) - set(before))),
-            deleted=tuple(sorted(set(before) - set(after))),
+            created=tuple(p for p in come if p not in {r.new for r in renamed}),
+            deleted=tuple(p for p in gone if p not in {r.old for r in renamed}),
             modified=tuple(
                 sorted(p for p in set(before) & set(after) if before[p] != after[p])
             ),
+            renamed=tuple(renamed),
         )
 
 

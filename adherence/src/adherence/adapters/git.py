@@ -15,10 +15,11 @@ import os
 import posixpath
 import subprocess
 import time
+from dataclasses import replace
 from pathlib import Path
 
 from adherence.domain.deadline import Deadline, TimedOut
-from adherence.domain.target import Base, ChangedPaths, Head, HeadKind
+from adherence.domain.target import Base, ChangedPaths, Head, HeadKind, Rename
 from adherence.ports.repository import Absent, Refused
 
 # --- Constants ---------------------------------------------------------------
@@ -31,7 +32,8 @@ OUTSIDE_REFUSAL = "resolves outside the repository"
 SAFE_CONFIG = ("-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null")
 # A diff names paths only: no external diff driver, no text conversion.
 NAME_STATUS = ("diff", "--no-ext-diff", "--no-textconv", "--name-status", "-z")
-NO_RENAMES = ("--no-renames",)
+FIND_RENAMES = ("-M",)
+RENAMED = "R"
 
 
 class _Expired(Exception):
@@ -93,19 +95,28 @@ def _index_entries(listing: bytes) -> list[tuple[str, str, str]]:
 
 
 def _name_status(listing: bytes) -> ChangedPaths:
-    """The created, deleted and modified paths of `git diff --name-status -z`:
-    a status, then its path."""
+    """The created, deleted, modified and renamed paths of `git diff -M
+    --name-status -z`: a status, then its path, or for a rename its old path
+    and its new one."""
     fields = [f.decode("utf-8", "surrogateescape") for f in listing.split(b"\0")]
     created: list[str] = []
     deleted: list[str] = []
     modified: list[str] = []
-    for status, path in zip(fields[0::2], fields[1::2], strict=False):
-        if not status:
+    renamed: list[Rename] = []
+    index = 0
+    while index + 1 < len(fields) and fields[index]:
+        status, path = fields[index], fields[index + 1]
+        if status.startswith(RENAMED) and index + 2 < len(fields):
+            renamed.append(Rename(path, fields[index + 2]))
+            index += 3
             continue
-        bucket = {"A": created, "D": deleted}.get(status[0], modified)
-        bucket.append(path)
+        {"A": created, "D": deleted}.get(status[:1], modified).append(path)
+        index += 2
     return ChangedPaths(
-        tuple(sorted(created)), tuple(sorted(deleted)), tuple(sorted(modified))
+        tuple(sorted(created)),
+        tuple(sorted(deleted)),
+        tuple(sorted(modified)),
+        tuple(sorted(renamed, key=lambda r: r.new)),
     )
 
 
@@ -231,12 +242,12 @@ class GitRepository:
         else:
             against = [base.revision]
         found = _name_status(
-            self._git([*NAME_STATUS, *NO_RENAMES, *against, "--"], deadline)
+            self._git([*NAME_STATUS, *FIND_RENAMES, *against, "--"], deadline)
         )
         if head.kind is not HeadKind.WORKING_TREE:
             return found
         created = sorted({*found.created, *self._untracked(deadline)})
-        return ChangedPaths(tuple(created), found.deleted, found.modified)
+        return replace(found, created=tuple(created))
 
     def changed(
         self, base: Base, head: Head, deadline: Deadline | None

@@ -14,7 +14,7 @@ from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.finding import Evidence, Finding, Notice, Provenance
 from adherence.domain.model import Layer, Unit, UnitKind
 from adherence.domain.qualities import catalog_check
-from adherence.domain.report import Report, ReportIdentity, Verdict
+from adherence.domain.report import BodyDigest, Report, ReportIdentity, Verdict
 from adherence.ports.report_store import ReportStore, StoreMiss
 
 NOW = 1e9
@@ -38,6 +38,7 @@ REPORT = Report(
     verdict=Verdict.LOWERED,
     reasons=("Stub did not run on src/a.py",),
     removed=(replace(FINDING, provenance=None, reached=Layer.ADAPTERS),),
+    bodies=(BodyDigest(UNIT.path, "tidy", "b" * 64),),
     identity=IDENTITY,
     repository="example",
     revision=REVISION,
