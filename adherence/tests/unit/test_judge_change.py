@@ -10,6 +10,7 @@ from adherence.adapters.fakes import FakeReportStore
 from adherence.domain.finding import Provenance
 from adherence.domain.report import Verdict
 from adherence.ports.repository import Refused
+from tests import facts_kit as kit
 from tests.judge_kit import BASE, REPOSITORY, RULES, judge_with, measured_at, stubbed
 
 USE = "src/app/application/use.py"
@@ -112,3 +113,26 @@ def test_judge_change_beside_a_known_flaw_marks_it_existing_and_holds() -> None:
     (finding,) = report.findings
     assert finding.provenance is Provenance.EXISTING
     assert report.verdict is Verdict.HELD
+
+
+def test_judge_change_deleting_a_fake_introduces_the_ports_finding() -> None:
+    """Given a change that deletes the fake behind a port and does not edit
+    the port, When it is judged, Then the new Swap finding on the port is
+    marked introduced and the verdict is lowered."""
+    fakes = "tests/fakes.py"
+    facts = kit.facts(
+        [
+            *kit.port(kit.STORE, "Store", 1),
+            kit.type_(fakes, "FakeStore", 1),
+            kit.function(fakes, "FakeStore.save", 2, parent="FakeStore"),
+        ]
+    )
+    port = b"class Store(Protocol):\n    def save(self): ...\n"
+    fake = b"class FakeStore:\n    def save(self): return 1\n"
+
+    report = judge_with({kit.STORE: port, fakes: fake}, {kit.STORE: port}, facts=facts)
+
+    (finding,) = report.findings
+    assert (finding.check.name, finding.unit.path) == ("Swap", kit.STORE)
+    assert finding.provenance is Provenance.INTRODUCED
+    assert report.verdict is Verdict.LOWERED
