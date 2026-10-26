@@ -76,9 +76,16 @@ def test_measure_with_a_use_case_constructing_an_adapter_finds_it() -> None:
     root that constructs the adapter, When No self-wiring runs, Then a
     finding names the use case and the adapter for each construction in it,
     and the value and the root are clean."""
-    files = {USE: b"x\n" * 9, FS: b"x\n" * 9, ROOT: b"x\n" * 9, RULES: b"x\n" * 9}
+    files = {
+        USE: b"x\n" * 9,
+        FS: b"x\n" * 9,
+        ROOT: b"x\n" * 9,
+        RULES: b"x\n" * 9,
+        STORE: b"x\n" * 9,
+    }
     definitions = [
-        type_(FS, "FsStore", 1),
+        *port(STORE, "Store", 1),
+        type_(FS, "FsStore", 1, bases=("Store",)),
         type_(RULES, "Order", 1),
         function(USE, "close", 1, end=8),
         function(USE, "close.helper", 6, parent="close", nested=True),

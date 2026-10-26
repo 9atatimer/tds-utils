@@ -105,7 +105,7 @@ def test_measure_with_a_wire_format_in_a_signature_finds_the_parameter() -> None
     files = {USE: b"x\n" * 9, STORE: b"x\n" * 9, FS: b"x\n" * 9}
     definitions = [
         *port(STORE, "Store", 1),
-        type_(FS, "FsStore", 1),
+        type_(FS, "FsStore", 1, bases=("Store",)),
         function(
             USE,
             "fetch",

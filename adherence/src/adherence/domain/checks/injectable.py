@@ -15,8 +15,10 @@ from adherence.domain.checks.roles import (
     adapter_names,
     is_use_case,
     is_within,
+    module_bindings,
     named_in,
     port_names,
+    resolved,
     short_name,
 )
 from adherence.domain.declaration import Declaration, layer_of
@@ -101,10 +103,12 @@ def no_self_wiring(
     parameters: Parameters,
 ) -> CheckOutcome:
     """No use case constructs a concrete adapter: no call in it, or in a
-    function nested in it, names a concrete adapter the model defines."""
+    function nested in it, names a concrete adapter the model defines,
+    directly or through a module-level alias."""
     if not declaration.declared:
         return undeclared(NO_SELF_WIRING.name)
     adapters = adapter_names(model)
+    bindings = module_bindings(model)
     findings: list[Finding] = []
     for use_case in model.definitions:
         if not is_use_case(use_case):
@@ -121,7 +125,7 @@ def no_self_wiring(
             for call in model.calls
             if call.path == unit.path
             and is_within(call.within, unit.symbol)
-            and short_name(call.callee) in adapters
+            and short_name(resolved(call.callee, call.path, bindings)) in adapters
         )
     return CheckOutcome(tuple(findings))
 
