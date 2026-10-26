@@ -23,6 +23,7 @@ from adherence.domain.model import Parameter
 from adherence.domain.records import (
     DesignRecords,
     Radar,
+    RecordStatus,
     RecordsUnavailable,
     Ring,
     SeamKind,
@@ -159,6 +160,36 @@ def test_records_read_each_behavior_with_its_scenario_and_line() -> None:
         "Given an open order, When it is closed, Then the store holds it closed"
     )
     assert (behavior.path, behavior.line) == (DESIGN, _line_of(DESIGN_TEXT, CLOSED))
+
+
+def test_records_read_each_records_status() -> None:
+    """Given a design record in draft and an approved architecture record,
+    When the records are read, Then each record's status is read by its
+    first word, and a record with no status line reads as having none."""
+    port = MarkdownRecords(
+        FakeRepository(
+            {
+                BASE: {
+                    DESIGN: DESIGN_TEXT.replace("APPROVED", "DRAFT").encode(),
+                    ARCHITECTURE: ARCHITECTURE_TEXT.replace(
+                        "> **Status:** APPROVED (the owner)\n", ""
+                    ).encode(),
+                }
+            }
+        )
+    )
+
+    records = port.records(BASE, declaration(), None)
+
+    assert isinstance(records, DesignRecords), records
+    assert records.statuses == (
+        RecordStatus(DESIGN, "DRAFT"),
+        RecordStatus(ARCHITECTURE, ""),
+    )
+    assert _records().statuses == (
+        RecordStatus(DESIGN, "APPROVED"),
+        RecordStatus(ARCHITECTURE, "APPROVED"),
+    )
 
 
 def test_records_read_each_domain_language_term() -> None:

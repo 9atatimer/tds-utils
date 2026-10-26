@@ -13,6 +13,7 @@ from adherence.domain.model import Layer, Parameter, Signature, merged
 from adherence.domain.records import (
     Behavior,
     DesignRecords,
+    RecordStatus,
     SurfaceRow,
     Term,
     UseCase,
@@ -344,3 +345,26 @@ def test_judge_change_adding_a_behavior_with_its_use_case_traces_it() -> None:
 
     assert "Trace" in {c.name for c in report.ran}
     assert [f for f in report.findings if f.check.name == "Trace"] == []
+
+
+def test_judge_change_with_a_draft_design_record_reports_it_missing() -> None:
+    """Given a declared repository whose design record is in draft, When a
+    change is judged, Then Trace, Language, Change, Kept test and Record kept
+    report coverage missing and name the record, and the other qualities'
+    checks run."""
+    architecture = "docs/design/ARCHITECTURE.APP.md"
+    behavior = Behavior("An order is priced", "Given x, When y, Then z", DESIGN, 9)
+    draft = DesignRecords(
+        behaviors=(behavior,),
+        statuses=(
+            RecordStatus(DESIGN, "DRAFT"),
+            RecordStatus(architecture, "APPROVED"),
+        ),
+    )
+
+    report = judge_with({USE: CLEAN}, {USE: CLEAN}, records={BASE: draft, HEAD: draft})
+
+    reasons = {c.check: c.reason for c in report.coverage if c.check}
+    for check in ("Trace", "Language", "Change", "Kept test", "Record kept"):
+        assert DESIGN in reasons.get(check, ""), check
+    assert {"Grep", "Stub", "Covered"} <= {c.name for c in report.ran}
