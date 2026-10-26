@@ -502,3 +502,21 @@ def test_judge_change_with_the_record_missing_on_both_sides_is_not_inconclusive(
     assert report.verdict is Verdict.HELD
     covered = {c.check for c in report.coverage if c.check}
     assert {"Trace", "Record kept"} <= covered
+
+
+def test_judge_change_with_a_file_unreadable_at_the_head_is_inconclusive() -> None:
+    """Given a file in a measured language that cannot be read at the head,
+    When the change is judged, Then coverage names the file, nothing reports
+    it as clean, and the verdict is inconclusive at best."""
+    report = judge_with(
+        {RULES: FIXED, USE: CLEAN},
+        {RULES: Refused(RULES, "a symbolic link"), USE: CLEAN},
+        when=WHEN,
+    )
+
+    assert any(
+        c.path == RULES and "a symbolic link" in c.reason for c in report.coverage
+    )
+    assert report.removed == ()
+    assert report.verdict is Verdict.INCONCLUSIVE
+    assert any(RULES in r for r in report.reasons)
