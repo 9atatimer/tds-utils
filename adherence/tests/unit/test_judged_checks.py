@@ -16,21 +16,24 @@ from adherence.domain.deadline import TimedOut
 from adherence.domain.finding import Finding
 from adherence.domain.model import (
     Body,
+    Call,
     CodeModel,
     Definition,
     ImportEdge,
     Layer,
+    Target,
 )
 from adherence.domain.parameters import Limits
 from adherence.domain.qualities import CheckKind
 from adherence.domain.questions import (
+    DOES_IO,
     TWO_JOBS,
     BandThreshold,
     ThresholdPolicy,
     Unavailable,
 )
 from adherence.domain.report import Report
-from tests.facts_kit import FS, ROOT, RULES, TEST, USE, function
+from tests.facts_kit import FS, ROOT, RULES, TEST, USE, function, value
 from tests.measure_kit import measure_with
 
 # Provisional entries for the tests alone; the shipped ones are the
@@ -282,3 +285,51 @@ def test_measure_with_no_judged_budget_asks_nothing() -> None:
     assert judge.asked == []
     assert _of(report, "Two jobs") == []
     assert [c.path for c in report.coverage if c.check == "Two jobs"] == [RULES]
+
+
+# --- A port in a rule is found (judged part) ---------------------------------------
+
+
+@pytest.mark.parametrize(("yes", "found"), [(0.8, True), (0.9, True), (0.79, False)])
+def test_measure_domain_function_taking_a_callable_that_does_io_is_found(
+    yes: float, found: bool
+) -> None:
+    """Given a domain function taking a callable, called from a use case, and
+    the judge's yes that the callable does I/O at, above or just below the
+    threshold, When Purity's judged part runs, Then a judged finding names
+    the function and the parameter, with its confidence, only at or above
+    the threshold; the judge is given the parameter and the call site."""
+    definitions = (
+        function(RULES, "total", 1, (value("fetch", "Callable[[str], bytes]"),)),
+        function(USE, "close_order", 1, end=5),
+    )
+    call = Call(
+        USE, 3, "close_order", "total", Target("app.domain.total", RULES, "total")
+    )
+    judge = FakeDecision({DOES_IO.id: _yes(yes), TWO_JOBS.id: _yes(0.1)})
+
+    report = measure_with(
+        FILES,
+        CodeModel(definitions=definitions, calls=(call,)),
+        judge=judge,
+        thresholds=ThresholdPolicy({DOES_IO.id: BAND, TWO_JOBS.id: BAND}),
+    )
+
+    findings = _of(report, "Purity")
+    asked = [
+        (state, key)
+        for state, schema in judge.asked
+        for key, q in schema.questions.items()
+        if q.id == DOES_IO.id
+    ]
+    ((state, key),) = asked
+    assert state.unit.symbol == "total"
+    assert "fetch" in state.context[key] and "close_order" in state.context[key]
+    if not found:
+        assert findings == []
+        return
+    (finding,) = findings
+    assert finding.kind is CheckKind.JUDGED
+    assert finding.confidence == pytest.approx(yes)
+    assert finding.unit.symbol == "total"
+    assert "total" in finding.subject and "fetch" in finding.subject
