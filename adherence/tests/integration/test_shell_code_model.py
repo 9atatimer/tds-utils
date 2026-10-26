@@ -256,3 +256,25 @@ def test_a_sourced_path_s_literal_tail_follows_its_last_expansion() -> None:
         (4, "lib/c.sh"),
         (5, "lib/c.sh"),
     }
+
+
+def test_a_function_hides_a_command_only_where_it_is_defined_or_sourced() -> None:
+    """Given a `curl` wrapper in one file and curl run in another, a nested
+    function called by its bare name, and a function from a library a
+    script sources, When they are modelled, Then curl is a tool where no
+    function of that name is defined or sourced, and neither the nested
+    function nor the sourced one is a tool where it is defined or sourced."""
+    model = modelled(
+        {
+            "bin/a": (
+                b"#!/bin/bash\ncurl http://x\n"
+                b"outer() {\n  inner() { echo; }\n  inner\n}\n"
+            ),
+            "bin/b": b'curl() { command curl "$@"; }\ncurl http://y\n',
+            "bin/c": b"#!/bin/bash\nsource lib/l.sh\nlog hi\n",
+            "lib/l.sh": b'log() { printf "%s\\n" "$*"; }\n',
+        }
+    )
+
+    tools = {(e.path, e.imported) for e in model.imports if e.imported_path is None}
+    assert tools == {("bin/a", "curl")}
