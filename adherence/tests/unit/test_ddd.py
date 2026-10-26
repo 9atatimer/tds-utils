@@ -1,14 +1,22 @@
 """The Domain-driven quality's rule parts -- Language, Boundary, Anemic --
 driven through `measure` with a fake behind every port (DESIGN.ARCH-
 ADHERENCE.md, Behaviors; ARCHITECTURE.ARCH-ADHERENCE.md, Use-case
-surface). The judged parts are task-064's."""
+surface). The judged parts are driven with a judge unavailable here, so
+they read as coverage; tests/unit/test_judged_checks.py answers them."""
 
 from __future__ import annotations
 
 from adherence.adapters.fakes import FakeCodeModel
 from adherence.container import SHIPPED_VOCABULARY
 from adherence.domain.finding import Finding
-from adherence.domain.model import Binding, CodeLanguage, Layer, Write
+from adherence.domain.model import (
+    Binding,
+    CodeLanguage,
+    Layer,
+    Reference,
+    ReferenceKind,
+    Write,
+)
 from adherence.domain.records import DesignRecords, Term
 from adherence.domain.report import Report
 from tests.facts_kit import (
@@ -149,20 +157,35 @@ def test_measure_with_a_noun_the_domain_language_lacks_finds_it() -> None:
 
 
 def test_measure_with_an_all_fields_type_leaves_its_rules_to_the_judge() -> None:
-    """Given domain types that are all fields (one with only an initialiser),
-    a domain type with behavior, a domain type with no fields, and an
-    adapter type that is all fields, When Anemic's rule part runs, Then it
-    finds each all-fields domain type and, with no judge to ask whether its
-    rules live in another unit (rules_elsewhere), reports each as coverage
-    naming the type -- never a pass, and never a rule finding, since a
-    plain value is not anemic by itself."""
-    files = {RULES: b"x\n" * 20, FS: b"x\n" * 9}
+    """Given domain types that are all fields (one with only an initialiser)
+    that a use case computes over, an all-fields domain type nothing
+    computes over, a domain type with behavior, a domain type with no
+    fields, and an adapter type that is all fields, When Anemic's rule part
+    runs, Then it puts each computed-over all-fields domain type to the
+    judge (rules_elsewhere) and, with no judge reachable, reports each as
+    coverage naming the type -- never a pass, and never a rule finding,
+    since a plain value is not anemic by itself; the type nothing computes
+    over is a plain value and is not asked about."""
+    files = {RULES: b"x\n" * 20, FS: b"x\n" * 9, USE: b"x\n" * 9}
     definitions = [
         type_(RULES, "Order", 1, end=4),
         type_(RULES, "Receipt", 6, end=8),
         type_(RULES, "Money", 10, end=13),
         type_(RULES, "Refused", 15, end=16),
+        type_(RULES, "Plain", 18, end=19),
         type_(FS, "Config", 1, end=3),
+        function(
+            USE,
+            "issue",
+            1,
+            (
+                value("order", "Order"),
+                value("receipt", "Receipt"),
+                value("money", "Money"),
+                value("config", "Config"),
+            ),
+            end=5,
+        ),
     ]
     members = (
         field(RULES, "Order", "total", 2),
@@ -170,10 +193,15 @@ def test_measure_with_an_all_fields_type_leaves_its_rules_to_the_judge() -> None
         field(RULES, "Receipt", "number", 7),
         field(RULES, "Money", "cents", 12),
         method(RULES, "Money", "__init__", 11),
+        field(RULES, "Plain", "label", 19),
         field(FS, "Config", "root", 2),
     )
+    reads = tuple(
+        Reference(USE, 2, "issue", ReferenceKind.NAME, name)
+        for name in ("order.total", "receipt.number", "money.cents", "config.root")
+    )
 
-    report = measure_with(files, facts(definitions, members=members))
+    report = measure_with(files, facts(definitions, members=members, references=reads))
 
     assert "Anemic" in {c.name for c in report.ran}
     assert _of(report, "Anemic") == []
@@ -281,15 +309,28 @@ def test_measure_with_a_singular_noun_for_a_plural_term_finds_it_defined() -> No
 
 def test_measure_with_a_domain_enum_asks_no_anemic_question() -> None:
     """Given domain enums (by `Enum`, `enum.IntEnum` and `StrEnum`) that are
-    all members and no behavior, beside an all-fields value type, When
-    Anemic's rule part runs, Then only the value type awaits the judge: an
-    enum is a closed set of names, not an anemic candidate."""
-    files = {RULES: b"x\n" * 20}
+    all members and no behavior, beside an all-fields value type, each read
+    by a use case, When Anemic's rule part runs, Then only the value type
+    awaits the judge: an enum is a closed set of names, not an anemic
+    candidate."""
+    files = {RULES: b"x\n" * 20, USE: b"x\n" * 9}
     definitions = [
         type_(RULES, "Colour", 1, end=3, bases=("Enum",)),
         type_(RULES, "Size", 5, end=7, bases=("enum.IntEnum",)),
         type_(RULES, "Mode", 9, end=11, bases=("StrEnum",)),
         type_(RULES, "Receipt", 13, end=15),
+        function(
+            USE,
+            "show",
+            1,
+            (
+                value("colour", "Colour"),
+                value("size", "Size"),
+                value("mode", "Mode"),
+                value("receipt", "Receipt"),
+            ),
+            end=5,
+        ),
     ]
     members = (
         field(RULES, "Colour", "RED", 2),
@@ -297,8 +338,12 @@ def test_measure_with_a_domain_enum_asks_no_anemic_question() -> None:
         field(RULES, "Mode", "FAST", 10),
         field(RULES, "Receipt", "number", 14),
     )
+    reads = tuple(
+        Reference(USE, 2, "show", ReferenceKind.NAME, name)
+        for name in ("colour.RED", "size.BIG", "mode.FAST", "receipt.number")
+    )
 
-    report = measure_with(files, facts(definitions, members=members))
+    report = measure_with(files, facts(definitions, members=members, references=reads))
 
     asked = [c.reason.split(":")[0] for c in report.coverage if c.check == "Anemic"]
     assert asked == ["Receipt"]
