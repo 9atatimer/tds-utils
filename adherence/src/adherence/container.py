@@ -495,6 +495,8 @@ SHIPPED_LIMITS = Limits(
     evidence_bound=200,
     complexity_ceiling=15,
     duplication_ceiling=10,
+    analyzer_bound=60.0,
+    commit_time_bound=10.0,
 )
 SHIPPED_PARAMETERS = Parameters(
     thresholds=ThresholdPolicy(), vocabulary=SHIPPED_VOCABULARY, limits=SHIPPED_LIMITS
@@ -572,11 +574,17 @@ def build(
         reviews=reviews if reviews is not None else NoReviews(),
         analyzers=analyzers,
         judge=judge if judge is not None else NoJudge(),
-        complexity=complexity if complexity is not None else LizardComplexity(),
+        complexity=(
+            complexity
+            if complexity is not None
+            else LizardComplexity(bound=SHIPPED_LIMITS.analyzer_bound)
+        ),
         duplication=(
             duplication
             if duplication is not None
-            else JscpdDuplication(command=(str(JSCPD),))
+            else JscpdDuplication(
+                command=(str(JSCPD),), bound=SHIPPED_LIMITS.analyzer_bound
+            )
         ),
         records=records if records is not None else MarkdownRecords(bound),
         reports=(
