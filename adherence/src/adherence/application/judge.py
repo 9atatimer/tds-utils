@@ -42,6 +42,11 @@ from adherence.ports.report_store import ReportStore
 from adherence.ports.repository import Refused, RepositoryPort
 from adherence.ports.review import ReviewPort
 
+UNMEASURABLE = (
+    "the base cannot be measured under the head's suite, declaration, "
+    "measured languages and judge availability"
+)
+
 
 @dataclass(frozen=True, slots=True)
 class _Measuring:
@@ -73,25 +78,34 @@ class _Measuring:
         )
 
 
-def _stored_base(
+def _base_report(
     change: Change,
     in_force: Declaration,
-    head: ReportIdentity | None,
+    head: ReportIdentity,
     reports: ReportStore,
-    deadline: Deadline | None,
-) -> Report | None:
-    """The base report kept under the base identity -- the head run's, with
-    the digest of the declaration in force -- when one is kept and its
-    identity is that one."""
-    if head is None:
-        return None
+    measuring: _Measuring,
+) -> Report:
+    """The base's report under the base identity -- the head run's, with the
+    digest of the declaration in force: the one `reports` kept under it, or
+    else the base measured again; not run, naming what differs, when the
+    base cannot be measured under it."""
     identity = replace(head, declaration=fingerprint(in_force))
     kept = reports.get(
-        change.repository, change.base.revision, identity.digest, deadline
+        change.repository, change.base.revision, identity.digest, measuring.deadline
     )
     if isinstance(kept, Report) and kept.identity == identity:
         return kept
-    return None
+    measured = measuring.measure(change.base, in_force)
+    if measured.not_run_reason is not None:
+        return Report.not_run(f"{UNMEASURABLE}: {measured.not_run_reason}")
+    if measured.identity != identity:
+        differs = (
+            identity.differences(measured.identity)
+            if measured.identity is not None
+            else ("identity",)
+        )
+        return Report.not_run(f"{UNMEASURABLE}: it differs in {', '.join(differs)}")
+    return measured
 
 
 def _records_at(
@@ -170,8 +184,11 @@ def judge_change(
             compared(base=Report(), head=head, change=change),
             repository=change.repository,
         )
-    stored = _stored_base(change, in_force, head.identity, reports, deadline)
-    base = stored or measuring.measure(change.base, in_force)
+    base = (
+        _base_report(change, in_force, head.identity, reports, measuring)
+        if head.identity is not None
+        else measuring.measure(change.base, in_force)
+    )
     found = covered(
         created_units(base=base, head=head, change=change),
         declaration,

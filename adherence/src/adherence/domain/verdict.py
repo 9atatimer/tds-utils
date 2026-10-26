@@ -161,11 +161,32 @@ def _verdict(introduced: bool, removed: bool) -> Verdict:
     return Verdict.HELD
 
 
+def _uncompared(base_reason: str, head: Report) -> Report:
+    """The change's report when the base could not be measured under the
+    head's identity: nothing is compared, so only a change-level finding,
+    which no base ever holds, is introduced; the rest have no provenance."""
+    marked = tuple(
+        replace(f, provenance=Provenance.INTRODUCED)
+        if f.check.quality is Quality.DECLARED and f.exempt is None
+        else f
+        for f in head.findings
+    )
+    introduced = any(f.provenance is Provenance.INTRODUCED for f in marked)
+    return replace(
+        head,
+        findings=marked,
+        verdict=Verdict.LOWERED if introduced else Verdict.INCONCLUSIVE,
+        reasons=(base_reason,),
+    )
+
+
 def compared(*, base: Report, head: Report, change: Change) -> Report:
     """The change's report: the head's, each finding marked introduced or
     existing, the base findings it removed, and the verdict."""
     if head.not_run_reason is not None:
         return replace(head, verdict=Verdict.NOT_RUN, reasons=(head.not_run_reason,))
+    if base.not_run_reason is not None:
+        return _uncompared(base.not_run_reason, head)
     joins = _Joins(change, definition_renames(base=base, head=head, change=change))
     # A change-level finding belongs to the change that had it: a base kept
     # as some earlier change's report holds its own, which this one never

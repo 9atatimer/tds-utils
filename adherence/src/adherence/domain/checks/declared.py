@@ -35,8 +35,13 @@ RECORD_KEPT = catalog_check("Record kept")
 def created_units(*, base: Report, head: Report, change: Change) -> tuple[Unit, ...]:
     """The units the change created: each file it created, and each
     definition in a file it kept that the base had under no name -- neither
-    at its path and symbol nor as the definition it was renamed from."""
+    at its path and symbol nor as the definition it was renamed from. With
+    no base report to read, only the files it created."""
     created = set(change.created)
+    if base.not_run_reason is not None:
+        return tuple(
+            u for u in head.units if u.kind is UnitKind.FILE and u.path in created
+        )
     before = {(change.at_head(u.path), u.symbol) for u in base.units}
     renamed = definition_renames(base=base, head=head, change=change)
     return tuple(
