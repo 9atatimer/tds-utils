@@ -187,21 +187,36 @@ def _types_by_name(model: CodeModel) -> dict[str, list[Definition]]:
     return types
 
 
+def local_source(write: Write, local: Mapping[tuple[str, str | None, str], str]) -> str:
+    """The name a write's object stands for in its writer: the object
+    itself, or what a local binding in the writer binds it to, through
+    every alias of an alias."""
+    name = write.target
+    seen: set[str] = set()
+    while (bound := local.get((write.path, write.within, name))) is not None:
+        if name in seen:
+            break
+        seen.add(name)
+        name = bound
+    return name
+
+
 def written_type(
     write: Write,
     definitions: Mapping[tuple[str, str], Definition],
     types: Mapping[str, list[Definition]],
     fields: frozenset[tuple[str, str, str]],
+    local: Mapping[tuple[str, str | None, str], str],
 ) -> Definition | None:
     """The type whose declared field a write assigns, when the object
-    written is a parameter of the writer annotated with that type; None
-    when the write cannot be pinned on a type."""
+    written is a parameter of the writer annotated with that type, or a
+    local name bound to one; None when the write cannot be pinned on a
+    type."""
     writer = definitions.get((write.path, write.within or ""))
     if writer is None or writer.signature is None:
         return None
-    parameter = next(
-        (p for p in writer.signature.parameters if p.name == write.target), None
-    )
+    source = local_source(write, local)
+    parameter = next((p for p in writer.signature.parameters if p.name == source), None)
     if parameter is None:
         return None
     return next(
@@ -223,7 +238,8 @@ def boundary(
 ) -> CheckOutcome:
     """No value type has a field written outside its owning unit, the type
     itself. The rule part reads a write whose object is a parameter of the
-    writer annotated with the type; the judged part is coverage."""
+    writer annotated with the type, or a local name bound to one; the
+    judged part is coverage."""
     if not declaration.declared:
         return undeclared(BOUNDARY.name)
     definitions = by_symbol(model)
@@ -231,9 +247,14 @@ def boundary(
     fields = frozenset(
         (m.path, m.owner, m.name) for m in model.members if m.kind is MemberKind.FIELD
     )
+    local: dict[tuple[str, str | None, str], str] = {
+        (b.path, b.within, b.name): b.value
+        for b in model.bindings
+        if b.within is not None
+    }
     findings: list[Finding] = []
     for write in model.writes:
-        owner = written_type(write, definitions, types, fields)
+        owner = written_type(write, definitions, types, fields, local)
         if owner is None:
             continue
         if owner.unit.path == write.path and is_within(write.within, owner.unit.symbol):
