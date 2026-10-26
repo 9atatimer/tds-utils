@@ -19,6 +19,7 @@ from dataclasses import dataclass, field, replace
 
 from adherence.domain.finding import Finding, Provenance
 from adherence.domain.model import UnitKind
+from adherence.domain.qualities import Quality
 from adherence.domain.report import Report, Verdict
 from adherence.domain.target import Change
 
@@ -120,7 +121,7 @@ def _short(symbol: str) -> str:
     return symbol.rpartition(".")[2]
 
 
-def _definition_renames(
+def definition_renames(
     base: Report, head: Report, change: Change
 ) -> dict[tuple[str, str], tuple[str, str]]:
     """Each head definition paired with the base definition it was renamed
@@ -165,8 +166,14 @@ def compared(base: Report, head: Report, change: Change) -> Report:
     existing, the base findings it removed, and the verdict."""
     if head.not_run_reason is not None:
         return replace(head, verdict=Verdict.NOT_RUN, reasons=(head.not_run_reason,))
-    joins = _Joins(change, _definition_renames(base, head, change))
-    known = frozenset(joins.base_key(f) for f in base.findings)
+    joins = _Joins(change, definition_renames(base, head, change))
+    # A change-level finding belongs to the change that had it: a base kept
+    # as some earlier change's report holds its own, which this one never
+    # compares against.
+    known_flaws = tuple(
+        f for f in base.findings if f.check.quality is not Quality.DECLARED
+    )
+    known = frozenset(joins.base_key(f) for f in known_flaws)
     marked = tuple(
         replace(
             f,
@@ -179,7 +186,7 @@ def compared(base: Report, head: Report, change: Change) -> Report:
         for f in head.findings
     )
     seen = _seen(head, joins)
-    removed = tuple(f for f in base.findings if _is_removed(f, joins, head, seen))
+    removed = tuple(f for f in known_flaws if _is_removed(f, joins, head, seen))
     introduced = any(f.provenance is Provenance.INTRODUCED for f in marked)
     return replace(
         head,

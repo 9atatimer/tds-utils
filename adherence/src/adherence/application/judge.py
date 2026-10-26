@@ -8,16 +8,22 @@ the head and the base, and compare the two reports in domain/verdict.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from adherence.application.load import load_declaration
 from adherence.application.measure import measure
+from adherence.domain.checks.declared import (
+    COVERED,
+    covered,
+    created_units,
+    with_outcome,
+)
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, DeclarationUnreadable
 from adherence.domain.model import CodeLanguage
 from adherence.domain.parameters import Parameters
 from adherence.domain.report import Report, ReportIdentity, fingerprint
-from adherence.domain.target import Change
+from adherence.domain.target import Base, Change, Head
 from adherence.domain.verdict import compared
 from adherence.ports.code_model import CodeModelPort
 from adherence.ports.complexity import ComplexityPort
@@ -27,6 +33,64 @@ from adherence.ports.records import RecordsPort
 from adherence.ports.report_store import ReportStore
 from adherence.ports.repository import Refused, RepositoryPort
 from adherence.ports.review import ReviewPort
+
+
+@dataclass(frozen=True, slots=True)
+class _Measuring:
+    """The ports and values every measurement of the change is given."""
+
+    repository: RepositoryPort
+    analyzers: Mapping[CodeLanguage, CodeModelPort]
+    complexity: ComplexityPort
+    duplication: DuplicationPort
+    records: RecordsPort
+    judge: DecisionPort
+    parameters: Parameters
+    deadline: Deadline | None
+
+    def measure(
+        self, at: Base | Head, declaration: Declaration | DeclarationUnreadable
+    ) -> Report:
+        return measure(
+            at,
+            declaration,
+            repository=self.repository,
+            analyzers=self.analyzers,
+            complexity=self.complexity,
+            duplication=self.duplication,
+            records=self.records,
+            judge=self.judge,
+            parameters=self.parameters,
+            deadline=self.deadline,
+        )
+
+
+def _stored_base(
+    change: Change,
+    in_force: Declaration,
+    head: ReportIdentity | None,
+    reports: ReportStore,
+    deadline: Deadline | None,
+) -> Report | None:
+    """The base report kept under the base identity -- the head run's, with
+    the digest of the declaration in force -- when one is kept and its
+    identity is that one."""
+    if head is None:
+        return None
+    identity = replace(head, declaration=fingerprint(in_force))
+    kept = reports.get(
+        change.repository, change.base.revision, identity.digest, deadline
+    )
+    if isinstance(kept, Report) and kept.identity == identity:
+        return kept
+    return None
+
+
+def _not_run(change: Change, reason: str) -> Report:
+    return replace(
+        compared(Report(), Report.not_run(reason), change),
+        repository=change.repository,
+    )
 
 
 def judge_change(
@@ -55,57 +119,26 @@ def judge_change(
     paths = repository.changed(change.base, change.head, deadline)
     if isinstance(paths, Refused | TimedOut):
         reason = paths.reason if isinstance(paths, Refused) else paths.operation
-        return compared(
-            Report(),
-            Report.not_run(f"the repository cannot be read: {reason}"),
-            change,
-        )
+        return _not_run(change, f"the repository cannot be read: {reason}")
     change = replace(change, paths=paths)
+    measuring = _Measuring(
+        repository,
+        analyzers,
+        complexity,
+        duplication,
+        records,
+        judge,
+        parameters,
+        deadline,
+    )
     in_force = load_declaration(change.base, repository=repository, deadline=deadline)
-    head = measure(
-        change.head,
-        in_force,
-        repository=repository,
-        analyzers=analyzers,
-        complexity=complexity,
-        duplication=duplication,
-        records=records,
-        judge=judge,
-        parameters=parameters,
-        deadline=deadline,
-    )
+    head = measuring.measure(change.head, in_force)
+    if head.not_run_reason is not None or not isinstance(in_force, Declaration):
+        return replace(compared(Report(), head, change), repository=change.repository)
     stored = _stored_base(change, in_force, head.identity, reports, deadline)
-    base = stored or measure(
-        change.base,
-        in_force,
-        repository=repository,
-        analyzers=analyzers,
-        complexity=complexity,
-        duplication=duplication,
-        records=records,
-        judge=judge,
-        parameters=parameters,
-        deadline=deadline,
+    base = stored or measuring.measure(change.base, in_force)
+    found = covered(
+        created_units(base, head, change), in_force, parameters.limits.evidence_bound
     )
+    head = with_outcome(head, COVERED, found)
     return replace(compared(base, head, change), repository=change.repository)
-
-
-def _stored_base(
-    change: Change,
-    in_force: Declaration | DeclarationUnreadable,
-    head: ReportIdentity | None,
-    reports: ReportStore,
-    deadline: Deadline | None,
-) -> Report | None:
-    """The base report kept under the base identity -- the head run's, with
-    the digest of the declaration in force -- when one is kept and its
-    identity is that one."""
-    if head is None or isinstance(in_force, DeclarationUnreadable):
-        return None
-    identity = replace(head, declaration=fingerprint(in_force))
-    kept = reports.get(
-        change.repository, change.base.revision, identity.digest, deadline
-    )
-    if isinstance(kept, Report) and kept.identity == identity:
-        return kept
-    return None
