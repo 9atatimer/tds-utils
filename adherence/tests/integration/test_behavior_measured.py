@@ -218,3 +218,45 @@ def test_a_behavior_is_kept_only_by_a_call_to_its_use_case() -> None:
     report = _measured({**APP, TEST: source}, records=RECORDS)
 
     assert _unkept(report) == {GOT}
+
+
+def test_a_use_case_reached_through_a_test_helper_is_kept() -> None:
+    """Given a test reaching `measure` through a helper in another test
+    module, which reaches it through a helper of its own, a test reaching
+    `get` through a helper in its own module, and a use case no test
+    reaches, When Kept test runs, Then only the behavior no test reaches is
+    found: calls are followed through test-layer helpers (Self-review R6)."""
+    dropped = "A thing is dropped"
+    records = DesignRecords(
+        behaviors=(*RECORDS.behaviors, Behavior(dropped, DESIGN, 12)),
+        surface=(*RECORDS.surface, UseCase(dropped, "drop", ARCHITECTURE, 22)),
+    )
+    use = APP["src/app/application/use.py"] + b"\n\ndef drop():\n    return 0\n"
+    kit = (
+        b"from app.application.use import measure\n"
+        b"def measure_with(x):\n"
+        b"    return _measure()\n"
+        b"def _measure():\n"
+        b"    return measure()\n"
+    )
+    source = (
+        b"from app.application.use import get\n"
+        b"from tests.kit import measure_with\n"
+        b"def _got():\n"
+        b'    return get("k")\n'
+        b"def test_measure():\n"
+        b"    assert measure_with(1) == 1\n"
+        b"def test_get():\n"
+        b'    assert _got() == "k"\n'
+    )
+    files = {
+        **APP,
+        "src/app/application/use.py": use,
+        "tests/__init__.py": b"",
+        "tests/kit.py": kit,
+        TEST: source,
+    }
+
+    report = _measured(files, records=records)
+
+    assert _unkept(report) == {dropped}
