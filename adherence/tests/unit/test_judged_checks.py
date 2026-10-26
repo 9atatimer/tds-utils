@@ -387,4 +387,4 @@ def test_measure_two_spellings_of_one_concept_are_found(
         return
     (finding,) = judged
     assert finding.confidence == pytest.approx(yes)
-    assert "OrderRecord" in finding.subject and "Order " in finding.subject
+    assert finding.subject.startswith("OrderRecord and Order:")

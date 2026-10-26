@@ -36,6 +36,7 @@ from adherence.domain.model import (
 )
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
+from adherence.domain.questions import SAME_CONCEPT, Ask, definition_text
 from adherence.domain.records import DesignRecords, RecordsUnavailable, Term
 
 # --- Constants ---------------------------------------------------------------
@@ -60,10 +61,7 @@ BOUNDARY_JUDGED = (
     f"the judged part (invariant_broken: does the foreign write break an "
     f"invariant?) {NO_JUDGE}"
 )
-LANGUAGE_JUDGED = (
-    f"the judged part (same_concept: are two differently spelled nouns one "
-    f"concept?) {NO_JUDGE}"
-)
+NO_TYPE = "no type of that name is defined in the code"
 
 ANEMIC_JUDGED = (
     f"all fields and no behavior; whether its rules live in another unit "
@@ -144,6 +142,98 @@ def _defined(noun: str, terms: Sequence[Term]) -> bool:
     return any(defines(words(t.name), words(noun)) for t in terms)
 
 
+def _term_of(noun: str, terms: Sequence[Term]) -> Term | None:
+    """The Domain Language term that defines a noun, if one does."""
+    return next((t for t in terms if defines(words(t.name), words(noun))), None)
+
+
+def shares_a_word(first: str, second: str) -> bool:
+    """Whether two nouns have a word in common, a plural matching its
+    singular (`OrderRecord` and `Orders`)."""
+    return any(_spelled_alike((a,), (b,)) for a in words(first) for b in words(second))
+
+
+def _signature_sites(
+    model: CodeModel, vocabulary: Vocabulary, mechanism: frozenset[str]
+) -> dict[str, list[Definition]]:
+    """Every noun a use-case signature carries, with the use cases carrying it."""
+    sites: dict[str, list[Definition]] = {}
+    for use_case in use_cases(model):
+        for noun in signature_nouns(use_case, vocabulary, mechanism):
+            sites.setdefault(noun, []).append(use_case)
+    return sites
+
+
+def _domain_types(model: CodeModel) -> dict[str, Definition]:
+    """The domain layer's types, by name, the first of each name."""
+    types: dict[str, Definition] = {}
+    for d in model.definitions:
+        if d.unit.kind is UnitKind.TYPE and d.unit.layer is Layer.DOMAIN:
+            types.setdefault(short_name(d.unit.symbol), d)
+    return types
+
+
+def _described(
+    noun: str,
+    types: Mapping[str, Definition],
+    sites: Mapping[str, Sequence[Definition]],
+) -> str:
+    """One noun as the judge reads it: its definition and where it is used."""
+    definition = types.get(noun)
+    used = ", ".join(d.unit.symbol or "" for d in sites.get(noun, ())) or "none"
+    shown = definition_text(definition) if definition is not None else NO_TYPE
+    return f"{noun}:\n{shown}\nused in the use-case signatures of: {used}"
+
+
+def _same_concept_ask(
+    pair: tuple[str, str],
+    term: Term,
+    types: Mapping[str, Definition],
+    sites: Mapping[str, Sequence[Definition]],
+) -> Ask:
+    undefined, defined = pair
+    definition = types.get(undefined) or sites[undefined][0]
+    unit = definition.unit
+    return Ask(
+        check=LANGUAGE,
+        question=SAME_CONCEPT,
+        unit=unit,
+        layer=unit.layer,
+        subject=f"{undefined} and {defined}: one concept under two spellings",
+        evidence=Evidence(unit.path, unit.start, undefined),
+        text=definition_text(definition),
+        context=(
+            f"{_described(undefined, types, sites)}\n\n"
+            f"{_described(defined, types, sites)}\n"
+            f"the Domain Language defines {defined} as the term {term.name}"
+        ),
+    )
+
+
+def same_concept_asks(
+    model: CodeModel, records: DesignRecords, vocabulary: Vocabulary
+) -> list[Ask]:
+    """Language's judged part: each noun the Domain Language does not define
+    -- a domain type, or a noun a use-case signature carries -- paired with
+    each term's noun in the code that shares a word with it, asked whether
+    the two are one concept. Two nouns sharing no word are not asked about."""
+    sites = _signature_sites(model, vocabulary, mechanism_names(model))
+    types = _domain_types(model)
+    nouns = list(dict.fromkeys([*types, *sites]))
+    terms: dict[str, tuple[str, Term]] = {}
+    for noun in nouns:
+        term = _term_of(noun, records.domain_language)
+        if term is not None:
+            terms.setdefault(term.name, (noun, term))
+    return [
+        _same_concept_ask((noun, defined), term, types, sites)
+        for noun in nouns
+        if _term_of(noun, records.domain_language) is None
+        for defined, term in terms.values()
+        if shares_a_word(noun, defined)
+    ]
+
+
 def language(
     model: CodeModel,
     declaration: Declaration,
@@ -152,7 +242,8 @@ def language(
 ) -> CheckOutcome:
     """Every noun in a use-case signature -- every type name it carries but
     a port's or another mechanism type's -- is defined in the design's
-    Domain Language under that spelling. The judged part is coverage."""
+    Domain Language under that spelling. The judged part asks whether an
+    undefined noun is a defined one's other spelling."""
     if not declaration.declared:
         return undeclared(LANGUAGE.name)
     if isinstance(records, RecordsUnavailable):
@@ -175,7 +266,8 @@ def language(
             if not _defined(noun, records.domain_language)
         )
     return CheckOutcome(
-        tuple(findings), (Coverage(LANGUAGE_JUDGED, check=LANGUAGE.name),)
+        tuple(findings),
+        questions=tuple(same_concept_asks(model, records, parameters.vocabulary)),
     )
 
 
