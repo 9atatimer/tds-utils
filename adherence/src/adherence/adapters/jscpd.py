@@ -6,10 +6,12 @@ subprocess in a scratch directory outside the repository, through
 `analyzer_process`: an empty configuration file named on the command line
 so none is discovered, `.gitignore` reading off, symbolic links not
 followed, absolute paths and the JSON reporter into the scratch
-directory. The measured source is untrusted, so the scratch copy carries
-none of jscpd's in-source markers: a clone cannot hide itself. The clock
-is the edge's own. Absent or failing, it answers MetricsUnavailable
-naming the tool.
+directory. The sources are written under generated names into one
+directory, which jscpd is pointed at with an explicit pattern, so neither
+a repository's size nor any path reaches the command line. The measured
+source is untrusted, so the scratch copy carries none of jscpd's
+in-source markers: a clone cannot hide itself. The clock is the edge's
+own. Absent or failing, it answers MetricsUnavailable naming the tool.
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from adherence.adapters.analyzer_process import (
     NotRan,
     remaining,
     run_analyzer,
-    write_sources,
+    write_numbered,
 )
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.model import Clone, Metrics, MetricsUnavailable, Span
@@ -37,6 +39,8 @@ REPORT = "jscpd-report.json"
 # Limits value above it.
 MIN_LINES = 5
 MIN_TOKENS = 50
+# Every file of the scratch directory the sources are written to.
+EVERY_FILE = "**/*"
 # jscpd's in-source markers (`jscpd:ignore-start` .. `jscpd:ignore-end`
 # skips what they fence), rewritten in the scratch copy to text jscpd does
 # not act on, keeping every line where it was.
@@ -95,7 +99,7 @@ class JscpdDuplication:
         self._command = tuple(command)
         self._clock = clock
 
-    def _command_line(self, root: Path, files: Sequence[str]) -> tuple[str, ...]:
+    def _command_line(self, root: Path, sources: Path) -> tuple[str, ...]:
         config = root / "jscpd.json"
         config.write_text("{}\n", encoding="utf-8")
         return (
@@ -114,7 +118,9 @@ class JscpdDuplication:
             str(root / "out"),
             "--silent",
             "--no-tips",
-            *files,
+            "--pattern",
+            EVERY_FILE,
+            str(sources),
         )
 
     def measure(
@@ -129,11 +135,11 @@ class JscpdDuplication:
             root = Path(scratch)
             work = root / "work"
             work.mkdir()
-            written = write_sources(
+            written = write_numbered(
                 root / "src", {p: neutralised(d) for p, d in sources.items()}
             )
             ran = run_analyzer(
-                self._command_line(root, sorted(written)),
+                self._command_line(root, root / "src"),
                 cwd=work,
                 scratch=root,
                 timeout=remaining(deadline, self._clock()),

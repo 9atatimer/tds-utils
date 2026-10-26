@@ -53,22 +53,6 @@ def remaining(deadline: Deadline | None, now: float) -> float | None:
     return None if deadline is None else deadline.epoch_seconds - now
 
 
-def write_sources(root: Path, sources: Mapping[str, bytes]) -> dict[str, str]:
-    """Each source written under root at its repository path; the written
-    file's absolute path mapped to the repository path. A path that would
-    leave root is not written."""
-    written: dict[str, str] = {}
-    base = root.resolve()
-    for path, data in sources.items():
-        target = (base / path).resolve()
-        if not target.is_relative_to(base) or target == base:
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
-        written[str(target)] = path
-    return written
-
-
 def write_numbered(root: Path, sources: Mapping[str, bytes]) -> dict[str, str]:
     """Each source written flat under root by a generated name -- its index
     and its extension, when that is plain -- so no repository path (one
