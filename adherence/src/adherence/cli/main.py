@@ -1,7 +1,10 @@
 """cli/main.py -- the adhere CLI: parse, call the use cases, present.
 
 Holds no workflow step and constructs no adapter: container.build binds
-the ports (ARCHITECTURE.ARCH-ADHERENCE.md, Module map). Declaration text
+the ports (ARCHITECTURE.ARCH-ADHERENCE.md, Module map). It computes the
+hook's Deadline from the commit-time bound, the one place the engine turns
+a bound into an instant, and in the hook calls judge_bounded instead of
+judge_change. Declaration text
 is author-controlled, so control characters are stripped before it
 reaches the terminal (Security mitigations).
 """
@@ -9,18 +12,21 @@ reaches the terminal (Security mitigations).
 from __future__ import annotations
 
 import sys
+import time
 import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 
 import click
 
+from adherence.application.bounded import judge_bounded
 from adherence.application.judge import judge_change
 from adherence.application.load import load_declaration
 from adherence.application.measure import measure
 from adherence.application.record import record_report
 from adherence.cli.presenters.json_report import report_json
 from adherence.container import Container, Stage, build
+from adherence.domain.deadline import Deadline
 from adherence.domain.declaration import (
     DECLARATION_PATH,
     VOCABULARY_REFUSAL,
@@ -28,7 +34,7 @@ from adherence.domain.declaration import (
     DeclarationUnreadable,
     RefusedExemption,
 )
-from adherence.domain.report import Verdict
+from adherence.domain.report import Report, Verdict
 from adherence.domain.target import Base, Change, Head
 
 # --- Constants ---------------------------------------------------------------
@@ -38,7 +44,10 @@ from adherence.domain.target import Base, Change, Head
 STRIPPED_CATEGORIES = frozenset({"Cc", "Cf"})
 # The verdicts `adhere judge` exits non-zero on until the per-stage mapping
 # lands (task-066): lowered fails a gate; not run never reads as a pass.
+# Inconclusive exits zero, so in the hook the commit proceeds.
 FAILING = frozenset({Verdict.LOWERED, Verdict.NOT_RUN})
+# The hook judges what is staged against the commit it will follow.
+HOOK_BASE = "HEAD"
 
 # --- Presenters --------------------------------------------------------------
 
@@ -144,37 +153,13 @@ def measure_command(ctx: click.Context, root: str, as_json: bool) -> None:
         sys.exit(1)
 
 
-@main.command("judge")
-@click.option(
-    "--root",
-    default=".",
-    show_default=True,
-    type=click.Path(exists=True, file_okay=False),
-    help="The repository whose revisions are judged.",
-)
-@click.option("--base", required=True, help="The revision judged against.")
-@click.option("--head", required=True, help="The revision judged.")
-@click.option("--json", "as_json", is_flag=True, help="Print the report as JSON.")
-@click.pass_context
-def judge_command(
-    ctx: click.Context, root: str, base: str, head: str, as_json: bool
-) -> None:
-    """Judge the head revision against the base and print the report.
-
-    The report is kept after the verdict is reached, so keeping it can
-    never change the verdict. A test passes the composition root, bound
-    with its fakes, as the context object.
-    """
-    if not as_json:
-        raise click.UsageError("--json is the one output format so far")
-    builder: Callable[..., Container] = ctx.obj if callable(ctx.obj) else build
-    container = builder(Stage.LAPTOP, root=root)
+def _judge_revisions(container: Container, root: str, base: str, head: str) -> Report:
     change = Change(
         repository=Path(root).resolve().name,
         base=Base(base),
         head=Head.at_revision(head),
     )
-    report = judge_change(
+    return judge_change(
         change,
         repository=container.repository,
         reviews=container.reviews,
@@ -187,6 +172,79 @@ def judge_command(
         parameters=container.parameters,
         deadline=None,
     )
+
+
+def _judge_staged(container: Container, root: str) -> Report:
+    bound = container.parameters.limits.commit_time_bound
+    if container.worker is None or bound is None:
+        raise click.UsageError("the hook stage binds no worker or no time bound")
+    change = Change(
+        repository=Path(root).resolve().name,
+        base=Base(HOOK_BASE),
+        head=Head.staged_index(),
+    )
+    return judge_bounded(
+        change,
+        worker=container.worker,
+        deadline=Deadline(epoch_seconds=time.time() + bound),
+        repository=container.repository,
+        reviews=container.reviews,
+        analyzers=container.analyzers,
+        complexity=container.complexity,
+        duplication=container.duplication,
+        records=container.records,
+        judge=container.judge,
+        reports=container.reports,
+        parameters=container.parameters,
+    )
+
+
+@main.command("judge")
+@click.option(
+    "--root",
+    default=".",
+    show_default=True,
+    type=click.Path(exists=True, file_okay=False),
+    help="The repository whose revisions are judged.",
+)
+@click.option("--base", help="The revision judged against.")
+@click.option("--head", help="The revision judged.")
+@click.option(
+    "--staged",
+    is_flag=True,
+    help="Judge the staged index against HEAD within the commit-time bound "
+    "(the pre-commit hook).",
+)
+@click.option("--json", "as_json", is_flag=True, help="Print the report as JSON.")
+@click.pass_context
+def judge_command(
+    ctx: click.Context,
+    root: str,
+    base: str | None,
+    head: str | None,
+    staged: bool,
+    as_json: bool,
+) -> None:
+    """Judge the head revision against the base, or the staged index
+    against HEAD, and print the report.
+
+    The report is kept after the verdict is reached, so keeping it can
+    never change the verdict. A test passes the composition root, bound
+    with its fakes, as the context object.
+    """
+    if not as_json:
+        raise click.UsageError("--json is the one output format so far")
+    if staged == (base is not None or head is not None) or (
+        not staged and (base is None or head is None)
+    ):
+        raise click.UsageError("give --base and --head, or --staged alone")
+    builder: Callable[..., Container] = ctx.obj if callable(ctx.obj) else build
+    if base is not None and head is not None:
+        container = builder(Stage.LAPTOP, root=root)
+        report = _judge_revisions(container, root, base, head)
+    else:
+        container = builder(Stage.HOOK, root=root)
+        report = _judge_staged(container, root)
     recorded = record_report(report, reports=container.reports)
     click.echo(report_json(report, recorded))
     if report.verdict in FAILING:
