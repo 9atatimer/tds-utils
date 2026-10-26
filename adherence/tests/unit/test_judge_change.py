@@ -466,3 +466,19 @@ def test_judge_change_under_an_exemption_in_force_counts_it_as_neither() -> None
     assert finding.exempt == "kept until the rewrite"
     assert finding.provenance is None
     assert (report.removed, report.verdict) == ((), Verdict.HELD)
+
+
+def test_judge_change_against_a_base_it_cannot_measure_is_inconclusive() -> None:
+    """Given no stored base report and a base the gate cannot measure, When
+    the change is judged, Then the verdict is inconclusive, never lowered by
+    a finding it cannot compare, and the report names what differs."""
+    report = judge_with(
+        {RULES: FIXED},
+        {RULES: STUBBED},
+        when=WHEN,
+        unlisted_at={BASE: Refused(".", "the base revision is gone")},
+    )
+
+    assert report.verdict is Verdict.INCONCLUSIVE
+    assert any("base" in r and "the base revision is gone" in r for r in report.reasons)
+    assert [f.provenance for f in report.findings] == [None]
