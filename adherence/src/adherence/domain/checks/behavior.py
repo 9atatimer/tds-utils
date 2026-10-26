@@ -115,13 +115,17 @@ def _placeholders(
 
 
 def _tests(model: CodeModel, declaration: Declaration) -> list[tuple[TestCase, Unit]]:
-    """Each test case in the test layer, with its unit."""
+    """Each test case in the test layer, with its unit (the first of its
+    file and symbol)."""
+    units: dict[tuple[str, str | None], Unit] = {}
+    for u in model.units:
+        units.setdefault((u.path, u.symbol), u)
     found: list[tuple[TestCase, Unit]] = []
     for case in model.test_cases:
         if layer_of(case.path, case.line, declaration, model.regions) is not Layer.TEST:
             continue
-        unit = next(
-            (u for u in model.units if u.path == case.path and u.symbol == case.symbol),
+        unit = units.get(
+            (case.path, case.symbol),
             Unit(case.path, UnitKind.FUNCTION, case.symbol, case.line, case.line, None),
         )
         found.append((case, unit))
@@ -224,11 +228,10 @@ def public_surface(
         coverage = (Coverage(reason, check=PUBLIC_SURFACE.name),)
     else:
         use_cases = frozenset(row.function for row in records.surface)
+    calls = calls_by_scope(model)
     findings: list[Finding] = []
     for case, unit in _tests(model, declaration):
-        for call in model.calls:
-            if call.path != case.path or call.within != case.symbol:
-                continue
+        for call in calls.get((case.path, case.symbol), ()):
             if not _reaches_internal(call, definitions) and not (
                 use_cases is not None and _reaches_helper(call, definitions, use_cases)
             ):
