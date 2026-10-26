@@ -6,6 +6,7 @@ task-064."""
 
 from __future__ import annotations
 
+from adherence.domain.checks.behavior import kept_test, public_surface, real_assertion
 from adherence.domain.finding import Finding
 from adherence.domain.model import (
     Assertion,
@@ -26,7 +27,7 @@ from adherence.domain.records import (
     UseCase,
 )
 from adherence.domain.report import Report
-from tests.measure_kit import measure_with
+from tests.measure_kit import declared, measure_with, parameters
 
 RULES = "src/app/domain/rules.py"
 USE = "src/app/application/use.py"
@@ -209,3 +210,44 @@ def test_measure_without_a_readable_record_covers_kept_test() -> None:
 
     assert "Kept test" not in {c.name for c in report.ran}
     assert any(c.check == "Kept test" and DESIGN in c.reason for c in report.coverage)
+
+
+class _Counted(tuple):  # type: ignore[type-arg]
+    """A tuple that counts how many times it is read through."""
+
+    passes: int
+
+    def __new__(cls, items: object) -> _Counted:
+        counted = super().__new__(cls, items)  # type: ignore[arg-type]
+        counted.passes = 0
+        return counted
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        self.passes += 1
+        return super().__iter__()
+
+
+def _passes(tests: int) -> int:
+    """How many times the three rule checks read through the model's units
+    and calls, over a test file of that many tests."""
+    symbols = [f"test_{n}" for n in range(tests)]
+    units = _Counted(
+        Unit(TEST, UnitKind.FUNCTION, s, n, n, None) for n, s in enumerate(symbols, 1)
+    )
+    calls = _Counted(Call(TEST, n, s, "run") for n, s in enumerate(symbols, 1))
+    cases = tuple(
+        TestCase(TEST, s, n, ("run",), (Assertion("r"),))
+        for n, s in enumerate(symbols, 1)
+    )
+    model = CodeModel(units=units, calls=calls, test_cases=cases)
+    for check in (real_assertion, public_surface, kept_test):
+        check(model, declared(), DesignRecords(), parameters())
+    return units.passes + calls.passes
+
+
+def test_the_behavior_checks_read_the_model_a_bounded_number_of_times() -> None:
+    """Given test files of two and of forty tests, When Real assertion,
+    Public surface and Kept test run, Then they read through the model's
+    units and calls as many times for either: each check indexes the model
+    once, never once per test (Self-review R13)."""
+    assert _passes(40) == _passes(2)
