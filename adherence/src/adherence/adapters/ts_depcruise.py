@@ -6,7 +6,9 @@ JavaScript is read with the TSX grammar, which parses it and JSX alike.
 
 Both analyzers run as subprocesses over a copy of the sources in a scratch
 directory, never the repository; dependency-cruiser runs with
-`--no-config`, so no configuration the sources carry is ever loaded, with
+`--no-config`, so no configuration the sources carry is ever loaded: a
+root tsconfig.json's path aliases are read here and handed over as a
+configuration of their own, pointing only inside the copy. It runs with
 an allowlisted environment and the time left before the deadline as its
 bound. Nothing in the sources is imported or run (ARCHITECTURE.ARCH-
 ADHERENCE.md, Security mitigations).
@@ -22,8 +24,8 @@ import subprocess
 import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import replace
-from pathlib import Path
+from dataclasses import dataclass, replace
+from pathlib import Path, PurePosixPath
 
 from adherence.adapters.astgrep import (
     BINARY,
@@ -66,6 +68,15 @@ LEAVES = "the path leaves the repository; not read"
 # dependency-cruiser names the file it could not extract on a line of its own.
 CULPRIT_PREFIX = "... in "
 CRUISER_HEADER = "ERROR:"
+# The sources that are code: every other source is never a unit.
+CODE_SUFFIXES = frozenset(
+    {".ts", ".mts", ".cts", ".tsx", ".js", ".mjs", ".cjs", ".jsx"}
+)
+# The TypeScript configuration whose path aliases resolve imports, and the
+# copy of its aliases the cruiser is given in its place.
+TSCONFIG = "tsconfig.json"
+ALIASES = "adhere-tsconfig.json"
+TREE = "tree"
 
 
 class CruiseFailed(Exception):
@@ -91,6 +102,170 @@ def _passed(deadline: Deadline | None, now: float) -> bool:
 
 def _paths(unparsed: Sequence[Unparsed]) -> set[str]:
     return {u.path for u in unparsed}
+
+
+def is_code(path: str) -> bool:
+    return PurePosixPath(path).suffix in CODE_SUFFIXES
+
+
+def _string_end(text: str, at: int) -> int:
+    """Where the JSON string opening at a quote ends, just past its close."""
+    end = at + 1
+    while end < len(text) and text[end] != '"':
+        end += 2 if text[end] == "\\" else 1
+    return end + 1
+
+
+def without_comments(text: str) -> str:
+    """JSON with comments, as tsconfig is written, without its comments;
+    a string's text is kept whatever it holds."""
+    kept: list[str] = []
+    at = 0
+    while at < len(text):
+        if text[at] == '"':
+            end = _string_end(text, at)
+            kept.append(text[at:end])
+            at = end
+        elif text.startswith("//", at):
+            line_end = text.find("\n", at)
+            at = len(text) if line_end < 0 else line_end
+        elif text.startswith("/*", at):
+            close = text.find("*/", at + 2)
+            at = len(text) if close < 0 else close + 2
+        else:
+            kept.append(text[at])
+            at += 1
+    return "".join(kept)
+
+
+def without_trailing_commas(text: str) -> str:
+    """JSON without the commas that close an object or array, as tsconfig
+    allows; a string's text is kept whatever it holds."""
+    kept: list[str] = []
+    at = 0
+    while at < len(text):
+        if text[at] == '"':
+            end = _string_end(text, at)
+            kept.append(text[at:end])
+            at = end
+            continue
+        closing = text[at + 1 :].lstrip()[:1] in ("}", "]")
+        if not (text[at] == "," and closing):
+            kept.append(text[at])
+        at += 1
+    return "".join(kept)
+
+
+def read_tsconfig(text: str) -> dict[str, object]:
+    """A tsconfig file's settings; none when it is not a JSON object."""
+    try:
+        parsed = json.loads(without_trailing_commas(without_comments(text)))
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _inside(directory: str, relative: object) -> str | None:
+    """A path written relative to a directory, as a repository path; None
+    when it is not a string or it leaves the repository."""
+    if not isinstance(relative, str) or relative.startswith("/"):
+        return None
+    path = posixpath.normpath(posixpath.join(directory, relative))
+    return path if path == "." or stays_inside(path) else None
+
+
+def _extended(path: str, written: object, sources: Mapping[str, str]) -> list[str]:
+    """The configurations a tsconfig extends that are sources: relative,
+    inside the repository; a package or a path leaving it is not followed."""
+    names = written if isinstance(written, list) else [written]
+    found: list[str] = []
+    for name in names:
+        if not (isinstance(name, str) and name.startswith(("./", "../"))):
+            continue
+        target = _inside(posixpath.dirname(path), name)
+        if target is not None and target not in sources:
+            target = f"{target}.json"
+        if target is not None and target in sources:
+            found.append(target)
+    return found
+
+
+@dataclass(frozen=True, slots=True)
+class Aliases:
+    """A tsconfig's import aliases: its baseUrl (a repository directory),
+    its paths, and the directory those paths are written relative to when
+    there is no baseUrl."""
+
+    base_url: str | None = None
+    paths: Mapping[str, object] | None = None
+    paths_from: str = "."
+
+    def over(self, base: Aliases) -> Aliases:
+        """These aliases over those of a configuration this one extends."""
+        if self.paths is None:
+            return replace(
+                self,
+                paths=base.paths,
+                paths_from=base.paths_from,
+                base_url=self.base_url or base.base_url,
+            )
+        return replace(self, base_url=self.base_url or base.base_url)
+
+
+def tsconfig_aliases(
+    path: str, sources: Mapping[str, str], seen: frozenset[str] = frozenset()
+) -> Aliases:
+    """A tsconfig's aliases, through the configurations it extends that are
+    sources, in order; the nearer setting wins."""
+    settings = read_tsconfig(sources[path])
+    inherited = Aliases()
+    for base in _extended(path, settings.get("extends"), sources):
+        if base not in seen:
+            inherited = tsconfig_aliases(base, sources, seen | {path}).over(inherited)
+    options = settings.get("compilerOptions")
+    if not isinstance(options, dict):
+        return inherited
+    directory = posixpath.dirname(path) or "."
+    paths = options.get("paths")
+    own = Aliases(
+        base_url=_inside(directory, options.get("baseUrl")),
+        paths=paths if isinstance(paths, dict) else None,
+        paths_from=directory,
+    )
+    return own.over(inherited)
+
+
+def _alias_targets(targets: object, base: str) -> list[str]:
+    """Each target of one alias, written relative to the base directory,
+    that stays inside the repository."""
+    if not isinstance(targets, list):
+        return []
+    return [
+        posixpath.relpath(inside, base)
+        for target in targets
+        if (inside := _inside(base, target)) is not None
+    ]
+
+
+def aliases_config(sources: Mapping[str, str]) -> str | None:
+    """The tsconfig the cruiser is given: only the root tsconfig.json's path
+    aliases and baseUrl, each pointing inside the copy, never a setting
+    that reaches outside it; None when there are none. Paths with no
+    baseUrl are read from their configuration's directory, which is then
+    the baseUrl too: the cruiser applies no paths without one."""
+    if TSCONFIG not in sources:
+        return None
+    found = tsconfig_aliases(TSCONFIG, sources)
+    if found.base_url is None and found.paths is None:
+        return None
+    base = found.paths_from if found.base_url is None else found.base_url
+    options: dict[str, object] = {"baseUrl": posixpath.join(TREE, base)}
+    if found.paths is not None:
+        options["paths"] = {
+            str(alias): _alias_targets(targets, base)
+            for alias, targets in found.paths.items()
+        }
+    return json.dumps({"compilerOptions": options})
 
 
 def _without(files: Sequence[CodeModel], paths: set[str]) -> list[CodeModel]:
@@ -216,16 +391,22 @@ def _cruise(
     sources: Mapping[str, bytes],
     *,
     cruiser: Path,
+    aliases: str | None,
     deadline: Deadline | None,
     clock: Callable[[], float],
 ) -> Resolved:
-    """Where each import of the sources resolves, by dependency-cruiser."""
+    """Where each import of the sources resolves, by dependency-cruiser,
+    with the path aliases given as its only TypeScript configuration."""
     timeout = None if deadline is None else deadline.epoch_seconds - clock()
     if timeout is not None and timeout <= 0:
         raise CruiseFailed("resolve the imports", timed_out=True)
     with tempfile.TemporaryDirectory(prefix="adhere-depcruise-") as scratch:
-        tree = Path(scratch, "tree")
+        tree = Path(scratch, TREE)
         write_tree(tree, sources)
+        configured: list[str] = []
+        if aliases is not None:
+            Path(scratch, ALIASES).write_text(aliases)
+            configured = ["--ts-config", str(Path(scratch, ALIASES))]
         environment = {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
             "LANG": "C.UTF-8",
@@ -249,6 +430,7 @@ def _cruise(
                     str(cruiser),
                     "--no-config",
                     "--ts-pre-compilation-deps",
+                    *configured,
                     "--output-type",
                     "json",
                     ".",
@@ -281,6 +463,7 @@ def _cruise_around(
     sources: Mapping[str, bytes],
     *,
     cruiser: Path,
+    aliases: str | None,
     deadline: Deadline | None,
     clock: Callable[[], float],
 ) -> tuple[Resolved, list[Unparsed]]:
@@ -292,7 +475,13 @@ def _cruise_around(
     while left:
         try:
             return (
-                _cruise(left, cruiser=cruiser, deadline=deadline, clock=clock),
+                _cruise(
+                    left,
+                    cruiser=cruiser,
+                    aliases=aliases,
+                    deadline=deadline,
+                    clock=clock,
+                ),
                 dropped,
             )
         except CruiseFailed as failure:
@@ -331,6 +520,8 @@ class TypeScriptCodeModel:
         if _passed(deadline, self._clock()):
             return TimedOut("model the TypeScript sources")
         readable, unparsed = _readable(sources)
+        texts = {p: data.decode("utf-8") for p, data in readable.items()}
+        readable = {p: data for p, data in readable.items() if is_code(p)}
         try:
             matches = scan(
                 readable,
@@ -361,7 +552,11 @@ class TypeScriptCodeModel:
         try:
             if edges:
                 resolved, unread = _cruise_around(
-                    parsed, cruiser=self._cruiser, deadline=deadline, clock=self._clock
+                    parsed,
+                    cruiser=self._cruiser,
+                    aliases=aliases_config(texts),
+                    deadline=deadline,
+                    clock=self._clock,
                 )
                 unparsed.extend(unread)
                 files = _without(files, _paths(unread))

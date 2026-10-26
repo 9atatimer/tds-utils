@@ -4,6 +4,7 @@ one member at a time (task-069), after the shared contract."""
 from __future__ import annotations
 
 import functools
+import json
 import tempfile
 import uuid
 from collections.abc import Mapping
@@ -208,6 +209,40 @@ def test_tsconfig_path_aliases_resolve_and_the_config_is_no_unit() -> None:
     }
     assert {u.path for u in model.units if u.kind is UnitKind.FILE} == set(ALIASED)
     assert model.unparsed == ()
+
+
+@typescript_fixture.needs_cruiser
+def test_tsconfig_paths_without_a_base_url_are_read_from_the_config() -> None:
+    """Given a tsconfig.json whose paths alias a directory and set no
+    baseUrl, When the sources are modelled, Then the alias resolves relative
+    to the configuration's own directory."""
+    config = b'{"compilerOptions": {"paths": {"@lib/*": ["./src/lib/*"]}}}'
+
+    model = _model_of({**ALIASED, "tsconfig.json": config})
+
+    assert ("@lib/b", "src/lib/b.ts") in {
+        (e.imported, e.imported_path) for e in model.imports
+    }
+
+
+@typescript_fixture.needs_cruiser
+def test_a_tsconfig_reaching_outside_the_sources_is_not_followed(
+    tmp_path: Path,
+) -> None:
+    """Given a tsconfig.json that extends a configuration outside the
+    sources (by absolute path, by climbing out, by package) which would
+    alias the import, When the sources are modelled, Then the alias does not
+    resolve: nothing outside the copy is read."""
+    outside = tmp_path / "outside.json"
+    outside.write_text(
+        '{"compilerOptions": {"baseUrl": ".", "paths": {"@lib/*": ["src/lib/*"]}}}'
+    )
+    extends = [str(outside), f"../../../../../..{outside}", "@tsconfig/aliases"]
+    config = json.dumps({"extends": extends}).encode()
+
+    model = _model_of({**ALIASED, "tsconfig.json": config})
+
+    assert ("@lib/b", None) in {(e.imported, e.imported_path) for e in model.imports}
 
 
 @typescript_fixture.needs_cruiser
