@@ -12,6 +12,7 @@ import json
 from adherence.domain.coverage import Coverage
 from adherence.domain.finding import Finding
 from adherence.domain.qualities import Quality
+from adherence.domain.questions import Abstention
 from adherence.domain.report import Report
 
 # --- Presenters --------------------------------------------------------------
@@ -24,6 +25,7 @@ def _finding(finding: Finding) -> dict[str, object]:
         "quality": finding.check.quality.value,
         "check": finding.check.name,
         "kind": finding.kind.value,
+        "confidence": finding.confidence,
         "path": unit.path,
         "symbol": unit.symbol,
         "unit_kind": unit.kind.value,
@@ -38,13 +40,25 @@ def _finding(finding: Finding) -> dict[str, object]:
     }
 
 
+def _abstention(abstention: Abstention) -> dict[str, object]:
+    return {
+        "quality": abstention.check.quality.value,
+        "check": abstention.check.name,
+        "question": abstention.question,
+        "path": abstention.unit.path,
+        "symbol": abstention.unit.symbol,
+        "subject": abstention.subject,
+        "confidence": abstention.confidence,
+    }
+
+
 def _coverage(coverage: Coverage) -> dict[str, object]:
     return {"check": coverage.check, "path": coverage.path, "reason": coverage.reason}
 
 
 def report_document(report: Report) -> dict[str, object]:
     """The report as plain data: per quality, the checks that ran and their
-    findings; then the notices and the coverage."""
+    findings; then the abstentions, the notices and the coverage."""
     return {
         "not_run": report.not_run_reason,
         "qualities": [
@@ -55,6 +69,7 @@ def report_document(report: Report) -> dict[str, object]:
             }
             for quality in Quality
         ],
+        "abstentions": [_abstention(a) for a in report.abstentions],
         "notices": [notice.message for notice in report.notices],
         "coverage": [_coverage(c) for c in report.coverage],
     }

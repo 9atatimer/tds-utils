@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from adherence.domain.coverage import Coverage
 from adherence.domain.finding import Finding, Notice
 from adherence.domain.qualities import Check, Quality
+from adherence.domain.questions import Abstention
 
 # --- Values ------------------------------------------------------------------
 
@@ -19,14 +20,17 @@ from adherence.domain.qualities import Check, Quality
 @dataclass(frozen=True, slots=True)
 class Report:
     """One run's outcome: the checks that ran, every finding each produced,
-    the notices and the coverage. A run the suite could not perform is not run and
-    carries the reason; it holds nothing else, so it never reads as a pass."""
+    the notices and the coverage, and the judged checks' abstentions, which
+    are neither a finding nor a pass. A run the suite could not perform is
+    not run and carries the reason; it holds nothing else, so it never
+    reads as a pass."""
 
     ran: tuple[Check, ...] = ()
     findings: tuple[Finding, ...] = ()
     notices: tuple[Notice, ...] = ()
     coverage: tuple[Coverage, ...] = ()
     not_run_reason: str | None = None
+    abstentions: tuple[Abstention, ...] = ()
 
     def ran_in(self, quality: Quality) -> tuple[Check, ...]:
         """The checks of one quality that ran, in catalog order."""
