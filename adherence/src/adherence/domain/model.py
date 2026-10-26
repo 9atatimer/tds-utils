@@ -205,7 +205,9 @@ class Target:
 class Call:
     """A function or constructor call: its callee as written, its line, the
     definition it sits in, and what the callee resolves to (None when the
-    analyzer cannot tell, as for a method of a local variable)."""
+    analyzer cannot tell, as for a method of a local variable). Reading an
+    attribute by a literal name (`getattr(rules, "_round")`) is a call to
+    it."""
 
     path: str
     line: int

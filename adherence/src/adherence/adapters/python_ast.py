@@ -330,14 +330,41 @@ def _call(path: str, within: str | None, node: ast.Call, resolver: Resolver) -> 
     return Call(path, node.lineno, within, _callee(node), target=target)
 
 
+GETATTR = "getattr"
+
+
+def _getattr_reach(
+    path: str, within: str | None, node: ast.Call, resolver: Resolver
+) -> Call | None:
+    """The attribute a builtin `getattr` with a literal name reads, as a call
+    to it (`getattr(rules, "_round")` reaches `rules._round`)."""
+    if not (isinstance(node.func, ast.Name) and node.func.id == GETATTR):
+        return None
+    if resolver.target(path, within, [GETATTR]) is not None or len(node.args) < 2:
+        return None
+    owner, name = chain(node.args[0]), node.args[1]
+    if owner is None or not (
+        isinstance(name, ast.Constant) and isinstance(name.value, str)
+    ):
+        return None
+    parts = [*owner, name.value]
+    target = resolver.target(path, within, parts)
+    return Call(path, node.lineno, within, ".".join(parts), target=target)
+
+
 def _calls(
     path: str, scoped: Sequence[tuple[str | None, ast.AST]], resolver: Resolver
 ) -> list[Call]:
-    return [
-        _call(path, within, node, resolver)
-        for within, node in scoped
-        if isinstance(node, ast.Call)
-    ]
+    """Every call, and every attribute a `getattr` reads by a literal name."""
+    found: list[Call] = []
+    for within, node in scoped:
+        if not isinstance(node, ast.Call):
+            continue
+        found.append(_call(path, within, node, resolver))
+        reach = _getattr_reach(path, within, node, resolver)
+        if reach is not None:
+            found.append(reach)
+    return found
 
 
 def reads_environment(chain: str, vocabulary: Vocabulary) -> bool:
