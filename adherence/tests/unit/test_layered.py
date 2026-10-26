@@ -14,6 +14,7 @@ from adherence.domain.model import (
     Call,
     CodeModel,
     Definition,
+    ImportEdge,
     Layer,
     Parameter,
     Signature,
@@ -477,6 +478,40 @@ def test_measure_adapter_constructed_outside_the_root_is_found() -> None:
         ("close_order", Layer.APPLICATION, "FsStore"),
         ("test_save", Layer.TEST, "FsStore"),
     }
+
+
+def test_measure_adapter_or_port_taken_by_an_import_alias_is_found() -> None:
+    """Given a use case that constructs the concrete adapter under an import
+    alias, and a domain function that takes the port under an import alias,
+    When Wiring and Purity run, Then the construction below the root and the
+    port in the rule are each found, as they are by their own names."""
+    definitions = _wired(
+        _function(ROOT, "build", (), line=5),
+        _function(USE, "close_order", _parameters("order"), line=5),
+        _function(RULES, "price", _annotated(("store", "R")), line=5),
+    )
+    imports = (
+        ImportEdge(
+            USE, "app.adapters.fs", 1, "from app.adapters.fs import FsStore as S", FS
+        ),
+        ImportEdge(
+            RULES,
+            "app.ports.store",
+            1,
+            "from app.ports.store import (Order, Store as R)  # the port",
+            STORE,
+        ),
+    )
+    calls = (Call(ROOT, 6, "build", "FsStore"), Call(USE, 6, "close_order", "S"))
+    facts = replace(_wiring_facts(definitions, calls), imports=imports)
+    files = {path: b"x\n" for path in (STORE, FS, ROOT, USE, RULES)}
+
+    report = measure_with(files, facts, declared(WIRED))
+
+    below = [(f.unit.symbol, f.subject) for f in _of(report, "Wiring")]
+    assert below == [("close_order", "FsStore")]
+    (port,) = _of(report, "Purity")
+    assert port.unit.symbol == "price" and "Store" in port.subject
 
 
 BAD = "bin/bad.py"
