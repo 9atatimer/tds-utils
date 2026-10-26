@@ -90,11 +90,14 @@ class RefusedExemption:
 @dataclass(frozen=True, slots=True)
 class Layers:
     """The [layers] table: globs and literal paths per layer, line-range
-    regions, and the files whose regions come from their section markers."""
+    regions, and the files whose regions come from their section markers;
+    and the layer a change's widening gives each file it created, matched
+    by that path alone, never as a glob."""
 
     globs: tuple[tuple[Layer, str], ...] = ()
     regions: tuple[Region, ...] = ()
     marker_files: tuple[str, ...] = ()
+    widened: tuple[tuple[Layer, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,12 +275,17 @@ def layer_of(
     """The one layer a file, or a line of it, is in; None when uncovered.
 
     A region (declared by lines, or found by marker and passed in) beats a
-    file; a literal path beats a glob; a longer glob beats a shorter one.
+    file; a widened path, which only a file nothing else covers has, is that
+    file's layer; a literal path beats a glob; a longer glob beats a shorter
+    one.
     """
     if line is not None:
         for region in (*declaration.layers.regions, *found):
             if region.holds(path, line):
                 return region.layer
+    for layer, created in declaration.layers.widened:
+        if created == path:
+            return layer
     hits = [
         (is_literal(pattern), len(pattern), layer)
         for layer, pattern in declaration.layers.globs
@@ -526,12 +534,14 @@ def widened(
 ) -> Declaration:
     """The declaration in force with the proposed one's widening merged in:
     its layer assignments for the files the change created that the
-    declaration in force leaves uncovered. Nothing else of the proposed
-    declaration is taken, so it can only add checks."""
+    declaration in force leaves uncovered, each matched by its path alone
+    -- a created path holding glob characters must never reach a file the
+    change did not create. Nothing else of the proposed declaration is
+    taken, so it can only add checks."""
     if not in_force.declared or not isinstance(proposed, Declaration):
         return in_force
     uncovered = [p for p in sorted(created) if layer_of(p, None, in_force) is None]
-    globs = tuple(
+    paths = tuple(
         (layer, path)
         for path in uncovered
         if (layer := layer_of(path, None, proposed)) is not None
@@ -542,9 +552,10 @@ def widened(
     return replace(
         in_force,
         layers=Layers(
-            (*layers.globs, *globs),
+            layers.globs,
             (*layers.regions, *regions),
             (*layers.marker_files, *markers),
+            (*layers.widened, *paths),
         ),
     )
 
