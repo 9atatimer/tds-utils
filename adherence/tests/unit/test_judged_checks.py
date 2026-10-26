@@ -12,13 +12,22 @@ import pytest
 
 from adherence.adapters.fakes import FakeDecision
 from adherence.cli.presenters.json_report import report_document
+from adherence.domain.deadline import TimedOut
 from adherence.domain.finding import Finding
-from adherence.domain.model import Body, CodeModel, Definition, Layer
+from adherence.domain.model import (
+    Body,
+    CodeModel,
+    Definition,
+    Layer,
+    Reference,
+    ReferenceKind,
+)
 from adherence.domain.qualities import CheckKind
 from adherence.domain.questions import (
     TWO_JOBS,
     BandThreshold,
     ThresholdPolicy,
+    Unavailable,
 )
 from adherence.domain.report import Report
 from tests.facts_kit import FS, ROOT, RULES, TEST, USE, function
@@ -179,3 +188,48 @@ def test_measure_judged_finding_prints_its_kind_and_confidence() -> None:
     (printed,) = [f for f in layered["findings"] if f["check"] == "Two jobs"]
     assert printed["kind"] == "judged"
     assert printed["confidence"] == pytest.approx(0.9)
+
+
+# --- An unavailable judge is inconclusive, never raised (the measure half) --------
+
+
+@pytest.mark.parametrize(
+    ("failure", "reason"),
+    [
+        (Unavailable("the door refused the connection"), "door refused"),
+        (TimedOut("ask the judge"), "timed out"),
+    ],
+)
+def test_measure_with_no_judge_reachable_reports_every_question_as_coverage(
+    failure: Unavailable | TimedOut, reason: str
+) -> None:
+    """Given a judge that is unavailable or past the deadline and two units
+    with questions, beside a rule finding, When measured, Then every
+    question is coverage naming the check, the unit and why; no judged
+    finding, pass or abstention is reported, the judged check is not among
+    the checks that ran, the judge is not asked again after the first
+    failure, and the rule finding stands. judge_change reads this coverage
+    as inconclusive and counts no judged finding as removed."""
+    definitions = (
+        function(RULES, "price", 1, end=5),
+        function(USE, "close_order", 1, end=5),
+    )
+    leak = Reference(RULES, 2, "price", ReferenceKind.NAME, "requests.get")
+    judge = FakeDecision(failure)
+
+    report = measure_with(
+        FILES,
+        CodeModel(definitions=definitions, references=(leak,)),
+        judge=judge,
+        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+    )
+
+    covered = sorted(
+        (c.path or "", c.reason) for c in report.coverage if c.check == "Two jobs"
+    )
+    assert [path for path, _ in covered] == sorted([RULES, USE])
+    assert all(reason in why and TWO_JOBS.id in why for _, why in covered)
+    assert _of(report, "Two jobs") == [] and report.abstentions == ()
+    assert "Two jobs" not in [c.name for c in report.ran]
+    assert len(judge.asked) == 1
+    assert [f.unit.symbol for f in _of(report, "Grep")] == ["price"]
