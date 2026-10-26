@@ -6,8 +6,10 @@ subprocess in a scratch directory outside the repository, through
 `analyzer_process`: an empty configuration file named on the command line
 so none is discovered, `.gitignore` reading off, symbolic links not
 followed, absolute paths and the JSON reporter into the scratch
-directory. The clock is the edge's own. Absent or failing, it answers
-MetricsUnavailable naming the tool.
+directory. The measured source is untrusted, so the scratch copy carries
+none of jscpd's in-source markers: a clone cannot hide itself. The clock
+is the edge's own. Absent or failing, it answers MetricsUnavailable
+naming the tool.
 """
 
 from __future__ import annotations
@@ -35,8 +37,17 @@ REPORT = "jscpd-report.json"
 # Limits value above it.
 MIN_LINES = 5
 MIN_TOKENS = 50
+# jscpd's in-source markers (`jscpd:ignore-start` .. `jscpd:ignore-end`
+# skips what they fence), rewritten in the scratch copy to text jscpd does
+# not act on, keeping every line where it was.
+MARKER, INERT = b"jscpd:ignore-", b"jscpd-ignore-"
 
 # --- Pure helpers ------------------------------------------------------------
+
+
+def neutralised(data: bytes) -> bytes:
+    """The source with every jscpd marker rewritten so jscpd ignores it."""
+    return data.replace(MARKER, INERT)
 
 
 def _span(side: object, written: Mapping[str, str]) -> Span | None:
@@ -118,7 +129,9 @@ class JscpdDuplication:
             root = Path(scratch)
             work = root / "work"
             work.mkdir()
-            written = write_sources(root / "src", sources)
+            written = write_sources(
+                root / "src", {p: neutralised(d) for p, d in sources.items()}
+            )
             ran = run_analyzer(
                 self._command_line(root, sorted(written)),
                 cwd=work,
