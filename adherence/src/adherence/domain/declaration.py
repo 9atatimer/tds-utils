@@ -691,6 +691,14 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
 # Where GitHub looks for CODEOWNERS, in its order; the first found is read.
 CODEOWNERS_PATHS = (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS")
 
+# The owner-as-author case is open (design Q11, architecture Q7): an
+# approval by the PR's author is refused, whoever the author is, until ruled.
+AUTHOR_REFUSAL = (
+    "the reviewer is the pull request's author, and an author cannot approve "
+    "their own declaration edit; refused for the owner too until design Q11 "
+    "(architecture Q7) is ruled"
+)
+
 # A revision's adherence.toml: its bytes, None where the file is absent, or
 # why it cannot be read.
 DeclarationText = bytes | None | DeclarationUnreadable
@@ -794,14 +802,19 @@ def _skipped(revision: LandedRevision, why: str) -> Notice:
 def _refusal(
     approval: Approval,
     *,
+    author: str,
     owners: Collection[str],
-    landed: DeclarationText,
-    reviewed: Mapping[str, DeclarationText],
+    revision: LandedRevision,
 ) -> str | None:
     """Why an approval does not count, or None when it does."""
+    if is_same_login(approval.reviewer, author):
+        return AUTHOR_REFUSAL
     if not any(is_same_login(f"@{approval.reviewer}", o) for o in owners):
         return f"not a code owner of {DECLARATION_PATH} by the base's CODEOWNERS"
-    text = reviewed.get(approval.commit, DeclarationUnreadable("not read"))
+    landed = revision.text
+    text = dict(revision.reviewed).get(
+        approval.commit, DeclarationUnreadable("not read")
+    )
     if (
         isinstance(landed, DeclarationUnreadable)
         or isinstance(text, DeclarationUnreadable)
@@ -828,10 +841,10 @@ def _owner_notices(owners: Collection[str]) -> tuple[Notice, ...]:
 def counted_landing(revision: LandedRevision, codeowners: CodeOwners) -> Counting:
     """Whether a landing of adherence.toml is in force: Unknown leaves the
     landed declaration standing; a landing is in force when one approval
-    counts -- its reviewer a user code owner of adherence.toml by the base's
-    CODEOWNERS, and the commit it reviewed holding the landed bytes, so
-    approve-then-push does not pass. Every other answer is skipped with a
-    notice that says why."""
+    counts -- its reviewer not the PR's author, a user code owner of
+    adherence.toml by the base's CODEOWNERS, and the commit it reviewed
+    holding the landed bytes, so approve-then-push does not pass. Every
+    other answer is skipped with a notice that says why."""
     answer = revision.answer
     if isinstance(answer, Unknown):
         return Counting(True)
@@ -855,11 +868,10 @@ def counted_landing(revision: LandedRevision, codeowners: CodeOwners) -> Countin
         )
     owners = codeowners.owners_of(DECLARATION_PATH)
     users = tuple(o for o in owners if is_user_owner(o))
-    reviewed = dict(revision.reviewed)
     refusals = [
         (
             approval,
-            _refusal(approval, owners=users, landed=revision.text, reviewed=reviewed),
+            _refusal(approval, author=answer.author, owners=users, revision=revision),
         )
         for approval in answer.approvals
     ]
