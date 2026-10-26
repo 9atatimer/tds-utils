@@ -7,6 +7,7 @@ approved, on a commit whose declaration equals the landed one."""
 from __future__ import annotations
 
 from adherence.adapters.fakes import FakeReviews
+from adherence.domain.deadline import TimedOut
 from adherence.domain.declaration import (
     DECLARATION_PATH,
     Approval,
@@ -16,6 +17,7 @@ from adherence.domain.declaration import (
 )
 from adherence.domain.finding import Provenance
 from adherence.domain.report import Report, Verdict
+from adherence.ports.repository import Refused
 from tests.judge_kit import BASE, RULES, judge_with, stubbed
 from tests.measure_kit import HEXAGON
 
@@ -271,3 +273,67 @@ def test_judge_change_whose_own_declaration_is_unreadable_notices_it() -> None:
         "own declaration cannot be read" in n and "declaration in force" in n
         for n in _notices(report)
     ), _notices(report)
+
+
+def test_judge_change_whose_walk_cannot_be_made_is_judged_undeclared() -> None:
+    """Given a history of adherence.toml that cannot be listed, or reviews
+    that time out, When the change is judged, Then the repository is judged
+    undeclared and the verdict is inconclusive at best, naming why."""
+    for history, reviews in (
+        (Refused(DECLARATION_PATH, "shallow clone"), FakeReviews()),
+        (TimedOut("list the history"), FakeReviews()),
+        ((BASE.revision, EARLIER), FakeReviews({BASE.revision: TimedOut("reviews")})),
+    ):
+        report = judge_with(
+            {RULES: FIXED, DECLARATION_PATH: EXEMPTING},
+            {RULES: STUBBED, DECLARATION_PATH: EXEMPTING},
+            when=WHEN,
+            history=history,
+            reviews=reviews,
+        )
+
+        assert report.verdict is Verdict.INCONCLUSIVE, history
+        assert report.findings == (), history
+        assert any("undeclared" in n for n in _notices(report)), history
+
+
+def test_judge_change_reads_the_codeowners_github_reads_first() -> None:
+    """Given CODEOWNERS under .github/ naming no one for adherence.toml and a
+    root CODEOWNERS naming the approver, When the landing is counted, Then
+    the .github/ one is read, as GitHub reads it, and the approval does not
+    count; with no CODEOWNERS anywhere, no approval counts."""
+    reviews = FakeReviews({BASE.revision: _approved_earlier()})
+    for extra in ({".github/CODEOWNERS": b"*.py @someone\n"}, {}):
+        files = {RULES: FIXED, DECLARATION_PATH: HEXAGON, **extra}
+        report = judge_with(
+            {**files, "CODEOWNERS": OWNERS} if extra else files,
+            {**files, RULES: STUBBED},
+            when=WHEN,
+            reviews=reviews,
+            landed={REVIEWED_EARLIER: {DECLARATION_PATH: HEXAGON}},
+        )
+
+        assert report.verdict is Verdict.INCONCLUSIVE, extra
+        assert any("code owner" in n for n in _notices(report)), extra
+
+
+def test_judge_change_under_an_unreadable_approved_declaration_is_not_run() -> None:
+    """Given the approved landing's adherence.toml does not parse, When the
+    change is judged, Then the verdict is not run, as for any declaration in
+    force that cannot be read."""
+    broken = b"[layers\n"
+    report = judge_with(
+        {RULES: FIXED, DECLARATION_PATH: broken, "CODEOWNERS": OWNERS},
+        {RULES: STUBBED, DECLARATION_PATH: broken, "CODEOWNERS": OWNERS},
+        when=WHEN,
+        reviews=FakeReviews(
+            {
+                BASE.revision: Landing(
+                    author="alice", approvals=(Approval("owner", REVIEWED_NEWEST),)
+                )
+            }
+        ),
+        landed={REVIEWED_NEWEST: {DECLARATION_PATH: broken}},
+    )
+
+    assert report.verdict is Verdict.NOT_RUN
