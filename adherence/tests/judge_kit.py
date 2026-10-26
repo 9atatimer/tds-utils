@@ -17,10 +17,12 @@ from adherence.adapters.fakes import (
     FakeDecision,
     FakeDuplication,
     FakeRecords,
+    FakeReportStore,
     FakeRepository,
     FakeReviews,
 )
 from adherence.application.judge import judge_change
+from adherence.application.measure import measure
 from adherence.domain.deadline import TimedOut
 from adherence.domain.declaration import DECLARATION_PATH
 from adherence.domain.model import (
@@ -36,7 +38,7 @@ from adherence.domain.records import DesignRecords, RecordsUnavailable
 from adherence.domain.report import Report
 from adherence.domain.target import Base, Change, Head
 from adherence.ports.repository import Refused
-from tests.measure_kit import HEXAGON, parameters
+from tests.measure_kit import HEXAGON, declared, parameters
 
 BASE = Base("b" * 40)
 HEAD = Head.at_revision("c" * 40)
@@ -74,6 +76,7 @@ def judge_with(
     when: Mapping[bytes, CodeModel] | None = None,
     records: Mapping[Base | Head, DesignRecords | RecordsUnavailable | TimedOut]
     | None = None,
+    store: FakeReportStore | None = None,
     unlisted_at: Mapping[Base | Head, Refused | TimedOut] | None = None,
 ) -> Report:
     """judge_change of HEAD against BASE, each holding its files and the
@@ -91,6 +94,32 @@ def judge_with(
         complexity=FakeComplexity(),
         duplication=FakeDuplication(),
         records=FakeRecords(records or {}),
+        judge=FakeDecision(Unavailable("no judge in the unit tier")),
+        reports=store if store is not None else FakeReportStore(),
+        parameters=parameters(),
+        deadline=None,
+    )
+
+
+def measured_at(
+    files: Files,
+    *,
+    at: Base | Head = BASE,
+    facts: CodeModel | None = None,
+    when: Mapping[bytes, CodeModel] | None = None,
+) -> Report:
+    """measure of one target holding the files, under the hexagon, with the
+    ports judge_with binds: the report an earlier run would have kept."""
+    return measure(
+        at,
+        declared(),
+        repository=FakeRepository({at: with_declaration(files)}),
+        analyzers={
+            CodeLanguage.PYTHON: FakeCodeModel(facts=facts or CodeModel(), when=when)
+        },
+        complexity=FakeComplexity(),
+        duplication=FakeDuplication(),
+        records=FakeRecords({}),
         judge=FakeDecision(Unavailable("no judge in the unit tier")),
         parameters=parameters(),
         deadline=None,
