@@ -38,8 +38,10 @@ NO_CEILING = "no {} ceiling is supplied"
 
 def is_marked(names: Sequence[str], markers: frozenset[str]) -> bool:
     """Whether any name, by its full dotted form or its last part, is one of
-    the markers."""
-    return any(n in markers or n.rpartition(".")[2] in markers for n in names)
+    the markers; a generic's subscript (`Protocol[T]`) is not part of its
+    name."""
+    bare = [n.partition("[")[0].strip() for n in names]
+    return any(n in markers or n.rpartition(".")[2] in markers for n in bare)
 
 
 def is_declaration(
