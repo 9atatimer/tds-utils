@@ -53,7 +53,7 @@ VOCABULARY = Vocabulary(
     singletons=frozenset({"sys.argv"}),
     plain_types=frozenset({"Sequence", "tuple", "None", "str", "int", "list"}),
 )
-LIMITS = Limits(evidence_bound=200)
+LIMITS = Limits(evidence_bound=200, judged_budget=100)
 
 HEXAGON = b"""
 [layers]

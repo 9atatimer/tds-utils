@@ -42,6 +42,7 @@ from adherence.domain.questions import (
     settled,
     unanswered_checks,
     unasked,
+    within_budget,
 )
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 from adherence.domain.report import Report
@@ -126,15 +127,16 @@ def _judge(
     deadline: Deadline | None,
 ) -> Judged:
     """Each unit's questions put to the judge in one call, and the answers
-    settled by the threshold policy. After the judge first fails --
-    unavailable or out of time -- it is not asked again, and every question
-    left is coverage."""
+    settled by the threshold policy, within the judged-check budget. After
+    the judge first fails -- unavailable or out of time -- it is not asked
+    again, and every question left is coverage."""
+    asked, over_budget = within_budget(asks, parameters.limits.judged_budget)
     findings: list[Finding] = []
     passes: list[Pass] = []
     abstentions: list[Abstention] = []
-    coverage: list[Coverage] = []
+    coverage: list[Coverage] = list(over_budget)
     failure: Unavailable | TimedOut | None = None
-    for asking in schemas(asks):
+    for asking in schemas(asked):
         answer = failure or judge.decide(asking.state, asking.schema, deadline)
         if isinstance(answer, Decision):
             judged = settled(asking, answer, parameters.thresholds)
