@@ -99,6 +99,7 @@ CONDITION, SUBJECT, LEFT, RIGHT, OPERAND, INNER = (
     "INNER",
 )
 EMPTY_BLOCK = "{}"
+THIS = "this"
 
 # --- Values ------------------------------------------------------------------
 
@@ -599,8 +600,8 @@ def accesses(file: _File, vocabulary: Vocabulary) -> list[Access]:
 
 
 def writes(file: _File) -> list[Write]:
-    """Every assignment, update or compound assignment to an object's field,
-    with the definition that makes it."""
+    """Every field an assignment, update, compound assignment, destructuring
+    or for-in/of header binds, with the definition that makes it."""
     return [
         Write(
             path=file.path,
@@ -662,18 +663,29 @@ def conditionals(file: _File) -> list[Conditional]:
 
 def members(file: _File) -> list[Member]:
     """Every type's fields and methods, each name once at its first line:
-    declared, a constructor's parameter property, or assigned on `this`."""
+    declared, a constructor's parameter property, or a field of `this`
+    written (the same targets as every Write)."""
     types = [d for d in file.defined if d.kind is UnitKind.TYPE]
     by_span = {(d.match.start, d.match.end): d for d in types}
-    kinds = {MEMBER_METHOD: MemberKind.METHOD, MEMBER_FIELD: MemberKind.FIELD}
+    kinds = {
+        MEMBER_METHOD: MemberKind.METHOD,
+        MEMBER_FIELD: MemberKind.FIELD,
+        WRITE: MemberKind.FIELD,
+    }
     found = sorted(
-        (m for fact in kinds for m in file.of(fact)), key=lambda m: (m.line, m.start)
+        (
+            m
+            for fact in kinds
+            for m in file.of(fact)
+            if fact != WRITE or m.captured(OBJECT) == THIS
+        ),
+        key=lambda m: (m.line, m.start),
     )
     first: dict[tuple[str, str], Member] = {}
     for m, holder in zip(
         found, innermost_each([d.match for d in types], found), strict=True
     ):
-        name = m.captured(NAME)
+        name = m.captured(FIELD if m.fact == WRITE else NAME)
         if holder is not None and name is not None:
             owner = by_span[(holder.start, holder.end)]
             member = Member(

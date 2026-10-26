@@ -345,31 +345,47 @@ rule:
   regex: '^globalThis\.'
   not: {inside: {kind: member_expression, field: object}}
 ---
+# A field target: the left of an assignment or a for-in/of header, an
+# update's operand, or an element of a destructuring pattern there (a
+# default's value is read, not written).
 id: write
 language: TypeScript
 severity: hint
 rule:
-  any:
-    - kind: assignment_expression
-    - kind: augmented_assignment_expression
-  has:
-    field: left
-    kind: member_expression
-    all:
-      - has: {field: object, pattern: $OBJECT}
-      - has: {field: property, pattern: $FIELD}
----
-id: write.update
-language: TypeScript
-severity: hint
-rule:
-  kind: update_expression
-  has:
-    field: argument
-    kind: member_expression
-    all:
-      - has: {field: object, pattern: $OBJECT}
-      - has: {field: property, pattern: $FIELD}
+  kind: member_expression
+  all:
+    - has: {field: object, pattern: $OBJECT}
+    - has: {field: property, pattern: $FIELD}
+    - any:
+        - inside:
+            field: left
+            any:
+              - kind: assignment_expression
+              - kind: augmented_assignment_expression
+              - kind: for_in_statement
+        - inside: {field: argument, kind: update_expression}
+        - all:
+            - any:
+                - inside:
+                    any:
+                      - kind: array_pattern
+                      - kind: pair_pattern
+                      - kind: rest_pattern
+                - inside: {kind: assignment_pattern, field: left}
+                - inside: {kind: object_assignment_pattern, field: left}
+            - inside:
+                any:
+                  - kind: assignment_expression
+                  - kind: for_in_statement
+                stopBy:
+                  not:
+                    any:
+                      - kind: array_pattern
+                      - kind: object_pattern
+                      - kind: pair_pattern
+                      - kind: rest_pattern
+                      - kind: assignment_pattern
+                      - kind: object_assignment_pattern
 ---
 id: conditional
 language: TypeScript
@@ -467,20 +483,6 @@ rule:
   has: {kind: accessibility_modifier}
   all:
     - has: {field: pattern, pattern: $NAME}
----
-id: member-field.this
-language: TypeScript
-severity: hint
-rule:
-  any:
-    - kind: assignment_expression
-    - kind: augmented_assignment_expression
-  has:
-    field: left
-    kind: member_expression
-    all:
-      - has: {field: object, kind: this}
-      - has: {field: property, pattern: $NAME}
 ---
 id: test-call
 language: TypeScript
