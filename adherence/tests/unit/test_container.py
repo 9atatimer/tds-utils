@@ -13,6 +13,8 @@ import pkgutil
 from pathlib import Path
 from typing import Protocol, get_args, get_type_hints
 
+import pytest
+
 import adherence.ports
 from adherence.adapters.fakes import (
     FakeCodeModel,
@@ -24,7 +26,10 @@ from adherence.adapters.fakes import (
     FakeRepository,
     FakeReviews,
 )
+from adherence.adapters.github_reviews import GitHubReviews
+from adherence.adapters.no_reviews import NoReviews
 from adherence.container import JSCPD, Stage, build
+from adherence.domain.declaration import ReviewsUnavailable, Unknown
 from adherence.domain.model import CodeLanguage
 from adherence.domain.questions import Unavailable
 from adherence.ports.code_model import CodeModelPort
@@ -117,3 +122,39 @@ def test_jscpd_runs_from_the_node_package_that_pins_it() -> None:
     assert manifest["dependencies"]["jscpd"] == "5.4.1"
     assert lock["packages"]["node_modules/jscpd"]["integrity"]
     assert lock["packages"][""]["dependencies"]["dependency-cruiser"]
+
+
+def test_build_binds_github_reviews_in_ci_and_no_reviews_elsewhere(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given the job's GITHUB_TOKEN and GITHUB_REPOSITORY, When the composition
+    root is built, Then `ci` binds github_reviews over them and every other
+    stage binds no_reviews, which answers Unknown."""
+    monkeypatch.setenv("GITHUB_TOKEN", "job-token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example-org/example")
+
+    for stage in Stage:
+        reviews = build(stage, root=str(tmp_path)).reviews
+        if stage is Stage.CI:
+            assert isinstance(reviews, GitHubReviews), stage
+            answer = reviews.approvals("not-an-object-id", None)
+            assert isinstance(answer, ReviewsUnavailable)
+            assert "object id" in answer.reason, "the token or repository is lost"
+        else:
+            assert isinstance(reviews, NoReviews), stage
+            assert isinstance(reviews.approvals("a" * 40, None), Unknown)
+
+
+def test_build_in_ci_without_the_token_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a `ci` job with no GITHUB_TOKEN, When a landing's approvals are
+    asked for, Then the answer is unavailable naming the token, so the walk
+    counts no approval rather than letting the landed declaration stand."""
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example-org/example")
+
+    answer = build(Stage.CI, root=str(tmp_path)).reviews.approvals("a" * 40, None)
+
+    assert isinstance(answer, ReviewsUnavailable)
+    assert "GITHUB_TOKEN" in answer.reason
