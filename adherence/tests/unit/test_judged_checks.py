@@ -18,9 +18,8 @@ from adherence.domain.model import (
     Body,
     CodeModel,
     Definition,
+    ImportEdge,
     Layer,
-    Reference,
-    ReferenceKind,
 )
 from adherence.domain.qualities import CheckKind
 from adherence.domain.questions import (
@@ -214,12 +213,12 @@ def test_measure_with_no_judge_reachable_reports_every_question_as_coverage(
         function(RULES, "price", 1, end=5),
         function(USE, "close_order", 1, end=5),
     )
-    leak = Reference(RULES, 2, "price", ReferenceKind.NAME, "requests.get")
+    leak = ImportEdge(RULES, "requests", 2, "import requests", None)
     judge = FakeDecision(failure)
 
     report = measure_with(
         FILES,
-        CodeModel(definitions=definitions, references=(leak,)),
+        CodeModel(definitions=definitions, imports=(leak,)),
         judge=judge,
         thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
     )
@@ -232,4 +231,4 @@ def test_measure_with_no_judge_reachable_reports_every_question_as_coverage(
     assert _of(report, "Two jobs") == [] and report.abstentions == ()
     assert "Two jobs" not in [c.name for c in report.ran]
     assert len(judge.asked) == 1
-    assert [f.unit.symbol for f in _of(report, "Grep")] == ["price"]
+    assert [f.unit.path for f in _of(report, "Grep")] == [RULES]

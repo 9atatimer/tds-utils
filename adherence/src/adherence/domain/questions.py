@@ -480,3 +480,24 @@ def settled(asking: Asking, decision: Decision, policy: ThresholdPolicy) -> Judg
         abstentions=tuple(o for o in outcomes if isinstance(o, Abstention)),
         coverage=tuple(o for o in outcomes if isinstance(o, Coverage)),
     )
+
+
+def unasked(asking: Asking, why: str) -> tuple[Coverage, ...]:
+    """Every ask of a call the judge did not answer, as coverage naming its
+    check, its unit and why: never a pass."""
+    return tuple(_unanswered(ask, why) for ask in asking.asks.values())
+
+
+def unanswered_checks(asks: Sequence[Ask], judged: Judged) -> frozenset[str]:
+    """The judged checks that asked and got no answer to any question: they
+    did not run. A check with a rule part ran whatever its judged part got."""
+    answered = (
+        {f.check.name for f in judged.findings}
+        | {p.check.name for p in judged.passes}
+        | {a.check.name for a in judged.abstentions}
+    )
+    return frozenset(
+        ask.check.name
+        for ask in asks
+        if ask.check.kind is CheckKind.JUDGED and ask.check.name not in answered
+    )

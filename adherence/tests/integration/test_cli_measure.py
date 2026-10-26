@@ -83,7 +83,7 @@ def test_measure_json_over_the_fixture_prints_the_layered_findings() -> None:
     layered = next(
         q for q in json.loads(output)["qualities"] if q["quality"] == "Layered"
     )
-    assert layered["ran"] == ["Trace", "Purity", "Wiring", "Anatomy", "Two jobs"]
+    assert layered["ran"] == ["Trace", "Purity", "Wiring", "Anatomy"]
     found = {(f["check"], f["path"], f["symbol"]) for f in layered["findings"]}
     assert found == {
         ("Trace", DESIGN, "An order is reopened"),

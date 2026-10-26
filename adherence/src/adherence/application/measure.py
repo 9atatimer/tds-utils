@@ -46,8 +46,12 @@ from adherence.domain.questions import (
     Ask,
     Decision,
     Judged,
+    Pass,
+    Unavailable,
     schemas,
     settled,
+    unanswered_checks,
+    unasked,
 )
 from adherence.domain.records import (
     DesignRecords,
@@ -171,6 +175,12 @@ def _metrics(
     return Coverage(f"{answer.operation}: timed out", check=check)
 
 
+def _failed(answer: Unavailable | TimedOut) -> str:
+    if isinstance(answer, Unavailable):
+        return f"was not asked: the judge is unavailable: {answer.reason}"
+    return f"was not asked: {answer.operation}: timed out"
+
+
 def _judge(
     asks: tuple[Ask, ...],
     judge: DecisionPort,
@@ -178,16 +188,26 @@ def _judge(
     deadline: Deadline | None,
 ) -> Judged:
     """Each unit's questions put to the judge in one call, and the answers
-    settled by the threshold policy."""
+    settled by the threshold policy. After the judge first fails --
+    unavailable or out of time -- it is not asked again, and every question
+    left is coverage."""
     findings: list[Finding] = []
+    passes: list[Pass] = []
     abstentions: list[Abstention] = []
+    coverage: list[Coverage] = []
+    failure: Unavailable | TimedOut | None = None
     for asking in schemas(asks):
-        answer = judge.decide(asking.state, asking.schema, deadline)
+        answer = failure or judge.decide(asking.state, asking.schema, deadline)
         if isinstance(answer, Decision):
             judged = settled(asking, answer, parameters.thresholds)
             findings.extend(judged.findings)
+            passes.extend(judged.passes)
             abstentions.extend(judged.abstentions)
-    return Judged(findings=tuple(findings), abstentions=tuple(abstentions))
+            coverage.extend(judged.coverage)
+        else:
+            failure = answer
+            coverage.extend(unasked(asking, _failed(answer)))
+    return Judged(tuple(findings), tuple(passes), tuple(abstentions), tuple(coverage))
 
 
 def measure(
@@ -279,6 +299,7 @@ def measure(
         )
     checked = run_checks(whole, declaration, design, parameters, radar=tech)
     judged = _judge(checked.questions, judge, parameters, deadline)
+    unjudged = unanswered_checks(checked.questions, judged)
     findings, applied = exempted(
         quoted(
             (*checked.findings, *judged.findings),
@@ -288,10 +309,19 @@ def measure(
         declaration,
     )
     return Report(
-        ran=tuple(c for c in checked.ran if c.name not in unmeasured_checks),
+        ran=tuple(
+            c
+            for c in checked.ran
+            if c.name not in unmeasured_checks and c.name not in unjudged
+        ),
         findings=findings,
         notices=(*refusal_notices(declaration), *applied),
-        coverage=(*coverage, *unmodelled(whole, declaration), *checked.coverage),
+        coverage=(
+            *coverage,
+            *unmodelled(whole, declaration),
+            *checked.coverage,
+            *judged.coverage,
+        ),
         abstentions=judged.abstentions,
         units=whole.units,
         bodies=tuple(
