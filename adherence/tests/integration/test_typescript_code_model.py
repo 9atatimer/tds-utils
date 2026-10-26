@@ -604,6 +604,25 @@ def test_conditionals_see_through_logic_switches_and_instanceof() -> None:
     ]
 
 
+def test_a_typeof_comparison_discriminates_on_its_operand() -> None:
+    """Given branches comparing the typeof of a value and of a field, either
+    way round, When they are modelled, Then each discriminates on the value
+    whose type it tests, as an isinstance test does in Python."""
+    source = (
+        b"function f(a, o) {\n"
+        b"  if (typeof a === 'string') {}\n"
+        b"  if ('number' !== typeof o.n) {}\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.mjs": source})
+
+    assert sorted((c.line, c.discriminant) for c in model.conditionals) == [
+        (2, "a"),
+        (3, "o.n"),
+    ]
+
+
 def test_members_are_each_types_fields_and_methods() -> None:
     """Given a class with fields, a class with a parameter property and a
     field set in its constructor, and an interface, When the fixture is
