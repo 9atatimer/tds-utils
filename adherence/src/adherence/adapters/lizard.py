@@ -22,6 +22,7 @@ from pathlib import Path
 
 from adherence.adapters.analyzer_process import (
     NotRan,
+    capped,
     remaining,
     run_analyzer,
     write_numbered,
@@ -81,9 +82,11 @@ class LizardComplexity:
         *,
         command: Sequence[str] = LIZARD,
         clock: Callable[[], float] = time.time,
+        bound: float | None = None,
     ) -> None:
         self._command = tuple(command)
         self._clock = clock
+        self._bound = bound
 
     def measure(
         self, sources: Mapping[str, bytes], deadline: Deadline | None
@@ -107,7 +110,7 @@ class LizardComplexity:
                 command,
                 cwd=work,
                 scratch=root,
-                timeout=remaining(deadline, self._clock()),
+                timeout=capped(deadline, self._clock(), self._bound),
             )
             if isinstance(ran, NotRan):
                 if ran.timed_out:

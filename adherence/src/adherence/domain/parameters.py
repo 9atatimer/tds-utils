@@ -83,12 +83,18 @@ class Limits:
     record_statuses are the statuses that make a design record a contract
     Trace, Language, Change, Kept test and Record kept read; the default is
     the design's floor, APPROVED and IMPLEMENTED.
+    analyzer_bound is the most seconds any one analyzer subprocess may run,
+    cut to the time left before the Deadline; None leaves only the Deadline
+    to bound it. commit_time_bound is the most seconds a pre-commit run may
+    take in total, which the entry point turns into the hook's Deadline.
     """
 
     evidence_bound: int
     complexity_ceiling: int | None = None
     duplication_ceiling: int | None = None
     record_statuses: frozenset[str] = frozenset({"APPROVED", "IMPLEMENTED"})
+    analyzer_bound: float | None = None
+    commit_time_bound: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
