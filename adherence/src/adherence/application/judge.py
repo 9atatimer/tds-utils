@@ -17,6 +17,7 @@ from adherence.domain.checks.declared import (
     RECORD_KEPT,
     covered,
     created_units,
+    edit_notices,
     record_kept,
     with_outcome,
 )
@@ -24,7 +25,6 @@ from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
     Declaration,
     DeclarationUnreadable,
-    edit_notices,
     widened,
 )
 from adherence.domain.model import CodeLanguage

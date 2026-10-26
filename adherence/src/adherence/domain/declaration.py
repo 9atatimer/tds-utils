@@ -585,90 +585,13 @@ def exempted(
         if exemption not in applied:
             applied.append(exemption)
     return tuple(marked), tuple(
-        Notice(f"exemption applied: {_target(e)}: {e.reason}") for e in applied
+        Notice(f"exemption applied: {exemption_target(e)}: {e.reason}") for e in applied
     )
 
 
-def _target(exemption: Exemption) -> str:
+def exemption_target(exemption: Exemption) -> str:
     """What an exemption silences, as a reviewer reads it."""
     return exemption.finding or f"{exemption.check} on {exemption.unit}"
-
-
-def _relayered(
-    *, in_force: Declaration, proposed: Declaration, paths: Collection[str]
-) -> list[str]:
-    """The paths the proposed declaration puts in another layer than the
-    one in force does, by assignment, region or marker file."""
-    moved = [
-        p
-        for p in sorted(paths)
-        if layer_of(p, None, proposed) != layer_of(p, None, in_force)
-    ]
-    regions = {
-        r.path for r in set(proposed.layers.regions) ^ set(in_force.layers.regions)
-    }
-    markers = set(proposed.layers.marker_files) ^ set(in_force.layers.marker_files)
-    return sorted({*moved, *regions, *markers})
-
-
-def edit_notices(
-    *,
-    in_force: Declaration,
-    proposed: Declaration | DeclarationUnreadable,
-    paths: Collection[str],
-    created: Collection[str],
-) -> tuple[Notice, ...]:
-    """A notice per edit the change's own declaration makes that it is not
-    judged under: everything but its widening for the files it created
-    (`paths` are the head's files). Each takes effect from the next change;
-    an exemption it adds is inert for this one."""
-    if isinstance(proposed, DeclarationUnreadable):
-        return (
-            Notice(
-                f"the change's own declaration cannot be read: {proposed.reason}; "
-                "it is judged under the declaration in force"
-            ),
-        )
-    if proposed == in_force:
-        return ()
-    notices: list[Notice] = []
-    relayered = [
-        p
-        for p in _relayered(in_force=in_force, proposed=proposed, paths=paths)
-        if p not in created
-    ]
-    if relayered:
-        notices.append(
-            Notice(
-                f"[layers] edited for {len(relayered)} existing path(s), first "
-                f"{relayered[0]}: not judged under for this change; it takes "
-                "effect from the next change"
-            )
-        )
-    notices.extend(
-        Notice(f"exemption added, inert for this change: {_target(e)}: {e.reason}")
-        for e in proposed.exemptions
-        if e not in in_force.exemptions
-    )
-    notices.extend(
-        Notice(f"exemption removed: {_target(e)}; it takes effect from the next change")
-        for e in in_force.exemptions
-        if e not in proposed.exemptions
-    )
-    notices.extend(
-        Notice(
-            f"[{table}] edited: not judged under for this change; it takes "
-            "effect from the next change"
-        )
-        for table, mine, theirs in (
-            ("records", proposed.records, in_force.records),
-            ("radar", proposed.radar, in_force.radar),
-            ("runtimes", proposed.runtimes, in_force.runtimes),
-            ("vocabulary", proposed.vocabulary, in_force.vocabulary),
-        )
-        if mine != theirs
-    )
-    return tuple(notices)
 
 
 def refusal_notices(declaration: Declaration) -> tuple[Notice, ...]:

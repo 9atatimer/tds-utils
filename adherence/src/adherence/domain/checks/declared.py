@@ -1,4 +1,5 @@
-"""domain/checks/declared.py -- the Declared quality's change-level checks.
+"""domain/checks/declared.py -- the Declared quality's change-level checks,
+and the declaration-edit notices.
 
 Covered: every unit the change creates is in a declared layer, by the
 declaration in force or by the change's own widening. Record kept: no
@@ -6,17 +7,25 @@ design behavior and no Domain Language term is removed from an approved
 record (DESIGN.ARCH-ADHERENCE.md, The Qualities table). Both run when a
 change is judged: Covered over the head's units and the units the change
 created, Record kept over the base's and the head's records
-(ARCHITECTURE.ARCH-ADHERENCE.md, Mechanism > Measurement).
+(ARCHITECTURE.ARCH-ADHERENCE.md, Mechanism > Measurement). Every edit of
+the change's own declaration it is not judged under is a notice (Module
+map).
 """
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import replace
 
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.coverage import Coverage
-from adherence.domain.declaration import Declaration
-from adherence.domain.finding import Evidence, Finding
+from adherence.domain.declaration import (
+    Declaration,
+    DeclarationUnreadable,
+    exemption_target,
+    layer_of,
+)
+from adherence.domain.finding import Evidence, Finding, Notice
 from adherence.domain.model import Unit, UnitKind
 from adherence.domain.qualities import Check, catalog_check
 from adherence.domain.records import DesignRecords, RecordsUnavailable
@@ -164,3 +173,85 @@ def with_outcome(report: Report, check: Check, outcome: CheckOutcome) -> Report:
             *outcome.coverage,
         ),
     )
+
+
+def _relayered(
+    *, in_force: Declaration, proposed: Declaration, paths: Collection[str]
+) -> list[str]:
+    """The paths the proposed declaration puts in another layer than the
+    one in force does, by assignment, region or marker file."""
+    moved = [
+        p
+        for p in sorted(paths)
+        if layer_of(p, None, proposed) != layer_of(p, None, in_force)
+    ]
+    regions = {
+        r.path for r in set(proposed.layers.regions) ^ set(in_force.layers.regions)
+    }
+    markers = set(proposed.layers.marker_files) ^ set(in_force.layers.marker_files)
+    return sorted({*moved, *regions, *markers})
+
+
+def edit_notices(
+    *,
+    in_force: Declaration,
+    proposed: Declaration | DeclarationUnreadable,
+    paths: Collection[str],
+    created: Collection[str],
+) -> tuple[Notice, ...]:
+    """A notice per edit the change's own declaration makes that it is not
+    judged under: everything but its widening for the files it created
+    (`paths` are the head's files). Each takes effect from the next change;
+    an exemption it adds is inert for this one."""
+    if isinstance(proposed, DeclarationUnreadable):
+        return (
+            Notice(
+                f"the change's own declaration cannot be read: {proposed.reason}; "
+                "it is judged under the declaration in force"
+            ),
+        )
+    if proposed == in_force:
+        return ()
+    notices: list[Notice] = []
+    relayered = [
+        p
+        for p in _relayered(in_force=in_force, proposed=proposed, paths=paths)
+        if p not in created
+    ]
+    if relayered:
+        notices.append(
+            Notice(
+                f"[layers] edited for {len(relayered)} existing path(s), first "
+                f"{relayered[0]}: not judged under for this change; it takes "
+                "effect from the next change"
+            )
+        )
+    notices.extend(
+        Notice(
+            f"exemption added, inert for this change: {exemption_target(e)}: {e.reason}"
+        )
+        for e in proposed.exemptions
+        if e not in in_force.exemptions
+    )
+    notices.extend(
+        Notice(
+            f"exemption removed: {exemption_target(e)}; "
+            "it takes effect from the next change"
+        )
+        for e in in_force.exemptions
+        if e not in proposed.exemptions
+    )
+    notices.extend(
+        Notice(
+            f"[{table}] edited: not judged under for this change; it takes "
+            "effect from the next change"
+        )
+        for table, mine, theirs in (
+            ("records", proposed.records, in_force.records),
+            ("radar", proposed.radar, in_force.radar),
+            ("runtimes", proposed.runtimes, in_force.runtimes),
+            ("vocabulary", proposed.vocabulary, in_force.vocabulary),
+        )
+        if mine != theirs
+    )
+    return tuple(notices)
