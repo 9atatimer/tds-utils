@@ -305,12 +305,13 @@ def _kept_name(
 ) -> str | None:
     """The function of the repository's covered non-test code a call
     reaches: the definition it resolves to, or, when it calls a bare name the
-    analyzer could not resolve, the one function of that name. A method of
-    some other object by the same name reaches nothing."""
+    analyzer could not resolve to a source, the one function of that name
+    (Self-review re-review H2, task-061). A method of some other object by
+    the same name reaches nothing."""
     target = call.target
-    if target is None:
+    if target is None or target.path is None:
         return call.callee if call.callee in unambiguous else None
-    if target.path is None or target.symbol is None:
+    if target.symbol is None:
         return None
     found = definitions.get((target.path, target.symbol))
     if found is None or not is_core_or_edge(found.unit.layer):

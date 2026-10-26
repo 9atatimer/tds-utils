@@ -13,6 +13,7 @@ from __future__ import annotations
 import ast
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import PurePosixPath
 
 from adherence.adapters.python_imports import beside
 from adherence.domain.model import Target
@@ -111,6 +112,23 @@ def expanded(parts: list[str], imported: Mapping[str, str]) -> str:
     return ".".join([head, *parts[1:]])
 
 
+def namespace_modules(files: Mapping[str, FileNames]) -> dict[str, str]:
+    """Each dotted module name a source outside any package can be imported
+    as through namespace packages -- directories with no __init__.py under
+    some root -- to that source, when exactly one source answers to it:
+    `src/app/usecases.py` is `app.usecases` (and `src.app.usecases`). A
+    top-level name is a module, not a namespace package, and is left out."""
+    found: dict[str, set[str]] = {}
+    for path, names in files.items():
+        pure = PurePosixPath(path)
+        if names.module is not None or pure.suffix != ".py":
+            continue
+        parts = pure.with_suffix("").parts
+        for start in range(len(parts) - 1):
+            found.setdefault(".".join(parts[start:]), set()).add(path)
+    return {name: next(iter(paths)) for name, paths in found.items() if len(paths) == 1}
+
+
 def qualified(module: str | None, symbol: str) -> str:
     """A definition's dotted name: its symbol under its module, when known."""
     return f"{module}.{symbol}" if module else symbol
@@ -151,6 +169,7 @@ class Resolver:
     ) -> None:
         self._files = files
         self._modules = modules
+        self._namespace = namespace_modules(files)
         self._members: dict[tuple[str, str, str], Target | None] = {}
 
     def imported(self, path: str) -> Mapping[str, str]:
@@ -181,13 +200,14 @@ class Resolver:
     def _module_path(self, module: str, near: str) -> str | None:
         """The source of a module an import in the file `near` names: beside
         a file outside any package first, as Python searches, then among
-        the packages."""
+        the packages, then the one source a namespace package holds by that
+        name (Self-review re-review H2, task-061)."""
         names = self._files.get(near)
         if names is not None and names.module is None:
             found = beside(near, module, self._files.keys())
             if found is not None:
                 return found
-        return self._modules.get(module)
+        return self._modules.get(module) or self._namespace.get(module)
 
     def _located(self, dotted: str, near: str, hops: int) -> Target:
         """The repository definition a dotted name names -- its longest
