@@ -22,11 +22,11 @@ from __future__ import annotations
 
 import enum
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from adherence.domain.coverage import Coverage
 from adherence.domain.finding import Evidence, Finding
-from adherence.domain.model import Layer, Unit
+from adherence.domain.model import Definition, Layer, Unit, UnitKind
 from adherence.domain.qualities import Check, CheckKind
 
 # --- Values: questions ---------------------------------------------------------
@@ -225,6 +225,16 @@ class Decision:
 
 
 @dataclass(frozen=True, slots=True)
+class Asking:
+    """One call to the judge: the state and schema of one unit, and per
+    schema key the ask it answers."""
+
+    state: State
+    schema: Schema
+    asks: Mapping[str, Ask]
+
+
+@dataclass(frozen=True, slots=True)
 class Unavailable:
     """The judge could not be asked, with the reason."""
 
@@ -252,6 +262,17 @@ class Abstention:
     question: str
     subject: str
     confidence: float
+
+
+@dataclass(frozen=True, slots=True)
+class Judged:
+    """What the judge's answers made of the asks: the judged findings, the
+    passes, the abstentions, and the questions left unanswered."""
+
+    findings: tuple[Finding, ...] = ()
+    passes: tuple[Pass, ...] = ()
+    abstentions: tuple[Abstention, ...] = ()
+    coverage: tuple[Coverage, ...] = ()
 
 
 # --- Values: the threshold policy ------------------------------------------------
@@ -387,3 +408,75 @@ def judged(
     if isinstance(entry, ChoiceThreshold):
         return _chosen(ask, probabilities, entry)
     return _banded(ask, probabilities, entry)
+
+
+def definition_text(definition: Definition) -> str:
+    """A definition's text as the judge reads it: its header, rebuilt from
+    the model (a function's parameters and return, a type's bases), and its
+    body as written."""
+    unit = definition.unit
+    if unit.kind is UnitKind.TYPE:
+        bases = f"({', '.join(definition.bases)})" if definition.bases else ""
+        return f"class {unit.symbol}{bases}:\n{definition.body.text}"
+    signature = definition.signature
+    parameters = ", ".join(
+        f"{p.name}: {p.annotation}" if p.annotation else p.name
+        for p in (signature.parameters if signature is not None else ())
+    )
+    returns = (
+        f" -> {signature.returns}"
+        if signature is not None and signature.returns is not None
+        else ""
+    )
+    return f"def {unit.symbol}({parameters}){returns}:\n{definition.body.text}"
+
+
+def _keyed(question: Question, key: str, context: str) -> Question:
+    """The question as asked under its key: a question that reads data beyond
+    the unit's text is told which context entry holds it."""
+    if not context:
+        return question
+    return replace(
+        question,
+        instructions=f"{question.instructions} The data it reads beyond the "
+        f"unit's text is the state's context entry \"{key}\".",
+    )
+
+
+def schemas(asks: Sequence[Ask]) -> tuple[Asking, ...]:
+    """The asks grouped per unit, in the order units are first asked about,
+    into one call each: every question about a unit together, each under
+    the key `<question id>.<n>`. Which questions a unit gets is the checks'
+    choice alone; the unit's text only fills the state."""
+    by_unit: dict[Unit, list[Ask]] = {}
+    for ask in asks:
+        by_unit.setdefault(ask.unit, []).append(ask)
+    callings: list[Asking] = []
+    for unit, mine in by_unit.items():
+        counts: dict[str, int] = {}
+        keyed: dict[str, Ask] = {}
+        for ask in mine:
+            counts[ask.question.id] = counts.get(ask.question.id, 0) + 1
+            keyed[f"{ask.question.id}.{counts[ask.question.id]}"] = ask
+        state = State(
+            unit,
+            mine[0].text,
+            {key: ask.context for key, ask in keyed.items() if ask.context},
+        )
+        schema = Schema(
+            {key: _keyed(ask.question, key, ask.context) for key, ask in keyed.items()}
+        )
+        callings.append(Asking(state, schema, keyed))
+    return tuple(callings)
+
+
+def settled(asking: Asking, decision: Decision, policy: ThresholdPolicy) -> Judged:
+    """Every ask of one call, judged by the policy against the judge's
+    decision."""
+    outcomes = [judged(ask, key, decision, policy) for key, ask in asking.asks.items()]
+    return Judged(
+        findings=tuple(o for o in outcomes if isinstance(o, Finding)),
+        passes=tuple(o for o in outcomes if isinstance(o, Pass)),
+        abstentions=tuple(o for o in outcomes if isinstance(o, Abstention)),
+        coverage=tuple(o for o in outcomes if isinstance(o, Coverage)),
+    )

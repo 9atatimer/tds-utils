@@ -37,6 +37,7 @@ from adherence.domain.model import (
 )
 from adherence.domain.parameters import Parameters
 from adherence.domain.qualities import CATALOG, Check, CheckKind, Quality
+from adherence.domain.questions import Ask
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 
 # --- Constants ---------------------------------------------------------------
@@ -65,6 +66,7 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Purity": layered.purity,
     "Wiring": layered.wiring,
     "Anatomy": layered.anatomy,
+    "Two jobs": layered.two_jobs,
 }
 RADAR_CHECKS: Mapping[str, RadarCheckFunction] = {
     "Dependency": radar.dependency,
@@ -90,11 +92,13 @@ READ_BY: Mapping[str, frozenset[str]] = {
 @dataclass(frozen=True, slots=True)
 class Checked:
     """What the target-level checks did: the checks that ran, their
-    findings, and every check that did not run, with why."""
+    findings, the questions they put to the judge, and every check that did
+    not run, with why."""
 
     ran: tuple[Check, ...]
     findings: tuple[Finding, ...]
     coverage: tuple[Coverage, ...]
+    questions: tuple[Ask, ...] = ()
 
 
 # --- Pure helpers ------------------------------------------------------------
@@ -204,6 +208,7 @@ def run_checks(
         for u in model.units
         if u.kind is UnitKind.FILE
     }
+    questions: list[Ask] = []
     for check in CATALOG:
         unread = unread_by(check, model)
         scoped = given.over(without(model, unread))
@@ -225,4 +230,5 @@ def run_checks(
             )
         findings.extend(outcome.findings)
         coverage.extend(outcome.coverage)
-    return Checked(tuple(ran), tuple(findings), tuple(coverage))
+        questions.extend(outcome.questions)
+    return Checked(tuple(ran), tuple(findings), tuple(coverage), tuple(questions))

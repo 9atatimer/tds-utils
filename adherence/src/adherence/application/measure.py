@@ -28,7 +28,7 @@ from adherence.domain.declaration import (
     refusal_notices,
     with_overrides,
 )
-from adherence.domain.finding import quoted
+from adherence.domain.finding import Finding, quoted
 from adherence.domain.model import (
     CodeLanguage,
     CodeModel,
@@ -41,6 +41,7 @@ from adherence.domain.model import (
     with_languages,
 )
 from adherence.domain.parameters import Parameters
+from adherence.domain.questions import Ask, Decision, Judged, schemas, settled
 from adherence.domain.records import (
     DesignRecords,
     Radar,
@@ -163,6 +164,23 @@ def _metrics(
     return Coverage(f"{answer.operation}: timed out", check=check)
 
 
+def _judge(
+    asks: tuple[Ask, ...],
+    judge: DecisionPort,
+    parameters: Parameters,
+    deadline: Deadline | None,
+) -> Judged:
+    """Each unit's questions put to the judge in one call, and the answers
+    settled by the threshold policy."""
+    findings: list[Finding] = []
+    for asking in schemas(asks):
+        answer = judge.decide(asking.state, asking.schema, deadline)
+        if isinstance(answer, Decision):
+            judged = settled(asking, answer, parameters.thresholds)
+            findings.extend(judged.findings)
+    return Judged(findings=tuple(findings))
+
+
 def measure(
     at: Base | Head,
     declaration: Declaration | DeclarationUnreadable,
@@ -251,8 +269,13 @@ def measure(
             else read_radar
         )
     checked = run_checks(whole, declaration, design, parameters, radar=tech)
+    judged = _judge(checked.questions, judge, parameters, deadline)
     findings, applied = exempted(
-        quoted(checked.findings, sources, parameters.limits.evidence_bound),
+        quoted(
+            (*checked.findings, *judged.findings),
+            sources,
+            parameters.limits.evidence_bound,
+        ),
         declaration,
     )
     return Report(

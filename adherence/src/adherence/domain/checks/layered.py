@@ -37,6 +37,7 @@ from adherence.domain.model import (
 )
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
+from adherence.domain.questions import TWO_JOBS, Ask, definition_text
 from adherence.domain.records import (
     Behavior,
     DesignRecords,
@@ -81,6 +82,14 @@ DOES_IO_UNASKED = "the judged part (does_io) is not asked in this suite version"
 WIRING = catalog_check("Wiring")
 NO_RUNTIME = "the per-runtime half needs a declared runtime; the declaration has none"
 ANATOMY = catalog_check("Anatomy")
+TWO_JOBS_CHECK = catalog_check("Two jobs")
+# The three jobs a unit may do, by the layer whose job each is; Two jobs
+# asks only about units declared to do one of them.
+JOBS: Mapping[Layer, str] = {
+    Layer.DOMAIN: "rules",
+    Layer.APPLICATION: "workflow",
+    Layer.COMPOSITION_ROOT: "wiring",
+}
 # The coding skill's file anatomy, as the layers of a file's regions:
 # predicates and pure helpers, then the effectful helpers, then the flow
 # functions, then the entry points.
@@ -560,3 +569,48 @@ def anatomy(
             )
         )
     return CheckOutcome(tuple(findings))
+
+
+def _job(layer: Layer | None) -> str | None:
+    """The job a layer's units do, when it is one of the three."""
+    return JOBS.get(layer) if layer is not None else None
+
+
+def _two_jobs_ask(definition: Definition, job: str) -> Ask:
+    unit = definition.unit
+    layer = unit.layer
+    others = " and ".join(j for j in JOBS.values() if j != job)
+    return Ask(
+        check=TWO_JOBS_CHECK,
+        question=TWO_JOBS,
+        unit=unit,
+        layer=layer,
+        subject=(
+            f"{unit.symbol}: declared {layer.value if layer else 'unassigned'} "
+            f"({job}) and doing {others} as well"
+        ),
+        evidence=Evidence(unit.path, unit.start, unit.symbol or ""),
+        text=definition_text(definition),
+        context=f"declared layer: {layer.value if layer else ''}, whose job is {job}",
+    )
+
+
+def two_jobs(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """Asks the judge, of every function declared to do rules, workflow or
+    wiring, whether it does two of the three; it finds nothing by itself."""
+    if not declaration.declared:
+        return undeclared(TWO_JOBS_CHECK.name)
+    return CheckOutcome(
+        questions=tuple(
+            _two_jobs_ask(d, job)
+            for d in model.definitions
+            if d.unit.kind is UnitKind.FUNCTION
+            and not d.nested
+            and (job := _job(d.unit.layer)) is not None
+        )
+    )
