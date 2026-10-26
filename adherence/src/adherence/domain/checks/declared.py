@@ -110,12 +110,24 @@ def record_kept(
     """A finding per design behavior and per Domain Language term the base's
     approved records state and the head's do not: every one of them, when
     the head has no approved record left. With no approved record at the
-    base there is nothing to keep, and the check is coverage."""
+    base there is nothing to keep, and the check is coverage; so it is when
+    the head's record could not be read, since what it states is unknown
+    and nothing can be said removed."""
     if isinstance(base, RecordsUnavailable):
         return CheckOutcome(
             coverage=(
                 Coverage(
                     f"no approved record at the base: {base.reason}",
+                    check=RECORD_KEPT.name,
+                ),
+            ),
+            ran=False,
+        )
+    if isinstance(head, RecordsUnavailable) and head.unread:
+        return CheckOutcome(
+            coverage=(
+                Coverage(
+                    f"the record at the head cannot be read: {head.reason}",
                     check=RECORD_KEPT.name,
                 ),
             ),

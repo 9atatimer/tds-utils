@@ -118,7 +118,7 @@ def _records_at(
     """The records at the target, when their statuses count."""
     found = records.records(at, declaration, deadline)
     if isinstance(found, TimedOut):
-        return RecordsUnavailable(f"{found.operation}: timed out")
+        return RecordsUnavailable(f"{found.operation}: timed out", unread=True)
     return counted(found, parameters.limits.record_statuses)
 
 
