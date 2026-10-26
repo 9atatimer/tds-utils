@@ -34,7 +34,7 @@ STATE = State(
 SCHEMA = Schema(
     {
         "two_jobs.1": TWO_JOBS,
-        "hand_rolled.1": hand_rolled_question(("click", "markdown-it-py")),
+        "hand_rolled.1": hand_rolled_question(2),
         "then_asserted.1": THEN_ASSERTED,
     }
 )

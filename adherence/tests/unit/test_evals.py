@@ -46,7 +46,7 @@ def test_every_label_is_one_of_its_questions_options() -> None:
     libraries without `none`, which the question adds."""
     for question_id in QUESTION_KINDS:
         for example in examples(question_id):
-            assert example.label in example.question.options, example.id
+            assert example.answer in example.question.options, example.id
             assert example.text.strip(), example.id
             assert example.note.strip(), example.id
             assert NONE not in example.options, example.id

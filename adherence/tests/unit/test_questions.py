@@ -48,7 +48,8 @@ POLICY = ThresholdPolicy(
         THEN_ASSERTED.id: BandThreshold(finding_at=0.6, pass_below=0.2),
     }
 )
-LIBRARIES = hand_rolled_question(("markdown-it-py", "click"))
+LIBRARIES = hand_rolled_question(2)
+NAMED = {"lib_1": "markdown-it-py", "lib_2": "click"}
 
 
 def _ask(question: Question, check: str = "Two jobs") -> Ask:
@@ -61,6 +62,7 @@ def _ask(question: Question, check: str = "Two jobs") -> Ask:
         evidence=EVIDENCE,
         text="def price(): ...",
         context="",
+        named=NAMED if question is LIBRARIES else {},
     )
 
 
@@ -134,7 +136,7 @@ def test_judged_choice_naming_a_library_at_its_threshold_names_it() -> None:
     outcome = judged(
         _ask(LIBRARIES, "Hand-rolled"),
         KEY,
-        _decide({"markdown-it-py": 0.7, "click": 0.1, NONE: 0.2}),
+        _decide({"lib_1": 0.7, "lib_2": 0.1, NONE: 0.2}),
         POLICY,
     )
 
@@ -149,13 +151,13 @@ def test_judged_choice_below_its_threshold_abstains_whatever_is_top() -> None:
     library = judged(
         _ask(LIBRARIES, "Hand-rolled"),
         KEY,
-        _decide({"markdown-it-py": 0.69, "click": 0.11, NONE: 0.2}),
+        _decide({"lib_1": 0.69, "lib_2": 0.11, NONE: 0.2}),
         POLICY,
     )
     nothing = judged(
         _ask(LIBRARIES, "Hand-rolled"),
         KEY,
-        _decide({"markdown-it-py": 0.2, "click": 0.11, NONE: 0.69}),
+        _decide({"lib_1": 0.2, "lib_2": 0.11, NONE: 0.69}),
         POLICY,
     )
 
@@ -169,7 +171,7 @@ def test_judged_choice_of_none_at_its_threshold_is_a_pass() -> None:
     outcome = judged(
         _ask(LIBRARIES, "Hand-rolled"),
         KEY,
-        _decide({"markdown-it-py": 0.2, "click": 0.1, NONE: 0.7}),
+        _decide({"lib_1": 0.2, "lib_2": 0.1, NONE: 0.7}),
         POLICY,
     )
 

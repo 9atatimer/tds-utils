@@ -26,6 +26,8 @@ from adherence.domain.questions import (
     Question,
     QuestionKind,
     hand_rolled_question,
+    libraries_context,
+    library_keys,
 )
 
 EVALS = Path(__file__).resolve().parents[1] / "evals"
@@ -71,8 +73,20 @@ class Example:
     @property
     def question(self) -> Question:
         if self.question_id == HAND_ROLLED_ID:
-            return hand_rolled_question(self.options)
+            return hand_rolled_question(len(self.options))
         return QUESTIONS[self.question_id]
+
+    @property
+    def named(self) -> dict[str, str]:
+        """A choice example's libraries under their option keys."""
+        return library_keys(self.options)
+
+    @property
+    def answer(self) -> str:
+        """The option the label is: a choice labels a library by name, which
+        the question offers under its key."""
+        keys = {name: key for key, name in self.named.items()}
+        return keys.get(self.label, self.label)
 
     @property
     def is_finding(self) -> bool:
@@ -93,7 +107,8 @@ class Example:
             subject=self.id,
             evidence=Evidence(unit.path, 1, self.id),
             text=self.text,
-            context=self.context,
+            context=libraries_context(self.named) if self.options else self.context,
+            named=self.named,
         )
 
 

@@ -30,6 +30,8 @@ from adherence.domain.questions import (
     Question,
     definition_text,
     hand_rolled_question,
+    libraries_context,
+    library_keys,
 )
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable, Ring
 
@@ -172,7 +174,9 @@ def done(
     )
 
 
-def _hand_rolled_ask(definition: Definition, question: Question) -> Ask:
+def _hand_rolled_ask(
+    definition: Definition, question: Question, named: dict[str, str]
+) -> Ask:
     unit = definition.unit
     return Ask(
         check=HAND_ROLLED,
@@ -182,7 +186,8 @@ def _hand_rolled_ask(definition: Definition, question: Question) -> Ask:
         subject=f"{unit.symbol}: written by hand where the radar adopts",
         evidence=Evidence(unit.path, unit.start, unit.symbol or ""),
         text=definition_text(definition),
-        context="",
+        context=libraries_context(named),
+        named=named,
     )
 
 
@@ -207,10 +212,12 @@ def hand_rolled(
     )
     if not adopted:
         return CheckOutcome()
-    question = hand_rolled_question(adopted)
+    question = hand_rolled_question(len(adopted))
+    named = library_keys(adopted)
     return CheckOutcome(
         questions=tuple(
-            _hand_rolled_ask(d, question) for d in _work(model, parameters.vocabulary)
+            _hand_rolled_ask(d, question, named)
+            for d in _work(model, parameters.vocabulary)
         )
     )
 

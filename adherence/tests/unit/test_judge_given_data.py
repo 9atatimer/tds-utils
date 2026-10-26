@@ -97,7 +97,7 @@ def test_decide_record_carries_the_unit_in_the_state_alone() -> None:
     binary as a yes/no (noul), the choice with one criterion per option,
     the score with its levels lowest first."""
     unit = _with_body(ADDRESSED).unit
-    choice = hand_rolled_question(("markdown-it-py",))
+    choice = hand_rolled_question(1)
     schema = Schema(
         {
             "two_jobs.1": TWO_JOBS,
@@ -121,7 +121,7 @@ def test_decide_record_carries_the_unit_in_the_state_alone() -> None:
         "instructions": TWO_JOBS.instructions,
     }
     assert questions["hand_rolled.1"]["type"] == "choice"
-    assert set(questions["hand_rolled.1"]["criteria"]) == {"markdown-it-py", "none"}
+    assert set(questions["hand_rolled.1"]["criteria"]) == {"lib_1", "none"}
     assert questions["then_asserted.1"] == {
         "type": "score",
         "instructions": THEN_ASSERTED.instructions,
@@ -177,7 +177,7 @@ def test_measure_radar_entry_names_reach_the_judge_as_state_alone() -> None:
     for name in HOSTILE:
         if name != NONE:
             assert name not in asked
-            assert name in state.context[key]
+            assert name in json.loads(state.context[key]).values()
     assert len(question.options) == len(HOSTILE) + 1
     assert len(set(question.options)) == len(question.options)
     assert question.options.count(NONE) == 1
