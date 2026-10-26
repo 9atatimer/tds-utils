@@ -12,6 +12,15 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
+from adherence.application.latch import (
+    Latch,
+    LatchedComplexity,
+    LatchedDecision,
+    LatchedDuplication,
+    LatchedRecords,
+    LatchedRepository,
+    latched_analyzers,
+)
 from adherence.domain.checks.run import run_checks
 from adherence.domain.coverage import Coverage, unmeasured, unmodelled
 from adherence.domain.deadline import Deadline, TimedOut
@@ -128,9 +137,18 @@ def measure(
     parameters: Parameters,
     deadline: Deadline | None,
 ) -> Report:
-    """The Report of every target-level check over the target."""
+    """The Report of every target-level check over the target. Once any
+    port answers TimedOut, no port is asked anything more: what is left is
+    coverage."""
     if isinstance(declaration, DeclarationUnreadable):
         return Report.not_run(f"the declaration cannot be read: {declaration.reason}")
+    latch = Latch()
+    repository = LatchedRepository(repository, latch)
+    analyzers = latched_analyzers(analyzers, latch)
+    complexity = LatchedComplexity(complexity, latch)
+    duplication = LatchedDuplication(duplication, latch)
+    records = LatchedRecords(records, latch)
+    judge = LatchedDecision(judge, latch)
     identity = ReportIdentity(
         suite=SUITE_VERSION,
         parameters=fingerprint(parameters),
