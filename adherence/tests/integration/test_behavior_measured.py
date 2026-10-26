@@ -305,3 +305,20 @@ def test_an_internal_is_found_by_the_definition_a_call_resolves_to() -> None:
         "test_alias -> tidy",
         "test_direct -> rules._round",
     }
+
+
+def test_an_internal_reached_through_getattr_is_found() -> None:
+    """Given a test reaching a domain internal by `getattr` with the name
+    written as a string, and one reading a public name the same way, When
+    Public surface runs, Then the internal reach is found (Self-review R7)."""
+    source = (
+        b"from app.domain import rules\n"
+        b"def test_getattr():\n"
+        b'    assert getattr(rules, "_round")(1) == 1\n'
+        b"def test_public():\n"
+        b'    assert getattr(rules, "price")(1) == 1\n'
+    )
+
+    report = _measured({**APP, **RULES, TEST: source}, records=RECORDS)
+
+    assert _past_surface(report) == {"test_getattr -> rules._round"}
