@@ -264,11 +264,13 @@ class Member:
 
 @dataclass(frozen=True, slots=True)
 class Assertion:
-    """One asserted expression, as written, and its truth value when it is a
-    literal (None when it is not): a literal asserts nothing about the code."""
+    """One asserted expression, as written, its truth value when it is a
+    literal (None when it is not), and whether the assertion carries a
+    message."""
 
     text: str
     truth: bool | None = None
+    message: bool = False
 
 
 @dataclass(frozen=True, slots=True)

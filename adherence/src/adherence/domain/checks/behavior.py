@@ -55,9 +55,20 @@ def is_internal(name: str) -> bool:
 # --- Pure helpers ------------------------------------------------------------
 
 
-def is_placeholder(assertion: Assertion, vocabulary: Vocabulary) -> bool:
+def exercises(case: TestCase, vocabulary: Vocabulary) -> bool:
+    """Whether a test calls something other than an assertion."""
+    return any(not is_named(c, vocabulary.assertion_calls) for c in case.calls)
+
+
+def is_placeholder(
+    assertion: Assertion, vocabulary: Vocabulary, *, exercising: bool
+) -> bool:
     """Whether an assertion cannot tell a pass from a fail: it asserts a
-    literal, or an expression the vocabulary names."""
+    literal, or an expression the vocabulary names. A false literal with a
+    message, in a test that runs code, is the hand-written failure of an
+    unreachable line (`assert False, "should have raised"`): it can fail."""
+    if assertion.truth is False and assertion.message and exercising:
+        return False
     return (
         assertion.truth is not None
         or assertion.text.strip() in vocabulary.placeholder_assertions
@@ -65,7 +76,12 @@ def is_placeholder(assertion: Assertion, vocabulary: Vocabulary) -> bool:
 
 
 def _placeholders(case: TestCase, vocabulary: Vocabulary) -> list[str]:
-    return [a.text for a in case.assertions if is_placeholder(a, vocabulary)]
+    exercising = exercises(case, vocabulary)
+    return [
+        a.text
+        for a in case.assertions
+        if is_placeholder(a, vocabulary, exercising=exercising)
+    ]
 
 
 def _tests(model: CodeModel, declaration: Declaration) -> list[tuple[TestCase, Unit]]:

@@ -487,12 +487,12 @@ def is_test(found: _Found, classes: set[str]) -> bool:
 
 def _assertion(node: ast.Assert) -> Assertion:
     """An assert statement's expression, with its truth value when it is a
-    literal."""
+    literal, and whether it carries a message."""
     try:
         truth: bool | None = bool(ast.literal_eval(node.test))
     except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
         truth = None
-    return Assertion(ast.unparse(node.test), truth)
+    return Assertion(ast.unparse(node.test), truth, node.msg is not None)
 
 
 def _test_cases(path: str, walked: Sequence[_Found]) -> list[TestCase]:
