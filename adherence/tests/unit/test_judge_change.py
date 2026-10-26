@@ -14,6 +14,7 @@ from adherence.domain.records import (
     Behavior,
     DesignRecords,
     RecordStatus,
+    RecordsUnavailable,
     SurfaceRow,
     Term,
     UseCase,
@@ -482,3 +483,22 @@ def test_judge_change_against_a_base_it_cannot_measure_is_inconclusive() -> None
     assert report.verdict is Verdict.INCONCLUSIVE
     assert any("base" in r and "the base revision is gone" in r for r in report.reasons)
     assert [f.provenance for f in report.findings] == [None]
+
+
+def test_judge_change_with_the_record_missing_on_both_sides_is_not_inconclusive() -> (
+    None
+):
+    """Given a repository whose design record is missing at the base and at
+    the head, When a change is judged, Then the missing record alone does
+    not make the verdict inconclusive, though its checks are coverage."""
+    missing = RecordsUnavailable(f"{DESIGN}: no such record at this target")
+
+    report = judge_with(
+        {USE: CLEAN},
+        {USE: CLEAN + b"\n# edited\n"},
+        records={BASE: missing, HEAD: missing},
+    )
+
+    assert report.verdict is Verdict.HELD
+    covered = {c.check for c in report.coverage if c.check}
+    assert {"Trace", "Record kept"} <= covered
