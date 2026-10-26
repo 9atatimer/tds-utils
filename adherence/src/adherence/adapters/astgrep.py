@@ -18,6 +18,7 @@ from __future__ import annotations
 import bisect
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -101,6 +102,9 @@ CONDITION, SUBJECT, LEFT, RIGHT, OPERAND, INNER = (
 EMPTY_BLOCK = "{}"
 NESTED_TOO_DEEPLY = "nested deeper than the analyzer can walk"
 LEAVES = "the path leaves the repository; not read"
+# The path a line of ast-grep's stream names, read without decoding the
+# line, for a line that does not decode.
+FILE_FIELD = re.compile(r'"file"\s*:\s*("(?:[^"\\]|\\.)*")')
 
 # --- Values ------------------------------------------------------------------
 
@@ -281,6 +285,38 @@ def parse_match(record: Mapping[str, object], tree: str) -> Match:
         text=str(record["text"]),
         captures=captures,
     )
+
+
+def named_path(line: str, tree: str) -> str | None:
+    """The repository path a line of ast-grep's stream names, or None when
+    none can be read from it."""
+    found = FILE_FIELD.search(line)
+    if found is None:
+        return None
+    try:
+        return str(PurePosixPath(json.loads(found.group(1))).relative_to(tree))
+    except ValueError:
+        return None
+
+
+def parse_stream(text: str, tree: str) -> tuple[list[Match], dict[str, str]]:
+    """ast-grep's JSON stream as Matches, one record per line ended by
+    "\n" alone (a source's own separators, U+2028 and kin, sit inside its
+    strings), and why each file a line that does not decode names is not
+    read. Raises ScanFailed when such a line names no file."""
+    matches: list[Match] = []
+    undecoded: dict[str, str] = {}
+    for line in text.split("\n"):
+        if not line.strip():
+            continue
+        try:
+            matches.append(parse_match(json.loads(line), tree))
+        except ValueError as error:
+            path = named_path(line, tree)
+            if path is None:
+                raise ScanFailed(f"ast-grep's output is not JSON: {error}") from error
+            undecoded.setdefault(path, f"ast-grep's output for it is not JSON: {error}")
+    return matches, undecoded
 
 
 def innermost_each(
@@ -876,9 +912,10 @@ def scan(
     binary: Path,
     deadline: Deadline | None,
     clock: Callable[[], float],
-) -> list[Match]:
+) -> tuple[list[Match], dict[str, str]]:
     """Every match of the grammar's rules over the sources, keyed by
-    repository path. Raises ScanFailed when ast-grep cannot answer in time."""
+    repository path, and why each file whose output does not decode is not
+    read. Raises ScanFailed when ast-grep cannot answer in time."""
     if not binary.is_file():
         raise ScanFailed(f"ast-grep is not installed at {binary}")
     timeout = None
@@ -925,11 +962,7 @@ def scan(
             complaint = failed.stderr.decode("utf-8", "replace").strip().splitlines()
             reason = complaint[0] if complaint else f"exit {failed.returncode}"
             raise ScanFailed(f"ast-grep failed: {reason}") from failed
-    return [
-        parse_match(json.loads(line), "tree")
-        for line in done.stdout.decode("utf-8", "replace").splitlines()
-        if line.strip()
-    ]
+    return parse_stream(done.stdout.decode("utf-8", "replace"), "tree")
 
 
 def structure(
@@ -953,7 +986,9 @@ def structure(
         return TimedOut(f"model the {language} sources")
     found, unparsed = readable(sources)
     try:
-        matches = scan(found, grammar, binary=binary, deadline=deadline, clock=clock)
+        matches, undecoded = scan(
+            found, grammar, binary=binary, deadline=deadline, clock=clock
+        )
     except ScanFailed as failure:
         if failure.timed_out:
             return TimedOut(str(failure))
@@ -967,10 +1002,17 @@ def structure(
     declared, marked = regions_of(sources, declaration, vocabulary)
     errors = syntax_errors(matches)
     unparsed.extend(
+        Unparsed(path=path, reason=reason) for path, reason in undecoded.items()
+    )
+    for path in undecoded:
+        errors.pop(path, None)
+    unparsed.extend(
         Unparsed(path=path, reason=unreadable.format(language=language, line=line))
         for path, line in sorted(errors.items())
     )
-    parsed = {p: data for p, data in found.items() if p not in errors}
+    parsed = {
+        p: data for p, data in found.items() if p not in errors and p not in undecoded
+    }
     files, deep = file_models(parsed, matches, declaration, marked, vocabulary)
     unparsed.extend(deep)
     deep_paths = {u.path for u in deep}
