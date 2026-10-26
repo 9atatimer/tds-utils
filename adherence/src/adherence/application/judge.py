@@ -24,6 +24,7 @@ from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
     Declaration,
     DeclarationUnreadable,
+    edit_notices,
     widened,
 )
 from adherence.domain.model import CodeLanguage
@@ -162,7 +163,7 @@ def judge_change(
             repository=change.repository,
         )
     proposed = load_declaration(change.head, repository=repository, deadline=deadline)
-    declaration = widened(in_force, proposed, change.created)
+    declaration = widened(in_force=in_force, proposed=proposed, created=change.created)
     head = measuring.measure(change.head, declaration)
     if head.not_run_reason is not None:
         return replace(
@@ -183,6 +184,13 @@ def judge_change(
         bound=parameters.limits.evidence_bound,
     )
     head = with_outcome(head, RECORD_KEPT, kept)
+    edits = edit_notices(
+        in_force=in_force,
+        proposed=proposed,
+        paths={u.path for u in head.units},
+        created=change.created,
+    )
+    head = replace(head, notices=(*head.notices, *edits))
     return replace(
         compared(base=base, head=head, change=change), repository=change.repository
     )
