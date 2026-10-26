@@ -31,6 +31,48 @@ from adherence.ports.repository import RepositoryPort
 
 # --- Shipped parameters --------------------------------------------------------
 
+# unittest's TestCase assertion methods; the Python analyzer resolves
+# `self.<method>` in a TestCase subclass to `unittest.TestCase.<method>`.
+UNITTEST_ASSERTIONS = frozenset(
+    f"unittest.TestCase.{method}"
+    for method in (
+        "assertAlmostEqual",
+        "assertCountEqual",
+        "assertDictEqual",
+        "assertEqual",
+        "assertFalse",
+        "assertGreater",
+        "assertGreaterEqual",
+        "assertIn",
+        "assertIs",
+        "assertIsInstance",
+        "assertIsNone",
+        "assertIsNot",
+        "assertIsNotNone",
+        "assertLess",
+        "assertLessEqual",
+        "assertListEqual",
+        "assertLogs",
+        "assertMultiLineEqual",
+        "assertNoLogs",
+        "assertNotAlmostEqual",
+        "assertNotEqual",
+        "assertNotIn",
+        "assertNotIsInstance",
+        "assertNotRegex",
+        "assertRaises",
+        "assertRaisesRegex",
+        "assertRegex",
+        "assertSequenceEqual",
+        "assertSetEqual",
+        "assertTrue",
+        "assertTupleEqual",
+        "assertWarns",
+        "assertWarnsRegex",
+        "fail",
+    )
+)
+
 # A top-level import name -> the distribution a radar names it by, where the
 # two differ by more than case and separators.
 DISTRIBUTIONS = {
@@ -145,6 +187,7 @@ SHIPPED_VOCABULARY = Vocabulary(
             "assert_has_calls",
             "assert_not_called",
         }
+        | UNITTEST_ASSERTIONS
     ),
     placeholder_assertions=frozenset({"True", "False", "1", "0", "None"}),
     standard_library=frozenset(sys.stdlib_module_names),
