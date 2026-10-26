@@ -520,3 +520,24 @@ def test_judge_change_with_a_file_unreadable_at_the_head_is_inconclusive() -> No
     assert report.removed == ()
     assert report.verdict is Verdict.INCONCLUSIVE
     assert any(RULES in r for r in report.reasons)
+
+
+def test_judge_change_of_a_repository_it_cannot_run_on_says_so() -> None:
+    """Given a head that cannot be read, or one with no unit in a measured
+    language, When a run is asked for, Then the verdict is not run with the
+    reason, and nothing reads as a pass."""
+    unreadable = judge_with(
+        {USE: CLEAN},
+        {USE: CLEAN},
+        unlisted_at={HEAD: Refused(".", "not a git repository")},
+    )
+    unmeasured = judge_with(
+        {"tool.sh": b"echo a\n", "README.md": b"# a\n"},
+        {"tool.sh": b"echo b\n", "README.md": b"# a\n"},
+    )
+
+    assert unreadable.verdict is Verdict.NOT_RUN
+    assert any("not a git repository" in r for r in unreadable.reasons)
+    assert unmeasured.verdict is Verdict.NOT_RUN
+    assert any("measured language" in r for r in unmeasured.reasons)
+    assert unmeasured.findings == () and unmeasured.ran == ()
