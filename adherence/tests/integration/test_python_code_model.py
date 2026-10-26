@@ -4,9 +4,11 @@ time (task-057), after the shared contract."""
 from __future__ import annotations
 
 import functools
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 
 from adherence.adapters.python_ast import PythonCodeModel
+from adherence.adapters.python_names import FileNames, Resolver
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, parse_declaration
 from adherence.domain.model import (
@@ -794,3 +796,51 @@ def test_calls_resolve_through_imports_definitions_and_bases() -> None:
         "price",
     )
     assert targets[("TestUse.test_it", "double.run")] is None
+
+
+class _Counted(Mapping[str, FileNames]):
+    """The resolver's files, counting every lookup of one."""
+
+    def __init__(self, files: dict[str, FileNames]) -> None:
+        self._files = files
+        self.reads = 0
+
+    def __getitem__(self, path: str) -> FileNames:
+        self.reads += 1
+        return self._files[path]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._files)
+
+    def __len__(self) -> int:
+        return len(self._files)
+
+
+def test_a_method_through_repeated_cyclic_bases_resolves_in_linear_work() -> None:
+    """Given a type listing a type four times as a base, that type listing the
+    first four times back and a third type that defines `m`, When `self.m()`
+    and `self.x()` are resolved in a method of the first, Then `m` resolves
+    to the third type's and `x` to nothing, each base read a bounded number
+    of times rather than once per path through the repeated bases
+    (Self-review re-review H1, task-061)."""
+    path = "a.py"
+    names = FileNames(
+        module=None,
+        imported={},
+        defined=frozenset({"A", "A.run", "B", "C", "C.m"}),
+        bases={
+            "A": (("B",),) * 4,
+            "B": (*(("A",),) * 4, ("C",)),
+            "C": (),
+        },
+    )
+    files = _Counted({path: names})
+    resolver = Resolver(files=files, modules={})
+
+    found = resolver.target(path, "A.run", ["self", "m"])
+    missing = resolver.target(path, "A.run", ["self", "x"])
+
+    assert found is not None
+    assert (found.path, found.symbol) == (path, "C.m")
+    assert missing is None
+    assert files.reads < 100, files.reads

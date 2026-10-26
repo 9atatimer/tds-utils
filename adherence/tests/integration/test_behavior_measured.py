@@ -401,3 +401,54 @@ def test_a_declared_placeholder_is_found_and_an_excusing_word_refused() -> None:
     messages = [n.message for n in report.notices]
     assert any("assertion_calls" in m for m in messages), messages
     assert not any("placeholder_assertions" in m for m in messages), messages
+
+
+def _namespace(files: dict[str, bytes]) -> dict[str, bytes]:
+    """The sources with every __init__.py dropped: namespace packages."""
+    return {p: data for p, data in files.items() if not p.endswith("__init__.py")}
+
+
+def test_a_namespace_package_use_case_is_kept_and_its_internal_found() -> None:
+    """Given an app laid out as namespace packages (no __init__.py), a test
+    calling `measure` by a from-import, one calling `get` through its module
+    imported under an alias, and one calling a domain internal, When Kept
+    test and Public surface run, Then no behavior is unkept and the internal
+    reach is found: a module of a namespace package resolves to its source
+    (Self-review re-review H2, task-061)."""
+    source = (
+        b"from app.application.use import measure\n"
+        b"import app.application.use as uc\n"
+        b"from app.domain.rules import _round\n"
+        b"def test_measure():\n"
+        b"    assert measure() == 1\n"
+        b"def test_get():\n"
+        b'    assert uc.get("k") == "k"\n'
+        b"def test_internal():\n"
+        b"    assert _round(1) == 1\n"
+    )
+
+    report = _measured(_namespace({**APP, **RULES, TEST: source}), records=RECORDS)
+
+    assert _unkept(report) == set()
+    assert _past_surface(report) == {"test_internal -> _round"}
+
+
+def test_a_use_case_whose_module_cannot_be_told_is_kept_by_its_bare_name() -> None:
+    """Given the namespace module `app.application.use` under two roots, only
+    one of which defines `measure`, and a test calling `measure` by a
+    from-import, When Kept test runs, Then the behavior is kept: a call that
+    resolves to no source falls back to the one function of its bare name
+    (Self-review re-review H2, task-061)."""
+    files = {
+        "src/app/application/use.py": APP["src/app/application/use.py"],
+        "lib/app/application/use.py": b"def other():\n    return 0\n",
+        TEST: (
+            b"from app.application.use import measure\n"
+            b"def test_measure():\n"
+            b"    assert measure() == 1\n"
+        ),
+    }
+
+    report = _measured(files, records=RECORDS)
+
+    assert _unkept(report) == {GOT}
