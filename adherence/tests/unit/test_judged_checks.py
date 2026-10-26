@@ -18,6 +18,7 @@ from adherence.domain.model import (
     Body,
     Call,
     CodeModel,
+    Conditional,
     Definition,
     ImportEdge,
     Layer,
@@ -28,6 +29,7 @@ from adherence.domain.qualities import CheckKind
 from adherence.domain.questions import (
     DOES_IO,
     SAME_CONCEPT,
+    SCATTERED_POLICY,
     TWO_JOBS,
     BandThreshold,
     ThresholdPolicy,
@@ -388,3 +390,62 @@ def test_measure_two_spellings_of_one_concept_are_found(
     (finding,) = judged
     assert finding.confidence == pytest.approx(yes)
     assert finding.subject.startswith("OrderRecord and Order:")
+
+
+# --- A hidden policy is found --------------------------------------------------------
+
+
+@pytest.mark.parametrize(("yes", "found"), [(0.8, True), (0.99, True), (0.79, False)])
+def test_measure_choice_spread_across_conditionals_is_found(
+    yes: float, found: bool
+) -> None:
+    """Given two units in the core branching on one attribute (order.kind),
+    a discriminant only one unit branches on, a bare local name, and a test
+    branching on the same attribute, When Decision runs with the judge's yes
+    at, above or just below the threshold, Then only the shared attribute
+    is asked about, the conditionals and their units as the data, and a
+    judged finding names the conditionals and the discriminant, with its
+    confidence, only at or above the threshold."""
+    definitions = (
+        function(RULES, "price", 1, end=5),
+        function(RULES, "discount", 7, end=9),
+        function(USE, "close_order", 1, end=5),
+        function(TEST, "test_close", 1, end=5),
+    )
+    conditionals = (
+        Conditional(RULES, 2, "price", "order.kind"),
+        Conditional(RULES, 8, "discount", "order.total"),
+        Conditional(USE, 3, "close_order", "order.kind"),
+        Conditional(USE, 4, "close_order", "x"),
+        Conditional(TEST, 2, "test_close", "order.kind"),
+    )
+    judge = FakeDecision({SCATTERED_POLICY.id: _yes(yes), TWO_JOBS.id: _yes(0.1)})
+
+    report = measure_with(
+        FILES,
+        CodeModel(definitions=definitions, conditionals=conditionals),
+        judge=judge,
+        thresholds=ThresholdPolicy({SCATTERED_POLICY.id: BAND, TWO_JOBS.id: BAND}),
+    )
+
+    assert "Decision" in [c.name for c in report.ran]
+    asked = [
+        (state, key)
+        for state, schema in judge.asked
+        for key, q in schema.questions.items()
+        if q.id == SCATTERED_POLICY.id
+    ]
+    ((state, key),) = asked
+    assert state.unit.symbol == "price"
+    assert (
+        "close_order" in state.context[key] and "test_close" not in state.context[key]
+    )
+    findings = _of(report, "Decision")
+    if not found:
+        assert findings == []
+        return
+    (finding,) = findings
+    assert finding.confidence == pytest.approx(yes)
+    assert finding.kind is CheckKind.JUDGED
+    assert "order.kind" in finding.subject
+    assert "price" in finding.subject and "close_order" in finding.subject
