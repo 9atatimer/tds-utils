@@ -221,6 +221,41 @@ def _unambiguous(model: CodeModel) -> frozenset[str]:
     return frozenset(n for n, count in names.items() if count == 1)
 
 
+def _test_helper(
+    call: Call, definitions: Mapping[tuple[str, str], Definition]
+) -> tuple[str, str] | None:
+    """The file and symbol of the test-layer function a call resolves to."""
+    target = call.target
+    if target is None or target.path is None or target.symbol is None:
+        return None
+    found = definitions.get((target.path, target.symbol))
+    if found is None or found.unit.kind is not UnitKind.FUNCTION:
+        return None
+    return (target.path, target.symbol) if found.unit.layer is Layer.TEST else None
+
+
+def _reached(
+    case: TestCase,
+    calls: Mapping[tuple[str, str | None], Sequence[Call]],
+    definitions: Mapping[tuple[str, str], Definition],
+) -> list[Call]:
+    """Every call a test makes, in its body or in the test-layer helpers it
+    calls, transitively; bounded, each helper followed once."""
+    start: tuple[str, str] = (case.path, case.symbol)
+    seen = {start}
+    pending = [start]
+    reached: list[Call] = []
+    while pending:
+        path, symbol = pending.pop()
+        for call in calls.get((path, symbol), ()):
+            reached.append(call)
+            helper = _test_helper(call, definitions)
+            if helper is not None and helper not in seen:
+                seen.add(helper)
+                pending.append(helper)
+    return reached
+
+
 def _kept_name(
     call: Call,
     definitions: Mapping[tuple[str, str], Definition],
@@ -266,9 +301,9 @@ def kept_test(
     parameters: Parameters,
 ) -> CheckOutcome:
     """Every design behavior has a test that calls its use case, by the
-    use-case surface: a call that resolves to the repository's function of
-    that name. A behavior with no use case is Trace's finding, not this
-    check's."""
+    use-case surface: a call, in the test or a test-layer helper it reaches,
+    that resolves to the repository's function of that name. A behavior with
+    no use case is Trace's finding, not this check's."""
     if not declaration.declared:
         return undeclared(KEPT_TEST.name)
     if isinstance(records, RecordsUnavailable):
@@ -281,7 +316,7 @@ def kept_test(
     kept = {
         name
         for case, _unit in _tests(model, declaration)
-        for call in calls.get((case.path, case.symbol), [])
+        for call in _reached(case, calls, definitions)
         if (name := _kept_name(call, definitions, unambiguous)) is not None
     }
     functions = {row.behavior: row.function for row in records.surface}
