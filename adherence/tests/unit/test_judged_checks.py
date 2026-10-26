@@ -222,6 +222,36 @@ def test_measure_answer_inside_the_band_is_an_abstention_on_the_report() -> None
     ]
 
 
+def test_measure_judged_pass_is_on_the_report_with_its_confidence() -> None:
+    """Given a unit the judge answers below the pass threshold, When it is
+    measured, Then the report carries a pass naming the check, the unit,
+    the question and its confidence -- not a finding and not an
+    abstention -- and the JSON document prints it."""
+    judge = FakeDecision({TWO_JOBS.id: _yes(0.1)})
+
+    report = measure_with(
+        FILES,
+        CodeModel(definitions=(function(RULES, "price", 1, end=5),)),
+        judge=judge,
+        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+    )
+
+    assert _of(report, "Two jobs") == [] and report.abstentions == ()
+    (passed,) = [p for p in report.passes if p.check.name == "Two jobs"]
+    assert passed.unit.symbol == "price"
+    assert passed.question == TWO_JOBS.id
+    assert passed.confidence == pytest.approx(0.9)
+    printed = report_document(report)["passes"]
+    assert {
+        "quality": "Layered",
+        "check": "Two jobs",
+        "question": TWO_JOBS.id,
+        "path": RULES,
+        "symbol": "price",
+        "confidence": pytest.approx(0.9),
+    } in printed
+
+
 def test_measure_judged_finding_prints_its_kind_and_confidence() -> None:
     """Given a judged finding, When the report is printed as JSON, Then the
     finding says it is judged and carries its confidence (G2), where a rule
