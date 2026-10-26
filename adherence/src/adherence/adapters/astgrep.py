@@ -942,11 +942,13 @@ def structure(
     language: str,
     binary: Path,
     clock: Callable[[], float],
+    unreadable: str = "not {language}: syntax error at line {line}",
 ) -> Scanned | TimedOut:
     """The structural pass of one language over the sources: unreadable
-    files and files the grammar cannot parse are unparsed with the reason,
-    and ast-grep failing leaves every readable file unparsed; TimedOut
-    when the deadline passes first."""
+    files and files the grammar cannot parse are unparsed with the reason
+    (unreadable, formatted with the language and the first line the
+    grammar could not read), and ast-grep failing leaves every readable
+    file unparsed; TimedOut when the deadline passes first."""
     if passed(deadline, clock()):
         return TimedOut(f"model the {language} sources")
     found, unparsed = readable(sources)
@@ -965,7 +967,7 @@ def structure(
     declared, marked = regions_of(sources, declaration, vocabulary)
     errors = syntax_errors(matches)
     unparsed.extend(
-        Unparsed(path=path, reason=f"not {language}: syntax error at line {line}")
+        Unparsed(path=path, reason=unreadable.format(language=language, line=line))
         for path, line in sorted(errors.items())
     )
     parsed = {p: data for p, data in found.items() if p not in errors}

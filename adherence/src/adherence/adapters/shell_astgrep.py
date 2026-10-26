@@ -64,6 +64,13 @@ VARIABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 SPECIAL = frozenset("0123456789@*#?$!-")
 BRACKETS = {"{": "}", "(": ")"}
 QUOTES = ("'", '"')
+# Why a file the grammar cannot read is unparsed: zsh is read with the
+# Bash grammar, so a line it cannot read may be valid zsh, never proof
+# that the file is not shell.
+UNREADABLE = (
+    "the Bash grammar cannot read line {line}: a zsh construct it does not"
+    " know, or a syntax error"
+)
 
 # --- Predicates --------------------------------------------------------------
 
@@ -312,6 +319,7 @@ class ShellCodeModel:
             language="shell",
             binary=self._ast_grep,
             clock=self._clock,
+            unreadable=UNREADABLE,
         )
         if isinstance(scanned, TimedOut):
             return scanned

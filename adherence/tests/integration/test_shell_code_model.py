@@ -7,7 +7,7 @@ import functools
 from collections.abc import Mapping
 from pathlib import Path
 
-from adherence.adapters.shell_astgrep import ShellCodeModel
+from adherence.adapters.shell_astgrep import UNREADABLE, ShellCodeModel
 from adherence.domain.declaration import Declaration, parse_declaration
 from adherence.domain.model import Body, CodeModel, ImportEdge, Layer, UnitKind
 from adherence.ports.code_model import CodeModelPort
@@ -185,7 +185,7 @@ def test_a_file_the_grammar_cannot_read_is_unparsed_with_the_reason() -> None:
 
     assert isinstance(model, CodeModel)
     reasons = {u.path: u.reason for u in model.unparsed}
-    assert reasons["bin/nested"] == "not shell: syntax error at line 3"
+    assert reasons["bin/nested"] == UNREADABLE.format(line=3)
     assert reasons["bin/latin1"].startswith("not utf-8")
     assert reasons["../outside.sh"] == "the path leaves the repository; not read"
     assert {u.path for u in model.units} == {"bin/fine"}
