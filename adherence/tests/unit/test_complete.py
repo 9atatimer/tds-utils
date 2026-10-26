@@ -208,3 +208,22 @@ def test_measure_names_a_method_over_the_ceiling_by_its_qualified_symbol() -> No
 
     (over,) = _of(report, "Complexity")
     assert over.unit.symbol == "Order.total"
+
+
+def test_measure_reads_a_generic_protocol_as_abstract() -> None:
+    """Given two adapter-layer generic protocols, by bare and dotted name,
+    whose methods are `...`, When Stub runs, Then neither method is a stub:
+    the subscript does not hide the abstract base (Self-review R12)."""
+    files = {FS: b"x\n" * 12}
+    definitions = (
+        _type(FS, "Source", 1, ("Protocol[T]",)),
+        _function(FS, "Source.read", 2, stub="...", parent="Source"),
+        _type(FS, "Sink", 5, ("typing.Protocol[T, U]",)),
+        _function(FS, "Sink.write", 6, stub="...", parent="Sink"),
+    )
+    facts = CodeModel(units=tuple(d.unit for d in definitions), definitions=definitions)
+
+    report = measure_with(files, facts)
+
+    assert "Stub" in {c.name for c in report.ran}
+    assert _of(report, "Stub") == []
