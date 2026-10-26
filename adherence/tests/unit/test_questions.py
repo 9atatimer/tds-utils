@@ -209,7 +209,7 @@ def test_judged_score_below_its_threshold_abstains_or_passes(
     outcome = judged(
         _ask(THEN_ASSERTED, "Then asserted"),
         KEY,
-        _decide({"not asserted": failing, "partly": 0.5, "fully": 0.5 - failing}),
+        _decide({"not asserted": failing, "partly": 1 - failing, "fully": 0.0}),
         POLICY,
     )
 

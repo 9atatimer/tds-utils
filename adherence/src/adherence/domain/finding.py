@@ -34,7 +34,8 @@ class Evidence:
 class Finding:
     """One check failing on one unit. `subject` is what the finding names
     (the vendor, the cycle, the port, the seam); `reached` is the layer a
-    layer finding reached, when it reached one."""
+    layer finding reached, when it reached one. A judged finding carries
+    the confidence its threshold policy read; a rule finding carries none."""
 
     check: Check
     unit: Unit
@@ -43,6 +44,7 @@ class Finding:
     evidence: Evidence
     reached: Layer | None = None
     kind: CheckKind = CheckKind.RULE
+    confidence: float | None = None
 
     @property
     def identity(self) -> str:
