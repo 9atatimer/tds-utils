@@ -17,6 +17,7 @@ from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.finding import Evidence, Finding
 from adherence.domain.model import (
     Assertion,
+    Call,
     CodeModel,
     Layer,
     TestCase,
@@ -36,14 +37,20 @@ KEPT_TEST = catalog_check("Kept test")
 # --- Predicates --------------------------------------------------------------
 
 
-def is_named(callee: str, names: frozenset[str]) -> bool:
-    """Whether a callee, by its full dotted name or its last part, is named."""
-    return callee in names or callee.rpartition(".")[2] in names
-
-
-def asserts_by_call(case: TestCase, vocabulary: Vocabulary) -> bool:
-    """Whether a test calls something that asserts, as `pytest.raises` does."""
-    return any(is_named(c, vocabulary.assertion_calls) for c in case.calls)
+def asserts(call: Call, vocabulary: Vocabulary) -> bool:
+    """Whether a call is an assertion API's: it resolves to a name the
+    vocabulary lists in full (`pytest.raises`, `unittest.TestCase.assertEqual`),
+    or it calls a method the vocabulary lists by its bare name
+    (`assert_called_once`, as a mock carries it) on a receiver the analyzer
+    cannot resolve. A function or method the measured repository defines
+    never asserts, whatever its name."""
+    target = call.target
+    if target is not None and target.path is not None:
+        return False
+    if target is not None and target.name in vocabulary.assertion_calls:
+        return True
+    _receiver, dot, method = call.callee.rpartition(".")
+    return bool(dot) and method in vocabulary.assertion_calls
 
 
 def is_internal(name: str) -> bool:
@@ -55,9 +62,17 @@ def is_internal(name: str) -> bool:
 # --- Pure helpers ------------------------------------------------------------
 
 
-def exercises(case: TestCase, vocabulary: Vocabulary) -> bool:
+def calls_by_scope(model: CodeModel) -> dict[tuple[str, str | None], list[Call]]:
+    """Every call, by the file and the definition it sits in."""
+    index: dict[tuple[str, str | None], list[Call]] = {}
+    for call in model.calls:
+        index.setdefault((call.path, call.within), []).append(call)
+    return index
+
+
+def exercises(calls: Sequence[Call], vocabulary: Vocabulary) -> bool:
     """Whether a test calls something other than an assertion."""
-    return any(not is_named(c, vocabulary.assertion_calls) for c in case.calls)
+    return any(not asserts(c, vocabulary) for c in calls)
 
 
 def is_placeholder(
@@ -75,8 +90,10 @@ def is_placeholder(
     )
 
 
-def _placeholders(case: TestCase, vocabulary: Vocabulary) -> list[str]:
-    exercising = exercises(case, vocabulary)
+def _placeholders(
+    case: TestCase, calls: Sequence[Call], vocabulary: Vocabulary
+) -> list[str]:
+    exercising = exercises(calls, vocabulary)
     return [
         a.text
         for a in case.assertions
@@ -98,12 +115,14 @@ def _tests(model: CodeModel, declaration: Declaration) -> list[tuple[TestCase, U
     return found
 
 
-def _cannot_fail(case: TestCase, vocabulary: Vocabulary) -> str | None:
+def _cannot_fail(
+    case: TestCase, calls: Sequence[Call], vocabulary: Vocabulary
+) -> str | None:
     """Why a test cannot fail, or None when it can."""
-    placeholders: Sequence[str] = _placeholders(case, vocabulary)
+    placeholders: Sequence[str] = _placeholders(case, calls, vocabulary)
     if placeholders:
         return f"{case.symbol}: placeholder assertion `{placeholders[0]}`"
-    if not case.assertions and not asserts_by_call(case, vocabulary):
+    if not case.assertions and not any(asserts(c, vocabulary) for c in calls):
         return f"{case.symbol}: no assertion"
     return None
 
@@ -118,8 +137,10 @@ def real_assertion(
     if not declaration.declared:
         return undeclared(REAL_ASSERTION.name)
     findings: list[Finding] = []
+    calls = calls_by_scope(model)
     for case, unit in _tests(model, declaration):
-        why = _cannot_fail(case, parameters.vocabulary)
+        scope = calls.get((case.path, case.symbol), [])
+        why = _cannot_fail(case, scope, parameters.vocabulary)
         if why is not None:
             findings.append(
                 Finding(

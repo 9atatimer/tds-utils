@@ -14,6 +14,7 @@ from adherence.domain.model import (
     CodeModel,
     Definition,
     Layer,
+    Target,
     TestCase,
     Unit,
     UnitKind,
@@ -49,7 +50,10 @@ def test_measure_with_a_test_that_cannot_fail_finds_the_test() -> None:
             TestCase(TEST, "test_asserts", 10, ("run",), (Assertion("result == 2"),)),
             TestCase(TEST, "test_raises", 15, ("pytest.raises", "run"), ()),
             TestCase(RULES, "test_helper", 1, (), ()),
-        )
+        ),
+        calls=(
+            Call(TEST, 16, "test_raises", "pytest.raises", Target("pytest.raises")),
+        ),
     )
 
     report = measure_with(files, facts)

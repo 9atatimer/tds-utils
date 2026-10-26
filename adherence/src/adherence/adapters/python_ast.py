@@ -13,8 +13,20 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 
-from adherence.adapters.python_imports import ImportGraphFailed, import_edges
-from adherence.adapters.python_names import chain, expanded, imported_names
+from adherence.adapters.python_imports import (
+    INIT,
+    ImportGraphFailed,
+    import_edges,
+    module_names,
+    modules_of,
+)
+from adherence.adapters.python_names import (
+    FileNames,
+    Resolver,
+    chain,
+    expanded,
+    imported_names,
+)
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, layer_of, marker_regions
 from adherence.domain.model import (
@@ -312,9 +324,17 @@ def _references(
     return found
 
 
-def _calls(path: str, scoped: Sequence[tuple[str | None, ast.AST]]) -> list[Call]:
+def _call(path: str, within: str | None, node: ast.Call, resolver: Resolver) -> Call:
+    parts = chain(node.func)
+    target = None if parts is None else resolver.target(path, within, parts)
+    return Call(path, node.lineno, within, _callee(node), target=target)
+
+
+def _calls(
+    path: str, scoped: Sequence[tuple[str | None, ast.AST]], resolver: Resolver
+) -> list[Call]:
     return [
-        Call(path, node.lineno, within, _callee(node))
+        _call(path, within, node, resolver)
         for within, node in scoped
         if isinstance(node, ast.Call)
     ]
@@ -511,13 +531,63 @@ def _test_cases(path: str, walked: Sequence[_Found]) -> list[TestCase]:
 NESTED_TOO_DEEPLY = "nested deeper than the analyzer can walk"
 
 
+@dataclass(frozen=True, slots=True)
+class _Parsed:
+    """The sources that parsed, each with its definitions, and the rest."""
+
+    trees: dict[str, ast.Module]
+    walked: dict[str, list[_Found]]
+    unparsed: list[Unparsed]
+
+
+def _file_names(
+    tree: ast.Module, walked: Sequence[_Found], module: str | None, is_package: bool
+) -> FileNames:
+    """What one parsed file binds, for the resolver."""
+    bases = {
+        f.symbol: tuple(
+            tuple(parts) for b in f.node.bases if (parts := chain(b)) is not None
+        )
+        for f in walked
+        if isinstance(f.node, ast.ClassDef)
+    }
+    return FileNames(
+        module=module,
+        imported=imported_names(tree, module, is_package),
+        defined=frozenset(f.symbol for f in walked),
+        bases=bases,
+    )
+
+
+def _resolver(
+    trees: Mapping[str, ast.Module],
+    sources: Mapping[str, bytes],
+    walked: Mapping[str, Sequence[_Found]],
+) -> Resolver:
+    """The resolver over every parsed file."""
+    parsed = {path: sources[path] for path in trees}
+    module_of = modules_of(parsed)
+    files = {
+        path: _file_names(
+            tree,
+            walked[path],
+            module_of.get(path),
+            path.rpartition("/")[2] == INIT,
+        )
+        for path, tree in trees.items()
+    }
+    return Resolver(files=files, modules=module_names(parsed))
+
+
 def _file_model(
     path: str,
     data: bytes,
-    tree: ast.Module,
+    walked: Sequence[_Found],
     declaration: Declaration,
     regions: Sequence[Region],
     vocabulary: Vocabulary,
+    resolver: Resolver,
+    tree: ast.Module,
 ) -> CodeModel:
     """Every fact of one parsed file, as a CodeModel of that file alone."""
     text = data.decode("utf-8", "replace")
@@ -525,8 +595,7 @@ def _file_model(
     file_unit = Unit(
         path, UnitKind.FILE, None, 1, lines, layer_of(path, None, declaration)
     )
-    walked = _walk_definitions(tree)
-    imported = imported_names(tree)
+    imported = resolver.imported(path)
     found = [
         _definition(path, f, text, declaration, regions, vocabulary, imported)
         for f in walked
@@ -536,7 +605,7 @@ def _file_model(
         units=(file_unit, *(d.unit for d in found)),
         definitions=tuple(found),
         references=tuple(_references(path, tree, scoped)),
-        calls=tuple(_calls(path, scoped)),
+        calls=tuple(_calls(path, scoped, resolver)),
         accesses=tuple(_accesses(path, scoped, vocabulary)),
         writes=tuple(_writes(path, scoped)),
         conditionals=tuple(_conditionals(path, scoped)),
@@ -554,6 +623,27 @@ class PythonCodeModel:
 
     def __init__(self, *, clock: Callable[[], float] = time.time) -> None:
         self._clock = clock
+
+    def _parse(
+        self, sources: Mapping[str, bytes], deadline: Deadline | None
+    ) -> _Parsed | TimedOut:
+        """Every source parsed and its definitions walked, in path order, or
+        Unparsed with the reason."""
+        parsed = _Parsed({}, {}, [])
+        for path in sorted(sources):
+            if _passed(deadline, self._clock()):
+                return TimedOut("model the Python sources")
+            tree = _parse(path, sources[path])
+            if isinstance(tree, Unparsed):
+                parsed.unparsed.append(tree)
+                continue
+            try:
+                parsed.walked[path] = _walk_definitions(tree)
+            except RecursionError:
+                parsed.unparsed.append(Unparsed(path, NESTED_TOO_DEEPLY))
+                continue
+            parsed.trees[path] = tree
+        return parsed
 
     def model(
         self,
@@ -573,20 +663,27 @@ class PythonCodeModel:
             )
         )
         declared = tuple(r for r in declaration.layers.regions if r.path in sources)
+        read = self._parse(sources, deadline)
+        if isinstance(read, TimedOut):
+            return read
+        unparsed = list(read.unparsed)
+        resolver = _resolver(read.trees, sources, read.walked)
         files: list[CodeModel] = []
-        unparsed: list[Unparsed] = []
         trees: dict[str, ast.Module] = {}
-        for path in sorted(sources):
+        for path, tree in read.trees.items():
             if _passed(deadline, self._clock()):
                 return TimedOut("model the Python sources")
-            tree = _parse(path, sources[path])
-            if isinstance(tree, Unparsed):
-                unparsed.append(tree)
-                continue
             try:
                 files.append(
                     _file_model(
-                        path, sources[path], tree, declaration, found, vocabulary
+                        path,
+                        sources[path],
+                        read.walked[path],
+                        declaration,
+                        found,
+                        vocabulary,
+                        resolver,
+                        tree,
                     )
                 )
             except RecursionError:

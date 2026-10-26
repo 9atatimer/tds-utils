@@ -32,9 +32,12 @@ class Vocabulary:
 
     abstract_markers are the bases and decorators (a full dotted name, or
     its last part) that make a placeholder body a declaration, not a stub.
-    assertion_calls are the callees (a full dotted name, or its last part)
-    that assert, as `pytest.raises` does; placeholder_assertions the
-    asserted expressions, as written, that cannot tell a pass from a fail.
+    assertion_calls are the assertion APIs: a dotted name matches what a
+    call resolves to (`pytest.raises`), a bare name a method called on a
+    receiver the analyzer cannot resolve (`assert_called_once`, as a mock
+    carries it); a definition of the measured repository never matches.
+    placeholder_assertions are the asserted expressions, as written, that
+    cannot tell a pass from a fail, beside any literal.
     standard_library is the top-level modules that ship with the language,
     never a dependency; packages maps a top-level module to the name its
     package carries on a radar, where the two differ.

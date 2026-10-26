@@ -191,14 +191,27 @@ class Reference:
 
 
 @dataclass(frozen=True, slots=True)
+class Target:
+    """What a call's callee stands for, read through its file's imports and
+    definitions: the dotted name, and the repository definition it names --
+    its path, and its symbol there -- when it is one of the repository's."""
+
+    name: str
+    path: str | None = None
+    symbol: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Call:
-    """A function or constructor call: its callee as written, its line, and
-    the definition it sits in."""
+    """A function or constructor call: its callee as written, its line, the
+    definition it sits in, and what the callee resolves to (None when the
+    analyzer cannot tell, as for a method of a local variable)."""
 
     path: str
     line: int
     within: str | None
     callee: str
+    target: Target | None = None
 
 
 class AccessKind(enum.Enum):

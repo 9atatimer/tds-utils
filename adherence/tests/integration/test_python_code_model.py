@@ -684,3 +684,67 @@ def test_a_sleep_imported_under_another_name_is_a_sleep() -> None:
 
     sleeps = {d.unit.symbol: d.body.sleeps for d in model.definitions}
     assert sleeps == {"napping": (4,), "clocked": (6,)}
+
+
+def test_calls_resolve_through_imports_definitions_and_bases() -> None:
+    """Given calls through an aliased import, a relative import, a package's
+    re-export, the file's own function, a method of the test type, a method
+    a unittest TestCase carries, and a method of a local variable, When they
+    are modelled, Then each call names what it resolves to -- the
+    repository's definition by path and symbol, or the dotted name outside
+    it -- and the local variable's method resolves to nothing."""
+    sources = {
+        "src/app/__init__.py": b"",
+        "src/app/domain/__init__.py": b"from .rules import price\n",
+        "src/app/domain/rules.py": b"def price():\n    return 1\n",
+        "src/app/application/__init__.py": b"",
+        "src/app/application/use.py": (
+            b"from ..domain.rules import price as cost\ndef run():\n    return cost()\n"
+        ),
+        "tests/test_use.py": (
+            b"import unittest\n"
+            b"from time import sleep as nap\n"
+            b"from app.domain import price\n"
+            b"def helper():\n"
+            b"    nap(0)\n"
+            b"class TestUse(unittest.TestCase):\n"
+            b"    def check(self):\n"
+            b"        pass\n"
+            b"    def test_it(self):\n"
+            b"        double = object()\n"
+            b"        helper()\n"
+            b"        self.check()\n"
+            b"        self.assertEqual(price(), 1)\n"
+            b"        double.run()\n"
+        ),
+    }
+
+    model = _model_of(sources)
+
+    targets = {
+        (c.within, c.callee): None
+        if c.target is None
+        else (c.target.name, c.target.path, c.target.symbol)
+        for c in model.calls
+    }
+    rules = "src/app/domain/rules.py"
+    test = "tests/test_use.py"
+    assert targets[("run", "cost")] == ("app.domain.rules.price", rules, "price")
+    assert targets[("helper", "nap")] == ("time.sleep", None, None)
+    assert targets[("TestUse.test_it", "helper")] == ("helper", test, "helper")
+    assert targets[("TestUse.test_it", "self.check")] == (
+        "TestUse.check",
+        test,
+        "TestUse.check",
+    )
+    assert targets[("TestUse.test_it", "self.assertEqual")] == (
+        "unittest.TestCase.assertEqual",
+        None,
+        None,
+    )
+    assert targets[("TestUse.test_it", "price")] == (
+        "app.domain.rules.price",
+        rules,
+        "price",
+    )
+    assert targets[("TestUse.test_it", "double.run")] is None
