@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from adherence.adapters.fakes import FakeDecision
+from adherence.cli.presenters.json_report import report_document
 from adherence.domain.finding import Finding
 from adherence.domain.model import Body, CodeModel, Definition, Layer
 from adherence.domain.qualities import CheckKind
@@ -118,3 +119,63 @@ def test_measure_two_jobs_asks_about_rules_workflow_and_wiring_units_only() -> N
     state, schema = asked["price"]
     assert "return order.total" in state.text
     assert any("domain" in context for context in state.context.values())
+
+
+# --- An abstention is inconclusive (the measure half) ------------------------------
+
+
+def test_measure_answer_inside_the_band_is_an_abstention_on_the_report() -> None:
+    """Given a unit the judge answers inside the abstention band, When it is
+    measured, Then the report carries an abstention naming the check, the
+    unit, the question and its confidence -- not a finding and not a pass --
+    and the JSON document prints it. judge_change reads an abstention on a
+    touched unit as inconclusive, never lowered."""
+    judge = FakeDecision({TWO_JOBS.id: _yes(0.5)})
+
+    report = measure_with(
+        FILES,
+        CodeModel(definitions=(function(RULES, "price", 1, end=5),)),
+        judge=judge,
+        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+    )
+
+    assert _of(report, "Two jobs") == []
+    (abstention,) = report.abstentions
+    assert abstention.check.name == "Two jobs"
+    assert abstention.unit.symbol == "price"
+    assert abstention.question == TWO_JOBS.id
+    assert abstention.confidence == pytest.approx(0.5)
+    assert not any(c.check == "Two jobs" for c in report.coverage)
+    printed = report_document(report)["abstentions"]
+    assert printed == [
+        {
+            "quality": "Layered",
+            "check": "Two jobs",
+            "question": TWO_JOBS.id,
+            "path": RULES,
+            "symbol": "price",
+            "subject": abstention.subject,
+            "confidence": pytest.approx(0.5),
+        }
+    ]
+
+
+def test_measure_judged_finding_prints_its_kind_and_confidence() -> None:
+    """Given a judged finding, When the report is printed as JSON, Then the
+    finding says it is judged and carries its confidence (G2), where a rule
+    finding carries none."""
+    judge = FakeDecision({TWO_JOBS.id: _yes(0.9)})
+
+    report = measure_with(
+        FILES,
+        CodeModel(definitions=(function(RULES, "price", 1, end=5),)),
+        judge=judge,
+        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+    )
+
+    layered = next(
+        q for q in report_document(report)["qualities"] if q["quality"] == "Layered"
+    )
+    (printed,) = [f for f in layered["findings"] if f["check"] == "Two jobs"]
+    assert printed["kind"] == "judged"
+    assert printed["confidence"] == pytest.approx(0.9)
