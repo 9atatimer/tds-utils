@@ -64,3 +64,32 @@ def test_an_assertion_of_any_literal_is_a_placeholder() -> None:
         "test_tuple",
         "test_negative",
     }
+
+
+def test_a_false_assertion_with_a_message_in_a_test_that_runs_code_can_fail() -> None:
+    """Given tests that run code and `assert False` with a message -- after
+    a call that should raise, and on a branch that should not be reached --
+    one that asserts a bare `False` after running code, and one that only
+    asserts `False` with a message, When Real assertion runs, Then only the
+    bare one and the one that runs nothing are found (Self-review R4)."""
+    source = (
+        b"def test_raises_by_hand():\n"
+        b"    try:\n"
+        b"        run()\n"
+        b'        assert False, "run should raise"\n'
+        b"    except ValueError:\n"
+        b"        pass\n"
+        b"def test_unreachable_branch():\n"
+        b"    result = run()\n"
+        b"    if result is None:\n"
+        b'        assert False, "unreachable"\n'
+        b"def test_bare_false():\n"
+        b"    run()\n"
+        b"    assert False\n"
+        b"def test_runs_nothing():\n"
+        b'    assert False, "todo"\n'
+    )
+
+    report = _measured({TEST: source})
+
+    assert _cannot_fail(report) == {"test_bare_false", "test_runs_nothing"}
