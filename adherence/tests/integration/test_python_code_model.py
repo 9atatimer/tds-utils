@@ -636,3 +636,31 @@ def test_declared_line_regions_are_in_the_model() -> None:
     assert isinstance(model, CodeModel)
     assert model.regions == (Region("m.py", 1, 2, Layer.DOMAIN),)
     assert [d.unit.layer for d in model.definitions] == [Layer.DOMAIN]
+
+
+def test_a_body_raising_a_stub_exception_after_other_statements_is_a_stub() -> None:
+    """Given functions that do something and then raise NotImplementedError,
+    and one that raises it only on one branch, When they are modelled, Then
+    the two whose body raises it are stubs whatever precedes the raise, and
+    the branching one is not (Self-review R8)."""
+    source = (
+        b"def later():\n"
+        b"    x = 0\n"
+        b"    raise NotImplementedError('later')\n"
+        b"def logged(log):\n"
+        b"    log('called')\n"
+        b"    raise NotImplementedError\n"
+        b"def partial(mode):\n"
+        b"    if mode:\n"
+        b"        raise NotImplementedError\n"
+        b"    return 1\n"
+    )
+
+    model = _model_of({"src/tool/domain/later.py": source})
+
+    markers = {d.unit.symbol: d.body.stub_markers for d in model.definitions}
+    assert markers == {
+        "later": ("NotImplementedError",),
+        "logged": ("NotImplementedError",),
+        "partial": (),
+    }
