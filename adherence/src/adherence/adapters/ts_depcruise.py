@@ -76,6 +76,14 @@ CODE_SUFFIXES = frozenset(
 # copy of its aliases the cruiser is given in its place.
 TSCONFIG = "tsconfig.json"
 ALIASES = "adhere-tsconfig.json"
+# The bounds on walking a tsconfig's extends chain: how deep a chain is
+# followed, and how many configurations are read in all.
+MAX_EXTENDS_DEPTH = 32
+MAX_TSCONFIGS = 128
+EXTENDS_TOO_DEEP = (
+    f"extended deeper than {MAX_EXTENDS_DEPTH} configurations; not followed"
+)
+TOO_MANY_TSCONFIGS = f"extended past {MAX_TSCONFIGS} configurations; not followed"
 TREE = "tree"
 
 
@@ -89,6 +97,10 @@ class CruiseFailed(Exception):
         super().__init__(reason)
         self.timed_out = timed_out
         self.culprit = culprit
+
+
+class WalkTimedOut(Exception):
+    """The deadline passed while a tsconfig's extends chain was walked."""
 
 
 Resolved = dict[tuple[str, str], str]
@@ -212,27 +224,71 @@ class Aliases:
         return replace(self, base_url=self.base_url or base.base_url)
 
 
-def tsconfig_aliases(
-    path: str, sources: Mapping[str, str], seen: frozenset[str] = frozenset()
-) -> Aliases:
-    """A tsconfig's aliases, through the configurations it extends that are
-    sources, in order; the nearer setting wins."""
-    settings = read_tsconfig(sources[path])
-    inherited = Aliases()
-    for base in _extended(path, settings.get("extends"), sources):
-        if base not in seen:
-            inherited = tsconfig_aliases(base, sources, seen | {path}).over(inherited)
+def _own_aliases(path: str, settings: Mapping[str, object]) -> Aliases | None:
+    """The aliases a tsconfig sets itself; None when it sets no options."""
     options = settings.get("compilerOptions")
     if not isinstance(options, dict):
-        return inherited
+        return None
     directory = posixpath.dirname(path) or "."
     paths = options.get("paths")
-    own = Aliases(
+    return Aliases(
         base_url=_inside(directory, options.get("baseUrl")),
         paths=paths if isinstance(paths, dict) else None,
         paths_from=directory,
     )
-    return own.over(inherited)
+
+
+class TsconfigWalk:
+    """One walk of a tsconfig's extends chain: each configuration read at
+    most once, the chain bounded in depth and in configurations read, and
+    the deadline read before each; why each configuration was not
+    followed is kept, by path."""
+
+    def __init__(
+        self,
+        sources: Mapping[str, str],
+        *,
+        deadline: Deadline | None,
+        clock: Callable[[], float],
+    ) -> None:
+        self._sources = sources
+        self._deadline = deadline
+        self._clock = clock
+        self._done: dict[str, Aliases] = {}
+        self._open: set[str] = set()
+        self.cut: dict[str, str] = {}
+
+    def aliases(self, path: str, depth: int = 0) -> Aliases:
+        """A tsconfig's aliases, through the configurations it extends that
+        are sources, in order; the nearer setting wins."""
+        if _passed(self._deadline, self._clock()):
+            raise WalkTimedOut("read the tsconfig extends chain")
+        self._open.add(path)
+        settings = read_tsconfig(self._sources[path])
+        inherited = Aliases()
+        for base in _extended(path, settings.get("extends"), self._sources):
+            found = self._base(base, depth + 1)
+            if found is not None:
+                inherited = found.over(inherited)
+        self._open.discard(path)
+        own = _own_aliases(path, settings)
+        self._done[path] = inherited if own is None else own.over(inherited)
+        return self._done[path]
+
+    def _base(self, base: str, depth: int) -> Aliases | None:
+        """An extended configuration's aliases: walked once, then
+        remembered; None for a cycle back into the chain, or past a bound."""
+        if base in self._done:
+            return self._done[base]
+        if base in self._open or base in self.cut:
+            return None
+        if depth > MAX_EXTENDS_DEPTH:
+            self.cut[base] = EXTENDS_TOO_DEEP
+            return None
+        if len(self._done) + len(self._open) >= MAX_TSCONFIGS:
+            self.cut[base] = TOO_MANY_TSCONFIGS
+            return None
+        return self.aliases(base, depth)
 
 
 def _alias_targets(targets: object, base: str) -> list[str]:
@@ -247,17 +303,29 @@ def _alias_targets(targets: object, base: str) -> list[str]:
     ]
 
 
-def aliases_config(sources: Mapping[str, str]) -> str | None:
+def aliases_config(
+    sources: Mapping[str, str],
+    *,
+    deadline: Deadline | None = None,
+    clock: Callable[[], float] = time.time,
+) -> tuple[str | None, list[Unparsed]] | TimedOut:
     """The tsconfig the cruiser is given: only the root tsconfig.json's path
     aliases and baseUrl, each pointing inside the copy, never a setting
     that reaches outside it; None when there are none. Paths with no
     baseUrl are read from their configuration's directory, which is then
-    the baseUrl too: the cruiser applies no paths without one."""
+    the baseUrl too: the cruiser applies no paths without one. With it,
+    each extended configuration not followed and why; TimedOut when the
+    deadline passes in the walk."""
     if TSCONFIG not in sources:
-        return None
-    found = tsconfig_aliases(TSCONFIG, sources)
+        return None, []
+    walk = TsconfigWalk(sources, deadline=deadline, clock=clock)
+    try:
+        found = walk.aliases(TSCONFIG)
+    except WalkTimedOut as passed:
+        return TimedOut(str(passed))
+    cut = [Unparsed(path=path, reason=reason) for path, reason in walk.cut.items()]
     if found.base_url is None and found.paths is None:
-        return None
+        return None, cut
     base = found.paths_from if found.base_url is None else found.base_url
     options: dict[str, object] = {"baseUrl": posixpath.join(TREE, base)}
     if found.paths is not None:
@@ -265,7 +333,7 @@ def aliases_config(sources: Mapping[str, str]) -> str | None:
             str(alias): _alias_targets(targets, base)
             for alias, targets in found.paths.items()
         }
-    return json.dumps({"compilerOptions": options})
+    return json.dumps({"compilerOptions": options}), cut
 
 
 def _without(files: Sequence[CodeModel], paths: set[str]) -> list[CodeModel]:
@@ -549,12 +617,21 @@ class TypeScriptCodeModel:
         parsed = {p: data for p, data in parsed.items() if p not in _paths(deep)}
         edges = [edge for f in files for edge in f.imports]
         resolved: Resolved = {}
+        configured = (
+            aliases_config(texts, deadline=deadline, clock=self._clock)
+            if edges
+            else (None, [])
+        )
+        if isinstance(configured, TimedOut):
+            return configured
+        aliases, cut = configured
+        unparsed.extend(cut)
         try:
             if edges:
                 resolved, unread = _cruise_around(
                     parsed,
                     cruiser=self._cruiser,
-                    aliases=aliases_config(texts),
+                    aliases=aliases,
                     deadline=deadline,
                     clock=self._clock,
                 )
