@@ -327,3 +327,19 @@ def test_a_heredoc_run_in_the_background_is_modelled() -> None:
     assert {u.path for u in model.unparsed} == {"bin/stray"}
     tools = {(e.path, e.imported, e.line) for e in model.imports}
     assert tools == {("bin/bg", "cat", 1), ("bin/bg-tabs", "python3", 1)}
+
+
+def test_valid_zsh_the_grammar_cannot_read_is_never_called_not_shell() -> None:
+    """Given valid zsh the Bash grammar cannot read (a short `for` loop),
+    When it is modelled, Then it is unparsed with the reason that the
+    grammar cannot read the construct at that line, never that it is not
+    shell."""
+    model = modelled({"bin/z": b"#!/bin/zsh\nfor f (*.txt) print $f\n"})
+
+    assert [(u.path, u.reason) for u in model.unparsed] == [
+        (
+            "bin/z",
+            "the Bash grammar cannot read line 2: a zsh construct it does"
+            " not know, or a syntax error",
+        )
+    ]
