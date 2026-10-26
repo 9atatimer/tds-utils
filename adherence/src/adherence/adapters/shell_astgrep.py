@@ -8,9 +8,10 @@ say.
 
 A script's dependencies are the tools it runs, by name or through
 `command` and `exec`: one import edge per tool per file, at its first use,
-never a builtin or a function the sources define. A file it sources is an
-edge to that file when the file is one of the sources; a file sourced from
-outside them is a path on the machine, not a tool, and no edge.
+never a builtin or a function the file defines or sources. A file it
+sources is an edge to that file when the file is one of the sources; a
+file sourced from outside them is a path on the machine, not a tool, and
+no edge.
 
 ast-grep runs as a subprocess over a copy of the sources in a scratch
 directory, never the repository, with an allowlisted environment and the
@@ -69,7 +70,7 @@ QUOTES = ("'", '"')
 
 def is_tool(command: str, functions: frozenset[str]) -> bool:
     """Whether a command run by name is a tool the script requires: a plain
-    name, not a builtin, and not a function the sources define."""
+    name, not a builtin, and not one of the functions it can call."""
     return (
         PLAIN_NAME.fullmatch(command) is not None
         and command not in BUILTINS
@@ -180,18 +181,54 @@ def sourced(edges: Sequence[ImportEdge], sources: Collection[str]) -> list[Impor
     return found
 
 
+def defined_names(files: Sequence[CodeModel]) -> dict[str, frozenset[str]]:
+    """Each file's functions by the bare names they are called by, nested
+    ones included."""
+    found: dict[str, set[str]] = {}
+    for f in files:
+        for d in f.definitions:
+            if d.unit.symbol is not None:
+                bare = d.unit.symbol.rsplit(".", 1)[-1]
+                found.setdefault(d.unit.path, set()).add(bare)
+    return {path: frozenset(names) for path, names in found.items()}
+
+
+def visible_functions(
+    paths: Collection[str],
+    defined: Mapping[str, frozenset[str]],
+    edges: Sequence[ImportEdge],
+) -> dict[str, frozenset[str]]:
+    """The functions each file can call by name: its own, and those of
+    every source it sources, through the sources they source."""
+    targets: dict[str, set[str]] = {}
+    for edge in edges:
+        if edge.imported_path is not None:
+            targets.setdefault(edge.path, set()).add(edge.imported_path)
+    found: dict[str, frozenset[str]] = {}
+    for path in paths:
+        reached, pending = {path}, [path]
+        while pending:
+            for target in targets.get(pending.pop(), ()):
+                if target not in reached:
+                    reached.add(target)
+                    pending.append(target)
+        found[path] = frozenset(n for p in reached for n in defined.get(p, ()))
+    return found
+
+
 def dependencies(
     calls: Sequence[Call],
     lines: Mapping[str, Sequence[str]],
-    functions: frozenset[str],
+    functions: Mapping[str, frozenset[str]],
 ) -> list[ImportEdge]:
     """The tools each file requires, each once, at its first use, with
-    that line's text."""
+    that line's text; never a function the file can call by name."""
     seen: set[tuple[str, str]] = set()
     found: list[ImportEdge] = []
     for call in sorted(calls, key=lambda c: (c.path, c.line)):
         key = (call.path, call.callee)
-        if key in seen or not is_tool(call.callee, functions):
+        callable_here = functions.get(call.path, frozenset())
+        if key in seen or not is_tool(call.callee, callable_here):
             continue
         seen.add(key)
         found.append(
@@ -209,19 +246,17 @@ def dependencies(
 def shell_model(scanned: Scanned) -> CodeModel:
     """The structural pass with its imports made a shell script's: the
     files it sources that are sources, and the tools it runs."""
-    functions = frozenset(
-        d.unit.symbol
-        for f in scanned.files
-        for d in f.definitions
-        if d.unit.symbol is not None
-    )
     lines = {
         path: source_lines(data.decode("utf-8", "replace"))
         for path, data in scanned.parsed.items()
     }
-    edges = sourced(
+    sources = sourced(
         [edge for f in scanned.files for edge in f.imports], scanned.parsed
-    ) + dependencies([c for f in scanned.files for c in f.calls], lines, functions)
+    )
+    functions = visible_functions(scanned.parsed, defined_names(scanned.files), sources)
+    edges = sources + dependencies(
+        [c for f in scanned.files for c in f.calls], lines, functions
+    )
     return merged(
         scanned.files,
         imports=tuple(sorted(edges, key=lambda e: (e.path, e.line, e.imported))),
