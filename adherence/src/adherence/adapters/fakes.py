@@ -47,7 +47,9 @@ class FakeRepository:
     scripts the answer to every tree listing, `unlisted_at` to one target's.
     `history` scripts the commits that changed each path, newest first.
     What a change did is told from the two targets' files: a path gone and
-    one come with the same bytes is a rename."""
+    one come with the same bytes is a rename. Its clock is frozen at `now`,
+    the epoch unless the test sets it, so a deadline at or before it has
+    passed and every method answers TimedOut."""
 
     def __init__(
         self,
@@ -56,21 +58,30 @@ class FakeRepository:
         unlisted: Refused | TimedOut | None = None,
         unlisted_at: Mapping[Base | Head, Refused | TimedOut] | None = None,
         history: Mapping[str, tuple[str, ...]] | None = None,
+        now: float = 0.0,
     ) -> None:
         self._files = files
         self._unlisted = unlisted
         self._unlisted_at = unlisted_at or {}
         self._history = history or {}
+        self._now = now
+
+    def _passed(self, deadline: Deadline | None) -> bool:
+        return deadline is not None and deadline.epoch_seconds <= self._now
 
     def read(
         self, path: str, at: Base | Head, deadline: Deadline | None
     ) -> bytes | Absent | Refused | TimedOut:
+        if self._passed(deadline):
+            return TimedOut(f"read {path}")
         found = self._files.get(at, {}).get(path)
         return Absent(path) if found is None else found
 
     def tree(
         self, at: Base | Head, deadline: Deadline | None
     ) -> tuple[str, ...] | Refused | TimedOut:
+        if self._passed(deadline):
+            return TimedOut("list the tree")
         if self._unlisted is not None:
             return self._unlisted
         if at in self._unlisted_at:
@@ -80,11 +91,15 @@ class FakeRepository:
     def history(
         self, path: str, base: Base, deadline: Deadline | None
     ) -> tuple[str, ...] | Refused | TimedOut:
+        if self._passed(deadline):
+            return TimedOut(f"list the history of {path}")
         return self._history.get(path, ())
 
     def changed(
         self, base: Base, head: Head, deadline: Deadline | None
     ) -> ChangedPaths | Refused | TimedOut:
+        if self._passed(deadline):
+            return TimedOut("tell what the change did")
         before = self._files.get(base, {})
         after = self._files.get(head, {})
         gone = sorted(set(before) - set(after))
