@@ -10,7 +10,12 @@ from adherence.adapters.python_ast import PythonCodeModel
 from adherence.container import SHIPPED_VOCABULARY
 from adherence.domain.finding import Finding
 from adherence.domain.model import CodeLanguage
-from adherence.domain.records import DesignRecords, RecordsUnavailable
+from adherence.domain.records import (
+    Behavior,
+    DesignRecords,
+    RecordsUnavailable,
+    UseCase,
+)
 from adherence.domain.report import Report
 from tests.measure_kit import measure_with
 
@@ -168,3 +173,48 @@ def test_a_unittest_assert_method_is_an_assertion() -> None:
     report = _measured({TEST: source})
 
     assert _cannot_fail(report) == {"TestUse.test_nothing"}
+
+
+DESIGN = "docs/design/DESIGN.APP.md"
+ARCHITECTURE = "docs/design/ARCHITECTURE.APP.md"
+GOT = "A thing is got"
+MEASURED = "A thing is measured"
+RECORDS = DesignRecords(
+    behaviors=(Behavior(GOT, DESIGN, 10), Behavior(MEASURED, DESIGN, 11)),
+    surface=(
+        UseCase(GOT, "get", ARCHITECTURE, 20),
+        UseCase(MEASURED, "measure", ARCHITECTURE, 21),
+    ),
+)
+APP = {
+    "src/app/__init__.py": b"",
+    "src/app/application/__init__.py": b"",
+    "src/app/application/use.py": (
+        b"def get(key):\n    return key\n\n\ndef measure():\n    return 1\n"
+    ),
+}
+
+
+def _unkept(report: Report) -> set[str]:
+    assert "Kept test" in {c.name for c in report.ran}
+    return {f.unit.symbol or "" for f in _of(report, "Kept test")}
+
+
+def test_a_behavior_is_kept_only_by_a_call_to_its_use_case() -> None:
+    """Given use cases `get` and `measure`, a test calling `measure` by its
+    import and a test calling a `get` method on an HTTP client of its own,
+    When Kept test runs, Then the behavior whose use case is `get` is found:
+    a method of another object by the same name keeps nothing (Self-review
+    R5)."""
+    source = (
+        b"from app.application.use import measure\n"
+        b"def test_client():\n"
+        b"    client = Client()\n"
+        b'    assert client.get("/x") == 1\n'
+        b"def test_measure():\n"
+        b"    assert measure() == 1\n"
+    )
+
+    report = _measured({**APP, TEST: source}, records=RECORDS)
+
+    assert _unkept(report) == {GOT}
