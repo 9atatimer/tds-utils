@@ -7,9 +7,9 @@ from __future__ import annotations
 import importlib.util
 
 import pytest
-from adherence.adapters.lizard import LizardComplexity
 
-from adherence.domain.model import MetricsUnavailable
+from adherence.adapters.lizard import LizardComplexity
+from adherence.domain.model import Metrics, MetricsUnavailable
 from adherence.ports.complexity import ComplexityPort
 from tests.complexity_contract import SOURCES, ComplexityContract
 
@@ -32,3 +32,34 @@ def test_measure_with_the_tool_absent_is_unavailable_naming_it() -> None:
 
     assert isinstance(answer, MetricsUnavailable), answer
     assert "lizard" in answer.reason
+
+
+FORGIVEN = "src/pkg/forgiven.py"
+BRANCHY = (
+    b"    if x:\n        return 1\n    elif x > 2:\n        return 2\n    return 3\n"
+)
+
+
+@pytest.mark.skipif(LIZARD_ABSENT, reason="lizard is not installed (uv sync)")
+def test_measure_ignores_the_measured_sources_own_lizard_directives() -> None:
+    """Given functions under the measured source's own `#lizard forgive`
+    and `GENERATED CODE` comments, When complexity is measured, Then each is
+    still measured: untrusted source never exempts itself (Self-review R1)."""
+    sources = {
+        FORGIVEN: (
+            b"def forgiven(x):\n"
+            b"    # #lizard forgive\n" + BRANCHY + b"\n\n"
+            b"def generated(x):\n"
+            b"    # GENERATED CODE -- do not measure\n" + BRANCHY + b"\n\n"
+            b"def after(x):\n" + BRANCHY
+        ),
+    }
+
+    answer = LizardComplexity().measure(sources, None)
+
+    assert isinstance(answer, Metrics), answer
+    assert {(c.symbol, c.value) for c in answer.complexity} == {
+        ("forgiven", 3),
+        ("generated", 3),
+        ("after", 3),
+    }
