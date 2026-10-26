@@ -9,6 +9,7 @@ from adherence.domain.finding import Finding
 from adherence.domain.model import (
     Access,
     AccessKind,
+    Binding,
     Call,
     Reference,
     ReferenceKind,
@@ -190,3 +191,34 @@ def test_measure_with_a_use_case_constructing_a_fake_adapter_finds_it() -> None:
     carried = {(f.unit.symbol, f.subject) for f in _of(report, "Values in and out")}
     assert wired == {("wired", "FakeHttp")}
     assert carried == {("wired", "f: FakeHttp")}
+
+
+def test_measure_with_a_use_case_raising_an_adapter_error_is_clean() -> None:
+    """Given an adapters module holding a concrete adapter of a port, an
+    exception and an enum, and a use case that constructs the adapter
+    through an import alias (`FsStore as Fs`), raises the exception and
+    builds the enum, When No self-wiring runs, Then the one finding names
+    the aliased construction: only a type implementing a port is a
+    concrete adapter, and an alias is resolved to what it imports."""
+    files = {USE: b"x\n" * 9, STORE: b"x\n" * 9, FS: b"x\n" * 12}
+    definitions = [
+        *port(STORE, "Store", 1),
+        type_(FS, "FsStore", 1, bases=("Store",)),
+        type_(FS, "StoreError", 4, bases=("Exception",)),
+        type_(FS, "Mode", 7, bases=("enum.Enum",)),
+        function(USE, "close", 2, end=6),
+    ]
+    calls = (
+        Call(USE, 3, "close", "Fs"),
+        Call(USE, 4, "close", "StoreError"),
+        Call(USE, 5, "close", "Mode"),
+    )
+    bindings = (Binding(USE, 1, None, "Fs", "app.adapters.fs.FsStore"),)
+
+    report = measure_with(files, facts(definitions, calls=calls, bindings=bindings))
+
+    found = {
+        (f.unit.symbol, f.subject, f.evidence.line)
+        for f in _of(report, "No self-wiring")
+    }
+    assert found == {("close", "Fs", 3)}
