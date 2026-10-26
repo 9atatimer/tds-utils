@@ -11,11 +11,14 @@ from __future__ import annotations
 import sys
 import unicodedata
 from collections.abc import Callable
+from pathlib import Path
 
 import click
 
+from adherence.application.judge import judge_change
 from adherence.application.load import load_declaration
 from adherence.application.measure import measure
+from adherence.application.record import record_report
 from adherence.cli.presenters.json_report import report_json
 from adherence.container import Container, Stage, build
 from adherence.domain.declaration import (
@@ -25,13 +28,17 @@ from adherence.domain.declaration import (
     DeclarationUnreadable,
     RefusedExemption,
 )
-from adherence.domain.target import Head
+from adherence.domain.report import Verdict
+from adherence.domain.target import Base, Change, Head
 
 # --- Constants ---------------------------------------------------------------
 
 # Unicode control (newline and tab included) and format (bidi overrides,
 # zero-width) characters: none of them may reach the terminal.
 STRIPPED_CATEGORIES = frozenset({"Cc", "Cf"})
+# The verdicts `adhere judge` exits non-zero on until the per-stage mapping
+# lands (task-066): lowered fails a gate; not run never reads as a pass.
+FAILING = frozenset({Verdict.LOWERED, Verdict.NOT_RUN})
 
 # --- Presenters --------------------------------------------------------------
 
@@ -134,4 +141,53 @@ def measure_command(ctx: click.Context, root: str, as_json: bool) -> None:
     )
     click.echo(report_json(report))
     if report.not_run_reason is not None:
+        sys.exit(1)
+
+
+@main.command("judge")
+@click.option(
+    "--root",
+    default=".",
+    show_default=True,
+    type=click.Path(exists=True, file_okay=False),
+    help="The repository whose revisions are judged.",
+)
+@click.option("--base", required=True, help="The revision judged against.")
+@click.option("--head", required=True, help="The revision judged.")
+@click.option("--json", "as_json", is_flag=True, help="Print the report as JSON.")
+@click.pass_context
+def judge_command(
+    ctx: click.Context, root: str, base: str, head: str, as_json: bool
+) -> None:
+    """Judge the head revision against the base and print the report.
+
+    The report is kept after the verdict is reached, so keeping it can
+    never change the verdict. A test passes the composition root, bound
+    with its fakes, as the context object.
+    """
+    if not as_json:
+        raise click.UsageError("--json is the one output format so far")
+    builder: Callable[..., Container] = ctx.obj if callable(ctx.obj) else build
+    container = builder(Stage.LAPTOP, root=root)
+    change = Change(
+        repository=Path(root).resolve().name,
+        base=Base(base),
+        head=Head.at_revision(head),
+    )
+    report = judge_change(
+        change,
+        repository=container.repository,
+        reviews=container.reviews,
+        analyzers=container.analyzers,
+        complexity=container.complexity,
+        duplication=container.duplication,
+        records=container.records,
+        judge=container.judge,
+        reports=container.reports,
+        parameters=container.parameters,
+        deadline=None,
+    )
+    recorded = record_report(report, reports=container.reports)
+    click.echo(report_json(report, recorded))
+    if report.verdict in FAILING:
         sys.exit(1)

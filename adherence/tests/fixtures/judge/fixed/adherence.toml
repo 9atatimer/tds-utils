@@ -1,0 +1,6 @@
+# The judge fixture: one domain package, the same declaration at every
+# revisions. The head adds a stubbed rule; fixed implements it
+# (task-062's done check).
+
+[layers]
+domain = ["src/tool/domain/**"]
