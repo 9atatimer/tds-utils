@@ -6,6 +6,7 @@ Module map: adapters/file_store.py)."""
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -77,3 +78,20 @@ def test_a_kept_document_that_is_not_a_report_is_a_miss(tmp_path: Path) -> None:
     answer = store.get("example", REVISION, IDENTITY.digest, None)
 
     assert isinstance(answer, StoreMiss) and str(kept) in answer.reason
+
+
+def test_a_report_put_is_kept_with_its_repository_change_and_time(
+    tmp_path: Path,
+) -> None:
+    """Given a report of a change, When it is put, Then the record kept for
+    the scan holds the repository, the revision and the time it was kept."""
+    store = FileReportStore(
+        tmp_path / "cache", root=tmp_path / "repo", clock=lambda: 1_700_000_000.5
+    )
+
+    store.put(REPORT)
+
+    (scan,) = (tmp_path / "cache" / "scan" / "example").glob("*.json")
+    kept = json.loads(scan.read_text())
+    assert (kept["repository"], kept["revision"]) == ("example", REVISION)
+    assert kept["kept_at"] == 1_700_000_000.5
