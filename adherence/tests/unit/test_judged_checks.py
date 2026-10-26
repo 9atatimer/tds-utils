@@ -33,6 +33,7 @@ from adherence.domain.parameters import Limits
 from adherence.domain.qualities import CheckKind
 from adherence.domain.questions import (
     DOES_IO,
+    IMPLEMENTED,
     INVARIANT_BROKEN,
     RULES_ELSEWHERE,
     SAME_CONCEPT,
@@ -49,10 +50,12 @@ from tests.facts_kit import (
     FS,
     ROOT,
     RULES,
+    STORE,
     TEST,
     USE,
     field,
     function,
+    port,
     type_,
     value,
 )
@@ -77,6 +80,18 @@ def _bodied(definition: Definition, text: str) -> Definition:
         definition.unit,
         definition.signature,
         Body(text, (), ()),
+        definition.bases,
+        definition.decorators,
+        definition.parent,
+        definition.nested,
+    )
+
+
+def _stubbed(definition: Definition) -> Definition:
+    return Definition(
+        definition.unit,
+        definition.signature,
+        Body("...", ("...",), ()),
         definition.bases,
         definition.decorators,
         definition.parent,
@@ -651,3 +666,58 @@ def test_measure_kept_test_that_skips_the_then_is_found(
     assert finding.kind is CheckKind.JUDGED
     assert finding.confidence == pytest.approx(mass)
     assert "test_close" in finding.subject and CLOSED in finding.subject
+
+
+# --- An unfinished unit is found ------------------------------------------------------
+
+
+@pytest.mark.parametrize(("no", "found"), [(0.8, True), (0.88, True), (0.79, False)])
+def test_measure_unit_whose_body_does_not_do_what_it_claims_is_found(
+    no: float, found: bool
+) -> None:
+    """Given a domain function whose docstring claims more than its body
+    does, functions that do what they claim, a stub (Stub's), a port's
+    declared method and a test, When Done runs with the judge's no at, above
+    or just below the threshold, Then only the non-test, non-stub,
+    non-declaration functions are asked about, each its name, docstring and
+    body, and a judged finding names the unfinished unit, with its
+    confidence, only at or above the threshold."""
+    definitions = (
+        _bodied(
+            function(RULES, "price", 1, end=4),
+            '"""Price the order, with tax and discounts."""\nreturn 0',
+        ),
+        function(USE, "close_order", 1, end=5),
+        function(FS, "read", 1, end=5),
+        _stubbed(function(RULES, "later", 7, end=8)),
+        *port(STORE, "Store", 1),
+        function(TEST, "test_close", 1, end=4),
+    )
+    judge = FakeDecision(
+        {IMPLEMENTED.id: _yes(0.95), TWO_JOBS.id: _yes(0.1)},
+        per_symbol={"price": {IMPLEMENTED.id: _yes(1.0 - no)}},
+    )
+
+    report = measure_with(
+        {**FILES, STORE: b"x\n" * 9},
+        CodeModel(definitions=definitions),
+        judge=judge,
+        thresholds=ThresholdPolicy({IMPLEMENTED.id: BAND, TWO_JOBS.id: BAND}),
+    )
+
+    assert "Done" in [c.name for c in report.ran]
+    asked = {
+        state.unit.symbol: state
+        for state, schema in judge.asked
+        if any(q.id == IMPLEMENTED.id for q in schema.questions.values())
+    }
+    assert set(asked) == {"price", "close_order", "read"}
+    assert "with tax and discounts" in asked["price"].text
+    findings = _of(report, "Done")
+    if not found:
+        assert findings == []
+        return
+    (finding,) = findings
+    assert finding.kind is CheckKind.JUDGED
+    assert finding.confidence == pytest.approx(no)
+    assert finding.unit.symbol == "price" and "price" in finding.subject
