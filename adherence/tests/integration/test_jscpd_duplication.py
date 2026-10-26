@@ -55,3 +55,22 @@ def test_measure_ignores_the_measured_sources_own_jscpd_markers() -> None:
 
     assert isinstance(answer, Metrics), answer
     assert [(c.first.path, c.second.path) for c in answer.clones] == [(FIRST, SECOND)]
+
+
+@pytest.mark.skipif(
+    not JSCPD.is_file(),
+    reason="jscpd is not installed (npm ci --ignore-scripts in adherence/)",
+)
+def test_measure_of_a_large_repository_still_finds_its_clones() -> None:
+    """Given a repository of twelve thousand sources with long paths --
+    more than one command line can carry -- and two sharing a long stretch,
+    When clones are sought, Then the clone is found, never a failure to
+    spawn the tool (Self-review R10)."""
+    deep = "src/" + "/".join(["a_rather_long_directory_name"] * 6)
+    large = {f"{deep}/module_{i:05d}.py": b"value = %d\n" % i for i in range(12000)}
+    large.update({FIRST: SOURCES[FIRST], SECOND: SOURCES[SECOND]})
+
+    answer = JscpdDuplication(command=(str(JSCPD),)).measure(large, None)
+
+    assert isinstance(answer, Metrics), answer
+    assert [(c.first.path, c.second.path) for c in answer.clones] == [(FIRST, SECOND)]
