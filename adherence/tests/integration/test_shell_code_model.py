@@ -308,3 +308,22 @@ def test_a_body_whose_only_command_is_a_stub_form_is_a_stub() -> None:
         "k": (":",),
         "m": (),
     }
+
+
+def test_a_heredoc_run_in_the_background_is_modelled() -> None:
+    """Given valid bash that runs a heredoc's command in the background, in
+    both heredoc forms, and a heredoc followed by a stray `)`, When they are
+    modelled, Then the background ones are modelled with their tools -- the
+    grammar's error on that `&` is not a syntax error -- and the stray `)`
+    is still unparsed."""
+    model = modelled(
+        {
+            "bin/bg": b"cat <<EOF &\nhello\nEOF\nwait\n",
+            "bin/bg-tabs": b"python3 - <<-'PY' &\n\tprint(1)\n\tPY\n",
+            "bin/stray": b"cat <<EOF )\nhello\nEOF\n",
+        }
+    )
+
+    assert {u.path for u in model.unparsed} == {"bin/stray"}
+    tools = {(e.path, e.imported, e.line) for e in model.imports}
+    assert tools == {("bin/bg", "cat", 1), ("bin/bg-tabs", "python3", 1)}
