@@ -16,6 +16,8 @@ from adherence.domain.records import (
     DesignRecords,
     RecordStatus,
     RecordsUnavailable,
+    Seam,
+    SeamKind,
     SurfaceRow,
     Term,
     UseCase,
@@ -567,3 +569,62 @@ def test_judge_change_of_a_repository_it_cannot_run_on_says_so() -> None:
     assert unmeasured.verdict is Verdict.NOT_RUN
     assert any("measured language" in r for r in unmeasured.reasons)
     assert unmeasured.findings == () and unmeasured.ran == ()
+
+
+ARCHITECTURE = "docs/design/ARCHITECTURE.APP.md"
+LIMITS = Seam("Limits", SeamKind.PARAMETER, ARCHITECTURE, 10)
+LIMITED = b"class Limits:\n    size = 1\n"
+
+
+def test_judge_change_giving_a_seam_its_home_removes_its_finding() -> None:
+    """Given a seam the architecture record names and the base lacks, When a
+    change adds its home and the head's record still names it, Then the
+    seam's finding is removed and the verdict is raised."""
+    records = DesignRecords(seams=(LIMITS,))
+
+    report = judge_with(
+        {RULES: FIXED},
+        {RULES: LIMITED},
+        when={LIMITED: kit.facts([kit.type_(RULES, "Limits", 1)])},
+        records={BASE: records, HEAD: records},
+    )
+
+    assert [(f.check.name, f.unit.symbol) for f in report.removed] == [
+        ("Change", "Limits")
+    ]
+    assert report.verdict is Verdict.RAISED
+
+
+def test_judge_change_deleting_a_seam_row_removes_nothing() -> None:
+    """Given a seam the architecture record names and the base lacks, When a
+    change deletes the seam's row from the record, Then the seam's finding
+    is not removed and the verdict is held: a deleted unit's findings remove
+    nothing."""
+    report = judge_with(
+        {RULES: FIXED},
+        {RULES: FIXED + b"\n# edited\n"},
+        records={BASE: DesignRecords(seams=(LIMITS,)), HEAD: DesignRecords()},
+    )
+
+    assert report.removed == ()
+    assert report.verdict is Verdict.HELD
+
+
+def test_judge_change_deleting_a_behavior_row_removes_none_of_its_findings() -> None:
+    """Given two behaviors the design record states and no code carries,
+    When a change deletes one behavior's row from the record, Then none of
+    that behavior's findings is removed; Record kept finds the deletion."""
+    homeless = Behavior("An order is shipped", "Given x, When y, Then z", DESIGN, 9)
+    stays = Behavior("An order is billed", "Given x, When y, Then z", DESIGN, 10)
+
+    report = judge_with(
+        {USE: CLEAN},
+        {USE: CLEAN + b"\n# edited\n"},
+        records={
+            BASE: DesignRecords(behaviors=(homeless, stays)),
+            HEAD: DesignRecords(behaviors=(stays,)),
+        },
+    )
+
+    assert [f for f in report.removed if f.unit.symbol == homeless.name] == []
+    assert report.verdict is Verdict.LOWERED
