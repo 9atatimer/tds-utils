@@ -758,14 +758,15 @@ def test_measure_primitive_written_by_hand_where_the_radar_adopts_one_is_found(
     markdown-it-py and click (a Trial and a Hold entry beside them), When
     Hand-rolled runs with the judge's most likely option, markdown-it-py,
     at, above or just below the threshold, Then the question's options are
-    the Adopt entries and none, and a judged finding names the unit and the
-    library, with its confidence, only at or above the threshold."""
+    the Adopt entries by their keys and none, and a judged finding names
+    the unit and the library, with its confidence, only at or above the
+    threshold."""
     definitions = (
         _bodied(function(FS, "parse_table", 1, end=9), "for line in text: ..."),
     )
     judge = FakeDecision(
         {
-            HAND_ROLLED_ID: {"markdown-it-py": p, "click": 0.0, NONE: 1.0 - p},
+            HAND_ROLLED_ID: {"lib_1": p, "lib_2": 0.0, NONE: 1.0 - p},
             TWO_JOBS.id: _yes(0.1),
             IMPLEMENTED.id: _yes(0.9),
         }
@@ -786,7 +787,7 @@ def test_measure_primitive_written_by_hand_where_the_radar_adopts_one_is_found(
         [q for q in schema.questions.values() if q.id == HAND_ROLLED_ID]
         for _, schema in judge.asked
     ]
-    assert question.options == ("markdown-it-py", "click", NONE)
+    assert question.options == ("lib_1", "lib_2", NONE)
     findings = _of(report, "Hand-rolled")
     if not found:
         assert findings == []

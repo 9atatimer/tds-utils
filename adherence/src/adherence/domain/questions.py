@@ -5,8 +5,9 @@ Schema over the unit's State and receives a probability per allowed answer
 (ARCHITECTURE.ARCH-ADHERENCE.md, Facts and judgements told apart). The
 nine questions, their ids, kinds and options, are fixed here; what the
 repository supplies is only ever the State's data (DESIGN.ARCH-ADHERENCE.md,
-G18). The judge's failure is typed: Unavailable and Rejected are values,
-never exceptions.
+G18): even the Hand-rolled question names the radar's libraries by fixed
+keys, their names in the State alone. The judge's failure is typed:
+Unavailable and Rejected are values, never exceptions.
 
 ThresholdPolicy holds one entry per question id, its form following the
 question's kind (the decision-models skill): a binary question thresholds
@@ -21,6 +22,7 @@ threshold and is coverage.
 from __future__ import annotations
 
 import enum
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 
@@ -140,11 +142,14 @@ IMPLEMENTED = _binary(
 )
 HAND_ROLLED_ID = "hand_rolled"
 HAND_ROLLED_INSTRUCTIONS = (
-    DATA_ONLY + "The state holds one unit's body. Which of the listed "
-    "libraries, each adopted on the tech radar, already provides what this "
-    "unit writes by hand? Answer none if none does."
+    DATA_ONLY + "The state holds one unit's body and the libraries adopted on "
+    "the tech radar, each under its key. Which key's library already "
+    "provides what this unit writes by hand? Answer with that key, or none "
+    "if none does."
 )
 NONE_CRITERION = "the unit writes nothing by hand that a listed library provides"
+# A Hand-rolled option names a library by this fixed key, never by its name.
+LIBRARY_KEY = "lib_{}"
 
 # Each question id's kind; renaming an id or an option is a migration of the
 # threshold policy and the labelled set (ARCHITECTURE.ARCH-ADHERENCE.md, Seams).
@@ -161,16 +166,33 @@ QUESTION_KINDS: Mapping[str, QuestionKind] = {
 }
 
 
-def hand_rolled_question(libraries: Sequence[str]) -> Question:
-    """The Hand-rolled question over the radar's Adopt entries: one option
-    per library, and `none`."""
+def library_keys(libraries: Sequence[str]) -> dict[str, str]:
+    """Each library under the key a Hand-rolled option names it by, `lib_1`
+    onward in order. The names are the repository's: data, never an option,
+    so no name can be an instruction or collide with `none`."""
+    return {LIBRARY_KEY.format(n): name for n, name in enumerate(libraries, start=1)}
+
+
+def libraries_context(named: Mapping[str, str]) -> str:
+    """The libraries under their keys, as the state's data."""
+    return json.dumps(dict(named))
+
+
+def hand_rolled_question(count: int) -> Question:
+    """The Hand-rolled question over `count` radar Adopt entries: one option
+    per entry by its key, and `none`. The instructions and criteria are
+    fixed text; which library a key names is in the state."""
+    keys = tuple(LIBRARY_KEY.format(n) for n in range(1, count + 1))
     return Question(
         HAND_ROLLED_ID,
         QuestionKind.CHOICE,
         HAND_ROLLED_INSTRUCTIONS,
-        (*libraries, NONE),
+        (*keys, NONE),
         criteria=(
-            *(f"the unit writes by hand what {name} provides" for name in libraries),
+            *(
+                f"the unit writes by hand what the library under {key} provides"
+                for key in keys
+            ),
             NONE_CRITERION,
         ),
     )
@@ -184,7 +206,9 @@ class Ask:
     """One question a judged check puts about one unit: what a finding on it
     would name (`subject`, the unit, its layer, the evidence), the unit's
     text, and the further data this question reads (`context`). Both texts
-    are the repository's, and only ever data."""
+    are the repository's, and only ever data. `named` maps a choice option
+    to the repository's name a finding on it names (a Hand-rolled key to
+    its library)."""
 
     check: Check
     question: Question
@@ -194,6 +218,7 @@ class Ask:
     evidence: Evidence
     text: str
     context: str
+    named: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -393,7 +418,7 @@ def _chosen(
         return _abstention(ask, confidence)
     if top == NONE:
         return Pass(ask.check, ask.unit, ask.question.id, confidence)
-    return _finding(ask, confidence, f"{ask.subject} {top}")
+    return _finding(ask, confidence, f"{ask.subject} {ask.named.get(top, top)}")
 
 
 def judged(
