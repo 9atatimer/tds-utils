@@ -84,6 +84,7 @@ EXTENDS_TOO_DEEP = (
     f"extended deeper than {MAX_EXTENDS_DEPTH} configurations; not followed"
 )
 TOO_MANY_TSCONFIGS = f"extended past {MAX_TSCONFIGS} configurations; not followed"
+TSCONFIG_UNREAD = "tsconfig not read, so it gives no aliases"
 TREE = "tree"
 
 
@@ -101,6 +102,10 @@ class CruiseFailed(Exception):
 
 class WalkTimedOut(Exception):
     """The deadline passed while a tsconfig's extends chain was walked."""
+
+
+class TsconfigUnread(Exception):
+    """A tsconfig file the JSON parser could not read, with why."""
 
 
 Resolved = dict[tuple[str, str], str]
@@ -169,11 +174,15 @@ def without_trailing_commas(text: str) -> str:
 
 
 def read_tsconfig(text: str) -> dict[str, object]:
-    """A tsconfig file's settings; none when it is not a JSON object."""
+    """A tsconfig file's settings; none when it is not a JSON object.
+    Raises TsconfigUnread when it does not parse, or nests deeper than the
+    parser can walk."""
     try:
         parsed = json.loads(without_trailing_commas(without_comments(text)))
-    except json.JSONDecodeError:
-        return {}
+    except json.JSONDecodeError as error:
+        raise TsconfigUnread(f"{TSCONFIG_UNREAD}: {error}") from error
+    except RecursionError as error:
+        raise TsconfigUnread(f"{TSCONFIG_UNREAD}: {NESTED_TOO_DEEPLY}") from error
     return parsed if isinstance(parsed, dict) else {}
 
 
@@ -241,8 +250,9 @@ def _own_aliases(path: str, settings: Mapping[str, object]) -> Aliases | None:
 class TsconfigWalk:
     """One walk of a tsconfig's extends chain: each configuration read at
     most once, the chain bounded in depth and in configurations read, and
-    the deadline read before each; why each configuration was not
-    followed is kept, by path."""
+    the deadline read before each; why each configuration was not read or
+    not followed is kept, by path: one that does not parse gives no
+    aliases."""
 
     def __init__(
         self,
@@ -256,7 +266,7 @@ class TsconfigWalk:
         self._clock = clock
         self._done: dict[str, Aliases] = {}
         self._open: set[str] = set()
-        self.cut: dict[str, str] = {}
+        self.unread: dict[str, str] = {}
 
     def aliases(self, path: str, depth: int = 0) -> Aliases:
         """A tsconfig's aliases, through the configurations it extends that
@@ -264,7 +274,11 @@ class TsconfigWalk:
         if _passed(self._deadline, self._clock()):
             raise WalkTimedOut("read the tsconfig extends chain")
         self._open.add(path)
-        settings = read_tsconfig(self._sources[path])
+        try:
+            settings = read_tsconfig(self._sources[path])
+        except TsconfigUnread as unread:
+            self.unread[path] = str(unread)
+            settings = {}
         inherited = Aliases()
         for base in _extended(path, settings.get("extends"), self._sources):
             found = self._base(base, depth + 1)
@@ -280,13 +294,13 @@ class TsconfigWalk:
         remembered; None for a cycle back into the chain, or past a bound."""
         if base in self._done:
             return self._done[base]
-        if base in self._open or base in self.cut:
+        if base in self._open or base in self.unread:
             return None
         if depth > MAX_EXTENDS_DEPTH:
-            self.cut[base] = EXTENDS_TOO_DEEP
+            self.unread[base] = EXTENDS_TOO_DEEP
             return None
         if len(self._done) + len(self._open) >= MAX_TSCONFIGS:
-            self.cut[base] = TOO_MANY_TSCONFIGS
+            self.unread[base] = TOO_MANY_TSCONFIGS
             return None
         return self.aliases(base, depth)
 
@@ -314,7 +328,7 @@ def aliases_config(
     that reaches outside it; None when there are none. Paths with no
     baseUrl are read from their configuration's directory, which is then
     the baseUrl too: the cruiser applies no paths without one. With it,
-    each extended configuration not followed and why; TimedOut when the
+    each configuration not read or not followed, and why; TimedOut when the
     deadline passes in the walk."""
     if TSCONFIG not in sources:
         return None, []
@@ -323,7 +337,7 @@ def aliases_config(
         found = walk.aliases(TSCONFIG)
     except WalkTimedOut as passed:
         return TimedOut(str(passed))
-    cut = [Unparsed(path=path, reason=reason) for path, reason in walk.cut.items()]
+    cut = [Unparsed(path=path, reason=reason) for path, reason in walk.unread.items()]
     if found.base_url is None and found.paths is None:
         return None, cut
     base = found.paths_from if found.base_url is None else found.base_url
