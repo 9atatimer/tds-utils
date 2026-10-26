@@ -170,3 +170,25 @@ def test_measure_with_a_keyword_port_before_its_values_finds_the_use_case() -> N
 
     found = {(f.unit.symbol, f.subject) for f in _of(report, "Ports as keywords")}
     assert found == {("kwb", "store: Store")}
+
+
+def test_measure_with_a_use_case_constructing_a_fake_adapter_finds_it() -> None:
+    """Given an adapters-layer class named as a fake (FakeHttp) and a use
+    case in production code that takes it and constructs it, When No
+    self-wiring and Values in and out run, Then each names the use case
+    and the fake: a fake's name exempts it only where the design says (a
+    test, the Swap check), never a use case wiring it."""
+    files = {USE: b"x\n" * 9, STORE: b"x\n" * 9, FS: b"x\n" * 9}
+    definitions = [
+        *port(STORE, "Store", 1),
+        type_(FS, "FakeHttp", 1, bases=("Store",)),
+        function(USE, "wired", 1, (value("f", "FakeHttp"),), end=3),
+    ]
+    calls = (Call(USE, 2, "wired", "FakeHttp"),)
+
+    report = measure_with(files, facts(definitions, calls=calls))
+
+    wired = {(f.unit.symbol, f.subject) for f in _of(report, "No self-wiring")}
+    carried = {(f.unit.symbol, f.subject) for f in _of(report, "Values in and out")}
+    assert wired == {("wired", "FakeHttp")}
+    assert carried == {("wired", "f: FakeHttp")}
