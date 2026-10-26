@@ -80,11 +80,15 @@ class Limits:
     Complexity finds; None, when no ceiling is supplied, leaves the check as
     coverage. duplication_ceiling is the clone size, in lines, above which
     Duplication finds; None likewise leaves it as coverage.
+    record_statuses are the statuses that make a design record a contract
+    Trace, Language, Change, Kept test and Record kept read; the default is
+    the design's floor, APPROVED and IMPLEMENTED.
     """
 
     evidence_bound: int
     complexity_ceiling: int | None = None
     duplication_ceiling: int | None = None
+    record_statuses: frozenset[str] = frozenset({"APPROVED", "IMPLEMENTED"})
 
 
 @dataclass(frozen=True, slots=True)

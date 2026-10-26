@@ -28,6 +28,7 @@ from adherence.domain.records import (
     DesignRecords,
     Radar,
     RadarEntry,
+    RecordStatus,
     RecordsUnavailable,
     Ring,
     Seam,
@@ -68,6 +69,11 @@ NAMES_NONE = "the declaration names no design record"
 NAMES_NO_RADAR = "the declaration names no radar"
 # A heading opens a ring when its first word, case folded, is the ring's.
 RINGS = {ring.value.casefold(): ring for ring in Ring}
+# `> **Status:** APPROVED (the owner)`: the first word after the colon.
+STATUS_LINE = re.compile(
+    r"^\s*>?\s*\*{0,2}status\*{0,2}\s*:\s*\*{0,2}\s*(?P<word>[A-Za-z][\w-]*)",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 # --- Pure helpers ------------------------------------------------------------
 
@@ -278,6 +284,13 @@ def _seams(path: str, tokens: Sequence[Token]) -> tuple[Seam, ...]:
     return tuple(seams)
 
 
+def status_of(path: str, text: str) -> RecordStatus:
+    """A record's status: the first word of its first status line, upper
+    case; empty when it has none."""
+    found = STATUS_LINE.search(text)
+    return RecordStatus(path, found.group("word").upper() if found else "")
+
+
 def parse_records(
     *, design_path: str, design: str, architecture_path: str, architecture: str
 ) -> DesignRecords:
@@ -291,6 +304,10 @@ def parse_records(
         domain_language=_terms(design_path, stated.get(DOMAIN_LANGUAGE, [])),
         use_cases=_use_cases(architecture_path, surfaced.get(SURFACE, [])),
         surface=_surface(architecture_path, surfaced.get(SURFACE, [])),
+        statuses=(
+            status_of(design_path, design),
+            status_of(architecture_path, architecture),
+        ),
     )
 
 

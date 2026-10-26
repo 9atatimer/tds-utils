@@ -361,7 +361,10 @@ SHIPPED_VOCABULARY = Vocabulary(
     packages=DISTRIBUTIONS,
 )
 SHIPPED_LIMITS = Limits(
-    evidence_bound=200, complexity_ceiling=15, duplication_ceiling=10
+    evidence_bound=200,
+    complexity_ceiling=15,
+    duplication_ceiling=10,
+    record_statuses=frozenset({"APPROVED", "IMPLEMENTED"}),
 )
 SHIPPED_PARAMETERS = Parameters(
     thresholds=ThresholdPolicy(), vocabulary=SHIPPED_VOCABULARY, limits=SHIPPED_LIMITS
