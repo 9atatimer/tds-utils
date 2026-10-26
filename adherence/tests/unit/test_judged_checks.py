@@ -27,13 +27,15 @@ from adherence.domain.parameters import Limits
 from adherence.domain.qualities import CheckKind
 from adherence.domain.questions import (
     DOES_IO,
+    SAME_CONCEPT,
     TWO_JOBS,
     BandThreshold,
     ThresholdPolicy,
     Unavailable,
 )
+from adherence.domain.records import DesignRecords, Term
 from adherence.domain.report import Report
-from tests.facts_kit import FS, ROOT, RULES, TEST, USE, function, value
+from tests.facts_kit import FS, ROOT, RULES, TEST, USE, function, type_, value
 from tests.measure_kit import measure_with
 
 # Provisional entries for the tests alone; the shipped ones are the
@@ -333,3 +335,56 @@ def test_measure_domain_function_taking_a_callable_that_does_io_is_found(
     assert finding.confidence == pytest.approx(yes)
     assert finding.unit.symbol == "total"
     assert "total" in finding.subject and "fetch" in finding.subject
+
+
+# --- Two spellings of one concept are found -----------------------------------------
+
+DESIGN = "docs/design/DESIGN.APP.md"
+GLOSSARY = DesignRecords(
+    domain_language=(Term("Order", DESIGN, 40), Term("Ledger entry", DESIGN, 41))
+)
+
+
+@pytest.mark.parametrize(("yes", "found"), [(0.8, True), (0.85, True), (0.79, False)])
+def test_measure_two_spellings_of_one_concept_are_found(
+    yes: float, found: bool
+) -> None:
+    """Given a domain type the Domain Language defines (Order), an undefined
+    domain type sharing a word with it (OrderRecord) that a use case takes,
+    and undefined nouns sharing no word with a defined one, When Language's
+    judged part runs with the judge's yes at, above or just below the
+    threshold, Then only the pair that shares a word is asked about, with
+    both nouns' definitions and uses as its data, and a judged finding names
+    both nouns, with its confidence, only at or above the threshold."""
+    definitions = (
+        type_(RULES, "Order", 1),
+        type_(RULES, "OrderRecord", 5),
+        type_(RULES, "Invoice", 9),
+        function(USE, "close", 1, (value("order", "OrderRecord"),), returns="Receipt"),
+    )
+    judge = FakeDecision({SAME_CONCEPT.id: _yes(yes), TWO_JOBS.id: _yes(0.1)})
+
+    report = measure_with(
+        FILES,
+        CodeModel(definitions=definitions),
+        records=GLOSSARY,
+        judge=judge,
+        thresholds=ThresholdPolicy({SAME_CONCEPT.id: BAND, TWO_JOBS.id: BAND}),
+    )
+
+    asked = [
+        (state, key)
+        for state, schema in judge.asked
+        for key, q in schema.questions.items()
+        if q.id == SAME_CONCEPT.id
+    ]
+    ((state, key),) = asked
+    assert state.unit.symbol == "OrderRecord"
+    assert "Order" in state.context[key] and "close" in state.context[key]
+    judged = [f for f in _of(report, "Language") if f.kind is CheckKind.JUDGED]
+    if not found:
+        assert judged == []
+        return
+    (finding,) = judged
+    assert finding.confidence == pytest.approx(yes)
+    assert "OrderRecord" in finding.subject and "Order " in finding.subject
