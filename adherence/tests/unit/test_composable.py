@@ -5,6 +5,7 @@ Use-case surface)."""
 
 from __future__ import annotations
 
+from adherence.container import SHIPPED_VOCABULARY
 from adherence.domain.finding import Finding
 from adherence.domain.model import Layer
 from adherence.domain.report import Report
@@ -136,3 +137,32 @@ def test_measure_with_a_wire_format_in_a_signature_finds_the_parameter() -> None
         ("send", "session: requests.Session"),
         ("save", "store: FsStore"),
     }
+
+
+def test_measure_with_a_domain_type_named_like_a_wire_format_is_clean() -> None:
+    """Given, under the shipped vocabulary, a domain value the repository
+    defines under a wire format's name (Request), use cases taking it, a
+    typed mapping of domain values, a Dict of them and bytes, and one use
+    case taking a Response the repository does not define, When Values in
+    and out runs, Then only the Response is found: a name the measured
+    repository defines is its own, and a typed mapping or bytes is a
+    value, not a wire format."""
+    files = {USE: b"x\n" * 9, RULES: b"x\n" * 9}
+    definitions = [
+        type_(RULES, "Request", 1),
+        function(
+            USE,
+            "req",
+            1,
+            (value("order", "Order"), value("r", "Request")),
+            returns="dict[str, Order]",
+        ),
+        function(USE, "index", 2, (value("orders", "Dict[str, Order]"),)),
+        function(USE, "load", 3, (value("data", "bytes"),)),
+        function(USE, "send", 4, (value("reply", "Response"),)),
+    ]
+
+    report = measure_with(files, facts(definitions), vocabulary=SHIPPED_VOCABULARY)
+
+    found = {(f.unit.symbol, f.subject) for f in _of(report, "Values in and out")}
+    assert found == {("send", "reply: Response")}
