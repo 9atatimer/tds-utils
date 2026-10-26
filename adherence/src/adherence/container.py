@@ -22,6 +22,7 @@ from adherence.adapters.lizard import LizardComplexity
 from adherence.adapters.markdown_records import MarkdownRecords
 from adherence.adapters.no_judge import NoJudge
 from adherence.adapters.no_reviews import NoReviews
+from adherence.adapters.process_worker import ProcessWorker
 from adherence.adapters.python_ast import PythonCodeModel
 from adherence.domain.model import CodeLanguage, Layer
 from adherence.domain.parameters import Limits, Parameters, Vocabulary
@@ -428,8 +429,8 @@ def build(
     the judged checks read as coverage meanwhile. Every stage binds
     no_reviews until github_reviews lands for ci (task-063), and the file
     cache in the per-user cache directory until the warehouse lands for ci
-    (task-067). The worker that bounds a run is the override when one is
-    passed; no stage binds one of its own yet.
+    (task-067). The hook binds process_worker to end its run at the
+    commit-time bound; the other stages are unbounded and bind no worker.
     """
     bound = repository if repository is not None else GitRepository(root)
     return Container(
@@ -463,5 +464,11 @@ def build(
             )
         ),
         parameters=SHIPPED_PARAMETERS,
-        worker=worker,
+        worker=(
+            worker
+            if worker is not None
+            else ProcessWorker()
+            if stage is Stage.HOOK
+            else None
+        ),
     )
