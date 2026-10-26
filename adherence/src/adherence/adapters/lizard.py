@@ -4,8 +4,10 @@ lizard (PyPI, MIT; lmde/TECH_RADAR.md Trial) is run as a subprocess in a
 scratch directory outside the repository, through `analyzer_process`:
 the interpreter in isolated mode (`-I`, so neither the working directory
 nor PYTHON* variables reach its import path), the file list on the
-command line, `.gitignore` reading off, CSV out. The clock is the edge's
-own. Absent or failing, it answers MetricsUnavailable naming the tool.
+command line, `.gitignore` reading off, CSV out. The measured source is
+untrusted, so the scratch copy carries none of lizard's in-source
+directives: a function cannot exempt itself. The clock is the edge's own.
+Absent or failing, it answers MetricsUnavailable naming the tool.
 """
 
 from __future__ import annotations
@@ -34,8 +36,23 @@ OPERATION = "measure complexity with lizard"
 # function, long_name, start, end.
 CCN, FILE, FUNCTION, START = 1, 6, 7, 9
 COLUMNS = 11
+# lizard's in-source directives, each rewritten in the scratch copy to text
+# lizard does not act on: `#lizard forgive` (and `forgives`, `forgive
+# global`) drops a function, and a comment holding `GENERATED CODE` ends the
+# file. The rewrite keeps every line where it was.
+DIRECTIVES = (
+    (b"lizard forgive", b"lizard-forgive"),
+    (b"GENERATED CODE", b"GENERATED-CODE"),
+)
 
 # --- Pure helpers ------------------------------------------------------------
+
+
+def neutralised(data: bytes) -> bytes:
+    """The source with every lizard directive rewritten so lizard ignores it."""
+    for directive, inert in DIRECTIVES:
+        data = data.replace(directive, inert)
+    return data
 
 
 def parse_csv(text: str, written: Mapping[str, str]) -> tuple[Complexity, ...]:
@@ -79,7 +96,9 @@ class LizardComplexity:
             root = Path(scratch)
             work = root / "work"
             work.mkdir()
-            written = write_sources(root / "src", sources)
+            written = write_sources(
+                root / "src", {p: neutralised(d) for p, d in sources.items()}
+            )
             files = root / "files.txt"
             files.write_text("\n".join(written) + "\n", encoding="utf-8")
             command = (*self._command, "--csv", "--no-gitignore", "-f", str(files))
