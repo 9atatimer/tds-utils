@@ -41,7 +41,14 @@ from adherence.domain.model import (
     with_languages,
 )
 from adherence.domain.parameters import Parameters
-from adherence.domain.questions import Ask, Decision, Judged, schemas, settled
+from adherence.domain.questions import (
+    Abstention,
+    Ask,
+    Decision,
+    Judged,
+    schemas,
+    settled,
+)
 from adherence.domain.records import (
     DesignRecords,
     Radar,
@@ -173,12 +180,14 @@ def _judge(
     """Each unit's questions put to the judge in one call, and the answers
     settled by the threshold policy."""
     findings: list[Finding] = []
+    abstentions: list[Abstention] = []
     for asking in schemas(asks):
         answer = judge.decide(asking.state, asking.schema, deadline)
         if isinstance(answer, Decision):
             judged = settled(asking, answer, parameters.thresholds)
             findings.extend(judged.findings)
-    return Judged(findings=tuple(findings))
+            abstentions.extend(judged.abstentions)
+    return Judged(findings=tuple(findings), abstentions=tuple(abstentions))
 
 
 def measure(
@@ -283,6 +292,7 @@ def measure(
         findings=findings,
         notices=(*refusal_notices(declaration), *applied),
         coverage=(*coverage, *unmodelled(whole, declaration), *checked.coverage),
+        abstentions=judged.abstentions,
         units=whole.units,
         bodies=tuple(
             BodyDigest(d.unit.path, d.unit.symbol, body_digest(d.body.text))

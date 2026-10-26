@@ -20,6 +20,7 @@ from adherence.domain.coverage import Coverage
 from adherence.domain.finding import Finding, Notice, normalised
 from adherence.domain.model import Unit
 from adherence.domain.qualities import Check, Quality
+from adherence.domain.questions import Abstention
 
 # --- Constants ---------------------------------------------------------------
 
@@ -89,7 +90,8 @@ class Verdict(enum.Enum):
 @dataclass(frozen=True, slots=True)
 class Report:
     """One run's outcome: the checks that ran, every finding each produced,
-    the notices and the coverage, and the units the run read, each with the
+    the notices and the coverage, the judged checks' abstentions, which are
+    neither a finding nor a pass, and the units the run read, each with the
     layer it is in, and each definition's body digest. A run the suite
     could not perform is not run and carries the reason; it holds nothing
     else, so it never reads as a pass.
@@ -110,6 +112,7 @@ class Report:
     identity: ReportIdentity | None = None
     repository: str | None = None
     revision: str | None = None
+    abstentions: tuple[Abstention, ...] = ()
 
     def ran_in(self, quality: Quality) -> tuple[Check, ...]:
         """The checks of one quality that ran, in catalog order."""
