@@ -12,7 +12,7 @@ import dataclasses
 import fnmatch
 import re
 import tomllib
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import ClassVar
 
@@ -516,6 +516,36 @@ def _runtimes(value: object) -> tuple[Runtime, ...] | DeclarationUnreadable:
             )
         runtimes.append(Runtime(name, tuple(patterns)))
     return tuple(runtimes)
+
+
+def widened(
+    in_force: Declaration,
+    proposed: Declaration | DeclarationUnreadable,
+    created: Collection[str],
+) -> Declaration:
+    """The declaration in force with the proposed one's widening merged in:
+    its layer assignments for the files the change created that the
+    declaration in force leaves uncovered. Nothing else of the proposed
+    declaration is taken, so it can only add checks."""
+    if not in_force.declared or not isinstance(proposed, Declaration):
+        return in_force
+    uncovered = [p for p in sorted(created) if layer_of(p, None, in_force) is None]
+    globs = tuple(
+        (layer, path)
+        for path in uncovered
+        if (layer := layer_of(path, None, proposed)) is not None
+    )
+    regions = tuple(r for r in proposed.layers.regions if r.path in uncovered)
+    markers = tuple(p for p in proposed.layers.marker_files if p in uncovered)
+    layers = in_force.layers
+    return replace(
+        in_force,
+        layers=Layers(
+            (*layers.globs, *globs),
+            (*layers.regions, *regions),
+            (*layers.marker_files, *markers),
+        ),
+    )
 
 
 def refusal_notices(declaration: Declaration) -> tuple[Notice, ...]:

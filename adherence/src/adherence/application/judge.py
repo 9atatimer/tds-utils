@@ -19,7 +19,11 @@ from adherence.domain.checks.declared import (
     with_outcome,
 )
 from adherence.domain.deadline import Deadline, TimedOut
-from adherence.domain.declaration import Declaration, DeclarationUnreadable
+from adherence.domain.declaration import (
+    Declaration,
+    DeclarationUnreadable,
+    widened,
+)
 from adherence.domain.model import CodeLanguage
 from adherence.domain.parameters import Parameters
 from adherence.domain.report import Report, ReportIdentity, fingerprint
@@ -113,8 +117,10 @@ def judge_change(
     The declaration in force is the base's; which landed revision of it a
     code owner approved is read through `reviews` (task-063), and Unknown,
     the answer of every stage without a code host, leaves the landed one
-    standing. The base's report is the one `reports` kept under the base
-    identity, when it kept one; else the base is measured again.
+    standing. The head is measured under it with the head declaration's
+    widening for the files the change created. The base's report is the
+    one `reports` kept under the base identity, when it kept one; else the
+    base is measured again.
     """
     paths = repository.changed(change.base, change.head, deadline)
     if isinstance(paths, Refused | TimedOut):
@@ -132,13 +138,20 @@ def judge_change(
         deadline,
     )
     in_force = load_declaration(change.base, repository=repository, deadline=deadline)
-    head = measuring.measure(change.head, in_force)
-    if head.not_run_reason is not None or not isinstance(in_force, Declaration):
+    if not isinstance(in_force, Declaration):
+        head = measuring.measure(change.head, in_force)
+        return replace(compared(Report(), head, change), repository=change.repository)
+    proposed = load_declaration(change.head, repository=repository, deadline=deadline)
+    declaration = widened(in_force, proposed, change.created)
+    head = measuring.measure(change.head, declaration)
+    if head.not_run_reason is not None:
         return replace(compared(Report(), head, change), repository=change.repository)
     stored = _stored_base(change, in_force, head.identity, reports, deadline)
     base = stored or measuring.measure(change.base, in_force)
     found = covered(
-        created_units(base, head, change), in_force, parameters.limits.evidence_bound
+        created_units(base, head, change),
+        declaration,
+        parameters.limits.evidence_bound,
     )
     head = with_outcome(head, COVERED, found)
     return replace(compared(base, head, change), repository=change.repository)
