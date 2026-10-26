@@ -3,8 +3,7 @@
 Trace, Purity's rule part, Wiring and Anatomy (DESIGN.ARCH-ADHERENCE.md,
 The Qualities table: Layered), each a pure function over the CodeModel
 and the design records. Purity's judged part, whether a callable a domain
-function takes does I/O, is a question for the judge and reads as
-coverage here.
+function takes does I/O, and Two jobs are questions for the judge.
 """
 
 from __future__ import annotations
@@ -37,7 +36,7 @@ from adherence.domain.model import (
 )
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
-from adherence.domain.questions import TWO_JOBS, Ask, definition_text
+from adherence.domain.questions import DOES_IO, TWO_JOBS, Ask, definition_text
 from adherence.domain.records import (
     Behavior,
     DesignRecords,
@@ -78,7 +77,7 @@ LITERAL = "Literal"
 # statement wrapped over lines is read as far as its first line goes.
 FROM_IMPORT = re.compile(r"\s*from\s+\S+\s+import\s+(?P<names>[^#]*)")
 ALIAS = re.compile(r"(?P<name>[A-Za-z_]\w*)\s+as\s+(?P<alias>[A-Za-z_]\w*)")
-DOES_IO_UNASKED = "the judged part (does_io) is not asked in this suite version"
+NOT_CALLED = "nowhere the analyzer resolved"
 WIRING = catalog_check("Wiring")
 NO_RUNTIME = "the per-runtime half needs a declared runtime; the declaration has none"
 ANATOMY = catalog_check("Anatomy")
@@ -329,16 +328,51 @@ def annotation_names(parameter: Parameter) -> frozenset[str]:
     return frozenset(names)
 
 
+def _call_sites(model: CodeModel) -> dict[tuple[str, str], list[Call]]:
+    """Every call that resolves to a repository definition, by its path and
+    symbol."""
+    sites: dict[tuple[str, str], list[Call]] = {}
+    for call in model.calls:
+        target = call.target
+        if target is not None and target.path is not None and target.symbol:
+            sites.setdefault((target.path, target.symbol), []).append(call)
+    return sites
+
+
+def _does_io_ask(rule: Definition, parameter: Parameter, sites: Sequence[Call]) -> Ask:
+    """The does_io question about one callable a domain function takes: the
+    function as the unit's text, the parameter and where the function is
+    called from as its data."""
+    unit = rule.unit
+    called = "; ".join(f"{c.path}:{c.line} in {c.within}" for c in sites)
+    return Ask(
+        check=PURITY,
+        question=DOES_IO,
+        unit=unit,
+        layer=unit.layer,
+        subject=f"{unit.symbol}: its callable {parameter.name} does I/O",
+        evidence=Evidence(
+            unit.path, unit.start, f"{parameter.name}: {parameter.annotation}"
+        ),
+        text=definition_text(rule),
+        context=(
+            f"the callable parameter: {parameter.name}: {parameter.annotation}\n"
+            f"{unit.symbol} is called from: {called or NOT_CALLED}"
+        ),
+    )
+
+
 def _taken(
     rule: Definition,
     parameter: Parameter,
     ports: frozenset[str],
     vocabulary: Vocabulary,
     aliases: Mapping[str, str],
-) -> Finding | Coverage | None:
+    sites: Mapping[tuple[str, str], Sequence[Call]],
+) -> Finding | Ask | None:
     """What one parameter of a domain function makes of it: a finding for a
-    port or a clock, coverage for a callable the judge would be asked about,
-    or nothing. An import alias is read as the name it stands for."""
+    port or a clock, the does_io question for a callable, or nothing. An
+    import alias is read as the name it stands for."""
     names = frozenset(aliases.get(n, n) for n in annotation_names(parameter))
     unit = rule.unit
     evidence = Evidence(
@@ -351,11 +385,8 @@ def _taken(
         subject = f"{parameter.name}: the clock {clock[0]}"
         return Finding(PURITY, unit, unit.layer, subject, evidence)
     if names & vocabulary.callables:
-        return Coverage(
-            f"{DOES_IO_UNASKED}: whether {unit.symbol}'s callable "
-            f"{parameter.name} does I/O",
-            check=PURITY.name,
-            path=unit.path,
+        return _does_io_ask(
+            rule, parameter, sites.get((unit.path, unit.symbol or ""), [])
         )
     return None
 
@@ -366,12 +397,13 @@ def purity(
     records: DesignRecords | RecordsUnavailable,
     parameters: Parameters,
 ) -> CheckOutcome:
-    """No domain unit takes a port or a clock; a callable it takes is left to
-    the judged part."""
+    """No domain unit takes a port or a clock; whether a callable it takes
+    does I/O is the judged part's question."""
     if not declaration.declared:
         return undeclared(PURITY.name)
     ports = _port_names(model)
     aliases = _aliases(model)
+    sites = _call_sites(model)
     taken = [
         _taken(
             rule,
@@ -379,6 +411,7 @@ def purity(
             ports,
             parameters.vocabulary,
             aliases.get(rule.unit.path, {}),
+            sites,
         )
         for rule in model.definitions
         if is_rule(rule) and rule.signature is not None
@@ -386,7 +419,7 @@ def purity(
     ]
     return CheckOutcome(
         tuple(t for t in taken if isinstance(t, Finding)),
-        tuple(t for t in taken if isinstance(t, Coverage)),
+        questions=tuple(t for t in taken if isinstance(t, Ask)),
     )
 
 
