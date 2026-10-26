@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from adherence.adapters.fakes import FakeReportStore
+from adherence.domain.deadline import TimedOut
 from adherence.domain.declaration import DECLARATION_PATH
 from adherence.domain.finding import Provenance
 from adherence.domain.model import Layer, Parameter, Signature, merged
@@ -293,6 +294,31 @@ def test_judge_change_removing_a_behavior_and_a_term_finds_the_narrowing() -> No
     }
     assert all(f.provenance is Provenance.INTRODUCED for f in narrowed)
     assert report.verdict is Verdict.LOWERED
+
+
+def test_judge_change_with_the_record_timed_out_at_the_head_removes_nothing() -> None:
+    """Given approved records at the base and records that time out at the
+    head, When the change is judged, Then Record kept finds nothing removed,
+    it is coverage instead, and the verdict is inconclusive, not lowered: a
+    record that could not be read is not a record left empty."""
+    priced = Behavior("An order is priced", "Given ..., Then ...", DESIGN, 12)
+
+    report = judge_with(
+        {USE: CLEAN},
+        {USE: CLEAN + b"\n# edited\n"},
+        records={
+            BASE: DesignRecords(
+                behaviors=(priced,), domain_language=(Term("Order", DESIGN, 40),)
+            ),
+            HEAD: TimedOut("read the design records"),
+        },
+    )
+
+    assert [f for f in report.findings if f.check.name == "Record kept"] == []
+    assert any(
+        c.check == "Record kept" and "timed out" in c.reason for c in report.coverage
+    )
+    assert report.verdict is Verdict.INCONCLUSIVE
 
 
 def test_judge_change_adding_a_behavior_with_its_use_case_traces_it() -> None:
