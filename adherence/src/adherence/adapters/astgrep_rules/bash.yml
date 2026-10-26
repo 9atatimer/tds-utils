@@ -74,8 +74,17 @@ rule:
   all:
     - has: {field: argument, kind: word, not: {regex: '^-'}, pattern: $CALLEE}
 ---
+# A node the grammar could not read, but one it produces on valid shell:
+# a heredoc's command run in the background (`cat <<EOF &`), whose `&` the
+# grammar leaves as an error inside the heredoc redirect while reading the
+# rest of the file. Only that lone `&` there is excused; any other error
+# unparses the file.
 id: syntax-error
 language: Bash
 severity: hint
 rule:
   kind: ERROR
+  not:
+    all:
+      - regex: '^&$'
+      - inside: {kind: heredoc_redirect}
