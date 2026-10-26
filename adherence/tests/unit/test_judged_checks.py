@@ -1,0 +1,120 @@
+"""The judged checks and the judged parts of the rule-and-judged checks,
+driven through `measure` with a fake behind every port and the judge
+scripted per question id (DESIGN.ARCH-ADHERENCE.md, Behaviors;
+ARCHITECTURE.ARCH-ADHERENCE.md, Use-case surface and Facts and judgements
+told apart). Canned decisions sit at, above and below each threshold and
+inside its band; the unit tier never loads weights or calls the network.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from adherence.adapters.fakes import FakeDecision
+from adherence.domain.finding import Finding
+from adherence.domain.model import Body, CodeModel, Definition, Layer
+from adherence.domain.qualities import CheckKind
+from adherence.domain.questions import (
+    TWO_JOBS,
+    BandThreshold,
+    ThresholdPolicy,
+)
+from adherence.domain.report import Report
+from tests.facts_kit import FS, ROOT, RULES, TEST, USE, function
+from tests.measure_kit import measure_with
+
+# Provisional entries for the tests alone; the shipped ones are the
+# composition root's, chosen from adherence/evals/.
+BAND = BandThreshold(finding_at=0.8, pass_below=0.3)
+FILES = {path: b"x\n" * 30 for path in (RULES, USE, FS, ROOT, TEST)}
+
+
+def _of(report: Report, check: str) -> list[Finding]:
+    return [f for f in report.findings if f.check.name == check]
+
+
+def _yes(p: float) -> dict[str, float]:
+    return {"yes": p, "no": 1.0 - p}
+
+
+def _bodied(definition: Definition, text: str) -> Definition:
+    return Definition(
+        definition.unit,
+        definition.signature,
+        Body(text, (), ()),
+        definition.bases,
+        definition.decorators,
+        definition.parent,
+        definition.nested,
+    )
+
+
+# --- A unit doing two jobs is found ------------------------------------------------
+
+
+@pytest.mark.parametrize(("yes", "found"), [(0.8, True), (0.95, True), (0.79, False)])
+def test_measure_unit_doing_two_jobs_above_its_threshold_is_found(
+    yes: float, found: bool
+) -> None:
+    """Given a domain function the judge says does two jobs with yes at,
+    above or just below the threshold, and an application function it says
+    does one, When Two jobs runs, Then a judged finding names the unit and
+    the jobs, with its confidence, only at or above the threshold."""
+    definitions = [
+        _bodied(function(RULES, "price", 1, end=5), "total = fetch()\nsave(total)"),
+        function(USE, "close_order", 1, end=5),
+    ]
+    judge = FakeDecision(
+        {TWO_JOBS.id: _yes(0.1)}, per_symbol={"price": {TWO_JOBS.id: _yes(yes)}}
+    )
+
+    report = measure_with(
+        FILES,
+        CodeModel(definitions=tuple(definitions)),
+        judge=judge,
+        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+    )
+
+    assert "Two jobs" in [c.name for c in report.ran]
+    findings = _of(report, "Two jobs")
+    if not found:
+        assert findings == []
+        return
+    (finding,) = findings
+    assert finding.unit.symbol == "price"
+    assert finding.kind is CheckKind.JUDGED
+    assert finding.confidence == pytest.approx(yes)
+    assert finding.layer is Layer.DOMAIN
+    assert "rules" in finding.subject and "workflow" in finding.subject
+
+
+def test_measure_two_jobs_asks_about_rules_workflow_and_wiring_units_only() -> None:
+    """Given functions in the domain, application, composition-root, adapters
+    and test layers, When Two jobs runs, Then the judge is asked about the
+    first three, each unit's text with its declared layer as the state, and
+    never about an adapter or a test."""
+    definitions = [
+        _bodied(function(RULES, "price", 1, end=5), "return order.total"),
+        function(USE, "close_order", 1, end=5),
+        function(ROOT, "build", 1, end=5),
+        function(FS, "read", 1, end=5),
+        function(TEST, "test_close", 1, end=5),
+    ]
+    judge = FakeDecision({TWO_JOBS.id: _yes(0.1)})
+
+    measure_with(
+        FILES,
+        CodeModel(definitions=tuple(definitions)),
+        judge=judge,
+        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+    )
+
+    asked = {
+        state.unit.symbol: (state, schema)
+        for state, schema in judge.asked
+        if any(q.id == TWO_JOBS.id for q in schema.questions.values())
+    }
+    assert set(asked) == {"price", "close_order", "build"}
+    state, schema = asked["price"]
+    assert "return order.total" in state.text
+    assert any("domain" in context for context in state.context.values())

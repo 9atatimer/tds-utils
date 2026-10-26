@@ -73,10 +73,15 @@ def declared(text: bytes = HEXAGON) -> Declaration:
 
 
 def parameters(
-    *, vocabulary: Vocabulary = VOCABULARY, limits: Limits = LIMITS
+    *,
+    vocabulary: Vocabulary = VOCABULARY,
+    limits: Limits = LIMITS,
+    thresholds: ThresholdPolicy | None = None,
 ) -> Parameters:
     return Parameters(
-        thresholds=ThresholdPolicy(), vocabulary=vocabulary, limits=limits
+        thresholds=thresholds or ThresholdPolicy(),
+        vocabulary=vocabulary,
+        limits=limits,
     )
 
 
@@ -94,9 +99,12 @@ def measure_with(
     duplication: FakeDuplication | None = None,
     deadline: Deadline | None = None,
     unlisted: Refused | TimedOut | None = None,
+    judge: FakeDecision | None = None,
+    thresholds: ThresholdPolicy | None = None,
 ) -> Report:
     """measure over a repository holding `files` at the working tree, whose
-    Python analyzer answers with `facts`."""
+    Python analyzer answers with `facts`; with no judge given, the judge is
+    unavailable."""
     return measure(
         HEAD,
         declaration if declaration is not None else declared(),
@@ -112,7 +120,9 @@ def measure_with(
             {} if records is None else {HEAD: records},
             radar={} if radar is None else {HEAD: radar},
         ),
-        judge=FakeDecision(Unavailable("no judge in the unit tier")),
-        parameters=parameters(vocabulary=vocabulary, limits=limits),
+        judge=judge or FakeDecision(Unavailable("no judge in the unit tier")),
+        parameters=parameters(
+            vocabulary=vocabulary, limits=limits, thresholds=thresholds
+        ),
         deadline=deadline,
     )
