@@ -17,6 +17,8 @@ from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 
+from adherence.domain.coverage import Coverage
+from adherence.domain.declaration import is_declared_check
 from adherence.domain.finding import Finding, Provenance
 from adherence.domain.model import UnitKind
 from adherence.domain.qualities import Quality
@@ -153,9 +155,34 @@ def _seen(head: Report, joins: _Joins) -> _Head:
     )
 
 
-def _verdict(introduced: bool, removed: bool) -> Verdict:
+def _shown(coverage: Coverage) -> str:
+    where = f" on {coverage.path}" if coverage.path else ""
+    return f"{coverage.check} did not run{where}: {coverage.reason}"
+
+
+def _inconclusive(base: Report, head: Report, change: Change) -> tuple[str, ...]:
+    """Why the change is inconclusive: a check that could not run on a unit
+    the change touched, or a check in coverage at the head that was not, for
+    that reason, at the base. A change-level check never runs at a base, so
+    only its coverage on a touched unit counts."""
+    touched = change.touched()
+    before = {
+        replace(c, path=change.at_head(c.path) if c.path else None)
+        for c in base.coverage
+    }
+    return tuple(
+        _shown(c)
+        for c in head.coverage
+        if c.check is not None
+        and (c.path in touched or (c not in before and not is_declared_check(c.check)))
+    )
+
+
+def _verdict(introduced: bool, inconclusive: bool, removed: bool) -> Verdict:
     if introduced:
         return Verdict.LOWERED
+    if inconclusive:
+        return Verdict.INCONCLUSIVE
     if removed:
         return Verdict.RAISED
     return Verdict.HELD
@@ -213,9 +240,11 @@ def compared(*, base: Report, head: Report, change: Change) -> Report:
     seen = _seen(head, joins)
     removed = tuple(f for f in removable if _is_removed(f, joins, head, seen))
     introduced = any(f.provenance is Provenance.INTRODUCED for f in marked)
+    reasons = _inconclusive(base, head, change)
     return replace(
         head,
         findings=marked,
         removed=removed,
-        verdict=_verdict(introduced, bool(removed)),
+        verdict=_verdict(introduced, bool(reasons), bool(removed)),
+        reasons=reasons,
     )

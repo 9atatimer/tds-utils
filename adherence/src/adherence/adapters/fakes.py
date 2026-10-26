@@ -6,7 +6,7 @@ deadline-bound fake is scriptable to answer TimedOut.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping
+from collections.abc import Mapping
 from dataclasses import replace
 
 from adherence.domain.deadline import Deadline, TimedOut
@@ -28,6 +28,7 @@ from adherence.domain.model import (
     Unit,
     UnitKind,
     merged,
+    within,
 )
 from adherence.domain.parameters import Vocabulary
 from adherence.domain.questions import Decision, Schema, State, Unavailable
@@ -98,25 +99,6 @@ class FakeRepository:
         )
 
 
-def _restricted(model: CodeModel, paths: Collection[str]) -> CodeModel:
-    """The facts of the model that sit in one of the paths."""
-    return CodeModel(
-        units=tuple(u for u in model.units if u.path in paths),
-        imports=tuple(e for e in model.imports if e.path in paths),
-        definitions=tuple(d for d in model.definitions if d.unit.path in paths),
-        references=tuple(r for r in model.references if r.path in paths),
-        calls=tuple(c for c in model.calls if c.path in paths),
-        accesses=tuple(a for a in model.accesses if a.path in paths),
-        writes=tuple(w for w in model.writes if w.path in paths),
-        bindings=tuple(b for b in model.bindings if b.path in paths),
-        conditionals=tuple(c for c in model.conditionals if c.path in paths),
-        members=tuple(m for m in model.members if m.path in paths),
-        test_cases=tuple(t for t in model.test_cases if t.path in paths),
-        regions=tuple(r for r in model.regions if r.path in paths),
-        unparsed=tuple(u for u in model.unparsed if u.path in paths),
-    )
-
-
 class FakeCodeModel:
     """CodeModelPort over facts the test configures: a file unit per source
     (but a source the facts hold Unparsed), plus the facts of those sources,
@@ -141,8 +123,8 @@ class FakeCodeModel:
         plain = set(sources) - keyed
         return merged(
             [
-                _restricted(self._facts, plain),
-                *(_restricted(self._when[sources[p]], {p}) for p in sorted(keyed)),
+                within(self._facts, plain),
+                *(within(self._when[sources[p]], {p}) for p in sorted(keyed)),
             ]
         )
 

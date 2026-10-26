@@ -7,7 +7,7 @@ Every analyzer produces one CodeModel; every check reads only that
 from __future__ import annotations
 
 import enum
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 
 # --- Values ------------------------------------------------------------------
@@ -405,6 +405,25 @@ class CodeModel:
 
 
 # --- Pure helpers ------------------------------------------------------------
+
+
+def within(model: CodeModel, paths: Collection[str]) -> CodeModel:
+    """The facts of the model that sit in one of the paths; no metrics."""
+    return CodeModel(
+        units=tuple(u for u in model.units if u.path in paths),
+        imports=tuple(e for e in model.imports if e.path in paths),
+        definitions=tuple(d for d in model.definitions if d.unit.path in paths),
+        references=tuple(r for r in model.references if r.path in paths),
+        calls=tuple(c for c in model.calls if c.path in paths),
+        accesses=tuple(a for a in model.accesses if a.path in paths),
+        writes=tuple(w for w in model.writes if w.path in paths),
+        bindings=tuple(b for b in model.bindings if b.path in paths),
+        conditionals=tuple(c for c in model.conditionals if c.path in paths),
+        members=tuple(m for m in model.members if m.path in paths),
+        test_cases=tuple(t for t in model.test_cases if t.path in paths),
+        regions=tuple(r for r in model.regions if r.path in paths),
+        unparsed=tuple(u for u in model.unparsed if u.path in paths),
+    )
 
 
 def merged(models: Sequence[CodeModel]) -> CodeModel:
