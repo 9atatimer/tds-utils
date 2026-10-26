@@ -95,6 +95,7 @@ documents the recommended approach so it isn't reinvented per repo.
 - **grimp** (BSD-2): the Python import graph, with relative and package imports resolved, for the adherence engine's Python code model (`adherence/`).
 - **lizard** (MIT): per-function cyclomatic complexity over Python, TypeScript and JavaScript, for the adherence engine's Complexity check (`adherence/`).
 - **jscpd** (MIT): copy-paste detection over every MVP language with a JSON reporter, for the adherence engine's Duplication check; pinned in `adherence/package-lock.json`, installed with `npm ci --ignore-scripts`.
+- **markdown-it-py** (MIT): a CommonMark parser with tables, for reading the Behaviors table, Domain Language, use-case surface and seam list out of design records in the adherence engine (`adherence/`).
 
 ---
 
@@ -118,6 +119,10 @@ documents the recommended approach so it isn't reinvented per repo.
 ---
 
 ## Decisions Log
+
+- **2026-10-25**: Added `markdown-it-py` to Trial on Todd's ruling that every
+  adherence analyzer starts at Trial (Issue#599), landing with the code that
+  first uses it (task-059).
 
 - **2026-10-25**: Added `jscpd` to Trial on Todd's ruling that every adherence
   analyzer starts at Trial (Issue#599), landing with the code that first

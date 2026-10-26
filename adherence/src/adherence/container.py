@@ -17,6 +17,7 @@ from pathlib import Path
 from adherence.adapters.git import GitRepository
 from adherence.adapters.jscpd import JscpdDuplication
 from adherence.adapters.lizard import LizardComplexity
+from adherence.adapters.markdown_records import MarkdownRecords
 from adherence.adapters.no_judge import NoJudge
 from adherence.adapters.python_ast import PythonCodeModel
 from adherence.domain.model import CodeLanguage, Layer
@@ -170,7 +171,168 @@ SHIPPED_VOCABULARY = Vocabulary(
     model_ids=frozenset(
         {"claude-", "gpt-", "gemini-", "llama", "mistral-", "o1-", "o3-", "o4-"}
     ),
+    mechanism_calls=frozenset(
+        {
+            "open",
+            "io.open",
+            "__import__",
+            "importlib.import_module",
+            "importlib.__import__",
+        }
+    ),
     fakes=frozenset({"Fake", "InMemory"}),
+    clocks=frozenset({"Clock"}),
+    callables=frozenset({"Callable"}),
+    wire_formats=frozenset(
+        {
+            "bytearray",
+            "memoryview",
+            "Request",
+            "Response",
+            "HTTPResponse",
+            "JSONResponse",
+            "ClientResponse",
+            "ClientSession",
+            "Session",
+            "Connection",
+            "Cursor",
+            "Namespace",
+            "Popen",
+            "CompletedProcess",
+        }
+    ),
+    singletons=frozenset(
+        {"sys.argv", "sys.stdin", "sys.stdout", "sys.stderr", "sys.modules", "sys.path"}
+    ),
+    plain_types=frozenset(
+        {
+            "str",
+            "int",
+            "float",
+            "complex",
+            "bool",
+            "bytes",
+            "bytearray",
+            "object",
+            "None",
+            "type",
+            "list",
+            "dict",
+            "set",
+            "frozenset",
+            "tuple",
+            "Any",
+            "Optional",
+            "Union",
+            "Literal",
+            "Final",
+            "ClassVar",
+            "Annotated",
+            "Self",
+            "Never",
+            "NoReturn",
+            "TypeVar",
+            "Generic",
+            "Protocol",
+            "Callable",
+            "Awaitable",
+            "Coroutine",
+            "Iterable",
+            "Iterator",
+            "Generator",
+            "AsyncIterable",
+            "AsyncIterator",
+            "Sequence",
+            "MutableSequence",
+            "Mapping",
+            "MutableMapping",
+            "Collection",
+            "Container",
+            "Set",
+            "AbstractSet",
+            "MutableSet",
+            "Hashable",
+            "Sized",
+            "Reversible",
+            "KeysView",
+            "ValuesView",
+            "ItemsView",
+            "MappingView",
+            "AsyncGenerator",
+            "ContextManager",
+            "AsyncContextManager",
+            "AbstractContextManager",
+            "AbstractAsyncContextManager",
+            "Buffer",
+            "SupportsInt",
+            "SupportsFloat",
+            "SupportsIndex",
+            "SupportsAbs",
+            "SupportsBytes",
+            "SupportsComplex",
+            "SupportsRound",
+            "Dict",
+            "List",
+            "Tuple",
+            "FrozenSet",
+            "Type",
+            "Text",
+            "AnyStr",
+            "DefaultDict",
+            "OrderedDict",
+            "Counter",
+            "ChainMap",
+            "Deque",
+            "defaultdict",
+            "deque",
+            "NamedTuple",
+            "TypedDict",
+            "TypeAlias",
+            "TypeGuard",
+            "TypeIs",
+            "TypeVarTuple",
+            "ParamSpec",
+            "Concatenate",
+            "Required",
+            "NotRequired",
+            "ReadOnly",
+            "Unpack",
+            "LiteralString",
+            "IO",
+            "TextIO",
+            "BinaryIO",
+            "Pattern",
+            "Match",
+            "range",
+            "slice",
+            "memoryview",
+            "Exception",
+            "BaseException",
+            "NoneType",
+            "EllipsisType",
+            "NotImplementedType",
+            "datetime",
+            "date",
+            "time",
+            "timedelta",
+            "timezone",
+            "tzinfo",
+            "Decimal",
+            "Fraction",
+            "UUID",
+            "Path",
+            "PurePath",
+            "PosixPath",
+            "PurePosixPath",
+            "WindowsPath",
+            "PureWindowsPath",
+            "Enum",
+            "IntEnum",
+            "StrEnum",
+            "Flag",
+            "IntFlag",
+        }
+    ),
     abstract_markers=frozenset(
         {"Protocol", "ABC", "ABCMeta", "abstractmethod", "overload"}
     ),
@@ -218,17 +380,15 @@ class Stage(enum.Enum):
 
 @dataclass(frozen=True, slots=True)
 class Container:
-    """The ports bound for one stage, and the parameters. A port with no
-    adapter in this suite version is None until a test passes a fake: the
-    records adapter lands in task-059."""
+    """The ports bound for one stage, and the parameters."""
 
     stage: Stage
     repository: RepositoryPort
     analyzers: Mapping[CodeLanguage, CodeModelPort]
     judge: DecisionPort
-    complexity: ComplexityPort | None
-    duplication: DuplicationPort | None
-    records: RecordsPort | None
+    complexity: ComplexityPort
+    duplication: DuplicationPort
+    records: RecordsPort
     parameters: Parameters
 
 
@@ -250,9 +410,10 @@ def build(
     Every stage binds no_judge until the decide adapter lands (task-064);
     the judged checks read as coverage meanwhile.
     """
+    bound = repository if repository is not None else GitRepository(root)
     return Container(
         stage=stage,
-        repository=repository if repository is not None else GitRepository(root),
+        repository=bound,
         analyzers=(
             analyzers
             if analyzers is not None
@@ -265,6 +426,6 @@ def build(
             if duplication is not None
             else JscpdDuplication(command=(str(JSCPD),))
         ),
-        records=records,
+        records=records if records is not None else MarkdownRecords(bound),
         parameters=SHIPPED_PARAMETERS,
     )

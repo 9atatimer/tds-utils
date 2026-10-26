@@ -14,10 +14,10 @@ from adherence.domain.records import (
     Behavior,
     DesignRecords,
     RecordsUnavailable,
-    UseCase,
+    SurfaceRow,
 )
 from adherence.domain.report import Report
-from tests.measure_kit import measure_with
+from tests.measure_kit import HEXAGON, declared, measure_with
 
 TEST = "tests/test_use.py"
 
@@ -180,10 +180,10 @@ ARCHITECTURE = "docs/design/ARCHITECTURE.APP.md"
 GOT = "A thing is got"
 MEASURED = "A thing is measured"
 RECORDS = DesignRecords(
-    behaviors=(Behavior(GOT, DESIGN, 10), Behavior(MEASURED, DESIGN, 11)),
+    behaviors=(Behavior(GOT, "", DESIGN, 10), Behavior(MEASURED, "", DESIGN, 11)),
     surface=(
-        UseCase(GOT, "get", ARCHITECTURE, 20),
-        UseCase(MEASURED, "measure", ARCHITECTURE, 21),
+        SurfaceRow(GOT, "get", ARCHITECTURE, 20),
+        SurfaceRow(MEASURED, "measure", ARCHITECTURE, 21),
     ),
 )
 APP = {
@@ -228,8 +228,8 @@ def test_a_use_case_reached_through_a_test_helper_is_kept() -> None:
     found: calls are followed through test-layer helpers (Self-review R6)."""
     dropped = "A thing is dropped"
     records = DesignRecords(
-        behaviors=(*RECORDS.behaviors, Behavior(dropped, DESIGN, 12)),
-        surface=(*RECORDS.surface, UseCase(dropped, "drop", ARCHITECTURE, 22)),
+        behaviors=(*RECORDS.behaviors, Behavior(dropped, "", DESIGN, 12)),
+        surface=(*RECORDS.surface, SurfaceRow(dropped, "drop", ARCHITECTURE, 22)),
     )
     use = APP["src/app/application/use.py"] + b"\n\ndef drop():\n    return 0\n"
     kit = (
@@ -368,3 +368,36 @@ def test_without_a_readable_record_a_helper_cannot_be_told() -> None:
     assert any(
         c.check == "Public surface" and DESIGN in c.reason for c in report.coverage
     )
+
+
+def test_a_declared_placeholder_is_found_and_an_excusing_word_refused() -> None:
+    """Given a declaration whose [vocabulary] adds a placeholder assertion
+    and an assertion API -- the first only adds findings, the second would
+    excuse a test that asserts nothing -- When Real assertion runs, Then the
+    declared placeholder is found, the call is still no assertion, and the
+    report says assertion_calls was refused."""
+    extension = HEXAGON + (
+        b'\n[vocabulary]\nplaceholder_assertions = ["x == x"]\n'
+        b'assertion_calls = ["check"]\n'
+    )
+    source = (
+        b"def test_tautology():\n"
+        b"    x = run()\n"
+        b"    assert x == x\n"
+        b"def test_checked():\n"
+        b"    check(run())\n"
+        b"def test_real():\n"
+        b"    assert run() == 1\n"
+    )
+
+    report = measure_with(
+        {TEST: source},
+        declaration=declared(extension),
+        analyzers={CodeLanguage.PYTHON: PythonCodeModel()},
+        vocabulary=SHIPPED_VOCABULARY,
+    )
+
+    assert _cannot_fail(report) == {"test_tautology", "test_checked"}
+    messages = [n.message for n in report.notices]
+    assert any("assertion_calls" in m for m in messages), messages
+    assert not any("placeholder_assertions" in m for m in messages), messages

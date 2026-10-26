@@ -8,16 +8,17 @@ library; its tables are the architecture's (Mechanism, Measurement).
 
 from __future__ import annotations
 
+import dataclasses
 import fnmatch
 import re
 import tomllib
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import ClassVar
 
 from adherence.domain.finding import Notice
 from adherence.domain.model import Layer, Region
-from adherence.domain.parameters import Vocabulary
+from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import Quality, check_named
 from adherence.domain.source import source_lines
 
@@ -29,12 +30,40 @@ TABLES = frozenset(
     {"layers", "runtimes", "records", "radar", "exemptions", "limits", "vocabulary"}
 )
 EXEMPTION_KEYS = frozenset({"check", "unit", "finding", "reason"})
+RECORD_KEYS = ("design", "architecture")
+RADAR_KEY = "path"
 DECLARED_REFUSAL = "the Declared quality's checks cannot be exempted"
 REGIONS_KEY = "regions"
 LAYER_NAMES = {layer.value: layer for layer in Layer}
 GLOB_CHARACTERS = frozenset("*?[")
 # `# --- Action functions ---`, with any run of trailing dashes.
 SECTION_MARKER = re.compile(r"^\s*#\s*---\s*(?P<name>[^-].*?)\s*-*\s*$")
+# The [vocabulary] keys: every word set Vocabulary carries, and regions.
+WORD_SETS = frozenset(
+    f.name for f in dataclasses.fields(Vocabulary) if f.name != REGIONS_KEY
+)
+# The word sets a declaration may extend: those whose words only make more
+# things count as a flaw. Every other set's words excuse (a fake prefix, a
+# plain type), so extending it would weaken a check; it is refused.
+FINDING_SETS = frozenset(
+    {
+        "environment_reads",
+        "sleeps",
+        "stubs",
+        "vendors",
+        "model_ids",
+        "mechanism_calls",
+        "clocks",
+        "callables",
+        "wire_formats",
+        "singletons",
+        "placeholder_assertions",
+    }
+)
+VOCABULARY_REFUSAL = (
+    "a declaration extends only the vocabularies whose words add findings; "
+    "this one's words would excuse them"
+)
 
 # --- Values ------------------------------------------------------------------
 
@@ -69,6 +98,34 @@ class Layers:
 
 
 @dataclass(frozen=True, slots=True)
+class VocabularyExtension:
+    """The [vocabulary] table: the words added to each word set, the region
+    markers added, each to the layer its region is in, and the word sets it
+    names that the suite refuses to extend."""
+
+    words: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    regions: tuple[tuple[str, Layer], ...] = ()
+    refused: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RecordPaths:
+    """The [records] table: where the design and the architecture record are."""
+
+    design: str
+    architecture: str
+
+
+@dataclass(frozen=True, slots=True)
+class Runtime:
+    """A declared entry the repository can be run as, and the path patterns
+    of the units it is made of."""
+
+    name: str
+    patterns: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class Declaration:
     """A repository's statement of its layers, runtimes, records, radar and
     exemptions. Declaration.none is the value for a repository that has none.
@@ -78,6 +135,10 @@ class Declaration:
     layers: Layers = field(default_factory=Layers)
     exemptions: tuple[Exemption, ...] = ()
     refused_exemptions: tuple[RefusedExemption, ...] = ()
+    vocabulary: VocabularyExtension = field(default_factory=VocabularyExtension)
+    records: RecordPaths | None = None
+    radar: str | None = None
+    runtimes: tuple[Runtime, ...] = ()
 
     none: ClassVar[Declaration]
 
@@ -295,14 +356,141 @@ def _exemptions(value: object) -> tuple[Exemption, ...] | DeclarationUnreadable:
     return tuple(parsed)
 
 
-def refusal_notices(declaration: Declaration) -> tuple[Notice, ...]:
-    """A notice per exemption the declaration states and the suite refuses,
-    naming what it would exempt and why it is refused."""
-    return tuple(
-        Notice(
-            f"exemption refused: {r.exemption.check} on {r.exemption.unit}: {r.reason}"
+def _vocabulary_regions(value: object) -> tuple[tuple[str, Layer], ...] | str:
+    """The [vocabulary.regions] table, or why it cannot be read."""
+    if not isinstance(value, dict):
+        return "vocabulary.regions is a table of marker = layer"
+    regions: list[tuple[str, Layer]] = []
+    for marker, name in value.items():
+        layer = LAYER_NAMES.get(name) if isinstance(name, str) else None
+        if layer is None:
+            return f"vocabulary.regions: {marker} names no known layer"
+        regions.append((marker.lower(), layer))
+    return tuple(regions)
+
+
+def _vocabulary(value: object) -> VocabularyExtension | DeclarationUnreadable:
+    """The [vocabulary] table, or why it cannot be read."""
+    if not isinstance(value, dict):
+        return DeclarationUnreadable(f"{DECLARATION_PATH}: vocabulary is a table")
+    words: list[tuple[str, tuple[str, ...]]] = []
+    regions: tuple[tuple[str, Layer], ...] = ()
+    refused: list[str] = []
+    for key, entry in value.items():
+        if key == REGIONS_KEY:
+            found = _vocabulary_regions(entry)
+            if isinstance(found, str):
+                return DeclarationUnreadable(f"{DECLARATION_PATH}: {found}")
+            regions = found
+        elif key not in WORD_SETS:
+            return DeclarationUnreadable(
+                f"{DECLARATION_PATH}: vocabulary.{key} is no vocabulary"
+            )
+        elif not isinstance(entry, list) or not all(
+            isinstance(word, str) and word for word in entry
+        ):
+            return DeclarationUnreadable(
+                f"{DECLARATION_PATH}: vocabulary.{key} is a list of words"
+            )
+        elif key not in FINDING_SETS:
+            refused.append(key)
+        else:
+            words.append((key, tuple(entry)))
+    return VocabularyExtension(tuple(words), regions, tuple(refused))
+
+
+def extended(vocabulary: Vocabulary, extension: VocabularyExtension) -> Vocabulary:
+    """The vocabulary with the extension's words and region markers added:
+    a word set only grows, and a marker the vocabulary already maps keeps
+    its layer."""
+    grown = {
+        name: getattr(vocabulary, name) | frozenset(added)
+        for name, added in extension.words
+    }
+    regions = {
+        **{marker: layer for marker, layer in extension.regions},
+        **vocabulary.regions,
+    }
+    return replace(vocabulary, regions=regions, **grown)
+
+
+def with_overrides(parameters: Parameters, declaration: Declaration) -> Parameters:
+    """The parameters a run under the declaration is given: the shipped ones
+    with the declaration's overrides merged in, which only extend."""
+    return replace(
+        parameters, vocabulary=extended(parameters.vocabulary, declaration.vocabulary)
+    )
+
+
+def _records(value: object) -> RecordPaths | DeclarationUnreadable:
+    """The [records] table, or why it cannot be read: it names both records,
+    each by a path, and nothing else."""
+    if not isinstance(value, dict):
+        return DeclarationUnreadable(f"{DECLARATION_PATH}: records is a table")
+    unknown = sorted(set(value) - set(RECORD_KEYS))
+    if unknown:
+        return DeclarationUnreadable(
+            f"{DECLARATION_PATH}: records has unknown key(s): {', '.join(unknown)}"
         )
-        for r in declaration.refused_exemptions
+    if not all(_text_field(value, key) for key in RECORD_KEYS):
+        return DeclarationUnreadable(
+            f"{DECLARATION_PATH}: records names the design and the architecture "
+            "record, each by a path"
+        )
+    return RecordPaths(design=value["design"], architecture=value["architecture"])
+
+
+def _radar(value: object) -> str | DeclarationUnreadable:
+    """The [radar] table, or why it cannot be read: it names the radar by
+    one path, and nothing else."""
+    if not isinstance(value, dict):
+        return DeclarationUnreadable(f"{DECLARATION_PATH}: radar is a table")
+    unknown = sorted(set(value) - {RADAR_KEY})
+    if unknown:
+        return DeclarationUnreadable(
+            f"{DECLARATION_PATH}: radar has unknown key(s): {', '.join(unknown)}"
+        )
+    path = _text_field(value, RADAR_KEY)
+    if path is None:
+        return DeclarationUnreadable(
+            f"{DECLARATION_PATH}: radar names the radar by a path"
+        )
+    return path
+
+
+def _runtimes(value: object) -> tuple[Runtime, ...] | DeclarationUnreadable:
+    """The [runtimes] table, or why it cannot be read: each runtime names a
+    list of path patterns."""
+    if not isinstance(value, dict):
+        return DeclarationUnreadable(f"{DECLARATION_PATH}: runtimes is a table")
+    runtimes: list[Runtime] = []
+    for name, patterns in value.items():
+        if not isinstance(patterns, list) or not all(
+            isinstance(p, str) for p in patterns
+        ):
+            return DeclarationUnreadable(
+                f"{DECLARATION_PATH}: runtimes.{name} is a list of path patterns"
+            )
+        runtimes.append(Runtime(name, tuple(patterns)))
+    return tuple(runtimes)
+
+
+def refusal_notices(declaration: Declaration) -> tuple[Notice, ...]:
+    """A notice per exemption and per vocabulary the declaration states and
+    the suite refuses, naming what it would exempt or extend and why it is
+    refused."""
+    return (
+        *(
+            Notice(
+                f"exemption refused: {r.exemption.check} on {r.exemption.unit}: "
+                f"{r.reason}"
+            )
+            for r in declaration.refused_exemptions
+        ),
+        *(
+            Notice(f"vocabulary refused: {key}: {VOCABULARY_REFUSAL}")
+            for key in declaration.vocabulary.refused
+        ),
     )
 
 
@@ -334,6 +522,18 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
     exemptions = _exemptions(document.get("exemptions", []))
     if isinstance(exemptions, DeclarationUnreadable):
         return exemptions
+    vocabulary = _vocabulary(document.get("vocabulary", {}))
+    if isinstance(vocabulary, DeclarationUnreadable):
+        return vocabulary
+    records = _records(document["records"]) if "records" in document else None
+    if isinstance(records, DeclarationUnreadable):
+        return records
+    radar = _radar(document["radar"]) if "radar" in document else None
+    if isinstance(radar, DeclarationUnreadable):
+        return radar
+    runtimes = _runtimes(document.get("runtimes", {}))
+    if isinstance(runtimes, DeclarationUnreadable):
+        return runtimes
     return Declaration(
         layers=layers,
         exemptions=tuple(e for e in exemptions if not is_declared_check(e.check)),
@@ -342,4 +542,8 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
             for e in exemptions
             if is_declared_check(e.check)
         ),
+        vocabulary=vocabulary,
+        records=records,
+        radar=radar,
+        runtimes=runtimes,
     )

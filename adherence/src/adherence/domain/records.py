@@ -1,14 +1,18 @@
 """domain/records.py -- the design records of the code under measurement.
 
 Read at the revision of the code they are compared against, never copied
-(DESIGN.ARCH-ADHERENCE.md, Design records as input). So far the seam list
-of the architecture record, which Change reads.
+(DESIGN.ARCH-ADHERENCE.md, Design records as input): the design's
+Behaviors table and Domain Language, the architecture record's use-case
+surface with the signatures it gives, and its seam list. Change reads the
+seams; Language reads the Domain Language.
 """
 
 from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
+
+from adherence.domain.model import Signature
 
 # --- Values ------------------------------------------------------------------
 
@@ -33,8 +37,19 @@ class Seam:
 
 @dataclass(frozen=True, slots=True)
 class Behavior:
-    """One row of a design record's Behaviors table, by its name, and where
-    the record states it."""
+    """One row of the design's Behaviors table: its name, its Given / When /
+    Then as written, and where the record states it."""
+
+    name: str
+    scenario: str
+    path: str
+    line: int
+
+
+@dataclass(frozen=True, slots=True)
+class Term:
+    """One term the design's Domain Language defines, under its spelling,
+    and where the record defines it."""
 
     name: str
     path: str
@@ -43,23 +58,37 @@ class Behavior:
 
 @dataclass(frozen=True, slots=True)
 class UseCase:
-    """One row of the architecture record's use-case surface: the design
-    behavior and the application function that carries it."""
+    """A use case the architecture record's use-case surface gives a
+    signature, and where it gives it."""
+
+    name: str
+    signature: Signature
+    path: str
+    line: int
+
+
+@dataclass(frozen=True, slots=True)
+class SurfaceRow:
+    """One row of the use-case surface: the design behavior it carries and
+    the use case it names, None when it names none."""
 
     behavior: str
-    function: str
+    use_case: str | None
     path: str
     line: int
 
 
 @dataclass(frozen=True, slots=True)
 class DesignRecords:
-    """What the approved records state: their seams, the design behaviors
-    and the use-case surface."""
+    """What the approved records state: their seams, behaviors, the design's
+    Domain Language, the use cases the surface gives a signature, and the
+    surface's rows."""
 
     seams: tuple[Seam, ...] = ()
     behaviors: tuple[Behavior, ...] = ()
-    surface: tuple[UseCase, ...] = ()
+    domain_language: tuple[Term, ...] = ()
+    use_cases: tuple[UseCase, ...] = ()
+    surface: tuple[SurfaceRow, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -227,7 +227,9 @@ def public_surface(
         reason = f"{UNTOLD_HELPERS}: {records.reason}"
         coverage = (Coverage(reason, check=PUBLIC_SURFACE.name),)
     else:
-        use_cases = frozenset(row.function for row in records.surface)
+        use_cases = frozenset(
+            row.use_case for row in records.surface if row.use_case is not None
+        ) | frozenset(case.name for case in records.use_cases)
     calls = calls_by_scope(model)
     findings: list[Finding] = []
     for case, unit in _tests(model, declaration):
@@ -359,7 +361,11 @@ def kept_test(
         for call in _reached(case, calls, definitions)
         if (name := _kept_name(call, definitions, unambiguous)) is not None
     }
-    functions = {row.behavior: row.function for row in records.surface}
+    functions = {
+        row.behavior: row.use_case
+        for row in records.surface
+        if row.use_case is not None
+    }
     findings = [
         _behavior_finding(behavior, functions[behavior.name])
         for behavior in records.behaviors

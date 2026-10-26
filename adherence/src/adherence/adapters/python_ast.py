@@ -33,6 +33,7 @@ from adherence.domain.model import (
     Access,
     AccessKind,
     Assertion,
+    Binding,
     Body,
     Call,
     CodeModel,
@@ -431,6 +432,46 @@ def _writes(path: str, scoped: Sequence[tuple[str | None, ast.AST]]) -> list[Wri
     ]
 
 
+def _imported(node: ast.Import | ast.ImportFrom) -> list[tuple[str, str]]:
+    """The names an import binds and the dotted names they name: an
+    aliased module, or each name taken from a module (relative ones keep
+    their leading dots). A star import binds nothing it names."""
+    if isinstance(node, ast.Import):
+        return [(a.asname, a.name) for a in node.names if a.asname is not None]
+    module = "." * node.level + (node.module or "")
+    joiner = "." if node.module else ""
+    return [
+        (a.asname or a.name, f"{module}{joiner}{a.name}")
+        for a in node.names
+        if a.name != "*"
+    ]
+
+
+def _bound(node: ast.AST) -> list[tuple[str, str]]:
+    """The name a statement binds to a dotted name, and what it names: one
+    name assigned a name chain, or an import's names."""
+    if isinstance(node, ast.Import | ast.ImportFrom):
+        return _imported(node)
+    if isinstance(node, ast.Assign) and len(node.targets) == 1:
+        target, value = node.targets[0], node.value
+    elif isinstance(node, ast.AnnAssign) and node.value is not None:
+        target, value = node.target, node.value
+    else:
+        return []
+    if isinstance(target, ast.Name) and _chain(value):
+        return [(target.id, ast.unparse(value))]
+    return []
+
+
+def _bindings(path: str, scoped: Sequence[tuple[str | None, ast.AST]]) -> list[Binding]:
+    return [
+        Binding(path, node.lineno, within, name, value)
+        for within, node in scoped
+        if isinstance(node, ast.stmt)
+        for name, value in _bound(node)
+    ]
+
+
 def _discriminants(test: ast.expr) -> list[str]:
     """What a branch's test discriminates on: the left of a comparison, the
     value an isinstance tests, each operand of a bool op, a bare name."""
@@ -635,6 +676,7 @@ def _file_model(
         calls=tuple(_calls(path, scoped, resolver)),
         accesses=tuple(_accesses(path, scoped, vocabulary)),
         writes=tuple(_writes(path, scoped)),
+        bindings=tuple(_bindings(path, scoped)),
         conditionals=tuple(_conditionals(path, scoped)),
         members=tuple(_members(path, walked)),
         test_cases=tuple(_test_cases(path, walked)),

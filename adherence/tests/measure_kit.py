@@ -41,12 +41,17 @@ VOCABULARY = Vocabulary(
     stubs=frozenset({"pass", "...", "NotImplementedError"}),
     vendors=frozenset({"requests", "os", "boto3"}),
     model_ids=frozenset({"claude-", "gpt-"}),
+    mechanism_calls=frozenset({"open", "__import__", "importlib.import_module"}),
     fakes=frozenset({"Fake"}),
     abstract_markers=frozenset({"Protocol", "ABC", "abstractmethod"}),
     assertion_calls=frozenset({"pytest.raises"}),
     placeholder_assertions=frozenset({"True", "False", "1"}),
     standard_library=frozenset({"__future__", "dataclasses", "os"}),
     packages={"markdown_it": "markdown-it-py"},
+    callables=frozenset({"Callable"}),
+    wire_formats=frozenset({"dict", "Response"}),
+    singletons=frozenset({"sys.argv"}),
+    plain_types=frozenset({"Sequence", "tuple", "None", "str", "int", "list"}),
 )
 LIMITS = Limits(evidence_bound=200)
 

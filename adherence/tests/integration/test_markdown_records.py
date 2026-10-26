@@ -1,0 +1,415 @@
+"""The markdown RecordsPort adapter: the shared contract, then what the
+records' markdown shape gives -- the Behaviors table, the Domain Language,
+the use-case surface with its signatures, and the seam list -- read through
+RepositoryPort at a target (ARCHITECTURE.ARCH-ADHERENCE.md, Seams:
+RecordsPort; Module map: adapters/markdown_records.py)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from hypothesis import given
+from hypothesis import strategies as st
+
+from adherence.adapters.fakes import FakeRepository
+from adherence.adapters.markdown_records import (
+    MarkdownRecords,
+    parse_radar,
+    parse_records,
+)
+from adherence.domain.checks.layered import is_traceable
+from adherence.domain.declaration import Declaration, parse_declaration
+from adherence.domain.model import Parameter
+from adherence.domain.records import (
+    DesignRecords,
+    Radar,
+    RecordsUnavailable,
+    Ring,
+    SeamKind,
+)
+from adherence.domain.target import Head
+from adherence.ports.records import RecordsPort
+from adherence.ports.repository import Refused
+from tests.records_contract import (
+    ARCHITECTURE,
+    BASE,
+    CLOSED,
+    DESIGN,
+    NOW,
+    RADAR,
+    REOPENED,
+    RecordsContract,
+    declaration,
+)
+
+DESIGN_TEXT = f"""# Tool
+
+> **Status:** APPROVED (the owner)
+
+## Behaviors
+
+| Behavior | Given / When / Then |
+|---|---|
+| {CLOSED} | Given an open order, When it is closed, Then the store holds it closed |
+
+## Domain Language
+
+- **Order.** What a customer asks for. Invariant: one
+  status at a time.
+- **Store.** Where orders are kept.
+"""
+DESIGN_TEXT_GROWN = DESIGN_TEXT.replace(
+    "\n\n## Domain Language",
+    f"\n| {REOPENED} | Given a closed order, When it is reopened, Then it is open |"
+    "\n\n## Domain Language",
+)
+NOT_A_SEAM = (
+    "| How a report is shown | presenters in `cli/` "
+    "| entry-point concern, not a seam | no I/O |"
+)
+CLOSE_ORDER = (
+    "`close_order(order: Order \\| Draft, *, store: Store, retries: int = 3) -> str`"
+)
+ARCHITECTURE_TEXT = f"""# Tool -- architecture
+
+> **Status:** APPROVED (the owner)
+
+## Seams
+
+| Axis of change | Seam | Kind | Why it is a seam |
+|---|---|---|---|
+| Where orders are kept | `Store` | port | a file today, a database later |
+| The retry ceiling | `Limits` | parameter set | tuned per stage |
+| What counts as large | `Sizing` | policy | retuned per market |
+{NOT_A_SEAM}
+
+## Use-case surface
+
+| Design behavior | Use case (signature) | Ports |
+|---|---|---|
+| {CLOSED} | {CLOSE_ORDER} | Store |
+| {REOPENED} | (`close_order`; a reopened order is closed again) | Store |
+| An order is loaded | (`load_order` reads it; `Store.get` is the port) | Store |
+| A rumour | (nothing named here) | none |
+
+`load_order(order_id: str, *, store: Store) -> Order` reads one order.
+"""
+
+
+RADAR_TEXT = """# Tech Radar
+
+## Adopt -- Current Platform Standards
+
+### Languages
+
+- **Python 3**: the engine's language.
+
+## Trial -- Testing in Limited Scope
+
+- **grimp** (BSD-2): the Python import graph.
+
+## Decisions Log
+
+- **2026-10-25**: Added `grimp` to Trial.
+"""
+RADAR_TEXT_GROWN = RADAR_TEXT.replace(
+    "## Decisions Log",
+    "## Hold -- Avoid\n\n| Technology | Why |\n|---|---|\n"
+    "| `pickle` | unsafe on untrusted input |\n\n## Decisions Log",
+)
+
+
+def _line_of(text: str, needle: str) -> int:
+    return next(n for n, line in enumerate(text.splitlines(), 1) if needle in line)
+
+
+def _files(design: str) -> dict[str, bytes | Refused]:
+    return {DESIGN: design.encode(), ARCHITECTURE: ARCHITECTURE_TEXT.encode()}
+
+
+def _records(declared: Declaration | None = None) -> DesignRecords:
+    port = MarkdownRecords(FakeRepository({BASE: _files(DESIGN_TEXT)}))
+    records = port.records(BASE, declared or declaration(), None)
+    assert isinstance(records, DesignRecords), records
+    return records
+
+
+class TestMarkdownRecords(RecordsContract):
+    def port(self) -> RecordsPort:
+        repository = FakeRepository(
+            {
+                BASE: {**_files(DESIGN_TEXT), RADAR: RADAR_TEXT.encode()},
+                Head.working_tree(): {
+                    **_files(DESIGN_TEXT_GROWN),
+                    RADAR: RADAR_TEXT_GROWN.encode(),
+                },
+            }
+        )
+        return MarkdownRecords(repository, clock=lambda: NOW)
+
+
+def test_records_read_each_behavior_with_its_scenario_and_line() -> None:
+    """Given a design record's Behaviors table, When the records are read,
+    Then each row is a behavior with its name, its Given / When / Then, the
+    record's path and the row's line."""
+    (behavior,) = _records().behaviors
+
+    assert behavior.name == CLOSED
+    assert behavior.scenario == (
+        "Given an open order, When it is closed, Then the store holds it closed"
+    )
+    assert (behavior.path, behavior.line) == (DESIGN, _line_of(DESIGN_TEXT, CLOSED))
+
+
+def test_records_read_each_domain_language_term() -> None:
+    """Given a design record's Domain Language, When the records are read,
+    Then each defined term is read by its spelling, with where it is defined."""
+    terms = _records().domain_language
+
+    assert [(t.name, t.path) for t in terms] == [("Order", DESIGN), ("Store", DESIGN)]
+    assert terms[1].line == _line_of(DESIGN_TEXT, "**Store.**")
+
+
+def test_records_read_the_use_case_each_surface_row_names() -> None:
+    """Given an architecture record's use-case surface, When the records are
+    read, Then each row names the behavior and the use case it names first,
+    by signature or by reference, or none when it names none."""
+    surface = {row.behavior: row.use_case for row in _records().surface}
+
+    assert surface == {
+        CLOSED: "close_order",
+        REOPENED: "close_order",
+        "An order is loaded": "load_order",
+        "A rumour": None,
+    }
+
+
+def test_records_read_each_signature_the_surface_gives() -> None:
+    """Given signatures in the surface's table and in its prose, When the
+    records are read, Then each use case has its parameters in order, each
+    marked keyword-only after the bare star, with its annotation (an escaped
+    table pipe read as a pipe) and its default."""
+    use_cases = {u.name: u for u in _records().use_cases}
+
+    close = use_cases["close_order"]
+    assert close.signature.parameters == (
+        Parameter("order", "Order | Draft", False, False),
+        Parameter("store", "Store", True, False),
+        Parameter("retries", "int", True, True),
+    )
+    assert close.signature.returns == "str"
+    assert (close.path, close.line) == (
+        ARCHITECTURE,
+        _line_of(ARCHITECTURE_TEXT, "`close_order(order"),
+    )
+    load = use_cases["load_order"]
+    assert [(p.name, p.keyword_only) for p in load.signature.parameters] == [
+        ("order_id", False),
+        ("store", True),
+    ]
+
+
+def test_records_read_each_seam_with_its_kind() -> None:
+    """Given an architecture record's Seams table, When the records are read,
+    Then each port, policy and parameter is a seam with its kind and line,
+    and a row whose kind is no seam is not one."""
+    seams = [(s.name, s.kind, s.path) for s in _records().seams]
+
+    assert seams == [
+        ("Store", SeamKind.PORT, ARCHITECTURE),
+        ("Limits", SeamKind.PARAMETER, ARCHITECTURE),
+        ("Sizing", SeamKind.POLICY, ARCHITECTURE),
+    ]
+    assert _records().seams[0].line == _line_of(ARCHITECTURE_TEXT, "`Store` | port")
+
+
+def test_records_of_a_declaration_naming_none_are_unavailable() -> None:
+    """Given a declaration with no [records] table, When the records are
+    read, Then they are unavailable, saying the declaration names none."""
+    bare = parse_declaration(b'[layers]\ndomain = ["src/**"]\n')
+    assert isinstance(bare, Declaration)
+    port = MarkdownRecords(FakeRepository({BASE: _files(DESIGN_TEXT)}))
+
+    answer = port.records(BASE, bare, None)
+
+    assert isinstance(answer, RecordsUnavailable)
+    assert "names no design record" in answer.reason
+
+
+def test_records_the_repository_refuses_are_unavailable() -> None:
+    """Given a record the repository refuses to hand over, When the records
+    are read, Then they are unavailable, naming the record and why."""
+    files = {**_files(DESIGN_TEXT), DESIGN: Refused(DESIGN, "a symbolic link")}
+    port = MarkdownRecords(FakeRepository({BASE: files}))
+
+    answer = port.records(BASE, declaration(), None)
+
+    assert isinstance(answer, RecordsUnavailable)
+    assert DESIGN in answer.reason and "a symbolic link" in answer.reason
+
+
+def test_radar_reads_each_entry_under_its_ring_heading() -> None:
+    """Given a radar whose ring headings hold sub-headings, bullets led by a
+    bold name and a table, and a log section after them, When it is read,
+    Then each entry is named under the ring of the heading it sits in, at
+    its line, and nothing outside a ring heading is an entry."""
+    radar = parse_radar(RADAR, RADAR_TEXT_GROWN)
+
+    assert [(e.name, e.ring) for e in radar.entries] == [
+        ("Python 3", Ring.ADOPT),
+        ("grimp", Ring.TRIAL),
+        ("pickle", Ring.HOLD),
+    ]
+    grimp = radar.entries[1]
+    assert grimp.line == _line_of(RADAR_TEXT_GROWN, "**grimp**")
+
+
+def test_radar_of_a_declaration_naming_none_is_unavailable() -> None:
+    """Given a declaration with no [radar] table, When the radar is read,
+    Then it is unavailable, saying the declaration names none."""
+    bare = parse_declaration(b'[layers]\ndomain = ["src/**"]\n')
+    assert isinstance(bare, Declaration)
+    port = MarkdownRecords(FakeRepository({BASE: {RADAR: RADAR_TEXT.encode()}}))
+
+    answer = port.radar(BASE, bare, None)
+
+    assert isinstance(answer, RecordsUnavailable)
+    assert "names no radar" in answer.reason
+
+
+def test_radar_of_the_lmde_radar_reads_its_trial_rows() -> None:
+    """Given the LMDE's own tech radar, When it is read, Then the adherence
+    engine's analyzers are Trial entries."""
+    text = (Path(__file__).resolve().parents[3] / "lmde" / "TECH_RADAR.md").read_text()
+
+    rings = {e.name: e.ring for e in parse_radar("lmde/TECH_RADAR.md", text).entries}
+
+    for name in ("grimp", "lizard", "jscpd", "markdown-it-py"):
+        assert rings.get(name) is Ring.TRIAL, name
+
+
+RADAR_TEXT_ANY = st.text(
+    alphabet=st.sampled_from(list("|`*-#:()[],=\\\n abcAdoptTrialHold_>.")),
+    max_size=400,
+)
+
+
+@given(text=RADAR_TEXT_ANY)
+def test_radar_of_any_markdown_is_read_without_raising(text: str) -> None:
+    """Given any text at all as a radar (untrusted data), When it is parsed,
+    Then the answer is a Radar, never an error."""
+    assert isinstance(parse_radar(RADAR, text), Radar)
+
+
+ENGINE_RECORDS = Path(__file__).resolve().parents[3] / "docs" / "design"
+
+
+def test_records_of_the_engines_own_design_are_read_whole() -> None:
+    """Given the engine's own design and architecture records, When they are
+    read, Then every behavior has a surface row naming a use case, and
+    measure's signature is read from the surface, keyword-only ports and all."""
+    design = "docs/design/DESIGN.ARCH-ADHERENCE.md"
+    architecture = "docs/design/ARCHITECTURE.ARCH-ADHERENCE.md"
+    files = {
+        path: (ENGINE_RECORDS / path.rpartition("/")[2]).read_bytes()
+        for path in (design, architecture)
+    }
+    declared = parse_declaration(
+        f'[records]\ndesign = "{design}"\narchitecture = "{architecture}"\n'.encode()
+    )
+    assert isinstance(declared, Declaration), declared
+
+    records = MarkdownRecords(FakeRepository({BASE: files})).records(
+        BASE, declared, None
+    )
+
+    assert isinstance(records, DesignRecords), records
+    names = {b.name for b in records.behaviors}
+    assert "A behavior with no home is found" in names
+    surface = {row.behavior: row.use_case for row in records.surface}
+    assert {surface.get(name) for name in names} <= {
+        "measure",
+        "judge_change",
+        "judge_bounded",
+        "load_declaration",
+        "explain",
+        "record_report",
+    }
+    measure = next(u for u in records.use_cases if u.name == "measure")
+    assert [p.name for p in measure.signature.parameters][:3] == [
+        "at",
+        "declaration",
+        "repository",
+    ]
+    assert all(p.keyword_only for p in measure.signature.parameters[2:])
+    assert "Quality" in {t.name for t in records.domain_language}
+    assert "RepositoryPort" in {s.name for s in records.seams}
+
+
+ROW = "| A row | Given a, When b, Then c |"
+TABLE = f"| Behavior | Given / When / Then |\n|---|---|\n{ROW}\n"
+
+
+def _behaviors_under(heading: str, after: str = "") -> list[str]:
+    records = parse_records(
+        design_path=DESIGN,
+        design=f"# Tool\n\n{heading}\n\n{after}{TABLE}",
+        architecture_path=ARCHITECTURE,
+        architecture=f"# Tool\n\n### *Use-case surface*\n\n{TABLE}",
+    )
+    assert [r.behavior for r in records.surface] == ["A row"]
+    return [b.name for b in records.behaviors]
+
+
+def test_records_find_a_section_by_its_heading_text_at_any_level() -> None:
+    """Given Behaviors and Use-case surface headings at another level, with
+    markup, or with words after the name, When the records are read, Then
+    each section is found by its heading's text, and a deeper heading inside
+    it does not end it."""
+    for heading in ("### Behaviors", "## Behaviors (v2)", "## **Behaviors**"):
+        assert _behaviors_under(heading) == ["A row"], heading
+    assert _behaviors_under("## Behaviors", after="### Orders\n\n") == ["A row"]
+
+
+def test_records_section_ends_at_a_heading_as_high_as_its_own() -> None:
+    """Given a table under a heading as high as the Behaviors heading, When
+    the records are read, Then it is no part of the Behaviors section."""
+    assert _behaviors_under("### Behaviors", after="### Later\n\n") == []
+
+
+def test_records_of_the_engines_own_design_state_no_untraceable_row() -> None:
+    """Given the engine's own approved design record, When its behaviors are
+    parsed, Then every row names an action and an observation -- a row whose
+    When clause names the check Then asserted included."""
+    design = "docs/design/DESIGN.ARCH-ADHERENCE.md"
+    records = parse_records(
+        design_path=design,
+        design=(ENGINE_RECORDS / "DESIGN.ARCH-ADHERENCE.md").read_text(),
+        architecture_path="docs/design/ARCHITECTURE.ARCH-ADHERENCE.md",
+        architecture="",
+    )
+
+    assert len(records.behaviors) > 50
+    assert [b.name for b in records.behaviors if not is_traceable(b.scenario)] == []
+
+
+RECORD_TEXT = st.text(
+    alphabet=st.sampled_from(list("|`*-#:()[],=\\\n abcWhenThen_>.")), max_size=400
+)
+
+
+@given(design=RECORD_TEXT, architecture=RECORD_TEXT)
+def test_records_of_any_markdown_are_read_without_raising(
+    design: str, architecture: str
+) -> None:
+    """Given any text at all as a design and an architecture record (records
+    are untrusted data), When they are parsed, Then the answer is
+    DesignRecords, never an error."""
+    records = parse_records(
+        design_path=DESIGN,
+        design=design,
+        architecture_path=ARCHITECTURE,
+        architecture=architecture,
+    )
+
+    assert isinstance(records, DesignRecords)

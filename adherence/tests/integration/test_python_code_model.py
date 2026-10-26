@@ -245,7 +245,11 @@ def test_accesses_are_environment_reads_and_declared_globals() -> None:
     """Given a read of the environment and a function that declares a global,
     When the fixture is modelled, Then each is an access of its kind in the
     definition it sits in."""
-    accesses = {(a.path, a.within, a.kind, a.target) for a in fixture_model().accesses}
+    accesses = {
+        (a.path, a.within, a.kind, a.target)
+        for a in fixture_model().accesses
+        if a.path in {"src/tool/adapters/fs_store.py", "bin/onefile.py"}
+    }
 
     assert accesses == {
         (
@@ -313,13 +317,16 @@ def test_members_are_each_types_fields_and_methods() -> None:
     """Given a dataclass, a Protocol and a class that sets a field in its
     constructor, When the fixture is modelled, Then each type's fields
     (declared, or assigned on self) and methods are its members."""
-    members = {(m.path, m.owner, m.name, m.kind) for m in fixture_model().members}
-
     rules, store, fs = (
         "src/tool/domain/rules.py",
         "src/tool/ports/store.py",
         "src/tool/adapters/fs_store.py",
     )
+    members = {
+        (m.path, m.owner, m.name, m.kind)
+        for m in fixture_model().members
+        if m.path in {rules, store, fs}
+    }
     assert members == {
         (rules, "Order", "total", MemberKind.FIELD),
         (rules, "Order", "status", MemberKind.FIELD),
@@ -573,6 +580,45 @@ def test_field_writes_through_unpacking_and_loop_targets_are_writes() -> None:
         ("self", "d"),
     ]
     assert {m.name for m in model.members} == {"__init__", "a", "b", "c", "d"}
+
+
+def test_bindings_are_names_bound_to_names_and_imported_names() -> None:
+    """Given a module alias, a local alias in a function, imports with and
+    without an alias, relative imports, and assignments that bind no name
+    to a name (a literal, an unpacking, a call), When they are modelled,
+    Then each name bound to a dotted name is a binding with its line, the
+    definition it sits in and what it names, an import naming its module."""
+    source = (
+        b"import os.path as osp\n"
+        b"import json\n"
+        b"from httpx import Client\n"
+        b"from tool.adapters import FsStore as Fs\n"
+        b"from .rel import Z\n"
+        b"from . import sib\n"
+        b"from m import *\n"
+        b"Payload = dict\n"
+        b"hidden = _hidden\n"
+        b"n = 1\n"
+        b"a, b = c, d\n"
+        b"made = make()\n"
+        b"def f(order):\n"
+        b"    o = order\n"
+        b"    typed: Order = order.inner\n"
+    )
+
+    model = _model_of({"pkg/m.py": source})
+
+    assert sorted((b.line, b.within, b.name, b.value) for b in model.bindings) == [
+        (1, None, "osp", "os.path"),
+        (3, None, "Client", "httpx.Client"),
+        (4, None, "Fs", "tool.adapters.FsStore"),
+        (5, None, "Z", ".rel.Z"),
+        (6, None, "sib", ".sib"),
+        (8, None, "Payload", "dict"),
+        (9, None, "hidden", "_hidden"),
+        (14, "f", "o", "order"),
+        (15, "f", "typed", "order.inner"),
+    ]
 
 
 def test_a_standalone_module_resolves_its_sibling() -> None:

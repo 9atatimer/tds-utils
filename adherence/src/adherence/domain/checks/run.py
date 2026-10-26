@@ -9,7 +9,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from adherence.domain.checks import behavior, complete, hexagonal, radar
+from adherence.domain.checks import (
+    behavior,
+    complete,
+    composable,
+    ddd,
+    hexagonal,
+    injectable,
+    layered,
+    radar,
+)
 from adherence.domain.checks.outcome import CheckFunction, RadarCheckFunction
 from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import Declaration
@@ -32,6 +41,19 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Real assertion": behavior.real_assertion,
     "Public surface": behavior.public_surface,
     "Kept test": behavior.kept_test,
+    "No nesting": composable.no_nesting,
+    "Helpers take values": composable.helpers_take_values,
+    "Values in and out": composable.values_in_and_out,
+    "Ports as keywords": injectable.ports_as_keywords,
+    "No self-wiring": injectable.no_self_wiring,
+    "No reach": injectable.no_reach,
+    "Language": ddd.language,
+    "Boundary": ddd.boundary,
+    "Anemic": ddd.anemic,
+    "Trace": layered.trace,
+    "Purity": layered.purity,
+    "Wiring": layered.wiring,
+    "Anatomy": layered.anatomy,
 }
 RADAR_CHECKS: Mapping[str, RadarCheckFunction] = {
     "Dependency": radar.dependency,

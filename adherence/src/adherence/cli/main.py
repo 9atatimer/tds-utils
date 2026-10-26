@@ -20,6 +20,7 @@ from adherence.cli.presenters.json_report import report_json
 from adherence.container import Container, Stage, build
 from adherence.domain.declaration import (
     DECLARATION_PATH,
+    VOCABULARY_REFUSAL,
     Declaration,
     DeclarationUnreadable,
     RefusedExemption,
@@ -58,6 +59,10 @@ def _declaration_lines(loaded: Declaration | DeclarationUnreadable) -> list[str]
     return [
         f"{DECLARATION_PATH}: readable, {count} exemption{'s' if count != 1 else ''}",
         *map(_refusal_line, loaded.refused_exemptions),
+        *(
+            _safe(f"  refused vocabulary: {key}: {VOCABULARY_REFUSAL}")
+            for key in loaded.vocabulary.refused
+        ),
     ]
 
 
@@ -114,34 +119,15 @@ def measure_command(ctx: click.Context, root: str, as_json: bool) -> None:
         raise click.UsageError("--json is the one output format so far")
     builder: Callable[..., Container] = ctx.obj if callable(ctx.obj) else build
     container = builder(Stage.LAPTOP, root=root)
-    records, complexity, duplication = (
-        container.records,
-        container.complexity,
-        container.duplication,
-    )
-    if records is None or complexity is None or duplication is None:
-        unbound = [
-            name
-            for name, port in (
-                ("records", records),
-                ("complexity", complexity),
-                ("duplication", duplication),
-            )
-            if port is None
-        ]
-        click.echo(
-            f"adhere measure: no adapter bound for {', '.join(unbound)}", err=True
-        )
-        sys.exit(2)
     head = Head.working_tree()
     report = measure(
         head,
         load_declaration(head, repository=container.repository, deadline=None),
         repository=container.repository,
         analyzers=container.analyzers,
-        complexity=complexity,
-        duplication=duplication,
-        records=records,
+        complexity=container.complexity,
+        duplication=container.duplication,
+        records=container.records,
         judge=container.judge,
         parameters=container.parameters,
         deadline=None,

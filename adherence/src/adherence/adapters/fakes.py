@@ -98,6 +98,7 @@ class FakeCodeModel:
             calls=tuple(c for c in f.calls if c.path in sources),
             accesses=tuple(a for a in f.accesses if a.path in sources),
             writes=tuple(w for w in f.writes if w.path in sources),
+            bindings=tuple(b for b in f.bindings if b.path in sources),
             conditionals=tuple(c for c in f.conditionals if c.path in sources),
             members=tuple(m for m in f.members if m.path in sources),
             test_cases=tuple(t for t in f.test_cases if t.path in sources),
@@ -170,7 +171,8 @@ class FakeRecords:
     """RecordsPort over a mapping of target -> the records, the
     RecordsUnavailable or the TimedOut the test scripts for it, so base and
     head can hold different records. A target it does not hold has none.
-    `radar` scripts the radar per target the same way."""
+    `radar` scripts the radar per target the same way. Its clock is frozen
+    at `now`, so a deadline at or before it has passed."""
 
     def __init__(
         self,
@@ -178,13 +180,17 @@ class FakeRecords:
         *,
         radar: Mapping[Base | Head, Radar | RecordsUnavailable | TimedOut]
         | None = None,
+        now: float = 1e9,
     ) -> None:
         self._by_target = by_target
         self._radar = radar or {}
+        self._now = now
 
     def records(
         self, at: Base | Head, declaration: Declaration, deadline: Deadline | None
     ) -> DesignRecords | RecordsUnavailable | TimedOut:
+        if deadline is not None and deadline.epoch_seconds <= self._now:
+            return TimedOut("read the design records")
         return self._by_target.get(
             at, RecordsUnavailable("no design record at this target")
         )
@@ -192,6 +198,8 @@ class FakeRecords:
     def radar(
         self, at: Base | Head, declaration: Declaration, deadline: Deadline | None
     ) -> Radar | RecordsUnavailable | TimedOut:
+        if deadline is not None and deadline.epoch_seconds <= self._now:
+            return TimedOut("read the radar")
         return self._radar.get(at, RecordsUnavailable("no radar at this target"))
 
 

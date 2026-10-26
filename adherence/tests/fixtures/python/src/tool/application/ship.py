@@ -1,0 +1,21 @@
+"""Shipping: the fixture's Composable and Injectable flaws."""
+
+import os
+import sys
+from http.client import HTTPResponse
+
+from tool.adapters.fs_store import FsStore
+from tool.domain.ledger import Entry
+from tool.domain.rules import Order
+from tool.ports.store import Store
+
+
+def ship(order: Order, store: Store, reply: HTTPResponse) -> Order:
+    store.save(order)
+    return order
+
+
+def restock(order: Order, *, store: Store) -> Entry:
+    FsStore(os.environ["HOME"]).save(order)
+    print(sys.argv)
+    return order

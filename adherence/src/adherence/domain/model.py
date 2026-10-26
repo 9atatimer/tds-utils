@@ -96,7 +96,7 @@ class UnitKind(enum.Enum):
     FUNCTION = "function"
     TYPE = "type"
     SEAM = "seam"
-    BEHAVIOR = "behavior"
+    BEHAVIOR = "design behavior"
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,6 +248,20 @@ class Write:
 
 
 @dataclass(frozen=True, slots=True)
+class Binding:
+    """A name bound to a dotted name, as written: one name assigned another
+    (`Payload = dict`, `o = order`), or an import (`from m import X as Y`
+    binds Y to `m.X`; a relative import keeps its leading dots). Its line,
+    and the definition it sits in (None at module level)."""
+
+    path: str
+    line: int
+    within: str | None
+    name: str
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
 class Conditional:
     """A branch: the expression it discriminates on (as written), its line,
     and the definition it sits in. A branch on several is one per each."""
@@ -365,6 +379,7 @@ class CodeModel:
     calls: tuple[Call, ...] = ()
     accesses: tuple[Access, ...] = ()
     writes: tuple[Write, ...] = ()
+    bindings: tuple[Binding, ...] = ()
     conditionals: tuple[Conditional, ...] = ()
     members: tuple[Member, ...] = ()
     test_cases: tuple[TestCase, ...] = ()
@@ -400,6 +415,7 @@ def merged(models: Sequence[CodeModel]) -> CodeModel:
         calls=tuple(f for m in models for f in m.calls),
         accesses=tuple(f for m in models for f in m.accesses),
         writes=tuple(f for m in models for f in m.writes),
+        bindings=tuple(f for m in models for f in m.bindings),
         conditionals=tuple(f for m in models for f in m.conditionals),
         members=tuple(f for m in models for f in m.members),
         test_cases=tuple(f for m in models for f in m.test_cases),

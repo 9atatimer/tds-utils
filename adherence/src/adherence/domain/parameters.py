@@ -27,8 +27,16 @@ class Vocabulary:
     one names (`pass`, `...`, `NotImplementedError`). vendors are the
     modules (a top-level name, or a dotted prefix) that are a vendor, an SDK,
     the filesystem or the network; model_ids the prefixes of a string that
-    names a model; fakes the name prefixes that mark an implementation of a
-    port as a fake.
+    names a model; mechanism_calls the callees (a full dotted name, as
+    written) that reach the filesystem or load a module by name; fakes the
+    name prefixes that mark an implementation of a port as a fake; clocks
+    the type names that are a clock, and callables those that are a
+    callable, in a parameter's annotation.
+    wire_formats are the type names -- a wire format, or an SDK type or
+    handle known by name -- that no use-case signature may carry; singletons
+    the dotted names that reach a process-wide instance; plain_types the
+    language's own type names, which a signature names but which are no
+    noun of the problem.
 
     abstract_markers are the bases and decorators (a full dotted name, or
     its last part) that make a placeholder body a declaration, not a stub.
@@ -49,12 +57,18 @@ class Vocabulary:
     stubs: frozenset[str] = field(default_factory=frozenset)
     vendors: frozenset[str] = field(default_factory=frozenset)
     model_ids: frozenset[str] = field(default_factory=frozenset)
+    mechanism_calls: frozenset[str] = field(default_factory=frozenset)
     fakes: frozenset[str] = field(default_factory=frozenset)
     abstract_markers: frozenset[str] = field(default_factory=frozenset)
     assertion_calls: frozenset[str] = field(default_factory=frozenset)
     placeholder_assertions: frozenset[str] = field(default_factory=frozenset)
     standard_library: frozenset[str] = field(default_factory=frozenset)
     packages: Mapping[str, str] = field(default_factory=dict)
+    clocks: frozenset[str] = field(default_factory=frozenset)
+    callables: frozenset[str] = field(default_factory=frozenset)
+    wire_formats: frozenset[str] = field(default_factory=frozenset)
+    singletons: frozenset[str] = field(default_factory=frozenset)
+    plain_types: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True, slots=True)

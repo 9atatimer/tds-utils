@@ -24,7 +24,7 @@ from adherence.domain.records import (
     Behavior,
     DesignRecords,
     RecordsUnavailable,
-    UseCase,
+    SurfaceRow,
 )
 from adherence.domain.report import Report
 from tests.measure_kit import declared, measure_with, parameters
@@ -166,15 +166,15 @@ def test_measure_with_a_behavior_no_test_calls_finds_the_behavior() -> None:
     )
     records = DesignRecords(
         behaviors=(
-            Behavior(MEASURED, DESIGN, 10),
-            Behavior(EXPLAINED, DESIGN, 11),
-            Behavior(PERSISTS, DESIGN, 12),
-            Behavior(UNHOMED, DESIGN, 13),
+            Behavior(MEASURED, "", DESIGN, 10),
+            Behavior(EXPLAINED, "", DESIGN, 11),
+            Behavior(PERSISTS, "", DESIGN, 12),
+            Behavior(UNHOMED, "", DESIGN, 13),
         ),
         surface=(
-            UseCase(MEASURED, "measure", ARCHITECTURE, 20),
-            UseCase(EXPLAINED, "explain", ARCHITECTURE, 21),
-            UseCase(PERSISTS, "record_report", ARCHITECTURE, 22),
+            SurfaceRow(MEASURED, "measure", ARCHITECTURE, 20),
+            SurfaceRow(EXPLAINED, "explain", ARCHITECTURE, 21),
+            SurfaceRow(PERSISTS, "record_report", ARCHITECTURE, 22),
         ),
     )
     measure = Target("app.application.use.measure", USE, "measure")
