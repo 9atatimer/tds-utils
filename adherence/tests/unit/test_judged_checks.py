@@ -21,6 +21,7 @@ from adherence.domain.model import (
     ImportEdge,
     Layer,
 )
+from adherence.domain.parameters import Limits
 from adherence.domain.qualities import CheckKind
 from adherence.domain.questions import (
     TWO_JOBS,
@@ -232,3 +233,52 @@ def test_measure_with_no_judge_reachable_reports_every_question_as_coverage(
     assert "Two jobs" not in [c.name for c in report.ran]
     assert len(judge.asked) == 1
     assert [f.unit.path for f in _of(report, "Grep")] == [RULES]
+
+
+# --- An exhausted judged-check budget is inconclusive (the measure half) ----------
+
+
+def test_measure_past_the_judged_budget_reports_the_questions_not_asked() -> None:
+    """Given three units with a question each and a judged-check budget of
+    two, When measured, Then the judge is asked about the first two units
+    only and coverage names the third unit's question as not asked for the
+    budget -- never a pass. judge_change reads it, on a touched unit, as
+    inconclusive at best."""
+    definitions = (
+        function(RULES, "price", 1, end=5),
+        function(RULES, "discount", 7, end=9),
+        function(USE, "close_order", 1, end=5),
+    )
+    judge = FakeDecision({TWO_JOBS.id: _yes(0.1)})
+
+    report = measure_with(
+        FILES,
+        CodeModel(definitions=definitions),
+        judge=judge,
+        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+        limits=Limits(evidence_bound=200, judged_budget=2),
+    )
+
+    assert [state.unit.symbol for state, _ in judge.asked] == ["price", "discount"]
+    (unasked,) = [c for c in report.coverage if c.check == "Two jobs"]
+    assert unasked.path == USE
+    assert "close_order" in unasked.reason and TWO_JOBS.id in unasked.reason
+    assert "budget" in unasked.reason
+
+
+def test_measure_with_no_judged_budget_asks_nothing() -> None:
+    """Given a unit with a question and a budget of none, When measured, Then
+    the judge is never called and the question is coverage."""
+    judge = FakeDecision({TWO_JOBS.id: _yes(0.95)})
+
+    report = measure_with(
+        FILES,
+        CodeModel(definitions=(function(RULES, "price", 1, end=5),)),
+        judge=judge,
+        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+        limits=Limits(evidence_bound=200, judged_budget=0),
+    )
+
+    assert judge.asked == []
+    assert _of(report, "Two jobs") == []
+    assert [c.path for c in report.coverage if c.check == "Two jobs"] == [RULES]
