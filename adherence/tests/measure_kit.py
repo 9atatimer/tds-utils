@@ -41,6 +41,7 @@ VOCABULARY = Vocabulary(
     stubs=frozenset({"pass", "...", "NotImplementedError"}),
     vendors=frozenset({"requests", "os", "boto3"}),
     model_ids=frozenset({"claude-", "gpt-"}),
+    mechanism_calls=frozenset({"open", "__import__", "importlib.import_module"}),
     fakes=frozenset({"Fake"}),
 )
 LIMITS = Limits(evidence_bound=200)

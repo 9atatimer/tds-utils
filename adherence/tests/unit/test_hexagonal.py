@@ -4,11 +4,13 @@ Behaviors; ARCHITECTURE.ARCH-ADHERENCE.md, Use-case surface)."""
 
 from __future__ import annotations
 
+from adherence.cli.presenters.json_report import report_json
 from adherence.domain.finding import Finding
 from adherence.domain.model import (
     Access,
     AccessKind,
     Body,
+    Call,
     CodeModel,
     Definition,
     ImportEdge,
@@ -18,6 +20,7 @@ from adherence.domain.model import (
     Unit,
     UnitKind,
 )
+from adherence.domain.parameters import Limits
 from adherence.domain.records import (
     DesignRecords,
     RecordsUnavailable,
@@ -65,6 +68,72 @@ def test_measure_domain_naming_a_vendor_env_or_model_id_finds_a_leak() -> None:
         (RULES, "claude-x", Layer.DOMAIN),
     }
     assert all(f.check.quality.value == "Hexagonal" for f in leaks)
+
+
+def test_measure_domain_importing_a_vendor_shadowed_in_repo_finds_a_leak() -> None:
+    """Given a domain unit that imports a vendor the repository also holds a
+    package of that name for (vendor/boto3/, in no declared layer), When Grep
+    runs, Then the import is still a leak: an in-repo copy of a vendor must
+    not hide the vendor from the domain check."""
+    shadow = "vendor/boto3/__init__.py"
+    files = {RULES: b"import boto3\n", shadow: b""}
+    facts = CodeModel(imports=(ImportEdge(RULES, "boto3", 1, "import boto3", shadow),))
+
+    report = measure_with(files, facts)
+
+    assert {(f.unit.path, f.subject, f.layer) for f in _of(report, "Grep")} == {
+        (RULES, "boto3", Layer.DOMAIN)
+    }
+
+
+def test_measure_domain_opening_a_file_or_loading_a_module_finds_a_leak() -> None:
+    """Given a domain unit that calls the builtin open, __import__ and
+    importlib.import_module, When Grep runs, Then each call is a finding: a
+    core unit reaching the filesystem or loading code by name is a leak,
+    though it imports no vendor."""
+    files = {
+        RULES: b'def load(p):\n    open(p)\n    __import__("x")\n'
+        b'    importlib.import_module("y")\n',
+        HTTP: b"def read(p):\n    open(p)\n",
+    }
+    load = Unit(RULES, UnitKind.FUNCTION, "load", 1, 4, Layer.DOMAIN)
+    read = Unit(HTTP, UnitKind.FUNCTION, "read", 1, 2, Layer.ADAPTERS)
+    facts = CodeModel(
+        units=(load, read),
+        calls=(
+            Call(RULES, 2, "load", "open"),
+            Call(RULES, 3, "load", "__import__"),
+            Call(RULES, 4, "load", "importlib.import_module"),
+            Call(HTTP, 2, "read", "open"),
+        ),
+    )
+
+    report = measure_with(files, facts)
+
+    assert {(f.unit.symbol, f.subject, f.layer) for f in _of(report, "Grep")} == {
+        ("load", "open", Layer.DOMAIN),
+        ("load", "__import__", Layer.DOMAIN),
+        ("load", "importlib.import_module", Layer.DOMAIN),
+    }
+
+
+def test_measure_model_id_finding_quotes_no_more_than_the_evidence() -> None:
+    """Given a domain unit holding a multi-line string literal that names a
+    model, When the report is written, Then no part of the finding -- its
+    subject included -- carries the literal's other lines or more of its
+    line than the evidence bound."""
+    files = {RULES: b'M = """claude-model-with-a-long-name\nSECRET line two\n"""\n'}
+    literal = "claude-model-with-a-long-name\nSECRET line two\n"
+    facts = CodeModel(
+        references=(Reference(RULES, 1, None, ReferenceKind.STRING, literal),)
+    )
+
+    report = measure_with(files, facts, limits=Limits(evidence_bound=12))
+
+    (leak,) = _of(report, "Grep")
+    assert len(leak.subject) <= 12 and len(leak.evidence.text) <= 12
+    assert leak.subject.startswith("claude-")
+    assert "SECRET" not in report_json(report)
 
 
 USE = "src/app/application/use.py"
@@ -169,6 +238,64 @@ def test_measure_with_a_port_no_fake_implements_finds_the_port() -> None:
     (unfaked,) = _of(report, "Swap")
     assert (unfaked.subject, unfaked.unit.symbol) == ("Store", "Store")
     assert (unfaked.unit.path, unfaked.layer) == (STORE, Layer.PORTS)
+
+
+def _documented(
+    path: str, owner: str, name: str, line: int, decorators: tuple[str, ...] = ()
+) -> Definition:
+    """A method whose body is only its docstring: no stub marker."""
+    unit = Unit(path, UnitKind.FUNCTION, f"{owner}.{name}", line, line + 1, None)
+    body = Body(f'"""{name.title()}."""', (), ())
+    return Definition(unit, None, body, (), decorators, owner, False)
+
+
+def test_measure_with_docstring_only_protocol_and_abc_ports_finds_them() -> None:
+    """Given a Protocol and an ABC with an abstract method in the ports
+    layer, each method's body only a docstring, and no fake behind either,
+    When Swap runs, Then a finding names each port; a concrete value type
+    among the ports is still no port."""
+    sink = "src/app/ports/sink.py"
+    files = {STORE: b"x\n", sink: b"x\n"}
+    definitions = (
+        _type(STORE, "Store", 1, ("typing.Protocol",)),
+        _documented(STORE, "Store", "save", 2),
+        _type(STORE, "Absent", 5),
+        _method(STORE, "Absent", "reason", 6, stub=False),
+        _type(sink, "Sink", 1, ("abc.ABC",)),
+        _documented(sink, "Sink", "write", 2, ("abc.abstractmethod",)),
+    )
+    facts = CodeModel(units=tuple(d.unit for d in definitions), definitions=definitions)
+
+    report = measure_with(files, facts)
+
+    assert {(f.subject, f.unit.path) for f in _of(report, "Swap")} == {
+        ("Store", STORE),
+        ("Sink", sink),
+    }
+
+
+def test_measure_with_a_fake_of_one_port_does_not_cover_another() -> None:
+    """Given two ports declaring the same method, measure, and one fake,
+    FakeComplexity, behind only the first, When Swap runs, Then a finding
+    names the second port: a fake of one port is not a fake of another
+    that happens to share its method names."""
+    complexity = "src/app/ports/complexity.py"
+    duplication = "src/app/ports/duplication.py"
+    fakes = "tests/fakes.py"
+    files = {complexity: b"x\n", duplication: b"x\n", fakes: b"x\n"}
+    definitions = (
+        _type(complexity, "ComplexityPort", 1, ("Protocol",)),
+        _method(complexity, "ComplexityPort", "measure", 2, stub=True),
+        _type(duplication, "DuplicationPort", 1, ("Protocol",)),
+        _method(duplication, "DuplicationPort", "measure", 2, stub=True),
+        _type(fakes, "FakeComplexity", 1),
+        _method(fakes, "FakeComplexity", "measure", 2, stub=False),
+    )
+    facts = CodeModel(units=tuple(d.unit for d in definitions), definitions=definitions)
+
+    report = measure_with(files, facts)
+
+    assert [f.subject for f in _of(report, "Swap")] == ["DuplicationPort"]
 
 
 ARCHITECTURE = "docs/design/ARCHITECTURE.APP.md"

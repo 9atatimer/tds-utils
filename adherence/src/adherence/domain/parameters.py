@@ -27,9 +27,11 @@ class Vocabulary:
     one names (`pass`, `...`, `NotImplementedError`). vendors are the
     modules (a top-level name, or a dotted prefix) that are a vendor, an SDK,
     the filesystem or the network; model_ids the prefixes of a string that
-    names a model; fakes the name prefixes that mark an implementation of a
-    port as a fake; clocks the type names that are a clock, and callables
-    those that are a callable, in a parameter's annotation.
+    names a model; mechanism_calls the callees (a full dotted name, as
+    written) that reach the filesystem or load a module by name; fakes the
+    name prefixes that mark an implementation of a port as a fake; clocks
+    the type names that are a clock, and callables those that are a
+    callable, in a parameter's annotation.
     """
 
     regions: Mapping[str, Layer]
@@ -38,6 +40,7 @@ class Vocabulary:
     stubs: frozenset[str] = field(default_factory=frozenset)
     vendors: frozenset[str] = field(default_factory=frozenset)
     model_ids: frozenset[str] = field(default_factory=frozenset)
+    mechanism_calls: frozenset[str] = field(default_factory=frozenset)
     fakes: frozenset[str] = field(default_factory=frozenset)
     clocks: frozenset[str] = field(default_factory=frozenset)
     callables: frozenset[str] = field(default_factory=frozenset)
