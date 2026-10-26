@@ -96,7 +96,7 @@ def test_measure_json_over_the_fixture_prints_the_composable_findings() -> None:
         "Helpers take values",
     ]
     assert _findings(document, Quality.COMPOSABLE) == {
-        ("Values in and out", SHIP, "ship", "payload: dict"),
+        ("Values in and out", SHIP, "ship", "reply: HTTPResponse"),
         (
             "No nesting",
             USE,

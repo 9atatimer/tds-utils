@@ -73,9 +73,6 @@ SHIPPED_VOCABULARY = Vocabulary(
     callables=frozenset({"Callable"}),
     wire_formats=frozenset(
         {
-            "dict",
-            "Dict",
-            "bytes",
             "bytearray",
             "memoryview",
             "Request",

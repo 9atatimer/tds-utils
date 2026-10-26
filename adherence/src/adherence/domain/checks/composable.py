@@ -37,12 +37,19 @@ RETURN = "return"
 
 
 def carries_mechanism(
-    annotation: str | None, adapters: frozenset[str], vocabulary: Vocabulary
+    annotation: str | None,
+    adapters: frozenset[str],
+    defined: frozenset[str],
+    vocabulary: Vocabulary,
 ) -> bool:
-    """Whether an annotation carries a wire format, an SDK type or a
-    concrete adapter."""
+    """Whether an annotation carries a wire format (by a name the measured
+    repository does not define itself), an SDK type or a concrete
+    adapter."""
     return any(
-        short_name(name) in vocabulary.wire_formats
+        (
+            short_name(name) in vocabulary.wire_formats
+            and short_name(name) not in defined
+        )
         or short_name(name) in adapters
         or ("." in name and names_vendor(name, vocabulary))
         for name in annotation_names(annotation)
@@ -128,6 +135,11 @@ def values_in_and_out(
         return undeclared(VALUES_IN_AND_OUT.name)
     vocabulary = parameters.vocabulary
     adapters = adapter_names(model, vocabulary)
+    defined = frozenset(
+        short_name(d.unit.symbol)
+        for d in model.definitions
+        if d.unit.kind is UnitKind.TYPE
+    )
     findings: list[Finding] = []
     for use_case in model.definitions:
         signature = use_case.signature
@@ -147,6 +159,6 @@ def values_in_and_out(
                 Evidence(unit.path, unit.start, unit.symbol or ""),
             )
             for name, annotation in carried
-            if carries_mechanism(annotation, adapters, vocabulary)
+            if carries_mechanism(annotation, adapters, defined, vocabulary)
         )
     return CheckOutcome(tuple(findings))
