@@ -232,6 +232,43 @@ def test_measure_with_a_use_case_raising_an_adapter_error_is_clean() -> None:
     assert found == {("close", "Fs", 3)}
 
 
+def test_measure_with_a_use_case_wiring_a_portless_adapter_finds_it() -> None:
+    """Given an adapters module holding a concrete adapter that implements
+    no port (Mailer, with a method) and a value that is all fields
+    (Receipt, no method), and use cases that construct the adapter by its
+    name and through its module (`mailer.Mailer()`), take it as a
+    parameter, and build the value, When No self-wiring and Values in and
+    out run, Then each names the use case and the adapter: every
+    adapters-layer type but an exception, an enum or a value is a concrete
+    adapter, port or no port."""
+    files = {USE: b"x\n" * 12, FS: b"x\n" * 12}
+    definitions = [
+        type_(FS, "Mailer", 1, end=3),
+        function(
+            FS, "Mailer.send", 2, (value("self"), value("to", "str")), parent="Mailer"
+        ),
+        type_(FS, "Receipt", 5, end=7),
+        function(USE, "notify", 2, (value("to", "str"), keyword("m", "Mailer")), end=4),
+        function(USE, "n2", 5, (value("to", "str"),), end=8),
+    ]
+    calls = (
+        Call(USE, 3, "notify", "Mailer"),
+        Call(USE, 6, "n2", "mailer.Mailer"),
+        Call(USE, 7, "n2", "Receipt"),
+    )
+    bindings = (Binding(USE, 1, None, "mailer", "app.adapters.fs"),)
+
+    report = measure_with(files, facts(definitions, calls=calls, bindings=bindings))
+
+    wired = {
+        (f.unit.symbol, f.subject, f.evidence.line)
+        for f in _of(report, "No self-wiring")
+    }
+    carried = {(f.unit.symbol, f.subject) for f in _of(report, "Values in and out")}
+    assert wired == {("notify", "Mailer", 3), ("n2", "mailer.Mailer", 6)}
+    assert carried == {("notify", "m: Mailer")}
+
+
 def test_measure_with_an_exported_private_function_or_callable_class() -> None:
     """Given a private application function exported under a public name
     (`hidden = _hidden`), a public application class whose `__call__` is
