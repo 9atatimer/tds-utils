@@ -24,7 +24,20 @@ from adherence.adapters.no_judge import NoJudge
 from adherence.adapters.python_ast import PythonCodeModel
 from adherence.domain.model import CodeLanguage, Layer
 from adherence.domain.parameters import Limits, Parameters, Vocabulary
-from adherence.domain.questions import ThresholdPolicy
+from adherence.domain.questions import (
+    DOES_IO,
+    HAND_ROLLED_ID,
+    IMPLEMENTED,
+    INVARIANT_BROKEN,
+    RULES_ELSEWHERE,
+    SAME_CONCEPT,
+    SCATTERED_POLICY,
+    THEN_ASSERTED,
+    TWO_JOBS,
+    BandThreshold,
+    ChoiceThreshold,
+    ThresholdPolicy,
+)
 from adherence.ports.code_model import CodeModelPort
 from adherence.ports.complexity import ComplexityPort
 from adherence.ports.decision import DecisionPort
@@ -360,8 +373,29 @@ SHIPPED_VOCABULARY = Vocabulary(
 SHIPPED_LIMITS = Limits(
     evidence_bound=200, complexity_ceiling=15, duplication_ceiling=10
 )
+# One entry per judged question, chosen from adherence/evals/ (its
+# README.md). Provisional and conservative: the set is six examples per
+# question, enough to catch a confidently wrong judge and not to support a
+# rate, so a finding needs the judge at 0.9 (0.85 for the score and the
+# choice) and the abstention band is wide.
+CONSERVATIVE_BINARY = BandThreshold(finding_at=0.9, pass_below=0.35)
+SHIPPED_THRESHOLDS = ThresholdPolicy(
+    {
+        TWO_JOBS.id: CONSERVATIVE_BINARY,
+        DOES_IO.id: CONSERVATIVE_BINARY,
+        SAME_CONCEPT.id: CONSERVATIVE_BINARY,
+        SCATTERED_POLICY.id: CONSERVATIVE_BINARY,
+        INVARIANT_BROKEN.id: CONSERVATIVE_BINARY,
+        RULES_ELSEWHERE.id: CONSERVATIVE_BINARY,
+        THEN_ASSERTED.id: BandThreshold(finding_at=0.85, pass_below=0.3),
+        IMPLEMENTED.id: CONSERVATIVE_BINARY,
+        HAND_ROLLED_ID: ChoiceThreshold(at=0.85),
+    }
+)
 SHIPPED_PARAMETERS = Parameters(
-    thresholds=ThresholdPolicy(), vocabulary=SHIPPED_VOCABULARY, limits=SHIPPED_LIMITS
+    thresholds=SHIPPED_THRESHOLDS,
+    vocabulary=SHIPPED_VOCABULARY,
+    limits=SHIPPED_LIMITS,
 )
 
 # The engine's own node analyzers, installed beside its uv project by
