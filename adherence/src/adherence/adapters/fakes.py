@@ -49,7 +49,8 @@ class FakeRepository:
     What a change did is told from the two targets' files: a path gone and
     one come with the same bytes is a rename. Its clock is frozen at `now`,
     the epoch unless the test sets it, so a deadline at or before it has
-    passed and every method answers TimedOut."""
+    passed and every method answers TimedOut. `asked` lists every call, by
+    method and target, in order."""
 
     def __init__(
         self,
@@ -65,6 +66,7 @@ class FakeRepository:
         self._unlisted_at = unlisted_at or {}
         self._history = history or {}
         self._now = now
+        self.asked: list[tuple[str, Base | Head]] = []
 
     def _passed(self, deadline: Deadline | None) -> bool:
         return deadline is not None and deadline.epoch_seconds <= self._now
@@ -72,6 +74,7 @@ class FakeRepository:
     def read(
         self, path: str, at: Base | Head, deadline: Deadline | None
     ) -> bytes | Absent | Refused | TimedOut:
+        self.asked.append(("read", at))
         if self._passed(deadline):
             return TimedOut(f"read {path}")
         found = self._files.get(at, {}).get(path)
@@ -80,6 +83,7 @@ class FakeRepository:
     def tree(
         self, at: Base | Head, deadline: Deadline | None
     ) -> tuple[str, ...] | Refused | TimedOut:
+        self.asked.append(("tree", at))
         if self._passed(deadline):
             return TimedOut("list the tree")
         if self._unlisted is not None:
@@ -91,6 +95,7 @@ class FakeRepository:
     def history(
         self, path: str, base: Base, deadline: Deadline | None
     ) -> tuple[str, ...] | Refused | TimedOut:
+        self.asked.append(("history", base))
         if self._passed(deadline):
             return TimedOut(f"list the history of {path}")
         return self._history.get(path, ())
@@ -98,6 +103,7 @@ class FakeRepository:
     def changed(
         self, base: Base, head: Head, deadline: Deadline | None
     ) -> ChangedPaths | Refused | TimedOut:
+        self.asked.append(("changed", head))
         if self._passed(deadline):
             return TimedOut("tell what the change did")
         before = self._files.get(base, {})
@@ -201,7 +207,7 @@ class FakeComplexity:
     """ComplexityPort answering the fixed complexity the test configures, for
     the sources it is handed, or the unavailable or TimedOut answer it
     scripts. Its clock is frozen at `now`, so a deadline at or before it has
-    passed."""
+    passed. `asked` counts its calls."""
 
     def __init__(
         self,
@@ -211,10 +217,12 @@ class FakeComplexity:
     ) -> None:
         self._answer = answer
         self._now = now
+        self.asked = 0
 
     def measure(
         self, sources: Mapping[str, bytes], deadline: Deadline | None
     ) -> Metrics | MetricsUnavailable | TimedOut:
+        self.asked += 1
         if deadline is not None and deadline.epoch_seconds <= self._now:
             return TimedOut("measure complexity")
         if isinstance(self._answer, MetricsUnavailable | TimedOut):
@@ -226,7 +234,7 @@ class FakeDuplication:
     """DuplicationPort answering the fixed clones the test configures, those
     between sources it is handed, or the unavailable or TimedOut answer it
     scripts. Its clock is frozen at `now`, so a deadline at or before it has
-    passed."""
+    passed. `asked` counts its calls."""
 
     def __init__(
         self,
@@ -236,10 +244,12 @@ class FakeDuplication:
     ) -> None:
         self._answer = answer
         self._now = now
+        self.asked = 0
 
     def measure(
         self, sources: Mapping[str, bytes], deadline: Deadline | None
     ) -> Metrics | MetricsUnavailable | TimedOut:
+        self.asked += 1
         if deadline is not None and deadline.epoch_seconds <= self._now:
             return TimedOut("find clones")
         if isinstance(self._answer, MetricsUnavailable | TimedOut):
@@ -258,7 +268,8 @@ class FakeRecords:
     RecordsUnavailable or the TimedOut the test scripts for it, so base and
     head can hold different records. A target it does not hold has none.
     `radar` scripts the radar per target the same way. Its clock is frozen
-    at `now`, so a deadline at or before it has passed."""
+    at `now`, so a deadline at or before it has passed. `asked` lists every
+    call, by method and target, in order."""
 
     def __init__(
         self,
@@ -271,10 +282,12 @@ class FakeRecords:
         self._by_target = by_target
         self._radar = radar or {}
         self._now = now
+        self.asked: list[tuple[str, Base | Head]] = []
 
     def records(
         self, at: Base | Head, declaration: Declaration, deadline: Deadline | None
     ) -> DesignRecords | RecordsUnavailable | TimedOut:
+        self.asked.append(("records", at))
         if deadline is not None and deadline.epoch_seconds <= self._now:
             return TimedOut("read the design records")
         return self._by_target.get(
@@ -284,6 +297,7 @@ class FakeRecords:
     def radar(
         self, at: Base | Head, declaration: Declaration, deadline: Deadline | None
     ) -> Radar | RecordsUnavailable | TimedOut:
+        self.asked.append(("radar", at))
         if deadline is not None and deadline.epoch_seconds <= self._now:
             return TimedOut("read the radar")
         return self._radar.get(at, RecordsUnavailable("no radar at this target"))
@@ -340,8 +354,9 @@ class FakeReportStore:
     """ReportStore in memory. Every report put is kept for the scan; one of
     a revision named by its object id is also kept for lookup, under its
     repository, revision and identity. `failing` scripts every put to fail
-    with that reason. `hits` lists every get that found a report. Its clock
-    is frozen at `now`, so a deadline at or before it has passed."""
+    with that reason. `hits` lists every get that found a report, `asked`
+    every get. Its clock is frozen at `now`, so a deadline at or before it
+    has passed."""
 
     def __init__(self, *, failing: str | None = None, now: float = 1e9) -> None:
         self._kept: dict[tuple[str, str, str], Report] = {}
@@ -349,10 +364,12 @@ class FakeReportStore:
         self._now = now
         self.scanned: list[Report] = []
         self.hits: list[tuple[str, str]] = []
+        self.asked: list[tuple[str, str]] = []
 
     def get(
         self, repository: str, revision: str, identity: str, deadline: Deadline | None
     ) -> Report | StoreMiss | TimedOut:
+        self.asked.append((repository, revision))
         if deadline is not None and deadline.epoch_seconds <= self._now:
             return TimedOut("read a kept report")
         found = self._kept.get((repository, revision, identity))
