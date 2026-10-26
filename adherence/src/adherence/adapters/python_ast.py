@@ -14,6 +14,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 
 from adherence.adapters.python_imports import ImportGraphFailed, import_edges
+from adherence.adapters.python_names import chain, expanded, imported_names
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, layer_of, marker_regions
 from adherence.domain.model import (
@@ -191,7 +192,19 @@ def _callee(call: ast.Call) -> str:
     return ast.unparse(call.func)
 
 
-def _body(node: DefinitionNode, text: str, vocabulary: Vocabulary) -> Body:
+def _imported_callee(call: ast.Call, imported: Mapping[str, str]) -> str:
+    """A call's callee read through the file's imports (`nap` bound by
+    `from time import sleep as nap` is `time.sleep`)."""
+    parts = chain(call.func)
+    return _callee(call) if parts is None else expanded(parts, imported)
+
+
+def _body(
+    node: DefinitionNode,
+    text: str,
+    vocabulary: Vocabulary,
+    imported: Mapping[str, str],
+) -> Body:
     statements = node.body
     first, last = statements[0], statements[-1]
     lines = source_lines(text)[first.lineno - 1 : (last.end_lineno or last.lineno)]
@@ -199,7 +212,11 @@ def _body(node: DefinitionNode, text: str, vocabulary: Vocabulary) -> Body:
         {
             n.lineno
             for n in own_nodes(node)
-            if isinstance(n, ast.Call) and is_sleep(_callee(n), vocabulary)
+            if isinstance(n, ast.Call)
+            and (
+                is_sleep(_callee(n), vocabulary)
+                or is_sleep(_imported_callee(n, imported), vocabulary)
+            )
         }
     )
     marker = _stub_marker(node, vocabulary)
@@ -214,6 +231,7 @@ def _definition(
     declaration: Declaration,
     regions: Sequence[Region],
     vocabulary: Vocabulary,
+    imported: Mapping[str, str],
 ) -> Definition:
     node = found.node
     is_type = isinstance(node, ast.ClassDef)
@@ -228,7 +246,7 @@ def _definition(
     return Definition(
         unit=unit,
         signature=None if isinstance(node, ast.ClassDef) else _signature(node),
-        body=_body(node, text, vocabulary),
+        body=_body(node, text, vocabulary, imported),
         bases=tuple(ast.unparse(b) for b in node.bases)
         if isinstance(node, ast.ClassDef)
         else (),
@@ -497,8 +515,10 @@ def _file_model(
         path, UnitKind.FILE, None, 1, lines, layer_of(path, None, declaration)
     )
     walked = _walk_definitions(tree)
+    imported = imported_names(tree)
     found = [
-        _definition(path, f, text, declaration, regions, vocabulary) for f in walked
+        _definition(path, f, text, declaration, regions, vocabulary, imported)
+        for f in walked
     ]
     scoped = _scoped(tree, walked)
     return CodeModel(
