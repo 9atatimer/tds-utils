@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from adherence.domain.checks import composable, ddd, hexagonal, injectable
+from adherence.domain.checks import composable, ddd, hexagonal, injectable, layered
 from adherence.domain.checks.outcome import CheckFunction
 from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import Declaration
@@ -35,6 +35,10 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Language": ddd.language,
     "Boundary": ddd.boundary,
     "Anemic": ddd.anemic,
+    "Trace": layered.trace,
+    "Purity": layered.purity,
+    "Wiring": layered.wiring,
+    "Anatomy": layered.anatomy,
 }
 CHANGE_LEVEL = "a change-level check: it runs when a change is judged"
 NOT_IN_SUITE = "not implemented in this suite version"

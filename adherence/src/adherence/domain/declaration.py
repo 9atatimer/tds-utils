@@ -30,6 +30,7 @@ TABLES = frozenset(
     {"layers", "runtimes", "records", "radar", "exemptions", "limits", "vocabulary"}
 )
 EXEMPTION_KEYS = frozenset({"check", "unit", "finding", "reason"})
+RECORD_KEYS = ("design", "architecture")
 DECLARED_REFUSAL = "the Declared quality's checks cannot be exempted"
 REGIONS_KEY = "regions"
 LAYER_NAMES = {layer.value: layer for layer in Layer}
@@ -50,6 +51,8 @@ FINDING_SETS = frozenset(
         "stubs",
         "vendors",
         "model_ids",
+        "mechanism_calls",
+        "clocks",
         "callables",
         "wire_formats",
         "singletons",
@@ -104,6 +107,23 @@ class VocabularyExtension:
 
 
 @dataclass(frozen=True, slots=True)
+class RecordPaths:
+    """The [records] table: where the design and the architecture record are."""
+
+    design: str
+    architecture: str
+
+
+@dataclass(frozen=True, slots=True)
+class Runtime:
+    """A declared entry the repository can be run as, and the path patterns
+    of the units it is made of."""
+
+    name: str
+    patterns: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class Declaration:
     """A repository's statement of its layers, runtimes, records, radar and
     exemptions. Declaration.none is the value for a repository that has none.
@@ -114,6 +134,8 @@ class Declaration:
     exemptions: tuple[Exemption, ...] = ()
     refused_exemptions: tuple[RefusedExemption, ...] = ()
     vocabulary: VocabularyExtension = field(default_factory=VocabularyExtension)
+    records: RecordPaths | None = None
+    runtimes: tuple[Runtime, ...] = ()
 
     none: ClassVar[Declaration]
 
@@ -397,6 +419,41 @@ def with_overrides(parameters: Parameters, declaration: Declaration) -> Paramete
     )
 
 
+def _records(value: object) -> RecordPaths | DeclarationUnreadable:
+    """The [records] table, or why it cannot be read: it names both records,
+    each by a path, and nothing else."""
+    if not isinstance(value, dict):
+        return DeclarationUnreadable(f"{DECLARATION_PATH}: records is a table")
+    unknown = sorted(set(value) - set(RECORD_KEYS))
+    if unknown:
+        return DeclarationUnreadable(
+            f"{DECLARATION_PATH}: records has unknown key(s): {', '.join(unknown)}"
+        )
+    if not all(_text_field(value, key) for key in RECORD_KEYS):
+        return DeclarationUnreadable(
+            f"{DECLARATION_PATH}: records names the design and the architecture "
+            "record, each by a path"
+        )
+    return RecordPaths(design=value["design"], architecture=value["architecture"])
+
+
+def _runtimes(value: object) -> tuple[Runtime, ...] | DeclarationUnreadable:
+    """The [runtimes] table, or why it cannot be read: each runtime names a
+    list of path patterns."""
+    if not isinstance(value, dict):
+        return DeclarationUnreadable(f"{DECLARATION_PATH}: runtimes is a table")
+    runtimes: list[Runtime] = []
+    for name, patterns in value.items():
+        if not isinstance(patterns, list) or not all(
+            isinstance(p, str) for p in patterns
+        ):
+            return DeclarationUnreadable(
+                f"{DECLARATION_PATH}: runtimes.{name} is a list of path patterns"
+            )
+        runtimes.append(Runtime(name, tuple(patterns)))
+    return tuple(runtimes)
+
+
 def refusal_notices(declaration: Declaration) -> tuple[Notice, ...]:
     """A notice per exemption and per vocabulary the declaration states and
     the suite refuses, naming what it would exempt or extend and why it is
@@ -447,6 +504,12 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
     vocabulary = _vocabulary(document.get("vocabulary", {}))
     if isinstance(vocabulary, DeclarationUnreadable):
         return vocabulary
+    records = _records(document["records"]) if "records" in document else None
+    if isinstance(records, DeclarationUnreadable):
+        return records
+    runtimes = _runtimes(document.get("runtimes", {}))
+    if isinstance(runtimes, DeclarationUnreadable):
+        return runtimes
     return Declaration(
         layers=layers,
         exemptions=tuple(e for e in exemptions if not is_declared_check(e.check)),
@@ -456,4 +519,6 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
             if is_declared_check(e.check)
         ),
         vocabulary=vocabulary,
+        records=records,
+        runtimes=runtimes,
     )

@@ -1,8 +1,9 @@
 """`adhere measure --json` over the fixture prints the Domain-driven,
 Composable and Injectable findings, each naming what its design row says
-it names: real git and the real Python analyzer, with records,
-complexity and duplication overridden by their fakes until their
-adapters land (tasks 059 and 061). The task-060 done check."""
+it names: real git, the real Python analyzer and the real markdown
+records adapter over the fixture's design record, whose Domain Language
+feeds Language, with complexity and duplication overridden by their fakes
+until their adapters land (task-061). The task-060 done check."""
 
 from __future__ import annotations
 
@@ -12,16 +13,12 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from adherence.adapters.fakes import FakeComplexity, FakeDuplication, FakeRecords
+from adherence.adapters.fakes import FakeComplexity, FakeDuplication
 from adherence.cli.main import main
 from adherence.container import build
 from adherence.domain.qualities import Quality
-from adherence.domain.records import DesignRecords, Term
-from adherence.domain.target import Head
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "python"
-DESIGN = "docs/design/DESIGN.TOOL.md"
-RECORDS = DesignRecords(domain_language=(Term("Order", DESIGN, 40),))
 USE = "src/tool/application/use.py"
 SHIP = "src/tool/application/ship.py"
 LEDGER = "src/tool/domain/ledger.py"
@@ -31,7 +28,6 @@ RULES = "src/tool/domain/rules.py"
 def _document() -> dict[str, object]:
     builder = functools.partial(
         build,
-        records=FakeRecords({Head.working_tree(): RECORDS}),
         complexity=FakeComplexity(),
         duplication=FakeDuplication(),
     )
@@ -58,7 +54,8 @@ def _ran(document: dict[str, object], quality: Quality) -> list[str]:
 
 
 def test_measure_json_over_the_fixture_prints_the_ddd_findings() -> None:
-    """Given the fixture and a Domain Language defining Order, When `adhere
+    """Given the fixture and its design record's Domain Language defining
+    Order and Store, When `adhere
     measure --json` runs, Then Language names the undefined noun and the
     signature -- never the port a use case takes -- Boundary names the type,
     the writer and the owning unit, and Anemic's all-fields type is coverage

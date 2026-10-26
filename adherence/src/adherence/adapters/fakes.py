@@ -143,17 +143,23 @@ class FakeDuplication:
 class FakeRecords:
     """RecordsPort over a mapping of target -> the records, the
     RecordsUnavailable or the TimedOut the test scripts for it, so base and
-    head can hold different records. A target it does not hold has none."""
+    head can hold different records. A target it does not hold has none. Its
+    clock is frozen at `now`, so a deadline at or before it has passed."""
 
     def __init__(
         self,
         by_target: Mapping[Base | Head, DesignRecords | RecordsUnavailable | TimedOut],
+        *,
+        now: float = 1e9,
     ) -> None:
         self._by_target = by_target
+        self._now = now
 
     def records(
         self, at: Base | Head, declaration: Declaration, deadline: Deadline | None
     ) -> DesignRecords | RecordsUnavailable | TimedOut:
+        if deadline is not None and deadline.epoch_seconds <= self._now:
+            return TimedOut("read the design records")
         return self._by_target.get(
             at, RecordsUnavailable("no design record at this target")
         )

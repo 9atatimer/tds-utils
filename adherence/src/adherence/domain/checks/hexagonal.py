@@ -27,6 +27,7 @@ from adherence.domain.model import (
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
 from adherence.domain.records import DesignRecords, RecordsUnavailable, Seam
+from adherence.domain.source import source_lines
 
 # --- Constants ---------------------------------------------------------------
 
@@ -40,6 +41,14 @@ SEAM_LAYERS = frozenset(
     {Layer.DOMAIN, Layer.PORTS, Layer.APPLICATION, Layer.COMPOSITION_ROOT}
 )
 CORE = frozenset({Layer.DOMAIN, Layer.APPLICATION})
+# A type declaring an interface by its base (the last dotted part, any
+# subscript dropped), and a method declared abstract by its decorator: a
+# port whose methods are only docstrings carries no stub marker.
+INTERFACE_BASES = frozenset({"Protocol"})
+ABSTRACT_DECORATORS = frozenset({"abstractmethod"})
+# The suffix a port's name may carry that its fake's name drops
+# (CodeModelPort, FakeCodeModel).
+PORT_SUFFIX = "Port"
 _EVERY_LAYER = frozenset(Layer)
 # The layers each layer may import: cli -> application -> domain and
 # adapters -> ports -> domain; the composition root and tests reach any.
@@ -89,18 +98,32 @@ def is_model_id(text: str, vocabulary: Vocabulary) -> bool:
 # --- Pure helpers ------------------------------------------------------------
 
 
+def bounded(text: str, bound: int) -> str:
+    """The first line of a text, stripped and cut at the evidence bound: what
+    a finding may name of source text (a string literal may span lines)."""
+    return next(iter(source_lines(text)), "").strip()[:bound]
+
+
 def _mechanisms(model: CodeModel, vocabulary: Vocabulary) -> list[_Hit]:
-    """Every vendor import, environment read and model id in the model."""
+    """Every vendor import, environment read, filesystem or module-loader
+    call, and model id in the model. An
+    import naming a vendor is one whatever it resolves to: an in-repo copy
+    of the vendor's package does not make it the repository's own."""
     return [
         *(
             _Hit(e.path, e.line, e.imported, e.text)
             for e in model.imports
-            if e.imported_path is None and names_vendor(e.imported, vocabulary)
+            if names_vendor(e.imported, vocabulary)
         ),
         *(
             _Hit(a.path, a.line, a.target, a.target)
             for a in model.accesses
             if a.kind is AccessKind.ENVIRONMENT
+        ),
+        *(
+            _Hit(c.path, c.line, c.callee, c.callee)
+            for c in model.calls
+            if c.callee in vocabulary.mechanism_calls
         ),
         *(
             _Hit(r.path, r.line, r.text, r.text)
@@ -121,6 +144,7 @@ def grep(
     if not declaration.declared:
         return undeclared(GREP.name)
     findings: list[Finding] = []
+    bound = parameters.limits.evidence_bound
     for hit in _mechanisms(model, parameters.vocabulary):
         layer = layer_of(hit.path, hit.line, declaration, model.regions)
         unit = model.unit_at(hit.path, hit.line)
@@ -130,7 +154,7 @@ def grep(
                     GREP,
                     unit,
                     layer,
-                    hit.subject,
+                    bounded(hit.subject, bound),
                     Evidence(hit.path, hit.line, hit.text),
                 )
             )
@@ -302,13 +326,24 @@ def _types(model: CodeModel) -> list[Definition]:
     return [d for d in model.definitions if d.unit.kind is UnitKind.TYPE]
 
 
+def _last_part(written: str) -> str:
+    """A base or decorator as written, without its subscript or call and
+    its dotted prefix."""
+    return written.partition("[")[0].partition("(")[0].rpartition(".")[2].strip()
+
+
 def is_port(definition: Definition, methods: Sequence[Definition]) -> bool:
-    """Whether a type is a port: in the ports layer, declaring methods and
-    implementing none of them."""
+    """Whether a type is a port: in the ports layer, declaring methods, and
+    either an interface by its base (a Protocol), declaring an abstract
+    method, or implementing none of its methods."""
+    if definition.unit.layer is not Layer.PORTS or not methods:
+        return False
     return (
-        definition.unit.layer is Layer.PORTS
-        and bool(methods)
-        and all(m.body.stub_markers for m in methods)
+        any(_last_part(b) in INTERFACE_BASES for b in definition.bases)
+        or any(
+            _last_part(d) in ABSTRACT_DECORATORS for m in methods for d in m.decorators
+        )
+        or all(m.body.stub_markers for m in methods)
     )
 
 
@@ -322,14 +357,21 @@ def implements(
     port: Definition,
     port_methods: Sequence[Definition],
 ) -> bool:
-    """Whether a type implements a port: it names the port as a base, or it
-    has every method the port declares."""
+    """Whether a type implements a port: it names the port as a base, or its
+    name ends with the port's (less any Port suffix) and it has every method
+    the port declares. Shared method names alone do not make a fake of one
+    port a fake of another."""
     if candidate is port:
         return False
     if any(base.rpartition(".")[2] == _name(port) for base in candidate.bases):
         return True
+    stem = _name(port).removesuffix(PORT_SUFFIX) or _name(port)
     wanted = _method_names(port_methods)
-    return bool(wanted) and wanted <= _method_names(candidate_methods)
+    return (
+        _name(candidate).endswith(stem)
+        and bool(wanted)
+        and wanted <= _method_names(candidate_methods)
+    )
 
 
 def is_fake(definition: Definition, vocabulary: Vocabulary) -> bool:
