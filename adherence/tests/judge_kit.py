@@ -81,7 +81,7 @@ def judge_with(
     | None = None,
     store: FakeReportStore | None = None,
     unlisted_at: Mapping[Base | Head, Refused | TimedOut] | None = None,
-    history: tuple[str, ...] = (BASE.revision,),
+    history: tuple[str, ...] | Refused | TimedOut = (BASE.revision,),
     reviews: FakeReviews | None = None,
     landed: Mapping[str, Files] | None = None,
 ) -> Report:

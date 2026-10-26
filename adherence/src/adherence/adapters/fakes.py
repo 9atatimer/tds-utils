@@ -45,7 +45,8 @@ class FakeRepository:
     """RepositoryPort over a mapping of target -> path -> answer: the bytes,
     or the Refused or TimedOut the test scripts for that path. `unlisted`
     scripts the answer to every tree listing, `unlisted_at` to one target's.
-    `history` scripts the commits that changed each path, newest first.
+    `history` scripts the commits that changed each path, newest first, or
+    the Refused or TimedOut its listing answers.
     What a change did is told from the two targets' files: a path gone and
     one come with the same bytes is a rename."""
 
@@ -55,7 +56,7 @@ class FakeRepository:
         *,
         unlisted: Refused | TimedOut | None = None,
         unlisted_at: Mapping[Base | Head, Refused | TimedOut] | None = None,
-        history: Mapping[str, tuple[str, ...]] | None = None,
+        history: Mapping[str, tuple[str, ...] | Refused | TimedOut] | None = None,
     ) -> None:
         self._files = files
         self._unlisted = unlisted
