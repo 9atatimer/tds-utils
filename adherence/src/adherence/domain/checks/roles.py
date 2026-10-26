@@ -8,8 +8,10 @@ Function taxonomy).
 
 from __future__ import annotations
 
+import builtins
+import enum
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from adherence.domain.checks.hexagonal import implements, is_port
 from adherence.domain.model import CodeModel, Definition, Layer, Parameter, UnitKind
@@ -30,6 +32,19 @@ QUOTES = frozenset("\"'")
 PRIVATE = "_"
 # The method that makes an instance of a class callable as a function.
 CALL = "__call__"
+# The method a value with no behaviour of its own may still carry.
+INIT = "__init__"
+# The bases, by name, that make a type an exception or an enum.
+EXCEPTION_ROOTS = frozenset(
+    name
+    for name, kind in vars(builtins).items()
+    if isinstance(kind, type) and issubclass(kind, BaseException)
+)
+ENUM_ROOTS = frozenset(
+    name
+    for name, kind in vars(enum).items()
+    if isinstance(kind, type) and issubclass(kind, enum.Enum)
+)
 
 # --- Predicates --------------------------------------------------------------
 
@@ -243,22 +258,55 @@ def named_in(parameter: Parameter, names: frozenset[str]) -> str | None:
     )
 
 
+def _descends_from(
+    definition: Definition,
+    roots: frozenset[str],
+    types: Mapping[str, Sequence[Definition]],
+) -> bool:
+    """Whether a type names one of `roots` as a base, by its last part,
+    directly or through a type the model defines, by name."""
+    seen: set[str] = set()
+    pending = list(definition.bases)
+    while pending:
+        base = short_name(pending.pop())
+        if base in roots:
+            return True
+        if base in seen:
+            continue
+        seen.add(base)
+        pending.extend(b for t in types.get(base, ()) for b in t.bases)
+    return False
+
+
+def _is_value(methods: Sequence[Definition]) -> bool:
+    """Whether a type is all fields: no method beyond __init__."""
+    return all(short_name(m.unit.symbol) == INIT for m in methods)
+
+
 def adapter_names(model: CodeModel) -> frozenset[str]:
     """The names of every concrete adapter the model defines: a type in the
-    adapters layer that implements a port, whatever its name. An exception,
-    an enum or a value beside it is no adapter. A fake's name exempts it
-    only from what the design says (Swap counts it); a use case wiring it
-    is still wiring an adapter."""
+    adapters layer, whatever its name, that implements a port or, port or
+    no port, is no exception, enum or value (all fields, no method beyond
+    __init__). A fake's name exempts it only from what the design says
+    (Swap counts it); a use case wiring it is still wiring an adapter."""
     methods = _methods(model)
     types = [d for d in model.definitions if d.unit.kind is UnitKind.TYPE]
+    named: dict[str, list[Definition]] = {}
+    for t in types:
+        named.setdefault(short_name(t.unit.symbol), []).append(t)
     ports = [(p, methods.get((p.unit.path, p.unit.symbol or ""), [])) for p in types]
     ports = [(p, own) for p, own in ports if is_port(p, own)]
-    return frozenset(
-        short_name(t.unit.symbol)
-        for t in types
-        if t.unit.layer is Layer.ADAPTERS
-        and any(
-            implements(t, methods.get((t.unit.path, t.unit.symbol or ""), []), p, own)
-            for p, own in ports
-        )
-    )
+    found: set[str] = set()
+    for t in types:
+        if t.unit.layer is not Layer.ADAPTERS:
+            continue
+        own = methods.get((t.unit.path, t.unit.symbol or ""), [])
+        if any(implements(t, own, p, theirs) for p, theirs in ports):
+            found.add(short_name(t.unit.symbol))
+        elif not (
+            _is_value(own)
+            or _descends_from(t, EXCEPTION_ROOTS, named)
+            or _descends_from(t, ENUM_ROOTS, named)
+        ):
+            found.add(short_name(t.unit.symbol))
+    return frozenset(found)
