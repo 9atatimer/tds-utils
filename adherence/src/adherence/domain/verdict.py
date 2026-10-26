@@ -26,7 +26,7 @@ from adherence.domain.target import Change
 # --- Constants ---------------------------------------------------------------
 
 # Units a record names rather than the code: covered wherever their check ran.
-RECORD_UNITS = frozenset({UnitKind.SEAM, UnitKind.BEHAVIOR})
+RECORD_UNITS = frozenset({UnitKind.SEAM, UnitKind.BEHAVIOR, UnitKind.TERM})
 
 UnitKey = tuple[str, str | None]
 FindingKey = tuple[str, str]
@@ -122,7 +122,7 @@ def _short(symbol: str) -> str:
 
 
 def definition_renames(
-    base: Report, head: Report, change: Change
+    *, base: Report, head: Report, change: Change
 ) -> dict[tuple[str, str], tuple[str, str]]:
     """Each head definition paired with the base definition it was renamed
     from, by a body digest that one definition lost and one gained."""
@@ -161,12 +161,12 @@ def _verdict(introduced: bool, removed: bool) -> Verdict:
     return Verdict.HELD
 
 
-def compared(base: Report, head: Report, change: Change) -> Report:
+def compared(*, base: Report, head: Report, change: Change) -> Report:
     """The change's report: the head's, each finding marked introduced or
     existing, the base findings it removed, and the verdict."""
     if head.not_run_reason is not None:
         return replace(head, verdict=Verdict.NOT_RUN, reasons=(head.not_run_reason,))
-    joins = _Joins(change, definition_renames(base, head, change))
+    joins = _Joins(change, definition_renames(base=base, head=head, change=change))
     # A change-level finding belongs to the change that had it: a base kept
     # as some earlier change's report holds its own, which this one never
     # compares against.

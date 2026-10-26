@@ -1,10 +1,12 @@
 """domain/checks/declared.py -- the Declared quality's change-level checks.
 
 Covered: every unit the change creates is in a declared layer, by the
-declaration in force or by the change's own widening (DESIGN.ARCH-
-ADHERENCE.md, The Qualities table). It runs when a change is judged, over
-the head's units and the units the change created (ARCHITECTURE.ARCH-
-ADHERENCE.md, Mechanism > Measurement).
+declaration in force or by the change's own widening. Record kept: no
+design behavior and no Domain Language term is removed from an approved
+record (DESIGN.ARCH-ADHERENCE.md, The Qualities table). Both run when a
+change is judged: Covered over the head's units and the units the change
+created, Record kept over the base's and the head's records
+(ARCHITECTURE.ARCH-ADHERENCE.md, Mechanism > Measurement).
 """
 
 from __future__ import annotations
@@ -12,10 +14,12 @@ from __future__ import annotations
 from dataclasses import replace
 
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
+from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import Declaration
 from adherence.domain.finding import Evidence, Finding
 from adherence.domain.model import Unit, UnitKind
 from adherence.domain.qualities import Check, catalog_check
+from adherence.domain.records import DesignRecords, RecordsUnavailable
 from adherence.domain.report import Report
 from adherence.domain.target import Change
 from adherence.domain.verdict import definition_renames
@@ -23,17 +27,18 @@ from adherence.domain.verdict import definition_renames
 # --- Constants ---------------------------------------------------------------
 
 COVERED = catalog_check("Covered")
+RECORD_KEPT = catalog_check("Record kept")
 
 # --- Pure helpers ------------------------------------------------------------
 
 
-def created_units(base: Report, head: Report, change: Change) -> tuple[Unit, ...]:
+def created_units(*, base: Report, head: Report, change: Change) -> tuple[Unit, ...]:
     """The units the change created: each file it created, and each
     definition in a file it kept that the base had under no name -- neither
     at its path and symbol nor as the definition it was renamed from."""
     created = set(change.created)
     before = {(change.at_head(u.path), u.symbol) for u in base.units}
-    renamed = definition_renames(base, head, change)
+    renamed = definition_renames(base=base, head=head, change=change)
     return tuple(
         u
         for u in head.units
@@ -68,6 +73,76 @@ def covered(
             )
             for unit in created
             if unit.layer is None
+        )
+    )
+
+
+def _removed(
+    *, path: str, kind: UnitKind, name: str, line: int, why: str, bound: int
+) -> Finding:
+    """The Record kept finding on one behavior or term the record lost."""
+    unit = Unit(path, kind, name, line, line, None)
+    return Finding(
+        RECORD_KEPT, unit, None, name, Evidence(path, line, f"{why}: {name}"[:bound])
+    )
+
+
+def record_kept(
+    *,
+    base: DesignRecords | RecordsUnavailable,
+    head: DesignRecords | RecordsUnavailable,
+    bound: int,
+) -> CheckOutcome:
+    """A finding per design behavior and per Domain Language term the base's
+    approved records state and the head's do not: every one of them, when
+    the head has no approved record left. With no approved record at the
+    base there is nothing to keep, and the check is coverage."""
+    if isinstance(base, RecordsUnavailable):
+        return CheckOutcome(
+            coverage=(
+                Coverage(
+                    f"no approved record at the base: {base.reason}",
+                    check=RECORD_KEPT.name,
+                ),
+            ),
+            ran=False,
+        )
+    behaviors = (
+        set()
+        if isinstance(head, RecordsUnavailable)
+        else {b.name for b in head.behaviors}
+    )
+    terms = (
+        set()
+        if isinstance(head, RecordsUnavailable)
+        else {t.name for t in head.domain_language}
+    )
+    return CheckOutcome(
+        (
+            *(
+                _removed(
+                    path=b.path,
+                    kind=UnitKind.BEHAVIOR,
+                    name=b.name,
+                    line=b.line,
+                    why="behavior removed",
+                    bound=bound,
+                )
+                for b in base.behaviors
+                if b.name not in behaviors
+            ),
+            *(
+                _removed(
+                    path=t.path,
+                    kind=UnitKind.TERM,
+                    name=t.name,
+                    line=t.line,
+                    why="term removed",
+                    bound=bound,
+                )
+                for t in base.domain_language
+                if t.name not in terms
+            ),
         )
     )
 

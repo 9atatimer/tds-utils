@@ -14,8 +14,10 @@ from adherence.application.load import load_declaration
 from adherence.application.measure import measure
 from adherence.domain.checks.declared import (
     COVERED,
+    RECORD_KEPT,
     covered,
     created_units,
+    record_kept,
     with_outcome,
 )
 from adherence.domain.deadline import Deadline, TimedOut
@@ -26,6 +28,7 @@ from adherence.domain.declaration import (
 )
 from adherence.domain.model import CodeLanguage
 from adherence.domain.parameters import Parameters
+from adherence.domain.records import DesignRecords, RecordsUnavailable
 from adherence.domain.report import Report, ReportIdentity, fingerprint
 from adherence.domain.target import Base, Change, Head
 from adherence.domain.verdict import compared
@@ -90,9 +93,21 @@ def _stored_base(
     return None
 
 
+def _records_at(
+    at: Base | Head,
+    declaration: Declaration,
+    records: RecordsPort,
+    deadline: Deadline | None,
+) -> DesignRecords | RecordsUnavailable:
+    found = records.records(at, declaration, deadline)
+    if isinstance(found, TimedOut):
+        return RecordsUnavailable(f"{found.operation}: timed out")
+    return found
+
+
 def _not_run(change: Change, reason: str) -> Report:
     return replace(
-        compared(Report(), Report.not_run(reason), change),
+        compared(base=Report(), head=Report.not_run(reason), change=change),
         repository=change.repository,
     )
 
@@ -140,18 +155,32 @@ def judge_change(
     in_force = load_declaration(change.base, repository=repository, deadline=deadline)
     if not isinstance(in_force, Declaration):
         head = measuring.measure(change.head, in_force)
-        return replace(compared(Report(), head, change), repository=change.repository)
+        return replace(
+            compared(base=Report(), head=head, change=change),
+            repository=change.repository,
+        )
     proposed = load_declaration(change.head, repository=repository, deadline=deadline)
     declaration = widened(in_force, proposed, change.created)
     head = measuring.measure(change.head, declaration)
     if head.not_run_reason is not None:
-        return replace(compared(Report(), head, change), repository=change.repository)
+        return replace(
+            compared(base=Report(), head=head, change=change),
+            repository=change.repository,
+        )
     stored = _stored_base(change, in_force, head.identity, reports, deadline)
     base = stored or measuring.measure(change.base, in_force)
     found = covered(
-        created_units(base, head, change),
+        created_units(base=base, head=head, change=change),
         declaration,
         parameters.limits.evidence_bound,
     )
     head = with_outcome(head, COVERED, found)
-    return replace(compared(base, head, change), repository=change.repository)
+    kept = record_kept(
+        base=_records_at(change.base, in_force, records, deadline),
+        head=_records_at(change.head, declaration, records, deadline),
+        bound=parameters.limits.evidence_bound,
+    )
+    head = with_outcome(head, RECORD_KEPT, kept)
+    return replace(
+        compared(base=base, head=head, change=change), repository=change.repository
+    )
