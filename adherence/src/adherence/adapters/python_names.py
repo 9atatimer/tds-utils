@@ -138,7 +138,10 @@ class Resolver:
     """Reads a callee to what it stands for across the sources: through its
     file's imports and definitions, a module's re-exports, and, for
     `self.<method>`, its type's bases -- a test type's own method, or
-    unittest's TestCase's. Bounded: at most HOPS re-exports or bases."""
+    unittest's TestCase's. Bounded: at most HOPS re-exports or bases deep,
+    and linear in breadth -- a base listed twice is walked once, a type
+    already walked with as many hops left is not walked again, and each
+    type's member is resolved once (Self-review re-review H1, task-061)."""
 
     def __init__(
         self,
@@ -148,6 +151,7 @@ class Resolver:
     ) -> None:
         self._files = files
         self._modules = modules
+        self._members: dict[tuple[str, str, str], Target | None] = {}
 
     def imported(self, path: str) -> Mapping[str, str]:
         """Each name a file's imports bind, to the dotted name it stands for."""
@@ -164,7 +168,7 @@ class Resolver:
         if head == SELF and len(parts) == 2 and within is not None:
             owner = within.rpartition(".")[0]
             if owner in names.bases:
-                return self._member(path, owner, parts[1], HOPS)
+                return self._own_member(path, owner, parts[1])
         if head in names.defined:
             symbol = ".".join(parts)
             return Target(
@@ -204,24 +208,46 @@ class Resolver:
             return Target(name=dotted, path=path, symbol=symbol)
         return Target(name=dotted)
 
-    def _member(self, path: str, owner: str, name: str, hops: int) -> Target | None:
-        """A method of a type, defined on it or inherited from its bases."""
+    def _own_member(self, path: str, owner: str, name: str) -> Target | None:
+        """A method of a type, resolved once per type and name."""
+        key = (path, owner, name)
+        if key not in self._members:
+            self._members[key] = self._member(path, owner, name, HOPS, {})
+        return self._members[key]
+
+    def _member(
+        self,
+        path: str,
+        owner: str,
+        name: str,
+        hops: int,
+        walked: dict[tuple[str, str], int],
+    ) -> Target | None:
+        """A method of a type, defined on it or inherited from its bases;
+        walked holds each type this lookup has walked the bases of, with the
+        most hops it had left, so no type is walked twice with no more."""
         names = self._files[path]
         symbol = f"{owner}.{name}"
         if symbol in names.defined:
             return Target(
                 name=qualified(names.module, symbol), path=path, symbol=symbol
             )
-        if hops <= 0:
+        if hops <= 0 or walked.get((path, owner), -1) >= hops:
             return None
-        for base in names.bases.get(owner, ()):
-            found = self._inherited(path, list(base), name, hops - 1)
+        walked[(path, owner)] = hops
+        for base in dict.fromkeys(names.bases.get(owner, ())):
+            found = self._inherited(path, list(base), name, hops - 1, walked)
             if found is not None:
                 return found
         return None
 
     def _inherited(
-        self, path: str, base: list[str], name: str, hops: int
+        self,
+        path: str,
+        base: list[str],
+        name: str,
+        hops: int,
+        walked: dict[tuple[str, str], int],
     ) -> Target | None:
         """A method a type gets from one base: unittest's TestCase's, or the
         base type's own when the repository defines it."""
@@ -237,4 +263,4 @@ class Resolver:
             return None
         if resolved.symbol not in owner.bases:
             return None
-        return self._member(resolved.path, resolved.symbol, name, hops)
+        return self._member(resolved.path, resolved.symbol, name, hops, walked)
