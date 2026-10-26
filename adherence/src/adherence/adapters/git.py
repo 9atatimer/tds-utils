@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 from adherence.domain.deadline import Deadline, TimedOut
-from adherence.domain.target import Base, Head, HeadKind
+from adherence.domain.target import Base, ChangedPaths, Head, HeadKind
 from adherence.ports.repository import Absent, Refused
 
 # --- Constants ---------------------------------------------------------------
@@ -29,6 +29,9 @@ LINK_REFUSAL = "a symbolic link"
 OUTSIDE_REFUSAL = "resolves outside the repository"
 # Repository configuration that could run a program is switched off.
 SAFE_CONFIG = ("-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null")
+# A diff names paths only: no external diff driver, no text conversion.
+NAME_STATUS = ("diff", "--no-ext-diff", "--no-textconv", "--name-status", "-z")
+NO_RENAMES = ("--no-renames",)
 
 
 class _Expired(Exception):
@@ -87,6 +90,23 @@ def _index_entries(listing: bytes) -> list[tuple[str, str, str]]:
         (mode, object_id, _stage), path = _decode(record)
         found.append((mode, object_id, path))
     return found
+
+
+def _name_status(listing: bytes) -> ChangedPaths:
+    """The created, deleted and modified paths of `git diff --name-status -z`:
+    a status, then its path."""
+    fields = [f.decode("utf-8", "surrogateescape") for f in listing.split(b"\0")]
+    created: list[str] = []
+    deleted: list[str] = []
+    modified: list[str] = []
+    for status, path in zip(fields[0::2], fields[1::2], strict=False):
+        if not status:
+            continue
+        bucket = {"A": created, "D": deleted}.get(status[0], modified)
+        bucket.append(path)
+    return ChangedPaths(
+        tuple(sorted(created)), tuple(sorted(deleted)), tuple(sorted(modified))
+    )
 
 
 def _revision(at: Base | Head) -> str:
@@ -194,6 +214,39 @@ class GitRepository:
         except GitFailure as failure:
             return Refused(path, str(failure))
         return answer
+
+    def _untracked(self, deadline: Deadline | None) -> tuple[str, ...]:
+        listing = self._git(
+            ["ls-files", "-z", "--others", "--exclude-standard"], deadline
+        )
+        return tuple(
+            p for p in listing.decode("utf-8", "surrogateescape").split("\0") if p
+        )
+
+    def _diff(self, base: Base, head: Head, deadline: Deadline | None) -> ChangedPaths:
+        if head.kind is HeadKind.REVISION:
+            against = [base.revision, _revision(head)]
+        elif head.kind is HeadKind.STAGED_INDEX:
+            against = ["--cached", base.revision]
+        else:
+            against = [base.revision]
+        found = _name_status(
+            self._git([*NAME_STATUS, *NO_RENAMES, *against, "--"], deadline)
+        )
+        if head.kind is not HeadKind.WORKING_TREE:
+            return found
+        created = sorted({*found.created, *self._untracked(deadline)})
+        return ChangedPaths(tuple(created), found.deleted, found.modified)
+
+    def changed(
+        self, base: Base, head: Head, deadline: Deadline | None
+    ) -> ChangedPaths | Refused | TimedOut:
+        try:
+            return self._diff(base, head, deadline)
+        except _Expired:
+            return TimedOut("tell what the change did")
+        except GitFailure as failure:
+            return Refused(".", str(failure))
 
     def tree(
         self, at: Base | Head, deadline: Deadline | None

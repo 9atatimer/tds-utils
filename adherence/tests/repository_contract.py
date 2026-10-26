@@ -1,16 +1,17 @@
 """RepositoryPort's contract, written once and run against every adapter.
 
 A subclass supplies `repository_with`: a repository whose base revision
-holds `base`, whose staged index adds `staged`, and whose working tree
-adds `working` on top of both. It returns the adapter and the Base.
+holds `base`, whose staged index adds `staged` and removes `deleted`, and
+whose working tree adds `working` on top of both. It returns the adapter
+and the Base.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from pathlib import Path
 
-from adherence.domain.target import Base, Head
+from adherence.domain.target import Base, ChangedPaths, Head
 from adherence.ports.repository import Absent, RepositoryPort
 
 Files = Mapping[str, bytes]
@@ -24,6 +25,7 @@ class RepositoryContract:
         base: Files,
         staged: Files,
         working: Files,
+        deleted: Collection[str] = (),
     ) -> tuple[RepositoryPort, Base]:
         raise NotImplementedError("a contract subclass supplies its adapter")
 
@@ -69,4 +71,30 @@ class RepositoryContract:
             "a.py",
             "c.py",
             "pkg/b.py",
+        )
+
+    def test_changed_names_created_deleted_and_modified_paths(
+        self, tmp_path: Path
+    ) -> None:
+        """Given a base, an index that edits one file, adds one and removes
+        one, and a working tree that adds another, When each head is told
+        against the base, Then each names exactly what it created, deleted
+        and modified."""
+        repository, base = self.repository_with(
+            tmp_path,
+            base={"a.py": b"a\n", "gone.py": b"g\n", "same.py": b"s\n"},
+            staged={"a.py": b"a2\n", "pkg/new.py": b"n\n"},
+            working={"loose.py": b"l\n"},
+            deleted=("gone.py",),
+        )
+
+        assert repository.changed(base, Head.staged_index(), None) == ChangedPaths(
+            created=("pkg/new.py",), deleted=("gone.py",), modified=("a.py",)
+        )
+        assert repository.changed(base, Head.working_tree(), None) == ChangedPaths(
+            created=("loose.py", "pkg/new.py"), deleted=("gone.py",), modified=("a.py",)
+        )
+        assert (
+            repository.changed(base, Head.at_revision(base.revision), None)
+            == ChangedPaths()
         )

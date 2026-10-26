@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from adherence.domain.deadline import Deadline, TimedOut
-from adherence.domain.target import Base, Head
+from adherence.domain.target import Base, ChangedPaths, Head
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,4 +41,11 @@ class RepositoryPort(Protocol):
     ) -> tuple[str, ...] | Refused | TimedOut:
         """Every file path the target holds, sorted; Refused, for the root,
         when the target cannot be listed."""
+        ...
+
+    def changed(
+        self, base: Base, head: Head, deadline: Deadline | None
+    ) -> ChangedPaths | Refused | TimedOut:
+        """The paths the head created, deleted and modified against the
+        base, each sorted; Refused, for the root, when they cannot be told."""
         ...

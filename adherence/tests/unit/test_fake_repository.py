@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from pathlib import Path
 
 from adherence.adapters.fakes import FakeRepository
@@ -18,12 +19,16 @@ class TestFakeRepository(RepositoryContract):
         base: Files,
         staged: Files,
         working: Files,
+        deleted: Collection[str] = (),
     ) -> tuple[RepositoryPort, Base]:
         at_base = Base("0" * 40)
+        staged_index = {
+            p: data for p, data in {**base, **staged}.items() if p not in deleted
+        }
         files = {
             at_base: dict(base),
             Head.at_revision(at_base.revision): dict(base),
-            Head.staged_index(): {**base, **staged},
-            Head.working_tree(): {**base, **staged, **working},
+            Head.staged_index(): staged_index,
+            Head.working_tree(): {**staged_index, **working},
         }
         return FakeRepository(files), at_base

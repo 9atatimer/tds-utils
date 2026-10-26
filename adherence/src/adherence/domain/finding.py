@@ -10,6 +10,7 @@ Findings and explanations; ARCHITECTURE.ARCH-ADHERENCE.md, Module map).
 
 from __future__ import annotations
 
+import enum
 import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
@@ -19,6 +20,13 @@ from adherence.domain.qualities import Check, CheckKind
 from adherence.domain.source import source_lines
 
 # --- Values ------------------------------------------------------------------
+
+
+class Provenance(enum.Enum):
+    """Of a finding, at judging: absent from the base's report, or present."""
+
+    INTRODUCED = "introduced"
+    EXISTING = "existing"
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +51,7 @@ class Finding:
     evidence: Evidence
     reached: Layer | None = None
     kind: CheckKind = CheckKind.RULE
+    provenance: Provenance | None = None
 
     @property
     def identity(self) -> str:

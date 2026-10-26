@@ -17,7 +17,6 @@ from adherence.adapters.fakes import (
     FakeDecision,
     FakeDuplication,
     FakeRecords,
-    FakeReportStore,
     FakeRepository,
     FakeReviews,
 )
@@ -75,7 +74,6 @@ def judge_with(
     when: Mapping[bytes, CodeModel] | None = None,
     records: Mapping[Base | Head, DesignRecords | RecordsUnavailable | TimedOut]
     | None = None,
-    store: FakeReportStore | None = None,
     unlisted_at: Mapping[Base | Head, Refused | TimedOut] | None = None,
 ) -> Report:
     """judge_change of HEAD against BASE, each holding its files and the
@@ -94,7 +92,6 @@ def judge_with(
         duplication=FakeDuplication(),
         records=FakeRecords(records or {}),
         judge=FakeDecision(Unavailable("no judge in the unit tier")),
-        reports=store if store is not None else FakeReportStore(),
         parameters=parameters(),
         deadline=None,
     )

@@ -19,6 +19,7 @@ from adherence.adapters.jscpd import JscpdDuplication
 from adherence.adapters.lizard import LizardComplexity
 from adherence.adapters.markdown_records import MarkdownRecords
 from adherence.adapters.no_judge import NoJudge
+from adherence.adapters.no_reviews import NoReviews
 from adherence.adapters.python_ast import PythonCodeModel
 from adherence.domain.model import CodeLanguage, Layer
 from adherence.domain.parameters import Limits, Parameters, Vocabulary
@@ -29,6 +30,7 @@ from adherence.ports.decision import DecisionPort
 from adherence.ports.duplication import DuplicationPort
 from adherence.ports.records import RecordsPort
 from adherence.ports.repository import RepositoryPort
+from adherence.ports.review import ReviewPort
 
 # --- Shipped parameters --------------------------------------------------------
 
@@ -384,6 +386,7 @@ class Container:
 
     stage: Stage
     repository: RepositoryPort
+    reviews: ReviewPort
     analyzers: Mapping[CodeLanguage, CodeModelPort]
     judge: DecisionPort
     complexity: ComplexityPort
@@ -397,6 +400,7 @@ def build(
     *,
     root: str,
     repository: RepositoryPort | None = None,
+    reviews: ReviewPort | None = None,
     analyzers: Mapping[CodeLanguage, CodeModelPort] | None = None,
     judge: DecisionPort | None = None,
     complexity: ComplexityPort | None = None,
@@ -408,12 +412,14 @@ def build(
     Every stage reads the repository through git; which target it reads
     (working tree, staged index, revisions) is the entry point's choice.
     Every stage binds no_judge until the decide adapter lands (task-064);
-    the judged checks read as coverage meanwhile.
+    the judged checks read as coverage meanwhile. Every stage binds
+    no_reviews until github_reviews lands for ci (task-063).
     """
     bound = repository if repository is not None else GitRepository(root)
     return Container(
         stage=stage,
         repository=bound,
+        reviews=reviews if reviews is not None else NoReviews(),
         analyzers=(
             analyzers
             if analyzers is not None

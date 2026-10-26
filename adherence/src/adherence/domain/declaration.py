@@ -153,6 +153,49 @@ class DeclarationUnreadable:
     reason: str
 
 
+# --- Approvals (ReviewPort's answers, as values) -----------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Approval:
+    """One approving review: who gave it, and the commit it reviewed."""
+
+    reviewer: str
+    commit: str
+
+
+@dataclass(frozen=True, slots=True)
+class Landing:
+    """The pull request that landed a commit: its author, and its approving
+    reviews."""
+
+    author: str
+    approvals: tuple[Approval, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class NoLandingPR:
+    """No pull request landed the commit: a direct push or a bypass."""
+
+    commit: str
+
+
+@dataclass(frozen=True, slots=True)
+class Unknown:
+    """The place the run happens cannot know who approved a landing; the
+    landed declaration stands there."""
+
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewsUnavailable:
+    """The code host's reviews could not be read, with the reason; counted
+    as no approvals."""
+
+    reason: str
+
+
 # --- Predicates --------------------------------------------------------------
 
 

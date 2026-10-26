@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Collection
 from pathlib import Path
 
 import pytest
@@ -45,13 +46,22 @@ def _write(root: Path, files: Files) -> None:
         (root / path).write_bytes(data)
 
 
-def make_repository(root: Path, *, base: Files, staged: Files, working: Files) -> Base:
+def make_repository(
+    root: Path,
+    *,
+    base: Files,
+    staged: Files,
+    working: Files,
+    deleted: Collection[str] = (),
+) -> Base:
     _git(root.parent, "init", "-q", "-b", "master", str(root))
     _write(root, base)
     _git(root, "add", "-A")
     _git(root, "commit", "-q", "--allow-empty", "-m", "base")
     revision = _git(root, "rev-parse", "HEAD")
     _write(root, staged)
+    for path in deleted:
+        (root / path).unlink()
     _git(root, "add", "-A")
     _write(root, working)
     return Base(revision)
@@ -65,9 +75,12 @@ class TestGitRepository(RepositoryContract):
         base: Files,
         staged: Files,
         working: Files,
+        deleted: Collection[str] = (),
     ) -> tuple[RepositoryPort, Base]:
         root = tmp_path / "repo"
-        at_base = make_repository(root, base=base, staged=staged, working=working)
+        at_base = make_repository(
+            root, base=base, staged=staged, working=working, deleted=deleted
+        )
         return GitRepository(str(root)), at_base
 
 

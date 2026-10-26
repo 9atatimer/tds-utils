@@ -168,4 +168,5 @@ def measure(
         findings=quoted(checked.findings, sources, parameters.limits.evidence_bound),
         notices=refusal_notices(declaration),
         coverage=(*coverage, *unmodelled(whole, declaration), *checked.coverage),
+        units=whole.units,
     )
