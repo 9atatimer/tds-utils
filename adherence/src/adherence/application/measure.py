@@ -331,6 +331,7 @@ def measure(
             *judged.coverage,
         ),
         abstentions=judged.abstentions,
+        passes=judged.passes,
         units=whole.units,
         bodies=tuple(
             BodyDigest(d.unit.path, d.unit.symbol, body_digest(d.body.text))
