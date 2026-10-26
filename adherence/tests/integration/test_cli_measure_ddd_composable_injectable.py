@@ -58,9 +58,10 @@ def test_measure_json_over_the_fixture_prints_the_ddd_findings() -> None:
     Order and Store, When `adhere
     measure --json` runs, Then Language names the undefined noun and the
     signature -- never the port a use case takes -- Boundary names the type,
-    the writer and the owning unit, and Anemic's all-fields type is coverage
-    awaiting its judged part. Decision runs and, with no attribute two units
-    branch on, has nothing to ask."""
+    the writer and the owning unit, and Anemic's all-fields Entry, which no
+    unit computes over, is a plain value: no finding, nothing asked.
+    Decision runs and, with no attribute two units branch on, has nothing
+    to ask."""
     document = _document()
 
     assert _ran(document, Quality.DOMAIN_DRIVEN) == [
@@ -81,10 +82,8 @@ def test_measure_json_over_the_fixture_prints_the_ddd_findings() -> None:
         check == "Language" and ("Order" in s or "Store" in s)
         for check, _, _, s in found
     )
-    anemic = [c for c in document["coverage"] if c["check"] == "Anemic"]
-    assert [(c["path"], c["reason"].split(":")[0]) for c in anemic] == [
-        (LEDGER, "Entry")
-    ]
+    assert not any(c["check"] == "Anemic" for c in document["coverage"])
+    assert not any(check == "Anemic" for check, _, _, _ in found)
 
 
 def test_measure_json_over_the_fixture_prints_the_composable_findings() -> None:

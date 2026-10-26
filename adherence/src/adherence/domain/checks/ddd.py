@@ -30,6 +30,7 @@ from adherence.domain.model import (
     Definition,
     Layer,
     MemberKind,
+    ReferenceKind,
     Unit,
     UnitKind,
     Write,
@@ -38,6 +39,7 @@ from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
 from adherence.domain.questions import (
     INVARIANT_BROKEN,
+    RULES_ELSEWHERE,
     SAME_CONCEPT,
     SCATTERED_POLICY,
     Ask,
@@ -68,13 +70,8 @@ PORT_SUFFIX = "port"
 # The layers whose types are the mechanism, not the problem: a port, an
 # adapter or the composition root's wiring is no noun of the domain.
 MECHANISM_LAYERS = frozenset({Layer.PORTS, Layer.ADAPTERS, Layer.COMPOSITION_ROOT})
-NO_JUDGE = "no judged question is asked in this suite version"
 NO_TYPE = "no type of that name is defined in the code"
 
-ANEMIC_JUDGED = (
-    f"all fields and no behavior; whether its rules live in another unit "
-    f"(rules_elsewhere) is the judged part, and {NO_JUDGE}"
-)
 
 # --- Predicates --------------------------------------------------------------
 
@@ -412,6 +409,52 @@ def boundary(
     return CheckOutcome(tuple(findings), questions=tuple(asks))
 
 
+def computes_over(
+    function: Definition, owner: str, fields: frozenset[str], reads: frozenset[str]
+) -> bool:
+    """Whether a function reads one of a type's fields through a parameter
+    annotated with the type: `reads` holds the dotted names it references."""
+    if function.signature is None:
+        return False
+    return any(
+        f"{p.name}.{name}" in reads
+        for p in function.signature.parameters
+        if owner in {short_name(n) for n in annotation_names(p.annotation)}
+        for name in fields
+    )
+
+
+def _references_by_scope(model: CodeModel) -> dict[tuple[str, str], frozenset[str]]:
+    """The dotted names each definition references, by its path and symbol,
+    with every shorter prefix of each (`r.total.cents` reads `r.total`)."""
+    found: dict[tuple[str, str], set[str]] = {}
+    for r in model.references:
+        if r.kind is ReferenceKind.NAME and r.within is not None:
+            parts = r.text.split(".")
+            found.setdefault((r.path, r.within), set()).update(
+                ".".join(parts[:n]) for n in range(2, len(parts) + 1)
+            )
+    return {scope: frozenset(names) for scope, names in found.items()}
+
+
+def _rules_elsewhere_ask(type_: Definition, computing: Sequence[Definition]) -> Ask:
+    unit = type_.unit
+    holders = ", ".join(d.unit.symbol or "" for d in computing)
+    shown = "\n\n".join(
+        f"{d.unit.path}:{d.unit.start}:\n{definition_text(d)}" for d in computing
+    )
+    return Ask(
+        check=ANEMIC,
+        question=RULES_ELSEWHERE,
+        unit=unit,
+        layer=unit.layer,
+        subject=f"{unit.symbol}: all fields; its rules live in {holders}",
+        evidence=Evidence(unit.path, unit.start, unit.symbol or ""),
+        text=definition_text(type_),
+        context=f"the units computing over its fields:\n\n{shown}",
+    )
+
+
 def anemic(
     model: CodeModel,
     declaration: Declaration,
@@ -420,31 +463,49 @@ def anemic(
 ) -> CheckOutcome:
     """The rule part finds each domain type that is all fields and no
     behavior -- fields, and no method but an initialiser -- and is no
-    enumeration. Whether such a
-    type is anemic, its rules living in another unit, is the judged part's
-    question, so the rule part finds nothing by itself: each type it finds
-    is coverage until a judge answers."""
+    enumeration, and the units outside it that compute over its fields.
+    Whether its rules live in those units is the judged part's question, so
+    the rule part finds nothing by itself; a type nothing computes over is a
+    plain value, and is not asked about."""
     if not declaration.declared:
         return undeclared(ANEMIC.name)
-    fields: set[tuple[str, str]] = set()
+    fields: dict[tuple[str, str], set[str]] = {}
     behaving: set[tuple[str, str]] = set()
     for m in model.members:
         if m.kind is MemberKind.FIELD:
-            fields.add((m.path, m.owner))
+            fields.setdefault((m.path, m.owner), set()).add(m.name)
         elif m.name != INITIALISER:
             behaving.add((m.path, m.owner))
-    asked = [
-        Coverage(
-            f"{d.unit.symbol}: {ANEMIC_JUDGED}", check=ANEMIC.name, path=d.unit.path
-        )
-        for d in model.definitions
-        if d.unit.kind is UnitKind.TYPE
-        and d.unit.layer is Layer.DOMAIN
-        and not is_enum(d)
-        and (key := (d.unit.path, d.unit.symbol or "")) in fields
-        and key not in behaving
-    ]
-    return CheckOutcome(coverage=tuple(asked))
+    reads = _references_by_scope(model)
+    functions = [d for d in model.definitions if d.unit.kind is UnitKind.FUNCTION]
+    asks: list[Ask] = []
+    for d in model.definitions:
+        key = (d.unit.path, d.unit.symbol or "")
+        if (
+            d.unit.kind is not UnitKind.TYPE
+            or d.unit.layer is not Layer.DOMAIN
+            or is_enum(d)
+            or key not in fields
+            or key in behaving
+        ):
+            continue
+        owner = short_name(d.unit.symbol)
+        computing = [
+            f
+            for f in functions
+            if not (
+                f.unit.path == d.unit.path and is_within(f.unit.symbol, d.unit.symbol)
+            )
+            and computes_over(
+                f,
+                owner,
+                frozenset(fields[key]),
+                reads.get((f.unit.path, f.unit.symbol or ""), frozenset()),
+            )
+        ]
+        if computing:
+            asks.append(_rules_elsewhere_ask(d, computing))
+    return CheckOutcome(questions=tuple(asks))
 
 
 def _branched(
