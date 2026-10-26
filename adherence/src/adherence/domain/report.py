@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from adherence.domain.coverage import Coverage
 from adherence.domain.finding import Finding, Notice, normalised
 from adherence.domain.model import Unit
-from adherence.domain.qualities import Check, Quality
+from adherence.domain.qualities import CATALOG, Check, Quality
 
 # --- Constants ---------------------------------------------------------------
 
@@ -27,6 +27,8 @@ from adherence.domain.qualities import Check, Quality
 SUITE_VERSION = "0.1.0"
 # No judged check asks the judge in this suite version (task-064).
 JUDGE_UNASKED = "no judged question asked"
+# Why a check a bounded run was ended before is coverage.
+ENDED = "did not finish before the deadline"
 
 # --- Values ------------------------------------------------------------------
 
@@ -64,6 +66,17 @@ class BodyDigest:
     path: str
     symbol: str
     digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class FinishedCheck:
+    """One check a run finished: whether it ran, its findings and what it
+    could not cover. A bounded run reports each as it finishes."""
+
+    check: Check
+    findings: tuple[Finding, ...] = ()
+    coverage: tuple[Coverage, ...] = ()
+    ran: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,3 +174,30 @@ def fingerprint(value: object) -> str:
     """A digest of a value that is the same on every machine and run."""
     text = json.dumps(_canonical(value), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def unfinished_checks(finished: tuple[FinishedCheck, ...]) -> tuple[Check, ...]:
+    """The catalog's checks a run ended before: every one not finished, and
+    the change-level checks, which finish only once the change is compared."""
+    done = {f.check for f in finished}
+    return tuple(c for c in CATALOG if c.quality is Quality.DECLARED or c not in done)
+
+
+def assemble_partial(
+    finished: tuple[FinishedCheck, ...], unfinished: tuple[Check, ...]
+) -> Report:
+    """The Report of a run ended at the deadline: the finished checks as
+    they finished, every unfinished one as coverage, and the verdict
+    inconclusive -- the change was never compared, so it is never held or
+    raised, and what did not finish never reads as a pass."""
+    kept = tuple(f for f in finished if f.check not in unfinished)
+    return Report(
+        ran=tuple(f.check for f in kept if f.ran),
+        findings=tuple(finding for f in kept for finding in f.findings),
+        coverage=(
+            *(c for f in kept for c in f.coverage),
+            *(Coverage(ENDED, check=c.name) for c in unfinished),
+        ),
+        verdict=Verdict.INCONCLUSIVE,
+        reasons=tuple(f"{c.name}: {ENDED}" for c in unfinished),
+    )

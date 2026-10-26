@@ -36,6 +36,7 @@ from adherence.ports.records import RecordsPort
 from adherence.ports.report_store import ReportStore
 from adherence.ports.repository import RepositoryPort
 from adherence.ports.review import ReviewPort
+from adherence.ports.worker import WorkerPort
 
 # --- Shipped parameters --------------------------------------------------------
 
@@ -532,6 +533,7 @@ class Container:
     records: RecordsPort
     reports: ReportStore
     parameters: Parameters
+    worker: WorkerPort | None = None
 
 
 def build(
@@ -546,6 +548,7 @@ def build(
     duplication: DuplicationPort | None = None,
     records: RecordsPort | None = None,
     reports: ReportStore | None = None,
+    worker: WorkerPort | None = None,
 ) -> Container:
     """Bind every port for the stage, over the repository at root.
 
@@ -557,7 +560,8 @@ def build(
     the judged checks read as coverage meanwhile. Every stage binds
     no_reviews until github_reviews lands for ci (task-063), and the file
     cache in the per-user cache directory until the warehouse lands for ci
-    (task-067).
+    (task-067). The worker that bounds a run is the override when one is
+    passed; no stage binds one of its own yet.
     """
     if analyzers is None:
         typescript = TypeScriptCodeModel()
@@ -595,4 +599,5 @@ def build(
             )
         ),
         parameters=SHIPPED_PARAMETERS,
+        worker=worker,
     )
