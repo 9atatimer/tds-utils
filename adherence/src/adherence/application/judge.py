@@ -21,12 +21,22 @@ from adherence.domain.checks.declared import (
     record_kept,
     with_outcome,
 )
+from adherence.domain.coverage import Coverage
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
+    CODEOWNERS_PATHS,
+    DECLARATION_PATH,
+    CodeOwners,
     Declaration,
+    DeclarationText,
     DeclarationUnreadable,
+    LandedRevision,
+    Landing,
+    counted_landing,
+    parse_codeowners,
     widened,
 )
+from adherence.domain.finding import Notice
 from adherence.domain.model import CodeLanguage
 from adherence.domain.parameters import Parameters
 from adherence.domain.records import DesignRecords, RecordsUnavailable, counted
@@ -39,12 +49,16 @@ from adherence.ports.decision import DecisionPort
 from adherence.ports.duplication import DuplicationPort
 from adherence.ports.records import RecordsPort
 from adherence.ports.report_store import ReportStore
-from adherence.ports.repository import Refused, RepositoryPort
+from adherence.ports.repository import Absent, Refused, RepositoryPort
 from adherence.ports.review import ReviewPort
 
 UNMEASURABLE = (
     "the base cannot be measured under the head's suite, declaration, "
     "measured languages and judge availability"
+)
+UNDECLARED = (
+    f"no landing of {DECLARATION_PATH} on the base's history carried a counted "
+    "approval; the repository is judged undeclared"
 )
 
 
@@ -122,6 +136,113 @@ def _records_at(
     return counted(found, parameters.limits.record_statuses)
 
 
+def _codeowners(
+    base: Base, repository: RepositoryPort, deadline: Deadline | None
+) -> CodeOwners:
+    """The base's CODEOWNERS, from the first place GitHub looks that holds
+    one; no entries when none does or the first found cannot be read."""
+    for path in CODEOWNERS_PATHS:
+        text = repository.read(path, base, deadline)
+        if isinstance(text, bytes):
+            return parse_codeowners(text)
+        if not isinstance(text, Absent):
+            return CodeOwners()
+    return CodeOwners()
+
+
+def _text_at(
+    commit: str, repository: RepositoryPort, deadline: Deadline | None
+) -> DeclarationText:
+    """adherence.toml's bytes at a commit: None where it is absent."""
+    if not commit:
+        return DeclarationUnreadable("no commit named")
+    text = repository.read(DECLARATION_PATH, Base(commit), deadline)
+    if isinstance(text, Absent):
+        return None
+    if isinstance(text, Refused):
+        return DeclarationUnreadable(text.reason)
+    if isinstance(text, TimedOut):
+        return DeclarationUnreadable(f"{text.operation}: timed out")
+    return text
+
+
+def _landed(
+    commit: str,
+    answer: Landing,
+    repository: RepositoryPort,
+    deadline: Deadline | None,
+) -> LandedRevision:
+    """A landing with the declaration's text at it and at each commit its
+    approvals reviewed."""
+    reviewed = sorted({a.commit for a in answer.approvals})
+    return LandedRevision(
+        commit,
+        answer,
+        text=_text_at(commit, repository, deadline),
+        reviewed=tuple((c, _text_at(c, repository, deadline)) for c in reviewed),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _InForce:
+    """The declaration in force and what the walk to it leaves the report:
+    its notices, and coverage when no landing could be counted, so a
+    repository judged undeclared that way is inconclusive at best."""
+
+    declaration: Declaration | DeclarationUnreadable
+    notices: tuple[Notice, ...] = ()
+    coverage: tuple[Coverage, ...] = ()
+
+
+def _undeclared(notices: list[Notice], reason: str) -> _InForce:
+    return _InForce(
+        Declaration.none,
+        (*notices, Notice(reason)),
+        (Coverage(reason, path=DECLARATION_PATH),),
+    )
+
+
+def _declaration_in_force(
+    base: Base,
+    repository: RepositoryPort,
+    reviews: ReviewPort,
+    deadline: Deadline | None,
+) -> _InForce:
+    """The newest landing of adherence.toml on the base's history that
+    domain/declaration counts in force, and the walk's notices; the
+    repository judged undeclared, with coverage, when none is or the walk
+    cannot be made. A base with no landing of it at all is undeclared."""
+    history = repository.history(DECLARATION_PATH, base, deadline)
+    if isinstance(history, Refused | TimedOut):
+        why = history.reason if isinstance(history, Refused) else "timed out"
+        return _undeclared(
+            [],
+            f"the history of {DECLARATION_PATH} cannot be read: {why}; "
+            "the repository is judged undeclared",
+        )
+    if not history:
+        return _InForce(Declaration.none)
+    notices: list[Notice] = []
+    codeowners: CodeOwners | None = None
+    for commit in history:
+        answer = reviews.approvals(commit, deadline)
+        if isinstance(answer, TimedOut):
+            return _undeclared(notices, f"{answer.operation}: timed out; {UNDECLARED}")
+        revision = LandedRevision(commit, answer)
+        if isinstance(answer, Landing):
+            if codeowners is None:
+                codeowners = _codeowners(base, repository, deadline)
+            revision = _landed(commit, answer, repository, deadline)
+        counting = counted_landing(revision, codeowners or CodeOwners())
+        notices.extend(counting.notices)
+        if counting.in_force:
+            declaration = load_declaration(
+                Base(commit), repository=repository, deadline=deadline
+            )
+            return _InForce(declaration, tuple(notices))
+    return _undeclared(notices, UNDECLARED)
+
+
 def _not_run(change: Change, reason: str) -> Report:
     return replace(
         compared(base=Report(), head=Report.not_run(reason), change=change),
@@ -146,13 +267,15 @@ def judge_change(
     """The change's Report: the head's findings with their provenance, the
     base findings removed, and the verdict.
 
-    The declaration in force is the base's; which landed revision of it a
-    code owner approved is read through `reviews` (task-063), and Unknown,
-    the answer of every stage without a code host, leaves the landed one
-    standing. The head is measured under it with the head declaration's
-    widening for the files the change created. The base's report is the
-    one `reports` kept under the base identity, when it kept one; else the
-    base is measured again.
+    The declaration in force is the newest landed revision of
+    adherence.toml on the base's history whose landing domain/declaration
+    counts: a code owner's approval read through `reviews`, against the
+    base's CODEOWNERS; Unknown, the answer of every stage without a code
+    host, leaves the landed one standing, and in CI a walk that finds none
+    judges the repository undeclared. The head is measured under it with
+    the head declaration's widening for the files the change created. The
+    base's report is the one `reports` kept under the base identity, when
+    it kept one; else the base is measured again.
     """
     paths = repository.changed(change.base, change.head, deadline)
     if isinstance(paths, Refused | TimedOut):
@@ -169,9 +292,11 @@ def judge_change(
         parameters,
         deadline,
     )
-    in_force = load_declaration(change.base, repository=repository, deadline=deadline)
+    walked = _declaration_in_force(change.base, repository, reviews, deadline)
+    in_force = walked.declaration
     if not isinstance(in_force, Declaration):
         head = measuring.measure(change.head, in_force)
+        head = replace(head, notices=(*head.notices, *walked.notices))
         return replace(
             compared(base=Report(), head=head, change=change),
             repository=change.repository,
@@ -207,7 +332,11 @@ def judge_change(
         paths={u.path for u in head.units},
         created=change.created,
     )
-    head = replace(head, notices=(*head.notices, *edits))
+    head = replace(
+        head,
+        notices=(*head.notices, *walked.notices, *edits),
+        coverage=(*head.coverage, *walked.coverage),
+    )
     return replace(
         compared(base=base, head=head, change=change), repository=change.repository
     )
