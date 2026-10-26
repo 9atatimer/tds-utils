@@ -30,12 +30,14 @@ from adherence.domain.model import (
     Definition,
     Layer,
     MemberKind,
+    Unit,
     UnitKind,
     Write,
 )
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
 from adherence.domain.questions import (
+    INVARIANT_BROKEN,
     SAME_CONCEPT,
     SCATTERED_POLICY,
     Ask,
@@ -67,10 +69,6 @@ PORT_SUFFIX = "port"
 # adapter or the composition root's wiring is no noun of the domain.
 MECHANISM_LAYERS = frozenset({Layer.PORTS, Layer.ADAPTERS, Layer.COMPOSITION_ROOT})
 NO_JUDGE = "no judged question is asked in this suite version"
-BOUNDARY_JUDGED = (
-    f"the judged part (invariant_broken: does the foreign write break an "
-    f"invariant?) {NO_JUDGE}"
-)
 NO_TYPE = "no type of that name is defined in the code"
 
 ANEMIC_JUDGED = (
@@ -332,6 +330,37 @@ def written_type(
     )
 
 
+def _invariant_ask(
+    write: Write,
+    owner: Definition,
+    writer: Definition | None,
+    unit: Unit,
+    layer: Layer | None,
+    evidence: Evidence,
+) -> Ask:
+    """Boundary's judged part about one foreign write: the writer as the
+    unit's text, the owning type and the write as the data."""
+    owned = owner.unit.symbol
+    return Ask(
+        check=BOUNDARY,
+        question=INVARIANT_BROKEN,
+        unit=unit,
+        layer=layer,
+        subject=(
+            f"{owned}.{write.field} written by {write.within}: can break an "
+            f"invariant of {owned}"
+        ),
+        evidence=evidence,
+        text=definition_text(writer) if writer is not None else "",
+        context=(
+            f"the owning type, {owned} in {owner.unit.path}:\n"
+            f"{definition_text(owner)}\n\n"
+            f"the write: {write.target}.{write.field} at "
+            f"{write.path}:{write.line} in {write.within}"
+        ),
+    )
+
+
 def boundary(
     model: CodeModel,
     declaration: Declaration,
@@ -341,7 +370,7 @@ def boundary(
     """No value type has a field written outside its owning unit, the type
     itself. The rule part reads a write whose object is a parameter of the
     writer annotated with the type, or a local name bound to one; the
-    judged part is coverage."""
+    judged part asks whether each such write can break an invariant."""
     if not declaration.declared:
         return undeclared(BOUNDARY.name)
     definitions = by_symbol(model)
@@ -355,6 +384,7 @@ def boundary(
         if b.within is not None
     }
     findings: list[Finding] = []
+    asks: list[Ask] = []
     for write in model.writes:
         owner = written_type(write, definitions, types, fields, local)
         if owner is None:
@@ -364,18 +394,22 @@ def boundary(
         unit = model.unit_at(write.path, write.line)
         if unit is None:
             continue
+        layer = layer_of(write.path, write.line, declaration, model.regions)
+        evidence = Evidence(write.path, write.line, f"{write.target}.{write.field}")
         findings.append(
             Finding(
                 BOUNDARY,
                 unit,
-                layer_of(write.path, write.line, declaration, model.regions),
+                layer,
                 f"{owner.unit.symbol}.{write.field} written by {write.within}; "
                 f"owned by {owner.unit.symbol} in {owner.unit.path}",
-                Evidence(write.path, write.line, f"{write.target}.{write.field}"),
+                evidence,
             )
         )
-    judged = (Coverage(BOUNDARY_JUDGED, check=BOUNDARY.name),) if findings else ()
-    return CheckOutcome(tuple(findings), judged)
+        writer = definitions.get((write.path, write.within or ""))
+        asked = writer.unit if writer is not None else unit
+        asks.append(_invariant_ask(write, owner, writer, asked, layer, evidence))
+    return CheckOutcome(tuple(findings), questions=tuple(asks))
 
 
 def anemic(
