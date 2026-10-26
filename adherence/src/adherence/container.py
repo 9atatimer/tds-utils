@@ -17,6 +17,7 @@ from pathlib import Path
 
 from adherence.adapters.file_store import FileReportStore, default_store_dir
 from adherence.adapters.git import GitRepository
+from adherence.adapters.github_reviews import API, GitHubReviews
 from adherence.adapters.jscpd import JscpdDuplication
 from adherence.adapters.lizard import LizardComplexity
 from adherence.adapters.markdown_records import MarkdownRecords
@@ -532,6 +533,18 @@ class Container:
     parameters: Parameters
 
 
+def _reviews(stage: Stage, environ: Mapping[str, str]) -> ReviewPort:
+    """github_reviews over the job's token and repository in `ci`;
+    no_reviews, which answers Unknown, everywhere else."""
+    if stage is not Stage.CI:
+        return NoReviews()
+    return GitHubReviews(
+        repository=environ.get("GITHUB_REPOSITORY"),
+        token=environ.get("GITHUB_TOKEN"),
+        api=environ.get("GITHUB_API_URL", API),
+    )
+
+
 def build(
     stage: Stage,
     *,
@@ -552,10 +565,11 @@ def build(
     TypeScript and JavaScript share one analyzer, so an import from one to
     the other resolves.
     Every stage binds no_judge until the decide adapter lands (task-064);
-    the judged checks read as coverage meanwhile. Every stage binds
-    no_reviews until github_reviews lands for ci (task-063), and the file
-    cache in the per-user cache directory until the warehouse lands for ci
-    (task-067).
+    the judged checks read as coverage meanwhile. `ci` binds github_reviews
+    over the job's GITHUB_TOKEN and GITHUB_REPOSITORY, read here and never
+    by the adapter; every other stage binds no_reviews. Every stage binds
+    the file cache in the per-user cache directory until the warehouse
+    lands for ci (task-067).
     """
     if analyzers is None:
         typescript = TypeScriptCodeModel()
@@ -569,7 +583,7 @@ def build(
     return Container(
         stage=stage,
         repository=bound,
-        reviews=reviews if reviews is not None else NoReviews(),
+        reviews=reviews if reviews is not None else _reviews(stage, os.environ),
         analyzers=analyzers,
         judge=judge if judge is not None else NoJudge(),
         complexity=complexity if complexity is not None else LizardComplexity(),
