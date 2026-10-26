@@ -44,6 +44,7 @@ from adherence.domain.questions import (
     TWO_JOBS,
     BandThreshold,
     ChoiceThreshold,
+    Rejected,
     ThresholdPolicy,
     Unavailable,
 )
@@ -817,3 +818,27 @@ def test_measure_hand_rolled_without_a_radar_is_coverage() -> None:
         for _, schema in judge.asked
         for q in schema.questions.values()
     )
+
+
+def test_measure_call_the_judge_rejects_is_coverage_and_the_rest_are_asked() -> None:
+    """Given a judge that rejects what it is sent, When two units are
+    measured, Then each call's questions are coverage naming the rejection,
+    and a rejection, being about one call, does not stop the next."""
+    judge = FakeDecision(Rejected("the state is too large"))
+
+    report = measure_with(
+        FILES,
+        CodeModel(
+            definitions=(
+                function(RULES, "price", 1, end=5),
+                function(USE, "close_order", 1, end=5),
+            )
+        ),
+        judge=judge,
+        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+    )
+
+    assert len(judge.asked) == 2
+    rejected = [c for c in report.coverage if c.check == "Two jobs"]
+    assert sorted(c.path or "" for c in rejected) == sorted([RULES, USE])
+    assert all("too large" in c.reason for c in rejected)
