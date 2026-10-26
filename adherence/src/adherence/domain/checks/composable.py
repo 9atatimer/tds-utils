@@ -41,20 +41,20 @@ RETURN = "return"
 
 
 def _names_mechanism(
-    written: str,
     meant: str,
     adapters: frozenset[str],
     defined: frozenset[str],
     vocabulary: Vocabulary,
 ) -> bool:
-    """Whether a name an annotation carries, as written and as its aliases
+    """Whether a name an annotation carries, as its aliases and imports
     resolve it, is a wire format (one the measured repository does not
-    define itself), an SDK type or a concrete adapter."""
+    define itself), an SDK type from a vendor module or a concrete
+    adapter."""
     noun = short_name(meant)
     return (
         (noun in vocabulary.wire_formats and noun not in defined)
         or noun in adapters
-        or ("." in written and names_vendor(written, vocabulary))
+        or ("." in meant and names_vendor(meant, vocabulary))
     )
 
 
@@ -68,7 +68,7 @@ def carries_mechanism(
     """Whether an annotation carries a wire format, an SDK type or a
     concrete adapter, each name resolved through `resolve` first."""
     return any(
-        _names_mechanism(name, resolve.get(name, name), adapters, defined, vocabulary)
+        _names_mechanism(resolve.get(name, name), adapters, defined, vocabulary)
         for name in annotation_names(annotation)
     )
 
