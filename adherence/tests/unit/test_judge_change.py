@@ -9,8 +9,14 @@ from dataclasses import replace
 from adherence.adapters.fakes import FakeReportStore
 from adherence.domain.declaration import DECLARATION_PATH
 from adherence.domain.finding import Provenance
-from adherence.domain.model import Layer, merged
-from adherence.domain.records import Behavior, DesignRecords, Term
+from adherence.domain.model import Layer, Parameter, Signature, merged
+from adherence.domain.records import (
+    Behavior,
+    DesignRecords,
+    SurfaceRow,
+    Term,
+    UseCase,
+)
 from adherence.domain.report import Verdict
 from adherence.ports.repository import Refused
 from tests import facts_kit as kit
@@ -284,3 +290,57 @@ def test_judge_change_removing_a_behavior_and_a_term_finds_the_narrowing() -> No
     }
     assert all(f.provenance is Provenance.INTRODUCED for f in narrowed)
     assert report.verdict is Verdict.LOWERED
+
+
+def test_judge_change_adding_a_behavior_with_its_use_case_traces_it() -> None:
+    """Given a change that adds a behavior to the record and its use case in
+    the same change, When Trace runs, Then there is no Trace finding for it:
+    the record is read at the head, with its code."""
+    architecture = "docs/design/ARCHITECTURE.APP.md"
+    order = Parameter("order", None, False, False)
+    existing = Behavior(
+        "An order is priced",
+        "Given an order, When it is priced, Then it has a price",
+        DESIGN,
+        9,
+    )
+    added = Behavior(
+        "An order is closed",
+        "Given an order, When it is closed, Then it is closed",
+        DESIGN,
+        10,
+    )
+    priced = (
+        UseCase("price", Signature((order,), None), architecture, 12),
+        SurfaceRow(existing.name, "price", architecture, 12),
+    )
+    closed = (
+        UseCase("close", Signature((order,), None), architecture, 13),
+        SurfaceRow(added.name, "close", architecture, 13),
+    )
+    both = b"def price(order):\n    return 1\n\ndef close(order):\n    return 2\n"
+    facts = kit.facts(
+        [
+            kit.function(USE, "price", 1, (kit.value("order"),)),
+            kit.function(USE, "close", 4, (kit.value("order"),)),
+        ]
+    )
+
+    report = judge_with(
+        {USE: b"def price(order):\n    return 1\n"},
+        {USE: both},
+        facts=facts,
+        records={
+            BASE: DesignRecords(
+                behaviors=(existing,), use_cases=(priced[0],), surface=(priced[1],)
+            ),
+            HEAD: DesignRecords(
+                behaviors=(existing, added),
+                use_cases=(priced[0], closed[0]),
+                surface=(priced[1], closed[1]),
+            ),
+        },
+    )
+
+    assert "Trace" in {c.name for c in report.ran}
+    assert [f for f in report.findings if f.check.name == "Trace"] == []
