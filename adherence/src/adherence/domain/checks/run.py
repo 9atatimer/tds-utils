@@ -51,6 +51,7 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Language": ddd.language,
     "Boundary": ddd.boundary,
     "Anemic": ddd.anemic,
+    "Decision": ddd.decision,
     "Trace": layered.trace,
     "Purity": layered.purity,
     "Wiring": layered.wiring,

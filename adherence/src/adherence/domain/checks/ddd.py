@@ -26,6 +26,7 @@ from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.finding import Evidence, Finding
 from adherence.domain.model import (
     CodeModel,
+    Conditional,
     Definition,
     Layer,
     MemberKind,
@@ -34,7 +35,12 @@ from adherence.domain.model import (
 )
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
-from adherence.domain.questions import SAME_CONCEPT, Ask, definition_text
+from adherence.domain.questions import (
+    SAME_CONCEPT,
+    SCATTERED_POLICY,
+    Ask,
+    definition_text,
+)
 from adherence.domain.records import DesignRecords, RecordsUnavailable, Term
 
 # --- Constants ---------------------------------------------------------------
@@ -42,6 +48,10 @@ from adherence.domain.records import DesignRecords, RecordsUnavailable, Term
 BOUNDARY = catalog_check("Boundary")
 LANGUAGE = catalog_check("Language")
 ANEMIC = catalog_check("Anemic")
+DECISION = catalog_check("Decision")
+# An attribute is a discriminant two units can share; a bare name is a
+# local of each unit, never the same thing twice.
+ATTRIBUTE = "."
 # A method that only sets a type's fields up is no behavior of its own.
 INITIALISER = "__init__"
 # The bases that make a type an enumeration: a closed set of names, whose
@@ -401,3 +411,72 @@ def anemic(
         and key not in behaving
     ]
     return CheckOutcome(coverage=tuple(asked))
+
+
+def _branched(
+    model: CodeModel, declaration: Declaration
+) -> dict[str, list[tuple[Conditional, Layer]]]:
+    """The conditionals of covered, non-test code that branch on an
+    attribute, each with its layer, by the attribute, in model order."""
+    shared: dict[str, list[tuple[Conditional, Layer]]] = {}
+    for c in model.conditionals:
+        layer = layer_of(c.path, c.line, declaration, model.regions)
+        if layer is None or layer is Layer.TEST or ATTRIBUTE not in c.discriminant:
+            continue
+        shared.setdefault(c.discriminant, []).append((c, layer))
+    return shared
+
+
+def _holder_text(
+    conditional: Conditional, definitions: Mapping[tuple[str, str], Definition]
+) -> str:
+    holder = definitions.get((conditional.path, conditional.within or ""))
+    text = definition_text(holder) if holder is not None else ""
+    return f"{conditional.path}:{conditional.line} in {conditional.within}:\n{text}"
+
+
+def _scattered_policy_ask(
+    discriminant: str,
+    branched: Sequence[tuple[Conditional, Layer]],
+    model: CodeModel,
+    definitions: Mapping[tuple[str, str], Definition],
+) -> Ask | None:
+    """The scattered_policy question about one shared discriminant, asked of
+    the unit holding its first conditional; None when no unit holds it."""
+    first, layer = branched[0]
+    found = definitions.get((first.path, first.within or ""))
+    unit = found.unit if found is not None else model.unit_at(first.path, first.line)
+    if unit is None:
+        return None
+    places = ", ".join(f"{c.within} ({c.path}:{c.line})" for c, _ in branched)
+    shown = "\n\n".join(_holder_text(c, definitions) for c, _ in branched)
+    return Ask(
+        check=DECISION,
+        question=SCATTERED_POLICY,
+        unit=unit,
+        layer=layer,
+        subject=f"{discriminant}: branched on in {places}",
+        evidence=Evidence(first.path, first.line, discriminant),
+        text=definition_text(found) if found is not None else "",
+        context=f"the shared discriminant: {discriminant}\n\n{shown}",
+    )
+
+
+def decision(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """Asks the judge, of each attribute two or more units of covered,
+    non-test code branch on, whether those conditionals spread one decision
+    that belongs in one named policy; it finds nothing by itself."""
+    if not declaration.declared:
+        return undeclared(DECISION.name)
+    definitions = by_symbol(model)
+    asks = [
+        _scattered_policy_ask(discriminant, branched, model, definitions)
+        for discriminant, branched in _branched(model, declaration).items()
+        if len({(c.path, c.within) for c, _ in branched}) > 1
+    ]
+    return CheckOutcome(questions=tuple(a for a in asks if a is not None))
