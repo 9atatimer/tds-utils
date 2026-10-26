@@ -7,6 +7,7 @@ from __future__ import annotations
 from adherence.adapters.no_reviews import NoReviews
 from adherence.domain.declaration import Unknown
 from adherence.ports.review import ReviewPort
+from tests.review_contract import ReviewContract
 
 
 def test_approvals_without_a_code_host_are_unknown() -> None:
@@ -18,3 +19,8 @@ def test_approvals_without_a_code_host_are_unknown() -> None:
 
     assert isinstance(answer, Unknown)
     assert answer.reason
+
+
+class TestNoReviews(ReviewContract):
+    def port(self) -> ReviewPort:
+        return NoReviews()
