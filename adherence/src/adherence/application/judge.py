@@ -10,6 +10,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
+from adherence.application.latch import (
+    Latch,
+    LatchedComplexity,
+    LatchedDecision,
+    LatchedDuplication,
+    LatchedRecords,
+    LatchedReports,
+    LatchedRepository,
+    LatchedReviews,
+    latched_analyzers,
+)
 from adherence.application.load import load_declaration
 from adherence.application.measure import measure
 from adherence.domain.checks.declared import (
@@ -153,8 +164,18 @@ def judge_change(
     The head is measured under it with the head declaration's widening for
     the files the change created. The base's report is the
     one `reports` kept under the base identity, when it kept one; else the
-    base is measured again.
+    base is measured again. Once any port answers TimedOut, no port is
+    asked anything more: what is left is coverage.
     """
+    latch = Latch()
+    repository = LatchedRepository(repository, latch)
+    reviews = LatchedReviews(reviews, latch)
+    analyzers = latched_analyzers(analyzers, latch)
+    complexity = LatchedComplexity(complexity, latch)
+    duplication = LatchedDuplication(duplication, latch)
+    records = LatchedRecords(records, latch)
+    judge = LatchedDecision(judge, latch)
+    reports = LatchedReports(reports, latch)
     paths = repository.changed(change.base, change.head, deadline)
     if isinstance(paths, Refused | TimedOut):
         reason = paths.reason if isinstance(paths, Refused) else paths.operation
