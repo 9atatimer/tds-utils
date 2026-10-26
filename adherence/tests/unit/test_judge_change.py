@@ -368,3 +368,22 @@ def test_judge_change_with_a_draft_design_record_reports_it_missing() -> None:
     for check in ("Trace", "Language", "Change", "Kept test", "Record kept"):
         assert DESIGN in reasons.get(check, ""), check
     assert {"Grep", "Stub", "Covered"} <= {c.name for c in report.ran}
+
+
+def test_judge_change_after_a_landed_cover_marks_its_flaws_existing() -> None:
+    """Given a declaration edit that covers an existing unit, landed in one
+    change, When the next change is judged, Then that unit's flaws are in
+    the base's report and marked existing."""
+    old = "src/app/extra/old.py"
+    landed = {DECLARATION_PATH: WIDENED, old: STUBBED, USE: CLEAN}
+
+    report = judge_with(
+        landed,
+        {**landed, USE: CLEAN + b"\n# edited\n"},
+        when={STUBBED: stubbed(old, "tidy", 2)},
+    )
+
+    (finding,) = report.findings
+    assert (finding.unit.path, finding.layer) == (old, Layer.DOMAIN)
+    assert finding.provenance is Provenance.EXISTING
+    assert report.verdict is Verdict.HELD
