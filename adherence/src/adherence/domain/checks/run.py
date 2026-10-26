@@ -39,6 +39,7 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Stub": complete.stub,
     "Complexity": complete.complexity,
     "Duplication": complete.duplication,
+    "Done": complete.done,
     "Real assertion": behavior.real_assertion,
     "Public surface": behavior.public_surface,
     "Kept test": behavior.kept_test,

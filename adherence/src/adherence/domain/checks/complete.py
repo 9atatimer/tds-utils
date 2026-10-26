@@ -2,8 +2,8 @@
 
 The rule checks of the Complete quality: Stub, Complexity and Duplication
 (DESIGN.ARCH-ADHERENCE.md, The Qualities table: Complete), each a pure
-function over the CodeModel. Done and Hand-rolled are judged questions
-(task-064).
+function over the CodeModel, and Done and Hand-rolled, which put the
+implemented and hand_rolled questions to the judge.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from adherence.domain.model import (
 )
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
+from adherence.domain.questions import IMPLEMENTED, Ask, definition_text
 from adherence.domain.records import DesignRecords, RecordsUnavailable
 
 # --- Constants ---------------------------------------------------------------
@@ -31,6 +32,7 @@ from adherence.domain.records import DesignRecords, RecordsUnavailable
 STUB = catalog_check("Stub")
 COMPLEXITY = catalog_check("Complexity")
 DUPLICATION = catalog_check("Duplication")
+DONE = catalog_check("Done")
 NO_CEILING = "no {} ceiling is supplied"
 
 # --- Predicates --------------------------------------------------------------
@@ -110,6 +112,57 @@ def stub(
         owner = types.get((d.unit.path, d.parent)) if d.parent else None
         findings.extend(_stub_findings(d, owner, parameters.vocabulary))
     return CheckOutcome(tuple(findings))
+
+
+def _work(model: CodeModel, vocabulary: Vocabulary) -> list[Definition]:
+    """The functions that claim to do work: covered, non-test, not nested,
+    and neither a stub (Stub's to find) nor a declaration."""
+    types = {
+        (d.unit.path, d.unit.symbol): d
+        for d in model.definitions
+        if d.unit.kind is UnitKind.TYPE
+    }
+    return [
+        d
+        for d in model.definitions
+        if d.unit.kind is UnitKind.FUNCTION
+        and is_checked(d.unit.layer)
+        and not d.nested
+        and not d.body.stub_markers
+        and not is_declaration(
+            d, types.get((d.unit.path, d.parent)) if d.parent else None, vocabulary
+        )
+    ]
+
+
+def _done_ask(definition: Definition) -> Ask:
+    unit = definition.unit
+    return Ask(
+        check=DONE,
+        question=IMPLEMENTED,
+        unit=unit,
+        layer=unit.layer,
+        subject=f"{unit.symbol}: does not do what its name and docstring claim",
+        evidence=Evidence(unit.path, unit.start, unit.symbol or ""),
+        text=definition_text(definition),
+        context="",
+    )
+
+
+def done(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """Asks the judge, of every function that claims to do work, whether its
+    body does what its name and docstring claim; it finds nothing by
+    itself."""
+    if not declaration.declared:
+        return undeclared(DONE.name)
+    return CheckOutcome(
+        questions=tuple(_done_ask(d) for d in _work(model, parameters.vocabulary))
+    )
 
 
 def _function_unit(
