@@ -142,3 +142,29 @@ def test_an_assertion_call_must_be_an_assertion_api() -> None:
         "test_imported_helper",
         "TestThing.test_own_method",
     }
+
+
+def test_a_unittest_assert_method_is_an_assertion() -> None:
+    """Given unittest-style tests asserting through `self.assertEqual`,
+    `self.assertRaises` and `self.assertIn` on TestCase subclasses imported
+    two ways, and one that asserts nothing, When Real assertion runs, Then
+    only the one that asserts nothing is found (Self-review R4)."""
+    source = (
+        b"import unittest\n"
+        b"from unittest import IsolatedAsyncioTestCase\n"
+        b"class TestUse(unittest.TestCase):\n"
+        b"    def test_equal(self):\n"
+        b"        self.assertEqual(run(), 1)\n"
+        b"    def test_raises(self):\n"
+        b"        with self.assertRaises(ValueError):\n"
+        b"            run()\n"
+        b"    def test_nothing(self):\n"
+        b"        run()\n"
+        b"class TestAsync(IsolatedAsyncioTestCase):\n"
+        b"    async def test_in(self):\n"
+        b"        self.assertIn(1, await run())\n"
+    )
+
+    report = _measured({TEST: source})
+
+    assert _cannot_fail(report) == {"TestUse.test_nothing"}
