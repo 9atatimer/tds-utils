@@ -190,3 +190,27 @@ def test_measure_with_a_type_alias_of_a_wire_format_finds_the_parameter() -> Non
 
     found = {(f.unit.symbol, f.subject) for f in _of(report, "Values in and out")}
     assert found == {("aliased", "p: Payload"), ("twice", "q: Body")}
+
+
+def test_measure_with_an_sdk_type_imported_by_name_finds_the_parameter() -> None:
+    """Given a use case taking an SDK type imported by name (`from requests
+    import Client`), one taking it through an aliased vendor module, and
+    one taking a type imported from the repository's own domain, When
+    Values in and out runs, Then a finding names each parameter whose type
+    resolves to a vendor module, and the domain type is clean."""
+    files = {USE: b"x\n" * 12}
+    definitions = [
+        function(USE, "call", 4, (value("c", "Client"),)),
+        function(USE, "boto", 5, (value("s", "b3.Session"),)),
+        function(USE, "keep", 6, (value("order", "Order"),)),
+    ]
+    bindings = (
+        Binding(USE, 1, None, "Client", "requests.Client"),
+        Binding(USE, 2, None, "b3", "boto3"),
+        Binding(USE, 3, None, "Order", "app.domain.rules.Order"),
+    )
+
+    report = measure_with(files, facts(definitions, bindings=bindings))
+
+    found = {(f.unit.symbol, f.subject) for f in _of(report, "Values in and out")}
+    assert found == {("call", "c: Client"), ("boto", "s: b3.Session")}
