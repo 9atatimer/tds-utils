@@ -73,12 +73,13 @@ PARAMETER_PROPERTY, PROPERTY_DEFAULT, PROPERTY_TYPE = (
 BODY, STUB, CALL, NAME_FACT, STRING = "body", "stub", "call", "name", "string"
 GLOBAL, WRITE, SYNTAX_ERROR = "global", "write", "syntax-error"
 MEMBER_METHOD, MEMBER_FIELD, TEST_CALL = "member-method", "member-field", "test-call"
-CONDITIONAL, EITHER, COMPARE, NEGATE, GROUP = (
+CONDITIONAL, EITHER, COMPARE, NEGATE, GROUP, TYPEOF = (
     "conditional",
     "either",
     "compare",
     "negate",
     "group",
+    "typeof",
 )
 RETURNS, BASE, DECORATOR, DECORATOR_NEXT = (
     "returns",
@@ -90,6 +91,7 @@ RETURNS, BASE, DECORATOR, DECORATOR_NEXT = (
 NAME, SOURCE, TYPE_CAPTURE = "NAME", "SOURCE", "TYPE"
 BODY_CAPTURE, THROWN, CALLEE = "BODY", "THROWN", "CALLEE"
 OBJECT, FIELD, TITLE, CASE = "OBJECT", "FIELD", "TITLE", "CASE"
+MISSING = "MISSING"
 QUOTES = ("'", '"', "`")
 CONDITION, SUBJECT, LEFT, RIGHT, OPERAND, INNER = (
     "CONDITION",
@@ -105,6 +107,8 @@ LEAVES = "the path leaves the repository; not read"
 # The path a line of ast-grep's stream names, read without decoding the
 # line, for a line that does not decode.
 FILE_FIELD = re.compile(r'"file"\s*:\s*("(?:[^"\\]|\\.)*")')
+REST = "..."
+THIS = "this"
 
 # --- Values ------------------------------------------------------------------
 
@@ -121,11 +125,13 @@ class Grammar:
 
 @dataclass(frozen=True, slots=True)
 class Capture:
-    """A part of a match: its text and its byte span in the file."""
+    """A part of a match: its text, its byte span in the file and its line
+    (from 1)."""
 
     text: str
     start: int
     end: int
+    line: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,6 +229,7 @@ class _Expressions:
     negate: Mapping[Span, Match]
     group: Mapping[Span, Match]
     call: Mapping[Span, Match]
+    typeof: Mapping[Span, Match]
 
 
 # --- Pure helpers ------------------------------------------------------------
@@ -272,6 +279,7 @@ def parse_match(record: Mapping[str, object], tree: str) -> Match:
             text=str(value["text"]),
             start=int(value["range"]["byteOffset"]["start"]),
             end=int(value["range"]["byteOffset"]["end"]),
+            line=int(value["range"]["start"]["line"]) + 1,
         )
         for name, value in single.get("single", {}).items()
     }
@@ -417,6 +425,12 @@ def _member_type(
     return f'{annotation}["{name}"]'
 
 
+def starred(name: str) -> str:
+    """A parameter's name, a rest parameter's in the starred form every
+    language's Parameter uses (`*rest`)."""
+    return f"*{name[len(REST) :]}" if name.startswith(REST) else name
+
+
 def _signatures(file: _File, vocabulary: Vocabulary) -> dict[Span, Signature]:
     """Each function node's parameters, in order, and its return annotation:
     a parameter is the innermost function node's holding it, a destructured
@@ -444,7 +458,7 @@ def _signatures(file: _File, vocabulary: Vocabulary) -> dict[Span, Signature]:
             _annotation(typed[span].captured(TYPE_CAPTURE)) if span in typed else None
         )
         has_default = span in defaults
-        name = parameter.captured(NAME) or parameter.text
+        name = starred(parameter.captured(NAME) or parameter.text)
         written = [m for m in member_types if parameter.holds(m)] if annotation else []
         given = [
             Parameter(
@@ -648,8 +662,8 @@ def accesses(file: _File, vocabulary: Vocabulary) -> list[Access]:
 
 
 def writes(file: _File) -> list[Write]:
-    """Every assignment, update or compound assignment to an object's field,
-    with the definition that makes it."""
+    """Every field an assignment, update, compound assignment, destructuring
+    or for-in/of header binds, with the definition that makes it."""
     return [
         Write(
             path=file.path,
@@ -669,7 +683,8 @@ def _span(capture: Capture) -> Span:
 def discriminants(capture: Capture, found: _Expressions) -> list[str]:
     """What a branch's test discriminates on: through parentheses, each
     operand of a logical operator, the operand of a negation, the left of a
-    comparison, the callee of a call, or else the expression as written."""
+    comparison (the operand of a typeof compared, on either side), the
+    callee of a call, or else the expression as written."""
     span = _span(capture)
     if span in found.group:
         return discriminants(found.group[span].captures[INNER], found)
@@ -679,7 +694,13 @@ def discriminants(capture: Capture, found: _Expressions) -> list[str]:
     if span in found.negate:
         return discriminants(found.negate[span].captures[OPERAND], found)
     if span in found.compare:
-        return [found.compare[span].captures[LEFT].text]
+        sides = found.compare[span].captures
+        tested = [
+            found.typeof[_span(side)].captures[OPERAND].text
+            for side in (sides[LEFT], sides[RIGHT])
+            if _span(side) in found.typeof
+        ]
+        return tested[:1] or [sides[LEFT].text]
     if span in found.call:
         return [_callee(found.call[span])]
     return [capture.text]
@@ -694,6 +715,7 @@ def conditionals(file: _File) -> list[Conditional]:
         negate=_spans(file.of(NEGATE)),
         group=_spans(file.of(GROUP)),
         call=_spans(file.of(CALL)),
+        typeof=_spans(file.of(TYPEOF)),
     )
     branches: list[Conditional] = []
     for m in file.of(CONDITIONAL):
@@ -711,18 +733,29 @@ def conditionals(file: _File) -> list[Conditional]:
 
 def members(file: _File) -> list[Member]:
     """Every type's fields and methods, each name once at its first line:
-    declared, a constructor's parameter property, or assigned on `this`."""
+    declared, a constructor's parameter property, or a field of `this`
+    written (the same targets as every Write)."""
     types = [d for d in file.defined if d.kind is UnitKind.TYPE]
     by_span = {(d.match.start, d.match.end): d for d in types}
-    kinds = {MEMBER_METHOD: MemberKind.METHOD, MEMBER_FIELD: MemberKind.FIELD}
+    kinds = {
+        MEMBER_METHOD: MemberKind.METHOD,
+        MEMBER_FIELD: MemberKind.FIELD,
+        WRITE: MemberKind.FIELD,
+    }
     found = sorted(
-        (m for fact in kinds for m in file.of(fact)), key=lambda m: (m.line, m.start)
+        (
+            m
+            for fact in kinds
+            for m in file.of(fact)
+            if fact != WRITE or m.captured(OBJECT) == THIS
+        ),
+        key=lambda m: (m.line, m.start),
     )
     first: dict[tuple[str, str], Member] = {}
     for m, holder in zip(
         found, innermost_each([d.match for d in types], found), strict=True
     ):
-        name = m.captured(NAME)
+        name = m.captured(FIELD if m.fact == WRITE else NAME)
         if holder is not None and name is not None:
             owner = by_span[(holder.start, holder.end)]
             member = Member(
@@ -804,12 +837,16 @@ def file_model(
 
 
 def syntax_errors(matches: Sequence[Match]) -> dict[str, int]:
-    """The first line the parser could not read, per file that has one."""
-    found: dict[str, int] = {}
-    errors = (m for m in matches if m.fact == SYNTAX_ERROR)
-    for m in sorted(errors, key=lambda m: m.line):
-        found.setdefault(m.path, m.line)
-    return found
+    """The first line the parser could not read, per file that has one: an
+    unreadable node's, or the line of a token the parser had to insert."""
+    lines: dict[str, set[int]] = {}
+    for m in matches:
+        if m.fact == SYNTAX_ERROR:
+            missing = m.captures.get(MISSING)
+            lines.setdefault(m.path, set()).add(
+                m.line if missing is None else missing.line
+            )
+    return {path: min(found) for path, found in lines.items()}
 
 
 def merged(models: Sequence[CodeModel], **rest: object) -> CodeModel:
@@ -976,15 +1013,18 @@ def structure(
     binary: Path,
     clock: Callable[[], float],
     unreadable: str = "not {language}: syntax error at line {line}",
+    code: Callable[[str], bool] = lambda path: True,
 ) -> Scanned | TimedOut:
     """The structural pass of one language over the sources: unreadable
     files and files the grammar cannot parse are unparsed with the reason
     (unreadable, formatted with the language and the first line the
     grammar could not read), and ast-grep failing leaves every readable
-    file unparsed; TimedOut when the deadline passes first."""
+    file unparsed; a readable source that is not code (by `code`) is
+    neither scanned nor unparsed. TimedOut when the deadline passes first."""
     if passed(deadline, clock()):
         return TimedOut(f"model the {language} sources")
     found, unparsed = readable(sources)
+    found = {path: data for path, data in found.items() if code(path)}
     try:
         matches, undecoded = scan(
             found, grammar, binary=binary, deadline=deadline, clock=clock

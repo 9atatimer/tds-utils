@@ -18,6 +18,16 @@ rule:
         - kind: method_definition
         - inside: {kind: class_body}
         - has: {field: name, pattern: $NAME}
+    # A type's method written as a signature only, as a port's are.
+    - all:
+        - any:
+            - kind: method_signature
+            - kind: abstract_method_signature
+        - any:
+            - inside: {kind: interface_body}
+            - inside: {kind: class_body}
+            - inside: {kind: object_type, inside: {kind: type_alias_declaration}}
+        - has: {field: name, pattern: $NAME}
     - all:
         - any:
             - kind: arrow_function
@@ -83,6 +93,8 @@ rule:
     - kind: generator_function
     - kind: arrow_function
     - kind: method_definition
+    - kind: method_signature
+    - kind: abstract_method_signature
 ---
 id: parameter
 language: TypeScript
@@ -165,6 +177,8 @@ rule:
     - kind: generator_function
     - kind: arrow_function
     - kind: method_definition
+    - kind: method_signature
+    - kind: abstract_method_signature
   has: {field: return_type, pattern: $TYPE}
 ---
 id: decorator
@@ -231,6 +245,8 @@ rule:
         - has: {field: body, pattern: $BODY}
         - has: {field: value, pattern: $BODY}
 ---
+# A body holding nothing but comments, or nothing but one throw beside
+# them: comments never make a placeholder real work.
 id: stub
 language: TypeScript
 severity: hint
@@ -246,14 +262,21 @@ rule:
     field: body
     kind: statement_block
     any:
-      - regex: '^\{\s*\}$'
+      - not:
+          has:
+            not:
+              any:
+                - kind: comment
+                - regex: '^[{}]$'
       - all:
           - has:
               kind: throw_statement
               has:
                 kind: new_expression
                 has: {field: constructor, pattern: $THROWN}
-          - not: {has: {nthChild: 2}}
+          - not:
+              has:
+                nthChild: {position: 2, ofRule: {not: {kind: comment}}}
 ---
 id: call
 language: TypeScript
@@ -345,31 +368,47 @@ rule:
   regex: '^globalThis\.'
   not: {inside: {kind: member_expression, field: object}}
 ---
+# A field target: the left of an assignment or a for-in/of header, an
+# update's operand, or an element of a destructuring pattern there (a
+# default's value is read, not written).
 id: write
 language: TypeScript
 severity: hint
 rule:
-  any:
-    - kind: assignment_expression
-    - kind: augmented_assignment_expression
-  has:
-    field: left
-    kind: member_expression
-    all:
-      - has: {field: object, pattern: $OBJECT}
-      - has: {field: property, pattern: $FIELD}
----
-id: write.update
-language: TypeScript
-severity: hint
-rule:
-  kind: update_expression
-  has:
-    field: argument
-    kind: member_expression
-    all:
-      - has: {field: object, pattern: $OBJECT}
-      - has: {field: property, pattern: $FIELD}
+  kind: member_expression
+  all:
+    - has: {field: object, pattern: $OBJECT}
+    - has: {field: property, pattern: $FIELD}
+    - any:
+        - inside:
+            field: left
+            any:
+              - kind: assignment_expression
+              - kind: augmented_assignment_expression
+              - kind: for_in_statement
+        - inside: {field: argument, kind: update_expression}
+        - all:
+            - any:
+                - inside:
+                    any:
+                      - kind: array_pattern
+                      - kind: pair_pattern
+                      - kind: rest_pattern
+                - inside: {kind: assignment_pattern, field: left}
+                - inside: {kind: object_assignment_pattern, field: left}
+            - inside:
+                any:
+                  - kind: assignment_expression
+                  - kind: for_in_statement
+                stopBy:
+                  not:
+                    any:
+                      - kind: array_pattern
+                      - kind: object_pattern
+                      - kind: pair_pattern
+                      - kind: rest_pattern
+                      - kind: assignment_pattern
+                      - kind: object_assignment_pattern
 ---
 id: conditional
 language: TypeScript
@@ -409,6 +448,16 @@ rule:
   has: {field: operator, regex: '^(===|!==|==|!=|<|>|<=|>=|instanceof|in)$'}
   all:
     - has: {field: left, pattern: $LEFT}
+    - has: {field: right, pattern: $RIGHT}
+---
+id: typeof
+language: TypeScript
+severity: hint
+rule:
+  kind: unary_expression
+  has: {field: operator, regex: '^typeof$'}
+  all:
+    - has: {field: argument, pattern: $OPERAND}
 ---
 id: negate
 language: TypeScript
@@ -468,20 +517,6 @@ rule:
   all:
     - has: {field: pattern, pattern: $NAME}
 ---
-id: member-field.this
-language: TypeScript
-severity: hint
-rule:
-  any:
-    - kind: assignment_expression
-    - kind: augmented_assignment_expression
-  has:
-    field: left
-    kind: member_expression
-    all:
-      - has: {field: object, kind: this}
-      - has: {field: property, pattern: $NAME}
----
 id: test-call
 language: TypeScript
 severity: hint
@@ -504,3 +539,13 @@ language: TypeScript
 severity: hint
 rule:
   kind: ERROR
+---
+# A token the parser inserted to repair the file (an unclosed brace,
+# parenthesis or bracket) has no text; the file is as unreadable as one
+# holding an ERROR node, and the token's line is where it breaks.
+id: syntax-error.missing
+language: TypeScript
+severity: hint
+rule:
+  kind: program
+  has: {regex: '^$', stopBy: end, pattern: $$MISSING}

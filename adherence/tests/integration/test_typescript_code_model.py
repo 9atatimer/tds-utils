@@ -3,7 +3,9 @@ one member at a time (task-069), after the shared contract."""
 
 from __future__ import annotations
 
+import collections
 import functools
+import json
 import tempfile
 import uuid
 from collections.abc import Mapping
@@ -11,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from adherence.adapters import ts_depcruise
 from adherence.adapters.ts_depcruise import TypeScriptCodeModel
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, parse_declaration
@@ -173,6 +176,77 @@ def test_requires_reexports_and_dynamic_imports_are_edges() -> None:
     }
 
 
+TSCONFIG = b"""{
+  // the aliases live here; the base names where they start
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "paths": { "@lib/*": ["lib/*"], },
+  },
+}
+"""
+ALIASED = {
+    "src/a.ts": b"import { b } from '@lib/b';\nimport { c } from './c';\n",
+    "src/lib/b.ts": b"export const b = 1;\n",
+    "src/c.ts": b"export const c = 1;\n",
+}
+
+
+@typescript_fixture.needs_cruiser
+def test_tsconfig_path_aliases_resolve_and_the_config_is_no_unit() -> None:
+    """Given a tsconfig.json among the sources (with comments and trailing
+    commas) whose paths alias a directory under the baseUrl its in-repository
+    base sets, When the sources are modelled, Then an aliased import resolves
+    to its file, and only the TypeScript files are units."""
+    model = _model_of(
+        {
+            **ALIASED,
+            "tsconfig.json": TSCONFIG,
+            "tsconfig.base.json": b'{"compilerOptions": {"baseUrl": "src"}}\n',
+        }
+    )
+
+    assert {(e.imported, e.imported_path) for e in model.imports} == {
+        ("@lib/b", "src/lib/b.ts"),
+        ("./c", "src/c.ts"),
+    }
+    assert {u.path for u in model.units if u.kind is UnitKind.FILE} == set(ALIASED)
+    assert model.unparsed == ()
+
+
+@typescript_fixture.needs_cruiser
+def test_tsconfig_paths_without_a_base_url_are_read_from_the_config() -> None:
+    """Given a tsconfig.json whose paths alias a directory and set no
+    baseUrl, When the sources are modelled, Then the alias resolves relative
+    to the configuration's own directory."""
+    config = b'{"compilerOptions": {"paths": {"@lib/*": ["./src/lib/*"]}}}'
+
+    model = _model_of({**ALIASED, "tsconfig.json": config})
+
+    assert ("@lib/b", "src/lib/b.ts") in {
+        (e.imported, e.imported_path) for e in model.imports
+    }
+
+
+@typescript_fixture.needs_cruiser
+def test_a_tsconfig_reaching_outside_the_sources_is_not_followed(
+    tmp_path: Path,
+) -> None:
+    """Given a tsconfig.json that extends a configuration outside the
+    sources (by absolute path, by climbing out, by package) which would
+    alias the import, When the sources are modelled, Then the alias does not
+    resolve: nothing outside the copy is read."""
+    outside = tmp_path / "outside.json"
+    outside.write_text(
+        '{"compilerOptions": {"baseUrl": ".", "paths": {"@lib/*": ["src/lib/*"]}}}'
+    )
+    extends = [str(outside), f"../../../../../..{outside}", "@tsconfig/aliases"]
+    config = json.dumps({"extends": extends}).encode()
+
+    model = _model_of({**ALIASED, "tsconfig.json": config})
+
+    assert ("@lib/b", None) in {(e.imported, e.imported_path) for e in model.imports}
+
+
 @typescript_fixture.needs_cruiser
 def test_measured_code_is_never_run_even_as_the_analyzers_configuration(
     tmp_path: Path,
@@ -199,6 +273,139 @@ def test_measured_code_is_never_run_even_as_the_analyzers_configuration(
         (".dependency-cruiser.cjs", None),
         ("a.mjs", "b.mjs"),
     }
+
+
+class CountingReads:
+    """The adapter's tsconfig reader, counting each configuration it reads
+    and passing the clock's deadline once it has read the first."""
+
+    def __init__(self, clock: SteppedClock | None = None) -> None:
+        self.texts: collections.Counter[str] = collections.Counter()
+        self._clock = clock
+
+    def __call__(self, text: str) -> dict[str, object]:
+        self.texts[text] += 1
+        if self._clock is not None:
+            self._clock.now = 10.0
+        return READ_TSCONFIG(text)
+
+
+class SteppedClock:
+    """A clock that reads what it was last set to."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+READ_TSCONFIG = ts_depcruise.read_tsconfig
+IMPORTER = {
+    "a.ts": b"import { b } from './b';\n",
+    "b.ts": b"export const b = 1;\n",
+}
+
+
+def _diamond(length: int) -> dict[str, bytes]:
+    """A tsconfig.json over a chain of configurations, each extending the
+    next two: every one is reached by many paths through the chain."""
+    chain = {
+        f"c{i}.json": json.dumps({"extends": [f"./c{i + 1}.json", f"./c{i + 2}.json"]})
+        for i in range(length)
+    }
+    ends = {f"c{i}.json": json.dumps({"//": i}) for i in (length, length + 1)}
+    root = {"tsconfig.json": json.dumps({"extends": "./c0.json"})}
+    return {p: t.encode() for p, t in {**chain, **ends, **root}.items()}
+
+
+def test_a_diamond_of_extends_reads_each_configuration_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Given a tsconfig.json whose extends chain is a diamond, each
+    configuration extending the next two, When the sources are modelled,
+    Then each configuration is read once, not once per path to it."""
+    reads = CountingReads()
+    monkeypatch.setattr(ts_depcruise, "read_tsconfig", reads)
+
+    model = _model_of({**IMPORTER, **_diamond(16)})
+
+    assert isinstance(model, CodeModel)
+    assert len(reads.texts) == 19
+    assert max(reads.texts.values()) == 1
+
+
+def test_an_extends_chain_past_the_bound_is_cut_and_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Given a tsconfig.json at the head of a chain of hundreds of extended
+    configurations, When the sources are modelled, Then the chain is not
+    walked to its end, and the configuration where it was cut is Unparsed
+    with the reason."""
+    chain = {
+        f"c{i}.json": json.dumps({"extends": f"./c{i + 1}.json"}).encode()
+        for i in range(300)
+    }
+    root = {"tsconfig.json": b'{"extends": "./c0.json"}'}
+    reads = CountingReads()
+    monkeypatch.setattr(ts_depcruise, "read_tsconfig", reads)
+
+    model = _model_of({**IMPORTER, **chain, "c300.json": b"{}", **root})
+
+    assert sum(reads.texts.values()) < 300
+    [cut] = [u for u in model.unparsed if u.path.endswith(".json")]
+    assert "not followed" in cut.reason
+    assert ("./b", "b.ts") in {(e.imported, e.imported_path) for e in model.imports}
+
+
+def test_the_deadline_passing_in_the_extends_walk_stops_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Given a deadline that passes while the tsconfig.json extends chain is
+    walked, When the sources are modelled, Then the walk reads no further
+    configuration and the answer is TimedOut."""
+    clock = SteppedClock()
+    reads = CountingReads(clock)
+    monkeypatch.setattr(ts_depcruise, "read_tsconfig", reads)
+
+    answer = TypeScriptCodeModel(clock=clock).model(
+        {**IMPORTER, **_diamond(8)},
+        typescript_fixture.declaration(),
+        typescript_fixture.VOCABULARY,
+        Deadline(epoch_seconds=5.0),
+    )
+
+    assert isinstance(answer, TimedOut)
+    assert sum(reads.texts.values()) == 1
+
+
+NESTED_JSON = b"[" * 100_000 + b"]" * 100_000
+
+
+@pytest.mark.parametrize(
+    ("unreadable", "config"),
+    [
+        ("tsconfig.json", {"tsconfig.json": NESTED_JSON}),
+        (
+            "base.json",
+            {"tsconfig.json": b'{"extends": "./base.json"}', "base.json": NESTED_JSON},
+        ),
+    ],
+    ids=["root", "extended"],
+)
+def test_a_tsconfig_nested_past_the_parser_is_unparsed_and_the_rest_modelled(
+    unreadable: str, config: dict[str, bytes]
+) -> None:
+    """Given a tsconfig.json, or a configuration it extends, nested deeper
+    than the JSON parser can walk, When the sources are modelled, Then that
+    configuration is Unparsed with the reason, gives no aliases, and the
+    code is still modelled."""
+    model = _model_of({**IMPORTER, **config})
+
+    [unparsed] = model.unparsed
+    assert unparsed.path == unreadable
+    assert "tsconfig" in unparsed.reason
+    assert {u.path for u in model.units} == set(IMPORTER)
 
 
 def _definition(path: str, symbol: str) -> Definition:
@@ -275,7 +482,7 @@ def test_options_objects_are_keyword_parameters_by_the_vocabulary() -> None:
             Parameter(
                 "reviews", 'Ports["reviews"]', keyword_only=True, has_default=True
             ),
-            Parameter("...rest", "string[]", keyword_only=False, has_default=False),
+            Parameter("*rest", "string[]", keyword_only=False, has_default=False),
         ),
         returns="void",
     )
@@ -290,6 +497,49 @@ def test_options_objects_are_keyword_parameters_by_the_vocabulary() -> None:
         parameters=(Parameter("x", None, keyword_only=False, has_default=False),),
         returns=None,
     )
+
+
+def test_a_ports_method_signatures_are_units_with_signatures() -> None:
+    """Given an interface and an object type alias whose methods are
+    signatures only, and an abstract method, When they are modelled, Then
+    each method is a function unit of its type, with its signature (a rest
+    parameter starred, as Python's is) and no body, as a Protocol's methods
+    are in Python."""
+    source = (
+        b"export interface Port {\n"
+        b"  load(key: string, ...more: number[]): string;\n"
+        b"}\n"
+        b"type Lit = { go(z: boolean): void };\n"
+        b"abstract class Base {\n"
+        b"  abstract run(n: number): void;\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.ts": source})
+
+    found = {d.unit.symbol: d for d in model.definitions}
+    load, go, run = found["Port.load"], found["Lit.go"], found["Base.run"]
+    assert (load.unit.kind, load.unit.start, load.parent) == (
+        UnitKind.FUNCTION,
+        2,
+        "Port",
+    )
+    assert load.signature == Signature(
+        parameters=(
+            Parameter("key", "string", keyword_only=False, has_default=False),
+            Parameter("*more", "number[]", keyword_only=False, has_default=False),
+        ),
+        returns="string",
+    )
+    assert go.signature == Signature(
+        parameters=(Parameter("z", "boolean", keyword_only=False, has_default=False),),
+        returns="void",
+    )
+    assert run.signature == Signature(
+        parameters=(Parameter("n", "number", keyword_only=False, has_default=False),),
+        returns="void",
+    )
+    assert (load.body.text, load.body.stub_markers, load.nested) == ("", (), False)
 
 
 def test_bodies_carry_their_text_stub_markers_and_sleeps() -> None:
@@ -341,6 +591,31 @@ def test_sleeps_and_stubs_come_from_the_vocabulary() -> None:
     bodies = {d.unit.symbol: d.body for d in model.definitions}
     assert bodies["b"].sleeps == (2,)
     assert (bodies["c"].stub_markers, bodies["d"].stub_markers) == ((), ("{}",))
+
+
+def test_a_comment_does_not_hide_a_stub() -> None:
+    """Given a body holding only comments, and one whose only statement
+    throws NotImplementedError beside a comment, When they are modelled,
+    Then each is the stub it would be without its comments."""
+    source = (
+        b"class A {\n"
+        b"  todo() {\n"
+        b"    // todo\n"
+        b"  }\n"
+        b"  later() { /* soon */ }\n"
+        b"  next() {\n"
+        b"    // not yet\n"
+        b"    throw new NotImplementedError();\n"
+        b"  }\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.ts": source})
+
+    markers = {d.unit.symbol: d.body.stub_markers for d in model.definitions}
+    assert markers["A.todo"] == ("{}",)
+    assert markers["A.later"] == ("{}",)
+    assert markers["A.next"] == ("NotImplementedError",)
 
 
 def test_references_are_names_types_and_strings_but_not_specifiers() -> None:
@@ -433,6 +708,45 @@ def test_writes_are_field_assignments_with_the_unit_that_makes_them() -> None:
     ]
 
 
+def test_every_field_target_is_a_write_and_a_field_of_this_a_member() -> None:
+    """Given a method that updates a field of this, assigns fields through
+    array and object destructuring, binds one as a for-of target, and only
+    reads others (on the right, or as a destructuring default), When it is
+    modelled, Then each field target is a write, each target on this is a
+    field member of the class, and no field read is either."""
+    source = (
+        b"class A {\n"
+        b"  bump(o) {\n"
+        b"    this.n++;\n"
+        b"    [this.q, o.p] = [1, 2];\n"
+        b"    ({ k: this.k } = o);\n"
+        b"    for (this.r of [1]) {}\n"
+        b"    const x = this.z;\n"
+        b"    [this.a = this.b] = [];\n"
+        b"  }\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.ts": source})
+
+    assert sorted((w.line, w.target, w.field) for w in model.writes) == [
+        (3, "this", "n"),
+        (4, "o", "p"),
+        (4, "this", "q"),
+        (5, "this", "k"),
+        (6, "this", "r"),
+        (8, "this", "a"),
+    ]
+    assert {(m.name, m.kind, m.line) for m in model.members} == {
+        ("bump", MemberKind.METHOD, 2),
+        ("n", MemberKind.FIELD, 3),
+        ("q", MemberKind.FIELD, 4),
+        ("k", MemberKind.FIELD, 5),
+        ("r", MemberKind.FIELD, 6),
+        ("a", MemberKind.FIELD, 8),
+    }
+
+
 def test_conditionals_name_their_discriminant() -> None:
     """Given a branch on a value's field, When the fixture is modelled, Then
     the conditional names the expression it discriminates on, its line and
@@ -465,6 +779,25 @@ def test_conditionals_see_through_logic_switches_and_instanceof() -> None:
         (3, "kind"),
         (4, "x"),
         (5, "isReady"),
+    ]
+
+
+def test_a_typeof_comparison_discriminates_on_its_operand() -> None:
+    """Given branches comparing the typeof of a value and of a field, either
+    way round, When they are modelled, Then each discriminates on the value
+    whose type it tests, as an isinstance test does in Python."""
+    source = (
+        b"function f(a, o) {\n"
+        b"  if (typeof a === 'string') {}\n"
+        b"  if ('number' !== typeof o.n) {}\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.mjs": source})
+
+    assert sorted((c.line, c.discriminant) for c in model.conditionals) == [
+        (2, "a"),
+        (3, "o.n"),
     ]
 
 
@@ -575,6 +908,32 @@ def test_a_file_that_does_not_parse_is_unparsed_and_the_rest_modelled() -> None:
     assert [d.unit.symbol for d in model.definitions] == ["f"]
 
 
+def test_a_file_missing_a_closing_token_is_unparsed_alone() -> None:
+    """Given files the parser repairs by inserting a missing token (an
+    unclosed block, parameter list, call and for-of header) beside a good
+    one, When they are modelled, Then each repaired file is Unparsed with
+    the line of its missing token and holds no unit, and the good file is
+    modelled."""
+    model = _model_of(
+        {
+            "block.ts": b"function f() {\n  return 1;\n",
+            "call.mjs": b"const a = 1;\ng(a, 2;\n",
+            "loop.ts": b"for (const k of ks {\n  use(k);\n}\n",
+            "params.ts": b"function g(x {\n  return x;\n}\n",
+            "fine.ts": b"export function ok(): number {\n  return 1;\n}\n",
+        }
+    )
+
+    reasons = {u.path: u.reason for u in model.unparsed}
+    assert sorted(reasons) == ["block.ts", "call.mjs", "loop.ts", "params.ts"]
+    assert "syntax error at line 2" in reasons["block.ts"]
+    assert "syntax error at line 2" in reasons["call.mjs"]
+    assert "syntax error at line 1" in reasons["loop.ts"]
+    assert "syntax error at line 1" in reasons["params.ts"]
+    assert {u.path for u in model.units} == {"fine.ts"}
+    assert [d.unit.symbol for d in model.definitions] == ["ok"]
+
+
 def test_a_file_nested_past_the_walk_is_unparsed_and_the_rest_modelled() -> None:
     """Given a file that parses but nests deeper than the analyzer can walk,
     When it is modelled with another file, Then that file is Unparsed and
@@ -587,6 +946,34 @@ def test_a_file_nested_past_the_walk_is_unparsed_and_the_rest_modelled() -> None
 
     assert [u.path for u in model.unparsed] == ["deep.ts"]
     assert any(d.unit.symbol == "f" for d in model.definitions)
+
+
+@typescript_fixture.needs_cruiser
+def test_a_file_the_cruiser_cannot_read_is_unparsed_alone_by_name() -> None:
+    """Given a file nested deeper than dependency-cruiser can extract beside
+    files whose imports it can, When they are modelled, Then that file alone
+    is Unparsed, with a reason naming it, and holds no fact, and the other
+    files' imports still resolve."""
+    deep = "f(" * 4000 + "1" + ")" * 4000
+    culprit = "lib/deep.ts"
+
+    model = _model_of(
+        {
+            culprit: f"import {{ z }} from './z';\nexport const v = {deep};\n".encode(),
+            "lib/z.ts": b"import { w } from './w';\nexport function z() {}\n",
+            "lib/w.ts": b"export const w = 1;\n",
+        }
+    )
+
+    assert [u.path for u in model.unparsed] == [culprit]
+    [reason] = [u.reason for u in model.unparsed]
+    assert "dependency-cruiser" in reason
+    assert culprit in reason
+    assert {(e.path, e.imported_path) for e in model.imports} == {
+        ("lib/z.ts", "lib/w.ts")
+    }
+    facts = (*model.units, *model.calls, *model.references)
+    assert not [fact for fact in facts if fact.path == culprit]
 
 
 IMPORTING = {
