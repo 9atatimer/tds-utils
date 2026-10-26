@@ -9,7 +9,8 @@ is a judged question (task-064).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections import Counter
+from collections.abc import Mapping, Sequence
 
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.coverage import Coverage
@@ -19,6 +20,7 @@ from adherence.domain.model import (
     Assertion,
     Call,
     CodeModel,
+    Definition,
     Layer,
     TestCase,
     Unit,
@@ -196,6 +198,49 @@ def public_surface(
     return CheckOutcome(tuple(findings))
 
 
+def is_core_or_edge(layer: Layer | None) -> bool:
+    """Whether a unit is covered and not a test."""
+    return layer is not None and layer is not Layer.TEST
+
+
+def _definitions(model: CodeModel) -> dict[tuple[str, str], Definition]:
+    """Every definition, by its file and symbol."""
+    return {(d.unit.path, d.unit.symbol or ""): d for d in model.definitions}
+
+
+def _unambiguous(model: CodeModel) -> frozenset[str]:
+    """The module-level function names exactly one covered non-test
+    definition carries."""
+    names = Counter(
+        d.unit.symbol or ""
+        for d in model.definitions
+        if d.unit.kind is UnitKind.FUNCTION
+        and d.parent is None
+        and is_core_or_edge(d.unit.layer)
+    )
+    return frozenset(n for n, count in names.items() if count == 1)
+
+
+def _kept_name(
+    call: Call,
+    definitions: Mapping[tuple[str, str], Definition],
+    unambiguous: frozenset[str],
+) -> str | None:
+    """The function of the repository's covered non-test code a call
+    reaches: the definition it resolves to, or, when it calls a bare name the
+    analyzer could not resolve, the one function of that name. A method of
+    some other object by the same name reaches nothing."""
+    target = call.target
+    if target is None:
+        return call.callee if call.callee in unambiguous else None
+    if target.path is None or target.symbol is None:
+        return None
+    found = definitions.get((target.path, target.symbol))
+    if found is None or not is_core_or_edge(found.unit.layer):
+        return None
+    return target.symbol
+
+
 def _behavior_finding(behavior: Behavior, function: str) -> Finding:
     unit = Unit(
         behavior.path,
@@ -221,23 +266,28 @@ def kept_test(
     parameters: Parameters,
 ) -> CheckOutcome:
     """Every design behavior has a test that calls its use case, by the
-    use-case surface. A behavior with no use case is Trace's finding, not
-    this check's."""
+    use-case surface: a call that resolves to the repository's function of
+    that name. A behavior with no use case is Trace's finding, not this
+    check's."""
     if not declaration.declared:
         return undeclared(KEPT_TEST.name)
     if isinstance(records, RecordsUnavailable):
         return CheckOutcome(
             coverage=(Coverage(records.reason, check=KEPT_TEST.name),), ran=False
         )
-    called = {
-        callee.rpartition(".")[2]
+    calls = calls_by_scope(model)
+    definitions = _definitions(model)
+    unambiguous = _unambiguous(model)
+    kept = {
+        name
         for case, _unit in _tests(model, declaration)
-        for callee in case.calls
+        for call in calls.get((case.path, case.symbol), [])
+        if (name := _kept_name(call, definitions, unambiguous)) is not None
     }
     functions = {row.behavior: row.function for row in records.surface}
     findings = [
         _behavior_finding(behavior, functions[behavior.name])
         for behavior in records.behaviors
-        if behavior.name in functions and functions[behavior.name] not in called
+        if behavior.name in functions and functions[behavior.name] not in kept
     ]
     return CheckOutcome(tuple(findings))

@@ -134,11 +134,17 @@ UNHOMED = "A behavior with no use case"
 
 
 def test_measure_with_a_behavior_no_test_calls_finds_the_behavior() -> None:
-    """Given design behaviors whose use cases a test calls, one whose use
-    case only non-test code calls, and one with no use case on the surface,
-    When Kept test runs, Then one finding names the behavior no test keeps,
-    at its row in the design record."""
+    """Given design behaviors whose use cases a test calls -- one by the
+    call's resolved target, one by an unresolved bare name only one function
+    carries -- one whose use case only non-test code calls, and one with no
+    use case on the surface, When Kept test runs, Then one finding names the
+    behavior no test keeps, at its row in the design record."""
     files = {TEST: b"x\n" * 10, USE: b"x\n" * 10}
+    definitions = (
+        _function(USE, "measure", 1),
+        _function(USE, "explain", 4),
+        _function(USE, "record_report", 7),
+    )
     records = DesignRecords(
         behaviors=(
             Behavior(MEASURED, DESIGN, 10),
@@ -152,8 +158,15 @@ def test_measure_with_a_behavior_no_test_calls_finds_the_behavior() -> None:
             UseCase(PERSISTS, "record_report", ARCHITECTURE, 22),
         ),
     )
+    measure = Target("app.application.use.measure", USE, "measure")
     facts = CodeModel(
-        calls=(Call(USE, 3, "run", "record_report"),),
+        units=tuple(d.unit for d in definitions),
+        definitions=definitions,
+        calls=(
+            Call(USE, 3, "run", "record_report"),
+            Call(TEST, 2, "test_measure", "measure", measure),
+            Call(TEST, 6, "test_explain", "explain"),
+        ),
         test_cases=(
             TestCase(TEST, "test_measure", 1, ("measure",), (Assertion("r"),)),
             TestCase(TEST, "test_explain", 5, ("app.explain",), (Assertion("r"),)),
