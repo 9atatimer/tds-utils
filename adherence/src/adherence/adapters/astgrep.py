@@ -71,12 +71,13 @@ PARAMETER_PROPERTY, PROPERTY_DEFAULT, PROPERTY_TYPE = (
 BODY, STUB, CALL, NAME_FACT, STRING = "body", "stub", "call", "name", "string"
 GLOBAL, WRITE, SYNTAX_ERROR = "global", "write", "syntax-error"
 MEMBER_METHOD, MEMBER_FIELD, TEST_CALL = "member-method", "member-field", "test-call"
-CONDITIONAL, EITHER, COMPARE, NEGATE, GROUP = (
+CONDITIONAL, EITHER, COMPARE, NEGATE, GROUP, TYPEOF = (
     "conditional",
     "either",
     "compare",
     "negate",
     "group",
+    "typeof",
 )
 RETURNS, BASE, DECORATOR, DECORATOR_NEXT = (
     "returns",
@@ -206,6 +207,7 @@ class _Expressions:
     negate: Mapping[Span, Match]
     group: Mapping[Span, Match]
     call: Mapping[Span, Match]
+    typeof: Mapping[Span, Match]
 
 
 # --- Pure helpers ------------------------------------------------------------
@@ -621,7 +623,8 @@ def _span(capture: Capture) -> Span:
 def discriminants(capture: Capture, found: _Expressions) -> list[str]:
     """What a branch's test discriminates on: through parentheses, each
     operand of a logical operator, the operand of a negation, the left of a
-    comparison, the callee of a call, or else the expression as written."""
+    comparison (the operand of a typeof compared, on either side), the
+    callee of a call, or else the expression as written."""
     span = _span(capture)
     if span in found.group:
         return discriminants(found.group[span].captures[INNER], found)
@@ -631,7 +634,13 @@ def discriminants(capture: Capture, found: _Expressions) -> list[str]:
     if span in found.negate:
         return discriminants(found.negate[span].captures[OPERAND], found)
     if span in found.compare:
-        return [found.compare[span].captures[LEFT].text]
+        sides = found.compare[span].captures
+        tested = [
+            found.typeof[_span(side)].captures[OPERAND].text
+            for side in (sides[LEFT], sides[RIGHT])
+            if _span(side) in found.typeof
+        ]
+        return tested[:1] or [sides[LEFT].text]
     if span in found.call:
         return [_callee(found.call[span])]
     return [capture.text]
@@ -646,6 +655,7 @@ def conditionals(file: _File) -> list[Conditional]:
         negate=_spans(file.of(NEGATE)),
         group=_spans(file.of(GROUP)),
         call=_spans(file.of(CALL)),
+        typeof=_spans(file.of(TYPEOF)),
     )
     branches: list[Conditional] = []
     for m in file.of(CONDITIONAL):

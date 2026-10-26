@@ -434,6 +434,16 @@ rule:
   has: {field: operator, regex: '^(===|!==|==|!=|<|>|<=|>=|instanceof|in)$'}
   all:
     - has: {field: left, pattern: $LEFT}
+    - has: {field: right, pattern: $RIGHT}
+---
+id: typeof
+language: TypeScript
+severity: hint
+rule:
+  kind: unary_expression
+  has: {field: operator, regex: '^typeof$'}
+  all:
+    - has: {field: argument, pattern: $OPERAND}
 ---
 id: negate
 language: TypeScript
