@@ -35,6 +35,7 @@ from tests.measure_kit import HEXAGON
 USE = "src/app/application/use.py"
 CLEAN = b"def run():\n    return 1\n"
 STUBBED = b"\ndef tidy():\n    pass\n"
+OLD = b"\ndef tidy():\n    pass\n# old\n"
 FIXED = b"\ndef tidy():\n    return 1\n"
 WHEN = {
     STUBBED: stubbed(RULES, "tidy", 2),
@@ -387,3 +388,37 @@ def test_judge_change_after_a_landed_cover_marks_its_flaws_existing() -> None:
     assert (finding.unit.path, finding.layer) == (old, Layer.DOMAIN)
     assert finding.provenance is Provenance.EXISTING
     assert report.verdict is Verdict.HELD
+
+
+NARROWED = b"""
+[layers]
+application = ["src/app/application/**"]
+domain = ["src/app/extra/**"]
+
+[[exemptions]]
+check = "Stub"
+unit = "src/app/domain/rules.py"
+reason = "the change says so"
+"""
+
+
+def test_judge_change_cannot_narrow_its_own_declaration() -> None:
+    """Given a change whose own declaration removes an assignment, covers an
+    existing unit and adds an exemption, When it is judged, Then it is
+    judged as if those edits were absent, and each edit is a notice."""
+    old = "src/app/extra/old.py"
+    base = {RULES: STUBBED, old: OLD, USE: CLEAN}
+
+    report = judge_with(
+        base,
+        {**base, USE: CLEAN + b"\n# edited\n", DECLARATION_PATH: NARROWED},
+        when={**WHEN, OLD: stubbed(old, "tidy", 2)},
+    )
+
+    (finding,) = report.findings
+    assert (finding.unit.path, finding.layer) == (RULES, Layer.DOMAIN)
+    assert finding.provenance is Provenance.EXISTING
+    assert report.verdict is Verdict.HELD
+    notices = [n.message for n in report.notices]
+    assert any("[layers]" in n and "next change" in n for n in notices), notices
+    assert any("exemption added" in n and "inert" in n for n in notices), notices
