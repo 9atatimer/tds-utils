@@ -277,16 +277,22 @@ class FakeRecords:
 class FakeDecision:
     """DecisionPort that gives every schema the one answer the test scripts:
     a Decision, Unavailable, or TimedOut. It keeps every state it was asked
-    about, in order."""
+    about, in order. Its clock is frozen at `now`, so a deadline at or
+    before it has passed."""
 
-    def __init__(self, answer: Decision | Unavailable | TimedOut) -> None:
+    def __init__(
+        self, answer: Decision | Unavailable | TimedOut, *, now: float = 1e9
+    ) -> None:
         self._answer = answer
+        self._now = now
         self.asked: list[tuple[State, Schema]] = []
 
     def decide(
         self, state: State, schema: Schema, deadline: Deadline | None
     ) -> Decision | Unavailable | TimedOut:
         self.asked.append((state, schema))
+        if deadline is not None and deadline.epoch_seconds <= self._now:
+            return TimedOut("ask the judge")
         return self._answer
 
 
