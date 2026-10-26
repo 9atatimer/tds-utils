@@ -260,3 +260,48 @@ def test_a_use_case_reached_through_a_test_helper_is_kept() -> None:
     report = _measured(files, records=records)
 
     assert _unkept(report) == {dropped}
+
+
+RULES = {
+    "src/app/domain/__init__.py": b"",
+    "src/app/domain/rules.py": (
+        b"def price(x):\n"
+        b"    return _round(x)\n"
+        b"def _round(x):\n"
+        b"    return x\n"
+        b"class Store:\n"
+        b"    def _load(self):\n"
+        b"        return 1\n"
+    ),
+}
+
+
+def _past_surface(report: Report) -> set[str]:
+    assert "Public surface" in {c.name for c in report.ran}
+    return {f.subject for f in _of(report, "Public surface")}
+
+
+def test_an_internal_is_found_by_the_definition_a_call_resolves_to() -> None:
+    """Given a test calling a domain internal under an alias, one calling it
+    through its module, and one calling a `_load` method on a test double of
+    its own while a domain type defines `_load`, When Public surface runs,
+    Then the aliased and the direct reach are found and the double's method
+    is not (Self-review R7)."""
+    source = (
+        b"from app.domain.rules import _round as tidy\n"
+        b"from app.domain import rules\n"
+        b"def test_alias():\n"
+        b"    assert tidy(1) == 1\n"
+        b"def test_direct():\n"
+        b"    assert rules._round(1) == 1\n"
+        b"def test_double():\n"
+        b"    double = Fake()\n"
+        b"    assert double._load() == 1\n"
+    )
+
+    report = _measured({**APP, **RULES, TEST: source}, records=RECORDS)
+
+    assert _past_surface(report) == {
+        "test_alias -> tidy",
+        "test_direct -> rules._round",
+    }
