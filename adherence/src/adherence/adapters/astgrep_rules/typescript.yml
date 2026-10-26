@@ -231,6 +231,8 @@ rule:
         - has: {field: body, pattern: $BODY}
         - has: {field: value, pattern: $BODY}
 ---
+# A body holding nothing but comments, or nothing but one throw beside
+# them: comments never make a placeholder real work.
 id: stub
 language: TypeScript
 severity: hint
@@ -246,14 +248,21 @@ rule:
     field: body
     kind: statement_block
     any:
-      - regex: '^\{\s*\}$'
+      - not:
+          has:
+            not:
+              any:
+                - kind: comment
+                - regex: '^[{}]$'
       - all:
           - has:
               kind: throw_statement
               has:
                 kind: new_expression
                 has: {field: constructor, pattern: $THROWN}
-          - not: {has: {nthChild: 2}}
+          - not:
+              has:
+                nthChild: {position: 2, ofRule: {not: {kind: comment}}}
 ---
 id: call
 language: TypeScript
