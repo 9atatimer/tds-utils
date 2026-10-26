@@ -22,6 +22,8 @@ from adherence.domain.model import (
     Definition,
     ImportEdge,
     Layer,
+    Reference,
+    ReferenceKind,
     Target,
     Write,
 )
@@ -30,6 +32,7 @@ from adherence.domain.qualities import CheckKind
 from adherence.domain.questions import (
     DOES_IO,
     INVARIANT_BROKEN,
+    RULES_ELSEWHERE,
     SAME_CONCEPT,
     SCATTERED_POLICY,
     TWO_JOBS,
@@ -509,3 +512,59 @@ def test_measure_foreign_write_that_breaks_an_invariant_is_found(
     assert finding.confidence == pytest.approx(yes)
     assert "Order.status" in finding.subject and "invariant" in finding.subject
     assert finding.identity != rule[0].identity
+
+
+# --- An anemic type is found (judged part) ------------------------------------------
+
+
+@pytest.mark.parametrize(("yes", "found"), [(0.8, True), (0.97, True), (0.79, False)])
+def test_measure_all_fields_type_whose_rules_live_elsewhere_is_found(
+    yes: float, found: bool
+) -> None:
+    """Given a domain type that is all fields, a use case computing over its
+    fields through a parameter of that type, and another all-fields type
+    nothing computes over, When Anemic's judged part runs with the judge's
+    yes at, above or just below the threshold, Then only the first type is
+    asked about, with the computing unit as the data, and a judged finding
+    names the type and the unit holding its rules, with its confidence, only
+    at or above the threshold."""
+    definitions = (
+        _bodied(type_(RULES, "Receipt", 1, end=3), "number: int\ntotal: int"),
+        type_(RULES, "Money", 5, end=7),
+        _bodied(
+            function(USE, "issue", 1, (value("receipt", "Receipt"),), end=4),
+            "return receipt.total * 2",
+        ),
+    )
+    members = (
+        field(RULES, "Receipt", "number", 2),
+        field(RULES, "Receipt", "total", 3),
+        field(RULES, "Money", "cents", 6),
+    )
+    uses = (Reference(USE, 2, "issue", ReferenceKind.NAME, "receipt.total"),)
+    judge = FakeDecision({RULES_ELSEWHERE.id: _yes(yes), TWO_JOBS.id: _yes(0.1)})
+
+    report = measure_with(
+        FILES,
+        CodeModel(definitions=definitions, members=members, references=uses),
+        judge=judge,
+        thresholds=ThresholdPolicy({RULES_ELSEWHERE.id: BAND, TWO_JOBS.id: BAND}),
+    )
+
+    ((state, key),) = [
+        (state, key)
+        for state, schema in judge.asked
+        for key, q in schema.questions.items()
+        if q.id == RULES_ELSEWHERE.id
+    ]
+    assert state.unit.symbol == "Receipt"
+    assert "receipt.total * 2" in state.context[key]
+    assert not any(c.check == "Anemic" for c in report.coverage)
+    findings = _of(report, "Anemic")
+    if not found:
+        assert findings == []
+        return
+    (finding,) = findings
+    assert finding.kind is CheckKind.JUDGED
+    assert finding.confidence == pytest.approx(yes)
+    assert "Receipt" in finding.subject and "issue" in finding.subject
