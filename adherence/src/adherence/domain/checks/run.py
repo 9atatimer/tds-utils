@@ -25,7 +25,7 @@ from adherence.domain.declaration import Declaration
 from adherence.domain.finding import Finding
 from adherence.domain.model import CodeModel
 from adherence.domain.parameters import Parameters
-from adherence.domain.qualities import CATALOG, Check, CheckKind, Quality
+from adherence.domain.qualities import CATALOG, Check, Quality
 from adherence.domain.questions import Ask
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 
@@ -63,11 +63,11 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
 RADAR_CHECKS: Mapping[str, RadarCheckFunction] = {
     "Dependency": radar.dependency,
     "Edge only": radar.edge_only,
+    "Hand-rolled": complete.hand_rolled,
 }
 NO_RADAR = RecordsUnavailable("no radar was read")
 CHANGE_LEVEL = "a change-level check: it runs when a change is judged"
 NOT_IN_SUITE = "not implemented in this suite version"
-NO_JUDGE_YET = "a judged check: none is implemented in this suite version"
 
 # --- Values ------------------------------------------------------------------
 
@@ -91,8 +91,6 @@ def _not_run(check: Check) -> Coverage:
     """Why a check the suite has no function for did not run."""
     if check.quality is Quality.DECLARED:
         return Coverage(CHANGE_LEVEL, check=check.name)
-    if check.kind is CheckKind.JUDGED:
-        return Coverage(NO_JUDGE_YET, check=check.name)
     return Coverage(NOT_IN_SUITE, check=check.name)
 
 
