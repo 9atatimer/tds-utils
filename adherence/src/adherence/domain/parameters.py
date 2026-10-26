@@ -127,12 +127,15 @@ class Limits:
     may quote. complexity_ceiling is the per-function complexity above which
     Complexity finds; None, when no ceiling is supplied, leaves the check as
     coverage. duplication_ceiling is the clone size, in lines, above which
-    Duplication finds; None likewise leaves it as coverage.
+    Duplication finds; None likewise leaves it as coverage. judged_budget
+    is how many judged questions one run may ask; past it each question is
+    coverage, and with none supplied nothing is asked.
     """
 
     evidence_bound: int
     complexity_ceiling: int | None = None
     duplication_ceiling: int | None = None
+    judged_budget: int = 0
 
 
 @dataclass(frozen=True, slots=True)

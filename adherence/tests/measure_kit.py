@@ -59,7 +59,7 @@ VOCABULARY = Vocabulary(
         )
     },
 )
-LIMITS = Limits(evidence_bound=200)
+LIMITS = Limits(evidence_bound=200, judged_budget=100)
 
 HEXAGON = b"""
 [layers]

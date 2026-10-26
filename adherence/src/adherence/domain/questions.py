@@ -443,16 +443,33 @@ def _keyed(question: Question, key: str, context: str) -> Question:
     )
 
 
+def _by_unit(asks: Sequence[Ask]) -> dict[Unit, list[Ask]]:
+    """The asks per unit, in the order units are first asked about."""
+    grouped: dict[Unit, list[Ask]] = {}
+    for ask in asks:
+        grouped.setdefault(ask.unit, []).append(ask)
+    return grouped
+
+
+def within_budget(
+    asks: Sequence[Ask], budget: int
+) -> tuple[tuple[Ask, ...], tuple[Coverage, ...]]:
+    """The asks a run may put to the judge -- the first `budget` of them,
+    unit by unit -- and every other one as coverage naming the question not
+    asked."""
+    ordered = [ask for mine in _by_unit(asks).values() for ask in mine]
+    spent = max(budget, 0)
+    why = f"was not asked: the judged-check budget of {spent} questions is spent"
+    return tuple(ordered[:spent]), tuple(_unanswered(a, why) for a in ordered[spent:])
+
+
 def schemas(asks: Sequence[Ask]) -> tuple[Asking, ...]:
     """The asks grouped per unit, in the order units are first asked about,
     into one call each: every question about a unit together, each under
     the key `<question id>.<n>`. Which questions a unit gets is the checks'
     choice alone; the unit's text only fills the state."""
-    by_unit: dict[Unit, list[Ask]] = {}
-    for ask in asks:
-        by_unit.setdefault(ask.unit, []).append(ask)
     callings: list[Asking] = []
-    for unit, mine in by_unit.items():
+    for unit, mine in _by_unit(asks).items():
         counts: dict[str, int] = {}
         keyed: dict[str, Ask] = {}
         for ask in mine:
