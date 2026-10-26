@@ -45,9 +45,12 @@ class FixtureHandler(urllib.request.BaseHandler):
             code, data = 200, body.read_bytes()
         else:
             code, data = 404, b'{"message": "Not Found"}'
-        return urllib.response.addinfourl(
+        response = urllib.response.addinfourl(
             io.BytesIO(data), headers, request.full_url, code
         )
+        # urllib's own handlers set the reason phrase its error processor reads.
+        response.msg = "OK" if code == 200 else "Error"
+        return response
 
 
 def fixture_opener() -> tuple[urllib.request.OpenerDirector, FixtureHandler]:
