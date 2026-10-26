@@ -40,7 +40,7 @@ def test_measure_with_a_port_taken_by_position_finds_the_use_case() -> None:
     and a private application helper taking it by position, When Ports as
     keywords runs, Then a finding names each use case taking a port by
     position, and the port. A port is a named dependency when it is
-    keyword-only; the order among keyword-only parameters is not read."""
+    keyword-only and a value comes before it."""
     files = {USE: b"x\n" * 9, STORE: b"x\n" * 9}
     definitions = [
         *port(STORE, "Store", 1),

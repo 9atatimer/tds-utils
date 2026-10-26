@@ -7,6 +7,8 @@ CodeModel.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from adherence.domain.checks.hexagonal import CORE
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.checks.roles import (
@@ -19,7 +21,7 @@ from adherence.domain.checks.roles import (
 )
 from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.finding import Evidence, Finding
-from adherence.domain.model import AccessKind, CodeModel, ReferenceKind
+from adherence.domain.model import AccessKind, CodeModel, Parameter, ReferenceKind
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
 from adherence.domain.records import DesignRecords, RecordsUnavailable
@@ -46,6 +48,20 @@ def is_singleton(name: str, vocabulary: Vocabulary) -> bool:
 # --- Pure helpers ------------------------------------------------------------
 
 
+def misplaced_ports(
+    parameters: Sequence[Parameter], ports: frozenset[str]
+) -> list[Parameter]:
+    """The ports among a use case's parameters that are taken by position,
+    or that come before every value the use case takes."""
+    is_port = [named_in(p, ports) is not None for p in parameters]
+    return [
+        p
+        for index, p in enumerate(parameters)
+        if is_port[index]
+        and (not p.keyword_only or (all(is_port[:index]) and not all(is_port[index:])))
+    ]
+
+
 def ports_as_keywords(
     model: CodeModel,
     declaration: Declaration,
@@ -53,7 +69,8 @@ def ports_as_keywords(
     parameters: Parameters,
 ) -> CheckOutcome:
     """Every port a use case takes is a named dependency after its values:
-    a keyword-only parameter, so it is never taken by position."""
+    a keyword-only parameter, never taken by position, and never before
+    every value. A method's own first parameter is no value."""
     if not declaration.declared:
         return undeclared(PORTS_AS_KEYWORDS.name)
     ports = port_names(model)
@@ -63,6 +80,7 @@ def ports_as_keywords(
         if signature is None or not is_use_case(use_case):
             continue
         unit = use_case.unit
+        taken = signature.parameters[1 if use_case.parent is not None else 0 :]
         findings.extend(
             Finding(
                 PORTS_AS_KEYWORDS,
@@ -71,8 +89,7 @@ def ports_as_keywords(
                 f"{p.name}: {p.annotation}",
                 Evidence(unit.path, unit.start, unit.symbol or ""),
             )
-            for p in signature.parameters
-            if not p.keyword_only and named_in(p, ports) is not None
+            for p in misplaced_ports(taken, ports)
         )
     return CheckOutcome(tuple(findings))
 
