@@ -12,6 +12,8 @@ from adherence.domain.report import Verdict
 from adherence.ports.repository import Refused
 from tests.judge_kit import BASE, REPOSITORY, RULES, judge_with, measured_at, stubbed
 
+USE = "src/app/application/use.py"
+CLEAN = b"def run():\n    return 1\n"
 STUBBED = b"\ndef tidy():\n    pass\n"
 FIXED = b"\ndef tidy():\n    return 1\n"
 WHEN = {
@@ -84,3 +86,14 @@ def test_judge_change_bringing_back_a_fixed_flaw_reads_the_stored_base() -> None
     (finding,) = report.findings
     assert finding.provenance is Provenance.INTRODUCED
     assert store.hits == [(REPOSITORY, BASE.revision)]
+
+
+def test_judge_change_creating_a_failing_unit_marks_it_introduced() -> None:
+    """Given a change that creates a unit a rule check fails, When it is
+    judged, Then the verdict is lowered and the finding is marked introduced."""
+    report = judge_with({USE: CLEAN}, {USE: CLEAN, RULES: STUBBED}, when=WHEN)
+
+    assert report.verdict is Verdict.LOWERED
+    (finding,) = report.findings
+    assert (finding.check.name, finding.unit.path) == ("Stub", RULES)
+    assert finding.provenance is Provenance.INTRODUCED
