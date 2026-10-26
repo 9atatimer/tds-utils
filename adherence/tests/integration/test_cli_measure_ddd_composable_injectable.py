@@ -59,10 +59,16 @@ def test_measure_json_over_the_fixture_prints_the_ddd_findings() -> None:
     measure --json` runs, Then Language names the undefined noun and the
     signature -- never the port a use case takes -- Boundary names the type,
     the writer and the owning unit, and Anemic's all-fields type is coverage
-    awaiting its judged part."""
+    awaiting its judged part. Decision runs and, with no attribute two units
+    branch on, has nothing to ask."""
     document = _document()
 
-    assert _ran(document, Quality.DOMAIN_DRIVEN) == ["Language", "Boundary", "Anemic"]
+    assert _ran(document, Quality.DOMAIN_DRIVEN) == [
+        "Language",
+        "Decision",
+        "Boundary",
+        "Anemic",
+    ]
     found = _findings(document, Quality.DOMAIN_DRIVEN)
     assert ("Language", SHIP, "restock", "Entry in restock") in found
     assert (
