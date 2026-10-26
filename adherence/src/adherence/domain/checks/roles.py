@@ -28,6 +28,8 @@ LITERAL = "Literal"
 ANNOTATED = "Annotated"
 QUOTES = frozenset("\"'")
 PRIVATE = "_"
+# The method that makes an instance of a class callable as a function.
+CALL = "__call__"
 
 # --- Predicates --------------------------------------------------------------
 
@@ -42,6 +44,19 @@ def is_use_case(definition: Definition) -> bool:
         and definition.parent is None
         and not definition.nested
         and not short_name(unit.symbol).startswith(PRIVATE)
+    )
+
+
+def _is_entry_type(definition: Definition | None) -> bool:
+    """Whether a definition is a public type at the top level of an
+    application unit, whose __call__ is a use case."""
+    return (
+        definition is not None
+        and definition.unit.kind is UnitKind.TYPE
+        and definition.unit.layer is Layer.APPLICATION
+        and definition.parent is None
+        and not definition.nested
+        and not short_name(definition.unit.symbol).startswith(PRIVATE)
     )
 
 
@@ -169,6 +184,34 @@ def resolved(name: str, path: str, bindings: Mapping[tuple[str, str], str]) -> s
             return name
         seen.add(head)
         name = f"{target}{dot}{rest}"
+
+
+def use_cases(model: CodeModel) -> list[Definition]:
+    """Every use case the model defines, in order: a public top-level
+    application function, a private one a module-level binding exports
+    under a public name (`hidden = _hidden`), and the __call__ of a public
+    top-level application class."""
+    exported = {
+        (b.path, b.value)
+        for b in model.bindings
+        if b.within is None and not b.name.startswith(PRIVATE)
+    }
+    definitions = by_symbol(model)
+    found: list[Definition] = []
+    for d in model.definitions:
+        unit = d.unit
+        if unit.kind is not UnitKind.FUNCTION or unit.layer is not Layer.APPLICATION:
+            continue
+        if d.nested:
+            continue
+        if d.parent is None:
+            if is_use_case(d) or (unit.path, unit.symbol or "") in exported:
+                found.append(d)
+        elif short_name(unit.symbol) == CALL and _is_entry_type(
+            definitions.get((unit.path, d.parent))
+        ):
+            found.append(d)
+    return found
 
 
 def _methods(model: CodeModel) -> dict[tuple[str, str], list[Definition]]:

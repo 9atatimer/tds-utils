@@ -16,12 +16,12 @@ from adherence.domain.checks.roles import (
     annotation_names,
     by_symbol,
     enclosing_function,
-    is_use_case,
     module_bindings,
     named_in,
     port_names,
     resolved,
     short_name,
+    use_cases,
 )
 from adherence.domain.declaration import Declaration
 from adherence.domain.finding import Evidence, Finding
@@ -160,9 +160,9 @@ def values_in_and_out(
     )
     bindings = module_bindings(model)
     findings: list[Finding] = []
-    for use_case in model.definitions:
+    for use_case in use_cases(model):
         signature = use_case.signature
-        if signature is None or not is_use_case(use_case):
+        if signature is None:
             continue
         carried = [
             *((p.name, p.annotation) for p in signature.parameters),

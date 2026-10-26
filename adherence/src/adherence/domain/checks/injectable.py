@@ -13,13 +13,13 @@ from adherence.domain.checks.hexagonal import CORE
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.checks.roles import (
     adapter_names,
-    is_use_case,
     is_within,
     module_bindings,
     named_in,
     port_names,
     resolved,
     short_name,
+    use_cases,
 )
 from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.finding import Evidence, Finding
@@ -77,9 +77,9 @@ def ports_as_keywords(
         return undeclared(PORTS_AS_KEYWORDS.name)
     ports = port_names(model)
     findings: list[Finding] = []
-    for use_case in model.definitions:
+    for use_case in use_cases(model):
         signature = use_case.signature
-        if signature is None or not is_use_case(use_case):
+        if signature is None:
             continue
         unit = use_case.unit
         taken = signature.parameters[1 if use_case.parent is not None else 0 :]
@@ -110,9 +110,7 @@ def no_self_wiring(
     adapters = adapter_names(model)
     bindings = module_bindings(model)
     findings: list[Finding] = []
-    for use_case in model.definitions:
-        if not is_use_case(use_case):
-            continue
+    for use_case in use_cases(model):
         unit = use_case.unit
         findings.extend(
             Finding(

@@ -16,10 +16,10 @@ from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.checks.roles import (
     annotation_names,
     by_symbol,
-    is_use_case,
     is_within,
     port_names,
     short_name,
+    use_cases,
 )
 from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import Declaration, layer_of
@@ -160,9 +160,7 @@ def language(
         )
     mechanism = mechanism_names(model)
     findings: list[Finding] = []
-    for use_case in model.definitions:
-        if not is_use_case(use_case):
-            continue
+    for use_case in use_cases(model):
         unit = use_case.unit
         findings.extend(
             Finding(
