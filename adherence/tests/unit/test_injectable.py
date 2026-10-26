@@ -229,3 +229,45 @@ def test_measure_with_a_use_case_raising_an_adapter_error_is_clean() -> None:
         for f in _of(report, "No self-wiring")
     }
     assert found == {("close", "Fs", 3)}
+
+
+def test_measure_with_an_exported_private_function_or_callable_class() -> None:
+    """Given a private application function exported under a public name
+    (`hidden = _hidden`), a public application class whose `__call__` is
+    its entry, a private class's `__call__`, and a private function bound
+    to a public name only inside another function, each taking a port by
+    position, When Ports as keywords runs, Then a finding names the
+    exported function and the public class's `__call__`: each is a use
+    case, and the rest are not."""
+    files = {USE: b"x\n" * 20, STORE: b"x\n" * 9}
+    definitions = [
+        *port(STORE, "Store", 1),
+        function(USE, "_hidden", 1, (value("s", "Store"), value("o", "Order"))),
+        type_(USE, "Clean", 3, end=5),
+        function(
+            USE,
+            "Clean.__call__",
+            4,
+            (value("self"), value("s", "Store"), value("o", "Order")),
+            parent="Clean",
+        ),
+        type_(USE, "_Inner", 7, end=9),
+        function(
+            USE,
+            "_Inner.__call__",
+            8,
+            (value("self"), value("s", "Store"), value("o", "Order")),
+            parent="_Inner",
+        ),
+        function(USE, "_kept", 11, (value("s", "Store"), value("o", "Order"))),
+        function(USE, "_wrap", 12, end=14),
+    ]
+    bindings = (
+        Binding(USE, 2, None, "hidden", "_hidden"),
+        Binding(USE, 13, "_wrap", "kept", "_kept"),
+    )
+
+    report = measure_with(files, facts(definitions, bindings=bindings))
+
+    found = {(f.unit.symbol, f.subject) for f in _of(report, "Ports as keywords")}
+    assert found == {("_hidden", "s: Store"), ("Clean.__call__", "s: Store")}
