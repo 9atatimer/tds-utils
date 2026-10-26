@@ -278,3 +278,33 @@ def test_a_function_hides_a_command_only_where_it_is_defined_or_sourced() -> Non
 
     tools = {(e.path, e.imported) for e in model.imports if e.imported_path is None}
     assert tools == {("bin/a", "curl")}
+
+
+def test_a_body_whose_only_command_is_a_stub_form_is_a_stub() -> None:
+    """Given functions whose one command is the no-op with a comment beside
+    it, in a subshell body, quoted either way, and bare, and one that runs
+    the no-op and more, When they are modelled, Then each body whose only
+    command, comments aside, is a stub form is a stub, whatever its braces
+    or quoting, and the one doing more is none."""
+    model = modelled(
+        {
+            "bin/a": (
+                b"f() {\n  # TODO\n  :\n}\n"
+                b"g() ( : )\n"
+                b"h() { ':'; }\n"
+                b'j() { ":"; }\n'
+                b"k() { :; }\n"
+                b"m() { :; echo; }\n"
+            )
+        }
+    )
+
+    markers = {d.unit.symbol: d.body.stub_markers for d in model.definitions}
+    assert markers == {
+        "f": (":",),
+        "g": (":",),
+        "h": (":",),
+        "j": (":",),
+        "k": (":",),
+        "m": (),
+    }
