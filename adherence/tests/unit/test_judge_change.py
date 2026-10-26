@@ -10,10 +10,19 @@ from adherence.adapters.fakes import FakeReportStore
 from adherence.domain.declaration import DECLARATION_PATH
 from adherence.domain.finding import Provenance
 from adherence.domain.model import Layer, merged
+from adherence.domain.records import Behavior, DesignRecords, Term
 from adherence.domain.report import Verdict
 from adherence.ports.repository import Refused
 from tests import facts_kit as kit
-from tests.judge_kit import BASE, REPOSITORY, RULES, judge_with, measured_at, stubbed
+from tests.judge_kit import (
+    BASE,
+    HEAD,
+    REPOSITORY,
+    RULES,
+    judge_with,
+    measured_at,
+    stubbed,
+)
 from tests.measure_kit import HEXAGON
 
 USE = "src/app/application/use.py"
@@ -246,3 +255,32 @@ def test_judge_change_widening_its_declaration_for_a_created_unit_is_honored() -
     assert (finding.check.name, finding.unit.path) == ("Stub", loose)
     assert finding.layer is Layer.DOMAIN
     assert "Covered" in {c.name for c in report.ran}
+
+
+DESIGN = "docs/design/DESIGN.APP.md"
+
+
+def test_judge_change_removing_a_behavior_and_a_term_finds_the_narrowing() -> None:
+    """Given a change that removes a behavior and a term from an approved
+    record, When Record kept runs, Then a finding names the record and each
+    thing removed, and the verdict is lowered."""
+    kept = Behavior("An order is priced", "Given ..., Then ...", DESIGN, 12)
+    dropped = Behavior("An order is refunded", "Given ..., Then ...", DESIGN, 13)
+    term = Term("Refund", DESIGN, 40)
+
+    report = judge_with(
+        {USE: CLEAN},
+        {USE: CLEAN},
+        records={
+            BASE: DesignRecords(behaviors=(kept, dropped), domain_language=(term,)),
+            HEAD: DesignRecords(behaviors=(kept,)),
+        },
+    )
+
+    narrowed = [f for f in report.findings if f.check.name == "Record kept"]
+    assert {(f.unit.path, f.subject) for f in narrowed} == {
+        (DESIGN, "An order is refunded"),
+        (DESIGN, "Refund"),
+    }
+    assert all(f.provenance is Provenance.INTRODUCED for f in narrowed)
+    assert report.verdict is Verdict.LOWERED
