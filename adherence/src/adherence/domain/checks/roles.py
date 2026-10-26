@@ -152,6 +152,25 @@ def annotation_names(annotation: str | None) -> tuple[str, ...]:
     return tuple(ANNOTATION_NAME.findall(type_text(annotation or "")))
 
 
+def module_bindings(model: CodeModel) -> Mapping[tuple[str, str], str]:
+    """Every module-level binding, keyed by its path and the name bound."""
+    return {(b.path, b.name): b.value for b in model.bindings if b.within is None}
+
+
+def resolved(name: str, path: str, bindings: Mapping[tuple[str, str], str]) -> str:
+    """A dotted name as written in a file, with its first part replaced by
+    what that part is bound to at module level, through every alias of an
+    alias, until it names nothing bound or comes back round."""
+    seen: set[str] = set()
+    while True:
+        head, dot, rest = name.partition(".")
+        target = bindings.get((path, head))
+        if target is None or head in seen:
+            return name
+        seen.add(head)
+        name = f"{target}{dot}{rest}"
+
+
 def _methods(model: CodeModel) -> dict[tuple[str, str], list[Definition]]:
     """Each type's methods, keyed by the type's path and symbol."""
     methods: dict[tuple[str, str], list[Definition]] = {}

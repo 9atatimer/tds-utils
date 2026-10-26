@@ -7,6 +7,8 @@ the CodeModel.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from adherence.domain.checks.hexagonal import names_vendor
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.checks.roles import (
@@ -15,8 +17,10 @@ from adherence.domain.checks.roles import (
     by_symbol,
     enclosing_function,
     is_use_case,
+    module_bindings,
     named_in,
     port_names,
+    resolved,
     short_name,
 )
 from adherence.domain.declaration import Declaration
@@ -36,22 +40,35 @@ RETURN = "return"
 # --- Predicates --------------------------------------------------------------
 
 
-def carries_mechanism(
-    annotation: str | None,
+def _names_mechanism(
+    written: str,
+    meant: str,
     adapters: frozenset[str],
     defined: frozenset[str],
     vocabulary: Vocabulary,
 ) -> bool:
-    """Whether an annotation carries a wire format (by a name the measured
-    repository does not define itself), an SDK type or a concrete
-    adapter."""
+    """Whether a name an annotation carries, as written and as its aliases
+    resolve it, is a wire format (one the measured repository does not
+    define itself), an SDK type or a concrete adapter."""
+    noun = short_name(meant)
+    return (
+        (noun in vocabulary.wire_formats and noun not in defined)
+        or noun in adapters
+        or ("." in written and names_vendor(written, vocabulary))
+    )
+
+
+def carries_mechanism(
+    annotation: str | None,
+    resolve: Mapping[str, str],
+    adapters: frozenset[str],
+    defined: frozenset[str],
+    vocabulary: Vocabulary,
+) -> bool:
+    """Whether an annotation carries a wire format, an SDK type or a
+    concrete adapter, each name resolved through `resolve` first."""
     return any(
-        (
-            short_name(name) in vocabulary.wire_formats
-            and short_name(name) not in defined
-        )
-        or short_name(name) in adapters
-        or ("." in name and names_vendor(name, vocabulary))
+        _names_mechanism(name, resolve.get(name, name), adapters, defined, vocabulary)
         for name in annotation_names(annotation)
     )
 
@@ -130,7 +147,8 @@ def values_in_and_out(
     parameters: Parameters,
 ) -> CheckOutcome:
     """No use-case signature carries a wire format, an SDK type or an
-    adapter handle, in a parameter or its return."""
+    adapter handle, in a parameter or its return, by name or by a
+    module-level alias of one."""
     if not declaration.declared:
         return undeclared(VALUES_IN_AND_OUT.name)
     vocabulary = parameters.vocabulary
@@ -140,6 +158,7 @@ def values_in_and_out(
         for d in model.definitions
         if d.unit.kind is UnitKind.TYPE
     )
+    bindings = module_bindings(model)
     findings: list[Finding] = []
     for use_case in model.definitions:
         signature = use_case.signature
@@ -150,6 +169,11 @@ def values_in_and_out(
             (RETURN, signature.returns),
         ]
         unit = use_case.unit
+        resolve = {
+            name: resolved(name, unit.path, bindings)
+            for _, annotation in carried
+            for name in annotation_names(annotation)
+        }
         findings.extend(
             Finding(
                 VALUES_IN_AND_OUT,
@@ -159,6 +183,6 @@ def values_in_and_out(
                 Evidence(unit.path, unit.start, unit.symbol or ""),
             )
             for name, annotation in carried
-            if carries_mechanism(annotation, adapters, defined, vocabulary)
+            if carries_mechanism(annotation, resolve, adapters, defined, vocabulary)
         )
     return CheckOutcome(tuple(findings))

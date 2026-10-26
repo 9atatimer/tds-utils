@@ -97,6 +97,7 @@ class FakeCodeModel:
             calls=tuple(c for c in f.calls if c.path in sources),
             accesses=tuple(a for a in f.accesses if a.path in sources),
             writes=tuple(w for w in f.writes if w.path in sources),
+            bindings=tuple(b for b in f.bindings if b.path in sources),
             conditionals=tuple(c for c in f.conditionals if c.path in sources),
             members=tuple(m for m in f.members if m.path in sources),
             test_cases=tuple(t for t in f.test_cases if t.path in sources),
