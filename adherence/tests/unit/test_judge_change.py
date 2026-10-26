@@ -205,3 +205,18 @@ def test_judge_change_deleting_a_flawed_unit_moves_nothing() -> None:
 
     assert report.findings == ()
     assert (report.removed, report.verdict) == ((), Verdict.HELD)
+
+
+def test_judge_change_creating_an_undeclared_unit_finds_it() -> None:
+    """Given a change that creates a unit no declaration assigns to a layer,
+    When Covered runs, Then a finding names the unit and the verdict is
+    lowered."""
+    loose = "src/app/extra/loose.py"
+
+    report = judge_with({USE: CLEAN}, {USE: CLEAN, loose: CLEAN})
+
+    (finding,) = report.findings
+    assert (finding.check.name, finding.unit.path) == ("Covered", loose)
+    assert finding.provenance is Provenance.INTRODUCED
+    assert report.verdict is Verdict.LOWERED
+    assert "Covered" in {c.name for c in report.ran}
