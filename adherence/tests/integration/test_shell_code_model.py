@@ -343,3 +343,27 @@ def test_valid_zsh_the_grammar_cannot_read_is_never_called_not_shell() -> None:
             " not know, or a syntax error",
         )
     ]
+
+
+def test_exec_s_options_are_skipped_to_the_command_it_runs() -> None:
+    """Given `exec` with `-a` and its name, with flags alone, and with
+    none, and `command -v` asking after a tool, When they are modelled,
+    Then each program exec runs is a tool, never `-a`'s name, and the tool
+    `command -v` only asks after is none."""
+    model = modelled(
+        {
+            "bin/a": b"exec -a nm prog\n",
+            "bin/b": b"exec -cl login x\n",
+            "bin/c": b"exec -c -a nm run arg\n",
+            "bin/d": b"exec plain\n",
+            "bin/e": b"command -v jq\n",
+        }
+    )
+
+    tools = {(e.path, e.imported) for e in model.imports}
+    assert tools == {
+        ("bin/a", "prog"),
+        ("bin/b", "login"),
+        ("bin/c", "run"),
+        ("bin/d", "plain"),
+    }
