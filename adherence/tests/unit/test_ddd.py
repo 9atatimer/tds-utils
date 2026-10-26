@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from adherence.container import SHIPPED_VOCABULARY
 from adherence.domain.finding import Finding
-from adherence.domain.model import Layer, Write
+from adherence.domain.model import Binding, Layer, Write
 from adherence.domain.records import DesignRecords, Term
 from adherence.domain.report import Report
 from tests.facts_kit import (
@@ -301,3 +301,37 @@ def test_measure_with_a_domain_enum_asks_no_anemic_question() -> None:
 
     asked = [c.reason.split(":")[0] for c in report.coverage if c.check == "Anemic"]
     assert asked == ["Receipt"]
+
+
+def test_measure_with_a_write_through_a_local_alias_finds_the_write() -> None:
+    """Given a use case that binds its Order parameter to a local name and
+    writes a field through it, one that writes through an alias of that
+    alias, and one writing through a local of the same name bound in
+    another function, When Boundary runs, Then a finding names the type,
+    the writer and the owning unit for each write the binding pins on the
+    parameter, and the third is clean."""
+    files = {RULES: b"x\n" * 9, USE: b"x\n" * 20}
+    definitions = [
+        type_(RULES, "Order", 1, end=3),
+        function(USE, "local_write", 1, (value("order", "Order"),), end=3),
+        function(USE, "twice", 5, (value("order", "Order"),), end=8),
+        function(USE, "other", 10, (value("item", "Gadget"),), end=11),
+    ]
+    members = (field(RULES, "Order", "status", 2),)
+    bindings = (
+        Binding(USE, 2, "local_write", "o", "order"),
+        Binding(USE, 6, "twice", "a", "order"),
+        Binding(USE, 7, "twice", "b", "a"),
+    )
+    writes = (
+        Write(USE, 3, "local_write", "o", "status"),
+        Write(USE, 8, "twice", "b", "status"),
+        Write(USE, 11, "other", "o", "status"),
+    )
+
+    report = measure_with(
+        files, facts(definitions, members=members, writes=writes, bindings=bindings)
+    )
+
+    found = {(f.unit.symbol, f.evidence.line) for f in _of(report, "Boundary")}
+    assert found == {("local_write", 3), ("twice", 8)}
