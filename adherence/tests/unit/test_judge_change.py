@@ -7,12 +7,14 @@ from __future__ import annotations
 from dataclasses import replace
 
 from adherence.adapters.fakes import FakeReportStore
+from adherence.domain.declaration import DECLARATION_PATH
 from adherence.domain.finding import Provenance
-from adherence.domain.model import merged
+from adherence.domain.model import Layer, merged
 from adherence.domain.report import Verdict
 from adherence.ports.repository import Refused
 from tests import facts_kit as kit
 from tests.judge_kit import BASE, REPOSITORY, RULES, judge_with, measured_at, stubbed
+from tests.measure_kit import HEXAGON
 
 USE = "src/app/application/use.py"
 CLEAN = b"def run():\n    return 1\n"
@@ -219,4 +221,28 @@ def test_judge_change_creating_an_undeclared_unit_finds_it() -> None:
     assert (finding.check.name, finding.unit.path) == ("Covered", loose)
     assert finding.provenance is Provenance.INTRODUCED
     assert report.verdict is Verdict.LOWERED
+    assert "Covered" in {c.name for c in report.ran}
+
+
+WIDENED = HEXAGON.replace(
+    b'domain = ["src/app/domain/**"]',
+    b'domain = ["src/app/domain/**", "src/app/extra/**"]',
+)
+
+
+def test_judge_change_widening_its_declaration_for_a_created_unit_is_honored() -> None:
+    """Given a change that creates a unit and assigns it a layer in its own
+    declaration, When the change is judged, Then the unit is checked under
+    that layer and Covered finds nothing."""
+    loose = "src/app/extra/loose.py"
+
+    report = judge_with(
+        {USE: CLEAN},
+        {USE: CLEAN, loose: STUBBED, DECLARATION_PATH: WIDENED},
+        when={STUBBED: stubbed(loose, "tidy", 2)},
+    )
+
+    (finding,) = report.findings
+    assert (finding.check.name, finding.unit.path) == ("Stub", loose)
+    assert finding.layer is Layer.DOMAIN
     assert "Covered" in {c.name for c in report.ran}
