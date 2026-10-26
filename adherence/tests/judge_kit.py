@@ -4,7 +4,10 @@ A test names the files the base and the head hold, the facts the code
 model answers with (`when` keys facts to a source's exact bytes, so one
 path can carry a flaw at the base and none at the head), and anything
 else it scripts; the declaration defaults to the measure kit's hexagon
-on both sides, and every other port answers plainly.
+on both sides, and every other port answers plainly. The declaration's
+history defaults to one landing, the base's own, which the fake reviews
+answer Unknown, so the base's declaration stands unless a test scripts the
+landings and the reviews of them.
 """
 
 from __future__ import annotations
@@ -78,16 +81,26 @@ def judge_with(
     | None = None,
     store: FakeReportStore | None = None,
     unlisted_at: Mapping[Base | Head, Refused | TimedOut] | None = None,
+    history: tuple[str, ...] = (BASE.revision,),
+    reviews: FakeReviews | None = None,
+    landed: Mapping[str, Files] | None = None,
 ) -> Report:
     """judge_change of HEAD against BASE, each holding its files and the
-    hexagon declaration unless the files carry their own."""
+    hexagon declaration unless the files carry their own. `history` lists
+    the commits that changed the declaration, newest first; `landed` holds
+    the files at commits other than the base and the head."""
     return judge_change(
         Change(REPOSITORY, BASE, HEAD),
         repository=FakeRepository(
-            {BASE: with_declaration(base), HEAD: with_declaration(head)},
+            {
+                BASE: with_declaration(base),
+                HEAD: with_declaration(head),
+                **{Base(commit): files for commit, files in (landed or {}).items()},
+            },
             unlisted_at=unlisted_at,
+            history={DECLARATION_PATH: history},
         ),
-        reviews=FakeReviews(),
+        reviews=reviews if reviews is not None else FakeReviews(),
         analyzers={
             CodeLanguage.PYTHON: FakeCodeModel(facts=facts or CodeModel(), when=when)
         },
