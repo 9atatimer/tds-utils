@@ -8,7 +8,7 @@ ADHERENCE.md, Module map). Nothing is spawned and nothing is read.
 from __future__ import annotations
 
 from adherence.domain.deadline import Deadline, TimedOut
-from adherence.domain.questions import Decision, Schema, State, Unavailable
+from adherence.domain.questions import Decision, Rejected, Schema, State, Unavailable
 
 NO_JUDGE = "no judge is bound in this stage"
 
@@ -18,5 +18,5 @@ class NoJudge:
 
     def decide(
         self, state: State, schema: Schema, deadline: Deadline | None
-    ) -> Decision | Unavailable | TimedOut:
+    ) -> Decision | Unavailable | Rejected | TimedOut:
         return Unavailable(NO_JUDGE)

@@ -37,6 +37,7 @@ from adherence.domain.questions import (
     Decision,
     Judged,
     Pass,
+    Rejected,
     Unavailable,
     schemas,
     settled,
@@ -129,7 +130,8 @@ def _judge(
     """Each unit's questions put to the judge in one call, and the answers
     settled by the threshold policy, within the judged-check budget. After
     the judge first fails -- unavailable or out of time -- it is not asked
-    again, and every question left is coverage."""
+    again, and every question left is coverage; a call the judge rejects is
+    coverage, and the next is still asked."""
     asked, over_budget = within_budget(asks, parameters.limits.judged_budget)
     findings: list[Finding] = []
     passes: list[Pass] = []
@@ -144,6 +146,10 @@ def _judge(
             passes.extend(judged.passes)
             abstentions.extend(judged.abstentions)
             coverage.extend(judged.coverage)
+        elif isinstance(answer, Rejected):
+            coverage.extend(
+                unasked(asking, f"was rejected by the judge: {answer.reason}")
+            )
         else:
             failure = answer
             coverage.extend(unasked(asking, _failed(answer)))
