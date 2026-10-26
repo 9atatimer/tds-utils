@@ -379,6 +379,35 @@ def test_the_deadline_passing_in_the_extends_walk_stops_it(
     assert sum(reads.texts.values()) == 1
 
 
+NESTED_JSON = b"[" * 100_000 + b"]" * 100_000
+
+
+@pytest.mark.parametrize(
+    ("unreadable", "config"),
+    [
+        ("tsconfig.json", {"tsconfig.json": NESTED_JSON}),
+        (
+            "base.json",
+            {"tsconfig.json": b'{"extends": "./base.json"}', "base.json": NESTED_JSON},
+        ),
+    ],
+    ids=["root", "extended"],
+)
+def test_a_tsconfig_nested_past_the_parser_is_unparsed_and_the_rest_modelled(
+    unreadable: str, config: dict[str, bytes]
+) -> None:
+    """Given a tsconfig.json, or a configuration it extends, nested deeper
+    than the JSON parser can walk, When the sources are modelled, Then that
+    configuration is Unparsed with the reason, gives no aliases, and the
+    code is still modelled."""
+    model = _model_of({**IMPORTER, **config})
+
+    [unparsed] = model.unparsed
+    assert unparsed.path == unreadable
+    assert "tsconfig" in unparsed.reason
+    assert {u.path for u in model.units} == set(IMPORTER)
+
+
 def _definition(path: str, symbol: str) -> Definition:
     [found] = [
         d
