@@ -7,12 +7,13 @@ CodeModel.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from adherence.domain.checks.hexagonal import CORE
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.checks.roles import (
     adapter_names,
+    by_symbol,
     is_within,
     module_bindings,
     named_in,
@@ -23,7 +24,17 @@ from adherence.domain.checks.roles import (
 )
 from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.finding import Evidence, Finding
-from adherence.domain.model import AccessKind, CodeModel, Parameter, ReferenceKind
+from adherence.domain.model import (
+    AccessKind,
+    Call,
+    CodeModel,
+    Definition,
+    ImportEdge,
+    Layer,
+    Parameter,
+    ReferenceKind,
+    UnitKind,
+)
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
 from adherence.domain.records import DesignRecords, RecordsUnavailable
@@ -96,19 +107,101 @@ def ports_as_keywords(
     return CheckOutcome(tuple(findings))
 
 
+def names_module(imported: str, module: str) -> bool:
+    """Whether an import edge's module is the module a binding names: the
+    same dotted name, or, for a relative one, the module it ends in."""
+    if imported == module:
+        return True
+    relative = module.lstrip(".")
+    return (
+        module.startswith(".") and bool(relative) and imported.endswith(f".{relative}")
+    )
+
+
+def _calls_in(definition: Definition, calls: Mapping[str, list[Call]]) -> list[Call]:
+    """The calls in a definition, or in a function nested in it."""
+    unit = definition.unit
+    return [c for c in calls.get(unit.path, []) if is_within(c.within, unit.symbol)]
+
+
+def helper_called(
+    call: Call,
+    definitions: Mapping[tuple[str, str], Definition],
+    bindings: Mapping[tuple[str, str], str],
+    imports: Mapping[str, list[ImportEdge]],
+) -> Definition | None:
+    """The application helper a call names: a top-level application
+    function of the call's own module, or one imported by name from
+    another module; None for any other callee."""
+    target = definitions.get((call.path, call.callee))
+    meant = resolved(call.callee, call.path, bindings)
+    module, _, name = meant.rpartition(".")
+    if target is None and meant != call.callee and module:
+        source = next(
+            (
+                e.imported_path
+                for e in imports.get(call.path, [])
+                if e.imported_path is not None and names_module(e.imported, module)
+            ),
+            None,
+        )
+        target = definitions.get((source, name)) if source is not None else None
+    if (
+        target is None
+        or target.unit.kind is not UnitKind.FUNCTION
+        or target.unit.layer is not Layer.APPLICATION
+        or target.parent is not None
+    ):
+        return None
+    return target
+
+
+def reached(
+    use_case: Definition,
+    calls: Mapping[str, list[Call]],
+    definitions: Mapping[tuple[str, str], Definition],
+    bindings: Mapping[tuple[str, str], str],
+    imports: Mapping[str, list[ImportEdge]],
+) -> list[Definition]:
+    """The use case and every application helper it reaches through its
+    calls, each once, in the order first reached."""
+    order = [use_case]
+    seen = {(use_case.unit.path, use_case.unit.symbol)}
+    at = 0
+    while at < len(order):
+        for call in _calls_in(order[at], calls):
+            helper = helper_called(call, definitions, bindings, imports)
+            if (
+                helper is not None
+                and (key := (helper.unit.path, helper.unit.symbol)) not in seen
+            ):
+                seen.add(key)
+                order.append(helper)
+        at += 1
+    return order
+
+
 def no_self_wiring(
     model: CodeModel,
     declaration: Declaration,
     records: DesignRecords | RecordsUnavailable,
     parameters: Parameters,
 ) -> CheckOutcome:
-    """No use case constructs a concrete adapter: no call in it, or in a
-    function nested in it, names a concrete adapter the model defines,
-    directly or through a module-level alias."""
+    """No use case constructs a concrete adapter: no call in it, in a
+    function nested in it, or in an application helper it reaches through
+    its calls, names a concrete adapter the model defines, directly or
+    through a module-level alias."""
     if not declaration.declared:
         return undeclared(NO_SELF_WIRING.name)
     adapters = adapter_names(model)
     bindings = module_bindings(model)
+    definitions = by_symbol(model)
+    calls: dict[str, list[Call]] = {}
+    for call in model.calls:
+        calls.setdefault(call.path, []).append(call)
+    imports: dict[str, list[ImportEdge]] = {}
+    for edge in model.imports:
+        imports.setdefault(edge.path, []).append(edge)
     findings: list[Finding] = []
     for use_case in use_cases(model):
         unit = use_case.unit
@@ -120,10 +213,9 @@ def no_self_wiring(
                 call.callee,
                 Evidence(call.path, call.line, call.callee),
             )
-            for call in model.calls
-            if call.path == unit.path
-            and is_within(call.within, unit.symbol)
-            and short_name(resolved(call.callee, call.path, bindings)) in adapters
+            for function in reached(use_case, calls, definitions, bindings, imports)
+            for call in _calls_in(function, calls)
+            if short_name(resolved(call.callee, call.path, bindings)) in adapters
         )
     return CheckOutcome(tuple(findings))
 
