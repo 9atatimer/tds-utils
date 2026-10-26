@@ -581,6 +581,45 @@ def test_field_writes_through_unpacking_and_loop_targets_are_writes() -> None:
     assert {m.name for m in model.members} == {"__init__", "a", "b", "c", "d"}
 
 
+def test_bindings_are_names_bound_to_names_and_imported_names() -> None:
+    """Given a module alias, a local alias in a function, imports with and
+    without an alias, relative imports, and assignments that bind no name
+    to a name (a literal, an unpacking, a call), When they are modelled,
+    Then each name bound to a dotted name is a binding with its line, the
+    definition it sits in and what it names, an import naming its module."""
+    source = (
+        b"import os.path as osp\n"
+        b"import json\n"
+        b"from httpx import Client\n"
+        b"from tool.adapters import FsStore as Fs\n"
+        b"from .rel import Z\n"
+        b"from . import sib\n"
+        b"from m import *\n"
+        b"Payload = dict\n"
+        b"hidden = _hidden\n"
+        b"n = 1\n"
+        b"a, b = c, d\n"
+        b"made = make()\n"
+        b"def f(order):\n"
+        b"    o = order\n"
+        b"    typed: Order = order.inner\n"
+    )
+
+    model = _model_of({"pkg/m.py": source})
+
+    assert sorted((b.line, b.within, b.name, b.value) for b in model.bindings) == [
+        (1, None, "osp", "os.path"),
+        (3, None, "Client", "httpx.Client"),
+        (4, None, "Fs", "tool.adapters.FsStore"),
+        (5, None, "Z", ".rel.Z"),
+        (6, None, "sib", ".sib"),
+        (8, None, "Payload", "dict"),
+        (9, None, "hidden", "_hidden"),
+        (14, "f", "o", "order"),
+        (15, "f", "typed", "order.inner"),
+    ]
+
+
 def test_a_standalone_module_resolves_its_sibling() -> None:
     """Given a flat layout with no packages, where a.py imports its sibling
     b.py, When it is modelled, Then the edge names b.py as its target."""

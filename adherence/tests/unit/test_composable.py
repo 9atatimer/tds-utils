@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from adherence.container import SHIPPED_VOCABULARY
 from adherence.domain.finding import Finding
-from adherence.domain.model import Layer
+from adherence.domain.model import Binding, Layer
 from adherence.domain.report import Report
 from tests.facts_kit import (
     FS,
@@ -166,3 +166,27 @@ def test_measure_with_a_domain_type_named_like_a_wire_format_is_clean() -> None:
 
     found = {(f.unit.symbol, f.subject) for f in _of(report, "Values in and out")}
     assert found == {("send", "reply: Response")}
+
+
+def test_measure_with_a_type_alias_of_a_wire_format_finds_the_parameter() -> None:
+    """Given a module-level alias of a wire format (`Payload = dict`), an
+    alias of an alias, and a local name bound in a use case under the same
+    spelling, When Values in and out runs, Then a finding names each
+    use-case parameter annotated with a module alias: an alias is resolved
+    before it is matched, and only a module-level one names a type."""
+    files = {USE: b"x\n" * 9}
+    definitions = [
+        function(USE, "aliased", 3, (value("p", "Payload"),)),
+        function(USE, "twice", 4, (value("q", "Body"),)),
+        function(USE, "local", 5, (value("r", "Thing"),), end=7),
+    ]
+    bindings = (
+        Binding(USE, 1, None, "Payload", "dict"),
+        Binding(USE, 2, None, "Body", "Payload"),
+        Binding(USE, 6, "local", "Thing", "dict"),
+    )
+
+    report = measure_with(files, facts(definitions, bindings=bindings))
+
+    found = {(f.unit.symbol, f.subject) for f in _of(report, "Values in and out")}
+    assert found == {("aliased", "p: Payload"), ("twice", "q: Body")}
