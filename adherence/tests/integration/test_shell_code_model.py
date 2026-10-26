@@ -220,3 +220,39 @@ def test_the_repository_s_own_bin_is_modelled() -> None:
     assert layers["check_worktree_clean"] is Layer.APPLICATION
     assert layers["main"] is Layer.COMPOSITION_ROOT
     assert "git" in {e.imported for e in model.imports if e.path == release}
+
+
+def modelled(sources: Mapping[str, bytes]) -> CodeModel:
+    """The fixture declaration's model of the sources given."""
+    model = ShellCodeModel().model(
+        sources, shell_fixture.declaration(), shell_fixture.VOCABULARY, None
+    )
+    assert isinstance(model, CodeModel), model
+    return model
+
+
+def test_a_sourced_path_s_literal_tail_follows_its_last_expansion() -> None:
+    """Given paths built by an unbraced variable, a braced one, a command
+    substitution and backticks, and paths that are nothing but an
+    expansion, When they are modelled, Then each is an edge to the source
+    its literal tail names, the variable's name never part of it, and one
+    with no literal part after its last expansion is no edge at all."""
+    script = (
+        b"#!/bin/bash\n"
+        b'source "$DIR/lib/c.sh"\n'
+        b'source "${DIR}/lib/c.sh"\n'
+        b'source "$(dirname "$0")/lib/c.sh"\n'
+        b'source "`dirname $0`/lib/c.sh"\n'
+        b'source "$o"\n'
+        b"source ${o}\n"
+        b'source "$DIR/lib/$name"\n'
+    )
+    model = modelled({"bin/a": script, "lib/c.sh": b"f() { echo hi; }\n", "bin/o": b""})
+
+    sourced = {(e.line, e.imported_path) for e in model.imports if e.imported_path}
+    assert sourced == {
+        (2, "lib/c.sh"),
+        (3, "lib/c.sh"),
+        (4, "lib/c.sh"),
+        (5, "lib/c.sh"),
+    }
