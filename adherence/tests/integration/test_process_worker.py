@@ -19,7 +19,7 @@ from tests.worker_contract import WorkerContract
 from tests.worker_jobs import FIRST, NeverReturns
 
 # Room for a child process to start and report its first check.
-BOUND = 3.0
+BOUND = 1.0
 # How long past the deadline a worker may take to end and reap its child.
 GRACE = 15.0
 
