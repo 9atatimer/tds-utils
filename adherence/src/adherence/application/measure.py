@@ -239,4 +239,5 @@ def measure(
             *judged.coverage,
         ),
         abstentions=judged.abstentions,
+        passes=judged.passes,
     )

@@ -12,7 +12,7 @@ import json
 from adherence.domain.coverage import Coverage
 from adherence.domain.finding import Finding
 from adherence.domain.qualities import Quality
-from adherence.domain.questions import Abstention
+from adherence.domain.questions import Abstention, Pass
 from adherence.domain.report import Report
 
 # --- Presenters --------------------------------------------------------------
@@ -52,13 +52,25 @@ def _abstention(abstention: Abstention) -> dict[str, object]:
     }
 
 
+def _pass(passed: Pass) -> dict[str, object]:
+    return {
+        "quality": passed.check.quality.value,
+        "check": passed.check.name,
+        "question": passed.question,
+        "path": passed.unit.path,
+        "symbol": passed.unit.symbol,
+        "confidence": passed.confidence,
+    }
+
+
 def _coverage(coverage: Coverage) -> dict[str, object]:
     return {"check": coverage.check, "path": coverage.path, "reason": coverage.reason}
 
 
 def report_document(report: Report) -> dict[str, object]:
     """The report as plain data: per quality, the checks that ran and their
-    findings; then the abstentions, the notices and the coverage."""
+    findings; then the judged passes, the abstentions, the notices and the
+    coverage."""
     return {
         "not_run": report.not_run_reason,
         "qualities": [
@@ -69,6 +81,7 @@ def report_document(report: Report) -> dict[str, object]:
             }
             for quality in Quality
         ],
+        "passes": [_pass(p) for p in report.passes],
         "abstentions": [_abstention(a) for a in report.abstentions],
         "notices": [notice.message for notice in report.notices],
         "coverage": [_coverage(c) for c in report.coverage],
