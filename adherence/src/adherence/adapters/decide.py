@@ -190,6 +190,11 @@ class DecideDecision:
         self._configuration = dict(configuration)
         self._clock = clock
 
+    @property
+    def configuration(self) -> dict[str, str]:
+        """The client's own configuration, as the composition root gave it."""
+        return dict(self._configuration)
+
     def _ask(
         self, state: State, schema: Schema, deadline: Deadline | None
     ) -> Decision | Unavailable | Rejected | TimedOut:

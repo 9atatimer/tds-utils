@@ -26,10 +26,13 @@ RULES = "src/tool/domain/rules.py"
 
 
 def _document() -> dict[str, object]:
+    # No judge, whatever the developer's environment configures: the run
+    # stays on this machine.
     builder = functools.partial(
         build,
         complexity=FakeComplexity(),
         duplication=FakeDuplication(),
+        environment={},
     )
     result = CliRunner().invoke(
         main, ["measure", "--root", str(FIXTURE), "--json"], obj=builder
