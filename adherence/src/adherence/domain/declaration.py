@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import fnmatch
+import itertools
 import re
 import tomllib
 from collections.abc import Collection, Mapping, Sequence
@@ -677,4 +678,204 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
         records=records,
         radar=radar,
         runtimes=runtimes,
+    )
+
+
+# --- The declaration in force: approval counting -----------------------------
+#
+# Which landed revision of adherence.toml is in force (ARCHITECTURE.ARCH-
+# ADHERENCE.md, Use-case surface: An unapproved declaration is not in
+# force). The use case walks the landings newest first and passes each, as
+# values, with the base's CODEOWNERS; this sub-component does the counting.
+
+# Where GitHub looks for CODEOWNERS, in its order; the first found is read.
+CODEOWNERS_PATHS = (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS")
+
+# A revision's adherence.toml: its bytes, None where the file is absent, or
+# why it cannot be read.
+DeclarationText = bytes | None | DeclarationUnreadable
+
+
+@dataclass(frozen=True, slots=True)
+class CodeOwners:
+    """The base's CODEOWNERS entries in file order: each pattern and the
+    owners it names. The last entry matching a path names its owners."""
+
+    entries: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
+    def owners_of(self, path: str) -> tuple[str, ...]:
+        """The owners the last entry matching the path names; none when no
+        entry matches."""
+        return next(
+            (
+                owners
+                for pattern, owners in reversed(self.entries)
+                if codeowners_matches(pattern, path)
+            ),
+            (),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class LandedRevision:
+    """One landing of adherence.toml on the base's history, as values: the
+    commit, ReviewPort's answer for it, the declaration's text there, and
+    the text at each commit an approval reviewed (one missing was not
+    read)."""
+
+    commit: str
+    answer: Landing | NoLandingPR | Unknown | ReviewsUnavailable
+    text: DeclarationText = None
+    reviewed: tuple[tuple[str, DeclarationText], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class Counting:
+    """Whether a landing is in force, and the notices that say why not."""
+
+    in_force: bool
+    notices: tuple[Notice, ...] = ()
+
+
+def codeowners_matches(pattern: str, path: str) -> bool:
+    """Whether a CODEOWNERS pattern names a repository path, read as
+    gitignore reads it: a leading or inner slash anchors it at the root,
+    a pattern with neither matches at any depth, a trailing slash names a
+    directory, and a directory's pattern names everything under it."""
+    body = pattern.rstrip("/")
+    directory = pattern.endswith("/")
+    if not body:
+        return False
+    anchored = "/" in body
+    body = body.lstrip("/")
+    if not anchored:
+        body = f"**/{body}"
+    under = matches(f"{body}/**", path)
+    return under if directory else matches(body, path) or under
+
+
+def is_user_owner(owner: str) -> bool:
+    """Whether a CODEOWNERS owner names one user (`@login`), not a team
+    (`@org/team`) or an email address."""
+    return owner.startswith("@") and "/" not in owner and len(owner) > 1
+
+
+def is_same_login(one: str, other: str) -> bool:
+    """Whether two code-host logins name the same account; logins ignore
+    letter case."""
+    return one.casefold() == other.casefold()
+
+
+def parse_codeowners(text: bytes) -> CodeOwners:
+    """The CODEOWNERS entries the bytes state: a pattern and its owners per
+    line, comments and blank lines left out."""
+    entries: list[tuple[str, tuple[str, ...]]] = []
+    for line in text.decode("utf-8", "replace").splitlines():
+        words = line.split()
+        if not words or words[0].startswith("#"):
+            continue
+        owners = tuple(
+            itertools.takewhile(lambda word: not word.startswith("#"), words[1:])
+        )
+        entries.append((words[0], owners))
+    return CodeOwners(tuple(entries))
+
+
+def _short(commit: str) -> str:
+    return commit[:12]
+
+
+def _skipped(revision: LandedRevision, why: str) -> Notice:
+    return Notice(
+        f"{DECLARATION_PATH} landed at {_short(revision.commit)}: {why}; not in force"
+    )
+
+
+def _refusal(
+    approval: Approval,
+    *,
+    owners: Collection[str],
+    landed: DeclarationText,
+    reviewed: Mapping[str, DeclarationText],
+) -> str | None:
+    """Why an approval does not count, or None when it does."""
+    if not any(is_same_login(f"@{approval.reviewer}", o) for o in owners):
+        return f"not a code owner of {DECLARATION_PATH} by the base's CODEOWNERS"
+    text = reviewed.get(approval.commit, DeclarationUnreadable("not read"))
+    if (
+        isinstance(landed, DeclarationUnreadable)
+        or isinstance(text, DeclarationUnreadable)
+        or text != landed
+    ):
+        return (
+            f"it reviewed {_short(approval.commit)}, whose {DECLARATION_PATH} "
+            "differs from the landed one"
+        )
+    return None
+
+
+def _owner_notices(owners: Collection[str]) -> tuple[Notice, ...]:
+    return tuple(
+        Notice(
+            f"CODEOWNERS entry {owner} for {DECLARATION_PATH} counts as no owner: "
+            "only a user (@login) is an owner, never a team or an email"
+        )
+        for owner in owners
+        if not is_user_owner(owner)
+    )
+
+
+def counted_landing(revision: LandedRevision, codeowners: CodeOwners) -> Counting:
+    """Whether a landing of adherence.toml is in force: Unknown leaves the
+    landed declaration standing; a landing is in force when one approval
+    counts -- its reviewer a user code owner of adherence.toml by the base's
+    CODEOWNERS, and the commit it reviewed holding the landed bytes, so
+    approve-then-push does not pass. Every other answer is skipped with a
+    notice that says why."""
+    answer = revision.answer
+    if isinstance(answer, Unknown):
+        return Counting(True)
+    if isinstance(answer, NoLandingPR):
+        return Counting(
+            False,
+            (
+                _skipped(
+                    revision, "landed with no pull request (a direct push or a bypass)"
+                ),
+            ),
+        )
+    if isinstance(answer, ReviewsUnavailable):
+        return Counting(
+            False,
+            (
+                _skipped(
+                    revision, f"its landing's reviews cannot be read: {answer.reason}"
+                ),
+            ),
+        )
+    owners = codeowners.owners_of(DECLARATION_PATH)
+    users = tuple(o for o in owners if is_user_owner(o))
+    reviewed = dict(revision.reviewed)
+    refusals = [
+        (
+            approval,
+            _refusal(approval, owners=users, landed=revision.text, reviewed=reviewed),
+        )
+        for approval in answer.approvals
+    ]
+    if any(why is None for _approval, why in refusals):
+        return Counting(True)
+    return Counting(
+        False,
+        (
+            *_owner_notices(owners),
+            *(
+                Notice(f"approval by {approval.reviewer} not counted: {why}")
+                for approval, why in refusals
+            ),
+            _skipped(
+                revision,
+                f"landed in a pull request by {answer.author} with no counted approval",
+            ),
+        ),
     )
