@@ -5,6 +5,7 @@ ADHERENCE.md, Use-case surface)."""
 
 from __future__ import annotations
 
+from adherence.container import SHIPPED_VOCABULARY
 from adherence.domain.finding import Finding
 from adherence.domain.model import CodeModel, ImportEdge, Layer
 from adherence.domain.records import Radar, RadarEntry, RecordsUnavailable, Ring
@@ -109,3 +110,49 @@ def test_measure_with_a_radar_entry_in_the_core_finds_the_unit_and_entry() -> No
         (RULES, Layer.DOMAIN, "Requests", 1),
         (USE, Layer.APPLICATION, "markdown-it-py", 4),
     }
+
+
+ADOPTED = (
+    ("attr", "attrs"),
+    ("dateutil.parser", "python-dateutil"),
+    ("bs4", "beautifulsoup4"),
+    ("PIL.Image", "Pillow"),
+    ("cv2", "opencv-python"),
+    ("sklearn.linear_model", "scikit-learn"),
+    ("jwt", "PyJWT"),
+    ("dotenv", "python-dotenv"),
+    ("git", "GitPython"),
+)
+
+
+def test_measure_matches_an_import_to_its_distribution_on_the_radar() -> None:
+    """Given the shipped vocabulary, an adapter importing packages whose
+    import names differ from the distributions the radar adopts, and one
+    whose radar row carries its import name, and a domain unit importing
+    two of them, When Dependency and Edge only run, Then no dependency is
+    off the radar and Edge only names both entries the domain imports
+    (Self-review R11)."""
+    radar = Radar(
+        entries=(
+            *(
+                RadarEntry(name, Ring.ADOPT, RADAR_PATH, n)
+                for n, (_, name) in enumerate(ADOPTED, start=1)
+            ),
+            RadarEntry("yaml", Ring.TRIAL, RADAR_PATH, 20),
+        )
+    )
+    imports = [_import(FS, module, n) for n, (module, _) in enumerate(ADOPTED, 1)]
+    imports.append(_import(FS, "yaml", 15))
+    imports += [_import(RULES, "attr", 1), _import(RULES, "PIL", 2)]
+    files = {FS: b"x\n" * 20, RULES: b"x\n" * 5}
+
+    report = measure_with(
+        files,
+        CodeModel(imports=tuple(imports)),
+        radar=radar,
+        vocabulary=SHIPPED_VOCABULARY,
+    )
+
+    assert {"Dependency", "Edge only"} <= {c.name for c in report.ran}
+    assert [f.subject for f in _of(report, "Dependency")] == []
+    assert {f.subject for f in _of(report, "Edge only")} == {"attrs", "Pillow"}
