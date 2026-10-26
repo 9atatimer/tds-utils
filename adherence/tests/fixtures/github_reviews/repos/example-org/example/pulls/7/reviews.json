@@ -1,0 +1,61 @@
+[
+  {
+    "id": 1,
+    "user": {"login": "carol", "id": 701, "type": "User"},
+    "body": "",
+    "state": "APPROVED",
+    "commit_id": "4444444444444444444444444444444444444444",
+    "submitted_at": "2026-10-21T01:00:00Z",
+    "author_association": "MEMBER"
+  }
+,
+  {
+    "id": 2,
+    "user": {"login": "bob", "id": 702, "type": "User"},
+    "body": "",
+    "state": "COMMENTED",
+    "commit_id": "4444444444444444444444444444444444444444",
+    "submitted_at": "2026-10-21T02:00:00Z",
+    "author_association": "MEMBER"
+  }
+,
+  {
+    "id": 3,
+    "user": {"login": "owner", "id": 703, "type": "User"},
+    "body": "",
+    "state": "APPROVED",
+    "commit_id": "4444444444444444444444444444444444444444",
+    "submitted_at": "2026-10-21T03:00:00Z",
+    "author_association": "MEMBER"
+  }
+,
+  {
+    "id": 4,
+    "user": {"login": "dave", "id": 704, "type": "User"},
+    "body": "",
+    "state": "DISMISSED",
+    "commit_id": "4444444444444444444444444444444444444444",
+    "submitted_at": "2026-10-21T04:00:00Z",
+    "author_association": "MEMBER"
+  }
+,
+  {
+    "id": 5,
+    "user": {"login": "carol", "id": 705, "type": "User"},
+    "body": "",
+    "state": "CHANGES_REQUESTED",
+    "commit_id": "4444444444444444444444444444444444444444",
+    "submitted_at": "2026-10-21T05:00:00Z",
+    "author_association": "MEMBER"
+  }
+,
+  {
+    "id": 6,
+    "user": {"login": "bob", "id": 706, "type": "User"},
+    "body": "",
+    "state": "COMMENTED",
+    "commit_id": "4444444444444444444444444444444444444444",
+    "submitted_at": "2026-10-21T06:00:00Z",
+    "author_association": "MEMBER"
+  }
+]
