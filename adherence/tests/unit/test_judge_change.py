@@ -97,3 +97,18 @@ def test_judge_change_creating_a_failing_unit_marks_it_introduced() -> None:
     (finding,) = report.findings
     assert (finding.check.name, finding.unit.path) == ("Stub", RULES)
     assert finding.provenance is Provenance.INTRODUCED
+
+
+def test_judge_change_beside_a_known_flaw_marks_it_existing_and_holds() -> None:
+    """Given a finding present in the base's report and a change that edits
+    another unit, When the change is judged, Then the finding is marked
+    existing and the verdict is not lowered by it."""
+    report = judge_with(
+        {RULES: STUBBED, USE: CLEAN},
+        {RULES: STUBBED, USE: CLEAN + b"\n# edited\n"},
+        when=WHEN,
+    )
+
+    (finding,) = report.findings
+    assert finding.provenance is Provenance.EXISTING
+    assert report.verdict is Verdict.HELD
