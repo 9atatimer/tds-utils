@@ -3,6 +3,7 @@ one member at a time (task-069), after the shared contract."""
 
 from __future__ import annotations
 
+import collections
 import functools
 import json
 import tempfile
@@ -12,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from adherence.adapters import ts_depcruise
 from adherence.adapters.ts_depcruise import TypeScriptCodeModel
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, parse_declaration
@@ -271,6 +273,110 @@ def test_measured_code_is_never_run_even_as_the_analyzers_configuration(
         (".dependency-cruiser.cjs", None),
         ("a.mjs", "b.mjs"),
     }
+
+
+class CountingReads:
+    """The adapter's tsconfig reader, counting each configuration it reads
+    and passing the clock's deadline once it has read the first."""
+
+    def __init__(self, clock: SteppedClock | None = None) -> None:
+        self.texts: collections.Counter[str] = collections.Counter()
+        self._clock = clock
+
+    def __call__(self, text: str) -> dict[str, object]:
+        self.texts[text] += 1
+        if self._clock is not None:
+            self._clock.now = 10.0
+        return READ_TSCONFIG(text)
+
+
+class SteppedClock:
+    """A clock that reads what it was last set to."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+READ_TSCONFIG = ts_depcruise.read_tsconfig
+IMPORTER = {
+    "a.ts": b"import { b } from './b';\n",
+    "b.ts": b"export const b = 1;\n",
+}
+
+
+def _diamond(length: int) -> dict[str, bytes]:
+    """A tsconfig.json over a chain of configurations, each extending the
+    next two: every one is reached by many paths through the chain."""
+    chain = {
+        f"c{i}.json": json.dumps({"extends": [f"./c{i + 1}.json", f"./c{i + 2}.json"]})
+        for i in range(length)
+    }
+    ends = {f"c{i}.json": json.dumps({"//": i}) for i in (length, length + 1)}
+    root = {"tsconfig.json": json.dumps({"extends": "./c0.json"})}
+    return {p: t.encode() for p, t in {**chain, **ends, **root}.items()}
+
+
+def test_a_diamond_of_extends_reads_each_configuration_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Given a tsconfig.json whose extends chain is a diamond, each
+    configuration extending the next two, When the sources are modelled,
+    Then each configuration is read once, not once per path to it."""
+    reads = CountingReads()
+    monkeypatch.setattr(ts_depcruise, "read_tsconfig", reads)
+
+    model = _model_of({**IMPORTER, **_diamond(16)})
+
+    assert isinstance(model, CodeModel)
+    assert len(reads.texts) == 19
+    assert max(reads.texts.values()) == 1
+
+
+def test_an_extends_chain_past_the_bound_is_cut_and_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Given a tsconfig.json at the head of a chain of hundreds of extended
+    configurations, When the sources are modelled, Then the chain is not
+    walked to its end, and the configuration where it was cut is Unparsed
+    with the reason."""
+    chain = {
+        f"c{i}.json": json.dumps({"extends": f"./c{i + 1}.json"}).encode()
+        for i in range(300)
+    }
+    root = {"tsconfig.json": b'{"extends": "./c0.json"}'}
+    reads = CountingReads()
+    monkeypatch.setattr(ts_depcruise, "read_tsconfig", reads)
+
+    model = _model_of({**IMPORTER, **chain, "c300.json": b"{}", **root})
+
+    assert sum(reads.texts.values()) < 300
+    [cut] = [u for u in model.unparsed if u.path.endswith(".json")]
+    assert "not followed" in cut.reason
+    assert ("./b", "b.ts") in {(e.imported, e.imported_path) for e in model.imports}
+
+
+def test_the_deadline_passing_in_the_extends_walk_stops_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Given a deadline that passes while the tsconfig.json extends chain is
+    walked, When the sources are modelled, Then the walk reads no further
+    configuration and the answer is TimedOut."""
+    clock = SteppedClock()
+    reads = CountingReads(clock)
+    monkeypatch.setattr(ts_depcruise, "read_tsconfig", reads)
+
+    answer = TypeScriptCodeModel(clock=clock).model(
+        {**IMPORTER, **_diamond(8)},
+        typescript_fixture.declaration(),
+        typescript_fixture.VOCABULARY,
+        Deadline(epoch_seconds=5.0),
+    )
+
+    assert isinstance(answer, TimedOut)
+    assert sum(reads.texts.values()) == 1
 
 
 def _definition(path: str, symbol: str) -> Definition:
