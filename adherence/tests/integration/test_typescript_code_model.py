@@ -415,6 +415,31 @@ def test_sleeps_and_stubs_come_from_the_vocabulary() -> None:
     assert (bodies["c"].stub_markers, bodies["d"].stub_markers) == ((), ("{}",))
 
 
+def test_a_comment_does_not_hide_a_stub() -> None:
+    """Given a body holding only comments, and one whose only statement
+    throws NotImplementedError beside a comment, When they are modelled,
+    Then each is the stub it would be without its comments."""
+    source = (
+        b"class A {\n"
+        b"  todo() {\n"
+        b"    // todo\n"
+        b"  }\n"
+        b"  later() { /* soon */ }\n"
+        b"  next() {\n"
+        b"    // not yet\n"
+        b"    throw new NotImplementedError();\n"
+        b"  }\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.ts": source})
+
+    markers = {d.unit.symbol: d.body.stub_markers for d in model.definitions}
+    assert markers["A.todo"] == ("{}",)
+    assert markers["A.later"] == ("{}",)
+    assert markers["A.next"] == ("NotImplementedError",)
+
+
 def test_references_are_names_types_and_strings_but_not_specifiers() -> None:
     """Given code naming a chain through the environment, a module constant,
     a type and a model id, When the fixture is modelled, Then each name
