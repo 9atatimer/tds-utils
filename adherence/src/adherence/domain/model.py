@@ -135,8 +135,9 @@ class Signature:
 @dataclass(frozen=True, slots=True)
 class Body:
     """A definition's body: its text, the placeholder it consists of when it
-    is nothing but one (`pass`, `...`, `NotImplementedError`), and the lines
-    where it sleeps. Nested definitions are their own bodies."""
+    is nothing but one (`pass`, `...`) or the stub exception it raises
+    (`NotImplementedError`, whatever precedes it), and the lines where it
+    sleeps. Nested definitions are their own bodies."""
 
     text: str
     stub_markers: tuple[str, ...]

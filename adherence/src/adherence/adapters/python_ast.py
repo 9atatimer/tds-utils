@@ -152,11 +152,34 @@ def _placeholder(node: DefinitionNode) -> str | None:
     if isinstance(only, ast.Expr) and isinstance(only.value, ast.Constant):
         if only.value.value is Ellipsis:
             return "..."
-    if isinstance(only, ast.Raise) and only.exc is not None:
-        raised = only.exc.func if isinstance(only.exc, ast.Call) else only.exc
+    return _raised(only)
+
+
+def _raised(statement: ast.stmt) -> str | None:
+    """The name of the exception a `raise` statement raises, if it is one."""
+    if isinstance(statement, ast.Raise) and statement.exc is not None:
+        exc = statement.exc
+        raised = exc.func if isinstance(exc, ast.Call) else exc
         if isinstance(raised, ast.Name):
             return raised.id
     return None
+
+
+def _stub_marker(node: DefinitionNode, vocabulary: Vocabulary) -> str | None:
+    """The stub a body is: nothing but a placeholder the vocabulary names, or
+    a body that raises an exception the vocabulary names, whatever precedes
+    the raise."""
+    form = _placeholder(node)
+    if form is not None and form in vocabulary.stubs:
+        return form
+    return next(
+        (
+            name
+            for statement in node.body
+            if (name := _raised(statement)) is not None and name in vocabulary.stubs
+        ),
+        None,
+    )
 
 
 def is_sleep(callee: str, vocabulary: Vocabulary) -> bool:
@@ -179,8 +202,8 @@ def _body(node: DefinitionNode, text: str, vocabulary: Vocabulary) -> Body:
             if isinstance(n, ast.Call) and is_sleep(_callee(n), vocabulary)
         }
     )
-    form = _placeholder(node)
-    markers = (form,) if form is not None and form in vocabulary.stubs else ()
+    marker = _stub_marker(node, vocabulary)
+    markers = (marker,) if marker is not None else ()
     return Body("\n".join(lines), markers, tuple(sleeps))
 
 
