@@ -74,6 +74,30 @@ rule:
   all:
     - has: {field: argument, kind: word, not: {regex: '^-'}, pattern: $CALLEE}
 ---
+# The command `exec` runs past its options (`-c`, `-l`, `-a NAME`): the
+# first argument that is neither an option nor the name `-a` gives, when
+# an option comes before it.
+id: call.exec
+language: Bash
+severity: hint
+rule:
+  kind: word
+  pattern: $CALLEE
+  inside:
+    kind: command
+    has: {field: name, regex: '^exec$'}
+  all:
+    - not: {regex: '^-'}
+    - not: {follows: {regex: '^-[cl]*a$'}}
+    - follows: {stopBy: end, regex: '^-'}
+    - not:
+        follows:
+          stopBy: end
+          kind: word
+          all:
+            - not: {regex: '^-'}
+            - not: {follows: {regex: '^-[cl]*a$'}}
+---
 # A node the grammar could not read, but one it produces on valid shell:
 # a heredoc's command run in the background (`cat <<EOF &`), whose `&` the
 # grammar leaves as an error inside the heredoc redirect while reading the
