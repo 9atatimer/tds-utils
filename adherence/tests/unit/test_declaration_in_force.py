@@ -245,3 +245,29 @@ def test_judge_change_after_the_owner_approved_their_own_edit_refuses_it() -> No
 
     _judged_under_the_earlier(report)
     assert any("owner" in n and "Q11" in n for n in _notices(report))
+
+
+def test_judge_change_whose_own_declaration_is_unreadable_notices_it() -> None:
+    """Given a readable declaration in force -- the approved landing, behind
+    an unapproved one -- and a change whose own declaration cannot be read,
+    When the change is judged, Then it is judged under the declaration in
+    force and the unreadable edit is a notice."""
+    report = judge_with(
+        {RULES: FIXED, DECLARATION_PATH: EXEMPTING, "CODEOWNERS": OWNERS},
+        {RULES: STUBBED, DECLARATION_PATH: b"[layers\n", "CODEOWNERS": OWNERS},
+        when=WHEN,
+        history=(BASE.revision, EARLIER),
+        reviews=FakeReviews(
+            {BASE.revision: Landing(author="mallory"), EARLIER: _approved_earlier()}
+        ),
+        landed={
+            EARLIER: {DECLARATION_PATH: HEXAGON},
+            REVIEWED_EARLIER: {DECLARATION_PATH: HEXAGON},
+        },
+    )
+
+    _judged_under_the_earlier(report)
+    assert any(
+        "own declaration cannot be read" in n and "declaration in force" in n
+        for n in _notices(report)
+    ), _notices(report)
