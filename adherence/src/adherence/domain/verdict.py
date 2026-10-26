@@ -156,26 +156,34 @@ def _seen(head: Report, joins: _Joins) -> _Head:
 
 
 def _shown(coverage: Coverage) -> str:
+    if coverage.check is None:
+        return f"{coverage.path} was not measured: {coverage.reason}"
     where = f" on {coverage.path}" if coverage.path else ""
     return f"{coverage.check} did not run{where}: {coverage.reason}"
 
 
+def _is_lost(
+    coverage: Coverage, before: set[Coverage], touched: frozenset[str]
+) -> bool:
+    """Whether coverage at the head makes the change inconclusive: it is on
+    a unit the change touched, or it was not, for that reason, at the base.
+    A change-level check never runs at a base, so only its coverage on a
+    touched unit counts."""
+    if coverage.path in touched:
+        return True
+    return coverage not in before and not is_declared_check(coverage.check)
+
+
 def _inconclusive(base: Report, head: Report, change: Change) -> tuple[str, ...]:
-    """Why the change is inconclusive: a check that could not run on a unit
-    the change touched, or a check in coverage at the head that was not, for
-    that reason, at the base. A change-level check never runs at a base, so
-    only its coverage on a touched unit counts."""
+    """Why the change is inconclusive: each check or file that could not be
+    measured on a unit the change touched, or that is coverage at the head
+    and was not, for that reason, at the base."""
     touched = change.touched()
     before = {
         replace(c, path=change.at_head(c.path) if c.path else None)
         for c in base.coverage
     }
-    return tuple(
-        _shown(c)
-        for c in head.coverage
-        if c.check is not None
-        and (c.path in touched or (c not in before and not is_declared_check(c.check)))
-    )
+    return tuple(_shown(c) for c in head.coverage if _is_lost(c, before, touched))
 
 
 def _verdict(introduced: bool, inconclusive: bool, removed: bool) -> Verdict:
