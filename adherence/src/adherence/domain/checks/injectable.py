@@ -104,7 +104,7 @@ def no_self_wiring(
     function nested in it, names a concrete adapter the model defines."""
     if not declaration.declared:
         return undeclared(NO_SELF_WIRING.name)
-    adapters = adapter_names(model, parameters.vocabulary)
+    adapters = adapter_names(model)
     findings: list[Finding] = []
     for use_case in model.definitions:
         if not is_use_case(use_case):

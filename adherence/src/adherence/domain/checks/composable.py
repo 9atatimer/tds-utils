@@ -134,7 +134,7 @@ def values_in_and_out(
     if not declaration.declared:
         return undeclared(VALUES_IN_AND_OUT.name)
     vocabulary = parameters.vocabulary
-    adapters = adapter_names(model, vocabulary)
+    adapters = adapter_names(model)
     defined = frozenset(
         short_name(d.unit.symbol)
         for d in model.definitions

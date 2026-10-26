@@ -11,9 +11,8 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
-from adherence.domain.checks.hexagonal import is_fake, is_port
+from adherence.domain.checks.hexagonal import is_port
 from adherence.domain.model import CodeModel, Definition, Layer, Parameter, UnitKind
-from adherence.domain.parameters import Vocabulary
 
 # --- Constants ---------------------------------------------------------------
 
@@ -182,13 +181,13 @@ def named_in(parameter: Parameter, names: frozenset[str]) -> str | None:
     )
 
 
-def adapter_names(model: CodeModel, vocabulary: Vocabulary) -> frozenset[str]:
+def adapter_names(model: CodeModel) -> frozenset[str]:
     """The names of every concrete adapter the model defines: a type in the
-    adapters layer that is not a fake."""
+    adapters layer, whatever its name. A fake's name exempts it only from
+    what the design says (Swap counts it); a use case wiring it is still
+    wiring an adapter."""
     return frozenset(
         short_name(d.unit.symbol)
         for d in model.definitions
-        if d.unit.kind is UnitKind.TYPE
-        and d.unit.layer is Layer.ADAPTERS
-        and not is_fake(d, vocabulary)
+        if d.unit.kind is UnitKind.TYPE and d.unit.layer is Layer.ADAPTERS
     )

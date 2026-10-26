@@ -71,14 +71,13 @@ def test_measure_with_a_port_taken_by_position_finds_the_use_case() -> None:
 
 def test_measure_with_a_use_case_constructing_an_adapter_finds_it() -> None:
     """Given a use case that constructs a concrete adapter (once itself, once
-    in a function nested in it) and also a fake and a domain value, and a
-    composition root that constructs the adapter, When No self-wiring runs,
-    Then a finding names the use case and the adapter for each construction
-    in it, and the fake, the value and the root are clean."""
+    in a function nested in it) and also a domain value, and a composition
+    root that constructs the adapter, When No self-wiring runs, Then a
+    finding names the use case and the adapter for each construction in it,
+    and the value and the root are clean."""
     files = {USE: b"x\n" * 9, FS: b"x\n" * 9, ROOT: b"x\n" * 9, RULES: b"x\n" * 9}
     definitions = [
         type_(FS, "FsStore", 1),
-        type_(FS, "FakeStore", 4),
         type_(RULES, "Order", 1),
         function(USE, "close", 1, end=8),
         function(USE, "close.helper", 6, parent="close", nested=True),
@@ -86,7 +85,6 @@ def test_measure_with_a_use_case_constructing_an_adapter_finds_it() -> None:
     ]
     calls = (
         Call(USE, 2, "close", "FsStore"),
-        Call(USE, 3, "close", "FakeStore"),
         Call(USE, 4, "close", "Order"),
         Call(USE, 7, "close.helper", "fs.FsStore"),
         Call(ROOT, 2, "build", "FsStore"),
