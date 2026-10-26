@@ -93,3 +93,52 @@ def test_a_false_assertion_with_a_message_in_a_test_that_runs_code_can_fail() ->
     report = _measured({TEST: source})
 
     assert _cannot_fail(report) == {"test_bare_false", "test_runs_nothing"}
+
+
+def test_an_assertion_call_must_be_an_assertion_api() -> None:
+    """Given tests whose only assertion call is a function or method the
+    repository defines under an assertion API's name -- the test module's
+    own, a test class's own, and one imported from the repository -- and
+    tests asserting through pytest.raises and a mock's assert method, When
+    Real assertion runs, Then each test asserting only through the
+    repository's own code is found, and the others are not (Self-review
+    R3)."""
+    source = (
+        b"import pytest\n"
+        b"from unittest.mock import Mock\n"
+        b"from app.testing import assert_any_call\n"
+        b"def assert_called():\n"
+        b"    pass\n"
+        b"def test_own_helper():\n"
+        b"    run()\n"
+        b"    assert_called()\n"
+        b"def test_imported_helper():\n"
+        b"    run()\n"
+        b"    assert_any_call()\n"
+        b"class TestThing:\n"
+        b"    def assert_called_once(self):\n"
+        b"        pass\n"
+        b"    def test_own_method(self):\n"
+        b"        run()\n"
+        b"        self.assert_called_once()\n"
+        b"def test_raises():\n"
+        b"    with pytest.raises(ValueError):\n"
+        b"        run()\n"
+        b"def test_mock():\n"
+        b"    double = Mock()\n"
+        b"    run(double)\n"
+        b"    double.assert_called_once()\n"
+    )
+    files = {
+        "src/app/__init__.py": b"",
+        "src/app/testing.py": b"def assert_any_call():\n    pass\n",
+        TEST: source,
+    }
+
+    report = _measured(files)
+
+    assert _cannot_fail(report) == {
+        "test_own_helper",
+        "test_imported_helper",
+        "TestThing.test_own_method",
+    }
