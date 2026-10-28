@@ -47,6 +47,11 @@
 #     ubuntu leg; the browser is what varies, and CI installs Playwright's
 #     Chromium (`--load-extension` needs an unbranded build).
 #
+#   agent-global -- invariants of clai.d/AGENT.global.md (test/smoketest_
+#     agent_global.sh) and, on a PR that touches it, the ci.magic assertions
+#     in clai.d/ci.magic: no rule dropped or weakened, the at-a-glance list in
+#     step with its sections.
+#
 #   dynomark-e2e -- the integration e2e (dynomark/e2e): the built extension,
 #     the real native host and the real daemon with fake models, driven
 #     together in Chromium on ubuntu. It prints the measured ingest ->
@@ -452,6 +457,64 @@ jobs:
   # job left out is a job that cannot block a landing. `if: always()` so a failed or
   # cancelled dependency still produces this check (red), never an absent
   # one -- absent is what hangs tedium.
+  # The global agent file's gate. Mechanical invariants always run (cheap);
+  # the ci.magic assertions in clai.d/ci.magic run only when a PR touches
+  # the file, but the JOB always runs and succeeds, because `gate` treats a
+  # skipped needed job as a workflow bug. 9atatimer repos reference the
+  # private mirror of the action, not the org path (docs/seed-ci-magic.md).
+  # Without CI_MAGIC_OP_SA_TOKEN the action posts a green "skipped", so after
+  # any credential change read the run and confirm the rows were evaluated.
+  agent-global:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      OP_SA: ${{ secrets.CI_MAGIC_OP_SA_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the agent diffs against the PR base
+
+      - name: Smoketest clai.d/AGENT.global.md invariants
+        run: /bin/bash test/smoketest_agent_global.sh
+
+      - name: Did the PR touch the global agent file or its ci.magic?
+        id: scope
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if git diff --name-only "$BASE" "$HEAD" | grep -qE '^clai\.d/(AGENT\.global\.md|ci\.magic)$'; then
+            echo "touched=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Load Claude Code token from 1Password
+        id: op-load
+        if: steps.scope.outputs.touched == 'true' && env.OP_SA != ''
+        # An unresolved reference must not fail the job; the action turns the
+        # outcome below into a loud misconfiguration comment on the PR.
+        continue-on-error: true
+        uses: 1password/load-secrets-action@70062d7a876d3eb6334754fa26efd2fbd90c32f2 # v5.0.1
+        with:
+          export-env: true
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.CI_MAGIC_OP_SA_TOKEN }}
+          # Vault by UUID (the CI-Magic vault) so a rename does not break it.
+          CLAUDE_CODE_OAUTH_TOKEN: "op://yoqtqrxgkczjglzktjzcujkqvi/Claude Max tdsmobile Token/credential"
+
+      - name: ci.magic
+        if: steps.scope.outputs.touched == 'true'
+        uses: 9atatimer/ci-magic@main
+        env:
+          CI_MAGIC_OP_LOAD_OUTCOME: ${{ steps.op-load.outcome }}
+        with:
+          provider: claude-cli
+          claude-code-oauth-token: ${{ env.CLAUDE_CODE_OAUTH_TOKEN }}
+
   gate:
     name: gate
     runs-on: ubuntu-latest
@@ -467,6 +530,7 @@ jobs:
       - dynomark-daemon
       - dynomark-extension
       - dynomark-e2e
+      - agent-global
     permissions: {}
     steps:
       - name: Every needed job succeeded
