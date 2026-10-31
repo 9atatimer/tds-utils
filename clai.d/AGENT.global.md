@@ -260,6 +260,16 @@ second PR, a stacked PR or a "docs-only companion". This overrides any
 skill that says to open a separate or stacked PR (the github-workflow
 skill's Stacked PRs, the retrospective skill's separate docs-only PR).
 
+## A fact you put in a subagent's prompt is a snapshot
+
+A claim about remote state in a prompt (merged, deployed, released,
+closed) is true when you write it and goes stale while the agent runs.
+An agent told "this migration has never been deployed" was still editing
+it in place when another PR deployed it eleven minutes later; the edit
+would have reached only databases built from zero. Have the agent
+re-derive the fact itself (`git ls-tree origin/main`, the workflow run
+list), or state it as "as of <sha>; verify before relying on it".
+
 ## A stop hook's "unpushed commits" is not an instruction to push
 
 Cloud sessions run a stop hook that demands a push whenever the checked-out
