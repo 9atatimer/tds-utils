@@ -4,6 +4,8 @@ so process_worker can hand them to a child process."""
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,4 +58,23 @@ class Dies:
 
     def __call__(self, finished: FinishedSink) -> Report:
         finished(FIRST)
+        os._exit(3)
+
+
+@dataclass(frozen=True)
+class SpawnsThenDies:
+    """Starts a long-lived process in its own process group -- an analyzer
+    still running -- writes that process's pid to `pid_file`, then ends its
+    own process without a word."""
+
+    pid_file: Path
+
+    def __call__(self, finished: FinishedSink) -> Report:
+        analyzer = subprocess.Popen(
+            [sys.executable, "-I", "-c", "import time; time.sleep(600)"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self.pid_file.write_text(str(analyzer.pid), encoding="utf-8")
         os._exit(3)
