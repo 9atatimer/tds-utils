@@ -107,7 +107,9 @@ def judge_bounded(
             compared(base=Report(), head=Report.not_run(ran.reason), change=change),
             repository=change.repository,
         )
-    partial = assemble_partial(ran.finished, unfinished_checks(ran.finished))
+    partial = assemble_partial(
+        ran.finished, unfinished_checks(ran.finished), coverage=ran.coverage
+    )
     return replace(
         partial,
         reasons=(ran.reason, *partial.reasons),

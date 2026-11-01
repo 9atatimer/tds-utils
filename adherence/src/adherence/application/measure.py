@@ -63,6 +63,7 @@ from adherence.domain.report import (
     FinishedCheck,
     Report,
     ReportIdentity,
+    RunCoverage,
     body_digest,
     fingerprint,
 )
@@ -299,6 +300,8 @@ def measure_reporting(
             if isinstance(read_radar, TimedOut)
             else read_radar
         )
+    if finished is not None:
+        finished(RunCoverage((*coverage, *unmodelled(whole, declaration))))
     done: list[FinishedCheck] = []
     for check in each_check(whole, declaration, design, parameters, radar=tech):
         done.append(check)

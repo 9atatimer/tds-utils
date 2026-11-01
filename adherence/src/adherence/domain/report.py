@@ -80,6 +80,16 @@ class FinishedCheck:
 
 
 @dataclass(frozen=True, slots=True)
+class RunCoverage:
+    """What a run could not cover outside any one check -- a path it could
+    not read, a language no analyzer measures, an analyzer that timed out.
+    A bounded run reports it before its checks, so a run ended after it
+    still names it."""
+
+    coverage: tuple[Coverage, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class Recorded:
     """Whether a report was kept, and, when it was not, the notice the
     presenter shows beside the report."""
@@ -187,18 +197,21 @@ def assemble_partial(
     finished: tuple[FinishedCheck, ...],
     unfinished: tuple[Check, ...],
     *,
+    coverage: tuple[Coverage, ...] = (),
     reason: str = ENDED,
 ) -> Report:
-    """The Report of a run ended at the deadline: the finished checks as
-    they finished, every unfinished one as coverage, and the verdict
-    inconclusive -- the change was never compared, so it is never held or
-    raised, and what did not finish never reads as a pass. `reason` is why
-    the unfinished checks did not finish."""
+    """The Report of a run ended at the deadline: the run's own coverage,
+    the finished checks as they finished, every unfinished one as
+    coverage, and the verdict inconclusive -- the change was never
+    compared, so it is never held or raised, and what did not finish never
+    reads as a pass. `reason` is why the unfinished checks did not
+    finish."""
     kept = tuple(f for f in finished if f.check not in unfinished)
     return Report(
         ran=tuple(f.check for f in kept if f.ran),
         findings=tuple(finding for f in kept for finding in f.findings),
         coverage=(
+            *coverage,
             *(c for f in kept for c in f.coverage),
             *(Coverage(reason, check=c.name) for c in unfinished),
         ),
