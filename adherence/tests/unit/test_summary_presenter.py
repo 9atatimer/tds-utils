@@ -5,6 +5,7 @@ mitigations: markdown and HTML escaped in the job summary)."""
 
 from __future__ import annotations
 
+import html
 import re
 import unicodedata
 
@@ -60,3 +61,18 @@ def test_report_summary_of_a_run_that_did_not_run_says_why() -> None:
 
     assert text.splitlines()[0] == "## adherence: not run"
     assert "adherence\\.toml: &lt;bad&gt; \\*line\\*" in text
+
+
+def test_report_summary_leaves_no_autolink_or_mention_in_author_text() -> None:
+    """Given evidence carrying scheme URLs, www hosts, emails and @mentions,
+    When the report is written to the job summary, Then none of them
+    survives as text GFM turns into a link or a mention by itself, read
+    with the backslash escapes and entities undone, so the verdict does not
+    hang on the order in which a renderer reads escapes and autolinks."""
+    text = report_summary(REPORT, NOT_KEPT)
+
+    shown = html.unescape(re.sub(r"\\(.)", r"\1", text))
+    assert "evil" in shown
+    assert not re.search(r"(?i)(https?|ftp|mailto|xmpp):", shown), shown
+    assert not re.search(r"(?i)www\.", shown), shown
+    assert not re.search(r"@\w", shown), shown
