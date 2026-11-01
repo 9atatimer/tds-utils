@@ -747,6 +747,41 @@ def test_every_field_target_is_a_write_and_a_field_of_this_a_member() -> None:
     }
 
 
+def test_a_field_written_by_a_literal_subscript_is_a_write_and_a_member() -> None:
+    """Given fields written in bracket notation with a string literal --
+    assigned, updated, and destructured -- beside an item written by a
+    computed or numeric index and a field only read by subscript, When they
+    are modelled, Then each literal-keyed target is a write of that field
+    and on this a field member, as dot notation is; a computed or numeric
+    index is an item, not a field, and is neither, as a Python subscript
+    is not."""
+    source = (
+        b"class A {\n"
+        b"  m(order, o, key) {\n"
+        b"    order['status'] = 'closed';\n"
+        b"    this['count']++;\n"
+        b'    [this["q"]] = [1];\n'
+        b"    o[key] = 1;\n"
+        b"    o[0] = 2;\n"
+        b"    const z = this['z'];\n"
+        b"  }\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.ts": source})
+
+    assert sorted((w.line, w.target, w.field) for w in model.writes) == [
+        (3, "order", "status"),
+        (4, "this", "count"),
+        (5, "this", "q"),
+    ]
+    assert {(m.name, m.kind, m.line) for m in model.members} == {
+        ("m", MemberKind.METHOD, 2),
+        ("count", MemberKind.FIELD, 4),
+        ("q", MemberKind.FIELD, 5),
+    }
+
+
 def test_conditionals_name_their_discriminant() -> None:
     """Given a branch on a value's field, When the fixture is modelled, Then
     the conditional names the expression it discriminates on, its line and
