@@ -11,7 +11,7 @@ from __future__ import annotations
 import ast
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, replace
 
 from adherence.adapters.python_imports import ImportGraphFailed, import_edges
 from adherence.domain.deadline import Deadline, TimedOut
@@ -36,6 +36,7 @@ from adherence.domain.model import (
     UnitKind,
     Unparsed,
     Write,
+    merged,
 )
 from adherence.domain.parameters import Vocabulary
 from adherence.domain.source import source_lines
@@ -490,16 +491,6 @@ def _file_model(
     )
 
 
-def _merged(models: Sequence[CodeModel], **rest: object) -> CodeModel:
-    """One CodeModel holding every fact of each, plus the fields given."""
-    joined: dict[str, object] = {
-        f.name: tuple(fact for m in models for fact in getattr(m, f.name))
-        for f in fields(CodeModel)
-    }
-    joined.update(rest)
-    return CodeModel(**joined)  # type: ignore[arg-type]  # every field is a tuple
-
-
 # --- Adapter -----------------------------------------------------------------
 
 
@@ -556,8 +547,8 @@ class PythonCodeModel:
                 return TimedOut(str(failure))
             imports = []
             unparsed.extend(Unparsed(path, str(failure)) for path in trees)
-        return _merged(
-            files,
+        return replace(
+            merged(files),
             imports=tuple(imports),
             regions=declared + found,
             unparsed=tuple(unparsed),
