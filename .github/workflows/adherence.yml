@@ -37,10 +37,14 @@
 # and a margin for the steps after it -- as `--time-left`; checks unfinished
 # by then are coverage, never a pass.
 #
-# The base: by default the merge-base of the head and the pull request's
-# base (on a push, the default branch), so a change is judged on what it
-# did and not on what landed beside it. A caller may name `base` and `head`
-# instead (tedium's staging commit, say).
+# The base: by default, for a pull request, the merge-base of the head and
+# the pull request's base, so a change is judged on what it did and not on
+# what landed beside it; for a push, the tip the push replaced
+# (`github.event.before`); for a new branch's first push or another event,
+# the merge-base with the default branch. When none can be found (a force
+# push whose old tip is not fetched, the default branch's first push) the
+# job fails and says so rather than judge an empty change. A caller may
+# name `base` and `head` instead (tedium's staging commit, say).
 #
 # Reports: ci keeps each report in the runner's per-user file cache and
 # reads no base back from it, so the base is always measured; until the
@@ -105,7 +109,7 @@ on:
         type: string
         required: true
       base:
-        description: The revision judged against; empty is the merge-base of the head and the pull request's base, or of the default branch on a push.
+        description: The revision judged against; empty is the merge-base of the head and the pull request's base, on a push the tip it replaced, else the merge-base with the default branch.
         type: string
         required: false
         default: ''
@@ -197,16 +201,37 @@ jobs:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PUSH_BEFORE: ${{ github.event.before }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
         run: |
           set -euo pipefail
+          no_base() {
+            echo "adherence: no base to judge $head against: $1; name one with the base input" >&2
+            exit 1
+          }
           head="${HEAD_INPUT:-${PR_HEAD:-$GITHUB_SHA}}"
           head="$(git rev-parse --verify "${head}^{commit}")"
           if [ -n "$BASE_INPUT" ]; then
             base="$(git rev-parse --verify "${BASE_INPUT}^{commit}")"
+          elif [ -n "$PR_BASE" ]; then
+            base="$(git merge-base "$PR_BASE" "$head")" ||
+              no_base "the pull request's base $PR_BASE shares no history with it"
+          elif [ -n "$PUSH_BEFORE" ] && [ -n "${PUSH_BEFORE//0/}" ]; then
+            # A push is judged against the tip it replaced; the merge-base
+            # with the default branch would be the head itself there.
+            base="$(git rev-parse --verify --quiet "${PUSH_BEFORE}^{commit}")" ||
+              no_base "the pushed-over tip $PUSH_BEFORE is not in the fetched history (a force push?)"
           else
-            tip="${PR_BASE:-origin/$DEFAULT_BRANCH}"
-            base="$(git merge-base "$tip" "$head")"
+            # A new branch (before is all zeros) or another event: the
+            # merge-base with the default branch.
+            git rev-parse --verify --quiet "origin/$DEFAULT_BRANCH^{commit}" >/dev/null ||
+              no_base "the default branch origin/$DEFAULT_BRANCH is not fetched"
+            base="$(git merge-base "origin/$DEFAULT_BRANCH" "$head")" ||
+              no_base "it shares no history with origin/$DEFAULT_BRANCH"
+            if [ "$base" = "$head" ] && [ "$GITHUB_REF" = "refs/heads/$DEFAULT_BRANCH" ]; then
+              no_base "it is the tip of the default branch and no earlier tip was pushed over"
+            fi
           fi
           if [ -n "$PR_NUMBER" ]; then
             ref="refs/pull/$PR_NUMBER/head"
