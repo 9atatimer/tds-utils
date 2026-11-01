@@ -110,6 +110,8 @@ test_trees() {
     assert_eq "adherence/ Markdown runs adherence" "$(only adherence)" "$(classify "${d}" adherence/README.md)"
     assert_eq "a change outside adherence/ does not run adherence" "$(only chores)" \
         "$(classify "${d}" chores/src/x.py)"
+    assert_eq "adherence.toml alone runs adherence (task-068)" "$(only adherence)" \
+        "$(classify "${d}" adherence.toml)"
 }
 
 test_shebang() {
