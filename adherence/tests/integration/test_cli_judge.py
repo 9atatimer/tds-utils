@@ -19,6 +19,7 @@ from adherence.adapters.fakes import FakeComplexity, FakeDuplication, FakeReport
 from adherence.cli.main import main
 from adherence.container import build
 from tests.integration.test_git_repository import _git, make_repository
+from tests.json_schema import sarif_violations
 from tests.judge_kit import passing_judge
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "judge"
@@ -105,3 +106,37 @@ def test_judge_json_of_a_head_that_deletes_the_stub_is_held(tmp_path: Path) -> N
     document = json.loads(output)
     assert (document["verdict"], document["removed"]) == ("held", []), output
     assert code == 0, output
+
+
+def test_judge_sarif_of_the_fixture_conforms_to_sarif_2_1_0(tmp_path: Path) -> None:
+    """Given the judge fixture's base and the head that adds a stub, When
+    `adhere judge --base --head --format sarif` runs with real
+    git and the real Python analyzer, Then the log conforms to the official
+    SARIF 2.1.0 schema and its introduced Stub result is an error at the
+    stub's line (the task-066 done check)."""
+    root = tmp_path / "repo"
+    revisions = _revisions(root)
+    builder = functools.partial(
+        build,
+        complexity=FakeComplexity(),
+        duplication=FakeDuplication(),
+        reports=FakeReportStore(),
+        judge=passing_judge(),
+        environment={},
+    )
+
+    result = CliRunner().invoke(
+        main,
+        [
+            *("judge", "--root", str(root)),
+            *("--base", revisions["base"], "--head", revisions["head"]),
+            *("--format", "sarif"),
+        ],
+        obj=builder,
+    )
+
+    document = json.loads(result.output)
+    assert sarif_violations(document) == []
+    (stub,) = [r for r in document["runs"][0]["results"] if r["ruleId"] == "stub"]
+    assert (stub["level"], stub["properties"]["provenance"]) == ("error", "introduced")
+    assert result.exit_code == 1
