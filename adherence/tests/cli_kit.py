@@ -23,32 +23,41 @@ from adherence.adapters.fakes import (
     FakeReviews,
 )
 from adherence.adapters.inline_worker import InlineWorker
-from adherence.cli.main import main
+from adherence.cli.main import HOOK_BASE, main
 from adherence.container import Container, Stage, build
 from adherence.domain.declaration import DECLARATION_PATH
 from adherence.domain.model import CodeLanguage, CodeModel
-from adherence.domain.target import Head
+from adherence.domain.target import Base, Head
 from adherence.ports.decision import DecisionPort
 from tests.judge_kit import BASE, HEAD, RULES, passing_judge, stubbed, with_declaration
+from tests.measure_kit import HEXAGON
 
 STUBBED = b"\ndef tidy():\n    pass\n"
 CLEAN = b"\ndef tidy():\n    return 1\n"
+EDITED = b"\ndef tidy():\n    return 2\n"
 JUDGE = ("judge", "--base", BASE.revision, "--head", HEAD.revision)
 
 
 def faked(
-    *, head: bytes = STUBBED, judge: DecisionPort | None = None
+    *,
+    head: bytes = STUBBED,
+    judge: DecisionPort | None = None,
+    declaration: bytes = HEXAGON,
 ) -> functools.partial[Container]:
     """The composition root with every port faked: the base (and HEAD, the
     hook's base) holds the rule implemented, the head, the staged index and
-    the working tree the rule `head`."""
-    files = with_declaration({RULES: head})
+    the working tree the rule `head`: STUBBED a stub, CLEAN and EDITED a
+    function that works. Both sides carry `declaration`."""
+    files = with_declaration({RULES: head}, declaration)
+    base = with_declaration({RULES: CLEAN}, declaration)
     return functools.partial(
         build,
         repository=FakeRepository(
             {
-                BASE: with_declaration({RULES: CLEAN}),
+                BASE: base,
                 HEAD: files,
+                Base(HOOK_BASE): base,
+                Head.staged_index(): files,
                 Head.working_tree(): files,
             },
             history={DECLARATION_PATH: (BASE.revision,)},
@@ -56,7 +65,12 @@ def faked(
         reviews=FakeReviews(),
         analyzers={
             CodeLanguage.PYTHON: FakeCodeModel(
-                CodeModel(), when={STUBBED: stubbed(RULES, "tidy", 2)}
+                CodeModel(),
+                when={
+                    STUBBED: stubbed(RULES, "tidy", 2),
+                    CLEAN: stubbed(RULES, "tidy", 2, stub=None),
+                    EDITED: stubbed(RULES, "tidy", 2, stub=None),
+                },
             )
         },
         complexity=FakeComplexity(),
