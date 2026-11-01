@@ -73,9 +73,10 @@ def _quality_lines(report: Report, quality: Quality) -> list[str]:
 def _headline(report: Report) -> list[str]:
     if report.not_run_reason is not None:
         return [without_controls(f"not run: {report.not_run_reason}")]
-    verdict = report.verdict.value if report.verdict is not None else "measured"
+    if report.verdict is None:
+        return ["measured"]
     return [
-        f"verdict: {verdict}",
+        f"verdict: {report.verdict.value}",
         *(without_controls(f"  why: {reason}") for reason in report.reasons),
     ]
 

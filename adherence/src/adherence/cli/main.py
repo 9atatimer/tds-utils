@@ -25,7 +25,9 @@ from adherence.application.measure import measure
 from adherence.application.record import record_report
 from adherence.cli.presenters.json_report import report_json
 from adherence.cli.presenters.plain import without_controls
+from adherence.cli.presenters.sarif import report_sarif
 from adherence.cli.presenters.summary import report_summary
+from adherence.cli.presenters.terminal import report_text
 from adherence.container import Container, Stage, build
 from adherence.domain.deadline import Deadline
 from adherence.domain.declaration import (
@@ -44,15 +46,21 @@ from adherence.domain.target import Base, Change, Head
 # lands (task-066): lowered fails a gate; not run never reads as a pass.
 # Inconclusive exits zero, so in the hook the commit proceeds.
 FAILING = frozenset({Verdict.LOWERED, Verdict.NOT_RUN})
-# The output formats: the machine form, and the PR job summary's markdown.
-# The terminal and SARIF presenters are task-066's.
-FORMATS = {"json": report_json, "summary": report_summary}
+# The output formats: terminal lines (the default), the machine form,
+# SARIF 2.1.0, and the PR job summary's markdown.
+FORMATS = {
+    "terminal": report_text,
+    "json": report_json,
+    "sarif": report_sarif,
+    "summary": report_summary,
+}
 FORMAT_OPTION = click.option(
     "--format",
     "format_name",
     type=click.Choice(sorted(FORMATS)),
     default=None,
-    help="The output format. Required until the terminal presenter lands.",
+    help="How the report is printed: terminal lines (the default), JSON, "
+    "SARIF 2.1.0, or the PR job summary in markdown.",
 )
 JSON_OPTION = click.option(
     "--json", "as_json", is_flag=True, help="Print the report as JSON (--format json)."
@@ -89,17 +97,15 @@ def _declaration_lines(loaded: Declaration | DeclarationUnreadable) -> list[str]
 
 
 def _presenter(format_name: str | None, as_json: bool) -> Callable[..., str]:
-    """The presenter the flags name; a usage error when they name none, or
-    two: `--json` is `--format json`, so beside another format it is a
-    conflict, never a silent loser."""
+    """The presenter the flags name, the terminal's when they name none; a
+    usage error when they name two: `--json` is `--format json`, so beside
+    another format it is a conflict, never a silent loser."""
     if as_json and format_name not in (None, "json"):
         raise click.UsageError(
             f"--json is --format json; it conflicts with --format {format_name}"
         )
-    if format_name is None and as_json:
-        format_name = "json"
     if format_name is None:
-        raise click.UsageError("name an output format: --format json or summary")
+        format_name = "json" if as_json else "terminal"
     return FORMATS[format_name]
 
 

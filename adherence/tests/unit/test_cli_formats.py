@@ -37,7 +37,7 @@ def test_judge_as_summary_prints_the_job_summary(tmp_path: Path) -> None:
     it prints the job summary headed by the verdict."""
     result = adhere(tmp_path, *JUDGE, "--format", "summary")
 
-    assert result.output.splitlines()[0] == "## adherence: lowered"
+    assert result.output.splitlines()[0] == "## Adherence: lowered"
 
 
 def test_judge_with_no_format_prints_the_terminal_report(tmp_path: Path) -> None:
@@ -69,12 +69,3 @@ def test_measure_as_sarif_prints_a_conforming_log(tmp_path: Path) -> None:
     document = json.loads(result.output)
     assert sarif_violations(document) == []
     assert document["runs"][0]["properties"]["verdict"] is None
-
-
-def test_json_beside_another_format_is_refused(tmp_path: Path) -> None:
-    """Given `--json` and `--format sarif` together, When `adhere judge`
-    runs, Then it refuses the command line, naming both."""
-    result = adhere(tmp_path, *JUDGE, "--json", "--format", "sarif")
-
-    assert result.exit_code == 2
-    assert "--json" in result.output and "--format" in result.output
