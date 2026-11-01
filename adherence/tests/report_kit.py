@@ -2,7 +2,8 @@
 finding, an existing judged one, an exempt one, a removed one, a notice,
 coverage and an abstention -- and author-controlled text that addresses
 each surface (ANSI escapes, control and bidi characters, a workflow
-command, markdown and HTML), as a hostile repository would write it.
+command, markdown, HTML, and the URLs, hosts, emails and mentions GFM
+links by itself), as a hostile repository would write it.
 """
 
 from __future__ import annotations
@@ -16,8 +17,14 @@ from adherence.domain.report import Recorded, Report, Verdict
 
 RULES = "src/app/domain/rules.py"
 # An offending line that tries to recolour the terminal, rewrite the line it
-# is on, reorder it, and start a workflow command on a line of its own.
-HOSTILE = "x = 1\x1b[31m\x1b]0;owned\x07\r\n::error::forged‮<b>|*_[a](b)"
+# is on, reorder it, start a workflow command on a line of its own, and
+# have the job summary link a URL, a host, an email or a user by itself.
+# The URLs, hosts, emails and mentions GFM links by itself.
+LINKS = (
+    "https://evil.example/x HTTP://EVIL/x ftp://x.y www.evil.com/p"
+    " WWW.EVIL.COM mailto:a@b.co xmpp:a@b.co a.b@c.d.com @octocat @org/team"
+)
+HOSTILE = "x = 1\x1b[31m\x1b]0;owned\x07\r\n::error::forged‮<b>|*_[a](b) " + LINKS
 HOSTILE_PATH = "::warning::forged.py"
 
 STUB = Finding(
