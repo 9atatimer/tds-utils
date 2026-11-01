@@ -9,7 +9,7 @@ answered.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 
 from adherence.application.latch import (
@@ -176,6 +176,17 @@ def _metrics(
     return Coverage(f"{answer.operation}: timed out", check=check)
 
 
+def _reported(
+    found: Iterable[Coverage], finished: FinishedSink | None
+) -> tuple[Coverage, ...]:
+    """Run-level coverage as it is found, reported to `finished` at once, so
+    a run ended later -- inside an analyzer, say -- still names it."""
+    items = tuple(found)
+    if finished is not None and items:
+        finished(RunCoverage(items))
+    return items
+
+
 def _as_reported(
     check: FinishedCheck,
     sources: Mapping[str, bytes],
@@ -254,23 +265,28 @@ def measure_reporting(
         )
     models: list[CodeModel] = []
     sources: dict[str, bytes] = {}
-    coverage: list[Coverage] = list(unmeasured(paths, analyzers.keys()))
+    coverage = list(_reported(unmeasured(paths, analyzers.keys()), finished))
     scripts = _read_scripts(paths, at, repository, deadline)
-    coverage.extend(scripts.coverage)
+    coverage.extend(_reported(scripts.coverage, finished))
     if CodeLanguage.SHELL not in analyzers:
         shell = CodeLanguage.SHELL.value
-        coverage.extend(unmeasured_in(shell, path) for path in sorted(scripts.shell))
+        coverage.extend(
+            _reported(
+                (unmeasured_in(shell, path) for path in sorted(scripts.shell)),
+                finished,
+            )
+        )
     for language, analyzer in analyzers.items():
         read = _read_sources(paths, language, at, repository, deadline)
         if language is CodeLanguage.SHELL:
             read = _Read({**read.sources, **scripts.shell}, read.coverage)
         sources.update(read.sources)
-        coverage.extend(read.coverage)
+        coverage.extend(_reported(read.coverage, finished))
         model = _model(read, language, analyzer, declaration, parameters, deadline)
         if isinstance(model, CodeModel):
             models.append(model)
         else:
-            coverage.extend(model)
+            coverage.extend(_reported(model, finished))
     unmeasured_checks: set[str] = set()
     for answer in (
         _metrics(complexity.measure(sources, deadline), "Complexity"),
@@ -279,7 +295,7 @@ def measure_reporting(
         if isinstance(answer, Metrics):
             models.append(CodeModel(metrics=answer))
         else:
-            coverage.append(answer)
+            coverage.extend(_reported((answer,), finished))
             unmeasured_checks.add(answer.check or "")
     whole = with_languages(
         merged(models), {path: CodeLanguage.SHELL.value for path in scripts.shell}
@@ -300,8 +316,7 @@ def measure_reporting(
             if isinstance(read_radar, TimedOut)
             else read_radar
         )
-    if finished is not None:
-        finished(RunCoverage((*coverage, *unmodelled(whole, declaration))))
+    _reported(unmodelled(whole, declaration), finished)
     done: list[FinishedCheck] = []
     for check in each_check(whole, declaration, design, parameters, radar=tech):
         done.append(check)
