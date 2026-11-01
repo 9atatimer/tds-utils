@@ -19,19 +19,23 @@ from adherence.domain.declaration import (
     ReviewsUnavailable,
 )
 from adherence.ports.review import ReviewPort
-from tests.github_fixture import REPOSITORY, TOKEN, fixture_opener
+from tests.github_fixture import BRANCH, REPOSITORY, TOKEN, fixture_opener
 from tests.review_contract import LANDED, ReviewContract
 
 PAGED = "5" * 40
 AMBIGUOUS = "6" * 40
 GARBLED = "7" * 40
 OPEN_ONLY = "8" * 40
+BRANCHED = "b" * 40
+PAGED_PULLS = "c" * 40
 
 
 class TestGitHubReviews(ReviewContract):
     def reviews(self) -> ReviewPort:
         opener, _handler = fixture_opener()
-        return GitHubReviews(repository=REPOSITORY, token=TOKEN, opener=opener)
+        return GitHubReviews(
+            branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener
+        )
 
 
 def test_github_reviews_sends_the_token_and_asks_the_rest_api() -> None:
@@ -39,9 +43,9 @@ def test_github_reviews_sends_the_token_and_asks_the_rest_api() -> None:
     every request carries it as a bearer token to the REST API's JSON."""
     opener, handler = fixture_opener()
 
-    GitHubReviews(repository=REPOSITORY, token=TOKEN, opener=opener).approvals(
-        LANDED, None
-    )
+    GitHubReviews(
+        branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener
+    ).approvals(LANDED, None)
 
     assert [r.full_url.split("?")[0] for r in handler.requests] == [
         f"https://api.github.com/repos/{REPOSITORY}/commits/{LANDED}/pulls",
@@ -57,7 +61,7 @@ def test_github_reviews_reads_every_page_of_reviews() -> None:
     for, Then the approval on the second page stands."""
     opener, _handler = fixture_opener()
     reviews = GitHubReviews(
-        repository=REPOSITORY, token=TOKEN, opener=opener, per_page=2
+        branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener, per_page=2
     )
 
     assert reviews.approvals(PAGED, None) == Landing(
@@ -69,7 +73,9 @@ def test_github_reviews_with_no_merged_pr_is_no_landing() -> None:
     """Given a commit only an open pull request carries, When its approvals
     are asked for, Then no PR landed it."""
     opener, _handler = fixture_opener()
-    reviews = GitHubReviews(repository=REPOSITORY, token=TOKEN, opener=opener)
+    reviews = GitHubReviews(
+        branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener
+    )
 
     assert reviews.approvals(OPEN_ONLY, None) == NoLandingPR(OPEN_ONLY)
 
@@ -79,23 +85,50 @@ def test_github_reviews_that_cannot_resolve_the_landing_are_unavailable() -> Non
     merge commit, or a body that is not JSON, When approvals are asked for,
     Then the answer is the typed unavailable failure."""
     opener, _handler = fixture_opener()
-    reviews = GitHubReviews(repository=REPOSITORY, token=TOKEN, opener=opener)
+    reviews = GitHubReviews(
+        branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener
+    )
 
     for commit in (AMBIGUOUS, GARBLED):
         assert isinstance(reviews.approvals(commit, None), ReviewsUnavailable), commit
 
 
 def test_github_reviews_without_a_token_or_a_commit_id_asks_nothing() -> None:
-    """Given no token, no repository, or a commit that is not an object id,
+    """Given no token, no repository, no branch, or a commit that is not an
+    object id,
     When approvals are asked for, Then the answer is unavailable naming why,
     and no request is made."""
     opener, handler = fixture_opener()
 
     for reviews, commit in (
-        (GitHubReviews(repository=REPOSITORY, token=None, opener=opener), LANDED),
-        (GitHubReviews(repository=None, token=TOKEN, opener=opener), LANDED),
-        (GitHubReviews(repository=REPOSITORY, token=TOKEN, opener=opener), "HEAD~1"),
-        (GitHubReviews(repository="a/b/../c", token=TOKEN, opener=opener), LANDED),
+        (
+            GitHubReviews(
+                branch=BRANCH, repository=REPOSITORY, token=None, opener=opener
+            ),
+            LANDED,
+        ),
+        (
+            GitHubReviews(branch=BRANCH, repository=None, token=TOKEN, opener=opener),
+            LANDED,
+        ),
+        (
+            GitHubReviews(
+                branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener
+            ),
+            "HEAD~1",
+        ),
+        (
+            GitHubReviews(
+                branch=BRANCH, repository="a/b/../c", token=TOKEN, opener=opener
+            ),
+            LANDED,
+        ),
+        (
+            GitHubReviews(
+                branch=None, repository=REPOSITORY, token=TOKEN, opener=opener
+            ),
+            LANDED,
+        ),
     ):
         answer = reviews.approvals(commit, None)
         assert isinstance(answer, ReviewsUnavailable) and answer.reason, commit
@@ -138,8 +171,38 @@ def test_github_reviews_with_a_truncated_body_are_unavailable() -> None:
     are asked for, Then the answer is the typed unavailable failure, not a
     crash."""
     opener = urllib.request.build_opener(_TruncatingHandler())
-    reviews = GitHubReviews(repository=REPOSITORY, token=TOKEN, opener=opener)
+    reviews = GitHubReviews(
+        branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener
+    )
 
     answer = reviews.approvals(LANDED, None)
 
     assert isinstance(answer, ReviewsUnavailable) and answer.reason
+
+
+def test_github_reviews_finds_the_pr_that_landed_on_the_judged_branch() -> None:
+    """Given a commit two merged PRs carry, one into another branch, neither
+    with it as its merge commit, When its approvals are asked for on the
+    judged branch, Then the landing is the PR into that branch."""
+    opener, _handler = fixture_opener()
+    reviews = GitHubReviews(
+        branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener
+    )
+
+    assert reviews.approvals(BRANCHED, None) == Landing(
+        author="alice", approvals=(Approval("owner", BRANCHED),)
+    )
+
+
+def test_github_reviews_reads_every_page_of_a_commits_pull_requests() -> None:
+    """Given a commit whose pull requests span two pages, the one that landed
+    it on the judged branch on the second, When its approvals are asked
+    for, Then that PR is the landing."""
+    opener, _handler = fixture_opener()
+    reviews = GitHubReviews(
+        branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener, per_page=2
+    )
+
+    assert reviews.approvals(PAGED_PULLS, None) == Landing(
+        author="alice", approvals=(Approval("owner", PAGED_PULLS),)
+    )

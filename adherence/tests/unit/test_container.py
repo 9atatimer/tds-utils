@@ -132,6 +132,9 @@ def test_build_binds_github_reviews_in_ci_and_no_reviews_elsewhere(
     stage binds no_reviews, which answers Unknown."""
     monkeypatch.setenv("GITHUB_TOKEN", "job-token")
     monkeypatch.setenv("GITHUB_REPOSITORY", "example-org/example")
+    # A push event sets GITHUB_BASE_REF empty and names the branch pushed.
+    monkeypatch.setenv("GITHUB_BASE_REF", "")
+    monkeypatch.setenv("GITHUB_REF_NAME", "master")
 
     for stage in Stage:
         reviews = build(stage, root=str(tmp_path)).reviews
@@ -139,7 +142,9 @@ def test_build_binds_github_reviews_in_ci_and_no_reviews_elsewhere(
             assert isinstance(reviews, GitHubReviews), stage
             answer = reviews.approvals("not-an-object-id", None)
             assert isinstance(answer, ReviewsUnavailable)
-            assert "object id" in answer.reason, "the token or repository is lost"
+            assert "object id" in answer.reason, (
+                "the token, repository or branch is lost"
+            )
         else:
             assert isinstance(reviews, NoReviews), stage
             assert isinstance(reviews.approvals("a" * 40, None), Unknown)
@@ -158,3 +163,20 @@ def test_build_in_ci_without_the_token_fails_closed(
 
     assert isinstance(answer, ReviewsUnavailable)
     assert "GITHUB_TOKEN" in answer.reason
+
+
+def test_build_in_ci_without_a_branch_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a `ci` job that names no branch, When a landing's approvals are
+    asked for, Then the answer is unavailable naming the variables, since
+    no pull request can be told to have landed on the judged branch."""
+    monkeypatch.setenv("GITHUB_TOKEN", "job-token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example-org/example")
+    monkeypatch.delenv("GITHUB_BASE_REF", raising=False)
+    monkeypatch.delenv("GITHUB_REF_NAME", raising=False)
+
+    answer = build(Stage.CI, root=str(tmp_path)).reviews.approvals("a" * 40, None)
+
+    assert isinstance(answer, ReviewsUnavailable)
+    assert "GITHUB_BASE_REF" in answer.reason
