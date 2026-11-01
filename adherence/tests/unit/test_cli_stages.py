@@ -20,7 +20,9 @@ def test_help_lists_the_four_stages() -> None:
     option lists laptop, hook, ci and cloud."""
     result = CliRunner().invoke(main, ["--help"])
 
-    (line,) = [line for line in result.output.splitlines() if "--stage" in line]
+    (line,) = [
+        ln for ln in result.output.splitlines() if ln.lstrip().startswith("--stage ")
+    ]
     assert "[laptop|hook|ci|cloud]" in line
 
 
