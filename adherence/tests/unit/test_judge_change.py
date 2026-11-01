@@ -683,3 +683,41 @@ def test_judge_change_ignores_a_base_stored_without_the_judge() -> None:
     found = [f for f in report.findings if f.check.name == "Two jobs"]
     assert [f.provenance for f in found] == [Provenance.EXISTING]
     assert store.hits == []
+
+
+# --- An abstention is inconclusive --------------------------------------------
+
+TWO_JOBS_IN_BAND = {"yes": 0.5, "no": 0.5}
+EDITED = FIXED + b"# edited\n"
+
+
+def test_judge_change_with_an_abstention_on_a_touched_unit_is_inconclusive() -> None:
+    """Given a change whose only unresolved item is a judged check that
+    abstained on a unit it touched, When it is judged, Then the verdict is
+    inconclusive, never lowered, and the reasons name the check and the
+    unit."""
+    report = judge_with(
+        {RULES: FIXED},
+        {RULES: EDITED},
+        when={**WHEN, EDITED: stubbed(RULES, "tidy", 2, stub=None)},
+        judge=answering(TWO_JOBS, TWO_JOBS_IN_BAND),
+    )
+
+    assert [a.unit.path for a in report.abstentions] == [RULES]
+    assert report.verdict is Verdict.INCONCLUSIVE
+    assert any("Two jobs" in r and RULES in r for r in report.reasons)
+
+
+def test_judge_change_with_an_abstention_on_an_untouched_unit_holds() -> None:
+    """Given a judged check that abstained on a unit the change did not
+    touch, When the change is judged, Then the abstention does not make it
+    inconclusive and the verdict is held."""
+    report = judge_with(
+        {RULES: FIXED, USE: CLEAN},
+        {RULES: FIXED, USE: CLEAN + b"\n# edited\n"},
+        when=WHEN,
+        judge=answering(TWO_JOBS, TWO_JOBS_IN_BAND),
+    )
+
+    assert [a.unit.path for a in report.abstentions] == [RULES]
+    assert report.verdict is Verdict.HELD
