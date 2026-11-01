@@ -37,6 +37,7 @@ from adherence.domain.questions import Unavailable
 from adherence.domain.records import DesignRecords, RecordsUnavailable
 from adherence.domain.report import Report
 from adherence.domain.target import Base, Change, Head
+from adherence.ports.decision import DecisionPort
 from adherence.ports.repository import Refused
 from tests.measure_kit import HEXAGON, declared, parameters
 
@@ -46,6 +47,44 @@ REPOSITORY = "example"
 RULES = "src/app/domain/rules.py"
 
 Files = Mapping[str, bytes | Refused | TimedOut]
+
+# Every binary and score question; Hand-rolled is not asked with no radar.
+BANDED: tuple[Question, ...] = (
+    TWO_JOBS,
+    DOES_IO,
+    SAME_CONCEPT,
+    SCATTERED_POLICY,
+    INVARIANT_BROKEN,
+    RULES_ELSEWHERE,
+    THEN_ASSERTED,
+    IMPLEMENTED,
+)
+
+
+def _passed(question: Question) -> dict[str, float]:
+    """No probability on a failing answer, the rest spread evenly."""
+    kept = [o for o in question.options if o not in question.failing]
+    return {o: (1.0 / len(kept) if o in kept else 0.0) for o in question.options}
+
+
+def passing_judge() -> FakeDecision:
+    """A judge that passes every binary and score question."""
+    return FakeDecision({q.id: _passed(q) for q in BANDED})
+
+
+def answering(question: Question, probabilities: Mapping[str, float]) -> FakeDecision:
+    """The passing judge, but answering one question with the probabilities
+    given."""
+    return FakeDecision(
+        {**{q.id: _passed(q) for q in BANDED}, question.id: probabilities}
+    )
+
+
+def judged_parameters() -> Parameters:
+    """The measure kit's parameters with a band for every question the
+    passing judge answers, so each answer settles as a pass."""
+    band = BandThreshold(finding_at=0.8, pass_below=0.3)
+    return parameters(thresholds=ThresholdPolicy({q.id: band for q in BANDED}))
 
 
 def stubbed(
@@ -78,9 +117,11 @@ def judge_with(
     | None = None,
     store: FakeReportStore | None = None,
     unlisted_at: Mapping[Base | Head, Refused | TimedOut] | None = None,
+    judge: DecisionPort | None = None,
 ) -> Report:
     """judge_change of HEAD against BASE, each holding its files and the
-    hexagon declaration unless the files carry their own."""
+    hexagon declaration unless the files carry their own; the judge is the
+    passing one unless the test binds another."""
     return judge_change(
         Change(REPOSITORY, BASE, HEAD),
         repository=FakeRepository(
@@ -94,7 +135,7 @@ def judge_with(
         complexity=FakeComplexity(),
         duplication=FakeDuplication(),
         records=FakeRecords(records or {}),
-        judge=FakeDecision(Unavailable("no judge in the unit tier")),
+        judge=judge if judge is not None else passing_judge(),
         reports=store if store is not None else FakeReportStore(),
         parameters=parameters(),
         deadline=None,
@@ -107,6 +148,7 @@ def measured_at(
     at: Base | Head = BASE,
     facts: CodeModel | None = None,
     when: Mapping[bytes, CodeModel] | None = None,
+    judge: DecisionPort | None = None,
 ) -> Report:
     """measure of one target holding the files, under the hexagon, with the
     ports judge_with binds: the report an earlier run would have kept."""
@@ -120,7 +162,7 @@ def measured_at(
         complexity=FakeComplexity(),
         duplication=FakeDuplication(),
         records=FakeRecords({}),
-        judge=FakeDecision(Unavailable("no judge in the unit tier")),
-        parameters=parameters(),
+        judge=judge if judge is not None else passing_judge(),
+        parameters=judged_parameters(),
         deadline=None,
     )
