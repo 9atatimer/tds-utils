@@ -73,14 +73,18 @@ def serve(job: Job, sending: Connection) -> None:
 
 
 def end(child: BaseProcess) -> None:
-    """End the child and every process in the group it leads, then reap it."""
+    """End the child and every process in the group it leads, then reap it.
+    The group is ended whether or not the child is still alive: a child
+    that died leaves its descendants -- an analyzer it started -- in it."""
     pid = child.pid
-    if pid is not None and child.is_alive():
+    if pid is not None:
         try:
             os.killpg(pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
-            # The child has not yet made its group: end it alone.
-            child.kill()
+            # No such group: the child never made it, or it and everything
+            # in it are gone. End the child alone if it is still there.
+            if child.is_alive():
+                child.kill()
     child.join()
 
 
