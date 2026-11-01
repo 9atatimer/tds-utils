@@ -13,6 +13,7 @@ stripped before it reaches the terminal (Security mitigations).
 
 from __future__ import annotations
 
+import math
 import sys
 import time
 from collections.abc import Callable, Mapping
@@ -218,6 +219,17 @@ def measure_command(
         sys.exit(1)
 
 
+def _finite_seconds(
+    ctx: click.Context, param: click.Parameter, value: float | None
+) -> float | None:
+    """A time left that is a finite number of seconds: nan and infinity
+    name no instant, so they are refused rather than taken as unbounded
+    (a job with no limit gives no --time-left)."""
+    if value is not None and not math.isfinite(value):
+        raise click.BadParameter("give a finite number of seconds", ctx, param)
+    return value
+
+
 def _ci_deadline(stage: Stage, time_left: float | None) -> Deadline | None:
     """The Deadline of a judgement of revisions: in ci, the job's remaining
     time from now when the job gives it; nowhere else is a run of
@@ -302,7 +314,9 @@ def _judge_staged(container: Container, root: str) -> Report:
 @click.option(
     "--time-left",
     type=click.FloatRange(min=0),
-    help="Seconds the ci job has left: the checks unfinished by then are "
+    callback=_finite_seconds,
+    help="Seconds the ci job has left, a finite number (nan and inf are "
+    "refused; omit it for no bound): the checks unfinished by then are "
     "coverage (ci only).",
 )
 @FORMAT_OPTION
