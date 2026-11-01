@@ -370,15 +370,27 @@ rule:
 ---
 # A field target: the left of an assignment or a for-in/of header, an
 # update's operand, or an element of a destructuring pattern there (a
-# default's value is read, not written).
+# default's value is read, not written). A subscript by a string literal
+# names its field as dot notation does; a computed or numeric index is an
+# item, not a field, as a Python subscript is.
 id: write
 language: TypeScript
 severity: hint
 rule:
-  kind: member_expression
   all:
-    - has: {field: object, pattern: $OBJECT}
-    - has: {field: property, pattern: $FIELD}
+    - any:
+        - all:
+            - kind: member_expression
+            - has: {field: object, pattern: $OBJECT}
+            - has: {field: property, pattern: $FIELD}
+        - all:
+            - kind: subscript_expression
+            - has: {field: object, pattern: $OBJECT}
+            - has:
+                field: index
+                kind: string
+                has: {kind: string_fragment, pattern: $FIELD}
+                not: {has: {kind: escape_sequence}}
     - any:
         - inside:
             field: left
