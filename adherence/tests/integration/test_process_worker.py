@@ -7,6 +7,7 @@ test instead of hanging the suite."""
 from __future__ import annotations
 
 import os
+import signal
 import threading
 import time
 from pathlib import Path
@@ -16,12 +17,14 @@ from adherence.domain.deadline import Deadline
 from adherence.domain.report import Report
 from adherence.ports.worker import Ended, Failed, Job, WorkerPort
 from tests.worker_contract import ROOM, WorkerContract
-from tests.worker_jobs import FIRST, Dies, NeverReturns
+from tests.worker_jobs import FIRST, Dies, NeverReturns, SpawnsThenDies
 
 # Room for a child process to start and report its first check.
 BOUND = 1.0
 # How long past the deadline a worker may take to end and reap its child.
 GRACE = 15.0
+# How long a killed orphan may take to be reaped by init.
+REAPED_WITHIN = 5.0
 
 
 class TestProcessWorker(WorkerContract):
@@ -48,6 +51,17 @@ def _is_running(pid: int) -> bool:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
+    return True
+
+
+def _gone_within(pid: int, seconds: float) -> bool:
+    """Whether the process is gone, waiting at most `seconds` for init to
+    reap it."""
+    give_up = time.monotonic() + seconds
+    while _is_running(pid):
+        if time.monotonic() > give_up:
+            return False
+        time.sleep(0.05)
     return True
 
 
@@ -81,3 +95,21 @@ def test_run_of_a_job_whose_process_dies_is_failed() -> None:
     assert answer is not None, "the worker did not answer"
     assert isinstance(answer, Failed), answer
     assert "ended unreported" in answer.reason
+
+
+def test_run_of_a_job_that_dies_ends_the_analyzer_it_started(tmp_path: Path) -> None:
+    """Given a job that starts a long-lived analyzer in its process group
+    and then dies, When the worker answers, Then the analyzer is ended with
+    the group, not left running under init."""
+    pid_file = tmp_path / "pid"
+    deadline = Deadline(epoch_seconds=time.time() + ROOM)
+
+    answer = _watched(SpawnsThenDies(pid_file), deadline)
+
+    assert answer is not None, "the worker did not answer"
+    analyzer = int(pid_file.read_text(encoding="utf-8"))
+    try:
+        assert _gone_within(analyzer, REAPED_WITHIN), "the analyzer outlived its job"
+    finally:
+        if _is_running(analyzer):
+            os.kill(analyzer, signal.SIGKILL)
