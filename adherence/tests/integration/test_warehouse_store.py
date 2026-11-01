@@ -172,3 +172,24 @@ def test_a_pull_request_run_writes_the_scan_key_alone(s3: SigningS3) -> None:
     assert set(s3.ledger.objects) == {SCAN_KEY}
     assert s3.ledger.refused == []
     assert isinstance(store.get("example", REVISION, IDENTITY.digest, None), StoreMiss)
+
+
+def test_another_repositorys_keys_are_never_read_or_written(s3: SigningS3) -> None:
+    """Given a store bound to one repository, When a report of another
+    repository is put and that repository's base is asked for, Then neither
+    is attempted -- the fake sees no request -- the put is not kept and says
+    the report lies outside this repository's prefixes, and the get is a
+    miss."""
+    store = _store(s3, _settings(s3))
+    other = replace(REPORT, repository="neighbour")
+
+    recorded = store.put(other)
+    answer = store.get("neighbour", REVISION, IDENTITY.digest, None)
+
+    assert not recorded.kept
+    assert recorded.notice is not None
+    assert "outside" in recorded.notice.message
+    assert isinstance(answer, StoreMiss)
+    assert "outside" in answer.reason
+    assert s3.ledger.objects == {}
+    assert s3.ledger.refused == []
