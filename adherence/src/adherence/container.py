@@ -26,6 +26,7 @@ from adherence.adapters.no_judge import NoJudge
 from adherence.adapters.no_reviews import NoReviews
 from adherence.adapters.process_worker import ProcessWorker
 from adherence.adapters.python_ast import PythonCodeModel
+from adherence.adapters.tiered_store import TieredReportStore, Unprovisioned
 from adherence.domain.model import CodeLanguage, Layer
 from adherence.domain.parameters import Limits, Parameters, Vocabulary
 from adherence.domain.questions import (
@@ -426,6 +427,12 @@ DOOR = "DECIDE_URL"
 # The hosted gateway and its token, from the CI job's (or cloud session's)
 # environment; only the decide client's environment ever holds the token.
 HOSTED = ("DECIDE_GATEWAY_URL", "DECIDE_GATEWAY_TOKEN")
+# Why ci has no warehouse to bind: the adherence-ledger bucket and its
+# credentials are not provisioned yet. The warehouse adapter replaces this
+# when they are.
+NO_WAREHOUSE = Unprovisioned(
+    "the adherence-ledger warehouse is not provisioned yet (tds-internal Issue#276)"
+)
 
 # --- Composition root ----------------------------------------------------------
 
@@ -506,6 +513,16 @@ def _reviews(stage: Stage, environ: Mapping[str, str]) -> ReviewPort:
     )
 
 
+def _reports(stage: Stage, root: str, environ: Mapping[str, str]) -> ReportStore:
+    """The file cache in the per-user cache directory; in `ci`, the tiered
+    store over it, which reads no base from the runner's cache and, with no
+    warehouse provisioned, keeps the report there only and says so."""
+    cache = FileReportStore(default_store_dir(environ, Path.home()), root=Path(root))
+    if stage is not Stage.CI:
+        return cache
+    return TieredReportStore(warehouse=NO_WAREHOUSE, cache=cache)
+
+
 def build(
     stage: Stage,
     *,
@@ -529,9 +546,9 @@ def build(
     (the process environment when none is given); the judged-check budget
     is the stage's. `ci` binds github_reviews over the job's GITHUB_TOKEN,
     GITHUB_REPOSITORY and branch, read here from `environment` and never by
-    the adapter; every other stage binds no_reviews. Every stage binds the
-    file cache in the per-user cache directory (also read from
-    `environment`) until the warehouse lands for ci (task-067). The hook
+    the adapter; every other stage binds no_reviews. Every stage keeps
+    reports in the file cache in the per-user cache directory (also read
+    from `environment`); ci through the tiered store (`_reports`). The hook
     binds process_worker to end its run at the commit-time bound; the other
     stages are unbounded and bind no worker.
     """
@@ -564,11 +581,7 @@ def build(
             SHIPPED_PARAMETERS,
             limits=replace(SHIPPED_LIMITS, judged_budget=JUDGED_BUDGETS[stage]),
         ),
-        reports=(
-            reports
-            if reports is not None
-            else FileReportStore(default_store_dir(env, Path.home()), root=Path(root))
-        ),
+        reports=reports if reports is not None else _reports(stage, root, env),
         worker=(
             worker
             if worker is not None
