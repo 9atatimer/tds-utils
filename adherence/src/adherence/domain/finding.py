@@ -60,6 +60,14 @@ class Finding:
     exempt: str | None = None
     confidence: float | None = None
 
+    def unquoted(self) -> Finding:
+        """The finding as the ledger keeps it: its location and identity,
+        and no quoted code. The evidence keeps the digest of the whole
+        offending line, which is what the identity reads, so it is
+        unchanged."""
+        digest = self.evidence.digest or line_digest(self.evidence.text)
+        return replace(self, evidence=replace(self.evidence, text="", digest=digest))
+
     @property
     def identity(self) -> str:
         """The finding's stable identity: a digest of the quality, the check,

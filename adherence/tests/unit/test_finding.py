@@ -135,6 +135,7 @@ def test_an_unquoted_finding_keeps_its_identity_and_quotes_nothing(
 
     unquoted = finding.unquoted()
 
-    assert unquoted.evidence == Evidence("src/a.py", 3, "")
+    assert unquoted.evidence.text == ""
+    assert (unquoted.evidence.path, unquoted.evidence.line) == ("src/a.py", 3)
     assert unquoted.identity == finding.identity
     assert unquoted.unquoted() == unquoted
