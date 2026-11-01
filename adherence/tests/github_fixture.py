@@ -19,6 +19,8 @@ from urllib.parse import parse_qs, urlsplit
 FIXTURES = Path(__file__).parent / "fixtures" / "github_reviews"
 REPOSITORY = "example-org/example"
 TOKEN = "fixture-token"
+# The branch the judged landings are on.
+BRANCH = "master"
 
 
 class FixtureHandler(urllib.request.BaseHandler):
