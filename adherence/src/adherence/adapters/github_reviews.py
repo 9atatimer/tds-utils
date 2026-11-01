@@ -13,6 +13,7 @@ one is TimedOut.
 
 from __future__ import annotations
 
+import http.client
 import json
 import re
 import time
@@ -191,7 +192,7 @@ class GitHubReviews:
             raise _Failed(f"GET {path}: HTTP {error.code}") from error
         except TimeoutError as error:
             raise _Expired from error
-        except (urllib.error.URLError, OSError) as error:
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
             raise _Failed(f"GET {path}: {error}") from error
         if len(body) > MAX_BODY:
             raise _Failed(f"GET {path}: the response is larger than {MAX_BODY} bytes")
