@@ -24,7 +24,7 @@ from adherence.adapters.fakes import (
 )
 from adherence.adapters.inline_worker import InlineWorker
 from adherence.cli.main import main
-from adherence.container import Container, build
+from adherence.container import Container, Stage, build
 from adherence.domain.declaration import DECLARATION_PATH
 from adherence.domain.model import CodeLanguage, CodeModel
 from adherence.domain.target import Head
@@ -39,8 +39,9 @@ JUDGE = ("judge", "--base", BASE.revision, "--head", HEAD.revision)
 def faked(
     *, head: bytes = STUBBED, judge: DecisionPort | None = None
 ) -> functools.partial[Container]:
-    """The composition root with every port faked: the base holds the rule
-    implemented, the head and the working tree the rule `head`."""
+    """The composition root with every port faked: the base (and HEAD, the
+    hook's base) holds the rule implemented, the head, the staged index and
+    the working tree the rule `head`."""
     files = with_declaration({RULES: head})
     return functools.partial(
         build,
@@ -68,8 +69,22 @@ def faked(
     )
 
 
+class RecordingBuilder:
+    """A composition root that records each stage it is asked to bind."""
+
+    def __init__(self, builder: functools.partial[Container]) -> None:
+        self._builder = builder
+        self.stages: list[Stage] = []
+
+    def __call__(self, stage: Stage, *, root: str) -> Container:
+        self.stages.append(stage)
+        return self._builder(stage, root=root)
+
+
 def adhere(
-    root: Path, *args: str, builder: functools.partial[Container] | None = None
+    root: Path,
+    *args: str,
+    builder: functools.partial[Container] | RecordingBuilder | None = None,
 ) -> Result:
     """`adhere <args>` with `--root` given to the subcommand, over the
     faked composition root unless the test binds another."""
