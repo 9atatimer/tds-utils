@@ -104,12 +104,15 @@ def standing_approvals(reviews: Sequence[object]) -> tuple[Approval, ...]:
     """The approvals that stand: each reviewer's latest review that says
     anything, when it approves, with the commit it reviewed. A comment
     leaves the standing as it was; a later request for changes, or a
-    dismissal, withdraws an approval."""
+    dismissal, withdraws an approval. A review whose user is null (a
+    deleted account) has no reviewer to stand for and is skipped."""
     latest: dict[str, tuple[str, object]] = {}
     for review in reviews:
         entry = _mapping(review, "a review")
         state = entry.get("state")
         if not isinstance(state, str) or state in SILENT_STATES:
+            continue
+        if entry.get("user") is None:
             continue
         latest[_login(entry.get("user"), "a review's user")] = (
             state,
