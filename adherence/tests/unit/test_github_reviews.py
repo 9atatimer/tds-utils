@@ -4,6 +4,12 @@ against recorded REST fixtures, never the live API, in the unit tier."""
 
 from __future__ import annotations
 
+import http.client
+import io
+import urllib.request
+import urllib.response
+from email.message import Message
+
 from adherence.adapters.github_reviews import GitHubReviews, standing_approvals
 
 from adherence.domain.declaration import (
@@ -107,3 +113,33 @@ def test_a_review_by_a_deleted_account_is_skipped_not_fatal() -> None:
     ]
 
     assert standing_approvals(reviews) == (Approval("owner", LANDED),)
+
+
+class _Truncated(io.BytesIO):
+    """A body the connection cut short."""
+
+    def read(self, size: int | None = -1) -> bytes:
+        raise http.client.IncompleteRead(b"[", 10)
+
+
+class _TruncatingHandler(urllib.request.BaseHandler):
+    handler_order = 100
+
+    def https_open(self, request: urllib.request.Request) -> urllib.response.addinfourl:
+        response = urllib.response.addinfourl(
+            _Truncated(), Message(), request.full_url, 200
+        )
+        response.msg = "OK"
+        return response
+
+
+def test_github_reviews_with_a_truncated_body_are_unavailable() -> None:
+    """Given a response whose body the connection cuts short, When approvals
+    are asked for, Then the answer is the typed unavailable failure, not a
+    crash."""
+    opener = urllib.request.build_opener(_TruncatingHandler())
+    reviews = GitHubReviews(repository=REPOSITORY, token=TOKEN, opener=opener)
+
+    answer = reviews.approvals(LANDED, None)
+
+    assert isinstance(answer, ReviewsUnavailable) and answer.reason
