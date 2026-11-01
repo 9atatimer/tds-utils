@@ -78,3 +78,41 @@ def test_json_beside_another_format_is_refused(tmp_path: Path) -> None:
 
     assert result.exit_code == 2
     assert "--json" in result.output and "--format" in result.output
+
+
+def test_judge_writes_further_formats_beside_the_one_printed(tmp_path: Path) -> None:
+    """Given the same change, When `adhere judge` runs with `--write sarif
+    <path>` and `--write summary <path>`, Then the terminal report is still
+    printed and the verdict still sets the exit status, and each file holds
+    the same judgement in its format: one run gives the workflow its log,
+    its SARIF upload and its job summary."""
+    sarif, summary = tmp_path / "out" / "adherence.sarif", tmp_path / "summary.md"
+    summary.write_text("")
+
+    result = adhere(
+        tmp_path,
+        *JUDGE,
+        "--write",
+        "sarif",
+        str(sarif),
+        "--write",
+        "summary",
+        str(summary),
+    )
+
+    assert result.output.splitlines()[0] == "verdict: lowered"
+    assert result.exit_code == 1
+    document = json.loads(sarif.read_text())
+    assert sarif_violations(document) == []
+    (stub,) = document["runs"][0]["results"]
+    assert stub["ruleId"] == "stub"
+    assert summary.read_text().splitlines()[0] == "## adherence: lowered"
+
+
+def test_writing_an_unknown_format_is_refused(tmp_path: Path) -> None:
+    """Given `--write` naming a format the CLI has no presenter for, When
+    `adhere judge` runs, Then the command line is refused."""
+    result = adhere(tmp_path, *JUDGE, "--write", "yaml", str(tmp_path / "x"))
+
+    assert result.exit_code == 2
+    assert "yaml" in result.output
