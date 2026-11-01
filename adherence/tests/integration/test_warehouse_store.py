@@ -125,7 +125,8 @@ def test_a_default_branch_run_writes_both_keys_as_unquoted_ndjson(
 ) -> None:
     """Given a default-branch run's credentials, When a report is put, Then
     the scan key and the lookup key each hold one newline-terminated JSON
-    record that carries the findings' identities and no offending line."""
+    record that carries what the findings' identities read (the whole
+    offending line's digest) and no offending line."""
     recorded = _store(s3, _settings(s3)).put(REPORT)
 
     assert recorded.kept, recorded
@@ -133,8 +134,11 @@ def test_a_default_branch_run_writes_both_keys_as_unquoted_ndjson(
     for raw in s3.ledger.objects.values():
         assert raw.endswith(b"\n") and raw.count(b"\n") == 1
         record = json.loads(raw)
-        assert [f["identity"] for f in record["findings"]] == [
-            f.identity for f in REPORT.findings
+        assert [f["evidence"]["digest"] for f in record["findings"]] == [
+            f.unquoted().evidence.digest for f in REPORT.findings
+        ]
+        assert [f["evidence"]["text"] for f in record["findings"]] == [
+            "" for _ in REPORT.findings
         ]
         assert REPORT.findings[0].evidence.text.encode() not in raw
 
@@ -158,3 +162,17 @@ def test_a_wrong_secret_is_refused_and_the_report_is_not_kept(
     assert isinstance(answer, StoreMiss)
     assert s3.ledger.objects == {}
     assert len(s3.ledger.refused) == 2
+
+
+def test_a_pull_request_run_writes_the_scan_key_alone(s3: SigningS3) -> None:
+    """Given a run holding the scan credential and no lookup credential (a
+    pull request's), When a report is put and then asked for, Then only the
+    scan key is written, nothing is refused, and no base is read back."""
+    store = _store(s3, _settings(s3, lookup=None))
+
+    recorded = store.put(REPORT)
+
+    assert recorded.kept, recorded
+    assert set(s3.ledger.objects) == {SCAN_KEY}
+    assert s3.ledger.refused == []
+    assert isinstance(store.get("example", REVISION, IDENTITY.digest, None), StoreMiss)

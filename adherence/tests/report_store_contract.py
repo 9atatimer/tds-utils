@@ -98,7 +98,7 @@ class ReportStoreContract:
         store.put(report)
         got = store.get("example", REVISION, IDENTITY.digest, None)
 
-        assert got == report
+        assert got == self.kept(report)
         assert isinstance(got, Report)
         assert got.findings[0].identity == cut.identity
 
