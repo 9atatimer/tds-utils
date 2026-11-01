@@ -166,6 +166,27 @@ def _text_at(
     return text
 
 
+def _reviewed_text(
+    commit: str,
+    hosted: Mapping[str, DeclarationText],
+    repository: RepositoryPort,
+    deadline: Deadline | None,
+) -> DeclarationText:
+    """adherence.toml at a reviewed commit: as the code host gives it, which
+    reads a PR head no checkout can fetch; from the repository when the
+    code host gives none that reads; unreadable, with both reasons, when
+    neither does."""
+    given = hosted.get(commit, DeclarationUnreadable("the code host gave none"))
+    if not isinstance(given, DeclarationUnreadable):
+        return given
+    local = _text_at(commit, repository, deadline)
+    if not isinstance(local, DeclarationUnreadable):
+        return local
+    return DeclarationUnreadable(
+        f"the code host: {given.reason}; the repository: {local.reason}"
+    )
+
+
 def _landed(
     commit: str,
     answer: Landing,
@@ -175,11 +196,14 @@ def _landed(
     """A landing with the declaration's text at it and at each commit its
     approvals reviewed."""
     reviewed = sorted({a.commit for a in answer.approvals})
+    hosted = dict(answer.reviewed)
     return LandedRevision(
         commit,
         answer,
         text=_text_at(commit, repository, deadline),
-        reviewed=tuple((c, _text_at(c, repository, deadline)) for c in reviewed),
+        reviewed=tuple(
+            (c, _reviewed_text(c, hosted, repository, deadline)) for c in reviewed
+        ),
     )
 
 

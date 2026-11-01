@@ -158,6 +158,11 @@ class DeclarationUnreadable:
     reason: str
 
 
+# A revision's adherence.toml: its bytes, None where the file is absent, or
+# why it cannot be read.
+DeclarationText = bytes | None | DeclarationUnreadable
+
+
 # --- Approvals (ReviewPort's answers, as values) -----------------------------
 
 
@@ -171,11 +176,15 @@ class Approval:
 
 @dataclass(frozen=True, slots=True)
 class Landing:
-    """The pull request that landed a commit: its author, and its approving
-    reviews."""
+    """The pull request that landed a commit: its author, its approving
+    reviews, and adherence.toml at each commit they reviewed as the code
+    host gives it, so a PR head no checkout can fetch (a squash or rebase
+    landing) is still read; one it does not give is read from the
+    repository."""
 
     author: str
     approvals: tuple[Approval, ...] = ()
+    reviewed: tuple[tuple[str, DeclarationText], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -699,10 +708,6 @@ AUTHOR_REFUSAL = (
     "(architecture Q7) is ruled"
 )
 
-# A revision's adherence.toml: its bytes, None where the file is absent, or
-# why it cannot be read.
-DeclarationText = bytes | None | DeclarationUnreadable
-
 
 @dataclass(frozen=True, slots=True)
 class CodeOwners:
@@ -815,11 +820,14 @@ def _refusal(
     text = dict(revision.reviewed).get(
         approval.commit, DeclarationUnreadable("not read")
     )
-    if (
-        isinstance(landed, DeclarationUnreadable)
-        or isinstance(text, DeclarationUnreadable)
-        or text != landed
-    ):
+    if isinstance(landed, DeclarationUnreadable):
+        return f"the landed {DECLARATION_PATH} cannot be read: {landed.reason}"
+    if isinstance(text, DeclarationUnreadable):
+        return (
+            f"the {DECLARATION_PATH} it reviewed at {_short(approval.commit)} "
+            f"cannot be read: {text.reason}"
+        )
+    if text != landed:
         return (
             f"it reviewed {_short(approval.commit)}, whose {DECLARATION_PATH} "
             "differs from the landed one"

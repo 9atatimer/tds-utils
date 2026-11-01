@@ -3,12 +3,16 @@
 The `ci` stage's adapter (ARCHITECTURE.ARCH-ADHERENCE.md, Module map and
 Where it runs): the pull request that landed a commit, its author, and
 the approvals that still stand on it, each with its reviewer and the
-commit it reviewed. The standard library speaks HTTP; the composition
-root reads the job's GITHUB_TOKEN and repository from the environment and
-passes them in, so nothing here reads the environment. An API error, a
+commit it reviewed, and adherence.toml at each reviewed commit as the
+contents API gives it -- a PR head is read there because a squash or
+rebase landing leaves it where no checkout fetches. The standard library
+speaks HTTP; the composition root reads the job's GITHUB_TOKEN, repository
+and branch from the environment and passes them in, so nothing here reads
+the environment. An API error, a
 body that does not read, or a landing PR that cannot be resolved is the
-typed ReviewsUnavailable; the Deadline caps every request and a passed
-one is TimedOut.
+typed ReviewsUnavailable, but a reviewed adherence.toml that does not read
+is only that commit's DeclarationUnreadable; the Deadline caps every
+request and a passed one is TimedOut.
 """
 
 from __future__ import annotations
@@ -24,7 +28,10 @@ from typing import cast
 
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
+    DECLARATION_PATH,
     Approval,
+    DeclarationText,
+    DeclarationUnreadable,
     Landing,
     NoLandingPR,
     ReviewsUnavailable,
@@ -36,6 +43,9 @@ from adherence.domain.target import is_object_id
 
 API = "https://api.github.com"
 API_VERSION = "2022-11-28"
+JSON_MEDIA = "application/vnd.github+json"
+# The contents API answers with the file's bytes under this media type.
+RAW_MEDIA = "application/vnd.github.raw+json"
 # owner/name, as GITHUB_REPOSITORY names it.
 REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 PER_PAGE = 100
@@ -51,6 +61,10 @@ Json = object
 
 class _Failed(Exception):
     """The code host could not answer, with the reason."""
+
+
+class _NotFound(_Failed):
+    """The code host answered 404."""
 
 
 class _Expired(Exception):
@@ -194,12 +208,12 @@ class GitHubReviews:
             raise _Expired
         return left
 
-    def _get(self, path: str, deadline: Deadline | None) -> Json:
-        """The JSON body of one GET under the repository."""
+    def _fetch(self, path: str, media: str, deadline: Deadline | None) -> bytes:
+        """The body of one GET under the repository, in the media type."""
         request = urllib.request.Request(
             f"{self._api}/repos/{self._repository}/{path}",
             headers={
-                "Accept": "application/vnd.github+json",
+                "Accept": media,
                 "Authorization": f"Bearer {self._token}",
                 "X-GitHub-Api-Version": API_VERSION,
                 "User-Agent": "adherence-github-reviews",
@@ -208,15 +222,21 @@ class GitHubReviews:
         timeout = self._remaining(deadline)
         try:
             with self._opener.open(request, timeout=timeout) as response:
-                body = response.read(MAX_BODY + 1)
+                body: bytes = response.read(MAX_BODY + 1)
         except urllib.error.HTTPError as error:
-            raise _Failed(f"GET {path}: HTTP {error.code}") from error
+            failure = _NotFound if error.code == 404 else _Failed
+            raise failure(f"GET {path}: HTTP {error.code}") from error
         except TimeoutError as error:
             raise _Expired from error
         except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
             raise _Failed(f"GET {path}: {error}") from error
         if len(body) > MAX_BODY:
             raise _Failed(f"GET {path}: the response is larger than {MAX_BODY} bytes")
+        return body
+
+    def _get(self, path: str, deadline: Deadline | None) -> Json:
+        """The JSON body of one GET under the repository."""
+        body = self._fetch(path, JSON_MEDIA, deadline)
         try:
             return cast(Json, json.loads(body))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -247,7 +267,32 @@ class GitHubReviews:
             raise _Failed("the landing pull request has no number")
         author = _login(pull.get("user"), "the landing pull request's user")
         reviews = self._pages(f"pulls/{number}/reviews", "the reviews", deadline)
-        return Landing(author, standing_approvals(reviews))
+        approvals = standing_approvals(reviews)
+        reviewed = sorted({a.commit for a in approvals})
+        return Landing(
+            author,
+            approvals,
+            tuple((c, self._declaration_at(c, deadline)) for c in reviewed),
+        )
+
+    def _declaration_at(
+        self, commit: str, deadline: Deadline | None
+    ) -> DeclarationText:
+        """adherence.toml at a commit, from the contents API: None where the
+        commit is known and the file absent, unreadable on any other
+        failure. A passed deadline still ends the whole answer."""
+        try:
+            return self._fetch(
+                f"contents/{DECLARATION_PATH}?ref={commit}", RAW_MEDIA, deadline
+            )
+        except _NotFound as missing:
+            try:
+                self._get(f"commits/{commit}", deadline)
+            except _Failed as failure:
+                return DeclarationUnreadable(f"{missing}; {failure}")
+            return None
+        except _Failed as failure:
+            return DeclarationUnreadable(str(failure))
 
     def approvals(
         self, commit: str, deadline: Deadline | None
