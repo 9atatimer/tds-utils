@@ -1,0 +1,41 @@
+# adherence.toml -- this repository's declaration for the adherence engine
+# (docs/design/DESIGN.ARCH-ADHERENCE.md, G19: the suite measures the suite,
+# in its own gate). It declares adherence/ alone; everything else here is
+# unassigned, counted in coverage and never checked.
+#
+# Under CODEOWNERS: a change to this file takes effect from the change
+# after the one that lands it, and only when a code owner who is not the
+# PR's author approved the commit that landed (the declaration in force,
+# ARCHITECTURE.ARCH-ADHERENCE.md, Use-case surface). A change's own edit
+# here is honored only as widening for the files that change creates.
+
+# The engine's layers, per the architecture's module map. cli/ and the
+# package's own __init__ sit with container.py in the composition-root
+# layer, as the map places the entry points. tests/fixtures/ is left
+# unassigned on purpose: it holds measured repositories with planted flaws.
+[layers]
+domain = ["adherence/src/adherence/domain/**"]
+application = ["adherence/src/adherence/application/**"]
+ports = ["adherence/src/adherence/ports/**"]
+adapters = ["adherence/src/adherence/adapters/**"]
+"composition root" = [
+    "adherence/src/adherence/__init__.py",
+    "adherence/src/adherence/container.py",
+    "adherence/src/adherence/cli/**",
+]
+test = [
+    "adherence/tests/*.py",
+    "adherence/tests/unit/**",
+    "adherence/tests/integration/**",
+]
+
+# One runtime, the adhere CLI; container.py is its composition root.
+[runtimes]
+adhere = ["adherence/src/adherence/**"]
+
+[records]
+design = "docs/design/DESIGN.ARCH-ADHERENCE.md"
+architecture = "docs/design/ARCHITECTURE.ARCH-ADHERENCE.md"
+
+[radar]
+path = "lmde/TECH_RADAR.md"
