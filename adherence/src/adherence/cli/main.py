@@ -1,12 +1,14 @@
 """cli/main.py -- the adhere CLI: parse, call the use cases, present.
 
 Holds no workflow step and constructs no adapter: container.build binds
-the ports (ARCHITECTURE.ARCH-ADHERENCE.md, Module map). It computes the
-hook's Deadline from the commit-time bound, the one place the engine turns
-a bound into an instant, and in the hook calls judge_bounded instead of
-judge_change. Declaration text
-is author-controlled, so control characters are stripped before it
-reaches the terminal (Security mitigations).
+the ports for the stage `--stage` names (ARCHITECTURE.ARCH-ADHERENCE.md,
+Module map). It computes the Deadline, the one place the engine turns a
+bound into an instant: the hook's from the commit-time bound, ci's from
+the time the job says it has left; in the hook it calls judge_bounded
+instead of judge_change. It prints the report through the presenter
+`--format` names and maps the verdict to the exit status per stage.
+Declaration text is author-controlled, so control characters are
+stripped before it reaches the terminal (Security mitigations).
 """
 
 from __future__ import annotations
@@ -216,7 +218,26 @@ def measure_command(
         sys.exit(1)
 
 
-def _judge_revisions(container: Container, root: str, base: str, head: str) -> Report:
+def _ci_deadline(stage: Stage, time_left: float | None) -> Deadline | None:
+    """The Deadline of a judgement of revisions: in ci, the job's remaining
+    time from now when the job gives it; nowhere else is a run of
+    revisions bounded."""
+    if time_left is None:
+        return None
+    if stage is not Stage.CI:
+        raise click.UsageError(
+            f"--time-left is the ci job's; not the {stage.value} stage"
+        )
+    return Deadline(epoch_seconds=time.time() + time_left)
+
+
+def _judge_revisions(
+    container: Container,
+    root: str,
+    base: str,
+    head: str,
+    deadline: Deadline | None,
+) -> Report:
     change = Change(
         repository=Path(root).resolve().name,
         base=Base(base),
@@ -233,7 +254,7 @@ def _judge_revisions(container: Container, root: str, base: str, head: str) -> R
         judge=container.judge,
         reports=container.reports,
         parameters=container.parameters,
-        deadline=None,
+        deadline=deadline,
     )
 
 
@@ -278,6 +299,12 @@ def _judge_staged(container: Container, root: str) -> Report:
     help="Judge the staged index against HEAD -- git's empty tree before the "
     "first commit -- within the commit-time bound (the pre-commit hook).",
 )
+@click.option(
+    "--time-left",
+    type=click.FloatRange(min=0),
+    help="Seconds the ci job has left: the checks unfinished by then are "
+    "coverage (ci only).",
+)
 @FORMAT_OPTION
 @JSON_OPTION
 @click.pass_context
@@ -287,6 +314,7 @@ def judge_command(
     base: str | None,
     head: str | None,
     staged: bool,
+    time_left: float | None,
     format_name: str | None,
     as_json: bool,
 ) -> None:
@@ -304,10 +332,11 @@ def judge_command(
     ):
         raise click.UsageError("give --base and --head, or --staged alone")
     stage = _judging_stage(ctx, staged)
+    deadline = _ci_deadline(stage, time_left)
     builder: Callable[..., Container] = ctx.obj if callable(ctx.obj) else build
     container = builder(stage, root=root)
     if base is not None and head is not None:
-        report = _judge_revisions(container, root, base, head)
+        report = _judge_revisions(container, root, base, head, deadline)
     else:
         report = _judge_staged(container, root)
     recorded = record_report(report, reports=container.reports)
