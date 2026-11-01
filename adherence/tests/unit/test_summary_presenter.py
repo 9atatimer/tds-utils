@@ -9,7 +9,6 @@ import re
 import unicodedata
 
 from adherence.cli.presenters.summary import report_summary
-
 from adherence.domain.report import Report
 from tests.report_kit import NOT_KEPT, REPORT
 
