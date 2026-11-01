@@ -66,6 +66,11 @@ class ReportStoreContract:
     def store_with(self, tmp_path: Path, *, now: float = NOW) -> ReportStore:
         raise NotImplementedError("a contract subclass supplies its adapter")
 
+    def kept(self, report: Report) -> Report:
+        """The report as this store promises to give it back; a store that
+        keeps less than the whole (the ledger keeps no quoted code) says so."""
+        return report
+
     def test_a_report_put_is_got_back_whole(self, tmp_path: Path) -> None:
         """Given a report put under its repository, revision and identity,
         When it is got by those, Then the same report comes back."""
@@ -74,7 +79,9 @@ class ReportStoreContract:
         recorded = store.put(REPORT)
 
         assert recorded.kept, recorded
-        assert store.get("example", REVISION, IDENTITY.digest, None) == REPORT
+        assert store.get("example", REVISION, IDENTITY.digest, None) == self.kept(
+            REPORT
+        )
 
     def test_a_report_under_another_identity_is_a_miss(self, tmp_path: Path) -> None:
         """Given a report kept under one identity, When another identity is
