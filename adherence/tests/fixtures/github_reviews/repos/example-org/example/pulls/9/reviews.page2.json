@@ -1,0 +1,11 @@
+[
+  {
+    "id": 3,
+    "user": {"login": "owner", "id": 703, "type": "User"},
+    "body": "",
+    "state": "APPROVED",
+    "commit_id": "5555555555555555555555555555555555555555",
+    "submitted_at": "2026-10-21T03:00:00Z",
+    "author_association": "MEMBER"
+  }
+]

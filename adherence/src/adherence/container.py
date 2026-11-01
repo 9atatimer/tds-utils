@@ -17,6 +17,7 @@ from pathlib import Path
 
 from adherence.adapters.file_store import FileReportStore, default_store_dir
 from adherence.adapters.git import GitRepository
+from adherence.adapters.github_reviews import API, GitHubReviews
 from adherence.adapters.jscpd import JscpdDuplication
 from adherence.adapters.lizard import LizardComplexity
 from adherence.adapters.markdown_records import MarkdownRecords
@@ -407,6 +408,20 @@ class Container:
     worker: WorkerPort | None = None
 
 
+def _reviews(stage: Stage, environ: Mapping[str, str]) -> ReviewPort:
+    """github_reviews over the job's token and repository in `ci`;
+    no_reviews, which answers Unknown, everywhere else."""
+    if stage is not Stage.CI:
+        return NoReviews()
+    return GitHubReviews(
+        repository=environ.get("GITHUB_REPOSITORY"),
+        token=environ.get("GITHUB_TOKEN"),
+        # A pull request's run judges its base branch; a push's, the branch.
+        branch=environ.get("GITHUB_BASE_REF") or environ.get("GITHUB_REF_NAME"),
+        api=environ.get("GITHUB_API_URL", API),
+    )
+
+
 def build(
     stage: Stage,
     *,
@@ -426,17 +441,18 @@ def build(
     Every stage reads the repository through git; which target it reads
     (working tree, staged index, revisions) is the entry point's choice.
     Every stage binds no_judge until the decide adapter lands (task-064);
-    the judged checks read as coverage meanwhile. Every stage binds
-    no_reviews until github_reviews lands for ci (task-063), and the file
-    cache in the per-user cache directory until the warehouse lands for ci
-    (task-067). The hook binds process_worker to end its run at the
-    commit-time bound; the other stages are unbounded and bind no worker.
+    the judged checks read as coverage meanwhile. `ci` binds github_reviews
+    over the job's GITHUB_TOKEN, GITHUB_REPOSITORY and branch, read here and
+    never by the adapter; every other stage binds no_reviews. Every stage binds
+    the file cache in the per-user cache directory until the warehouse
+    lands for ci (task-067). The hook binds process_worker to end its run at
+    the commit-time bound; the other stages are unbounded and bind no worker.
     """
     bound = repository if repository is not None else GitRepository(root)
     return Container(
         stage=stage,
         repository=bound,
-        reviews=reviews if reviews is not None else NoReviews(),
+        reviews=reviews if reviews is not None else _reviews(stage, os.environ),
         analyzers=(
             analyzers
             if analyzers is not None

@@ -18,6 +18,14 @@ from adherence.adapters.fakes import (
 )
 from adherence.application.judge import judge_change
 from adherence.domain.deadline import Deadline, TimedOut
+from adherence.domain.declaration import (
+    DECLARATION_PATH,
+    Approval,
+    Landing,
+    NoLandingPR,
+    ReviewsUnavailable,
+    Unknown,
+)
 from adherence.domain.model import CodeLanguage
 from adherence.domain.qualities import CATALOG, Quality
 from adherence.domain.questions import Unavailable
@@ -25,6 +33,24 @@ from adherence.domain.report import Report, Verdict
 from adherence.domain.target import Change
 from tests.judge_kit import BASE, HEAD, REPOSITORY, RULES, with_declaration
 from tests.measure_kit import parameters
+
+EARLIER = "a" * 40
+
+
+class _AskedReviews:
+    """ReviewPort over FakeReviews that lists every commit it was asked
+    about, in order."""
+
+    def __init__(self, inner: FakeReviews) -> None:
+        self._inner = inner
+        self.asked: list[str] = []
+
+    def approvals(
+        self, commit: str, deadline: Deadline | None
+    ) -> Landing | NoLandingPR | Unknown | ReviewsUnavailable | TimedOut:
+        self.asked.append(commit)
+        return self._inner.approvals(commit, deadline)
+
 
 # The job's remaining time, as an instant no fake's frozen clock has reached:
 # only the complexity tooling, scripted to, runs out of it.
@@ -132,4 +158,77 @@ def test_judge_change_out_of_time_listing_the_head_is_coverage() -> None:
     assert timed_out >= {c.name for c in CATALOG if c.quality is not Quality.DECLARED}
     assert report.findings == ()
     assert ("tree", BASE) not in repository.asked
+    assert store.asked == []
+
+
+def _walked(
+    repository: FakeRepository, reviews: _AskedReviews, store: FakeReportStore
+) -> Report:
+    return judge_change(
+        Change(REPOSITORY, BASE, HEAD),
+        repository=repository,
+        reviews=reviews,
+        analyzers={CodeLanguage.PYTHON: FakeCodeModel()},
+        complexity=FakeComplexity(),
+        duplication=FakeDuplication(),
+        records=FakeRecords({}),
+        judge=FakeDecision(Unavailable("no judge in the unit tier")),
+        reports=store,
+        parameters=parameters(),
+        deadline=CI_DEADLINE,
+    )
+
+
+def test_judge_change_out_of_time_reading_the_reviews_is_coverage() -> None:
+    """Given a CI run whose time ends while the reviews of the newest
+    landing of adherence.toml are read, When the change is judged, Then the
+    verdict is inconclusive with the rest as coverage naming the timeout,
+    and no port is asked anything after: not the reviews of the earlier
+    landing, not the repository, not the report store."""
+    repository = FakeRepository(
+        {
+            BASE: with_declaration({RULES: b"x = 1\n"}),
+            HEAD: with_declaration({RULES: b"x = 2\n"}),
+        },
+        history={DECLARATION_PATH: (BASE.revision, EARLIER)},
+    )
+    reviews = _AskedReviews(FakeReviews({BASE.revision: TimedOut("read the reviews")}))
+    store = FakeReportStore()
+
+    report = _walked(repository, reviews, store)
+
+    assert report.verdict is Verdict.INCONCLUSIVE, report.reasons
+    assert report.findings == ()
+    timed_out = {c.check for c in report.coverage if "timed out" in c.reason}
+    assert timed_out >= {c.name for c in CATALOG if c.quality is not Quality.DECLARED}
+    assert reviews.asked == [BASE.revision]
+    assert repository.asked == [("changed", HEAD), ("history", BASE)]
+    assert store.asked == []
+
+
+def test_judge_change_out_of_time_in_the_walk_asks_no_more_reviews() -> None:
+    """Given a CI run whose time ends while the base's CODEOWNERS is read to
+    count the newest landing, When the change is judged, Then the reviews
+    of the earlier landing are never asked for and the verdict is
+    inconclusive, the rest coverage."""
+    repository = FakeRepository(
+        {
+            BASE: with_declaration(
+                {RULES: b"x = 1\n", "CODEOWNERS": TimedOut("read CODEOWNERS")}
+            ),
+            HEAD: with_declaration({RULES: b"x = 2\n"}),
+        },
+        history={DECLARATION_PATH: (BASE.revision, EARLIER)},
+    )
+    approved = Landing(author="alice", approvals=(Approval("owner", "d" * 40),))
+    reviews = _AskedReviews(FakeReviews({BASE.revision: approved, EARLIER: approved}))
+    store = FakeReportStore()
+
+    report = _walked(repository, reviews, store)
+
+    assert report.verdict is Verdict.INCONCLUSIVE, report.reasons
+    assert report.findings == ()
+    assert any("timed out" in c.reason for c in report.coverage)
+    assert reviews.asked == [BASE.revision]
+    assert ("tree", HEAD) not in repository.asked
     assert store.asked == []

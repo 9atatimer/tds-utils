@@ -1,0 +1,16 @@
+[
+  {
+    "url": "https://api.github.com/repos/example-org/example/pulls/31",
+    "id": 1031,
+    "number": 31,
+    "state": "open",
+    "title": "Change 31",
+    "user": {"login": "mallory", "id": 5031, "type": "User"},
+    "created_at": "2026-10-20T10:00:00Z",
+    "closed_at": null,
+    "merged_at": null,
+    "merge_commit_sha": null,
+    "head": {"ref": "topic-31", "sha": "8888888888888888888888888888888888888888"},
+    "base": {"ref": "master", "sha": "0000000000000000000000000000000000000000"}
+  }
+]
