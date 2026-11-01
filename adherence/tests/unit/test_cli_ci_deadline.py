@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from tests.cli_kit import JUDGE, adhere, faked
 
 # A clock far past any deadline the CLI can compute today.
@@ -54,4 +56,15 @@ def test_time_left_outside_ci_is_refused(tmp_path: Path) -> None:
     result = adhere(tmp_path, *JUDGE, "--time-left", "60")
 
     assert result.exit_code == 2
+    assert "--time-left" in result.output
+
+
+@pytest.mark.parametrize("seconds", ["nan", "inf", "-inf", "NaN", "infinity"])
+def test_time_left_that_is_not_finite_is_refused(tmp_path: Path, seconds: str) -> None:
+    """Given --time-left that is not a finite number of seconds, When `adhere
+    --stage ci judge` runs, Then the command line is refused: no deadline
+    can be computed from it."""
+    result = adhere(tmp_path, "--stage", "ci", *JUDGE, "--time-left", seconds)
+
+    assert result.exit_code == 2, result.output
     assert "--time-left" in result.output
