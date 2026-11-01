@@ -20,6 +20,8 @@
 #   - a file under dynomark/, chores/ or adherence/ runs that tree's
 #     jobs, whatever its extension (dynomark/contract/README.md is itself
 #     checked);
+#   - adherence.toml, this repository's declaration, runs adherence,
+#     whose suite reads it (task-068);
 #   - a shell file anywhere (by extension or shebang) runs smoketests,
 #     whose syntax sweep covers every tracked shell file;
 #   - Markdown elsewhere and docs/**/*.html run nothing;
@@ -83,7 +85,7 @@ scopes_for() {
         dynomark/e2e/*) out="dynomark-e2e" ;;
         dynomark/*) out="dynomark-contract dynomark-daemon dynomark-extension dynomark-e2e" ;;
         chores/*) out="chores" ;;
-        adherence/*) out="adherence" ;;
+        adherence/* | adherence.toml) out="adherence" ;;
         *) is_inert "${file}" || out="smoketests shellcheck" ;;
     esac
     if is_shell_file "${file}"; then
