@@ -22,8 +22,9 @@ from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
 from typing import Final
 
+from adherence.domain.coverage import Coverage
 from adherence.domain.deadline import Deadline
-from adherence.domain.report import FinishedCheck, Report
+from adherence.domain.report import FinishedCheck, Report, RunCoverage
 from adherence.ports.worker import Ended, Failed, Job
 
 # --- Constants ---------------------------------------------------------------
@@ -47,12 +48,13 @@ class _Failed:
 
 
 class _PipeSink:
-    """The sink a job is handed in the child: each check down the pipe."""
+    """The sink a job is handed in the child: the run's coverage and each
+    check down the pipe."""
 
     def __init__(self, sending: Connection) -> None:
         self._sending = sending
 
-    def __call__(self, check: FinishedCheck) -> None:
+    def __call__(self, check: FinishedCheck | RunCoverage) -> None:
         self._sending.send(check)
 
 
@@ -104,10 +106,11 @@ class ProcessWorker:
         finished: list[FinishedCheck],
     ) -> Report | Ended | Failed:
         """Read the pipe until the Report, the deadline, or the child's end."""
+        coverage: list[Coverage] = []
         while True:
             left = deadline.epoch_seconds - self._clock()
             if left <= 0 or not receiving.poll(left):
-                return Ended(tuple(finished), AT_DEADLINE)
+                return Ended(tuple(finished), AT_DEADLINE, tuple(coverage))
             try:
                 message = receiving.recv()
             except EOFError:
@@ -116,6 +119,9 @@ class ProcessWorker:
                 return message
             if isinstance(message, _Failed):
                 return Failed(message.reason)
+            if isinstance(message, RunCoverage):
+                coverage.extend(message.coverage)
+                continue
             finished.append(message)
 
     def run(self, job: Job, deadline: Deadline) -> Report | Ended | Failed:
