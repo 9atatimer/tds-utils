@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import shutil
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from adherence.adapters.fakes import (
@@ -229,3 +231,71 @@ def test_judge_sarif_of_the_fixture_conforms_to_sarif_2_1_0(tmp_path: Path) -> N
     (stub,) = [r for r in document["runs"][0]["results"] if r["ruleId"] == "stub"]
     assert (stub["level"], stub["properties"]["provenance"]) == ("error", "introduced")
     assert result.exit_code == 1
+
+
+# A committed path no UTF-8 decodes: byte 0xff, which the git adapter
+# carries through as a lone surrogate (surrogateescape).
+UNDECODABLE = os.fsdecode(b"src/tool/domain/rul\xffs.py")
+
+
+def _undecodable_revisions(root: Path) -> tuple[str, str]:
+    """A base of the fixture's base tree and a head that adds the fixture's
+    stubbed rule under UNDECODABLE, written into the index by object id so
+    a filesystem that refuses the name cannot refuse the commit."""
+    make_repository(root, base={}, staged={}, working={})
+    shutil.copytree(FIXTURE / "base", root, dirs_exist_ok=True)
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "base")
+    base = _git(root, "rev-parse", "HEAD")
+    blob = _git(
+        root,
+        "hash-object",
+        "-w",
+        str(FIXTURE / "head" / "src" / "tool" / "domain" / "rules.py"),
+    )
+    _git(root, "update-index", "--add", "--cacheinfo", f"100644,{blob},{UNDECODABLE}")
+    _git(root, "commit", "-q", "-m", "undecodable")
+    return base, _git(root, "rev-parse", "HEAD")
+
+
+@pytest.mark.parametrize("output_format", ["terminal", "summary", "sarif"])
+def test_judge_of_a_path_no_utf8_decodes_keeps_its_verdict(
+    tmp_path: Path, output_format: str
+) -> None:
+    """Given a head that commits a stubbed rule under a path carrying byte
+    0xff, When `adhere judge --format <terminal|summary|sarif>` runs, Then
+    the report prints with the byte replaced for display, the SARIF uri
+    still percent-encodes the real byte and the log conforms to SARIF
+    2.1.0, and the exit status is the verdict's, not a traceback's."""
+    root = tmp_path / "repo"
+    base, head = _undecodable_revisions(root)
+    builder = functools.partial(
+        build,
+        complexity=FakeComplexity(),
+        duplication=FakeDuplication(),
+        reports=FakeReportStore(),
+        judge=passing_judge(),
+        environment={},
+    )
+
+    result = CliRunner().invoke(
+        main,
+        [
+            *("judge", "--root", str(root), "--base", base, "--head", head),
+            *("--format", output_format),
+        ],
+        obj=builder,
+    )
+
+    assert isinstance(result.exception, SystemExit), result.exception
+    assert result.exit_code == 1
+    if output_format == "sarif":
+        document = json.loads(result.output)
+        assert sarif_violations(document) == []
+        assert "\\udcff" not in result.output
+        (stub,) = [r for r in document["runs"][0]["results"] if r["ruleId"] == "stub"]
+        uri = stub["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+        assert uri == "src/tool/domain/rul%FFs.py"
+    else:
+        assert "lowered" in result.output.splitlines()[0]
+        assert "rul�s" in result.output
