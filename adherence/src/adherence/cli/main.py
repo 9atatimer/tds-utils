@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import sys
 import unicodedata
+from collections.abc import Callable
 
 import click
 
 from adherence.application.load import load_declaration
-from adherence.container import Stage, build
+from adherence.application.measure import measure
+from adherence.cli.presenters.json_report import report_json
+from adherence.container import Container, Stage, build
 from adherence.domain.declaration import (
     DECLARATION_PATH,
     Declaration,
@@ -88,4 +91,61 @@ def declaration_check(root: str) -> None:
     for line in _declaration_lines(loaded):
         click.echo(line)
     if isinstance(loaded, DeclarationUnreadable):
+        sys.exit(1)
+
+
+@main.command("measure")
+@click.option(
+    "--root",
+    default=".",
+    show_default=True,
+    type=click.Path(exists=True, file_okay=False),
+    help="The repository whose working tree is measured.",
+)
+@click.option("--json", "as_json", is_flag=True, help="Print the report as JSON.")
+@click.pass_context
+def measure_command(ctx: click.Context, root: str, as_json: bool) -> None:
+    """Measure the working tree and print the report.
+
+    A test passes the composition root, bound with its fakes, as the
+    context object.
+    """
+    if not as_json:
+        raise click.UsageError("--json is the one output format so far")
+    builder: Callable[..., Container] = ctx.obj if callable(ctx.obj) else build
+    container = builder(Stage.LAPTOP, root=root)
+    records, complexity, duplication = (
+        container.records,
+        container.complexity,
+        container.duplication,
+    )
+    if records is None or complexity is None or duplication is None:
+        unbound = [
+            name
+            for name, port in (
+                ("records", records),
+                ("complexity", complexity),
+                ("duplication", duplication),
+            )
+            if port is None
+        ]
+        click.echo(
+            f"adhere measure: no adapter bound for {', '.join(unbound)}", err=True
+        )
+        sys.exit(2)
+    head = Head.working_tree()
+    report = measure(
+        head,
+        load_declaration(head, repository=container.repository, deadline=None),
+        repository=container.repository,
+        analyzers=container.analyzers,
+        complexity=complexity,
+        duplication=duplication,
+        records=records,
+        judge=container.judge,
+        parameters=container.parameters,
+        deadline=None,
+    )
+    click.echo(report_json(report))
+    if report.not_run_reason is not None:
         sys.exit(1)

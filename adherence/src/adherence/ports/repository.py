@@ -38,6 +38,7 @@ class RepositoryPort(Protocol):
 
     def tree(
         self, at: Base | Head, deadline: Deadline | None
-    ) -> tuple[str, ...] | TimedOut:
-        """Every file path the target holds, sorted."""
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        """Every file path the target holds, sorted; Refused, for the root,
+        when the target cannot be listed."""
         ...

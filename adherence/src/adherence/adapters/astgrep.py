@@ -22,7 +22,7 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 
 from adherence.domain.deadline import Deadline
@@ -48,6 +48,7 @@ from adherence.domain.model import (
     UnitKind,
     Write,
 )
+from adherence.domain.model import merged as merged_models
 from adherence.domain.parameters import Vocabulary
 from adherence.domain.source import source_lines
 
@@ -799,12 +800,7 @@ def syntax_errors(matches: Sequence[Match]) -> dict[str, int]:
 def merged(models: Sequence[CodeModel], **rest: object) -> CodeModel:
     """One CodeModel holding every fact of each, with the fields given in
     place of theirs."""
-    joined: dict[str, object] = {
-        f.name: tuple(fact for m in models for fact in getattr(m, f.name))
-        for f in fields(CodeModel)
-    }
-    joined.update(rest)
-    return CodeModel(**joined)  # type: ignore[arg-type]  # every field is a tuple
+    return replace(merged_models(models), **rest)  # type: ignore[arg-type]
 
 
 # --- Effectful helpers -------------------------------------------------------
