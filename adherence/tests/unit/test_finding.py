@@ -121,3 +121,20 @@ def test_identity_of_a_judged_finding_differs_from_the_rule_finding_on_its_line(
     assert judged.identity != rule.identity
     assert replace(judged, confidence=0.5).identity == judged.identity
     assert rule.identity == replace(rule, kind=CheckKind.RULE).identity
+
+
+@given(st.text(), st.sampled_from(list(CheckKind)))
+def test_an_unquoted_finding_keeps_its_identity_and_quotes_nothing(
+    text: str, kind: CheckKind
+) -> None:
+    """Given a finding with any offending line, When it is unquoted (the form
+    the ledger keeps: location and identity, no quoted code), Then its
+    evidence holds no text, its identity is the quoted finding's, and
+    unquoting it again changes nothing."""
+    finding = replace(_finding(3, text), kind=kind)
+
+    unquoted = finding.unquoted()
+
+    assert unquoted.evidence == Evidence("src/a.py", 3, "")
+    assert unquoted.identity == finding.identity
+    assert unquoted.unquoted() == unquoted
