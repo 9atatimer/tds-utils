@@ -408,6 +408,42 @@ def test_a_tsconfig_nested_past_the_parser_is_unparsed_and_the_rest_modelled(
     assert {u.path for u in model.units} == set(IMPORTER)
 
 
+class _Counted(str):
+    """A text that tallies every character read out of it by index or
+    slice, so the work a pass does over it is measured, not timed."""
+
+    read = 0
+
+    def __getitem__(self, key: object) -> str:  # type: ignore[override]
+        found = str.__getitem__(self, key)  # type: ignore[index]
+        _Counted.read += len(found)
+        return found
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[" + "1," * 10_000 + "1]",
+        "[1," + " " * 20_000 + "1]",
+    ],
+    ids=["commas", "whitespace"],
+)
+def test_dropping_trailing_commas_reads_the_text_in_linear_work(text: str) -> None:
+    """Given a large tsconfig text of commas or of whitespace, When its
+    trailing commas are dropped, Then each character is read a bounded
+    number of times, never the rest of the text again at every position,
+    and only the commas closing an object or array are dropped."""
+    _Counted.read = 0
+
+    kept = ts_depcruise.without_trailing_commas(_Counted(text))
+
+    assert _Counted.read <= 4 * len(text)
+    assert kept == text
+    assert ts_depcruise.without_trailing_commas('{"a": [1, 2,\n ],\n "b,": 1 , }') == (
+        '{"a": [1, 2\n ]\n "b,": 1  }'
+    )
+
+
 def _definition(path: str, symbol: str) -> Definition:
     [found] = [
         d
