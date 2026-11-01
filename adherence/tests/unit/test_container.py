@@ -39,10 +39,11 @@ from adherence.ports.complexity import ComplexityPort
 from adherence.ports.decision import DecisionPort
 from adherence.ports.duplication import DuplicationPort
 from adherence.ports.records import RecordsPort
-from adherence.ports.report_store import ReportStore
+from adherence.ports.report_store import ReportStore, StoreMiss
 from adherence.ports.repository import RepositoryPort
 from adherence.ports.review import ReviewPort
 from adherence.ports.worker import WorkerPort
+from tests.report_store_contract import IDENTITY, REPORT, REVISION
 
 # Each port: the override build() takes for it, and the fake passed there
 # (a port bound per language takes a mapping of fakes).
@@ -241,3 +242,47 @@ def test_build_stages_that_judge_ship_a_judged_budget(tmp_path: Path) -> None:
         parameters = build(stage, root=str(tmp_path), environment={}).parameters
 
         assert parameters.limits.judged_budget > 0, stage
+
+
+# --- The report store, bound by stage (ARCHITECTURE.ARCH-ADHERENCE.md, Where
+# it runs) --
+
+
+def test_build_ci_keeps_reports_in_the_file_cache_until_the_warehouse_exists(
+    tmp_path: Path,
+) -> None:
+    """Given a ci job before the warehouse is provisioned, When a report is
+    put and then asked for as a base, Then it is kept in the per-user file
+    cache, the notice says it is kept there only and names tds-internal
+    Issue#276, and no base is read back from the runner's cache."""
+    cache = tmp_path / "cache"
+    reports = build(
+        Stage.CI,
+        root=str(tmp_path / "repo"),
+        environment={"XDG_CACHE_HOME": str(cache)},
+    ).reports
+
+    recorded = reports.put(REPORT)
+    answer = reports.get("example", REVISION, IDENTITY.digest, None)
+
+    assert list((cache / "adherence" / "scan" / "example").iterdir())
+    assert not recorded.kept
+    assert recorded.notice is not None
+    assert "file cache only" in recorded.notice.message
+    assert "tds-internal Issue#276" in recorded.notice.message
+    assert isinstance(answer, StoreMiss)
+
+
+def test_build_other_stages_keep_and_read_the_file_cache(tmp_path: Path) -> None:
+    """Given the laptop, hook and cloud stages, When a report is put and asked
+    for, Then each keeps it in the file cache and reads it back."""
+    for stage in (Stage.LAPTOP, Stage.HOOK, Stage.CLOUD):
+        cache = tmp_path / stage.value
+        reports = build(
+            stage,
+            root=str(tmp_path / "repo"),
+            environment={"XDG_CACHE_HOME": str(cache)},
+        ).reports
+
+        assert reports.put(REPORT).kept, stage
+        assert reports.get("example", REVISION, IDENTITY.digest, None) == REPORT, stage
