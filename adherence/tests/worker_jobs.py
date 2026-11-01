@@ -1,5 +1,6 @@
-"""Jobs a WorkerPort is given in its tests: plain values at module level,
-so process_worker can hand them to a child process."""
+"""Jobs a WorkerPort is given in its tests, and a port one runs: plain
+values at module level, so process_worker can hand them to a child
+process."""
 
 from __future__ import annotations
 
@@ -7,10 +8,13 @@ import os
 import subprocess
 import sys
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 from adherence.domain.coverage import Coverage
+from adherence.domain.deadline import Deadline, TimedOut
+from adherence.domain.model import Metrics, MetricsUnavailable
 from adherence.domain.qualities import CATALOG
 from adherence.domain.report import FinishedCheck, Report, RunCoverage
 from adherence.ports.worker import FinishedSink
@@ -85,3 +89,26 @@ class SpawnsThenDies:
         )
         self.pid_file.write_text(str(analyzer.pid), encoding="utf-8")
         os._exit(3)
+
+
+@dataclass(frozen=True)
+class OutlivesTheDeadline:
+    """ComplexityPort whose analyzer ignores the deadline: it starts the
+    fixture analyzer at `command`, writes its pid to `pid_file`, and waits
+    for it however long it takes, so only the worker can end the run."""
+
+    command: tuple[str, ...]
+    pid_file: Path
+
+    def measure(
+        self, sources: Mapping[str, bytes], deadline: Deadline | None
+    ) -> Metrics | MetricsUnavailable | TimedOut:
+        analyzer = subprocess.Popen(
+            list(self.command),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self.pid_file.write_text(str(analyzer.pid), encoding="utf-8")
+        analyzer.wait()
+        return MetricsUnavailable("the analyzer ended")
