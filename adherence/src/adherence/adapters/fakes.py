@@ -31,7 +31,14 @@ from adherence.domain.model import (
     within,
 )
 from adherence.domain.parameters import Vocabulary
-from adherence.domain.questions import Decision, Rejected, Schema, State, Unavailable
+from adherence.domain.questions import (
+    Availability,
+    Decision,
+    Rejected,
+    Schema,
+    State,
+    Unavailable,
+)
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 from adherence.domain.report import Recorded, Report
 from adherence.domain.target import Base, ChangedPaths, Head, Rename, is_object_id
@@ -298,6 +305,11 @@ class FakeDecision:
         self._uncalibrated = uncalibrated
         self._now = now
         self.asked: list[tuple[State, Schema]] = []
+
+    def availability(self) -> Availability:
+        """A bound judge; a scripted Unavailable is one that cannot be
+        reached."""
+        return Availability.AVAILABLE
 
     def decide(
         self, state: State, schema: Schema, deadline: Deadline | None

@@ -31,6 +31,7 @@ from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.questions import (
     NO,
     YES,
+    Availability,
     Decision,
     Question,
     QuestionKind,
@@ -217,6 +218,11 @@ class DecideDecision:
                 return TimedOut(OPERATION)
             return Unavailable(f"decide {ran.reason}")
         return parse_answer(ran.stdout, ran.returncode, schema)
+
+    def availability(self) -> Availability:
+        """A configured client is a bound judge; whether it is reached is
+        each call's answer."""
+        return Availability.AVAILABLE
 
     def decide(
         self, state: State, schema: Schema, deadline: Deadline | None

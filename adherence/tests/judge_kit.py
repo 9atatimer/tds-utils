@@ -33,7 +33,6 @@ from adherence.domain.model import (
     Unit,
     UnitKind,
 )
-from adherence.domain.questions import Unavailable
 from adherence.domain.records import DesignRecords, RecordsUnavailable
 from adherence.domain.report import Report
 from adherence.domain.target import Base, Change, Head

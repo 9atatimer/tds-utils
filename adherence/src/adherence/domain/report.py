@@ -26,8 +26,6 @@ from adherence.domain.questions import Abstention, Pass
 
 # The suite's version, as adherence/pyproject.toml states it.
 SUITE_VERSION = "0.1.0"
-# No judged check asks the judge in this suite version (task-064).
-JUDGE_UNASKED = "no judged question asked"
 
 # --- Values ------------------------------------------------------------------
 
