@@ -4,9 +4,11 @@ What the reusable workflow writes to the job summary: the verdict, the
 findings, the notices and the coverage (ARCHITECTURE.ARCH-ADHERENCE.md,
 Mechanism > Findings and explanations). Evidence, symbols, paths and
 reasons are author-controlled: escape sequences and control characters
-are stripped, every markdown metacharacter is backslash-escaped, then
-every HTML special is an entity, so no tag, link, emphasis or table cell
-of the author's renders (Security mitigations).
+are stripped, every markdown metacharacter is backslash-escaped, every
+HTML special is an entity, then a zero-width space goes before every colon
+text follows, after every at sign and into every www host, so no tag, link,
+autolink, mention, emphasis or table cell of the author's renders
+(Security mitigations).
 """
 
 from __future__ import annotations
@@ -26,6 +28,12 @@ from adherence.domain.report import Recorded, Report
 # CommonMark's backslash-escapable punctuation that can open markup; < and >
 # become entities, which open nothing.
 MARKDOWN = re.compile(r"([\\`*_{}\[\]()#+\-.!|~])")
+# Where GFM's autolinks and mentions are split: before a scheme's colon
+# (any colon text follows), after an email's or a mention's at sign, and
+# after a www host's www. The zero-width space goes in as an entity, so the
+# output carries no format character.
+LINK_FORMING = re.compile(r"(?i)(?=:\S)|(?<=@)|(?<=www)(?=\\\.)")
+BREAK = "&#8203;"
 HEADER = (
     "| Provenance | Finding | Kind | Location | Names | Evidence | Exempt |",
     "|---|---|---|---|---|---|---|",
@@ -35,8 +43,10 @@ HEADER = (
 
 
 def escaped(text: str) -> str:
-    """Author-controlled text made inert in markdown and HTML."""
-    return html.escape(MARKDOWN.sub(r"\\\1", safe_text(text)), quote=True)
+    """Author-controlled text made inert in markdown and HTML, and unable to
+    form an autolink or a mention."""
+    inert = html.escape(MARKDOWN.sub(r"\\\1", safe_text(text)), quote=True)
+    return LINK_FORMING.sub(BREAK, inert)
 
 
 def _kind(finding: Finding) -> str:
