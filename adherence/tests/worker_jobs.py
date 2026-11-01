@@ -10,33 +10,40 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 
+from adherence.domain.coverage import Coverage
 from adherence.domain.qualities import CATALOG
-from adherence.domain.report import FinishedCheck, Report
+from adherence.domain.report import FinishedCheck, Report, RunCoverage
 from adherence.ports.worker import FinishedSink
 
 FIRST = FinishedCheck(CATALOG[0], ran=False)
 REPORT = Report(repository="example", revision="c" * 40)
 BROKE = "the engine broke"
+# What a run could not cover outside any check, reported before its checks.
+UNREAD = RunCoverage((Coverage("cannot be read: a symbolic link", path="x.py"),))
 
 
 @dataclass(frozen=True)
 class Finishes:
-    """Reports one check finished, then returns REPORT."""
+    """Reports the run's coverage and one check finished, then returns
+    REPORT."""
 
     def __call__(self, finished: FinishedSink) -> Report:
+        finished(UNREAD)
         finished(FIRST)
         return REPORT
 
 
 @dataclass(frozen=True)
 class NeverReturns:
-    """Writes the pid of the process it runs in to `pid_file`, reports one
-    check finished, then waits for ever: a check that does not return."""
+    """Writes the pid of the process it runs in to `pid_file`, reports the
+    run's coverage and one check finished, then waits for ever: a check
+    that does not return."""
 
     pid_file: Path
 
     def __call__(self, finished: FinishedSink) -> Report:
         self.pid_file.write_text(str(os.getpid()), encoding="utf-8")
+        finished(UNREAD)
         finished(FIRST)
         threading.Event().wait()
         return REPORT

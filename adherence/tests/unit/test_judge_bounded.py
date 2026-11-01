@@ -27,6 +27,7 @@ from adherence.domain.questions import Unavailable
 from adherence.domain.report import ENDED, Report, Verdict
 from adherence.domain.target import Change
 from adherence.ports.complexity import ComplexityPort
+from adherence.ports.repository import Refused
 from adherence.ports.worker import WorkerPort
 from tests.judge_kit import BASE, HEAD, REPOSITORY, RULES, with_declaration
 from tests.measure_kit import parameters
@@ -35,6 +36,7 @@ from tests.measure_kit import parameters
 HOOK_DEADLINE = Deadline(epoch_seconds=2e9)
 CHANGE = Change(REPOSITORY, BASE, HEAD)
 BROKE = "the complexity tooling broke"
+SECRET = "src/app/domain/secret.py"
 
 
 class _BrokenComplexity:
@@ -128,3 +130,26 @@ def test_judge_bounded_whose_engine_fails_is_not_run() -> None:
     assert any(BROKE in r for r in report.reasons)
     assert report.ran == () and report.findings == ()
     assert not any(c.reason == ENDED for c in report.coverage)
+
+
+def test_judge_bounded_ended_keeps_a_file_it_could_not_read() -> None:
+    """Given a staged change with a file in a measured language that cannot
+    be read at the head, and a worker that ends the job once a check has
+    finished, When the hook judges it, Then coverage still names the file
+    (DESIGN.ARCH-ADHERENCE.md, An unreadable file is coverage) beside the
+    checks that did not finish."""
+    repository = FakeRepository(
+        {
+            BASE: with_declaration({RULES: b"x = 1\n"}),
+            HEAD: with_declaration(
+                {RULES: b"x = 2\n", SECRET: Refused(SECRET, "a symbolic link")}
+            ),
+        }
+    )
+
+    report = _bounded(InlineWorker(ends_after=1), repository, FakeReportStore())
+
+    assert report.verdict is Verdict.INCONCLUSIVE
+    assert any(
+        c.path == SECRET and "a symbolic link" in c.reason for c in report.coverage
+    ), report.coverage

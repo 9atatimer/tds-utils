@@ -17,7 +17,7 @@ from adherence.domain.deadline import Deadline
 from adherence.domain.report import Report
 from adherence.ports.worker import Ended, Failed, Job, WorkerPort
 from tests.worker_contract import ROOM, WorkerContract
-from tests.worker_jobs import FIRST, Dies, NeverReturns, SpawnsThenDies
+from tests.worker_jobs import FIRST, UNREAD, Dies, NeverReturns, SpawnsThenDies
 
 # Room for a child process to start and report its first check.
 BOUND = 1.0
@@ -70,8 +70,8 @@ def test_run_of_a_job_that_never_returns_is_ended_and_reaped(
 ) -> None:
     """Given a job that reports one check and then never returns, When the
     worker runs it under a short deadline, Then it is ended at the deadline,
-    the answer is Ended with the check it finished, and its child process
-    is gone, reaped rather than left a zombie."""
+    the answer is Ended with the check it finished and the run's coverage,
+    and its child process is gone, reaped rather than left a zombie."""
     pid_file = tmp_path / "pid"
     deadline = Deadline(epoch_seconds=time.time() + BOUND)
 
@@ -80,6 +80,7 @@ def test_run_of_a_job_that_never_returns_is_ended_and_reaped(
     assert answer is not None, "the worker did not end the job"
     assert isinstance(answer, Ended), answer
     assert answer.finished == (FIRST,)
+    assert answer.coverage == UNREAD.coverage
     assert time.time() < deadline.epoch_seconds + GRACE
     assert not _is_running(int(pid_file.read_text(encoding="utf-8")))
 
