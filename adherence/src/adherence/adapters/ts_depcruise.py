@@ -166,11 +166,19 @@ def without_trailing_commas(text: str) -> str:
             kept.append(text[at:end])
             at = end
             continue
-        closing = text[at + 1 :].lstrip()[:1] in ("}", "]")
-        if not (text[at] == "," and closing):
+        if not (text[at] == "," and _closes(text, at + 1)):
             kept.append(text[at])
         at += 1
     return "".join(kept)
+
+
+def _closes(text: str, at: int) -> bool:
+    """Whether the first character from `at` past whitespace closes an
+    object or array. Only the whitespace after one comma is read, so the
+    pass over a text stays linear."""
+    while at < len(text) and text[at].isspace():
+        at += 1
+    return at < len(text) and text[at] in "}]"
 
 
 def read_tsconfig(text: str) -> dict[str, object]:

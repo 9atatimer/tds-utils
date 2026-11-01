@@ -10,6 +10,7 @@ import tempfile
 import uuid
 from collections.abc import Mapping
 from pathlib import Path
+from typing import SupportsIndex
 
 import pytest
 
@@ -414,8 +415,8 @@ class _Counted(str):
 
     read = 0
 
-    def __getitem__(self, key: object) -> str:  # type: ignore[override]
-        found = str.__getitem__(self, key)  # type: ignore[index]
+    def __getitem__(self, key: SupportsIndex | slice) -> str:
+        found = str.__getitem__(self, key)
         _Counted.read += len(found)
         return found
 
@@ -440,7 +441,7 @@ def test_dropping_trailing_commas_reads_the_text_in_linear_work(text: str) -> No
     assert _Counted.read <= 4 * len(text)
     assert kept == text
     assert ts_depcruise.without_trailing_commas('{"a": [1, 2,\n ],\n "b,": 1 , }') == (
-        '{"a": [1, 2\n ]\n "b,": 1  }'
+        '{"a": [1, 2\n ],\n "b,": 1  }'
     )
 
 
