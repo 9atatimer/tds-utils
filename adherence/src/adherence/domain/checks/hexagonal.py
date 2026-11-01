@@ -49,6 +49,23 @@ ABSTRACT_DECORATORS = frozenset({"abstractmethod"})
 # The suffix a port's name may carry that its fake's name drops
 # (CodeModelPort, FakeCodeModel).
 PORT_SUFFIX = "Port"
+# Special methods that build, describe or compare an object rather than
+# define what a port offers: a fake need not share them. Every other
+# special method (__call__, __enter__, __iter__) is part of an interface.
+NON_INTERFACE_METHODS = frozenset(
+    {
+        "__init__",
+        "__new__",
+        "__post_init__",
+        "__init_subclass__",
+        "__class_getitem__",
+        "__subclasshook__",
+        "__repr__",
+        "__str__",
+        "__eq__",
+        "__hash__",
+    }
+)
 _EVERY_LAYER = frozenset(Layer)
 # The layers each layer may import: cli -> application -> domain and
 # adapters -> ports -> domain; the composition root and tests reach any.
@@ -348,7 +365,15 @@ def is_port(definition: Definition, methods: Sequence[Definition]) -> bool:
 
 
 def _method_names(methods: Sequence[Definition]) -> set[str]:
-    return {_name(m) for m in methods if not _name(m).startswith("__")}
+    """The methods that make an interface: named ones and the special
+    methods a caller uses the object through; never a name-mangled one."""
+    return {_name(m) for m in methods if _interface_method(_name(m))}
+
+
+def _interface_method(name: str) -> bool:
+    if not name.startswith("__"):
+        return True
+    return name.endswith("__") and name not in NON_INTERFACE_METHODS
 
 
 def implements(

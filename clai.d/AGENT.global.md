@@ -260,6 +260,16 @@ second PR, a stacked PR or a "docs-only companion". This overrides any
 skill that says to open a separate or stacked PR (the github-workflow
 skill's Stacked PRs, the retrospective skill's separate docs-only PR).
 
+## A fact you put in a subagent's prompt is a snapshot
+
+A claim about remote state in a prompt (merged, deployed, released,
+closed) is true when you write it and goes stale while the agent runs.
+An agent told "this migration has never been deployed" was still editing
+it in place when another PR deployed it eleven minutes later; the edit
+would have reached only databases built from zero. Have the agent
+re-derive the fact itself (`git ls-tree origin/main`, the workflow run
+list), or state it as "as of <sha>; verify before relying on it".
+
 ## A stop hook's "unpushed commits" is not an instruction to push
 
 Cloud sessions run a stop hook that demands a push whenever the checked-out
@@ -284,11 +294,29 @@ through:
 - The human leaves auto mode.
 
 Say that once, give the exact `!` line, and stop. Never route around the
-refusal with another tool. For Terraform the agent plans, the human applies:
-run `plan -out=tfplan`, review it, then hand over
-`! op run ... terraform apply tfplan` so the output lands in the
-conversation. The iac skill owns the authority model; `/infra-handoff`
-writes the block.
+refusal with another tool. For Terraform the agent plans, the human applies,
+and **the Terraform Tower is the first path** (owner, 2026-10-25):
+
+- A root the infra repo's authority table marks as served by the Tower
+  (enabled in `atlantis.yaml`) plans on the PR, and the human applies by
+  commenting `atlantis apply -p <name>` there. Which Atlantis commands an
+  agent may post itself, and on whose PRs, is the infra repo's AGENT.md,
+  never this file.
+- The apply comes before the landing: a `/land` before `atlantis apply`
+  merges config that is not live.
+- A routine-apply root the table puts on the laptop because the Tower
+  cannot serve it yet is a candidate to declare: say so in the PR, and
+  enable it only by the infra repo's runbook (a server-side workflow and its
+  token, not only an `atlantis.yaml` entry). A root that is laptop by
+  decision (a human's own token, local state, ADC, credential minting)
+  stays there.
+- `import`, `state mv`, `destroy` and `force-unlock` are the laptop's alone,
+  on every root.
+- On the laptop path, run `plan -out=tfplan`, review it, then hand over
+  `! op run ... terraform apply tfplan` so the output lands in the
+  conversation.
+
+The iac skill owns the authority model; `/infra-handoff` writes the block.
 
 ## Never use Artifacts: HTML is a file in the repo
 
