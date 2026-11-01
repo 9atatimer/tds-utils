@@ -105,9 +105,12 @@ class DesignRecords:
 @dataclass(frozen=True, slots=True)
 class RecordsUnavailable:
     """No readable record at the target -- absent, in draft, or not read --
-    with the reason, naming the record."""
+    with the reason, naming the record. `unread` marks a record that is
+    there and could not be read (refused, timed out): what it states is
+    unknown, which is never the same as a record stating nothing."""
 
     reason: str
+    unread: bool = False
 
 
 class Ring(enum.Enum):

@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from adherence.adapters.fakes import FakeReportStore
+from adherence.domain.deadline import TimedOut
 from adherence.domain.declaration import DECLARATION_PATH
 from adherence.domain.finding import Provenance
 from adherence.domain.model import Layer, Parameter, Signature, merged
@@ -15,6 +16,8 @@ from adherence.domain.records import (
     DesignRecords,
     RecordStatus,
     RecordsUnavailable,
+    Seam,
+    SeamKind,
     SurfaceRow,
     Term,
     UseCase,
@@ -295,6 +298,31 @@ def test_judge_change_removing_a_behavior_and_a_term_finds_the_narrowing() -> No
     assert report.verdict is Verdict.LOWERED
 
 
+def test_judge_change_with_the_record_timed_out_at_the_head_removes_nothing() -> None:
+    """Given approved records at the base and records that time out at the
+    head, When the change is judged, Then Record kept finds nothing removed,
+    it is coverage instead, and the verdict is inconclusive, not lowered: a
+    record that could not be read is not a record left empty."""
+    priced = Behavior("An order is priced", "Given ..., Then ...", DESIGN, 12)
+
+    report = judge_with(
+        {USE: CLEAN},
+        {USE: CLEAN + b"\n# edited\n"},
+        records={
+            BASE: DesignRecords(
+                behaviors=(priced,), domain_language=(Term("Order", DESIGN, 40),)
+            ),
+            HEAD: TimedOut("read the design records"),
+        },
+    )
+
+    assert [f for f in report.findings if f.check.name == "Record kept"] == []
+    assert any(
+        c.check == "Record kept" and "timed out" in c.reason for c in report.coverage
+    )
+    assert report.verdict is Verdict.INCONCLUSIVE
+
+
 def test_judge_change_adding_a_behavior_with_its_use_case_traces_it() -> None:
     """Given a change that adds a behavior to the record and its use case in
     the same change, When Trace runs, Then there is no Trace finding for it:
@@ -541,3 +569,62 @@ def test_judge_change_of_a_repository_it_cannot_run_on_says_so() -> None:
     assert unmeasured.verdict is Verdict.NOT_RUN
     assert any("measured language" in r for r in unmeasured.reasons)
     assert unmeasured.findings == () and unmeasured.ran == ()
+
+
+ARCHITECTURE = "docs/design/ARCHITECTURE.APP.md"
+LIMITS = Seam("Limits", SeamKind.PARAMETER, ARCHITECTURE, 10)
+LIMITED = b"class Limits:\n    size = 1\n"
+
+
+def test_judge_change_giving_a_seam_its_home_removes_its_finding() -> None:
+    """Given a seam the architecture record names and the base lacks, When a
+    change adds its home and the head's record still names it, Then the
+    seam's finding is removed and the verdict is raised."""
+    records = DesignRecords(seams=(LIMITS,))
+
+    report = judge_with(
+        {RULES: FIXED},
+        {RULES: LIMITED},
+        when={LIMITED: kit.facts([kit.type_(RULES, "Limits", 1)])},
+        records={BASE: records, HEAD: records},
+    )
+
+    assert [(f.check.name, f.unit.symbol) for f in report.removed] == [
+        ("Change", "Limits")
+    ]
+    assert report.verdict is Verdict.RAISED
+
+
+def test_judge_change_deleting_a_seam_row_removes_nothing() -> None:
+    """Given a seam the architecture record names and the base lacks, When a
+    change deletes the seam's row from the record, Then the seam's finding
+    is not removed and the verdict is held: a deleted unit's findings remove
+    nothing."""
+    report = judge_with(
+        {RULES: FIXED},
+        {RULES: FIXED + b"\n# edited\n"},
+        records={BASE: DesignRecords(seams=(LIMITS,)), HEAD: DesignRecords()},
+    )
+
+    assert report.removed == ()
+    assert report.verdict is Verdict.HELD
+
+
+def test_judge_change_deleting_a_behavior_row_removes_none_of_its_findings() -> None:
+    """Given two behaviors the design record states and no code carries,
+    When a change deletes one behavior's row from the record, Then none of
+    that behavior's findings is removed; Record kept finds the deletion."""
+    homeless = Behavior("An order is shipped", "Given x, When y, Then z", DESIGN, 9)
+    stays = Behavior("An order is billed", "Given x, When y, Then z", DESIGN, 10)
+
+    report = judge_with(
+        {USE: CLEAN},
+        {USE: CLEAN + b"\n# edited\n"},
+        records={
+            BASE: DesignRecords(behaviors=(homeless, stays)),
+            HEAD: DesignRecords(behaviors=(stays,)),
+        },
+    )
+
+    assert [f for f in report.removed if f.unit.symbol == homeless.name] == []
+    assert report.verdict is Verdict.LOWERED

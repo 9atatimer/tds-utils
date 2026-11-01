@@ -11,13 +11,17 @@ from __future__ import annotations
 import time
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from adherence.domain.declaration import (
     Declaration,
     DeclarationUnreadable,
+    Layers,
     layer_of,
     matches,
     parse_declaration,
+    widened,
 )
 from adherence.domain.model import Layer, Region
 
@@ -136,3 +140,48 @@ def test_matches_follows_glob_rules(pattern: str, path: str, expected: bool) -> 
     """Given a layer pattern and a path, When they are matched, Then `**`
     crosses directories and `*` and `?` stay within one."""
     assert matches(pattern, path) is expected
+
+
+IN_FORCE = Declaration(layers=Layers(globs=((Layer.DOMAIN, "src/domain/**"),)))
+
+
+def test_widened_by_a_path_holding_glob_characters_relayers_no_existing_file() -> None:
+    """Given a change that creates `src/[d]omain/rules.py` and assigns it a
+    layer in its own declaration, When the widening is merged, Then the
+    created file is in that layer and the existing `src/domain/rules.py`
+    keeps the layer the declaration in force gives it: the created path is
+    matched as itself, never as a glob."""
+    created = "src/[d]omain/rules.py"
+    proposed = Declaration(
+        layers=Layers(globs=((Layer.COMPOSITION_ROOT, "src/[[]d]omain/**"),))
+    )
+
+    merged = widened(in_force=IN_FORCE, proposed=proposed, created=[created])
+
+    assert layer_of(created, None, merged) is Layer.COMPOSITION_ROOT
+    assert layer_of("src/domain/rules.py", None, merged) is Layer.DOMAIN
+
+
+SEGMENTS = st.text(alphabet="ad[]*?", min_size=1, max_size=4)
+PATHS = st.lists(SEGMENTS, min_size=1, max_size=3).map(
+    lambda parts: "src/" + "/".join(parts)
+)
+
+
+@given(existing=st.sets(PATHS, max_size=6), created=st.sets(PATHS, max_size=6))
+def test_widened_changes_the_layer_of_no_existing_file(
+    existing: set[str], created: set[str]
+) -> None:
+    """Given any files the change keeps and any files it creates, each
+    assigned a layer by the change's own declaration, When the widening is
+    merged, Then every created file the declaration in force left uncovered
+    is in its assigned layer and no kept file's layer changes."""
+    proposed = Declaration(layers=Layers(globs=((Layer.COMPOSITION_ROOT, "src/**"),)))
+
+    merged = widened(in_force=IN_FORCE, proposed=proposed, created=created)
+
+    for path in existing - created:
+        assert layer_of(path, None, merged) is layer_of(path, None, IN_FORCE), path
+    for path in created:
+        expected = layer_of(path, None, IN_FORCE) or Layer.COMPOSITION_ROOT
+        assert layer_of(path, None, merged) is expected, path
