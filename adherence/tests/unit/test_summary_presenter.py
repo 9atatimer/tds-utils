@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from dataclasses import replace
 
 from adherence.cli.presenters.summary import report_summary
@@ -10,6 +12,10 @@ from adherence.domain.finding import Evidence, Finding, Notice, Provenance
 from adherence.domain.model import Layer, Unit, UnitKind
 from adherence.domain.qualities import catalog_check
 from adherence.domain.report import Recorded, Report, Verdict
+from tests import report_kit
+
+# A table cell boundary: a pipe no backslash escapes.
+CELL = re.compile(r"(?<!\\)\|")
 
 UNIT = Unit("src/app/domain/rules.py", UnitKind.FUNCTION, "tidy", 2, 3, Layer.DOMAIN)
 INTRODUCED = Finding(
@@ -114,3 +120,24 @@ def test_whether_the_report_was_kept_is_said() -> None:
     )
 
     assert "not kept" in text and "the store is read-only" in text
+
+
+def test_a_hostile_report_leaves_no_escape_control_or_broken_row() -> None:
+    """Given a report whose author text carries ANSI escapes, control and
+    bidi characters, HTML and table syntax on every surface, When
+    summarized, Then no escape's parameters leak as text, no control or
+    format character survives, and every row of each table keeps its
+    table's columns."""
+    text = report_summary(report_kit.REPORT, report_kit.NOT_KEPT)
+
+    assert "[2K" not in text and "[31m" not in text and "0;owned" not in text
+    for line in text.splitlines():
+        assert not [ch for ch in line if unicodedata.category(ch) in {"Cc", "Cf"}]
+    tables: list[list[str]] = [[]]
+    for line in text.splitlines():
+        if line.startswith("|"):
+            tables[-1].append(line)
+        elif tables[-1]:
+            tables.append([])
+    for table in (t for t in tables if t):
+        assert len({len(CELL.findall(line)) for line in table}) == 1, table
