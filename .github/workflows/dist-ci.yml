@@ -295,6 +295,16 @@ jobs:
       - name: Sync the project (dev group)
         run: uv sync --frozen
 
+      # The TypeScript code model runs dependency-cruiser from
+      # adherence/node; --ignore-scripts: no package's install hook runs.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install the node analyzers (npm ci)
+        run: npm ci --ignore-scripts --prefix node
+
       - name: Lint (ruff check)
         run: uv run ruff check .
 

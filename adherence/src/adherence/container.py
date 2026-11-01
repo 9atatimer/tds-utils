@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from adherence.adapters.git import GitRepository
 from adherence.adapters.no_judge import NoJudge
 from adherence.adapters.python_ast import PythonCodeModel
+from adherence.adapters.ts_depcruise import TypeScriptCodeModel
 from adherence.domain.model import CodeLanguage, Layer
 from adherence.domain.parameters import Limits, Parameters, Vocabulary
 from adherence.domain.questions import ThresholdPolicy
@@ -37,10 +38,20 @@ SHIPPED_VOCABULARY = Vocabulary(
         "main": Layer.COMPOSITION_ROOT,
     },
     environment_reads=frozenset(
-        {"os.environ", "os.environb", "os.getenv", "os.getenvb", "os.putenv"}
+        {
+            "os.environ",
+            "os.environb",
+            "os.getenv",
+            "os.getenvb",
+            "os.putenv",
+            "process.env",
+        }
     ),
-    sleeps=frozenset({"sleep"}),
-    stubs=frozenset({"pass", "...", "NotImplementedError"}),
+    sleeps=frozenset({"sleep", "setTimeout"}),
+    stubs=frozenset({"pass", "...", "NotImplementedError", "{}"}),
+    options_objects=frozenset({"deps"}),
+    tests=frozenset({"test", "it"}),
+    assertions=frozenset({"assert", "expect"}),
     vendors=frozenset(
         {
             "os",
@@ -129,17 +140,22 @@ def build(
 
     Every stage reads the repository through git; which target it reads
     (working tree, staged index, revisions) is the entry point's choice.
+    TypeScript and JavaScript share one analyzer, so an import from one to
+    the other resolves.
     Every stage binds no_judge until the decide adapter lands (task-064);
     the judged checks read as coverage meanwhile.
     """
+    if analyzers is None:
+        typescript = TypeScriptCodeModel()
+        analyzers = {
+            CodeLanguage.PYTHON: PythonCodeModel(),
+            CodeLanguage.TYPESCRIPT: typescript,
+            CodeLanguage.JAVASCRIPT: typescript,
+        }
     return Container(
         stage=stage,
         repository=repository if repository is not None else GitRepository(root),
-        analyzers=(
-            analyzers
-            if analyzers is not None
-            else {CodeLanguage.PYTHON: PythonCodeModel()}
-        ),
+        analyzers=analyzers,
         judge=judge if judge is not None else NoJudge(),
         complexity=complexity,
         duplication=duplication,

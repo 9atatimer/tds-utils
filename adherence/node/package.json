@@ -1,0 +1,10 @@
+{
+  "name": "adherence-analyzers",
+  "private": true,
+  "description": "The node analyzers the adherence engine spawns: dependency-cruiser, with the TypeScript parser it reads .ts through. Install with npm ci --ignore-scripts.",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "dependency-cruiser": "18.6.0",
+    "typescript": "6.0.3"
+  }
+}
