@@ -158,3 +158,17 @@ def test_a_wrong_secret_is_refused_and_the_report_is_not_kept(
     assert isinstance(answer, StoreMiss)
     assert s3.ledger.objects == {}
     assert len(s3.ledger.refused) == 2
+
+
+def test_a_pull_request_run_writes_the_scan_key_alone(s3: SigningS3) -> None:
+    """Given a run holding the scan credential and no lookup credential (a
+    pull request's), When a report is put and then asked for, Then only the
+    scan key is written, nothing is refused, and no base is read back."""
+    store = _store(s3, _settings(s3, lookup=None))
+
+    recorded = store.put(REPORT)
+
+    assert recorded.kept, recorded
+    assert set(s3.ledger.objects) == {SCAN_KEY}
+    assert s3.ledger.refused == []
+    assert isinstance(store.get("example", REVISION, IDENTITY.digest, None), StoreMiss)
