@@ -44,7 +44,9 @@ class Finding:
     (the vendor, the cycle, the port, the seam); `reached` is the layer a
     layer finding reached, when it reached one; `exempt` is the reason of
     the exemption that silences it, when one does. A judged finding carries
-    the confidence its threshold policy read; a rule finding carries none."""
+    the confidence its threshold policy read; a rule finding carries none.
+    `kept_identity` is set only on an unquoted finding (`unquoted`): the
+    identity its offending line gave it before the line was dropped."""
 
     check: Check
     unit: Unit
@@ -56,6 +58,16 @@ class Finding:
     confidence: float | None = None
     provenance: Provenance | None = None
     exempt: str | None = None
+    kept_identity: str | None = None
+
+    def unquoted(self) -> Finding:
+        """The finding as the ledger keeps it: its location and identity,
+        and no quoted code."""
+        return replace(
+            self,
+            evidence=replace(self.evidence, text=""),
+            kept_identity=self.identity,
+        )
 
     @property
     def identity(self) -> str:
@@ -66,7 +78,9 @@ class Finding:
         path is joined at judging, through the renames. A judged finding's
         kind is digested too, so it never shares an identity with the rule
         finding of its check on the same line; a rule finding's digest is
-        as it always was."""
+        as it always was. An unquoted finding answers the identity it kept."""
+        if self.kept_identity is not None:
+            return self.kept_identity
         judged = (CheckKind.JUDGED.value,) if self.kind is CheckKind.JUDGED else ()
         parts = (
             self.check.quality.value,
