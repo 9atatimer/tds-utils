@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 
 from adherence.cli.presenters.sarif import FINGERPRINT, report_sarif
-
 from adherence.domain.qualities import CATALOG
 from adherence.domain.report import Report
 from tests.json_schema import sarif_violations
