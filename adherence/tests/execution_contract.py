@@ -36,9 +36,20 @@ import pytest
 # The variables every spawned process may receive.
 ALLOWLIST = frozenset({"PATH", "LANG", "HOME", "TMPDIR"})
 # A secret in the engine's environment that no spawned process may see, under
-# the names the ci job holds its tokens by: the judge's and the job's own.
+# the names the ci job holds its tokens by: the judge's, the job's own, and
+# the adherence-ledger warehouse's configuration and credentials.
 SECRET = "adherence-contract-secret-value"
-SECRET_NAMES = ("DECIDE_GATEWAY_TOKEN", "GITHUB_TOKEN", "ADHERENCE_CONTRACT_SECRET")
+SECRET_NAMES = (
+    "DECIDE_GATEWAY_TOKEN",
+    "GITHUB_TOKEN",
+    "ADHERENCE_LEDGER_ENDPOINT",
+    "ADHERENCE_LEDGER_BUCKET",
+    "ADHERENCE_LEDGER_ACCESS_KEY_ID",
+    "ADHERENCE_LEDGER_SECRET_ACCESS_KEY",
+    "ADHERENCE_LEDGER_LOOKUP_ACCESS_KEY_ID",
+    "ADHERENCE_LEDGER_LOOKUP_SECRET_ACCESS_KEY",
+    "ADHERENCE_CONTRACT_SECRET",
+)
 # A mark on every line of repository code planted, to find it on a command line.
 MARK = "ADHERENCE-CONTRACT-MARK"
 
