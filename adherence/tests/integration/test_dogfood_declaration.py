@@ -1,9 +1,10 @@
 """This repository's own declaration (DESIGN.ARCH-ADHERENCE.md, G19: the
 suite measures the suite with the suite, in its own gate; task-068).
 
-load_declaration through the real git RepositoryPort over this checkout
-returns the layers, runtime, records and radar adherence.toml declares, so
-the gate that judges this repository judges adherence/ by layer.
+load_declaration through the real git RepositoryPort over this checkout, at
+the committed HEAD revision the gate reads, returns the layers, runtime,
+records and radar adherence.toml declares, so the gate that judges this
+repository judges adherence/ by layer. An uncommitted edit cannot pass it.
 """
 
 from __future__ import annotations
@@ -22,12 +23,12 @@ PACKAGE = "adherence/src/adherence"
 
 
 def test_load_declaration_of_this_repository_declares_adherence_by_layer() -> None:
-    """Given this repository's checkout, When its declaration is loaded through
-    the git repository, Then adherence/ is declared by layer, under the adhere
+    """Given this repository's checkout, When its declaration is loaded at HEAD
+    through the git repository, Then adherence/ is declared by layer, under the adhere
     runtime, held to the Adherence records and the LMDE radar."""
     repository = GitRepository(str(REPOSITORY_ROOT))
 
-    loaded = load_declaration(Head.working_tree(), repository=repository, deadline=None)
+    loaded = load_declaration(Head.at_revision("HEAD"), repository=repository, deadline=None)
 
     assert isinstance(loaded, Declaration)
     assert loaded.declared
