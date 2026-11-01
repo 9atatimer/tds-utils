@@ -27,6 +27,11 @@ from adherence.adapters.no_reviews import NoReviews
 from adherence.adapters.process_worker import ProcessWorker
 from adherence.adapters.python_ast import PythonCodeModel
 from adherence.adapters.tiered_store import TieredReportStore, Unprovisioned
+from adherence.adapters.warehouse import (
+    LedgerCredential,
+    LedgerSettings,
+    WarehouseReportStore,
+)
 from adherence.domain.model import CodeLanguage, Layer
 from adherence.domain.parameters import Limits, Parameters, Vocabulary
 from adherence.domain.questions import (
@@ -427,11 +432,21 @@ DOOR = "DECIDE_URL"
 # The hosted gateway and its token, from the CI job's (or cloud session's)
 # environment; only the decide client's environment ever holds the token.
 HOSTED = ("DECIDE_GATEWAY_URL", "DECIDE_GATEWAY_TOKEN")
-# Why ci has no warehouse to bind: the adherence-ledger bucket and its
-# credentials are not provisioned yet. The warehouse adapter replaces this
-# when they are.
-NO_WAREHOUSE = Unprovisioned(
-    "the adherence-ledger warehouse is not provisioned yet (tds-internal Issue#276)"
+# The adherence-ledger warehouse, from the ci job's environment, by the
+# data warehouse's credential chain: the four the ledger activates on, the
+# region (R2's is `auto`), and the lookup-write pair that only a
+# default-branch run's environment carries. Until tds-internal Issue#276
+# provisions them, ci binds no warehouse and says what is missing.
+LEDGER = (
+    "ADHERENCE_LEDGER_ENDPOINT",
+    "ADHERENCE_LEDGER_BUCKET",
+    "ADHERENCE_LEDGER_ACCESS_KEY_ID",
+    "ADHERENCE_LEDGER_SECRET_ACCESS_KEY",
+)
+LEDGER_REGION = "ADHERENCE_LEDGER_REGION"
+LEDGER_LOOKUP = (
+    "ADHERENCE_LEDGER_LOOKUP_ACCESS_KEY_ID",
+    "ADHERENCE_LEDGER_LOOKUP_SECRET_ACCESS_KEY",
 )
 
 # --- Composition root ----------------------------------------------------------
@@ -513,14 +528,46 @@ def _reviews(stage: Stage, environ: Mapping[str, str]) -> ReviewPort:
     )
 
 
+def _warehouse(
+    root: str, environ: Mapping[str, str]
+) -> WarehouseReportStore | Unprovisioned:
+    """The warehouse over the ledger the environment configures, for the
+    repository at root (named as the report names it); Unprovisioned,
+    naming what is missing, when any of the four is absent."""
+    values = {name: environ.get(name, "").strip() for name in LEDGER}
+    missing = [name for name, value in values.items() if not value]
+    if missing:
+        return Unprovisioned(
+            "the adherence-ledger warehouse is not configured "
+            f"({', '.join(missing)} unset; tds-internal Issue#276 provisions it)"
+        )
+    endpoint, bucket, key_id, secret = values.values()
+    lookup_id, lookup_secret = (environ.get(n, "").strip() for n in LEDGER_LOOKUP)
+    return WarehouseReportStore(
+        repository=Path(root).resolve().name,
+        ledger=LedgerSettings(
+            endpoint=endpoint,
+            bucket=bucket,
+            region=environ.get(LEDGER_REGION, "").strip() or "auto",
+            scan=LedgerCredential(key_id, secret),
+            lookup=(
+                LedgerCredential(lookup_id, lookup_secret)
+                if lookup_id and lookup_secret
+                else None
+            ),
+        ),
+    )
+
+
 def _reports(stage: Stage, root: str, environ: Mapping[str, str]) -> ReportStore:
     """The file cache in the per-user cache directory; in `ci`, the tiered
-    store over it, which reads no base from the runner's cache and, with no
-    warehouse provisioned, keeps the report there only and says so."""
+    store over it and the warehouse, which reads no base from the runner's
+    cache and, with no warehouse configured, keeps the report there only
+    and says so."""
     cache = FileReportStore(default_store_dir(environ, Path.home()), root=Path(root))
     if stage is not Stage.CI:
         return cache
-    return TieredReportStore(warehouse=NO_WAREHOUSE, cache=cache)
+    return TieredReportStore(warehouse=_warehouse(root, environ), cache=cache)
 
 
 def build(
@@ -548,7 +595,8 @@ def build(
     GITHUB_REPOSITORY and branch, read here from `environment` and never by
     the adapter; every other stage binds no_reviews. Every stage keeps
     reports in the file cache in the per-user cache directory (also read
-    from `environment`); ci through the tiered store (`_reports`). The hook
+    from `environment`); ci through the tiered store over the warehouse the
+    environment configures (`_reports`). The hook
     binds process_worker to end its run at the commit-time bound; the other
     stages are unbounded and bind no worker.
     """
