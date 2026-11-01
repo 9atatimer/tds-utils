@@ -28,7 +28,9 @@ def test_load_declaration_of_this_repository_declares_adherence_by_layer() -> No
     runtime, held to the Adherence records and the LMDE radar."""
     repository = GitRepository(str(REPOSITORY_ROOT))
 
-    loaded = load_declaration(Head.at_revision("HEAD"), repository=repository, deadline=None)
+    loaded = load_declaration(
+        Head.at_revision("HEAD"), repository=repository, deadline=None
+    )
 
     assert isinstance(loaded, Declaration)
     assert loaded.declared
