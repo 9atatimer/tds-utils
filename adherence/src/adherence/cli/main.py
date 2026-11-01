@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import click
@@ -42,10 +42,18 @@ from adherence.domain.target import Base, Change, Head
 
 # --- Constants ---------------------------------------------------------------
 
-# The verdicts `adhere judge` exits non-zero on until the per-stage mapping
-# lands (task-066): lowered fails a gate; not run never reads as a pass.
-# Inconclusive exits zero, so in the hook the commit proceeds.
-FAILING = frozenset({Verdict.LOWERED, Verdict.NOT_RUN})
+# The verdicts `adhere judge` exits non-zero on, per stage. Lowered fails a
+# gate, and not run never reads as a pass, in every stage. Inconclusive
+# exits zero in the hook, so the commit proceeds (The hook), and on the
+# laptop and in the cloud, where an agent reads the report; at the gate it
+# never reads as a pass. Whether the gate may let inconclusive and not run
+# merge is the design's Q10: until it is ruled, ci fails closed.
+FAILING: Mapping[Stage, frozenset[Verdict]] = {
+    Stage.LAPTOP: frozenset({Verdict.LOWERED, Verdict.NOT_RUN}),
+    Stage.HOOK: frozenset({Verdict.LOWERED, Verdict.NOT_RUN}),
+    Stage.CI: frozenset({Verdict.LOWERED, Verdict.NOT_RUN, Verdict.INCONCLUSIVE}),
+    Stage.CLOUD: frozenset({Verdict.LOWERED, Verdict.NOT_RUN}),
+}
 # The output formats: terminal lines (the default), the machine form,
 # SARIF 2.1.0, and the PR job summary's markdown.
 FORMATS = {
@@ -304,5 +312,5 @@ def judge_command(
         report = _judge_staged(container, root)
     recorded = record_report(report, reports=container.reports)
     click.echo(present(report, recorded).rstrip("\n"))
-    if report.verdict in FAILING:
+    if report.verdict in FAILING[stage]:
         sys.exit(1)

@@ -49,7 +49,7 @@ def test_judge_not_run_exits_non_zero_in_every_stage(tmp_path: Path) -> None:
         assert _exit(tmp_path, stage, declaration=UNREADABLE) == 1, stage
 
 
-def test_judge_held_exits_zero_in_every_stage(tmp_path: Path) -> None:
+def test_judge_held_exits_zero_in_every_revision_stage(tmp_path: Path) -> None:
     """Given a change that introduces nothing and leaves nothing unresolved,
     When it is judged in each stage that judges revisions, Then it exits
     zero. (The hook asks no judged question, so a touched function is never
