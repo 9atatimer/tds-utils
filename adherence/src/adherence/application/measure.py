@@ -35,6 +35,7 @@ from adherence.domain.parameters import Parameters
 from adherence.domain.questions import (
     Abstention,
     Ask,
+    Availability,
     Decision,
     Judged,
     Pass,
@@ -53,7 +54,6 @@ from adherence.domain.records import (
     counted,
 )
 from adherence.domain.report import (
-    JUDGE_UNASKED,
     SUITE_VERSION,
     BodyDigest,
     Report,
@@ -140,12 +140,13 @@ def _judge(
     judge: DecisionPort,
     parameters: Parameters,
     deadline: Deadline | None,
-) -> Judged:
+) -> tuple[Judged, Availability]:
     """Each unit's questions put to the judge in one call, and the answers
-    settled by the threshold policy, within the judged-check budget. After
-    the judge first fails -- unavailable or out of time -- it is not asked
-    again, and every question left is coverage; a call the judge rejects is
-    coverage, and the next is still asked."""
+    settled by the threshold policy, within the judged-check budget, with
+    the judge's availability: the bound judge's, unless it could not be
+    reached. After the judge first fails -- unavailable or out of time -- it
+    is not asked again, and every question left is coverage; a call the
+    judge rejects is coverage, and the next is still asked."""
     asked, over_budget = within_budget(asks, parameters.limits.judged_budget)
     findings: list[Finding] = []
     passes: list[Pass] = []
@@ -167,7 +168,13 @@ def _judge(
         else:
             failure = answer
             coverage.extend(unasked(asking, _failed(answer)))
-    return Judged(tuple(findings), tuple(passes), tuple(abstentions), tuple(coverage))
+    availability = (
+        Availability.UNAVAILABLE
+        if isinstance(failure, Unavailable)
+        else judge.availability()
+    )
+    judged = Judged(tuple(findings), tuple(passes), tuple(abstentions), tuple(coverage))
+    return judged, availability
 
 
 def measure(
@@ -191,7 +198,7 @@ def measure(
         parameters=fingerprint(parameters),
         declaration=fingerprint(declaration),
         analyzers=tuple(sorted(language.value for language in analyzers)),
-        judge=JUDGE_UNASKED,
+        judge=judge.availability().value,
     )
     parameters = with_overrides(parameters, declaration)
     paths = repository.tree(at, deadline)
@@ -249,7 +256,7 @@ def measure(
             else read_radar
         )
     checked = run_checks(whole, declaration, design, parameters, radar=tech)
-    judged = _judge(checked.questions, judge, parameters, deadline)
+    judged, availability = _judge(checked.questions, judge, parameters, deadline)
     unjudged = unanswered_checks(checked.questions, judged)
     findings, applied = exempted(
         quoted(
@@ -281,6 +288,6 @@ def measure(
             for d in whole.definitions
             if d.unit.symbol is not None
         ),
-        identity=identity,
+        identity=replace(identity, judge=availability.value),
         revision=at.revision,
     )

@@ -26,9 +26,6 @@ from adherence.domain.questions import Abstention, Pass
 
 # The suite's version, as adherence/pyproject.toml states it.
 SUITE_VERSION = "0.1.0"
-# The identity's judge part. Not yet derived from the bound judge's
-# availability: every report names this one value.
-JUDGE_UNASKED = "no judged question asked"
 
 # --- Values ------------------------------------------------------------------
 

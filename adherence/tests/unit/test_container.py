@@ -27,7 +27,7 @@ from adherence.adapters.fakes import (
 from adherence.adapters.no_judge import NoJudge
 from adherence.container import Stage, build
 from adherence.domain.model import CodeLanguage
-from adherence.domain.questions import Unavailable
+from adherence.domain.questions import Availability, Unavailable
 from adherence.ports.code_model import CodeModelPort
 from adherence.ports.complexity import ComplexityPort
 from adherence.ports.decision import DecisionPort
@@ -151,6 +151,21 @@ def test_build_hook_never_asks_a_judge(tmp_path: Path) -> None:
 
     assert isinstance(built.judge, NoJudge)
     assert built.parameters.limits.judged_budget == 0
+
+
+def test_build_binds_a_judge_whose_availability_is_the_stages(tmp_path: Path) -> None:
+    """Given a stage with its judge configured and one without, When each is
+    built, Then the bound judge says it is available only where one is
+    configured: the availability a report's identity carries comes from
+    the composition root, never from the domain reading the environment
+    (Issue#627)."""
+    configured = build(Stage.LAPTOP, root=str(tmp_path), environment=DOOR)
+    unconfigured = build(Stage.LAPTOP, root=str(tmp_path), environment={})
+    hook = build(Stage.HOOK, root=str(tmp_path), environment={**DOOR, **HOSTED})
+
+    assert configured.judge.availability() is Availability.AVAILABLE
+    assert unconfigured.judge.availability() is Availability.UNAVAILABLE
+    assert hook.judge.availability() is Availability.UNAVAILABLE
 
 
 def test_build_stages_that_judge_ship_a_judged_budget(tmp_path: Path) -> None:

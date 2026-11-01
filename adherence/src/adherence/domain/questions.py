@@ -259,6 +259,15 @@ class Asking:
     asks: Mapping[str, Ask]
 
 
+class Availability(enum.Enum):
+    """Whether a run had a judge to ask: one bound and never failing to be
+    reached, or none. Part of a report's identity, so a report measured
+    without a judge never stands in for one measured with it."""
+
+    AVAILABLE = "available"
+    UNAVAILABLE = "unavailable"
+
+
 @dataclass(frozen=True, slots=True)
 class Unavailable:
     """The judge could not be asked, with the reason."""
