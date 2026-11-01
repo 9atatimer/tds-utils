@@ -112,8 +112,33 @@ def _presenter(format_name: str | None, as_json: bool) -> Callable[..., str]:
 # --- Entry points ------------------------------------------------------------
 
 
+def _chosen_stage(ctx: click.Context) -> Stage | None:
+    """The stage `--stage` named on the command line, if it named one."""
+    name = ctx.find_root().params.get("stage")
+    return Stage(name) if isinstance(name, str) else None
+
+
+def _judging_stage(ctx: click.Context, staged: bool) -> Stage:
+    """The stage a judgement runs in: the one named, else the hook for the
+    staged index and the laptop for revisions. Only the hook judges the
+    staged index, and the hook judges nothing else."""
+    stage = _chosen_stage(ctx) or (Stage.HOOK if staged else Stage.LAPTOP)
+    if staged and stage is not Stage.HOOK:
+        raise click.UsageError(f"--staged is the hook's; not the {stage.value} stage")
+    if not staged and stage is Stage.HOOK:
+        raise click.UsageError("the hook stage judges the staged index: give --staged")
+    return stage
+
+
 @click.group()
-def main() -> None:
+@click.option(
+    "--stage",
+    type=click.Choice([stage.value for stage in Stage]),
+    help="The place this run is in, which binds its judge, reviews and "
+    "bound: laptop (the default), hook (judge --staged), ci (the gate) or "
+    "cloud.",
+)
+def main(stage: str | None) -> None:
     """adhere -- measure a repository against its own declared architecture."""
 
 
@@ -130,9 +155,10 @@ def declaration() -> None:
     type=click.Path(exists=True, file_okay=False),
     help="The repository whose working tree is read.",
 )
-def declaration_check(root: str) -> None:
+@click.pass_context
+def declaration_check(ctx: click.Context, root: str) -> None:
     """Read the working tree's adherence.toml and say whether it can be read."""
-    container = build(Stage.LAPTOP, root=root)
+    container = build(_chosen_stage(ctx) or Stage.LAPTOP, root=root)
     loaded = load_declaration(
         Head.working_tree(), repository=container.repository, deadline=None
     )
@@ -163,7 +189,7 @@ def measure_command(
     """
     present = _presenter(format_name, as_json)
     builder: Callable[..., Container] = ctx.obj if callable(ctx.obj) else build
-    container = builder(Stage.LAPTOP, root=root)
+    container = builder(_chosen_stage(ctx) or Stage.LAPTOP, root=root)
     head = Head.working_tree()
     report = measure(
         head,
@@ -269,12 +295,12 @@ def judge_command(
         not staged and (base is None or head is None)
     ):
         raise click.UsageError("give --base and --head, or --staged alone")
+    stage = _judging_stage(ctx, staged)
     builder: Callable[..., Container] = ctx.obj if callable(ctx.obj) else build
+    container = builder(stage, root=root)
     if base is not None and head is not None:
-        container = builder(Stage.LAPTOP, root=root)
         report = _judge_revisions(container, root, base, head)
     else:
-        container = builder(Stage.HOOK, root=root)
         report = _judge_staged(container, root)
     recorded = record_report(report, reports=container.reports)
     click.echo(present(report, recorded).rstrip("\n"))
