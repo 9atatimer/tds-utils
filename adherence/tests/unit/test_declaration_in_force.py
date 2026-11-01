@@ -11,6 +11,7 @@ from adherence.domain.deadline import TimedOut
 from adherence.domain.declaration import (
     DECLARATION_PATH,
     Approval,
+    DeclarationUnreadable,
     Landing,
     NoLandingPR,
     ReviewsUnavailable,
@@ -337,3 +338,56 @@ def test_judge_change_under_an_unreadable_approved_declaration_is_not_run() -> N
     )
 
     assert report.verdict is Verdict.NOT_RUN
+
+
+def _squashed(reviewed: bytes | DeclarationUnreadable) -> Report:
+    """The newest edit approved by an owner on a PR head the checkout cannot
+    read (a squash landing), adherence.toml there as the code host gives it."""
+    return judge_with(
+        {RULES: FIXED, DECLARATION_PATH: EXEMPTING, "CODEOWNERS": OWNERS},
+        {RULES: STUBBED, DECLARATION_PATH: EXEMPTING, "CODEOWNERS": OWNERS},
+        when=WHEN,
+        history=(BASE.revision, EARLIER),
+        reviews=FakeReviews(
+            {
+                BASE.revision: Landing(
+                    author="mallory",
+                    approvals=(Approval("owner", REVIEWED_NEWEST),),
+                    reviewed=((REVIEWED_NEWEST, reviewed),),
+                ),
+                EARLIER: _approved_earlier(),
+            }
+        ),
+        landed={
+            EARLIER: {DECLARATION_PATH: HEXAGON},
+            REVIEWED_EARLIER: {DECLARATION_PATH: HEXAGON},
+            REVIEWED_NEWEST: {
+                DECLARATION_PATH: Refused(DECLARATION_PATH, "bad object")
+            },
+        },
+    )
+
+
+def test_judge_change_after_a_squash_landing_reads_the_reviewed_declaration() -> None:
+    """Given an owner's approval of a PR head no checkout can fetch, whose
+    adherence.toml the code host gives equal to the landed one, When the
+    next change is judged, Then that landing is in force."""
+    report = _squashed(EXEMPTING)
+
+    (finding,) = report.findings
+    assert finding.exempt == "kept until the rewrite", _notices(report)
+    assert report.verdict is Verdict.HELD
+
+
+def test_judge_change_with_a_reviewed_declaration_unread_says_so() -> None:
+    """Given an owner's approval of a commit whose adherence.toml neither the
+    code host nor the checkout can read, When the next change is judged,
+    Then the landing is skipped and the notice says the read failed, never
+    that the bytes differ."""
+    report = _squashed(DeclarationUnreadable("HTTP 502"))
+
+    _judged_under_the_earlier(report)
+    assert any("cannot be read" in n and "HTTP 502" in n for n in _notices(report)), (
+        _notices(report)
+    )
+    assert not any("differs" in n for n in _notices(report)), _notices(report)

@@ -12,14 +12,16 @@ from email.message import Message
 
 from adherence.adapters.github_reviews import GitHubReviews, standing_approvals
 from adherence.domain.declaration import (
+    DECLARATION_PATH,
     Approval,
+    DeclarationUnreadable,
     Landing,
     NoLandingPR,
     ReviewsUnavailable,
 )
 from adherence.ports.review import ReviewPort
-from tests.github_fixture import BRANCH, REPOSITORY, TOKEN, fixture_opener
-from tests.review_contract import LANDED, ReviewContract
+from tests.github_fixture import BRANCH, RAW, REPOSITORY, TOKEN, fixture_opener
+from tests.review_contract import LANDED, REVIEWED, ReviewContract
 
 PAGED = "5" * 40
 AMBIGUOUS = "6" * 40
@@ -27,6 +29,18 @@ GARBLED = "7" * 40
 OPEN_ONLY = "8" * 40
 BRANCHED = "b" * 40
 PAGED_PULLS = "c" * 40
+# Landed by PR 61, approved on a commit where adherence.toml is absent, on
+# one the code host does not know, and on one whose read fails.
+CONTENTS = "9" * 40
+DELETED_AT = "f" * 40
+UNKNOWN_AT = "abcd" * 10
+ERRORED_AT = "1234" * 10
+
+
+def _who(answer: object) -> tuple[str, tuple[Approval, ...]]:
+    """A landing's author and standing approvals."""
+    assert isinstance(answer, Landing), answer
+    return answer.author, answer.approvals
 
 
 class TestGitHubReviews(ReviewContract):
@@ -39,7 +53,9 @@ class TestGitHubReviews(ReviewContract):
 
 def test_github_reviews_sends_the_token_and_asks_the_rest_api() -> None:
     """Given the job's token, When a landing's approvals are asked for, Then
-    every request carries it as a bearer token to the REST API's JSON."""
+    every request carries it as a bearer token to the REST API: JSON for
+    the listings, the raw media type for adherence.toml at the commit an
+    approval reviewed."""
     opener, handler = fixture_opener()
 
     GitHubReviews(
@@ -49,10 +65,16 @@ def test_github_reviews_sends_the_token_and_asks_the_rest_api() -> None:
     assert [r.full_url.split("?")[0] for r in handler.requests] == [
         f"https://api.github.com/repos/{REPOSITORY}/commits/{LANDED}/pulls",
         f"https://api.github.com/repos/{REPOSITORY}/pulls/7/reviews",
+        f"https://api.github.com/repos/{REPOSITORY}/contents/{DECLARATION_PATH}",
     ]
+    assert handler.requests[-1].full_url.endswith(f"?ref={REVIEWED}")
     for request in handler.requests:
         assert request.get_header("Authorization") == f"Bearer {TOKEN}"
-        assert request.get_header("Accept") == "application/vnd.github+json"
+    assert [r.get_header("Accept") for r in handler.requests] == [
+        "application/vnd.github+json",
+        "application/vnd.github+json",
+        RAW,
+    ]
 
 
 def test_github_reviews_reads_every_page_of_reviews() -> None:
@@ -63,8 +85,9 @@ def test_github_reviews_reads_every_page_of_reviews() -> None:
         branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener, per_page=2
     )
 
-    assert reviews.approvals(PAGED, None) == Landing(
-        author="alice", approvals=(Approval("owner", PAGED),)
+    assert _who(reviews.approvals(PAGED, None)) == (
+        "alice",
+        (Approval("owner", PAGED),),
     )
 
 
@@ -188,8 +211,9 @@ def test_github_reviews_finds_the_pr_that_landed_on_the_judged_branch() -> None:
         branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener
     )
 
-    assert reviews.approvals(BRANCHED, None) == Landing(
-        author="alice", approvals=(Approval("owner", BRANCHED),)
+    assert _who(reviews.approvals(BRANCHED, None)) == (
+        "alice",
+        (Approval("owner", BRANCHED),),
     )
 
 
@@ -202,6 +226,27 @@ def test_github_reviews_reads_every_page_of_a_commits_pull_requests() -> None:
         branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener, per_page=2
     )
 
-    assert reviews.approvals(PAGED_PULLS, None) == Landing(
-        author="alice", approvals=(Approval("owner", PAGED_PULLS),)
+    assert _who(reviews.approvals(PAGED_PULLS, None)) == (
+        "alice",
+        (Approval("owner", PAGED_PULLS),),
     )
+
+
+def test_github_reviews_tells_an_absent_declaration_from_an_unreadable_one() -> None:
+    """Given approvals of a commit where adherence.toml is absent, of one the
+    code host does not know, and of one whose read fails, When the landing's
+    approvals are asked for, Then the first reads as absent, the others as
+    unreadable with the reason, and the landing still stands."""
+    opener, _handler = fixture_opener()
+    reviews = GitHubReviews(
+        branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener
+    )
+
+    answer = reviews.approvals(CONTENTS, None)
+
+    assert isinstance(answer, Landing)
+    texts = dict(answer.reviewed)
+    assert texts[DELETED_AT] is None
+    for commit in (UNKNOWN_AT, ERRORED_AT):
+        text = texts[commit]
+        assert isinstance(text, DeclarationUnreadable) and text.reason, commit
