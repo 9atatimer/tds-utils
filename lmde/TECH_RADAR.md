@@ -98,6 +98,7 @@ documents the recommended approach so it isn't reinvented per repo.
 - **markdown-it-py** (MIT): a CommonMark parser with tables, for reading the Behaviors table, Domain Language, use-case surface and seam list out of design records in the adherence engine (`adherence/`).
 - **ast-grep** (MIT, `ast-grep-cli` on PyPI): tree-sitter structural matching from rule files, for the adherence engine's structural facts over TypeScript and JavaScript (`adherence/`).
 - **dependency-cruiser** (MIT): the TypeScript and JavaScript import graph with path resolution, as a CLI emitting JSON, for the adherence engine's TypeScript code model (`adherence/`); it parses `.ts` through the `typescript` package, pinned beside it in `adherence/node/package-lock.json`.
+- **github/codeql-action/upload-sarif** (MIT): the GitHub Action that uploads a SARIF file to code scanning, so findings annotate a pull request at the line; used only in its own job of the adherence reusable workflow (`.github/workflows/adherence.yml`), pinned by commit SHA.
 
 ---
 
@@ -121,6 +122,10 @@ documents the recommended approach so it isn't reinvented per repo.
 ---
 
 ## Decisions Log
+
+- **2026-10-31**: Added `github/codeql-action/upload-sarif` to Trial on Todd's
+  ruling that the adherence analyzers and the upload-sarif action start at
+  Trial (Issue#599), landing with the workflow that first uses it (task-067).
 
 - **2026-10-25**: Added `markdown-it-py` to Trial on Todd's ruling that every
   adherence analyzer starts at Trial (Issue#599), landing with the code that
