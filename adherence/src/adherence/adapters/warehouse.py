@@ -178,6 +178,8 @@ class WarehouseReportStore:
         now = self._clock()
         if deadline is not None and deadline.epoch_seconds <= now:
             return TimedOut("read a kept report")
+        if repository != self._repository:
+            return StoreMiss(self._outside(repository))
         if not (
             is_key_part(repository) and is_object_id(revision) and is_key_part(identity)
         ):
@@ -204,6 +206,12 @@ class WarehouseReportStore:
         except (ValueError, MalformedReport) as error:
             return StoreMiss(f"{key} cannot be read: {error}")
 
+    def _outside(self, repository: str | None) -> str:
+        return (
+            f"{repository} lies outside this repository's ledger prefixes "
+            f"({self._repository})"
+        )
+
     def _write(self, credential: LedgerCredential, key: str, record: bytes) -> None:
         client = self._connect(self._ledger, credential, REQUEST_BOUND)
         client.put_object(
@@ -214,9 +222,17 @@ class WarehouseReportStore:
         )
 
     def put(self, report: Report) -> Recorded:
+        if report.repository != self._repository:
+            return Recorded(
+                False,
+                Notice(
+                    "report not written to the warehouse: "
+                    + self._outside(report.repository)
+                ),
+            )
         if (
             report.identity is None
-            or not is_key_part(report.repository)
+            or not is_key_part(self._repository)
             or not is_key_part(report.revision)
         ):
             return Recorded(
@@ -226,7 +242,7 @@ class WarehouseReportStore:
                     "revision or identity to key"
                 ),
             )
-        repository, revision = str(report.repository), str(report.revision)
+        repository, revision = self._repository, str(report.revision)
         identity = report.identity.digest
         kept_at = self._clock()
         record = ledger_record(report, kept_at)
