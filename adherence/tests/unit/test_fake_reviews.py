@@ -17,6 +17,7 @@ from tests.review_contract import (
     PR_AUTHOR,
     PUSHED,
     REVIEWED,
+    REVIEWED_TEXT,
     ReviewContract,
 )
 
@@ -25,7 +26,11 @@ class TestFakeReviews(ReviewContract):
     def reviews(self) -> ReviewPort:
         return FakeReviews(
             {
-                LANDED: Landing(PR_AUTHOR, (Approval(OWNER, REVIEWED),)),
+                LANDED: Landing(
+                    PR_AUTHOR,
+                    (Approval(OWNER, REVIEWED),),
+                    reviewed=((REVIEWED, REVIEWED_TEXT),),
+                ),
                 PUSHED: NoLandingPR(PUSHED),
                 BROKEN: ReviewsUnavailable("scripted: HTTP 502"),
             }

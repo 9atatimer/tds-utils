@@ -156,3 +156,27 @@ def test_a_team_entry_is_a_notice_on_a_landing_in_force_too() -> None:
 
     assert counting.in_force
     assert any("@org/team" in n.message for n in counting.notices), counting.notices
+
+
+def test_an_unreadable_declaration_is_named_unreadable_not_different() -> None:
+    """Given an owner's approval of a commit whose adherence.toml cannot be
+    read, and one of a landing whose own cannot, When each is counted, Then
+    it is not in force and the notice says the read failed, never that the
+    bytes differ."""
+    for landed, reviewed, said in (
+        (TEXT, DeclarationUnreadable("HTTP 502"), "it reviewed"),
+        (DeclarationUnreadable("bad object"), TEXT, "the landed"),
+    ):
+        revision = LandedRevision(
+            COMMIT,
+            Landing(author="alice", approvals=(Approval("owner", REVIEWED),)),
+            text=landed,
+            reviewed=((REVIEWED, reviewed),),
+        )
+
+        counting = counted_landing(revision, OWNERS)
+
+        assert not counting.in_force
+        notices = " ".join(n.message for n in counting.notices)
+        assert said in notices and "cannot be read" in notices, notices
+        assert "differs" not in notices, notices

@@ -2,8 +2,9 @@
 
 An opener built with `FixtureHandler` answers every https request from
 the files under tests/fixtures/github_reviews: the URL's path plus `.json`
-for its first page, `.page<N>.json` for page N, and `.status` holding an
-HTTP status for an error. A path with no file is a 404. Every request is
+for its first page, `.page<N>.json` for page N, `.raw` for a request for
+the raw media type, and `.status` holding an HTTP status for an error; a
+`ref` query names `<path>@<ref>`. A path with no file is a 404. Every request is
 kept on `requests`, so a test can read the headers the adapter sent.
 """
 
@@ -19,6 +20,7 @@ from urllib.parse import parse_qs, urlsplit
 FIXTURES = Path(__file__).parent / "fixtures" / "github_reviews"
 REPOSITORY = "example-org/example"
 TOKEN = "fixture-token"
+RAW = "application/vnd.github.raw+json"
 # The branch the judged landings are on.
 BRANCH = "master"
 
@@ -34,9 +36,15 @@ class FixtureHandler(urllib.request.BaseHandler):
     def https_open(self, request: urllib.request.Request) -> urllib.response.addinfourl:
         self.requests.append(request)
         url = urlsplit(request.full_url)
-        page = parse_qs(url.query).get("page", ["1"])[0]
+        query = parse_qs(url.query)
+        page = query.get("page", ["1"])[0]
         stem = self.root / url.path.lstrip("/")
-        suffix = ".json" if page == "1" else f".page{page}.json"
+        if "ref" in query:
+            stem = stem.with_name(f"{stem.name}@{query['ref'][0]}")
+        if request.get_header("Accept") == RAW:
+            suffix = ".raw"
+        else:
+            suffix = ".json" if page == "1" else f".page{page}.json"
         body = stem.with_name(stem.name + suffix)
         status = stem.with_name(stem.name + ".status")
         headers = Message()
