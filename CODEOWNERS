@@ -12,12 +12,16 @@ CODEOWNERS           @9atatimer
 # here changes every enrolled repo's merge verdict.
 bin/review-settled      @9atatimer
 lib/review-settled.mjs  @9atatimer
-# The adherence engine and this repository's declaration for it.
+# The adherence engine, its judge client and this repository's declaration.
 # adherence-caller.yml pins tools_ref to the PR's own head, so a
-# same-repository PR is judged by the engine it carries: an edit to the
-# engine, its launcher or the declaration needs the owner's approval before
-# it can judge itself. adherence.toml is also the file whose landed
-# revisions the engine counts code-owner approvals on.
+# same-repository PR is judged by the engine it carries: adherence.yml
+# sparse-checks out adherence/, bin/adhere, bin/decide and lib/decide/ at
+# that ref, and the engine runs bin/decide as its judge client. An edit to
+# any of them, or to the declaration, needs the owner's approval before it
+# can judge itself. adherence.toml is also the file whose landed revisions
+# the engine counts code-owner approvals on.
 adherence/      @9atatimer
 bin/adhere      @9atatimer
+bin/decide      @9atatimer
+lib/decide/     @9atatimer
 adherence.toml  @9atatimer
