@@ -13,20 +13,34 @@ import time
 from collections.abc import Callable
 
 from adherence.domain.deadline import Deadline, TimedOut
-from adherence.domain.questions import Decision, Schema, State, Unavailable
+from adherence.domain.questions import (
+    Availability,
+    Decision,
+    Rejected,
+    Schema,
+    State,
+    Unavailable,
+)
 
 NO_JUDGE = "no judge is bound in this stage"
 
 
 class NoJudge:
-    """DecisionPort that answers every schema Unavailable."""
+    """DecisionPort that answers every schema Unavailable, with the reason
+    the composition root gives (why this stage has no judge)."""
 
-    def __init__(self, *, clock: Callable[[], float] = time.time) -> None:
+    def __init__(
+        self, reason: str = NO_JUDGE, *, clock: Callable[[], float] = time.time
+    ) -> None:
+        self.reason = reason
         self._clock = clock
+
+    def availability(self) -> Availability:
+        return Availability.UNAVAILABLE
 
     def decide(
         self, state: State, schema: Schema, deadline: Deadline | None
-    ) -> Decision | Unavailable | TimedOut:
+    ) -> Decision | Unavailable | Rejected | TimedOut:
         if deadline is not None and deadline.epoch_seconds <= self._clock():
             return TimedOut("ask the judge")
-        return Unavailable(NO_JUDGE)
+        return Unavailable(self.reason)

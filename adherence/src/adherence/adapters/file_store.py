@@ -26,7 +26,8 @@ from adherence.domain.coverage import Coverage
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.finding import Evidence, Finding, Notice, Provenance
 from adherence.domain.model import Layer, Unit, UnitKind
-from adherence.domain.qualities import CheckKind, catalog_check, check_named
+from adherence.domain.qualities import Check, CheckKind, catalog_check, check_named
+from adherence.domain.questions import Abstention, Pass
 from adherence.domain.report import (
     BodyDigest,
     Recorded,
@@ -98,8 +99,29 @@ def _finding_data(finding: Finding) -> JSON:
         },
         "reached": _optional(finding.reached),
         "kind": finding.kind.value,
+        "confidence": finding.confidence,
         "provenance": _optional(finding.provenance),
         "exempt": finding.exempt,
+    }
+
+
+def _abstention_data(abstention: Abstention) -> JSON:
+    return {
+        "check": abstention.check.name,
+        "unit": _unit_data(abstention.unit),
+        "layer": _optional(abstention.layer),
+        "question": abstention.question,
+        "subject": abstention.subject,
+        "confidence": abstention.confidence,
+    }
+
+
+def _pass_data(passed: Pass) -> JSON:
+    return {
+        "check": passed.check.name,
+        "unit": _unit_data(passed.unit),
+        "question": passed.question,
+        "confidence": passed.confidence,
     }
 
 
@@ -131,6 +153,8 @@ def report_data(report: Report) -> JSON:
         "verdict": report.verdict.value if report.verdict is not None else None,
         "reasons": list(report.reasons),
         "removed": [_finding_data(f) for f in report.removed],
+        "abstentions": [_abstention_data(a) for a in report.abstentions],
+        "passes": [_pass_data(p) for p in report.passes],
         "bodies": [
             {"path": b.path, "symbol": b.symbol, "digest": b.digest}
             for b in report.bodies
@@ -166,6 +190,17 @@ def _number(data: Mapping[str, object], key: str) -> int:
     return value
 
 
+def _fraction(data: Mapping[str, object], key: str) -> float:
+    value = data.get(key)
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        raise _Malformed(f"{key} is not a number")
+    return float(value)
+
+
+def _maybe_fraction(data: Mapping[str, object], key: str) -> float | None:
+    return None if data.get(key) is None else _fraction(data, key)
+
+
 def _table(value: object) -> Mapping[str, object]:
     if not isinstance(value, dict):
         raise _Malformed("an entry is not a table")
@@ -195,12 +230,17 @@ def _unit(value: object) -> Unit:
     )
 
 
+def _check(data: Mapping[str, object]) -> Check:
+    check = check_named(_text(data, "check"))
+    if check is None:
+        raise _Malformed("an entry names no check of this suite")
+    return check
+
+
 def _finding(value: object) -> Finding:
     data = _table(value)
     evidence = _table(data.get("evidence"))
-    check = check_named(_text(data, "check"))
-    if check is None:
-        raise _Malformed("a finding names no check of this suite")
+    check = _check(data)
     provenance = _maybe_text(data, "provenance")
     return Finding(
         check=check,
@@ -212,8 +252,31 @@ def _finding(value: object) -> Finding:
         ),
         reached=_layer(_maybe_text(data, "reached")),
         kind=CheckKind(_text(data, "kind")),
+        confidence=_maybe_fraction(data, "confidence"),
         provenance=Provenance(provenance) if provenance is not None else None,
         exempt=_maybe_text(data, "exempt"),
+    )
+
+
+def _abstention(value: object) -> Abstention:
+    data = _table(value)
+    return Abstention(
+        check=_check(data),
+        unit=_unit(data.get("unit")),
+        layer=_layer(_maybe_text(data, "layer")),
+        question=_text(data, "question"),
+        subject=_text(data, "subject"),
+        confidence=_fraction(data, "confidence"),
+    )
+
+
+def _pass(value: object) -> Pass:
+    data = _table(value)
+    return Pass(
+        check=_check(data),
+        unit=_unit(data.get("unit")),
+        question=_text(data, "question"),
+        confidence=_fraction(data, "confidence"),
     )
 
 
@@ -267,6 +330,8 @@ def report_from_data(data: Mapping[str, object]) -> Report:
         verdict=Verdict(verdict) if verdict is not None else None,
         reasons=tuple(str(r) for r in reasons),
         removed=tuple(_finding(f) for f in _list(data, "removed")),
+        abstentions=tuple(_abstention(a) for a in _list(data, "abstentions")),
+        passes=tuple(_pass(p) for p in _list(data, "passes")),
         bodies=tuple(_body(b) for b in _list(data, "bodies")),
         identity=_identity(data.get("identity")),
         repository=_maybe_text(data, "repository"),

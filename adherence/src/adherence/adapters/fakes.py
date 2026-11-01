@@ -31,7 +31,14 @@ from adherence.domain.model import (
     within,
 )
 from adherence.domain.parameters import Vocabulary
-from adherence.domain.questions import Decision, Schema, State, Unavailable
+from adherence.domain.questions import (
+    Availability,
+    Decision,
+    Rejected,
+    Schema,
+    State,
+    Unavailable,
+)
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 from adherence.domain.report import Recorded, Report
 from adherence.domain.target import Base, ChangedPaths, Head, Rename, is_object_id
@@ -305,25 +312,64 @@ class FakeRecords:
 
 
 class FakeDecision:
-    """DecisionPort that gives every schema the one answer the test scripts:
-    a Decision, Unavailable, or TimedOut. It keeps every state it was asked
-    about, in order. Its clock is frozen at `now`, so a deadline at or
-    before it has passed."""
+    """DecisionPort answering each question of a schema with the probabilities
+    the test scripts for its question id -- or, for a unit whose symbol
+    `per_symbol` names, those scripted there -- and a question nothing
+    scripts with an even spread over its options. A question id in
+    `uncalibrated` is answered label-only. `answers` may instead script one
+    failure, Unavailable, Rejected or TimedOut, for every schema. A schema
+    with no question is Rejected, as the decide client rejects it. Its clock
+    is frozen at `now`, so a deadline at or before it has passed. It keeps
+    every state and schema it was asked about, in order, a call past the
+    deadline too."""
 
     def __init__(
-        self, answer: Decision | Unavailable | TimedOut, *, now: float = 1e9
+        self,
+        answers: Mapping[str, Mapping[str, float]] | Unavailable | Rejected | TimedOut,
+        *,
+        per_symbol: Mapping[str, Mapping[str, Mapping[str, float]]] | None = None,
+        uncalibrated: frozenset[str] = frozenset(),
+        now: float = 1e9,
     ) -> None:
-        self._answer = answer
+        self._answers = answers
+        self._per_symbol = per_symbol or {}
+        self._uncalibrated = uncalibrated
         self._now = now
         self.asked: list[tuple[State, Schema]] = []
 
+    def availability(self) -> Availability:
+        """A bound judge; a scripted Unavailable is one that cannot be
+        reached."""
+        return Availability.AVAILABLE
+
     def decide(
         self, state: State, schema: Schema, deadline: Deadline | None
-    ) -> Decision | Unavailable | TimedOut:
+    ) -> Decision | Unavailable | Rejected | TimedOut:
         self.asked.append((state, schema))
         if deadline is not None and deadline.epoch_seconds <= self._now:
             return TimedOut("ask the judge")
-        return self._answer
+        if isinstance(self._answers, Unavailable | Rejected | TimedOut):
+            return self._answers
+        if not schema.questions:
+            return Rejected("a schema with no question")
+        scripted = {
+            **self._answers,
+            **self._per_symbol.get(state.unit.symbol or "", {}),
+        }
+        return Decision(
+            {
+                key: scripted.get(
+                    question.id,
+                    {o: 1.0 / len(question.options) for o in question.options},
+                )
+                for key, question in schema.questions.items()
+            },
+            uncalibrated=frozenset(
+                key
+                for key, question in schema.questions.items()
+                if question.id in self._uncalibrated
+            ),
+        )
 
 
 class FakeReviews:

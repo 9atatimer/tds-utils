@@ -25,7 +25,14 @@ from adherence.domain.declaration import (
 )
 from adherence.domain.model import CodeLanguage, CodeModel, Metrics, MetricsUnavailable
 from adherence.domain.parameters import Vocabulary
-from adherence.domain.questions import Decision, Schema, State, Unavailable
+from adherence.domain.questions import (
+    Availability,
+    Decision,
+    Rejected,
+    Schema,
+    State,
+    Unavailable,
+)
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 from adherence.domain.report import Recorded, Report
 from adherence.domain.target import Base, ChangedPaths, Head
@@ -193,15 +200,21 @@ class LatchedRecords:
 
 
 class LatchedDecision:
-    """DecisionPort that asks nothing once the latch has tripped."""
+    """DecisionPort that asks the judge nothing once the latch has tripped.
+    `availability` is not latched: it asks the judge nothing and takes no
+    deadline -- it reads which judge the composition root bound, which a
+    report's identity carries whether or not the run was cut off."""
 
     def __init__(self, inner: DecisionPort, latch: Latch) -> None:
         self._inner = inner
         self._latch = latch
 
+    def availability(self) -> Availability:
+        return self._inner.availability()
+
     def decide(
         self, state: State, schema: Schema, deadline: Deadline | None
-    ) -> Decision | Unavailable | TimedOut:
+    ) -> Decision | Unavailable | Rejected | TimedOut:
         if self._latch.tripped:
             return self._latch.unasked("ask the judge")
         return self._latch.seen(self._inner.decide(state, schema, deadline))

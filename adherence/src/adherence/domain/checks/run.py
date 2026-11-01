@@ -29,7 +29,8 @@ from adherence.domain.declaration import Declaration
 from adherence.domain.finding import Finding
 from adherence.domain.model import CodeModel, UnitKind, within
 from adherence.domain.parameters import Parameters
-from adherence.domain.qualities import CATALOG, Check, CheckKind, Quality
+from adherence.domain.qualities import CATALOG, Check, Quality
+from adherence.domain.questions import Ask
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 from adherence.domain.report import FinishedCheck
 
@@ -43,9 +44,11 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Stub": complete.stub,
     "Complexity": complete.complexity,
     "Duplication": complete.duplication,
+    "Done": complete.done,
     "Real assertion": behavior.real_assertion,
     "Public surface": behavior.public_surface,
     "Kept test": behavior.kept_test,
+    "Then asserted": behavior.then_asserted,
     "No nesting": composable.no_nesting,
     "Helpers take values": composable.helpers_take_values,
     "Values in and out": composable.values_in_and_out,
@@ -55,19 +58,21 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Language": ddd.language,
     "Boundary": ddd.boundary,
     "Anemic": ddd.anemic,
+    "Decision": ddd.decision,
     "Trace": layered.trace,
     "Purity": layered.purity,
     "Wiring": layered.wiring,
     "Anatomy": layered.anatomy,
+    "Two jobs": layered.two_jobs,
 }
 RADAR_CHECKS: Mapping[str, RadarCheckFunction] = {
     "Dependency": radar.dependency,
     "Edge only": radar.edge_only,
+    "Hand-rolled": complete.hand_rolled,
 }
 NO_RADAR = RecordsUnavailable("no radar was read")
 CHANGE_LEVEL = "a change-level check: it runs when a change is judged"
 NOT_IN_SUITE = "not implemented in this suite version"
-NO_JUDGE_YET = "a judged check: none is implemented in this suite version"
 
 # --- Values ------------------------------------------------------------------
 
@@ -75,11 +80,13 @@ NO_JUDGE_YET = "a judged check: none is implemented in this suite version"
 @dataclass(frozen=True, slots=True)
 class Checked:
     """What the target-level checks did: the checks that ran, their
-    findings, and every check that did not run, with why."""
+    findings, the questions they put to the judge, and every check that did
+    not run, with why."""
 
     ran: tuple[Check, ...]
     findings: tuple[Finding, ...]
     coverage: tuple[Coverage, ...]
+    questions: tuple[Ask, ...] = ()
 
 
 # --- Pure helpers ------------------------------------------------------------
@@ -89,8 +96,6 @@ def _not_run(check: Check) -> Coverage:
     """Why a check the suite has no function for did not run."""
     if check.quality is Quality.DECLARED:
         return Coverage(CHANGE_LEVEL, check=check.name)
-    if check.kind is CheckKind.JUDGED:
-        return Coverage(NO_JUDGE_YET, check=check.name)
     return Coverage(NOT_IN_SUITE, check=check.name)
 
 
@@ -153,7 +158,8 @@ def each_check(
     checks: Mapping[str, CheckFunction] = TARGET_CHECKS,
 ) -> Iterator[FinishedCheck]:
     """Every check over the model, in catalog order, each as it finishes: an
-    implemented one by its outcome, any other as coverage. The Radar-true
+    implemented one by its outcome, with the questions a judged one puts to
+    the judge, any other as coverage. The Radar-true
     checks read the radar. A check that raises is caught here, once, and is
     coverage naming the error."""
     given = _Inputs(model, declaration, records, parameters, radar, checks)
@@ -166,7 +172,11 @@ def each_check(
             yield FinishedCheck(check, coverage=(_not_run(check),), ran=False)
         else:
             yield FinishedCheck(
-                check, outcome.findings, outcome.coverage, ran=outcome.ran
+                check,
+                outcome.findings,
+                outcome.coverage,
+                ran=outcome.ran,
+                questions=outcome.questions,
             )
 
 
@@ -177,6 +187,7 @@ def gathered(finished: Iterator[FinishedCheck] | tuple[FinishedCheck, ...]) -> C
         ran=tuple(f.check for f in done if f.ran),
         findings=tuple(finding for f in done for finding in f.findings),
         coverage=tuple(c for f in done for c in f.coverage),
+        questions=tuple(q for f in done for q in f.questions),
     )
 
 
@@ -190,7 +201,8 @@ def run_checks(
     checks: Mapping[str, CheckFunction] = TARGET_CHECKS,
 ) -> Checked:
     """Every implemented check over the model, in catalog order; every
-    other check is coverage (each_check, gathered)."""
+    other check is coverage, and the questions the judged ones put to the
+    judge (each_check, gathered)."""
     return gathered(
         each_check(model, declaration, records, parameters, radar=radar, checks=checks)
     )

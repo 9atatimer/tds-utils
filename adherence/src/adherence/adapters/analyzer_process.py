@@ -81,7 +81,8 @@ def write_numbered(root: Path, sources: Mapping[str, bytes]) -> dict[str, str]:
 
 
 def allowlisted_environment(scratch: Path) -> dict[str, str]:
-    """The only environment an analyzer receives."""
+    """The only environment an analyzer receives; a client spawned through
+    here receives it plus its own configuration, and nothing else."""
     return {
         "PATH": os.environ.get("PATH", os.defpath),
         "LANG": "C.UTF-8",
@@ -91,17 +92,27 @@ def allowlisted_environment(scratch: Path) -> dict[str, str]:
 
 
 def run_analyzer(
-    command: Sequence[str], *, cwd: Path, scratch: Path, timeout: float | None
+    command: Sequence[str],
+    *,
+    cwd: Path,
+    scratch: Path,
+    timeout: float | None,
+    stdin: str | None = None,
+    configuration: Mapping[str, str] | None = None,
 ) -> Ran | NotRan:
-    """Run the analyzer once, in cwd, with the allowlisted environment."""
+    """Run the analyzer once, in cwd, with the allowlisted environment and
+    nothing on its standard input. A client (the decide client) may instead
+    be handed its input on stdin and its own configuration beside the
+    allowlist, both named by its adapter."""
     if timeout is not None and timeout <= 0:
         return NotRan("no time left before the deadline", timed_out=True)
+    environment = {**allowlisted_environment(scratch), **(configuration or {})}
     try:
         done = subprocess.run(
             list(command),
             cwd=cwd,
-            env=allowlisted_environment(scratch),
-            stdin=subprocess.DEVNULL,
+            env=environment,
+            input=stdin if stdin is not None else "",
             capture_output=True,
             text=True,
             errors="replace",

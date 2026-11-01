@@ -13,7 +13,8 @@ from adherence.domain.coverage import Coverage
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.finding import Evidence, Finding, Notice, Provenance
 from adherence.domain.model import Layer, Unit, UnitKind
-from adherence.domain.qualities import catalog_check
+from adherence.domain.qualities import CheckKind, catalog_check
+from adherence.domain.questions import IMPLEMENTED, TWO_JOBS, Abstention, Pass
 from adherence.domain.report import BodyDigest, Report, ReportIdentity, Verdict
 from adherence.ports.report_store import ReportStore, StoreMiss
 
@@ -31,7 +32,15 @@ FINDING = Finding(
 IDENTITY = ReportIdentity("0.1.0", "p" * 64, "d" * 64, ("python",), "unasked")
 REPORT = Report(
     ran=(catalog_check("Stub"), catalog_check("Grep")),
-    findings=(FINDING,),
+    findings=(
+        FINDING,
+        replace(
+            FINDING,
+            check=catalog_check("Two jobs"),
+            kind=CheckKind.JUDGED,
+            confidence=0.93,
+        ),
+    ),
     notices=(Notice("exemption added: inert for this change"),),
     coverage=(Coverage("timed out", check="Arrow", path="src/a.py"),),
     units=(UNIT, replace(UNIT, kind=UnitKind.FILE, symbol=None, layer=None)),
@@ -41,6 +50,12 @@ REPORT = Report(
         replace(FINDING, provenance=None, reached=Layer.ADAPTERS, exempt="a reason"),
     ),
     bodies=(BodyDigest(UNIT.path, "tidy", "b" * 64),),
+    abstentions=(
+        Abstention(
+            catalog_check("Two jobs"), UNIT, Layer.DOMAIN, TWO_JOBS.id, "tidy", 0.5
+        ),
+    ),
+    passes=(Pass(catalog_check("Done"), UNIT, IMPLEMENTED.id, 0.97),),
     identity=IDENTITY,
     repository="example",
     revision=REVISION,

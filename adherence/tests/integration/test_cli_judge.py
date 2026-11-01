@@ -1,6 +1,8 @@
 """`adhere judge --base --head --json` through the composition root over two
 revisions of the judge fixture: real git and the real Python analyzer, with
-complexity, duplication and the report store overridden by their fakes. The
+complexity, duplication, the report store and the judge overridden by their
+fakes -- the judge passes every judged question, so the verdict is the rule
+checks'. The
 task-062 done check: the verdict is the design's table's (DESIGN.ARCH-
 ADHERENCE.md, Judging a change)."""
 
@@ -17,6 +19,7 @@ from adherence.adapters.fakes import FakeComplexity, FakeDuplication, FakeReport
 from adherence.cli.main import main
 from adherence.container import build
 from tests.integration.test_git_repository import _git, make_repository
+from tests.judge_kit import passing_judge
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "judge"
 
@@ -40,6 +43,7 @@ def _judge(root: Path, base: str, head: str, store: FakeReportStore) -> tuple[in
         complexity=FakeComplexity(),
         duplication=FakeDuplication(),
         reports=store,
+        judge=passing_judge(),
     )
     result = CliRunner().invoke(
         main,
