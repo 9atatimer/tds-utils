@@ -39,7 +39,7 @@ API_VERSION = "2022-11-28"
 # owner/name, as GITHUB_REPOSITORY names it.
 REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 PER_PAGE = 100
-# Reviews past this many pages are not read; the landing is unavailable.
+# A listing past this many pages is not read; the landing is unavailable.
 MAX_PAGES = 10
 # The most bytes one response may carry.
 MAX_BODY = 8 * 1024 * 1024
@@ -87,10 +87,23 @@ def _login(value: Json, what: str) -> str:
     return login
 
 
-def landing_pull(commit: str, pulls: Sequence[object]) -> Mapping[str, object] | None:
-    """The merged pull request that landed the commit: the one whose merge
-    commit it is, else the only merged one; None when none merged."""
-    merged = [p for p in (_mapping(p, "a pull request") for p in pulls) if is_merged(p)]
+def base_ref(pull: Mapping[str, object]) -> object:
+    """The branch a pull request was opened into, as the REST API names it."""
+    base = pull.get("base")
+    return base.get("ref") if isinstance(base, dict) else None
+
+
+def landing_pull(
+    commit: str, pulls: Sequence[object], branch: str
+) -> Mapping[str, object] | None:
+    """The merged pull request that landed the commit on the branch: of
+    those merged into it, the one whose merge commit it is, else the only
+    one; None when none merged into it."""
+    merged = [
+        p
+        for p in (_mapping(p, "a pull request") for p in pulls)
+        if is_merged(p) and base_ref(p) == branch
+    ]
     if not merged:
         return None
     exact = [p for p in merged if p.get("merge_commit_sha") == commit]
@@ -98,7 +111,7 @@ def landing_pull(commit: str, pulls: Sequence[object]) -> Mapping[str, object] |
         return exact[0]
     if len(merged) == 1:
         return merged[0]
-    raise _Failed(f"{len(merged)} merged pull requests carry {commit}")
+    raise _Failed(f"{len(merged)} pull requests merged into {branch} carry {commit}")
 
 
 def standing_approvals(reviews: Sequence[object]) -> tuple[Approval, ...]:
@@ -130,7 +143,8 @@ def standing_approvals(reviews: Sequence[object]) -> tuple[Approval, ...]:
 
 
 class GitHubReviews:
-    """ReviewPort over the REST API of one repository, with the job's token.
+    """ReviewPort over the REST API of one repository, with the job's token,
+    for landings on one branch (the judged base's).
 
     `opener` is urllib's; a test passes one that serves recorded responses.
     `clock` is read only to compare it to the Deadline.
@@ -141,6 +155,7 @@ class GitHubReviews:
         *,
         repository: str | None,
         token: str | None,
+        branch: str | None,
         api: str = API,
         opener: urllib.request.OpenerDirector | None = None,
         per_page: int = PER_PAGE,
@@ -148,6 +163,7 @@ class GitHubReviews:
     ) -> None:
         self._repository = repository
         self._token = token
+        self._branch = branch
         self._api = api.rstrip("/")
         self._opener = opener or urllib.request.build_opener()
         self._per_page = per_page
@@ -161,6 +177,11 @@ class GitHubReviews:
             return "no GITHUB_REPOSITORY (owner/name) to read the reviews of"
         if ".." in self._repository:
             return f"{self._repository} is not a repository name"
+        if not self._branch:
+            return (
+                "no branch (GITHUB_BASE_REF or GITHUB_REF_NAME) to find the "
+                "landing pull requests on"
+            )
         if not is_object_id(commit):
             return f"{commit!r} is not a commit's object id"
         return None
@@ -201,37 +222,32 @@ class GitHubReviews:
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
             raise _Failed(f"GET {path}: the body is not JSON: {error}") from error
 
-    def _reviews(self, number: int, deadline: Deadline | None) -> list[object]:
-        """Every review of the pull request, page by page."""
+    def _pages(self, path: str, what: str, deadline: Deadline | None) -> list[object]:
+        """Every entry of a listing under the repository, page by page."""
         found: list[object] = []
         for page in range(1, MAX_PAGES + 1):
             batch = _list(
-                self._get(
-                    f"pulls/{number}/reviews?per_page={self._per_page}&page={page}",
-                    deadline,
-                ),
-                "the reviews",
+                self._get(f"{path}?per_page={self._per_page}&page={page}", deadline),
+                what,
             )
             found.extend(batch)
             if len(batch) < self._per_page:
                 return found
-        raise _Failed(
-            f"pull request {number} has more than {MAX_PAGES} pages of reviews"
-        )
+        raise _Failed(f"{path} has more than {MAX_PAGES} pages of {what}")
 
     def _landing(self, commit: str, deadline: Deadline | None) -> Landing | NoLandingPR:
-        pulls = _list(
-            self._get(f"commits/{commit}/pulls?per_page={PER_PAGE}", deadline),
-            "the pull requests of a commit",
+        pulls = self._pages(
+            f"commits/{commit}/pulls", "the pull requests of a commit", deadline
         )
-        pull = landing_pull(commit, pulls)
+        pull = landing_pull(commit, pulls, cast(str, self._branch))
         if pull is None:
             return NoLandingPR(commit)
         number = pull.get("number")
         if not isinstance(number, int) or isinstance(number, bool):
             raise _Failed("the landing pull request has no number")
         author = _login(pull.get("user"), "the landing pull request's user")
-        return Landing(author, standing_approvals(self._reviews(number, deadline)))
+        reviews = self._pages(f"pulls/{number}/reviews", "the reviews", deadline)
+        return Landing(author, standing_approvals(reviews))
 
     def approvals(
         self, commit: str, deadline: Deadline | None
