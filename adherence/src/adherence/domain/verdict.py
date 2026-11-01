@@ -7,9 +7,10 @@ ADHERENCE.md, Mechanism > Judging a change). A head finding absent from the
 base is introduced; one present there is existing. A base finding absent
 from the head is removed only where every unit it names is still covered
 at the head -- a record's seam, behavior or term only while the head's
-records still state it -- and its check ran there and passed. The verdict
-is the first of not run, lowered, inconclusive, raised and held that
-applies.
+records still state it -- and its check ran there and passed. A judged
+check that abstained on a unit the change touched makes it inconclusive at
+best. The verdict is the first of not run, lowered, inconclusive, raised
+and held that applies.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from adherence.domain.declaration import is_declared_check
 from adherence.domain.finding import Finding, Provenance
 from adherence.domain.model import UnitKind
 from adherence.domain.qualities import Quality
+from adherence.domain.questions import Abstention
 from adherence.domain.records import DesignRecords, RecordsUnavailable
 from adherence.domain.report import Report, Verdict
 from adherence.domain.target import Change
@@ -185,6 +187,15 @@ def _shown(coverage: Coverage) -> str:
     return f"{coverage.check} did not run{where}: {coverage.reason}"
 
 
+def _abstained(abstention: Abstention) -> str:
+    unit = abstention.unit
+    where = f"{unit.path}:{unit.symbol}" if unit.symbol else unit.path
+    return (
+        f"{abstention.check.name} abstained on {where} "
+        f"(confidence {abstention.confidence:.2f})"
+    )
+
+
 def _is_lost(
     coverage: Coverage, before: set[Coverage], touched: frozenset[str]
 ) -> bool:
@@ -200,13 +211,17 @@ def _is_lost(
 def _inconclusive(base: Report, head: Report, change: Change) -> tuple[str, ...]:
     """Why the change is inconclusive: each check or file that could not be
     measured on a unit the change touched, or that is coverage at the head
-    and was not, for that reason, at the base."""
+    and was not, for that reason, at the base; and each judged check that
+    abstained at the head on a unit the change touched."""
     touched = change.touched()
     before = {
         replace(c, path=change.at_head(c.path) if c.path else None)
         for c in base.coverage
     }
-    return tuple(_shown(c) for c in head.coverage if _is_lost(c, before, touched))
+    return (
+        *(_shown(c) for c in head.coverage if _is_lost(c, before, touched)),
+        *(_abstained(a) for a in head.abstentions if a.unit.path in touched),
+    )
 
 
 def _verdict(introduced: bool, inconclusive: bool, removed: bool) -> Verdict:
