@@ -11,7 +11,6 @@ import urllib.response
 from email.message import Message
 
 from adherence.adapters.github_reviews import GitHubReviews, standing_approvals
-
 from adherence.domain.declaration import (
     Approval,
     Landing,

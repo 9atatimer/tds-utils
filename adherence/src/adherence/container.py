@@ -411,6 +411,8 @@ def _reviews(stage: Stage, environ: Mapping[str, str]) -> ReviewPort:
     return GitHubReviews(
         repository=environ.get("GITHUB_REPOSITORY"),
         token=environ.get("GITHUB_TOKEN"),
+        # A pull request's run judges its base branch; a push's, the branch.
+        branch=environ.get("GITHUB_BASE_REF") or environ.get("GITHUB_REF_NAME"),
         api=environ.get("GITHUB_API_URL", API),
     )
 
@@ -434,8 +436,8 @@ def build(
     (working tree, staged index, revisions) is the entry point's choice.
     Every stage binds no_judge until the decide adapter lands (task-064);
     the judged checks read as coverage meanwhile. `ci` binds github_reviews
-    over the job's GITHUB_TOKEN and GITHUB_REPOSITORY, read here and never
-    by the adapter; every other stage binds no_reviews. Every stage binds
+    over the job's GITHUB_TOKEN, GITHUB_REPOSITORY and branch, read here and
+    never by the adapter; every other stage binds no_reviews. Every stage binds
     the file cache in the per-user cache directory until the warehouse
     lands for ci (task-067).
     """
