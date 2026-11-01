@@ -14,9 +14,9 @@ from pathlib import Path
 from adherence.adapters.process_worker import ProcessWorker
 from adherence.domain.deadline import Deadline
 from adherence.domain.report import Report
-from adherence.ports.worker import Ended, Job, WorkerPort
-from tests.worker_contract import WorkerContract
-from tests.worker_jobs import FIRST, NeverReturns
+from adherence.ports.worker import Ended, Failed, Job, WorkerPort
+from tests.worker_contract import ROOM, WorkerContract
+from tests.worker_jobs import FIRST, Dies, NeverReturns
 
 # Room for a child process to start and report its first check.
 BOUND = 1.0
@@ -29,10 +29,10 @@ class TestProcessWorker(WorkerContract):
         return ProcessWorker()
 
 
-def _watched(job: Job, deadline: Deadline) -> Report | Ended | None:
+def _watched(job: Job, deadline: Deadline) -> Report | Ended | Failed | None:
     """The worker's answer, or None when it did not answer within GRACE of
     the deadline."""
-    answers: list[Report | Ended] = []
+    answers: list[Report | Ended | Failed] = []
     thread = threading.Thread(
         target=lambda: answers.append(ProcessWorker().run(job, deadline)),
         daemon=True,
@@ -68,3 +68,16 @@ def test_run_of_a_job_that_never_returns_is_ended_and_reaped(
     assert answer.finished == (FIRST,)
     assert time.time() < deadline.epoch_seconds + GRACE
     assert not _is_running(int(pid_file.read_text(encoding="utf-8")))
+
+
+def test_run_of_a_job_whose_process_dies_is_failed() -> None:
+    """Given a job whose process dies after reporting one check, well before
+    the deadline, When the worker runs it, Then the answer is Failed, saying
+    the process ended unreported -- not Ended, which is the deadline's."""
+    deadline = Deadline(epoch_seconds=time.time() + ROOM)
+
+    answer = _watched(Dies(), deadline)
+
+    assert answer is not None, "the worker did not answer"
+    assert isinstance(answer, Failed), answer
+    assert "ended unreported" in answer.reason
