@@ -144,3 +144,15 @@ def test_an_approval_by_the_prs_author_is_refused_whoever_they_are() -> None:
 
     assert not counting.in_force
     assert any("author" in n.message and "Q11" in n.message for n in counting.notices)
+
+
+def test_a_team_entry_is_a_notice_on_a_landing_in_force_too() -> None:
+    """Given CODEOWNERS naming a user and a team for adherence.toml, When the
+    user's approval of the landed bytes is counted, Then the landing is in
+    force and the team entry is still a notice."""
+    owners = parse_codeowners(b"adherence.toml @owner @org/team\n")
+
+    counting = counted_landing(_landing(Approval("owner", REVIEWED)), owners)
+
+    assert counting.in_force
+    assert any("@org/team" in n.message for n in counting.notices), counting.notices
