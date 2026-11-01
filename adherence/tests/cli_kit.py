@@ -44,11 +44,13 @@ def faked(
     head: bytes = STUBBED,
     judge: DecisionPort | None = None,
     declaration: bytes = HEXAGON,
+    now: float = 0.0,
 ) -> functools.partial[Container]:
     """The composition root with every port faked: the base (and HEAD, the
     hook's base) holds the rule implemented, the head, the staged index and
     the working tree the rule `head`: STUBBED a stub, CLEAN and EDITED a
-    function that works. Both sides carry `declaration`."""
+    function that works. Both sides carry `declaration`. The repository's
+    clock reads `now`, so a deadline at or before it has passed."""
     files = with_declaration({RULES: head}, declaration)
     base = with_declaration({RULES: CLEAN}, declaration)
     return functools.partial(
@@ -62,6 +64,7 @@ def faked(
                 Head.working_tree(): files,
             },
             history={DECLARATION_PATH: (BASE.revision,)},
+            now=now,
         ),
         reviews=FakeReviews(),
         analyzers={
