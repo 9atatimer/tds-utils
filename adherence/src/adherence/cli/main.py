@@ -24,7 +24,9 @@ from adherence.application.load import load_declaration
 from adherence.application.measure import measure
 from adherence.application.record import record_report
 from adherence.cli.presenters.json_report import report_json
-from adherence.cli.presenters.terminal import safe_text
+from adherence.cli.presenters.sarif import report_sarif
+from adherence.cli.presenters.summary import report_summary
+from adherence.cli.presenters.terminal import report_text, safe_text
 from adherence.container import Container, Stage, build
 from adherence.domain.deadline import Deadline
 from adherence.domain.declaration import (
@@ -34,7 +36,7 @@ from adherence.domain.declaration import (
     DeclarationUnreadable,
     RefusedExemption,
 )
-from adherence.domain.report import Report, Verdict
+from adherence.domain.report import Recorded, Report, Verdict
 from adherence.domain.target import Base, Change, Head
 
 # --- Constants ---------------------------------------------------------------
@@ -45,6 +47,13 @@ from adherence.domain.target import Base, Change, Head
 FAILING = frozenset({Verdict.LOWERED, Verdict.NOT_RUN})
 # The hook judges what is staged against the commit it will follow.
 HOOK_BASE = "HEAD"
+# Each surface a report is printed for, by the name `--format` takes.
+PRESENTERS: dict[str, Callable[[Report, Recorded | None], str]] = {
+    "terminal": report_text,
+    "json": report_json,
+    "sarif": report_sarif,
+    "summary": report_summary,
+}
 
 # --- Presenters --------------------------------------------------------------
 
@@ -71,7 +80,28 @@ def _declaration_lines(loaded: Declaration | DeclarationUnreadable) -> list[str]
     ]
 
 
+def _presenter(
+    output_format: str | None, as_json: bool
+) -> Callable[[Report, Recorded | None], str]:
+    """The presenter `--format` names, `--json` naming JSON; the terminal's
+    when neither is given."""
+    if as_json and output_format not in (None, "json"):
+        raise click.UsageError("give --json or --format, not both")
+    return PRESENTERS["json" if as_json else output_format or "terminal"]
+
+
 # --- Entry points ------------------------------------------------------------
+
+FORMAT_OPTION = click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(list(PRESENTERS)),
+    help="How the report is printed: terminal lines (the default), JSON, "
+    "SARIF 2.1.0, or the PR job summary in markdown.",
+)
+JSON_OPTION = click.option(
+    "--json", "as_json", is_flag=True, help="Print the report as JSON (--format json)."
+)
 
 
 @click.group()
@@ -112,16 +142,18 @@ def declaration_check(root: str) -> None:
     type=click.Path(exists=True, file_okay=False),
     help="The repository whose working tree is measured.",
 )
-@click.option("--json", "as_json", is_flag=True, help="Print the report as JSON.")
+@FORMAT_OPTION
+@JSON_OPTION
 @click.pass_context
-def measure_command(ctx: click.Context, root: str, as_json: bool) -> None:
+def measure_command(
+    ctx: click.Context, root: str, output_format: str | None, as_json: bool
+) -> None:
     """Measure the working tree and print the report.
 
     A test passes the composition root, bound with its fakes, as the
     context object.
     """
-    if not as_json:
-        raise click.UsageError("--json is the one output format so far")
+    present = _presenter(output_format, as_json)
     builder: Callable[..., Container] = ctx.obj if callable(ctx.obj) else build
     container = builder(Stage.LAPTOP, root=root)
     head = Head.working_tree()
@@ -137,7 +169,7 @@ def measure_command(ctx: click.Context, root: str, as_json: bool) -> None:
         parameters=container.parameters,
         deadline=None,
     )
-    click.echo(report_json(report))
+    click.echo(present(report, None))
     if report.not_run_reason is not None:
         sys.exit(1)
 
@@ -204,7 +236,8 @@ def _judge_staged(container: Container, root: str) -> Report:
     help="Judge the staged index against HEAD within the commit-time bound "
     "(the pre-commit hook).",
 )
-@click.option("--json", "as_json", is_flag=True, help="Print the report as JSON.")
+@FORMAT_OPTION
+@JSON_OPTION
 @click.pass_context
 def judge_command(
     ctx: click.Context,
@@ -212,6 +245,7 @@ def judge_command(
     base: str | None,
     head: str | None,
     staged: bool,
+    output_format: str | None,
     as_json: bool,
 ) -> None:
     """Judge the head revision against the base, or the staged index
@@ -221,8 +255,7 @@ def judge_command(
     never change the verdict. A test passes the composition root, bound
     with its fakes, as the context object.
     """
-    if not as_json:
-        raise click.UsageError("--json is the one output format so far")
+    present = _presenter(output_format, as_json)
     if staged == (base is not None or head is not None) or (
         not staged and (base is None or head is None)
     ):
@@ -235,6 +268,6 @@ def judge_command(
         container = builder(Stage.HOOK, root=root)
         report = _judge_staged(container, root)
     recorded = record_report(report, reports=container.reports)
-    click.echo(report_json(report, recorded))
+    click.echo(present(report, recorded))
     if report.verdict in FAILING:
         sys.exit(1)

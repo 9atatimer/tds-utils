@@ -39,13 +39,17 @@ JUDGE = ("judge", "--base", BASE.revision, "--head", HEAD.revision)
 def faked(
     *, head: bytes = STUBBED, judge: DecisionPort | None = None
 ) -> functools.partial[Container]:
-    """The composition root with every port faked: the base holds the
-    declaration alone, the head and the working tree the rule `head`."""
+    """The composition root with every port faked: the base holds the rule
+    implemented, the head and the working tree the rule `head`."""
     files = with_declaration({RULES: head})
     return functools.partial(
         build,
         repository=FakeRepository(
-            {BASE: with_declaration({}), HEAD: files, Head.working_tree(): files},
+            {
+                BASE: with_declaration({RULES: CLEAN}),
+                HEAD: files,
+                Head.working_tree(): files,
+            },
             history={DECLARATION_PATH: (BASE.revision,)},
         ),
         reviews=FakeReviews(),
