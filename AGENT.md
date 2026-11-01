@@ -523,9 +523,10 @@ This repo lands PRs through the tedium merge bot; the rules are in
   `paths:` filter: a workflow that does not run never reports `gate`.
 - **`hold` label** keeps a PR out of the queue. `tedium dryrun` builds it
   on `tedium/try` without landing.
-- **CODEOWNERS** (`tedium.toml`, `CODEOWNERS`, `.github/workflows/`,
-  `.github/scripts/changed-scopes.sh`) need a human owner's approval
-  before tedium lands a change to them.
+- **CODEOWNERS** covers every path (`*`, tds-internal#285): every
+  landing needs a human owner's approval before tedium lands it. Agents
+  open PRs as `9atatimer-bot` so the owner can approve; a PR the owner
+  authored can never clear the check and is merged by hand.
 - **`tedium/merge` and `tedium/try` are the bot's build branches**: never
   protect them, never commit to them, never base work on them.
 - **Closing keywords do not fire when tedium lands.** `Closes #N` in the
