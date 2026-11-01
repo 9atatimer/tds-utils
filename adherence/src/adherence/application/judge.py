@@ -40,8 +40,14 @@ from adherence.domain.declaration import (
 )
 from adherence.domain.model import CodeLanguage
 from adherence.domain.parameters import Parameters
+from adherence.domain.qualities import CATALOG
 from adherence.domain.records import DesignRecords, RecordsUnavailable
-from adherence.domain.report import Report, ReportIdentity, fingerprint
+from adherence.domain.report import (
+    Report,
+    ReportIdentity,
+    assemble_partial,
+    fingerprint,
+)
 from adherence.domain.target import Base, Change, Head
 from adherence.domain.verdict import compared, stated_units
 from adherence.ports.code_model import CodeModelPort
@@ -186,9 +192,15 @@ def judge_change_reporting(
     judge = LatchedDecision(judge, latch)
     reports = LatchedReports(reports, latch)
     paths = repository.changed(change.base, change.head, deadline)
-    if isinstance(paths, Refused | TimedOut):
-        reason = paths.reason if isinstance(paths, Refused) else paths.operation
-        return _not_run(change, f"the repository cannot be read: {reason}")
+    if isinstance(paths, TimedOut):
+        # Cut off before anything was measured: every check is coverage.
+        return replace(
+            assemble_partial((), CATALOG, reason=f"{paths.operation}: timed out"),
+            repository=change.repository,
+            revision=change.head.revision,
+        )
+    if isinstance(paths, Refused):
+        return _not_run(change, f"the repository cannot be read: {paths.reason}")
     change = replace(change, paths=paths)
     measuring = _Measuring(
         repository,
@@ -220,6 +232,10 @@ def judge_change_reporting(
         if head.identity is not None
         else measuring.measure(change.base, in_force)
     )
+    if latch.first is not None and base.not_run_reason is None:
+        # A base measured after the run was cut off is not the base: what
+        # the head could not finish would read as removed or introduced.
+        base = Report.not_run(f"{UNMEASURABLE}: {latch.first.operation}: timed out")
     found = covered(
         created_units(base=base, head=head, change=change),
         declaration,

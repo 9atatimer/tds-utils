@@ -50,6 +50,7 @@ from adherence.domain.model import (
     with_languages,
 )
 from adherence.domain.parameters import Parameters
+from adherence.domain.qualities import CATALOG, Quality
 from adherence.domain.records import (
     DesignRecords,
     Radar,
@@ -227,7 +228,17 @@ def measure_reporting(
     parameters = with_overrides(parameters, declaration)
     paths = repository.tree(at, deadline)
     if isinstance(paths, TimedOut):
-        return Report.not_run(f"the repository cannot be read: {paths.operation}")
+        # Cut off, not unable to run: every check is coverage.
+        reason = f"{paths.operation}: timed out"
+        return Report(
+            coverage=tuple(
+                Coverage(reason, check=c.name)
+                for c in CATALOG
+                if c.quality is not Quality.DECLARED
+            ),
+            identity=identity,
+            revision=at.revision,
+        )
     if isinstance(paths, Refused):
         return Report.not_run(f"the repository cannot be read: {paths.reason}")
     measured = {language.value for language in analyzers}
