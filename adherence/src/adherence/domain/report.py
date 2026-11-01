@@ -184,20 +184,24 @@ def unfinished_checks(finished: tuple[FinishedCheck, ...]) -> tuple[Check, ...]:
 
 
 def assemble_partial(
-    finished: tuple[FinishedCheck, ...], unfinished: tuple[Check, ...]
+    finished: tuple[FinishedCheck, ...],
+    unfinished: tuple[Check, ...],
+    *,
+    reason: str = ENDED,
 ) -> Report:
     """The Report of a run ended at the deadline: the finished checks as
     they finished, every unfinished one as coverage, and the verdict
     inconclusive -- the change was never compared, so it is never held or
-    raised, and what did not finish never reads as a pass."""
+    raised, and what did not finish never reads as a pass. `reason` is why
+    the unfinished checks did not finish."""
     kept = tuple(f for f in finished if f.check not in unfinished)
     return Report(
         ran=tuple(f.check for f in kept if f.ran),
         findings=tuple(finding for f in kept for finding in f.findings),
         coverage=(
             *(c for f in kept for c in f.coverage),
-            *(Coverage(ENDED, check=c.name) for c in unfinished),
+            *(Coverage(reason, check=c.name) for c in unfinished),
         ),
         verdict=Verdict.INCONCLUSIVE,
-        reasons=tuple(f"{c.name}: {ENDED}" for c in unfinished),
+        reasons=tuple(f"{c.name}: {reason}" for c in unfinished),
     )
