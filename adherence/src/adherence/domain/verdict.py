@@ -6,15 +6,17 @@ finding identity with paths resolved through the change's renames
 ADHERENCE.md, Mechanism > Judging a change). A head finding absent from the
 base is introduced; one present there is existing. A base finding absent
 from the head is removed only where every unit it names is still covered
-at the head and its check ran there and passed. The verdict is the first
-of not run, lowered, inconclusive, raised and held that applies.
+at the head -- a record's seam, behavior or term only while the head's
+records still state it -- and its check ran there and passed. The verdict
+is the first of not run, lowered, inconclusive, raised and held that
+applies.
 """
 
 from __future__ import annotations
 
 import re
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field, replace
 
 from adherence.domain.coverage import Coverage
@@ -22,12 +24,14 @@ from adherence.domain.declaration import is_declared_check
 from adherence.domain.finding import Finding, Provenance
 from adherence.domain.model import UnitKind
 from adherence.domain.qualities import Quality
+from adherence.domain.records import DesignRecords, RecordsUnavailable
 from adherence.domain.report import Report, Verdict
 from adherence.domain.target import Change
 
 # --- Constants ---------------------------------------------------------------
 
-# Units a record names rather than the code: covered wherever their check ran.
+# Units a record names rather than the code: covered while the head's
+# records still state them.
 RECORD_UNITS = frozenset({UnitKind.SEAM, UnitKind.BEHAVIOR, UnitKind.TERM})
 
 UnitKey = tuple[str, str | None]
@@ -81,11 +85,13 @@ class _Joins:
 @dataclass(frozen=True, slots=True)
 class _Head:
     """What the comparison reads of the head report: its findings' keys, the
-    units it covers by path and symbol, and the checks that ran."""
+    units it covers by path and symbol, the checks that ran, and the record
+    units the head's records state, by path and name."""
 
     keys: frozenset[FindingKey]
     covered: frozenset[UnitKey]
     ran: frozenset[str]
+    stated: frozenset[UnitKey]
 
 
 # --- Predicates --------------------------------------------------------------
@@ -111,7 +117,8 @@ def _is_removed(finding: Finding, joins: _Joins, head: Report, seen: _Head) -> b
     if finding.check.name not in seen.ran:
         return False
     unit = joins.unit_at_head(finding)
-    covered = finding.unit.kind in RECORD_UNITS or unit in seen.covered
+    units = seen.stated if finding.unit.kind in RECORD_UNITS else seen.covered
+    covered = unit in units
     return covered and _check_passed_on(finding, unit[0], head)
 
 
@@ -145,13 +152,29 @@ def definition_renames(
     }
 
 
-def _seen(head: Report, joins: _Joins) -> _Head:
+def stated_units(records: DesignRecords | RecordsUnavailable) -> frozenset[UnitKey]:
+    """The record units the records state, by path and name: each seam,
+    design behavior and Domain Language term. Records that could not be
+    read state none."""
+    if isinstance(records, RecordsUnavailable):
+        return frozenset()
+    return frozenset(
+        {
+            *((s.path, s.name) for s in records.seams),
+            *((b.path, b.name) for b in records.behaviors),
+            *((t.path, t.name) for t in records.domain_language),
+        }
+    )
+
+
+def _seen(head: Report, joins: _Joins, stated: Collection[UnitKey]) -> _Head:
     return _Head(
         keys=frozenset(joins.head_key(f) for f in head.findings),
         covered=frozenset(
             (u.path, u.symbol) for u in head.units if u.layer is not None
         ),
         ran=frozenset(c.name for c in head.ran),
+        stated=frozenset(stated),
     )
 
 
@@ -215,9 +238,17 @@ def _uncompared(base_reason: str, head: Report) -> Report:
     )
 
 
-def compared(*, base: Report, head: Report, change: Change) -> Report:
+def compared(
+    *,
+    base: Report,
+    head: Report,
+    change: Change,
+    stated: Collection[UnitKey] = frozenset(),
+) -> Report:
     """The change's report: the head's, each finding marked introduced or
-    existing, the base findings it removed, and the verdict."""
+    existing, the base findings it removed, and the verdict. `stated` is the
+    record units the head's records state (`stated_units`); a base finding
+    on a record unit they no longer state is not removed."""
     if head.not_run_reason is not None:
         return replace(head, verdict=Verdict.NOT_RUN, reasons=(head.not_run_reason,))
     if base.not_run_reason is not None:
@@ -245,7 +276,7 @@ def compared(*, base: Report, head: Report, change: Change) -> Report:
         )
         for f in head.findings
     )
-    seen = _seen(head, joins)
+    seen = _seen(head, joins, stated)
     removed = tuple(f for f in removable if _is_removed(f, joins, head, seen))
     introduced = any(f.provenance is Provenance.INTRODUCED for f in marked)
     reasons = _inconclusive(base, head, change)

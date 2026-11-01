@@ -49,7 +49,7 @@ from adherence.domain.report import (
     fingerprint,
 )
 from adherence.domain.target import Base, Change, Head
-from adherence.domain.verdict import compared
+from adherence.domain.verdict import compared, stated_units
 from adherence.ports.code_model import CodeModelPort
 from adherence.ports.complexity import ComplexityPort
 from adherence.ports.decision import DecisionPort
@@ -140,7 +140,7 @@ def _records_at(
     """The records at the target, when their statuses count."""
     found = records.records(at, declaration, deadline)
     if isinstance(found, TimedOut):
-        return RecordsUnavailable(f"{found.operation}: timed out")
+        return RecordsUnavailable(f"{found.operation}: timed out", unread=True)
     return counted(found, parameters.limits.record_statuses)
 
 
@@ -241,9 +241,10 @@ def judge_change_reporting(
         parameters.limits.evidence_bound,
     )
     head = with_outcome(head, COVERED, found)
+    head_records = _records_at(change.head, declaration, records, parameters, deadline)
     kept = record_kept(
         base=_records_at(change.base, in_force, records, parameters, deadline),
-        head=_records_at(change.head, declaration, records, parameters, deadline),
+        head=head_records,
         bound=parameters.limits.evidence_bound,
     )
     head = with_outcome(head, RECORD_KEPT, kept)
@@ -255,7 +256,10 @@ def judge_change_reporting(
     )
     head = replace(head, notices=(*head.notices, *edits))
     return replace(
-        compared(base=base, head=head, change=change), repository=change.repository
+        compared(
+            base=base, head=head, change=change, stated=stated_units(head_records)
+        ),
+        repository=change.repository,
     )
 
 

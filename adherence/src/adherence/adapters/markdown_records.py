@@ -390,7 +390,7 @@ class MarkdownRecords:
         if isinstance(data, Absent):
             return RecordsUnavailable(f"{path}: no such record at this target")
         if isinstance(data, Refused):
-            return RecordsUnavailable(f"{path}: refused: {data.reason}")
+            return RecordsUnavailable(f"{path}: refused: {data.reason}", unread=True)
         if isinstance(data, TimedOut):
             return data
         return data.decode("utf-8", "replace")
