@@ -52,6 +52,7 @@ from adherence.domain.questions import (
 from adherence.domain.records import DesignRecords, RecordsUnavailable
 from adherence.domain.report import Report
 from adherence.domain.target import Base, Change, Head
+from adherence.ports.decision import DecisionPort
 from adherence.ports.repository import Refused
 from tests.measure_kit import HEXAGON, declared, parameters
 
@@ -84,6 +85,14 @@ def _passed(question: Question) -> dict[str, float]:
 def passing_judge() -> FakeDecision:
     """A judge that passes every binary and score question."""
     return FakeDecision({q.id: _passed(q) for q in BANDED})
+
+
+def answering(question: Question, probabilities: Mapping[str, float]) -> FakeDecision:
+    """The passing judge, but answering one question with the probabilities
+    given."""
+    return FakeDecision(
+        {**{q.id: _passed(q) for q in BANDED}, question.id: probabilities}
+    )
 
 
 def judged_parameters() -> Parameters:
@@ -123,9 +132,11 @@ def judge_with(
     | None = None,
     store: FakeReportStore | None = None,
     unlisted_at: Mapping[Base | Head, Refused | TimedOut] | None = None,
+    judge: DecisionPort | None = None,
 ) -> Report:
     """judge_change of HEAD against BASE, each holding its files and the
-    hexagon declaration unless the files carry their own."""
+    hexagon declaration unless the files carry their own; the judge is the
+    passing one unless the test binds another."""
     return judge_change(
         Change(REPOSITORY, BASE, HEAD),
         repository=FakeRepository(
@@ -139,7 +150,7 @@ def judge_with(
         complexity=FakeComplexity(),
         duplication=FakeDuplication(),
         records=FakeRecords(records or {}),
-        judge=passing_judge(),
+        judge=judge if judge is not None else passing_judge(),
         reports=store if store is not None else FakeReportStore(),
         parameters=judged_parameters(),
         deadline=None,
@@ -152,6 +163,7 @@ def measured_at(
     at: Base | Head = BASE,
     facts: CodeModel | None = None,
     when: Mapping[bytes, CodeModel] | None = None,
+    judge: DecisionPort | None = None,
 ) -> Report:
     """measure of one target holding the files, under the hexagon, with the
     ports judge_with binds: the report an earlier run would have kept."""
@@ -165,7 +177,7 @@ def measured_at(
         complexity=FakeComplexity(),
         duplication=FakeDuplication(),
         records=FakeRecords({}),
-        judge=passing_judge(),
+        judge=judge if judge is not None else passing_judge(),
         parameters=judged_parameters(),
         deadline=None,
     )
