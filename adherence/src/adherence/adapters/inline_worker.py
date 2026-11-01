@@ -3,15 +3,20 @@
 The fake behind WorkerPort (ARCHITECTURE.ARCH-ADHERENCE.md, Module map):
 it reads no clock and ends nothing on time; scripted with `ends_after`, it
 ends the job once that many checks have finished, by unwinding it from the
-sink, so the job asks no port anything after. Tests bind it; the hook
-binds process_worker.
+sink, so the job asks no port anything after. A job that raises is
+Failed. Tests bind it; the hook binds process_worker.
 """
 
 from __future__ import annotations
 
 from adherence.domain.deadline import Deadline
 from adherence.domain.report import FinishedCheck, Report
-from adherence.ports.worker import Ended, Job
+from adherence.ports.worker import Ended, Failed, Job
+
+
+def failure(error: Exception) -> str:
+    """Why a job that raised failed."""
+    return f"the job failed: {type(error).__name__}: {error}"
 
 
 class _EndedByScript(BaseException):
@@ -38,7 +43,7 @@ class InlineWorker:
     def __init__(self, *, ends_after: int | None = None) -> None:
         self._ends_after = ends_after
 
-    def run(self, job: Job, deadline: Deadline) -> Report | Ended:
+    def run(self, job: Job, deadline: Deadline) -> Report | Ended | Failed:
         sink = _ScriptedSink(self._ends_after)
         try:
             return job(sink)
@@ -47,3 +52,5 @@ class InlineWorker:
                 tuple(sink.finished),
                 f"ended by the script after {len(sink.finished)} checks",
             )
+        except Exception as error:  # the job's boundary: anything it raises
+            return Failed(failure(error))

@@ -6,7 +6,8 @@ process that sends each check down a pipe as it finishes and its Report
 last. At the deadline the child is ended -- with the process group it
 leads, so an analyzer it spawned goes too -- and reaped, and the answer is
 Ended with the checks that came down the pipe first. A pure check that
-does not return is ended like any other. The clock is the edge's own.
+does not return is ended like any other. A job that raises, or a child
+that dies, before the deadline is Failed. The clock is the edge's own.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from typing import Final
 
 from adherence.domain.deadline import Deadline
 from adherence.domain.report import FinishedCheck, Report
-from adherence.ports.worker import Ended, Job
+from adherence.ports.worker import Ended, Failed, Job
 
 # --- Constants ---------------------------------------------------------------
 
@@ -33,6 +34,7 @@ START_METHOD: Final = "spawn"
 # How long a child that sent its Report may take to exit before it is ended.
 EXIT_GRACE = 5.0
 AT_DEADLINE = "ended at the deadline"
+UNREPORTED = "the job's process ended unreported"
 
 # --- Values ------------------------------------------------------------------
 
@@ -65,7 +67,7 @@ def serve(job: Job, sending: Connection) -> None:
         report = job(_PipeSink(sending))
         sending.send(report)
     except Exception as error:  # the job's boundary: anything it raises
-        sending.send(_Failed(f"{type(error).__name__}: {error}"))
+        sending.send(_Failed(f"the job failed: {type(error).__name__}: {error}"))
     finally:
         sending.close()
 
@@ -96,7 +98,7 @@ class ProcessWorker:
         receiving: Connection,
         deadline: Deadline,
         finished: list[FinishedCheck],
-    ) -> Report | Ended:
+    ) -> Report | Ended | Failed:
         """Read the pipe until the Report, the deadline, or the child's end."""
         while True:
             left = deadline.epoch_seconds - self._clock()
@@ -105,14 +107,14 @@ class ProcessWorker:
             try:
                 message = receiving.recv()
             except EOFError:
-                return Ended(tuple(finished), "the job's process ended unreported")
+                return Failed(UNREPORTED)
             if isinstance(message, Report):
                 return message
             if isinstance(message, _Failed):
-                return Ended(tuple(finished), f"the job failed: {message.reason}")
+                return Failed(message.reason)
             finished.append(message)
 
-    def run(self, job: Job, deadline: Deadline) -> Report | Ended:
+    def run(self, job: Job, deadline: Deadline) -> Report | Ended | Failed:
         context = multiprocessing.get_context(START_METHOD)
         receiving, sending = context.Pipe(duplex=False)
         child = context.Process(target=serve, args=(job, sending), daemon=True)

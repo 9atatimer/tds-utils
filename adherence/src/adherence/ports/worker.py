@@ -4,7 +4,9 @@ process_worker runs a job in a child process and ends it at the deadline,
 returning what the job reported before it was ended; inline_worker is the
 fake, scriptable to end early (ARCHITECTURE.ARCH-ADHERENCE.md, Seams). A
 job reports each check as it finishes through the sink it is handed, and
-returns its Report if it is let finish.
+returns its Report if it is let finish. A job that raises, or whose
+process dies, is Failed: the engine could not measure, which is not the
+deadline's Ended.
 """
 
 from __future__ import annotations
@@ -31,8 +33,17 @@ class Ended:
     reason: str
 
 
+@dataclass(frozen=True, slots=True)
+class Failed:
+    """A job that neither returned nor was ended: it raised, or the process
+    it ran in died. Why, as the reason a run that was not run names."""
+
+    reason: str
+
+
 class WorkerPort(Protocol):
-    def run(self, job: Job, deadline: Deadline) -> Report | Ended:
-        """The job's Report when it finishes by the deadline; else Ended,
-        with what it reported finished first."""
+    def run(self, job: Job, deadline: Deadline) -> Report | Ended | Failed:
+        """The job's Report when it finishes by the deadline; Ended, with
+        what it reported finished first, when the deadline ends it; Failed
+        when it raises or its process dies first."""
         ...
