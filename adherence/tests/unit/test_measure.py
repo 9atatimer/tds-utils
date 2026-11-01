@@ -196,17 +196,30 @@ def test_measure_cuts_the_quoted_line_at_the_evidence_bound() -> None:
 
 
 def test_measure_of_a_repository_that_cannot_be_listed_is_not_run() -> None:
-    """Given a repository whose tree cannot be listed, or not within the
-    deadline, When a run is asked for, Then the report is not run and names
-    why, and nothing reads as a pass."""
-    for unlisted in (Refused(".", "not a git repository"), TimedOut("list the tree")):
-        report = measure_with({RULES: b"x = 1\n"}, unlisted=unlisted)
+    """Given a repository whose tree cannot be listed, When a run is asked
+    for, Then the report is not run and names why, and nothing reads as a
+    pass."""
+    report = measure_with(
+        {RULES: b"x = 1\n"}, unlisted=Refused(".", "not a git repository")
+    )
 
-        assert report.not_run_reason is not None
-        assert ("not a git repository" in report.not_run_reason) or (
-            "list the tree" in report.not_run_reason
-        )
-        assert report.ran == () and report.findings == ()
+    assert report.not_run_reason is not None
+    assert "not a git repository" in report.not_run_reason
+    assert report.ran == () and report.findings == ()
+
+
+def test_measure_whose_tree_listing_times_out_covers_every_check() -> None:
+    """Given a repository whose tree cannot be listed within the deadline,
+    When a run is asked for, Then the run is not "not run" -- it was cut
+    off, so every target-level check is coverage naming the timeout, and
+    nothing reads as a pass (ARCHITECTURE.ARCH-ADHERENCE.md, Measurement:
+    cut off by TimedOut into Coverage)."""
+    report = measure_with({RULES: b"x = 1\n"}, unlisted=TimedOut("list the tree"))
+
+    assert report.not_run_reason is None
+    assert report.ran == () and report.findings == ()
+    covered = {c.check for c in report.coverage if "list the tree" in c.reason}
+    assert covered == {c.name for c in CATALOG if c.quality is not Quality.DECLARED}
 
 
 def test_measure_of_an_exempted_unit_marks_its_finding_with_the_reason() -> None:
