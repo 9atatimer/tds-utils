@@ -24,6 +24,7 @@ from adherence.adapters.warehouse import (
     LedgerSettings,
     WarehouseReportStore,
 )
+from adherence.container import Stage, build
 from adherence.domain.report import Report
 from adherence.ports.report_store import ReportStore, StoreMiss
 from tests.report_store_contract import (
@@ -74,6 +75,12 @@ def _store(s3: SigningS3, settings: LedgerSettings) -> WarehouseReportStore:
     return WarehouseReportStore(
         repository="example", ledger=settings, clock=lambda: NOW
     )
+
+
+def _today() -> str:
+    """The scan partition of a report the composition root keeps now: it
+    binds the real clock."""
+    return datetime.now(UTC).strftime("%Y-%m-%d")
 
 
 def _unquoted(report: Report) -> Report:
@@ -193,3 +200,31 @@ def test_another_repositorys_keys_are_never_read_or_written(s3: SigningS3) -> No
     assert "outside" in answer.reason
     assert s3.ledger.objects == {}
     assert s3.ledger.refused == []
+
+
+def test_build_ci_binds_the_warehouse_when_its_configuration_is_present(
+    s3: SigningS3, tmp_path: Path
+) -> None:
+    """Given a ci job whose environment carries the ledger's endpoint,
+    bucket, scan credential and lookup credential, When a report is put and
+    its base asked for, Then the warehouse holds the scan and lookup keys,
+    the report is kept, and the base is read back from the warehouse."""
+    environment = {
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        "ADHERENCE_LEDGER_ENDPOINT": s3.endpoint,
+        "ADHERENCE_LEDGER_BUCKET": BUCKET,
+        "ADHERENCE_LEDGER_ACCESS_KEY_ID": SCAN.access_key_id,
+        "ADHERENCE_LEDGER_SECRET_ACCESS_KEY": SCAN.secret_access_key,
+        "ADHERENCE_LEDGER_LOOKUP_ACCESS_KEY_ID": LOOKUP.access_key_id,
+        "ADHERENCE_LEDGER_LOOKUP_SECRET_ACCESS_KEY": LOOKUP.secret_access_key,
+    }
+    reports = build(
+        Stage.CI, root=str(tmp_path / "example"), environment=environment
+    ).reports
+
+    recorded = reports.put(REPORT)
+    answer = reports.get("example", REVISION, IDENTITY.digest, None)
+
+    assert recorded.kept, recorded
+    assert {k.split("/")[2] for k in s3.ledger.objects} == {f"dt={_today()}", "by-rev"}
+    assert answer == _unquoted(REPORT)

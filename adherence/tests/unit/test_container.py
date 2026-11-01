@@ -270,7 +270,34 @@ def test_build_ci_keeps_reports_in_the_file_cache_until_the_warehouse_exists(
     assert recorded.notice is not None
     assert "file cache only" in recorded.notice.message
     assert "tds-internal Issue#276" in recorded.notice.message
+    assert "ADHERENCE_LEDGER_ENDPOINT" in recorded.notice.message
     assert isinstance(answer, StoreMiss)
+
+
+def test_build_ci_with_part_of_the_warehouse_configuration_binds_none(
+    tmp_path: Path,
+) -> None:
+    """Given a ci job whose environment carries the ledger's credential but
+    not its endpoint or bucket, When a report is put, Then no warehouse is
+    bound: the report is kept in the file cache only and the notice names
+    what is missing and never the secret."""
+    environment = {
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        "ADHERENCE_LEDGER_ACCESS_KEY_ID": "key-id",
+        "ADHERENCE_LEDGER_SECRET_ACCESS_KEY": "the-secret",
+    }
+    reports = build(
+        Stage.CI, root=str(tmp_path / "repo"), environment=environment
+    ).reports
+
+    recorded = reports.put(REPORT)
+
+    assert not recorded.kept
+    assert recorded.notice is not None
+    assert "file cache only" in recorded.notice.message
+    assert "ADHERENCE_LEDGER_ENDPOINT" in recorded.notice.message
+    assert "ADHERENCE_LEDGER_BUCKET" in recorded.notice.message
+    assert "the-secret" not in recorded.notice.message
 
 
 def test_build_other_stages_keep_and_read_the_file_cache(tmp_path: Path) -> None:
