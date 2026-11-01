@@ -10,7 +10,6 @@ from __future__ import annotations
 import unicodedata
 
 from adherence.cli.presenters.terminal import report_text
-
 from adherence.domain.report import Report
 from tests.report_kit import NOT_KEPT, REPORT
 

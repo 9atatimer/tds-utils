@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import sys
 import time
-import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 
@@ -25,6 +24,7 @@ from adherence.application.load import load_declaration
 from adherence.application.measure import measure
 from adherence.application.record import record_report
 from adherence.cli.presenters.json_report import report_json
+from adherence.cli.presenters.terminal import safe_text
 from adherence.container import Container, Stage, build
 from adherence.domain.deadline import Deadline
 from adherence.domain.declaration import (
@@ -39,9 +39,6 @@ from adherence.domain.target import Base, Change, Head
 
 # --- Constants ---------------------------------------------------------------
 
-# Unicode control (newline and tab included) and format (bidi overrides,
-# zero-width) characters: none of them may reach the terminal.
-STRIPPED_CATEGORIES = frozenset({"Cc", "Cf"})
 # The verdicts `adhere judge` exits non-zero on until the per-stage mapping
 # lands (task-066): lowered fails a gate; not run never reads as a pass.
 # Inconclusive exits zero, so in the hook the commit proceeds.
@@ -52,23 +49,15 @@ HOOK_BASE = "HEAD"
 # --- Presenters --------------------------------------------------------------
 
 
-def _safe(text: str) -> str:
-    """Author-controlled text with every control and format character removed,
-    so it can neither start a line nor reorder one."""
-    return "".join(
-        ch for ch in text if unicodedata.category(ch) not in STRIPPED_CATEGORIES
-    )
-
-
 def _refusal_line(refusal: RefusedExemption) -> str:
     exemption = refusal.exemption
     target = exemption.finding or f"{exemption.check} on {exemption.unit}"
-    return _safe(f"  refused exemption: {target}: {refusal.reason}")
+    return safe_text(f"  refused exemption: {target}: {refusal.reason}")
 
 
 def _declaration_lines(loaded: Declaration | DeclarationUnreadable) -> list[str]:
     if isinstance(loaded, DeclarationUnreadable):
-        return [_safe(f"declaration unreadable: {loaded.reason}")]
+        return [safe_text(f"declaration unreadable: {loaded.reason}")]
     if not loaded.declared:
         return [f"{DECLARATION_PATH}: none; the repository is measured as undeclared"]
     count = len(loaded.exemptions)
@@ -76,7 +65,7 @@ def _declaration_lines(loaded: Declaration | DeclarationUnreadable) -> list[str]
         f"{DECLARATION_PATH}: readable, {count} exemption{'s' if count != 1 else ''}",
         *map(_refusal_line, loaded.refused_exemptions),
         *(
-            _safe(f"  refused vocabulary: {key}: {VOCABULARY_REFUSAL}")
+            safe_text(f"  refused vocabulary: {key}: {VOCABULARY_REFUSAL}")
             for key in loaded.vocabulary.refused
         ),
     ]
