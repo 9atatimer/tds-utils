@@ -298,6 +298,7 @@ def test_build_ci_keeps_reports_in_the_file_cache_until_the_warehouse_exists(
         Stage.CI,
         root=str(tmp_path / "repo"),
         environment={"XDG_CACHE_HOME": str(cache)},
+        repository=FakeRepository({}),
     ).reports
 
     recorded = reports.put(REPORT)
@@ -320,6 +321,7 @@ def test_build_other_stages_keep_and_read_the_file_cache(tmp_path: Path) -> None
             stage,
             root=str(tmp_path / "repo"),
             environment={"XDG_CACHE_HOME": str(cache)},
+            repository=FakeRepository({}),
         ).reports
 
         assert reports.put(REPORT).kept, stage
