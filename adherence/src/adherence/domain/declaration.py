@@ -844,7 +844,8 @@ def counted_landing(revision: LandedRevision, codeowners: CodeOwners) -> Countin
     counts -- its reviewer not the PR's author, a user code owner of
     adherence.toml by the base's CODEOWNERS, and the commit it reviewed
     holding the landed bytes, so approve-then-push does not pass. Every
-    other answer is skipped with a notice that says why."""
+    other answer is skipped with a notice that says why; a team or email
+    CODEOWNERS entry is a notice whether or not the landing is in force."""
     answer = revision.answer
     if isinstance(answer, Unknown):
         return Counting(True)
@@ -876,7 +877,7 @@ def counted_landing(revision: LandedRevision, codeowners: CodeOwners) -> Countin
         for approval in answer.approvals
     ]
     if any(why is None for _approval, why in refusals):
-        return Counting(True)
+        return Counting(True, _owner_notices(owners))
     return Counting(
         False,
         (
