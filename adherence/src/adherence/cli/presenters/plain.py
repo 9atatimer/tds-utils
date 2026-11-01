@@ -15,6 +15,10 @@ import unicodedata
 # Unicode control (newline and tab included) and format (bidi overrides,
 # zero-width) characters: none of them may reach any surface.
 STRIPPED_CATEGORIES = frozenset({"Cc", "Cf"})
+# A lone surrogate, as surrogateescape decodes a byte that is not UTF-8:
+# no encoder writes it, so it is shown as the replacement character.
+SURROGATE = "Cs"
+REPLACEMENT = "\ufffd"
 # An escape sequence whole, parameters included, so stripping its ESC never
 # leaves them behind as text: CSI (7- and 8-bit), OSC and the string
 # controls up to their terminator, and the two-byte escapes.
@@ -29,9 +33,10 @@ ANSI_ESCAPE = re.compile(
 def without_controls(text: str) -> str:
     """The text with every ANSI escape sequence, control and format
     character removed, so it can neither recolour a terminal, start a line
-    nor reorder one."""
+    nor reorder one, and every lone surrogate replaced, so every stream can
+    write it."""
     return "".join(
-        ch
+        REPLACEMENT if unicodedata.category(ch) == SURROGATE else ch
         for ch in ANSI_ESCAPE.sub("", text)
         if unicodedata.category(ch) not in STRIPPED_CATEGORIES
     )

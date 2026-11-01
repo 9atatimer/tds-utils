@@ -5,7 +5,8 @@ ADHERENCE.md, Findings and explanations). Evidence, symbols, paths and
 reasons are author-controlled text: every ANSI escape sequence, control
 character and format character is stripped (plain.without_controls), so
 the text can neither recolour the terminal, rewrite or reorder a line, nor
-start one; and every
+start one; a lone surrogate (an undecodable byte of a path, as git hands
+it over) is shown as U+FFFD, so no output stream refuses it; and every
 line opens with a label of the presenter's own, so none reads as a
 workflow command in a job's log (Security mitigations).
 """

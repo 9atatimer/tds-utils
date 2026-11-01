@@ -6,7 +6,9 @@ one rule per check of the catalog, one result per finding with its
 identity as the partial fingerprint and its provenance and kind as
 properties, an exempt finding suppressed with its reason, and the notices
 and coverage as the invocation's notifications. Author-controlled text
-travels as data fields only, never as markdown (Security mitigations).
+travels as data fields only, never as markdown (Security mitigations); a
+lone surrogate in it (an undecodable byte of a path, as git hands it over)
+is U+FFFD in text, while an artifact's uri percent-encodes the real byte.
 """
 
 from __future__ import annotations
@@ -32,8 +34,29 @@ FINGERPRINT = "adherenceIdentity/v1"
 SOURCE_ROOT = "%SRCROOT%"
 NOT_A_SLUG = re.compile(r"[^a-z0-9]+")
 RULE_INDEX = {check: index for index, check in enumerate(CATALOG)}
+# A lone surrogate, as surrogateescape decodes a byte that is not UTF-8.
+SURROGATE = re.compile("[\ud800-\udfff]")
+REPLACEMENT = "\ufffd"
 
 # --- Pure helpers ------------------------------------------------------------
+
+
+def _uri(path: str) -> str:
+    """A repository path as a relative uri, percent-encoding its bytes as
+    they are on disk, an undecodable one included."""
+    return quote(path, errors="surrogateescape")
+
+
+def _replaced(value: object) -> object:
+    """A document with every lone surrogate in its text replaced, so the
+    log is valid Unicode JSON."""
+    if isinstance(value, str):
+        return SURROGATE.sub(REPLACEMENT, value)
+    if isinstance(value, dict):
+        return {key: _replaced(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_replaced(item) for item in value]
+    return value
 
 
 def _rule_id(check: Check) -> str:
@@ -63,7 +86,7 @@ def _level(finding: Finding) -> str:
 def _location(finding: Finding) -> dict[str, object]:
     evidence = finding.evidence
     physical: dict[str, object] = {
-        "artifactLocation": {"uri": quote(evidence.path), "uriBaseId": SOURCE_ROOT}
+        "artifactLocation": {"uri": _uri(evidence.path), "uriBaseId": SOURCE_ROOT}
     }
     if evidence.line >= 1:
         physical["region"] = {
@@ -215,4 +238,4 @@ def report_document(
 
 def report_sarif(report: Report, recorded: Recorded | None = None) -> str:
     """The report as an indented SARIF 2.1.0 JSON document."""
-    return json.dumps(report_document(report, recorded), indent=2)
+    return json.dumps(_replaced(report_document(report, recorded)), indent=2)
