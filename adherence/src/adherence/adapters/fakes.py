@@ -10,7 +10,15 @@ from collections.abc import Mapping
 from dataclasses import replace
 
 from adherence.domain.deadline import Deadline, TimedOut
-from adherence.domain.declaration import Declaration, layer_of
+from adherence.domain.declaration import (
+    Declaration,
+    Landing,
+    NoLandingPR,
+    ReviewsUnavailable,
+    Unknown,
+    layer_of,
+)
+from adherence.domain.finding import Notice
 from adherence.domain.model import (
     Clone,
     CodeModel,
@@ -19,27 +27,40 @@ from adherence.domain.model import (
     MetricsUnavailable,
     Unit,
     UnitKind,
+    merged,
+    within,
 )
 from adherence.domain.parameters import Vocabulary
 from adherence.domain.questions import Decision, Rejected, Schema, State, Unavailable
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
-from adherence.domain.target import Base, Head
+from adherence.domain.report import Recorded, Report
+from adherence.domain.target import Base, ChangedPaths, Head, Rename, is_object_id
+from adherence.ports.report_store import StoreMiss
 from adherence.ports.repository import Absent, Refused
+
+NO_REVIEWS = "the fake reviews know no landing of this commit"
 
 
 class FakeRepository:
     """RepositoryPort over a mapping of target -> path -> answer: the bytes,
     or the Refused or TimedOut the test scripts for that path. `unlisted`
-    scripts the answer to every tree listing."""
+    scripts the answer to every tree listing, `unlisted_at` to one target's.
+    `history` scripts the commits that changed each path, newest first.
+    What a change did is told from the two targets' files: a path gone and
+    one come with the same bytes is a rename."""
 
     def __init__(
         self,
         files: Mapping[Base | Head, Mapping[str, bytes | Refused | TimedOut]],
         *,
         unlisted: Refused | TimedOut | None = None,
+        unlisted_at: Mapping[Base | Head, Refused | TimedOut] | None = None,
+        history: Mapping[str, tuple[str, ...]] | None = None,
     ) -> None:
         self._files = files
         self._unlisted = unlisted
+        self._unlisted_at = unlisted_at or {}
+        self._history = history or {}
 
     def read(
         self, path: str, at: Base | Head, deadline: Deadline | None
@@ -52,18 +73,68 @@ class FakeRepository:
     ) -> tuple[str, ...] | Refused | TimedOut:
         if self._unlisted is not None:
             return self._unlisted
+        if at in self._unlisted_at:
+            return self._unlisted_at[at]
         return tuple(sorted(self._files.get(at, {})))
+
+    def history(
+        self, path: str, base: Base, deadline: Deadline | None
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        return self._history.get(path, ())
+
+    def changed(
+        self, base: Base, head: Head, deadline: Deadline | None
+    ) -> ChangedPaths | Refused | TimedOut:
+        before = self._files.get(base, {})
+        after = self._files.get(head, {})
+        gone = sorted(set(before) - set(after))
+        come = sorted(set(after) - set(before))
+        renamed = [
+            Rename(old, new)
+            for old in gone
+            for new in come
+            if before[old] == after[new]
+            and [n for n in come if after[n] == before[old]] == [new]
+            and [o for o in gone if before[o] == after[new]] == [old]
+        ]
+        return ChangedPaths(
+            created=tuple(p for p in come if p not in {r.new for r in renamed}),
+            deleted=tuple(p for p in gone if p not in {r.old for r in renamed}),
+            modified=tuple(
+                sorted(p for p in set(before) & set(after) if before[p] != after[p])
+            ),
+            renamed=tuple(renamed),
+        )
 
 
 class FakeCodeModel:
     """CodeModelPort over facts the test configures: a file unit per source
     (but a source the facts hold Unparsed), plus the facts of those sources,
-    each unit re-layered by the declaration. Its clock is frozen at `now`,
+    each unit re-layered by the declaration. `when` keys facts to a source's
+    exact bytes: a source with those bytes takes its facts from there, so one
+    path can read differently at two targets. Its clock is frozen at `now`,
     so a deadline at or before it has passed."""
 
-    def __init__(self, facts: CodeModel | None = None, *, now: float = 1e9) -> None:
+    def __init__(
+        self,
+        facts: CodeModel | None = None,
+        *,
+        when: Mapping[bytes, CodeModel] | None = None,
+        now: float = 1e9,
+    ) -> None:
         self._facts = facts if facts is not None else CodeModel()
+        self._when = when or {}
         self._now = now
+
+    def _facts_of(self, sources: Mapping[str, bytes]) -> CodeModel:
+        keyed = {path for path, data in sources.items() if data in self._when}
+        plain = set(sources) - keyed
+        return merged(
+            [
+                within(self._facts, plain),
+                *(within(self._when[sources[p]], {p}) for p in sorted(keyed)),
+            ]
+        )
 
     def model(
         self,
@@ -74,7 +145,7 @@ class FakeCodeModel:
     ) -> CodeModel | TimedOut:
         if deadline is not None and deadline.epoch_seconds <= self._now:
             return TimedOut("model the sources")
-        f = self._facts
+        f = self._facts_of(sources)
         unparsed = {u.path for u in f.unparsed}
         files = tuple(
             Unit(path, UnitKind.FILE, None, 1, 1, layer_of(path, None, declaration))
@@ -256,3 +327,61 @@ class FakeDecision:
                 if question.id in self._uncalibrated
             ),
         )
+
+
+class FakeReviews:
+    """ReviewPort over a mapping of commit -> the answer the test scripts;
+    a commit it does not hold is Unknown."""
+
+    def __init__(
+        self,
+        answers: Mapping[
+            str, Landing | NoLandingPR | Unknown | ReviewsUnavailable | TimedOut
+        ]
+        | None = None,
+    ) -> None:
+        self._answers = answers or {}
+
+    def approvals(
+        self, commit: str, deadline: Deadline | None
+    ) -> Landing | NoLandingPR | Unknown | ReviewsUnavailable | TimedOut:
+        return self._answers.get(commit, Unknown(NO_REVIEWS))
+
+
+class FakeReportStore:
+    """ReportStore in memory. Every report put is kept for the scan; one of
+    a revision named by its object id is also kept for lookup, under its
+    repository, revision and identity. `failing` scripts every put to fail
+    with that reason. `hits` lists every get that found a report. Its clock
+    is frozen at `now`, so a deadline at or before it has passed."""
+
+    def __init__(self, *, failing: str | None = None, now: float = 1e9) -> None:
+        self._kept: dict[tuple[str, str, str], Report] = {}
+        self._failing = failing
+        self._now = now
+        self.scanned: list[Report] = []
+        self.hits: list[tuple[str, str]] = []
+
+    def get(
+        self, repository: str, revision: str, identity: str, deadline: Deadline | None
+    ) -> Report | StoreMiss | TimedOut:
+        if deadline is not None and deadline.epoch_seconds <= self._now:
+            return TimedOut("read a kept report")
+        found = self._kept.get((repository, revision, identity))
+        if found is None:
+            return StoreMiss(f"no report kept for {repository} at {revision}")
+        self.hits.append((repository, revision))
+        return found
+
+    def put(self, report: Report) -> Recorded:
+        if self._failing is not None:
+            return Recorded(False, Notice(f"report not kept: {self._failing}"))
+        if report.repository is None or report.identity is None:
+            return Recorded(
+                False, Notice("report not kept: it names no repository or identity")
+            )
+        self.scanned.append(report)
+        if report.revision is not None and is_object_id(report.revision):
+            key = (report.repository, report.revision, report.identity.digest)
+            self._kept[key] = report
+        return Recorded(True)

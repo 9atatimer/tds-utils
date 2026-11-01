@@ -20,7 +20,9 @@ from adherence.adapters.fakes import (
     FakeDecision,
     FakeDuplication,
     FakeRecords,
+    FakeReportStore,
     FakeRepository,
+    FakeReviews,
 )
 from adherence.adapters.no_judge import NoJudge
 from adherence.container import Stage, build
@@ -31,17 +33,21 @@ from adherence.ports.complexity import ComplexityPort
 from adherence.ports.decision import DecisionPort
 from adherence.ports.duplication import DuplicationPort
 from adherence.ports.records import RecordsPort
+from adherence.ports.report_store import ReportStore
 from adherence.ports.repository import RepositoryPort
+from adherence.ports.review import ReviewPort
 
 # Each port: the override build() takes for it, and the fake passed there
 # (a port bound per language takes a mapping of fakes).
 OVERRIDES: dict[type, tuple[str, object]] = {
     RepositoryPort: ("repository", FakeRepository({})),
+    ReviewPort: ("reviews", FakeReviews()),
     CodeModelPort: ("analyzers", {CodeLanguage.PYTHON: FakeCodeModel()}),
     DecisionPort: ("judge", FakeDecision(Unavailable("faked"))),
     ComplexityPort: ("complexity", FakeComplexity()),
     DuplicationPort: ("duplication", FakeDuplication()),
     RecordsPort: ("records", FakeRecords({})),
+    ReportStore: ("reports", FakeReportStore()),
 }
 
 

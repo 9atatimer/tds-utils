@@ -16,11 +16,13 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from adherence.adapters.decide import DecideDecision
+from adherence.adapters.file_store import FileReportStore, default_store_dir
 from adherence.adapters.git import GitRepository
 from adherence.adapters.jscpd import JscpdDuplication
 from adherence.adapters.lizard import LizardComplexity
 from adherence.adapters.markdown_records import MarkdownRecords
 from adherence.adapters.no_judge import NoJudge
+from adherence.adapters.no_reviews import NoReviews
 from adherence.adapters.python_ast import PythonCodeModel
 from adherence.domain.model import CodeLanguage, Layer
 from adherence.domain.parameters import Limits, Parameters, Vocabulary
@@ -43,7 +45,9 @@ from adherence.ports.complexity import ComplexityPort
 from adherence.ports.decision import DecisionPort
 from adherence.ports.duplication import DuplicationPort
 from adherence.ports.records import RecordsPort
+from adherence.ports.report_store import ReportStore
 from adherence.ports.repository import RepositoryPort
+from adherence.ports.review import ReviewPort
 
 # --- Shipped parameters --------------------------------------------------------
 
@@ -371,7 +375,10 @@ SHIPPED_VOCABULARY = Vocabulary(
     packages=DISTRIBUTIONS,
 )
 SHIPPED_LIMITS = Limits(
-    evidence_bound=200, complexity_ceiling=15, duplication_ceiling=10
+    evidence_bound=200,
+    complexity_ceiling=15,
+    duplication_ceiling=10,
+    record_statuses=frozenset({"APPROVED", "IMPLEMENTED"}),
 )
 # One entry per judged question, chosen from adherence/evals/ (its
 # README.md). Provisional and conservative: the set is six examples per
@@ -469,11 +476,13 @@ class Container:
 
     stage: Stage
     repository: RepositoryPort
+    reviews: ReviewPort
     analyzers: Mapping[CodeLanguage, CodeModelPort]
     judge: DecisionPort
     complexity: ComplexityPort
     duplication: DuplicationPort
     records: RecordsPort
+    reports: ReportStore
     parameters: Parameters
 
 
@@ -482,12 +491,14 @@ def build(
     *,
     root: str,
     repository: RepositoryPort | None = None,
+    reviews: ReviewPort | None = None,
     analyzers: Mapping[CodeLanguage, CodeModelPort] | None = None,
     judge: DecisionPort | None = None,
     complexity: ComplexityPort | None = None,
     duplication: DuplicationPort | None = None,
     records: RecordsPort | None = None,
     environment: Mapping[str, str] | None = None,
+    reports: ReportStore | None = None,
 ) -> Container:
     """Bind every port for the stage, over the repository at root.
 
@@ -495,13 +506,17 @@ def build(
     (working tree, staged index, revisions) is the entry point's choice.
     The judge is the stage's (`_judge_for`), configured from `environment`
     (the process environment when none is given); the judged-check budget
-    is the stage's.
+    is the stage's. Every stage binds no_reviews until github_reviews lands
+    for ci (task-063), and the file cache in the per-user cache directory
+    (also read from `environment`) until the warehouse lands for ci
+    (task-067).
     """
     bound = repository if repository is not None else GitRepository(root)
     env = os.environ if environment is None else environment
     return Container(
         stage=stage,
         repository=bound,
+        reviews=reviews if reviews is not None else NoReviews(),
         analyzers=(
             analyzers
             if analyzers is not None
@@ -518,5 +533,10 @@ def build(
         parameters=replace(
             SHIPPED_PARAMETERS,
             limits=replace(SHIPPED_LIMITS, judged_budget=JUDGED_BUDGETS[stage]),
+        ),
+        reports=(
+            reports
+            if reports is not None
+            else FileReportStore(default_store_dir(env, Path.home()), root=Path(root))
         ),
     )

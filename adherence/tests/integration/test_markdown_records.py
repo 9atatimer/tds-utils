@@ -17,12 +17,15 @@ from adherence.adapters.markdown_records import (
     parse_radar,
     parse_records,
 )
+from adherence.domain.checks.declared import record_kept
 from adherence.domain.checks.layered import is_traceable
+from adherence.domain.deadline import TimedOut
 from adherence.domain.declaration import Declaration, parse_declaration
 from adherence.domain.model import Parameter
 from adherence.domain.records import (
     DesignRecords,
     Radar,
+    RecordStatus,
     RecordsUnavailable,
     Ring,
     SeamKind,
@@ -161,6 +164,36 @@ def test_records_read_each_behavior_with_its_scenario_and_line() -> None:
     assert (behavior.path, behavior.line) == (DESIGN, _line_of(DESIGN_TEXT, CLOSED))
 
 
+def test_records_read_each_records_status() -> None:
+    """Given a design record in draft and an approved architecture record,
+    When the records are read, Then each record's status is read by its
+    first word, and a record with no status line reads as having none."""
+    port = MarkdownRecords(
+        FakeRepository(
+            {
+                BASE: {
+                    DESIGN: DESIGN_TEXT.replace("APPROVED", "DRAFT").encode(),
+                    ARCHITECTURE: ARCHITECTURE_TEXT.replace(
+                        "> **Status:** APPROVED (the owner)\n", ""
+                    ).encode(),
+                }
+            }
+        )
+    )
+
+    records = port.records(BASE, declaration(), None)
+
+    assert isinstance(records, DesignRecords), records
+    assert records.statuses == (
+        RecordStatus(DESIGN, "DRAFT"),
+        RecordStatus(ARCHITECTURE, ""),
+    )
+    assert _records().statuses == (
+        RecordStatus(DESIGN, "APPROVED"),
+        RecordStatus(ARCHITECTURE, "APPROVED"),
+    )
+
+
 def test_records_read_each_domain_language_term() -> None:
     """Given a design record's Domain Language, When the records are read,
     Then each defined term is read by its spelling, with where it is defined."""
@@ -246,6 +279,37 @@ def test_records_the_repository_refuses_are_unavailable() -> None:
 
     assert isinstance(answer, RecordsUnavailable)
     assert DESIGN in answer.reason and "a symbolic link" in answer.reason
+
+
+def test_record_kept_over_a_record_refused_at_the_head_removes_nothing() -> None:
+    """Given approved records at the base and a design record the repository
+    refuses to hand over at the head, When Record kept compares them, Then
+    nothing is removed and the check is coverage naming why: a record that
+    could not be read is not a record left empty."""
+    files = {**_files(DESIGN_TEXT), DESIGN: Refused(DESIGN, "a symbolic link")}
+    head = MarkdownRecords(FakeRepository({BASE: files})).records(
+        BASE, declaration(), None
+    )
+    assert not isinstance(head, TimedOut)
+
+    outcome = record_kept(base=_records(), head=head, bound=200)
+
+    assert outcome.findings == ()
+    assert any("a symbolic link" in c.reason for c in outcome.coverage)
+
+
+def test_record_kept_over_a_record_absent_at_the_head_removes_it_all() -> None:
+    """Given approved records at the base and no design record at the head,
+    When Record kept compares them, Then every behavior and term the base
+    states is removed."""
+    head = MarkdownRecords(
+        FakeRepository({BASE: {ARCHITECTURE: ARCHITECTURE_TEXT.encode()}})
+    ).records(BASE, declaration(), None)
+    assert not isinstance(head, TimedOut)
+
+    outcome = record_kept(base=_records(), head=head, bound=200)
+
+    assert {f.subject for f in outcome.findings} == {CLOSED, "Order", "Store"}
 
 
 def test_radar_reads_each_entry_under_its_ring_heading() -> None:

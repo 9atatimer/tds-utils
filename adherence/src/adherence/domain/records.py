@@ -10,6 +10,7 @@ seams; Language reads the Domain Language.
 from __future__ import annotations
 
 import enum
+from collections.abc import Collection
 from dataclasses import dataclass
 
 from adherence.domain.model import Signature
@@ -79,24 +80,37 @@ class SurfaceRow:
 
 
 @dataclass(frozen=True, slots=True)
+class RecordStatus:
+    """A record's status, by the first word its status line states; empty
+    when it states none."""
+
+    path: str
+    status: str
+
+
+@dataclass(frozen=True, slots=True)
 class DesignRecords:
-    """What the approved records state: their seams, behaviors, the design's
-    Domain Language, the use cases the surface gives a signature, and the
-    surface's rows."""
+    """What the records state: their seams, behaviors, the design's Domain
+    Language, the use cases the surface gives a signature, the surface's
+    rows, and each record's status."""
 
     seams: tuple[Seam, ...] = ()
     behaviors: tuple[Behavior, ...] = ()
     domain_language: tuple[Term, ...] = ()
     use_cases: tuple[UseCase, ...] = ()
     surface: tuple[SurfaceRow, ...] = ()
+    statuses: tuple[RecordStatus, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class RecordsUnavailable:
     """No readable record at the target -- absent, in draft, or not read --
-    with the reason, naming the record."""
+    with the reason, naming the record. `unread` marks a record that is
+    there and could not be read (refused, timed out): what it states is
+    unknown, which is never the same as a record stating nothing."""
 
     reason: str
+    unread: bool = False
 
 
 class Ring(enum.Enum):
@@ -124,3 +138,24 @@ class Radar:
     """The tech radar the declaration names, read for its rings."""
 
     entries: tuple[RadarEntry, ...] = ()
+
+
+# --- Pure helpers ------------------------------------------------------------
+
+
+def counted(
+    records: DesignRecords | RecordsUnavailable, statuses: Collection[str]
+) -> DesignRecords | RecordsUnavailable:
+    """The records, when every record's status is one that counts; else why
+    not, naming the record: a record in draft or of no status is no
+    contract to compare code against."""
+    if isinstance(records, RecordsUnavailable):
+        return records
+    for record in records.statuses:
+        if record.status not in statuses:
+            stated = record.status or "none"
+            return RecordsUnavailable(
+                f"{record.path}: its status ({stated}) is not one that counts "
+                f"({', '.join(sorted(statuses))})"
+            )
+    return records

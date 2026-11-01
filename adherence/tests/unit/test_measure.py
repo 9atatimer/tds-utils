@@ -10,8 +10,10 @@ from adherence.domain.declaration import Declaration, DeclarationUnreadable
 from adherence.domain.model import (
     Access,
     AccessKind,
+    Body,
     CodeLanguage,
     CodeModel,
+    Definition,
     ImportEdge,
     Layer,
     Unit,
@@ -205,3 +207,45 @@ def test_measure_of_a_repository_that_cannot_be_listed_is_not_run() -> None:
             "list the tree" in report.not_run_reason
         )
         assert report.ran == () and report.findings == ()
+
+
+def test_measure_of_an_exempted_unit_marks_its_finding_with_the_reason() -> None:
+    """Given a unit the declaration exempts from Stub, with a reason, and a
+    finding the declaration dismisses by its identity, When a run reports,
+    Then each finding stays in the report marked exempt with its reason, and
+    a notice names the exemption and its reason beside the check."""
+    stubbed = b"def tidy():\n    pass\n"
+    facts = CodeModel(
+        units=(Unit(RULES, UnitKind.FUNCTION, "tidy", 1, 2, None),),
+        definitions=(
+            Definition(
+                Unit(RULES, UnitKind.FUNCTION, "tidy", 1, 2, None),
+                None,
+                Body("pass", ("pass",), ()),
+                (),
+                (),
+                None,
+                False,
+            ),
+        ),
+    )
+    plain = measure_with({RULES: stubbed}, facts)
+    (finding,) = plain.findings
+    exempting = HEXAGON + (
+        b'\n[[exemptions]]\ncheck = "Stub"\nunit = "src/app/domain/rules.py"\n'
+        b'reason = "kept until the rewrite"\n'
+        b'\n[[exemptions]]\nfinding = "' + finding.identity.encode() + b'"\n'
+        b'reason = "dismissed by the owner"\n'
+    )
+
+    report = measure_with({RULES: stubbed}, facts, declared(exempting))
+
+    (exempted,) = report.findings
+    assert exempted.identity == finding.identity
+    assert exempted.exempt == "kept until the rewrite"
+    assert any(
+        "Stub" in n.message
+        and RULES in n.message
+        and "kept until the rewrite" in n.message
+        for n in report.notices
+    )
