@@ -6,7 +6,8 @@ Module map). It computes the Deadline, the one place the engine turns a
 bound into an instant: the hook's from the commit-time bound, ci's from
 the time the job says it has left; in the hook it calls judge_bounded
 instead of judge_change. It prints the report through the presenter
-`--format` names and maps the verdict to the exit status per stage.
+`--format` names, writes each further format `--write` names to its
+file, and maps the verdict to the exit status per stage.
 Declaration text is author-controlled, so control characters are
 stripped before it reaches the terminal (Security mitigations).
 """
@@ -100,6 +101,16 @@ def _presenter(
     return PRESENTERS["json" if as_json else output_format or "terminal"]
 
 
+def _write_reports(
+    writes: tuple[tuple[str, str], ...], report: Report, recorded: Recorded | None
+) -> None:
+    """Each further format `--write` names, written whole to its path."""
+    for output_format, path in writes:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(PRESENTERS[output_format](report, recorded) + "\n")
+
+
 # --- Entry points ------------------------------------------------------------
 
 FORMAT_OPTION = click.option(
@@ -111,6 +122,15 @@ FORMAT_OPTION = click.option(
 )
 JSON_OPTION = click.option(
     "--json", "as_json", is_flag=True, help="Print the report as JSON (--format json)."
+)
+WRITE_OPTION = click.option(
+    "--write",
+    "writes",
+    type=(click.Choice(list(PRESENTERS)), click.Path(dir_okay=False)),
+    multiple=True,
+    metavar="FORMAT PATH",
+    help="Also write the report in FORMAT to PATH; repeatable (the workflow's "
+    "SARIF file and job summary).",
 )
 
 
@@ -299,6 +319,7 @@ def _judge_staged(container: Container, root: str) -> Report:
 )
 @FORMAT_OPTION
 @JSON_OPTION
+@WRITE_OPTION
 @click.pass_context
 def judge_command(
     ctx: click.Context,
@@ -309,6 +330,7 @@ def judge_command(
     time_left: float | None,
     output_format: str | None,
     as_json: bool,
+    writes: tuple[tuple[str, str], ...],
 ) -> None:
     """Judge the head revision against the base, or the staged index
     against HEAD, and print the report.
@@ -332,5 +354,6 @@ def judge_command(
         report = _judge_staged(container, root)
     recorded = record_report(report, reports=container.reports)
     click.echo(present(report, recorded))
+    _write_reports(writes, report, recorded)
     if report.verdict in FAILING[stage]:
         sys.exit(1)
