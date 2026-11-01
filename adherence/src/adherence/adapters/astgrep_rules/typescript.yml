@@ -520,12 +520,23 @@ rule:
             - inside: {kind: object_type, inside: {kind: type_alias_declaration}}
   has: {field: name, pattern: $NAME}
 ---
+# A parameter property: a parameter, optional or not, carrying an
+# accessibility modifier, override, or readonly (an unnamed token, so
+# matched by its text; a parameter named readonly is an identifier).
 id: member-field.parameter
 language: TypeScript
 severity: hint
 rule:
-  kind: required_parameter
-  has: {kind: accessibility_modifier}
+  any:
+    - kind: required_parameter
+    - kind: optional_parameter
+  has:
+    any:
+      - kind: accessibility_modifier
+      - kind: override_modifier
+      - all:
+          - regex: '^readonly$'
+          - not: {kind: identifier}
   all:
     - has: {field: pattern, pattern: $NAME}
 ---
