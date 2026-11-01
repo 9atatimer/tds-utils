@@ -860,6 +860,35 @@ def test_members_are_each_types_fields_and_methods() -> None:
     }
 
 
+def test_every_parameter_property_modifier_makes_a_field_member() -> None:
+    """Given constructor parameter properties made by an optional parameter
+    with an accessibility modifier, by readonly alone, by override alone,
+    and by a decorated private readonly one, beside a plain parameter, When
+    they are modelled, Then each property is a field member of the class
+    and the plain parameter is not."""
+    source = (
+        b"class C {\n"
+        b"  constructor(\n"
+        b"    public name?: string,\n"
+        b"    readonly id: string,\n"
+        b"    override o: X,\n"
+        b"    @D() private readonly z: Z,\n"
+        b"    plain: string,\n"
+        b"  ) {}\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.ts": source})
+
+    assert {(m.name, m.kind, m.line) for m in model.members} == {
+        ("constructor", MemberKind.METHOD, 2),
+        ("name", MemberKind.FIELD, 3),
+        ("id", MemberKind.FIELD, 4),
+        ("o", MemberKind.FIELD, 5),
+        ("z", MemberKind.FIELD, 6),
+    }
+
+
 def test_an_object_type_alias_has_members_and_a_parameter_type_none() -> None:
     """Given a type alias of an object type and a method whose parameter is
     typed by an object type, When they are modelled, Then the alias's
