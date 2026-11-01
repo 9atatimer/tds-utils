@@ -4,7 +4,7 @@ against recorded REST fixtures, never the live API, in the unit tier."""
 
 from __future__ import annotations
 
-from adherence.adapters.github_reviews import GitHubReviews
+from adherence.adapters.github_reviews import GitHubReviews, standing_approvals
 
 from adherence.domain.declaration import (
     Approval,
@@ -95,3 +95,15 @@ def test_github_reviews_without_a_token_or_a_commit_id_asks_nothing() -> None:
         assert isinstance(answer, ReviewsUnavailable) and answer.reason, commit
 
     assert handler.requests == []
+
+
+def test_a_review_by_a_deleted_account_is_skipped_not_fatal() -> None:
+    """Given a review whose user is null (a deleted account, as GitHub gives
+    it) beside an owner's approval, When the standing approvals are read,
+    Then the null-user review is skipped and the owner's approval stands."""
+    reviews = [
+        {"user": None, "state": "APPROVED", "commit_id": LANDED},
+        {"user": {"login": "owner"}, "state": "APPROVED", "commit_id": LANDED},
+    ]
+
+    assert standing_approvals(reviews) == (Approval("owner", LANDED),)
