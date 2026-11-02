@@ -306,11 +306,23 @@ no cold model and the gateway applies its own retry policy):
 | any other 4xx | `model-not-found` |
 | 5xx, or no answer | `gateway-down` |
 
-The pool's 10-minute ceiling is the limit on either backend, by decision
+The pool's 10-minute ceiling is the default limit on either backend
 (design Key Decisions, a review's length; Issue#478): a PR that does not
 finish in it is not reviewed, and the run fails at the job timeout as
 `unexpected` (Known gaps). A hosted model is far faster than the laptop,
-so it is the likelier backend to fit it.
+so it is the likelier backend to fit it. A repository can opt its review
+job alone into the pool's Docker class, which has a 20-minute ceiling, by
+passing two inputs in its caller (design Key Decisions, a review's length
+on opt-in, 2026-11-02):
+
+```yaml
+    with:
+      review_runs_on: '["self-hosted","cf-pool-docker"]'
+      review_timeout_minutes: 19
+```
+
+Keep the timeout under the ceiling of the runner you name. Those reviews
+share the Docker class's cap of 4 instances with the jobs that need Docker.
 
 Measured on the first Cloudflare run (2026-10-14, run 38539937733, DeepSeek
 V4 Pro with `reasoning_effort` none): 7 code files, ocr's own elapsed time
@@ -414,12 +426,14 @@ settings as OCR on Demand, with nothing posted anywhere.
 - **A timed-out job cannot name its step.** The token holds no `actions`
   scope (design permissions), so a timeout reads `unexpected` with
   "(no step failed: job timeout or runner lost)".
-- **The probe and the review share 9 minutes** under the pool's 10-minute
-  container ceiling. The probe starts no attempt after 6 minutes, but the
-  last one can run to the gateway's 90 s deadline, so a cold model that
-  never answers costs about 7.5 minutes. The pilot's green run took 65 s
-  for the whole review job, with the model's files in the laptop's OS
-  cache; a load from a cold OS cache is unmeasured (task-046).
+- **The probe and the review share the review job's timeout**: 9 minutes
+  by default, under the pool's 10-minute container ceiling, or what a
+  caller opts into with `review_timeout_minutes`. The probe starts no
+  attempt after 6 minutes, but the last one can run to the gateway's 90 s
+  deadline, so a cold model that never answers costs about 7.5 minutes. The
+  pilot's green run took 65 s for the whole review job, with the model's
+  files in the laptop's OS cache; a load from a cold OS cache is unmeasured
+  (task-046).
 
 ---
 
