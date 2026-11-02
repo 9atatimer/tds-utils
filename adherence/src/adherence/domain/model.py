@@ -66,6 +66,39 @@ def language_of(path: str) -> str | None:
     return LANGUAGE_EXTENSIONS.get(f".{extension}")
 
 
+# The interpreters whose scripts the shell analyzer reads, when the file
+# has no extension to say so (ARCHITECTURE.ARCH-ADHERENCE.md, Key
+# Decisions, a shell script by its shebang; Issue#638).
+SHEBANG_SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
+
+
+def has_no_extension(path: str) -> bool:
+    """Whether a path's name has no extension; a leading dot is not one."""
+    name = path.rpartition("/")[2]
+    return "." not in name.lstrip(".")
+
+
+def _interpreter(text: bytes) -> str | None:
+    """The program a script's `#!` line names, through `env` when it is
+    run by env; None when the first line is no usable shebang."""
+    first = text.split(b"\n", 1)[0]
+    if not first.startswith(b"#!"):
+        return None
+    words = first[2:].decode("utf-8", "replace").split()
+    if words and words[0].rpartition("/")[2] == "env":
+        words = [w for w in words[1:] if not w.startswith("-") and "=" not in w]
+    return words[0].rpartition("/")[2] if words else None
+
+
+def script_language(text: bytes) -> str | None:
+    """The language a file with no extension is written in, by its shebang:
+    shell for a shell, else the interpreter's name; None with no shebang."""
+    interpreter = _interpreter(text)
+    if interpreter is None:
+        return None
+    return CodeLanguage.SHELL.value if interpreter in SHEBANG_SHELLS else interpreter
+
+
 def code_language_of(path: str) -> CodeLanguage | None:
     """The measured language a source path is written in; None when the
     suite does not measure it."""
