@@ -391,3 +391,35 @@ def test_measure_with_a_typescript_constructor_only_type_asks_anemic() -> None:
 
     asked = [c.reason.split(":")[0] for c in report.coverage if c.check == "Anemic"]
     assert asked == ["Money"]
+
+
+def test_measure_with_a_python_domain_type_named_like_a_typescript_type_finds_it() -> (
+    None
+):
+    """Given a Python use case whose signature names its own types
+    Parameters, Record and Error -- names TypeScript keeps for its utility
+    and built-in types -- that the Domain Language does not define, When
+    Language runs, Then a finding names each: a type name is plain only in
+    the language that owns it, so TypeScript's names excuse nothing in a
+    Python unit."""
+    files = {USE: b"x\n" * 9}
+    definitions = [
+        function(
+            USE,
+            "tune",
+            1,
+            (value("params", "Parameters"), value("order", "Order")),
+            returns="Record | Error",
+        ),
+    ]
+
+    report = measure_with(
+        files, facts(definitions), records=LANGUAGE, vocabulary=SHIPPED_VOCABULARY
+    )
+
+    assert "Language" in {c.name for c in report.ran}
+    assert sorted(f.subject for f in _of(report, "Language")) == [
+        "Error in tune",
+        "Parameters in tune",
+        "Record in tune",
+    ]
