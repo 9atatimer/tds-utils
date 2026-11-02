@@ -45,6 +45,6 @@ for cron.
   other chore.
 
 **Leans on, existing:** `chores run <name>`, which already runs any chore
-immediately through admission; the chores design (`CHORES.DESIGN.md`,
-APPROVED), where every chore has a cron schedule; the two smoke chores in
+immediately through admission; the chores design (`CHORES.DESIGN.md`),
+where every chore has a cron schedule; the two smoke chores in
 the private definitions root.

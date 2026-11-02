@@ -11,28 +11,27 @@ This file tracks the status of development tasks, lessons learned, and completed
 
 ## Now
 
-The chores build (`docs/design/CHORES.DESIGN.md`, APPROVED) is implemented
+The chores build (`docs/design/CHORES.DESIGN.md`) is implemented
 through task-013; the retrospective ran 2026-09-14/17 and cut drift as
 tasks 015-019 (issues #283-#287); the 2026-09-18 adversarial review's
 bugs are tasks 033-035 (issues #296-#298). Order:
 
 - task-016 -- due-detection edge cases; the degrading stories depend on it.
 - task-018 -- Todd's decisions on the built-but-not-designed rows (issue
-  #286, now including the seven from PRs #356/#357); unblocks the design's
-  status transition.
-- task-017 -- status drift (size, remaining, shrink warning, perf goal).
+  #286, now including the seven from PRs #356/#357); unblocks the
+  retrospective.
+- task-017 -- status-command drift (size, remaining, shrink warning, perf goal).
 - task-019 -- notification ids and the store contract gap.
-- task-014 -- as-built at release, then APPROVED -> IMPLEMENTED (Todd).
+- task-014 -- as-built at release, then the chores retrospective (Todd).
 
-tmux-herd (`docs/design/TMUX-HERD.DESIGN.md`, DRAFT, merged in PR #305):
+tmux-herd (`docs/design/TMUX-HERD.DESIGN.md`, merged in PR #305):
 the design shipped, no code did. Retrospective ran 2026-09-19. Order:
 
 - task-021 -- log-hoarder keys log dirs on the session name (issue #307);
   a rename strands the pipe, so tmux-herd cannot rename until this lands.
-- task-020 -- build `bin/tmux-herd`; needs Todd's APPROVED on the design
-  first, and task-021 before it can rename on this machine.
+- task-020 -- build `bin/tmux-herd`; needs task-021 before it can rename on this machine.
 
-Dynomark (`docs/design/DYNOMARK.DESIGN.md`, APPROVED 2026-09-27, body
+Dynomark (`docs/design/DYNOMARK.DESIGN.md`, merged 2026-09-27, body
 amended 2026-10-16): live AI filing of native bookmarks, the successor to
 orgmarks. Code is under `dynomark/` (contract v2, daemon, extension for
 Chrome and Firefox, e2e). The MVP is built and merged (tds-utils PR#535):
@@ -50,13 +49,13 @@ issues #525-#532. Its retrospective ran 2026-10-16; discovered: issue #537
   fixes, including a repeat hello that still answers `role: writer` after
   `rebind`.
 - task-027 -- the MVP acceptance run on the mbp (real Chrome profile, then
-  Firefox, Ollama, launchd, phone save, a week of use). The design's
-  IMPLEMENTED transition waits on it and on tasks 054-055. Run the daemon
+  Firefox, Ollama, launchd, phone save, a week of use). The
+  retrospective waits on it and on tasks 054-055. Run the daemon
   under a uv, python.org or Homebrew Python: the macOS system Python cannot
   load `sqlite-vec`.
 
 OCR on Demand + Ollama Gateway (`docs/design/OCR-ON-DEMAND.DESIGN.md`,
-`docs/design/OLLAMA-GATEWAY.DESIGN.md`, APPROVED 2026-10-02; open questions
+`docs/design/OLLAMA-GATEWAY.DESIGN.md`, merged 2026-10-02; open questions
 ruled on Issue#363): shipped 2026-10-13. The gateway runs on the laptop
 behind `ollama.api9.com` (tds-internal's live smoketest: PASS 6/6); the
 reusable workflow is on `master` and piloted green on
@@ -80,7 +79,7 @@ discovered Issue#456. Order:
 this section; issue #289 owns the migration into `tasks/`.
 
 Architectural Adherence (`docs/design/DESIGN.ARCH-ADHERENCE.md` and
-`docs/design/ARCHITECTURE.ARCH-ADHERENCE.md`, both APPROVED 2026-10-24
+`docs/design/ARCHITECTURE.ARCH-ADHERENCE.md`, both merged 2026-10-24
 after the designomatic and self-review passes of tds-utils PR#605; epic
 Issue#588): the suite that executes the coding skill's mechanical tests
 over a repository as sensors on nine qualities, and refuses a change that
@@ -118,12 +117,11 @@ tasks name the row each ruling changes.
 - 2026-09-17: `lmde/TECH_RADAR.md` rows for Textual, PyYAML, rumps and
   Click (issue #288) -- human-maintained file; the code already depends on
   them. Unblock: Todd lands the rows or refuses a ring.
-- 2026-09-17: the design's APPROVED -> IMPLEMENTED transition waits on
+- 2026-09-17: the chores retrospective waits on
   release (`bin/tds-release`) plus tasks 015-019 and 033-035; only Todd
-  moves it.
-- 2026-09-19: `TMUX-HERD.DESIGN.md` DRAFT -> APPROVED is Todd's call; the
-  implementer (a different, cheaper model) must not start task-020 before
-  it.
+  lands it.
+- 2026-09-19: the implementer of task-020 (a different, cheaper model)
+  must not start before task-021 lands.
 - 2026-09-27: task-027 needs the mbp (real Chrome profile, native-messaging
   host manifest, Ollama, launchd); no cloud session can run it.
 - 2026-10-13: OCR on Demand and Markdown. `ocr` never selects Markdown
@@ -135,12 +133,12 @@ tasks name the row each ruling changes.
   is the design working as written, not drift. Unblock: Todd decides
   whether Markdown joins the exclusion class (a Key Decisions row in
   `OCR-ON-DEMAND.DESIGN.md`) or the listing stands.
-- 2026-10-16: `DYNOMARK.DESIGN.md` APPROVED -> IMPLEMENTED waits on
+- 2026-10-16: the Dynomark retrospective waits on
   task-027 (the mbp acceptance run) and the drift issues #538-#544. Only
-  Todd moves it.
-- 2026-10-13: `OLLAMA-GATEWAY.DESIGN.md` and `OCR-ON-DEMAND.DESIGN.md`
-  APPROVED -> IMPLEMENTED waits on drift Issue#453, Issue#454 and Issue#455, and task-046.
-  Only Todd moves them.
+  Todd lands it.
+- 2026-10-13: the `OLLAMA-GATEWAY.DESIGN.md` and `OCR-ON-DEMAND.DESIGN.md`
+  retrospectives wait on drift Issue#453, Issue#454 and Issue#455, and task-046.
+  Only Todd lands them.
 
 ## Lessons Learned (unsettled)
 
@@ -584,7 +582,7 @@ The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, 
 
 ## Active Work: lmde acquire -- skills data package (2026-07-30)
 
-> **Status:** SHIPPED -- merged PR #184 (this repo) + template-tools#289;
+> Merged PR #184 (this repo) + template-tools#289;
 > skills@0.1.28 published on the first merge. Activation steps (clai
 > release, pin bumps, fresh-session verification) tracked in issue #190.
 > **Design:** docs/design/LMDE-CLAI-BOUNDARY.DESIGN.md, Revision 1 (merged PR #183)
@@ -689,12 +687,12 @@ clai README's phantom fetch prose).
 
 ## Active Work: Session-boundary provisioning (Approach A) -- sandbox lifecycle redesign
 
-> **Status:** COMPLETE AND ACCEPTED (2026-08-14) -- Phase 4 verified in a
+> Phase 4 verified (2026-08-14) in a
 > fresh multi-repo session on naatm-sandbox 0.7.0, and the acceptance
 > probe (template-tools#420, one sentence added to skills/sdlc/SKILL.md)
 > arrived in a subsequent fresh session WITH NO CACHE REBUILD: the
 > provisioned sdlc skill carried the new sentence. Merge-is-rollout holds
-> end to end; the Approach A acceptance criterion is met. Phase 5 items
+> end to end. Phase 5 items
 > live in issues (see the Phase 5 list below).
 > **Created:** 2026-08-13
 > **Design:** docs/design/SANDBOX-LIFECYCLE.DESIGN.md (authored in Phase 1;
@@ -1011,11 +1009,10 @@ Docs-side defects found while consolidating; each has an owning issue.
 
 ## Active Work: orgmarks (bookmark organizer)
 
-> **Status:** Implemented -- all 10 phases landed on
+> All 10 phases landed on
 > `claude/orgmarks-v1-kauhw7`; 81 unit tests green, mypy --strict + ruff clean.
-> PR pending.
 > **Created:** 2026-07-23
-> **Design:** [docs/design/BOOKMARK-ORGANIZER.DESIGN.md](docs/design/BOOKMARK-ORGANIZER.DESIGN.md) (APPROVED, PR #164)
+> **Design:** [docs/design/BOOKMARK-ORGANIZER.DESIGN.md](docs/design/BOOKMARK-ORGANIZER.DESIGN.md) (PR #164)
 > **Branch:** claude/orgmarks-v1-kauhw7
 > **Stack:** Python 3.11+, uv, Click, Pydantic, structlog, ruamel.yaml; pytest, mypy strict, Ruff (tech-radar Adopt ring)
 

@@ -1,7 +1,7 @@
 # tds-utils -- as-built index
 
 What is deployed right now, as fact. `docs/design/` holds what was
-intended and is frozen at APPROVED; this tree is living and holds nothing
+intended and is frozen once merged; this tree is living and holds nothing
 that has not shipped (the architecture skill, folder law). Each topic's
 `ARCHITECTURE.md` is the detail for agents; its `.html` is the at-a-glance
 view for humans; the two must agree.

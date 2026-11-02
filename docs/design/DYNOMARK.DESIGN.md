@@ -1,10 +1,6 @@
 # Dynomark -- live AI filing for native browser bookmarks
 
-> **Status:** APPROVED; body amended 2026-10-16 on the owner's ruling to
-> the as-built shapes (issue #424 and the 2026-10-16 Key Decisions rows).
 > **Date:** 2026-09-26
-> **Approved:** 2026-09-27 (Todd; rulings folded, see Key Decisions). Body frozen
-> except by the owner's amendment.
 > **Authors:** Todd + Claude
 > **Depends on:** [WIP.TECH_RADAR.DESIGN.md](./WIP.TECH_RADAR.DESIGN.md)
 > **Origin:** "Dynomark -- Product Proposal" (2026-09-25, PDF, not in repo);
@@ -588,7 +584,7 @@ live in the code until the as-built records them.
 | `Follow Up` semantics | consumed on filing: the batch moves the node into `Dynomark`; the filed copy is the record | a queue, not a to-do; to-do states (new, read, done) were the alternative and are not built |
 | Two writers | PoC: `HostRole` is a config flag with no detection; MVP: refuse on a writer marker in the owned tree | concurrency is not a PoC problem; refusing beats last-wins because a silent second writer is the conflict the design removes |
 | Scope | PoC = ingest, capture, place, file, tier-1/tier-2 search, undo; MVP = chat, diffs, writer-conflict detection, background-tab capture, Firefox | get the live loop working on one laptop before any concurrency or reach work |
-| Approval | APPROVED 2026-09-27 | rulings 1-3 of the 2026-09-27 review folded above; body frozen from this commit |
+| Approval | merged 2026-09-27 | rulings 1-3 of the 2026-09-27 review folded above; body frozen from this commit |
 | Transport | `TransportPort`; native-messaging shim over a unix socket first | no TCP port, no pasted token, the browser launches the shim; a phone adapter is a second implementation |
 | Daemon language | unconstrained; the contract is a versioned schema artifact | any process that validates against the schema is the daemon; hot-swappable |
 | Content capture | all-sites host permission, daemon fetch as fallback | the only way to capture logged-in pages at save time |
@@ -606,7 +602,7 @@ live in the code until the as-built records them.
 | KNN engine (2026-10-05) | `sqlite-vec` loaded on every store connection; KNN is a brute-force `vec_distance_cosine` scan with top-k in SQL, no `vec0` index; a Python whose `sqlite3` cannot load extensions is refused by name | the pure-Python scan was about 90% of tier 2 and failed Goal 4 on a busy runner; 265 ms -> 55 ms P95 with no second table to keep in sync (issue #392, PR #409) |
 | Tech radar (2026-10-05) | `sqlite-vec` is Trial; supersedes the Assess row above | approved by Todd ("Trial it.", issue #392) |
 | Open Questions 1-4 (provisional, 2026-10-05) | merges discarded; rebuild manual with an opt-in cadence; backfill user-started at 10 ingests/s, fetch-only, recorded in place; Ollama `nomic-embed-text` and `llama3.1:8b` | chosen during the build so the code could run; none ratified (issue #425) |
-| Retrospective (2026-10-05) | drift filed as issues #410-#425 under issue #342; status stays APPROVED | IMPLEMENTED waits on task-027 (the mbp acceptance run), the drift closing, and the owner's call |
+| Retrospective (2026-10-05) | drift filed as issues #410-#425 under issue #342 | the retrospective waits on task-027 (the mbp acceptance run), the drift closing, and the owner's call |
 | Background-tab capture (2026-10-16) | the writer opens a background tab only for a URL the daemon vets with its fetch address policy; a refused URL captures as `none`; on by default | one address policy for both capture paths, and the daemon can resolve DNS where the extension cannot (owner ruling on issue #410; revisit issue #525) |
 | Diff proposals (2026-10-16) | writers only; the contract text is corrected | a reader cannot apply a diff and has no channel to the writer (issue #416; revisit issue #526) |
 | Writer binding (2026-10-16) | bind on the first full hello; `dynomark-daemon rebind` releases it; the extension shows when this browser is served as a reader of a writer bound elsewhere | native messaging connects per profile; a silent permanent bind stopped filing after an extension reinstall (issue #419; revisit issue #527) |

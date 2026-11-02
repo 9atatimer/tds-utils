@@ -376,7 +376,7 @@ def test_measure_without_a_readable_record_covers_change_naming_it() -> None:
     """Given no readable architecture record, When Change runs, Then Change is
     coverage naming the record, never a clean result."""
     report = measure_with(
-        {STORE: b"x\n"}, records=RecordsUnavailable(f"{ARCHITECTURE} is in draft")
+        {STORE: b"x\n"}, records=RecordsUnavailable(f"{ARCHITECTURE} is absent")
     )
 
     assert "Change" not in {c.name for c in report.ran}

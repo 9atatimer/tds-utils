@@ -4,7 +4,7 @@ Runs Alibaba's Open Code Review (`ocr`) over a pull request when you ask,
 in any repo of 9atatimer or Nine-At-A-Time-Media, with completions from the
 laptop's model through the Ollama Gateway.
 
-- Design: `docs/design/OCR-ON-DEMAND.DESIGN.md` (APPROVED; the authority).
+- Design: `docs/design/OCR-ON-DEMAND.DESIGN.md` (the authority).
 - As-built (what is deployed, every pin and timeout):
   `docs/arch/ocr-review/ARCHITECTURE.md`.
 - Reusable workflow: `.github/workflows/ocr-review.yml`.

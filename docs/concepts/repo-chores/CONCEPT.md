@@ -72,7 +72,7 @@ not yet been read back; strike or reword any that are not yours.
 
 **What the idea leans on that exists (placement only):**
 
-- The chores tool, its APPROVED design (`docs/design/CHORES.DESIGN.md`)
+- The chores tool, its design (`docs/design/CHORES.DESIGN.md`)
   and its concept (`docs/concepts/lmde-chores/`). That design keeps
   definitions in one `$CHORES_HOME` and names filesystem sandboxing a
   Non-Goal; both meet this idea head on.

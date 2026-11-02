@@ -1,9 +1,8 @@
 # chores: one-time chores and armed runs
 
-> **Status:** APPROVED (2026-10-03, Todd Stumpf: "landed. lets get this to POC/MVP asafp"; open questions taken as proposed -- Q1 no relative times, Q2 abandon on disable, Q3 K3 in the default run)
 > **Date:** 2026-10-03
 > **Authors:** Todd Stumpf (intent, `docs/concepts/one-time-chores/`), Claude (design)
-> **Amends:** [CHORES.DESIGN.md](./CHORES.DESIGN.md) (APPROVED; frozen) -- Subsystems 1, 2, 3 and 6, the Run state machine and the Data Model, as listed under "What this amends". Nothing here edits that record; on approval it gains one appended Key Decisions row pointing here.
+> **Amends:** [CHORES.DESIGN.md](./CHORES.DESIGN.md) (frozen) -- Subsystems 1, 2, 3 and 6, the Run state machine and the Data Model, as listed under "What this amends". Nothing here edits that record; on approval it gains one appended Key Decisions row pointing here.
 > **Origin:** issue #399; concept PR #395
 
 ---
@@ -352,7 +351,7 @@ reviewer and for the retrospective's drift walk:
 ## Related Documents
 
 - [CHORES.DESIGN.md](./CHORES.DESIGN.md) -- the record this amends
-  (APPROVED, frozen)
+  (frozen)
 - `docs/concepts/one-time-chores/` -- the concept (non-binding)
 - `test/smoketest_lmde_clai/README.md` -- the suite the probe joins
 - `docs/concepts/chores-webhooks/` -- the next trigger kind, which would

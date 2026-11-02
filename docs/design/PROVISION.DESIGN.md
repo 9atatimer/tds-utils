@@ -1,13 +1,12 @@
 # Universal Agent Provisioning (clai provision)
 
-> **Status:** DRAFT  
-> **Superseded/split 2026-07-11 (step two):** the acquire half of this unified
+> **Split 2026-07-11 (step two):** the acquire half of this unified
 > design moved to `lmde acquire`; the configure half narrowed to an offline
 > `clai provision`. See
 > [LMDE.DESIGN.md](./LMDE.DESIGN.md) (authoritative
 > for the boundary) and
 > [template-tools#145](https://github.com/nine-at-a-time-media/template-tools/issues/145)
-> (the bundling mechanism). Kept for history.  
+> (the bundling mechanism).  
 > **Date:** 2026-07-03  
 > **Authors:** Claude (from issue #84 and design discussion with Todd)  
 > **Depends on:** [CLAI.DESIGN.md](https://github.com/nine-at-a-time-media/template-tools/blob/main/packages/clai/docs/CLAI.DESIGN.md), [issue #84](https://github.com/9atatimer/tds-utils/issues/84)
@@ -25,7 +24,7 @@ Antigravity/agy, OpenCode), in every environment (laptop, fresh cloud
 sandbox, cached/resumed sandbox), with a manual `clai refresh` verb for
 best-effort mid-session updates.
 
-> **Superseded / folded (step two, 2026-07-11).** This unified design has been
+> **Split / folded (step two, 2026-07-11).** This unified design has been
 > split on the acquire/configure axis; the reconciled model now lives in the
 > canonical docs. In brief:
 >
