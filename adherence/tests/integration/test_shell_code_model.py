@@ -7,7 +7,8 @@ import functools
 from collections.abc import Mapping
 
 from adherence.adapters.shell_astgrep import ShellCodeModel
-from adherence.domain.model import CodeModel, Layer, UnitKind
+from adherence.domain.model import CodeModel, Definition, Layer, Region, UnitKind
+from adherence.domain.parameters import Vocabulary
 from adherence.ports.code_model import CodeModelPort
 from tests import shell_fixture
 from tests.code_model_contract import SHELL_SOURCES, CodeModelContract
@@ -79,3 +80,54 @@ def test_units_are_each_function_in_its_layer() -> None:
         ("outer", None, False),
         ("outer.inner", "outer", True),
     ]
+
+
+def test_regions_found_by_marker_are_in_the_model() -> None:
+    """Given a script whose `# --- Section ---` markers the declaration
+    names, When it is modelled, Then each marker's region is in the model,
+    from its marker to the line before the next, in the layer the
+    vocabulary maps it to."""
+    assert fixture_model().regions == (
+        Region("bin/release.sh", 7, 19, Layer.ADAPTERS),
+        Region("bin/release.sh", 20, 35, Layer.APPLICATION),
+        Region("bin/release.sh", 36, 41, Layer.COMPOSITION_ROOT),
+    )
+
+
+def _definition(path: str, symbol: str) -> Definition:
+    [found] = [
+        d
+        for d in fixture_model().definitions
+        if (d.unit.path, d.unit.symbol) == (path, symbol)
+    ]
+    return found
+
+
+def test_bodies_carry_their_text_and_stub_markers() -> None:
+    """Given a function whose body is only the `:` placeholder beside a
+    comment, one that runs `:` for its expansion before real work, and an
+    ordinary one, When the fixture is modelled, Then each body carries its
+    text, and only the first is the placeholder it consists of."""
+    rollback = _definition("bin/release.sh", "rollback").body
+    ancestor = _definition("lib/checks.sh", "is_ancestor").body
+    fetch = _definition("bin/release.sh", "fetch_line").body
+
+    assert rollback.stub_markers == (":",)
+    assert ancestor.stub_markers == ()
+    assert fetch.stub_markers == ()
+    assert fetch.text == '    git fetch --quiet origin "$1"'
+    assert "git merge-base --is-ancestor" in ancestor.text
+
+
+def test_stubs_come_from_the_vocabulary() -> None:
+    """Given a vocabulary that counts no placeholder as a stub, When a
+    `:`-only body is modelled with it, Then the body carries no stub marker."""
+    model = ShellCodeModel().model(
+        {"m.sh": b"later() {\n    :\n}\n"},
+        shell_fixture.declaration(),
+        Vocabulary(regions={}),
+        None,
+    )
+
+    assert isinstance(model, CodeModel)
+    assert [d.body.stub_markers for d in model.definitions] == [()]

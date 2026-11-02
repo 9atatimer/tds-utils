@@ -20,6 +20,33 @@ severity: hint
 rule:
   kind: function_definition
 ---
+id: body
+language: Bash
+severity: hint
+rule:
+  kind: function_definition
+  has: {field: body, pattern: $BODY}
+---
+# A body holding nothing but the `:` placeholder, beside any comments. A
+# `:` given arguments runs them for their expansions (`: "${1:?}"`), which
+# is work, so it is no placeholder.
+id: stub
+language: Bash
+severity: hint
+rule:
+  kind: function_definition
+  has:
+    field: body
+    kind: compound_statement
+    all:
+      - has:
+          kind: command
+          not: {has: {field: argument, regex: '.'}}
+          has: {field: name, regex: '^:$', pattern: $THROWN}
+      - not:
+          has:
+            nthChild: {position: 2, ofRule: {not: {kind: comment}}}
+---
 id: syntax-error
 language: Bash
 severity: hint
