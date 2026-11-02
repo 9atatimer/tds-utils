@@ -131,7 +131,7 @@ def test_records_read_each_behavior_with_its_scenario_and_line() -> None:
 def test_records_read_each_domain_language_term() -> None:
     """Given a design record's Domain Language, When the records are read,
     Then each defined term is read by its spelling, with where it is defined."""
-    terms = _records().terms
+    terms = _records().domain_language
 
     assert [(t.name, t.path) for t in terms] == [("Order", DESIGN), ("Store", DESIGN)]
     assert terms[1].line == _line_of(DESIGN_TEXT, "**Store.**")
@@ -256,7 +256,7 @@ def test_records_of_the_engines_own_design_are_read_whole() -> None:
         "repository",
     ]
     assert all(p.keyword_only for p in measure.signature.parameters[2:])
-    assert "Quality" in {t.name for t in records.terms}
+    assert "Quality" in {t.name for t in records.domain_language}
     assert "RepositoryPort" in {s.name for s in records.seams}
 
 

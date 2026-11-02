@@ -3,7 +3,8 @@
 Read at the revision of the code they are compared against, never copied
 (DESIGN.ARCH-ADHERENCE.md, Design records as input): the design's
 Behaviors table and Domain Language, the architecture record's use-case
-surface with the signatures it gives, and its seam list.
+surface with the signatures it gives, and its seam list. Change reads the
+seams; Language reads the Domain Language.
 """
 
 from __future__ import annotations
@@ -47,7 +48,8 @@ class Behavior:
 
 @dataclass(frozen=True, slots=True)
 class Term:
-    """One term the design's Domain Language defines, by its spelling."""
+    """One term the design's Domain Language defines, under its spelling,
+    and where the record defines it."""
 
     name: str
     path: str
@@ -78,12 +80,13 @@ class SurfaceRow:
 
 @dataclass(frozen=True, slots=True)
 class DesignRecords:
-    """What the approved records state: their seams, behaviors, terms, the
-    use cases the surface gives a signature, and the surface's rows."""
+    """What the approved records state: their seams, behaviors, the design's
+    Domain Language, the use cases the surface gives a signature, and the
+    surface's rows."""
 
     seams: tuple[Seam, ...] = ()
     behaviors: tuple[Behavior, ...] = ()
-    terms: tuple[Term, ...] = ()
+    domain_language: tuple[Term, ...] = ()
     use_cases: tuple[UseCase, ...] = ()
     surface: tuple[SurfaceRow, ...] = ()
 

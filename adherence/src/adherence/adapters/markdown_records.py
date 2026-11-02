@@ -281,7 +281,7 @@ def parse_records(
     return DesignRecords(
         seams=_seams(architecture_path, surfaced.get(SEAMS, [])),
         behaviors=_behaviors(design_path, stated.get(BEHAVIORS, [])),
-        terms=_terms(design_path, stated.get(DOMAIN_LANGUAGE, [])),
+        domain_language=_terms(design_path, stated.get(DOMAIN_LANGUAGE, [])),
         use_cases=_use_cases(architecture_path, surfaced.get(SURFACE, [])),
         surface=_surface(architecture_path, surfaced.get(SURFACE, [])),
     )

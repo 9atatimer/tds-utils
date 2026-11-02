@@ -54,7 +54,11 @@ def test_measure_json_over_the_fixture_prints_the_hexagonal_findings() -> None:
     covered = {c["check"]: c["reason"] for c in document["coverage"] if c["check"]}
     ran = {name for q in document["qualities"] for name in q["ran"]}
     for check in CATALOG:
-        assert check.name in ran or covered.get(check.name), check.name
+        if check.name not in ran:
+            assert covered.get(check.name), check.name
+    for quality in qualities.values():
+        if not quality["ran"]:
+            assert quality["findings"] == [], quality["quality"]
 
 
 def test_measure_of_a_root_git_cannot_list_says_not_run(tmp_path: Path) -> None:
@@ -71,7 +75,8 @@ def test_measure_json_over_the_fixture_prints_the_layered_findings() -> None:
     one it does not and a row nothing could trace, and its declaration with
     a runtime no unit wires, When `adhere measure --json` runs, Then the
     Layered rule checks ran, Trace driven by the record, and their findings
-    print."""
+    print -- with task-060's ledger post taking a port and its restock
+    constructing an adapter, which are Layered flaws too."""
     code, output = _measure(FIXTURE)
 
     assert code == 0, output
@@ -84,6 +89,8 @@ def test_measure_json_over_the_fixture_prints_the_layered_findings() -> None:
         ("Trace", DESIGN, "An order is reopened"),
         ("Trace", DESIGN, "Orders"),
         ("Wiring", "adherence.toml", None),
+        ("Purity", "src/tool/domain/ledger.py", "post"),
+        ("Wiring", "src/tool/application/ship.py", "restock"),
     }
     subjects = " ".join(f["subject"] for f in layered["findings"])
     assert "reopen_order(order, store)" in subjects

@@ -178,7 +178,7 @@ def test_measure_quotes_the_offending_line_and_no_more_of_the_body() -> None:
     evidence, never another line of the unit's body."""
     report = measure_with({RULES: BODY}, LOAD, limits=Limits(evidence_bound=1000))
 
-    (leak,) = report.findings
+    (leak,) = [f for f in report.findings if f.check.name == "Grep"]
     assert (leak.unit.path, leak.unit.symbol, leak.evidence.line) == (RULES, "load", 3)
     assert leak.evidence.text == LONG
     assert "body line" not in leak.evidence.text and "return" not in leak.evidence.text
@@ -189,7 +189,7 @@ def test_measure_cuts_the_quoted_line_at_the_evidence_bound() -> None:
     is written, Then the evidence quotes no more than the bound."""
     report = measure_with({RULES: BODY}, LOAD, limits=Limits(evidence_bound=40))
 
-    (leak,) = report.findings
+    (leak,) = [f for f in report.findings if f.check.name == "Grep"]
     assert leak.evidence.text == LONG[:40]
 
 

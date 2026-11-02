@@ -19,6 +19,7 @@ from adherence.domain.declaration import (
     Declaration,
     DeclarationUnreadable,
     refusal_notices,
+    with_overrides,
 )
 from adherence.domain.finding import quoted
 from adherence.domain.model import (
@@ -111,6 +112,7 @@ def measure(
     """The Report of every target-level check over the target."""
     if isinstance(declaration, DeclarationUnreadable):
         return Report.not_run(f"the declaration cannot be read: {declaration.reason}")
+    parameters = with_overrides(parameters, declaration)
     paths = repository.tree(at, deadline)
     if isinstance(paths, TimedOut):
         return Report.not_run(f"the repository cannot be read: {paths.operation}")

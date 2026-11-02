@@ -43,6 +43,14 @@ VOCABULARY = Vocabulary(
     model_ids=frozenset({"claude-", "gpt-"}),
     mechanism_calls=frozenset({"open", "__import__", "importlib.import_module"}),
     fakes=frozenset({"Fake"}),
+    callables=frozenset({"Callable"}),
+    wire_formats=frozenset({"dict", "Response"}),
+    singletons=frozenset({"sys.argv"}),
+    plain_types={
+        CodeLanguage.PYTHON: frozenset(
+            {"Sequence", "tuple", "None", "str", "int", "list"}
+        )
+    },
 )
 LIMITS = Limits(evidence_bound=200)
 
@@ -79,11 +87,11 @@ def measure_with(
     records: DesignRecords | RecordsUnavailable | TimedOut | None = None,
     analyzers: Mapping[CodeLanguage, CodeModelPort] | None = None,
     limits: Limits = LIMITS,
+    vocabulary: Vocabulary = VOCABULARY,
     complexity: FakeComplexity | None = None,
     duplication: FakeDuplication | None = None,
     deadline: Deadline | None = None,
     unlisted: Refused | TimedOut | None = None,
-    vocabulary: Vocabulary = VOCABULARY,
 ) -> Report:
     """measure over a repository holding `files` at the working tree, whose
     Python analyzer answers with `facts`."""
