@@ -164,8 +164,12 @@ test('reusable: the review job takes its timeout from the caller, 9 minutes by d
   assert.match(jobBlock(REUSABLE, 'review'), /timeout-minutes:\s*\$\{\{\s*inputs\.review_timeout_minutes\s*\}\}/);
   const input = block(block(block(block(REUSABLE, 'on'), 'workflow_call', 2), 'inputs', 4), 'review_timeout_minutes', 6);
   assert.match(input ?? '', /default:\s*9\b/);
+  assert.match(input ?? '', /type:\s*number\b/);
+  assert.match(input ?? '', /required:\s*false\b/);
   const runsOn = block(block(block(block(REUSABLE, 'on'), 'workflow_call', 2), 'inputs', 4), 'review_runs_on', 6);
   assert.match(runsOn ?? '', /default:\s*''/);
+  assert.match(runsOn ?? '', /type:\s*string\b/);
+  assert.match(runsOn ?? '', /required:\s*false\b/);
 });
 
 test('reusable: every action is pinned by a full commit SHA', () => {
