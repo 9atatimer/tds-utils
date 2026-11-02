@@ -50,7 +50,7 @@ Working label `pr-to-session`; the name is open.
 
 **What the idea leans on that exists (placement only, nothing chosen):**
 
-- tmux-herd's discovery adapter (`docs/design/TMUX-HERD.DESIGN.md`, DRAFT,
+- tmux-herd's discovery adapter (`docs/design/TMUX-HERD.DESIGN.md`,
   no code): session to agent cwd to git-common-dir to origin owner/repo +
   branch, baked into the session name. Its data model says "Nothing
   persisted" and it rejects a persistent state file -- in tension with a

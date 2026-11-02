@@ -414,7 +414,7 @@ Worker / Cloud Run --OTLP/HTTP + Access service token--> <ingest host>
   maximum payload size (Todd, 2026-10-02; `OLLAMA-GATEWAY.DESIGN.md`,
   Deadline proxy). OTLP ingest is a route on it with its own limits, in
   front of the collector; the connector never reaches `:4318` directly.
-  The layer is not built yet (that design is in REVIEW), so cloud ingest
+  The layer is not built yet, so cloud ingest
   waits on it; local senders keep using `127.0.0.1:4318` unchanged.
 - **One service token per component per tier.** Revoking one sender never
   touches another.

@@ -31,7 +31,7 @@ the design shipped, no code did. Retrospective ran 2026-09-19. Order:
   a rename strands the pipe, so tmux-herd cannot rename until this lands.
 - task-020 -- build `bin/tmux-herd`; needs task-021 before it can rename on this machine.
 
-Dynomark (`docs/design/DYNOMARK.DESIGN.md`, merged 2026-09-27, body
+Dynomark (`docs/design/DYNOMARK.DESIGN.md`, merged 2026-09-26 (#336), body
 amended 2026-10-16): live AI filing of native bookmarks, the successor to
 orgmarks. Code is under `dynomark/` (contract v2, daemon, extension for
 Chrome and Firefox, e2e). The MVP is built and merged (tds-utils PR#535):
@@ -440,7 +440,7 @@ Remaining:
 
 ### gadmin Issues -- remaining design goals
 
-The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, SQLite snapshot, event publish, phase A/B/E/F commands, GH-poll `--wait-tx`, launchd/systemd units, 7 smoketests). Five v0 goals from `docs/design/GADMIN-ISSUES.DESIGN.md` are not yet implemented. Status snapshot lives in that doc's [Implementation Status](docs/design/GADMIN-ISSUES.DESIGN.md#implementation-status) section.
+The gadmin Issues subsystem shipped a working v0 skeleton (grammar, aggregator, SQLite snapshot, event publish, phase A/B/E/F commands, GH-poll `--wait-tx`, launchd/systemd units, 7 smoketests). Five v0 goals from `docs/design/GADMIN-ISSUES.DESIGN.md` are not yet implemented.
 
 - ~~Task GI1: NATS request-reply reads.~~
 - ~~Task GI2: NATS-first `--wait-tx`.~~

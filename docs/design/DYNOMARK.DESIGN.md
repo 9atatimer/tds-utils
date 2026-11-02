@@ -584,7 +584,7 @@ live in the code until the as-built records them.
 | `Follow Up` semantics | consumed on filing: the batch moves the node into `Dynomark`; the filed copy is the record | a queue, not a to-do; to-do states (new, read, done) were the alternative and are not built |
 | Two writers | PoC: `HostRole` is a config flag with no detection; MVP: refuse on a writer marker in the owned tree | concurrency is not a PoC problem; refusing beats last-wins because a silent second writer is the conflict the design removes |
 | Scope | PoC = ingest, capture, place, file, tier-1/tier-2 search, undo; MVP = chat, diffs, writer-conflict detection, background-tab capture, Firefox | get the live loop working on one laptop before any concurrency or reach work |
-| Approval | merged 2026-09-27 | rulings 1-3 of the 2026-09-27 review folded above; body frozen from this commit |
+| Approval | merged 2026-09-26 (#336) | rulings 1-3 of the 2026-09-27 review folded above; body frozen from this commit |
 | Transport | `TransportPort`; native-messaging shim over a unix socket first | no TCP port, no pasted token, the browser launches the shim; a phone adapter is a second implementation |
 | Daemon language | unconstrained; the contract is a versioned schema artifact | any process that validates against the schema is the daemon; hot-swappable |
 | Content capture | all-sites host permission, daemon fetch as fallback | the only way to capture logged-in pages at save time |

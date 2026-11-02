@@ -286,6 +286,7 @@ terminal status, with zero usage, so history is complete.
 | Smoketest chores | the operator's `smoketest-*` manual chores in `$CHORES_HOME`, found by name | definitions are private (CHORES.DESIGN.md Subsystem 1); the public suite must not ship or write one |
 | Smoketest placement | `test/smoketest_lmde_clai/probe-chores.sh`, laptop assert, cloud skip | Todd, 2026-10-03: "THE smoketest"; the cloud has no herd, as C2 is skipped there |
 | Missing smoketest chores | FAIL, not SKIP, when the herd is installed | an installed herd with nothing to kick the tires with is the misconfiguration the probe exists to catch |
+| Open Questions Q1-Q3 | taken as proposed: no relative times, abandon on disable, K3 in the default run | Todd Stumpf, 2026-10-03 |
 
 ---
 
