@@ -1,0 +1,23 @@
+# Shell structural facts for adapters/astgrep.py.
+#
+# Written for Bash; ast-grep reads sh, bash and zsh sources with this one
+# grammar. Each rule's id names the fact it yields and its captures are the
+# fact's parts; an id may carry a `.variant` when two rules yield one fact.
+# Bash spells a variable with `$`, so rules match by kind and field and
+# capture through `pattern: $NAME` on a field, never through code patterns.
+# Every rule is a hint, so a match never fails the scan.
+id: syntax-error
+language: Bash
+severity: hint
+rule:
+  kind: ERROR
+---
+# A token the parser inserted to repair the file (an unclosed brace or
+# quote) has no text; the file is as unreadable as one holding an ERROR
+# node, and the token's line is where it breaks.
+id: syntax-error.missing
+language: Bash
+severity: hint
+rule:
+  kind: program
+  has: {regex: '^$', stopBy: end, pattern: $$MISSING}
