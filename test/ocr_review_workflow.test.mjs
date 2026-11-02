@@ -129,7 +129,7 @@ test('caller: the backend reaches the reusable workflow on a dispatch only (Issu
 test('reusable: workflow_call only, with pr, model, backend, tools_ref and the one secret', () => {
   assert.deepEqual(keysAt(block(REUSABLE, 'on'), 2), ['workflow_call']);
   const call = block(block(REUSABLE, 'on'), 'workflow_call', 2);
-  assert.deepEqual(keysAt(block(call, 'inputs', 4), 6).sort(), ['backend', 'model', 'pr', 'tools_ref']);
+  assert.deepEqual(keysAt(block(call, 'inputs', 4), 6).sort(), ['backend', 'model', 'pr', 'review_runs_on', 'review_timeout_minutes', 'tools_ref']);
   assert.deepEqual(keysAt(block(call, 'secrets', 4), 6), ['OLLAMA_GATEWAY_OP_SA_TOKEN']);
 });
 
@@ -142,16 +142,34 @@ test('reusable: exactly the authorize, review and report jobs', () => {
   assert.deepEqual(jobsOf(REUSABLE), ['authorize', 'review', 'report']);
 });
 
-test('reusable: every job runs on the caller\'s CI_RUNS_ON when set, else GitHub-hosted', () => {
-  for (const job of jobsOf(REUSABLE)) assert.ok(jobBlock(REUSABLE, job).includes(RUNS_ON), job);
+const REVIEW_RUNS_ON = `runs-on: \${{ fromJSON(inputs.review_runs_on || vars.CI_RUNS_ON || '"ubuntu-latest"') }}`;
+
+test('reusable: authorize and report run on the caller\'s CI_RUNS_ON when set, else GitHub-hosted', () => {
+  for (const job of ['authorize', 'report']) assert.ok(jobBlock(REUSABLE, job).includes(RUNS_ON), job);
 });
 
-test('reusable: every job times out under the runner pool\'s 10-minute container ceiling', () => {
-  for (const job of jobsOf(REUSABLE)) {
+test('reusable: the review job alone may take the caller\'s review_runs_on, else CI_RUNS_ON, else GitHub-hosted', () => {
+  assert.ok(jobBlock(REUSABLE, 'review').includes(REVIEW_RUNS_ON));
+});
+
+test('reusable: authorize and report time out under the standard pool\'s 10-minute container ceiling', () => {
+  for (const job of ['authorize', 'report']) {
     const m = jobBlock(REUSABLE, job).match(/timeout-minutes:\s*(\d+)/);
     assert.ok(m, `${job} has timeout-minutes`);
     assert.ok(Number(m[1]) < 10, `${job}: ${m[1]} < 10`);
   }
+});
+
+test('reusable: the review job takes its timeout from the caller, 9 minutes by default (under the 10-minute ceiling)', () => {
+  assert.match(jobBlock(REUSABLE, 'review'), /timeout-minutes:\s*\$\{\{\s*inputs\.review_timeout_minutes\s*\}\}/);
+  const input = block(block(block(block(REUSABLE, 'on'), 'workflow_call', 2), 'inputs', 4), 'review_timeout_minutes', 6);
+  assert.match(input ?? '', /default:\s*9\b/);
+  assert.match(input ?? '', /type:\s*number\b/);
+  assert.match(input ?? '', /required:\s*false\b/);
+  const runsOn = block(block(block(block(REUSABLE, 'on'), 'workflow_call', 2), 'inputs', 4), 'review_runs_on', 6);
+  assert.match(runsOn ?? '', /default:\s*''/);
+  assert.match(runsOn ?? '', /type:\s*string\b/);
+  assert.match(runsOn ?? '', /required:\s*false\b/);
 });
 
 test('reusable: every action is pinned by a full commit SHA', () => {
