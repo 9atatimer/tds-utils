@@ -174,3 +174,26 @@ def test_bodies_carry_the_lines_they_sleep_on() -> None:
         "nap": (1,),
         "f": (),
     }
+
+
+def test_a_file_that_does_not_parse_is_unparsed_and_the_rest_modelled() -> None:
+    """Given a script with an unclosed function body, one that is not UTF-8
+    and one that reads, When they are modelled, Then the first two are
+    Unparsed with why, neither is a unit, and the third is modelled."""
+    model = _model_of(
+        {
+            "bad.sh": b"f() { echo x\n",
+            "latin.sh": b"echo \xff\n",
+            "ok.sh": b"g() { :; }\n",
+        }
+    )
+
+    assert [(u.path, u.reason.split(":")[0]) for u in model.unparsed] == [
+        ("bad.sh", "not shell"),
+        ("latin.sh", "not utf-8"),
+    ]
+    assert model.unparsed[0].reason == "not shell: syntax error at line 1"
+    assert {(u.path, u.symbol) for u in model.units} == {
+        ("ok.sh", None),
+        ("ok.sh", "g"),
+    }

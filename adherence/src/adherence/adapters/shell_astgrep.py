@@ -24,6 +24,7 @@ from adherence.adapters.astgrep import (
     readable_sources,
     regions_of,
     scan,
+    syntax_errors,
 )
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration
@@ -83,7 +84,13 @@ class ShellCodeModel:
             )
             return CodeModel(unparsed=tuple(sorted(unparsed, key=lambda u: u.path)))
         declared, found = regions_of(sources, declaration, vocabulary)
-        files, deep = file_models(readable, matches, declaration, found, vocabulary)
+        errors = syntax_errors(matches)
+        unparsed.extend(
+            Unparsed(path=path, reason=f"not shell: syntax error at line {line}")
+            for path, line in sorted(errors.items())
+        )
+        parsed = {p: data for p, data in readable.items() if p not in errors}
+        files, deep = file_models(parsed, matches, declaration, found, vocabulary)
         unparsed.extend(deep)
         return merged(
             files,
