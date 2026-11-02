@@ -335,3 +335,59 @@ def test_measure_with_a_write_through_a_local_alias_finds_the_write() -> None:
 
     found = {(f.unit.symbol, f.evidence.line) for f in _of(report, "Boundary")}
     assert found == {("local_write", 3), ("twice", 8)}
+
+
+def test_measure_with_typescript_signature_types_finds_no_foreign_noun() -> None:
+    """Given a TypeScript use case whose signature names only Order and
+    Store besides the language's own types (`string`, `Promise<...>`,
+    `ReadonlyArray<...>`, `Record<...>`, `keyof`, `undefined`), an options
+    object's members (`{ store: Store; limit?: number }`) and a function
+    type's parameter names (`(order: Order) => void`), When Language runs,
+    Then no finding names them: a member or parameter name in a type is no
+    noun, and TypeScript's own types are no noun of the problem."""
+    files = {USE: b"x\n" * 9}
+    definitions = [
+        function(
+            USE,
+            "closeOrder",
+            1,
+            (
+                value("order", "Order"),
+                value("deps", "{ store: Store; limit?: number }"),
+                value("all", "ReadonlyArray<Order>"),
+                value("byId", "Record<string, Order>"),
+                value("key", "keyof Order"),
+                value("then", "(order: Order) => void"),
+                value("flag", "boolean | undefined"),
+            ),
+            returns="Promise<string>",
+        ),
+    ]
+    records = DesignRecords(
+        domain_language=(Term("Order", DESIGN, 40), Term("Store", DESIGN, 41))
+    )
+
+    report = measure_with(
+        files, facts(definitions), records=records, vocabulary=SHIPPED_VOCABULARY
+    )
+
+    assert "Language" in {c.name for c in report.ran}
+    assert [f.subject for f in _of(report, "Language")] == []
+
+
+def test_measure_with_a_typescript_constructor_only_type_asks_anemic() -> None:
+    """Given a TypeScript domain type with fields and no method but its
+    `constructor`, When Anemic's rule part runs, Then it awaits the judge
+    as a Python type with only `__init__` does: a constructor only sets the
+    fields up."""
+    files = {RULES: b"x\n" * 9}
+    definitions = [type_(RULES, "Money", 1, end=4)]
+    members = (
+        field(RULES, "Money", "cents", 2),
+        method(RULES, "Money", "constructor", 3),
+    )
+
+    report = measure_with(files, facts(definitions, members=members))
+
+    asked = [c.reason.split(":")[0] for c in report.coverage if c.check == "Anemic"]
+    assert asked == ["Money"]

@@ -14,6 +14,7 @@ from collections.abc import Mapping, Sequence
 
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.checks.roles import (
+    INITIALISERS,
     annotation_names,
     by_symbol,
     is_within,
@@ -41,8 +42,6 @@ from adherence.domain.records import DesignRecords, RecordsUnavailable, Term
 BOUNDARY = catalog_check("Boundary")
 LANGUAGE = catalog_check("Language")
 ANEMIC = catalog_check("Anemic")
-# A method that only sets a type's fields up is no behavior of its own.
-INITIALISER = "__init__"
 # The bases that make a type an enumeration: a closed set of names, whose
 # members are no fields awaiting rules.
 ENUM_BASES = frozenset({"Enum", "IntEnum", "StrEnum", "Flag", "IntFlag"})
@@ -295,7 +294,7 @@ def anemic(
     for m in model.members:
         if m.kind is MemberKind.FIELD:
             fields.add((m.path, m.owner))
-        elif m.name != INITIALISER:
+        elif m.name not in INITIALISERS:
             behaving.add((m.path, m.owner))
     asked = [
         Coverage(

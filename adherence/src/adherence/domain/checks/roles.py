@@ -29,11 +29,16 @@ SUBSCRIPTED = re.compile(
 LITERAL = "Literal"
 ANNOTATED = "Annotated"
 QUOTES = frozenset("\"'")
+# A member's or a parameter's name inside a TypeScript type's text
+# (`{ store: Store; limit?: number }`, `(order: Order) => void`): a name,
+# never a type. A Python annotation holds no colon once its metadata is gone.
+MEMBER_NAME = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]*\s*\??\s*:")
 PRIVATE = "_"
 # The method that makes an instance of a class callable as a function.
 CALL = "__call__"
-# The method a value with no behaviour of its own may still carry.
-INIT = "__init__"
+# The methods a value with no behaviour of its own may still carry: the
+# initialiser, by its Python and its TypeScript name.
+INITIALISERS = frozenset({"__init__", "constructor"})
 # The bases, by name, that make a type an exception or an enum.
 EXCEPTION_ROOTS = frozenset(
     name
@@ -178,8 +183,10 @@ def type_text(annotation: str) -> str:
 
 def annotation_names(annotation: str | None) -> tuple[str, ...]:
     """Every dotted name an annotation's text carries, in order: the names
-    of types, never a literal's contents or an annotation's metadata."""
-    return tuple(ANNOTATION_NAME.findall(type_text(annotation or "")))
+    of types, never a literal's contents, an annotation's metadata, or a
+    member's or parameter's name in a TypeScript type."""
+    text = MEMBER_NAME.sub(" ", type_text(annotation or ""))
+    return tuple(ANNOTATION_NAME.findall(text))
 
 
 def module_bindings(model: CodeModel) -> Mapping[tuple[str, str], str]:
@@ -279,8 +286,8 @@ def _descends_from(
 
 
 def _is_value(methods: Sequence[Definition]) -> bool:
-    """Whether a type is all fields: no method beyond __init__."""
-    return all(short_name(m.unit.symbol) == INIT for m in methods)
+    """Whether a type is all fields: no method beyond its initialiser."""
+    return all(short_name(m.unit.symbol) in INITIALISERS for m in methods)
 
 
 def adapter_names(model: CodeModel) -> frozenset[str]:

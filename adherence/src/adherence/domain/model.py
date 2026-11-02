@@ -18,6 +18,8 @@ class CodeLanguage(enum.Enum):
     Language check (ARCHITECTURE.ARCH-ADHERENCE.md, Use-case surface)."""
 
     PYTHON = "python"
+    TYPESCRIPT = "typescript"
+    JAVASCRIPT = "javascript"
 
 
 # A source's language by its file extension: the languages the suite

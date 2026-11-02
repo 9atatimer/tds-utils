@@ -35,8 +35,9 @@ DECLARED_REFUSAL = "the Declared quality's checks cannot be exempted"
 REGIONS_KEY = "regions"
 LAYER_NAMES = {layer.value: layer for layer in Layer}
 GLOB_CHARACTERS = frozenset("*?[")
-# `# --- Action functions ---`, with any run of trailing dashes.
-SECTION_MARKER = re.compile(r"^\s*#\s*---\s*(?P<name>[^-].*?)\s*-*\s*$")
+# `# --- Action functions ---` (shell, Python) or `// --- Action functions ---`
+# (TypeScript, JavaScript), with any run of trailing dashes.
+SECTION_MARKER = re.compile(r"^\s*(?:#|//)\s*---\s*(?P<name>[^-].*?)\s*-*\s*$")
 # The [vocabulary] keys: every word set Vocabulary carries, and regions.
 WORD_SETS = frozenset(
     f.name for f in dataclasses.fields(Vocabulary) if f.name != REGIONS_KEY

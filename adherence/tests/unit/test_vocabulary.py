@@ -96,3 +96,18 @@ def test_measure_under_an_excusing_vocabulary_refuses_it_and_says_so() -> None:
     assert any("fakes" in m and "vocabulary" in m for m in messages), messages
     assert any("plain_types" in m and "vocabulary" in m for m in messages), messages
     assert not any("stubs" in m for m in messages), messages
+
+
+def test_parse_declaration_extending_a_typescript_excusing_set_refuses_it() -> None:
+    """Given a [vocabulary] that adds to the TypeScript word sets whose words
+    excuse -- an options object's name, a test callee, an assertion -- When
+    the declaration is parsed, Then each is read as a known vocabulary and
+    refused, never merged, as an extension of fakes is."""
+    parsed = parse_declaration(
+        b'[vocabulary]\noptions_objects = ["opts"]\ntests = ["spec"]\n'
+        b'assertions = ["check"]\n'
+    )
+
+    assert not isinstance(parsed, DeclarationUnreadable)
+    assert set(parsed.vocabulary.refused) == {"options_objects", "tests", "assertions"}
+    assert parsed.vocabulary.words == ()

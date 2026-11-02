@@ -539,8 +539,10 @@ Nine-At-A-Time-Media/Spot-the-clone (private, on the runner pool).
 
 - Self-review every PR with a fresh-context sub-agent (the self-review
   skill) and post the epilogue on the PR.
-- Codex reviews only when the owner summons it; an agent never posts
-  `@codex review`. Copilot is out of quota.
+- OCR on Demand reviews its own PRs: summon it with `/ocr` (this repo
+  carries the caller). Codex and Copilot review only when the owner
+  summons them; an agent never posts `@codex review` or requests Copilot
+  (the gates skill, Reviewer Selection).
 
 ### Lessons from the pilot
 
