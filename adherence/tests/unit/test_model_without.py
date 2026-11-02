@@ -98,16 +98,18 @@ def _both() -> CodeModel:
 
 
 def test_the_fixture_plants_a_fact_of_every_family() -> None:
-    """Given the CodeModel's fields, When the fixture is built, Then every
-    fact family holds a fact, so a family added later must be planted here
-    before the restriction can be shown to filter it."""
+    """Given the CodeModel's and the Metrics' fields, When the fixture is
+    built, Then every fact family and every metric holds a fact, so one
+    added later must be planted here before the restriction can be shown to
+    filter it."""
     planted = _facts(KEPT)
 
+    clones = _both().metrics
     empty = [
         f.name
         for f in dataclasses.fields(CodeModel)
         if f.name != "metrics" and not getattr(planted, f.name)
-    ]
+    ] + [f.name for f in dataclasses.fields(Metrics) if not getattr(clones, f.name)]
     assert empty == []
 
 

@@ -413,6 +413,14 @@ def _path_of(fact: object) -> str:
     return path
 
 
+def _touches(fact: object, out: frozenset[str]) -> bool:
+    """Whether a metric is about a dropped file: a clone when either of its
+    two stretches is, any other metric by its path."""
+    if isinstance(fact, Clone):
+        return fact.first.path in out or fact.second.path in out
+    return _path_of(fact) in out
+
+
 def without(model: CodeModel, paths: Collection[str]) -> CodeModel:
     """The CodeModel with no fact of the files given: their units, the facts
     read from them, their regions and metrics, and each clone touching one.
@@ -426,14 +434,10 @@ def without(model: CodeModel, paths: Collection[str]) -> CodeModel:
         for f in fields(CodeModel)
         if f.name != "metrics"
     }
-    return CodeModel(
-        **families,
-        metrics=Metrics(
-            complexity=tuple(f for f in model.metrics.complexity if f.path not in out),
-            clones=tuple(
-                f
-                for f in model.metrics.clones
-                if f.first.path not in out and f.second.path not in out
-            ),
-        ),
-    )
+    metrics = {
+        f.name: tuple(
+            fact for fact in getattr(model.metrics, f.name) if not _touches(fact, out)
+        )
+        for f in fields(Metrics)
+    }
+    return CodeModel(**families, metrics=Metrics(**metrics))

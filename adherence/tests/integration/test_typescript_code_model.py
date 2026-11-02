@@ -387,6 +387,9 @@ def test_the_deadline_passing_in_the_extends_walk_stops_it(
 # moved with CPython 3.14 (Issue#642).
 NESTED_JSON = b"[" * 100_000 + b"]" * 100_000
 JUST_PAST = b"[" * 200 + b"]" * 200
+FIRST_PAST = b"[" * (ts_depcruise.MAX_JSON_DEPTH + 1) + b"]" * (
+    ts_depcruise.MAX_JSON_DEPTH + 1
+)
 
 
 @pytest.mark.parametrize(
@@ -398,8 +401,9 @@ JUST_PAST = b"[" * 200 + b"]" * 200
             {"tsconfig.json": b'{"extends": "./base.json"}', "base.json": NESTED_JSON},
         ),
         ("tsconfig.json", {"tsconfig.json": JUST_PAST}),
+        ("tsconfig.json", {"tsconfig.json": FIRST_PAST}),
     ],
-    ids=["root", "extended", "just-past-the-bound"],
+    ids=["root", "extended", "well-past-the-bound", "one-past-the-bound"],
 )
 def test_a_tsconfig_nested_past_the_bound_is_unparsed_and_the_rest_modelled(
     unreadable: str, config: dict[str, bytes]
