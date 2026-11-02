@@ -80,6 +80,11 @@ ALIASES = "adhere-tsconfig.json"
 # followed, and how many configurations are read in all.
 MAX_EXTENDS_DEPTH = 32
 MAX_TSCONFIGS = 128
+# How deep a tsconfig's arrays and objects may nest before it is not read.
+# The adapter's own bound, so the answer never depends on how deep a given
+# interpreter's JSON parser can walk, which moved with CPython 3.14
+# (Issue#642); a real tsconfig nests a handful deep.
+MAX_JSON_DEPTH = 128
 EXTENDS_TOO_DEEP = (
     f"extended deeper than {MAX_EXTENDS_DEPTH} configurations; not followed"
 )
@@ -155,6 +160,24 @@ def without_comments(text: str) -> str:
     return "".join(kept)
 
 
+def nesting_depth(text: str) -> int:
+    """How deep a JSON text's arrays and objects nest, strings skipped."""
+    deepest = depth = 0
+    at = 0
+    while at < len(text):
+        char = text[at]
+        if char == '"':
+            at = _string_end(text, at)
+            continue
+        if char in "[{":
+            depth += 1
+            deepest = max(deepest, depth)
+        elif char in "]}":
+            depth -= 1
+        at += 1
+    return deepest
+
+
 def without_trailing_commas(text: str) -> str:
     """JSON without the commas that close an object or array, as tsconfig
     allows; a string's text is kept whatever it holds."""
@@ -183,10 +206,13 @@ def _closes(text: str, at: int) -> bool:
 
 def read_tsconfig(text: str) -> dict[str, object]:
     """A tsconfig file's settings; none when it is not a JSON object.
-    Raises TsconfigUnread when it does not parse, or nests deeper than the
-    parser can walk."""
+    Raises TsconfigUnread when it does not parse, or nests deeper than
+    MAX_JSON_DEPTH."""
+    plain = without_trailing_commas(without_comments(text))
+    if nesting_depth(plain) > MAX_JSON_DEPTH:
+        raise TsconfigUnread(f"{TSCONFIG_UNREAD}: {NESTED_TOO_DEEPLY}")
     try:
-        parsed = json.loads(without_trailing_commas(without_comments(text)))
+        parsed = json.loads(plain)
     except json.JSONDecodeError as error:
         raise TsconfigUnread(f"{TSCONFIG_UNREAD}: {error}") from error
     except RecursionError as error:
