@@ -44,10 +44,10 @@ NO_JUDGE_YET = "a judged check: none is implemented in this suite version"
 # whose model holds only some facts (task-070); a language not named here
 # is read by every check. Any other check runs without that language's
 # files and reports each file it skipped (DESIGN.ARCH-ADHERENCE.md, G11).
+# Complexity is absent for shell until a complexity adapter shows it
+# covers shell (task-070: "only where lizard covers the language").
 READ_BY: Mapping[str, frozenset[str]] = {
-    CodeLanguage.SHELL.value: frozenset(
-        {"Anatomy", "Stub", "Dependency", "Complexity"}
-    ),
+    CodeLanguage.SHELL.value: frozenset({"Anatomy", "Stub", "Dependency"}),
 }
 
 # --- Values ------------------------------------------------------------------

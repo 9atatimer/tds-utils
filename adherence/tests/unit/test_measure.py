@@ -193,7 +193,7 @@ def test_measure_reports_each_check_that_does_not_read_shell_per_script() -> Non
     assert unread == {
         check.name: "does not read shell"
         for check in report.ran
-        if check.name not in {"Anatomy", "Stub", "Dependency", "Complexity"}
+        if check.name not in {"Anatomy", "Stub", "Dependency"}
     }
     assert [f.unit.path for f in report.findings if f.check.name == "Grep"] == [RULES]
 

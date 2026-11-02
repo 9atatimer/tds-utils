@@ -1,6 +1,8 @@
 """Which checks read which language (task-070; DESIGN.ARCH-ADHERENCE.md,
 G11): shell's model holds regions, bodies and commands, so only the checks
-over those read it, and every check reads the fully modelled languages."""
+over those read it, and every check reads the fully modelled languages.
+Complexity reads a language only where its tooling covers it, and no
+complexity adapter has shown that it covers shell (task-061 lands one)."""
 
 from __future__ import annotations
 
@@ -10,7 +12,7 @@ from adherence.domain.checks.run import reads
 from adherence.domain.qualities import catalog_check
 
 
-@pytest.mark.parametrize("name", ["Anatomy", "Stub", "Dependency", "Complexity"])
+@pytest.mark.parametrize("name", ["Anatomy", "Stub", "Dependency"])
 def test_a_check_over_regions_bodies_or_commands_reads_shell(name: str) -> None:
     """Given a check that reads only regions, bodies or commands, When asked
     whether it reads a script, Then it does, in any shell dialect."""
@@ -18,10 +20,13 @@ def test_a_check_over_regions_bodies_or_commands_reads_shell(name: str) -> None:
         assert reads(catalog_check(name), path), path
 
 
-@pytest.mark.parametrize("name", ["Grep", "Arrow", "Swap", "Change", "Wiring"])
+@pytest.mark.parametrize(
+    "name", ["Grep", "Arrow", "Swap", "Change", "Wiring", "Complexity"]
+)
 def test_a_check_over_facts_shell_lacks_does_not_read_it(name: str) -> None:
-    """Given a check that needs imports, references or types, When asked
-    whether it reads a script, Then it does not."""
+    """Given a check that needs imports, references or types, or tooling not
+    shown to cover shell, When asked whether it reads a script, Then it does
+    not."""
     assert not reads(catalog_check(name), "bin/run.sh")
 
 
