@@ -6,6 +6,20 @@
 # Bash spells a variable with `$`, so rules match by kind and field and
 # capture through `pattern: $NAME` on a field, never through code patterns.
 # Every rule is a hint, so a match never fails the scan.
+# A function, written `name() { ... }` or `function name { ... }`.
+id: function
+language: Bash
+severity: hint
+rule:
+  kind: function_definition
+  has: {field: name, pattern: $NAME}
+---
+id: function-node
+language: Bash
+severity: hint
+rule:
+  kind: function_definition
+---
 id: syntax-error
 language: Bash
 severity: hint
