@@ -34,7 +34,9 @@ class Vocabulary:
     the filesystem or the network; model_ids the prefixes of a string that
     names a model; mechanism_calls the callees (a full dotted name, as
     written) that reach the filesystem or load a module by name; fakes the
-    name prefixes that mark an implementation of a port as a fake.
+    name prefixes that mark an implementation of a port as a fake; clocks
+    the type names that are a clock, and callables those that are a
+    callable, in a parameter's annotation.
 
     options_objects are the parameter names that hold an options object in
     a language with no keyword-only parameters (JavaScript): such a
@@ -56,6 +58,8 @@ class Vocabulary:
     model_ids: frozenset[str] = field(default_factory=frozenset)
     mechanism_calls: frozenset[str] = field(default_factory=frozenset)
     fakes: frozenset[str] = field(default_factory=frozenset)
+    clocks: frozenset[str] = field(default_factory=frozenset)
+    callables: frozenset[str] = field(default_factory=frozenset)
 
     def reads_environment(self, chain: str) -> bool:
         """Whether a name chain is, or runs through, an environment read
