@@ -17,6 +17,7 @@ import {
   renderSummary,
   shouldComment,
   SUMMARY_MARKER,
+  timeoutDetail,
 } from '../lib/ocr-review/record.mjs';
 
 const ok = (name, cause = null) => ({ name, outcome: 'success', cause });
@@ -119,11 +120,40 @@ test('an authorize job that crashed before deciding is unexpected, naming its st
   assert.deepEqual(end, { outcome: 'failure', cause: 'unexpected', failingStep: 'authorize / Authorize' });
 });
 
-test('a job that ended badly with no failed step (a timeout) is unexpected, naming the job', () => {
+// Key Decisions, a timeout is a cause (Issue#631): the runner cancels a job
+// at its timeout-minutes, so the job's result is cancelled with no step
+// failed, while the run itself was not cancelled.
+test('a review job the runner cancelled at its timeout ends timeout', () => {
   const end = endOfRun({ runCancelled: false, authorize: approved, review: { result: 'cancelled', steps: [ok('Credentials')] } });
-  assert.equal(end.outcome, 'failure');
+  assert.deepEqual(end, { outcome: 'failure', cause: 'timeout', failingStep: null });
+});
+
+test('a job that failed with no failed step (a runner lost) is unexpected, naming the job', () => {
+  const end = endOfRun({ runCancelled: false, authorize: approved, review: { result: 'failure', steps: [ok('Credentials')] } });
   assert.equal(end.cause, 'unexpected');
-  assert.match(end.failingStep, /^review \/ .*timeout/);
+  assert.match(end.failingStep, /^review \/ /);
+});
+
+test('a timeout summary names the limit, the pull request size and the remedy', () => {
+  const end = endOfRun({ runCancelled: false, authorize: approved, review: { result: 'cancelled', steps: [] } });
+  const record = buildRecord({
+    repo: 'o/r', pr: 7, trigger: 'comment', model: 'm', backend: 'b', ocrVersion: '1', approved: true,
+    end, range: null, judged: null, startedAt: 't0', finishedAt: 't1',
+  });
+
+  const body = renderSummary(record, { runUrl: 'https://x/run', detail: timeoutDetail({ limitMinutes: '40', changedFiles: '19' }) });
+
+  assert.match(body, /### OCR review failed: timeout/);
+  assert.match(body, /40 minutes/);
+  assert.match(body, /19 changed files/);
+  assert.match(body, /review_timeout_minutes/);
+  assert.doesNotMatch(body, /Failing step/);
+});
+
+test('a timeout summary still says what it can when the limit or size is unknown', () => {
+  const text = timeoutDetail({ limitMinutes: '', changedFiles: 'x' });
+  assert.match(text, /its time limit/);
+  assert.doesNotMatch(text, /undefined|NaN|x changed/);
 });
 
 test('a cause outside the closed set is never passed through: it becomes unexpected', () => {
@@ -158,6 +188,7 @@ test('every cause the State Machine names is in the closed set', () => {
     'runner-tool-missing',
     'unexpected',
     'engine-error',
+    'timeout',
     'reviewed-nothing',
     'nothing-reviewable',
     'cancelled',
