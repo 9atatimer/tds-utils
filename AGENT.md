@@ -478,7 +478,7 @@ main "$@"
   untouched existing content.
 - When told to swarm-code a solution (e.g. `ultracode`), automatically open a
   PR when the coding concludes -- do not wait to be asked -- then automatically
-  triage Copilot's review feedback per the github-workflow skill.
+  triage the reviewer's feedback per the github-workflow skill.
 - NEVER use interrogative prompts. Not choice menus, not "shall I proceed?",
   not "which do you prefer?". Decide, state the decision and its reason in one
   line, and act. Only ask when the answer is a value you cannot obtain or
@@ -507,9 +507,10 @@ This repo lands PRs through the tedium merge bot; the rules are in
   ("review-settled is off ... always green"). It was not in this repo's
   `pr_status` or ruleset before either. The decision code
   (`lib/review-settled.mjs`, `decide` in `bin/review-settled`) is kept and
-  tested; `main()` names the one line that turns it back on. Codex is
-  still summoned only by an `@codex review` PR comment that a HUMAN posts;
-  an agent never posts it (gates skill, Reviewer Selection). Callers pinned
+  tested; `main()` names the one line that turns it back on. The agentic
+  reviewer is OCR on Demand, summoned with a `/ocr` PR comment (this repo
+  carries the caller); Copilot and Codex review only when a HUMAN fires
+  the trigger, never an agent (gates skill, Reviewer Selection). Callers pinned
   to an older tds-utils commit keep the old verdict until they bump.
 - **Reviewers** (who may `r+`) are the repo's direct collaborators with
   push, synced by tedium. An agent acting under a reviewer's token is a
@@ -544,12 +545,12 @@ This repo lands PRs through the tedium merge bot; the rules are in
   it. This is automatic; never wait to be told to load it.
 - When you AGREE with review feedback and push a load-bearing fix (it
   changes behavior, a contract, a security property, a test's verdict, or
-  what a rule an agent or gate executes says), kick off a Copilot re-review
-  (`request_copilot_review` / `gh pr edit --add-reviewer @copilot`) so the
-  next round fires. A hygiene-only push (wording, typos, comments,
+  what a rule an agent or gate executes says), re-summon OCR with a fresh
+  `/ocr` comment so the next round fires; never a Copilot or Codex
+  trigger, which are the human's. A hygiene-only push (wording, typos, comments,
   documentation accuracy) gets its SHA in the thread reply and NO
   re-review. A documentation-only PR (every changed file is human-read
-  prose) gets the adversarial self-review alone -- no Copilot, no Codex;
+  prose) gets the adversarial self-review alone -- no agentic reviewer;
   a design or architecture draft in phases 2 and 3 gets designomatic
   instead. Skills, personas, this file, `clai.d/AGENT.global.md`, prompts,
   CI workflows and gate configuration are operating rules, not
