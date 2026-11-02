@@ -1,0 +1,6 @@
+# The shell code model's fixture: a small copy of bin/tds-release's shape.
+
+[layers]
+domain = ["lib/checks.sh"]
+test = ["test/**"]
+regions = [{ file = "bin/release.sh" }, { file = "bin/backwards.sh" }]

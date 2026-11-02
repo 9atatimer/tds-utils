@@ -13,8 +13,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from adherence.adapters.git import GitRepository
+from adherence.adapters.markdown_records import MarkdownRecords
 from adherence.adapters.no_judge import NoJudge
 from adherence.adapters.python_ast import PythonCodeModel
+from adherence.adapters.shell_astgrep import ShellCodeModel
 from adherence.adapters.ts_depcruise import TypeScriptCodeModel
 from adherence.domain.model import CodeLanguage, Layer
 from adherence.domain.parameters import Limits, Parameters, Vocabulary
@@ -27,6 +29,191 @@ from adherence.ports.records import RecordsPort
 from adherence.ports.repository import RepositoryPort
 
 # --- Shipped parameters --------------------------------------------------------
+
+# The language's own type names, which a signature names but which are no
+# noun of the problem: Python's, and TypeScript's (shared by JavaScript) --
+# its primitive and utility types and the keywords a type's text may hold.
+# Each applies only to a unit in its own language: a Python type named
+# Record or Error is a noun of the problem.
+PYTHON_PLAIN_TYPES = frozenset(
+    {
+        "str",
+        "int",
+        "float",
+        "complex",
+        "bool",
+        "bytes",
+        "bytearray",
+        "object",
+        "None",
+        "type",
+        "list",
+        "dict",
+        "set",
+        "frozenset",
+        "tuple",
+        "Any",
+        "Optional",
+        "Union",
+        "Literal",
+        "Final",
+        "ClassVar",
+        "Annotated",
+        "Self",
+        "Never",
+        "NoReturn",
+        "TypeVar",
+        "Generic",
+        "Protocol",
+        "Callable",
+        "Awaitable",
+        "Coroutine",
+        "Iterable",
+        "Iterator",
+        "Generator",
+        "AsyncIterable",
+        "AsyncIterator",
+        "Sequence",
+        "MutableSequence",
+        "Mapping",
+        "MutableMapping",
+        "Collection",
+        "Container",
+        "Set",
+        "AbstractSet",
+        "MutableSet",
+        "Hashable",
+        "Sized",
+        "Reversible",
+        "KeysView",
+        "ValuesView",
+        "ItemsView",
+        "MappingView",
+        "AsyncGenerator",
+        "ContextManager",
+        "AsyncContextManager",
+        "AbstractContextManager",
+        "AbstractAsyncContextManager",
+        "Buffer",
+        "SupportsInt",
+        "SupportsFloat",
+        "SupportsIndex",
+        "SupportsAbs",
+        "SupportsBytes",
+        "SupportsComplex",
+        "SupportsRound",
+        "Dict",
+        "List",
+        "Tuple",
+        "FrozenSet",
+        "Type",
+        "Text",
+        "AnyStr",
+        "DefaultDict",
+        "OrderedDict",
+        "Counter",
+        "ChainMap",
+        "Deque",
+        "defaultdict",
+        "deque",
+        "NamedTuple",
+        "TypedDict",
+        "TypeAlias",
+        "TypeGuard",
+        "TypeIs",
+        "TypeVarTuple",
+        "ParamSpec",
+        "Concatenate",
+        "Required",
+        "NotRequired",
+        "ReadOnly",
+        "Unpack",
+        "LiteralString",
+        "IO",
+        "TextIO",
+        "BinaryIO",
+        "Pattern",
+        "Match",
+        "range",
+        "slice",
+        "memoryview",
+        "Exception",
+        "BaseException",
+        "NoneType",
+        "EllipsisType",
+        "NotImplementedType",
+        "datetime",
+        "date",
+        "time",
+        "timedelta",
+        "timezone",
+        "tzinfo",
+        "Decimal",
+        "Fraction",
+        "UUID",
+        "Path",
+        "PurePath",
+        "PosixPath",
+        "PurePosixPath",
+        "WindowsPath",
+        "PureWindowsPath",
+        "Enum",
+        "IntEnum",
+        "StrEnum",
+        "Flag",
+        "IntFlag",
+    }
+)
+TYPESCRIPT_PLAIN_TYPES = frozenset(
+    {
+        "string",
+        "number",
+        "boolean",
+        "bigint",
+        "symbol",
+        "undefined",
+        "null",
+        "void",
+        "unknown",
+        "never",
+        "any",
+        "Object",
+        "keyof",
+        "typeof",
+        "readonly",
+        "unique",
+        "infer",
+        "extends",
+        "is",
+        "asserts",
+        "true",
+        "false",
+        "Promise",
+        "PromiseLike",
+        "Array",
+        "ReadonlyArray",
+        "Record",
+        "Partial",
+        "Readonly",
+        "Pick",
+        "Omit",
+        "Exclude",
+        "Extract",
+        "NonNullable",
+        "ReturnType",
+        "Parameters",
+        "InstanceType",
+        "Awaited",
+        "Map",
+        "ReadonlyMap",
+        "ReadonlySet",
+        "WeakMap",
+        "WeakSet",
+        "Date",
+        "RegExp",
+        "Error",
+    }
+)
 
 SHIPPED_VOCABULARY = Vocabulary(
     regions={
@@ -48,7 +235,7 @@ SHIPPED_VOCABULARY = Vocabulary(
         }
     ),
     sleeps=frozenset({"sleep", "setTimeout"}),
-    stubs=frozenset({"pass", "...", "NotImplementedError", "{}"}),
+    stubs=frozenset({"pass", "...", "NotImplementedError", "{}", ":"}),
     options_objects=frozenset({"deps"}),
     tests=frozenset({"test", "it"}),
     assertions=frozenset({"assert", "expect"}),
@@ -90,6 +277,34 @@ SHIPPED_VOCABULARY = Vocabulary(
         }
     ),
     fakes=frozenset({"Fake", "InMemory"}),
+    clocks=frozenset({"Clock"}),
+    callables=frozenset({"Callable"}),
+    wire_formats=frozenset(
+        {
+            "bytearray",
+            "memoryview",
+            "Request",
+            "Response",
+            "HTTPResponse",
+            "JSONResponse",
+            "ClientResponse",
+            "ClientSession",
+            "Session",
+            "Connection",
+            "Cursor",
+            "Namespace",
+            "Popen",
+            "CompletedProcess",
+        }
+    ),
+    singletons=frozenset(
+        {"sys.argv", "sys.stdin", "sys.stdout", "sys.stderr", "sys.modules", "sys.path"}
+    ),
+    plain_types={
+        CodeLanguage.PYTHON: PYTHON_PLAIN_TYPES,
+        CodeLanguage.TYPESCRIPT: TYPESCRIPT_PLAIN_TYPES,
+        CodeLanguage.JAVASCRIPT: TYPESCRIPT_PLAIN_TYPES,
+    },
 )
 SHIPPED_LIMITS = Limits(evidence_bound=200)
 SHIPPED_PARAMETERS = Parameters(
@@ -112,8 +327,7 @@ class Stage(enum.Enum):
 class Container:
     """The ports bound for one stage, and the parameters. A port with no
     adapter in this suite version is None until a test passes a fake: the
-    complexity and duplication adapters land in task-061, the records
-    adapter in task-059."""
+    complexity and duplication adapters land in task-061."""
 
     stage: Stage
     repository: RepositoryPort
@@ -151,14 +365,16 @@ def build(
             CodeLanguage.PYTHON: PythonCodeModel(),
             CodeLanguage.TYPESCRIPT: typescript,
             CodeLanguage.JAVASCRIPT: typescript,
+            CodeLanguage.SHELL: ShellCodeModel(),
         }
+    bound = repository if repository is not None else GitRepository(root)
     return Container(
         stage=stage,
-        repository=repository if repository is not None else GitRepository(root),
+        repository=bound,
         analyzers=analyzers,
         judge=judge if judge is not None else NoJudge(),
         complexity=complexity,
         duplication=duplication,
-        records=records,
+        records=records if records is not None else MarkdownRecords(bound),
         parameters=SHIPPED_PARAMETERS,
     )

@@ -26,7 +26,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 
 from adherence.domain.deadline import Deadline
-from adherence.domain.declaration import Declaration, layer_of
+from adherence.domain.declaration import Declaration, layer_of, marker_regions
 from adherence.domain.model import (
     Access,
     AccessKind,
@@ -46,6 +46,7 @@ from adherence.domain.model import (
     TestCase,
     Unit,
     UnitKind,
+    Unparsed,
     Write,
 )
 from adherence.domain.model import merged as merged_models
@@ -55,6 +56,8 @@ from adherence.domain.source import source_lines
 # --- Constants ---------------------------------------------------------------
 
 RULES = Path(__file__).resolve().parent / "astgrep_rules"
+NESTED_TOO_DEEPLY = "nested deeper than the analyzer can walk"
+LEAVES = "the path leaves the repository; not read"
 BINARY = Path(sys.executable).with_name("ast-grep")
 IGNORE_FILES = ("hidden", "dot", "exclude", "global", "parent", "vcs")
 # Facts: each rule's id names one.
@@ -455,27 +458,29 @@ def body_text(text: str) -> str:
     return "\n".join(line.rstrip() for line in lines)
 
 
-def _bodies(file: _File, vocabulary: Vocabulary) -> dict[str, Body]:
-    """Each definition's body by symbol: its text, the placeholder it is if
-    it is nothing but one, and the lines it calls a sleep on outside nested
-    definitions."""
+def _bodies(file: _File, vocabulary: Vocabulary) -> dict[Span, Body]:
+    """Each definition's body by its node's span: its text, the placeholder
+    it is if it is nothing but one, and the lines it calls a sleep on outside
+    nested definitions. Keyed by span, not symbol: a shell function defined
+    once per branch of an `if` is two definitions of one name."""
     bodies = _spans(file.of(BODY))
     stubs = _spans(file.of(STUB))
-    sleeps: dict[str, set[int]] = {}
+    sleeps: dict[Span, set[int]] = {}
     for call in file.of(CALL):
         owner = file.owner_of(call)
         if owner is not None and vocabulary.is_sleep(_callee(call)):
-            sleeps.setdefault(owner.symbol, set()).add(call.line)
-    found: dict[str, Body] = {}
+            owned = (owner.match.start, owner.match.end)
+            sleeps.setdefault(owned, set()).add(call.line)
+    found: dict[Span, Body] = {}
     for d in file.defined:
         span = (d.match.start, d.match.end)
         stub = stubs.get(span)
         form = None if stub is None else stub.captured(THROWN) or EMPTY_BLOCK
         body = bodies.get(span)
-        found[d.symbol] = Body(
+        found[span] = Body(
             body_text(body.captured(BODY_CAPTURE) or "") if body else "",
             (form,) if form is not None and form in vocabulary.stubs else (),
-            tuple(sorted(sleeps.get(d.symbol, ()))),
+            tuple(sorted(sleeps.get(span, ()))),
         )
     return found
 
@@ -546,7 +551,7 @@ def definitions(
             signature=signatures.get((d.match.start, d.match.end))
             if d.kind is UnitKind.FUNCTION
             else None,
-            body=bodies[d.symbol],
+            body=bodies[(d.match.start, d.match.end)],
             bases=tuple(bases.get(d.symbol, ())),
             decorators=tuple(decorators.get(d.symbol, ())),
             parent=d.parent,
@@ -801,6 +806,69 @@ def merged(models: Sequence[CodeModel], **rest: object) -> CodeModel:
     """One CodeModel holding every fact of each, with the fields given in
     place of theirs."""
     return replace(merged_models(models), **rest)  # type: ignore[arg-type]
+
+
+def readable_sources(
+    sources: Mapping[str, bytes],
+) -> tuple[dict[str, bytes], list[Unparsed]]:
+    """The sources inside the repository that are UTF-8, and why each other
+    one is not read."""
+    readable: dict[str, bytes] = {}
+    unreadable: list[Unparsed] = []
+    for path in sorted(sources):
+        if not stays_inside(path):
+            unreadable.append(Unparsed(path=path, reason=LEAVES))
+            continue
+        try:
+            sources[path].decode("utf-8")
+        except UnicodeDecodeError as error:
+            unreadable.append(Unparsed(path=path, reason=f"not utf-8: {error}"))
+            continue
+        readable[path] = sources[path]
+    return readable, unreadable
+
+
+def regions_of(
+    sources: Mapping[str, bytes], declaration: Declaration, vocabulary: Vocabulary
+) -> tuple[tuple[Region, ...], tuple[Region, ...]]:
+    """The declaration's line regions of the files handed over, and the
+    regions their section markers open."""
+    declared = tuple(r for r in declaration.layers.regions if r.path in sources)
+    found = tuple(
+        region
+        for path in declaration.layers.marker_files
+        if path in sources
+        for region in marker_regions(
+            path, sources[path].decode("utf-8", "replace"), vocabulary
+        )
+    )
+    return declared, found
+
+
+def file_models(
+    parsed: Mapping[str, bytes],
+    matches: Sequence[Match],
+    declaration: Declaration,
+    regions: Sequence[Region],
+    vocabulary: Vocabulary,
+) -> tuple[list[CodeModel], list[Unparsed]]:
+    """Each parsed file's facts, and the files nested past the walk."""
+    by_path: dict[str, list[Match]] = {path: [] for path in parsed}
+    for match in matches:
+        if match.path in by_path:
+            by_path[match.path].append(match)
+    files: list[CodeModel] = []
+    deep: list[Unparsed] = []
+    for path in sorted(parsed):
+        try:
+            files.append(
+                file_model(
+                    path, parsed[path], by_path[path], declaration, regions, vocabulary
+                )
+            )
+        except RecursionError:
+            deep.append(Unparsed(path=path, reason=NESTED_TOO_DEEPLY))
+    return files, deep
 
 
 # --- Effectful helpers -------------------------------------------------------

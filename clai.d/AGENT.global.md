@@ -51,7 +51,7 @@ file points there.
 - Lower a gate only in a change that first clears the current gate and merges; never `--no-verify` or disable a check.
 - Fetch the default branch's HEAD before judging what a workflow does; a stale branch says nothing about what is live.
 - Review each non-doc PR once; re-review only after a load-bearing fix.
-- Copilot is out of quota: self-review is the whole review until the owner says otherwise.
+- OCR on Demand (`/ocr`) is the agentic reviewer an agent summons; Copilot and Codex only when the owner fires the trigger.
 - Never sign your work: no `Co-Authored-By`, session link or "Generated with" line in any commit, PR, issue or comment.
 
 ## Never sign your work
@@ -87,22 +87,26 @@ the todo-plan skill. Then say in one line that it was filed, with the link.
 
 ## Review turns are expensive: spend them on load-bearing fixes
 
-**Copilot is out of quota (owner, 2026-10-02).** Until the owner says it
-is back, request no Copilot review on any PR: the adversarial self-review
-(the self-review skill) is the whole review, and a re-review below means a
-self-review re-review. Codex stays human-summoned only.
+**OCR on Demand is the default agentic reviewer (owner, 2026-11-02).**
+Summon it with a `/ocr` PR comment once per PR that is not
+documentation-only, on a repo that carries the caller; where the repo
+has none, or every reviewable file is Markdown, summon nothing and name
+the unserved rung in the handoff. Copilot and Codex review only when the
+owner fires the trigger: a day of default Copilot reviews spent half the
+monthly quota. An agent never requests a Copilot review and never posts
+`@codex review`, not even to re-review a fix (the gates skill, Reviewer
+Selection).
 
-Once quota is back: request a Copilot review once per PR that is not
-documentation-only, and a re-review only when a push carries a load-bearing
-fix -- behavior, a contract, security, a test's verdict, or what a rule an
-agent or gate executes says. Hygiene (wording, typos, comments,
-documentation accuracy) is fixed and pushed, never re-reviewed, in
-self-review as much as in Copilot or Codex. When a round brings no value,
-stop requesting rounds; `review-settled` going red on a stale review is not
-a reason to spend quota.
+Re-summon only when a push carries a load-bearing fix -- behavior, a
+contract, security, a test's verdict, or what a rule an agent or gate
+executes says. Hygiene (wording, typos, comments, documentation accuracy)
+is fixed and pushed, never re-reviewed, in self-review as much as in any
+bot review. When a round brings no value, stop requesting rounds;
+`review-settled` going red on a stale review is not a reason to spend a
+run.
 
 A documentation-only PR -- every changed file is human-read prose -- gets
-no Copilot and no Codex: the adversarial self-review is sufficient,
+no agentic reviewer: the adversarial self-review is sufficient,
 except that design and architecture drafts in phases 2 and 3 get
 designomatic. Skills, personas, `AGENT.md`, prompts, CI workflows and
 gate configuration are operating rules, not documentation; a PR touching

@@ -77,6 +77,16 @@ on:
         description: The tds-utils commit to run the step commands from; the same SHA the caller pins this workflow at.
         type: string
         required: true
+      review_runs_on:
+        description: Runner labels for the review job only, as JSON (e.g. '["self-hosted","cf-pool-docker"]' for the pool's 20-minute class); empty uses CI_RUNS_ON.
+        type: string
+        required: false
+        default: ''
+      review_timeout_minutes:
+        description: The review job's timeout; keep it under the ceiling of the runner review_runs_on names (9 under the standard pool's 10 minutes, 19 under the Docker class's 20).
+        type: number
+        required: false
+        default: 9
     secrets:
       OLLAMA_GATEWAY_OP_SA_TOKEN:
         description: The 1Password service-account token that reads the gateway caller item.
@@ -160,11 +170,12 @@ jobs:
     name: review
     needs: [authorize]
     if: needs.authorize.outputs.decision == 'approve'
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') }}
-    # Under the pool's 10-minute ceiling. The probe alone may retry a cold
-    # model for 6 minutes, which leaves little for the review itself; the
-    # pilot (task-051) measures a real review against this.
-    timeout-minutes: 9
+    # The caller may give this job alone a longer-ceiling runner and timeout
+    # (design Key Decisions, a review's length on opt-in). By default it runs
+    # on CI_RUNS_ON with 9 minutes, under the standard pool's 10-minute
+    # ceiling; the probe alone may retry a cold model for 6 of them.
+    runs-on: ${{ fromJSON(inputs.review_runs_on || vars.CI_RUNS_ON || '"ubuntu-latest"') }}
+    timeout-minutes: ${{ inputs.review_timeout_minutes }}
     env:
       # ocr's npm launcher otherwise checks the registry and upgrades itself,
       # defeating the exact pin; telemetry and raw request capture are off

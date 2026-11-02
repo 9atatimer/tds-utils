@@ -164,6 +164,40 @@ def test_measure_with_no_analyzer_for_python_reports_its_units() -> None:
     assert any(c.path == RULES and "python" in c.reason for c in report.coverage)
 
 
+SCRIPT = "src/app/domain/run.sh"
+
+
+def test_measure_reports_each_check_that_does_not_read_shell_per_script() -> None:
+    """Given a declared repository whose domain holds a Python file and a
+    script, each modelled with an environment read, When a run is asked for,
+    Then every check that ran and does not read shell reports coverage
+    naming the script, no finding is about the script, and the Python
+    file's read is still found."""
+    python = CodeModel(
+        accesses=(Access(RULES, 1, None, AccessKind.ENVIRONMENT, "os.environ"),)
+    )
+    shell = CodeModel(
+        accesses=(Access(SCRIPT, 1, None, AccessKind.ENVIRONMENT, "os.environ"),)
+    )
+
+    report = measure_with(
+        {RULES: b"x = 1\n", SCRIPT: b"echo $HOME\n"},
+        analyzers={
+            CodeLanguage.PYTHON: FakeCodeModel(facts=python),
+            CodeLanguage.SHELL: FakeCodeModel(facts=shell),
+        },
+    )
+
+    unread = {c.check: c.reason for c in report.coverage if c.path == SCRIPT}
+    assert "Grep" in unread
+    assert unread == {
+        check.name: "does not read shell"
+        for check in report.ran
+        if check.name not in {"Anatomy", "Stub", "Dependency"}
+    }
+    assert [f.unit.path for f in report.findings if f.check.name == "Grep"] == [RULES]
+
+
 LONG = "k = os.environ['" + "x" * 300 + "']"
 BODY = f"def load():\n    secret = 'body line'\n    {LONG}\n    return k\n".encode()
 LOAD = CodeModel(
@@ -178,7 +212,7 @@ def test_measure_quotes_the_offending_line_and_no_more_of_the_body() -> None:
     evidence, never another line of the unit's body."""
     report = measure_with({RULES: BODY}, LOAD, limits=Limits(evidence_bound=1000))
 
-    (leak,) = report.findings
+    (leak,) = [f for f in report.findings if f.check.name == "Grep"]
     assert (leak.unit.path, leak.unit.symbol, leak.evidence.line) == (RULES, "load", 3)
     assert leak.evidence.text == LONG
     assert "body line" not in leak.evidence.text and "return" not in leak.evidence.text
@@ -189,7 +223,7 @@ def test_measure_cuts_the_quoted_line_at_the_evidence_bound() -> None:
     is written, Then the evidence quotes no more than the bound."""
     report = measure_with({RULES: BODY}, LOAD, limits=Limits(evidence_bound=40))
 
-    (leak,) = report.findings
+    (leak,) = [f for f in report.findings if f.check.name == "Grep"]
     assert leak.evidence.text == LONG[:40]
 
 
