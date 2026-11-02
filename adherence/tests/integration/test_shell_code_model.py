@@ -202,3 +202,27 @@ def test_a_file_the_grammar_cannot_read_is_unparsed_and_the_rest_modelled() -> N
         ("ok.sh", None),
         ("ok.sh", "g"),
     }
+
+
+def test_a_function_defined_twice_keeps_each_body() -> None:
+    """Given a script that defines a function once per branch of an `if`,
+    a `:` placeholder in one and real work that sleeps in the other, When it
+    is modelled, Then each definition carries its own body, stub marker and
+    sleep lines, not the other's."""
+    model = _model_of(
+        {
+            "m.sh": b'if [ "$(uname)" = Darwin ]; then\n'
+            b"  open_it() { :; }\n"
+            b"else\n"
+            b'  open_it() { xdg-open "$1"; sleep 1; }\n'
+            b"fi\n"
+        }
+    )
+
+    assert [
+        (d.unit.start, d.body.text, d.body.stub_markers, d.body.sleeps)
+        for d in model.definitions
+    ] == [
+        (2, ":;", (":",), ()),
+        (4, 'xdg-open "$1"; sleep 1;', (), (4,)),
+    ]

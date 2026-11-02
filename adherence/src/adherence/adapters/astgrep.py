@@ -458,27 +458,29 @@ def body_text(text: str) -> str:
     return "\n".join(line.rstrip() for line in lines)
 
 
-def _bodies(file: _File, vocabulary: Vocabulary) -> dict[str, Body]:
-    """Each definition's body by symbol: its text, the placeholder it is if
-    it is nothing but one, and the lines it calls a sleep on outside nested
-    definitions."""
+def _bodies(file: _File, vocabulary: Vocabulary) -> dict[Span, Body]:
+    """Each definition's body by its node's span: its text, the placeholder
+    it is if it is nothing but one, and the lines it calls a sleep on outside
+    nested definitions. Keyed by span, not symbol: a shell function defined
+    once per branch of an `if` is two definitions of one name."""
     bodies = _spans(file.of(BODY))
     stubs = _spans(file.of(STUB))
-    sleeps: dict[str, set[int]] = {}
+    sleeps: dict[Span, set[int]] = {}
     for call in file.of(CALL):
         owner = file.owner_of(call)
         if owner is not None and vocabulary.is_sleep(_callee(call)):
-            sleeps.setdefault(owner.symbol, set()).add(call.line)
-    found: dict[str, Body] = {}
+            owned = (owner.match.start, owner.match.end)
+            sleeps.setdefault(owned, set()).add(call.line)
+    found: dict[Span, Body] = {}
     for d in file.defined:
         span = (d.match.start, d.match.end)
         stub = stubs.get(span)
         form = None if stub is None else stub.captured(THROWN) or EMPTY_BLOCK
         body = bodies.get(span)
-        found[d.symbol] = Body(
+        found[span] = Body(
             body_text(body.captured(BODY_CAPTURE) or "") if body else "",
             (form,) if form is not None and form in vocabulary.stubs else (),
-            tuple(sorted(sleeps.get(d.symbol, ()))),
+            tuple(sorted(sleeps.get(span, ()))),
         )
     return found
 
@@ -549,7 +551,7 @@ def definitions(
             signature=signatures.get((d.match.start, d.match.end))
             if d.kind is UnitKind.FUNCTION
             else None,
-            body=bodies[d.symbol],
+            body=bodies[(d.match.start, d.match.end)],
             bases=tuple(bases.get(d.symbol, ())),
             decorators=tuple(decorators.get(d.symbol, ())),
             parent=d.parent,
