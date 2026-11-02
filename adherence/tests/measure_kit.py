@@ -46,7 +46,11 @@ VOCABULARY = Vocabulary(
     callables=frozenset({"Callable"}),
     wire_formats=frozenset({"dict", "Response"}),
     singletons=frozenset({"sys.argv"}),
-    plain_types=frozenset({"Sequence", "tuple", "None", "str", "int", "list"}),
+    plain_types={
+        CodeLanguage.PYTHON: frozenset(
+            {"Sequence", "tuple", "None", "str", "int", "list"}
+        )
+    },
 )
 LIMITS = Limits(evidence_bound=200)
 

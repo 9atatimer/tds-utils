@@ -65,6 +65,13 @@ def language_of(path: str) -> str | None:
     return LANGUAGE_EXTENSIONS.get(f".{extension}")
 
 
+def code_language_of(path: str) -> CodeLanguage | None:
+    """The measured language a source path is written in; None when the
+    suite does not measure it."""
+    name = language_of(path)
+    return next((c for c in CodeLanguage if c.value == name), None)
+
+
 class Layer(enum.Enum):
     """The closed layer set (DESIGN.ARCH-ADHERENCE.md, Units and layers)."""
 

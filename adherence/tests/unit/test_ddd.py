@@ -5,9 +5,10 @@ surface). The judged parts are task-064's."""
 
 from __future__ import annotations
 
+from adherence.adapters.fakes import FakeCodeModel
 from adherence.container import SHIPPED_VOCABULARY
 from adherence.domain.finding import Finding
-from adherence.domain.model import Binding, Layer, Write
+from adherence.domain.model import Binding, CodeLanguage, Layer, Write
 from adherence.domain.records import DesignRecords, Term
 from adherence.domain.report import Report
 from tests.facts_kit import (
@@ -345,10 +346,11 @@ def test_measure_with_typescript_signature_types_finds_no_foreign_noun() -> None
     type's parameter names (`(order: Order) => void`), When Language runs,
     Then no finding names them: a member or parameter name in a type is no
     noun, and TypeScript's own types are no noun of the problem."""
-    files = {USE: b"x\n" * 9}
+    use = "src/app/application/use.ts"
+    files = {use: b"x\n" * 9}
     definitions = [
         function(
-            USE,
+            use,
             "closeOrder",
             1,
             (
@@ -368,7 +370,10 @@ def test_measure_with_typescript_signature_types_finds_no_foreign_noun() -> None
     )
 
     report = measure_with(
-        files, facts(definitions), records=records, vocabulary=SHIPPED_VOCABULARY
+        files,
+        records=records,
+        vocabulary=SHIPPED_VOCABULARY,
+        analyzers={CodeLanguage.TYPESCRIPT: FakeCodeModel(facts=facts(definitions))},
     )
 
     assert "Language" in {c.name for c in report.ran}

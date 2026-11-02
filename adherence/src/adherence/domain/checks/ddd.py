@@ -32,6 +32,7 @@ from adherence.domain.model import (
     MemberKind,
     UnitKind,
     Write,
+    code_language_of,
 )
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
@@ -120,17 +121,18 @@ def signature_nouns(
     use_case: Definition, vocabulary: Vocabulary, mechanism: frozenset[str]
 ) -> list[str]:
     """The type names a use case's signature carries, each once, in order,
-    without the language's own types and without the mechanism's."""
+    without its language's own types and without the mechanism's."""
     signature = use_case.signature
     if signature is None:
         return []
+    code_language = code_language_of(use_case.unit.path)
     annotations = [*(p.annotation for p in signature.parameters), signature.returns]
     nouns: list[str] = []
     for annotation in annotations:
         for name in annotation_names(annotation):
             noun = short_name(name)
             if (
-                noun not in vocabulary.plain_types
+                not vocabulary.is_plain(noun, code_language)
                 and noun not in mechanism
                 and noun not in nouns
             ):

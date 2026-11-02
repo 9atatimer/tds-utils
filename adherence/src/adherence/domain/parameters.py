@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from adherence.domain.model import Layer
+from adherence.domain.model import CodeLanguage, Layer
 from adherence.domain.questions import ThresholdPolicy
 
 
@@ -39,9 +39,10 @@ class Vocabulary:
     callable, in a parameter's annotation.
     wire_formats are the type names -- a wire format, or an SDK type or
     handle known by name -- that no use-case signature may carry; singletons
-    the dotted names that reach a process-wide instance; plain_types the
+    the dotted names that reach a process-wide instance; plain_types each
     language's own type names, which a signature names but which are no
-    noun of the problem.
+    noun of the problem -- by language, since a name one language owns
+    (TypeScript's `Record`) is a noun of the problem in another.
 
     options_objects are the parameter names that hold an options object in
     a language with no keyword-only parameters (JavaScript): such a
@@ -67,7 +68,7 @@ class Vocabulary:
     callables: frozenset[str] = field(default_factory=frozenset)
     wire_formats: frozenset[str] = field(default_factory=frozenset)
     singletons: frozenset[str] = field(default_factory=frozenset)
-    plain_types: frozenset[str] = field(default_factory=frozenset)
+    plain_types: Mapping[CodeLanguage, frozenset[str]] = field(default_factory=dict)
 
     def reads_environment(self, chain: str) -> bool:
         """Whether a name chain is, or runs through, an environment read
@@ -85,6 +86,13 @@ class Vocabulary:
     def asserts(self, callee: str) -> bool:
         """Whether a callee asserts."""
         return any(_is_or_on(callee, name) for name in self.assertions)
+
+    def is_plain(self, name: str, language: CodeLanguage | None) -> bool:
+        """Whether a type name is the language's own; no name is plain in
+        a unit of no language the suite measures."""
+        if language is None:
+            return False
+        return name in self.plain_types.get(language, frozenset())
 
     def is_sleep(self, callee: str) -> bool:
         """Whether a callee waits, by its full dotted name or its last part."""
