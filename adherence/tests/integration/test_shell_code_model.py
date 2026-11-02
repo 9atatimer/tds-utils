@@ -131,3 +131,46 @@ def test_stubs_come_from_the_vocabulary() -> None:
 
     assert isinstance(model, CodeModel)
     assert [d.body.stub_markers for d in model.definitions] == [()]
+
+
+def test_calls_are_every_command_run_with_the_function_it_sits_in() -> None:
+    """Given a script that runs commands at the top, in functions, in a
+    command substitution, a negated condition, a redirection and a
+    pipeline, When the fixture is modelled, Then each command is a call
+    naming its callee as written, its line, and the function it sits in;
+    a declaration such as `local` is none."""
+    calls = {
+        (c.within, c.callee, c.line)
+        for c in fixture_model().calls
+        if c.path == "bin/release.sh"
+    }
+
+    assert calls == {
+        (None, "set", 5),
+        ("fetch_line", "git", 9),
+        ("head_of", "git", 13),
+        ("wait_for_lock", "sleep", 17),
+        ("release_unit", "head_of", 23),
+        ("release_unit", "is_ancestor", 24),
+        ("release_unit", "echo", 25),
+        ("release_unit", "return", 26),
+        ("release_unit", "fetch_line", 28),
+        ("release_unit", "tee", 28),
+        ("rollback", ":", 33),
+        ("main", "release_unit", 38),
+        (None, "main", 41),
+    }
+
+
+def test_bodies_carry_the_lines_they_sleep_on() -> None:
+    """Given a function that runs `sleep`, and a one-line body that sleeps
+    inside a list of commands, When they are modelled, Then each body
+    carries the line it sleeps on and no other body does."""
+    model = _model_of({"m.sh": b"nap() { sleep 1; jq -r . | sort; }\nf() {\n  g\n}\n"})
+
+    assert _definition("bin/release.sh", "wait_for_lock").body.sleeps == (17,)
+    assert _definition("bin/release.sh", "fetch_line").body.sleeps == ()
+    assert {d.unit.symbol: d.body.sleeps for d in model.definitions} == {
+        "nap": (1,),
+        "f": (),
+    }
