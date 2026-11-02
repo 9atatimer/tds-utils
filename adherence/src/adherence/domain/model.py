@@ -7,8 +7,8 @@ Every analyzer produces one CodeModel; every check reads only that
 from __future__ import annotations
 
 import enum
-from collections.abc import Collection, Sequence
-from dataclasses import dataclass, fields
+from collections.abc import Collection, Mapping, Sequence
+from dataclasses import dataclass, fields, replace
 
 # --- Values ------------------------------------------------------------------
 
@@ -146,7 +146,9 @@ class UnitKind(enum.Enum):
 class Unit:
     """What a check is over: a file, or a function or type in it, with its
     qualified symbol (None for a file), its lines and its layer (None when
-    the declaration does not cover it)."""
+    the declaration does not cover it). `language` is set on a file whose
+    name does not say its language, as a script with no extension does;
+    otherwise the path's extension says it."""
 
     path: str
     kind: UnitKind
@@ -154,6 +156,7 @@ class Unit:
     start: int
     end: int
     layer: Layer | None
+    language: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -474,3 +477,17 @@ def without(model: CodeModel, paths: Collection[str]) -> CodeModel:
         for f in fields(Metrics)
     }
     return CodeModel(**families, metrics=Metrics(**metrics))
+
+
+def with_languages(model: CodeModel, languages: Mapping[str, str]) -> CodeModel:
+    """The CodeModel with each file unit of the paths given marked in its
+    language, for files whose name does not say it."""
+    return replace(
+        model,
+        units=tuple(
+            replace(u, language=languages[u.path])
+            if u.kind is UnitKind.FILE and u.path in languages
+            else u
+            for u in model.units
+        ),
+    )

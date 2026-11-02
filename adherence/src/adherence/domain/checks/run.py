@@ -84,20 +84,26 @@ def _not_run(check: Check) -> Coverage:
     return Coverage(NOT_IN_SUITE, check=check.name)
 
 
-def reads(check: Check, path: str) -> bool:
-    """Whether the check reads the language a file is written in."""
-    language = language_of(path)
+def reads_language(check: Check, language: str | None) -> bool:
+    """Whether the check reads a language (None: a file in none)."""
     if language is None or language not in READ_BY:
         return True
     return check.name in READ_BY[language]
 
 
+def reads(check: Check, path: str) -> bool:
+    """Whether the check reads the language a file is written in."""
+    return reads_language(check, language_of(path))
+
+
 def unread_by(check: Check, model: CodeModel) -> tuple[str, ...]:
-    """Every file whose language the check does not read."""
+    """Every file whose language the check does not read: the language its
+    unit was measured in, else the one its extension names."""
     return tuple(
         u.path
         for u in model.units
-        if u.kind is UnitKind.FILE and not reads(check, u.path)
+        if u.kind is UnitKind.FILE
+        and not reads_language(check, u.language or language_of(u.path))
     )
 
 
@@ -114,6 +120,11 @@ def run_checks(
     coverage: list[Coverage] = []
     # A file in no layer is already coverage (domain/coverage, UNASSIGNED).
     layered = {u.path for u in model.units if u.layer is not None}
+    languages = {
+        u.path: u.language or language_of(u.path)
+        for u in model.units
+        if u.kind is UnitKind.FILE
+    }
     for check in CATALOG:
         run = TARGET_CHECKS.get(check.name)
         if run is None:
@@ -125,7 +136,7 @@ def run_checks(
             ran.append(check)
             coverage.extend(
                 Coverage(
-                    f"does not read {language_of(path)}", check=check.name, path=path
+                    f"does not read {languages[path]}", check=check.name, path=path
                 )
                 for path in unread
                 if path in layered

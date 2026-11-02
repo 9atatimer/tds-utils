@@ -13,7 +13,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from adherence.domain.checks.run import run_checks
-from adherence.domain.coverage import Coverage, unmeasured, unmodelled
+from adherence.domain.coverage import (
+    Coverage,
+    unmeasured,
+    unmeasured_in,
+    unmodelled,
+    unread_script,
+)
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
     Declaration,
@@ -26,8 +32,11 @@ from adherence.domain.model import (
     CodeLanguage,
     CodeModel,
     Metrics,
+    has_no_extension,
     language_of,
     merged,
+    script_language,
+    with_languages,
 )
 from adherence.domain.parameters import Parameters
 from adherence.domain.records import DesignRecords, RecordsUnavailable
@@ -49,6 +58,43 @@ class _Read:
 
     sources: dict[str, bytes]
     coverage: tuple[Coverage, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _Scripts:
+    """The shell scripts found by shebang among files with no extension,
+    read, and the coverage for every other one found or not read."""
+
+    shell: dict[str, bytes]
+    coverage: tuple[Coverage, ...]
+
+
+def _read_scripts(
+    paths: tuple[str, ...],
+    at: Base | Head,
+    repository: RepositoryPort,
+    deadline: Deadline | None,
+) -> _Scripts:
+    """Each file with no extension, read for its shebang (Issue#638). A file
+    that cannot be read is not known to be a source, so only a read cut off
+    by the deadline is coverage."""
+    shell: dict[str, bytes] = {}
+    coverage: list[Coverage] = []
+    for path in paths:
+        if not has_no_extension(path):
+            continue
+        data = repository.read(path, at, deadline)
+        if isinstance(data, TimedOut):
+            coverage.append(Coverage(f"{data.operation}: timed out", path=path))
+            continue
+        if not isinstance(data, bytes):
+            continue
+        language = script_language(data)
+        if language == CodeLanguage.SHELL.value:
+            shell[path] = data
+        elif language is not None:
+            coverage.append(unread_script(language, path))
+    return _Scripts(shell, tuple(coverage))
 
 
 def _read_sources(
@@ -121,8 +167,15 @@ def measure(
     models: list[CodeModel] = []
     sources: dict[str, bytes] = {}
     coverage: list[Coverage] = list(unmeasured(paths, analyzers.keys()))
+    scripts = _read_scripts(paths, at, repository, deadline)
+    coverage.extend(scripts.coverage)
+    if CodeLanguage.SHELL not in analyzers:
+        shell = CodeLanguage.SHELL.value
+        coverage.extend(unmeasured_in(shell, path) for path in sorted(scripts.shell))
     for language, analyzer in analyzers.items():
         read = _read_sources(paths, language, at, repository, deadline)
+        if language is CodeLanguage.SHELL:
+            read = _Read({**read.sources, **scripts.shell}, read.coverage)
         sources.update(read.sources)
         coverage.extend(read.coverage)
         model = _model(read, language, analyzer, declaration, parameters, deadline)
@@ -138,7 +191,9 @@ def measure(
             models.append(CodeModel(metrics=answer))
         else:
             coverage.append(answer)
-    whole = merged(models)
+    whole = with_languages(
+        merged(models), {path: CodeLanguage.SHELL.value for path in scripts.shell}
+    )
     design: DesignRecords | RecordsUnavailable = UNDECLARED
     if declaration.declared:
         read_records = records.records(at, declaration, deadline)

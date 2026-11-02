@@ -54,7 +54,21 @@ def unmeasured(
     """Every source in a language no bound analyzer measures, naming it."""
     names = {language.value for language in measured}
     return tuple(
-        Coverage(f"{language}: no analyzer measures this language", path=path)
+        unmeasured_in(language, path)
         for path in sorted(paths)
         if (language := language_of(path)) is not None and language not in names
+    )
+
+
+def unmeasured_in(language: str, path: str) -> Coverage:
+    """A source in a language no bound analyzer measures, naming it."""
+    return Coverage(f"{language}: no analyzer measures this language", path=path)
+
+
+def unread_script(interpreter: str, path: str) -> Coverage:
+    """A script with no extension for an interpreter no analyzer reads one
+    for (ARCHITECTURE.ARCH-ADHERENCE.md, Key Decisions, a shell script by
+    its shebang)."""
+    return Coverage(
+        f"a {interpreter} script with no extension: no analyzer reads it", path=path
     )
