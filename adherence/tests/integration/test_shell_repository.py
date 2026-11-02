@@ -19,10 +19,12 @@ from click.testing import CliRunner
 
 from adherence.adapters.fakes import FakeComplexity, FakeDuplication, FakeRecords
 from adherence.adapters.shell_astgrep import ShellCodeModel
+from adherence.application.measure import measure
 from adherence.cli.main import main
-from adherence.container import SHIPPED_VOCABULARY, build
+from adherence.container import SHIPPED_VOCABULARY, Stage, build
 from adherence.domain.declaration import Declaration, parse_declaration
 from adherence.domain.model import CodeModel, UnitKind
+from adherence.domain.target import Head
 from tests import shell_fixture
 
 REPOSITORY = Path(__file__).resolve().parents[3]
@@ -112,16 +114,63 @@ def test_measure_over_the_shell_fixture_says_which_checks_do_not_read_it() -> No
     document = json.loads(result.output)
     assert document["not_run"] is None
     reasons = {(c["check"], c["path"]): c["reason"] for c in document["coverage"]}
-    assert not any("no analyzer" in r for r in reasons.values()), reasons
+    assert not any("no analyzer measures" in r for r in reasons.values()), reasons
     ran = {name for q in document["qualities"] for name in q["ran"]}
     assert {"Grep", "Anatomy"} <= ran
     found = {
         (f["check"], f["path"]) for q in document["qualities"] for f in q["findings"]
     }
     assert found == {("Anatomy", "bin/backwards.sh")}
-    scripts = ("bin/backwards.sh", "bin/release.sh", "lib/checks.sh")
+    assert reasons[(None, "bin/report")] == (
+        "a python3 script with no extension: no analyzer reads it"
+    )
+    scripts = ("bin/backwards.sh", "bin/release.sh", "lib/checks.sh", "bin/rollout")
     for script in scripts:
         assert ("Anatomy", script) not in reasons, reasons[("Anatomy", script)]
     for check in ran - {"Anatomy"}:
         for script in scripts:
             assert reasons[(check, script)] == "does not read shell", (check, script)
+
+
+BIN_SHELL = re.compile(rb"\A#!\s*(?:/usr/bin/env\s+)?(?:/bin/)?(?:bash|zsh|sh)\b")
+
+
+def test_measure_over_bin_measures_every_shell_script_with_no_extension() -> None:
+    """Given this repository's bin/ (task-070's done condition) and a
+    declaration covering all of it, When it is measured, Then every bash or
+    zsh script with no extension there is measured as shell, so Grep reports
+    it as one it does not read, or is named as one the Bash grammar cannot
+    read; none is silent."""
+    root = REPOSITORY / "bin"
+    scripts = sorted(
+        p.name
+        for p in root.iterdir()
+        if p.is_file()
+        and not p.is_symlink()
+        and "." not in p.name
+        and BIN_SHELL.match(p.read_bytes()[:64])
+    )
+    declaration = parse_declaration(b'[layers]\nadapters = ["**"]\n')
+    assert isinstance(declaration, Declaration)
+    container = build(Stage.LAPTOP, root=str(root))
+
+    report = measure(
+        Head.working_tree(),
+        declaration,
+        repository=container.repository,
+        analyzers=container.analyzers,
+        complexity=FakeComplexity(),
+        duplication=FakeDuplication(),
+        records=FakeRecords({}),
+        judge=container.judge,
+        parameters=container.parameters,
+        deadline=None,
+    )
+
+    assert len(scripts) >= 30, "bin/ lost its scripts"
+    reasons = {(c.check, c.path): c.reason for c in report.coverage}
+    for script in scripts:
+        grammar = reasons.get((None, script), "")
+        assert reasons.get(("Grep", script)) == "does not read shell" or (
+            grammar.startswith("the Bash grammar cannot read it")
+        ), (script, grammar)
