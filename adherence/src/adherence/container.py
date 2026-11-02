@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from adherence.adapters.git import GitRepository
+from adherence.adapters.markdown_records import MarkdownRecords
 from adherence.adapters.no_judge import NoJudge
 from adherence.adapters.python_ast import PythonCodeModel
 from adherence.adapters.shell_astgrep import ShellCodeModel
@@ -91,6 +92,8 @@ SHIPPED_VOCABULARY = Vocabulary(
         }
     ),
     fakes=frozenset({"Fake", "InMemory"}),
+    clocks=frozenset({"Clock"}),
+    callables=frozenset({"Callable"}),
 )
 SHIPPED_LIMITS = Limits(evidence_bound=200)
 SHIPPED_PARAMETERS = Parameters(
@@ -113,8 +116,7 @@ class Stage(enum.Enum):
 class Container:
     """The ports bound for one stage, and the parameters. A port with no
     adapter in this suite version is None until a test passes a fake: the
-    complexity and duplication adapters land in task-061, the records
-    adapter in task-059."""
+    complexity and duplication adapters land in task-061."""
 
     stage: Stage
     repository: RepositoryPort
@@ -154,13 +156,14 @@ def build(
             CodeLanguage.JAVASCRIPT: typescript,
             CodeLanguage.SHELL: ShellCodeModel(),
         }
+    bound = repository if repository is not None else GitRepository(root)
     return Container(
         stage=stage,
-        repository=repository if repository is not None else GitRepository(root),
+        repository=bound,
         analyzers=analyzers,
         judge=judge if judge is not None else NoJudge(),
         complexity=complexity,
         duplication=duplication,
-        records=records,
+        records=records if records is not None else MarkdownRecords(bound),
         parameters=SHIPPED_PARAMETERS,
     )

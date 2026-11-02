@@ -8,3 +8,11 @@ adapters = ["src/tool/adapters/**"]
 "composition root" = ["src/tool/container.py"]
 test = ["tests/**"]
 regions = [{ file = "bin/onefile.py" }]
+
+[records]
+design = "docs/design/DESIGN.TOOL.md"
+architecture = "docs/design/ARCHITECTURE.TOOL.md"
+
+[runtimes]
+tool = ["src/tool/**"]
+onefile = ["bin/onefile.py"]
