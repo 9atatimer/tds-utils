@@ -176,23 +176,28 @@ def test_bodies_carry_the_lines_they_sleep_on() -> None:
     }
 
 
-def test_a_file_that_does_not_parse_is_unparsed_and_the_rest_modelled() -> None:
-    """Given a script with an unclosed function body, one that is not UTF-8
-    and one that reads, When they are modelled, Then the first two are
-    Unparsed with why, neither is a unit, and the third is modelled."""
+def test_a_file_the_grammar_cannot_read_is_unparsed_and_the_rest_modelled() -> None:
+    """Given a script with an unclosed function body, a zsh script using a
+    nested expansion the Bash grammar has no rule for, one that is not
+    UTF-8, and one that reads, When they are modelled, Then the first three
+    are Unparsed with why, saying where the grammar stopped rather than that
+    the file is not shell, none is a unit, and the fourth is modelled."""
     model = _model_of(
         {
             "bad.sh": b"f() { echo x\n",
+            "nested.zsh": b'x=1\ny="${${x:-$HOME}}/z"\n',
             "latin.sh": b"echo \xff\n",
             "ok.sh": b"g() { :; }\n",
         }
     )
 
-    assert [(u.path, u.reason.split(":")[0]) for u in model.unparsed] == [
-        ("bad.sh", "not shell"),
-        ("latin.sh", "not utf-8"),
+    assert [(u.path, u.reason) for u in model.unparsed if u.path != "latin.sh"] == [
+        ("bad.sh", "the Bash grammar cannot read it from line 1"),
+        ("nested.zsh", "the Bash grammar cannot read it from line 2"),
     ]
-    assert model.unparsed[0].reason == "not shell: syntax error at line 1"
+    assert [u.reason.split(":")[0] for u in model.unparsed if u.path == "latin.sh"] == [
+        "not utf-8"
+    ]
     assert {(u.path, u.symbol) for u in model.units} == {
         ("ok.sh", None),
         ("ok.sh", "g"),

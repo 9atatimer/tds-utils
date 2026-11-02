@@ -34,6 +34,11 @@ from adherence.domain.parameters import Vocabulary
 # --- Constants ---------------------------------------------------------------
 
 GRAMMAR = Grammar(rules="bash.yml", languages={"Bash": ()})
+# The Bash grammar is not the shell: it has no rule for zsh's own syntax
+# and none for some Bash a shell accepts (a backgrounded here-document), so
+# a file it cannot read is coverage that names where it stopped, never a
+# claim that the file is broken.
+UNREADABLE = "the Bash grammar cannot read it from line {line}"
 
 # --- Pure helpers ------------------------------------------------------------
 
@@ -86,7 +91,7 @@ class ShellCodeModel:
         declared, found = regions_of(sources, declaration, vocabulary)
         errors = syntax_errors(matches)
         unparsed.extend(
-            Unparsed(path=path, reason=f"not shell: syntax error at line {line}")
+            Unparsed(path=path, reason=UNREADABLE.format(line=line))
             for path, line in sorted(errors.items())
         )
         parsed = {p: data for p, data in readable.items() if p not in errors}
