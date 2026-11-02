@@ -9,6 +9,7 @@ import dataclasses
 from adherence.domain.model import (
     Access,
     AccessKind,
+    Binding,
     Body,
     Call,
     Clone,
@@ -47,6 +48,7 @@ def _facts(path: str) -> CodeModel:
         calls=(Call(path, 1, "f", "g"),),
         accesses=(Access(path, 1, "f", AccessKind.ENVIRONMENT, "os.environ"),),
         writes=(Write(path, 1, "f", "self", "x"),),
+        bindings=(Binding(path, 1, None, "Payload", "dict"),),
         conditionals=(Conditional(path, 1, "f", "x"),),
         members=(Member(path, "T", "x", MemberKind.FIELD, 1),),
         test_cases=(TestCase(path, "t", 1, (), ()),),
@@ -93,6 +95,20 @@ def _both() -> CodeModel:
             clones=clones,
         ),
     )
+
+
+def test_the_fixture_plants_a_fact_of_every_family() -> None:
+    """Given the CodeModel's fields, When the fixture is built, Then every
+    fact family holds a fact, so a family added later must be planted here
+    before the restriction can be shown to filter it."""
+    planted = _facts(KEPT)
+
+    empty = [
+        f.name
+        for f in dataclasses.fields(CodeModel)
+        if f.name != "metrics" and not getattr(planted, f.name)
+    ]
+    assert empty == []
 
 
 def test_without_a_file_drops_every_fact_of_it_and_keeps_the_rest() -> None:

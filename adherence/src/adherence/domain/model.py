@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import enum
 from collections.abc import Collection, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 
 # --- Values ------------------------------------------------------------------
 
@@ -403,23 +403,31 @@ def merged(models: Sequence[CodeModel]) -> CodeModel:
     )
 
 
+def _path_of(fact: object) -> str:
+    """The file a fact was read from: a definition's unit's, else its own."""
+    if isinstance(fact, Definition):
+        return fact.unit.path
+    # The fact families share no base type; each carries a path field.
+    path = getattr(fact, "path")  # noqa: B009
+    assert isinstance(path, str)
+    return path
+
+
 def without(model: CodeModel, paths: Collection[str]) -> CodeModel:
     """The CodeModel with no fact of the files given: their units, the facts
-    read from them, their regions and metrics, and each clone touching one."""
+    read from them, their regions and metrics, and each clone touching one.
+    Every fact family is walked from the CodeModel's own fields, so a family
+    added later is filtered without an edit here (Issue#642)."""
     out = frozenset(paths)
+    families = {
+        f.name: tuple(
+            fact for fact in getattr(model, f.name) if _path_of(fact) not in out
+        )
+        for f in fields(CodeModel)
+        if f.name != "metrics"
+    }
     return CodeModel(
-        units=tuple(f for f in model.units if f.path not in out),
-        imports=tuple(f for f in model.imports if f.path not in out),
-        definitions=tuple(f for f in model.definitions if f.unit.path not in out),
-        references=tuple(f for f in model.references if f.path not in out),
-        calls=tuple(f for f in model.calls if f.path not in out),
-        accesses=tuple(f for f in model.accesses if f.path not in out),
-        writes=tuple(f for f in model.writes if f.path not in out),
-        conditionals=tuple(f for f in model.conditionals if f.path not in out),
-        members=tuple(f for f in model.members if f.path not in out),
-        test_cases=tuple(f for f in model.test_cases if f.path not in out),
-        regions=tuple(f for f in model.regions if f.path not in out),
-        unparsed=tuple(f for f in model.unparsed if f.path not in out),
+        **families,
         metrics=Metrics(
             complexity=tuple(f for f in model.metrics.complexity if f.path not in out),
             clones=tuple(
