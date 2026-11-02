@@ -226,3 +226,21 @@ def test_a_function_defined_twice_keeps_each_body() -> None:
         (2, ":;", (":",), ()),
         (4, 'xdg-open "$1"; sleep 1;', (), (4,)),
     ]
+
+
+def test_an_empty_here_document_does_not_make_a_script_unreadable() -> None:
+    """Given scripts whose here-document body is empty, blank, or only a
+    command substitution, all valid Bash, When they are modelled, Then each
+    is a file unit with its function, and none is Unparsed."""
+    sources = {
+        "empty.sh": b"f() {\n  cat <<EOF\nEOF\n}\n",
+        "blank.sh": b"f() {\n  cat <<'EOF'\n\nEOF\n}\n",
+        "substituted.sh": b"f() {\n  cat <<T\n$(echo x)\nT\n}\n",
+    }
+
+    model = _model_of(sources)
+
+    assert model.unparsed == ()
+    assert {(d.unit.path, d.unit.symbol) for d in model.definitions} == {
+        (path, "f") for path in sources
+    }

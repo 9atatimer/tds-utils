@@ -62,12 +62,20 @@ severity: hint
 rule:
   kind: ERROR
 ---
-# A token the parser inserted to repair the file (an unclosed brace or
-# quote) has no text; the file is as unreadable as one holding an ERROR
-# node, and the token's line is where it breaks.
+# A token the parser inserted to repair the file has no text; the file is
+# as unreadable as one holding an ERROR node, and the token's line is where
+# it breaks. An empty here-document body or content is a real node with no
+# text, not an inserted token, so it is no break.
 id: syntax-error.missing
 language: Bash
 severity: hint
 rule:
   kind: program
-  has: {regex: '^$', stopBy: end, pattern: $$MISSING}
+  has:
+    regex: '^$'
+    stopBy: end
+    pattern: $$MISSING
+    not:
+      any:
+        - kind: heredoc_body
+        - kind: heredoc_content
