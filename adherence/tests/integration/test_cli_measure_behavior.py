@@ -20,7 +20,7 @@ from adherence.domain.qualities import Quality
 
 ENGINE = Path(__file__).resolve().parents[2]
 FIXTURE = ENGINE / "tests" / "fixtures" / "behavior"
-JSCPD = ENGINE / "node_modules" / ".bin" / "jscpd"
+JSCPD = ENGINE / "node" / "node_modules" / ".bin" / "jscpd"
 DESIGN = "docs/design/DESIGN.SHOP.md"
 TARIFF = "src/shop/domain/tariff.py"
 LEGACY = "src/shop/adapters/legacy_tariff.py"

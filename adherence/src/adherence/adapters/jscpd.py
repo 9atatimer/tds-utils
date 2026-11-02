@@ -1,6 +1,6 @@
 """adapters/jscpd.py -- DuplicationPort over jscpd.
 
-jscpd (npm, MIT; lmde/TECH_RADAR.md Trial; pinned in adherence/package-
+jscpd (npm, MIT; lmde/TECH_RADAR.md Trial; pinned in adherence/node/package-
 lock.json, installed with `npm ci --ignore-scripts`) is run as a
 subprocess in a scratch directory outside the repository, through
 `analyzer_process`: an empty configuration file named on the command line

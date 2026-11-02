@@ -46,12 +46,18 @@ VOCABULARY = Vocabulary(
     abstract_markers=frozenset({"Protocol", "ABC", "abstractmethod"}),
     assertion_calls=frozenset({"pytest.raises"}),
     placeholder_assertions=frozenset({"True", "False", "1"}),
-    standard_library=frozenset({"__future__", "dataclasses", "os"}),
+    standard_library={
+        CodeLanguage.PYTHON: frozenset({"__future__", "dataclasses", "os"})
+    },
     packages={"markdown_it": "markdown-it-py"},
     callables=frozenset({"Callable"}),
     wire_formats=frozenset({"dict", "Response"}),
     singletons=frozenset({"sys.argv"}),
-    plain_types=frozenset({"Sequence", "tuple", "None", "str", "int", "list"}),
+    plain_types={
+        CodeLanguage.PYTHON: frozenset(
+            {"Sequence", "tuple", "None", "str", "int", "list"}
+        )
+    },
 )
 LIMITS = Limits(evidence_bound=200)
 

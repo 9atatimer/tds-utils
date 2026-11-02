@@ -94,8 +94,10 @@ documents the recommended approach so it isn't reinvented per repo.
 - **sqlite-vec**: vector search inside SQLite (a loadable extension); nearest-neighbour queries over embeddings stored in a local SQLite database.
 - **grimp** (BSD-2): the Python import graph, with relative and package imports resolved, for the adherence engine's Python code model (`adherence/`).
 - **lizard** (MIT): per-function cyclomatic complexity over Python, TypeScript and JavaScript, for the adherence engine's Complexity check (`adherence/`).
-- **jscpd** (MIT): copy-paste detection over every MVP language with a JSON reporter, for the adherence engine's Duplication check; pinned in `adherence/package-lock.json`, installed with `npm ci --ignore-scripts`.
+- **jscpd** (MIT): copy-paste detection over every MVP language with a JSON reporter, for the adherence engine's Duplication check; pinned in `adherence/node/package-lock.json`, installed with `npm ci --ignore-scripts`.
 - **markdown-it-py** (MIT): a CommonMark parser with tables, for reading the Behaviors table, Domain Language, use-case surface and seam list out of design records in the adherence engine (`adherence/`).
+- **ast-grep** (MIT, `ast-grep-cli` on PyPI): tree-sitter structural matching from rule files, for the adherence engine's structural facts over TypeScript and JavaScript (`adherence/`).
+- **dependency-cruiser** (MIT): the TypeScript and JavaScript import graph with path resolution, as a CLI emitting JSON, for the adherence engine's TypeScript code model (`adherence/`); it parses `.ts` through the `typescript` package, pinned beside it in `adherence/node/package-lock.json`.
 
 ---
 
@@ -123,6 +125,14 @@ documents the recommended approach so it isn't reinvented per repo.
 - **2026-10-25**: Added `markdown-it-py` to Trial on Todd's ruling that every
   adherence analyzer starts at Trial (Issue#599), landing with the code that
   first uses it (task-059).
+
+- **2026-10-25**: Added `dependency-cruiser` to Trial on Todd's ruling that
+  every adherence analyzer starts at Trial (Issue#599), landing with the code
+  that first uses it (task-069).
+
+- **2026-10-25**: Added `ast-grep` to Trial on Todd's ruling that every
+  adherence analyzer starts at Trial (Issue#599), landing with the code that
+  first uses it (task-069).
 
 - **2026-10-25**: Added `jscpd` to Trial on Todd's ruling that every adherence
   analyzer starts at Trial (Issue#599), landing with the code that first

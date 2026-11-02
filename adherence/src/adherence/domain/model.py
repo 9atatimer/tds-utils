@@ -18,6 +18,8 @@ class CodeLanguage(enum.Enum):
     Language check (ARCHITECTURE.ARCH-ADHERENCE.md, Use-case surface)."""
 
     PYTHON = "python"
+    TYPESCRIPT = "typescript"
+    JAVASCRIPT = "javascript"
 
 
 # A source's language by its file extension: the languages the suite
@@ -61,6 +63,13 @@ def language_of(path: str) -> str | None:
     if not dot or not stem:
         return None
     return LANGUAGE_EXTENSIONS.get(f".{extension}")
+
+
+def code_language_of(path: str) -> CodeLanguage | None:
+    """The measured language a source path is written in; None when the
+    suite does not measure it."""
+    name = language_of(path)
+    return next((c for c in CodeLanguage if c.value == name), None)
 
 
 class Layer(enum.Enum):

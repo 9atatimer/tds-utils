@@ -1,0 +1,574 @@
+# TypeScript and JavaScript structural facts for adapters/astgrep.py.
+#
+# Written for TypeScript; the adapter runs a copy as Tsx, which also reads
+# JavaScript. Each rule's id names the fact it yields and its captures are
+# the fact's parts; an id may carry a `.variant` when two rules yield one
+# fact. Every rule is a hint, so a match never fails the scan.
+id: function
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - all:
+        - any:
+            - kind: function_declaration
+            - kind: generator_function_declaration
+        - has: {field: name, pattern: $NAME}
+    - all:
+        - kind: method_definition
+        - inside: {kind: class_body}
+        - has: {field: name, pattern: $NAME}
+    # A type's method written as a signature only, as a port's are.
+    - all:
+        - any:
+            - kind: method_signature
+            - kind: abstract_method_signature
+        - any:
+            - inside: {kind: interface_body}
+            - inside: {kind: class_body}
+            - inside: {kind: object_type, inside: {kind: type_alias_declaration}}
+        - has: {field: name, pattern: $NAME}
+    - all:
+        - any:
+            - kind: arrow_function
+            - kind: function_expression
+            - kind: generator_function
+        - any:
+            - inside:
+                kind: variable_declarator
+                has: {field: name, kind: identifier, pattern: $NAME}
+            - inside:
+                kind: public_field_definition
+                has: {field: name, pattern: $NAME}
+---
+id: type
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: class_declaration
+    - kind: abstract_class_declaration
+    - kind: interface_declaration
+    - kind: type_alias_declaration
+  has: {field: name, pattern: $NAME}
+---
+id: import
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: import_statement
+    - kind: export_statement
+  has:
+    field: source
+    kind: string
+    has: {kind: string_fragment, pattern: $SOURCE}
+---
+id: import.call
+language: TypeScript
+severity: hint
+rule:
+  kind: call_expression
+  has:
+    field: function
+    any:
+      - regex: '^require$'
+      - kind: import
+  all:
+    - has:
+        field: arguments
+        has:
+          kind: string
+          nthChild: 1
+          has: {kind: string_fragment, pattern: $SOURCE}
+---
+id: function-node
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: function_declaration
+    - kind: generator_function_declaration
+    - kind: function_expression
+    - kind: generator_function
+    - kind: arrow_function
+    - kind: method_definition
+    - kind: method_signature
+    - kind: abstract_method_signature
+---
+id: parameter
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - all:
+        - any:
+            - kind: required_parameter
+            - kind: optional_parameter
+        - has: {field: pattern, pattern: $NAME}
+    - all:
+        - kind: identifier
+        - inside: {kind: arrow_function, field: parameter}
+        - pattern: $NAME
+---
+id: parameter-type
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: required_parameter
+    - kind: optional_parameter
+  has: {field: type, pattern: $TYPE}
+---
+id: parameter-default
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: optional_parameter
+    - all:
+        - kind: required_parameter
+        - has: {field: value, pattern: $DEFAULT}
+---
+id: parameter-property
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - all:
+        - kind: shorthand_property_identifier_pattern
+        - pattern: $NAME
+    - all:
+        - kind: object_assignment_pattern
+        - has: {field: left, pattern: $NAME}
+    - all:
+        - kind: pair_pattern
+        - has: {field: key, pattern: $NAME}
+  inside:
+    kind: object_pattern
+    inside:
+      any:
+        - kind: required_parameter
+        - kind: optional_parameter
+---
+id: property-default
+language: TypeScript
+severity: hint
+rule:
+  kind: object_assignment_pattern
+---
+id: property-type
+language: TypeScript
+severity: hint
+rule:
+  kind: property_signature
+  has: {field: name, pattern: $NAME}
+  all:
+    - has: {field: type, pattern: $TYPE}
+---
+id: returns
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: function_declaration
+    - kind: generator_function_declaration
+    - kind: function_expression
+    - kind: generator_function
+    - kind: arrow_function
+    - kind: method_definition
+    - kind: method_signature
+    - kind: abstract_method_signature
+  has: {field: return_type, pattern: $TYPE}
+---
+id: decorator
+language: TypeScript
+severity: hint
+rule:
+  kind: decorator
+  has: {pattern: $NAME}
+  inside:
+    any:
+      - kind: class_declaration
+      - kind: abstract_class_declaration
+---
+id: decorator-next
+language: TypeScript
+severity: hint
+rule:
+  kind: decorator
+  has: {pattern: $NAME}
+  any:
+    - inside: {kind: export_statement}
+    - precedes:
+        any:
+          - kind: method_definition
+          - kind: class_declaration
+          - kind: abstract_class_declaration
+        stopBy: {not: {kind: decorator}}
+---
+id: base
+language: TypeScript
+severity: hint
+rule:
+  pattern: $NAME
+  all:
+    - any:
+        - kind: identifier
+        - kind: member_expression
+        - kind: call_expression
+        - kind: type_identifier
+        - kind: nested_type_identifier
+        - kind: generic_type
+  any:
+    - inside: {kind: extends_clause, field: value}
+    - inside: {kind: implements_clause}
+    - inside: {kind: extends_type_clause}
+---
+id: body
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: function_declaration
+    - kind: generator_function_declaration
+    - kind: function_expression
+    - kind: generator_function
+    - kind: arrow_function
+    - kind: method_definition
+    - kind: class_declaration
+    - kind: abstract_class_declaration
+    - kind: interface_declaration
+    - kind: type_alias_declaration
+  all:
+    - any:
+        - has: {field: body, pattern: $BODY}
+        - has: {field: value, pattern: $BODY}
+---
+# A body holding nothing but comments, or nothing but one throw beside
+# them: comments never make a placeholder real work.
+id: stub
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: function_declaration
+    - kind: generator_function_declaration
+    - kind: function_expression
+    - kind: generator_function
+    - kind: arrow_function
+    - kind: method_definition
+  has:
+    field: body
+    kind: statement_block
+    any:
+      - not:
+          has:
+            not:
+              any:
+                - kind: comment
+                - regex: '^[{}]$'
+      - all:
+          - has:
+              kind: throw_statement
+              has:
+                kind: new_expression
+                has: {field: constructor, pattern: $THROWN}
+          - not:
+              has:
+                nthChild: {position: 2, ofRule: {not: {kind: comment}}}
+---
+id: call
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - all:
+        - kind: call_expression
+        - has: {field: function, pattern: $CALLEE}
+    - all:
+        - kind: new_expression
+        - has: {field: constructor, pattern: $CALLEE}
+---
+id: name
+language: TypeScript
+severity: hint
+rule:
+  kind: identifier
+  not:
+    any:
+      - inside: {kind: member_expression, field: object}
+      - inside: {kind: nested_identifier}
+      - inside: {kind: nested_type_identifier}
+      - inside: {kind: import_specifier}
+      - inside: {kind: import_clause}
+      - inside: {kind: namespace_import}
+      - inside: {kind: export_specifier}
+      - inside: {kind: required_parameter, field: pattern}
+      - inside: {kind: optional_parameter, field: pattern}
+      - inside: {kind: arrow_function, field: parameter}
+      - inside: {kind: function_declaration, field: name}
+      - inside: {kind: generator_function_declaration, field: name}
+      - inside: {kind: function_expression, field: name}
+      - inside: {kind: class_declaration, field: name}
+      - inside:
+          kind: variable_declarator
+          field: name
+          has:
+            field: value
+            any:
+              - kind: arrow_function
+              - kind: function_expression
+              - kind: generator_function
+---
+id: name.type
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: type_identifier
+    - kind: nested_type_identifier
+  not:
+    any:
+      - inside: {kind: nested_type_identifier}
+      - inside: {kind: class_declaration, field: name}
+      - inside: {kind: abstract_class_declaration, field: name}
+      - inside: {kind: interface_declaration, field: name}
+      - inside: {kind: type_alias_declaration, field: name}
+---
+id: name.chain
+language: TypeScript
+severity: hint
+rule:
+  kind: member_expression
+  regex: '^[A-Za-z_$][\w$]*(\.#?[A-Za-z_$][\w$]*)+$'
+  not:
+    inside:
+      kind: member_expression
+      field: object
+      regex: '^[A-Za-z_$][\w$]*(\.#?[A-Za-z_$][\w$]*)+$'
+---
+id: string
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: string
+    - kind: template_string
+  not:
+    any:
+      - inside: {kind: import_statement}
+      - inside: {kind: export_statement}
+---
+id: global
+language: TypeScript
+severity: hint
+rule:
+  kind: member_expression
+  regex: '^globalThis\.'
+  not: {inside: {kind: member_expression, field: object}}
+---
+# A field target: the left of an assignment or a for-in/of header, an
+# update's operand, or an element of a destructuring pattern there (a
+# default's value is read, not written). A subscript by a string literal
+# names its field as dot notation does; a computed or numeric index is an
+# item, not a field, as a Python subscript is.
+id: write
+language: TypeScript
+severity: hint
+rule:
+  all:
+    - any:
+        - all:
+            - kind: member_expression
+            - has: {field: object, pattern: $OBJECT}
+            - has: {field: property, pattern: $FIELD}
+        - all:
+            - kind: subscript_expression
+            - has: {field: object, pattern: $OBJECT}
+            - has:
+                field: index
+                kind: string
+                has: {kind: string_fragment, pattern: $FIELD}
+                not: {has: {kind: escape_sequence}}
+    - any:
+        - inside:
+            field: left
+            any:
+              - kind: assignment_expression
+              - kind: augmented_assignment_expression
+              - kind: for_in_statement
+        - inside: {field: argument, kind: update_expression}
+        - all:
+            - any:
+                - inside:
+                    any:
+                      - kind: array_pattern
+                      - kind: pair_pattern
+                      - kind: rest_pattern
+                - inside: {kind: assignment_pattern, field: left}
+                - inside: {kind: object_assignment_pattern, field: left}
+            - inside:
+                any:
+                  - kind: assignment_expression
+                  - kind: for_in_statement
+                stopBy:
+                  not:
+                    any:
+                      - kind: array_pattern
+                      - kind: object_pattern
+                      - kind: pair_pattern
+                      - kind: rest_pattern
+                      - kind: assignment_pattern
+                      - kind: object_assignment_pattern
+---
+id: conditional
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: if_statement
+    - kind: while_statement
+    - kind: do_statement
+    - kind: ternary_expression
+  has: {field: condition, pattern: $CONDITION}
+---
+id: conditional.switch
+language: TypeScript
+severity: hint
+rule:
+  kind: switch_statement
+  has:
+    field: value
+    has: {pattern: $SUBJECT}
+---
+id: either
+language: TypeScript
+severity: hint
+rule:
+  kind: binary_expression
+  has: {field: operator, regex: '^(&&|\|\||\?\?)$'}
+  all:
+    - has: {field: left, pattern: $LEFT}
+    - has: {field: right, pattern: $RIGHT}
+---
+id: compare
+language: TypeScript
+severity: hint
+rule:
+  kind: binary_expression
+  has: {field: operator, regex: '^(===|!==|==|!=|<|>|<=|>=|instanceof|in)$'}
+  all:
+    - has: {field: left, pattern: $LEFT}
+    - has: {field: right, pattern: $RIGHT}
+---
+id: typeof
+language: TypeScript
+severity: hint
+rule:
+  kind: unary_expression
+  has: {field: operator, regex: '^typeof$'}
+  all:
+    - has: {field: argument, pattern: $OPERAND}
+---
+id: negate
+language: TypeScript
+severity: hint
+rule:
+  kind: unary_expression
+  has: {field: operator, regex: '^!$'}
+  all:
+    - has: {field: argument, pattern: $OPERAND}
+---
+id: group
+language: TypeScript
+severity: hint
+rule:
+  kind: parenthesized_expression
+  has: {pattern: $INNER}
+---
+id: member-method
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - all:
+        - kind: method_definition
+        - inside: {kind: class_body}
+    - all:
+        - any:
+            - kind: method_signature
+            - kind: abstract_method_signature
+        - any:
+            - inside: {kind: interface_body}
+            - inside: {kind: class_body}
+            - inside: {kind: object_type, inside: {kind: type_alias_declaration}}
+  has: {field: name, pattern: $NAME}
+---
+id: member-field
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - all:
+        - kind: public_field_definition
+        - inside: {kind: class_body}
+    - all:
+        - kind: property_signature
+        - any:
+            - inside: {kind: interface_body}
+            - inside: {kind: object_type, inside: {kind: type_alias_declaration}}
+  has: {field: name, pattern: $NAME}
+---
+# A parameter property: a parameter, optional or not, carrying an
+# accessibility modifier, override, or readonly (an unnamed token, so
+# matched by its text; a parameter named readonly is an identifier).
+id: member-field.parameter
+language: TypeScript
+severity: hint
+rule:
+  any:
+    - kind: required_parameter
+    - kind: optional_parameter
+  has:
+    any:
+      - kind: accessibility_modifier
+      - kind: override_modifier
+      - all:
+          - regex: '^readonly$'
+          - not: {kind: identifier}
+  all:
+    - has: {field: pattern, pattern: $NAME}
+---
+id: test-call
+language: TypeScript
+severity: hint
+rule:
+  kind: call_expression
+  has: {field: function, pattern: $CALLEE}
+  all:
+    - has:
+        field: arguments
+        all:
+          - has: {nthChild: 1, pattern: $TITLE}
+          - has:
+              pattern: $CASE
+              any:
+                - kind: arrow_function
+                - kind: function_expression
+---
+id: syntax-error
+language: TypeScript
+severity: hint
+rule:
+  kind: ERROR
+---
+# A token the parser inserted to repair the file (an unclosed brace,
+# parenthesis or bracket) has no text; the file is as unreadable as one
+# holding an ERROR node, and the token's line is where it breaks.
+id: syntax-error.missing
+language: TypeScript
+severity: hint
+rule:
+  kind: program
+  has: {regex: '^$', stopBy: end, pattern: $$MISSING}

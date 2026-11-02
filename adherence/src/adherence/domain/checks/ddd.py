@@ -14,6 +14,7 @@ from collections.abc import Mapping, Sequence
 
 from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.checks.roles import (
+    INITIALISERS,
     annotation_names,
     by_symbol,
     is_within,
@@ -31,6 +32,7 @@ from adherence.domain.model import (
     MemberKind,
     UnitKind,
     Write,
+    code_language_of,
 )
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
@@ -41,8 +43,6 @@ from adherence.domain.records import DesignRecords, RecordsUnavailable, Term
 BOUNDARY = catalog_check("Boundary")
 LANGUAGE = catalog_check("Language")
 ANEMIC = catalog_check("Anemic")
-# A method that only sets a type's fields up is no behavior of its own.
-INITIALISER = "__init__"
 # The bases that make a type an enumeration: a closed set of names, whose
 # members are no fields awaiting rules.
 ENUM_BASES = frozenset({"Enum", "IntEnum", "StrEnum", "Flag", "IntFlag"})
@@ -121,17 +121,18 @@ def signature_nouns(
     use_case: Definition, vocabulary: Vocabulary, mechanism: frozenset[str]
 ) -> list[str]:
     """The type names a use case's signature carries, each once, in order,
-    without the language's own types and without the mechanism's."""
+    without its language's own types and without the mechanism's."""
     signature = use_case.signature
     if signature is None:
         return []
+    code_language = code_language_of(use_case.unit.path)
     annotations = [*(p.annotation for p in signature.parameters), signature.returns]
     nouns: list[str] = []
     for annotation in annotations:
         for name in annotation_names(annotation):
             noun = short_name(name)
             if (
-                noun not in vocabulary.plain_types
+                not vocabulary.is_plain(noun, code_language)
                 and noun not in mechanism
                 and noun not in nouns
             ):
@@ -295,7 +296,7 @@ def anemic(
     for m in model.members:
         if m.kind is MemberKind.FIELD:
             fields.add((m.path, m.owner))
-        elif m.name != INITIALISER:
+        elif m.name not in INITIALISERS:
             behaving.add((m.path, m.owner))
     asked = [
         Coverage(

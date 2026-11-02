@@ -5,9 +5,10 @@ ADHERENCE.md, Use-case surface)."""
 
 from __future__ import annotations
 
+from adherence.adapters.fakes import FakeCodeModel
 from adherence.container import SHIPPED_VOCABULARY
 from adherence.domain.finding import Finding
-from adherence.domain.model import CodeModel, ImportEdge, Layer
+from adherence.domain.model import CodeLanguage, CodeModel, ImportEdge, Layer
 from adherence.domain.records import Radar, RadarEntry, RecordsUnavailable, Ring
 from adherence.domain.report import Report
 from tests.measure_kit import measure_with
@@ -156,3 +157,49 @@ def test_measure_matches_an_import_to_its_distribution_on_the_radar() -> None:
     assert {"Dependency", "Edge only"} <= {c.name for c in report.ran}
     assert [f.subject for f in _of(report, "Dependency")] == []
     assert {f.subject for f in _of(report, "Edge only")} == {"attrs", "Pillow"}
+
+
+def test_measure_reads_each_import_by_its_own_language() -> None:
+    """Given the shipped vocabulary, a TypeScript adapter importing node's
+    built-in modules (bare and `node:`-prefixed, by a subpath, and the
+    prefix-only `node:test`), a scoped package by a subpath, a package by a
+    subpath, one whose name holds a dot, a relative module, and a name only
+    Python ships, and a Python adapter importing a name only node ships,
+    When Dependency runs, Then a TypeScript import names its npm package,
+    each language's standard library excuses only its own imports, and a
+    relative module is the repository's."""
+    ts = "src/app/adapters/store.ts"
+    radar = Radar(entries=(RadarEntry("lodash", Ring.TRIAL, RADAR_PATH, 1),))
+    typescript = (
+        _import(ts, "node:fs", 1),
+        _import(ts, "fs", 2),
+        _import(ts, "node:timers/promises", 3),
+        _import(ts, "node:test", 4),
+        _import(ts, "@acme/client/sub", 5),
+        _import(ts, "lodash/fp", 6),
+        _import(ts, "lodash.debounce", 7),
+        _import(ts, "./missing", 8),
+        _import(ts, "json", 9),
+    )
+    python = (_import(FS, "fs", 1), _import(FS, "json", 2))
+    files = {ts: b"x\n" * 10, FS: b"x\n" * 10}
+
+    report = measure_with(
+        files,
+        radar=radar,
+        vocabulary=SHIPPED_VOCABULARY,
+        analyzers={
+            CodeLanguage.PYTHON: FakeCodeModel(facts=CodeModel(imports=python)),
+            CodeLanguage.TYPESCRIPT: FakeCodeModel(facts=CodeModel(imports=typescript)),
+        },
+    )
+
+    found = {
+        (f.evidence.path, f.evidence.line, f.subject) for f in _of(report, "Dependency")
+    }
+    assert found == {
+        (ts, 5, "@acme/client: not on the radar"),
+        (ts, 7, "lodash.debounce: not on the radar"),
+        (ts, 9, "json: not on the radar"),
+        (FS, 1, "fs: not on the radar"),
+    }

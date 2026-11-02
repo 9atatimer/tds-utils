@@ -4,8 +4,11 @@ The rule checks of the Radar-true quality: Dependency and Edge only
 (DESIGN.ARCH-ADHERENCE.md, The Qualities table: Radar-true), each a pure
 function over the CodeModel and the Radar the declaration names. A
 dependency is an import that resolves to no source of the repository and
-is not the language's standard library; it is matched to a radar entry by
-its import name or its package's name, case and separators aside.
+is not the standard library of the language its file is written in; it is
+matched to a radar entry by its import name or its package's name, case and
+separators aside. A Python import's name is its top-level module; a
+TypeScript or JavaScript import's is its npm package (`@scope/name`, or the
+specifier's first segment).
 """
 
 from __future__ import annotations
@@ -17,7 +20,13 @@ from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.finding import Evidence, Finding
-from adherence.domain.model import CodeModel, ImportEdge, Layer
+from adherence.domain.model import (
+    CodeLanguage,
+    CodeModel,
+    ImportEdge,
+    Layer,
+    code_language_of,
+)
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import Check, catalog_check
 from adherence.domain.records import Radar, RadarEntry, RecordsUnavailable, Ring
@@ -29,6 +38,7 @@ EDGE_ONLY = catalog_check("Edge only")
 CORE = frozenset({Layer.DOMAIN, Layer.APPLICATION})
 ALLOWED = frozenset({Ring.ADOPT, Ring.TRIAL})
 SEPARATORS = re.compile(r"[-_.\s]+")
+SPECIFIER_LANGUAGES = frozenset({CodeLanguage.TYPESCRIPT, CodeLanguage.JAVASCRIPT})
 
 # --- Values ------------------------------------------------------------------
 
@@ -53,13 +63,32 @@ def comparable(name: str) -> str:
     return SEPARATORS.sub("-", name.strip().lower())
 
 
+def _top(imported: str, language: CodeLanguage | None) -> str:
+    """The name an import imports by, in its language: a module specifier's
+    package (`@scope/name/sub` is `@scope/name`, `name/sub` is `name`, a
+    relative or absolute path none), or a dotted module's first part."""
+    if language not in SPECIFIER_LANGUAGES:
+        return imported.split(".")[0]
+    if imported.startswith((".", "/")):
+        return ""
+    parts = imported.split("/")
+    return "/".join(parts[:2]) if imported.startswith("@") else parts[0]
+
+
 def import_name(edge: ImportEdge, vocabulary: Vocabulary) -> str | None:
     """The top-level name an import of a dependency imports; None for the
-    repository's own modules and the standard library."""
+    repository's own modules and the standard library of the importing
+    file's language."""
     if edge.imported_path is not None:
         return None
-    top = edge.imported.split(".")[0]
-    if not top or top in vocabulary.standard_library:
+    language = code_language_of(edge.path)
+    top = _top(edge.imported, language)
+    shipped = (
+        frozenset()
+        if language is None
+        else vocabulary.standard_library.get(language, frozenset())
+    )
+    if not top or top in shipped:
         return None
     return top
 

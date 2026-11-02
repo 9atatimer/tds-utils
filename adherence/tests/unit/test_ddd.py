@@ -5,9 +5,10 @@ surface). The judged parts are task-064's."""
 
 from __future__ import annotations
 
+from adherence.adapters.fakes import FakeCodeModel
 from adherence.container import SHIPPED_VOCABULARY
 from adherence.domain.finding import Finding
-from adherence.domain.model import Binding, Layer, Write
+from adherence.domain.model import Binding, CodeLanguage, Layer, Write
 from adherence.domain.records import DesignRecords, Term
 from adherence.domain.report import Report
 from tests.facts_kit import (
@@ -335,3 +336,95 @@ def test_measure_with_a_write_through_a_local_alias_finds_the_write() -> None:
 
     found = {(f.unit.symbol, f.evidence.line) for f in _of(report, "Boundary")}
     assert found == {("local_write", 3), ("twice", 8)}
+
+
+def test_measure_with_typescript_signature_types_finds_no_foreign_noun() -> None:
+    """Given a TypeScript use case whose signature names only Order and
+    Store besides the language's own types (`string`, `Promise<...>`,
+    `ReadonlyArray<...>`, `Record<...>`, `keyof`, `undefined`), an options
+    object's members (`{ store: Store; limit?: number }`) and a function
+    type's parameter names (`(order: Order) => void`), When Language runs,
+    Then no finding names them: a member or parameter name in a type is no
+    noun, and TypeScript's own types are no noun of the problem."""
+    use = "src/app/application/use.ts"
+    files = {use: b"x\n" * 9}
+    definitions = [
+        function(
+            use,
+            "closeOrder",
+            1,
+            (
+                value("order", "Order"),
+                value("deps", "{ store: Store; limit?: number }"),
+                value("all", "ReadonlyArray<Order>"),
+                value("byId", "Record<string, Order>"),
+                value("key", "keyof Order"),
+                value("then", "(order: Order) => void"),
+                value("flag", "boolean | undefined"),
+            ),
+            returns="Promise<string>",
+        ),
+    ]
+    records = DesignRecords(
+        domain_language=(Term("Order", DESIGN, 40), Term("Store", DESIGN, 41))
+    )
+
+    report = measure_with(
+        files,
+        records=records,
+        vocabulary=SHIPPED_VOCABULARY,
+        analyzers={CodeLanguage.TYPESCRIPT: FakeCodeModel(facts=facts(definitions))},
+    )
+
+    assert "Language" in {c.name for c in report.ran}
+    assert [f.subject for f in _of(report, "Language")] == []
+
+
+def test_measure_with_a_typescript_constructor_only_type_asks_anemic() -> None:
+    """Given a TypeScript domain type with fields and no method but its
+    `constructor`, When Anemic's rule part runs, Then it awaits the judge
+    as a Python type with only `__init__` does: a constructor only sets the
+    fields up."""
+    files = {RULES: b"x\n" * 9}
+    definitions = [type_(RULES, "Money", 1, end=4)]
+    members = (
+        field(RULES, "Money", "cents", 2),
+        method(RULES, "Money", "constructor", 3),
+    )
+
+    report = measure_with(files, facts(definitions, members=members))
+
+    asked = [c.reason.split(":")[0] for c in report.coverage if c.check == "Anemic"]
+    assert asked == ["Money"]
+
+
+def test_measure_with_a_python_domain_type_named_like_a_typescript_type_finds_it() -> (
+    None
+):
+    """Given a Python use case whose signature names its own types
+    Parameters, Record and Error -- names TypeScript keeps for its utility
+    and built-in types -- that the Domain Language does not define, When
+    Language runs, Then a finding names each: a type name is plain only in
+    the language that owns it, so TypeScript's names excuse nothing in a
+    Python unit."""
+    files = {USE: b"x\n" * 9}
+    definitions = [
+        function(
+            USE,
+            "tune",
+            1,
+            (value("params", "Parameters"), value("order", "Order")),
+            returns="Record | Error",
+        ),
+    ]
+
+    report = measure_with(
+        files, facts(definitions), records=LANGUAGE, vocabulary=SHIPPED_VOCABULARY
+    )
+
+    assert "Language" in {c.name for c in report.ran}
+    assert sorted(f.subject for f in _of(report, "Language")) == [
+        "Error in tune",
+        "Parameters in tune",
+        "Record in tune",
+    ]

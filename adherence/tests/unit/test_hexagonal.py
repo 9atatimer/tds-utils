@@ -298,6 +298,43 @@ def test_measure_with_a_fake_of_one_port_does_not_cover_another() -> None:
     assert [f.subject for f in _of(report, "Swap")] == ["DuplicationPort"]
 
 
+def test_measure_with_fakes_of_special_method_ports_finds_no_port() -> None:
+    """Given a callable port declaring only __call__, a context-manager port
+    declaring __enter__ and __exit__, and an iterator port declaring
+    __iter__ and __next__, each with a fake implementing those methods and
+    an __init__ of its own, When Swap runs, Then no finding names any of
+    them: special methods define an interface as much as named ones."""
+    action = "src/app/ports/action.py"
+    session = "src/app/ports/session.py"
+    cursor = "src/app/ports/cursor.py"
+    fakes = "tests/fakes.py"
+    files = {action: b"x\n", session: b"x\n", cursor: b"x\n", fakes: b"x\n"}
+    definitions = (
+        _type(action, "ActionPort", 1, ("Protocol",)),
+        _method(action, "ActionPort", "__call__", 2, stub=True),
+        _type(session, "SessionPort", 1, ("Protocol",)),
+        _method(session, "SessionPort", "__enter__", 2, stub=True),
+        _method(session, "SessionPort", "__exit__", 3, stub=True),
+        _type(cursor, "CursorPort", 1, ("Protocol",)),
+        _method(cursor, "CursorPort", "__iter__", 2, stub=True),
+        _method(cursor, "CursorPort", "__next__", 3, stub=True),
+        _type(fakes, "FakeAction", 1),
+        _method(fakes, "FakeAction", "__init__", 2, stub=False),
+        _method(fakes, "FakeAction", "__call__", 3, stub=False),
+        _type(fakes, "FakeSession", 5),
+        _method(fakes, "FakeSession", "__enter__", 6, stub=False),
+        _method(fakes, "FakeSession", "__exit__", 7, stub=False),
+        _type(fakes, "FakeCursor", 9),
+        _method(fakes, "FakeCursor", "__iter__", 10, stub=False),
+        _method(fakes, "FakeCursor", "__next__", 11, stub=False),
+    )
+    facts = CodeModel(units=tuple(d.unit for d in definitions), definitions=definitions)
+
+    report = measure_with(files, facts)
+
+    assert [f.subject for f in _of(report, "Swap")] == []
+
+
 ARCHITECTURE = "docs/design/ARCHITECTURE.APP.md"
 
 
