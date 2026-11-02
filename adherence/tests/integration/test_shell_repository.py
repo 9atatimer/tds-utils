@@ -92,10 +92,11 @@ def test_the_repositorys_bash_scripts_are_modelled_whole() -> None:
 
 
 def test_measure_over_the_shell_fixture_says_which_checks_do_not_read_it() -> None:
-    """Given the shell fixture, When `adhere measure --json` runs over it,
-    Then the run is not refused, no script is reported as in a language no
-    analyzer measures, and each script in a layer is coverage, "does not
-    read shell", for every check that ran."""
+    """Given the shell fixture, one of whose scripts puts its entry point
+    above its functions, When `adhere measure --json` runs over it, Then the
+    run is not refused, no script is in a language no analyzer measures,
+    Anatomy reads the scripts and finds the one out of order, and every
+    other check that ran reports each script as "does not read shell"."""
     builder = functools.partial(
         build,
         records=FakeRecords({}),
@@ -113,7 +114,14 @@ def test_measure_over_the_shell_fixture_says_which_checks_do_not_read_it() -> No
     reasons = {(c["check"], c["path"]): c["reason"] for c in document["coverage"]}
     assert not any("no analyzer" in r for r in reasons.values()), reasons
     ran = {name for q in document["qualities"] for name in q["ran"]}
-    assert "Grep" in ran
-    for check in ran:
-        for script in ("bin/release.sh", "lib/checks.sh", "test/release_test.sh"):
+    assert {"Grep", "Anatomy"} <= ran
+    found = {
+        (f["check"], f["path"]) for q in document["qualities"] for f in q["findings"]
+    }
+    assert found == {("Anatomy", "bin/backwards.sh")}
+    scripts = ("bin/backwards.sh", "bin/release.sh", "lib/checks.sh")
+    for script in scripts:
+        assert ("Anatomy", script) not in reasons, reasons[("Anatomy", script)]
+    for check in ran - {"Anatomy"}:
+        for script in scripts:
             assert reasons[(check, script)] == "does not read shell", (check, script)

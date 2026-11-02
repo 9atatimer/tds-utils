@@ -87,7 +87,7 @@ def test_regions_found_by_marker_are_in_the_model() -> None:
     names, When it is modelled, Then each marker's region is in the model,
     from its marker to the line before the next, in the layer the
     vocabulary maps it to."""
-    assert fixture_model().regions == (
+    assert tuple(r for r in fixture_model().regions if r.path == "bin/release.sh") == (
         Region("bin/release.sh", 7, 19, Layer.ADAPTERS),
         Region("bin/release.sh", 20, 35, Layer.APPLICATION),
         Region("bin/release.sh", 36, 41, Layer.COMPOSITION_ROOT),

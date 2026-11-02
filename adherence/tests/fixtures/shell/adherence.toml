@@ -3,4 +3,4 @@
 [layers]
 domain = ["lib/checks.sh"]
 test = ["test/**"]
-regions = [{ file = "bin/release.sh" }]
+regions = [{ file = "bin/release.sh" }, { file = "bin/backwards.sh" }]
