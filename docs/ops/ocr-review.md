@@ -308,8 +308,10 @@ no cold model and the gateway applies its own retry policy):
 
 The pool's 10-minute ceiling is the default limit on either backend
 (design Key Decisions, a review's length; Issue#478): a PR that does not
-finish in it is not reviewed, and the run fails at the job timeout as
-`unexpected` (Known gaps). A hosted model is far faster than the laptop,
+finish in it is not reviewed, and the run fails at the job timeout with
+cause `timeout`, whose summary names the limit, the PR's changed-file
+count and the remedy (design Key Decisions, a timeout is a cause;
+Issue#631). A hosted model is far faster than the laptop,
 so it is the likelier backend to fit it. A repository can opt its review
 job alone into the pool's Docker class, which has a 20-minute ceiling, by
 passing two inputs in its caller (design Key Decisions, a review's length
@@ -323,6 +325,12 @@ on opt-in, 2026-11-02):
 
 Keep the timeout under the ceiling of the runner you name. Those reviews
 share the Docker class's cap of 4 instances with the jobs that need Docker.
+
+The caller template passes both inputs from the caller repository's
+variables. With neither `OCR_REVIEW_RUNS_ON` nor `OCR_REVIEW_TIMEOUT_MINUTES`
+set, a repository on the pool (`CI_RUNS_ON` set) keeps 9 minutes, and one on
+GitHub-hosted runners, which have no 10-minute ceiling, gets 40. Set the two
+variables to the values above to use the Docker class instead.
 
 Measured on the first Cloudflare run (2026-10-14, run 38539937733, DeepSeek
 V4 Pro with `reasoning_effort` none): 7 code files, ocr's own elapsed time
@@ -424,8 +432,10 @@ settings as OCR on Demand, with nothing posted anywhere.
   layer's `ollama-gateway` route serves them; a change there must change
   it too.
 - **A timed-out job cannot name its step.** The token holds no `actions`
-  scope (design permissions), so a timeout reads `unexpected` with
-  "(no step failed: job timeout or runner lost)".
+  scope (design permissions). A job the runner cancels at its timeout
+  reads `timeout`; a runner lost mid-job, which ends `failure` with no
+  failed step, still reads `unexpected` with "(no step failed: job
+  timeout or runner lost)".
 - **The probe and the review share the review job's timeout**: 9 minutes
   by default, under the pool's 10-minute container ceiling, or what a
   caller opts into with `review_timeout_minutes`. The probe starts no
