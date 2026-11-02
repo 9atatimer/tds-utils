@@ -33,7 +33,11 @@ from adherence.domain.parameters import Vocabulary
 
 # --- Constants ---------------------------------------------------------------
 
-GRAMMAR = Grammar(rules="bash.yml", languages={"Bash": ()})
+# The scan tree holds only the sources handed to this analyzer, so the
+# grammar claims every file in it: a script found by its shebang has no
+# extension for ast-grep to know it by (Issue#638), and would otherwise be
+# skipped and read as a bare, clean file.
+GRAMMAR = Grammar(rules="bash.yml", languages={"Bash": ("*",)})
 # The Bash grammar is not the shell: it has no rule for zsh's own syntax
 # and none for some Bash a shell accepts (a backgrounded here-document), so
 # a file it cannot read is coverage that names where it stopped, never a

@@ -237,6 +237,27 @@ def test_measure_reads_a_script_with_no_extension_by_its_shebang() -> None:
     assert "Makefile" not in by_path
 
 
+def test_measure_reports_a_file_with_no_extension_it_could_not_read() -> None:
+    """Given a file with no extension that the repository refuses, and one
+    whose read runs past the deadline, When a run is asked for, Then each is
+    coverage with why, since either could be a script."""
+    report = measure_with(
+        {
+            RULES: b"x = 1\n",
+            "bin/linked": Refused("bin/linked", "a symbolic link"),
+            "bin/slow": TimedOut("read bin/slow"),
+        },
+        analyzers={
+            CodeLanguage.PYTHON: FakeCodeModel(),
+            CodeLanguage.SHELL: FakeCodeModel(),
+        },
+    )
+
+    by_path = {c.path: c.reason for c in report.coverage if c.path}
+    assert by_path["bin/linked"] == "cannot be read: a symbolic link"
+    assert by_path["bin/slow"] == "read bin/slow: timed out"
+
+
 def test_measure_with_no_shell_analyzer_reports_a_script_with_no_extension() -> None:
     """Given a bash script with no extension and no shell analyzer bound,
     When a run is asked for, Then coverage names the script and the language."""

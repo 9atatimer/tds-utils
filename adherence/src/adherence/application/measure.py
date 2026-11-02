@@ -76,8 +76,8 @@ def _read_scripts(
     deadline: Deadline | None,
 ) -> _Scripts:
     """Each file with no extension, read for its shebang (Issue#638). A file
-    that cannot be read is not known to be a source, so only a read cut off
-    by the deadline is coverage."""
+    that is refused or cut off by the deadline could be a script, so it is
+    coverage with why; one gone by the time it is read is not."""
     shell: dict[str, bytes] = {}
     coverage: list[Coverage] = []
     for path in paths:
@@ -86,6 +86,9 @@ def _read_scripts(
         data = repository.read(path, at, deadline)
         if isinstance(data, TimedOut):
             coverage.append(Coverage(f"{data.operation}: timed out", path=path))
+            continue
+        if isinstance(data, Refused):
+            coverage.append(Coverage(f"cannot be read: {data.reason}", path=path))
             continue
         if not isinstance(data, bytes):
             continue

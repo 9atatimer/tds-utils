@@ -7,6 +7,7 @@ Every analyzer produces one CodeModel; every check reads only that
 from __future__ import annotations
 
 import enum
+import re
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, fields, replace
 
@@ -70,6 +71,11 @@ def language_of(path: str) -> str | None:
 # has no extension to say so (ARCHITECTURE.ARCH-ADHERENCE.md, Key
 # Decisions, a shell script by its shebang; Issue#638).
 SHEBANG_SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
+# An interpreter name repeated in a coverage reason: it is author text, so
+# it is bounded and plain; any other name is reported as "unknown".
+INTERPRETER_NAME = re.compile(r"[A-Za-z0-9._+-]{1,32}")
+# env's options that take the next word as their argument.
+ENV_OPTIONS_WITH_ARGUMENT = frozenset({"-u", "--unset", "-C", "--chdir"})
 
 
 def has_no_extension(path: str) -> bool:
@@ -86,8 +92,22 @@ def _interpreter(text: bytes) -> str | None:
         return None
     words = first[2:].decode("utf-8", "replace").split()
     if words and words[0].rpartition("/")[2] == "env":
-        words = [w for w in words[1:] if not w.startswith("-") and "=" not in w]
+        words = _env_command(words[1:])
     return words[0].rpartition("/")[2] if words else None
+
+
+def _env_command(words: list[str]) -> list[str]:
+    """The command env runs: its words after env's own options, an option's
+    argument (`-u NAME`, `-C DIR`) and NAME=value settings."""
+    rest = list(words)
+    while rest:
+        word = rest.pop(0)
+        if word in ENV_OPTIONS_WITH_ARGUMENT:
+            if rest:
+                rest.pop(0)
+        elif not (word.startswith("-") or "=" in word):
+            return [word, *rest]
+    return []
 
 
 def script_language(text: bytes) -> str | None:
@@ -96,7 +116,9 @@ def script_language(text: bytes) -> str | None:
     interpreter = _interpreter(text)
     if interpreter is None:
         return None
-    return CodeLanguage.SHELL.value if interpreter in SHEBANG_SHELLS else interpreter
+    if interpreter in SHEBANG_SHELLS:
+        return CodeLanguage.SHELL.value
+    return interpreter if INTERPRETER_NAME.fullmatch(interpreter) else "unknown"
 
 
 def code_language_of(path: str) -> CodeLanguage | None:
