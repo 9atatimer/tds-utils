@@ -441,3 +441,15 @@ test('an unmarked success summary says it settles no review, and why', () => {
   assert.ok(body.startsWith(SUMMARY_MARKER));
   assert.match(body, /not a review mark[^\n]*finding failed to post/i);
 });
+
+// Only the review job's limit is the caller's to lengthen, so only its
+// timeout is the timeout cause; authorize's fixed limit stays unexpected.
+test('an authorize job cancelled with no failed step is unexpected, naming the job', () => {
+  const end = endOfRun({
+    runCancelled: false,
+    authorize: { result: 'cancelled', decision: '', cause: null, steps: [] },
+    review: { result: 'skipped', steps: [] },
+  });
+  assert.equal(end.cause, 'unexpected');
+  assert.match(end.failingStep, /^authorize \/ /);
+});

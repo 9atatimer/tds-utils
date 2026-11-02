@@ -105,7 +105,8 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
 
 - A PR carries two summary comments (owner ruling "option A"):
   - this workflow's, one per run: the outcome and, on failure, the cause
-    (`unexpected` also names the failing job and step); on success the
+    (`unexpected` also names the failing job and step; `timeout` names the
+    limit and the PR's size); on success the
     reviewed-file counts, the action's post counts and every reviewable
     file ocr did not review. `pr-not-open` posts none. ocr never selects
     Markdown, so every changed `.md` file is listed there, and a PR that
@@ -156,6 +157,10 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
     reviewed-file list, or the action's post counts were missing,
     unparseable or inconsistent with ocr's findings.
   - `reviewed-nothing`: reviewable files existed and ocr reviewed none.
+  - `timeout`: the review job reached its `timeout-minutes`; the detail
+    names the limit and the PR's changed-file count. Set the caller
+    repository's `OCR_REVIEW_TIMEOUT_MINUTES` higher on a runner whose
+    ceiling allows it ("A review's length"), or split the PR.
 - Trends across repos: `bin/ocr-review-stats` (read-only; `-p day|week|month`,
   `-d DAYS`, `-j`).
 
@@ -431,6 +436,10 @@ settings as OCR on Demand, with nothing posted anywhere.
   Ready (the deadline answer, the one retryable code) as the LMDE proxy
   layer's `ollama-gateway` route serves them; a change there must change
   it too.
+- **A caller pinned before the `timeout` cause reports a timeout as
+  `unexpected`.** A commit cannot pin itself, so this repository's own
+  caller reaches the cause only when its pin moves past the change that
+  added it (Issue#631); the longer limit applies at once.
 - **A timed-out job cannot name its step.** The token holds no `actions`
   scope (design permissions). A job the runner cancels at its timeout
   reads `timeout`; a runner lost mid-job, which ends `failure` with no

@@ -374,3 +374,25 @@ test('reusable: the summary step gets the report\'s mark sha, so a whole review 
   const step = report.slice(at, report.indexOf('- name:', at + 1));
   assert.match(step, /MARK_SHA: \$\{\{ steps\.record\.outputs\.mark_sha \}\}/);
 });
+
+// --- Timeout wiring (Issue#631) -------------------------------------------------
+
+test('reusable: authorize passes the changed-file count on, and the record step reads it and the limit', () => {
+  assert.match(block(jobBlock(REUSABLE, 'authorize'), 'outputs', 4), /changed_files:\s*\$\{\{\s*steps\.authorize\.outputs\.changed_files\s*\}\}/);
+  const record = jobBlock(REUSABLE, 'report');
+  assert.match(record, /AUTHORIZE_OUTPUTS:\s*\$\{\{\s*toJSON\(needs\.authorize\.outputs\)\s*\}\}/);
+  assert.match(record, /REVIEW_TIMEOUT_MINUTES:\s*\$\{\{\s*inputs\.review_timeout_minutes\s*\}\}/);
+});
+
+test('caller: the template adopters copy is the live caller but for its two pins', () => {
+  const live = readFileSync(join(ROOT, '.github/workflows/ocr-review-caller.yml'), 'utf8');
+  const unpinned = live
+    .replace(/(ocr-review\.yml@)[0-9a-f]{40}/, '$1' + '0'.repeat(40))
+    .replace(/(tools_ref:\s*')[0-9a-f]{40}'/, `$1${'0'.repeat(40)}'`);
+  assert.equal(CALLER, unpinned);
+});
+
+test('caller: the review gets 9 minutes on the pool, 40 on hosted runners, unless the repository sets its own', () => {
+  assert.match(CALLER, /review_runs_on:\s*\$\{\{\s*vars\.OCR_REVIEW_RUNS_ON \|\| ''\s*\}\}/);
+  assert.match(CALLER, /review_timeout_minutes:\s*\$\{\{\s*fromJSON\(vars\.OCR_REVIEW_TIMEOUT_MINUTES \|\| \(vars\.CI_RUNS_ON && '9' \|\| '40'\)\)\s*\}\}/);
+});
