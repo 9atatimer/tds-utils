@@ -1,6 +1,5 @@
 # Shop -- architecture
 
-> **Status:** APPROVED (the fixture's owner)
 
 The Behavior-driven fixture's architecture record: the seam and the
 use-case surface Kept test and Public surface read.
