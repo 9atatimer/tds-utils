@@ -415,6 +415,7 @@ def without(model: CodeModel, paths: Collection[str]) -> CodeModel:
         calls=tuple(f for f in model.calls if f.path not in out),
         accesses=tuple(f for f in model.accesses if f.path not in out),
         writes=tuple(f for f in model.writes if f.path not in out),
+        bindings=tuple(f for f in model.bindings if f.path not in out),
         conditionals=tuple(f for f in model.conditionals if f.path not in out),
         members=tuple(f for f in model.members if f.path not in out),
         test_cases=tuple(f for f in model.test_cases if f.path not in out),

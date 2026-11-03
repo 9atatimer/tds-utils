@@ -21,6 +21,7 @@ import os
 import posixpath
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -181,12 +182,35 @@ def _closes(text: str, at: int) -> bool:
     return at < len(text) and text[at] in "}]"
 
 
+def nesting(text: str) -> int:
+    """How deeply the JSON text's objects and arrays nest; a string's text
+    is not counted whatever it holds."""
+    depth = deepest = 0
+    at = 0
+    while at < len(text):
+        if text[at] == '"':
+            at = _string_end(text, at)
+            continue
+        if text[at] in "[{":
+            depth += 1
+            deepest = max(deepest, depth)
+        elif text[at] in "]}":
+            depth -= 1
+        at += 1
+    return deepest
+
+
 def read_tsconfig(text: str) -> dict[str, object]:
     """A tsconfig file's settings; none when it is not a JSON object.
     Raises TsconfigUnread when it does not parse, or nests deeper than the
-    parser can walk."""
+    parser can walk. The interpreter's recursion limit is that bound: the
+    JSON parser enforces it itself before Python 3.14, and from 3.14 it
+    walks as deep as the C stack allows, so it is checked here first."""
+    clean = without_trailing_commas(without_comments(text))
+    if nesting(clean) > sys.getrecursionlimit():
+        raise TsconfigUnread(f"{TSCONFIG_UNREAD}: {NESTED_TOO_DEEPLY}")
     try:
-        parsed = json.loads(without_trailing_commas(without_comments(text)))
+        parsed = json.loads(clean)
     except json.JSONDecodeError as error:
         raise TsconfigUnread(f"{TSCONFIG_UNREAD}: {error}") from error
     except RecursionError as error:

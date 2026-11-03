@@ -163,7 +163,12 @@ class GitRepository:
                 return Refused(path, LINK_REFUSAL)
         if not current.resolve().is_relative_to(self._root):
             return Refused(path, OUTSIDE_REFUSAL)
-        if not current.exists():
+        # Path.exists() answers False for a path it may not open from Python
+        # 3.14, so only a stat that finds nothing is Absent; any other error
+        # reaches _read_working and is Refused.
+        try:
+            current.stat()
+        except (FileNotFoundError, NotADirectoryError):
             return Absent(path)
         if not current.is_file():
             return Refused(path, "not a regular file")
