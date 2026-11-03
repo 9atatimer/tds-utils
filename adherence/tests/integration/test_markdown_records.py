@@ -33,6 +33,9 @@ from adherence.domain.records import (
 from adherence.domain.target import Head
 from adherence.ports.records import RecordsPort
 from adherence.ports.repository import Refused
+from tests.judge_kit import BASE as JUDGED_BASE
+from tests.judge_kit import HEAD as JUDGED_HEAD
+from tests.judge_kit import judge_with
 from tests.records_contract import (
     ARCHITECTURE,
     BASE,
@@ -192,6 +195,36 @@ def test_records_read_each_records_status() -> None:
         RecordStatus(DESIGN, "APPROVED"),
         RecordStatus(ARCHITECTURE, "APPROVED"),
     )
+
+
+RECORD_CHECKS = ("Trace", "Language", "Change", "Kept test", "Record kept")
+
+
+def test_a_merged_record_with_a_leftover_draft_status_line_counts() -> None:
+    """Given a merged design record that still carries a leftover
+    `Status: DRAFT` line, When a change is judged over the records read
+    from it, Then the record counts: Trace runs over it, and none of Trace,
+    Language, Change, Kept test and Record kept reports it missing. A record
+    present at the revision measured is merged, and merged is the approval;
+    a status line is not lifecycle (design skill, Lifecycle is metadata)."""
+    port = MarkdownRecords(
+        FakeRepository(
+            {BASE: _files(DESIGN_TEXT.replace("APPROVED (the owner)", "DRAFT"))}
+        )
+    )
+    read = port.records(BASE, declaration(), None)
+    assert isinstance(read, DesignRecords), read
+    use = "src/app/application/use.py"
+    clean = b"def run():\n    return 1\n"
+
+    report = judge_with(
+        {use: clean}, {use: clean}, records={JUDGED_BASE: read, JUDGED_HEAD: read}
+    )
+
+    assert "Trace" in {c.name for c in report.ran}
+    reasons = {c.check: c.reason for c in report.coverage if c.check}
+    for check in RECORD_CHECKS:
+        assert DESIGN not in reasons.get(check, ""), (check, reasons.get(check))
 
 
 def test_records_read_each_domain_language_term() -> None:
