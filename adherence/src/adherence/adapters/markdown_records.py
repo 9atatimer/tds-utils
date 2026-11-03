@@ -5,9 +5,10 @@ RepositoryPort at the target, and parses them as markdown shaped like
 DESIGN.ARCH-ADHERENCE.md: the Behaviors table and the Domain Language of
 the design; the use-case surface, with the signatures it gives, and the
 seam list of the architecture record (ARCHITECTURE.ARCH-ADHERENCE.md,
-Module map). A record is data: it is parsed, never rendered or followed.
-The adapter compares the Deadline to its own clock and answers TimedOut
-rather than overrun it.
+Module map); and the tech radar the declaration's [radar] table names,
+each entry under the ring heading it sits in. A record is data: it is
+parsed, never rendered or followed. The adapter compares the Deadline to
+its own clock and answers TimedOut rather than overrun it.
 """
 
 from __future__ import annotations
@@ -25,7 +26,10 @@ from adherence.domain.model import Parameter, Signature
 from adherence.domain.records import (
     Behavior,
     DesignRecords,
+    Radar,
+    RadarEntry,
     RecordsUnavailable,
+    Ring,
     Seam,
     SeamKind,
     SurfaceRow,
@@ -61,6 +65,9 @@ CLOSERS = ")]}"
 KEYWORD_ONLY_MARKER = "*"
 POSITIONAL_ONLY_MARKER = "/"
 NAMES_NONE = "the declaration names no design record"
+NAMES_NO_RADAR = "the declaration names no radar"
+# A heading opens a ring when its first word, case folded, is the ring's.
+RINGS = {ring.value.casefold(): ring for ring in Ring}
 
 # --- Pure helpers ------------------------------------------------------------
 
@@ -287,6 +294,66 @@ def parse_records(
     )
 
 
+def _ring_sections(tokens: Sequence[Token]) -> list[tuple[Ring, list[Token]]]:
+    """Each ring heading's tokens: a ring runs to the next heading as high
+    as its own, and holds the deeper headings inside it."""
+    sections: list[tuple[Ring, list[Token]]] = []
+    current: list[Token] | None = None
+    level = 0
+    for index, token in enumerate(tokens):
+        if token.type == "heading_open":
+            words = HEADING_WORD.findall(_plain(tokens[index + 1]).casefold())
+            ring = RINGS.get(words[0]) if words else None
+            if ring is not None:
+                current, level = [], _level(token)
+                sections.append((ring, current))
+                continue
+            if _level(token) <= level:
+                current, level = None, 0
+        if current is not None:
+            current.append(token)
+    return sections
+
+
+def _bullet_names(tokens: Sequence[Token]) -> list[tuple[int, str]]:
+    """Each list item led by a bold name: its line and the name."""
+    return [
+        (_line(token), name)
+        for index, token in enumerate(tokens)
+        if token.type == "inline"
+        and index >= 2
+        and tokens[index - 1].type == "paragraph_open"
+        and tokens[index - 2].type == "list_item_open"
+        and (name := _term(token)) is not None
+    ]
+
+
+def _row_names(tokens: Sequence[Token]) -> list[tuple[int, str]]:
+    """Each table row's first cell: its line and the name it holds, by its
+    first code span or else its plain text."""
+    named: list[tuple[int, str]] = []
+    for line, cells in _rows(tokens):
+        if not cells:
+            continue
+        spans = _code_spans(cells[0])
+        name = (spans[0] if spans else _plain(cells[0])).strip()
+        if name:
+            named.append((line, name))
+    return named
+
+
+def parse_radar(path: str, text: str) -> Radar:
+    """The Radar a tech radar's markdown states: every bold-led list item
+    and table row under a ring heading, in the order written."""
+    parser = MarkdownIt("commonmark").enable("table")
+    entries = [
+        RadarEntry(name, ring, path, line)
+        for ring, tokens in _ring_sections(parser.parse(text))
+        for line, name in sorted(_bullet_names(tokens) + _row_names(tokens))
+    ]
+    return Radar(tuple(entries))
+
+
 # --- Adapter -----------------------------------------------------------------
 
 
@@ -331,3 +398,15 @@ class MarkdownRecords:
             architecture_path=paths.architecture,
             architecture=architecture,
         )
+
+    def radar(
+        self, at: Base | Head, declaration: Declaration, deadline: Deadline | None
+    ) -> Radar | RecordsUnavailable | TimedOut:
+        if _passed(deadline, self._clock()):
+            return TimedOut("read the radar")
+        if declaration.radar is None:
+            return RecordsUnavailable(NAMES_NO_RADAR)
+        text = self._text(declaration.radar, at, deadline)
+        if not isinstance(text, str):
+            return text
+        return parse_radar(declaration.radar, text)

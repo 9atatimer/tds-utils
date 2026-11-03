@@ -9,10 +9,14 @@ test passes them in through the overrides.
 from __future__ import annotations
 
 import enum
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
 from adherence.adapters.git import GitRepository
+from adherence.adapters.jscpd import JscpdDuplication
+from adherence.adapters.lizard import LizardComplexity
 from adherence.adapters.markdown_records import MarkdownRecords
 from adherence.adapters.no_judge import NoJudge
 from adherence.adapters.python_ast import PythonCodeModel
@@ -215,6 +219,157 @@ TYPESCRIPT_PLAIN_TYPES = frozenset(
     }
 )
 
+# unittest's TestCase assertion methods; the Python analyzer resolves
+# `self.<method>` in a TestCase subclass to `unittest.TestCase.<method>`.
+UNITTEST_ASSERTIONS = frozenset(
+    f"unittest.TestCase.{method}"
+    for method in (
+        "assertAlmostEqual",
+        "assertCountEqual",
+        "assertDictEqual",
+        "assertEqual",
+        "assertFalse",
+        "assertGreater",
+        "assertGreaterEqual",
+        "assertIn",
+        "assertIs",
+        "assertIsInstance",
+        "assertIsNone",
+        "assertIsNot",
+        "assertIsNotNone",
+        "assertLess",
+        "assertLessEqual",
+        "assertListEqual",
+        "assertLogs",
+        "assertMultiLineEqual",
+        "assertNoLogs",
+        "assertNotAlmostEqual",
+        "assertNotEqual",
+        "assertNotIn",
+        "assertNotIsInstance",
+        "assertNotRegex",
+        "assertRaises",
+        "assertRaisesRegex",
+        "assertRegex",
+        "assertSequenceEqual",
+        "assertSetEqual",
+        "assertTrue",
+        "assertTupleEqual",
+        "assertWarns",
+        "assertWarnsRegex",
+        "fail",
+    )
+)
+
+# node's built-in modules (`module.builtinModules`), each bare and under the
+# `node:` scheme, and those that exist only under it.
+NODE_BUILTINS = frozenset(
+    {
+        prefix + name
+        for name in (
+            "assert",
+            "async_hooks",
+            "buffer",
+            "child_process",
+            "cluster",
+            "console",
+            "constants",
+            "crypto",
+            "dgram",
+            "diagnostics_channel",
+            "dns",
+            "domain",
+            "events",
+            "fs",
+            "http",
+            "http2",
+            "https",
+            "inspector",
+            "module",
+            "net",
+            "os",
+            "path",
+            "perf_hooks",
+            "process",
+            "punycode",
+            "querystring",
+            "readline",
+            "repl",
+            "stream",
+            "string_decoder",
+            "sys",
+            "timers",
+            "tls",
+            "trace_events",
+            "tty",
+            "url",
+            "util",
+            "v8",
+            "vm",
+            "wasi",
+            "worker_threads",
+            "zlib",
+        )
+        for prefix in ("", "node:")
+    }
+    | {"node:sea", "node:sqlite", "node:test"}
+)
+
+# A top-level import name -> the distribution a radar names it by, where the
+# two differ by more than case and separators.
+DISTRIBUTIONS = {
+    "attr": "attrs",
+    "Bio": "biopython",
+    "bs4": "beautifulsoup4",
+    "cairo": "pycairo",
+    "Crypto": "pycryptodome",
+    "cv2": "opencv-python",
+    "dateutil": "python-dateutil",
+    "dns": "dnspython",
+    "docx": "python-docx",
+    "dotenv": "python-dotenv",
+    "engineio": "python-engineio",
+    "faiss": "faiss-cpu",
+    "fitz": "PyMuPDF",
+    "gi": "PyGObject",
+    "git": "GitPython",
+    "grpc": "grpcio",
+    "jose": "python-jose",
+    "jwt": "PyJWT",
+    "kafka": "kafka-python",
+    "ldap": "python-ldap",
+    "Levenshtein": "python-Levenshtein",
+    "magic": "python-magic",
+    "markdown_it": "markdown-it-py",
+    "mpl_toolkits": "matplotlib",
+    "multipart": "python-multipart",
+    "MySQLdb": "mysqlclient",
+    "nacl": "PyNaCl",
+    "OpenGL": "PyOpenGL",
+    "OpenSSL": "pyOpenSSL",
+    "PIL": "Pillow",
+    "pkg_resources": "setuptools",
+    "pptx": "python-pptx",
+    "_pytest": "pytest",
+    "pythoncom": "pywin32",
+    "ruamel": "ruamel.yaml",
+    "serial": "pyserial",
+    "skimage": "scikit-image",
+    "sklearn": "scikit-learn",
+    "slugify": "python-slugify",
+    "socketio": "python-socketio",
+    "telegram": "python-telegram-bot",
+    "umap": "umap-learn",
+    "usb": "pyusb",
+    "websocket": "websocket-client",
+    "win32api": "pywin32",
+    "win32com": "pywin32",
+    "wx": "wxPython",
+    "Xlib": "python-xlib",
+    "yaml": "PyYAML",
+    "zmq": "pyzmq",
+}
+
 SHIPPED_VOCABULARY = Vocabulary(
     regions={
         "predicates": Layer.DOMAIN,
@@ -305,11 +460,42 @@ SHIPPED_VOCABULARY = Vocabulary(
         CodeLanguage.TYPESCRIPT: TYPESCRIPT_PLAIN_TYPES,
         CodeLanguage.JAVASCRIPT: TYPESCRIPT_PLAIN_TYPES,
     },
+    abstract_markers=frozenset(
+        {"Protocol", "ABC", "ABCMeta", "abstractmethod", "overload"}
+    ),
+    assertion_calls=frozenset(
+        {
+            "pytest.raises",
+            "pytest.warns",
+            "pytest.fail",
+            "assert_called",
+            "assert_called_once",
+            "assert_called_with",
+            "assert_called_once_with",
+            "assert_any_call",
+            "assert_has_calls",
+            "assert_not_called",
+        }
+        | UNITTEST_ASSERTIONS
+    ),
+    placeholder_assertions=frozenset({"True", "False", "1", "0", "None"}),
+    standard_library={
+        CodeLanguage.PYTHON: frozenset(sys.stdlib_module_names),
+        CodeLanguage.TYPESCRIPT: NODE_BUILTINS,
+        CodeLanguage.JAVASCRIPT: NODE_BUILTINS,
+    },
+    packages=DISTRIBUTIONS,
 )
-SHIPPED_LIMITS = Limits(evidence_bound=200)
+SHIPPED_LIMITS = Limits(
+    evidence_bound=200, complexity_ceiling=15, duplication_ceiling=10
+)
 SHIPPED_PARAMETERS = Parameters(
     thresholds=ThresholdPolicy(), vocabulary=SHIPPED_VOCABULARY, limits=SHIPPED_LIMITS
 )
+
+# The engine's own node analyzers, installed beside its uv project by
+# `npm ci --ignore-scripts` (adherence/node/package-lock.json).
+JSCPD = Path(__file__).resolve().parents[2] / "node" / "node_modules" / ".bin" / "jscpd"
 
 # --- Composition root ----------------------------------------------------------
 
@@ -325,17 +511,15 @@ class Stage(enum.Enum):
 
 @dataclass(frozen=True, slots=True)
 class Container:
-    """The ports bound for one stage, and the parameters. A port with no
-    adapter in this suite version is None until a test passes a fake: the
-    complexity and duplication adapters land in task-061."""
+    """The ports bound for one stage, and the parameters."""
 
     stage: Stage
     repository: RepositoryPort
     analyzers: Mapping[CodeLanguage, CodeModelPort]
     judge: DecisionPort
-    complexity: ComplexityPort | None
-    duplication: DuplicationPort | None
-    records: RecordsPort | None
+    complexity: ComplexityPort
+    duplication: DuplicationPort
+    records: RecordsPort
     parameters: Parameters
 
 
@@ -373,8 +557,12 @@ def build(
         repository=bound,
         analyzers=analyzers,
         judge=judge if judge is not None else NoJudge(),
-        complexity=complexity,
-        duplication=duplication,
+        complexity=complexity if complexity is not None else LizardComplexity(),
+        duplication=(
+            duplication
+            if duplication is not None
+            else JscpdDuplication(command=(str(JSCPD),))
+        ),
         records=records if records is not None else MarkdownRecords(bound),
         parameters=SHIPPED_PARAMETERS,
     )

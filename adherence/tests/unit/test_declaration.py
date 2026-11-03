@@ -103,6 +103,46 @@ def test_parse_declaration_with_a_malformed_records_table_is_unreadable(
     assert "records" in answer.reason
 
 
+def test_parse_declaration_reads_the_radar_it_names() -> None:
+    """Given a [radar] table naming the radar by a path, When it is parsed,
+    Then the declaration carries that path."""
+    declaration = parse_declaration(b'[radar]\npath = "docs/TECH_RADAR.md"\n')
+
+    assert isinstance(declaration, Declaration)
+    assert declaration.radar == "docs/TECH_RADAR.md"
+
+
+def test_parse_declaration_without_a_radar_names_none() -> None:
+    """Given no [radar] table, When the declaration is parsed, Then it names
+    no radar."""
+    declaration = parse_declaration(b'[layers]\ndomain = ["src/**"]\n')
+
+    assert isinstance(declaration, Declaration)
+    assert declaration.radar is None
+
+
+@pytest.mark.parametrize(
+    "table",
+    [
+        b"[radar]\n",
+        b'[radar]\npath = ""\n',
+        b"[radar]\npath = 3\n",
+        b'[radar]\npath = "r"\nring = "Adopt"\n',
+        b'radar = "docs/TECH_RADAR.md"\n',
+    ],
+)
+def test_parse_declaration_with_a_malformed_radar_table_is_unreadable(
+    table: bytes,
+) -> None:
+    """Given a [radar] table with no path, an empty or non-string one, an
+    unknown key, or not a table, When it is parsed, Then it is
+    DeclarationUnreadable naming radar."""
+    answer = parse_declaration(table)
+
+    assert isinstance(answer, DeclarationUnreadable)
+    assert "radar" in answer.reason
+
+
 def test_parse_declaration_reads_each_runtime_and_its_paths() -> None:
     """Given a [runtimes] table naming each runtime's path patterns, When it
     is parsed, Then the declaration carries each runtime with its patterns."""

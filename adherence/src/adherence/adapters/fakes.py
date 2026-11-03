@@ -16,12 +16,13 @@ from adherence.domain.model import (
     CodeModel,
     Complexity,
     Metrics,
+    MetricsUnavailable,
     Unit,
     UnitKind,
 )
 from adherence.domain.parameters import Vocabulary
 from adherence.domain.questions import Decision, Schema, State, Unavailable
-from adherence.domain.records import DesignRecords, RecordsUnavailable
+from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 from adherence.domain.target import Base, Head
 from adherence.ports.repository import Absent, Refused
 
@@ -111,48 +112,78 @@ def _relayered(unit: Unit, declaration: Declaration) -> Unit:
 
 
 class FakeComplexity:
-    """ComplexityPort answering the fixed complexity the test configures, or
-    the TimedOut it scripts."""
+    """ComplexityPort answering the fixed complexity the test configures, for
+    the sources it is handed, or the unavailable or TimedOut answer it
+    scripts. Its clock is frozen at `now`, so a deadline at or before it has
+    passed."""
 
-    def __init__(self, answer: tuple[Complexity, ...] | TimedOut = ()) -> None:
+    def __init__(
+        self,
+        answer: tuple[Complexity, ...] | MetricsUnavailable | TimedOut = (),
+        *,
+        now: float = 1e9,
+    ) -> None:
         self._answer = answer
+        self._now = now
 
     def measure(
         self, sources: Mapping[str, bytes], deadline: Deadline | None
-    ) -> Metrics | TimedOut:
-        if isinstance(self._answer, TimedOut):
+    ) -> Metrics | MetricsUnavailable | TimedOut:
+        if deadline is not None and deadline.epoch_seconds <= self._now:
+            return TimedOut("measure complexity")
+        if isinstance(self._answer, MetricsUnavailable | TimedOut):
             return self._answer
-        return Metrics(complexity=self._answer)
+        return Metrics(complexity=tuple(c for c in self._answer if c.path in sources))
 
 
 class FakeDuplication:
-    """DuplicationPort answering the fixed clones the test configures, or the
-    TimedOut it scripts."""
+    """DuplicationPort answering the fixed clones the test configures, those
+    between sources it is handed, or the unavailable or TimedOut answer it
+    scripts. Its clock is frozen at `now`, so a deadline at or before it has
+    passed."""
 
-    def __init__(self, answer: tuple[Clone, ...] | TimedOut = ()) -> None:
+    def __init__(
+        self,
+        answer: tuple[Clone, ...] | MetricsUnavailable | TimedOut = (),
+        *,
+        now: float = 1e9,
+    ) -> None:
         self._answer = answer
+        self._now = now
 
     def measure(
         self, sources: Mapping[str, bytes], deadline: Deadline | None
-    ) -> Metrics | TimedOut:
-        if isinstance(self._answer, TimedOut):
+    ) -> Metrics | MetricsUnavailable | TimedOut:
+        if deadline is not None and deadline.epoch_seconds <= self._now:
+            return TimedOut("find clones")
+        if isinstance(self._answer, MetricsUnavailable | TimedOut):
             return self._answer
-        return Metrics(clones=self._answer)
+        return Metrics(
+            clones=tuple(
+                c
+                for c in self._answer
+                if c.first.path in sources and c.second.path in sources
+            )
+        )
 
 
 class FakeRecords:
     """RecordsPort over a mapping of target -> the records, the
     RecordsUnavailable or the TimedOut the test scripts for it, so base and
-    head can hold different records. A target it does not hold has none. Its
-    clock is frozen at `now`, so a deadline at or before it has passed."""
+    head can hold different records. A target it does not hold has none.
+    `radar` scripts the radar per target the same way. Its clock is frozen
+    at `now`, so a deadline at or before it has passed."""
 
     def __init__(
         self,
         by_target: Mapping[Base | Head, DesignRecords | RecordsUnavailable | TimedOut],
         *,
+        radar: Mapping[Base | Head, Radar | RecordsUnavailable | TimedOut]
+        | None = None,
         now: float = 1e9,
     ) -> None:
         self._by_target = by_target
+        self._radar = radar or {}
         self._now = now
 
     def records(
@@ -163,6 +194,13 @@ class FakeRecords:
         return self._by_target.get(
             at, RecordsUnavailable("no design record at this target")
         )
+
+    def radar(
+        self, at: Base | Head, declaration: Declaration, deadline: Deadline | None
+    ) -> Radar | RecordsUnavailable | TimedOut:
+        if deadline is not None and deadline.epoch_seconds <= self._now:
+            return TimedOut("read the radar")
+        return self._radar.get(at, RecordsUnavailable("no radar at this target"))
 
 
 class FakeDecision:

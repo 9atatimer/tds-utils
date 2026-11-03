@@ -30,6 +30,7 @@ from adherence.domain.declaration import Declaration, layer_of, marker_regions
 from adherence.domain.model import (
     Access,
     AccessKind,
+    Assertion,
     Body,
     Call,
     CodeModel,
@@ -748,7 +749,7 @@ def test_cases(file: _File, vocabulary: Vocabulary) -> list[TestCase]:
                 symbol=_title(m.captured(TITLE) or ""),
                 line=m.line,
                 calls=tuple(_callee(c) for c in inside if c not in asserting),
-                assertions=tuple(joined(a.text) for a in outermost),
+                assertions=tuple(Assertion(joined(a.text)) for a in outermost),
             )
         )
     return cases

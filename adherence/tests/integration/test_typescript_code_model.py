@@ -16,10 +16,12 @@ import pytest
 
 from adherence.adapters import ts_depcruise
 from adherence.adapters.ts_depcruise import TypeScriptCodeModel
+from adherence.domain.checks.behavior import real_assertion
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, parse_declaration
 from adherence.domain.model import (
     AccessKind,
+    Assertion,
     CodeModel,
     Definition,
     Layer,
@@ -30,7 +32,9 @@ from adherence.domain.model import (
     Signature,
     UnitKind,
 )
-from adherence.domain.parameters import Vocabulary
+from adherence.domain.parameters import Limits, Parameters, Vocabulary
+from adherence.domain.questions import ThresholdPolicy
+from adherence.domain.records import DesignRecords
 from adherence.ports.code_model import CodeModelPort
 from tests import typescript_fixture
 from tests.code_model_contract import TYPESCRIPT_SOURCES, CodeModelContract
@@ -963,11 +967,39 @@ def test_test_cases_carry_their_calls_and_assertions() -> None:
             "closeOrder saves",
             5,
             ("closeOrder", "order"),
-            ("assert.equal(await closeOrder(order(), { store }), 'pending')",),
+            (
+                Assertion(
+                    "assert.equal(await closeOrder(order(), { store }), 'pending')"
+                ),
+            ),
         ),
         (path, "nothing", 9, ("closeOrder",), ()),
-        (path, "is large", 14, ("isLarge",), ("expect(isLarge(5)).toBe(true)",)),
+        (
+            path,
+            "is large",
+            14,
+            ("isLarge",),
+            (Assertion("expect(isLarge(5)).toBe(true)"),),
+        ),
     }
+
+
+def test_real_assertion_reads_a_typescript_test_case() -> None:
+    """Given the fixture's node:test and Vitest-style tests, When Real
+    assertion runs over the TypeScript model, Then only the test that calls
+    and never asserts is found: a TypeScript assertion is an Assertion the
+    check reads like a Python one."""
+    parameters = Parameters(
+        thresholds=ThresholdPolicy(),
+        vocabulary=typescript_fixture.VOCABULARY,
+        limits=Limits(evidence_bound=200),
+    )
+
+    outcome = real_assertion(
+        fixture_model(), typescript_fixture.declaration(), DesignRecords(), parameters
+    )
+
+    assert [f.subject for f in outcome.findings] == ["nothing: no assertion"]
 
 
 def test_tests_and_assertions_come_from_the_vocabulary() -> None:
@@ -985,7 +1017,7 @@ def test_tests_and_assertions_come_from_the_vocabulary() -> None:
 
     assert isinstance(model, CodeModel)
     assert [(t.symbol, t.calls, t.assertions) for t in model.test_cases] == [
-        ("a", ("run",), ("check(run())",))
+        ("a", ("run",), (Assertion("check(run())"),))
     ]
 
 

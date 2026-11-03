@@ -147,7 +147,7 @@ def _flat(modules: Modules) -> dict[str, str]:
     return flat
 
 
-def _beside(path: str, name: str, present: Collection[str]) -> str | None:
+def beside(path: str, name: str, present: Collection[str]) -> str | None:
     """The source a script's import names in the script's own directory,
     which Python searches first: a module file, or a package's __init__."""
     base = PurePosixPath(path).parent.joinpath(*name.split("."))
@@ -181,9 +181,24 @@ def _script_edges(
             continue
         text = lines[node.lineno - 1].strip()
         for name in dict.fromkeys(names):
-            target = _beside(path, name, present) or modules.get(name)
+            target = beside(path, name, present) or modules.get(name)
             edges.append(ImportEdge(path, name, node.lineno, text, target))
     return edges
+
+
+def module_names(sources: Mapping[str, bytes]) -> dict[str, str]:
+    """Module name -> source path for every module inside a package, the
+    first root in order winning a name two roots share."""
+    return _flat(_modules(sources, _packages(sources)))
+
+
+def modules_of(sources: Mapping[str, bytes]) -> dict[str, str]:
+    """Source path -> module name for every module inside a package."""
+    return {
+        path: name
+        for table in _modules(sources, _packages(sources)).values()
+        for name, path in table.items()
+    }
 
 
 # --- Effectful helpers -------------------------------------------------------

@@ -30,6 +30,9 @@ DECLARATION = b'[layers]\nadapters = ["log-hoarder/**"]\ntest = ["test/**"]\n'
 DEFINED = re.compile(r"^\s*(?:function\s+([\w-]+)|([\w-]+)\s*\(\s*\))", re.MULTILINE)
 BASH = re.compile(rb"\A#!\s*(?:/usr/bin/env\s+bash|/bin/bash)\b")
 HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?")
+ANATOMY_SUBJECT = (
+    "the adapters region at line 12 follows the composition root region at line 7"
+)
 
 
 def outside_heredocs(text: str) -> str:
@@ -95,8 +98,9 @@ def test_measure_over_the_shell_fixture_says_which_checks_do_not_read_it() -> No
     """Given the shell fixture, one of whose scripts puts its entry point
     above its functions, When `adhere measure --json` runs over it, Then the
     run is not refused, no script is in a language no analyzer measures,
-    Anatomy reads the scripts and finds the one out of order, and every
-    other check that ran reports each script as "does not read shell"."""
+    Anatomy reads the scripts and finds the one out of order, Stub reads
+    them and finds the `:` placeholder and the sleep, and every other check
+    that ran reports each script as "does not read shell"."""
     builder = functools.partial(
         build,
         records=FakeRecords({}),
@@ -114,14 +118,21 @@ def test_measure_over_the_shell_fixture_says_which_checks_do_not_read_it() -> No
     reasons = {(c["check"], c["path"]): c["reason"] for c in document["coverage"]}
     assert not any("no analyzer" in r for r in reasons.values()), reasons
     ran = {name for q in document["qualities"] for name in q["ran"]}
-    assert {"Grep", "Anatomy"} <= ran
+    assert {"Grep", "Anatomy", "Stub"} <= ran
     found = {
-        (f["check"], f["path"]) for q in document["qualities"] for f in q["findings"]
+        (f["check"], f["path"], f["symbol"], f["subject"])
+        for q in document["qualities"]
+        for f in q["findings"]
     }
-    assert found == {("Anatomy", "bin/backwards.sh")}
+    assert found == {
+        ("Anatomy", "bin/backwards.sh", None, ANATOMY_SUBJECT),
+        ("Stub", "bin/release.sh", "rollback", ":"),
+        ("Stub", "bin/release.sh", "wait_for_lock", "sleep"),
+    }
     scripts = ("bin/backwards.sh", "bin/release.sh", "lib/checks.sh")
-    for script in scripts:
-        assert ("Anatomy", script) not in reasons, reasons[("Anatomy", script)]
-    for check in ran - {"Anatomy"}:
+    for check in ("Anatomy", "Stub"):
+        for script in scripts:
+            assert (check, script) not in reasons, reasons[(check, script)]
+    for check in ran - {"Anatomy", "Stub"}:
         for script in scripts:
             assert reasons[(check, script)] == "does not read shell", (check, script)

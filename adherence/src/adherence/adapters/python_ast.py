@@ -13,12 +13,26 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 
-from adherence.adapters.python_imports import ImportGraphFailed, import_edges
+from adherence.adapters.python_imports import (
+    INIT,
+    ImportGraphFailed,
+    import_edges,
+    module_names,
+    modules_of,
+)
+from adherence.adapters.python_names import (
+    FileNames,
+    Resolver,
+    chain,
+    expanded,
+    imported_names,
+)
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, layer_of, marker_regions
 from adherence.domain.model import (
     Access,
     AccessKind,
+    Assertion,
     Binding,
     Body,
     Call,
@@ -153,18 +167,53 @@ def _placeholder(node: DefinitionNode) -> str | None:
     if isinstance(only, ast.Expr) and isinstance(only.value, ast.Constant):
         if only.value.value is Ellipsis:
             return "..."
-    if isinstance(only, ast.Raise) and only.exc is not None:
-        raised = only.exc.func if isinstance(only.exc, ast.Call) else only.exc
+    return _raised(only)
+
+
+def _raised(statement: ast.stmt) -> str | None:
+    """The name of the exception a `raise` statement raises, if it is one."""
+    if isinstance(statement, ast.Raise) and statement.exc is not None:
+        exc = statement.exc
+        raised = exc.func if isinstance(exc, ast.Call) else exc
         if isinstance(raised, ast.Name):
             return raised.id
     return None
+
+
+def _stub_marker(node: DefinitionNode, vocabulary: Vocabulary) -> str | None:
+    """The stub a body is: nothing but a placeholder the vocabulary names, or
+    a body that raises an exception the vocabulary names, whatever precedes
+    the raise."""
+    form = _placeholder(node)
+    if form is not None and form in vocabulary.stubs:
+        return form
+    return next(
+        (
+            name
+            for statement in node.body
+            if (name := _raised(statement)) is not None and name in vocabulary.stubs
+        ),
+        None,
+    )
 
 
 def _callee(call: ast.Call) -> str:
     return ast.unparse(call.func)
 
 
-def _body(node: DefinitionNode, text: str, vocabulary: Vocabulary) -> Body:
+def _imported_callee(call: ast.Call, imported: Mapping[str, str]) -> str:
+    """A call's callee read through the file's imports (`nap` bound by
+    `from time import sleep as nap` is `time.sleep`)."""
+    parts = chain(call.func)
+    return _callee(call) if parts is None else expanded(parts, imported)
+
+
+def _body(
+    node: DefinitionNode,
+    text: str,
+    vocabulary: Vocabulary,
+    imported: Mapping[str, str],
+) -> Body:
     statements = node.body
     first, last = statements[0], statements[-1]
     lines = source_lines(text)[first.lineno - 1 : (last.end_lineno or last.lineno)]
@@ -172,11 +221,15 @@ def _body(node: DefinitionNode, text: str, vocabulary: Vocabulary) -> Body:
         {
             n.lineno
             for n in own_nodes(node)
-            if isinstance(n, ast.Call) and vocabulary.is_sleep(_callee(n))
+            if isinstance(n, ast.Call)
+            and (
+                vocabulary.is_sleep(_callee(n))
+                or vocabulary.is_sleep(_imported_callee(n, imported))
+            )
         }
     )
-    form = _placeholder(node)
-    markers = (form,) if form is not None and form in vocabulary.stubs else ()
+    marker = _stub_marker(node, vocabulary)
+    markers = (marker,) if marker is not None else ()
     return Body("\n".join(lines), markers, tuple(sleeps))
 
 
@@ -187,6 +240,7 @@ def _definition(
     declaration: Declaration,
     regions: Sequence[Region],
     vocabulary: Vocabulary,
+    imported: Mapping[str, str],
 ) -> Definition:
     node = found.node
     is_type = isinstance(node, ast.ClassDef)
@@ -201,7 +255,7 @@ def _definition(
     return Definition(
         unit=unit,
         signature=None if isinstance(node, ast.ClassDef) else _signature(node),
-        body=_body(node, text, vocabulary),
+        body=_body(node, text, vocabulary, imported),
         bases=tuple(ast.unparse(b) for b in node.bases)
         if isinstance(node, ast.ClassDef)
         else (),
@@ -266,12 +320,47 @@ def _references(
     return found
 
 
-def _calls(path: str, scoped: Sequence[tuple[str | None, ast.AST]]) -> list[Call]:
-    return [
-        Call(path, node.lineno, within, _callee(node))
-        for within, node in scoped
-        if isinstance(node, ast.Call)
-    ]
+def _call(path: str, within: str | None, node: ast.Call, resolver: Resolver) -> Call:
+    parts = chain(node.func)
+    target = None if parts is None else resolver.target(path, within, parts)
+    return Call(path, node.lineno, within, _callee(node), target=target)
+
+
+GETATTR = "getattr"
+
+
+def _getattr_reach(
+    path: str, within: str | None, node: ast.Call, resolver: Resolver
+) -> Call | None:
+    """The attribute a builtin `getattr` with a literal name reads, as a call
+    to it (`getattr(rules, "_round")` reaches `rules._round`)."""
+    if not (isinstance(node.func, ast.Name) and node.func.id == GETATTR):
+        return None
+    if resolver.target(path, within, [GETATTR]) is not None or len(node.args) < 2:
+        return None
+    owner, name = chain(node.args[0]), node.args[1]
+    if owner is None or not (
+        isinstance(name, ast.Constant) and isinstance(name.value, str)
+    ):
+        return None
+    parts = [*owner, name.value]
+    target = resolver.target(path, within, parts)
+    return Call(path, node.lineno, within, ".".join(parts), target=target)
+
+
+def _calls(
+    path: str, scoped: Sequence[tuple[str | None, ast.AST]], resolver: Resolver
+) -> list[Call]:
+    """Every call, and every attribute a `getattr` reads by a literal name."""
+    found: list[Call] = []
+    for within, node in scoped:
+        if not isinstance(node, ast.Call):
+            continue
+        found.append(_call(path, within, node, resolver))
+        reach = _getattr_reach(path, within, node, resolver)
+        if reach is not None:
+            found.append(reach)
+    return found
 
 
 def _accesses(
@@ -469,6 +558,16 @@ def is_test(found: _Found, classes: set[str]) -> bool:
     )
 
 
+def _assertion(node: ast.Assert) -> Assertion:
+    """An assert statement's expression, with its truth value when it is a
+    literal, and whether it carries a message."""
+    try:
+        truth: bool | None = bool(ast.literal_eval(node.test))
+    except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+        truth = None
+    return Assertion(ast.unparse(node.test), truth, node.msg is not None)
+
+
 def _test_cases(path: str, walked: Sequence[_Found]) -> list[TestCase]:
     classes = {f.symbol for f in walked if isinstance(f.node, ast.ClassDef)}
     cases: list[TestCase] = []
@@ -477,7 +576,7 @@ def _test_cases(path: str, walked: Sequence[_Found]) -> list[TestCase]:
             continue
         nodes = own_nodes(f.node)
         calls = tuple(_callee(n) for n in nodes if isinstance(n, ast.Call))
-        asserts = tuple(ast.unparse(n.test) for n in nodes if isinstance(n, ast.Assert))
+        asserts = tuple(_assertion(n) for n in nodes if isinstance(n, ast.Assert))
         cases.append(TestCase(path, f.symbol, f.node.lineno, calls, asserts))
     return cases
 
@@ -485,13 +584,63 @@ def _test_cases(path: str, walked: Sequence[_Found]) -> list[TestCase]:
 NESTED_TOO_DEEPLY = "nested deeper than the analyzer can walk"
 
 
+@dataclass(frozen=True, slots=True)
+class _Parsed:
+    """The sources that parsed, each with its definitions, and the rest."""
+
+    trees: dict[str, ast.Module]
+    walked: dict[str, list[_Found]]
+    unparsed: list[Unparsed]
+
+
+def _file_names(
+    tree: ast.Module, walked: Sequence[_Found], module: str | None, is_package: bool
+) -> FileNames:
+    """What one parsed file binds, for the resolver."""
+    bases = {
+        f.symbol: tuple(
+            tuple(parts) for b in f.node.bases if (parts := chain(b)) is not None
+        )
+        for f in walked
+        if isinstance(f.node, ast.ClassDef)
+    }
+    return FileNames(
+        module=module,
+        imported=imported_names(tree, module, is_package),
+        defined=frozenset(f.symbol for f in walked),
+        bases=bases,
+    )
+
+
+def _resolver(
+    trees: Mapping[str, ast.Module],
+    sources: Mapping[str, bytes],
+    walked: Mapping[str, Sequence[_Found]],
+) -> Resolver:
+    """The resolver over every parsed file."""
+    parsed = {path: sources[path] for path in trees}
+    module_of = modules_of(parsed)
+    files = {
+        path: _file_names(
+            tree,
+            walked[path],
+            module_of.get(path),
+            path.rpartition("/")[2] == INIT,
+        )
+        for path, tree in trees.items()
+    }
+    return Resolver(files=files, modules=module_names(parsed))
+
+
 def _file_model(
     path: str,
     data: bytes,
-    tree: ast.Module,
+    walked: Sequence[_Found],
     declaration: Declaration,
     regions: Sequence[Region],
     vocabulary: Vocabulary,
+    resolver: Resolver,
+    tree: ast.Module,
 ) -> CodeModel:
     """Every fact of one parsed file, as a CodeModel of that file alone."""
     text = data.decode("utf-8", "replace")
@@ -499,16 +648,17 @@ def _file_model(
     file_unit = Unit(
         path, UnitKind.FILE, None, 1, lines, layer_of(path, None, declaration)
     )
-    walked = _walk_definitions(tree)
+    imported = resolver.imported(path)
     found = [
-        _definition(path, f, text, declaration, regions, vocabulary) for f in walked
+        _definition(path, f, text, declaration, regions, vocabulary, imported)
+        for f in walked
     ]
     scoped = _scoped(tree, walked)
     return CodeModel(
         units=(file_unit, *(d.unit for d in found)),
         definitions=tuple(found),
         references=tuple(_references(path, tree, scoped)),
-        calls=tuple(_calls(path, scoped)),
+        calls=tuple(_calls(path, scoped, resolver)),
         accesses=tuple(_accesses(path, scoped, vocabulary)),
         writes=tuple(_writes(path, scoped)),
         bindings=tuple(_bindings(path, scoped)),
@@ -528,6 +678,27 @@ class PythonCodeModel:
     def __init__(self, *, clock: Callable[[], float] = time.time) -> None:
         self._clock = clock
 
+    def _parse(
+        self, sources: Mapping[str, bytes], deadline: Deadline | None
+    ) -> _Parsed | TimedOut:
+        """Every source parsed and its definitions walked, in path order, or
+        Unparsed with the reason."""
+        parsed = _Parsed({}, {}, [])
+        for path in sorted(sources):
+            if _passed(deadline, self._clock()):
+                return TimedOut("model the Python sources")
+            tree = _parse(path, sources[path])
+            if isinstance(tree, Unparsed):
+                parsed.unparsed.append(tree)
+                continue
+            try:
+                parsed.walked[path] = _walk_definitions(tree)
+            except RecursionError:
+                parsed.unparsed.append(Unparsed(path, NESTED_TOO_DEEPLY))
+                continue
+            parsed.trees[path] = tree
+        return parsed
+
     def model(
         self,
         sources: Mapping[str, bytes],
@@ -546,20 +717,27 @@ class PythonCodeModel:
             )
         )
         declared = tuple(r for r in declaration.layers.regions if r.path in sources)
+        read = self._parse(sources, deadline)
+        if isinstance(read, TimedOut):
+            return read
+        unparsed = list(read.unparsed)
+        resolver = _resolver(read.trees, sources, read.walked)
         files: list[CodeModel] = []
-        unparsed: list[Unparsed] = []
         trees: dict[str, ast.Module] = {}
-        for path in sorted(sources):
+        for path, tree in read.trees.items():
             if _passed(deadline, self._clock()):
                 return TimedOut("model the Python sources")
-            tree = _parse(path, sources[path])
-            if isinstance(tree, Unparsed):
-                unparsed.append(tree)
-                continue
             try:
                 files.append(
                     _file_model(
-                        path, sources[path], tree, declaration, found, vocabulary
+                        path,
+                        sources[path],
+                        read.walked[path],
+                        declaration,
+                        found,
+                        vocabulary,
+                        resolver,
+                        tree,
                     )
                 )
             except RecursionError:

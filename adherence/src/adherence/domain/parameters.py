@@ -51,6 +51,19 @@ class Vocabulary:
     declare a test case and assertions those that assert (Vitest, Jest,
     node:test); a callee counts when it is one, or a chain or call on one
     (`test.only`, `expect(x).toBe`).
+
+    abstract_markers are the bases and decorators (a full dotted name, or
+    its last part) that make a placeholder body a declaration, not a stub.
+    assertion_calls are the assertion APIs: a dotted name matches what a
+    call resolves to (`pytest.raises`), a bare name a method called on a
+    receiver the analyzer cannot resolve (`assert_called_once`, as a mock
+    carries it); a definition of the measured repository never matches.
+    placeholder_assertions are the asserted expressions, as written, that
+    cannot tell a pass from a fail, beside any literal.
+    standard_library is each language's top-level modules that ship with
+    it, never a dependency (for TypeScript and JavaScript, node's built-in
+    modules, bare and `node:`-prefixed); packages maps a top-level module
+    to the name its package carries on a radar, where the two differ.
     """
 
     regions: Mapping[str, Layer]
@@ -64,6 +77,13 @@ class Vocabulary:
     model_ids: frozenset[str] = field(default_factory=frozenset)
     mechanism_calls: frozenset[str] = field(default_factory=frozenset)
     fakes: frozenset[str] = field(default_factory=frozenset)
+    abstract_markers: frozenset[str] = field(default_factory=frozenset)
+    assertion_calls: frozenset[str] = field(default_factory=frozenset)
+    placeholder_assertions: frozenset[str] = field(default_factory=frozenset)
+    standard_library: Mapping[CodeLanguage, frozenset[str]] = field(
+        default_factory=dict
+    )
+    packages: Mapping[str, str] = field(default_factory=dict)
     clocks: frozenset[str] = field(default_factory=frozenset)
     callables: frozenset[str] = field(default_factory=frozenset)
     wire_formats: frozenset[str] = field(default_factory=frozenset)
@@ -104,10 +124,15 @@ class Limits:
     """The tuned bounds (ARCHITECTURE.ARCH-ADHERENCE.md, Parameters placed).
 
     evidence_bound is how many characters of the offending line a finding
-    may quote.
+    may quote. complexity_ceiling is the per-function complexity above which
+    Complexity finds; None, when no ceiling is supplied, leaves the check as
+    coverage. duplication_ceiling is the clone size, in lines, above which
+    Duplication finds; None likewise leaves it as coverage.
     """
 
     evidence_bound: int
+    complexity_ceiling: int | None = None
+    duplication_ceiling: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -9,18 +9,6 @@ from click.testing import CliRunner
 from adherence.cli.main import main
 
 
-def test_measure_without_its_adapters_names_the_ports_unbound(tmp_path: Path) -> None:
-    """Given the composition root with no adapter yet for complexity and
-    duplication, When `adhere measure --json` runs, Then it exits non-zero
-    naming each unbound port, and not the records, and measures nothing."""
-    result = CliRunner().invoke(main, ["measure", "--root", str(tmp_path), "--json"])
-
-    assert result.exit_code == 2
-    for port in ("complexity", "duplication"):
-        assert port in result.output
-    assert "records" not in result.output
-
-
 def test_measure_without_json_says_json_is_the_one_format(tmp_path: Path) -> None:
     """Given no output format, When `adhere measure` runs, Then it exits
     non-zero and says --json is the format available."""

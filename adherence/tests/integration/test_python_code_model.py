@@ -4,13 +4,16 @@ time (task-057), after the shared contract."""
 from __future__ import annotations
 
 import functools
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 
 from adherence.adapters.python_ast import PythonCodeModel
+from adherence.adapters.python_names import FileNames, Resolver
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, parse_declaration
 from adherence.domain.model import (
     AccessKind,
+    Assertion,
     CodeModel,
     Definition,
     Layer,
@@ -350,7 +353,7 @@ def test_test_cases_carry_their_calls_and_assertions() -> None:
             "tests/test_use.py",
             "test_close_order_saves",
             (),
-            ("close_order is not None",),
+            (Assertion("close_order is not None"),),
         ),
         ("tests/test_use.py", "test_nothing", ("close_order",), ()),
     }
@@ -375,7 +378,7 @@ def test_test_cases_include_methods_of_test_classes() -> None:
 
     assert isinstance(model, CodeModel)
     assert [(t.symbol, t.calls, t.assertions) for t in model.test_cases] == [
-        ("TestThing.test_it", ("run",), ("run() == 1",))
+        ("TestThing.test_it", ("run",), (Assertion("run() == 1"),))
     ]
 
 
@@ -682,3 +685,162 @@ def test_declared_line_regions_are_in_the_model() -> None:
     assert isinstance(model, CodeModel)
     assert model.regions == (Region("m.py", 1, 2, Layer.DOMAIN),)
     assert [d.unit.layer for d in model.definitions] == [Layer.DOMAIN]
+
+
+def test_a_body_raising_a_stub_exception_after_other_statements_is_a_stub() -> None:
+    """Given functions that do something and then raise NotImplementedError,
+    and one that raises it only on one branch, When they are modelled, Then
+    the two whose body raises it are stubs whatever precedes the raise, and
+    the branching one is not (Self-review R8)."""
+    source = (
+        b"def later():\n"
+        b"    x = 0\n"
+        b"    raise NotImplementedError('later')\n"
+        b"def logged(log):\n"
+        b"    log('called')\n"
+        b"    raise NotImplementedError\n"
+        b"def partial(mode):\n"
+        b"    if mode:\n"
+        b"        raise NotImplementedError\n"
+        b"    return 1\n"
+    )
+
+    model = _model_of({"src/tool/domain/later.py": source})
+
+    markers = {d.unit.symbol: d.body.stub_markers for d in model.definitions}
+    assert markers == {
+        "later": ("NotImplementedError",),
+        "logged": ("NotImplementedError",),
+        "partial": (),
+    }
+
+
+def test_a_sleep_imported_under_another_name_is_a_sleep() -> None:
+    """Given functions that sleep through `from time import sleep as nap`
+    and `import time as clock`, When they are modelled, Then each body names
+    the line it sleeps on (Self-review R8)."""
+    source = (
+        b"import time as clock\n"
+        b"from time import sleep as nap\n"
+        b"def napping():\n"
+        b"    nap(1)\n"
+        b"def clocked():\n"
+        b"    clock.sleep(1)\n"
+    )
+
+    model = _model_of({"src/tool/application/wait.py": source})
+
+    sleeps = {d.unit.symbol: d.body.sleeps for d in model.definitions}
+    assert sleeps == {"napping": (4,), "clocked": (6,)}
+
+
+def test_calls_resolve_through_imports_definitions_and_bases() -> None:
+    """Given calls through an aliased import, a relative import, a package's
+    re-export, the file's own function, a method of the test type, a method
+    a unittest TestCase carries, and a method of a local variable, When they
+    are modelled, Then each call names what it resolves to -- the
+    repository's definition by path and symbol, or the dotted name outside
+    it -- and the local variable's method resolves to nothing."""
+    sources = {
+        "src/app/__init__.py": b"",
+        "src/app/domain/__init__.py": b"from .rules import price\n",
+        "src/app/domain/rules.py": b"def price():\n    return 1\n",
+        "src/app/application/__init__.py": b"",
+        "src/app/application/use.py": (
+            b"from ..domain.rules import price as cost\ndef run():\n    return cost()\n"
+        ),
+        "tests/test_use.py": (
+            b"import unittest\n"
+            b"from time import sleep as nap\n"
+            b"from app.domain import price\n"
+            b"def helper():\n"
+            b"    nap(0)\n"
+            b"class TestUse(unittest.TestCase):\n"
+            b"    def check(self):\n"
+            b"        pass\n"
+            b"    def test_it(self):\n"
+            b"        double = object()\n"
+            b"        helper()\n"
+            b"        self.check()\n"
+            b"        self.assertEqual(price(), 1)\n"
+            b"        double.run()\n"
+        ),
+    }
+
+    model = _model_of(sources)
+
+    targets = {
+        (c.within, c.callee): None
+        if c.target is None
+        else (c.target.name, c.target.path, c.target.symbol)
+        for c in model.calls
+    }
+    rules = "src/app/domain/rules.py"
+    test = "tests/test_use.py"
+    assert targets[("run", "cost")] == ("app.domain.rules.price", rules, "price")
+    assert targets[("helper", "nap")] == ("time.sleep", None, None)
+    assert targets[("TestUse.test_it", "helper")] == ("helper", test, "helper")
+    assert targets[("TestUse.test_it", "self.check")] == (
+        "TestUse.check",
+        test,
+        "TestUse.check",
+    )
+    assert targets[("TestUse.test_it", "self.assertEqual")] == (
+        "unittest.TestCase.assertEqual",
+        None,
+        None,
+    )
+    assert targets[("TestUse.test_it", "price")] == (
+        "app.domain.rules.price",
+        rules,
+        "price",
+    )
+    assert targets[("TestUse.test_it", "double.run")] is None
+
+
+class _Counted(Mapping[str, FileNames]):
+    """The resolver's files, counting every lookup of one."""
+
+    def __init__(self, files: dict[str, FileNames]) -> None:
+        self._files = files
+        self.reads = 0
+
+    def __getitem__(self, path: str) -> FileNames:
+        self.reads += 1
+        return self._files[path]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._files)
+
+    def __len__(self) -> int:
+        return len(self._files)
+
+
+def test_a_method_through_repeated_cyclic_bases_resolves_in_linear_work() -> None:
+    """Given a type listing a type four times as a base, that type listing the
+    first four times back and a third type that defines `m`, When `self.m()`
+    and `self.x()` are resolved in a method of the first, Then `m` resolves
+    to the third type's and `x` to nothing, each base read a bounded number
+    of times rather than once per path through the repeated bases
+    (Self-review re-review H1, task-061)."""
+    path = "a.py"
+    names = FileNames(
+        module=None,
+        imported={},
+        defined=frozenset({"A", "A.run", "B", "C", "C.m"}),
+        bases={
+            "A": (("B",),) * 4,
+            "B": (*(("A",),) * 4, ("C",)),
+            "C": (),
+        },
+    )
+    files = _Counted({path: names})
+    resolver = Resolver(files=files, modules={})
+
+    found = resolver.target(path, "A.run", ["self", "m"])
+    missing = resolver.target(path, "A.run", ["self", "x"])
+
+    assert found is not None
+    assert (found.path, found.symbol) == (path, "C.m")
+    assert missing is None
+    assert files.reads < 100, files.reads

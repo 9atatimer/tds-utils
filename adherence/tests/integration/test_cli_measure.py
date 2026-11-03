@@ -1,8 +1,8 @@
 """`adhere measure --json` through the composition root over the task-057
 fixture: real git, the real Python analyzer and the real markdown records
 adapter over the fixture's design records, with complexity and
-duplication overridden by their fakes until their adapters land
-(task-061). The task-058 and task-059 done checks."""
+duplication overridden by their fakes so the findings are the fixture's
+design alone. The task-058 and task-059 done checks."""
 
 from __future__ import annotations
 
