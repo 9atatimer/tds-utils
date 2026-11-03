@@ -1,6 +1,5 @@
 # Deployment Secrets Convention (GADMIN_VAULT)
 
-> **Status:** DRAFT
 > **Date:** 2026-07-22
 > **Authors:** Todd Stumpf, Claude
 > **Depends on:** none

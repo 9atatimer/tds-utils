@@ -1,6 +1,5 @@
 # AI Coding Agent Orchestrator
 
-> **Status:** DRAFT
 > **Date:** 2026-04-16
 > **Authors:** Todd Stumpf, Claude
 

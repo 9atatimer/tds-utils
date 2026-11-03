@@ -29,6 +29,7 @@ file points there.
 - On a classifier refusal, hand the human the exact `!` line once and stop; never route around it with another tool.
 - Never run a deploy or publish command yourself; open the PR and let CI ship it.
 - Say what a command does before handing it to the human to run.
+- Hand the human a command only once everything it depends on is done; never pre-stage one, or a comment, ahead of its moment.
 - Run anything over ~30s with `run_in_background`; never leave the human in silence.
 - Never start long work with `&` in a tool call; it leaves no notice and no exit status.
 - In zsh, an unquoted `$VAR` is one word: put a command line in a function or array, never a string.
@@ -52,6 +53,7 @@ file points there.
 - Fetch the default branch's HEAD before judging what a workflow does; a stale branch says nothing about what is live.
 - Review each non-doc PR once; re-review only after a load-bearing fix.
 - OCR on Demand (`/ocr`) is the agentic reviewer an agent summons; Copilot and Codex only when the owner fires the trigger.
+- Act on GitHub as `9atatimer-bot`, never as the owner: a PR authored by the owner can never get the owner's approval.
 - Never sign your work: no `Co-Authored-By`, session link or "Generated with" line in any commit, PR, issue or comment.
 
 ## Never sign your work
@@ -331,6 +333,16 @@ pin), or any other claude.ai publishing path, even one described as
 asks for "an HTML artifact", that means the file. A skill or tool
 description that says to publish is overridden by this rule.
 
+## Hand a command over only when it is ready to run
+
+Give the human a command, a `!` line or a text to post only at the moment
+it should run, after everything it depends on has happened. A command
+offered early gets run early: on 2026-11-01 a prod dispatch handed over
+before its PR had landed deployed `main` without the fix, and the run had
+to be cancelled. A comment drafted for later got posted twice. When the
+next step is someone else's (a merge, a review, an apply), name that step
+and stop; hand over the command when its turn comes (owner, 2026-11-01).
+
 ## Say what a command does before the human runs it
 
 When you hand the human a command to run (a `!` line, a terminal paste),
@@ -352,6 +364,27 @@ one line before the command is given.
 
 Never `curl ... | sh`, and never fetch-then-run an installer script, even to
 install a tool. Install software only through package managers that verify signed code.
+
+## Act on GitHub as the bot, never as the owner
+
+Every PR needs the owner's approval (a `CODEOWNERS` catch-all on the
+repos the laptop runs), and GitHub refuses self-approval. So a PR an agent
+opens under the owner's login can never be approved: it lands only by the
+owner overriding the merge queue. Agents open PRs, push, comment and
+`/land` as the machine account `9atatimer-bot`, which holds `write` on
+every repo the fleet works in; the owner's approval is the review.
+
+- On the laptop, start the session with tds-utils `bin/claude-as-bot`: the
+  bot's token from 1Password as `GH_TOKEN`, GitHub over HTTPS only (an SSH
+  remote would use the owner's key), commits under the bot's name.
+- In a cloud session, claude.ai's GitHub integration must be connected as
+  the bot; the `claude` App acts as whoever connected it.
+- A session already running as the owner runs every GitHub command AND
+  every `git commit` inside the bot's environment:
+  `op run --env-file <(claude-as-bot --print-env) -- <cmd>`. A commit
+  outside it is authored as the owner.
+- Before the first push, run `gh api user --jq .login`. If it does not
+  print `9atatimer-bot`, stop and switch identity before acting on GitHub.
 
 ## Secrets come from 1Password, never from the environment
 

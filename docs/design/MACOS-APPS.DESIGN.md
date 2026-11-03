@@ -1,6 +1,5 @@
 # macOS App Launchers
 
-> **Status:** DRAFT
 > **Date:** 2026-08-08
 > **Authors:** Todd Stumpf, Claude Opus 5
 > **Depends on:** none

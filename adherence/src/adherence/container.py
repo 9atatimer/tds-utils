@@ -20,6 +20,7 @@ from adherence.adapters.lizard import LizardComplexity
 from adherence.adapters.markdown_records import MarkdownRecords
 from adherence.adapters.no_judge import NoJudge
 from adherence.adapters.python_ast import PythonCodeModel
+from adherence.adapters.shell_astgrep import ShellCodeModel
 from adherence.adapters.ts_depcruise import TypeScriptCodeModel
 from adherence.domain.model import CodeLanguage, Layer
 from adherence.domain.parameters import Limits, Parameters, Vocabulary
@@ -389,7 +390,7 @@ SHIPPED_VOCABULARY = Vocabulary(
         }
     ),
     sleeps=frozenset({"sleep", "setTimeout"}),
-    stubs=frozenset({"pass", "...", "NotImplementedError", "{}"}),
+    stubs=frozenset({"pass", "...", "NotImplementedError", "{}", ":"}),
     options_objects=frozenset({"deps"}),
     tests=frozenset({"test", "it"}),
     assertions=frozenset({"assert", "expect"}),
@@ -548,6 +549,7 @@ def build(
             CodeLanguage.PYTHON: PythonCodeModel(),
             CodeLanguage.TYPESCRIPT: typescript,
             CodeLanguage.JAVASCRIPT: typescript,
+            CodeLanguage.SHELL: ShellCodeModel(),
         }
     bound = repository if repository is not None else GitRepository(root)
     return Container(

@@ -203,3 +203,34 @@ def test_measure_reads_each_import_by_its_own_language() -> None:
         (ts, 9, "json: not on the radar"),
         (FS, 1, "fs: not on the radar"),
     }
+
+
+def test_edge_only_does_not_read_shell_and_dependency_does() -> None:
+    """Given a domain script and a domain Python file each importing a Trial
+    dependency, and the script importing one the radar lacks, When the
+    Radar-true checks run, Then Edge only, which does not read shell, names
+    only the Python file's import and reports the script as coverage, while
+    Dependency, which reads shell, finds the script's unlisted import."""
+    script = "src/app/domain/run.sh"
+    python = CodeModel(imports=(_import(RULES, "requests", 1),))
+    shell = CodeModel(
+        imports=(_import(script, "requests", 1), _import(script, "yaml", 2))
+    )
+
+    report = measure_with(
+        {RULES: b"x\n", script: b"x\nx\n"},
+        analyzers={
+            CodeLanguage.PYTHON: FakeCodeModel(facts=python),
+            CodeLanguage.SHELL: FakeCodeModel(facts=shell),
+        },
+        radar=RADAR,
+    )
+
+    assert {"Dependency", "Edge only"} <= {c.name for c in report.ran}
+    assert [f.unit.path for f in _of(report, "Edge only")] == [RULES]
+    assert ("Edge only", "does not read shell") in {
+        (c.check, c.reason) for c in report.coverage if c.path == script
+    }
+    assert [(f.unit.path, f.subject) for f in _of(report, "Dependency")] == [
+        (script, "yaml: not on the radar")
+    ]

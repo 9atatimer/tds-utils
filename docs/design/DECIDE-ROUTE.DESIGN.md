@@ -1,6 +1,5 @@
 # Decide Route
 
-> **Status:** DRAFT  
 > **Date:** 2026-10-16 (panel findings folded in 2026-10-18; second panel folded in 2026-10-18)  
 > **Authors:** Todd Stumpf, Claude  
 > **Depends on:** [LMDE](./LMDE.DESIGN.md); the LMDE proxy layer as defined in [Ollama Gateway](./OLLAMA-GATEWAY.DESIGN.md), Deadline proxy  
@@ -456,7 +455,7 @@ none. Not cloud sessions.
 
 ## Open Questions
 
-Q2 and Q3 must be answered before this record is APPROVED. Each names
+Q2 and Q3 must be answered before this record is merged. Each names
 the rows its answer changes.
 
 - **Q1 The name.** "Decide route" is the working name. Confirm it or
@@ -524,7 +523,7 @@ the rows its answer changes.
   layer, Deadline proxy.
 - `docs/arch/proxy-layer/ARCHITECTURE.md` -- the layer as deployed.
 - `docs/design/ARCHITECTURE.decide-route.md` -- to be written once this
-  record is APPROVED; owns the door's placement on the proxy layer and
+  record is merged; owns the door's placement on the proxy layer and
   the seams.
 - `docs/ops/decide.md` -- `bin/decide`, the first caller.
 - [concept: decision-arena](../concepts/decision-arena/CONCEPT.md) -- the
