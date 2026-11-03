@@ -29,7 +29,7 @@ from adherence.domain.declaration import (
 )
 from adherence.domain.model import CodeLanguage
 from adherence.domain.parameters import Parameters
-from adherence.domain.records import DesignRecords, RecordsUnavailable, counted
+from adherence.domain.records import DesignRecords, RecordsUnavailable
 from adherence.domain.report import Report, ReportIdentity, fingerprint
 from adherence.domain.target import Base, Change, Head
 from adherence.domain.verdict import compared, stated_units
@@ -112,14 +112,14 @@ def _records_at(
     at: Base | Head,
     declaration: Declaration,
     records: RecordsPort,
-    parameters: Parameters,
     deadline: Deadline | None,
 ) -> DesignRecords | RecordsUnavailable:
-    """The records at the target, when their statuses count."""
+    """The records at the target: a record present there counts, whatever
+    status-like line it carries (design skill, Lifecycle is metadata)."""
     found = records.records(at, declaration, deadline)
     if isinstance(found, TimedOut):
         return RecordsUnavailable(f"{found.operation}: timed out", unread=True)
-    return counted(found, parameters.limits.record_statuses)
+    return found
 
 
 def _not_run(change: Change, reason: str) -> Report:
@@ -195,9 +195,9 @@ def judge_change(
         parameters.limits.evidence_bound,
     )
     head = with_outcome(head, COVERED, found)
-    head_records = _records_at(change.head, declaration, records, parameters, deadline)
+    head_records = _records_at(change.head, declaration, records, deadline)
     kept = record_kept(
-        base=_records_at(change.base, in_force, records, parameters, deadline),
+        base=_records_at(change.base, in_force, records, deadline),
         head=head_records,
         bound=parameters.limits.evidence_bound,
     )

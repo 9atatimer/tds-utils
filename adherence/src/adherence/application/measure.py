@@ -36,7 +36,6 @@ from adherence.domain.records import (
     DesignRecords,
     Radar,
     RecordsUnavailable,
-    counted,
 )
 from adherence.domain.report import (
     JUDGE_UNASKED,
@@ -183,7 +182,7 @@ def measure(
         design = (
             RecordsUnavailable(f"{read_records.operation}: timed out")
             if isinstance(read_records, TimedOut)
-            else counted(read_records, parameters.limits.record_statuses)
+            else read_records
         )
     tech: Radar | RecordsUnavailable = UNDECLARED
     if declaration.declared:

@@ -14,7 +14,6 @@ from adherence.domain.model import Layer, Parameter, Signature, merged
 from adherence.domain.records import (
     Behavior,
     DesignRecords,
-    RecordStatus,
     RecordsUnavailable,
     Seam,
     SeamKind,
@@ -377,16 +376,12 @@ def test_judge_change_adding_a_behavior_with_its_use_case_traces_it() -> None:
     assert [f for f in report.findings if f.check.name == "Trace"] == []
 
 
-def test_judge_change_with_records_stating_no_status_reads_them() -> None:
-    """Given a declared repository whose records state no status (status is
-    metadata: a merged record is the contract), When a change is judged,
+def test_judge_change_with_records_present_reads_them() -> None:
+    """Given a declared repository whose records are present (merged is the
+    approval: a merged record is the contract), When a change is judged,
     Then the records are read and Trace runs over them."""
-    architecture = "docs/design/ARCHITECTURE.APP.md"
     behavior = Behavior("An order is priced", "Given x, When y, Then z", DESIGN, 9)
-    merged = DesignRecords(
-        behaviors=(behavior,),
-        statuses=(RecordStatus(DESIGN, ""), RecordStatus(architecture, "")),
-    )
+    merged = DesignRecords(behaviors=(behavior,))
 
     report = judge_with(
         {USE: CLEAN}, {USE: CLEAN}, records={BASE: merged, HEAD: merged}

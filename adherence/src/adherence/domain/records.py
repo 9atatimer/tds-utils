@@ -10,7 +10,6 @@ seams; Language reads the Domain Language.
 from __future__ import annotations
 
 import enum
-from collections.abc import Collection
 from dataclasses import dataclass
 
 from adherence.domain.model import Signature
@@ -80,34 +79,30 @@ class SurfaceRow:
 
 
 @dataclass(frozen=True, slots=True)
-class RecordStatus:
-    """A record's status, by the first word its status line states; empty
-    when it states none."""
-
-    path: str
-    status: str
-
-
-@dataclass(frozen=True, slots=True)
 class DesignRecords:
     """What the merged records state: their seams, behaviors, the design's
-    Domain Language, the use cases the surface gives a signature, the
-    surface's rows, and each record's status."""
+    Domain Language, the use cases the surface gives a signature, and the
+    surface's rows. A record counts by being present at the revision
+    measured: merged is the approval, so whatever status-like line it
+    carries is not read (design skill, Lifecycle is metadata)."""
 
     seams: tuple[Seam, ...] = ()
     behaviors: tuple[Behavior, ...] = ()
     domain_language: tuple[Term, ...] = ()
     use_cases: tuple[UseCase, ...] = ()
     surface: tuple[SurfaceRow, ...] = ()
-    statuses: tuple[RecordStatus, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class RecordsUnavailable:
-    """No readable record at the target -- absent, not yet merged, or not read --
-    with the reason, naming the record. `unread` marks a record that is
-    there and could not be read (refused, timed out): what it states is
-    unknown, which is never the same as a record stating nothing."""
+    """No readable record at the target -- absent or not read -- with the
+    reason, naming the record. The frozen DESIGN.ARCH-ADHERENCE.md row "A
+    missing design record is reported" says "absent or in draft": a draft is
+    an unmerged PR, so at the revision measured it is absent, never present
+    with a DRAFT line (design skill, Lifecycle is metadata: merged is the
+    approval). `unread` marks a record that is there and could not be read
+    (refused, timed out): what it states is unknown, which is never the
+    same as a record stating nothing."""
 
     reason: str
     unread: bool = False
@@ -138,24 +133,3 @@ class Radar:
     """The tech radar the declaration names, read for its rings."""
 
     entries: tuple[RadarEntry, ...] = ()
-
-
-# --- Pure helpers ------------------------------------------------------------
-
-
-def counted(
-    records: DesignRecords | RecordsUnavailable, statuses: Collection[str]
-) -> DesignRecords | RecordsUnavailable:
-    """The records, when no record states a status that does not count;
-    else why not, naming the record: a record that says it is in draft is no
-    contract to compare code against. A record stating no status counts:
-    status is metadata, and a merged record is the contract."""
-    if isinstance(records, RecordsUnavailable):
-        return records
-    for record in records.statuses:
-        if record.status and record.status not in statuses:
-            return RecordsUnavailable(
-                f"{record.path}: its status ({record.status}) is not one that counts "
-                f"({', '.join(sorted(statuses))})"
-            )
-    return records
