@@ -263,8 +263,7 @@ stale.
 A task gets exactly one PR in each repo it touches. Retrospectives, review
 fixes, follow-up docs and corrections go onto that PR's branch, not into a
 second PR, a stacked PR or a "docs-only companion". This overrides any
-skill that says to open a separate or stacked PR (the github-workflow
-skill's Stacked PRs, the retrospective skill's separate docs-only PR).
+skill that says to open a separate or stacked PR.
 
 ## A fact you put in a subagent's prompt is a snapshot
 

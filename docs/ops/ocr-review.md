@@ -436,10 +436,15 @@ settings as OCR on Demand, with nothing posted anywhere.
   Ready (the deadline answer, the one retryable code) as the LMDE proxy
   layer's `ollama-gateway` route serves them; a change there must change
   it too.
-- **A caller pinned before the `timeout` cause reports a timeout as
-  `unexpected`.** A commit cannot pin itself, so this repository's own
-  caller reaches the cause only when its pin moves past the change that
-  added it (Issue#631); the longer limit applies at once.
+- **A caller pinned before tds-utils PR#649 reports a timeout as
+  `unexpected`.** The cause lives in the pinned tools, so an adopter
+  reaches it only by moving both pins past that change; this repository's
+  caller did so in tds-utils PR#661.
+- **That a timeout reads `cancelled` is GitHub's documented behaviour, not
+  yet seen here.** The `timeout` cause keys on the review job's result
+  being `cancelled` with no failed step (Issue#631). Check the first live
+  timeout's record; if it reads `unexpected`, the job result GitHub gave
+  is the fact to fix the mapping against.
 - **A timed-out job cannot name its step.** The token holds no `actions`
   scope (design permissions). A job the runner cancels at its timeout
   reads `timeout`; a runner lost mid-job, which ends `failure` with no
