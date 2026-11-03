@@ -1,6 +1,5 @@
 # WIP: Tech Radar Skill
 
-> **Status:** WIP -- design conversation in progress, no implementation yet
 > **Date:** 2026-05-18
 > **Authors:** Todd + Claude (Opus 4.7)
 > **Depends on:** [CLAUDE.md](../../CLAUDE.md), existing `prompts/SKILL.*.md` files

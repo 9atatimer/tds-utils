@@ -1,6 +1,5 @@
 # Leak Prevention and Stale Data Audit (Issue #131)
 
-> **Status:** DRAFT  
 > **Date:** 2026-07-11  
 > **Authors:** Antigravity  
 > **Depends on:** [clone-audit.md](../clone-audit.md)

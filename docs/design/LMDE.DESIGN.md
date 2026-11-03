@@ -1,6 +1,5 @@
 # LMDE -- Local Managed Developer Environment
 
-> **Status:** ADOPTED (per-part status in the table below)
 > **Date:** 2026-08-14
 > **Authors:** Gemini CLI (observability first draft), Claude (ingress
 > revision, boundary design, this consolidation), from design discussions
@@ -26,19 +25,6 @@ the message backplane.
 
 One tool, one design doc. Anything an implementer needs to know about why
 `lmde` is shaped the way it is belongs here.
-
-### Part status
-
-| Part | Status | Origin |
-|---|---|---|
-| Platform contract + residency | ADOPTED | `lmde/LMDE.md` (contract text stays there) |
-| Artifact acquisition + the lmde/clai boundary | ADOPTED (Revisions 1 and 2 folded in) | `LMDE-CLAI-BOUNDARY.DESIGN.md` |
-| Observability stack | ADOPTED (deployed; ingress revision live) | `LMDE-OBSERVABILITY.DESIGN.md` |
-| Log and trace backends (Loki, Tempo) | REVIEW (built; laptop deploy pending) | This document, section 3.3; issue #380 |
-| Cloud ingest (OTLP from off the laptop) | DRAFT (designed, not implemented) | This document, section 3.4; issue #380 |
-| Host ingress pattern | ADOPTED | `LMDE-OBSERVABILITY.DESIGN.md` section 4 |
-| Backplane (NATS-in-kind) | DRAFT (designed, not implemented) | `LMDE-BACKPLANE.DESIGN.md` |
-| Skills-drift indicator (prompt + menu bar) | ADOPTED (implemented) | This document, section 6 |
 
 ### Document map
 
@@ -428,7 +414,7 @@ Worker / Cloud Run --OTLP/HTTP + Access service token--> <ingest host>
   maximum payload size (Todd, 2026-10-02; `OLLAMA-GATEWAY.DESIGN.md`,
   Deadline proxy). OTLP ingest is a route on it with its own limits, in
   front of the collector; the connector never reaches `:4318` directly.
-  The layer is not built yet (that design is in REVIEW), so cloud ingest
+  The layer is not built yet, so cloud ingest
   waits on it; local senders keep using `127.0.0.1:4318` unchanged.
 - **One service token per component per tier.** Revoking one sender never
   touches another.
@@ -475,7 +461,7 @@ hence `32100`.
 
 ### 5. Backplane (NATS-in-kind)
 
-> **Status: DRAFT -- designed, not implemented.** Today NATS runs as a
+> Today NATS runs as a
 > standalone host process reachable only at `localhost:4222`, which fails
 > the residency rule (section 1) for kind-sandboxed agents.
 
@@ -730,7 +716,7 @@ deleted.
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| "Public ingress" non-goal | Crossed for the Ollama Gateway's endpoint: an Access-protected cloudflared tunnel to a sandboxed, external-facing ollama. Any other public endpoint needs its own design record and row | [OLLAMA-GATEWAY.DESIGN.md](./OLLAMA-GATEWAY.DESIGN.md), APPROVED 2026-10-02; issue #363. Bounded by Access, an exact-path allow-list and the sandbox; the rest of the stack stays strictly local |
+| "Public ingress" non-goal | Crossed for the Ollama Gateway's endpoint: an Access-protected cloudflared tunnel to a sandboxed, external-facing ollama. Any other public endpoint needs its own design record and row | [OLLAMA-GATEWAY.DESIGN.md](./OLLAMA-GATEWAY.DESIGN.md), merged 2026-10-02; issue #363. Bounded by Access, an exact-path allow-list and the sandbox; the rest of the stack stays strictly local |
 
 ---
 

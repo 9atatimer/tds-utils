@@ -1,6 +1,5 @@
 # chores -- laptop-local herd of LLM-adjacent scheduled jobs
 
-> **Status:** APPROVED (2026-09-14, by Todd Stumpf's delegation to the drafting session; see Key Decisions "Approval authority")
 > **Date:** 2026-09-14
 > **Authors:** Todd Stumpf (intent, `docs/concepts/lmde-chores/`), Claude (design, on Todd's delegated authority)
 > **Depends on:** [LMDE.DESIGN.md](./LMDE.DESIGN.md) (platform contract), [MACOS-APPS.DESIGN.md](./MACOS-APPS.DESIGN.md) (Dock launcher), [AGENT-NOTIFICATIONS.DESIGN.md](./AGENT-NOTIFICATIONS.DESIGN.md) (notification precedent, DRAFT)

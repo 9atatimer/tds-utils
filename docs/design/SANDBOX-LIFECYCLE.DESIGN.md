@@ -1,6 +1,5 @@
 # Sandbox Lifecycle -- Session-Boundary Provisioning
 
-> **Status:** DRAFT (Approach A adopted in discussion with Todd, 2026-08-13)
 > **Correction (2026-08-13, post-Phase-4 verification):** fact 3 and D3 are
 > corrected in place below -- a user-scope SessionStart hook WRITTEN INTO THE
 > CONTAINER by the setup stage DOES fire in cloud (measured on every session

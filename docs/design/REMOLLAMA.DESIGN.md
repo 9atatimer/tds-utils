@@ -1,7 +1,6 @@
 ```markdown
 # remollama — Remote Ollama Orchestrator
 
-> **Status:** Design / Pre-Implementation
 > **Created:** 2026-04-09
 > **Location:** `ops/terraform/remollama/`
 > **Entry Point:** `bin/remollama`

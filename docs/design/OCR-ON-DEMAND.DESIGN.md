@@ -1,6 +1,5 @@
 # OCR on Demand
 
-> **Status:** APPROVED (owner, 2026-10-02)  
 > **Date:** 2026-10-02  
 > **Authors:** Todd Stumpf, Claude (Opus 5.5)  
 > **Depends on:** [Ollama Gateway](./OLLAMA-GATEWAY.DESIGN.md) (PR #369; the road to the model); the tds-internal edge record it names  
@@ -436,7 +435,7 @@ Question Q2.
 | Where the review runs (reverses the GitHub-hosted row) | The caller's `CI_RUNS_ON` runner pool (niners, Cloudflare Containers) when the caller sets one; GitHub-hosted otherwise (public repos). The runner choice is the caller's existing variable, not a new input. Job `timeout-minutes` stays under the pool's container ceiling | Todd, 2026-10-12, tds-utils Issue#363 rulings comment: all procedural code runs on a Cloudflare-hosted runner, all inference on the sandboxed ollama stack; `ocr` still never runs on the laptop. Secret-bearing jobs stay on the pool per tds-internal Issue#214 |
 | Q1 Default model | `qwen3.6:latest` | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
 | Q2 Record retention | 90-day run artifacts suffice for the Trial | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
-| Q3 Both trigger paths for LLMs | An agent holding Todd's token may use both the `/ocr` comment and `workflow_dispatch` | Todd, 2026-10-12, tds-utils Issue#363 rulings comment. Closes the freeze precondition that APPROVED skipped |
+| Q3 Both trigger paths for LLMs | An agent holding Todd's token may use both the `/ocr` comment and `workflow_dispatch` | Todd, 2026-10-12, tds-utils Issue#363 rulings comment. Closes the freeze precondition that the merge skipped |
 | Q4 Dependency file name | `OLLAMA-GATEWAY.DESIGN.md` keeps its name | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
 | Per-finding post status (reverses "Missing engine output" for post status only) | The verdict reads the pinned action's counts: `comments_failed` is `findings_failed`, inline plus routed comments are `findings_posted`. A missing or unparseable count is still `engine-error`; a missing range or reviewed-file list is still `engine-error` | Todd, 2026-10-12, tds-utils Issue#363 rulings comment (third set), option A: alibaba/open-code-review v1.12.13 exposes counts, not per-finding status. Failed-to-post findings are named in upstream's summary, so none is dropped silently. A later pin that exposes per-finding status can restore the stricter contract |
 | Summary comment owner (reverses the single-summary row) | Two summary comments per PR: upstream's own (sticky, updated in place each run, naming failed-to-post findings) and the report job's (the run's outcome and cause, linking upstream's via `summary_comment_url`) | Todd, 2026-10-12, tds-utils Issue#363 rulings comment (third set), option A: the pinned action cannot disable its summary |
@@ -463,7 +462,7 @@ Question Q2.
 - **Q2 Record retention.** Are 90 days of run artifacts enough to judge
   the Trial, or do records need a longer home?
 - **Q3 Both trigger paths for LLMs.** May an agent holding Todd's token
-  use either trigger path? Todd to confirm before APPROVED; the answer
+  use either trigger path? Todd to confirm before the merge; the answer
   becomes a Key Decisions row and Security Considerations is updated to
   match. A precondition for the freeze, not deferrable.
 - **Q4 Dependency file name.** The gateway doc is linked as

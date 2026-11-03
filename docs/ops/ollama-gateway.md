@@ -6,7 +6,7 @@ a cloudflared tunnel and the LMDE proxy layer's deadline route. The edge
 (tunnel, DNS, Access, service tokens) is tds-internal
 `ops/terraform/ollama-gateway/`; this runbook is the laptop.
 
-- Design: `docs/design/OLLAMA-GATEWAY.DESIGN.md` (APPROVED; Key Decisions
+- Design: `docs/design/OLLAMA-GATEWAY.DESIGN.md` (Key Decisions
   rows of 2026-10-13 supersede the "first cut" sandbox text).
 - Component: `lmde/components/ollama-gateway/` (its README has the file
   map); the route: `lmde/components/proxy-layer/`; the host proxy's

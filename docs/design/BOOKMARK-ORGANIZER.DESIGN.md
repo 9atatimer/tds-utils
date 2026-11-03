@@ -1,6 +1,5 @@
 # Bookmark Organizer (orgmarks)
 
-> **Status:** APPROVED
 > **Date:** 2026-07-23
 > **Revised:** 2026-07-30 -- profile write-back (`orgmarks sync`) promoted
 > from Future Considerations to Design; see Rejections for what changed.

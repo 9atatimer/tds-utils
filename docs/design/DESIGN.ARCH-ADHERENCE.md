@@ -1,6 +1,5 @@
 # Architectural Adherence
 
-> **Status:** APPROVED (Todd, 2026-10-24, after tds-utils PR#605; the Open Questions are ruled by Key Decisions appends under tds-utils Issue#590, never by body edits). Amended by the owner 2026-10-25 (Issue#590): the score, the baseline as a number, floors and drop tickets are removed; a change is judged on its findings alone
 > **Date:** 2026-10-24
 > **Authors:** Todd Stumpf, Claude
 > **Depends on:** [LMDE](./LMDE.DESIGN.md)
@@ -611,7 +610,7 @@ checks.
 | Duplication ceiling | The clone size above which Duplication finds; a ratchet |
 | Evidence bound | How much of a unit a finding may quote; at most the offending line |
 | Stub vocabulary | The markers Stub recognises; extended by the owner, never emptied |
-| Design-record status that counts | Which statuses make a record readable for Trace and Language; at least APPROVED and IMPLEMENTED |
+| Design records that count | Which records are readable for Trace and Language; at least those on the default branch |
 
 ---
 

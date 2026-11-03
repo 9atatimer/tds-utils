@@ -9,8 +9,7 @@ and semantic search), and offers a chat grounded in what you saved. The
 filed tree is ordinary synced bookmarks, so a phone can save into it and
 browse it with nothing installed. Every change can be undone, and nothing
 is ever hard-deleted: removals go to `Graveyard`. The design is
-[docs/design/DYNOMARK.DESIGN.md](../docs/design/DYNOMARK.DESIGN.md)
-(APPROVED).
+[docs/design/DYNOMARK.DESIGN.md](../docs/design/DYNOMARK.DESIGN.md).
 
 ## Layout
 

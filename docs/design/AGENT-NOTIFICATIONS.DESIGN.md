@@ -1,6 +1,5 @@
 # AGENT-NOTIFICATIONS.DESIGN.md
 
-> **Status:** DRAFT
 > **Date:** 2026-05-17
 > **Authors:** Todd Stumpf
 > **Depends on:** [CLAI.DESIGN.md](../../CLAI.DESIGN.md)
