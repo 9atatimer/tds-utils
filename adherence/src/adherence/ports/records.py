@@ -19,7 +19,7 @@ class RecordsPort(Protocol):
     def records(
         self, at: Base | Head, declaration: Declaration, deadline: Deadline | None
     ) -> DesignRecords | RecordsUnavailable | TimedOut:
-        """The approved design records the declaration names, at the target."""
+        """The merged design records the declaration names, at the target."""
         ...
 
     def radar(

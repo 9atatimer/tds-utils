@@ -80,3 +80,26 @@ def test_identity_ignores_how_the_offending_line_is_spaced(gaps: list[str]) -> N
     )
 
     assert _flaw(text=spaced).identity == _flaw(text="k = os.environ x").identity
+
+
+def test_identity_of_quoted_lines_past_the_bound_digests_the_whole_line() -> None:
+    """Given two offending lines that agree on their first bound characters
+    and differ after, and one of them respaced across the cut, When each
+    finding is quoted at that bound, Then the two lines have different
+    identities and the respaced line keeps its own."""
+    head = "k = call(" + "a, " * 70
+    lines = {
+        "first": head + "first)",
+        "second": head + "second)",
+        "respaced": "k  =  call(" + "a, " * 70 + "first)",
+    }
+    bound = 200
+    identities = {
+        name: quoted(
+            (_flaw(line=1, text="fallback"),), {"src/a.py": text.encode()}, bound
+        )[0].identity
+        for name, text in lines.items()
+    }
+
+    assert identities["first"] != identities["second"]
+    assert identities["first"] == identities["respaced"]

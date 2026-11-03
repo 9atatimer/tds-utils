@@ -8,6 +8,7 @@ fake to pass it (ARCHITECTURE.ARCH-ADHERENCE.md, Module map: container.py).
 from __future__ import annotations
 
 import importlib
+import json
 import pkgutil
 from pathlib import Path
 from typing import Protocol, get_args, get_type_hints
@@ -23,7 +24,7 @@ from adherence.adapters.fakes import (
     FakeRepository,
     FakeReviews,
 )
-from adherence.container import Stage, build
+from adherence.container import JSCPD, Stage, build
 from adherence.domain.model import CodeLanguage
 from adherence.domain.questions import Unavailable
 from adherence.ports.code_model import CodeModelPort
@@ -91,3 +92,28 @@ def test_build_with_every_port_faked_binds_the_fakes(tmp_path: Path) -> None:
         built = build(stage, root=str(tmp_path), **overrides)
         for name, fake in overrides.items():
             assert getattr(built, name) is fake, (stage, name)
+
+
+def test_build_binds_an_analyzer_for_every_measured_language(tmp_path: Path) -> None:
+    """Given no analyzer override, When the composition root is built, Then
+    every language the suite measures has an analyzer, and TypeScript and
+    JavaScript share one, so an import from one to the other resolves."""
+    built = build(Stage.LAPTOP, root=str(tmp_path))
+
+    assert set(built.analyzers) == set(CodeLanguage)
+    assert (
+        built.analyzers[CodeLanguage.TYPESCRIPT]
+        is built.analyzers[CodeLanguage.JAVASCRIPT]
+    )
+
+
+def test_jscpd_runs_from_the_node_package_that_pins_it() -> None:
+    """jscpd is spawned from the one node package CI installs, the one
+    whose manifest and lock pin it (architecture, Security mitigations)."""
+    package = JSCPD.parents[2]
+    manifest = json.loads((package / "package.json").read_text())
+    lock = json.loads((package / "package-lock.json").read_text())
+
+    assert manifest["dependencies"]["jscpd"] == "5.4.1"
+    assert lock["packages"]["node_modules/jscpd"]["integrity"]
+    assert lock["packages"][""]["dependencies"]["dependency-cruiser"]

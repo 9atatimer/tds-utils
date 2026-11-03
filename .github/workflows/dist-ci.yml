@@ -217,6 +217,11 @@ jobs:
       - name: Smoketest bin/cdp and bin/realchrome-cdp
         run: /bin/bash test/smoketest_cdp.sh
 
+      # Hermetic: fake op and a recording clai/claude on PATH; nothing
+      # reaches 1Password or GitHub.
+      - name: Smoketest bin/claude-as-bot
+        run: /bin/bash test/smoketest_claude_as_bot.sh
+
   shellcheck:
     needs: changes
     if: needs.changes.outputs.shellcheck == 'true'
@@ -294,6 +299,16 @@ jobs:
       # Security mitigations), so a lock that disagrees fails here.
       - name: Sync the project (dev group)
         run: uv sync --frozen
+
+      # The TypeScript code model runs dependency-cruiser from
+      # adherence/node; --ignore-scripts: no package's install hook runs.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install the node analyzers (npm ci)
+        run: npm ci --ignore-scripts --prefix node
 
       - name: Lint (ruff check)
         run: uv run ruff check .

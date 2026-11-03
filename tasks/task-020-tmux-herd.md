@@ -12,7 +12,7 @@ the namer are pure functions over fixture text (`list-panes` lines plus a
 `pid -> ppid,comm,args` table), so `test/smoketest_tmux_herd.sh` drives
 them with fixtures and a stub `tmux`/`git` on PATH, never a live server.
 
-Gates before code: the design is DRAFT until Todd marks it APPROVED (the
+Gates before code: the design record is merged (the
 design skill); the naming grammar and the log-hoarder rename gate are the
 two places a reader should check first. Blocked on task-021 because until
 log-hoarder keys log dirs on `#{session_id}`, every piped session is

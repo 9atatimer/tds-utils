@@ -1,9 +1,5 @@
 # orgmarks: the one-click sync exploration
 
-> **Status:** groundwork, not a live plan. The approach described here was
-> designed, reviewed, and shelved. The direction changed. This file exists
-> so the findings outlive the approach.
->
 > **Date:** 2026-07-31 -- 2026-08-23
 > **Artifacts:** PR #185 (merged, `d9bb02f`), issue #189 (open, never run)
 > **Design:** [BOOKMARK-ORGANIZER.DESIGN.md](../../design/BOOKMARK-ORGANIZER.DESIGN.md)

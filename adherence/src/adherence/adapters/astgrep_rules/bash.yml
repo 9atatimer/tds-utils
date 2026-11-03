@@ -1,0 +1,81 @@
+# Shell structural facts for adapters/astgrep.py.
+#
+# Written for Bash; ast-grep reads sh, bash and zsh sources with this one
+# grammar. Each rule's id names the fact it yields and its captures are the
+# fact's parts; an id may carry a `.variant` when two rules yield one fact.
+# Bash spells a variable with `$`, so rules match by kind and field and
+# capture through `pattern: $NAME` on a field, never through code patterns.
+# Every rule is a hint, so a match never fails the scan.
+# A function, written `name() { ... }` or `function name { ... }`.
+id: function
+language: Bash
+severity: hint
+rule:
+  kind: function_definition
+  has: {field: name, pattern: $NAME}
+---
+id: function-node
+language: Bash
+severity: hint
+rule:
+  kind: function_definition
+---
+id: body
+language: Bash
+severity: hint
+rule:
+  kind: function_definition
+  has: {field: body, pattern: $BODY}
+---
+# A body holding nothing but the `:` placeholder, beside any comments. A
+# `:` given arguments runs them for their expansions (`: "${1:?}"`), which
+# is work, so it is no placeholder.
+id: stub
+language: Bash
+severity: hint
+rule:
+  kind: function_definition
+  has:
+    field: body
+    kind: compound_statement
+    all:
+      - has:
+          kind: command
+          not: {has: {field: argument, regex: '.'}}
+          has: {field: name, regex: '^:$', pattern: $THROWN}
+      - not:
+          has:
+            nthChild: {position: 2, ofRule: {not: {kind: comment}}}
+---
+# Every command run, builtins included: the callee is its name as
+# written. A declaration (`local`, `export`) is not a command.
+id: call
+language: Bash
+severity: hint
+rule:
+  kind: command
+  has: {field: name, pattern: $CALLEE}
+---
+id: syntax-error
+language: Bash
+severity: hint
+rule:
+  kind: ERROR
+---
+# A token the parser inserted to repair the file has no text; the file is
+# as unreadable as one holding an ERROR node, and the token's line is where
+# it breaks. An empty here-document body or content is a real node with no
+# text, not an inserted token, so it is no break.
+id: syntax-error.missing
+language: Bash
+severity: hint
+rule:
+  kind: program
+  has:
+    regex: '^$'
+    stopBy: end
+    pattern: $$MISSING
+    not:
+      any:
+        - kind: heredoc_body
+        - kind: heredoc_content

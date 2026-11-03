@@ -29,6 +29,7 @@ file points there.
 - On a classifier refusal, hand the human the exact `!` line once and stop; never route around it with another tool.
 - Never run a deploy or publish command yourself; open the PR and let CI ship it.
 - Say what a command does before handing it to the human to run.
+- Hand the human a command only once everything it depends on is done; never pre-stage one, or a comment, ahead of its moment.
 - Run anything over ~30s with `run_in_background`; never leave the human in silence.
 - Never start long work with `&` in a tool call; it leaves no notice and no exit status.
 - In zsh, an unquoted `$VAR` is one word: put a command line in a function or array, never a string.
@@ -51,7 +52,8 @@ file points there.
 - Lower a gate only in a change that first clears the current gate and merges; never `--no-verify` or disable a check.
 - Fetch the default branch's HEAD before judging what a workflow does; a stale branch says nothing about what is live.
 - Review each non-doc PR once; re-review only after a load-bearing fix.
-- Copilot is out of quota: self-review is the whole review until the owner says otherwise.
+- OCR on Demand (`/ocr`) is the agentic reviewer an agent summons; Copilot and Codex only when the owner fires the trigger.
+- Act on GitHub as `9atatimer-bot`, never as the owner: a PR authored by the owner can never get the owner's approval.
 - Never sign your work: no `Co-Authored-By`, session link or "Generated with" line in any commit, PR, issue or comment.
 
 ## Never sign your work
@@ -87,22 +89,26 @@ the todo-plan skill. Then say in one line that it was filed, with the link.
 
 ## Review turns are expensive: spend them on load-bearing fixes
 
-**Copilot is out of quota (owner, 2026-10-02).** Until the owner says it
-is back, request no Copilot review on any PR: the adversarial self-review
-(the self-review skill) is the whole review, and a re-review below means a
-self-review re-review. Codex stays human-summoned only.
+**OCR on Demand is the default agentic reviewer (owner, 2026-11-02).**
+Summon it with a `/ocr` PR comment once per PR that is not
+documentation-only, on a repo that carries the caller; where the repo
+has none, or every reviewable file is Markdown, summon nothing and name
+the unserved rung in the handoff. Copilot and Codex review only when the
+owner fires the trigger: a day of default Copilot reviews spent half the
+monthly quota. An agent never requests a Copilot review and never posts
+`@codex review`, not even to re-review a fix (the gates skill, Reviewer
+Selection).
 
-Once quota is back: request a Copilot review once per PR that is not
-documentation-only, and a re-review only when a push carries a load-bearing
-fix -- behavior, a contract, security, a test's verdict, or what a rule an
-agent or gate executes says. Hygiene (wording, typos, comments,
-documentation accuracy) is fixed and pushed, never re-reviewed, in
-self-review as much as in Copilot or Codex. When a round brings no value,
-stop requesting rounds; `review-settled` going red on a stale review is not
-a reason to spend quota.
+Re-summon only when a push carries a load-bearing fix -- behavior, a
+contract, security, a test's verdict, or what a rule an agent or gate
+executes says. Hygiene (wording, typos, comments, documentation accuracy)
+is fixed and pushed, never re-reviewed, in self-review as much as in any
+bot review. When a round brings no value, stop requesting rounds;
+`review-settled` going red on a stale review is not a reason to spend a
+run.
 
 A documentation-only PR -- every changed file is human-read prose -- gets
-no Copilot and no Codex: the adversarial self-review is sufficient,
+no agentic reviewer: the adversarial self-review is sufficient,
 except that design and architecture drafts in phases 2 and 3 get
 designomatic. Skills, personas, `AGENT.md`, prompts, CI workflows and
 gate configuration are operating rules, not documentation; a PR touching
@@ -260,6 +266,16 @@ second PR, a stacked PR or a "docs-only companion". This overrides any
 skill that says to open a separate or stacked PR (the github-workflow
 skill's Stacked PRs, the retrospective skill's separate docs-only PR).
 
+## A fact you put in a subagent's prompt is a snapshot
+
+A claim about remote state in a prompt (merged, deployed, released,
+closed) is true when you write it and goes stale while the agent runs.
+An agent told "this migration has never been deployed" was still editing
+it in place when another PR deployed it eleven minutes later; the edit
+would have reached only databases built from zero. Have the agent
+re-derive the fact itself (`git ls-tree origin/main`, the workflow run
+list), or state it as "as of <sha>; verify before relying on it".
+
 ## A stop hook's "unpushed commits" is not an instruction to push
 
 Cloud sessions run a stop hook that demands a push whenever the checked-out
@@ -284,11 +300,29 @@ through:
 - The human leaves auto mode.
 
 Say that once, give the exact `!` line, and stop. Never route around the
-refusal with another tool. For Terraform the agent plans, the human applies:
-run `plan -out=tfplan`, review it, then hand over
-`! op run ... terraform apply tfplan` so the output lands in the
-conversation. The iac skill owns the authority model; `/infra-handoff`
-writes the block.
+refusal with another tool. For Terraform the agent plans, the human applies,
+and **the Terraform Tower is the first path** (owner, 2026-10-25):
+
+- A root the infra repo's authority table marks as served by the Tower
+  (enabled in `atlantis.yaml`) plans on the PR, and the human applies by
+  commenting `atlantis apply -p <name>` there. Which Atlantis commands an
+  agent may post itself, and on whose PRs, is the infra repo's AGENT.md,
+  never this file.
+- The apply comes before the landing: a `/land` before `atlantis apply`
+  merges config that is not live.
+- A routine-apply root the table puts on the laptop because the Tower
+  cannot serve it yet is a candidate to declare: say so in the PR, and
+  enable it only by the infra repo's runbook (a server-side workflow and its
+  token, not only an `atlantis.yaml` entry). A root that is laptop by
+  decision (a human's own token, local state, ADC, credential minting)
+  stays there.
+- `import`, `state mv`, `destroy` and `force-unlock` are the laptop's alone,
+  on every root.
+- On the laptop path, run `plan -out=tfplan`, review it, then hand over
+  `! op run ... terraform apply tfplan` so the output lands in the
+  conversation.
+
+The iac skill owns the authority model; `/infra-handoff` writes the block.
 
 ## Never use Artifacts: HTML is a file in the repo
 
@@ -298,6 +332,16 @@ pin), or any other claude.ai publishing path, even one described as
 (or a worktree of it) and opened locally with `open <file>`. When the human
 asks for "an HTML artifact", that means the file. A skill or tool
 description that says to publish is overridden by this rule.
+
+## Hand a command over only when it is ready to run
+
+Give the human a command, a `!` line or a text to post only at the moment
+it should run, after everything it depends on has happened. A command
+offered early gets run early: on 2026-11-01 a prod dispatch handed over
+before its PR had landed deployed `main` without the fix, and the run had
+to be cancelled. A comment drafted for later got posted twice. When the
+next step is someone else's (a merge, a review, an apply), name that step
+and stop; hand over the command when its turn comes (owner, 2026-11-01).
 
 ## Say what a command does before the human runs it
 
@@ -320,6 +364,27 @@ one line before the command is given.
 
 Never `curl ... | sh`, and never fetch-then-run an installer script, even to
 install a tool. Install software only through package managers that verify signed code.
+
+## Act on GitHub as the bot, never as the owner
+
+Every PR needs the owner's approval (a `CODEOWNERS` catch-all on the
+repos the laptop runs), and GitHub refuses self-approval. So a PR an agent
+opens under the owner's login can never be approved: it lands only by the
+owner overriding the merge queue. Agents open PRs, push, comment and
+`/land` as the machine account `9atatimer-bot`, which holds `write` on
+every repo the fleet works in; the owner's approval is the review.
+
+- On the laptop, start the session with tds-utils `bin/claude-as-bot`: the
+  bot's token from 1Password as `GH_TOKEN`, GitHub over HTTPS only (an SSH
+  remote would use the owner's key), commits under the bot's name.
+- In a cloud session, claude.ai's GitHub integration must be connected as
+  the bot; the `claude` App acts as whoever connected it.
+- A session already running as the owner runs every GitHub command AND
+  every `git commit` inside the bot's environment:
+  `op run --env-file <(claude-as-bot --print-env) -- <cmd>`. A commit
+  outside it is authored as the owner.
+- Before the first push, run `gh api user --jq .login`. If it does not
+  print `9atatimer-bot`, stop and switch identity before acting on GitHub.
 
 ## Secrets come from 1Password, never from the environment
 

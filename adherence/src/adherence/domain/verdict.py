@@ -21,7 +21,7 @@ from dataclasses import dataclass, field, replace
 
 from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import is_declared_check
-from adherence.domain.finding import Finding, Provenance
+from adherence.domain.finding import Finding, Provenance, line_digest
 from adherence.domain.model import UnitKind
 from adherence.domain.qualities import Quality
 from adherence.domain.records import DesignRecords, RecordsUnavailable
@@ -63,12 +63,19 @@ class _Joins:
         was = self.definitions.get((unit.path, unit.symbol or ""))
         if was is None or unit.symbol is None:
             return finding.identity, unit.path
+        evidence = finding.evidence
         text = re.sub(
             rf"\b{re.escape(_short(unit.symbol))}\b",
             _short(was[1]),
-            finding.evidence.text,
+            evidence.text,
         )
-        joined = replace(finding, evidence=replace(finding.evidence, text=text))
+        # Identity reads the whole line's digest when the evidence keeps one.
+        # A quote that is the whole line is renamed and re-digested; a quote
+        # cut at the evidence bound keeps the head's digest, as the rest of
+        # the line is not in hand.
+        whole = evidence.digest in ("", line_digest(evidence.text))
+        digest = line_digest(text) if whole else evidence.digest
+        joined = replace(finding, evidence=replace(evidence, text=text, digest=digest))
         return joined.identity, was[0]
 
     def unit_at_head(self, finding: Finding) -> UnitKey:

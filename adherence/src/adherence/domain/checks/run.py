@@ -27,7 +27,14 @@ from adherence.domain.checks.outcome import (
 from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import Declaration
 from adherence.domain.finding import Finding
-from adherence.domain.model import CodeModel, UnitKind, within
+from adherence.domain.model import (
+    CodeLanguage,
+    CodeModel,
+    UnitKind,
+    language_of,
+    within,
+    without,
+)
 from adherence.domain.parameters import Parameters
 from adherence.domain.qualities import CATALOG, Check, CheckKind, Quality
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
@@ -67,6 +74,15 @@ NO_RADAR = RecordsUnavailable("no radar was read")
 CHANGE_LEVEL = "a change-level check: it runs when a change is judged"
 NOT_IN_SUITE = "not implemented in this suite version"
 NO_JUDGE_YET = "a judged check: none is implemented in this suite version"
+# The checks each language's model is complete enough for, for a language
+# whose model holds only some facts (task-070); a language not named here
+# is read by every check. Any other check runs without that language's
+# files and reports each file it skipped (DESIGN.ARCH-ADHERENCE.md, G11).
+# Complexity is absent for shell until a complexity adapter shows it
+# covers shell (task-070: "only where lizard covers the language").
+READ_BY: Mapping[str, frozenset[str]] = {
+    CodeLanguage.SHELL.value: frozenset({"Anatomy", "Stub", "Dependency"}),
+}
 
 # --- Values ------------------------------------------------------------------
 
@@ -91,6 +107,23 @@ def _not_run(check: Check) -> Coverage:
     if check.kind is CheckKind.JUDGED:
         return Coverage(NO_JUDGE_YET, check=check.name)
     return Coverage(NOT_IN_SUITE, check=check.name)
+
+
+def reads(check: Check, path: str) -> bool:
+    """Whether the check reads the language a file is written in."""
+    language = language_of(path)
+    if language is None or language not in READ_BY:
+        return True
+    return check.name in READ_BY[language]
+
+
+def unread_by(check: Check, model: CodeModel) -> tuple[str, ...]:
+    """Every file whose language the check does not read."""
+    return tuple(
+        u.path
+        for u in model.units
+        if u.kind is UnitKind.FILE and not reads(check, u.path)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,16 +191,27 @@ def run_checks(
     ran: list[Check] = []
     findings: list[Finding] = []
     coverage: list[Coverage] = []
+    # A file in no layer is already coverage (domain/coverage, UNASSIGNED).
+    layered = {u.path for u in model.units if u.layer is not None}
     for check in CATALOG:
+        unread = unread_by(check, model)
+        scoped = given.over(without(model, unread))
         try:
-            outcome = _outcome(check, given)
+            outcome = _outcome(check, scoped)
         except Exception as error:  # the check boundary (Use-case surface)
-            outcome = _errored(check, error, given)
+            outcome = _errored(check, error, scoped)
         if outcome is None:
             coverage.append(_not_run(check))
             continue
         if outcome.ran:
             ran.append(check)
+            coverage.extend(
+                Coverage(
+                    f"does not read {language_of(path)}", check=check.name, path=path
+                )
+                for path in unread
+                if path in layered
+            )
         findings.extend(outcome.findings)
         coverage.extend(outcome.coverage)
     return Checked(tuple(ran), tuple(findings), tuple(coverage))

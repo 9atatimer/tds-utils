@@ -13,7 +13,7 @@ from adherence.domain.model import Metrics, MetricsUnavailable
 from adherence.ports.duplication import DuplicationPort
 from tests.duplication_contract import FIRST, SECOND, SOURCES, DuplicationContract
 
-JSCPD = Path(__file__).resolve().parents[2] / "node_modules" / ".bin" / "jscpd"
+JSCPD = Path(__file__).resolve().parents[2] / "node" / "node_modules" / ".bin" / "jscpd"
 
 
 @pytest.mark.skipif(

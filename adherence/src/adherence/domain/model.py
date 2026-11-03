@@ -18,6 +18,9 @@ class CodeLanguage(enum.Enum):
     Language check (ARCHITECTURE.ARCH-ADHERENCE.md, Use-case surface)."""
 
     PYTHON = "python"
+    TYPESCRIPT = "typescript"
+    JAVASCRIPT = "javascript"
+    SHELL = "shell"
 
 
 # A source's language by its file extension: the languages the suite
@@ -33,9 +36,9 @@ LANGUAGE_EXTENSIONS: dict[str, str] = {
     ".mjs": "javascript",
     ".cjs": "javascript",
     ".vue": "vue",
-    ".sh": "shell",
-    ".bash": "shell",
-    ".zsh": "shell",
+    ".sh": CodeLanguage.SHELL.value,
+    ".bash": CodeLanguage.SHELL.value,
+    ".zsh": CodeLanguage.SHELL.value,
     ".go": "go",
     ".gd": "gdscript",
     ".rb": "ruby",
@@ -61,6 +64,13 @@ def language_of(path: str) -> str | None:
     if not dot or not stem:
         return None
     return LANGUAGE_EXTENSIONS.get(f".{extension}")
+
+
+def code_language_of(path: str) -> CodeLanguage | None:
+    """The measured language a source path is written in; None when the
+    suite does not measure it."""
+    name = language_of(path)
+    return next((c for c in CodeLanguage if c.value == name), None)
 
 
 class Layer(enum.Enum):
@@ -445,5 +455,34 @@ def merged(models: Sequence[CodeModel]) -> CodeModel:
         metrics=Metrics(
             complexity=tuple(f for m in models for f in m.metrics.complexity),
             clones=tuple(f for m in models for f in m.metrics.clones),
+        ),
+    )
+
+
+def without(model: CodeModel, paths: Collection[str]) -> CodeModel:
+    """The CodeModel with no fact of the files given: their units, the facts
+    read from them, their regions and metrics, and each clone touching one."""
+    out = frozenset(paths)
+    return CodeModel(
+        units=tuple(f for f in model.units if f.path not in out),
+        imports=tuple(f for f in model.imports if f.path not in out),
+        definitions=tuple(f for f in model.definitions if f.unit.path not in out),
+        references=tuple(f for f in model.references if f.path not in out),
+        calls=tuple(f for f in model.calls if f.path not in out),
+        accesses=tuple(f for f in model.accesses if f.path not in out),
+        writes=tuple(f for f in model.writes if f.path not in out),
+        bindings=tuple(f for f in model.bindings if f.path not in out),
+        conditionals=tuple(f for f in model.conditionals if f.path not in out),
+        members=tuple(f for f in model.members if f.path not in out),
+        test_cases=tuple(f for f in model.test_cases if f.path not in out),
+        regions=tuple(f for f in model.regions if f.path not in out),
+        unparsed=tuple(f for f in model.unparsed if f.path not in out),
+        metrics=Metrics(
+            complexity=tuple(f for f in model.metrics.complexity if f.path not in out),
+            clones=tuple(
+                f
+                for f in model.metrics.clones
+                if f.first.path not in out and f.second.path not in out
+            ),
         ),
     )

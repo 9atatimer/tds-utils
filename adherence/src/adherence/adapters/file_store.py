@@ -95,6 +95,7 @@ def _finding_data(finding: Finding) -> JSON:
             "path": finding.evidence.path,
             "line": finding.evidence.line,
             "text": finding.evidence.text,
+            "digest": finding.evidence.digest,
         },
         "reached": _optional(finding.reached),
         "kind": finding.kind.value,
@@ -208,7 +209,10 @@ def _finding(value: object) -> Finding:
         layer=_layer(_maybe_text(data, "layer")),
         subject=_text(data, "subject"),
         evidence=Evidence(
-            _text(evidence, "path"), _number(evidence, "line"), _text(evidence, "text")
+            _text(evidence, "path"),
+            _number(evidence, "line"),
+            _text(evidence, "text"),
+            _maybe_text(evidence, "digest") or "",
         ),
         reached=_layer(_maybe_text(data, "reached")),
         kind=CheckKind(_text(data, "kind")),

@@ -1,6 +1,5 @@
 # OCR on Demand
 
-> **Status:** APPROVED (owner, 2026-10-02)  
 > **Date:** 2026-10-02  
 > **Authors:** Todd Stumpf, Claude (Opus 5.5)  
 > **Depends on:** [Ollama Gateway](./OLLAMA-GATEWAY.DESIGN.md) (PR #369; the road to the model); the tds-internal edge record it names  
@@ -436,7 +435,7 @@ Question Q2.
 | Where the review runs (reverses the GitHub-hosted row) | The caller's `CI_RUNS_ON` runner pool (niners, Cloudflare Containers) when the caller sets one; GitHub-hosted otherwise (public repos). The runner choice is the caller's existing variable, not a new input. Job `timeout-minutes` stays under the pool's container ceiling | Todd, 2026-10-12, tds-utils Issue#363 rulings comment: all procedural code runs on a Cloudflare-hosted runner, all inference on the sandboxed ollama stack; `ocr` still never runs on the laptop. Secret-bearing jobs stay on the pool per tds-internal Issue#214 |
 | Q1 Default model | `qwen3.6:latest` | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
 | Q2 Record retention | 90-day run artifacts suffice for the Trial | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
-| Q3 Both trigger paths for LLMs | An agent holding Todd's token may use both the `/ocr` comment and `workflow_dispatch` | Todd, 2026-10-12, tds-utils Issue#363 rulings comment. Closes the freeze precondition that APPROVED skipped |
+| Q3 Both trigger paths for LLMs | An agent holding Todd's token may use both the `/ocr` comment and `workflow_dispatch` | Todd, 2026-10-12, tds-utils Issue#363 rulings comment. Closes the freeze precondition that the merge skipped |
 | Q4 Dependency file name | `OLLAMA-GATEWAY.DESIGN.md` keeps its name | Todd, 2026-10-12, tds-utils Issue#363 rulings comment |
 | Per-finding post status (reverses "Missing engine output" for post status only) | The verdict reads the pinned action's counts: `comments_failed` is `findings_failed`, inline plus routed comments are `findings_posted`. A missing or unparseable count is still `engine-error`; a missing range or reviewed-file list is still `engine-error` | Todd, 2026-10-12, tds-utils Issue#363 rulings comment (third set), option A: alibaba/open-code-review v1.12.13 exposes counts, not per-finding status. Failed-to-post findings are named in upstream's summary, so none is dropped silently. A later pin that exposes per-finding status can restore the stricter contract |
 | Summary comment owner (reverses the single-summary row) | Two summary comments per PR: upstream's own (sticky, updated in place each run, naming failed-to-post findings) and the report job's (the run's outcome and cause, linking upstream's via `summary_comment_url`) | Todd, 2026-10-12, tds-utils Issue#363 rulings comment (third set), option A: the pinned action cannot disable its summary |
@@ -451,6 +450,7 @@ Question Q2.
 | The `anthropic` backend (Issue#559; not yet ruled) | A third `OCR_BACKEND` value calls the Anthropic Messages API directly: the key from an API Credential item's `credential`, sent as `x-api-key`; `llm_protocol`, `llm_use_anthropic` and `llm_auth_header` follow the backend's profile; the probe posts to `/v1/messages` | Sonnet paid from the Claude Console org's Max-plan API credits, not Cloudflare credits; Cloudflare AI Gateway cannot carry a Claude model (the Workers AI rule). Shipped in PR#557 ahead of a design amendment, so this row records it pending the owner's ruling on Issue#559 |
 | The `anthropic` backend, ruled (Issue#559) | Kept: `anthropic` is a third value of the backend axis, and the workflow speaks two LLM protocols (OpenAI-compatible and Anthropic Messages) | Owner ruling 2026-10-18: the backend is live and stays. Resolves the pending row above |
 | Counting as a gate reviewer (Future Considerations; Issue#568) | A successful run posts the report job's summary as a COMMENT review on the commit it reviewed, opening with `<!-- ocr-review-mark sha=<head> -->`, whatever ocr skipped (the summary lists unreviewed files, Markdown always), as a Copilot review does; a failed run, or one where a finding failed to post, stays an issue comment. `review-settled` counts a `github-actions` review whose mark names the commit it is on as the pseudo-reviewer `ocr`, under the existing rules (newest on the head, every thread resolved), and drops any real account named `ocr`. The workflow token's review starts no workflow, so `review-settled` sees the mark in the run the `/ocr` comment started, waiting for it; its job timeout is 25 minutes for that | A clean run must leave a mark too, or a PR with nothing to fix could never settle. Skipped files do not withhold it either: ocr never selects Markdown, so a stricter rule would leave any PR touching a `.md` file unsettled (owner, 2026-10-18: do what review-settled expects of Copilot). Findings do not withhold the mark; their threads do. An unposted finding has no thread, so it withholds the mark. Any workflow can post as `github-actions`; the boundary is that workflows are owner-reviewed (CODEOWNERS), the same trust `review-settled` already places in its own caller |
+| A review's length on opt-in (reverses "A review's length" and the runner-choice sentence of the second "Where the review runs" row, for a caller that opts in) | The reusable workflow takes two optional inputs used by the review job alone: `review_runs_on` (runner labels as JSON; empty keeps `CI_RUNS_ON`) and `review_timeout_minutes` (default 9). A caller may send the review job to the pool's Docker class, whose ceiling is already 20 minutes, with a 19-minute timeout; authorize and report stay on `CI_RUNS_ON` under 10 minutes. A caller that passes neither runs exactly as before | Owner ruling 2026-11-02: g1n1's reviews were cut off at 9 minutes on the laptop backend. No pool-wide ceiling changes, which was the 2026-10-14 objection: only the opted-in repository's review job runs longer, on a class that already has the longer ceiling. Cost: those reviews share the Docker class's concurrency cap of 4 with the jobs that need Docker |
 
 ---
 
@@ -462,7 +462,7 @@ Question Q2.
 - **Q2 Record retention.** Are 90 days of run artifacts enough to judge
   the Trial, or do records need a longer home?
 - **Q3 Both trigger paths for LLMs.** May an agent holding Todd's token
-  use either trigger path? Todd to confirm before APPROVED; the answer
+  use either trigger path? Todd to confirm before the merge; the answer
   becomes a Key Decisions row and Security Considerations is updated to
   match. A precondition for the freeze, not deferrable.
 - **Q4 Dependency file name.** The gateway doc is linked as

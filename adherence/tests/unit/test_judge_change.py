@@ -400,6 +400,26 @@ def test_judge_change_with_a_draft_design_record_reports_it_missing() -> None:
     assert {"Grep", "Stub", "Covered"} <= {c.name for c in report.ran}
 
 
+def test_judge_change_with_records_stating_no_status_reads_them() -> None:
+    """Given a declared repository whose records state no status (status is
+    metadata: a merged record is the contract), When a change is judged,
+    Then the records are read and Trace runs over them."""
+    architecture = "docs/design/ARCHITECTURE.APP.md"
+    behavior = Behavior("An order is priced", "Given x, When y, Then z", DESIGN, 9)
+    merged = DesignRecords(
+        behaviors=(behavior,),
+        statuses=(RecordStatus(DESIGN, ""), RecordStatus(architecture, "")),
+    )
+
+    report = judge_with(
+        {USE: CLEAN}, {USE: CLEAN}, records={BASE: merged, HEAD: merged}
+    )
+
+    assert "Trace" in {c.name for c in report.ran}
+    reasons = {c.check: c.reason for c in report.coverage if c.check}
+    assert DESIGN not in reasons.get("Trace", "")
+
+
 def test_judge_change_after_a_landed_cover_marks_its_flaws_existing() -> None:
     """Given a declaration edit that covers an existing unit, landed in one
     change, When the next change is judged, Then that unit's flaws are in

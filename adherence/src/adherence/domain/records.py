@@ -90,9 +90,9 @@ class RecordStatus:
 
 @dataclass(frozen=True, slots=True)
 class DesignRecords:
-    """What the records state: their seams, behaviors, the design's Domain
-    Language, the use cases the surface gives a signature, the surface's
-    rows, and each record's status."""
+    """What the merged records state: their seams, behaviors, the design's
+    Domain Language, the use cases the surface gives a signature, the
+    surface's rows, and each record's status."""
 
     seams: tuple[Seam, ...] = ()
     behaviors: tuple[Behavior, ...] = ()
@@ -104,7 +104,7 @@ class DesignRecords:
 
 @dataclass(frozen=True, slots=True)
 class RecordsUnavailable:
-    """No readable record at the target -- absent, in draft, or not read --
+    """No readable record at the target -- absent, not yet merged, or not read --
     with the reason, naming the record. `unread` marks a record that is
     there and could not be read (refused, timed out): what it states is
     unknown, which is never the same as a record stating nothing."""
@@ -146,16 +146,16 @@ class Radar:
 def counted(
     records: DesignRecords | RecordsUnavailable, statuses: Collection[str]
 ) -> DesignRecords | RecordsUnavailable:
-    """The records, when every record's status is one that counts; else why
-    not, naming the record: a record in draft or of no status is no
-    contract to compare code against."""
+    """The records, when no record states a status that does not count;
+    else why not, naming the record: a record that says it is in draft is no
+    contract to compare code against. A record stating no status counts:
+    status is metadata, and a merged record is the contract."""
     if isinstance(records, RecordsUnavailable):
         return records
     for record in records.statuses:
-        if record.status not in statuses:
-            stated = record.status or "none"
+        if record.status and record.status not in statuses:
             return RecordsUnavailable(
-                f"{record.path}: its status ({stated}) is not one that counts "
+                f"{record.path}: its status ({record.status}) is not one that counts "
                 f"({', '.join(sorted(statuses))})"
             )
     return records

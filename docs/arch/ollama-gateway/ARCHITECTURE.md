@@ -4,7 +4,7 @@ What is deployed, not what was designed. Living; edit it when a release
 changes the component.
 
 - Design: [OLLAMA-GATEWAY.DESIGN.md](../../design/OLLAMA-GATEWAY.DESIGN.md)
-  (APPROVED; the authority for intent; its Key Decisions rows of
+  (the authority for intent; its Key Decisions rows of
   2026-10-13 supersede the "first cut" sandbox text). Open drift:
   Issue#455.
 - Runbook: [docs/ops/ollama-gateway.md](../../ops/ollama-gateway.md).

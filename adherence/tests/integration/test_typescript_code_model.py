@@ -1,0 +1,1205 @@
+"""The TypeScript and JavaScript CodeModelPort adapter over the fixture tree,
+one member at a time (task-069), after the shared contract."""
+
+from __future__ import annotations
+
+import collections
+import functools
+import json
+import tempfile
+import uuid
+from collections.abc import Mapping
+from pathlib import Path
+from typing import SupportsIndex
+
+import pytest
+
+from adherence.adapters import ts_depcruise
+from adherence.adapters.ts_depcruise import TypeScriptCodeModel
+from adherence.domain.checks.behavior import real_assertion
+from adherence.domain.deadline import Deadline, TimedOut
+from adherence.domain.declaration import Declaration, parse_declaration
+from adherence.domain.model import (
+    AccessKind,
+    Assertion,
+    CodeModel,
+    Definition,
+    Layer,
+    MemberKind,
+    Parameter,
+    ReferenceKind,
+    Region,
+    Signature,
+    UnitKind,
+)
+from adherence.domain.parameters import Limits, Parameters, Vocabulary
+from adherence.domain.questions import ThresholdPolicy
+from adherence.domain.records import DesignRecords
+from adherence.ports.code_model import CodeModelPort
+from tests import typescript_fixture
+from tests.code_model_contract import TYPESCRIPT_SOURCES, CodeModelContract
+
+
+class TestTypeScriptCodeModel(CodeModelContract):
+    sources: Mapping[str, bytes] = TYPESCRIPT_SOURCES
+
+    def port(self) -> CodeModelPort:
+        return TypeScriptCodeModel()
+
+
+# One model of the fixture for the whole module: building it spawns the
+# analyzers, and the CodeModel is frozen, so sharing it cannot leak state
+# between tests.
+@functools.cache
+def fixture_model() -> CodeModel:
+    model = TypeScriptCodeModel().model(
+        typescript_fixture.sources(),
+        typescript_fixture.declaration(),
+        typescript_fixture.VOCABULARY,
+        None,
+    )
+    assert isinstance(model, CodeModel), model
+    return model
+
+
+def test_units_are_each_definition_in_its_layer() -> None:
+    """Given the fixture, When it is modelled, Then every named function,
+    method, class and interface is a unit with its qualified symbol and the
+    layer its file puts it in; an anonymous callback is none."""
+    units = {
+        (u.path, u.symbol): (u.kind, u.layer)
+        for u in fixture_model().units
+        if u.kind is not UnitKind.FILE
+    }
+
+    rules, run = "lib/tool/rules.ts", "lib/tool/run.ts"
+    assert units[(rules, "Order")] == (UnitKind.TYPE, Layer.DOMAIN)
+    assert units[(rules, "Order.isLarge")] == (UnitKind.FUNCTION, Layer.DOMAIN)
+    assert units[(run, "closeOrder.helper")] == (UnitKind.FUNCTION, Layer.APPLICATION)
+    assert units[("lib/tool/ports.ts", "Store")] == (UnitKind.TYPE, Layer.PORTS)
+    assert units[("lib/tool/schema.mjs", "isPlainObject")] == (
+        UnitKind.FUNCTION,
+        Layer.DOMAIN,
+    )
+    assert not any(path == "test/run.test.mjs" for path, _ in units)
+    assert ("notes/uncovered.mjs", None) not in units
+
+
+def test_regions_found_by_marker_are_in_the_model() -> None:
+    """Given a one-file tool whose `// --- Section ---` markers the
+    declaration names, When it is modelled, Then its marker regions are in
+    the model and each function is in the layer of its region."""
+    model = fixture_model()
+    units = {(u.path, u.symbol): u.layer for u in model.units}
+
+    assert [(r.path, r.layer) for r in model.regions] == [
+        ("bin/tool.mjs", Layer.DOMAIN),
+        ("bin/tool.mjs", Layer.ADAPTERS),
+    ]
+    assert units[("bin/tool.mjs", "isEven")] is Layer.DOMAIN
+    assert units[("bin/tool.mjs", "load")] is Layer.ADAPTERS
+
+
+def test_declared_line_regions_are_in_the_model() -> None:
+    """Given a declaration that assigns a region by lines, When its file is
+    modelled, Then that region is in the model beside the layer it gives,
+    and a region of a file not handed over is not."""
+    declaration = parse_declaration(
+        b"[layers]\nregions = [\n"
+        b'  { file = "m.ts", layer = "domain", lines = [1, 3] },\n'
+        b'  { file = "absent.ts", layer = "domain", lines = [1, 2] },\n'
+        b"]\n"
+    )
+    assert isinstance(declaration, Declaration)
+
+    model = TypeScriptCodeModel().model(
+        {"m.ts": b"function f(): number {\n  return 1;\n}\n"},
+        declaration,
+        typescript_fixture.VOCABULARY,
+        None,
+    )
+
+    assert isinstance(model, CodeModel)
+    assert model.regions == (Region("m.ts", 1, 3, Layer.DOMAIN),)
+    assert [d.unit.layer for d in model.definitions] == [Layer.DOMAIN]
+
+
+def _model_of(sources: dict[str, bytes]) -> CodeModel:
+    model = TypeScriptCodeModel().model(
+        sources,
+        typescript_fixture.declaration(),
+        typescript_fixture.VOCABULARY,
+        None,
+    )
+    assert isinstance(model, CodeModel), model
+    return model
+
+
+@typescript_fixture.needs_cruiser
+def test_imports_are_resolved_with_their_line_and_target_file() -> None:
+    """Given relative, type-only, extensioned, package and node: imports,
+    When the fixture is modelled, Then each is an edge to the module as
+    written, with its line and text, and to its file when the file is a
+    source."""
+    edges = {
+        (e.path, e.imported, e.line, e.imported_path)
+        for e in fixture_model().imports
+        if e.path in {"lib/tool/run.ts", "bin/tool.mjs", "test/run.test.mjs"}
+    }
+
+    run, rules = "lib/tool/run.ts", "lib/tool/rules.ts"
+    assert edges == {
+        (run, "node:timers/promises", 1, None),
+        (run, "./rules", 2, rules),
+        (run, "./rules", 3, rules),
+        (run, "./ports", 4, "lib/tool/ports.ts"),
+        ("bin/tool.mjs", "node:fs", 3, None),
+        ("test/run.test.mjs", "node:test", 1, None),
+        ("test/run.test.mjs", "node:assert/strict", 2, None),
+        ("test/run.test.mjs", "../lib/tool/run.ts", 3, run),
+    }
+    [edge] = [e for e in fixture_model().imports if e.path == "bin/tool.mjs"]
+    assert edge.text == "import { readFileSync } from 'node:fs';"
+
+
+@typescript_fixture.needs_cruiser
+def test_requires_reexports_and_dynamic_imports_are_edges() -> None:
+    """Given a require, a re-export and a dynamic import, When they are
+    modelled, Then each is an edge to the file it names."""
+    model = _model_of(
+        {
+            "a.cjs": b"const b = require('./b.cjs');\n",
+            "b.cjs": b"module.exports = {};\n",
+            "c.mjs": b"export * from './b.cjs';\nconst a = await import('./a.cjs');\n",
+        }
+    )
+
+    assert {(e.path, e.line, e.imported_path) for e in model.imports} == {
+        ("a.cjs", 1, "b.cjs"),
+        ("c.mjs", 1, "b.cjs"),
+        ("c.mjs", 2, "a.cjs"),
+    }
+
+
+TSCONFIG = b"""{
+  // the aliases live here; the base names where they start
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "paths": { "@lib/*": ["lib/*"], },
+  },
+}
+"""
+ALIASED = {
+    "src/a.ts": b"import { b } from '@lib/b';\nimport { c } from './c';\n",
+    "src/lib/b.ts": b"export const b = 1;\n",
+    "src/c.ts": b"export const c = 1;\n",
+}
+
+
+@typescript_fixture.needs_cruiser
+def test_tsconfig_path_aliases_resolve_and_the_config_is_no_unit() -> None:
+    """Given a tsconfig.json among the sources (with comments and trailing
+    commas) whose paths alias a directory under the baseUrl its in-repository
+    base sets, When the sources are modelled, Then an aliased import resolves
+    to its file, and only the TypeScript files are units."""
+    model = _model_of(
+        {
+            **ALIASED,
+            "tsconfig.json": TSCONFIG,
+            "tsconfig.base.json": b'{"compilerOptions": {"baseUrl": "src"}}\n',
+        }
+    )
+
+    assert {(e.imported, e.imported_path) for e in model.imports} == {
+        ("@lib/b", "src/lib/b.ts"),
+        ("./c", "src/c.ts"),
+    }
+    assert {u.path for u in model.units if u.kind is UnitKind.FILE} == set(ALIASED)
+    assert model.unparsed == ()
+
+
+@typescript_fixture.needs_cruiser
+def test_tsconfig_paths_without_a_base_url_are_read_from_the_config() -> None:
+    """Given a tsconfig.json whose paths alias a directory and set no
+    baseUrl, When the sources are modelled, Then the alias resolves relative
+    to the configuration's own directory."""
+    config = b'{"compilerOptions": {"paths": {"@lib/*": ["./src/lib/*"]}}}'
+
+    model = _model_of({**ALIASED, "tsconfig.json": config})
+
+    assert ("@lib/b", "src/lib/b.ts") in {
+        (e.imported, e.imported_path) for e in model.imports
+    }
+
+
+@typescript_fixture.needs_cruiser
+def test_a_tsconfig_reaching_outside_the_sources_is_not_followed(
+    tmp_path: Path,
+) -> None:
+    """Given a tsconfig.json that extends a configuration outside the
+    sources (by absolute path, by climbing out, by package) which would
+    alias the import, When the sources are modelled, Then the alias does not
+    resolve: nothing outside the copy is read."""
+    outside = tmp_path / "outside.json"
+    outside.write_text(
+        '{"compilerOptions": {"baseUrl": ".", "paths": {"@lib/*": ["src/lib/*"]}}}'
+    )
+    extends = [str(outside), f"../../../../../..{outside}", "@tsconfig/aliases"]
+    config = json.dumps({"extends": extends}).encode()
+
+    model = _model_of({**ALIASED, "tsconfig.json": config})
+
+    assert ("@lib/b", None) in {(e.imported, e.imported_path) for e in model.imports}
+
+
+@typescript_fixture.needs_cruiser
+def test_measured_code_is_never_run_even_as_the_analyzers_configuration(
+    tmp_path: Path,
+) -> None:
+    """Given a measured dependency-cruiser configuration that would write a
+    marker if it were loaded, When the sources are modelled, Then no marker
+    is written and the imports are still resolved."""
+    marker = tmp_path / "ran"
+    payload = (
+        f"require('node:fs').writeFileSync({str(marker)!r}, 'ran');\n"
+        "module.exports = {};\n"
+    ).encode()
+
+    model = _model_of(
+        {
+            ".dependency-cruiser.cjs": payload,
+            "a.mjs": b"import { b } from './b.mjs';\n",
+            "b.mjs": b"export const b = 1;\n",
+        }
+    )
+
+    assert not marker.exists(), "measured code ran"
+    assert {(e.path, e.imported_path) for e in model.imports} == {
+        (".dependency-cruiser.cjs", None),
+        ("a.mjs", "b.mjs"),
+    }
+
+
+class CountingReads:
+    """The adapter's tsconfig reader, counting each configuration it reads
+    and passing the clock's deadline once it has read the first."""
+
+    def __init__(self, clock: SteppedClock | None = None) -> None:
+        self.texts: collections.Counter[str] = collections.Counter()
+        self._clock = clock
+
+    def __call__(self, text: str) -> dict[str, object]:
+        self.texts[text] += 1
+        if self._clock is not None:
+            self._clock.now = 10.0
+        return READ_TSCONFIG(text)
+
+
+class SteppedClock:
+    """A clock that reads what it was last set to."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+READ_TSCONFIG = ts_depcruise.read_tsconfig
+IMPORTER = {
+    "a.ts": b"import { b } from './b';\n",
+    "b.ts": b"export const b = 1;\n",
+}
+
+
+def _diamond(length: int) -> dict[str, bytes]:
+    """A tsconfig.json over a chain of configurations, each extending the
+    next two: every one is reached by many paths through the chain."""
+    chain = {
+        f"c{i}.json": json.dumps({"extends": [f"./c{i + 1}.json", f"./c{i + 2}.json"]})
+        for i in range(length)
+    }
+    ends = {f"c{i}.json": json.dumps({"//": i}) for i in (length, length + 1)}
+    root = {"tsconfig.json": json.dumps({"extends": "./c0.json"})}
+    return {p: t.encode() for p, t in {**chain, **ends, **root}.items()}
+
+
+def test_a_diamond_of_extends_reads_each_configuration_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Given a tsconfig.json whose extends chain is a diamond, each
+    configuration extending the next two, When the sources are modelled,
+    Then each configuration is read once, not once per path to it."""
+    reads = CountingReads()
+    monkeypatch.setattr(ts_depcruise, "read_tsconfig", reads)
+
+    model = _model_of({**IMPORTER, **_diamond(16)})
+
+    assert isinstance(model, CodeModel)
+    assert len(reads.texts) == 19
+    assert max(reads.texts.values()) == 1
+
+
+def test_an_extends_chain_past_the_bound_is_cut_and_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Given a tsconfig.json at the head of a chain of hundreds of extended
+    configurations, When the sources are modelled, Then the chain is not
+    walked to its end, and the configuration where it was cut is Unparsed
+    with the reason."""
+    chain = {
+        f"c{i}.json": json.dumps({"extends": f"./c{i + 1}.json"}).encode()
+        for i in range(300)
+    }
+    root = {"tsconfig.json": b'{"extends": "./c0.json"}'}
+    reads = CountingReads()
+    monkeypatch.setattr(ts_depcruise, "read_tsconfig", reads)
+
+    model = _model_of({**IMPORTER, **chain, "c300.json": b"{}", **root})
+
+    assert sum(reads.texts.values()) < 300
+    [cut] = [u for u in model.unparsed if u.path.endswith(".json")]
+    assert "not followed" in cut.reason
+    assert ("./b", "b.ts") in {(e.imported, e.imported_path) for e in model.imports}
+
+
+def test_the_deadline_passing_in_the_extends_walk_stops_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Given a deadline that passes while the tsconfig.json extends chain is
+    walked, When the sources are modelled, Then the walk reads no further
+    configuration and the answer is TimedOut."""
+    clock = SteppedClock()
+    reads = CountingReads(clock)
+    monkeypatch.setattr(ts_depcruise, "read_tsconfig", reads)
+
+    answer = TypeScriptCodeModel(clock=clock).model(
+        {**IMPORTER, **_diamond(8)},
+        typescript_fixture.declaration(),
+        typescript_fixture.VOCABULARY,
+        Deadline(epoch_seconds=5.0),
+    )
+
+    assert isinstance(answer, TimedOut)
+    assert sum(reads.texts.values()) == 1
+
+
+NESTED_JSON = b"[" * 100_000 + b"]" * 100_000
+
+
+@pytest.mark.parametrize(
+    ("unreadable", "config"),
+    [
+        ("tsconfig.json", {"tsconfig.json": NESTED_JSON}),
+        (
+            "base.json",
+            {"tsconfig.json": b'{"extends": "./base.json"}', "base.json": NESTED_JSON},
+        ),
+    ],
+    ids=["root", "extended"],
+)
+def test_a_tsconfig_nested_past_the_parser_is_unparsed_and_the_rest_modelled(
+    unreadable: str, config: dict[str, bytes]
+) -> None:
+    """Given a tsconfig.json, or a configuration it extends, nested deeper
+    than the JSON parser can walk, When the sources are modelled, Then that
+    configuration is Unparsed with the reason, gives no aliases, and the
+    code is still modelled."""
+    model = _model_of({**IMPORTER, **config})
+
+    [unparsed] = model.unparsed
+    assert unparsed.path == unreadable
+    assert "tsconfig" in unparsed.reason
+    assert {u.path for u in model.units} == set(IMPORTER)
+
+
+class _Counted(str):
+    """A text that tallies every character read out of it by index or
+    slice, so the work a pass does over it is measured, not timed."""
+
+    read = 0
+
+    def __getitem__(self, key: SupportsIndex | slice) -> str:
+        found = str.__getitem__(self, key)
+        _Counted.read += len(found)
+        return found
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[" + "1," * 10_000 + "1]",
+        "[1," + " " * 20_000 + "1]",
+    ],
+    ids=["commas", "whitespace"],
+)
+def test_dropping_trailing_commas_reads_the_text_in_linear_work(text: str) -> None:
+    """Given a large tsconfig text of commas or of whitespace, When its
+    trailing commas are dropped, Then each character is read a bounded
+    number of times, never the rest of the text again at every position,
+    and only the commas closing an object or array are dropped."""
+    _Counted.read = 0
+
+    kept = ts_depcruise.without_trailing_commas(_Counted(text))
+
+    assert _Counted.read <= 4 * len(text)
+    assert kept == text
+    assert ts_depcruise.without_trailing_commas('{"a": [1, 2,\n ],\n "b,": 1 , }') == (
+        '{"a": [1, 2\n ],\n "b,": 1  }'
+    )
+
+
+def _definition(path: str, symbol: str) -> Definition:
+    [found] = [
+        d
+        for d in fixture_model().definitions
+        if d.unit.path == path and d.unit.symbol == symbol
+    ]
+    return found
+
+
+def test_definitions_carry_signature_bases_decorators_and_nesting() -> None:
+    """Given functions, methods, a nested function, a decorated class and an
+    interface, When the fixture is modelled, Then each definition carries its
+    signature (an options object's members as keyword parameters), its return
+    annotation, its bases and decorators, and whether a function encloses it."""
+    rules, run = "lib/tool/rules.ts", "lib/tool/run.ts"
+    classify = _definition(rules, "classify")
+    close = _definition(run, "closeOrder")
+    store = _definition("lib/tool/fs-store.ts", "FsStore")
+    helper = _definition(run, "closeOrder.helper")
+    method = _definition(rules, "Order.isLarge")
+
+    assert classify.signature == Signature(
+        parameters=(
+            Parameter("order", "Order", keyword_only=False, has_default=False),
+            Parameter("strict", "boolean", keyword_only=True, has_default=True),
+        ),
+        returns="string",
+    )
+    assert close.signature == Signature(
+        parameters=(
+            Parameter("order", "Order", keyword_only=False, has_default=False),
+            Parameter("deps", "{ store: Store }", keyword_only=True, has_default=False),
+        ),
+        returns="Promise<string>",
+    )
+    assert _definition(rules, "Order").signature is None
+    assert store.decorators == ("injectable()",)
+    assert store.bases == ("Store",)
+    assert (helper.parent, helper.nested) == ("closeOrder", True)
+    assert (method.parent, method.nested) == ("Order", False)
+
+
+def test_options_objects_are_keyword_parameters_by_the_vocabulary() -> None:
+    """Given a destructured options object typed by name, a parameter the
+    vocabulary names as an options object, a rest parameter and a bare arrow
+    parameter, When they are modelled, Then the options object's members and
+    the named parameter are keyword parameters and the rest are not."""
+    source = (
+        b"export function judge(\n"
+        b"  change: Change, { repository, reviews = null }: Ports, ...rest: string[]\n"
+        b"): void {}\n"
+        b"function plain(change, ports) {}\n"
+        b"const one = x => x;\n"
+    )
+    vocabulary = Vocabulary(regions={}, options_objects=frozenset({"ports"}))
+
+    model = TypeScriptCodeModel().model(
+        {"m.ts": source}, typescript_fixture.declaration(), vocabulary, None
+    )
+
+    assert isinstance(model, CodeModel)
+    signatures = {d.unit.symbol: d.signature for d in model.definitions}
+    assert signatures["judge"] == Signature(
+        parameters=(
+            Parameter("change", "Change", keyword_only=False, has_default=False),
+            Parameter(
+                "repository",
+                'Ports["repository"]',
+                keyword_only=True,
+                has_default=False,
+            ),
+            Parameter(
+                "reviews", 'Ports["reviews"]', keyword_only=True, has_default=True
+            ),
+            Parameter("*rest", "string[]", keyword_only=False, has_default=False),
+        ),
+        returns="void",
+    )
+    assert signatures["plain"] == Signature(
+        parameters=(
+            Parameter("change", None, keyword_only=False, has_default=False),
+            Parameter("ports", None, keyword_only=True, has_default=False),
+        ),
+        returns=None,
+    )
+    assert signatures["one"] == Signature(
+        parameters=(Parameter("x", None, keyword_only=False, has_default=False),),
+        returns=None,
+    )
+
+
+def test_a_ports_method_signatures_are_units_with_signatures() -> None:
+    """Given an interface and an object type alias whose methods are
+    signatures only, and an abstract method, When they are modelled, Then
+    each method is a function unit of its type, with its signature (a rest
+    parameter starred, as Python's is) and no body, as a Protocol's methods
+    are in Python."""
+    source = (
+        b"export interface Port {\n"
+        b"  load(key: string, ...more: number[]): string;\n"
+        b"}\n"
+        b"type Lit = { go(z: boolean): void };\n"
+        b"abstract class Base {\n"
+        b"  abstract run(n: number): void;\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.ts": source})
+
+    found = {d.unit.symbol: d for d in model.definitions}
+    load, go, run = found["Port.load"], found["Lit.go"], found["Base.run"]
+    assert (load.unit.kind, load.unit.start, load.parent) == (
+        UnitKind.FUNCTION,
+        2,
+        "Port",
+    )
+    assert load.signature == Signature(
+        parameters=(
+            Parameter("key", "string", keyword_only=False, has_default=False),
+            Parameter("*more", "number[]", keyword_only=False, has_default=False),
+        ),
+        returns="string",
+    )
+    assert go.signature == Signature(
+        parameters=(Parameter("z", "boolean", keyword_only=False, has_default=False),),
+        returns="void",
+    )
+    assert run.signature == Signature(
+        parameters=(Parameter("n", "number", keyword_only=False, has_default=False),),
+        returns="void",
+    )
+    assert (load.body.text, load.body.stub_markers, load.nested) == ("", (), False)
+
+
+def test_bodies_carry_their_text_stub_markers_and_sleeps() -> None:
+    """Given a body that only throws NotImplementedError, an empty one, one
+    that sleeps and an arrow whose body is an expression, When the fixture is
+    modelled, Then each body carries its text, the placeholder it consists
+    of, and the lines it sleeps on."""
+    unfinished = _definition("lib/tool/rules.ts", "unfinished").body
+    helper = _definition("lib/tool/run.ts", "closeOrder.helper").body
+    close = _definition("lib/tool/run.ts", "closeOrder").body
+    schema = "lib/tool/schema.mjs"
+
+    assert unfinished.stub_markers == ("NotImplementedError",)
+    assert helper.stub_markers == ("{}",)
+    assert close.stub_markers == ()
+    assert close.sleeps == (8,)
+    assert "deps.store.save(order);" in close.text
+    assert _definition(schema, "hasState").body.text == (
+        "  return isPlainObject(record) && 'state' in record;"
+    )
+    assert _definition(schema, "isPlainObject").body.text == (
+        "value !== null && typeof value === 'object'"
+    )
+
+
+def test_sleeps_and_stubs_come_from_the_vocabulary() -> None:
+    """Given a vocabulary that counts `pause` as a sleep and only an empty
+    body as a stub, When code is modelled with it, Then the model follows
+    that vocabulary, not a fixed list."""
+    vocabulary = Vocabulary(
+        regions={}, sleeps=frozenset({"pause"}), stubs=frozenset({"{}"})
+    )
+    source = (
+        b"function b() {\n"
+        b"  pause(1);\n"
+        b"  setTimeout(go, 1);\n"
+        b"}\n"
+        b"function c() {\n"
+        b"  throw new NotImplementedError();\n"
+        b"}\n"
+        b"function d() {}\n"
+    )
+
+    model = TypeScriptCodeModel().model(
+        {"m.ts": source}, typescript_fixture.declaration(), vocabulary, None
+    )
+
+    assert isinstance(model, CodeModel)
+    bodies = {d.unit.symbol: d.body for d in model.definitions}
+    assert bodies["b"].sleeps == (2,)
+    assert (bodies["c"].stub_markers, bodies["d"].stub_markers) == ((), ("{}",))
+
+
+def test_a_comment_does_not_hide_a_stub() -> None:
+    """Given a body holding only comments, and one whose only statement
+    throws NotImplementedError beside a comment, When they are modelled,
+    Then each is the stub it would be without its comments."""
+    source = (
+        b"class A {\n"
+        b"  todo() {\n"
+        b"    // todo\n"
+        b"  }\n"
+        b"  later() { /* soon */ }\n"
+        b"  next() {\n"
+        b"    // not yet\n"
+        b"    throw new NotImplementedError();\n"
+        b"  }\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.ts": source})
+
+    markers = {d.unit.symbol: d.body.stub_markers for d in model.definitions}
+    assert markers["A.todo"] == ("{}",)
+    assert markers["A.later"] == ("{}",)
+    assert markers["A.next"] == ("NotImplementedError",)
+
+
+def test_references_are_names_types_and_strings_but_not_specifiers() -> None:
+    """Given code naming a chain through the environment, a module constant,
+    a type and a model id, When the fixture is modelled, Then each name
+    chain, type name and string literal is a reference in the definition it
+    sits in; an import's module and a definition's own name are none."""
+    references = {
+        (r.path, r.within, r.kind, r.text) for r in fixture_model().references
+    }
+
+    save = ("lib/tool/fs-store.ts", "FsStore.save")
+    assert (*save, ReferenceKind.STRING, "claude-opus") in references
+    assert (*save, ReferenceKind.NAME, "process.env.HOME") in references
+    assert (*save, ReferenceKind.NAME, "process") not in references
+    assert (
+        "lib/tool/rules.ts",
+        "Order.isLarge",
+        ReferenceKind.NAME,
+        "LIMIT",
+    ) in references
+    assert ("lib/tool/run.ts", "closeOrder", ReferenceKind.NAME, "Store") in references
+    assert not any(r[3] in {"./rules", "node:fs"} for r in references)
+    assert not any(
+        r[0] == "lib/tool/run.ts" and r[3] == "closeOrder" for r in references
+    )
+
+
+def test_calls_name_their_callee_and_the_definition_they_sit_in() -> None:
+    """Given function, method and constructor calls, and a chain broken over
+    lines, When they are modelled, Then each call names its callee as
+    written (the chain joined up), its line, and the definition it sits in."""
+    calls = {(c.path, c.within, c.callee, c.line) for c in fixture_model().calls}
+    chained = _model_of({"m.ts": b"function f() {\n  a\n    .b\n    .c(1);\n}\n"})
+
+    run = "lib/tool/run.ts"
+    assert (run, "closeOrder", "sleep", 8) in calls
+    assert (run, "closeOrder", "deps.store.save", 9) in calls
+    assert (run, "closeOrder", "classify", 13) in calls
+    assert ("lib/tool/rules.ts", "unfinished", "NotImplementedError", 21) in calls
+    assert [(c.within, c.callee, c.line) for c in chained.calls] == [("f", "a.b.c", 2)]
+
+
+def test_accesses_are_environment_reads_and_globals() -> None:
+    """Given a read of the environment and a write through globalThis, When
+    the fixture is modelled, Then each is an access of its kind in the
+    definition it sits in."""
+    accesses = {(a.path, a.within, a.kind, a.target) for a in fixture_model().accesses}
+
+    assert accesses == {
+        (
+            "lib/tool/fs-store.ts",
+            "FsStore.save",
+            AccessKind.ENVIRONMENT,
+            "process.env.HOME",
+        ),
+        ("bin/tool.mjs", "load", AccessKind.GLOBAL, "globalThis.counter"),
+    }
+
+
+def test_an_environment_read_by_subscript_or_destructuring_is_an_access() -> None:
+    """Given `process.env[...]` and `const { A } = process.env`, When they
+    are modelled, Then each is an environment access of process.env."""
+    model = _model_of(
+        {"m.mjs": b"const a = process.env['A'];\nconst { B } = process.env;\n"}
+    )
+
+    assert sorted((a.line, a.kind, a.target) for a in model.accesses) == [
+        (1, AccessKind.ENVIRONMENT, "process.env"),
+        (2, AccessKind.ENVIRONMENT, "process.env"),
+    ]
+
+
+def test_writes_are_field_assignments_with_the_unit_that_makes_them() -> None:
+    """Given a use case assigning a domain value's field, a constructor
+    assigning its own, a global incremented in place, and an update and a
+    logical assignment, When they are modelled, Then each is a write of that
+    field, on that object, by the definition it sits in."""
+    writes = {(w.path, w.within, w.target, w.field) for w in fixture_model().writes}
+    updated = _model_of({"m.ts": b"function f(o) {\n  o.n++;\n  o.m ||= 1;\n}\n"})
+
+    assert writes == {
+        ("lib/tool/run.ts", "closeOrder", "order", "status"),
+        ("lib/tool/fs-store.ts", "FsStore.constructor", "this", "opened"),
+        ("bin/tool.mjs", "load", "globalThis", "counter"),
+    }
+    assert [(w.line, w.target, w.field) for w in updated.writes] == [
+        (2, "o", "n"),
+        (3, "o", "m"),
+    ]
+
+
+def test_every_field_target_is_a_write_and_a_field_of_this_a_member() -> None:
+    """Given a method that updates a field of this, assigns fields through
+    array and object destructuring, binds one as a for-of target, and only
+    reads others (on the right, or as a destructuring default), When it is
+    modelled, Then each field target is a write, each target on this is a
+    field member of the class, and no field read is either."""
+    source = (
+        b"class A {\n"
+        b"  bump(o) {\n"
+        b"    this.n++;\n"
+        b"    [this.q, o.p] = [1, 2];\n"
+        b"    ({ k: this.k } = o);\n"
+        b"    for (this.r of [1]) {}\n"
+        b"    const x = this.z;\n"
+        b"    [this.a = this.b] = [];\n"
+        b"  }\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.ts": source})
+
+    assert sorted((w.line, w.target, w.field) for w in model.writes) == [
+        (3, "this", "n"),
+        (4, "o", "p"),
+        (4, "this", "q"),
+        (5, "this", "k"),
+        (6, "this", "r"),
+        (8, "this", "a"),
+    ]
+    assert {(m.name, m.kind, m.line) for m in model.members} == {
+        ("bump", MemberKind.METHOD, 2),
+        ("n", MemberKind.FIELD, 3),
+        ("q", MemberKind.FIELD, 4),
+        ("k", MemberKind.FIELD, 5),
+        ("r", MemberKind.FIELD, 6),
+        ("a", MemberKind.FIELD, 8),
+    }
+
+
+def test_a_field_written_by_a_literal_subscript_is_a_write_and_a_member() -> None:
+    """Given fields written in bracket notation with a string literal --
+    assigned, updated, and destructured -- beside an item written by a
+    computed or numeric index and a field only read by subscript, When they
+    are modelled, Then each literal-keyed target is a write of that field
+    and on this a field member, as dot notation is; a computed or numeric
+    index is an item, not a field, and is neither, as a Python subscript
+    is not."""
+    source = (
+        b"class A {\n"
+        b"  m(order, o, key) {\n"
+        b"    order['status'] = 'closed';\n"
+        b"    this['count']++;\n"
+        b'    [this["q"]] = [1];\n'
+        b"    o[key] = 1;\n"
+        b"    o[0] = 2;\n"
+        b"    const z = this['z'];\n"
+        b"  }\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.ts": source})
+
+    assert sorted((w.line, w.target, w.field) for w in model.writes) == [
+        (3, "order", "status"),
+        (4, "this", "count"),
+        (5, "this", "q"),
+    ]
+    assert {(m.name, m.kind, m.line) for m in model.members} == {
+        ("m", MemberKind.METHOD, 2),
+        ("count", MemberKind.FIELD, 4),
+        ("q", MemberKind.FIELD, 5),
+    }
+
+
+def test_conditionals_name_their_discriminant() -> None:
+    """Given a branch on a value's field, When the fixture is modelled, Then
+    the conditional names the expression it discriminates on, its line and
+    the definition it sits in."""
+    conditionals = {
+        (c.path, c.within, c.discriminant, c.line) for c in fixture_model().conditionals
+    }
+
+    assert conditionals == {("lib/tool/rules.ts", "classify", "order.status", 14)}
+
+
+def test_conditionals_see_through_logic_switches_and_instanceof() -> None:
+    """Given branches joined by `&&` and `!`, a switch, an instanceof test
+    and a ternary on a call, When they are modelled, Then each names what it
+    discriminates on."""
+    source = (
+        b"function f(x, y, kind) {\n"
+        b"  if (x.a === 1 && !y) {}\n"
+        b"  switch (kind) { case 1: break; }\n"
+        b"  if (x instanceof Foo) {}\n"
+        b"  const v = isReady(x) ? 1 : 2;\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.mjs": source})
+
+    assert sorted((c.line, c.discriminant) for c in model.conditionals) == [
+        (2, "x.a"),
+        (2, "y"),
+        (3, "kind"),
+        (4, "x"),
+        (5, "isReady"),
+    ]
+
+
+def test_a_typeof_comparison_discriminates_on_its_operand() -> None:
+    """Given branches comparing the typeof of a value and of a field, either
+    way round, When they are modelled, Then each discriminates on the value
+    whose type it tests, as an isinstance test does in Python."""
+    source = (
+        b"function f(a, o) {\n"
+        b"  if (typeof a === 'string') {}\n"
+        b"  if ('number' !== typeof o.n) {}\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.mjs": source})
+
+    assert sorted((c.line, c.discriminant) for c in model.conditionals) == [
+        (2, "a"),
+        (3, "o.n"),
+    ]
+
+
+def test_members_are_each_types_fields_and_methods() -> None:
+    """Given a class with fields, a class with a parameter property and a
+    field set in its constructor, and an interface, When the fixture is
+    modelled, Then each type's fields (declared, a parameter property, or
+    assigned on this) and methods are its members."""
+    members = {(m.path, m.owner, m.name, m.kind) for m in fixture_model().members}
+
+    rules, ports, fs = (
+        "lib/tool/rules.ts",
+        "lib/tool/ports.ts",
+        "lib/tool/fs-store.ts",
+    )
+    assert members == {
+        (rules, "Order", "total", MemberKind.FIELD),
+        (rules, "Order", "status", MemberKind.FIELD),
+        (rules, "Order", "isLarge", MemberKind.METHOD),
+        (ports, "Store", "save", MemberKind.METHOD),
+        (fs, "FsStore", "constructor", MemberKind.METHOD),
+        (fs, "FsStore", "root", MemberKind.FIELD),
+        (fs, "FsStore", "opened", MemberKind.FIELD),
+        (fs, "FsStore", "save", MemberKind.METHOD),
+    }
+
+
+def test_every_parameter_property_modifier_makes_a_field_member() -> None:
+    """Given constructor parameter properties made by an optional parameter
+    with an accessibility modifier, by readonly alone, by override alone,
+    and by a decorated private readonly one, beside a plain parameter, When
+    they are modelled, Then each property is a field member of the class
+    and the plain parameter is not."""
+    source = (
+        b"class C {\n"
+        b"  constructor(\n"
+        b"    public name?: string,\n"
+        b"    readonly id: string,\n"
+        b"    override o: X,\n"
+        b"    @D() private readonly z: Z,\n"
+        b"    plain: string,\n"
+        b"  ) {}\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.ts": source})
+
+    assert {(m.name, m.kind, m.line) for m in model.members} == {
+        ("constructor", MemberKind.METHOD, 2),
+        ("name", MemberKind.FIELD, 3),
+        ("id", MemberKind.FIELD, 4),
+        ("o", MemberKind.FIELD, 5),
+        ("z", MemberKind.FIELD, 6),
+    }
+
+
+def test_an_object_type_alias_has_members_and_a_parameter_type_none() -> None:
+    """Given a type alias of an object type and a method whose parameter is
+    typed by an object type, When they are modelled, Then the alias's
+    members are its own and the parameter's type adds none to the class."""
+    source = (
+        b"type Ports = { save(o: O): void; name: string };\n"
+        b"class C {\n"
+        b"  m(o: { x: number }): void {}\n"
+        b"}\n"
+    )
+
+    model = _model_of({"m.ts": source})
+
+    assert {(m.owner, m.name, m.kind) for m in model.members} == {
+        ("Ports", "save", MemberKind.METHOD),
+        ("Ports", "name", MemberKind.FIELD),
+        ("C", "m", MemberKind.METHOD),
+    }
+
+
+def test_test_cases_carry_their_calls_and_assertions() -> None:
+    """Given node:test and Vitest-style tests, one of which only calls, inside
+    and outside a describe block, When the fixture is modelled, Then each
+    test case carries its title, what it calls and what it asserts, so a test
+    that cannot fail is visible; the describe block is no test."""
+    cases = {
+        (t.path, t.symbol, t.line, t.calls, t.assertions)
+        for t in fixture_model().test_cases
+    }
+
+    path = "test/run.test.mjs"
+    assert cases == {
+        (
+            path,
+            "closeOrder saves",
+            5,
+            ("closeOrder", "order"),
+            (
+                Assertion(
+                    "assert.equal(await closeOrder(order(), { store }), 'pending')"
+                ),
+            ),
+        ),
+        (path, "nothing", 9, ("closeOrder",), ()),
+        (
+            path,
+            "is large",
+            14,
+            ("isLarge",),
+            (Assertion("expect(isLarge(5)).toBe(true)"),),
+        ),
+    }
+
+
+def test_real_assertion_reads_a_typescript_test_case() -> None:
+    """Given the fixture's node:test and Vitest-style tests, When Real
+    assertion runs over the TypeScript model, Then only the test that calls
+    and never asserts is found: a TypeScript assertion is an Assertion the
+    check reads like a Python one."""
+    parameters = Parameters(
+        thresholds=ThresholdPolicy(),
+        vocabulary=typescript_fixture.VOCABULARY,
+        limits=Limits(evidence_bound=200),
+    )
+
+    outcome = real_assertion(
+        fixture_model(), typescript_fixture.declaration(), DesignRecords(), parameters
+    )
+
+    assert [f.subject for f in outcome.findings] == ["nothing: no assertion"]
+
+
+def test_tests_and_assertions_come_from_the_vocabulary() -> None:
+    """Given a vocabulary whose test function is `spec` and whose assertion
+    is `check`, When code is modelled with it, Then only a `spec` call is a
+    test case and only a `check` call is its assertion."""
+    vocabulary = Vocabulary(
+        regions={}, tests=frozenset({"spec"}), assertions=frozenset({"check"})
+    )
+    source = b"spec('a', () => {\n  check(run());\n});\ntest('b', () => run());\n"
+
+    model = TypeScriptCodeModel().model(
+        {"t.mjs": source}, typescript_fixture.declaration(), vocabulary, None
+    )
+
+    assert isinstance(model, CodeModel)
+    assert [(t.symbol, t.calls, t.assertions) for t in model.test_cases] == [
+        ("a", ("run",), (Assertion("check(run())"),))
+    ]
+
+
+def test_a_file_that_does_not_parse_is_unparsed_and_the_rest_modelled() -> None:
+    """Given a file with a syntax error and a file that is not UTF-8 beside a
+    good one, When they are modelled, Then each of the two is Unparsed with
+    its reason and holds no unit, and the good file is modelled."""
+    model = _model_of(
+        {
+            "bad.ts": b"export const x = (;\n",
+            "fine.ts": b"export function f(): number {\n  return 1;\n}\n",
+            "latin.mjs": b"const s = '\xe9';\n",
+        }
+    )
+
+    reasons = {u.path: u.reason for u in model.unparsed}
+    assert sorted(reasons) == ["bad.ts", "latin.mjs"]
+    assert "syntax error at line 1" in reasons["bad.ts"]
+    assert "not utf-8" in reasons["latin.mjs"]
+    assert {u.path for u in model.units} == {"fine.ts"}
+    assert [d.unit.symbol for d in model.definitions] == ["f"]
+
+
+def test_a_file_missing_a_closing_token_is_unparsed_alone() -> None:
+    """Given files the parser repairs by inserting a missing token (an
+    unclosed block, parameter list, call and for-of header) beside a good
+    one, When they are modelled, Then each repaired file is Unparsed with
+    the line of its missing token and holds no unit, and the good file is
+    modelled."""
+    model = _model_of(
+        {
+            "block.ts": b"function f() {\n  return 1;\n",
+            "call.mjs": b"const a = 1;\ng(a, 2;\n",
+            "loop.ts": b"for (const k of ks {\n  use(k);\n}\n",
+            "params.ts": b"function g(x {\n  return x;\n}\n",
+            "fine.ts": b"export function ok(): number {\n  return 1;\n}\n",
+        }
+    )
+
+    reasons = {u.path: u.reason for u in model.unparsed}
+    assert sorted(reasons) == ["block.ts", "call.mjs", "loop.ts", "params.ts"]
+    assert "syntax error at line 2" in reasons["block.ts"]
+    assert "syntax error at line 2" in reasons["call.mjs"]
+    assert "syntax error at line 1" in reasons["loop.ts"]
+    assert "syntax error at line 1" in reasons["params.ts"]
+    assert {u.path for u in model.units} == {"fine.ts"}
+    assert [d.unit.symbol for d in model.definitions] == ["ok"]
+
+
+def test_a_file_nested_past_the_walk_is_unparsed_and_the_rest_modelled() -> None:
+    """Given a file that parses but nests deeper than the analyzer can walk,
+    When it is modelled with another file, Then that file is Unparsed and
+    the other is modelled; the run does not end."""
+    deep = b"if (" + b" && ".join([b"a"] * 1200) + b") {}\n"
+
+    model = _model_of(
+        {"deep.ts": deep, "fine.ts": b"function f(): number {\n  return 1;\n}\n"}
+    )
+
+    assert [u.path for u in model.unparsed] == ["deep.ts"]
+    assert any(d.unit.symbol == "f" for d in model.definitions)
+
+
+@typescript_fixture.needs_cruiser
+def test_a_file_the_cruiser_cannot_read_is_unparsed_alone_by_name() -> None:
+    """Given a file nested deeper than dependency-cruiser can extract beside
+    files whose imports it can, When they are modelled, Then that file alone
+    is Unparsed, with a reason naming it, and holds no fact, and the other
+    files' imports still resolve."""
+    deep = "f(" * 4000 + "1" + ")" * 4000
+    culprit = "lib/deep.ts"
+
+    model = _model_of(
+        {
+            culprit: f"import {{ z }} from './z';\nexport const v = {deep};\n".encode(),
+            "lib/z.ts": b"import { w } from './w';\nexport function z() {}\n",
+            "lib/w.ts": b"export const w = 1;\n",
+        }
+    )
+
+    assert [u.path for u in model.unparsed] == [culprit]
+    [reason] = [u.reason for u in model.unparsed]
+    assert "dependency-cruiser" in reason
+    assert culprit in reason
+    assert {(e.path, e.imported_path) for e in model.imports} == {
+        ("lib/z.ts", "lib/w.ts")
+    }
+    facts = (*model.units, *model.calls, *model.references)
+    assert not [fact for fact in facts if fact.path == culprit]
+
+
+IMPORTING = {
+    "a.mjs": b"import { b } from './b.mjs';\nexport function f() {}\n",
+    "b.mjs": b"export const b = 1;\n",
+}
+
+
+def test_without_ast_grep_every_source_is_unparsed_with_the_reason(
+    tmp_path: Path,
+) -> None:
+    """Given no ast-grep where the adapter looks for it, When sources are
+    modelled, Then each is Unparsed with a reason naming ast-grep, and
+    nothing reads as clean."""
+    model = TypeScriptCodeModel(ast_grep=tmp_path / "ast-grep").model(
+        IMPORTING, typescript_fixture.declaration(), typescript_fixture.VOCABULARY, None
+    )
+
+    assert isinstance(model, CodeModel)
+    assert model.units == ()
+    assert [u.path for u in model.unparsed] == ["a.mjs", "b.mjs"]
+    assert all("ast-grep" in u.reason for u in model.unparsed)
+
+
+@typescript_fixture.needs_node
+def test_without_dependency_cruiser_every_file_is_unparsed_with_its_facts(
+    tmp_path: Path,
+) -> None:
+    """Given no dependency-cruiser where the adapter looks for it, When
+    sources that import are modelled, Then their facts stand, no import
+    resolves, and each file is Unparsed with a reason naming the tool."""
+    model = TypeScriptCodeModel(cruiser=tmp_path / "dependency-cruiser.mjs").model(
+        IMPORTING, typescript_fixture.declaration(), typescript_fixture.VOCABULARY, None
+    )
+
+    assert isinstance(model, CodeModel)
+    assert [d.unit.symbol for d in model.definitions] == ["f"]
+    assert [(e.path, e.imported_path) for e in model.imports] == [("a.mjs", None)]
+    assert [u.path for u in model.unparsed] == ["a.mjs", "b.mjs"]
+    assert all("dependency-cruiser" in u.reason for u in model.unparsed)
+
+
+def test_without_node_every_file_is_unparsed_with_the_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a PATH with no node on it, When sources that import are
+    modelled, Then each file is Unparsed with a reason naming node."""
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    model = _model_of(IMPORTING)
+
+    assert [u.path for u in model.unparsed] == ["a.mjs", "b.mjs"]
+    assert all("node" in u.reason for u in model.unparsed)
+
+
+@pytest.mark.parametrize("passes_after", [1, 2], ids=["ast-grep", "cruiser"])
+def test_model_past_the_deadline_between_analyzers_times_out(passes_after: int) -> None:
+    """Given a deadline that passes once the run has started, before ast-grep
+    or before dependency-cruiser runs, When sources that import are
+    modelled, Then the answer is TimedOut rather than an overrun or a
+    partial model."""
+    readings = iter([0.0] * passes_after + [10.0] * 5)
+
+    answer = TypeScriptCodeModel(clock=lambda: next(readings, 99.0)).model(
+        IMPORTING,
+        typescript_fixture.declaration(),
+        typescript_fixture.VOCABULARY,
+        Deadline(epoch_seconds=5.0),
+    )
+
+    assert isinstance(answer, TimedOut)
+
+
+def test_a_path_that_leaves_the_repository_is_unparsed_and_never_written(
+    tmp_path: Path,
+) -> None:
+    """Given sources keyed by a path climbing out of the repository and by an
+    absolute path, When they are modelled, Then each is Unparsed with the
+    reason, nothing is written where it points, and the rest is modelled."""
+    climbing = f"../../adhere-escape-{uuid.uuid4().hex}.ts"
+    absolute = tmp_path / "absolute.ts"
+
+    model = _model_of(
+        {
+            climbing: b"export const x = 1;\n",
+            str(absolute): b"export const y = 2;\n",
+            "fine.ts": b"export function f(): number {\n  return 1;\n}\n",
+        }
+    )
+
+    assert not Path(tempfile.gettempdir(), Path(climbing).name).exists()
+    assert not absolute.exists()
+    reasons = {u.path: u.reason for u in model.unparsed}
+    assert set(reasons) == {climbing, str(absolute)}
+    assert all("leaves the repository" in r for r in reasons.values())
+    assert {u.path for u in model.units} == {"fine.ts"}

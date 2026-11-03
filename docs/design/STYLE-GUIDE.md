@@ -39,7 +39,7 @@ authoritative skeleton and this table must agree with it:
 
 | Section | Purpose |
 |---------|---------|
-| **Header block** | Status, date, authors, dependencies |
+| **Header block** | Date, authors, dependencies |
 | **Overview** | 2-3 sentences. What is this? Why does it exist? |
 | **Goals** | What success looks like. Testable criteria. |
 | **Non-Goals** | What this explicitly won't do. Prevents scope creep. |
@@ -76,7 +76,7 @@ it destroys the property that makes each artifact worth reading.
 
 | Artifact | Answers | Evolves |
 |---|---|---|
-| `docs/design/` | what we intend, and why | authored once, **body frozen at APPROVED**; only status and the append-only Key Decisions log move |
+| `docs/design/` | what we intend, and why | authored once, **body frozen once merged**; only the append-only Key Decisions log moves |
 | `docs/arch/` | what is deployed right now | **living**, rewritten at every release; never contains anything unshipped |
 | tests | what the code must do, executably | **per behavior**, RED before GREEN, one commit at a time |
 | source | how it actually does it | **continuously**, freely, within the design's guarantees |
@@ -267,23 +267,24 @@ all caps, kebab-cased when it is more than one word:
 `DESIGN.CI-MAGIC-CONFIDENCE.md`, `DESIGN.DESIGNOMATIC-SELF-SERVE.md`.
 
 **As-built documentation is not a design doc** and does not live in this
-tree. `docs/design/` is aspirational and freezes at APPROVED; `docs/arch/`
+tree. `docs/design/` is aspirational and freezes once merged; `docs/arch/`
 is factual and living, describing only what is deployed. See
 `docs/arch/README.md` and the `architecture` skill.
 
 ---
 
-## Status Vocabulary
+## Status Is Metadata
 
-Use exactly one of:
+A document carries no status line, field, badge or lifecycle word. The
+state lives where GitHub keeps it:
 
-| Status | Meaning |
-|--------|---------|
-| `DRAFT` | Work in progress, not ready for implementation |
-| `REVIEW` | Ready for human review |
-| `APPROVED` | Reviewed and approved, ready to implement |
-| `IMPLEMENTED` | Design is in production |
-| `SUPERSEDED` | Replaced by another doc (link to it) |
+- in progress: the record is on an open PR's branch;
+- approved and frozen: the record is on the default branch (merged IS the
+  approval and the freeze);
+- implemented: the retrospective landed (its PR merged, the tracking issue
+  closed);
+- superseded: the PR that lands the replacement deletes the old record, and
+  the replacement cites it in Related Documents.
 
 ---
 
@@ -292,7 +293,6 @@ Use exactly one of:
 ```markdown
 # Title
 
-> **Status:** DRAFT  
 > **Date:** YYYY-MM-DD  
 > **Authors:** Names  
 > **Depends on:** [Other Doc](./path.md) (if applicable)

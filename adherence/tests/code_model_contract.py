@@ -2,10 +2,13 @@
 
 Language-neutral promises: a file unit for every source, each unit in the
 layer the declaration gives it, nothing from nothing, and TimedOut rather
-than overrun a passed deadline. A subclass supplies `port`.
+than overrun a passed deadline. A subclass supplies `port`, and the sources
+in its language when it is not Python.
 """
 
 from __future__ import annotations
+
+from collections.abc import Mapping
 
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, parse_declaration
@@ -19,6 +22,16 @@ SOURCES = {
     "src/pkg/rules.py": b"def rule(x: int) -> int:\n    return x\n",
     "scratch.py": b"y = 2\n",
 }
+TYPESCRIPT_SOURCES = {
+    "src/pkg/index.ts": b"",
+    "src/pkg/rules.ts": b"export function rule(x: number): number {\n  return x;\n}\n",
+    "scratch.mjs": b"const y = 2;\n",
+}
+SHELL_SOURCES = {
+    "src/pkg/lib.sh": b"",
+    "src/pkg/rules.sh": b'rule() {\n    echo "$1"\n}\n',
+    "scratch.zsh": b"y=2\n",
+}
 DECLARATION = b'[layers]\ndomain = ["src/pkg/**"]\n'
 
 
@@ -29,11 +42,15 @@ def declaration() -> Declaration:
 
 
 class CodeModelContract:
+    # Two files under src/pkg/, which the declaration puts in the domain
+    # layer, and one at the root it leaves uncovered.
+    sources: Mapping[str, bytes] = SOURCES
+
     def port(self) -> CodeModelPort:
         raise NotImplementedError("a contract subclass supplies its adapter")
 
     def _model(self) -> CodeModel:
-        model = self.port().model(SOURCES, declaration(), VOCABULARY, None)
+        model = self.port().model(self.sources, declaration(), VOCABULARY, None)
         assert isinstance(model, CodeModel), model
         return model
 
@@ -46,9 +63,8 @@ class CodeModelContract:
         }
 
         assert files == {
-            "src/pkg/__init__.py": Layer.DOMAIN,
-            "src/pkg/rules.py": Layer.DOMAIN,
-            "scratch.py": None,
+            path: Layer.DOMAIN if path.startswith("src/pkg/") else None
+            for path in self.sources
         }
 
     def test_model_of_nothing_is_empty(self) -> None:
@@ -62,7 +78,7 @@ class CodeModelContract:
         """Given a deadline already passed, When sources are modelled,
         Then the answer is TimedOut, not a partial model."""
         answer = self.port().model(
-            SOURCES, declaration(), VOCABULARY, Deadline(epoch_seconds=0.0)
+            self.sources, declaration(), VOCABULARY, Deadline(epoch_seconds=0.0)
         )
 
         assert isinstance(answer, TimedOut)

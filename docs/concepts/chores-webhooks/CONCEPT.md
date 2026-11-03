@@ -53,6 +53,6 @@ That's it.
   grown into a shared front door, or a new piece both sit behind (PR #369,
   in review).
 
-**Leans on:** the chores design (`CHORES.DESIGN.md`, APPROVED), whose only
+**Leans on:** the chores design (`CHORES.DESIGN.md`), whose only
 trigger today is a cron schedule; the Ollama Gateway's tunnel pattern and
 its edge record in tds-internal.

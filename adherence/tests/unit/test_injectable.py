@@ -377,3 +377,28 @@ def test_measure_with_a_use_case_wiring_through_a_helper_finds_it() -> None:
         ("imported", "FsStore", HELPERS, 2),
         ("make", "FsStore", HELPERS, 2),
     }
+
+
+def test_measure_with_a_use_case_building_a_typescript_value_is_clean() -> None:
+    """Given an adapters-layer TypeScript type with no method but its
+    `constructor` (a value, as a Python type with only `__init__` is), and
+    a use case that builds it, When No self-wiring runs, Then no finding
+    names it: a value is no concrete adapter in either language."""
+    files = {USE: b"x\n" * 9, FS: b"x\n" * 9}
+    definitions = [
+        type_(FS, "Receipt", 1, end=4),
+        function(
+            FS,
+            "Receipt.constructor",
+            2,
+            (value("number", "string"),),
+            parent="Receipt",
+        ),
+        function(USE, "issue", 1, (value("number", "string"),), end=3),
+    ]
+    calls = (Call(USE, 2, "issue", "Receipt"),)
+
+    report = measure_with(files, facts(definitions, calls=calls))
+
+    assert "No self-wiring" in {c.name for c in report.ran}
+    assert _of(report, "No self-wiring") == []

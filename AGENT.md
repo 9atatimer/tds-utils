@@ -478,7 +478,7 @@ main "$@"
   untouched existing content.
 - When told to swarm-code a solution (e.g. `ultracode`), automatically open a
   PR when the coding concludes -- do not wait to be asked -- then automatically
-  triage Copilot's review feedback per the github-workflow skill.
+  triage the reviewer's feedback per the github-workflow skill.
 - NEVER use interrogative prompts. Not choice menus, not "shall I proceed?",
   not "which do you prefer?". Decide, state the decision and its reason in one
   line, and act. Only ask when the answer is a value you cannot obtain or
@@ -507,13 +507,22 @@ This repo lands PRs through the tedium merge bot; the rules are in
   ("review-settled is off ... always green"). It was not in this repo's
   `pr_status` or ruleset before either. The decision code
   (`lib/review-settled.mjs`, `decide` in `bin/review-settled`) is kept and
-  tested; `main()` names the one line that turns it back on. Codex is
-  still summoned only by an `@codex review` PR comment that a HUMAN posts;
-  an agent never posts it (gates skill, Reviewer Selection). Callers pinned
+  tested; `main()` names the one line that turns it back on. The agentic
+  reviewer is OCR on Demand, summoned with a `/ocr` PR comment (this repo
+  carries the caller); Copilot and Codex review only when a HUMAN fires
+  the trigger, never an agent (gates skill, Reviewer Selection). Callers pinned
   to an older tds-utils commit keep the old verdict until they bump.
 - **Reviewers** (who may `r+`) are the repo's direct collaborators with
   push, synced by tedium. An agent acting under a reviewer's token is a
   reviewer.
+- **Agents act as `9atatimer-bot`, never as the owner** (tds-internal#285).
+  The `CODEOWNERS` catch-all needs the owner's approval on every PR, and
+  GitHub refuses self-approval, so a PR an agent opens as `9atatimer` can
+  never be approved. Start laptop sessions with `bin/claude-as-bot`: the
+  bot's token from 1Password as `GH_TOKEN` (reference in
+  `TDS_BOT_GH_TOKEN_REF`), GitHub over HTTPS only, commits under the bot's
+  name. Cloud sessions get the same by connecting claude.ai's GitHub
+  integration as the bot.
 - **`gate` is the only name to add to.** A new CI job goes into `gate`'s
   `needs`; a job outside it cannot block a landing. It also takes
   `needs: changes` and a scope in `.github/scripts/changed-scopes.sh`: on a
@@ -523,9 +532,10 @@ This repo lands PRs through the tedium merge bot; the rules are in
   `paths:` filter: a workflow that does not run never reports `gate`.
 - **`hold` label** keeps a PR out of the queue. `tedium dryrun` builds it
   on `tedium/try` without landing.
-- **CODEOWNERS** (`tedium.toml`, `CODEOWNERS`, `.github/workflows/`,
-  `.github/scripts/changed-scopes.sh`) need a human owner's approval
-  before tedium lands a change to them.
+- **CODEOWNERS** covers every path (`*`, tds-internal#285): every
+  landing needs a human owner's approval before tedium lands it. Agents
+  open PRs as `9atatimer-bot` so the owner can approve; a PR the owner
+  authored can never clear the check and is merged by hand.
 - **`tedium/merge` and `tedium/try` are the bot's build branches**: never
   protect them, never commit to them, never base work on them.
 - **Closing keywords do not fire when tedium lands.** `Closes #N` in the
@@ -543,12 +553,12 @@ This repo lands PRs through the tedium merge bot; the rules are in
   it. This is automatic; never wait to be told to load it.
 - When you AGREE with review feedback and push a load-bearing fix (it
   changes behavior, a contract, a security property, a test's verdict, or
-  what a rule an agent or gate executes says), kick off a Copilot re-review
-  (`request_copilot_review` / `gh pr edit --add-reviewer @copilot`) so the
-  next round fires. A hygiene-only push (wording, typos, comments,
+  what a rule an agent or gate executes says), re-summon OCR with a fresh
+  `/ocr` comment so the next round fires; never a Copilot or Codex
+  trigger, which are the human's. A hygiene-only push (wording, typos, comments,
   documentation accuracy) gets its SHA in the thread reply and NO
   re-review. A documentation-only PR (every changed file is human-read
-  prose) gets the adversarial self-review alone -- no Copilot, no Codex;
+  prose) gets the adversarial self-review alone -- no agentic reviewer;
   a design or architecture draft in phases 2 and 3 gets designomatic
   instead. Skills, personas, this file, `clai.d/AGENT.global.md`, prompts,
   CI workflows and gate configuration are operating rules, not

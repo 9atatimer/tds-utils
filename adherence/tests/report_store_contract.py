@@ -11,7 +11,13 @@ from pathlib import Path
 
 from adherence.domain.coverage import Coverage
 from adherence.domain.deadline import Deadline, TimedOut
-from adherence.domain.finding import Evidence, Finding, Notice, Provenance
+from adherence.domain.finding import (
+    Evidence,
+    Finding,
+    Notice,
+    Provenance,
+    line_digest,
+)
 from adherence.domain.model import Layer, Unit, UnitKind
 from adherence.domain.qualities import catalog_check
 from adherence.domain.report import BodyDigest, Report, ReportIdentity, Verdict
@@ -60,6 +66,29 @@ class ReportStoreContract:
 
         assert recorded.kept, recorded
         assert store.get("example", REVISION, IDENTITY.digest, None) == REPORT
+
+    def test_a_finding_whose_evidence_was_cut_keeps_its_identity(
+        self, tmp_path: Path
+    ) -> None:
+        """Given a report whose finding quotes its offending line cut at the
+        evidence bound, When it is put and got back, Then the finding keeps
+        the whole line's digest, so its identity is the one it was judged
+        by."""
+        store = self.store_with(tmp_path)
+        cut = replace(
+            FINDING,
+            evidence=Evidence(
+                UNIT.path, 2, "def tidy(", digest=line_digest("def tidy():")
+            ),
+        )
+        report = replace(REPORT, findings=(cut,))
+
+        store.put(report)
+        got = store.get("example", REVISION, IDENTITY.digest, None)
+
+        assert got == report
+        assert isinstance(got, Report)
+        assert got.findings[0].identity == cut.identity
 
     def test_a_report_under_another_identity_is_a_miss(self, tmp_path: Path) -> None:
         """Given a report kept under one identity, When another identity is

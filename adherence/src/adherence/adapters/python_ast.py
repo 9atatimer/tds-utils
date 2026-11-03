@@ -197,11 +197,6 @@ def _stub_marker(node: DefinitionNode, vocabulary: Vocabulary) -> str | None:
     )
 
 
-def is_sleep(callee: str, vocabulary: Vocabulary) -> bool:
-    """Whether a callee waits, by its full dotted name or its last part."""
-    return callee in vocabulary.sleeps or callee.split(".")[-1] in vocabulary.sleeps
-
-
 def _callee(call: ast.Call) -> str:
     return ast.unparse(call.func)
 
@@ -228,8 +223,8 @@ def _body(
             for n in own_nodes(node)
             if isinstance(n, ast.Call)
             and (
-                is_sleep(_callee(n), vocabulary)
-                or is_sleep(_imported_callee(n, imported), vocabulary)
+                vocabulary.is_sleep(_callee(n))
+                or vocabulary.is_sleep(_imported_callee(n, imported))
             )
         }
     )
@@ -368,16 +363,6 @@ def _calls(
     return found
 
 
-def reads_environment(chain: str, vocabulary: Vocabulary) -> bool:
-    """Whether a name chain is, or runs through, an environment read
-    (`os.environ.get` runs through `os.environ`)."""
-    parts = chain.split(".")
-    return any(
-        ".".join(parts[:end]) in vocabulary.environment_reads
-        for end in range(1, len(parts) + 1)
-    )
-
-
 def _accesses(
     path: str, scoped: Sequence[tuple[str | None, ast.AST]], vocabulary: Vocabulary
 ) -> list[Access]:
@@ -393,7 +378,7 @@ def _accesses(
             )
         elif isinstance(node, ast.Attribute | ast.Name) and id(node) not in inner:
             text = ast.unparse(node)
-            if reads_environment(text, vocabulary):
+            if vocabulary.reads_environment(text):
                 found.append(
                     Access(path, node.lineno, within, AccessKind.ENVIRONMENT, text)
                 )

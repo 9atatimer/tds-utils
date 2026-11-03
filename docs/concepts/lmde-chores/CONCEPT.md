@@ -124,14 +124,14 @@ Out of scope for v1: cloud tasks. Everything is laptop-local for now.
   and the rumps menu-bar apps (`bin/lmde-sync-monitor`,
   `bin/skills-drift-monitor`); `macos/apps/mkmacapp` for Dock tiles.
 - The agent-notifications design (NATS KV with a filesystem fallback),
-  `docs/design/AGENT-NOTIFICATIONS.DESIGN.md`, DRAFT.
+  `docs/design/AGENT-NOTIFICATIONS.DESIGN.md`.
 - The observability stack, which already derives `gen_ai` token metrics
   into Grafana (`lmde/components/observability/`).
 - designomatic's spend-limit policy and metered LLM port, and ci.magic's
   headless `claude -p` adapter (template-tools).
 - The data-warehouse ledgers: append-only NDJSON per producing system
   (template-tools `docs/design/ARCHITECTURE.DATA-WAREHOUSE.md`).
-- The orchestrator design, DRAFT since April, the big sibling of this
+- The orchestrator design, the big sibling of this
   small cron-shaped idea (`docs/design/ORCHESTRATOR.DESIGN.md`).
 - 1Password `op` as the only sanctioned credential source (`lmde/LMDE.md`).
 
