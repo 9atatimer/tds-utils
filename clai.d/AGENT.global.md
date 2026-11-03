@@ -53,6 +53,7 @@ file points there.
 - Fetch the default branch's HEAD before judging what a workflow does; a stale branch says nothing about what is live.
 - Review each non-doc PR once; re-review only after a load-bearing fix.
 - OCR on Demand (`/ocr`) is the agentic reviewer an agent summons; Copilot and Codex only when the owner fires the trigger.
+- Act on GitHub as `9atatimer-bot`, never as the owner: a PR authored by the owner can never get the owner's approval.
 - Never sign your work: no `Co-Authored-By`, session link or "Generated with" line in any commit, PR, issue or comment.
 
 ## Never sign your work
@@ -363,6 +364,25 @@ one line before the command is given.
 
 Never `curl ... | sh`, and never fetch-then-run an installer script, even to
 install a tool. Install software only through package managers that verify signed code.
+
+## Act on GitHub as the bot, never as the owner
+
+Every PR needs the owner's approval (a `CODEOWNERS` catch-all on the
+repos the laptop runs), and GitHub refuses self-approval. So a PR an agent
+opens under the owner's login can never be approved: it lands only by the
+owner overriding the merge queue. Agents open PRs, push, comment and
+`/land` as the machine account `9atatimer-bot`, which holds `write` on
+every repo the fleet works in; the owner's approval is the review.
+
+- On the laptop, start the session with tds-utils `bin/claude-as-bot`: the
+  bot's token from 1Password as `GH_TOKEN`, GitHub over HTTPS only (an SSH
+  remote would use the owner's key), commits under the bot's name.
+- In a cloud session, claude.ai's GitHub integration must be connected as
+  the bot; the `claude` App acts as whoever connected it.
+- A session already running as the owner wraps each GitHub command in the
+  launcher's environment (`claude-as-bot --print-env` into `op run
+  --env-file`) rather than act as the owner.
+- `gh api user` names who you are. Check it before the first push.
 
 ## Secrets come from 1Password, never from the environment
 
