@@ -379,10 +379,12 @@ every repo the fleet works in; the owner's approval is the review.
   remote would use the owner's key), commits under the bot's name.
 - In a cloud session, claude.ai's GitHub integration must be connected as
   the bot; the `claude` App acts as whoever connected it.
-- A session already running as the owner wraps each GitHub command in the
-  launcher's environment (`claude-as-bot --print-env` into `op run
-  --env-file`) rather than act as the owner.
-- `gh api user` names who you are. Check it before the first push.
+- A session already running as the owner runs every GitHub command AND
+  every `git commit` inside the bot's environment:
+  `op run --env-file <(claude-as-bot --print-env) -- <cmd>`. A commit
+  outside it is authored as the owner.
+- Before the first push, run `gh api user --jq .login`. If it does not
+  print `9atatimer-bot`, stop and switch identity before acting on GitHub.
 
 ## Secrets come from 1Password, never from the environment
 
