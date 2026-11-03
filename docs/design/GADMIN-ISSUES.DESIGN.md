@@ -1,10 +1,8 @@
 # GADMIN-ISSUES.DESIGN.md
 
-> **Status:** APPROVED
 > **Date:** 2026-05-17
 > **Authors:** Todd Stumpf
 > **Depends on:** [AGENT-NOTIFICATIONS.DESIGN.md](./AGENT-NOTIFICATIONS.DESIGN.md) (shares the local NATS bus)
-> **Implementation:** partial -- skeleton on disk; see [Implementation Status](#implementation-status)
 >
 > **Code location update (2026-05-25):** The skeleton has moved out of
 > `tds-utils/gadmin/admin/` into the `@nine-at-a-time-media/admin` npm
@@ -62,8 +60,7 @@ request-reply transport.
    `github-octokit.mjs` (Octokit) implement the full `cmdIssue*` surface;
    the bash dispatcher selects between them via `GADMIN_BACKEND` env var
    (`gitapi` | `octokit`, default `gitapi`), mirroring the existing
-   PR-comment path. *(Status: planned — bash dispatcher currently
-   hardcodes the gitapi peer. See Implementation Status / GI5.)*
+   PR-comment path.
 9. **Scratchpad preservation.** `sync-plan` rewrites only the bytes between
    the `<!-- gadmin:autogen:start -->` and `<!-- gadmin:autogen:end -->`
    sentinels in `TODO_PLAN.md`. Everything else is byte-identical.
@@ -439,52 +436,6 @@ meta
 - **Webhook HMAC attestation hardening.** Beyond verifying the forwarder
   secret: rotate keys via launchd/systemd environment file, alert on
   consecutive verification failures.
-
----
-
-## Implementation Status
-
-Status snapshot as of 2026-05-17. The full design above is the target;
-this section names what's already on disk vs. what's still to build.
-
-### Laid down
-
-| Goal | Where | Notes |
-|---|---|---|
-| `/gadmin` command grammar (parse + format, command + receipt) | `gadmin/admin/issue-grammar.mjs` | Goals 1, plus smoketests `01_grammar_roundtrip.sh`, `02_grammar_rejects_malformed.sh`, `03_applied_receipt_roundtrip.sh` |
-| Single-writer aggregator core | `gadmin/admin/issue-aggregator.mjs` | Apply loop, `applyOpsToState`, receipts, SQLite cursor; smoketests `04_aggregator_apply_logic.sh`, `05_aggregator_sqlite_snapshot.sh` |
-| SQLite snapshot (`issues`, `tx_log`, `meta`) | `gadmin/admin/issue-aggregator.mjs:147-171` | Schema matches Data Model section |
-| `gadmin.events.{command,applied,rejected}` publish | `gadmin/admin/issue-aggregator.mjs:230-235, 373, 392, 406, 425` | Publish-only side of Goal 3/4 plumbing |
-| Phase A CRUD (`list`, `view`, `create`, `edit`, `comment`, `close`, `reopen`) | `gadmin/admin/github-gitapi.mjs:867-1028`, octokit peer at parity | All write paths emit `/gadmin` commands; `create` is the direct-write exception |
-| Phase B workflow (`priority`, `block`, `unblock`, `claim`, `release`, `next`) | `gadmin/admin/github-gitapi.mjs:1030-1165`, octokit peer at parity | Composites over Phase A `emitCommand` |
-| `--wait-tx` (GH-poll path only) | `gadmin/admin/github-gitapi.mjs:828-859` | Goal 5 (cloud-agent path); Goal 4 (laptop NATS path) still missing |
-| Phase E `sync-plan` with autogen sentinels | `gadmin/admin/issue-plan-sync.mjs` | Reads via direct GH today; smoketest `06_sync_plan_preserves_scratchpad.sh` |
-| Phase F one-time migrator | `gadmin/admin/migrate-todo-plan.mjs` | Smoketest `07_migrator_parses_todo_plan.sh` |
-| Service units (cross-platform) | `macos/launchd/gadmin-aggregator.plist`, `local/systemd/gadmin-aggregator.service` | Goal 10 |
-| Aggregator self-acknowledges deferred scope | `gadmin/admin/issue-aggregator.mjs:22-24` | "deliberately conservative: polling (not webhook forward), core ops only, no JetStream" |
-
-### Remaining
-
-| Goal | What's missing | Suggested entry point |
-|---|---|---|
-| **Goal 3** -- NATS req-rep reads | Aggregator has no `subscribe`/`respond` for `gadmin.issues.list` or `gadmin.issues.get.<n>`. Clients always read direct from GH. | Extend the NATS helper in `issue-aggregator.mjs:216-240` with subscription handlers; teach `cmdIssueList` / `cmdIssueView` / `cmdIssueNext` in both peers to try NATS first |
-| **Goal 4** -- NATS-first `--wait-tx` | `maybeWaitTx` in `github-gitapi.mjs:845` only calls `pollAppliedReceipt`; the laptop case pays the 3s GH-poll interval | Add a `gadmin.tx.wait` request-reply path; fall through to existing poll on NATS unreachable |
-| **Goal 6** -- `gh webhook forward` ingress | Aggregator polls only (`interval` seconds). Header comment explicitly defers webhook forwarding. | Spawn `gh webhook forward` as a child process; HMAC-verify (see Security) before queueing |
-| **Goal 7** -- `gadmin.health` subject | No health endpoint exists; callers must read SQLite/logs | Add subscriber returning `{cursor_lag_seconds, last_webhook_at, db_size, nats_status, version}` |
-| **Goal 8** -- Backend peer routing | Bash dispatcher hardcodes the gitapi peer at `gadmin/admin/github:825`. Octokit peer's `cmdIssue*` is dead code in `issue` mode. | Switch `cmd_issue` to read `$GADMIN_BACKEND` (default `gitapi`) and `exec` the matching `.mjs`, mirroring PR-comment dispatch |
-
-### Test coverage status
-
-Implemented under `test/smoketest_gadmin_issue/`:
-`01_grammar_roundtrip`, `02_grammar_rejects_malformed`,
-`03_applied_receipt_roundtrip`, `04_aggregator_apply_logic`,
-`05_aggregator_sqlite_snapshot`, `06_sync_plan_preserves_scratchpad`,
-`07_migrator_parses_todo_plan`.
-
-Tests still to add as the remaining goals land: NATS req-rep
-reads round-trip, NATS-first `--wait-tx` resolves faster than poll
-fallback, webhook ingress HMAC verification, `gadmin.health` payload
-shape, backend peer routing via `$GADMIN_BACKEND`.
 
 ---
 

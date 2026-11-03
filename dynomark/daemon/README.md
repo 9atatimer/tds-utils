@@ -1,6 +1,6 @@
 # dynomark daemon
 
-The daemon runtime of Dynomark (`docs/design/DYNOMARK.DESIGN.md`, APPROVED):
+The daemon runtime of Dynomark (`docs/design/DYNOMARK.DESIGN.md`):
 it ingests saves from the extension, captures, enriches and embeds them,
 places and files them through write batches the extension applies, and
 serves tier-2 search, undo, grounded chat (`ask`), audit and rebuild diffs,

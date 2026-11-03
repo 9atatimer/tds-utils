@@ -12,13 +12,19 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from adherence.adapters.fakes import FakeRepository
-from adherence.adapters.markdown_records import MarkdownRecords, parse_records
+from adherence.adapters.markdown_records import (
+    MarkdownRecords,
+    parse_radar,
+    parse_records,
+)
 from adherence.domain.checks.layered import is_traceable
 from adherence.domain.declaration import Declaration, parse_declaration
 from adherence.domain.model import Parameter
 from adherence.domain.records import (
     DesignRecords,
+    Radar,
     RecordsUnavailable,
+    Ring,
     SeamKind,
 )
 from adherence.domain.target import Head
@@ -30,6 +36,7 @@ from tests.records_contract import (
     CLOSED,
     DESIGN,
     NOW,
+    RADAR,
     REOPENED,
     RecordsContract,
     declaration,
@@ -89,6 +96,29 @@ ARCHITECTURE_TEXT = f"""# Tool -- architecture
 """
 
 
+RADAR_TEXT = """# Tech Radar
+
+## Adopt -- Current Platform Standards
+
+### Languages
+
+- **Python 3**: the engine's language.
+
+## Trial -- Testing in Limited Scope
+
+- **grimp** (BSD-2): the Python import graph.
+
+## Decisions Log
+
+- **2026-10-25**: Added `grimp` to Trial.
+"""
+RADAR_TEXT_GROWN = RADAR_TEXT.replace(
+    "## Decisions Log",
+    "## Hold -- Avoid\n\n| Technology | Why |\n|---|---|\n"
+    "| `pickle` | unsafe on untrusted input |\n\n## Decisions Log",
+)
+
+
 def _line_of(text: str, needle: str) -> int:
     return next(n for n, line in enumerate(text.splitlines(), 1) if needle in line)
 
@@ -108,8 +138,11 @@ class TestMarkdownRecords(RecordsContract):
     def port(self) -> RecordsPort:
         repository = FakeRepository(
             {
-                BASE: _files(DESIGN_TEXT),
-                Head.working_tree(): _files(DESIGN_TEXT_GROWN),
+                BASE: {**_files(DESIGN_TEXT), RADAR: RADAR_TEXT.encode()},
+                Head.working_tree(): {
+                    **_files(DESIGN_TEXT_GROWN),
+                    RADAR: RADAR_TEXT_GROWN.encode(),
+                },
             }
         )
         return MarkdownRecords(repository, clock=lambda: NOW)
@@ -213,6 +246,59 @@ def test_records_the_repository_refuses_are_unavailable() -> None:
 
     assert isinstance(answer, RecordsUnavailable)
     assert DESIGN in answer.reason and "a symbolic link" in answer.reason
+
+
+def test_radar_reads_each_entry_under_its_ring_heading() -> None:
+    """Given a radar whose ring headings hold sub-headings, bullets led by a
+    bold name and a table, and a log section after them, When it is read,
+    Then each entry is named under the ring of the heading it sits in, at
+    its line, and nothing outside a ring heading is an entry."""
+    radar = parse_radar(RADAR, RADAR_TEXT_GROWN)
+
+    assert [(e.name, e.ring) for e in radar.entries] == [
+        ("Python 3", Ring.ADOPT),
+        ("grimp", Ring.TRIAL),
+        ("pickle", Ring.HOLD),
+    ]
+    grimp = radar.entries[1]
+    assert grimp.line == _line_of(RADAR_TEXT_GROWN, "**grimp**")
+
+
+def test_radar_of_a_declaration_naming_none_is_unavailable() -> None:
+    """Given a declaration with no [radar] table, When the radar is read,
+    Then it is unavailable, saying the declaration names none."""
+    bare = parse_declaration(b'[layers]\ndomain = ["src/**"]\n')
+    assert isinstance(bare, Declaration)
+    port = MarkdownRecords(FakeRepository({BASE: {RADAR: RADAR_TEXT.encode()}}))
+
+    answer = port.radar(BASE, bare, None)
+
+    assert isinstance(answer, RecordsUnavailable)
+    assert "names no radar" in answer.reason
+
+
+def test_radar_of_the_lmde_radar_reads_its_trial_rows() -> None:
+    """Given the LMDE's own tech radar, When it is read, Then the adherence
+    engine's analyzers are Trial entries."""
+    text = (Path(__file__).resolve().parents[3] / "lmde" / "TECH_RADAR.md").read_text()
+
+    rings = {e.name: e.ring for e in parse_radar("lmde/TECH_RADAR.md", text).entries}
+
+    for name in ("grimp", "lizard", "jscpd", "markdown-it-py"):
+        assert rings.get(name) is Ring.TRIAL, name
+
+
+RADAR_TEXT_ANY = st.text(
+    alphabet=st.sampled_from(list("|`*-#:()[],=\\\n abcAdoptTrialHold_>.")),
+    max_size=400,
+)
+
+
+@given(text=RADAR_TEXT_ANY)
+def test_radar_of_any_markdown_is_read_without_raising(text: str) -> None:
+    """Given any text at all as a radar (untrusted data), When it is parsed,
+    Then the answer is a Radar, never an error."""
+    assert isinstance(parse_radar(RADAR, text), Radar)
 
 
 ENGINE_RECORDS = Path(__file__).resolve().parents[3] / "docs" / "design"

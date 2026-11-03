@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 from adherence.adapters.fakes import FakeRecords
-from adherence.domain.records import Behavior, DesignRecords
+from adherence.domain.records import Behavior, DesignRecords, Radar, RadarEntry
 from adherence.ports.records import RecordsPort
-from tests.records_contract import BEHAVIORS, DESIGN, NOW, RecordsContract
+from tests.records_contract import (
+    BEHAVIORS,
+    DESIGN,
+    NOW,
+    RADAR,
+    RADARS,
+    RecordsContract,
+)
 
 
 class TestFakeRecords(RecordsContract):
@@ -19,6 +26,15 @@ class TestFakeRecords(RecordsContract):
                     )
                 )
                 for at, names in BEHAVIORS.items()
+            },
+            radar={
+                at: Radar(
+                    tuple(
+                        RadarEntry(name, ring, RADAR, line)
+                        for line, (name, ring) in enumerate(entries, start=1)
+                    )
+                )
+                for at, entries in RADARS.items()
             },
             now=NOW,
         )

@@ -27,7 +27,7 @@ from adherence.domain.declaration import (
 from adherence.domain.model import CodeLanguage, CodeModel, Layer
 from adherence.domain.parameters import Limits, Parameters, Vocabulary
 from adherence.domain.questions import ThresholdPolicy, Unavailable
-from adherence.domain.records import DesignRecords, RecordsUnavailable
+from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 from adherence.domain.report import Report
 from adherence.domain.target import Head
 from adherence.ports.code_model import CodeModelPort
@@ -43,6 +43,13 @@ VOCABULARY = Vocabulary(
     model_ids=frozenset({"claude-", "gpt-"}),
     mechanism_calls=frozenset({"open", "__import__", "importlib.import_module"}),
     fakes=frozenset({"Fake"}),
+    abstract_markers=frozenset({"Protocol", "ABC", "abstractmethod"}),
+    assertion_calls=frozenset({"pytest.raises"}),
+    placeholder_assertions=frozenset({"True", "False", "1"}),
+    standard_library={
+        CodeLanguage.PYTHON: frozenset({"__future__", "dataclasses", "os"})
+    },
+    packages={"markdown_it": "markdown-it-py"},
     callables=frozenset({"Callable"}),
     wire_formats=frozenset({"dict", "Response"}),
     singletons=frozenset({"sys.argv"}),
@@ -85,6 +92,7 @@ def measure_with(
     declaration: Declaration | DeclarationUnreadable | None = None,
     *,
     records: DesignRecords | RecordsUnavailable | TimedOut | None = None,
+    radar: Radar | RecordsUnavailable | TimedOut | None = None,
     analyzers: Mapping[CodeLanguage, CodeModelPort] | None = None,
     limits: Limits = LIMITS,
     vocabulary: Vocabulary = VOCABULARY,
@@ -106,7 +114,10 @@ def measure_with(
         ),
         complexity=complexity or FakeComplexity(),
         duplication=duplication or FakeDuplication(),
-        records=FakeRecords({} if records is None else {HEAD: records}),
+        records=FakeRecords(
+            {} if records is None else {HEAD: records},
+            radar={} if radar is None else {HEAD: radar},
+        ),
         judge=FakeDecision(Unavailable("no judge in the unit tier")),
         parameters=parameters(vocabulary=vocabulary, limits=limits),
         deadline=deadline,

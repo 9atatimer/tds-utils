@@ -1,6 +1,5 @@
 # Emacs Instance Sandbox
 
-> **Status:** DRAFT
 > **Date:** 2026-09-02
 > **Authors:** Todd Stumpf, Claude Opus 5
 > **Depends on:** [ENV-DISTRIBUTION.DESIGN.md](./ENV-DISTRIBUTION.DESIGN.md)

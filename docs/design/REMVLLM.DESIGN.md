@@ -1,6 +1,5 @@
 # remvllm -- Remote vLLM Orchestrator (GLM-5.2 endpoint)
 
-> **Status:** Design / Pre-Implementation
 > **Created:** 2026-06-17
 > **Location:** `ops/terraform/remvllm/`
 > **Entry Point:** `bin/remvllm`

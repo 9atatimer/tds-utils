@@ -1,9 +1,8 @@
 # Architectural Adherence -- architecture
 
-> **Status:** APPROVED (Todd, 2026-10-24, after tds-utils PR#605; the Open Questions are ruled by Key Decisions appends under tds-utils Issue#590, never by body edits). Amended 2026-10-25 with the design (Issue#590): `domain/score`, floors and drop tickets removed; the verdict compares findings by identity
 > **Date:** 2026-10-24 (self-review panel findings folded in the same day)
 > **Authors:** Todd Stumpf, Claude
-> **Implements:** [DESIGN.ARCH-ADHERENCE.md](./DESIGN.ARCH-ADHERENCE.md) (status: APPROVED 2026-10-24, amended 2026-10-25; this record was re-read against the amended record on 2026-10-25)
+> **Implements:** [DESIGN.ARCH-ADHERENCE.md](./DESIGN.ARCH-ADHERENCE.md) (amended 2026-10-25; this record was re-read against the amended record on 2026-10-25)
 > **As-built read:** `docs/arch/ARCHITECTURE.md` as of 2026-10-24: the proxy layer, the Ollama Gateway and OCR on Demand; no as-built exists for `bin/decide`, `chores/` or the dist tools, so their shapes were read from code
 
 ---
@@ -86,7 +85,7 @@ vendor name.
 | Where reports persist and are read back | `ReportStore` | port | A local file cache on the laptop, the warehouse with the file cache behind `tiered_store` in CI, a fake in tests |
 | Each judged question's threshold and abstention band | `ThresholdPolicy` | policy | Retuned from the labelled set per question id without touching the checks; each entry's form follows its question's kind (Mechanism) |
 | What counts as a stub, a vendor name, an environment read, a model id, a region marker, per language | `Vocabulary` | policy | Retuned as the fleet's languages and vendors change; the declaration may extend it, never empty it |
-| The complexity and duplication ceilings, the judged-check budget, the analyzer bound, the commit-time bound, the evidence bound, the record statuses that count | `Limits` | parameter set | Tuned values the composition root supplies from the suite's shipped defaults; the as-built holds them |
+| The complexity and duplication ceilings, the judged-check budget, the analyzer bound, the commit-time bound, the evidence bound | `Limits` | parameter set | Tuned values the composition root supplies from the suite's shipped defaults; the as-built holds them |
 | What a repository declares: layers, runtimes, records, radar, exemptions, lowered complexity and duplication ceilings, stub and region vocabulary extensions | `Declaration` | parameter (a domain value read through `RepositoryPort` at the base, with the head's widening) | Per repository, never per run. `domain/declaration` is the one owner that merges its overrides into `Parameters`: a ceiling only lowered, a vocabulary only extended |
 | How a bounded run is ended when a check does not return | `WorkerPort` | port | `process_worker` runs a job in a child process and ends it at the deadline, returning what the job reported before it was ended; `inline_worker` is the fake, scriptable to end early; the hook binds the first and tests the second |
 | When a bounded run must end | `Deadline` | parameter (an instant the entry point computes) | The hook sets it from the commit-time bound and CI from the job's remaining time; laptop and cloud pass none. It is taken by every method of `RepositoryPort`, `ReviewPort`, `CodeModelPort`, `ComplexityPort`, `DuplicationPort`, `RecordsPort` and `DecisionPort`, and by `ReportStore.get`; not by `ReportStore.put`, which runs after the verdict, nor by `ExplanationPort`, which runs outside judging. Each adapter compares it to the clock at the edge and returns `TimedOut` rather than overrun it; the core reads no time. This record calls these the deadline-bound ports |
@@ -287,7 +286,7 @@ on failure, carries the `Notice` the presenter shows beside the report.
 language the suite measures; named so it never collides with the Language
 check) and `DeclarationUnreadable` (the outcome of a declaration that
 cannot be read) are architecture-owned terms, not the design's Domain
-Language; they are re-checked against the design the day it is APPROVED.
+Language; they are re-checked against the design the day the design is merged.
 
 ---
 
@@ -454,7 +453,6 @@ never changes the verdict.
 | Measured languages (G11) | the `analyzers` mapping | the composition root, by the declaration's languages and the adapters installed |
 | Stub vocabulary | `Vocabulary.stubs` | shipped default; the declaration's `[vocabulary]` may extend it, merged by `domain/declaration` |
 | (architecture-owned) region markers | `Vocabulary.regions` (marker form to layer); the design says only that a region is a span of one file | shipped default; the declaration's `[vocabulary]` may extend it, merged by `domain/declaration` |
-| Design-record status that counts | `Limits.record_statuses` | the composition root |
 
 No values here. The as-built holds them.
 

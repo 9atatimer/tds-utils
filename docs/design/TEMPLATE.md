@@ -1,6 +1,5 @@
 # [Title]
 
-> **Status:** DRAFT  
 > **Date:** YYYY-MM-DD  
 > **Authors:** [Names]  
 > **Depends on:** [Other Doc](./path.md) (if applicable)

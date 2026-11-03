@@ -203,8 +203,9 @@ class Signature:
 @dataclass(frozen=True, slots=True)
 class Body:
     """A definition's body: its text, the placeholder it consists of when it
-    is nothing but one (`pass`, `...`, `NotImplementedError`), and the lines
-    where it sleeps. Nested definitions are their own bodies."""
+    is nothing but one (`pass`, `...`) or the stub exception it raises
+    (`NotImplementedError`, whatever precedes it), and the lines where it
+    sleeps. Nested definitions are their own bodies."""
 
     text: str
     stub_markers: tuple[str, ...]
@@ -258,14 +259,29 @@ class Reference:
 
 
 @dataclass(frozen=True, slots=True)
+class Target:
+    """What a call's callee stands for, read through its file's imports and
+    definitions: the dotted name, and the repository definition it names --
+    its path, and its symbol there -- when it is one of the repository's."""
+
+    name: str
+    path: str | None = None
+    symbol: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Call:
-    """A function or constructor call: its callee as written, its line, and
-    the definition it sits in."""
+    """A function or constructor call: its callee as written, its line, the
+    definition it sits in, and what the callee resolves to (None when the
+    analyzer cannot tell, as for a method of a local variable). Reading an
+    attribute by a literal name (`getattr(rules, "_round")`) is a call to
+    it."""
 
     path: str
     line: int
     within: str | None
     callee: str
+    target: Target | None = None
 
 
 class AccessKind(enum.Enum):
@@ -344,9 +360,20 @@ class Member:
 
 
 @dataclass(frozen=True, slots=True)
+class Assertion:
+    """One asserted expression, as written, its truth value when it is a
+    literal (None when it is not), and whether the assertion carries a
+    message."""
+
+    text: str
+    truth: bool | None = None
+    message: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class TestCase:
     """A test: its symbol, its line, the callees it calls, and the
-    expressions it asserts, as written."""
+    expressions it asserts."""
 
     __test__ = False  # a domain value, not a pytest class
 
@@ -354,7 +381,7 @@ class TestCase:
     symbol: str
     line: int
     calls: tuple[str, ...]
-    assertions: tuple[str, ...]
+    assertions: tuple[Assertion, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -399,6 +426,14 @@ class Metrics:
 
     complexity: tuple[Complexity, ...] = ()
     clones: tuple[Clone, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class MetricsUnavailable:
+    """The complexity or duplication tooling could not measure -- absent,
+    or failed -- with the reason, naming the tool."""
+
+    reason: str
 
 
 @dataclass(frozen=True, slots=True)

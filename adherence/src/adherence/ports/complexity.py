@@ -11,12 +11,13 @@ from collections.abc import Mapping
 from typing import Protocol
 
 from adherence.domain.deadline import Deadline, TimedOut
-from adherence.domain.model import Metrics
+from adherence.domain.model import Metrics, MetricsUnavailable
 
 
 class ComplexityPort(Protocol):
     def measure(
         self, sources: Mapping[str, bytes], deadline: Deadline | None
-    ) -> Metrics | TimedOut:
-        """The complexity of every function in the sources."""
+    ) -> Metrics | MetricsUnavailable | TimedOut:
+        """The complexity of every function in the sources; unavailable when
+        the tooling is absent or fails."""
         ...

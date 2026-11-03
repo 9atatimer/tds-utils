@@ -1,6 +1,5 @@
 # Orchestrator Workflows -- Design Discussion Notes
 
-> **Status:** DRAFT
 > **Date:** 2026-04-16
 > **Authors:** Todd Stumpf, Claude
 > **Depends on:** [ORCHESTRATOR.DESIGN.md](./ORCHESTRATOR.DESIGN.md)

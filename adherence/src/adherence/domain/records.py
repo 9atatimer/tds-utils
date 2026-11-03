@@ -80,7 +80,7 @@ class SurfaceRow:
 
 @dataclass(frozen=True, slots=True)
 class DesignRecords:
-    """What the approved records state: their seams, behaviors, the design's
+    """What the merged records state: their seams, behaviors, the design's
     Domain Language, the use cases the surface gives a signature, and the
     surface's rows."""
 
@@ -93,7 +93,34 @@ class DesignRecords:
 
 @dataclass(frozen=True, slots=True)
 class RecordsUnavailable:
-    """No readable record at the target -- absent, in draft, or not read --
+    """No readable record at the target -- absent, not yet merged, or not read --
     with the reason, naming the record."""
 
     reason: str
+
+
+class Ring(enum.Enum):
+    """A radar's rings; only Adopt and Trial may be introduced."""
+
+    ADOPT = "Adopt"
+    TRIAL = "Trial"
+    ASSESS = "Assess"
+    HOLD = "Hold"
+    VERBOTEN = "Verboten"
+
+
+@dataclass(frozen=True, slots=True)
+class RadarEntry:
+    """One technology the radar names, its ring, and where it names it."""
+
+    name: str
+    ring: Ring
+    path: str
+    line: int
+
+
+@dataclass(frozen=True, slots=True)
+class Radar:
+    """The tech radar the declaration names, read for its rings."""
+
+    entries: tuple[RadarEntry, ...] = ()

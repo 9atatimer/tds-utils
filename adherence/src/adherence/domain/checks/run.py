@@ -9,8 +9,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from adherence.domain.checks import composable, ddd, hexagonal, injectable, layered
-from adherence.domain.checks.outcome import CheckFunction
+from adherence.domain.checks import (
+    behavior,
+    complete,
+    composable,
+    ddd,
+    hexagonal,
+    injectable,
+    layered,
+    radar,
+)
+from adherence.domain.checks.outcome import CheckFunction, RadarCheckFunction
 from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import Declaration
 from adherence.domain.finding import Finding
@@ -23,7 +32,7 @@ from adherence.domain.model import (
 )
 from adherence.domain.parameters import Parameters
 from adherence.domain.qualities import CATALOG, Check, CheckKind, Quality
-from adherence.domain.records import DesignRecords, RecordsUnavailable
+from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 
 # --- Constants ---------------------------------------------------------------
 
@@ -32,6 +41,12 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Arrow": hexagonal.arrow,
     "Swap": hexagonal.swap,
     "Change": hexagonal.change,
+    "Stub": complete.stub,
+    "Complexity": complete.complexity,
+    "Duplication": complete.duplication,
+    "Real assertion": behavior.real_assertion,
+    "Public surface": behavior.public_surface,
+    "Kept test": behavior.kept_test,
     "No nesting": composable.no_nesting,
     "Helpers take values": composable.helpers_take_values,
     "Values in and out": composable.values_in_and_out,
@@ -46,6 +61,11 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Wiring": layered.wiring,
     "Anatomy": layered.anatomy,
 }
+RADAR_CHECKS: Mapping[str, RadarCheckFunction] = {
+    "Dependency": radar.dependency,
+    "Edge only": radar.edge_only,
+}
+NO_RADAR = RecordsUnavailable("no radar was read")
 CHANGE_LEVEL = "a change-level check: it runs when a change is judged"
 NOT_IN_SUITE = "not implemented in this suite version"
 NO_JUDGE_YET = "a judged check: none is implemented in this suite version"
@@ -112,9 +132,11 @@ def run_checks(
     declaration: Declaration,
     records: DesignRecords | RecordsUnavailable,
     parameters: Parameters,
+    *,
+    radar: Radar | RecordsUnavailable = NO_RADAR,
 ) -> Checked:
     """Every implemented check over the model, in catalog order; every
-    other check is coverage."""
+    other check is coverage. The Radar-true checks read the radar."""
     ran: list[Check] = []
     findings: list[Finding] = []
     coverage: list[Coverage] = []
@@ -127,11 +149,15 @@ def run_checks(
     }
     for check in CATALOG:
         run = TARGET_CHECKS.get(check.name)
-        if run is None:
+        on_radar = RADAR_CHECKS.get(check.name)
+        unread = unread_by(check, model)
+        if run is not None:
+            outcome = run(without(model, unread), declaration, records, parameters)
+        elif on_radar is not None:
+            outcome = on_radar(without(model, unread), declaration, radar, parameters)
+        else:
             coverage.append(_not_run(check))
             continue
-        unread = unread_by(check, model)
-        outcome = run(without(model, unread), declaration, records, parameters)
         if outcome.ran:
             ran.append(check)
             coverage.extend(

@@ -8,6 +8,7 @@ fake to pass it (ARCHITECTURE.ARCH-ADHERENCE.md, Module map: container.py).
 from __future__ import annotations
 
 import importlib
+import json
 import pkgutil
 from pathlib import Path
 from typing import Protocol, get_args, get_type_hints
@@ -21,7 +22,7 @@ from adherence.adapters.fakes import (
     FakeRecords,
     FakeRepository,
 )
-from adherence.container import Stage, build
+from adherence.container import JSCPD, Stage, build
 from adherence.domain.model import CodeLanguage
 from adherence.domain.questions import Unavailable
 from adherence.ports.code_model import CodeModelPort
@@ -98,3 +99,15 @@ def test_build_binds_an_analyzer_for_every_measured_language(tmp_path: Path) -> 
         built.analyzers[CodeLanguage.TYPESCRIPT]
         is built.analyzers[CodeLanguage.JAVASCRIPT]
     )
+
+
+def test_jscpd_runs_from_the_node_package_that_pins_it() -> None:
+    """jscpd is spawned from the one node package CI installs, the one
+    whose manifest and lock pin it (architecture, Security mitigations)."""
+    package = JSCPD.parents[2]
+    manifest = json.loads((package / "package.json").read_text())
+    lock = json.loads((package / "package-lock.json").read_text())
+
+    assert manifest["dependencies"]["jscpd"] == "5.4.1"
+    assert lock["packages"]["node_modules/jscpd"]["integrity"]
+    assert lock["packages"][""]["dependencies"]["dependency-cruiser"]

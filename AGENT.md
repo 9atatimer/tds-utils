@@ -515,6 +515,14 @@ This repo lands PRs through the tedium merge bot; the rules are in
 - **Reviewers** (who may `r+`) are the repo's direct collaborators with
   push, synced by tedium. An agent acting under a reviewer's token is a
   reviewer.
+- **Agents act as `9atatimer-bot`, never as the owner** (tds-internal#285).
+  The `CODEOWNERS` catch-all needs the owner's approval on every PR, and
+  GitHub refuses self-approval, so a PR an agent opens as `9atatimer` can
+  never be approved. Start laptop sessions with `bin/claude-as-bot`: the
+  bot's token from 1Password as `GH_TOKEN` (reference in
+  `TDS_BOT_GH_TOKEN_REF`), GitHub over HTTPS only, commits under the bot's
+  name. Cloud sessions get the same by connecting claude.ai's GitHub
+  integration as the bot.
 - **`gate` is the only name to add to.** A new CI job goes into `gate`'s
   `needs`; a job outside it cannot block a landing. It also takes
   `needs: changes` and a scope in `.github/scripts/changed-scopes.sh`: on a

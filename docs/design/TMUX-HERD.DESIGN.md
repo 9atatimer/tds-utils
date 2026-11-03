@@ -1,6 +1,5 @@
 # tmux-herd -- prune idle tmux sessions, name the rest after what they run
 
-> **Status:** DRAFT
 > **Date:** 2026-09-18
 > **Authors:** Todd (intent), Claude (draft)
 > **Depends on:** [LOG-HOARDER](./LOG-HOARDER.DESIGN.md) (sibling; shares nothing but the tmux server)

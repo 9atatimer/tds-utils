@@ -1,6 +1,5 @@
 # IAE -- Integrated Authoring Environment (POC)
 
-> **Status:** DRAFT
 > **Date:** 2026-09-26
 > **Authors:** Todd Stumpf, with AI assistance
 > **Depends on:** [IAE concept](../concepts/iae/CONCEPT.md) (phase 1 origin, not authority)

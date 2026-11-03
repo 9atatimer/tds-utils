@@ -1,6 +1,5 @@
 # Tool -- architecture
 
-> **Status:** APPROVED (the fixture's owner)
 
 The fixture's architecture record: the seams Change reads and the
 use-case surface Trace reads.

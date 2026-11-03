@@ -1,0 +1,180 @@
+"""domain/checks/radar.py -- every dependency is one the radar allows.
+
+The rule checks of the Radar-true quality: Dependency and Edge only
+(DESIGN.ARCH-ADHERENCE.md, The Qualities table: Radar-true), each a pure
+function over the CodeModel and the Radar the declaration names. A
+dependency is an import that resolves to no source of the repository and
+is not the standard library of the language its file is written in; it is
+matched to a radar entry by its import name or its package's name, case and
+separators aside. A Python import's name is its top-level module; a
+TypeScript or JavaScript import's is its npm package (`@scope/name`, or the
+specifier's first segment).
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+from adherence.domain.checks.outcome import CheckOutcome, undeclared
+from adherence.domain.coverage import Coverage
+from adherence.domain.declaration import Declaration, layer_of
+from adherence.domain.finding import Evidence, Finding
+from adherence.domain.model import (
+    CodeLanguage,
+    CodeModel,
+    ImportEdge,
+    Layer,
+    code_language_of,
+)
+from adherence.domain.parameters import Parameters, Vocabulary
+from adherence.domain.qualities import Check, catalog_check
+from adherence.domain.records import Radar, RadarEntry, RecordsUnavailable, Ring
+
+# --- Constants ---------------------------------------------------------------
+
+DEPENDENCY = catalog_check("Dependency")
+EDGE_ONLY = catalog_check("Edge only")
+CORE = frozenset({Layer.DOMAIN, Layer.APPLICATION})
+ALLOWED = frozenset({Ring.ADOPT, Ring.TRIAL})
+SEPARATORS = re.compile(r"[-_.\s]+")
+SPECIFIER_LANGUAGES = frozenset({CodeLanguage.TYPESCRIPT, CodeLanguage.JAVASCRIPT})
+
+# --- Values ------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class _Use:
+    """One import of a dependency in a covered unit: the edge, its layer,
+    the package's name and the radar's entry for it, if any."""
+
+    edge: ImportEdge
+    layer: Layer | None
+    package: str
+    entry: RadarEntry | None
+
+
+# --- Pure helpers ------------------------------------------------------------
+
+
+def comparable(name: str) -> str:
+    """A package or radar name as the two are compared: lower case, every
+    run of separators one hyphen."""
+    return SEPARATORS.sub("-", name.strip().lower())
+
+
+def _top(imported: str, language: CodeLanguage | None) -> str:
+    """The name an import imports by, in its language: a module specifier's
+    package (`@scope/name/sub` is `@scope/name`, `name/sub` is `name`, a
+    relative or absolute path none), or a dotted module's first part."""
+    if language not in SPECIFIER_LANGUAGES:
+        return imported.split(".")[0]
+    if imported.startswith((".", "/")):
+        return ""
+    parts = imported.split("/")
+    return "/".join(parts[:2]) if imported.startswith("@") else parts[0]
+
+
+def import_name(edge: ImportEdge, vocabulary: Vocabulary) -> str | None:
+    """The top-level name an import of a dependency imports; None for the
+    repository's own modules and the standard library of the importing
+    file's language."""
+    if edge.imported_path is not None:
+        return None
+    language = code_language_of(edge.path)
+    top = _top(edge.imported, language)
+    shipped = (
+        frozenset()
+        if language is None
+        else vocabulary.standard_library.get(language, frozenset())
+    )
+    if not top or top in shipped:
+        return None
+    return top
+
+
+def _entry(top: str, package: str, entries: dict[str, RadarEntry]) -> RadarEntry | None:
+    """The radar's entry for a dependency, by its package's name or else by
+    its import name."""
+    return entries.get(comparable(package)) or entries.get(comparable(top))
+
+
+def _uses(
+    model: CodeModel, declaration: Declaration, radar: Radar, vocabulary: Vocabulary
+) -> list[_Use]:
+    """Every import of a dependency in a covered unit, with its radar entry."""
+    entries = {comparable(e.name): e for e in radar.entries}
+    uses: list[_Use] = []
+    for edge in model.imports:
+        top = import_name(edge, vocabulary)
+        layer = layer_of(edge.path, edge.line, declaration, model.regions)
+        if top is None or layer is None:
+            continue
+        package = vocabulary.packages.get(top, top)
+        uses.append(_Use(edge, layer, package, _entry(top, package, entries)))
+    return uses
+
+
+def _finding(check: Check, model: CodeModel, use: _Use, subject: str) -> Finding | None:
+    unit = model.unit_at(use.edge.path, use.edge.line)
+    if unit is None:
+        return None
+    evidence = Evidence(use.edge.path, use.edge.line, use.edge.text)
+    return Finding(check, unit, use.layer, subject, evidence)
+
+
+def _radar_or_coverage(
+    check: str, declaration: Declaration, radar: Radar | RecordsUnavailable
+) -> Radar | CheckOutcome:
+    if not declaration.declared:
+        return undeclared(check)
+    if isinstance(radar, RecordsUnavailable):
+        return CheckOutcome(coverage=(Coverage(radar.reason, check=check),), ran=False)
+    return radar
+
+
+def dependency(
+    model: CodeModel,
+    declaration: Declaration,
+    radar: Radar | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """Every dependency a covered unit imports is on Adopt or Trial of the
+    radar the repository names. Which of them a change introduced is
+    provenance, decided when the change is judged."""
+    read = _radar_or_coverage(DEPENDENCY.name, declaration, radar)
+    if isinstance(read, CheckOutcome):
+        return read
+    findings: list[Finding] = []
+    for use in _uses(model, declaration, read, parameters.vocabulary):
+        if use.entry is None:
+            subject = f"{use.package}: not on the radar"
+        elif use.entry.ring not in ALLOWED:
+            subject = f"{use.package}: on {use.entry.ring.value}"
+        else:
+            continue
+        finding = _finding(DEPENDENCY, model, use, subject)
+        if finding is not None:
+            findings.append(finding)
+    return CheckOutcome(tuple(findings))
+
+
+def edge_only(
+    model: CodeModel,
+    declaration: Declaration,
+    radar: Radar | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """Every radar entry is imported from an adapter, never from the core:
+    a domain or application unit importing one is a finding naming it."""
+    read = _radar_or_coverage(EDGE_ONLY.name, declaration, radar)
+    if isinstance(read, CheckOutcome):
+        return read
+    findings: list[Finding] = []
+    for use in _uses(model, declaration, read, parameters.vocabulary):
+        if use.entry is None or use.layer not in CORE:
+            continue
+        finding = _finding(EDGE_ONLY, model, use, use.entry.name)
+        if finding is not None:
+            findings.append(finding)
+    return CheckOutcome(tuple(findings))

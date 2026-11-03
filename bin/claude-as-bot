@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# claude-as-bot -- start an agent session that acts on GitHub as 9atatimer-bot.
+#
+# The owner approves what agents open, and GitHub refuses self-approval, so
+# an agent must never act as the owner (tds-internal#285). This runs the
+# agent with the bot's token from 1Password, GitHub reached over HTTPS only
+# (an SSH remote would authenticate with the owner's key), and commits under
+# the bot's name. The agent runs as `clai claude` (clai's hooks and session
+# tagging), or bare `claude` where clai is not installed. Only the op://
+# reference and the bot's identity touch disk, in a mode-0600 temp file
+# removed on exit; the token never does. The owner's own shell and gh login
+# are untouched.
+#
+# The token's 1Password reference comes from TDS_BOT_GH_TOKEN_REF (an
+# op:// reference, set privately; this public repo does not name it).
+#
+# Usage: claude-as-bot [--print-env] [claude args...]
+#   --print-env  print the session's environment (the reference, never the
+#                token) and exit, without 1Password or claude
+
+set -euo pipefail
+
+# --- Constants ---
+
+BOT_LOGIN="9atatimer-bot"
+BOT_EMAIL="341954893+9atatimer-bot@users.noreply.github.com"
+
+# The session's env file; global so the EXIT trap can still see it after
+# launch() returns.
+ENV_FILE=""
+
+# --- Action functions ---
+
+usage() {
+    sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+# The variables the session runs with; GH_TOKEN holds the op:// reference,
+# which `op run` resolves at launch.
+session_env() {
+    local ref=$1
+    printf '%s\n' \
+        "GH_TOKEN=${ref}" \
+        "GIT_AUTHOR_NAME=${BOT_LOGIN}" \
+        "GIT_AUTHOR_EMAIL=${BOT_EMAIL}" \
+        "GIT_COMMITTER_NAME=${BOT_LOGIN}" \
+        "GIT_COMMITTER_EMAIL=${BOT_EMAIL}" \
+        "GIT_CONFIG_COUNT=2" \
+        "GIT_CONFIG_KEY_0=url.https://github.com/.insteadOf" \
+        "GIT_CONFIG_VALUE_0=git@github.com:" \
+        "GIT_CONFIG_KEY_1=url.https://github.com/.insteadOf" \
+        "GIT_CONFIG_VALUE_1=ssh://git@github.com/"
+}
+
+valid_reference() {
+    [[ $1 == op://* ]]
+}
+
+cleanup() {
+    if [[ -n ${ENV_FILE} ]]; then
+        rm -f "${ENV_FILE}"
+        ENV_FILE=""
+    fi
+}
+
+# Prints the agent command, one word per line: clai wraps claude with its
+# pre/post hooks, CLAI_* environment, telemetry tags and tmux label.
+agent_command() {
+    if command -v clai >/dev/null 2>&1; then
+        printf '%s\n' clai claude
+    else
+        printf '%s\n' claude
+    fi
+}
+
+# --- Flow functions ---
+
+# Not exec: the shell stays to remove the env file, and its exit status is
+# the agent's.
+launch() {
+    local ref=$1
+    shift
+    local -a agent
+    local word
+    while IFS= read -r word; do
+        agent+=("$word")
+    done < <(agent_command)
+    trap cleanup EXIT INT TERM HUP
+    ENV_FILE=$(mktemp "${TMPDIR:-/tmp}/claude-as-bot.XXXXXX")
+    session_env "$ref" >"$ENV_FILE"
+    local rc=0
+    op run --env-file "$ENV_FILE" -- "${agent[@]}" "$@" || rc=$?
+    cleanup
+    return "$rc"
+}
+
+# --- Main ---
+
+main() {
+    local print_env=false
+    if [[ ${1:-} == "--print-env" ]]; then
+        print_env=true
+        shift
+    elif [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then
+        usage
+        exit 0
+    fi
+
+    local ref=${TDS_BOT_GH_TOKEN_REF:-}
+    if [[ -z $ref ]]; then
+        echo "claude-as-bot: TDS_BOT_GH_TOKEN_REF is not set (the bot token's op:// reference)" >&2
+        exit 2
+    fi
+    if ! valid_reference "$ref"; then
+        echo "claude-as-bot: TDS_BOT_GH_TOKEN_REF must be an op:// reference, never a token" >&2
+        exit 2
+    fi
+
+    if $print_env; then
+        session_env "$ref"
+        exit 0
+    fi
+    launch "$ref" "$@"
+}
+
+main "$@"

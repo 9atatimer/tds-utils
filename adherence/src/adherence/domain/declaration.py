@@ -31,6 +31,7 @@ TABLES = frozenset(
 )
 EXEMPTION_KEYS = frozenset({"check", "unit", "finding", "reason"})
 RECORD_KEYS = ("design", "architecture")
+RADAR_KEY = "path"
 DECLARED_REFUSAL = "the Declared quality's checks cannot be exempted"
 REGIONS_KEY = "regions"
 LAYER_NAMES = {layer.value: layer for layer in Layer}
@@ -57,6 +58,7 @@ FINDING_SETS = frozenset(
         "callables",
         "wire_formats",
         "singletons",
+        "placeholder_assertions",
     }
 )
 VOCABULARY_REFUSAL = (
@@ -136,6 +138,7 @@ class Declaration:
     refused_exemptions: tuple[RefusedExemption, ...] = ()
     vocabulary: VocabularyExtension = field(default_factory=VocabularyExtension)
     records: RecordPaths | None = None
+    radar: str | None = None
     runtimes: tuple[Runtime, ...] = ()
 
     none: ClassVar[Declaration]
@@ -438,6 +441,24 @@ def _records(value: object) -> RecordPaths | DeclarationUnreadable:
     return RecordPaths(design=value["design"], architecture=value["architecture"])
 
 
+def _radar(value: object) -> str | DeclarationUnreadable:
+    """The [radar] table, or why it cannot be read: it names the radar by
+    one path, and nothing else."""
+    if not isinstance(value, dict):
+        return DeclarationUnreadable(f"{DECLARATION_PATH}: radar is a table")
+    unknown = sorted(set(value) - {RADAR_KEY})
+    if unknown:
+        return DeclarationUnreadable(
+            f"{DECLARATION_PATH}: radar has unknown key(s): {', '.join(unknown)}"
+        )
+    path = _text_field(value, RADAR_KEY)
+    if path is None:
+        return DeclarationUnreadable(
+            f"{DECLARATION_PATH}: radar names the radar by a path"
+        )
+    return path
+
+
 def _runtimes(value: object) -> tuple[Runtime, ...] | DeclarationUnreadable:
     """The [runtimes] table, or why it cannot be read: each runtime names a
     list of path patterns."""
@@ -508,6 +529,9 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
     records = _records(document["records"]) if "records" in document else None
     if isinstance(records, DeclarationUnreadable):
         return records
+    radar = _radar(document["radar"]) if "radar" in document else None
+    if isinstance(radar, DeclarationUnreadable):
+        return radar
     runtimes = _runtimes(document.get("runtimes", {}))
     if isinstance(runtimes, DeclarationUnreadable):
         return runtimes
@@ -521,5 +545,6 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
         ),
         vocabulary=vocabulary,
         records=records,
+        radar=radar,
         runtimes=runtimes,
     )

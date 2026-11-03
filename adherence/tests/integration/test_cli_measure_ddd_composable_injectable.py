@@ -3,7 +3,7 @@ Composable and Injectable findings, each naming what its design row says
 it names: real git, the real Python analyzer and the real markdown
 records adapter over the fixture's design record, whose Domain Language
 feeds Language, with complexity and duplication overridden by their fakes
-until their adapters land (task-061). The task-060 done check."""
+so the findings are the fixture's design alone. The task-060 done check."""
 
 from __future__ import annotations
 
