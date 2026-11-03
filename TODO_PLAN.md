@@ -236,7 +236,7 @@ bring-up.
 about: wip
 
 Issue#642 (adherence red on CPython 3.14) was fixed twice: tds-utils
-PR#649 and PR#655 were open together, and PR#655 landed first, so
+PR#649 and tds-utils PR#655 were open together, and PR#655 landed first, so
 PR#649's merge had to drop its own depth bound for PR#655's and keep its
 own `without()`. A comment with a proposed patch did not claim the issue;
 nothing an agent reads before starting says who is on it. Unsettled:
