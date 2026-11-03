@@ -1,6 +1,5 @@
 # Tool
 
-> **Status:** APPROVED (the fixture's owner)
 
 The adherence engine's Python fixture: a design record shaped like
 DESIGN.ARCH-ADHERENCE.md, read by the markdown records adapter.
