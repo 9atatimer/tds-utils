@@ -59,6 +59,7 @@ const PR_BODY = {
   state: 'open',
   head: { sha: HEAD, repo: { full_name: 'o/r' } },
   base: { ref: 'main', repo: { full_name: 'o/r' } },
+  changed_files: 19,
 };
 
 // --- authorize ---------------------------------------------------------------
@@ -85,6 +86,7 @@ test('authorize approves an open same-repo PR and outputs its head, base and tri
   assert.equal(step.outputs.head_sha, HEAD);
   assert.equal(step.outputs.base_ref, 'main');
   assert.equal(step.outputs.started_at, '2026-10-12T10:00:00Z');
+  assert.equal(step.outputs.changed_files, '19');
 });
 
 test('authorize skips a non-/ocr comment without a single API call, and exits 0', async () => {
@@ -693,6 +695,19 @@ const reportEnv = (over) => ({
   RECORD_PATH: '/tmp/rt/record/ocr-review-record.json',
   COMMENT_PATH: '/tmp/rt/comment.md',
   ...over,
+});
+
+test('report: a review job the runner timed out ends timeout, naming its limit and the PR size', async () => {
+  const step = fakeStep();
+  const authorized = JSON.stringify({ decision: 'approve', cause: '', authorize: 'success', tools: 'success', node: 'success', started_at: 's', changed_files: '19' });
+  const env = reportEnv({ REVIEW_RESULT: 'cancelled', AUTHORIZE_OUTPUTS: authorized, REVIEW_TIMEOUT_MINUTES: '40', REVIEW_OUTPUTS: reviewOutputs({ ocr: 'cancelled', verdict: 'skipped' }) });
+
+  await runReport({ env, readFile: noState, step, now: () => 'f' });
+
+  assert.equal(step.outputs.cause, 'timeout');
+  const comment = step.files['/tmp/rt/comment.md'];
+  assert.match(comment, /OCR review failed: timeout/);
+  assert.match(comment, /limit of 40 minutes on a pull request with 19 changed files/);
 });
 
 const noState = () => {

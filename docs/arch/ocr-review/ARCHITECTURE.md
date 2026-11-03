@@ -93,8 +93,8 @@ Caller -> reusable workflow (workflow_call)
 
 The closed cause set (`CAUSES`): `pr-not-open`, `fork`, `configuration`,
 `credential`, `gateway-down`, `model-not-found`, `cold-model`, `budget`,
-`limited`, `runner-tool-missing`, `unexpected`, `engine-error`, `reviewed-nothing`,
-`nothing-reviewable`, `cancelled`.
+`limited`, `runner-tool-missing`, `timeout`, `unexpected`, `engine-error`,
+`reviewed-nothing`, `nothing-reviewable`, `cancelled`.
 
 ## Seams in the code
 

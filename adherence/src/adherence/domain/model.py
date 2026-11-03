@@ -7,8 +7,9 @@ Every analyzer produces one CodeModel; every check reads only that
 from __future__ import annotations
 
 import enum
-from collections.abc import Collection, Sequence
-from dataclasses import dataclass
+import re
+from collections.abc import Collection, Mapping, Sequence
+from dataclasses import dataclass, fields, replace
 
 # --- Values ------------------------------------------------------------------
 
@@ -66,6 +67,60 @@ def language_of(path: str) -> str | None:
     return LANGUAGE_EXTENSIONS.get(f".{extension}")
 
 
+# The interpreters whose scripts the shell analyzer reads, when the file
+# has no extension to say so (ARCHITECTURE.ARCH-ADHERENCE.md, Key
+# Decisions, a shell script by its shebang; Issue#638).
+SHEBANG_SHELLS = frozenset({"sh", "bash", "zsh", "dash", "ksh"})
+# An interpreter name repeated in a coverage reason: it is author text, so
+# it is bounded and plain; any other name is reported as "unknown".
+INTERPRETER_NAME = re.compile(r"[A-Za-z0-9._+-]{1,32}")
+# env's options that take the next word as their argument.
+ENV_OPTIONS_WITH_ARGUMENT = frozenset({"-u", "--unset", "-C", "--chdir"})
+
+
+def has_no_extension(path: str) -> bool:
+    """Whether a path's name has no extension; a leading dot is not one."""
+    name = path.rpartition("/")[2]
+    return "." not in name.lstrip(".")
+
+
+def _interpreter(text: bytes) -> str | None:
+    """The program a script's `#!` line names, through `env` when it is
+    run by env; None when the first line is no usable shebang."""
+    first = text.split(b"\n", 1)[0]
+    if not first.startswith(b"#!"):
+        return None
+    words = first[2:].decode("utf-8", "replace").split()
+    if words and words[0].rpartition("/")[2] == "env":
+        words = _env_command(words[1:])
+    return words[0].rpartition("/")[2] if words else None
+
+
+def _env_command(words: list[str]) -> list[str]:
+    """The command env runs: its words after env's own options, an option's
+    argument (`-u NAME`, `-C DIR`) and NAME=value settings."""
+    rest = list(words)
+    while rest:
+        word = rest.pop(0)
+        if word in ENV_OPTIONS_WITH_ARGUMENT:
+            if rest:
+                rest.pop(0)
+        elif not (word.startswith("-") or "=" in word):
+            return [word, *rest]
+    return []
+
+
+def script_language(text: bytes) -> str | None:
+    """The language a file with no extension is written in, by its shebang:
+    shell for a shell, else the interpreter's name; None with no shebang."""
+    interpreter = _interpreter(text)
+    if interpreter is None:
+        return None
+    if interpreter in SHEBANG_SHELLS:
+        return CodeLanguage.SHELL.value
+    return interpreter if INTERPRETER_NAME.fullmatch(interpreter) else "unknown"
+
+
 def code_language_of(path: str) -> CodeLanguage | None:
     """The measured language a source path is written in; None when the
     suite does not measure it."""
@@ -113,7 +168,9 @@ class UnitKind(enum.Enum):
 class Unit:
     """What a check is over: a file, or a function or type in it, with its
     qualified symbol (None for a file), its lines and its layer (None when
-    the declaration does not cover it)."""
+    the declaration does not cover it). `language` is set on a file whose
+    name does not say its language, as a script with no extension does;
+    otherwise the path's extension says it."""
 
     path: str
     kind: UnitKind
@@ -121,6 +178,7 @@ class Unit:
     start: int
     end: int
     layer: Layer | None
+    language: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -438,30 +496,55 @@ def merged(models: Sequence[CodeModel]) -> CodeModel:
     )
 
 
+def _path_of(fact: object) -> str:
+    """The file a fact was read from: a definition's unit's, else its own."""
+    if isinstance(fact, Definition):
+        return fact.unit.path
+    # The fact families share no base type; each carries a path field.
+    path = getattr(fact, "path")  # noqa: B009
+    assert isinstance(path, str)
+    return path
+
+
+def _touches(fact: object, out: frozenset[str]) -> bool:
+    """Whether a metric is about a dropped file: a clone when either of its
+    two stretches is, any other metric by its path."""
+    if isinstance(fact, Clone):
+        return fact.first.path in out or fact.second.path in out
+    return _path_of(fact) in out
+
+
 def without(model: CodeModel, paths: Collection[str]) -> CodeModel:
     """The CodeModel with no fact of the files given: their units, the facts
-    read from them, their regions and metrics, and each clone touching one."""
+    read from them, their regions and metrics, and each clone touching one.
+    Every fact family is walked from the CodeModel's own fields, so a family
+    added later is filtered without an edit here (Issue#642)."""
     out = frozenset(paths)
-    return CodeModel(
-        units=tuple(f for f in model.units if f.path not in out),
-        imports=tuple(f for f in model.imports if f.path not in out),
-        definitions=tuple(f for f in model.definitions if f.unit.path not in out),
-        references=tuple(f for f in model.references if f.path not in out),
-        calls=tuple(f for f in model.calls if f.path not in out),
-        accesses=tuple(f for f in model.accesses if f.path not in out),
-        writes=tuple(f for f in model.writes if f.path not in out),
-        bindings=tuple(f for f in model.bindings if f.path not in out),
-        conditionals=tuple(f for f in model.conditionals if f.path not in out),
-        members=tuple(f for f in model.members if f.path not in out),
-        test_cases=tuple(f for f in model.test_cases if f.path not in out),
-        regions=tuple(f for f in model.regions if f.path not in out),
-        unparsed=tuple(f for f in model.unparsed if f.path not in out),
-        metrics=Metrics(
-            complexity=tuple(f for f in model.metrics.complexity if f.path not in out),
-            clones=tuple(
-                f
-                for f in model.metrics.clones
-                if f.first.path not in out and f.second.path not in out
-            ),
+    families = {
+        f.name: tuple(
+            fact for fact in getattr(model, f.name) if _path_of(fact) not in out
+        )
+        for f in fields(CodeModel)
+        if f.name != "metrics"
+    }
+    metrics = {
+        f.name: tuple(
+            fact for fact in getattr(model.metrics, f.name) if not _touches(fact, out)
+        )
+        for f in fields(Metrics)
+    }
+    return CodeModel(**families, metrics=Metrics(**metrics))
+
+
+def with_languages(model: CodeModel, languages: Mapping[str, str]) -> CodeModel:
+    """The CodeModel with each file unit of the paths given marked in its
+    language, for files whose name does not say it."""
+    return replace(
+        model,
+        units=tuple(
+            replace(u, language=languages[u.path])
+            if u.kind is UnitKind.FILE and u.path in languages
+            else u
+            for u in model.units
         ),
     )

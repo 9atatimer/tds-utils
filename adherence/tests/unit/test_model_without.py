@@ -97,6 +97,22 @@ def _both() -> CodeModel:
     )
 
 
+def test_the_fixture_plants_a_fact_of_every_family() -> None:
+    """Given the CodeModel's and the Metrics' fields, When the fixture is
+    built, Then every fact family and every metric holds a fact, so one
+    added later must be planted here before the restriction can be shown to
+    filter it."""
+    planted = _facts(KEPT)
+
+    clones = _both().metrics
+    empty = [
+        f.name
+        for f in dataclasses.fields(CodeModel)
+        if f.name != "metrics" and not getattr(planted, f.name)
+    ] + [f.name for f in dataclasses.fields(Metrics) if not getattr(clones, f.name)]
+    assert empty == []
+
+
 def test_without_a_file_drops_every_fact_of_it_and_keeps_the_rest() -> None:
     """Given a model holding one fact of every family in each of two files,
     and clones within one file and across both, When the second file is

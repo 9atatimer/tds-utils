@@ -44,13 +44,20 @@ permissions:
 
 jobs:
   ocr-review:
-    uses: 9atatimer/tds-utils/.github/workflows/ocr-review.yml@2a6c7a2c50df2c8c8e6165c5aa3f5872363e20ca
+    uses: 9atatimer/tds-utils/.github/workflows/ocr-review.yml@4a17a90b60fdb6b7eb8f8fc4c5fe9c6db07a26e5
     with:
       # fromJSON: a dispatch's pr arrives as a string, and the reusable
       # workflow's number input refuses one (Issue#485).
       pr: ${{ fromJSON(format('{0}', github.event_name == 'workflow_dispatch' && inputs.pr || github.event.issue.number)) }}
       model: ${{ github.event_name == 'workflow_dispatch' && inputs.model || '' }}
       backend: ${{ github.event_name == 'workflow_dispatch' && inputs.backend || '' }}
-      tools_ref: '2a6c7a2c50df2c8c8e6165c5aa3f5872363e20ca'
+      tools_ref: '4a17a90b60fdb6b7eb8f8fc4c5fe9c6db07a26e5'
+      # The review job's runner and time limit (Issue#631). A repository on
+      # the runner pool (CI_RUNS_ON set) keeps 9 minutes under its 10-minute
+      # ceiling; one on GitHub-hosted runners, which have no such ceiling,
+      # gets 40. OCR_REVIEW_RUNS_ON and OCR_REVIEW_TIMEOUT_MINUTES override
+      # both, e.g. the pool's Docker class with 19 (runbook, A review's length).
+      review_runs_on: ${{ vars.OCR_REVIEW_RUNS_ON || '' }}
+      review_timeout_minutes: ${{ fromJSON(vars.OCR_REVIEW_TIMEOUT_MINUTES || (vars.CI_RUNS_ON && '9' || '40')) }}
     secrets:
       OLLAMA_GATEWAY_OP_SA_TOKEN: ${{ secrets.OLLAMA_GATEWAY_OP_SA_TOKEN }}

@@ -2,5 +2,6 @@
 
 [layers]
 domain = ["lib/checks.sh"]
+adapters = ["bin/rollout", "bin/report"]
 test = ["test/**"]
 regions = [{ file = "bin/release.sh" }, { file = "bin/backwards.sh" }]

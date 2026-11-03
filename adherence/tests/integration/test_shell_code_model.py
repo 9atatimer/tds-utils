@@ -244,3 +244,24 @@ def test_an_empty_here_document_does_not_make_a_script_unreadable() -> None:
     assert {(d.unit.path, d.unit.symbol) for d in model.definitions} == {
         (path, "f") for path in sources
     }
+
+
+def test_a_script_with_no_extension_is_read_as_its_sh_copy_is() -> None:
+    """Given a script with no extension and the same script named `.sh`,
+    When both are modelled, Then each has the same functions, calls and
+    stub markers; and a broken script with no extension is Unparsed, never
+    a bare, clean file."""
+    text = (shell_fixture.ROOT / "bin" / "rollout").read_bytes()
+
+    def facts(path: str) -> tuple[object, ...]:
+        model = _model_of({path: text})
+        return (
+            sorted(u.symbol or "" for u in model.units),
+            sorted(c.callee for c in model.calls),
+            model.unparsed,
+        )
+
+    assert facts("bin/rollout") == facts("bin/rollout.sh")
+    assert facts("bin/rollout")[0] == ["", "announce", "main"]
+    broken = _model_of({"bin/broken": b"#!/bin/bash\nf() { echo x\n"})
+    assert [u.path for u in broken.unparsed] == ["bin/broken"]

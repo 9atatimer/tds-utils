@@ -6,6 +6,7 @@ from __future__ import annotations
 import collections
 import functools
 import json
+import sys
 import tempfile
 import uuid
 from collections.abc import Mapping
@@ -13,6 +14,8 @@ from pathlib import Path
 from typing import SupportsIndex
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
 from adherence.adapters import ts_depcruise
 from adherence.adapters.ts_depcruise import TypeScriptCodeModel
@@ -384,7 +387,11 @@ def test_the_deadline_passing_in_the_extends_walk_stops_it(
     assert sum(reads.texts.values()) == 1
 
 
+# Nested past the adapter's own bound, and far past it: the answer must
+# not depend on how deep a given interpreter's JSON parser can walk, which
+# moved with CPython 3.14 (Issue#642).
 NESTED_JSON = b"[" * 100_000 + b"]" * 100_000
+FIRST_PAST = b"[" * (sys.getrecursionlimit() + 1) + b"]" * (sys.getrecursionlimit() + 1)
 
 
 @pytest.mark.parametrize(
@@ -395,22 +402,45 @@ NESTED_JSON = b"[" * 100_000 + b"]" * 100_000
             "base.json",
             {"tsconfig.json": b'{"extends": "./base.json"}', "base.json": NESTED_JSON},
         ),
+        ("tsconfig.json", {"tsconfig.json": FIRST_PAST}),
     ],
-    ids=["root", "extended"],
+    ids=["root", "extended", "one-past-the-bound"],
 )
-def test_a_tsconfig_nested_past_the_parser_is_unparsed_and_the_rest_modelled(
+def test_a_tsconfig_nested_past_the_bound_is_unparsed_and_the_rest_modelled(
     unreadable: str, config: dict[str, bytes]
 ) -> None:
     """Given a tsconfig.json, or a configuration it extends, nested deeper
-    than the JSON parser can walk, When the sources are modelled, Then that
+    than the adapter reads, When the sources are modelled, Then that
     configuration is Unparsed with the reason, gives no aliases, and the
-    code is still modelled."""
+    code is still modelled, on every interpreter."""
     model = _model_of({**IMPORTER, **config})
 
     [unparsed] = model.unparsed
     assert unparsed.path == unreadable
     assert "tsconfig" in unparsed.reason
     assert {u.path for u in model.units} == set(IMPORTER)
+
+
+@given(st.integers(min_value=0, max_value=300), st.text(alphabet='[]{}"\\x'))
+def test_nesting_counts_brackets_and_never_those_in_a_string(
+    depth: int, inside: str
+) -> None:
+    """Given brackets nested to a depth with a string of brackets innermost,
+    When the depth is measured, Then it is that depth, whatever the string
+    holds."""
+    quoted = json.dumps(inside)
+    text = "[" * depth + quoted + "]" * depth
+
+    assert ts_depcruise.nesting(text) == depth
+
+
+def test_a_tsconfig_nested_within_the_bound_is_read() -> None:
+    """Given a tsconfig.json nested well within the bound, with the settings
+    innermost, When it is read, Then it parses."""
+    depth = 100
+    text = '{"a":' * (depth - 1) + "{}" + "}" * (depth - 1)
+
+    assert "a" in ts_depcruise.read_tsconfig(text)
 
 
 class _Counted(str):
