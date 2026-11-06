@@ -29,5 +29,9 @@ measures nothing until a repository is declared, so the route's value
 began here). The reusable workflow of task-067 replaced the inline job,
 and `adherence-judge` joined `gate`'s `needs` after its first green run
 (run 42298026212, 2026-11-06, the declaration counted in force under the
-Q11 ruling), both in tds-utils PR#675. Still open: the throwaway-branch
-proof that a port import moved into `adherence/domain/` is lowered.
+Q11 ruling), both in tds-utils PR#675. The throwaway-branch proof ran
+2026-11-06 against master 4fdc114 in the `ci` stage, locally with the
+job's variables set rather than as a pull request (the owner's one-PR
+rule): the declaration read in force (merged by code owner 9atatimer) and
+a domain module importing `adherence.adapters.fakes` read `lowered`
+(Hexagonal / Arrow, exit 1). The same engine and stage run in the gate.
