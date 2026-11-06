@@ -15,7 +15,15 @@
 domain = ["adherence/src/adherence/domain/**"]
 application = ["adherence/src/adherence/application/**"]
 ports = ["adherence/src/adherence/ports/**"]
-adapters = ["adherence/src/adherence/adapters/**"]
+adapters = [
+    "adherence/src/adherence/adapters/**",
+    # Shell tools that resolve 1Password references and seed secrets: I/O
+    # glue over op and gh. Declared ahead of tds-utils PR#676, which adds a
+    # function to each; the engine applies a declaration edit to an
+    # existing path only from the next change.
+    "bin/seed-ci-magic",
+    "ops/terraform/remvllm/lib/secrets.sh",
+]
 "composition root" = [
     "adherence/src/adherence/container.py",
     "adherence/src/adherence/cli/**",
@@ -24,6 +32,7 @@ test = [
     "adherence/tests/*.py",
     "adherence/tests/unit/**",
     "adherence/tests/integration/**",
+    "test/smoketest_seed_ci_magic.sh",
 ]
 
 [records]
