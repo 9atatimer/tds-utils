@@ -379,8 +379,11 @@ jobs:
       # store refuses a moving name, and the summary should name the
       # commits. The summary is what a reviewer reads, on the run and in
       # the log; the exit status is the verdict's: lowered or not run fails
-      # the job, which gate does not read yet.
+      # the job, which gate does not read yet. `shell: bash` is what makes
+      # that true: it runs with pipefail, where the default `bash -e` would
+      # return tee's status and never the judge's.
       - name: Judge the change against its base
+        shell: bash
         run: |
           bin/adhere judge --base "$(git rev-parse HEAD^1)" --head "$(git rev-parse HEAD)" \
             --format summary | tee -a "$GITHUB_STEP_SUMMARY"

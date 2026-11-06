@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import functools
+import json
 from pathlib import Path
 
 from click.testing import CliRunner
 
+from adherence.adapters.fakes import FakeComplexity, FakeDuplication
 from adherence.cli.main import main
+from adherence.container import build
 
 
 def test_an_unknown_format_is_refused_naming_the_formats(tmp_path: Path) -> None:
@@ -31,12 +35,38 @@ def test_an_unknown_format_is_refused_naming_the_formats(tmp_path: Path) -> None
     assert "json" in result.output and "summary" in result.output
 
 
-def test_json_is_still_the_short_form(tmp_path: Path) -> None:
-    """Given `--json`, When `adhere measure` is parsed, Then it is the json
-    format and the parse does not fail on the flag."""
-    result = CliRunner().invoke(
-        main, ["measure", "--root", str(tmp_path), "--json", "--format", "xml"]
+def _run(args: list[str], root: Path) -> tuple[int, str]:
+    """The CLI over a root that is no git repository, so every use case ends
+    at `not run` before any analyzer is needed and the presenter still runs."""
+    builder = functools.partial(
+        build, complexity=FakeComplexity(), duplication=FakeDuplication()
     )
+    result = CliRunner().invoke(main, [*args, "--root", str(root)], obj=builder)
+    return result.exit_code, result.output
 
-    assert result.exit_code == 2
-    assert "xml" in result.output
+
+def test_json_is_the_short_form_of_format_json(tmp_path: Path) -> None:
+    """Given `--json` alone, When `adhere measure` runs, Then the report is
+    printed through the json presenter."""
+    code, output = _run(["measure", "--json"], tmp_path)
+
+    assert code == 1
+    assert "not a git repository" in json.loads(output)["not_run"]
+
+
+def test_format_summary_prints_the_summary(tmp_path: Path) -> None:
+    """Given `--format summary`, When `adhere measure` runs, Then the report
+    is printed through the summary presenter."""
+    code, output = _run(["measure", "--format", "summary"], tmp_path)
+
+    assert code == 1
+    assert output.startswith("## Adherence: not run")
+    assert "not a git repository" in output
+
+
+def test_a_named_format_wins_over_the_short_form(tmp_path: Path) -> None:
+    """Given both `--json` and `--format summary`, When `adhere measure`
+    runs, Then the named format is the one printed."""
+    _, output = _run(["measure", "--json", "--format", "summary"], tmp_path)
+
+    assert output.startswith("## Adherence: not run")
