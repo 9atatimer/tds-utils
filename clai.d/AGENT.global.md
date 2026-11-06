@@ -109,7 +109,7 @@ run.
 
 A documentation-only PR -- every changed file is human-read prose -- gets
 no agentic reviewer: the adversarial self-review is sufficient,
-except that design and architecture drafts in phases 2 and 3 get
+except that design and architecture records in phases 2 and 3 get
 designomatic. Skills, personas, `AGENT.md`, prompts, CI workflows and
 gate configuration are operating rules, not documentation; a PR touching
 them takes the full review ladder.
@@ -427,8 +427,9 @@ unordered set. Where order matters, say it in prose or name the dependency
 
 A record carries no status line and no status word: nothing is DRAFT,
 APPROVED or IMPLEMENTED. If it is on main, it is approved; if it is not,
-it is not. A PR body says what is still open; a record never does. This
-overrides any skill that keeps a status ladder.
+it is not. What is not yet on main is a line in the PR body, never a
+status in the record. This overrides any skill that keeps a status
+ladder.
 
 ## A pipeline's exit status is its last command's
 

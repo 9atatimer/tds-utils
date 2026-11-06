@@ -330,21 +330,26 @@ Three things worth knowing:
 ## Adherence: this repository is gated by its own engine
 
 `adherence.toml` declares `adherence/` by layer; `adherence-judge` in
-`dist-ci.yml` judges every change in the `ci` stage and is in `gate`'s
-`needs`, so a `lowered` change cannot land (`docs/design/DESIGN.ARCH-ADHERENCE.md`,
+`dist-ci.yml` judges every change in its scope (`adherence/`,
+`adherence.toml`, the two records, the radar and the gate files, per
+`changed-scopes.sh`), except a fork's PR, in the `ci` stage, and is in
+`gate`'s `needs`, so a `lowered` change cannot land
+(`docs/design/DESIGN.ARCH-ADHERENCE.md`,
 `docs/design/ARCHITECTURE.ARCH-ADHERENCE.md`; the rulings log is
 Issue#590). Two things to know before you measure locally:
 
-- `bin/adhere judge` on a laptop judges the repository UNDECLARED: the
-  declaration in force is the newest landing of `adherence.toml` a code
-  owner approved or merged, read from GitHub, and only the `ci` stage
-  binds that reader. To see what CI sees, run
-  `GITHUB_REPOSITORY=9atatimer/tds-utils GITHUB_BASE_REF=master
-  GITHUB_TOKEN=... bin/adhere --stage ci judge --base <sha> --head <sha>`;
-  without those, every landing reads "reviews cannot be read" and the
-  head's own declaration counts only as widening (G9).
-- A judged check needs a judge; none is bound in CI (design Q4), so those
-  checks are coverage and a run's verdict is `inconclusive` at best, which
+- `bin/adhere judge` on a laptop reads no reviews: outside the `ci` stage
+  the reviews port answers Unknown, so the newest landed `adherence.toml`
+  stands as the declaration in force, approved or not. To see what CI
+  sees -- the newest landing a code owner approved or merged, read from
+  GitHub -- run `GITHUB_REPOSITORY=9atatimer/tds-utils
+  GITHUB_BASE_REF=master GITHUB_TOKEN=... bin/adhere --stage ci judge
+  --base <sha> --head <sha>`; in the `ci` stage without those, every
+  landing reads "reviews cannot be read" and the head's own declaration
+  counts only as widening (G9).
+- A judged check needs a judge; none is bound in CI (the caller passes no
+  `secrets:`; design Q4 is why), so those checks are coverage, and a
+  change that touches a unit they read is `inconclusive` at best, which
   exits 0 (Q10). `lowered` and `not run` are what fail.
 
 ## Infrastructure

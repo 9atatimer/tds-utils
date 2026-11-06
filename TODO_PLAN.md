@@ -121,8 +121,8 @@ own stack with no introduced finding. The route from here:
   (no "design records that count" parameter).
 
 The owner's rulings on the design's open questions (Q1, Q3-Q7, Q9, Q12)
-and the architecture's Q6 land as Key Decisions appends under Issue#590
-while the route runs; the tasks name the row each ruling changes.
+and the architecture's Q4 and Q6 land as Key Decisions appends under
+Issue#590 while the route runs.
 
 ## Blockers
 
@@ -214,21 +214,6 @@ One test now drives the CLI with no injected deps (`tests/unit/test_wiring.py`).
 Unsettled: whether the testing-python skill should require one such test per
 CLI, which would make this a `skill:testing-python` lesson.
 
-### A stacked branch conflicts with the squash of its own base PR
-
-about: skill:github-workflow
-
-A branch built on another PR's branch conflicts file-for-file with
-master once tedium squashes that PR: the squash is one commit whose tree
-equals the stacked base's, so git sees two different histories editing
-the same lines. The resolution is mechanical and safe when `git diff
-<stacked-base-sha> origin/master` is empty: take the branch's side of
-every conflict (it is a superset) and `git rm` what the branch deleted.
-Seen 2026-11-06 merging master into the adherence stack after PR#670
-landed (ten conflicts, all identical content). Unsettled only in where it
-lives: the github-workflow skill's stacked-PR section is the fleet layer,
-a Skills-repo change.
-
 ### Fakes passed what the real dependency refused
 
 about: wip
@@ -247,9 +232,9 @@ Recurred 2026-11-06 in the adherence engine's `github_reviews` adapter:
 the fixtures and the fake answered everything the walk asked, and the
 first live CI run found two things no fixture modelled: the commit's
 pull-request listing carries no `merged_by` (only the pull object does),
-and the laptop binds no reader at all, so a local `adhere judge` judges
-the repository undeclared. Both were found by running the adapter against
-GitHub, not by any test. Second component; the proposal stands.
+and the laptop binds `no_reviews`, which answers Unknown, so a local
+`adhere judge` lets any landed declaration stand. Both were found by
+running the adapter against GitHub, not by any test. Second component; the proposal stands.
 
 ### Two sessions fixed one issue in parallel
 
