@@ -25,7 +25,17 @@ ssh() {
 # Tailscale doesn't get added to the path for some reason
 alias tailscale="/Applications/Tailscale.app/Contents/MacOS/Tailscale"
 
-alias bit-tunnel="ssh -L 5678:127.0.0.1:5678 stumpf@100.125.95.68"
+# bit-tunnel -- forward 5678 to the bit host. The host (user@tailnet-ip) is
+# machine data, not config: it comes from TDS_BIT_TUNNEL_HOST, set in the
+# ~/.tds-local overlay, never from this public file. Read at call time, so
+# it does not matter that the overlay loads after this file.
+bit-tunnel() {
+    if [[ -z ${TDS_BIT_TUNNEL_HOST-} ]]; then
+        echo "bit-tunnel: TDS_BIT_TUNNEL_HOST is not set (user@host; put it in ~/.tds-local/zshrc)" >&2
+        return 1
+    fi
+    ssh -L 5678:127.0.0.1:5678 "$TDS_BIT_TUNNEL_HOST"
+}
 
 # goldfish — recent-work report across repos
 alias gf=goldfish

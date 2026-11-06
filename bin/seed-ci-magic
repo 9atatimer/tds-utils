@@ -25,8 +25,12 @@
 #   -o OWNER   GitHub owner to scan (default: 9atatimer)
 #   -s SECRET  Actions secret name (default: CI_MAGIC_OP_SA_TOKEN)
 #   -r OPREF   op:// reference of the CI-Magic service-account token
-#              (default: the item recorded in tds-internal's credential
-#              registry, "ci.magic reviewer")
+#              (default: $TDS_CI_MAGIC_OP_REF). The reference names a vault
+#              and an item, so it is private data (AGENT.md, "This repo is
+#              public"): it lives in tds-internal's credential registry
+#              ("ci.magic reviewer") and in your ~/.tds-local overlay, never
+#              in this file. `seed` refuses to run without one; `-n` and
+#              `status` need none.
 #   -n         dry run: print the plan, read nothing, set nothing
 #   -h         this help
 #
@@ -36,7 +40,7 @@ set -euo pipefail
 
 DEFAULT_OWNER="9atatimer"
 DEFAULT_SECRET="CI_MAGIC_OP_SA_TOKEN"
-DEFAULT_OP_REF="op://Development/btnk55jxtturjjmkyat5emf2wu/credential"
+DEFAULT_OP_REF="${TDS_CI_MAGIC_OP_REF:-}"
 ORG_ACTION_PATH="template-tools/packages/naatm-ci-magic"
 WORKFLOW_PATH=".github/workflows/ci-magic.yml"
 
@@ -203,9 +207,25 @@ seed_targets() {
     printf '%s' "${targets}"
 }
 
+# The op:// reference is checked before anything is read or set: an empty
+# one would make `op read` fail per repo, and a bare token in its place
+# would be passed to `op read` as a path, echoing it into op's error.
+require_op_ref() {
+    local op_ref="$1"
+    if [ -z "${op_ref}" ]; then
+        echo "seed-ci-magic: no op:// reference -- set TDS_CI_MAGIC_OP_REF or pass -r" >&2
+        return 2
+    fi
+    case "${op_ref}" in
+        op://*) ;;
+        *) echo "seed-ci-magic: the reference must be an op:// path, never a token" >&2; return 2 ;;
+    esac
+}
+
 cmd_seed() {
     local owner="$1" secret="$2" op_ref="$3" dry_run="$4"; shift 4
     local targets repo count=0
+    [ "${dry_run}" = 1 ] || require_op_ref "${op_ref}" || return 2
     targets=$(seed_targets "${owner}" "$@") || {
         echo "seed-ci-magic: could not determine the consumer set under ${owner}; nothing seeded" >&2
         return 2
@@ -213,7 +233,7 @@ cmd_seed() {
     while IFS= read -r repo; do
         [ -n "${repo}" ] || continue
         if [ "${dry_run}" = 1 ]; then
-            echo "would seed ${secret} on ${repo} from ${op_ref}"
+            echo "would seed ${secret} on ${repo} from ${op_ref:-<unset: TDS_CI_MAGIC_OP_REF or -r>}"
         else
             set_secret "${repo}" "${secret}" "${op_ref}"
             echo "seeded ${secret} on ${repo}"
