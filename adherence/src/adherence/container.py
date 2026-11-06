@@ -17,13 +17,14 @@ from pathlib import Path
 
 from adherence.adapters.decide import DecideDecision
 from adherence.adapters.file_store import FileReportStore, default_store_dir
-from adherence.adapters.git import GitRepository
+from adherence.adapters.git import HOOK_BASE, GitRepository
 from adherence.adapters.github_reviews import API, GitHubReviews
 from adherence.adapters.jscpd import JscpdDuplication
 from adherence.adapters.lizard import LizardComplexity
 from adherence.adapters.markdown_records import MarkdownRecords
 from adherence.adapters.no_judge import NoJudge
 from adherence.adapters.no_reviews import NoReviews
+from adherence.adapters.process_worker import ProcessWorker
 from adherence.adapters.python_ast import PythonCodeModel
 from adherence.adapters.shell_astgrep import ShellCodeModel
 from adherence.adapters.ts_depcruise import TypeScriptCodeModel
@@ -51,6 +52,7 @@ from adherence.ports.records import RecordsPort
 from adherence.ports.report_store import ReportStore
 from adherence.ports.repository import RepositoryPort
 from adherence.ports.review import ReviewPort
+from adherence.ports.worker import WorkerPort
 
 # --- Shipped parameters --------------------------------------------------------
 
@@ -510,6 +512,8 @@ SHIPPED_LIMITS = Limits(
     evidence_bound=200,
     complexity_ceiling=15,
     duplication_ceiling=10,
+    analyzer_bound=60.0,
+    commit_time_bound=10.0,
 )
 # One entry per judged question, chosen from adherence/evals/ (its
 # README.md). Provisional and conservative: the set is six examples per
@@ -615,6 +619,9 @@ class Container:
     records: RecordsPort
     reports: ReportStore
     parameters: Parameters
+    worker: WorkerPort | None = None
+    # The revision the hook judges the staged index against.
+    staged_base: str = HOOK_BASE
 
 
 def _reviews(stage: Stage, environ: Mapping[str, str]) -> ReviewPort:
@@ -644,6 +651,7 @@ def build(
     records: RecordsPort | None = None,
     reports: ReportStore | None = None,
     environment: Mapping[str, str] | None = None,
+    worker: WorkerPort | None = None,
 ) -> Container:
     """Bind every port for the stage, over the repository at root.
 
@@ -657,16 +665,34 @@ def build(
     GITHUB_REPOSITORY and branch, read here and never by the adapter; every
     other stage binds no_reviews. Every stage binds the file cache in the
     per-user cache directory until the warehouse lands for ci (task-067).
+    The hook binds process_worker to end its run at the commit-time bound;
+    the other stages are unbounded and bind no worker. The hook judges the
+    staged index against HEAD, or against git's empty tree while HEAD is
+    unborn, so a first commit is judged, not refused; the repository
+    adapter tells which, and an injected repository is judged against HEAD.
+
+    The root is made absolute first: the hook's worker runs its job from a
+    scratch directory, not the repository (adapters/process_worker.py).
     """
+    root = str(Path(root).resolve())
     if analyzers is None:
-        typescript = TypeScriptCodeModel()
+        analyzer_bound = SHIPPED_LIMITS.analyzer_bound
+        typescript = TypeScriptCodeModel(bound=analyzer_bound)
         analyzers = {
-            CodeLanguage.PYTHON: PythonCodeModel(),
+            CodeLanguage.PYTHON: PythonCodeModel(bound=analyzer_bound),
             CodeLanguage.TYPESCRIPT: typescript,
             CodeLanguage.JAVASCRIPT: typescript,
-            CodeLanguage.SHELL: ShellCodeModel(),
+            CodeLanguage.SHELL: ShellCodeModel(bound=analyzer_bound),
         }
-    bound = repository if repository is not None else GitRepository(root)
+    bound: RepositoryPort
+    staged_base = HOOK_BASE
+    if repository is None:
+        git = GitRepository(root)
+        bound = git
+        if stage is Stage.HOOK:
+            staged_base = git.staged_base()
+    else:
+        bound = repository
     env = os.environ if environment is None else environment
     return Container(
         stage=stage,
@@ -674,11 +700,17 @@ def build(
         reviews=reviews if reviews is not None else _reviews(stage, os.environ),
         analyzers=analyzers,
         judge=judge if judge is not None else _judge_for(stage, env),
-        complexity=complexity if complexity is not None else LizardComplexity(),
+        complexity=(
+            complexity
+            if complexity is not None
+            else LizardComplexity(bound=SHIPPED_LIMITS.analyzer_bound)
+        ),
         duplication=(
             duplication
             if duplication is not None
-            else JscpdDuplication(command=(str(JSCPD),))
+            else JscpdDuplication(
+                command=(str(JSCPD),), bound=SHIPPED_LIMITS.analyzer_bound
+            )
         ),
         records=records if records is not None else MarkdownRecords(bound),
         reports=(
@@ -692,4 +724,12 @@ def build(
             SHIPPED_PARAMETERS,
             limits=replace(SHIPPED_LIMITS, judged_budget=JUDGED_BUDGETS[stage]),
         ),
+        worker=(
+            worker
+            if worker is not None
+            else ProcessWorker()
+            if stage is Stage.HOOK
+            else None
+        ),
+        staged_base=staged_base,
     )

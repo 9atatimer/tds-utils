@@ -1,4 +1,5 @@
-"""The fake DecisionPort passes the same contract as the decide adapter."""
+"""The fake DecisionPort passes the same contract as the decide adapter,
+and so the one every judge passes."""
 
 from __future__ import annotations
 

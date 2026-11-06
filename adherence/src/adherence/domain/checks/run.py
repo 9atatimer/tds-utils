@@ -6,7 +6,7 @@ once per target.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, replace
 
 from adherence.domain.checks import (
@@ -39,6 +39,7 @@ from adherence.domain.parameters import Parameters
 from adherence.domain.qualities import CATALOG, Check, Quality
 from adherence.domain.questions import Ask
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
+from adherence.domain.report import FinishedCheck
 
 # --- Constants ---------------------------------------------------------------
 
@@ -186,6 +187,63 @@ def _errored(check: Check, error: Exception, given: _Inputs) -> CheckOutcome:
     )
 
 
+def each_check(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+    *,
+    radar: Radar | RecordsUnavailable = NO_RADAR,
+    checks: Mapping[str, CheckFunction] = TARGET_CHECKS,
+) -> Iterator[FinishedCheck]:
+    """Every check over the model, in catalog order, each as it finishes: an
+    implemented one by its outcome, with the questions a judged one puts to
+    the judge, any other as coverage. The Radar-true
+    checks read the radar. A check that raises is caught here, once, and is
+    coverage naming the error."""
+    given = _Inputs(model, declaration, records, parameters, radar, checks)
+    # A file in no layer is already coverage (domain/coverage, UNASSIGNED).
+    layered = {u.path for u in model.units if u.layer is not None}
+    languages = {
+        u.path: u.language or language_of(u.path)
+        for u in model.units
+        if u.kind is UnitKind.FILE
+    }
+    for check in CATALOG:
+        unread = unread_by(check, model)
+        scoped = given.over(without(model, unread))
+        try:
+            outcome = _outcome(check, scoped)
+        except Exception as error:  # the check boundary (Use-case surface)
+            outcome = _errored(check, error, scoped)
+        if outcome is None:
+            yield FinishedCheck(check, coverage=(_not_run(check),), ran=False)
+            continue
+        skipped = tuple(
+            Coverage(f"does not read {languages[path]}", check=check.name, path=path)
+            for path in unread
+            if path in layered and outcome.ran
+        )
+        yield FinishedCheck(
+            check,
+            outcome.findings,
+            (*skipped, *outcome.coverage),
+            ran=outcome.ran,
+            questions=outcome.questions,
+        )
+
+
+def gathered(finished: Iterator[FinishedCheck] | tuple[FinishedCheck, ...]) -> Checked:
+    """What the finished checks did, together."""
+    done = tuple(finished)
+    return Checked(
+        ran=tuple(f.check for f in done if f.ran),
+        findings=tuple(finding for f in done for finding in f.findings),
+        coverage=tuple(c for f in done for c in f.coverage),
+        questions=tuple(q for f in done for q in f.questions),
+    )
+
+
 def run_checks(
     model: CodeModel,
     declaration: Declaration,
@@ -196,40 +254,8 @@ def run_checks(
     checks: Mapping[str, CheckFunction] = TARGET_CHECKS,
 ) -> Checked:
     """Every implemented check over the model, in catalog order; every
-    other check is coverage. The Radar-true checks read the radar. A check
-    that raises is caught here, once, and is coverage naming the error."""
-    given = _Inputs(model, declaration, records, parameters, radar, checks)
-    ran: list[Check] = []
-    findings: list[Finding] = []
-    coverage: list[Coverage] = []
-    # A file in no layer is already coverage (domain/coverage, UNASSIGNED).
-    layered = {u.path for u in model.units if u.layer is not None}
-    languages = {
-        u.path: u.language or language_of(u.path)
-        for u in model.units
-        if u.kind is UnitKind.FILE
-    }
-    questions: list[Ask] = []
-    for check in CATALOG:
-        unread = unread_by(check, model)
-        scoped = given.over(without(model, unread))
-        try:
-            outcome = _outcome(check, scoped)
-        except Exception as error:  # the check boundary (Use-case surface)
-            outcome = _errored(check, error, scoped)
-        if outcome is None:
-            coverage.append(_not_run(check))
-            continue
-        if outcome.ran:
-            ran.append(check)
-            coverage.extend(
-                Coverage(
-                    f"does not read {languages[path]}", check=check.name, path=path
-                )
-                for path in unread
-                if path in layered
-            )
-        findings.extend(outcome.findings)
-        coverage.extend(outcome.coverage)
-        questions.extend(outcome.questions)
-    return Checked(tuple(ran), tuple(findings), tuple(coverage), tuple(questions))
+    other check is coverage, and the questions the judged ones put to the
+    judge (each_check, gathered)."""
+    return gathered(
+        each_check(model, declaration, records, parameters, radar=radar, checks=checks)
+    )

@@ -675,7 +675,10 @@ class PythonCodeModel:
     """CodeModelPort over Python sources. The clock is the edge's own, read
     before each file and handed to the import analyzer."""
 
-    def __init__(self, *, clock: Callable[[], float] = time.time) -> None:
+    def __init__(
+        self, *, bound: float | None = None, clock: Callable[[], float] = time.time
+    ) -> None:
+        self._bound = bound
         self._clock = clock
 
     def _parse(
@@ -745,7 +748,9 @@ class PythonCodeModel:
                 continue
             trees[path] = tree
         try:
-            imports, not_modelled = import_edges(sources, trees, deadline, self._clock)
+            imports, not_modelled = import_edges(
+                sources, trees, deadline, self._clock, self._bound
+            )
             unparsed.extend(not_modelled)
         except ImportGraphFailed as failure:
             if failure.timed_out:

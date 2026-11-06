@@ -1,4 +1,5 @@
-"""The fake ReviewPort passes the same contract as github_reviews."""
+"""The fake ReviewPort passes the same contract as github_reviews, and so
+the one every code host's reviews pass."""
 
 from __future__ import annotations
 

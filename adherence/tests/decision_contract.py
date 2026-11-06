@@ -1,9 +1,17 @@
-"""DecisionPort's contract, written once and run against every adapter
-(the decision-models skill, Testing): every question of the schema
-answered with a probability per option; the typed failures -- Rejected for
-an input the judge refuses, Unavailable for a judge that cannot be
-reached -- returned as values, never raised; and TimedOut rather than
-overrun a passed deadline. A subclass supplies `port` and `unreachable`.
+"""DecisionPort's contract, written once and run against every adapter.
+
+DeadlineBoundDecisionContract is what every judge promises whatever it
+answers: TimedOut rather than overrun a passed deadline
+(ARCHITECTURE.ARCH-ADHERENCE.md, Seams: the deadline-bound ports). A
+subclass supplies `port`; no_judge, which answers nothing, runs this part
+alone.
+
+DecisionContract adds what a judge that answers promises (the
+decision-models skill, Testing): every question of the schema answered
+with a probability per option; the typed failures -- Rejected for an input
+the judge refuses, Unavailable for a judge that cannot be reached --
+returned as values, never raised. A subclass supplies `port` and
+`unreachable`.
 """
 
 from __future__ import annotations
@@ -38,12 +46,23 @@ SCHEMA = Schema(
         "then_asserted.1": THEN_ASSERTED,
     }
 )
+# An instant every clock, real or faked, has long passed.
+PASSED = Deadline(epoch_seconds=1.0)
 
 
-class DecisionContract:
+class DeadlineBoundDecisionContract:
     def port(self) -> DecisionPort:
         raise NotImplementedError("a contract subclass supplies its adapter")
 
+    def test_decide_past_the_deadline_times_out(self) -> None:
+        """Given a deadline already passed, When a schema is put to the
+        judge, Then the answer is TimedOut, not a decision or a failure."""
+        answer = self.port().decide(STATE, SCHEMA, PASSED)
+
+        assert isinstance(answer, TimedOut)
+
+
+class DecisionContract(DeadlineBoundDecisionContract):
     def unreachable(self) -> DecisionPort:
         raise NotImplementedError("a contract subclass supplies an unreachable one")
 
@@ -81,7 +100,7 @@ class DecisionContract:
         assert isinstance(answer, Unavailable), answer
         assert answer.reason
 
-    def test_decide_past_the_deadline_times_out(self) -> None:
+    def test_decide_at_the_epoch_deadline_times_out(self) -> None:
         """Given a deadline already passed, When a schema is put to the
         judge, Then the answer is TimedOut and the judge is not asked."""
         answer = self.port().decide(STATE, SCHEMA, Deadline(epoch_seconds=0.0))

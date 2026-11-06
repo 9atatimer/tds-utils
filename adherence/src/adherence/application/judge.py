@@ -10,8 +10,19 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
+from adherence.application.latch import (
+    Latch,
+    LatchedComplexity,
+    LatchedDecision,
+    LatchedDuplication,
+    LatchedRecords,
+    LatchedReports,
+    LatchedRepository,
+    LatchedReviews,
+    latched_analyzers,
+)
 from adherence.application.load import load_declaration
-from adherence.application.measure import measure
+from adherence.application.measure import measure_reporting, noticed, reported
 from adherence.domain.checks.declared import (
     COVERED,
     RECORD_KEPT,
@@ -40,8 +51,14 @@ from adherence.domain.declaration import (
 from adherence.domain.finding import Notice
 from adherence.domain.model import CodeLanguage
 from adherence.domain.parameters import Parameters
+from adherence.domain.qualities import CATALOG
 from adherence.domain.records import DesignRecords, RecordsUnavailable
-from adherence.domain.report import Report, ReportIdentity, fingerprint
+from adherence.domain.report import (
+    Report,
+    ReportIdentity,
+    assemble_partial,
+    fingerprint,
+)
 from adherence.domain.target import Base, Change, Head
 from adherence.domain.verdict import compared, stated_units
 from adherence.ports.code_model import CodeModelPort
@@ -52,6 +69,7 @@ from adherence.ports.records import RecordsPort
 from adherence.ports.report_store import ReportStore
 from adherence.ports.repository import Absent, Refused, RepositoryPort
 from adherence.ports.review import ReviewPort
+from adherence.ports.worker import FinishedSink
 
 UNMEASURABLE = (
     "the base cannot be measured under the head's suite, declaration, "
@@ -77,9 +95,12 @@ class _Measuring:
     deadline: Deadline | None
 
     def measure(
-        self, at: Base | Head, declaration: Declaration | DeclarationUnreadable
+        self,
+        at: Base | Head,
+        declaration: Declaration | DeclarationUnreadable,
+        finished: FinishedSink | None = None,
     ) -> Report:
-        return measure(
+        return measure_reporting(
             at,
             declaration,
             repository=self.repository,
@@ -90,6 +111,7 @@ class _Measuring:
             judge=self.judge,
             parameters=self.parameters,
             deadline=self.deadline,
+            finished=finished,
         )
 
 
@@ -298,6 +320,130 @@ def _not_run(change: Change, reason: str) -> Report:
     )
 
 
+def judge_change_reporting(
+    change: Change,
+    *,
+    repository: RepositoryPort,
+    reviews: ReviewPort,
+    analyzers: Mapping[CodeLanguage, CodeModelPort],
+    complexity: ComplexityPort,
+    duplication: DuplicationPort,
+    records: RecordsPort,
+    judge: DecisionPort,
+    reports: ReportStore,
+    parameters: Parameters,
+    deadline: Deadline | None,
+    finished: FinishedSink | None,
+) -> Report:
+    """judge_change, reporting each of the head's checks to `finished` as it
+    finishes, and each notice as soon as it is known: the job judge_bounded
+    runs.
+
+    The change's Report: the head's findings with their provenance, the
+    base findings removed, and the verdict.
+
+    The declaration in force is the newest landed revision of
+    adherence.toml on the base's history whose landing domain/declaration
+    counts: a code owner's approval read through `reviews`, against the
+    base's CODEOWNERS; Unknown, the answer of every stage without a code
+    host, leaves the landed one standing, and in CI a walk that finds none
+    judges the repository undeclared. The head is measured under it with
+    the head declaration's widening for the files the change created. The
+    base's report is the one `reports` kept under the base identity, when
+    it kept one; else the base is measured again. Once any port answers
+    TimedOut, no port is asked anything more: what is left is coverage.
+    """
+    latch = Latch()
+    repository = LatchedRepository(repository, latch)
+    reviews = LatchedReviews(reviews, latch)
+    analyzers = latched_analyzers(analyzers, latch)
+    complexity = LatchedComplexity(complexity, latch)
+    duplication = LatchedDuplication(duplication, latch)
+    records = LatchedRecords(records, latch)
+    judge = LatchedDecision(judge, latch)
+    reports = LatchedReports(reports, latch)
+    paths = repository.changed(change.base, change.head, deadline)
+    if isinstance(paths, TimedOut):
+        # Cut off before anything was measured: every check is coverage.
+        return replace(
+            assemble_partial((), CATALOG, reason=f"{paths.operation}: timed out"),
+            repository=change.repository,
+            revision=change.head.revision,
+        )
+    if isinstance(paths, Refused):
+        return _not_run(change, f"the repository cannot be read: {paths.reason}")
+    change = replace(change, paths=paths)
+    measuring = _Measuring(
+        repository,
+        analyzers,
+        complexity,
+        duplication,
+        records,
+        judge,
+        parameters,
+        deadline,
+    )
+    walked = _declaration_in_force(change.base, repository, reviews, deadline)
+    noticed(walked.notices, finished)
+    reported(walked.coverage, finished)
+    in_force = walked.declaration
+    if not isinstance(in_force, Declaration):
+        head = measuring.measure(change.head, in_force)
+        head = replace(head, notices=(*head.notices, *walked.notices))
+        return replace(
+            compared(base=Report(), head=head, change=change),
+            repository=change.repository,
+        )
+    proposed = load_declaration(change.head, repository=repository, deadline=deadline)
+    declaration = widened(in_force=in_force, proposed=proposed, created=change.created)
+    head = measuring.measure(change.head, declaration, finished)
+    if head.not_run_reason is not None:
+        return replace(
+            compared(base=Report(), head=head, change=change),
+            repository=change.repository,
+        )
+    edits = edit_notices(
+        in_force=in_force,
+        proposed=proposed,
+        paths={u.path for u in head.units},
+        created=change.created,
+    )
+    noticed(edits, finished)
+    base = (
+        _base_report(change, in_force, head.identity, reports, measuring)
+        if head.identity is not None
+        else measuring.measure(change.base, in_force)
+    )
+    if latch.first is not None and base.not_run_reason is None:
+        # A base measured after the run was cut off is not the base: what
+        # the head could not finish would read as removed or introduced.
+        base = Report.not_run(f"{UNMEASURABLE}: {latch.first.operation}: timed out")
+    found = covered(
+        created_units(base=base, head=head, change=change),
+        declaration,
+        parameters.limits.evidence_bound,
+    )
+    head = with_outcome(head, COVERED, found)
+    head_records = _records_at(change.head, declaration, records, deadline)
+    kept = record_kept(
+        base=_records_at(change.base, in_force, records, deadline),
+        head=head_records,
+        bound=parameters.limits.evidence_bound,
+    )
+    head = with_outcome(head, RECORD_KEPT, kept)
+    head = replace(
+        head,
+        notices=(*head.notices, *walked.notices, *edits),
+        coverage=(*head.coverage, *walked.coverage),
+    )
+    return replace(
+        compared(
+            base=base, head=head, change=change, stated=stated_units(head_records)
+        ),
+        repository=change.repository,
+    )
+
+
 def judge_change(
     change: Change,
     *,
@@ -313,82 +459,18 @@ def judge_change(
     deadline: Deadline | None,
 ) -> Report:
     """The change's Report: the head's findings with their provenance, the
-    base findings removed, and the verdict.
-
-    The declaration in force is the newest landed revision of
-    adherence.toml on the base's history whose landing domain/declaration
-    counts: a code owner's approval read through `reviews`, against the
-    base's CODEOWNERS; Unknown, the answer of every stage without a code
-    host, leaves the landed one standing, and in CI a walk that finds none
-    judges the repository undeclared. The head is measured under it with
-    the head declaration's widening for the files the change created. The
-    base's report is the one `reports` kept under the base identity, when
-    it kept one; else the base is measured again.
-    """
-    paths = repository.changed(change.base, change.head, deadline)
-    if isinstance(paths, Refused | TimedOut):
-        reason = paths.reason if isinstance(paths, Refused) else paths.operation
-        return _not_run(change, f"the repository cannot be read: {reason}")
-    change = replace(change, paths=paths)
-    measuring = _Measuring(
-        repository,
-        analyzers,
-        complexity,
-        duplication,
-        records,
-        judge,
-        parameters,
-        deadline,
-    )
-    walked = _declaration_in_force(change.base, repository, reviews, deadline)
-    in_force = walked.declaration
-    if not isinstance(in_force, Declaration):
-        head = measuring.measure(change.head, in_force)
-        head = replace(head, notices=(*head.notices, *walked.notices))
-        return replace(
-            compared(base=Report(), head=head, change=change),
-            repository=change.repository,
-        )
-    proposed = load_declaration(change.head, repository=repository, deadline=deadline)
-    declaration = widened(in_force=in_force, proposed=proposed, created=change.created)
-    head = measuring.measure(change.head, declaration)
-    if head.not_run_reason is not None:
-        return replace(
-            compared(base=Report(), head=head, change=change),
-            repository=change.repository,
-        )
-    base = (
-        _base_report(change, in_force, head.identity, reports, measuring)
-        if head.identity is not None
-        else measuring.measure(change.base, in_force)
-    )
-    found = covered(
-        created_units(base=base, head=head, change=change),
-        declaration,
-        parameters.limits.evidence_bound,
-    )
-    head = with_outcome(head, COVERED, found)
-    head_records = _records_at(change.head, declaration, records, deadline)
-    kept = record_kept(
-        base=_records_at(change.base, in_force, records, deadline),
-        head=head_records,
-        bound=parameters.limits.evidence_bound,
-    )
-    head = with_outcome(head, RECORD_KEPT, kept)
-    edits = edit_notices(
-        in_force=in_force,
-        proposed=proposed,
-        paths={u.path for u in head.units},
-        created=change.created,
-    )
-    head = replace(
-        head,
-        notices=(*head.notices, *walked.notices, *edits),
-        coverage=(*head.coverage, *walked.coverage),
-    )
-    return replace(
-        compared(
-            base=base, head=head, change=change, stated=stated_units(head_records)
-        ),
-        repository=change.repository,
+    base findings removed, and the verdict (judge_change_reporting)."""
+    return judge_change_reporting(
+        change,
+        repository=repository,
+        reviews=reviews,
+        analyzers=analyzers,
+        complexity=complexity,
+        duplication=duplication,
+        records=records,
+        judge=judge,
+        reports=reports,
+        parameters=parameters,
+        deadline=deadline,
+        finished=None,
     )

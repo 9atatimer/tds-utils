@@ -19,13 +19,15 @@ from dataclasses import dataclass
 from adherence.domain.coverage import Coverage
 from adherence.domain.finding import Finding, Notice, normalised
 from adherence.domain.model import Unit
-from adherence.domain.qualities import Check, Quality
-from adherence.domain.questions import Abstention, Pass
+from adherence.domain.qualities import CATALOG, Check, Quality
+from adherence.domain.questions import Abstention, Ask, Pass
 
 # --- Constants ---------------------------------------------------------------
 
 # The suite's version, as adherence/pyproject.toml states it.
 SUITE_VERSION = "0.1.0"
+# Why a check a bounded run was ended before is coverage.
+ENDED = "did not finish before the deadline"
 
 # --- Values ------------------------------------------------------------------
 
@@ -63,6 +65,42 @@ class BodyDigest:
     path: str
     symbol: str
     digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class FinishedCheck:
+    """One check a run finished: whether it ran, its findings and what it
+    could not cover, and for a judged check the questions it put to the
+    judge, its passes and its abstentions. A bounded run reports each as it
+    finishes -- a check with questions only once the judge has answered
+    them, so an unanswered one never reads as a pass."""
+
+    check: Check
+    findings: tuple[Finding, ...] = ()
+    coverage: tuple[Coverage, ...] = ()
+    ran: bool = True
+    questions: tuple[Ask, ...] = ()
+    passes: tuple[Pass, ...] = ()
+    abstentions: tuple[Abstention, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RunCoverage:
+    """What a run could not cover outside any one check -- a path it could
+    not read, a language no analyzer measures, an analyzer that timed out.
+    A bounded run reports it before its checks, so a run ended after it
+    still names it."""
+
+    coverage: tuple[Coverage, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RunNotices:
+    """What a run says beside its findings -- a refused exemption, an
+    applied one, an edit it is not judged under. A bounded run reports each
+    as soon as it is known, so a run ended after it still says it."""
+
+    notices: tuple[Notice, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,3 +202,41 @@ def fingerprint(value: object) -> str:
     """A digest of a value that is the same on every machine and run."""
     text = json.dumps(_canonical(value), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def unfinished_checks(finished: tuple[FinishedCheck, ...]) -> tuple[Check, ...]:
+    """The catalog's checks a run ended before: every one not finished, and
+    the change-level checks, which finish only once the change is compared."""
+    done = {f.check for f in finished}
+    return tuple(c for c in CATALOG if c.quality is Quality.DECLARED or c not in done)
+
+
+def assemble_partial(
+    finished: tuple[FinishedCheck, ...],
+    unfinished: tuple[Check, ...],
+    *,
+    coverage: tuple[Coverage, ...] = (),
+    notices: tuple[Notice, ...] = (),
+    reason: str = ENDED,
+) -> Report:
+    """The Report of a run ended at the deadline: the run's own coverage
+    and notices, the finished checks as they finished, with their passes
+    and abstentions, every unfinished one as coverage, and the verdict
+    inconclusive -- the change was never compared, so it is never held or
+    raised, and what did not finish never reads as a pass. `reason` is why
+    the unfinished checks did not finish."""
+    kept = tuple(f for f in finished if f.check not in unfinished)
+    return Report(
+        ran=tuple(f.check for f in kept if f.ran),
+        findings=tuple(finding for f in kept for finding in f.findings),
+        notices=tuple(dict.fromkeys(notices)),
+        coverage=(
+            *coverage,
+            *(c for f in kept for c in f.coverage),
+            *(Coverage(reason, check=c.name) for c in unfinished),
+        ),
+        verdict=Verdict.INCONCLUSIVE,
+        reasons=tuple(f"{c.name}: {reason}" for c in unfinished),
+        abstentions=tuple(a for f in kept for a in f.abstentions),
+        passes=tuple(p for f in kept for p in f.passes),
+    )

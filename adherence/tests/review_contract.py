@@ -1,6 +1,13 @@
 """ReviewPort's contract, written once and run against every adapter.
 
-A subclass supplies `reviews`: an adapter that knows three commits as the
+DeadlineBoundReviewContract is what every code host's reviews promise
+whatever they answer: TimedOut rather than overrun a passed deadline
+(ARCHITECTURE.ARCH-ADHERENCE.md, Seams: the deadline-bound ports). A
+subclass supplies `port`; no_reviews, which knows no commit, runs this
+part alone.
+
+ReviewContract adds what an adapter that reads reviews promises. A
+subclass supplies `reviews`: an adapter that knows three commits as the
 contract names them -- LANDED, landed by a pull request PR_AUTHOR opened,
 whose standing approvals are the one OWNER gave on REVIEWED (an earlier
 approval its reviewer later withdrew, and a comment, do not stand), where
@@ -20,6 +27,7 @@ from adherence.domain.declaration import (
 )
 from adherence.ports.review import ReviewPort
 
+COMMIT = "a" * 40
 LANDED = "1" * 40
 PUSHED = "2" * 40
 BROKEN = "3" * 40
@@ -27,13 +35,28 @@ REVIEWED = "4" * 40
 REVIEWED_TEXT = b'[layers]\ndomain = ["src/domain/**"]\n'
 PR_AUTHOR = "alice"
 OWNER = "owner"
-# An instant long past, by any clock.
+# An instant long past, by any clock, real or faked.
 PASSED = Deadline(0.0)
 
 
-class ReviewContract:
+class DeadlineBoundReviewContract:
+    def port(self) -> ReviewPort:
+        raise NotImplementedError("a contract subclass supplies its adapter")
+
+    def test_approvals_past_the_deadline_time_out(self) -> None:
+        """Given a deadline already passed, When a commit's approvals are
+        asked for, Then the answer is TimedOut, not a landing or Unknown."""
+        answer = self.port().approvals(COMMIT, PASSED)
+
+        assert isinstance(answer, TimedOut)
+
+
+class ReviewContract(DeadlineBoundReviewContract):
     def reviews(self) -> ReviewPort:
         raise NotImplementedError("a contract subclass supplies its adapter")
+
+    def port(self) -> ReviewPort:
+        return self.reviews()
 
     def test_approvals_of_a_landed_commit_are_its_prs_standing_approvals(
         self,
@@ -65,7 +88,9 @@ class ReviewContract:
         assert isinstance(answer, ReviewsUnavailable)
         assert answer.reason
 
-    def test_approvals_past_the_deadline_time_out(self) -> None:
-        """Given a deadline already passed, When approvals are asked for,
-        Then the answer is TimedOut, not an overrun."""
+    def test_approvals_of_a_landed_commit_past_the_deadline_time_out(
+        self,
+    ) -> None:
+        """Given a deadline already passed, When a landed commit's approvals
+        are asked for, Then the answer is TimedOut, not an overrun."""
         assert isinstance(self.reviews().approvals(LANDED, PASSED), TimedOut)

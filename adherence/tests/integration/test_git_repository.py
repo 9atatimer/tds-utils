@@ -226,3 +226,35 @@ def test_history_lists_newest_first_and_stops_at_the_base(tmp_path: Path) -> Non
     history = GitRepository(str(root)).history("adherence.toml", Base(second), None)
 
     assert history == (second, first.revision)
+
+
+def test_changed_staged_reads_the_index_git_names_for_its_hook(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Given a commit that stages through a temporary index -- `git commit
+    -a` or `git commit <paths>` runs its hook with GIT_INDEX_FILE naming it
+    -- When the staged change is asked for with that variable set, Then it
+    is the temporary index's: b.py is created; and without the variable it
+    is the repository's own index, which stages nothing."""
+    root = tmp_path / "repo"
+    base = make_repository(
+        root, base={"a.py": b"x = 1\n"}, staged={}, working={"b.py": b"y = 2\n"}
+    )
+    index = tmp_path / "next-index"
+    index.write_bytes((root / ".git" / "index").read_bytes())
+    subprocess.run(
+        ["git", "-C", str(root), "add", "b.py"],
+        check=True,
+        capture_output=True,
+        env={**GIT_ENV, "GIT_INDEX_FILE": str(index)},
+    )
+    monkeypatch.delenv("GIT_INDEX_FILE", raising=False)
+
+    unset = GitRepository(str(root)).changed(base, Head.staged_index(), None)
+    monkeypatch.setenv("GIT_INDEX_FILE", str(index))
+    named = GitRepository(str(root)).changed(base, Head.staged_index(), None)
+
+    assert not isinstance(unset, Refused | TimedOut), unset
+    assert unset.created == ()
+    assert not isinstance(named, Refused | TimedOut), named
+    assert named.created == ("b.py",)

@@ -9,6 +9,7 @@ from adherence.adapters.no_judge import NoJudge
 from adherence.domain.model import Unit, UnitKind
 from adherence.domain.questions import IMPLEMENTED, Schema, State, Unavailable
 from adherence.ports.decision import DecisionPort
+from tests.decision_contract import DeadlineBoundDecisionContract
 
 UNIT = Unit("src/a.py", UnitKind.FUNCTION, "a", 1, 3, None)
 
@@ -23,3 +24,8 @@ def test_decide_without_a_judge_is_unavailable() -> None:
 
     assert isinstance(answer, Unavailable)
     assert answer.reason
+
+
+class TestNoJudge(DeadlineBoundDecisionContract):
+    def port(self) -> DecisionPort:
+        return NoJudge()

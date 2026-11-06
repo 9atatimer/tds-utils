@@ -28,6 +28,7 @@ from adherence.adapters.fakes import (
     FakeReviews,
 )
 from adherence.adapters.github_reviews import GitHubReviews
+from adherence.adapters.inline_worker import InlineWorker
 from adherence.adapters.no_judge import NoJudge
 from adherence.adapters.no_reviews import NoReviews
 from adherence.container import JSCPD, Stage, build
@@ -42,6 +43,7 @@ from adherence.ports.records import RecordsPort
 from adherence.ports.report_store import ReportStore
 from adherence.ports.repository import RepositoryPort
 from adherence.ports.review import ReviewPort
+from adherence.ports.worker import WorkerPort
 
 # Each port: the override build() takes for it, and the fake passed there
 # (a port bound per language takes a mapping of fakes).
@@ -54,6 +56,7 @@ OVERRIDES: dict[type, tuple[str, object]] = {
     DuplicationPort: ("duplication", FakeDuplication()),
     RecordsPort: ("records", FakeRecords({})),
     ReportStore: ("reports", FakeReportStore()),
+    WorkerPort: ("worker", InlineWorker()),
 }
 
 
@@ -139,7 +142,9 @@ def test_build_binds_github_reviews_in_ci_and_no_reviews_elsewhere(
     monkeypatch.setenv("GITHUB_REF_NAME", "master")
 
     for stage in Stage:
-        reviews = build(stage, root=str(tmp_path)).reviews
+        # Injected: the hook's git adapter would spawn git to find its base.
+        repository = FakeRepository({})
+        reviews = build(stage, root=str(tmp_path), repository=repository).reviews
         if stage is Stage.CI:
             assert isinstance(reviews, GitHubReviews), stage
             answer = reviews.approvals("not-an-object-id", None)
@@ -236,7 +241,12 @@ def test_build_ci_and_cloud_ask_the_hosted_judge_when_configured(
 def test_build_hook_never_asks_a_judge(tmp_path: Path) -> None:
     """Given every judge configured, When the hook stage is built, Then it
     has no judge and a judged-check budget of none."""
-    built = build(Stage.HOOK, root=str(tmp_path), environment={**DOOR, **HOSTED})
+    built = build(
+        Stage.HOOK,
+        root=str(tmp_path),
+        environment={**DOOR, **HOSTED},
+        repository=FakeRepository({}),
+    )
 
     assert isinstance(built.judge, NoJudge)
     assert built.parameters.limits.judged_budget == 0
@@ -250,7 +260,12 @@ def test_build_binds_a_judge_whose_availability_is_the_stages(tmp_path: Path) ->
     (Issue#627)."""
     configured = build(Stage.LAPTOP, root=str(tmp_path), environment=DOOR)
     unconfigured = build(Stage.LAPTOP, root=str(tmp_path), environment={})
-    hook = build(Stage.HOOK, root=str(tmp_path), environment={**DOOR, **HOSTED})
+    hook = build(
+        Stage.HOOK,
+        root=str(tmp_path),
+        environment={**DOOR, **HOSTED},
+        repository=FakeRepository({}),
+    )
 
     assert configured.judge.availability() is Availability.AVAILABLE
     assert unconfigured.judge.availability() is Availability.UNAVAILABLE
