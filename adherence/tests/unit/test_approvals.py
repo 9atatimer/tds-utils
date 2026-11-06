@@ -13,6 +13,7 @@ from adherence.domain.declaration import (
     ReviewsUnavailable,
     Unknown,
     counted_landing,
+    owner_notices,
     parse_codeowners,
 )
 
@@ -124,14 +125,17 @@ def test_each_answer_but_a_counted_landing_or_unknown_is_skipped() -> None:
 
 def test_a_team_or_email_entry_counts_as_no_owner_and_is_a_notice() -> None:
     """Given CODEOWNERS naming a team and an email for adherence.toml, When an
-    approval is counted, Then neither names an owner and each is a notice."""
+    approval is counted, Then neither names an owner, and the file's owner
+    notices name each, once, apart from any landing's count."""
     owners = parse_codeowners(b"adherence.toml @org/team someone@example.com\n")
 
     counting = counted_landing(_landing(Approval("team-member", REVIEWED)), owners)
 
     assert not counting.in_force
-    notices = " ".join(n.message for n in counting.notices)
-    assert "@org/team" in notices and "someone@example.com" in notices
+    notices = [n.message for n in owner_notices(owners)]
+    assert len(notices) == 2, notices
+    assert "@org/team" in notices[0] and "someone@example.com" in notices[1]
+    assert not any("@org/team" in n.message for n in counting.notices)
 
 
 def test_an_approval_by_the_prs_author_is_refused_whoever_they_are() -> None:
@@ -146,16 +150,17 @@ def test_an_approval_by_the_prs_author_is_refused_whoever_they_are() -> None:
     assert any("author" in n.message and "Q11" in n.message for n in counting.notices)
 
 
-def test_a_team_entry_is_a_notice_on_a_landing_in_force_too() -> None:
+def test_a_team_entry_beside_a_user_is_a_notice_and_the_user_counts() -> None:
     """Given CODEOWNERS naming a user and a team for adherence.toml, When the
     user's approval of the landed bytes is counted, Then the landing is in
-    force and the team entry is still a notice."""
+    force and the team entry is still a notice; the user is none."""
     owners = parse_codeowners(b"adherence.toml @owner @org/team\n")
 
     counting = counted_landing(_landing(Approval("owner", REVIEWED)), owners)
 
     assert counting.in_force
-    assert any("@org/team" in n.message for n in counting.notices), counting.notices
+    notices = [n.message for n in owner_notices(owners)]
+    assert len(notices) == 1 and "@org/team" in notices[0], notices
 
 
 def test_an_unreadable_declaration_is_named_unreadable_not_different() -> None:

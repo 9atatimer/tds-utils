@@ -6,11 +6,13 @@ from __future__ import annotations
 
 import http.client
 import io
+import urllib.error
 import urllib.request
 import urllib.response
 from email.message import Message
 
 from adherence.adapters.github_reviews import GitHubReviews, standing_approvals
+from adherence.domain.deadline import TimedOut
 from adherence.domain.declaration import (
     DECLARATION_PATH,
     Approval,
@@ -20,7 +22,14 @@ from adherence.domain.declaration import (
     ReviewsUnavailable,
 )
 from adherence.ports.review import ReviewPort
-from tests.github_fixture import BRANCH, RAW, REPOSITORY, TOKEN, fixture_opener
+from tests.github_fixture import (
+    BRANCH,
+    RAW,
+    REPOSITORY,
+    TOKEN,
+    FixtureHandler,
+    fixture_opener,
+)
 from tests.review_contract import LANDED, REVIEWED, ReviewContract
 
 PAGED = "5" * 40
@@ -250,3 +259,91 @@ def test_github_reviews_tells_an_absent_declaration_from_an_unreadable_one() -> 
     for commit in (UNKNOWN_AT, ERRORED_AT):
         text = texts[commit]
         assert isinstance(text, DeclarationUnreadable) and text.reason, commit
+
+
+class _ShortBodyHandler(urllib.request.BaseHandler):
+    """Every response promises more bytes than it carries, and the read
+    returns the short body without raising, as http.client's read(amt)
+    does when the connection closes early."""
+
+    handler_order = 100
+
+    def https_open(self, request: urllib.request.Request) -> urllib.response.addinfourl:
+        headers = Message()
+        headers["Content-Type"] = "application/json"
+        headers["Content-Length"] = "100"
+        response = urllib.response.addinfourl(
+            io.BytesIO(b"[]"), headers, request.full_url, 200
+        )
+        response.msg = "OK"
+        return response
+
+
+def test_github_reviews_with_a_body_shorter_than_its_length_are_unavailable() -> None:
+    """Given a response whose body ends before its Content-Length, with no
+    error raised, When approvals are asked for, Then the answer is the typed
+    unavailable failure, not the short body read as the answer."""
+    opener = urllib.request.build_opener(_ShortBodyHandler())
+    reviews = GitHubReviews(
+        branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener
+    )
+
+    answer = reviews.approvals(LANDED, None)
+
+    assert isinstance(answer, ReviewsUnavailable) and "100" in answer.reason, answer
+
+
+class _ConnectTimeoutHandler(urllib.request.BaseHandler):
+    """Every request times out on connect, as urllib reports it: a URLError
+    whose reason is the TimeoutError."""
+
+    handler_order = 100
+
+    def https_open(self, request: urllib.request.Request) -> urllib.response.addinfourl:
+        raise urllib.error.URLError(TimeoutError("timed out"))
+
+
+def test_github_reviews_whose_connect_times_out_are_timed_out() -> None:
+    """Given a request whose connect times out, When approvals are asked
+    for, Then the answer is TimedOut, not unavailable."""
+    opener = urllib.request.build_opener(_ConnectTimeoutHandler())
+    reviews = GitHubReviews(
+        branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener
+    )
+
+    assert isinstance(reviews.approvals(LANDED, None), TimedOut)
+
+
+class _ShortRawHandler(FixtureHandler):
+    """The recorded responses, but adherence.toml's bytes end before the
+    Content-Length the response carries."""
+
+    def https_open(self, request: urllib.request.Request) -> urllib.response.addinfourl:
+        response = super().https_open(request)
+        if request.get_header("Accept") != RAW:
+            return response
+        whole = response.read()
+        headers = Message()
+        headers["Content-Length"] = str(len(whole) + 1)
+        short = urllib.response.addinfourl(
+            io.BytesIO(whole), headers, request.full_url, 200
+        )
+        short.msg = "OK"
+        return short
+
+
+def test_github_reviews_with_a_short_reviewed_declaration_say_it_cannot_be_read() -> (
+    None
+):
+    """Given adherence.toml at the reviewed commit whose bytes end before
+    their Content-Length, When the landing's approvals are asked for, Then
+    that commit's declaration is unreadable, never the short bytes."""
+    opener = urllib.request.build_opener(_ShortRawHandler())
+    reviews = GitHubReviews(
+        branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener
+    )
+
+    answer = reviews.approvals(LANDED, None)
+
+    assert isinstance(answer, Landing), answer
+    assert isinstance(dict(answer.reviewed)[REVIEWED], DeclarationUnreadable), answer

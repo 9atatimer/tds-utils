@@ -84,22 +84,25 @@ def judge_with(
     history: tuple[str, ...] | Refused | TimedOut = (BASE.revision,),
     reviews: FakeReviews | None = None,
     landed: Mapping[str, Files] | None = None,
+    reads: list[tuple[str, Base | Head]] | None = None,
 ) -> Report:
     """judge_change of HEAD against BASE, each holding its files and the
     hexagon declaration unless the files carry their own. `history` lists
     the commits that changed the declaration, newest first; `landed` holds
-    the files at commits other than the base and the head."""
-    return judge_change(
+    the files at commits other than the base and the head. `reads`, when
+    given, is extended with every read the repository was asked for."""
+    repository = FakeRepository(
+        {
+            BASE: with_declaration(base),
+            HEAD: with_declaration(head),
+            **{Base(commit): files for commit, files in (landed or {}).items()},
+        },
+        unlisted_at=unlisted_at,
+        history={DECLARATION_PATH: history},
+    )
+    report = judge_change(
         Change(REPOSITORY, BASE, HEAD),
-        repository=FakeRepository(
-            {
-                BASE: with_declaration(base),
-                HEAD: with_declaration(head),
-                **{Base(commit): files for commit, files in (landed or {}).items()},
-            },
-            unlisted_at=unlisted_at,
-            history={DECLARATION_PATH: history},
-        ),
+        repository=repository,
         reviews=reviews if reviews is not None else FakeReviews(),
         analyzers={
             CodeLanguage.PYTHON: FakeCodeModel(facts=facts or CodeModel(), when=when)
@@ -112,6 +115,9 @@ def judge_with(
         parameters=parameters(),
         deadline=None,
     )
+    if reads is not None:
+        reads.extend(repository.reads)
+    return report
 
 
 def measured_at(

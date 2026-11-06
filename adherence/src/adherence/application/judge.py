@@ -33,6 +33,7 @@ from adherence.domain.declaration import (
     LandedRevision,
     Landing,
     counted_landing,
+    owner_notices,
     parse_codeowners,
     widened,
 )
@@ -138,22 +139,34 @@ def _records_at(
 
 def _codeowners(
     base: Base, repository: RepositoryPort, deadline: Deadline | None
-) -> CodeOwners:
+) -> tuple[CodeOwners, tuple[Notice, ...]] | TimedOut:
     """The base's CODEOWNERS, from the first place GitHub looks that holds
-    one; no entries when none does or the first found cannot be read."""
+    one, with the notices it leaves the walk: its team and email entries,
+    each no owner. No entries when none holds one; no entries and a notice
+    naming the file and the reason when the first found is refused; the
+    TimedOut when a read of it times out, which ends the walk."""
     for path in CODEOWNERS_PATHS:
         text = repository.read(path, base, deadline)
+        if isinstance(text, TimedOut):
+            return text
+        if isinstance(text, Refused):
+            return CodeOwners(), (
+                Notice(
+                    f"{path} cannot be read: {text.reason}; it names no code "
+                    f"owner of {DECLARATION_PATH}"
+                ),
+            )
         if isinstance(text, bytes):
-            return parse_codeowners(text)
-        if not isinstance(text, Absent):
-            return CodeOwners()
-    return CodeOwners()
+            owners = parse_codeowners(text)
+            return owners, owner_notices(owners)
+    return CodeOwners(), ()
 
 
 def _text_at(
     commit: str, repository: RepositoryPort, deadline: Deadline | None
-) -> DeclarationText:
-    """adherence.toml's bytes at a commit: None where it is absent."""
+) -> DeclarationText | TimedOut:
+    """adherence.toml's bytes at a commit: None where it is absent; the
+    TimedOut when the read times out, which ends the walk."""
     if not commit:
         return DeclarationUnreadable("no commit named")
     text = repository.read(DECLARATION_PATH, Base(commit), deadline)
@@ -161,8 +174,6 @@ def _text_at(
         return None
     if isinstance(text, Refused):
         return DeclarationUnreadable(text.reason)
-    if isinstance(text, TimedOut):
-        return DeclarationUnreadable(f"{text.operation}: timed out")
     return text
 
 
@@ -171,11 +182,11 @@ def _reviewed_text(
     hosted: Mapping[str, DeclarationText],
     repository: RepositoryPort,
     deadline: Deadline | None,
-) -> DeclarationText:
+) -> DeclarationText | TimedOut:
     """adherence.toml at a reviewed commit: as the code host gives it, which
     reads a PR head no checkout can fetch; from the repository when the
     code host gives none that reads; unreadable, with both reasons, when
-    neither does."""
+    neither does; the TimedOut when the repository's read times out."""
     given = hosted.get(commit, DeclarationUnreadable("the code host gave none"))
     if not isinstance(given, DeclarationUnreadable):
         return given
@@ -192,19 +203,20 @@ def _landed(
     answer: Landing,
     repository: RepositoryPort,
     deadline: Deadline | None,
-) -> LandedRevision:
+) -> LandedRevision | TimedOut:
     """A landing with the declaration's text at it and at each commit its
-    approvals reviewed."""
-    reviewed = sorted({a.commit for a in answer.approvals})
+    approvals reviewed; the first TimedOut, with no read after it."""
+    text = _text_at(commit, repository, deadline)
+    if isinstance(text, TimedOut):
+        return text
     hosted = dict(answer.reviewed)
-    return LandedRevision(
-        commit,
-        answer,
-        text=_text_at(commit, repository, deadline),
-        reviewed=tuple(
-            (c, _reviewed_text(c, hosted, repository, deadline)) for c in reviewed
-        ),
-    )
+    reviewed: list[tuple[str, DeclarationText]] = []
+    for c in sorted({a.commit for a in answer.approvals}):
+        found = _reviewed_text(c, hosted, repository, deadline)
+        if isinstance(found, TimedOut):
+            return found
+        reviewed.append((c, found))
+    return LandedRevision(commit, answer, text=text, reviewed=tuple(reviewed))
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,7 +247,9 @@ def _declaration_in_force(
     """The newest landing of adherence.toml on the base's history that
     domain/declaration counts in force, and the walk's notices; the
     repository judged undeclared, with coverage, when none is or the walk
-    cannot be made. A base with no landing of it at all is undeclared."""
+    cannot be made; a TimedOut from any port ends the walk there, with no
+    port call after it. A base with no landing of it at all is
+    undeclared."""
     history = repository.history(DECLARATION_PATH, base, deadline)
     if isinstance(history, Refused | TimedOut):
         why = history.reason if isinstance(history, Refused) else "timed out"
@@ -252,11 +266,21 @@ def _declaration_in_force(
         answer = reviews.approvals(commit, deadline)
         if isinstance(answer, TimedOut):
             return _undeclared(notices, f"{answer.operation}: timed out; {UNDECLARED}")
-        revision = LandedRevision(commit, answer)
+        revision: LandedRevision | TimedOut = LandedRevision(commit, answer)
         if isinstance(answer, Landing):
             if codeowners is None:
-                codeowners = _codeowners(base, repository, deadline)
+                read = _codeowners(base, repository, deadline)
+                if isinstance(read, TimedOut):
+                    return _undeclared(
+                        notices, f"{read.operation}: timed out; {UNDECLARED}"
+                    )
+                codeowners, said = read
+                notices.extend(said)
             revision = _landed(commit, answer, repository, deadline)
+        if isinstance(revision, TimedOut):
+            return _undeclared(
+                notices, f"{revision.operation}: timed out; {UNDECLARED}"
+            )
         counting = counted_landing(revision, codeowners or CodeOwners())
         notices.extend(counting.notices)
         if counting.in_force:

@@ -18,6 +18,7 @@ from adherence.domain.declaration import (
 )
 from adherence.domain.finding import Provenance
 from adherence.domain.report import Report, Verdict
+from adherence.domain.target import Base, Head
 from adherence.ports.repository import Refused
 from tests.judge_kit import BASE, RULES, judge_with, stubbed
 from tests.measure_kit import HEXAGON
@@ -43,7 +44,7 @@ OWNERS = b"# who owns what\n* @someone\n/adherence.toml @owner\n"
 def _judged(
     reviews: FakeReviews,
     *,
-    codeowners: bytes = OWNERS,
+    codeowners: bytes | Refused | TimedOut = OWNERS,
     reviewed_earlier: bytes = HEXAGON,
 ) -> Report:
     """The change that brings the flaw back, judged with the base's own
@@ -184,19 +185,52 @@ def test_judge_change_with_no_approved_landing_left_is_judged_undeclared() -> No
     assert any("undeclared" in n for n in _notices(report)), _notices(report)
 
 
+TEAM = b"adherence.toml @example/owners\n"
+
+
 def test_judge_change_with_a_team_entry_counts_no_owner() -> None:
-    """Given CODEOWNERS naming only a team for adherence.toml, When an edit's
-    landing is approved by a member of it, Then the approval does not count
-    and the team entry is a notice."""
+    """Given CODEOWNERS naming only a team for adherence.toml, When the
+    newest edit's landing is approved, on the landed bytes, by a login that
+    is a member of the team, Then the approval does not count -- the engine
+    cannot resolve a team's members -- and the team entry is a notice."""
     report = _judged(
         FakeReviews(
-            {BASE.revision: Landing(author="mallory"), EARLIER: _approved_earlier()}
+            {
+                BASE.revision: Landing(
+                    author="mallory",
+                    approvals=(Approval("team-member", REVIEWED_NEWEST),),
+                ),
+                EARLIER: NoLandingPR(EARLIER),
+            }
         ),
-        codeowners=b"adherence.toml @example/owners\n",
+        codeowners=TEAM,
     )
 
-    assert report.findings == ()
+    assert report.findings == (), "the team member's approval was counted"
+    assert any(
+        "team-member" in n and "not a code owner" in n for n in _notices(report)
+    ), _notices(report)
     assert any("@example/owners" in n and "team" in n for n in _notices(report))
+
+
+def test_judge_change_says_a_team_entry_counts_no_owner_once_per_run() -> None:
+    """Given CODEOWNERS naming only a team for adherence.toml, When two
+    landings of it are walked, Then the team entry is one notice, since it
+    is about the file and not about either landing."""
+    report = _judged(
+        FakeReviews(
+            {
+                BASE.revision: Landing(author="mallory"),
+                EARLIER: _approved_earlier(),
+            }
+        ),
+        codeowners=TEAM,
+    )
+
+    assert [n for n in _notices(report) if "@example/owners" in n] == [
+        f"CODEOWNERS entry @example/owners for {DECLARATION_PATH} counts as no "
+        "owner: only a user (@login) is an owner, never a team or an email"
+    ], _notices(report)
 
 
 def test_judge_change_where_reviews_are_unknown_keeps_the_landed_declaration() -> None:
@@ -391,3 +425,127 @@ def test_judge_change_with_a_reviewed_declaration_unread_says_so() -> None:
         _notices(report)
     )
     assert not any("differs" in n for n in _notices(report)), _notices(report)
+
+
+def test_judge_change_with_codeowners_refused_names_the_file_and_reason() -> None:
+    """Given a CODEOWNERS the repository will not hand over, When a landing is
+    counted, Then no approval counts and a notice names the file and why,
+    rather than the walk reading it as a file that names no one."""
+    report = _judged(
+        FakeReviews({BASE.revision: _approved_earlier(), EARLIER: _approved_earlier()}),
+        codeowners=Refused("CODEOWNERS", "bad object"),
+    )
+
+    assert report.findings == ()
+    assert any(
+        "CODEOWNERS" in n and "cannot be read" in n and "bad object" in n
+        for n in _notices(report)
+    ), _notices(report)
+
+
+OLDER = "0" * 40
+
+
+def _walk_ended(
+    report: Report, reviews: FakeReviews, *, first: str = BASE.revision
+) -> None:
+    """The walk ended at its first landing: judged undeclared with coverage,
+    naming the timeout, and the code host never asked about a later one."""
+    assert report.verdict is Verdict.INCONCLUSIVE
+    assert report.findings == ()
+    assert any("timed out" in n and "undeclared" in n for n in _notices(report)), (
+        _notices(report)
+    )
+    assert any(c.path == DECLARATION_PATH for c in report.coverage), report.coverage
+    assert reviews.asked == [first], reviews.asked
+
+
+def _read_at(reads: list[tuple[str, Base | Head]]) -> set[Base | Head]:
+    return {at for _path, at in reads}
+
+
+def test_judge_change_whose_codeowners_read_times_out_ends_the_walk() -> None:
+    """Given a CODEOWNERS read that times out, When the newest landing is
+    counted, Then the walk ends there: the repository is judged undeclared
+    with coverage, and no further landing or reviewed commit is read."""
+    reviews = FakeReviews(
+        {
+            BASE.revision: Landing(
+                author="mallory", approvals=(Approval("owner", REVIEWED_NEWEST),)
+            ),
+            EARLIER: _approved_earlier(),
+        }
+    )
+    reads: list[tuple[str, Base | Head]] = []
+
+    report = judge_with(
+        {RULES: FIXED, DECLARATION_PATH: EXEMPTING, "CODEOWNERS": TimedOut("read")},
+        {RULES: STUBBED, DECLARATION_PATH: EXEMPTING},
+        when=WHEN,
+        history=(BASE.revision, EARLIER),
+        reviews=reviews,
+        landed={REVIEWED_NEWEST: {DECLARATION_PATH: EXEMPTING}},
+        reads=reads,
+    )
+
+    _walk_ended(report, reviews)
+    assert Base(REVIEWED_NEWEST) not in _read_at(reads), reads
+
+
+def test_judge_change_whose_reviewed_declaration_read_times_out_ends_the_walk() -> None:
+    """Given an owner's approval of a commit the code host gives no
+    adherence.toml for, whose read from the repository times out, When that
+    landing is counted, Then the walk ends there: the repository is judged
+    undeclared with coverage, and the landing before it is never read."""
+    reviews = FakeReviews(
+        {
+            BASE.revision: Landing(
+                author="mallory", approvals=(Approval("owner", REVIEWED_NEWEST),)
+            ),
+            EARLIER: _approved_earlier(),
+        }
+    )
+    reads: list[tuple[str, Base | Head]] = []
+
+    report = judge_with(
+        {RULES: FIXED, DECLARATION_PATH: EXEMPTING, "CODEOWNERS": OWNERS},
+        {RULES: STUBBED, DECLARATION_PATH: EXEMPTING, "CODEOWNERS": OWNERS},
+        when=WHEN,
+        history=(BASE.revision, EARLIER),
+        reviews=reviews,
+        landed={
+            REVIEWED_NEWEST: {DECLARATION_PATH: TimedOut("read")},
+            EARLIER: {DECLARATION_PATH: HEXAGON},
+            REVIEWED_EARLIER: {DECLARATION_PATH: HEXAGON},
+        },
+        reads=reads,
+    )
+
+    _walk_ended(report, reviews)
+    assert not {Base(EARLIER), Base(REVIEWED_EARLIER)} & _read_at(reads), reads
+
+
+def test_judge_change_whose_landed_declaration_read_times_out_ends_the_walk() -> None:
+    """Given the newest landing's own adherence.toml read times out, When
+    that landing is counted, Then the walk ends there: the repository is
+    judged undeclared with coverage, and neither the commit its approval
+    reviewed nor the landing before it is read."""
+    reviews = FakeReviews({EARLIER: _approved_earlier(), OLDER: _approved_earlier()})
+    reads: list[tuple[str, Base | Head]] = []
+
+    report = judge_with(
+        {RULES: FIXED, DECLARATION_PATH: EXEMPTING, "CODEOWNERS": OWNERS},
+        {RULES: STUBBED, DECLARATION_PATH: EXEMPTING, "CODEOWNERS": OWNERS},
+        when=WHEN,
+        history=(EARLIER, OLDER),
+        reviews=reviews,
+        landed={
+            EARLIER: {DECLARATION_PATH: TimedOut("read")},
+            REVIEWED_EARLIER: {DECLARATION_PATH: HEXAGON},
+            OLDER: {DECLARATION_PATH: HEXAGON},
+        },
+        reads=reads,
+    )
+
+    _walk_ended(report, reviews, first=EARLIER)
+    assert not {Base(REVIEWED_EARLIER), Base(OLDER)} & _read_at(reads), reads

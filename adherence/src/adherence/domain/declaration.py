@@ -835,7 +835,11 @@ def _refusal(
     return None
 
 
-def _owner_notices(owners: Collection[str]) -> tuple[Notice, ...]:
+def owner_notices(codeowners: CodeOwners) -> tuple[Notice, ...]:
+    """A notice per owner CODEOWNERS names for adherence.toml that is a team
+    or an email: it counts as no owner, since only a user is one. It is
+    about the file, so a walk says it once, not once per landing."""
+    owners = codeowners.owners_of(DECLARATION_PATH)
     return tuple(
         Notice(
             f"CODEOWNERS entry {owner} for {DECLARATION_PATH} counts as no owner: "
@@ -852,8 +856,8 @@ def counted_landing(revision: LandedRevision, codeowners: CodeOwners) -> Countin
     counts -- its reviewer not the PR's author, a user code owner of
     adherence.toml by the base's CODEOWNERS, and the commit it reviewed
     holding the landed bytes, so approve-then-push does not pass. Every
-    other answer is skipped with a notice that says why; a team or email
-    CODEOWNERS entry is a notice whether or not the landing is in force."""
+    other answer is skipped with a notice that says why. A team or email
+    CODEOWNERS entry counts as no owner; `owner_notices` says so."""
     answer = revision.answer
     if isinstance(answer, Unknown):
         return Counting(True)
@@ -885,11 +889,10 @@ def counted_landing(revision: LandedRevision, codeowners: CodeOwners) -> Countin
         for approval in answer.approvals
     ]
     if any(why is None for _approval, why in refusals):
-        return Counting(True, _owner_notices(owners))
+        return Counting(True)
     return Counting(
         False,
         (
-            *_owner_notices(owners),
             *(
                 Notice(f"approval by {approval.reviewer} not counted: {why}")
                 for approval, why in refusals

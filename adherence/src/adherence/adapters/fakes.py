@@ -46,7 +46,8 @@ class FakeRepository:
     or the Refused or TimedOut the test scripts for that path. `unlisted`
     scripts the answer to every tree listing, `unlisted_at` to one target's.
     `history` scripts the commits that changed each path, newest first, or
-    the Refused or TimedOut its listing answers.
+    the Refused or TimedOut its listing answers. `reads` keeps every read
+    it was asked for, in order, as (path, target).
     What a change did is told from the two targets' files: a path gone and
     one come with the same bytes is a rename."""
 
@@ -62,10 +63,12 @@ class FakeRepository:
         self._unlisted = unlisted
         self._unlisted_at = unlisted_at or {}
         self._history = history or {}
+        self.reads: list[tuple[str, Base | Head]] = []
 
     def read(
         self, path: str, at: Base | Head, deadline: Deadline | None
     ) -> bytes | Absent | Refused | TimedOut:
+        self.reads.append((path, at))
         found = self._files.get(at, {}).get(path)
         return Absent(path) if found is None else found
 
@@ -293,8 +296,9 @@ class FakeDecision:
 
 class FakeReviews:
     """ReviewPort over a mapping of commit -> the answer the test scripts;
-    a commit it does not hold is Unknown. Its clock is frozen at `now`, so
-    a deadline at or before it has passed."""
+    a commit it does not hold is Unknown. `asked` keeps every commit it
+    was asked about, in order. Its clock is frozen at `now`, so a deadline
+    at or before it has passed."""
 
     def __init__(
         self,
@@ -307,10 +311,12 @@ class FakeReviews:
     ) -> None:
         self._answers = answers or {}
         self._now = now
+        self.asked: list[str] = []
 
     def approvals(
         self, commit: str, deadline: Deadline | None
     ) -> Landing | NoLandingPR | Unknown | ReviewsUnavailable | TimedOut:
+        self.asked.append(commit)
         if deadline is not None and deadline.epoch_seconds <= self._now:
             return TimedOut("read the reviews of a landing")
         return self._answers.get(commit, Unknown(NO_REVIEWS))

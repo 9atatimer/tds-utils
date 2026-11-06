@@ -9,10 +9,12 @@ rebase landing leaves it where no checkout fetches. The standard library
 speaks HTTP; the composition root reads the job's GITHUB_TOKEN, repository
 and branch from the environment and passes them in, so nothing here reads
 the environment. An API error, a
-body that does not read, or a landing PR that cannot be resolved is the
-typed ReviewsUnavailable, but a reviewed adherence.toml that does not read
-is only that commit's DeclarationUnreadable; the Deadline caps every
-request and a passed one is TimedOut.
+body that does not read -- cut short, by an error or by ending before its
+Content-Length -- or a landing PR that cannot be resolved is the typed
+ReviewsUnavailable, but a reviewed adherence.toml that does not read is
+only that commit's DeclarationUnreadable. The Deadline caps every request;
+a passed one, and a request that times out (a read, or a connect, which
+urllib wraps in a URLError), is TimedOut.
 """
 
 from __future__ import annotations
@@ -223,15 +225,24 @@ class GitHubReviews:
         try:
             with self._opener.open(request, timeout=timeout) as response:
                 body: bytes = response.read(MAX_BODY + 1)
+                length: str | None = response.headers.get("Content-Length")
         except urllib.error.HTTPError as error:
             failure = _NotFound if error.code == 404 else _Failed
             raise failure(f"GET {path}: HTTP {error.code}") from error
         except TimeoutError as error:
             raise _Expired from error
-        except (urllib.error.URLError, OSError, http.client.HTTPException) as error:
+        except urllib.error.URLError as error:
+            if isinstance(error.reason, TimeoutError):
+                raise _Expired from error
+            raise _Failed(f"GET {path}: {error}") from error
+        except (OSError, http.client.HTTPException) as error:
             raise _Failed(f"GET {path}: {error}") from error
         if len(body) > MAX_BODY:
             raise _Failed(f"GET {path}: the response is larger than {MAX_BODY} bytes")
+        if length is not None and length.isdigit() and len(body) < int(length):
+            raise _Failed(
+                f"GET {path}: the body ended after {len(body)} of {length} bytes"
+            )
         return body
 
     def _get(self, path: str, deadline: Deadline | None) -> Json:
