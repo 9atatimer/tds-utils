@@ -72,7 +72,8 @@
 # `uses:` and `tools_ref` together (the same SHA; tds-utils Issue#453 names
 # the cost of two pins).
 #
-# Caller shape (adherence-caller.yml beside this file is this repository's):
+# Caller shape (this repository calls it from the `adherence-judge` job in
+# dist-ci.yml, with `uses: ./.github/workflows/adherence.yml`):
 #
 #   on:
 #     pull_request:

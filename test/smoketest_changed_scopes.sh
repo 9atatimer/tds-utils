@@ -117,6 +117,9 @@ test_trees() {
     assert_eq "the other Adherence record" "$(only adherence)" \
         "$(classify "${d}" docs/design/ARCHITECTURE.ARCH-ADHERENCE.md)"
     assert_eq "the radar" "$(only adherence)" "$(classify "${d}" lmde/TECH_RADAR.md)"
+    assert_eq "the reusable workflow adherence-judge calls" \
+        "$(only smoketests shellcheck adherence)" \
+        "$(classify "${d}" .github/workflows/adherence.yml)"
 }
 
 test_shebang() {
