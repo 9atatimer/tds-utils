@@ -595,15 +595,16 @@ checks.
   a cloud session. The terminal is the laptop's and the agent's view of a
   report. Invariant: a finding has the same identity in every place.
 - **Owner.** The human who owns the repository under measurement.
-- **Deadline.** The instant a bounded run must end. Invariant: the entry
-  point sets it and only an adapter compares it to the clock; the core
-  reads no time.
+- **Deadline.** The instant a bounded run must end, or none for an
+  unbounded run. Invariant: only an adapter compares it to the clock; the
+  core reads no time.
 - **Parameters.** The Parameters table as one value a run is given: the
-  thresholds, the vocabulary and the limits, shipped defaults with the
-  declaration's overrides merged in.
+  thresholds, the vocabulary and the limits, as the shipped defaults; the
+  run merges the declaration's overrides in itself.
 - **CodeLanguage.** A language the suite measures, told by a source's
-  file extension and named apart from the Language check. A source in a
-  language no analyzer measures is coverage, never a pass.
+  file extension or, for a file with none, by its shebang, and named apart
+  from the Language check. A source in a language no analyzer measures is
+  coverage, never a pass.
 - **DeclarationUnreadable.** The outcome of a declaration that cannot be
   read or parsed, with the reason. Invariant: a run given one is not run,
   never measured as undeclared.
