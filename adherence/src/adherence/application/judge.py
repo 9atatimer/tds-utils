@@ -146,11 +146,12 @@ def judge_change(
     """The change's Report: the head's findings with their provenance, the
     base findings removed, and the verdict.
 
-    The declaration in force is the base's; which landed revision of it a
-    code owner approved is read through `reviews` (task-063), and Unknown,
-    the answer of every stage without a code host, leaves the landed one
-    standing. The head is measured under it with the head declaration's
-    widening for the files the change created. The base's report is the
+    The declaration in force is the base's, as landed. `reviews` is not read
+    yet: task-063 reads through it which landed revision a code owner
+    approved. Until then every stage judges as Unknown does, the answer of
+    a stage without a code host, which leaves the landed one standing.
+    The head is measured under it with the head declaration's widening for
+    the files the change created. The base's report is the
     one `reports` kept under the base identity, when it kept one; else the
     base is measured again.
     """

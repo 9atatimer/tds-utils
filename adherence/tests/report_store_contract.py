@@ -40,7 +40,12 @@ REPORT = Report(
     findings=(FINDING,),
     notices=(Notice("exemption added: inert for this change"),),
     coverage=(Coverage("timed out", check="Arrow", path="src/a.py"),),
-    units=(UNIT, replace(UNIT, kind=UnitKind.FILE, symbol=None, layer=None)),
+    units=(
+        UNIT,
+        replace(UNIT, kind=UnitKind.FILE, symbol=None, layer=None),
+        # A script known by its shebang carries its language (Issue#638).
+        Unit("bin/rollout", UnitKind.FILE, None, 1, 9, None, language="shell"),
+    ),
     verdict=Verdict.LOWERED,
     reasons=("Stub did not run on src/a.py",),
     removed=(
