@@ -327,6 +327,26 @@ Three things worth knowing:
   each package as current or stale without installing anything. It is also
   what `git-hooks/pre-push` runs.
 
+## Adherence: this repository is gated by its own engine
+
+`adherence.toml` declares `adherence/` by layer; `adherence-judge` in
+`dist-ci.yml` judges every change in the `ci` stage and is in `gate`'s
+`needs`, so a `lowered` change cannot land (`docs/design/DESIGN.ARCH-ADHERENCE.md`,
+`docs/design/ARCHITECTURE.ARCH-ADHERENCE.md`; the rulings log is
+Issue#590). Two things to know before you measure locally:
+
+- `bin/adhere judge` on a laptop judges the repository UNDECLARED: the
+  declaration in force is the newest landing of `adherence.toml` a code
+  owner approved or merged, read from GitHub, and only the `ci` stage
+  binds that reader. To see what CI sees, run
+  `GITHUB_REPOSITORY=9atatimer/tds-utils GITHUB_BASE_REF=master
+  GITHUB_TOKEN=... bin/adhere --stage ci judge --base <sha> --head <sha>`;
+  without those, every landing reads "reviews cannot be read" and the
+  head's own declaration counts only as widening (G9).
+- A judged check needs a judge; none is bound in CI (design Q4), so those
+  checks are coverage and a run's verdict is `inconclusive` at best, which
+  exits 0 (Q10). `lowered` and `not run` are what fail.
+
 ## Infrastructure
 
 The fleet's infrastructure-as-code lives in the private infra repo
@@ -353,7 +373,7 @@ Secrets this repo's workflows read, names only (registry: tds-internal
 deprecated `GH_AI_TOOLS_PAT` fallback, both on the Agents secrets
 surface, both `read:packages`.
 
-`docs/design/DEPLOY-SECRETS.DESIGN.md` (`GADMIN_VAULT`, DRAFT) is neither
+`docs/design/DEPLOY-SECRETS.DESIGN.md` (`GADMIN_VAULT`) is neither
 adopted nor rejected; tds-internal `docs/policy/CREDENTIALS.md` lists it
 as an open question.
 
@@ -559,7 +579,7 @@ This repo lands PRs through the tedium merge bot; the rules are in
   documentation accuracy) gets its SHA in the thread reply and NO
   re-review. A documentation-only PR (every changed file is human-read
   prose) gets the adversarial self-review alone -- no agentic reviewer;
-  a design or architecture draft in phases 2 and 3 gets designomatic
+  a design or architecture record in phases 2 and 3 gets designomatic
   instead. Skills, personas, this file, `clai.d/AGENT.global.md`, prompts,
   CI workflows and gate configuration are operating rules, not
   documentation: a PR touching them takes the full ladder. The gates

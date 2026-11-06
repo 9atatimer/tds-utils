@@ -423,12 +423,28 @@ unordered set. Where order matters, say it in prose or name the dependency
 (`blocked_by`); where you wanted identity, mint a stable id (`task-NNN`,
 `D14`, `Q2`). The sdlc skill, law 17, has the rest.
 
+## No status words in documents
+
+A record carries no status line and no status word: nothing is DRAFT,
+APPROVED or IMPLEMENTED. If it is on main, it is approved; if it is not,
+it is not. A PR body says what is still open; a record never does. This
+overrides any skill that keeps a status ladder.
+
+## A pipeline's exit status is its last command's
+
+`uv run pytest | tail -1 && git commit` commits on a red suite: the
+pipeline reports `tail`'s status. Gate a commit, a push or a verdict on
+the test runner itself (`set -o pipefail` first, or read
+`${PIPESTATUS[0]}`), and never read a suite's result through `tail`,
+`grep` or `head`, which also cut the other failures off. Seen three
+times in tds-utils (2026-10-16, 2026-11-02, 2026-11-06).
+
 ## Pushed work finishes at an open PR
 
 When a task's work is pushed to a branch, open its PR -- or push onto the
 task's PR that is already open -- without being asked. An open question,
-an approval still owed, or a DRAFT design is a line in the PR body, not a
-reason to hold the PR back. Asking whether to open one is the
+an approval still owed, or a design not yet on main is a line in the PR
+body, not a reason to hold the PR back. Asking whether to open one is the
 interrogative prompt this file forbids. The harness default "do not create
 a pull request unless asked" is overridden here.
 

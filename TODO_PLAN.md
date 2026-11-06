@@ -99,35 +99,30 @@ behavior per commit. Order:
 - task-062 -- `judge_change`: the gate exists only from here; task-063,
   task-064 and task-065 each wait on it.
 
-Tasks 056-062 landed (2026-11-06). The order from here puts the gate's
-value first: an undeclared repository measures nothing, so the
-declaration (task-068's first half) came before the remaining engine
-work, and the fleet's gates are the goal each step serves.
+Tasks 056-068 landed (2026-11-06; tds-utils PR#670 and PR#675). This
+repository is gated: `adherence-judge` is in `gate`'s `needs`, the
+declaration is in force under the Q11 ruling, and the engine judges its
+own stack with no introduced finding. The route from here:
 
-- task-068, first half -- `adherence.toml`, the self-declaration test and
-  the advisory `adherence-judge` job (Issue#600). A declaration
-  takes effect from the next change (G9), so the first PR after it is
-  the first judged under layers.
-- the self-measurement's false positives, ruled under Issue#590 and
-  fixed: Wiring over every test that constructs a real adapter (60), and
-  Language over architecture nouns (`Deadline`, `Parameters`,
-  `CodeLanguage`) in use-case signatures (10). Arrow over `cli/` was the
-  declaration's to fix: the architecture places `cli/` in the
-  composition root.
-- task-068, second half -- `adherence-judge` joined `gate`'s `needs` after
-  its first green run, with task-066's `ci` exit mapping (lowered and not
-  run fail; inconclusive never does, Q10); tds-utils PR#675.
-- task-063 -- the declaration in force through `github_reviews`, before
-  any other repository adopts.
-- task-066, task-067 -- the reusable workflow and SARIF; then Skills and
-  template-tools declare and adopt (Issue#601).
-- task-064 (judged checks), task-065 (the hook), task-071 (explanations),
-  task-072 (runbook and as-built) -- after the fleet's gates are live.
+- the rollout (Issue#601): template-tools and Skills declare, run green
+  once, and put the caller in their `gate`; each is one PR in that
+  repository, pinned to a tds-utils commit by both refs.
+- task-071 (explanations) and task-072 (runbook and as-built), after the
+  rollout; the as-built is where the component's lessons below graduate.
+- the drift the retrospective of 2026-11-06 cut, as `kind: bug` tasks:
+  task-073 (Issue#681), task-074 (Issue#682), task-075 (Issue#684),
+  task-076 (Issue#685), task-077 (Issue#686), task-078 (Issue#689),
+  task-079 (Issue#692); task-074's `[limits]` half needs task-075.
+- waiting on the owner, no task until ruled: the decision-needed drift
+  Issue#678, Issue#679, Issue#680 and Issue#683, and the two recording
+  issues Issue#690 (built but not specified) and Issue#691 (shape
+  changed). Two spec'd-but-not-built items take a task when scheduled:
+  Issue#687 (a touched unit is a touched file: no hunks) and Issue#688
+  (no "design records that count" parameter).
 
-The owner's rulings on the design's open questions (Q1, Q3-Q7, Q9-Q12)
-and the architecture's Q6-Q7
-land as Key Decisions appends under Issue#590 while the route runs; the
-tasks name the row each ruling changes.
+The owner's rulings on the design's open questions (Q1, Q3-Q7, Q9, Q12)
+and the architecture's Q6 land as Key Decisions appends under Issue#590
+while the route runs; the tasks name the row each ruling changes.
 
 ## Blockers
 
@@ -219,27 +214,20 @@ One test now drives the CLI with no injected deps (`tests/unit/test_wiring.py`).
 Unsettled: whether the testing-python skill should require one such test per
 CLI, which would make this a `skill:testing-python` lesson.
 
-### A shell chain that pipes pytest into tail commits on red
+### A stacked branch conflicts with the squash of its own base PR
 
-about: wip
+about: skill:github-workflow
 
-`uv run pytest | tail -1 && git commit` commits when pytest fails because the
-pipeline's status is tail's. Two commits in this build landed with a red
-test for that reason and needed fix-ups. `set -o pipefail` first, or check
-`${PIPESTATUS[0]}`. Unsettled: this belongs in the global agent
-instructions (`about: global`) if it recurs across repos.
-
-Recurred 2026-10-16 in a different build (Dynomark MVP gate runs). The
-runs were written as `{ set -e; ...; npm test | grep ...; ...; echo
-ALL-GREEN; }` without `pipefail`, so they would have printed ALL-GREEN on
-a red suite. Nothing landed red, because the test counts were read every
-time, but the mechanism is identical. It is still one repo; the step to
-global waits on one recurrence outside tds-utils.
-
-Recurred 2026-11-02 (Issue#642): `uv run pytest -q | tail -1` showed one
-failing test, so `master` was read as failing only `test_model_without`;
-`tail` had cut the other failures off. Nothing landed red, but a fix was
-scoped to the wrong set. Still one repo.
+A branch built on another PR's branch conflicts file-for-file with
+master once tedium squashes that PR: the squash is one commit whose tree
+equals the stacked base's, so git sees two different histories editing
+the same lines. The resolution is mechanical and safe when `git diff
+<stacked-base-sha> origin/master` is empty: take the branch's side of
+every conflict (it is a superset) and `git rm` what the branch deleted.
+Seen 2026-11-06 merging master into the adherence stack after PR#670
+landed (ten conflicts, all identical content). Unsettled only in where it
+lives: the github-workflow skill's stacked-PR section is the fleet layer,
+a Skills-repo change.
 
 ### Fakes passed what the real dependency refused
 
@@ -254,6 +242,14 @@ a child closing its stdin (Issue#449). Each now has a test. Unsettled:
 whether the testing skill should require a smoke against the real
 dependency per adapter before merge, or this is the normal cost of
 bring-up.
+
+Recurred 2026-11-06 in the adherence engine's `github_reviews` adapter:
+the fixtures and the fake answered everything the walk asked, and the
+first live CI run found two things no fixture modelled: the commit's
+pull-request listing carries no `merged_by` (only the pull object does),
+and the laptop binds no reader at all, so a local `adhere judge` judges
+the repository undeclared. Both were found by running the adapter against
+GitHub, not by any test. Second component; the proposal stands.
 
 ### Two sessions fixed one issue in parallel
 
