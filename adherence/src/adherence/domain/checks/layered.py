@@ -467,15 +467,37 @@ def _named(unit: Unit) -> str:
     return f"{unit.path}:{unit.symbol}" if unit.symbol else unit.path
 
 
+def _modules(model: CodeModel) -> dict[str, Unit]:
+    """Each file's own unit, by path."""
+    return {u.path: u for u in model.units if u.kind is UnitKind.FILE}
+
+
+def _root_unit(construction: _Construction, modules: Mapping[str, Unit]) -> Unit:
+    """The unit a construction counts toward as a root: in the
+    composition-root layer the module, so one file that constructs adapters
+    in several functions is one root (DESIGN.ARCH-ADHERENCE.md, Key
+    Decisions, Wiring's unit in the composition root); elsewhere the unit
+    making the call."""
+    unit = construction.unit
+    if construction.layer is not Layer.COMPOSITION_ROOT or unit.kind is UnitKind.FILE:
+        return unit
+    return modules.get(
+        unit.path, Unit(unit.path, UnitKind.FILE, None, 1, unit.end, unit.layer)
+    )
+
+
 def _roots(
-    runtime: Runtime, constructions: Sequence[_Construction]
+    runtime: Runtime,
+    constructions: Sequence[_Construction],
+    modules: Mapping[str, Unit],
 ) -> dict[Unit, list[_Construction]]:
-    """The runtime's units that construct concrete adapters, in order; a
-    test is no part of a runtime."""
+    """The runtime's units that construct concrete adapters, in order, a
+    composition-root file counted once as its module; a test is no part of
+    a runtime."""
     roots: dict[Unit, list[_Construction]] = {}
     for c in sorted(constructions, key=lambda c: (c.unit.path, c.unit.start)):
         if c.layer is not Layer.TEST and is_in_runtime(c.unit.path, runtime):
-            roots.setdefault(c.unit, []).append(c)
+            roots.setdefault(_root_unit(c, modules), []).append(c)
     return roots
 
 
@@ -540,17 +562,20 @@ def wiring(
     records: DesignRecords | RecordsUnavailable,
     parameters: Parameters,
 ) -> CheckOutcome:
-    """Per declared runtime, exactly one unit constructs concrete adapters,
-    and no unit outside the composition-root and test layers constructs
-    one."""
+    """Per declared runtime, exactly one unit constructs concrete adapters --
+    in the composition-root layer the unit is the module, however many of
+    its functions construct -- and no unit outside the composition-root and
+    test layers constructs one."""
     if not declaration.declared:
         return undeclared(WIRING.name)
     adapters = _concrete_adapters(model, parameters.vocabulary)
     constructions = _constructions(model, declaration, adapters)
+    modules = _modules(model)
     findings = [
         finding
         for runtime in declaration.runtimes
-        if (finding := _rooted(runtime, _roots(runtime, constructions))) is not None
+        if (finding := _rooted(runtime, _roots(runtime, constructions, modules)))
+        is not None
     ]
     findings.extend(
         finding

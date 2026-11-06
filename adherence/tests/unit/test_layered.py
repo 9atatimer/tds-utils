@@ -405,9 +405,11 @@ def _wiring_facts(
 
 
 def test_measure_runtime_with_two_units_constructing_adapters_is_found() -> None:
-    """Given a declared runtime with two units that construct concrete
-    adapters, and a test that constructs a fake, When Wiring runs, Then one
-    finding names both units."""
+    """Given a declared runtime with two composition-root files that each
+    construct concrete adapters, and a test that constructs a fake, When
+    Wiring runs, Then one finding names both files: in the composition root
+    the unit is the module (the design's Key Decisions, Wiring's unit in the
+    composition root)."""
     definitions = _wired(
         _function(ROOT, "build", (), line=5),
         _function(CLI, "main", (), line=5),
@@ -425,7 +427,36 @@ def test_measure_runtime_with_two_units_constructing_adapters_is_found() -> None
     assert "Wiring" in [c.name for c in report.ran]
     (second,) = _of(report, "Wiring")
     assert "cli" in second.subject
-    assert f"{ROOT}:build" in second.subject and f"{CLI}:main" in second.subject
+    assert "2 units construct" in second.subject, second.subject
+    assert f"{CLI}, {ROOT}" in second.subject, second.subject
+    assert ":build" not in second.subject and ":main" not in second.subject
+
+
+def test_measure_root_file_constructing_in_several_functions_is_one_root() -> None:
+    """Given one composition-root file that constructs concrete adapters in
+    several functions and at module level, When Wiring runs, Then the
+    runtime has one root, the module, and no Wiring finding is made."""
+    definitions = _wired(
+        _function(ROOT, "build", (), line=5),
+        _function(ROOT, "build_for_ci", (), line=10),
+    )
+    calls = (
+        Call(ROOT, 6, "build", "FsStore"),
+        Call(ROOT, 11, "build_for_ci", "fs.FsStore"),
+        Call(ROOT, 20, None, "FsStore"),
+    )
+    files = {path: b"x\n" for path in (STORE, FS, ROOT)}
+    module = Unit(ROOT, UnitKind.FILE, None, 1, 30, None)
+    facts = CodeModel(
+        units=(module, *(d.unit for d in definitions)),
+        definitions=definitions,
+        calls=calls,
+    )
+
+    report = measure_with(files, facts, declared(WIRED))
+
+    assert "Wiring" in [c.name for c in report.ran]
+    assert _of(report, "Wiring") == [], _of(report, "Wiring")
 
 
 def test_measure_runtime_no_unit_constructs_adapters_for_is_a_disagreement() -> None:
