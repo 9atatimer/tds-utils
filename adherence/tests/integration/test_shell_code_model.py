@@ -270,7 +270,7 @@ def test_a_script_with_no_extension_is_read_as_its_sh_copy_is() -> None:
     assert [u.path for u in broken.unparsed] == ["bin/broken"]
 
 
-SLEEPER = Path(__file__).resolve().parents[1] / "fixtures" / "analyzers" / "sleeper.py"
+SLEEPER = Path(__file__).resolve().parents[1] / "sleeper_analyzer.py"
 
 
 def sleeping_binary(directory: Path) -> Path:

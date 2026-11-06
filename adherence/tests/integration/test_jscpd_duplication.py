@@ -79,7 +79,7 @@ def test_measure_of_a_large_repository_still_finds_its_clones() -> None:
     assert [(c.first.path, c.second.path) for c in answer.clones] == [(FIRST, SECOND)]
 
 
-SLEEPER = Path(__file__).resolve().parents[1] / "fixtures" / "analyzers" / "sleeper.py"
+SLEEPER = Path(__file__).resolve().parents[1] / "sleeper_analyzer.py"
 
 
 def test_measure_by_an_analyzer_past_its_bound_is_ended_and_times_out() -> None:

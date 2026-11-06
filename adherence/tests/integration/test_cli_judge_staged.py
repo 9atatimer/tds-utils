@@ -33,7 +33,7 @@ from tests.git_kit import git, make_repository
 from tests.worker_jobs import OutlivesTheDeadline
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "judge"
-SLEEPER = Path(__file__).resolve().parents[1] / "fixtures" / "analyzers" / "sleeper.py"
+SLEEPER = Path(__file__).resolve().parents[1] / "sleeper_analyzer.py"
 # How long past the commit-time bound the hook may take before it is hung.
 GRACE = 30.0
 # How long the ended analyzer may take to be reaped by init.
