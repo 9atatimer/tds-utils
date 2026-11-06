@@ -261,19 +261,23 @@ def test_judge_change_after_an_edit_approved_only_by_its_author_refuses_it() -> 
 
     _judged_under_the_earlier(report)
     assert any(
-        "carol" in n and "author" in n and "Q11" in n for n in _notices(report)
+        "carol" in n and "author" in n and "cannot approve" in n
+        for n in _notices(report)
     ), _notices(report)
 
 
 def test_judge_change_after_the_owner_approved_their_own_edit_refuses_it() -> None:
-    """Given a declaration edit the owner both authored and approved (design
-    Q11, still open), When the next change is judged, Then the approval is
-    refused until the owner rules, and the report says why."""
+    """Given a declaration edit the owner both authored and approved, merged
+    by no code owner (the merge bot), When the next change is judged, Then
+    the approval is refused, since an author cannot approve their own edit,
+    and the report says why."""
     report = _judged(
         FakeReviews(
             {
                 BASE.revision: Landing(
-                    author="owner", approvals=(Approval("owner", REVIEWED_NEWEST),)
+                    author="owner",
+                    approvals=(Approval("owner", REVIEWED_NEWEST),),
+                    merged_by="tedium-bot",
                 ),
                 EARLIER: _approved_earlier(),
             }
@@ -281,7 +285,53 @@ def test_judge_change_after_the_owner_approved_their_own_edit_refuses_it() -> No
     )
 
     _judged_under_the_earlier(report)
-    assert any("owner" in n and "Q11" in n for n in _notices(report))
+    assert any("owner" in n and "cannot approve" in n for n in _notices(report))
+
+
+def test_judge_change_after_the_owner_merged_their_own_edit_is_under_it() -> None:
+    """Given a declaration edit the owner authored and merged themselves, with
+    no approval (design Q11: the one-human repository), When the next change
+    is judged, Then that edit is in force and the report names the merge as
+    what counted."""
+    report = _judged(
+        FakeReviews(
+            {
+                BASE.revision: Landing(author="owner", merged_by="owner"),
+                EARLIER: _approved_earlier(),
+            }
+        )
+    )
+
+    (finding,) = report.findings
+    assert finding.exempt == "kept until the rewrite", _notices(report)
+    assert report.verdict is Verdict.HELD
+    assert any(
+        BASE.revision[:12] in n and "merged by code owner owner" in n
+        for n in _notices(report)
+    ), _notices(report)
+
+
+def test_judge_change_after_an_edit_its_author_alone_merged_skips_it() -> None:
+    """Given a declaration edit with no approval that its author, no code
+    owner, merged themselves, When the next change is judged, Then the edit
+    is not in force: a landing attributable to its author alone counts
+    nothing."""
+    report = _judged(
+        FakeReviews(
+            {
+                BASE.revision: Landing(author="mallory", merged_by="mallory"),
+                EARLIER: _approved_earlier(),
+            }
+        )
+    )
+
+    _judged_under_the_earlier(report)
+    assert any(
+        BASE.revision[:12] in n and "not in force" in n for n in _notices(report)
+    ), _notices(report)
+    assert any(
+        "approved by owner" in n and EARLIER[:12] in n for n in _notices(report)
+    ), _notices(report)
 
 
 def test_judge_change_whose_own_declaration_is_unreadable_notices_it() -> None:

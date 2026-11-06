@@ -73,6 +73,7 @@ def test_github_reviews_sends_the_token_and_asks_the_rest_api() -> None:
 
     assert [r.full_url.split("?")[0] for r in handler.requests] == [
         f"https://api.github.com/repos/{REPOSITORY}/commits/{LANDED}/pulls",
+        f"https://api.github.com/repos/{REPOSITORY}/pulls/7",
         f"https://api.github.com/repos/{REPOSITORY}/pulls/7/reviews",
         f"https://api.github.com/repos/{REPOSITORY}/contents/{DECLARATION_PATH}",
     ]
@@ -82,8 +83,54 @@ def test_github_reviews_sends_the_token_and_asks_the_rest_api() -> None:
     assert [r.get_header("Accept") for r in handler.requests] == [
         "application/vnd.github+json",
         "application/vnd.github+json",
+        "application/vnd.github+json",
         RAW,
     ]
+
+
+def test_github_reviews_reads_the_merger_from_the_pull_request_itself() -> None:
+    """Given landing pull requests whose own object names no merger -- the
+    key absent, or null -- When their approvals are asked for, Then the
+    merger is None; the listing of a commit's pull requests never names
+    one, so the merger is read from the pull request, as for LANDED."""
+    opener, _handler = fixture_opener()
+    reviews = GitHubReviews(
+        branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener
+    )
+
+    for commit in (PAGED, BRANCHED):
+        answer = reviews.approvals(commit, None)
+        assert isinstance(answer, Landing) and answer.merged_by is None, commit
+
+
+class _PullUnreadableHandler(FixtureHandler):
+    """The recorded responses, but the landing pull request's own object
+    answers HTTP 502."""
+
+    def https_open(self, request: urllib.request.Request) -> urllib.response.addinfourl:
+        if not request.full_url.split("?")[0].endswith("/pulls/7"):
+            return super().https_open(request)
+        response = urllib.response.addinfourl(
+            io.BytesIO(b'{"message": "error"}'), Message(), request.full_url, 502
+        )
+        response.msg = "Error"
+        return response
+
+
+def test_github_reviews_whose_landing_pull_request_cannot_be_read_are_unavailable() -> (
+    None
+):
+    """Given a landing pull request whose own object the code host cannot
+    give, When its approvals are asked for, Then the answer is the typed
+    unavailable failure: who merged it is not known."""
+    opener = urllib.request.build_opener(_PullUnreadableHandler())
+    reviews = GitHubReviews(
+        branch=BRANCH, repository=REPOSITORY, token=TOKEN, opener=opener
+    )
+
+    answer = reviews.approvals(LANDED, None)
+
+    assert isinstance(answer, ReviewsUnavailable) and "502" in answer.reason, answer
 
 
 def test_github_reviews_reads_every_page_of_reviews() -> None:

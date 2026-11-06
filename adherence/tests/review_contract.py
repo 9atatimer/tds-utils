@@ -8,10 +8,10 @@ part alone.
 
 ReviewContract adds what an adapter that reads reviews promises. A
 subclass supplies `reviews`: an adapter that knows three commits as the
-contract names them -- LANDED, landed by a pull request PR_AUTHOR opened,
-whose standing approvals are the one OWNER gave on REVIEWED (an earlier
-approval its reviewer later withdrew, and a comment, do not stand), where
-adherence.toml holds REVIEWED_TEXT;
+contract names them -- LANDED, landed by a pull request PR_AUTHOR opened
+and MERGER merged, whose standing approvals are the one OWNER gave on
+REVIEWED (an earlier approval its reviewer later withdrew, and a comment,
+do not stand), where adherence.toml holds REVIEWED_TEXT;
 PUSHED, which no pull request landed; and BROKEN, whose reviews the code
 host cannot give.
 """
@@ -35,6 +35,7 @@ REVIEWED = "4" * 40
 REVIEWED_TEXT = b'[layers]\ndomain = ["src/domain/**"]\n'
 PR_AUTHOR = "alice"
 OWNER = "owner"
+MERGER = "merger"
 # An instant long past, by any clock, real or faked.
 PASSED = Deadline(0.0)
 
@@ -62,16 +63,18 @@ class ReviewContract(DeadlineBoundReviewContract):
         self,
     ) -> None:
         """Given a commit a pull request landed, When its approvals are asked
-        for, Then the answer is that PR's author and each approval that
-        still stands, with its reviewer and the commit it reviewed, and
-        adherence.toml at that commit as the code host gives it -- so a
-        PR head no checkout can fetch (a squash landing) is still read."""
+        for, Then the answer is that PR's author, the account that merged
+        it, and each approval that still stands, with its reviewer and the commit it
+        reviewed, and adherence.toml at that commit as the code host gives
+        it -- so a PR head no checkout can fetch (a squash landing) is
+        still read."""
         answer = self.reviews().approvals(LANDED, None)
 
         assert answer == Landing(
             author=PR_AUTHOR,
             approvals=(Approval(OWNER, REVIEWED),),
             reviewed=((REVIEWED, REVIEWED_TEXT),),
+            merged_by=MERGER,
         )
 
     def test_approvals_of_a_commit_no_pr_landed_are_no_landing(self) -> None:

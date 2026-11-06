@@ -1,8 +1,10 @@
 """adapters/github_reviews.py -- ReviewPort over the GitHub REST API.
 
 The `ci` stage's adapter (ARCHITECTURE.ARCH-ADHERENCE.md, Module map and
-Where it runs): the pull request that landed a commit, its author, and
-the approvals that still stand on it, each with its reviewer and the
+Where it runs): the pull request that landed a commit, its author, the
+account that merged it (read from the pull request itself: the listing
+of a commit's pull requests never names one), and the approvals that
+still stand on it, each with its reviewer and the
 commit it reviewed, and adherence.toml at each reviewed commit as the
 contents API gives it -- a PR head is read there because a squash or
 rebase landing leaves it where no checkout fetches. The standard library
@@ -101,6 +103,13 @@ def _login(value: Json, what: str) -> str:
     if not isinstance(login, str) or not login:
         raise _Failed(f"{what} names no login")
     return login
+
+
+def merger(pull: Mapping[str, object]) -> str | None:
+    """The login that merged a pull request, None where the pull request
+    names none (the key absent or null)."""
+    merged_by = pull.get("merged_by")
+    return None if merged_by is None else _login(merged_by, "a pull request's merger")
 
 
 def base_ref(pull: Mapping[str, object]) -> object:
@@ -277,6 +286,7 @@ class GitHubReviews:
         if not isinstance(number, int) or isinstance(number, bool):
             raise _Failed("the landing pull request has no number")
         author = _login(pull.get("user"), "the landing pull request's user")
+        merged_by = merger(_mapping(self._get(f"pulls/{number}", deadline), "a pull"))
         reviews = self._pages(f"pulls/{number}/reviews", "the reviews", deadline)
         approvals = standing_approvals(reviews)
         reviewed = sorted({a.commit for a in approvals})
@@ -284,6 +294,7 @@ class GitHubReviews:
             author,
             approvals,
             tuple((c, self._declaration_at(c, deadline)) for c in reviewed),
+            merged_by,
         )
 
     def _declaration_at(

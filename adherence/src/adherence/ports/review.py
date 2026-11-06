@@ -22,6 +22,7 @@ class ReviewPort(Protocol):
     def approvals(
         self, commit: str, deadline: Deadline | None
     ) -> Landing | NoLandingPR | Unknown | ReviewsUnavailable | TimedOut:
-        """The pull request that landed the commit, with its author and its
-        approving reviews; NoLandingPR when none did."""
+        """The pull request that landed the commit, with its author, its
+        approving reviews and the account that merged it; NoLandingPR when
+        none did."""
         ...

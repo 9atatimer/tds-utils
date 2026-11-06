@@ -1,0 +1,30 @@
+{
+  "url": "https://api.github.com/repos/example-org/example/pulls/61",
+  "id": 1061,
+  "number": 61,
+  "state": "closed",
+  "title": "Change 61",
+  "user": {
+    "login": "alice",
+    "id": 5061,
+    "type": "User"
+  },
+  "created_at": "2026-10-20T10:00:00Z",
+  "closed_at": "2026-10-22T09:00:00Z",
+  "merged_at": "2026-10-22T09:00:00Z",
+  "merge_commit_sha": "9999999999999999999999999999999999999999",
+  "head": {
+    "ref": "topic-61",
+    "sha": "ffffffffffffffffffffffffffffffffffffffff"
+  },
+  "base": {
+    "ref": "master",
+    "sha": "0000000000000000000000000000000000000000"
+  },
+  "merged": true,
+  "merged_by": {
+    "login": "alice",
+    "id": 9061,
+    "type": "User"
+  }
+}

@@ -23,10 +23,12 @@ TEXT = b"[layers]\n"
 OWNERS = parse_codeowners(b"/adherence.toml @Owner\n")
 
 
-def _landing(*approvals: Approval, author: str = "alice") -> LandedRevision:
+def _landing(
+    *approvals: Approval, author: str = "alice", merged_by: str | None = None
+) -> LandedRevision:
     return LandedRevision(
         COMMIT,
-        Landing(author=author, approvals=approvals),
+        Landing(author=author, approvals=approvals, merged_by=merged_by),
         text=TEXT,
         reviewed=((REVIEWED, TEXT),),
     )
@@ -140,14 +142,83 @@ def test_a_team_or_email_entry_counts_as_no_owner_and_is_a_notice() -> None:
 
 def test_an_approval_by_the_prs_author_is_refused_whoever_they_are() -> None:
     """Given a code owner's approval of the landed bytes, given by the PR's
-    author (any letter case), When the landing is counted, Then it is not in
-    force and the notice names the open question."""
+    author (any letter case), and a merge by no code owner, When the landing
+    is counted, Then it is not in force and the notice says an author cannot
+    approve their own edit."""
     counting = counted_landing(
-        _landing(Approval("owner", REVIEWED), author="OWNER"), OWNERS
+        _landing(Approval("owner", REVIEWED), author="OWNER", merged_by="tedium"),
+        OWNERS,
     )
 
     assert not counting.in_force
-    assert any("author" in n.message and "Q11" in n.message for n in counting.notices)
+    assert any(
+        "author" in n.message and "cannot approve" in n.message
+        for n in counting.notices
+    ), counting.notices
+
+
+def test_a_counted_approval_is_named_in_a_notice() -> None:
+    """Given a code owner's approval of the landed bytes, When the landing is
+    counted, Then it is in force and a notice names the approval that
+    counted."""
+    counting = counted_landing(_landing(Approval("owner", REVIEWED)), OWNERS)
+
+    assert counting.in_force
+    assert [n.message for n in counting.notices] == [
+        f"adherence.toml landed at {COMMIT[:12]}: in force, approved by owner"
+    ]
+
+
+def test_a_merge_by_a_code_owner_counts_with_no_approval() -> None:
+    """Given a landing no approval counts on, merged by a code owner (any
+    letter case), whoever authored it, When the landing is counted, Then it
+    is in force and a notice names the merger as the one that counted."""
+    for author in ("alice", "owner"):
+        counting = counted_landing(_landing(author=author, merged_by="OWNER"), OWNERS)
+
+        assert counting.in_force, author
+        assert [n.message for n in counting.notices] == [
+            f"adherence.toml landed at {COMMIT[:12]}: in force, merged by code "
+            "owner OWNER"
+        ], author
+
+
+def test_the_owner_authoring_and_merging_their_own_edit_counts() -> None:
+    """Given the one human's own landing -- authored by the code owner, no
+    approval, merged by the same code owner, as tds-utils PR#670 landed
+    adherence.toml at 49ba5438ad8c -- When the landing is counted, Then it
+    is in force (design Q11)."""
+    owners = parse_codeowners(b"*  @9atatimer\nadherence.toml  @9atatimer\n")
+
+    counting = counted_landing(
+        _landing(author="9atatimer", merged_by="9atatimer"), owners
+    )
+
+    assert counting.in_force, counting.notices
+
+
+def test_a_landing_attributable_to_its_author_alone_stays_uncounted() -> None:
+    """Given a landing authored and merged by one person who is no code owner,
+    and one merged by nobody the code host names, both with no approval, When
+    each is counted, Then neither is in force and the notice says the merge
+    did not count."""
+    for merged_by in ("alice", None):
+        counting = counted_landing(
+            _landing(author="alice", merged_by=merged_by), OWNERS
+        )
+
+        assert not counting.in_force, merged_by
+        notices = " ".join(n.message for n in counting.notices)
+        assert "no counted approval" in notices, notices
+        assert "not in force" in notices, notices
+    (said,) = [
+        n.message
+        for n in counted_landing(
+            _landing(author="alice", merged_by="alice"), OWNERS
+        ).notices
+        if n.message.startswith("merge by")
+    ]
+    assert "alice" in said and "code owner" in said, said
 
 
 def test_a_team_entry_beside_a_user_is_a_notice_and_the_user_counts() -> None:

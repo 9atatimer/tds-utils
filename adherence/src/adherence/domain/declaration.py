@@ -177,14 +177,16 @@ class Approval:
 @dataclass(frozen=True, slots=True)
 class Landing:
     """The pull request that landed a commit: its author, its approving
-    reviews, and adherence.toml at each commit they reviewed as the code
-    host gives it, so a PR head no checkout can fetch (a squash or rebase
-    landing) is still read; one it does not give is read from the
-    repository."""
+    reviews, adherence.toml at each commit they reviewed as the code host
+    gives it, so a PR head no checkout can fetch (a squash or rebase
+    landing) is still read (one it does not give is read from the
+    repository), and the account that merged it, None when the code host
+    names none."""
 
     author: str
     approvals: tuple[Approval, ...] = ()
     reviewed: tuple[tuple[str, DeclarationText], ...] = ()
+    merged_by: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -700,12 +702,13 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
 # Where GitHub looks for CODEOWNERS, in its order; the first found is read.
 CODEOWNERS_PATHS = (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS")
 
-# The owner-as-author case is open (design Q11, architecture Q7): an
-# approval by the PR's author is refused, whoever the author is, until ruled.
+# An approval by the PR's author is refused, whoever the author is; an owner
+# who authored the edit counts by merging it (design Key Decisions, An owner
+# who is the author).
 AUTHOR_REFUSAL = (
     "the reviewer is the pull request's author, and an author cannot approve "
-    "their own declaration edit; refused for the owner too until design Q11 "
-    "(architecture Q7) is ruled"
+    "their own declaration edit; a code owner who authored it counts by "
+    "merging it"
 )
 
 
@@ -835,6 +838,29 @@ def _refusal(
     return None
 
 
+def _in_force(revision: LandedRevision, why: str) -> Counting:
+    return Counting(
+        True,
+        (
+            Notice(
+                f"{DECLARATION_PATH} landed at {_short(revision.commit)}: "
+                f"in force, {why}"
+            ),
+        ),
+    )
+
+
+def _merge_refusal(merger: str, owners: Collection[str]) -> Notice | None:
+    """Why a merge does not count, or None when it does: its merger is a
+    user code owner of adherence.toml by the base's CODEOWNERS."""
+    if any(is_same_login(f"@{merger}", o) for o in owners):
+        return None
+    return Notice(
+        f"merge by {merger} not counted: not a code owner of {DECLARATION_PATH} "
+        "by the base's CODEOWNERS"
+    )
+
+
 def owner_notices(codeowners: CodeOwners) -> tuple[Notice, ...]:
     """A notice per owner CODEOWNERS names for adherence.toml that is a team
     or an email: it counts as no owner, since only a user is one. It is
@@ -855,9 +881,12 @@ def counted_landing(revision: LandedRevision, codeowners: CodeOwners) -> Countin
     landed declaration standing; a landing is in force when one approval
     counts -- its reviewer not the PR's author, a user code owner of
     adherence.toml by the base's CODEOWNERS, and the commit it reviewed
-    holding the landed bytes, so approve-then-push does not pass. Every
-    other answer is skipped with a notice that says why. A team or email
-    CODEOWNERS entry counts as no owner; `owner_notices` says so."""
+    holding the landed bytes, so approve-then-push does not pass -- or,
+    with none, when a user code owner merged it, the author included (the
+    one-human repository); a notice names which counted. A landing
+    attributable to no one but an author who is no code owner is not.
+    Every other answer is skipped with a notice that says why. A team or
+    email CODEOWNERS entry counts as no owner; `owner_notices` says so."""
     answer = revision.answer
     if isinstance(answer, Unknown):
         return Counting(True)
@@ -888,8 +917,14 @@ def counted_landing(revision: LandedRevision, codeowners: CodeOwners) -> Countin
         )
         for approval in answer.approvals
     ]
-    if any(why is None for _approval, why in refusals):
-        return Counting(True)
+    counted = next((a for a, why in refusals if why is None), None)
+    if counted is not None:
+        return _in_force(revision, f"approved by {counted.reviewer}")
+    merge = (
+        None if answer.merged_by is None else _merge_refusal(answer.merged_by, users)
+    )
+    if answer.merged_by is not None and merge is None:
+        return _in_force(revision, f"merged by code owner {answer.merged_by}")
     return Counting(
         False,
         (
@@ -897,9 +932,11 @@ def counted_landing(revision: LandedRevision, codeowners: CodeOwners) -> Countin
                 Notice(f"approval by {approval.reviewer} not counted: {why}")
                 for approval, why in refusals
             ),
+            *(() if merge is None else (merge,)),
             _skipped(
                 revision,
-                f"landed in a pull request by {answer.author} with no counted approval",
+                f"landed in a pull request by {answer.author} with no counted "
+                "approval and no code owner's merge",
             ),
         ),
     )

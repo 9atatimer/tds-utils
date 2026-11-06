@@ -14,6 +14,7 @@ from adherence.ports.review import ReviewPort
 from tests.review_contract import (
     BROKEN,
     LANDED,
+    MERGER,
     OWNER,
     PR_AUTHOR,
     PUSHED,
@@ -31,6 +32,7 @@ class TestFakeReviews(ReviewContract):
                     PR_AUTHOR,
                     (Approval(OWNER, REVIEWED),),
                     reviewed=((REVIEWED, REVIEWED_TEXT),),
+                    merged_by=MERGER,
                 ),
                 PUSHED: NoLandingPR(PUSHED),
                 BROKEN: ReviewsUnavailable("scripted: HTTP 502"),
