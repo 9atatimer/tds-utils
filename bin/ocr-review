@@ -42,7 +42,7 @@ import { authorizeRun } from '../lib/ocr-review/authorize.mjs';
 import { BACKENDS, backendProfile, extraHeadersValue, probeGateway, resolveBackend, resolveCredentials, resolveGatewayConfig, resolveModel, variablePrefix } from '../lib/ocr-review/gateway.mjs';
 import { HOST_TOOLS, checkHostTools, describeHostTools } from '../lib/ocr-review/host-tools.mjs';
 import { ackReaction, isCommentId, outcomeReaction, staleOutcomeIds } from '../lib/ocr-review/reaction.mjs';
-import { buildRecord, endOfRun, markSha, renderSummary, shouldComment } from '../lib/ocr-review/record.mjs';
+import { buildRecord, endOfRun, markSha, renderSummary, shouldComment, timeoutDetail } from '../lib/ocr-review/record.mjs';
 import { judgeReview, parseCheckAttr, parseNameStatus, parseNumstat, readEngineResult, readPostCounts, reviewableFiles } from '../lib/ocr-review/verdict.mjs';
 
 // --- Constants --------------------------------------------------------------
@@ -141,11 +141,15 @@ const postCountsEnv = (env) => ({
  * AUTHOR_ASSOCIATION, PR. Returns the exit code. */
 export async function runAuthorize({ env, fetch, step, now }) {
   const trigger = triggerOf(env.EVENT_NAME);
+  // The pull request's size, for a timeout's summary (Key Decisions, a
+  // timeout is a cause; Issue#631). Read here, where the PR is read anyway.
+  let changedFiles = '';
   const readPullRequest = async (number) => {
     const res = await fetch(`${apiUrl(env)}/repos/${env.REPO}/pulls/${number}`, { headers: githubHeaders(env.GITHUB_TOKEN) });
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`pulls GET HTTP ${res.status}`);
     const pr = await res.json();
+    if (Number.isInteger(pr.changed_files)) changedFiles = String(pr.changed_files);
     return {
       state: pr.state,
       headRepo: pr.head?.repo?.full_name ?? null,
@@ -164,6 +168,7 @@ export async function runAuthorize({ env, fetch, step, now }) {
   step.setOutput('head_sha', verdict.headSha ?? '');
   step.setOutput('base_ref', verdict.baseRef ?? '');
   step.setOutput('started_at', now());
+  step.setOutput('changed_files', changedFiles);
   return verdict.decision === 'fail' ? 1 : 0;
 }
 
@@ -449,7 +454,7 @@ function fencedJson(value) {
   return `${fence}json\n${text}\n${fence}`;
 }
 
-/** The report step. Env: REPO, PR, EVENT_NAME, RUN_CANCELLED,
+/** The report step. Env: REPO, PR, EVENT_NAME, RUN_CANCELLED, REVIEW_TIMEOUT_MINUTES,
  * AUTHORIZE_RESULT, AUTHORIZE_OUTPUTS, REVIEW_RESULT, REVIEW_OUTPUTS (both
  * JSON of the job outputs), OCR_VERSION, STATE_PATH, RUN_URL, RECORD_PATH,
  * COMMENT_PATH. Writes the record before the comment body. */
@@ -490,7 +495,10 @@ export async function runReport({ env, readFile, step, now, summary = () => {} }
   });
   step.writeFile(env.RECORD_PATH, `${JSON.stringify(record, null, 2)}\n`);
   summary(`### OCR review run record\n\n${fencedJson(record)}\n`);
-  const detail = failingDetail(REVIEW_STEPS, reviewOutputs, authorizeOutputs);
+  const detail =
+    end.cause === 'timeout'
+      ? timeoutDetail({ limitMinutes: env.REVIEW_TIMEOUT_MINUTES, changedFiles: authorizeOutputs.changed_files })
+      : failingDetail(REVIEW_STEPS, reviewOutputs, authorizeOutputs);
   step.writeFile(env.COMMENT_PATH, renderSummary(record, { runUrl: env.RUN_URL, judged: state, detail, upstreamSummaryUrl: reviewOutputs.upstream_summary_url || '' }));
   step.setOutput('should_comment', String(shouldComment(record)));
   step.setOutput('mark_sha', markSha(record) ?? '');

@@ -73,7 +73,7 @@ Caller -> reusable workflow (workflow_call)
 | Job | Timeout | Steps |
 |---|---|---|
 | `authorize` | 3 min | job `if:` prefilter (not an `issue_comment`, or the body starts with `/ocr`, case-insensitively); Fetch the tools; Set up Node; Authorize (exact `/ocr` prefix, OWNER/MEMBER/COLLABORATOR, PR open, head repo = base repo); Acknowledge the comment (`eyes`, comment trigger only, `continue-on-error`) |
-| `review` | 9 min | needs `authorize` approve. Fetch the tools; Set up Node; Stage the tools (to `$RUNNER_TEMP`, since the upstream action clears the workspace); Check the host tools; Install the 1Password CLI (only when no `op` on PATH); Credentials (the one step with the secret; each value masked as read); Probe; Review (upstream action); Verdict; Upload the ocr result; Upload the review state |
+| `review` | the caller's `review_timeout_minutes` (default 9; this repo's caller: 9 on the pool, 40 on GitHub-hosted runners) on the caller's `review_runs_on` (default `CI_RUNS_ON`) | needs `authorize` approve. Fetch the tools; Set up Node; Stage the tools (to `$RUNNER_TEMP`, since the upstream action clears the workspace); Check the host tools; Install the 1Password CLI (only when no `op` on PATH); Credentials (the one step with the secret; each value masked as read); Probe; Review (upstream action); Verdict; Upload the ocr result; Upload the review state |
 | `report` | 5 min | `if: always()` unless authorize was skipped or decided skip. Note a cancelled run; Fetch the tools; Set up Node; Fetch the review state; Build the run record; Upload the run record; Post the summary comment; React with the outcome (`+1` / `-1`, removes its own `eyes`, `continue-on-error`) |
 
 | Value | Setting | Where |
@@ -84,7 +84,7 @@ Caller -> reusable workflow (workflow_call)
 | Other pinned actions | `actions/checkout@3d3c42e5` (v7.0.1), `actions/setup-node@949feb24` (v7.1.0, Node 22), `1password/install-cli-action@1a3160d5` (v4.1.0, CLI 2.40.0), `actions/upload-artifact@cf430e03` (v7.0.2), `actions/download-artifact@9000827c` (v8.0.2) | `ocr-review.yml` |
 | Probe request | `POST <api base><probe path>`, `{"model": ..., "messages": [{"role": "user", "content": "Reply with OK."}], "max_tokens": 1, "stream": false}`; the path is `/chat/completions` on the Ollama and Cloudflare backends, `/v1/messages` on Anthropic. Only the Ollama Gateway retries (the 507) | `lib/ocr-review/gateway.mjs` |
 | Probe attempt timeout | 110 s (past the gateway's 90 s deadline) | `bin/ocr-review` |
-| Cold-model retry | the 507 only; 10 s between attempts; no attempt starts after 6 min, so the worst case is about 7.5 min, inside the job's 9 | `lib/ocr-review/gateway.mjs` |
+| Cold-model retry | the 507 only; 10 s between attempts; no attempt starts after 6 min, so the worst case is about 7.5 min, inside the default 9 | `lib/ocr-review/gateway.mjs` |
 | Gateway status contract | `GATEWAY_STATUS`: 530 tunnel down, 502 proxy down, 503 ollama down, 507 deadline (retryable); 302/403 Access | `lib/ocr-review/gateway.mjs`, mirrored by hand from the route |
 | Item fields | Ollama Gateway: `access/client id header`, `access/client id`, `access/client secret header`, `password`. Cloudflare AI Gateway: `password` (the run token). Anthropic: `credential` (an API Credential item's key) | `lib/ocr-review/gateway.mjs` |
 | Artifacts | `ocr-result-<attempt>` (90 days; review job; Issue#454), `ocr-review-state-<attempt>` (1 day; review -> report hand-off; Issue#454), `ocr-review-record-<attempt>` (90 days; report job) | `ocr-review.yml` |
@@ -93,8 +93,8 @@ Caller -> reusable workflow (workflow_call)
 
 The closed cause set (`CAUSES`): `pr-not-open`, `fork`, `configuration`,
 `credential`, `gateway-down`, `model-not-found`, `cold-model`, `budget`,
-`limited`, `runner-tool-missing`, `unexpected`, `engine-error`, `reviewed-nothing`,
-`nothing-reviewable`, `cancelled`.
+`limited`, `runner-tool-missing`, `timeout`, `unexpected`, `engine-error`,
+`reviewed-nothing`, `nothing-reviewable`, `cancelled`.
 
 ## Seams in the code
 

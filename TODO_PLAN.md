@@ -212,6 +212,11 @@ a red suite. Nothing landed red, because the test counts were read every
 time, but the mechanism is identical. It is still one repo; the step to
 global waits on one recurrence outside tds-utils.
 
+Recurred 2026-11-02 (Issue#642): `uv run pytest -q | tail -1` showed one
+failing test, so `master` was read as failing only `test_model_without`;
+`tail` had cut the other failures off. Nothing landed red, but a fix was
+scoped to the wrong set. Still one repo.
+
 ### Fakes passed what the real dependency refused
 
 about: wip
@@ -225,6 +230,19 @@ a child closing its stdin (Issue#449). Each now has a test. Unsettled:
 whether the testing skill should require a smoke against the real
 dependency per adapter before merge, or this is the normal cost of
 bring-up.
+
+### Two sessions fixed one issue in parallel
+
+about: wip
+
+Issue#642 (adherence red on CPython 3.14) was fixed twice: tds-utils
+PR#649 and tds-utils PR#655 were open together, and PR#655 landed first, so
+PR#649's merge had to drop its own depth bound for PR#655's and keep its
+own `without()`. A comment with a proposed patch did not claim the issue;
+nothing an agent reads before starting says who is on it. Unsettled:
+whether the github-workflow skill should require an agent to assign
+itself (or comment "taking this") before work, and to check for one
+first.
 
 ### YAML front-matter turns `off` and `true` into booleans
 

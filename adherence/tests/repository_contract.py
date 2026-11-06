@@ -55,6 +55,16 @@ class RepositoryContract:
         for at in (base, Head.staged_index(), Head.working_tree()):
             assert repository.read("nope.txt", at, None) == Absent("nope.txt")
 
+    def test_read_of_a_path_through_a_file_is_absent(self, tmp_path: Path) -> None:
+        """Given a path whose parent is a file, not a directory, When it is
+        read at any target, Then it is Absent, as a missing path is."""
+        repository, base = self.repository_with(
+            tmp_path, base={"a.txt": b"a\n"}, staged={}, working={}
+        )
+
+        for at in (base, Head.staged_index(), Head.working_tree()):
+            assert repository.read("a.txt/inner", at, None) == Absent("a.txt/inner")
+
     def test_tree_lists_each_targets_files(self, tmp_path: Path) -> None:
         """Given files added in the index and in the working tree, When each
         target's tree is listed, Then it holds exactly the files that target has."""

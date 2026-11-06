@@ -200,6 +200,76 @@ def test_measure_reports_each_check_that_does_not_read_shell_per_script() -> Non
     assert [f.unit.path for f in report.findings if f.check.name == "Grep"] == [RULES]
 
 
+def test_measure_reads_a_script_with_no_extension_by_its_shebang() -> None:
+    """Given a repository holding, with no extension, a bash script in the
+    domain layer, a python script, and a file with no shebang, When a run is
+    asked for, Then the bash script is measured as shell, so every check
+    that does not read shell reports it; the python script is coverage
+    naming its interpreter; and the other file is no source."""
+    declaration = declared(
+        HEXAGON.replace(
+            b'domain = ["src/app/domain/**"]',
+            b'domain = ["src/app/domain/**", "bin/release"]',
+        )
+    )
+    files = {
+        RULES: b"x = 1\n",
+        "bin/release": b"#!/usr/bin/env bash\necho hi\n",
+        "bin/report": b"#!/usr/bin/env python3\nprint(1)\n",
+        "Makefile": b"all:\n\ttrue\n",
+    }
+
+    report = measure_with(
+        files,
+        declaration=declaration,
+        analyzers={
+            CodeLanguage.PYTHON: FakeCodeModel(),
+            CodeLanguage.SHELL: FakeCodeModel(),
+        },
+    )
+
+    by_path: dict[str, set[tuple[str | None, str]]] = {}
+    for c in report.coverage:
+        if c.path:
+            by_path.setdefault(c.path, set()).add((c.check, c.reason))
+    assert ("Grep", "does not read shell") in by_path["bin/release"]
+    assert by_path["bin/report"] == {
+        (None, "a python3 script with no extension: no analyzer reads it")
+    }
+    assert "Makefile" not in by_path
+
+
+def test_measure_reports_a_file_with_no_extension_it_could_not_read() -> None:
+    """Given a file with no extension that the repository refuses, and one
+    whose read runs past the deadline, When a run is asked for, Then each is
+    coverage with why, since either could be a script."""
+    report = measure_with(
+        {
+            RULES: b"x = 1\n",
+            "bin/linked": Refused("bin/linked", "a symbolic link"),
+            "bin/slow": TimedOut("read bin/slow"),
+        },
+        analyzers={
+            CodeLanguage.PYTHON: FakeCodeModel(),
+            CodeLanguage.SHELL: FakeCodeModel(),
+        },
+    )
+
+    by_path = {c.path: c.reason for c in report.coverage if c.path}
+    assert by_path["bin/linked"] == "cannot be read: a symbolic link"
+    assert by_path["bin/slow"] == "read bin/slow: timed out"
+
+
+def test_measure_with_no_shell_analyzer_reports_a_script_with_no_extension() -> None:
+    """Given a bash script with no extension and no shell analyzer bound,
+    When a run is asked for, Then coverage names the script and the language."""
+    report = measure_with(
+        {RULES: b"x = 1\n", "bin/release": b"#!/bin/sh\necho hi\n"},
+    )
+
+    assert any(c.path == "bin/release" and "shell" in c.reason for c in report.coverage)
+
+
 LONG = "k = os.environ['" + "x" * 300 + "']"
 BODY = f"def load():\n    secret = 'body line'\n    {LONG}\n    return k\n".encode()
 LOAD = CodeModel(

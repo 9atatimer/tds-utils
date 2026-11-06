@@ -117,6 +117,7 @@ jobs:
       head_sha: ${{ steps.authorize.outputs.head_sha }}
       base_ref: ${{ steps.authorize.outputs.base_ref }}
       started_at: ${{ steps.authorize.outputs.started_at }}
+      changed_files: ${{ steps.authorize.outputs.changed_files }}
       tools: ${{ steps.tools.outcome }}
       node: ${{ steps.node.outcome }}
       authorize: ${{ steps.authorize.outcome }}
@@ -416,6 +417,7 @@ jobs:
           AUTHORIZE_OUTPUTS: ${{ toJSON(needs.authorize.outputs) }}
           REVIEW_RESULT: ${{ needs.review.result }}
           REVIEW_OUTPUTS: ${{ toJSON(needs.review.outputs) }}
+          REVIEW_TIMEOUT_MINUTES: ${{ inputs.review_timeout_minutes }}
           OCR_VERSION: '1.12.13'
           STATE_PATH: ${{ runner.temp }}/ocr-review-state/state.json
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

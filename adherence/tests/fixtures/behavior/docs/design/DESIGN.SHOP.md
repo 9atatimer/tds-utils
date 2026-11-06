@@ -1,6 +1,5 @@
 # Shop
 
-> **Status:** APPROVED (the fixture's owner)
 
 The Behavior-driven fixture's design record, read by the markdown records
 adapter: one behavior a test keeps and one no test keeps.

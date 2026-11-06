@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# rollout -- a fixture script with no extension, found by its shebang.
+
+set -euo pipefail
+
+# --- Action functions ---
+announce() {
+    echo "rolling out ${1:-everything}"
+}
+
+# --- Main ---
+main() {
+    announce "$@"
+}
+
+main "$@"
