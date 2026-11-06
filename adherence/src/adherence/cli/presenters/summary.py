@@ -32,7 +32,16 @@ MARKDOWN_SPECIALS = "\\`*_[]|~"
 # (before its colon), after an email's or a mention's at sign, and after a
 # www host's www. The zero-width space goes in as an entity, so the output
 # carries no format character; a location's line-number colon is untouched.
-LINK_FORMING = re.compile(r"(?i)\b(?:https?|ftp|mailto|xmpp)(?=:)|@|\bwww(?=\.)")
+# GFM links after `_`, `*`, `~` and `(` as after a space, and `_` is a word
+# character, so the scheme and www alternatives look back for a letter or
+# digit, not for a word boundary; a URL scheme is told by its `://`, so
+# a path whose last component is `ftp` keeps its line-number colon.
+LINK_FORMING = re.compile(
+    r"(?i)(?<![a-z0-9])(?:https?|ftp)(?=://)"
+    r"|(?<![a-z0-9])(?:mailto|xmpp)(?=:)"
+    r"|@"
+    r"|(?<![a-z0-9])www(?=\.)"
+)
 BREAK = "&#8203;"
 
 # --- Predicates and helpers --------------------------------------------------

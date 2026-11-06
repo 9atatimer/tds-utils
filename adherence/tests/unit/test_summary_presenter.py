@@ -150,9 +150,10 @@ def test_author_text_leaves_no_autolink_or_mention() -> None:
     Then none of them survives as text GFM turns into a link or a mention
     by itself, read with the backslash escapes and entities undone, so the
     verdict does not hang on the order in which a renderer reads escapes
-    and autolinks; a location's line number keeps its colon."""
+    and autolinks; a location's line number keeps its colon, even when the
+    file is named like a scheme."""
     links = report_kit.LINKS
-    forged = replace(INTRODUCED, subject=links)
+    forged = replace(INTRODUCED, subject=links, evidence=Evidence("bin/ftp", 12, links))
     text = report_summary(
         replace(
             REPORT,
@@ -163,9 +164,9 @@ def test_author_text_leaves_no_autolink_or_mention() -> None:
         )
     )
 
-    shown = html.unescape(re.sub(r"\\(.)", r"\1", text))
+    assert "bin/ftp:12" in text
+    shown = html.unescape(re.sub(r"\\(.)", r"\1", text)).replace("bin/ftp:12", "")
     assert shown.count("evil") >= 4 * links.count("evil"), shown
     assert not re.search(r"(?i)(https?|ftp|mailto|xmpp):", shown), shown
     assert not re.search(r"(?i)www\.", shown), shown
     assert not re.search(r"@\w", shown), shown
-    assert "src/app/domain/rules.py:2" in text
