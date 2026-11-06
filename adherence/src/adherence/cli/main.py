@@ -48,14 +48,13 @@ from adherence.domain.target import Base, Change, Head
 
 # The verdicts `adhere judge` exits non-zero on, per stage. Lowered fails a
 # gate, and not run never reads as a pass, in every stage. Inconclusive
-# exits zero in the hook, so the commit proceeds (The hook), and on the
-# laptop and in the cloud, where an agent reads the report; at the gate it
-# never reads as a pass. Whether the gate may let inconclusive and not run
-# merge is the design's Q10: until it is ruled, ci fails closed.
+# never fails a gate in any stage (the design's Key Decisions, Inconclusive
+# at the gate): the commit proceeds in the hook, and the change merges at
+# ci, with the report naming what was not covered.
 FAILING: Mapping[Stage, frozenset[Verdict]] = {
     Stage.LAPTOP: frozenset({Verdict.LOWERED, Verdict.NOT_RUN}),
     Stage.HOOK: frozenset({Verdict.LOWERED, Verdict.NOT_RUN}),
-    Stage.CI: frozenset({Verdict.LOWERED, Verdict.NOT_RUN, Verdict.INCONCLUSIVE}),
+    Stage.CI: frozenset({Verdict.LOWERED, Verdict.NOT_RUN}),
     Stage.CLOUD: frozenset({Verdict.LOWERED, Verdict.NOT_RUN}),
 }
 # The output formats: terminal lines (the default), the machine form,

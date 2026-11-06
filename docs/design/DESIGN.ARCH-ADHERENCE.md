@@ -710,6 +710,7 @@ The owner's laptop as part of the LMDE contract, the adopting repositories' CI a
 | Wiring over the test layer | A unit in the test layer may construct a concrete adapter; the Wiring rule that no unit outside the composition-root layer constructs one exempts the test layer, as Fake already exempts a fake | A test that constructs a concrete adapter is that adapter's contract suite, which the testing skill requires; the self-measurement's 60 Wiring findings were each such a test | Todd, 2026-11-06, Issue#590 |
 | Language over the suite's own nouns | Deadline, Parameters, CodeLanguage, DeclarationUnreadable and Recorded join the Domain Language | They are nouns of the suite's own language in its use-case signatures that this record did not define; the self-measurement's 10 Language findings were Language working as designed over an incomplete record | Todd, 2026-11-06, Issue#590 |
 | FinishedSink and Latch | FinishedSink and Latch join the Domain Language under the ruling on the suite's own nouns | They are nouns of the suite's own language in its use-case signatures that this record did not define, the class that ruling covers; the self-measurement's 6 Language findings on them were Language working as designed | Todd, 2026-11-06, Issue#590 |
+| Inconclusive at the gate | In the `ci` stage a change fails on lowered and on not run only; inconclusive never fails a gate in any stage, and the report names what was not covered. Rules, and removes from Open Questions, Q10: not run blocks a merge and inconclusive does not, which settles the pending clauses of the Verdict section, the Verdict invariant and the two Security Considerations that defer to Q10 | Inconclusive is coverage missing, not a flaw found: it already never yields lowered or raised (Inconclusive never fails and never raises), and a gate that failed on it would refuse clean changes whenever the judge is down, a budget runs out or an analyzer is missing. Not run measured nothing, so it still never reads as a pass | Todd, 2026-11-06, Issue#590 |
 
 ---
 
@@ -744,13 +745,6 @@ The owner's laptop as part of the LMDE contract, the adopting repositories' CI a
   notice, and what it records; or whether the suite grants another path.
   Rows it changes: Tradeoffs; Exemptions; Judging a change; the Declared
   and exemption behaviors.
-- **Q10 Not run and inconclusive at the gate.** Whether a required check
-  whose verdict is not run, or inconclusive, blocks a merge. How a
-  repository recovers when its declaration in force cannot be read, since
-  the change that fixes it is judged under it. How the suite's own gate
-  (G19) recovers when the suite cannot run on its own fix. Rows it
-  changes: the Verdict table; Gate; Verdict; Security Considerations; the
-  not-run, inconclusive and unreadable-declaration behaviors; G19.
 - **Q11 An owner who is the author.** In a repository with one human, the
   owner authors the changes that carry declaration edits. Whether the
   owner's approval may then come from the same person, and what the

@@ -26,8 +26,9 @@
 #            a scratch directory), so no token or credential reaches one;
 #            only the decide client gets the judge's token, as its own
 #            configuration, and only the warehouse adapter the ledger's. The verdict sets the job's exit status last:
-#            lowered, inconclusive and not run fail (design Q10 is open, so
-#            ci fails closed); the SARIF is uploaded first either way.
+#            lowered and not run fail, and inconclusive passes (the
+#            design's Key Decisions, Inconclusive at the gate); the SARIF
+#            is uploaded first either way.
 #   upload   contents: read, security-events: write, and actions: read
 #            (code scanning asks for it in a private repository). Runs
 #            nothing but the pinned upload-sarif action over the judge

@@ -348,8 +348,8 @@ jobs:
   # left of timeout_minutes>`, printing the report to the log and writing
   # the SARIF file and the job summary ($GITHUB_STEP_SUMMARY); the SARIF
   # goes to code scanning from its own job (security-events: write), under
-  # an artifact name of this call's own. Lowered, inconclusive and not run
-  # fail the job, which gate does not read yet.
+  # an artifact name of this call's own. Lowered and not run fail the job
+  # and inconclusive passes it; gate does not read it yet.
   #
   # The base: on a pull request, the merge-base of the head and the PR's
   # base, so a change is judged on what it did; on a push to master, the tip

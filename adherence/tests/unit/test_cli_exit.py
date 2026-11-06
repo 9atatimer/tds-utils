@@ -1,11 +1,11 @@
 """`adhere judge` maps the verdict to the exit status per stage
 (ARCHITECTURE.ARCH-ADHERENCE.md, Module map: cli/main.py; DESIGN.ARCH-
 ADHERENCE.md, Judging a change: lowered fails a gate; inconclusive and not
-run never read as pass). Lowered and not run exit non-zero everywhere. In
-the hook inconclusive exits zero, so the commit proceeds (The hook); on
-the laptop and in the cloud, where an agent reads the report, it exits
-zero too. At the gate, `ci`, an inconclusive verdict never reads as a
-pass: it exits non-zero until the design's Q10 rules otherwise."""
+run never read as pass). Lowered and not run exit non-zero everywhere.
+Inconclusive never fails a gate in any stage (Key Decisions, Inconclusive
+at the gate): it exits zero in the hook, so the commit proceeds (The
+hook), on the laptop and in the cloud, where an agent reads the report,
+and at the gate, `ci`, where the report names what was not covered."""
 
 from __future__ import annotations
 
@@ -58,10 +58,10 @@ def test_judge_held_exits_zero_in_every_revision_stage(tmp_path: Path) -> None:
         assert _exit(tmp_path, stage, head=EDITED) == 0, stage
 
 
-def test_judge_inconclusive_fails_only_the_gate(tmp_path: Path) -> None:
+def test_judge_inconclusive_exits_zero_in_every_stage(tmp_path: Path) -> None:
     """Given a change whose touched unit a judged check could not ask about,
-    the judge being unavailable, When it is judged, Then the hook, the
-    laptop and the cloud exit zero, and ci, the gate, exits non-zero."""
+    the judge being unavailable, When it is judged, Then every stage exits
+    zero, ci, the gate, included: inconclusive never fails a gate."""
     down = FakeDecision(Unavailable("the judge is down"))
 
     exits = {
@@ -69,4 +69,4 @@ def test_judge_inconclusive_fails_only_the_gate(tmp_path: Path) -> None:
         for stage in ("hook", *REVISION_STAGES)
     }
 
-    assert exits == {"hook": 0, "laptop": 0, "cloud": 0, "ci": 1}
+    assert exits == {"hook": 0, "laptop": 0, "cloud": 0, "ci": 0}

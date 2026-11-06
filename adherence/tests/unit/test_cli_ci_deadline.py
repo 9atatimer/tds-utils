@@ -22,7 +22,8 @@ def test_ci_judge_past_the_jobs_time_is_coverage(tmp_path: Path) -> None:
     """Given a ci job with a minute left and ports whose clock reads past
     it, When `adhere --stage ci judge --time-left 60` runs, Then the run
     ends at the deadline: the unfinished checks are coverage, the verdict
-    is inconclusive, and the gate exits non-zero."""
+    is inconclusive, and the gate exits zero: inconclusive never fails a
+    gate."""
     result = adhere(
         tmp_path,
         "--stage",
@@ -37,7 +38,7 @@ def test_ci_judge_past_the_jobs_time_is_coverage(tmp_path: Path) -> None:
     document = json.loads(result.output)
     assert document["verdict"] == "inconclusive", result.output
     assert any("timed out" in c["reason"] for c in document["coverage"])
-    assert result.exit_code == 1
+    assert result.exit_code == 0
 
 
 def test_ci_judge_with_no_time_left_given_is_unbounded(tmp_path: Path) -> None:
