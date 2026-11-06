@@ -30,7 +30,10 @@
 #            design's Key Decisions, Inconclusive at the gate); the SARIF
 #            is uploaded first either way.
 #   upload   contents: read, security-events: write, and actions: read
-#            (code scanning asks for it in a private repository). Runs
+#            (code scanning asks for it in a private repository); a caller
+#            grants them even with `upload_sarif: false`, since the platform
+#            checks a called job's permissions against the caller's grant
+#            when the workflow starts, before any `if:` is read. Runs
 #            nothing but the pinned upload-sarif action over the judge
 #            job's file. Skipped for a pull request from a fork, whose token
 #            cannot write code scanning, and when the caller passes
