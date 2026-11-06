@@ -33,7 +33,13 @@
 #            (code scanning asks for it in a private repository). Runs
 #            nothing but the pinned upload-sarif action over the judge
 #            job's file. Skipped for a pull request from a fork, whose token
-#            cannot write code scanning. Code scanning keeps one analysis
+#            cannot write code scanning, and when the caller passes
+#            `upload_sarif: false`: a private repository without Code
+#            Security enabled refuses the upload ("Code Security must be
+#            enabled for this repository to use code scanning"), which
+#            would fail the call over a presentation step while the judge
+#            job, which carries the verdict, passed (template-tools
+#            PR#1058, 2026-11-06). Code scanning keeps one analysis
 #            per ref, sha and `category`, so two calls on one head (two
 #            callers' jobs, a matrix) must pass distinct `category` inputs,
 #            or the second upload replaces the first.
@@ -92,6 +98,7 @@
 #         actions: read
 #       with:
 #         tools_ref: <the same sha>
+#         upload_sarif: false   # only a private repository without Code Security
 #       secrets:
 #         DECIDE_GATEWAY_TOKEN: ${{ secrets.DECIDE_GATEWAY_TOKEN }}
 #         ADHERENCE_LEDGER_ENDPOINT: ${{ secrets.ADHERENCE_LEDGER_ENDPOINT }}
@@ -164,6 +171,11 @@ on:
         type: string
         required: false
         default: adherence
+      upload_sarif:
+        description: Whether the upload job runs; false for a private repository without Code Security enabled, where code scanning refuses the upload. The judge job and its verdict run either way.
+        type: boolean
+        required: false
+        default: true
     secrets:
       DECIDE_GATEWAY_TOKEN:
         description: The hosted judge's token (with the DECIDE_GATEWAY_URL variable); without it the judged checks are coverage.
@@ -395,7 +407,7 @@ jobs:
   upload:
     name: upload SARIF
     needs: [judge]
-    if: always() && needs.judge.outputs.sarif == 'written' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    if: always() && inputs.upload_sarif && needs.judge.outputs.sarif == 'written' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') }}
     timeout-minutes: 5
     permissions:
