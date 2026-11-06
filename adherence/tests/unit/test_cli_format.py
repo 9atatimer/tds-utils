@@ -64,9 +64,20 @@ def test_format_summary_prints_the_summary(tmp_path: Path) -> None:
     assert "not a git repository" in output
 
 
-def test_a_named_format_wins_over_the_short_form(tmp_path: Path) -> None:
+def test_the_short_form_beside_another_format_is_a_conflict(tmp_path: Path) -> None:
     """Given both `--json` and `--format summary`, When `adhere measure`
-    runs, Then the named format is the one printed."""
-    _, output = _run(["measure", "--json", "--format", "summary"], tmp_path)
+    runs, Then it exits with a usage error naming the conflict, and prints
+    no report."""
+    code, output = _run(["measure", "--json", "--format", "summary"], tmp_path)
 
-    assert output.startswith("## Adherence: not run")
+    assert code == 2
+    assert "conflicts" in output and "## Adherence" not in output
+
+
+def test_the_short_form_beside_format_json_is_no_conflict(tmp_path: Path) -> None:
+    """Given both `--json` and `--format json`, When `adhere measure` runs,
+    Then they agree and the report is printed as JSON."""
+    code, output = _run(["measure", "--json", "--format", "json"], tmp_path)
+
+    assert code == 1
+    assert "not a git repository" in json.loads(output)["not_run"]

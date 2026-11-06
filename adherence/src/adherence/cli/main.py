@@ -9,7 +9,6 @@ reaches the terminal (Security mitigations).
 from __future__ import annotations
 
 import sys
-import unicodedata
 from collections.abc import Callable
 from pathlib import Path
 
@@ -20,6 +19,7 @@ from adherence.application.load import load_declaration
 from adherence.application.measure import measure
 from adherence.application.record import record_report
 from adherence.cli.presenters.json_report import report_json
+from adherence.cli.presenters.plain import without_controls
 from adherence.cli.presenters.summary import report_summary
 from adherence.container import Container, Stage, build
 from adherence.domain.declaration import (
@@ -34,9 +34,6 @@ from adherence.domain.target import Base, Change, Head
 
 # --- Constants ---------------------------------------------------------------
 
-# Unicode control (newline and tab included) and format (bidi overrides,
-# zero-width) characters: none of them may reach the terminal.
-STRIPPED_CATEGORIES = frozenset({"Cc", "Cf"})
 # The verdicts `adhere judge` exits non-zero on until the per-stage mapping
 # lands (task-066): lowered fails a gate; not run never reads as a pass.
 FAILING = frozenset({Verdict.LOWERED, Verdict.NOT_RUN})
@@ -58,11 +55,8 @@ JSON_OPTION = click.option(
 
 
 def _safe(text: str) -> str:
-    """Author-controlled text with every control and format character removed,
-    so it can neither start a line nor reorder one."""
-    return "".join(
-        ch for ch in text if unicodedata.category(ch) not in STRIPPED_CATEGORIES
-    )
+    """Author-controlled text as the terminal may show it."""
+    return without_controls(text)
 
 
 def _refusal_line(refusal: RefusedExemption) -> str:
@@ -88,7 +82,13 @@ def _declaration_lines(loaded: Declaration | DeclarationUnreadable) -> list[str]
 
 
 def _presenter(format_name: str | None, as_json: bool) -> Callable[..., str]:
-    """The presenter the flags name; a usage error when they name none."""
+    """The presenter the flags name; a usage error when they name none, or
+    two: `--json` is `--format json`, so beside another format it is a
+    conflict, never a silent loser."""
+    if as_json and format_name not in (None, "json"):
+        raise click.UsageError(
+            f"--json is --format json; it conflicts with --format {format_name}"
+        )
     if format_name is None and as_json:
         format_name = "json"
     if format_name is None:

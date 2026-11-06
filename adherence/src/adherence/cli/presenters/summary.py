@@ -10,10 +10,10 @@ characters (Security mitigations).
 
 from __future__ import annotations
 
-import unicodedata
 from collections import Counter
 from collections.abc import Sequence
 
+from adherence.cli.presenters.plain import without_controls
 from adherence.domain.coverage import Coverage
 from adherence.domain.finding import Finding, Provenance
 from adherence.domain.qualities import Quality
@@ -21,9 +21,6 @@ from adherence.domain.report import Recorded, Report
 
 # --- Constants ---------------------------------------------------------------
 
-# Unicode control (newline and tab included) and format (bidi overrides,
-# zero-width) characters: none of them may reach the summary.
-STRIPPED_CATEGORIES = frozenset({"Cc", "Cf"})
 # HTML first, so an escaping backslash is never itself escaped as markup.
 HTML_ESCAPES = (("&", "&amp;"), ("<", "&lt;"), (">", "&gt;"))
 # What starts or ends inline markup, or a table cell, inside a cell.
@@ -35,9 +32,7 @@ MARKDOWN_SPECIALS = "\\`*_[]|~"
 def _escaped(text: str) -> str:
     """Author-controlled text as one plain-text markdown cell: control and
     format characters removed, HTML escaped, markdown specials escaped."""
-    plain = "".join(
-        ch for ch in text if unicodedata.category(ch) not in STRIPPED_CATEGORIES
-    )
+    plain = without_controls(text)
     for raw, escaped in HTML_ESCAPES:
         plain = plain.replace(raw, escaped)
     return "".join(f"\\{ch}" if ch in MARKDOWN_SPECIALS else ch for ch in plain)
