@@ -49,6 +49,12 @@ These technologies are the foundational components of the Local Managed Develope
 - **remollama**: Remote orchestration and proxying for Ollama.
 - **OpenTelemetry (OTel)**: Standardized destination for agent metrics and traces.
 
+### Python Libraries
+
+- **pytest**: the Python test runner, with Given-When-Then naming. Adopt per the fleet tech-radar skill (Python: tests).
+- **hypothesis**: property-based testing in Python. Adopt per the fleet tech-radar skill (Python: property tests).
+- **Click**: Python CLI entry points. Adopt per the fleet tech-radar skill (Python: CLI).
+
 ### Development Platforms
 
 - **kind**: Kubernetes in Docker for local cluster orchestration. Standardized boundary for complex services (like Observability).
@@ -98,6 +104,8 @@ documents the recommended approach so it isn't reinvented per repo.
 - **markdown-it-py** (MIT): a CommonMark parser with tables, for reading the Behaviors table, Domain Language, use-case surface and seam list out of design records in the adherence engine (`adherence/`).
 - **ast-grep** (MIT, `ast-grep-cli` on PyPI): tree-sitter structural matching from rule files, for the adherence engine's structural facts over TypeScript and JavaScript (`adherence/`).
 - **dependency-cruiser** (MIT): the TypeScript and JavaScript import graph with path resolution, as a CLI emitting JSON, for the adherence engine's TypeScript code model (`adherence/`); it parses `.ts` through the `typescript` package, pinned beside it in `adherence/node/package-lock.json`.
+- **boto3** (Apache-2.0): the S3 API from Python, R2 included, imported only in the adapter that talks to the bucket. Trial per the fleet tech-radar skill (Python: S3 client).
+- **botocore** (Apache-2.0): boto3's transport, imported only beside boto3 for its client configuration and error types. Trial with boto3, per the fleet tech-radar skill (Python: S3 client).
 - **github/codeql-action/upload-sarif** (MIT): the GitHub Action that uploads a SARIF file to code scanning, so findings annotate a pull request at the line; used only in its own job of the adherence reusable workflow (`.github/workflows/adherence.yml`), pinned by commit SHA.
 
 ---
@@ -122,6 +130,13 @@ documents the recommended approach so it isn't reinvented per repo.
 ---
 
 ## Decisions Log
+
+- **2026-11-06**: Added `pytest`, `hypothesis` and `Click` to Adopt and
+  `boto3` and `botocore` to Trial, each at the ring the fleet tech-radar
+  skill gives it (`botocore` with `boto3`, as its transport), on Todd's
+  ruling that the adherence Dependency check keeps reading this one radar
+  and the radar carries a row per fleet package the engine imports
+  (Issue#590, Issue#599).
 
 - **2026-10-31**: Added `github/codeql-action/upload-sarif` to Trial on Todd's
   ruling that the adherence analyzers and the upload-sarif action start at
