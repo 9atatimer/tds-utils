@@ -114,9 +114,9 @@ work, and the fleet's gates are the goal each step serves.
   `CodeLanguage`) in use-case signatures (10). Arrow over `cli/` was the
   declaration's to fix: the architecture places `cli/` in the
   composition root.
-- task-068, second half -- `adherence-judge` joins `gate`'s `needs` after
-  one green run; the per-stage exit mapping (task-066's `ci` stage) so
-  only lowered fails.
+- task-068, second half -- `adherence-judge` joined `gate`'s `needs` after
+  its first green run, with task-066's `ci` exit mapping (lowered and not
+  run fail; inconclusive never does, Q10); tds-utils PR#675.
 - task-063 -- the declaration in force through `github_reviews`, before
   any other repository adopts.
 - task-066, task-067 -- the reusable workflow and SARIF; then Skills and

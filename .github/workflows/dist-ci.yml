@@ -349,7 +349,9 @@ jobs:
   # the SARIF file and the job summary ($GITHUB_STEP_SUMMARY); the SARIF
   # goes to code scanning from its own job (security-events: write), under
   # an artifact name of this call's own. Lowered and not run fail the job
-  # and inconclusive passes it; gate does not read it yet.
+  # and inconclusive passes it. The job is in gate's needs since its first
+  # green run (run 42298026212, 2026-11-06; the architecture's Rollout row),
+  # so a lowered change cannot land.
   #
   # The base: on a pull request, the merge-base of the head and the PR's
   # base, so a change is judged on what it did; on a push to master, the tip
@@ -534,6 +536,7 @@ jobs:
       - shellcheck
       - chores
       - adherence
+      - adherence-judge
       - dynomark-contract
       - dynomark-daemon
       - dynomark-extension
