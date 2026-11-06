@@ -16,14 +16,7 @@
 domain = ["adherence/src/adherence/domain/**"]
 application = ["adherence/src/adherence/application/**"]
 ports = ["adherence/src/adherence/ports/**"]
-adapters = [
-    "adherence/src/adherence/adapters/**",
-    # Shell tools that resolve 1Password references: I/O glue over op/gh,
-    # brought under the suite by the change that gave them their refusals
-    # (tds-utils PR#676).
-    "bin/seed-ci-magic",
-    "ops/terraform/remvllm/lib/secrets.sh",
-]
+adapters = ["adherence/src/adherence/adapters/**"]
 "composition root" = [
     "adherence/src/adherence/container.py",
     "adherence/src/adherence/cli/**",
@@ -32,7 +25,8 @@ test = [
     "adherence/tests/*.py",
     "adherence/tests/unit/**",
     "adherence/tests/integration/**",
-    "test/smoketest_seed_ci_magic.sh",
+    # Created by tds-utils PR#676, declared by it (Covered: a change widens
+    # the declaration for the units it creates).
     "test/smoketest_dot_alias.sh",
     "test/smoketest_remvllm/06_secrets_refs.sh",
 ]
