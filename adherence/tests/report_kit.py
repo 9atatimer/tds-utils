@@ -23,6 +23,8 @@ RULES = "src/app/domain/rules.py"
 LINKS = (
     "https://evil.example/x HTTP://EVIL/x ftp://x.y www.evil.com/p"
     " WWW.EVIL.COM mailto:a@b.co xmpp:a@b.co a.b@c.d.com @octocat @org/team"
+    # GFM links after `_`, `*`, `~` and `(` as it does after a space.
+    " _https://evil.example/y _www.evil.org a_https://evil.net (www.evil.io"
 )
 HOSTILE = "x = 1\x1b[31m\x1b]0;owned\x07\r\n::error::forged‮<b>|*_[a](b) " + LINKS
 HOSTILE_PATH = "::warning::forged.py"
