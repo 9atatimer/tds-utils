@@ -14,6 +14,7 @@ import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from adherence.adapters.decide import DecideDecision
 from adherence.adapters.file_store import FileReportStore, default_store_dir
@@ -578,6 +579,9 @@ LEDGER_LOOKUP = (
     "ADHERENCE_LEDGER_LOOKUP_ACCESS_KEY_ID",
     "ADHERENCE_LEDGER_LOOKUP_SECRET_ACCESS_KEY",
 )
+# Hosts a ledger endpoint may name over plain http: a local stand-in for
+# the bucket, never a remote one (the credential would cross in the clear).
+LOOPBACK = frozenset({"127.0.0.1", "::1", "localhost"})
 
 # --- Composition root ----------------------------------------------------------
 
@@ -641,6 +645,8 @@ class Container:
     records: RecordsPort
     reports: ReportStore
     parameters: Parameters
+    # The repository's name as reports and their keys name it (`_name`).
+    name: str
     worker: WorkerPort | None = None
     # The revision the hook judges the staged index against.
     staged_base: str = HOOK_BASE
@@ -660,12 +666,39 @@ def _reviews(stage: Stage, environ: Mapping[str, str]) -> ReviewPort:
     )
 
 
+def _name(stage: Stage, root: str, environ: Mapping[str, str]) -> str:
+    """The repository's name: in `ci`, the job's GITHUB_REPOSITORY,
+    `owner/repo`, so two owners' same-named repositories never share a
+    ledger prefix; elsewhere, or with none given, the checkout's
+    directory."""
+    if stage is Stage.CI:
+        named = environ.get("GITHUB_REPOSITORY", "").strip()
+        if named:
+            return named
+    return Path(root).resolve().name
+
+
+def _endpoint_is_usable(endpoint: str) -> bool:
+    """Whether the endpoint is an `https://` URL naming a host (plain http
+    only to a loopback stand-in): boto3 refuses a scheme-less one, and
+    nothing else may carry the credential."""
+    try:
+        parts = urlsplit(endpoint)
+        host = parts.hostname
+    except ValueError:
+        return False
+    if not host:
+        return False
+    return parts.scheme == "https" or (parts.scheme == "http" and host in LOOPBACK)
+
+
 def _warehouse(
-    root: str, environ: Mapping[str, str]
+    repository: str, environ: Mapping[str, str]
 ) -> WarehouseReportStore | Unprovisioned:
     """The warehouse over the ledger the environment configures, for the
-    repository at root (named as the report names it); Unprovisioned,
-    naming what is missing, when any of the four is absent."""
+    repository so named (as the report names it); Unprovisioned, naming what
+    is missing or wrong, when any of the four is absent or the endpoint
+    names no https host."""
     values = {name: environ.get(name, "").strip() for name in LEDGER}
     missing = [name for name, value in values.items() if not value]
     if missing:
@@ -674,9 +707,14 @@ def _warehouse(
             f"({', '.join(missing)} unset; tds-internal Issue#276 provisions it)"
         )
     endpoint, bucket, key_id, secret = values.values()
+    if not _endpoint_is_usable(endpoint):
+        return Unprovisioned(
+            "the adherence-ledger warehouse is not configured "
+            f"({LEDGER[0]} is not an https:// URL with a host)"
+        )
     lookup_id, lookup_secret = (environ.get(n, "").strip() for n in LEDGER_LOOKUP)
     return WarehouseReportStore(
-        repository=Path(root).resolve().name,
+        repository=repository,
         ledger=LedgerSettings(
             endpoint=endpoint,
             bucket=bucket,
@@ -691,7 +729,9 @@ def _warehouse(
     )
 
 
-def _reports(stage: Stage, root: str, environ: Mapping[str, str]) -> ReportStore:
+def _reports(
+    stage: Stage, root: str, name: str, environ: Mapping[str, str]
+) -> ReportStore:
     """The file cache in the per-user cache directory; in `ci`, the tiered
     store over it and the warehouse, which reads no base from the runner's
     cache and, with no warehouse configured, keeps the report there only
@@ -699,7 +739,7 @@ def _reports(stage: Stage, root: str, environ: Mapping[str, str]) -> ReportStore
     cache = FileReportStore(default_store_dir(environ, Path.home()), root=Path(root))
     if stage is not Stage.CI:
         return cache
-    return TieredReportStore(warehouse=_warehouse(root, environ), cache=cache)
+    return TieredReportStore(warehouse=_warehouse(name, environ), cache=cache)
 
 
 def build(
@@ -719,26 +759,27 @@ def build(
 ) -> Container:
     """Bind every port for the stage, over the repository at root.
 
-    Every stage reads the repository through git; which target it reads
-    (working tree, staged index, revisions) is the entry point's choice.
-    TypeScript and JavaScript share one analyzer, so an import from one to
-    the other resolves.
-    The judge is the stage's (`_judge_for`), configured from `environment`
-    (the process environment when none is given); the judged-check budget
-    is the stage's. `ci` binds github_reviews over the job's GITHUB_TOKEN,
-    GITHUB_REPOSITORY and branch, read here from `environment` and never by
-    the adapter; every other stage binds no_reviews. Every stage keeps
-    reports in the file cache in the per-user cache directory (also read
-    from `environment`); ci through the tiered store over the warehouse the
-    environment configures (`_reports`). The hook
-    binds process_worker to end its run at the commit-time bound; the other
-    stages are unbounded and bind no worker. The hook judges the
-    staged index against HEAD, or against git's empty tree while HEAD is
-    unborn, so a first commit is judged, not refused; the repository
-    adapter tells which, and an injected repository is judged against HEAD.
+        Every stage reads the repository through git; which target it reads
+        (working tree, staged index, revisions) is the entry point's choice.
+        TypeScript and JavaScript share one analyzer, so an import from one to
+        the other resolves.
+        The judge is the stage's (`_judge_for`), configured from `environment`
+        (the process environment when none is given); the judged-check budget
+        is the stage's. `ci` binds github_reviews over the job's GITHUB_TOKEN,
+        GITHUB_REPOSITORY and branch, read here from `environment` and never by
+        the adapter; every other stage binds no_reviews. Every stage keeps
+        reports in the file cache in the per-user cache directory (also read
+        from `environment`); ci through the tiered store over the warehouse the
+        environment configures (`_reports`), keyed by the repository's name
+    (`_name`: `owner/repo` in ci, the checkout's directory elsewhere). The hook
+        binds process_worker to end its run at the commit-time bound; the other
+        stages are unbounded and bind no worker. The hook judges the
+        staged index against HEAD, or against git's empty tree while HEAD is
+        unborn, so a first commit is judged, not refused; the repository
+        adapter tells which, and an injected repository is judged against HEAD.
 
-    The root is made absolute first: the hook's worker runs its job from a
-    scratch directory, not the repository (adapters/process_worker.py).
+        The root is made absolute first: the hook's worker runs its job from a
+        scratch directory, not the repository (adapters/process_worker.py).
     """
     root = str(Path(root).resolve())
     if analyzers is None:
@@ -760,6 +801,7 @@ def build(
     else:
         bound = repository
     env = os.environ if environment is None else environment
+    name = _name(stage, root, env)
     return Container(
         stage=stage,
         repository=bound,
@@ -783,7 +825,7 @@ def build(
             SHIPPED_PARAMETERS,
             limits=replace(SHIPPED_LIMITS, judged_budget=JUDGED_BUDGETS[stage]),
         ),
-        reports=reports if reports is not None else _reports(stage, root, env),
+        reports=reports if reports is not None else _reports(stage, root, name, env),
         worker=(
             worker
             if worker is not None
@@ -791,5 +833,6 @@ def build(
             if stage is Stage.HOOK
             else None
         ),
+        name=name,
         staged_base=staged_base,
     )

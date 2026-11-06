@@ -131,14 +131,13 @@ tasks name the row each ruling changes.
 
 ## Blockers
 
-- 2026-10-24: Adherence tasks 057, 059, 061, 067, 069, 070 and 071 each
-  land a dependency `lmde/TECH_RADAR.md` does not yet carry: grimp,
-  markdown-it-py, lizard and jscpd, `codeql-action/upload-sarif`,
-  dependency-cruiser and ast-grep, the Claude CLI as an explanation
-  adapter (Issue#599); the file is human-maintained. Unblock: Todd rules a
-  ring for each. task-067's ledger bucket is tds-internal Issue#276 (a
-  human applies); until then the `ci` stage uses the file cache and says
-  so.
+- 2026-10-24: task-071 lands the Claude CLI as an explanation adapter,
+  which `lmde/TECH_RADAR.md` does not carry (Issue#599); the file is
+  human-maintained. Unblock: Todd rules a ring. The other adherence
+  analyzers (grimp, markdown-it-py, lizard, jscpd, upload-sarif,
+  dependency-cruiser, ast-grep) are on the radar since 2026-10-25. The
+  `adherence-ledger` bucket is tds-internal Issue#276 (a human applies);
+  until then the `ci` stage uses the file cache and says so.
 - 2026-09-17: `lmde/TECH_RADAR.md` rows for Textual, PyYAML, rumps and
   Click (issue #288) -- human-maintained file; the code already depends on
   them. Unblock: Todd lands the rows or refuses a ring.

@@ -353,3 +353,83 @@ def test_build_other_stages_keep_and_read_the_file_cache(tmp_path: Path) -> None
 
         assert reports.put(REPORT).kept, stage
         assert reports.get("example", REVISION, IDENTITY.digest, None) == REPORT, stage
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    ["r2.example.com", "https://", "ftp://r2.example.com", "http://r2.example.com"],
+)
+def test_build_ci_with_an_endpoint_that_names_no_https_host_binds_none(
+    tmp_path: Path, endpoint: str
+) -> None:
+    """Given a ci job whose ledger endpoint is not an `https://` URL with a
+    host (boto3 refuses a scheme-less one with a ValueError), When a report
+    is put, Then no warehouse is bound: the report is kept in the file cache
+    only and the notice names ADHERENCE_LEDGER_ENDPOINT and never the
+    secret."""
+    environment = {
+        "XDG_CACHE_HOME": str(tmp_path / "cache"),
+        "ADHERENCE_LEDGER_ENDPOINT": endpoint,
+        "ADHERENCE_LEDGER_BUCKET": "adherence-ledger",
+        "ADHERENCE_LEDGER_ACCESS_KEY_ID": "key-id",
+        "ADHERENCE_LEDGER_SECRET_ACCESS_KEY": "the-secret",
+    }
+    reports = build(
+        Stage.CI,
+        root=str(tmp_path / "repo"),
+        environment=environment,
+        repository=FakeRepository({}),
+    ).reports
+
+    recorded = reports.put(REPORT)
+
+    assert not recorded.kept
+    assert recorded.notice is not None
+    assert "file cache only" in recorded.notice.message
+    assert "ADHERENCE_LEDGER_ENDPOINT" in recorded.notice.message
+    assert "the-secret" not in recorded.notice.message
+
+
+# --- The repository's name, by stage (per-repository key isolation) --
+
+
+def test_build_ci_names_the_repository_owner_and_name_from_the_job(
+    tmp_path: Path,
+) -> None:
+    """Given a ci job whose environment carries GITHUB_REPOSITORY, When the
+    composition root is built over a checkout of any directory name, Then
+    the repository is named `owner/repo`, so two same-named repositories
+    of two owners never share a ledger prefix."""
+    container = build(
+        Stage.CI,
+        root=str(tmp_path / "example"),
+        environment={"GITHUB_REPOSITORY": "someone/example"},
+        repository=FakeRepository({}),
+    )
+
+    assert container.name == "someone/example"
+
+
+def test_build_names_the_repository_by_its_directory_elsewhere(
+    tmp_path: Path,
+) -> None:
+    """Given GITHUB_REPOSITORY in the environment, When the laptop, hook and
+    cloud stages are built, and when ci is built without it, Then each names
+    the repository by its checkout's directory."""
+    named = {"GITHUB_REPOSITORY": "someone/elsewhere"}
+    for stage in (Stage.LAPTOP, Stage.HOOK, Stage.CLOUD):
+        container = build(
+            stage,
+            root=str(tmp_path / "example"),
+            environment=named,
+            repository=FakeRepository({}),
+        )
+        assert container.name == "example", stage
+
+    unnamed = build(
+        Stage.CI,
+        root=str(tmp_path / "example"),
+        environment={},
+        repository=FakeRepository({}),
+    )
+    assert unnamed.name == "example"

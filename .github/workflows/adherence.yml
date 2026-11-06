@@ -32,7 +32,10 @@
 #            (code scanning asks for it in a private repository). Runs
 #            nothing but the pinned upload-sarif action over the judge
 #            job's file. Skipped for a pull request from a fork, whose token
-#            cannot write code scanning.
+#            cannot write code scanning. Code scanning keeps one analysis
+#            per ref, sha and `category`, so two calls on one head (two
+#            callers' jobs, a matrix) must pass distinct `category` inputs,
+#            or the second upload replaces the first.
 #
 # The bound: the ci stage has no deadline of its own. The judge step passes
 # the job's remaining time -- `timeout_minutes` less the time already spent
@@ -155,6 +158,11 @@ on:
         type: string
         required: false
         default: ''
+      category:
+        description: The code scanning category the SARIF is uploaded under; two calls on one head need distinct categories, or the second replaces the first.
+        type: string
+        required: false
+        default: adherence
     secrets:
       DECIDE_GATEWAY_TOKEN:
         description: The hosted judge's token (with the DECIDE_GATEWAY_URL variable); without it the judged checks are coverage.
@@ -406,6 +414,6 @@ jobs:
         uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: ${{ runner.temp }}/adherence/adherence.sarif
-          category: adherence
+          category: ${{ inputs.category }}
           ref: ${{ needs.judge.outputs.ref }}
           sha: ${{ needs.judge.outputs.head }}

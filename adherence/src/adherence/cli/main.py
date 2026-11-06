@@ -133,12 +133,20 @@ def _presenter(format_name: str | None, as_json: bool) -> Callable[..., str]:
 def _write_reports(
     writes: tuple[tuple[str, str], ...], report: Report, recorded: Recorded | None
 ) -> None:
-    """Each further format `--write` names, written whole to its path."""
+    """Each further format `--write` names, written whole to its path.
+    Every write is attempted; when any fails, the run ends naming each
+    path that could not be written and why, never with a traceback."""
+    failed: list[str] = []
     for output_format, path in writes:
         target = Path(path)
-        target.parent.mkdir(parents=True, exist_ok=True)
         rendered = FORMATS[output_format](report, recorded)
-        target.write_text(rendered.rstrip("\n") + "\n")
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(rendered.rstrip("\n") + "\n")
+        except OSError as error:
+            failed.append(f"{path} ({error.strerror or error})")
+    if failed:
+        raise click.ClickException(f"could not write {'; '.join(failed)}")
 
 
 # --- Entry points ------------------------------------------------------------
@@ -272,7 +280,7 @@ def _judge_revisions(
     deadline: Deadline | None,
 ) -> Report:
     change = Change(
-        repository=Path(root).resolve().name,
+        repository=container.name,
         base=Base(base),
         head=Head.at_revision(head),
     )
@@ -296,7 +304,7 @@ def _judge_staged(container: Container, root: str) -> Report:
     if container.worker is None or bound is None:
         raise click.UsageError("the hook stage binds no worker or no time bound")
     change = Change(
-        repository=Path(root).resolve().name,
+        repository=container.name,
         base=Base(container.staged_base),
         head=Head.staged_index(),
     )

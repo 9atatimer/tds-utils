@@ -3,8 +3,9 @@
 The laptop's, the hook's and the cloud's store, and the file cache behind
 the warehouse in CI (ARCHITECTURE.ARCH-ADHERENCE.md, Module map and
 Persistence). Every report put is written for the scan, under
-`scan/<repository>/`, stamped with the time it was kept; a report of a
-revision named by its object id is also written under the lookup key
+`scan/<repository>/` (ci's `owner/repo` as two directories), stamped
+with the time it was kept; a report of a revision named by its object id
+is also written under the lookup key
 `by-rev/<repository>/<revision>/<identity>.json` that `get` reads. The
 cache is a per-user data directory, never under the checkout: a directory
 inside the repository it measures is refused. A key part that could
@@ -57,6 +58,16 @@ def is_key_part(text: str | None) -> bool:
         and KEY_PART.fullmatch(text) is not None
         and text not in {".", ".."}
     )
+
+
+def is_repository_key(text: str | None) -> bool:
+    """Whether text names a repository as keys hold it: `repo`, or ci's
+    `owner/repo` as two directories, each part one directory and nothing
+    else."""
+    if text is None:
+        return False
+    parts = text.split("/")
+    return len(parts) <= 2 and all(is_key_part(part) for part in parts)
 
 
 # --- Pure helpers ------------------------------------------------------------
@@ -309,7 +320,9 @@ class FileReportStore:
         if self._inside:
             return StoreMiss(INSIDE_REFUSAL)
         if not (
-            is_key_part(repository) and is_object_id(revision) and is_key_part(identity)
+            is_repository_key(repository)
+            and is_object_id(revision)
+            and is_key_part(identity)
         ):
             return StoreMiss(f"no report is kept for {repository} at {revision}")
         path = self._lookup(repository, revision, identity)
@@ -331,7 +344,7 @@ class FileReportStore:
     def put(self, report: Report) -> Recorded:
         if self._inside:
             return Recorded(False, Notice(f"report not kept: {INSIDE_REFUSAL}"))
-        if report.identity is None or not is_key_part(report.repository):
+        if report.identity is None or not is_repository_key(report.repository):
             return Recorded(
                 False,
                 Notice("report not kept: it names no repository or identity to key"),

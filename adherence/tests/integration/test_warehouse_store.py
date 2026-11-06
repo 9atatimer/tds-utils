@@ -22,6 +22,7 @@ import pytest
 from adherence.adapters.warehouse import (
     LedgerCredential,
     LedgerSettings,
+    S3Client,
     WarehouseReportStore,
 )
 from adherence.container import Stage, build
@@ -232,3 +233,123 @@ def test_build_ci_binds_the_warehouse_when_its_configuration_is_present(
     assert recorded.kept, recorded
     assert {k.split("/")[2] for k in s3.ledger.objects} == {f"dt={_today()}", "by-rev"}
     assert answer == _unquoted(REPORT)
+
+
+def _invalid_endpoint(
+    ledger: LedgerSettings, credential: LedgerCredential, bound: float
+) -> S3Client:
+    """A connector as boto3 behaves on a scheme-less endpoint."""
+    raise ValueError(f"Invalid endpoint: {ledger.endpoint}")
+
+
+def test_an_endpoint_boto3_refuses_is_a_miss_and_an_unkept_report() -> None:
+    """Given a ledger whose endpoint boto3 refuses with a ValueError while
+    building the client, When a base is got and a report is put, Then the
+    get is a miss and the put is not kept, with a notice naming the
+    failure and never the secret: a write failure rides on Recorded and
+    never ends the run."""
+    settings = LedgerSettings(
+        endpoint="r2.example.com",
+        bucket=BUCKET,
+        region=REGION,
+        scan=SCAN,
+        lookup=LOOKUP,
+    )
+    store = WarehouseReportStore(
+        repository="example",
+        ledger=settings,
+        clock=lambda: NOW,
+        connector=_invalid_endpoint,
+    )
+
+    answer = store.get("example", REVISION, IDENTITY.digest, None)
+    recorded = store.put(REPORT)
+
+    assert isinstance(answer, StoreMiss)
+    assert "Invalid endpoint" in answer.reason
+    assert not recorded.kept
+    assert recorded.notice is not None
+    assert "Invalid endpoint" in recorded.notice.message
+    assert SCAN.secret_access_key not in recorded.notice.message
+
+
+OWNED = "someone/example"
+OWNED_GRANTS = {
+    SCAN.access_key_id: Credential(
+        SCAN.secret_access_key,
+        (
+            Grant("PUT", f"adherence/v1/dt=*/{OWNED}/*"),
+            Grant("GET", f"adherence/v1/by-rev/{OWNED}/*"),
+        ),
+    ),
+    LOOKUP.access_key_id: Credential(
+        LOOKUP.secret_access_key, (Grant("PUT", f"adherence/v1/by-rev/{OWNED}/*"),)
+    ),
+}
+
+
+def test_an_owner_and_name_key_two_segments_of_their_own() -> None:
+    """Given a store bound to `someone/example`, When its report is put and
+    got back, Then the scan and lookup keys hold the owner and the name as
+    two segments, under grants scoped to that owner's repository alone."""
+    with SigningS3(bucket=BUCKET, region=REGION, credentials=OWNED_GRANTS) as s3:
+        store = WarehouseReportStore(
+            repository=OWNED, ledger=_settings(s3), clock=lambda: NOW
+        )
+        owned = replace(REPORT, repository=OWNED)
+
+        recorded = store.put(owned)
+        answer = store.get(OWNED, REVISION, IDENTITY.digest, None)
+
+        assert recorded.kept, recorded
+        assert set(s3.ledger.objects) == {
+            f"adherence/v1/dt={DAY}/{OWNED}/{REVISION}-{IDENTITY.digest}.json",
+            f"adherence/v1/by-rev/{OWNED}/{REVISION}/{IDENTITY.digest}.json",
+        }
+        assert answer == _unquoted(owned)
+
+
+@pytest.mark.parametrize("name", ["a/b/c", "someone/..", "/example", "someone/"])
+def test_a_name_that_is_not_one_or_two_key_parts_is_never_keyed(
+    s3: SigningS3, name: str
+) -> None:
+    """Given a store bound to a name that is not `repo` or `owner/repo` of
+    plain key parts, When its report is put and its base got, Then nothing
+    is requested: the put is not kept and the get is a miss."""
+    store = WarehouseReportStore(
+        repository=name, ledger=_settings(s3), clock=lambda: NOW
+    )
+
+    recorded = store.put(replace(REPORT, repository=name))
+    answer = store.get(name, REVISION, IDENTITY.digest, None)
+
+    assert not recorded.kept
+    assert isinstance(answer, StoreMiss)
+    assert s3.ledger.objects == {}
+    assert s3.ledger.refused == []
+
+
+def test_build_ci_keys_the_warehouse_by_the_jobs_owner_and_name(
+    tmp_path: Path,
+) -> None:
+    """Given a ci job whose environment carries the ledger and
+    GITHUB_REPOSITORY, When the bound store puts a report of that
+    repository, Then the warehouse keys it under `<owner>/<repo>`."""
+    with SigningS3(bucket=BUCKET, region=REGION, credentials=OWNED_GRANTS) as s3:
+        environment = {
+            "XDG_CACHE_HOME": str(tmp_path / "cache"),
+            "GITHUB_REPOSITORY": OWNED,
+            "ADHERENCE_LEDGER_ENDPOINT": s3.endpoint,
+            "ADHERENCE_LEDGER_BUCKET": BUCKET,
+            "ADHERENCE_LEDGER_ACCESS_KEY_ID": SCAN.access_key_id,
+            "ADHERENCE_LEDGER_SECRET_ACCESS_KEY": SCAN.secret_access_key,
+        }
+        container = build(
+            Stage.CI, root=str(tmp_path / "example"), environment=environment
+        )
+
+        recorded = container.reports.put(replace(REPORT, repository=container.name))
+
+        assert recorded.kept, recorded
+        (key,) = s3.ledger.objects
+        assert key.startswith(f"adherence/v1/dt={_today()}/{OWNED}/")

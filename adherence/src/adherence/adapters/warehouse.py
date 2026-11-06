@@ -9,8 +9,10 @@ scan key `adherence/v1/dt=YYYY-MM-DD/<repo>/<rev>-<identity>.json` under
 the scan credential; only a run holding the lookup credential -- a
 default-branch run, whose environment alone carries it -- also writes the
 lookup key `adherence/v1/by-rev/<repo>/<rev>/<identity>.json` that `get`
-reads with the scan credential. The adapter is bound to one repository
-and touches no key outside that repository's prefixes. A write failure
+reads with the scan credential. `<repo>` is ci's `owner/repo`, two key
+segments, so same-named repositories of two owners never share a prefix.
+The adapter is bound to one repository and touches no key outside that
+repository's prefixes. A write failure
 rides on Recorded and never changes a verdict; the notice names the
 failure and never a secret. A get compares the Deadline to its own clock
 and bounds its request by what is left.
@@ -32,6 +34,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from adherence.adapters.file_store import (
     MalformedReport,
     is_key_part,
+    is_repository_key,
     report_data,
     report_from_data,
 )
@@ -112,15 +115,16 @@ def ledger_record(report: Report, kept_at: float) -> bytes:
     return (json.dumps(document, separators=(",", ":")) + "\n").encode("utf-8")
 
 
-def _failure(error: BotoCoreError | ClientError) -> str:
-    """What went wrong, from the protocol's own error code and message."""
+def _failure(error: BotoCoreError | ClientError | ValueError) -> str:
+    """What went wrong, from the protocol's own error code and message; a
+    ValueError is boto3 refusing the configuration (an invalid endpoint)."""
     if isinstance(error, ClientError):
         detail = error.response.get("Error", {})
         return f"{detail.get('Code', 'error')}: {detail.get('Message', '')}".strip()
     return str(error)
 
 
-def _missing(error: BotoCoreError | ClientError) -> bool:
+def _missing(error: BotoCoreError | ClientError | ValueError) -> bool:
     if not isinstance(error, ClientError):
         return False
     return str(error.response.get("Error", {}).get("Code")) in MISSING
@@ -181,18 +185,20 @@ class WarehouseReportStore:
         if repository != self._repository:
             return StoreMiss(self._outside(repository))
         if not (
-            is_key_part(repository) and is_object_id(revision) and is_key_part(identity)
+            is_repository_key(repository)
+            and is_object_id(revision)
+            and is_key_part(identity)
         ):
             return StoreMiss(f"no report is kept for {repository} at {revision}")
         key = lookup_key(repository, revision, identity)
         bound = REQUEST_BOUND
         if deadline is not None:
             bound = min(bound, deadline.epoch_seconds - now)
-        client = self._connect(self._ledger, self._ledger.scan, bound)
         try:
+            client = self._connect(self._ledger, self._ledger.scan, bound)
             answer = client.get_object(Bucket=self._ledger.bucket, Key=key)
             raw = cast(_Body, answer["Body"]).read()
-        except (BotoCoreError, ClientError) as error:
+        except (BotoCoreError, ClientError, ValueError) as error:
             if _missing(error):
                 return StoreMiss(f"no report kept at {key}")
             if deadline is not None and deadline.epoch_seconds <= self._clock():
@@ -232,7 +238,7 @@ class WarehouseReportStore:
             )
         if (
             report.identity is None
-            or not is_key_part(self._repository)
+            or not is_repository_key(self._repository)
             or not is_key_part(report.revision)
         ):
             return Recorded(
@@ -255,7 +261,7 @@ class WarehouseReportStore:
             lookup = self._ledger.lookup
             if lookup is not None and is_object_id(revision):
                 self._write(lookup, lookup_key(repository, revision, identity), record)
-        except (BotoCoreError, ClientError) as error:
+        except (BotoCoreError, ClientError, ValueError) as error:
             return Recorded(
                 False,
                 Notice(f"report not written to the warehouse: {_failure(error)}"),

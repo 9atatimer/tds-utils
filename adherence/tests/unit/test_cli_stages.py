@@ -6,10 +6,12 @@ so it binds the hook, and the hook judges nothing but the staged index."""
 
 from __future__ import annotations
 
+import functools
 from pathlib import Path
 
 from click.testing import CliRunner
 
+from adherence.adapters.fakes import FakeReportStore
 from adherence.cli.main import main
 from adherence.container import Stage
 from tests.cli_kit import JUDGE, RecordingBuilder, adhere, faked
@@ -64,3 +66,30 @@ def test_staged_outside_the_hook_and_the_hook_on_revisions_are_refused(
     assert (staged_in_ci.exit_code, hook_on_revisions.exit_code) == (2, 2)
     assert "--staged" in staged_in_ci.output and "hook" in hook_on_revisions.output
     assert builder.stages == []
+
+
+def test_judge_names_the_change_as_the_stage_names_the_repository(
+    tmp_path: Path,
+) -> None:
+    """Given GITHUB_REPOSITORY in the environment, When `adhere --stage ci
+    judge` runs, Then the report kept names the repository `owner/repo`;
+    When the laptop judges the same checkout, Then it names the checkout's
+    directory."""
+    environment = {"GITHUB_REPOSITORY": "someone/example"}
+    in_ci, on_laptop = FakeReportStore(), FakeReportStore()
+
+    adhere(
+        tmp_path,
+        "--stage",
+        "ci",
+        *JUDGE,
+        builder=functools.partial(faked(), reports=in_ci, environment=environment),
+    )
+    adhere(
+        tmp_path,
+        *JUDGE,
+        builder=functools.partial(faked(), reports=on_laptop, environment=environment),
+    )
+
+    assert [r.repository for r in in_ci.scanned] == ["someone/example"]
+    assert [r.repository for r in on_laptop.scanned] == [tmp_path.name]

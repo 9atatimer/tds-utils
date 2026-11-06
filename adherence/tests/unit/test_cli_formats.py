@@ -107,3 +107,32 @@ def test_writing_an_unknown_format_is_refused(tmp_path: Path) -> None:
 
     assert result.exit_code == 2
     assert "yaml" in result.output
+
+
+def test_a_write_that_fails_names_its_path_after_every_other_write(
+    tmp_path: Path,
+) -> None:
+    """Given `--write sarif` to a path whose parent is a regular file and
+    `--write summary` to a writable path, When `adhere judge` runs, Then the
+    report is still printed, the summary is still written, and the run
+    exits 1 naming the path that could not be written -- no traceback."""
+    blocker = tmp_path / "blocker"
+    blocker.write_text("")
+    unwritable, summary = blocker / "adherence.sarif", tmp_path / "summary.md"
+
+    result = adhere(
+        tmp_path,
+        *JUDGE,
+        "--write",
+        "sarif",
+        str(unwritable),
+        "--write",
+        "summary",
+        str(summary),
+    )
+
+    assert result.output.splitlines()[0] == "verdict: lowered"
+    assert summary.read_text().splitlines()[0] == "## Adherence: lowered"
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert str(unwritable) in result.output
