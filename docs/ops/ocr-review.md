@@ -450,6 +450,13 @@ settings as OCR on Demand, with nothing posted anywhere.
   reads `timeout`; a runner lost mid-job, which ends `failure` with no
   failed step, still reads `unexpected` with "(no step failed: job
   timeout or runner lost)".
+- **A stack-sized PR is past the gateway's reach.** On `ollama-gateway`
+  with `qwen3.6:latest`, 2026-11-06, OCR read 3 of 13, 5 of 33, 3 of 57
+  and 0 of 48 files before the 40-minute bound, and one run failed at the
+  model after 36 minutes (20 s backoffs, 68 s waits for headers). A PR of
+  more than a handful of files gets no settled review from OCR; the
+  self-review ledger is the review besides the owner's. Re-running costs
+  the runner the same 40 minutes (Issue#677).
 - **The probe and the review share the review job's timeout**: 9 minutes
   by default, under the pool's 10-minute container ceiling, or what a
   caller opts into with `review_timeout_minutes`. The probe starts no
