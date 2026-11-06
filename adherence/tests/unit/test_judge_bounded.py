@@ -29,8 +29,15 @@ from adherence.domain.target import Change
 from adherence.ports.complexity import ComplexityPort
 from adherence.ports.repository import Refused
 from adherence.ports.worker import WorkerPort
-from tests.judge_kit import BASE, HEAD, REPOSITORY, RULES, with_declaration
-from tests.measure_kit import parameters
+from tests.judge_kit import (
+    BASE,
+    HEAD,
+    REPOSITORY,
+    RULES,
+    stubbed,
+    with_declaration,
+)
+from tests.measure_kit import HEXAGON, parameters
 
 # The commit-time bound, as an instant no fake's frozen clock has reached.
 HOOK_DEADLINE = Deadline(epoch_seconds=2e9)
@@ -62,6 +69,7 @@ def _bounded(
     repository: FakeRepository,
     store: FakeReportStore,
     complexity: ComplexityPort | None = None,
+    analyzer: FakeCodeModel | None = None,
 ) -> Report:
     return judge_bounded(
         CHANGE,
@@ -69,7 +77,9 @@ def _bounded(
         deadline=HOOK_DEADLINE,
         repository=repository,
         reviews=FakeReviews(),
-        analyzers={CodeLanguage.PYTHON: FakeCodeModel()},
+        analyzers={
+            CodeLanguage.PYTHON: analyzer if analyzer is not None else FakeCodeModel()
+        },
         complexity=complexity if complexity is not None else FakeComplexity(),
         duplication=FakeDuplication(),
         records=FakeRecords({}),
@@ -153,3 +163,42 @@ def test_judge_bounded_ended_keeps_a_file_it_could_not_read() -> None:
     assert any(
         c.path == SECRET and "a symbolic link" in c.reason for c in report.coverage
     ), report.coverage
+
+
+# Refuses an exemption of a declared check, and applies one to the stub.
+NOTICED = HEXAGON + (
+    b'\n[[exemptions]]\ncheck = "Covered"\nunit = "src/app/new.py"\nreason = "r"\n'
+    b'\n[[exemptions]]\ncheck = "Stub"\nunit = "src/app/domain/rules.py"\n'
+    b'reason = "kept until the rewrite"\n'
+)
+STUBBED = b"def rule():\n    pass\n"
+
+
+def test_judge_bounded_ended_keeps_the_notices_reported_before_the_end() -> None:
+    """Given a declaration that states a refused exemption and one that
+    silences a stub, and a worker that ends the job once the Stub check has
+    finished, When the hook judges the change, Then the partial report
+    still carries the refusal notice and the applied-exemption notice."""
+    repository = FakeRepository(
+        {
+            BASE: with_declaration({RULES: b"x = 1\n"}, NOTICED),
+            HEAD: with_declaration({RULES: STUBBED}, NOTICED),
+        }
+    )
+    stub_index = [c.name for c in CATALOG].index("Stub")
+    analyzer = FakeCodeModel(when={STUBBED: stubbed(RULES, "rule", 1)})
+
+    report = _bounded(
+        InlineWorker(ends_after=stub_index + 1),
+        repository,
+        FakeReportStore(),
+        analyzer=analyzer,
+    )
+
+    assert report.verdict is Verdict.INCONCLUSIVE
+    assert "Stub" not in {c.check for c in report.coverage if c.reason == ENDED}
+    messages = [n.message for n in report.notices]
+    assert any("refused" in m and "src/app/new.py" in m for m in messages), messages
+    assert any(
+        "exemption applied" in m and "kept until the rewrite" in m for m in messages
+    ), messages

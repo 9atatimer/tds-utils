@@ -41,6 +41,7 @@ from adherence.domain.records import DesignRecords
 from adherence.ports.code_model import CodeModelPort
 from tests import typescript_fixture
 from tests.code_model_contract import TYPESCRIPT_SOURCES, CodeModelContract
+from tests.integration.test_shell_code_model import sleeping_binary
 
 
 class TestTypeScriptCodeModel(CodeModelContract):
@@ -1233,3 +1234,44 @@ def test_a_path_that_leaves_the_repository_is_unparsed_and_never_written(
     assert set(reasons) == {climbing, str(absolute)}
     assert all("leaves the repository" in r for r in reasons.values())
     assert {u.path for u in model.units} == {"fine.ts"}
+
+
+def test_model_by_an_ast_grep_past_its_bound_with_no_deadline_times_out(
+    tmp_path: Path,
+) -> None:
+    """Given an ast-grep that sleeps far past the analyzer bound and no
+    deadline (the laptop, CI), When the sources are modelled, Then it is
+    ended at its bound and the answer is TimedOut."""
+    port = TypeScriptCodeModel(ast_grep=sleeping_binary(tmp_path), bound=0.5)
+
+    model = port.model(
+        typescript_fixture.sources(),
+        typescript_fixture.declaration(),
+        typescript_fixture.VOCABULARY,
+        None,
+    )
+
+    assert isinstance(model, TimedOut), model
+
+
+def test_model_by_a_cruiser_past_its_bound_with_no_deadline_times_out(
+    tmp_path: Path,
+) -> None:
+    """Given a dependency-cruiser that sleeps far past the analyzer bound
+    and no deadline, When sources that import each other are modelled, Then
+    it is ended at its bound and the answer is TimedOut."""
+    cruiser = tmp_path / "cruiser.js"
+    cruiser.write_text("setTimeout(() => {}, 120000);\n")
+    port = TypeScriptCodeModel(cruiser=cruiser, bound=2.0)
+
+    model = port.model(
+        {
+            "src/a.ts": b'import { b } from "./b";\n',
+            "src/b.ts": b"export const b = 1;\n",
+        },
+        typescript_fixture.declaration(),
+        typescript_fixture.VOCABULARY,
+        None,
+    )
+
+    assert isinstance(model, TimedOut), model

@@ -844,3 +844,21 @@ def test_a_method_through_repeated_cyclic_bases_resolves_in_linear_work() -> Non
     assert (found.path, found.symbol) == (path, "C.m")
     assert missing is None
     assert files.reads < 100, files.reads
+
+
+def test_model_with_a_bound_and_no_deadline_times_the_import_graph_out() -> None:
+    """Given a package to graph, an analyzer bound shorter than the import
+    analyzer can start in, and no deadline (the laptop, CI), When it is
+    modelled, Then the import analyzer is ended at its bound and the answer
+    is TimedOut -- the subprocess is never unbounded."""
+    sources = {
+        "pkg/__init__.py": b"",
+        "pkg/a.py": b"import pkg.b\n",
+        "pkg/b.py": b"x = 1\n",
+    }
+
+    model = PythonCodeModel(bound=0.001).model(
+        sources, python_fixture.declaration(), python_fixture.VOCABULARY, None
+    )
+
+    assert isinstance(model, TimedOut), model

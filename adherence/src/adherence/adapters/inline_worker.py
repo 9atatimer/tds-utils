@@ -11,8 +11,9 @@ from __future__ import annotations
 
 from adherence.domain.coverage import Coverage
 from adherence.domain.deadline import Deadline
-from adherence.domain.report import FinishedCheck, Report, RunCoverage
-from adherence.ports.worker import Ended, Failed, Job
+from adherence.domain.finding import Notice
+from adherence.domain.report import FinishedCheck, Report, RunCoverage, RunNotices
+from adherence.ports.worker import Ended, Failed, Job, Reported
 
 
 def failure(error: Exception) -> str:
@@ -26,17 +27,21 @@ class _EndedByScript(BaseException):
 
 
 class _ScriptedSink:
-    """Keeps every finished check and the run's coverage, and ends the job
-    at the scripted count of checks."""
+    """Keeps every finished check and the run's coverage and notices, and
+    ends the job at the scripted count of checks."""
 
     def __init__(self, ends_after: int | None) -> None:
         self._ends_after = ends_after
         self.finished: list[FinishedCheck] = []
         self.coverage: list[Coverage] = []
+        self.notices: list[Notice] = []
 
-    def __call__(self, check: FinishedCheck | RunCoverage) -> None:
+    def __call__(self, check: Reported) -> None:
         if isinstance(check, RunCoverage):
             self.coverage.extend(check.coverage)
+            return
+        if isinstance(check, RunNotices):
+            self.notices.extend(check.notices)
             return
         self.finished.append(check)
         if self._ends_after is not None and len(self.finished) >= self._ends_after:
@@ -58,6 +63,7 @@ class InlineWorker:
                 tuple(sink.finished),
                 f"ended by the script after {len(sink.finished)} checks",
                 tuple(sink.coverage),
+                tuple(sink.notices),
             )
         except Exception as error:  # the job's boundary: anything it raises
             return Failed(failure(error))

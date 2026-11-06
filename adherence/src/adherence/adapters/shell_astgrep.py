@@ -62,9 +62,11 @@ class ShellCodeModel:
         self,
         *,
         ast_grep: Path = BINARY,
+        bound: float | None = None,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self._ast_grep = ast_grep
+        self._bound = bound
         self._clock = clock
 
     def model(
@@ -84,6 +86,7 @@ class ShellCodeModel:
                 binary=self._ast_grep,
                 deadline=deadline,
                 clock=self._clock,
+                bound=self._bound,
             )
         except ScanFailed as failure:
             if failure.timed_out:

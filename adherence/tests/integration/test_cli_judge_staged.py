@@ -187,3 +187,27 @@ def test_judge_staged_whose_analyzer_outlives_the_deadline_is_ended_by_the_worke
     finally:
         if analyzer is not None and _is_running(analyzer):
             os.kill(analyzer, signal.SIGKILL)
+
+
+def test_judge_staged_of_a_first_commit_is_judged(tmp_path: Path) -> None:
+    """Given a repository with no commit yet and one staged file, When
+    `adhere judge --staged --json` runs in the hook, Then the staged file
+    is judged as created against git's empty tree: the verdict is not "not
+    run" and the first commit is not blocked."""
+    root = tmp_path / "repo"
+    _git(tmp_path, "init", "-q", "-b", "master", str(root))
+    (root / "a.py").write_text("def one() -> int:\n    return 1\n", encoding="utf-8")
+    _git(root, "add", "-A")
+    builder = functools.partial(
+        build,
+        complexity=FakeComplexity(),
+        duplication=FakeDuplication(),
+        reports=FakeReportStore(),
+        worker=InlineWorker(),
+    )
+
+    code, output = _judge_staged(root, builder)
+
+    document = json.loads(output)
+    assert document["verdict"] != "not run", output
+    assert code == 0, output

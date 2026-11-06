@@ -37,7 +37,7 @@ from adherence.domain.declaration import (
     refusal_notices,
     with_overrides,
 )
-from adherence.domain.finding import quoted
+from adherence.domain.finding import Notice, quoted
 from adherence.domain.model import (
     CodeLanguage,
     CodeModel,
@@ -64,6 +64,7 @@ from adherence.domain.report import (
     Report,
     ReportIdentity,
     RunCoverage,
+    RunNotices,
     body_digest,
     fingerprint,
 )
@@ -187,21 +188,30 @@ def _reported(
     return items
 
 
+def noticed(found: Iterable[Notice], finished: FinishedSink | None) -> None:
+    """Run-level notices as they are known, reported to `finished` at once,
+    so a run ended later still says them."""
+    items = tuple(found)
+    if finished is not None and items:
+        finished(RunNotices(items))
+
+
 def _as_reported(
     check: FinishedCheck,
     sources: Mapping[str, bytes],
     declaration: Declaration,
     parameters: Parameters,
     unmeasured: set[str],
-) -> FinishedCheck:
+) -> tuple[FinishedCheck, tuple[Notice, ...]]:
     """A finished check as the Report shows it: evidence quoted within the
-    bound, exemptions applied, and not run when its metrics were not."""
-    findings, _ = exempted(
+    bound, exemptions applied, and not run when its metrics were not; and
+    the notice of each exemption applied."""
+    findings, applied = exempted(
         quoted(check.findings, sources, parameters.limits.evidence_bound),
         declaration,
     )
     ran = check.ran and check.check.name not in unmeasured
-    return replace(check, findings=findings, ran=ran)
+    return replace(check, findings=findings, ran=ran), applied
 
 
 def measure_reporting(
@@ -220,9 +230,11 @@ def measure_reporting(
 ) -> Report:
     """measure, reporting each check to `finished` as it finishes, its
     evidence quoted and its exemptions applied as the Report will have
-    them: the job judge_bounded runs reports the head's checks this way."""
+    them, and each notice as soon as it is known: the job judge_bounded
+    runs reports the head's checks this way."""
     if isinstance(declaration, DeclarationUnreadable):
         return Report.not_run(f"the declaration cannot be read: {declaration.reason}")
+    noticed(refusal_notices(declaration), finished)
     latch = Latch()
     repository = LatchedRepository(repository, latch)
     analyzers = latched_analyzers(analyzers, latch)
@@ -321,9 +333,11 @@ def measure_reporting(
     for check in each_check(whole, declaration, design, parameters, radar=tech):
         done.append(check)
         if finished is not None:
-            finished(
-                _as_reported(check, sources, declaration, parameters, unmeasured_checks)
+            reported, applied = _as_reported(
+                check, sources, declaration, parameters, unmeasured_checks
             )
+            noticed(applied, finished)
+            finished(reported)
     checked = gathered(tuple(done))
     findings, applied = exempted(
         quoted(checked.findings, sources, parameters.limits.evidence_bound),

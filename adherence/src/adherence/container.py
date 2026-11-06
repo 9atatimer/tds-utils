@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from adherence.adapters.file_store import FileReportStore, default_store_dir
-from adherence.adapters.git import GitRepository
+from adherence.adapters.git import HOOK_BASE, GitRepository
 from adherence.adapters.jscpd import JscpdDuplication
 from adherence.adapters.lizard import LizardComplexity
 from adherence.adapters.markdown_records import MarkdownRecords
@@ -535,6 +535,8 @@ class Container:
     reports: ReportStore
     parameters: Parameters
     worker: WorkerPort | None = None
+    # The revision the hook judges the staged index against.
+    staged_base: str = HOOK_BASE
 
 
 def build(
@@ -563,16 +565,33 @@ def build(
     cache in the per-user cache directory until the warehouse lands for ci
     (task-067). The hook binds process_worker to end its run at the
     commit-time bound; the other stages are unbounded and bind no worker.
+    The hook judges the staged index against HEAD, or against git's empty
+    tree while HEAD is unborn, so a first commit is judged, not refused;
+    the repository adapter tells which, and an injected repository is
+    judged against HEAD.
+
+    The root is made absolute first: the hook's worker runs its job from a
+    scratch directory, not the repository (adapters/process_worker.py).
     """
+    root = str(Path(root).resolve())
     if analyzers is None:
-        typescript = TypeScriptCodeModel()
+        analyzer_bound = SHIPPED_LIMITS.analyzer_bound
+        typescript = TypeScriptCodeModel(bound=analyzer_bound)
         analyzers = {
-            CodeLanguage.PYTHON: PythonCodeModel(),
+            CodeLanguage.PYTHON: PythonCodeModel(bound=analyzer_bound),
             CodeLanguage.TYPESCRIPT: typescript,
             CodeLanguage.JAVASCRIPT: typescript,
-            CodeLanguage.SHELL: ShellCodeModel(),
+            CodeLanguage.SHELL: ShellCodeModel(bound=analyzer_bound),
         }
-    bound = repository if repository is not None else GitRepository(root)
+    bound: RepositoryPort
+    staged_base = HOOK_BASE
+    if repository is None:
+        git = GitRepository(root)
+        bound = git
+        if stage is Stage.HOOK:
+            staged_base = git.staged_base()
+    else:
+        bound = repository
     return Container(
         stage=stage,
         repository=bound,
@@ -607,4 +626,5 @@ def build(
             if stage is Stage.HOOK
             else None
         ),
+        staged_base=staged_base,
     )

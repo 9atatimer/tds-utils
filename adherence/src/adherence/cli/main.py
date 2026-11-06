@@ -46,8 +46,6 @@ STRIPPED_CATEGORIES = frozenset({"Cc", "Cf"})
 # lands (task-066): lowered fails a gate; not run never reads as a pass.
 # Inconclusive exits zero, so in the hook the commit proceeds.
 FAILING = frozenset({Verdict.LOWERED, Verdict.NOT_RUN})
-# The hook judges what is staged against the commit it will follow.
-HOOK_BASE = "HEAD"
 
 # --- Presenters --------------------------------------------------------------
 
@@ -180,7 +178,7 @@ def _judge_staged(container: Container, root: str) -> Report:
         raise click.UsageError("the hook stage binds no worker or no time bound")
     change = Change(
         repository=Path(root).resolve().name,
-        base=Base(HOOK_BASE),
+        base=Base(container.staged_base),
         head=Head.staged_index(),
     )
     return judge_bounded(
@@ -212,8 +210,8 @@ def _judge_staged(container: Container, root: str) -> Report:
 @click.option(
     "--staged",
     is_flag=True,
-    help="Judge the staged index against HEAD within the commit-time bound "
-    "(the pre-commit hook).",
+    help="Judge the staged index against HEAD -- git's empty tree before the "
+    "first commit -- within the commit-time bound (the pre-commit hook).",
 )
 @click.option("--json", "as_json", is_flag=True, help="Print the report as JSON.")
 @click.pass_context
@@ -226,7 +224,8 @@ def judge_command(
     as_json: bool,
 ) -> None:
     """Judge the head revision against the base, or the staged index
-    against HEAD, and print the report.
+    against HEAD (git's empty tree before the first commit), and print the
+    report.
 
     The report is kept after the verdict is reached, so keeping it can
     never change the verdict. A test passes the composition root, bound

@@ -5,7 +5,8 @@ bound") and Mechanism > Judging a change (The hook): judge_change runs as
 the worker's job, reporting the head's checks as they finish; a job that
 finishes returns its Report, and a job the worker ends at the deadline
 becomes the Report of the checks it finished, with every other check as
-coverage (domain/report.assemble_partial). A job that failed -- it raised,
+coverage, beside the run's coverage and notices it reported first
+(domain/report.assemble_partial). A job that failed -- it raised,
 or its process died -- is a suite that could not measure: not run, naming
 why. The application reads no time
 and ends nothing itself: the worker does.
@@ -108,7 +109,10 @@ def judge_bounded(
             repository=change.repository,
         )
     partial = assemble_partial(
-        ran.finished, unfinished_checks(ran.finished), coverage=ran.coverage
+        ran.finished,
+        unfinished_checks(ran.finished),
+        coverage=ran.coverage,
+        notices=ran.notices,
     )
     return replace(
         partial,

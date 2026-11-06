@@ -8,10 +8,11 @@ Both analyzers run as subprocesses over a copy of the sources in a scratch
 directory, never the repository; dependency-cruiser runs with
 `--no-config`, so no configuration the sources carry is ever loaded: a
 root tsconfig.json's path aliases are read here and handed over as a
-configuration of their own, pointing only inside the copy. It runs with
-an allowlisted environment and the time left before the deadline as its
-bound. Nothing in the sources is imported or run (ARCHITECTURE.ARCH-
-ADHERENCE.md, Security mitigations).
+configuration of their own, pointing only inside the copy. Each runs with
+an allowlisted environment and, as its timeout, the smaller of the
+analyzer bound and the time left before the deadline. Nothing in the
+sources is imported or run (ARCHITECTURE.ARCH-ADHERENCE.md, Security
+mitigations).
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 
+from adherence.adapters.analyzer_process import capped
 from adherence.adapters.astgrep import (
     BINARY,
     NESTED_TOO_DEEPLY,
@@ -445,10 +447,12 @@ def _cruise(
     aliases: str | None,
     deadline: Deadline | None,
     clock: Callable[[], float],
+    bound: float | None,
 ) -> Resolved:
     """Where each import of the sources resolves, by dependency-cruiser,
-    with the path aliases given as its only TypeScript configuration."""
-    timeout = None if deadline is None else deadline.epoch_seconds - clock()
+    with the path aliases given as its only TypeScript configuration, and
+    the smaller of `bound` and the time left before the deadline."""
+    timeout = capped(deadline, clock(), bound)
     if timeout is not None and timeout <= 0:
         raise CruiseFailed("resolve the imports", timed_out=True)
     with tempfile.TemporaryDirectory(prefix="adhere-depcruise-") as scratch:
@@ -517,6 +521,7 @@ def _cruise_around(
     aliases: str | None,
     deadline: Deadline | None,
     clock: Callable[[], float],
+    bound: float | None,
 ) -> tuple[Resolved, list[Unparsed]]:
     """Where each import resolves, cruising again without each source the
     cruiser names as one it cannot read, and why each of those is not read;
@@ -532,6 +537,7 @@ def _cruise_around(
                     aliases=aliases,
                     deadline=deadline,
                     clock=clock,
+                    bound=bound,
                 ),
                 dropped,
             )
@@ -555,10 +561,12 @@ class TypeScriptCodeModel:
         *,
         ast_grep: Path = BINARY,
         cruiser: Path = CRUISER,
+        bound: float | None = None,
         clock: Callable[[], float] = time.time,
     ) -> None:
         self._ast_grep = ast_grep
         self._cruiser = cruiser
+        self._bound = bound
         self._clock = clock
 
     def model(
@@ -580,6 +588,7 @@ class TypeScriptCodeModel:
                 binary=self._ast_grep,
                 deadline=deadline,
                 clock=self._clock,
+                bound=self._bound,
             )
         except ScanFailed as failure:
             if failure.timed_out:
@@ -617,6 +626,7 @@ class TypeScriptCodeModel:
                     aliases=aliases,
                     deadline=deadline,
                     clock=self._clock,
+                    bound=self._bound,
                 )
                 unparsed.extend(unread)
                 files = _without(files, _paths(unread))

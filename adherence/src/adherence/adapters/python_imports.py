@@ -5,8 +5,9 @@ the engine's own process: a measured package named like one the engine
 has loaded (`adherence`, when the engine measures itself) would resolve
 to the engine. The packages are copied to a scratch directory and grimp
 runs over them in an isolated child interpreter, with an allowlisted
-environment, its working directory outside the repository, and the time
-left before the deadline as its bound. A file outside any package (a
+environment, its working directory outside the repository, and as its
+timeout the smaller of the analyzer bound and the time left before the
+deadline. A file outside any package (a
 script, a test) has its absolute imports read with ast.
 """
 
@@ -22,6 +23,7 @@ from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
+from adherence.adapters.analyzer_process import capped
 from adherence.domain.deadline import Deadline
 from adherence.domain.model import ImportEdge, Unparsed
 from adherence.domain.source import source_lines
@@ -224,6 +226,7 @@ def _grimp_edges(
     modules: Modules,
     deadline: Deadline | None,
     clock: Callable[[], float],
+    bound: float | None,
 ) -> tuple[list[ImportEdge], list[tuple[str, str]]]:
     """The packages' import edges, and the (root, name) of packages grimp
     could not model because they shadow a module it runs on."""
@@ -239,7 +242,7 @@ def _grimp_edges(
                 target.write_bytes(data)
         for run in _runs(packages):
             roots = {p.name: str(tree / p.root) for p in run}
-            found, skipped = _run_grimp(Path(scratch), roots, deadline, clock)
+            found, skipped = _run_grimp(Path(scratch), roots, deadline, clock, bound)
             root_of = {p.name: p.root for p in run}
             shadowed.extend((root_of[name], name) for name in skipped)
             table = {
@@ -264,12 +267,11 @@ def _run_grimp(
     roots: Mapping[str, str],
     deadline: Deadline | None,
     clock: Callable[[], float],
+    bound: float | None,
 ) -> tuple[list[tuple[str, str, int, str]], list[str]]:
-    timeout = None
-    if deadline is not None:
-        timeout = deadline.epoch_seconds - clock()
-        if timeout <= 0:
-            raise ImportGraphFailed("build the import graph", timed_out=True)
+    timeout = capped(deadline, clock(), bound)
+    if timeout is not None and timeout <= 0:
+        raise ImportGraphFailed("build the import graph", timed_out=True)
     environment = {
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "LANG": "C.UTF-8",
@@ -308,6 +310,7 @@ def import_edges(
     trees: Mapping[str, ast.Module],
     deadline: Deadline | None,
     clock: Callable[[], float],
+    bound: float | None = None,
 ) -> tuple[list[ImportEdge], list[Unparsed]]:
     """Every import edge of the parsed sources (grimp for package modules,
     ast for the rest) and the package files that could not be modelled.
@@ -318,7 +321,7 @@ def import_edges(
     packages = _packages(parsed)
     modules = _modules(parsed, packages)
     edges, shadowed = (
-        _grimp_edges(parsed, packages, modules, deadline, clock)
+        _grimp_edges(parsed, packages, modules, deadline, clock, bound)
         if packages
         else ([], [])
     )

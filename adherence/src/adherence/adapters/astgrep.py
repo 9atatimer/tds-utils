@@ -9,8 +9,9 @@ Module map: adapters/astgrep.py).
 ast-grep runs as a subprocess over a copy of the sources in a scratch
 directory, never the repository: its configuration is the one written
 there and named on the command line, ignore files are not read, links
-are not followed, its environment is allowlisted, and the time left
-before the deadline is its bound (Security mitigations).
+are not followed, its environment is allowlisted, and its timeout is the
+smaller of the analyzer bound and the time left before the deadline
+(Security mitigations).
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 
+from adherence.adapters.analyzer_process import capped
 from adherence.domain.deadline import Deadline
 from adherence.domain.declaration import Declaration, layer_of, marker_regions
 from adherence.domain.model import (
@@ -893,16 +895,16 @@ def scan(
     binary: Path,
     deadline: Deadline | None,
     clock: Callable[[], float],
+    bound: float | None = None,
 ) -> list[Match]:
     """Every match of the grammar's rules over the sources, keyed by
-    repository path. Raises ScanFailed when ast-grep cannot answer in time."""
+    repository path, ast-grep given the smaller of `bound` and the time left
+    before the deadline. Raises ScanFailed when it cannot answer in time."""
     if not binary.is_file():
         raise ScanFailed(f"ast-grep is not installed at {binary}")
-    timeout = None
-    if deadline is not None:
-        timeout = deadline.epoch_seconds - clock()
-        if timeout <= 0:
-            raise ScanFailed("scan the sources", timed_out=True)
+    timeout = capped(deadline, clock(), bound)
+    if timeout is not None and timeout <= 0:
+        raise ScanFailed("scan the sources", timed_out=True)
     with tempfile.TemporaryDirectory(prefix="adhere-astgrep-") as scratch:
         root = Path(scratch)
         (root / "rules").mkdir()

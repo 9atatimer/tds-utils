@@ -90,6 +90,15 @@ class RunCoverage:
 
 
 @dataclass(frozen=True, slots=True)
+class RunNotices:
+    """What a run says beside its findings -- a refused exemption, an
+    applied one, an edit it is not judged under. A bounded run reports each
+    as soon as it is known, so a run ended after it still says it."""
+
+    notices: tuple[Notice, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class Recorded:
     """Whether a report was kept, and, when it was not, the notice the
     presenter shows beside the report."""
@@ -198,11 +207,12 @@ def assemble_partial(
     unfinished: tuple[Check, ...],
     *,
     coverage: tuple[Coverage, ...] = (),
+    notices: tuple[Notice, ...] = (),
     reason: str = ENDED,
 ) -> Report:
-    """The Report of a run ended at the deadline: the run's own coverage,
-    the finished checks as they finished, every unfinished one as
-    coverage, and the verdict inconclusive -- the change was never
+    """The Report of a run ended at the deadline: the run's own coverage
+    and notices, the finished checks as they finished, every unfinished one
+    as coverage, and the verdict inconclusive -- the change was never
     compared, so it is never held or raised, and what did not finish never
     reads as a pass. `reason` is why the unfinished checks did not
     finish."""
@@ -210,6 +220,7 @@ def assemble_partial(
     return Report(
         ran=tuple(f.check for f in kept if f.ran),
         findings=tuple(finding for f in kept for finding in f.findings),
+        notices=tuple(dict.fromkeys(notices)),
         coverage=(
             *coverage,
             *(c for f in kept for c in f.coverage),

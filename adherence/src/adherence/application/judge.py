@@ -22,7 +22,7 @@ from adherence.application.latch import (
     latched_analyzers,
 )
 from adherence.application.load import load_declaration
-from adherence.application.measure import measure_reporting
+from adherence.application.measure import measure_reporting, noticed
 from adherence.domain.checks.declared import (
     COVERED,
     RECORD_KEPT,
@@ -167,7 +167,8 @@ def judge_change_reporting(
     finished: FinishedSink | None,
 ) -> Report:
     """judge_change, reporting each of the head's checks to `finished` as it
-    finishes: the job judge_bounded runs.
+    finishes, and each notice as soon as it is known: the job judge_bounded
+    runs.
 
     The change's Report: the head's findings with their provenance, the
     base findings removed, and the verdict.
@@ -227,6 +228,13 @@ def judge_change_reporting(
             compared(base=Report(), head=head, change=change),
             repository=change.repository,
         )
+    edits = edit_notices(
+        in_force=in_force,
+        proposed=proposed,
+        paths={u.path for u in head.units},
+        created=change.created,
+    )
+    noticed(edits, finished)
     base = (
         _base_report(change, in_force, head.identity, reports, measuring)
         if head.identity is not None
@@ -249,12 +257,6 @@ def judge_change_reporting(
         bound=parameters.limits.evidence_bound,
     )
     head = with_outcome(head, RECORD_KEPT, kept)
-    edits = edit_notices(
-        in_force=in_force,
-        proposed=proposed,
-        paths={u.path for u in head.units},
-        created=change.created,
-    )
     head = replace(head, notices=(*head.notices, *edits))
     return replace(
         compared(
