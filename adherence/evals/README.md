@@ -32,7 +32,12 @@ Six examples per question prove the plumbing and catch a judge that is
 confidently wrong; they support no rate. The shipped thresholds
 (`container.SHIPPED_THRESHOLDS`) are provisional and conservative until
 the set grows: a binary finding needs 0.9, the score and the choice 0.85,
-with a wide abstention band below. The floor in CI is that no example is
-answered confidently wrong. Grow the set from real flaws found and real
+with a wide abstention band below. The floor is that no example is
+answered confidently wrong. It runs wherever a judge is configured:
+`DECIDE_URL` on a laptop, or the hosted `DECIDE_GATEWAY_URL` and
+`DECIDE_GATEWAY_TOKEN`. It becomes the gate's once the hosted judge is
+bound in CI (task-067; DESIGN.ARCH-ADHERENCE.md Q4). Until then no CI
+job runs it, and the shipped thresholds are checked against the labelled
+set by running it by hand. Grow the set from real flaws found and real
 false findings before moving a threshold, and report each question and
 each class apart.

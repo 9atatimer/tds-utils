@@ -192,10 +192,14 @@ def _judge(
     """Each unit's questions put to the judge in one call, and the answers
     settled by the threshold policy, within the judged-check budget, with
     the judge's availability: the bound judge's, unless it could not be
-    reached. After the judge first fails -- unavailable or out of time -- it
-    is not asked again, and every question left is coverage; a call the
-    judge rejects is coverage, and the next is still asked."""
-    asked, over_budget = within_budget(asks, parameters.limits.judged_budget)
+    reached. The budget is a bound judge's: with none bound, the port is
+    asked once for why, and every question is coverage naming that, never
+    the budget. After the judge first fails -- unavailable or out of time
+    -- it is not asked again, and every question left is coverage; a call
+    the judge rejects is coverage, and the next is still asked."""
+    bound = judge.availability() is Availability.AVAILABLE
+    budget = parameters.limits.judged_budget if bound else len(asks)
+    asked, over_budget = within_budget(asks, budget)
     findings: list[Finding] = []
     passes: list[Pass] = []
     abstentions: list[Abstention] = []

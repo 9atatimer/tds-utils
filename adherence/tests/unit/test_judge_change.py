@@ -713,3 +713,54 @@ def test_judge_change_with_an_abstention_on_an_untouched_unit_holds() -> None:
 
     assert [a.unit.path for a in report.abstentions] == [RULES]
     assert report.verdict is Verdict.HELD
+
+
+def _kept_base(files: dict[str, bytes]) -> FakeReportStore:
+    """A store holding the base measured with a judge that finds a unit
+    doing two jobs, so the head's judge may answer otherwise."""
+    store = FakeReportStore()
+    store.put(
+        replace(
+            measured_at(files, when=WHEN, judge=answering(TWO_JOBS, TWO_JOBS_FOUND)),
+            repository=REPOSITORY,
+        )
+    )
+    return store
+
+
+def test_judge_change_abstaining_over_a_base_finding_untouched_holds() -> None:
+    """Given a base judged finding whose unit the change did not touch, and a
+    head judge that only abstains there, When the change is judged, Then the
+    finding is not removed and the verdict is held, never raised."""
+    files = {RULES: FIXED, USE: CLEAN}
+    report = judge_with(
+        files,
+        {RULES: FIXED, USE: CLEAN + b"\n# edited\n"},
+        when=WHEN,
+        store=_kept_base(files),
+        unlisted_at={BASE: Refused(".", "the base is not measured again")},
+        judge=answering(TWO_JOBS, TWO_JOBS_IN_BAND),
+    )
+
+    assert [a.unit.path for a in report.abstentions] == [RULES]
+    assert report.removed == ()
+    assert report.verdict is Verdict.HELD
+
+
+def test_judge_change_abstaining_over_a_base_finding_touched_is_inconclusive() -> None:
+    """Given a base judged finding on a unit the change touched, and a head
+    judge that only abstains there, When the change is judged, Then the
+    finding is not removed and the verdict is inconclusive, never raised."""
+    files = {RULES: FIXED}
+    report = judge_with(
+        files,
+        {RULES: EDITED},
+        when={**WHEN, EDITED: stubbed(RULES, "tidy", 2, stub=None)},
+        store=_kept_base(files),
+        unlisted_at={BASE: Refused(".", "the base is not measured again")},
+        judge=answering(TWO_JOBS, TWO_JOBS_IN_BAND),
+    )
+
+    assert [a.unit.path for a in report.abstentions] == [RULES]
+    assert report.removed == ()
+    assert report.verdict is Verdict.INCONCLUSIVE

@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 
 from adherence.adapters.fakes import FakeDecision
+from adherence.adapters.no_judge import NoJudge
 from adherence.cli.presenters.json_report import report_document
 from adherence.domain.deadline import TimedOut
 from adherence.domain.finding import Finding
@@ -367,6 +368,24 @@ def test_measure_with_no_judged_budget_asks_nothing() -> None:
     assert judge.asked == []
     assert _of(report, "Two jobs") == []
     assert [c.path for c in report.coverage if c.check == "Two jobs"] == [RULES]
+
+
+def test_measure_with_no_judge_and_no_budget_names_the_judge() -> None:
+    """Given the hook stage's shape -- no judge bound and a budget of none --
+    and a unit with a question, When measured, Then the question is
+    coverage naming why there is no judge, never the budget."""
+    report = measure_with(
+        FILES,
+        CodeModel(definitions=(function(RULES, "price", 1, end=5),)),
+        judge=NoJudge("the hook asks no judge"),
+        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+        limits=Limits(evidence_bound=200, judged_budget=0),
+    )
+
+    reasons = [c.reason for c in report.coverage if c.check == "Two jobs"]
+    assert len(reasons) == 1
+    assert "the hook asks no judge" in reasons[0]
+    assert "budget" not in reasons[0]
 
 
 # --- A port in a rule is found (judged part) ---------------------------------------

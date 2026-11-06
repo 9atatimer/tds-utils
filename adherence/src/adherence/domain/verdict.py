@@ -8,8 +8,10 @@ base is introduced; one present there is existing. A base finding absent
 from the head is removed only where every unit it names is still covered
 at the head -- a record's seam, behavior or term only while the head's
 records still state it -- and its check ran there and passed. A judged
-check that abstained on a unit the change touched makes it inconclusive at
-best. The verdict is the first of not run, lowered, inconclusive, raised
+check that abstained there did not pass, so the base finding it abstained
+over is not removed: it has no provenance, and an abstention never raises.
+A judged check that abstained on a unit the change touched makes it
+inconclusive at best. The verdict is the first of not run, lowered, inconclusive, raised
 and held that applies.
 """
 
@@ -94,13 +96,15 @@ class _Joins:
 @dataclass(frozen=True, slots=True)
 class _Head:
     """What the comparison reads of the head report: its findings' keys, the
-    units it covers by path and symbol, the checks that ran, and the record
-    units the head's records state, by path and name."""
+    units it covers by path and symbol, the checks that ran, the record
+    units the head's records state, by path and name, and each check's
+    abstentions, by check name and unit."""
 
     keys: frozenset[FindingKey]
     covered: frozenset[UnitKey]
     ran: frozenset[str]
     stated: frozenset[UnitKey]
+    abstained: frozenset[tuple[str, UnitKey]]
 
 
 # --- Predicates --------------------------------------------------------------
@@ -120,15 +124,17 @@ def _check_passed_on(finding: Finding, path: str, head: Report) -> bool:
 
 def _is_removed(finding: Finding, joins: _Joins, head: Report, seen: _Head) -> bool:
     """Whether a base finding is removed: absent at the head, on a unit the
-    head still covers, by a check that ran there and passed."""
+    head still covers, by a check that ran there and passed. A check that
+    abstained on the unit did not pass there."""
     if joins.base_key(finding) in seen.keys:
         return False
     if finding.check.name not in seen.ran:
         return False
     unit = joins.unit_at_head(finding)
     units = seen.stated if finding.unit.kind in RECORD_UNITS else seen.covered
-    covered = unit in units
-    return covered and _check_passed_on(finding, unit[0], head)
+    if unit not in units or (finding.check.name, unit) in seen.abstained:
+        return False
+    return _check_passed_on(finding, unit[0], head)
 
 
 # --- Pure helpers ------------------------------------------------------------
@@ -184,6 +190,9 @@ def _seen(head: Report, joins: _Joins, stated: Collection[UnitKey]) -> _Head:
         ),
         ran=frozenset(c.name for c in head.ran),
         stated=frozenset(stated),
+        abstained=frozenset(
+            (a.check.name, (a.unit.path, a.unit.symbol)) for a in head.abstentions
+        ),
     )
 
 

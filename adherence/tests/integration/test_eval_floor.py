@@ -1,8 +1,13 @@
 """The labelled set against the real judge, under the shipped thresholds:
-the floor that goes in CI (the decision-models skill, Evaluation before
-adoption; the gates skill's law: a change is judged against the floor as
-it stood before it). Marked integration and skipped unless a judge is
-configured, since it spends against the judge's budget.
+the floor (the decision-models skill, Evaluation before adoption; the
+gates skill's law: a change is judged against the floor as it stood
+before it). Marked integration and skipped unless a judge is configured,
+since it spends against the judge's budget: it runs wherever one is
+(`DECIDE_URL` on a laptop, or the hosted `DECIDE_GATEWAY_*`). It becomes
+the gate's once the hosted judge is bound in CI (task-067;
+DESIGN.ARCH-ADHERENCE.md Q4). Until then no CI job runs it, and the
+shipped thresholds are checked against the labelled set by running it by
+hand.
 
 The floor, while the set is a handful per id: no example is answered
 confidently wrong -- no finding on an example labelled a pass, no pass on
