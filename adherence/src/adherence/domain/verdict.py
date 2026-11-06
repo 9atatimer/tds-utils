@@ -7,9 +7,12 @@ ADHERENCE.md, Mechanism > Judging a change). A head finding absent from the
 base is introduced; one present there is existing. A base finding absent
 from the head is removed only where every unit it names is still covered
 at the head -- a record's seam, behavior or term only while the head's
-records still state it -- and its check ran there and passed. The verdict
-is the first of not run, lowered, inconclusive, raised and held that
-applies.
+records still state it -- and its check ran there and passed. A judged
+check that abstained there did not pass, so the base finding it abstained
+over is not removed: it has no provenance, and an abstention never raises.
+A judged check that abstained on a unit the change touched makes it
+inconclusive at best. The verdict is the first of not run, lowered, inconclusive, raised
+and held that applies.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from adherence.domain.declaration import is_declared_check
 from adherence.domain.finding import Finding, Provenance, line_digest
 from adherence.domain.model import UnitKind
 from adherence.domain.qualities import Quality
+from adherence.domain.questions import Abstention
 from adherence.domain.records import DesignRecords, RecordsUnavailable
 from adherence.domain.report import Report, Verdict
 from adherence.domain.target import Change
@@ -92,13 +96,15 @@ class _Joins:
 @dataclass(frozen=True, slots=True)
 class _Head:
     """What the comparison reads of the head report: its findings' keys, the
-    units it covers by path and symbol, the checks that ran, and the record
-    units the head's records state, by path and name."""
+    units it covers by path and symbol, the checks that ran, the record
+    units the head's records state, by path and name, and each check's
+    abstentions, by check name and unit."""
 
     keys: frozenset[FindingKey]
     covered: frozenset[UnitKey]
     ran: frozenset[str]
     stated: frozenset[UnitKey]
+    abstained: frozenset[tuple[str, UnitKey]]
 
 
 # --- Predicates --------------------------------------------------------------
@@ -118,15 +124,17 @@ def _check_passed_on(finding: Finding, path: str, head: Report) -> bool:
 
 def _is_removed(finding: Finding, joins: _Joins, head: Report, seen: _Head) -> bool:
     """Whether a base finding is removed: absent at the head, on a unit the
-    head still covers, by a check that ran there and passed."""
+    head still covers, by a check that ran there and passed. A check that
+    abstained on the unit did not pass there."""
     if joins.base_key(finding) in seen.keys:
         return False
     if finding.check.name not in seen.ran:
         return False
     unit = joins.unit_at_head(finding)
     units = seen.stated if finding.unit.kind in RECORD_UNITS else seen.covered
-    covered = unit in units
-    return covered and _check_passed_on(finding, unit[0], head)
+    if unit not in units or (finding.check.name, unit) in seen.abstained:
+        return False
+    return _check_passed_on(finding, unit[0], head)
 
 
 # --- Pure helpers ------------------------------------------------------------
@@ -182,6 +190,9 @@ def _seen(head: Report, joins: _Joins, stated: Collection[UnitKey]) -> _Head:
         ),
         ran=frozenset(c.name for c in head.ran),
         stated=frozenset(stated),
+        abstained=frozenset(
+            (a.check.name, (a.unit.path, a.unit.symbol)) for a in head.abstentions
+        ),
     )
 
 
@@ -190,6 +201,15 @@ def _shown(coverage: Coverage) -> str:
         return f"{coverage.path} was not measured: {coverage.reason}"
     where = f" on {coverage.path}" if coverage.path else ""
     return f"{coverage.check} did not run{where}: {coverage.reason}"
+
+
+def _abstained(abstention: Abstention) -> str:
+    unit = abstention.unit
+    where = f"{unit.path}:{unit.symbol}" if unit.symbol else unit.path
+    return (
+        f"{abstention.check.name} abstained on {where} "
+        f"(confidence {abstention.confidence:.2f})"
+    )
 
 
 def _is_lost(
@@ -207,13 +227,17 @@ def _is_lost(
 def _inconclusive(base: Report, head: Report, change: Change) -> tuple[str, ...]:
     """Why the change is inconclusive: each check or file that could not be
     measured on a unit the change touched, or that is coverage at the head
-    and was not, for that reason, at the base."""
+    and was not, for that reason, at the base; and each judged check that
+    abstained at the head on a unit the change touched."""
     touched = change.touched()
     before = {
         replace(c, path=change.at_head(c.path) if c.path else None)
         for c in base.coverage
     }
-    return tuple(_shown(c) for c in head.coverage if _is_lost(c, before, touched))
+    return (
+        *(_shown(c) for c in head.coverage if _is_lost(c, before, touched)),
+        *(_abstained(a) for a in head.abstentions if a.unit.path in touched),
+    )
 
 
 def _verdict(introduced: bool, inconclusive: bool, removed: bool) -> Verdict:

@@ -46,7 +46,8 @@ class Finding:
     """One check failing on one unit. `subject` is what the finding names
     (the vendor, the cycle, the port, the seam); `reached` is the layer a
     layer finding reached, when it reached one; `exempt` is the reason of
-    the exemption that silences it, when one does."""
+    the exemption that silences it, when one does. A judged finding carries
+    the confidence its threshold policy read; a rule finding carries none."""
 
     check: Check
     unit: Unit
@@ -57,6 +58,7 @@ class Finding:
     kind: CheckKind = CheckKind.RULE
     provenance: Provenance | None = None
     exempt: str | None = None
+    confidence: float | None = None
 
     @property
     def identity(self) -> str:
@@ -65,13 +67,18 @@ class Finding:
         its whitespace collapsed, however much of it the evidence quotes.
         No path, symbol or line number is in it, so a
         moved file, a renamed function or an edit above leaves it alone; the
-        path is joined at judging, through the renames."""
+        path is joined at judging, through the renames. A judged finding's
+        kind is digested too, so it never shares an identity with the rule
+        finding of its check on the same line; a rule finding's digest is
+        as it always was."""
+        judged = (CheckKind.JUDGED.value,) if self.kind is CheckKind.JUDGED else ()
         parts = (
             self.check.quality.value,
             self.check.name,
             self.layer.value if self.layer is not None else "",
             self.unit.kind.value,
             self.evidence.digest or line_digest(self.evidence.text),
+            *judged,
         )
         return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
 

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from hypothesis import given
 from hypothesis import strategies as st
 
 from adherence.domain.finding import Evidence, Finding, quoted
 from adherence.domain.model import Layer, Unit, UnitKind
-from adherence.domain.qualities import catalog_check
+from adherence.domain.qualities import CheckKind, catalog_check
 
 UNIT = Unit("src/a.py", UnitKind.FILE, None, 1, 1, Layer.DOMAIN)
 
@@ -103,3 +105,19 @@ def test_identity_of_quoted_lines_past_the_bound_digests_the_whole_line() -> Non
 
     assert identities["first"] != identities["second"]
     assert identities["first"] == identities["respaced"]
+
+
+def test_identity_of_a_judged_finding_differs_from_the_rule_finding_on_its_line() -> (
+    None
+):
+    """Given a rule finding and a judged finding of one rule-and-judged check
+    on the same line (Boundary's foreign write, and the judge's answer that
+    it breaks an invariant), When their identities are taken, Then they
+    differ, so a judgement is never paired with a fact by identity; every
+    rule finding's identity is what it was."""
+    rule = _flaw(check="Boundary", text="order.status = 'x'")
+    judged = replace(rule, kind=CheckKind.JUDGED, confidence=0.9)
+
+    assert judged.identity != rule.identity
+    assert replace(judged, confidence=0.5).identity == judged.identity
+    assert rule.identity == replace(rule, kind=CheckKind.RULE).identity

@@ -36,7 +36,8 @@ from adherence.domain.model import (
     without,
 )
 from adherence.domain.parameters import Parameters
-from adherence.domain.qualities import CATALOG, Check, CheckKind, Quality
+from adherence.domain.qualities import CATALOG, Check, Quality
+from adherence.domain.questions import Ask
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 
 # --- Constants ---------------------------------------------------------------
@@ -49,9 +50,11 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Stub": complete.stub,
     "Complexity": complete.complexity,
     "Duplication": complete.duplication,
+    "Done": complete.done,
     "Real assertion": behavior.real_assertion,
     "Public surface": behavior.public_surface,
     "Kept test": behavior.kept_test,
+    "Then asserted": behavior.then_asserted,
     "No nesting": composable.no_nesting,
     "Helpers take values": composable.helpers_take_values,
     "Values in and out": composable.values_in_and_out,
@@ -61,19 +64,21 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Language": ddd.language,
     "Boundary": ddd.boundary,
     "Anemic": ddd.anemic,
+    "Decision": ddd.decision,
     "Trace": layered.trace,
     "Purity": layered.purity,
     "Wiring": layered.wiring,
     "Anatomy": layered.anatomy,
+    "Two jobs": layered.two_jobs,
 }
 RADAR_CHECKS: Mapping[str, RadarCheckFunction] = {
     "Dependency": radar.dependency,
     "Edge only": radar.edge_only,
+    "Hand-rolled": complete.hand_rolled,
 }
 NO_RADAR = RecordsUnavailable("no radar was read")
 CHANGE_LEVEL = "a change-level check: it runs when a change is judged"
 NOT_IN_SUITE = "not implemented in this suite version"
-NO_JUDGE_YET = "a judged check: none is implemented in this suite version"
 # The checks each language's model is complete enough for, for a language
 # whose model holds only some facts (task-070); a language not named here
 # is read by every check. Any other check runs without that language's
@@ -90,11 +95,13 @@ READ_BY: Mapping[str, frozenset[str]] = {
 @dataclass(frozen=True, slots=True)
 class Checked:
     """What the target-level checks did: the checks that ran, their
-    findings, and every check that did not run, with why."""
+    findings, the questions they put to the judge, and every check that did
+    not run, with why."""
 
     ran: tuple[Check, ...]
     findings: tuple[Finding, ...]
     coverage: tuple[Coverage, ...]
+    questions: tuple[Ask, ...] = ()
 
 
 # --- Pure helpers ------------------------------------------------------------
@@ -104,8 +111,6 @@ def _not_run(check: Check) -> Coverage:
     """Why a check the suite has no function for did not run."""
     if check.quality is Quality.DECLARED:
         return Coverage(CHANGE_LEVEL, check=check.name)
-    if check.kind is CheckKind.JUDGED:
-        return Coverage(NO_JUDGE_YET, check=check.name)
     return Coverage(NOT_IN_SUITE, check=check.name)
 
 
@@ -204,6 +209,7 @@ def run_checks(
         for u in model.units
         if u.kind is UnitKind.FILE
     }
+    questions: list[Ask] = []
     for check in CATALOG:
         unread = unread_by(check, model)
         scoped = given.over(without(model, unread))
@@ -225,4 +231,5 @@ def run_checks(
             )
         findings.extend(outcome.findings)
         coverage.extend(outcome.coverage)
-    return Checked(tuple(ran), tuple(findings), tuple(coverage))
+        questions.extend(outcome.questions)
+    return Checked(tuple(ran), tuple(findings), tuple(coverage), tuple(questions))

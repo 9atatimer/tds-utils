@@ -28,7 +28,7 @@ from adherence.domain.declaration import (
     refusal_notices,
     with_overrides,
 )
-from adherence.domain.finding import quoted
+from adherence.domain.finding import Finding, quoted
 from adherence.domain.model import (
     CodeLanguage,
     CodeModel,
@@ -41,13 +41,27 @@ from adherence.domain.model import (
     with_languages,
 )
 from adherence.domain.parameters import Parameters
+from adherence.domain.questions import (
+    Abstention,
+    Ask,
+    Availability,
+    Decision,
+    Judged,
+    Pass,
+    Rejected,
+    Unavailable,
+    schemas,
+    settled,
+    unanswered_checks,
+    unasked,
+    within_budget,
+)
 from adherence.domain.records import (
     DesignRecords,
     Radar,
     RecordsUnavailable,
 )
 from adherence.domain.report import (
-    JUDGE_UNASKED,
     SUITE_VERSION,
     BodyDigest,
     Report,
@@ -163,6 +177,58 @@ def _metrics(
     return Coverage(f"{answer.operation}: timed out", check=check)
 
 
+def _failed(answer: Unavailable | TimedOut) -> str:
+    if isinstance(answer, Unavailable):
+        return f"was not asked: the judge is unavailable: {answer.reason}"
+    return f"was not asked: {answer.operation}: timed out"
+
+
+def _judge(
+    asks: tuple[Ask, ...],
+    judge: DecisionPort,
+    parameters: Parameters,
+    deadline: Deadline | None,
+) -> tuple[Judged, Availability]:
+    """Each unit's questions put to the judge in one call, and the answers
+    settled by the threshold policy, within the judged-check budget, with
+    the judge's availability: the bound judge's, unless it could not be
+    reached. The budget is a bound judge's: with none bound, the port is
+    asked once for why, and every question is coverage naming that, never
+    the budget. After the judge first fails -- unavailable or out of time
+    -- it is not asked again, and every question left is coverage; a call
+    the judge rejects is coverage, and the next is still asked."""
+    bound = judge.availability() is Availability.AVAILABLE
+    budget = parameters.limits.judged_budget if bound else len(asks)
+    asked, over_budget = within_budget(asks, budget)
+    findings: list[Finding] = []
+    passes: list[Pass] = []
+    abstentions: list[Abstention] = []
+    coverage: list[Coverage] = list(over_budget)
+    failure: Unavailable | TimedOut | None = None
+    for asking in schemas(asked):
+        answer = failure or judge.decide(asking.state, asking.schema, deadline)
+        if isinstance(answer, Decision):
+            judged = settled(asking, answer, parameters.thresholds)
+            findings.extend(judged.findings)
+            passes.extend(judged.passes)
+            abstentions.extend(judged.abstentions)
+            coverage.extend(judged.coverage)
+        elif isinstance(answer, Rejected):
+            coverage.extend(
+                unasked(asking, f"was rejected by the judge: {answer.reason}")
+            )
+        else:
+            failure = answer
+            coverage.extend(unasked(asking, _failed(answer)))
+    availability = (
+        Availability.UNAVAILABLE
+        if isinstance(failure, Unavailable)
+        else judge.availability()
+    )
+    judged = Judged(tuple(findings), tuple(passes), tuple(abstentions), tuple(coverage))
+    return judged, availability
+
+
 def measure(
     at: Base | Head,
     declaration: Declaration | DeclarationUnreadable,
@@ -184,7 +250,7 @@ def measure(
         parameters=fingerprint(parameters),
         declaration=fingerprint(declaration),
         analyzers=tuple(sorted(language.value for language in analyzers)),
-        judge=JUDGE_UNASKED,
+        judge=judge.availability().value,
     )
     parameters = with_overrides(parameters, declaration)
     paths = repository.tree(at, deadline)
@@ -251,21 +317,38 @@ def measure(
             else read_radar
         )
     checked = run_checks(whole, declaration, design, parameters, radar=tech)
+    judged, availability = _judge(checked.questions, judge, parameters, deadline)
+    unjudged = unanswered_checks(checked.questions, judged)
     findings, applied = exempted(
-        quoted(checked.findings, sources, parameters.limits.evidence_bound),
+        quoted(
+            (*checked.findings, *judged.findings),
+            sources,
+            parameters.limits.evidence_bound,
+        ),
         declaration,
     )
     return Report(
-        ran=tuple(c for c in checked.ran if c.name not in unmeasured_checks),
+        ran=tuple(
+            c
+            for c in checked.ran
+            if c.name not in unmeasured_checks and c.name not in unjudged
+        ),
         findings=findings,
         notices=(*refusal_notices(declaration), *applied),
-        coverage=(*coverage, *unmodelled(whole, declaration), *checked.coverage),
+        coverage=(
+            *coverage,
+            *unmodelled(whole, declaration),
+            *checked.coverage,
+            *judged.coverage,
+        ),
+        abstentions=judged.abstentions,
+        passes=judged.passes,
         units=whole.units,
         bodies=tuple(
             BodyDigest(d.unit.path, d.unit.symbol, body_digest(d.body.text))
             for d in whole.definitions
             if d.unit.symbol is not None
         ),
-        identity=identity,
+        identity=replace(identity, judge=availability.value),
         revision=at.revision,
     )

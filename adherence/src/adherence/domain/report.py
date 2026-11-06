@@ -20,13 +20,12 @@ from adherence.domain.coverage import Coverage
 from adherence.domain.finding import Finding, Notice, normalised
 from adherence.domain.model import Unit
 from adherence.domain.qualities import Check, Quality
+from adherence.domain.questions import Abstention, Pass
 
 # --- Constants ---------------------------------------------------------------
 
 # The suite's version, as adherence/pyproject.toml states it.
 SUITE_VERSION = "0.1.0"
-# No judged check asks the judge in this suite version (task-064).
-JUDGE_UNASKED = "no judged question asked"
 
 # --- Values ------------------------------------------------------------------
 
@@ -89,10 +88,12 @@ class Verdict(enum.Enum):
 @dataclass(frozen=True, slots=True)
 class Report:
     """One run's outcome: the checks that ran, every finding each produced,
-    the notices and the coverage, and the units the run read, each with the
-    layer it is in, and each definition's body digest. A run the suite
-    could not perform is not run and carries the reason; it holds nothing
-    else, so it never reads as a pass.
+    the notices and the coverage, the judged checks' passes, each with its
+    confidence, and their abstentions, which are neither a finding nor a
+    pass, and the units the run read, each with the layer it is in, and each
+    definition's body digest. A run the suite could not perform is not run
+    and carries the reason; it holds nothing else, so it never reads as a
+    pass.
 
     For a change, the report is the head's, with the verdict and why, each
     finding's provenance, and the base findings the change removed."""
@@ -110,6 +111,8 @@ class Report:
     identity: ReportIdentity | None = None
     repository: str | None = None
     revision: str | None = None
+    abstentions: tuple[Abstention, ...] = ()
+    passes: tuple[Pass, ...] = ()
 
     def ran_in(self, quality: Quality) -> tuple[Check, ...]:
         """The checks of one quality that ran, in catalog order."""

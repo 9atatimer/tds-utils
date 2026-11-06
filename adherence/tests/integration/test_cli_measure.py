@@ -23,10 +23,13 @@ DESIGN = "docs/design/DESIGN.TOOL.md"
 
 
 def _measure(root: Path) -> tuple[int, str]:
+    # No judge, whatever the developer's environment configures: the run
+    # stays on this machine.
     builder = functools.partial(
         build,
         complexity=FakeComplexity(),
         duplication=FakeDuplication(),
+        environment={},
     )
     result = CliRunner().invoke(
         main, ["measure", "--root", str(root), "--json"], obj=builder
