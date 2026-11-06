@@ -180,6 +180,10 @@ jobs:
       - name: Smoketest bin/seed-ci-magic
         run: /bin/bash test/smoketest_seed_ci_magic.sh
 
+      # Hermetic: the alias file sourced under bash with a fake ssh on PATH.
+      - name: Smoketest macos/dot.alias
+        run: /bin/bash test/smoketest_dot_alias.sh
+
       # Hermetic: fake gh and a recording action on PATH; nothing reaches GitHub.
       - name: Smoketest bin/per-repo
         run: /bin/bash test/smoketest_per_repo.sh

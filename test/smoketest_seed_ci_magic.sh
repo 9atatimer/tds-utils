@@ -236,6 +236,9 @@ case_seed_refuses_without_op_ref() {
     run "${s}" -n seed
     assert "-n needs no reference and exits 0" "[ \"\${RUN_RC}\" -eq 0 ]"
     assert "the plan marks the reference unset" "printf '%s' \"\${RUN_OUT}\" | grep -q 'unset'"
+    TDS_CI_MAGIC_OP_REF=tok-not-a-path run "${s}" -n seed
+    assert "-n with a bare token -> exit 2 (the plan would print it)" "[ \"\${RUN_RC}\" -eq 2 ]"
+    assert "the token is not in the plan or the error" "! printf '%s%s' \"\${RUN_OUT}\" \"\${RUN_ERR}\" | grep -q 'tok-not-a-path'"
 }
 
 case_usage_on_bad_input() {
