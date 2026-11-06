@@ -595,6 +595,21 @@ checks.
   a cloud session. The terminal is the laptop's and the agent's view of a
   report. Invariant: a finding has the same identity in every place.
 - **Owner.** The human who owns the repository under measurement.
+- **Deadline.** The instant a bounded run must end, or none for an
+  unbounded run. Invariant: only an adapter compares it to the clock; the
+  core reads no time.
+- **Parameters.** The Parameters table as one value a run is given: the
+  thresholds, the vocabulary and the limits, as the shipped defaults; the
+  run merges the declaration's overrides in itself.
+- **CodeLanguage.** A language the suite measures, told by a source's
+  file extension or, for a file with none, by its shebang, and named apart
+  from the Language check. A source in a language no analyzer measures is
+  coverage, never a pass.
+- **DeclarationUnreadable.** The outcome of a declaration that cannot be
+  read or parsed, with the reason. Invariant: a run given one is not run,
+  never measured as undeclared.
+- **Recorded.** Whether a run's report was kept, and, when it was not, the
+  notice shown beside the report.
 
 ---
 
@@ -686,6 +701,8 @@ The owner's laptop as part of the LMDE contract, the adopting repositories' CI a
 | Floors | Bind once reached; an aim until then | A floor above today's score would make every change unlandable | self-review panel 2026-10-24 |
 | Dogfood | The suite measures itself in its own gate | A guardrail that does not hold its own author is not believed | this record |
 | No score: sensors | Supersedes The bar, What a score comparison sees, Floors, and the ticket clause of The declaration's source. No number is derived from findings. A change is judged on findings by identity: an introduced finding lowers, a removed one raises, a deleted unit's findings do neither. Floors and drop tickets are removed; an owner's exemption landed in an earlier change is the one way to introduce a flaw through the gate | A fraction over files and design behaviors weighs incommensurable things, and a change that fixes one flaw and introduces another leaves it unchanged; the finding itself is the failure and already carries what a fix needs (G8). Rules moot, and removes from Open Questions, Q2 (whether a score compares across repositories) and Q8 (a score over mixed kinds of unit) | Todd, 2026-10-25, Issue#590 |
+| Wiring over the test layer | A unit in the test layer may construct a concrete adapter; the Wiring rule that no unit outside the composition-root layer constructs one exempts the test layer, as Fake already exempts a fake | A test that constructs a concrete adapter is that adapter's contract suite, which the testing skill requires; the self-measurement's 60 Wiring findings were each such a test | Todd, 2026-11-06, Issue#590 |
+| Language over the suite's own nouns | Deadline, Parameters, CodeLanguage, DeclarationUnreadable and Recorded join the Domain Language | They are nouns of the suite's own language in its use-case signatures that this record did not define; the self-measurement's 10 Language findings were Language working as designed over an incomplete record | Todd, 2026-11-06, Issue#590 |
 
 ---
 

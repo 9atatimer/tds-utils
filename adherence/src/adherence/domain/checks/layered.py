@@ -516,9 +516,12 @@ def _rooted(
 
 
 def _below_root(construction: _Construction) -> Finding | None:
-    """A finding naming a unit outside the composition-root layer and the
-    concrete adapter it constructs; an uncovered unit is never checked."""
-    if construction.layer in (None, Layer.COMPOSITION_ROOT):
+    """A finding naming a unit outside the composition-root and test layers
+    and the concrete adapter it constructs; an uncovered unit is never
+    checked. A test that constructs a concrete adapter is that adapter's
+    contract suite, which the testing skill requires (DESIGN.ARCH-ADHERENCE.md,
+    Key Decisions, Wiring over the test layer)."""
+    if construction.layer in (None, Layer.COMPOSITION_ROOT, Layer.TEST):
         return None
     call = construction.call
     return Finding(
@@ -538,7 +541,8 @@ def wiring(
     parameters: Parameters,
 ) -> CheckOutcome:
     """Per declared runtime, exactly one unit constructs concrete adapters,
-    and no unit outside the composition-root layer constructs one."""
+    and no unit outside the composition-root and test layers constructs
+    one."""
     if not declaration.declared:
         return undeclared(WIRING.name)
     adapters = _concrete_adapters(model, parameters.vocabulary)
