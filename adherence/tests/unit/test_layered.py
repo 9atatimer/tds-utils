@@ -327,7 +327,7 @@ def test_measure_domain_function_taking_a_port_or_a_clock_is_found() -> None:
     assert "store" in subjects["price"] and "now" in subjects["stamp"]
     judged = [c for c in report.coverage if c.check == "Purity"]
     assert [c.path for c in judged] == [RULES]
-    assert "total" in judged[0].reason and "fetch" in judged[0].reason
+    assert "total" in judged[0].why and "fetch" in judged[0].why
 
 
 def test_measure_domain_function_taking_a_literal_naming_a_clock_is_not_found() -> None:

@@ -383,9 +383,10 @@ class ThresholdPolicy:
 
 def _unanswered(ask: Ask, why: str) -> Coverage:
     return Coverage(
-        f"{ask.subject}: {ask.question.id} {why}",
+        f"{ask.question.id} {why}",
         check=ask.check.name,
         path=ask.unit.path,
+        subject=ask.subject,
     )
 
 

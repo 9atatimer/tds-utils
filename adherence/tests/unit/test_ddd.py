@@ -206,7 +206,7 @@ def test_measure_with_an_all_fields_type_leaves_its_rules_to_the_judge() -> None
     assert "Anemic" in {c.name for c in report.ran}
     assert _of(report, "Anemic") == []
     asked = [c for c in report.coverage if c.check == "Anemic"]
-    assert {(c.path, c.reason.split(":")[0]) for c in asked} == {
+    assert {(c.path, c.why.split(":")[0]) for c in asked} == {
         (RULES, "Receipt"),
         (RULES, "Money"),
     }
@@ -345,7 +345,7 @@ def test_measure_with_a_domain_enum_asks_no_anemic_question() -> None:
 
     report = measure_with(files, facts(definitions, members=members, references=reads))
 
-    asked = [c.reason.split(":")[0] for c in report.coverage if c.check == "Anemic"]
+    asked = [c.why.split(":")[0] for c in report.coverage if c.check == "Anemic"]
     assert asked == ["Receipt"]
 
 
@@ -443,7 +443,7 @@ def test_measure_with_a_typescript_constructor_only_type_asks_anemic() -> None:
 
     report = measure_with(files, facts(definitions, members=members, references=reads))
 
-    asked = [c.reason.split(":")[0] for c in report.coverage if c.check == "Anemic"]
+    asked = [c.why.split(":")[0] for c in report.coverage if c.check == "Anemic"]
     assert asked == ["Money"]
 
 

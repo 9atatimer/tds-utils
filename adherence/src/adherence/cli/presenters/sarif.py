@@ -148,7 +148,7 @@ def _notification(text: str, level: str, **properties: object) -> dict[str, obje
 def _coverage_notification(coverage: Coverage) -> dict[str, object]:
     what = " on ".join(p for p in (coverage.check, coverage.path) if p) or "the run"
     return _notification(
-        f"coverage missing: {what}: {coverage.reason}",
+        f"coverage missing: {what}: {coverage.why}",
         "warning",
         check=coverage.check,
         path=coverage.path,

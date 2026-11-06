@@ -346,7 +346,7 @@ def test_measure_past_the_judged_budget_reports_the_questions_not_asked() -> Non
     assert [state.unit.symbol for state, _ in judge.asked] == ["price", "discount"]
     unasked = [c for c in report.coverage if "budget" in c.reason]
     assert sorted(c.check or "" for c in unasked) == ["Done", "Two jobs"]
-    assert all(c.path == USE and "close_order" in c.reason for c in unasked)
+    assert all(c.path == USE and "close_order" in c.why for c in unasked)
     assert {TWO_JOBS.id, IMPLEMENTED.id} == {
         q for q in (TWO_JOBS.id, IMPLEMENTED.id) for c in unasked if q in c.reason
     }

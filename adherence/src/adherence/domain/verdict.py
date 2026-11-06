@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 
 from adherence.domain.coverage import Coverage
@@ -198,9 +198,15 @@ def _seen(head: Report, joins: _Joins, stated: Collection[UnitKey]) -> _Head:
 
 def _shown(coverage: Coverage) -> str:
     if coverage.check is None:
-        return f"{coverage.path} was not measured: {coverage.reason}"
+        return f"{coverage.path} was not measured: {coverage.why}"
     where = f" on {coverage.path}" if coverage.path else ""
-    return f"{coverage.check} did not run{where}: {coverage.reason}"
+    return f"{coverage.check} did not run{where}: {coverage.why}"
+
+
+def _shown_many(coverage: Coverage, count: int) -> str:
+    if coverage.check is None:
+        return f"{count} files were not measured: {coverage.reason}"
+    return f"{coverage.check} did not run on {count} units: {coverage.reason}"
 
 
 def _abstained(abstention: Abstention) -> str:
@@ -210,6 +216,35 @@ def _abstained(abstention: Abstention) -> str:
         f"{abstention.check.name} abstained on {where} "
         f"(confidence {abstention.confidence:.2f})"
     )
+
+
+def _counted(
+    lost: Sequence[Coverage], abstained: Sequence[Abstention]
+) -> tuple[str, ...]:
+    """The causes of an inconclusive verdict, one line per check and
+    reason: a cause of one names its unit, a cause of many its count."""
+    by_reason: defaultdict[tuple[str | None, str], list[Coverage]] = defaultdict(list)
+    for coverage in lost:
+        by_reason[(coverage.check, coverage.reason)].append(coverage)
+    by_check: defaultdict[str, list[Abstention]] = defaultdict(list)
+    for abstention in abstained:
+        by_check[abstention.check.name].append(abstention)
+    return (
+        *(
+            _shown(group[0]) if len(group) == 1 else _shown_many(group[0], len(group))
+            for group in by_reason.values()
+        ),
+        *(
+            _abstained(group[0])
+            if len(group) == 1
+            else f"{name} abstained on {len(group)} units"
+            for name, group in by_check.items()
+        ),
+    )
+
+
+def _introduced(count: int) -> str:
+    return f"{count} finding{'' if count == 1 else 's'} introduced"
 
 
 def _is_lost(
@@ -225,18 +260,19 @@ def _is_lost(
 
 
 def _inconclusive(base: Report, head: Report, change: Change) -> tuple[str, ...]:
-    """Why the change is inconclusive: each check or file that could not be
-    measured on a unit the change touched, or that is coverage at the head
-    and was not, for that reason, at the base; and each judged check that
-    abstained at the head on a unit the change touched."""
+    """Why the change is inconclusive, counted by check and reason: the
+    checks and files that could not be measured on a unit the change
+    touched, or that are coverage at the head and were not, for that
+    reason, at the base; and the judged checks that abstained at the head
+    on a unit the change touched."""
     touched = change.touched()
     before = {
         replace(c, path=change.at_head(c.path) if c.path else None)
         for c in base.coverage
     }
-    return (
-        *(_shown(c) for c in head.coverage if _is_lost(c, before, touched)),
-        *(_abstained(a) for a in head.abstentions if a.unit.path in touched),
+    return _counted(
+        [c for c in head.coverage if _is_lost(c, before, touched)],
+        [a for a in head.abstentions if a.unit.path in touched],
     )
 
 
@@ -309,12 +345,15 @@ def compared(
     )
     seen = _seen(head, joins, stated)
     removed = tuple(f for f in removable if _is_removed(f, joins, head, seen))
-    introduced = any(f.provenance is Provenance.INTRODUCED for f in marked)
-    reasons = _inconclusive(base, head, change)
+    introduced = sum(1 for f in marked if f.provenance is Provenance.INTRODUCED)
+    causes = _inconclusive(base, head, change)
+    verdict = _verdict(bool(introduced), bool(causes), bool(removed))
+    # The reasons are why the verdict is what it is: the introduced findings
+    # when lowered, which the report lists, else what left it inconclusive.
     return replace(
         head,
         findings=marked,
         removed=removed,
-        verdict=_verdict(introduced, bool(reasons), bool(removed)),
-        reasons=reasons,
+        verdict=verdict,
+        reasons=(_introduced(introduced),) if introduced else causes,
     )

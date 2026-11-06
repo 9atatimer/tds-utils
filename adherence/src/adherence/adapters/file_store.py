@@ -136,7 +136,7 @@ def report_data(report: Report) -> JSON:
         "findings": [_finding_data(f) for f in report.findings],
         "notices": [n.message for n in report.notices],
         "coverage": [
-            {"reason": c.reason, "check": c.check, "path": c.path}
+            {"reason": c.reason, "check": c.check, "path": c.path, "subject": c.subject}
             for c in report.coverage
         ],
         "not_run": report.not_run_reason,
@@ -253,7 +253,10 @@ def _identity(value: object) -> ReportIdentity | None:
 def _coverage(value: object) -> Coverage:
     data = _table(value)
     return Coverage(
-        _text(data, "reason"), _maybe_text(data, "check"), _maybe_text(data, "path")
+        _text(data, "reason"),
+        _maybe_text(data, "check"),
+        _maybe_text(data, "path"),
+        _maybe_text(data, "subject"),
     )
 
 

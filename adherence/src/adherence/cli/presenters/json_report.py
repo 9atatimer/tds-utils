@@ -70,7 +70,12 @@ def _pass(passed: Pass) -> dict[str, object]:
 
 
 def _coverage(coverage: Coverage) -> dict[str, object]:
-    return {"check": coverage.check, "path": coverage.path, "reason": coverage.reason}
+    return {
+        "check": coverage.check,
+        "path": coverage.path,
+        "subject": coverage.subject,
+        "reason": coverage.reason,
+    }
 
 
 def report_document(

@@ -59,7 +59,7 @@ def _abstention_line(abstention: Abstention) -> str:
 
 def _coverage_line(coverage: Coverage) -> str:
     what = " on ".join(p for p in (coverage.check, coverage.path) if p) or "the run"
-    return without_controls(f"  coverage  {what}: {coverage.reason}")
+    return without_controls(f"  coverage  {what}: {coverage.why}")
 
 
 def _quality_lines(report: Report, quality: Quality) -> list[str]:

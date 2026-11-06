@@ -170,3 +170,17 @@ def test_author_text_leaves_no_autolink_or_mention() -> None:
     assert not re.search(r"(?i)(https?|ftp|mailto|xmpp):", shown), shown
     assert not re.search(r"(?i)www\.", shown), shown
     assert not re.search(r"@\w", shown), shown
+
+
+def test_coverage_of_many_units_for_one_reason_is_one_row() -> None:
+    """Given 5000 coverage items of one check and one reason, each on its
+    own unit, When summarized, Then they are one row with their count, and
+    the summary stays far under the step summary's 1 MiB."""
+    coverage = tuple(
+        Coverage("implemented was not asked", "Done", f"src/m{n}.py", f"f{n}: x")
+        for n in range(5000)
+    )
+    text = report_summary(replace(REPORT, coverage=coverage))
+
+    assert "| Done: implemented was not asked | 5000 |" in text
+    assert len(text.encode("utf-8")) < 64 * 1024

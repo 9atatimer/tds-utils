@@ -29,11 +29,20 @@ UNASSIGNED = "in no declared layer, so no check reads it"
 
 @dataclass(frozen=True, slots=True)
 class Coverage:
-    """A check, a source, or a check on a source, that did not run, and why."""
+    """A check, a source, or a check on a source, that did not run, and why.
+    `subject` names the unit on the source the check was to read, as its
+    finding would name it, when the check was to read one unit there; the
+    reason then says only why, so coverage counts by reason."""
 
     reason: str
     check: str | None = None
     path: str | None = None
+    subject: str | None = None
+
+    @property
+    def why(self) -> str:
+        """The reason, after the unit it is on when it names one."""
+        return f"{self.subject}: {self.reason}" if self.subject else self.reason
 
 
 # --- Pure helpers ------------------------------------------------------------

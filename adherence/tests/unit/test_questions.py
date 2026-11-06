@@ -247,6 +247,31 @@ def test_judged_question_with_no_threshold_or_no_answer_is_coverage() -> None:
     assert isinstance(partial, Coverage), partial
 
 
+def test_unanswered_question_names_its_unit_apart_from_its_reason() -> None:
+    """Given the same unanswered question about two units, When each is
+    judged, Then each coverage names its unit in the subject, and the
+    reason, which says only why, is the same for both."""
+    other = Ask(
+        check=catalog_check("Two jobs"),
+        question=TWO_JOBS,
+        unit=Unit(
+            "src/app/domain/tax.py", UnitKind.FUNCTION, "tax", 1, 4, Layer.DOMAIN
+        ),
+        layer=Layer.DOMAIN,
+        subject="tax: the subject",
+        evidence=Evidence("src/app/domain/tax.py", 1, "tax"),
+        text="def tax(): ...",
+        context="",
+    )
+    first = judged(_ask(TWO_JOBS), KEY, Decision({}), POLICY)
+    second = judged(other, KEY, Decision({}), POLICY)
+
+    assert isinstance(first, Coverage) and isinstance(second, Coverage)
+    assert (first.subject, second.subject) == ("price: the subject", "tax: the subject")
+    assert first.reason == second.reason
+    assert "price" not in first.reason
+
+
 def test_threshold_policy_refuses_an_empty_band_or_a_mismatched_form() -> None:
     """Given an entry whose pass bound is not below its finding bound, and a
     choice-form entry for a binary question, When the policy is built, Then

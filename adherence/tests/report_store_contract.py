@@ -39,7 +39,10 @@ REPORT = Report(
     ran=(catalog_check("Stub"), catalog_check("Grep")),
     findings=(FINDING,),
     notices=(Notice("exemption added: inert for this change"),),
-    coverage=(Coverage("timed out", check="Arrow", path="src/a.py"),),
+    coverage=(
+        Coverage("timed out", check="Arrow", path="src/a.py"),
+        Coverage("was not asked", check="Done", path="src/a.py", subject="tidy: x"),
+    ),
     units=(
         UNIT,
         replace(UNIT, kind=UnitKind.FILE, symbol=None, layer=None),
