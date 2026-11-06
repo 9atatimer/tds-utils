@@ -24,8 +24,11 @@ from adherence.domain.questions import Abstention, Ask, Pass
 
 # --- Constants ---------------------------------------------------------------
 
-# The suite's version, as adherence/pyproject.toml states it.
-SUITE_VERSION = "0.1.0"
+# The suite's version, as adherence/pyproject.toml states it. It is part of
+# every report's identity, so a kept report from a suite whose Report shape
+# differs is a miss, never a base: bump it when a value a report carries
+# changes (0.2.0: Coverage gained its subject).
+SUITE_VERSION = "0.2.0"
 # Why a check a bounded run was ended before is coverage.
 ENDED = "did not finish before the deadline"
 
