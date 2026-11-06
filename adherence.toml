@@ -1,0 +1,37 @@
+# adherence.toml -- this repository's declaration to the adherence suite
+# (docs/design/DESIGN.ARCH-ADHERENCE.md, One declaration, the owner's).
+#
+# What is declared here is what the suite measures; the rest of the
+# repository is coverage it names and does not judge. The engine declares
+# itself first (Issue#600); the shell tools under bin/ and the other trees
+# are declared as each is brought under the suite.
+#
+# cli/ is in the composition root, as the architecture's module map places
+# it: an entry point that constructs no adapter and calls the use cases.
+# tests/fixtures/ holds trees the engine measures, some deliberately
+# flawed, so they are left out of the test layer and measured by nothing.
+
+[layers]
+domain = ["adherence/src/adherence/domain/**"]
+application = ["adherence/src/adherence/application/**"]
+ports = ["adherence/src/adherence/ports/**"]
+adapters = ["adherence/src/adherence/adapters/**"]
+"composition root" = [
+    "adherence/src/adherence/container.py",
+    "adherence/src/adherence/cli/**",
+]
+test = [
+    "adherence/tests/*.py",
+    "adherence/tests/unit/**",
+    "adherence/tests/integration/**",
+]
+
+[records]
+design = "docs/design/DESIGN.ARCH-ADHERENCE.md"
+architecture = "docs/design/ARCHITECTURE.ARCH-ADHERENCE.md"
+
+[radar]
+path = "lmde/TECH_RADAR.md"
+
+[runtimes]
+adhere = ["adherence/src/adherence/**"]
