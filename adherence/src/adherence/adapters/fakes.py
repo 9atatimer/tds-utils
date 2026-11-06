@@ -42,6 +42,7 @@ from adherence.domain.questions import (
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 from adherence.domain.report import Recorded, Report
 from adherence.domain.target import Base, ChangedPaths, Head, Rename, is_object_id
+from adherence.ports.decision import Decided
 from adherence.ports.report_store import StoreMiss
 from adherence.ports.repository import Absent, Refused
 
@@ -346,7 +347,7 @@ class FakeDecision:
 
     def decide(
         self, state: State, schema: Schema, deadline: Deadline | None
-    ) -> Decision | Unavailable | Rejected | TimedOut:
+    ) -> Decided:
         if deadline is not None and deadline.epoch_seconds <= self._now:
             return TimedOut("ask the judge")
         self.asked.append((state, schema))

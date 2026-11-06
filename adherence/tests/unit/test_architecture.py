@@ -118,3 +118,53 @@ def test_only_the_composition_root_names_an_adapter() -> None:
                 assert _target(name) != "adapters", (
                     f"{layer}/{path.name} imports {name}: only container.py may"
                 )
+
+
+def _module_name(path: Path) -> str:
+    return ".".join(["adherence", *path.relative_to(SRC).with_suffix("").parts])
+
+
+def _cycle_from(
+    start: str, graph: dict[str, set[str]], path: tuple[str, ...]
+) -> tuple[str, ...] | None:
+    for name in sorted(graph.get(path[-1], ())):
+        if name == start:
+            return (*path, start)
+        if name not in path:
+            found = _cycle_from(start, graph, (*path, name))
+            if found is not None:
+                return found
+    return None
+
+
+def test_the_domain_imports_form_no_cycle() -> None:
+    """Given the domain's modules, When their imports are read, a
+    TYPE_CHECKING import among them, Then no module reaches itself."""
+    modules = {_module_name(p): p for p in _modules("domain")}
+    graph = {
+        name: {i for i in _imports(path) if i in modules and i != name}
+        for name, path in modules.items()
+    }
+    for name in sorted(graph):
+        cycle = _cycle_from(name, graph, (name,))
+        assert cycle is None, " -> ".join(cycle or ())
+
+
+def _nested(tree: ast.AST) -> list[str]:
+    """The functions defined inside a function, by name."""
+    functions = (ast.FunctionDef, ast.AsyncFunctionDef)
+    return [
+        inner.name
+        for outer in ast.walk(tree)
+        if isinstance(outer, functions)
+        for inner in ast.walk(outer)
+        if inner is not outer and isinstance(inner, functions)
+    ]
+
+
+def test_no_engine_function_is_nested_in_another() -> None:
+    """Given any engine module, When its definitions are read, Then no
+    function is defined inside another: each is a unit a test can reach."""
+    for path in sorted(SRC.rglob("*.py")):
+        nested = _nested(ast.parse(path.read_text()))
+        assert nested == [], f"{path.relative_to(SRC)} nests {nested}"

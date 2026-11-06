@@ -25,20 +25,13 @@ from adherence.domain.declaration import (
 )
 from adherence.domain.model import CodeLanguage, CodeModel, Metrics, MetricsUnavailable
 from adherence.domain.parameters import Vocabulary
-from adherence.domain.questions import (
-    Availability,
-    Decision,
-    Rejected,
-    Schema,
-    State,
-    Unavailable,
-)
+from adherence.domain.questions import Availability, Schema, State
 from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
 from adherence.domain.report import Recorded, Report
 from adherence.domain.target import Base, ChangedPaths, Head
 from adherence.ports.code_model import CodeModelPort
 from adherence.ports.complexity import ComplexityPort
-from adherence.ports.decision import DecisionPort
+from adherence.ports.decision import Decided, DecisionPort
 from adherence.ports.duplication import DuplicationPort
 from adherence.ports.records import RecordsPort
 from adherence.ports.report_store import ReportStore, StoreMiss
@@ -214,7 +207,7 @@ class LatchedDecision:
 
     def decide(
         self, state: State, schema: Schema, deadline: Deadline | None
-    ) -> Decision | Unavailable | Rejected | TimedOut:
+    ) -> Decided:
         if self._latch.tripped:
             return self._latch.unasked("ask the judge")
         return self._latch.seen(self._inner.decide(state, schema, deadline))
@@ -242,7 +235,7 @@ class LatchedReports:
 
 
 def latched_analyzers(
-    analyzers: Mapping[CodeLanguage, CodeModelPort], latch: Latch
+    latch: Latch, *, analyzers: Mapping[CodeLanguage, CodeModelPort]
 ) -> dict[CodeLanguage, CodeModelPort]:
     """Each language's analyzer behind the latch."""
     return {

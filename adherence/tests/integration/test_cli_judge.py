@@ -23,9 +23,9 @@ from adherence.adapters.fakes import (
     FakeReportStore,
 )
 from adherence.cli.main import main
-from adherence.container import build
+from adherence.container import Container, build
 from tests import shell_fixture
-from tests.integration.test_git_repository import _git, make_repository
+from tests.git_kit import git, make_repository
 from tests.json_schema import sarif_violations
 from tests.judge_kit import passing_judge
 
@@ -40,10 +40,23 @@ def _revisions(root: Path) -> dict[str, str]:
     revisions: dict[str, str] = {}
     for tree in ("base", "head", "fixed"):
         shutil.copytree(FIXTURE / tree, root, dirs_exist_ok=True)
-        _git(root, "add", "-A")
-        _git(root, "commit", "-q", "-m", tree)
-        revisions[tree] = _git(root, "rev-parse", "HEAD")
+        git(root, "add", "-A")
+        git(root, "commit", "-q", "-m", tree)
+        revisions[tree] = git(root, "rev-parse", "HEAD")
     return revisions
+
+
+def _over_real_git() -> functools.partial[Container]:
+    """The composition root over real git and the real Python analyzer, the
+    metrics, the report store and the judge faked, and no environment."""
+    return functools.partial(
+        build,
+        complexity=FakeComplexity(),
+        duplication=FakeDuplication(),
+        reports=FakeReportStore(),
+        judge=passing_judge(),
+        environment={},
+    )
 
 
 def _judge(root: Path, base: str, head: str, store: FakeReportStore) -> tuple[int, str]:
@@ -123,13 +136,13 @@ def _added(root: Path, fixture: Path, path: str) -> tuple[str, str]:
     shutil.copytree(fixture, root, dirs_exist_ok=True)
     held = (root / path).read_bytes()
     (root / path).unlink()
-    _git(root, "add", "-A")
-    _git(root, "commit", "-q", "-m", "base")
-    base = _git(root, "rev-parse", "HEAD")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "base")
+    base = git(root, "rev-parse", "HEAD")
     (root / path).write_bytes(held)
-    _git(root, "add", "-A")
-    _git(root, "commit", "-q", "-m", "head")
-    return base, _git(root, "rev-parse", "HEAD")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "head")
+    return base, git(root, "rev-parse", "HEAD")
 
 
 def _judged(root: Path, base: str, head: str) -> dict[str, object]:
@@ -207,14 +220,7 @@ def test_judge_sarif_of_the_fixture_conforms_to_sarif_2_1_0(tmp_path: Path) -> N
     stub's line (the task-066 done check)."""
     root = tmp_path / "repo"
     revisions = _revisions(root)
-    builder = functools.partial(
-        build,
-        complexity=FakeComplexity(),
-        duplication=FakeDuplication(),
-        reports=FakeReportStore(),
-        judge=passing_judge(),
-        environment={},
-    )
+    builder = _over_real_git()
 
     result = CliRunner().invoke(
         main,
@@ -244,18 +250,18 @@ def _undecodable_revisions(root: Path) -> tuple[str, str]:
     a filesystem that refuses the name cannot refuse the commit."""
     make_repository(root, base={}, staged={}, working={})
     shutil.copytree(FIXTURE / "base", root, dirs_exist_ok=True)
-    _git(root, "add", "-A")
-    _git(root, "commit", "-q", "-m", "base")
-    base = _git(root, "rev-parse", "HEAD")
-    blob = _git(
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "base")
+    base = git(root, "rev-parse", "HEAD")
+    blob = git(
         root,
         "hash-object",
         "-w",
         str(FIXTURE / "head" / "src" / "tool" / "domain" / "rules.py"),
     )
-    _git(root, "update-index", "--add", "--cacheinfo", f"100644,{blob},{UNDECODABLE}")
-    _git(root, "commit", "-q", "-m", "undecodable")
-    return base, _git(root, "rev-parse", "HEAD")
+    git(root, "update-index", "--add", "--cacheinfo", f"100644,{blob},{UNDECODABLE}")
+    git(root, "commit", "-q", "-m", "undecodable")
+    return base, git(root, "rev-parse", "HEAD")
 
 
 @pytest.mark.parametrize("output_format", ["terminal", "summary", "sarif"])
@@ -269,14 +275,7 @@ def test_judge_of_a_path_no_utf8_decodes_keeps_its_verdict(
     2.1.0, and the exit status is the verdict's, not a traceback's."""
     root = tmp_path / "repo"
     base, head = _undecodable_revisions(root)
-    builder = functools.partial(
-        build,
-        complexity=FakeComplexity(),
-        duplication=FakeDuplication(),
-        reports=FakeReportStore(),
-        judge=passing_judge(),
-        environment={},
-    )
+    builder = _over_real_git()
 
     result = CliRunner().invoke(
         main,

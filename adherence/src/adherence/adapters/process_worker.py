@@ -36,7 +36,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from multiprocessing.connection import Connection
 from multiprocessing.process import BaseProcess
@@ -145,6 +145,25 @@ def _handler(
     return signal.SIG_DFL if found is None else found
 
 
+class _Ending:
+    """The handler that ends the child's group on a parent's ending signal,
+    then lets the signal take its course under the handler it replaced."""
+
+    def __init__(
+        self,
+        child: BaseProcess,
+        previous: Mapping[int, Callable[[int, FrameType | None], object] | int],
+    ) -> None:
+        self._child = child
+        self._previous = previous
+
+    def __call__(self, signum: int, _frame: FrameType | None) -> None:
+        if self._child.pid is not None:
+            end(self._child)
+        signal.signal(signum, self._previous[signum])
+        os.kill(os.getpid(), signum)
+
+
 @contextlib.contextmanager
 def _ending_on_signals(child: BaseProcess) -> Iterator[None]:
     """While the run is in progress, a SIGTERM or SIGHUP of the parent ends
@@ -154,16 +173,10 @@ def _ending_on_signals(child: BaseProcess) -> Iterator[None]:
     if threading.current_thread() is not threading.main_thread():
         yield
         return
-
-    def ending(signum: int, _frame: FrameType | None) -> None:
-        if child.pid is not None:
-            end(child)
-        signal.signal(signum, previous[signum])
-        os.kill(os.getpid(), signum)
-
     previous: dict[int, Callable[[int, FrameType | None], object] | int] = {
         signum: _handler(signal.getsignal(signum)) for signum in ENDING_SIGNALS
     }
+    ending = _Ending(child, previous)
     for ending_signal in ENDING_SIGNALS:
         signal.signal(ending_signal, ending)
     try:

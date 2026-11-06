@@ -17,54 +17,8 @@ from adherence.adapters.git import GitRepository
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.target import Base, Head
 from adherence.ports.repository import Refused, RepositoryPort
+from tests.git_kit import GIT_ENV, git, make_repository
 from tests.repository_contract import Files, RepositoryContract
-
-GIT_ENV = {
-    "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-    "HOME": "/nonexistent",
-    "GIT_CONFIG_NOSYSTEM": "1",
-    "GIT_AUTHOR_NAME": "t",
-    "GIT_AUTHOR_EMAIL": "t@t",
-    "GIT_COMMITTER_NAME": "t",
-    "GIT_COMMITTER_EMAIL": "t@t",
-}
-
-
-def _git(root: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(root), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-        env=GIT_ENV,
-    ).stdout.strip()
-
-
-def _write(root: Path, files: Files) -> None:
-    for path, data in files.items():
-        (root / path).parent.mkdir(parents=True, exist_ok=True)
-        (root / path).write_bytes(data)
-
-
-def make_repository(
-    root: Path,
-    *,
-    base: Files,
-    staged: Files,
-    working: Files,
-    deleted: Collection[str] = (),
-) -> Base:
-    _git(root.parent, "init", "-q", "-b", "master", str(root))
-    _write(root, base)
-    _git(root, "add", "-A")
-    _git(root, "commit", "-q", "--allow-empty", "-m", "base")
-    revision = _git(root, "rev-parse", "HEAD")
-    _write(root, staged)
-    for path in deleted:
-        (root / path).unlink()
-    _git(root, "add", "-A")
-    _write(root, working)
-    return Base(revision)
 
 
 class TestGitRepository(RepositoryContract):
@@ -87,11 +41,11 @@ class TestGitRepository(RepositoryContract):
 def _with_link(tmp_path: Path) -> tuple[GitRepository, Base]:
     root = tmp_path / "repo"
     (tmp_path / "secret").write_bytes(b"outside\n")
-    _git(tmp_path, "init", "-q", "-b", "master", str(root))
+    git(tmp_path, "init", "-q", "-b", "master", str(root))
     (root / "link").symlink_to(tmp_path / "secret")
-    _git(root, "add", "-A")
-    _git(root, "commit", "-q", "-m", "link")
-    return GitRepository(str(root)), Base(_git(root, "rev-parse", "HEAD"))
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "link")
+    return GitRepository(str(root)), Base(git(root, "rev-parse", "HEAD"))
 
 
 def test_read_of_a_symbolic_link_is_refused_in_every_target(tmp_path: Path) -> None:
@@ -213,15 +167,15 @@ def test_history_lists_newest_first_and_stops_at_the_base(tmp_path: Path) -> Non
         root, base={"adherence.toml": b"a\n"}, staged={}, working={}
     )
     (root / "other.py").write_bytes(b"x\n")
-    _git(root, "add", "-A")
-    _git(root, "commit", "-q", "-m", "other")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "other")
     (root / "adherence.toml").write_bytes(b"b\n")
-    _git(root, "add", "-A")
-    _git(root, "commit", "-q", "-m", "edit")
-    second = _git(root, "rev-parse", "HEAD")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "edit")
+    second = git(root, "rev-parse", "HEAD")
     (root / "adherence.toml").write_bytes(b"c\n")
-    _git(root, "add", "-A")
-    _git(root, "commit", "-q", "-m", "later")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "later")
 
     history = GitRepository(str(root)).history("adherence.toml", Base(second), None)
 

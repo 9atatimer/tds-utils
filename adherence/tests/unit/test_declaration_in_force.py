@@ -464,11 +464,10 @@ def _read_at(reads: list[tuple[str, Base | Head]]) -> set[Base | Head]:
     return {at for _path, at in reads}
 
 
-def test_judge_change_whose_codeowners_read_times_out_ends_the_walk() -> None:
-    """Given a CODEOWNERS read that times out, When the newest landing is
-    counted, Then the walk ends there: the repository is judged undeclared
-    with coverage, and no further landing or reviewed commit is read."""
-    reviews = FakeReviews(
+def _newest_approved_then_earlier() -> FakeReviews:
+    """The base landed by mallory with the owner's approval of the newest
+    reviewed commit, and the earlier landing approved."""
+    return FakeReviews(
         {
             BASE.revision: Landing(
                 author="mallory", approvals=(Approval("owner", REVIEWED_NEWEST),)
@@ -476,6 +475,13 @@ def test_judge_change_whose_codeowners_read_times_out_ends_the_walk() -> None:
             EARLIER: _approved_earlier(),
         }
     )
+
+
+def test_judge_change_whose_codeowners_read_times_out_ends_the_walk() -> None:
+    """Given a CODEOWNERS read that times out, When the newest landing is
+    counted, Then the walk ends there: the repository is judged undeclared
+    with coverage, and no further landing or reviewed commit is read."""
+    reviews = _newest_approved_then_earlier()
     reads: list[tuple[str, Base | Head]] = []
 
     report = judge_with(
@@ -497,14 +503,7 @@ def test_judge_change_whose_reviewed_declaration_read_times_out_ends_the_walk() 
     adherence.toml for, whose read from the repository times out, When that
     landing is counted, Then the walk ends there: the repository is judged
     undeclared with coverage, and the landing before it is never read."""
-    reviews = FakeReviews(
-        {
-            BASE.revision: Landing(
-                author="mallory", approvals=(Approval("owner", REVIEWED_NEWEST),)
-            ),
-            EARLIER: _approved_earlier(),
-        }
-    )
+    reviews = _newest_approved_then_earlier()
     reads: list[tuple[str, Base | Head]] = []
 
     report = judge_with(

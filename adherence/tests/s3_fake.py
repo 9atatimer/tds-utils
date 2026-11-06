@@ -66,6 +66,52 @@ def _xml_error(code: str, message: str) -> bytes:
     ).encode()
 
 
+# A refused request's status, error code and message.
+Refusal = tuple[int, str, str]
+
+
+def _scope_refusal(
+    match: re.Match[str], region: str, headers: Mapping[str, str], body: bytes
+) -> Refusal | None:
+    """Why the signature's scope, payload digest or signed headers refuse
+    the request before its signature is computed."""
+    amz_date = headers.get("x-amz-date", "")
+    if match["region"] != region or match["date"] != amz_date[:8]:
+        return 403, "SignatureDoesNotMatch", "credential scope mismatch"
+    payload = headers.get("x-amz-content-sha256", "")
+    if payload != UNSIGNED and payload != hashlib.sha256(body).hexdigest():
+        return 400, "XAmzContentSHA256Mismatch", "payload digest mismatch"
+    signed = match["signed"].split(";")
+    if "host" not in signed or any(name not in headers for name in signed):
+        return 403, "SignatureDoesNotMatch", "a signed header is absent"
+    return None
+
+
+def _signature_refusal(
+    method: str,
+    raw_path: str,
+    headers: Mapping[str, str],
+    body: bytes,
+    match: re.Match[str],
+    secret: str,
+) -> Refusal | None:
+    """Why the signature botocore's signer computes is not the request's."""
+    signed = match["signed"].split(";")
+    request = AWSRequest(
+        method=method,
+        url=f"http://{headers['host']}{raw_path}",
+        data=body,
+        headers={name: headers[name] for name in signed},
+    )
+    request.context["timestamp"] = headers.get("x-amz-date", "")
+    signer = S3SigV4Auth(Credentials(match["key"], secret), "s3", match["region"])
+    canonical = signer.canonical_request(request)
+    expected = signer.signature(signer.string_to_sign(request, canonical), request)
+    if not hmac.compare_digest(expected, match["signature"]):
+        return 403, "SignatureDoesNotMatch", "signature mismatch"
+    return None
+
+
 class _Server(ThreadingHTTPServer):
     daemon_threads = True
 
@@ -86,7 +132,7 @@ class _Server(ThreadingHTTPServer):
 
     def refusal(
         self, method: str, raw_path: str, headers: Mapping[str, str], body: bytes
-    ) -> tuple[int, str, str] | None:
+    ) -> Refusal | None:
         """Why the request is refused (status, code, message), or None."""
         match = AUTHORIZATION.fullmatch(headers.get("authorization", ""))
         if match is None:
@@ -94,29 +140,21 @@ class _Server(ThreadingHTTPServer):
         credential = self.credentials.get(match["key"])
         if credential is None:
             return 403, "InvalidAccessKeyId", "unknown access key"
-        amz_date = headers.get("x-amz-date", "")
-        if match["region"] != self.region or match["date"] != amz_date[:8]:
-            return 403, "SignatureDoesNotMatch", "credential scope mismatch"
-        payload = headers.get("x-amz-content-sha256", "")
-        if payload != UNSIGNED and payload != hashlib.sha256(body).hexdigest():
-            return 400, "XAmzContentSHA256Mismatch", "payload digest mismatch"
-        signed = match["signed"].split(";")
-        if "host" not in signed or any(name not in headers for name in signed):
-            return 403, "SignatureDoesNotMatch", "a signed header is absent"
-        request = AWSRequest(
-            method=method,
-            url=f"http://{headers['host']}{raw_path}",
-            data=body,
-            headers={name: headers[name] for name in signed},
+        refused = _scope_refusal(match, self.region, headers, body)
+        if refused is None:
+            refused = _signature_refusal(
+                method, raw_path, headers, body, match, credential.secret
+            )
+        return (
+            refused
+            if refused is not None
+            else self.grant_refusal(method, raw_path, credential)
         )
-        request.context["timestamp"] = amz_date
-        signer = S3SigV4Auth(
-            Credentials(match["key"], credential.secret), "s3", self.region
-        )
-        canonical = signer.canonical_request(request)
-        expected = signer.signature(signer.string_to_sign(request, canonical), request)
-        if not hmac.compare_digest(expected, match["signature"]):
-            return 403, "SignatureDoesNotMatch", "signature mismatch"
+
+    def grant_refusal(
+        self, method: str, raw_path: str, credential: Credential
+    ) -> Refusal | None:
+        """Why a signed request falls outside its credential's grants."""
         key = self.key_of(raw_path)
         if key is None or not any(
             g.method == method and fnmatchcase(key, g.pattern)

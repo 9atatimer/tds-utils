@@ -9,9 +9,7 @@ branch, join this suite when they merge.
 from __future__ import annotations
 
 import importlib.util
-import os
 import shutil
-import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -29,28 +27,10 @@ from adherence.domain.questions import TWO_JOBS, Schema, State
 from adherence.domain.target import Base, Head
 from tests.decide_stub import stub_server
 from tests.execution_contract import ExecutionContract
+from tests.git_kit import git
 
 JSCPD = Path(__file__).resolve().parents[2] / "node_modules" / ".bin" / "jscpd"
 DECIDE = Path(__file__).resolve().parents[3] / "bin" / "decide"
-GIT_ENV = {
-    "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
-    "HOME": "/nonexistent",
-    "GIT_CONFIG_NOSYSTEM": "1",
-    "GIT_AUTHOR_NAME": "t",
-    "GIT_AUTHOR_EMAIL": "t@t",
-    "GIT_COMMITTER_NAME": "t",
-    "GIT_COMMITTER_EMAIL": "t@t",
-}
-
-
-def _git(root: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(root), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-        env=GIT_ENV,
-    ).stdout.strip()
 
 
 class TestGitNeverRunsRepositoryCode(ExecutionContract):
@@ -59,9 +39,9 @@ class TestGitNeverRunsRepositoryCode(ExecutionContract):
 
     def prepare(self, root: Path, files: Mapping[str, bytes]) -> None:
         super().prepare(root, files)
-        _git(root, "init", "-q", "-b", "master")
-        _git(root, "add", "-A")
-        _git(root, "commit", "-q", "-m", "planted")
+        git(root, "init", "-q", "-b", "master")
+        git(root, "add", "-A")
+        git(root, "commit", "-q", "-m", "planted")
         sentinel = files["setup.py"].decode().split("open(")[1].split(",")[0]
         hook = root / ".git" / "evil-hooks" / "post-index-change"
         hook.parent.mkdir()
@@ -70,9 +50,9 @@ class TestGitNeverRunsRepositoryCode(ExecutionContract):
         monitor = root / ".git" / "evil-monitor"
         monitor.write_text(f"#!/bin/sh\ntouch {sentinel}\n")
         monitor.chmod(0o755)
-        _git(root, "config", "core.fsmonitor", str(monitor))
-        _git(root, "config", "core.hooksPath", str(hook.parent))
-        self.revision = _git(root, "rev-parse", "HEAD")
+        git(root, "config", "core.fsmonitor", str(monitor))
+        git(root, "config", "core.hooksPath", str(hook.parent))
+        self.revision = git(root, "rev-parse", "HEAD")
 
     def run(self, root: Path, files: Mapping[str, bytes]) -> None:
         repository = GitRepository(str(root))

@@ -458,6 +458,60 @@ def _rules_elsewhere_ask(type_: Definition, computing: Sequence[Definition]) -> 
     )
 
 
+TypeKey = tuple[str, str]
+
+
+def _fields_and_behaving(
+    model: CodeModel,
+) -> tuple[dict[TypeKey, set[str]], set[TypeKey]]:
+    """Each type's fields, and the types with a method but an initialiser,
+    by the type's path and symbol."""
+    fields: dict[TypeKey, set[str]] = {}
+    behaving: set[TypeKey] = set()
+    for m in model.members:
+        if m.kind is MemberKind.FIELD:
+            fields.setdefault((m.path, m.owner), set()).add(m.name)
+        elif m.name not in INITIALISERS:
+            behaving.add((m.path, m.owner))
+    return fields, behaving
+
+
+def _is_all_fields(
+    d: Definition, fields: Mapping[TypeKey, set[str]], behaving: set[TypeKey]
+) -> bool:
+    """Whether a definition is a domain type of fields and no behavior, and
+    no enumeration."""
+    key = (d.unit.path, d.unit.symbol or "")
+    return (
+        d.unit.kind is UnitKind.TYPE
+        and d.unit.layer is Layer.DOMAIN
+        and not is_enum(d)
+        and key in fields
+        and key not in behaving
+    )
+
+
+def _computing_over(
+    type_: Definition,
+    fields: frozenset[str],
+    functions: Sequence[Definition],
+    reads: Mapping[TypeKey, frozenset[str]],
+) -> list[Definition]:
+    """The functions outside a type that compute over its fields."""
+    owner = short_name(type_.unit.symbol)
+    return [
+        f
+        for f in functions
+        if not (
+            f.unit.path == type_.unit.path
+            and is_within(f.unit.symbol, type_.unit.symbol)
+        )
+        and computes_over(
+            f, owner, fields, reads.get((f.unit.path, f.unit.symbol or ""), frozenset())
+        )
+    ]
+
+
 def anemic(
     model: CodeModel,
     declaration: Declaration,
@@ -472,40 +526,15 @@ def anemic(
     plain value, and is not asked about."""
     if not declaration.declared:
         return undeclared(ANEMIC.name)
-    fields: dict[tuple[str, str], set[str]] = {}
-    behaving: set[tuple[str, str]] = set()
-    for m in model.members:
-        if m.kind is MemberKind.FIELD:
-            fields.setdefault((m.path, m.owner), set()).add(m.name)
-        elif m.name not in INITIALISERS:
-            behaving.add((m.path, m.owner))
+    fields, behaving = _fields_and_behaving(model)
     reads = _references_by_scope(model)
     functions = [d for d in model.definitions if d.unit.kind is UnitKind.FUNCTION]
     asks: list[Ask] = []
     for d in model.definitions:
-        key = (d.unit.path, d.unit.symbol or "")
-        if (
-            d.unit.kind is not UnitKind.TYPE
-            or d.unit.layer is not Layer.DOMAIN
-            or is_enum(d)
-            or key not in fields
-            or key in behaving
-        ):
+        if not _is_all_fields(d, fields, behaving):
             continue
-        owner = short_name(d.unit.symbol)
-        computing = [
-            f
-            for f in functions
-            if not (
-                f.unit.path == d.unit.path and is_within(f.unit.symbol, d.unit.symbol)
-            )
-            and computes_over(
-                f,
-                owner,
-                frozenset(fields[key]),
-                reads.get((f.unit.path, f.unit.symbol or ""), frozenset()),
-            )
-        ]
+        key = (d.unit.path, d.unit.symbol or "")
+        computing = _computing_over(d, frozenset(fields[key]), functions, reads)
         if computing:
             asks.append(_rules_elsewhere_ask(d, computing))
     return CheckOutcome(questions=tuple(asks))

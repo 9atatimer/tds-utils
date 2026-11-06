@@ -34,14 +34,13 @@ from adherence.adapters.astgrep import (
     BINARY,
     NESTED_TOO_DEEPLY,
     Grammar,
-    ScanFailed,
-    file_models,
+    GrammarRead,
+    Scanner,
+    by_path,
     merged,
-    readable_sources,
-    regions_of,
-    scan,
+    passed,
+    read_through,
     stays_inside,
-    syntax_errors,
     write_tree,
 )
 from adherence.domain.deadline import Deadline, TimedOut
@@ -116,8 +115,8 @@ Resolved = dict[tuple[str, str], str]
 # --- Pure helpers ------------------------------------------------------------
 
 
-def _passed(deadline: Deadline | None, now: float) -> bool:
-    return deadline is not None and deadline.epoch_seconds <= now
+def _unreadable(line: int) -> str:
+    return f"not TypeScript: syntax error at line {line}"
 
 
 def _paths(unparsed: Sequence[Unparsed]) -> set[str]:
@@ -305,7 +304,7 @@ class TsconfigWalk:
     def aliases(self, path: str, depth: int = 0) -> Aliases:
         """A tsconfig's aliases, through the configurations it extends that
         are sources, in order; the nearer setting wins."""
-        if _passed(self._deadline, self._clock()):
+        if passed(self._deadline, self._clock()):
             raise WalkTimedOut("read the tsconfig extends chain")
         self._open.add(path)
         try:
@@ -564,7 +563,7 @@ class TypeScriptCodeModel:
         bound: float | None = None,
         clock: Callable[[], float] = time.time,
     ) -> None:
-        self._ast_grep = ast_grep
+        self._scanner = Scanner(ast_grep, bound, clock)
         self._cruiser = cruiser
         self._bound = bound
         self._clock = clock
@@ -576,37 +575,23 @@ class TypeScriptCodeModel:
         vocabulary: Vocabulary,
         deadline: Deadline | None,
     ) -> CodeModel | TimedOut:
-        if _passed(deadline, self._clock()):
-            return TimedOut("model the TypeScript sources")
-        readable, unparsed = readable_sources(sources)
-        texts = {p: data.decode("utf-8") for p, data in readable.items()}
-        readable = {p: data for p, data in readable.items() if is_code(p)}
-        try:
-            matches = scan(
-                readable,
-                GRAMMAR,
-                binary=self._ast_grep,
-                deadline=deadline,
-                clock=self._clock,
-                bound=self._bound,
-            )
-        except ScanFailed as failure:
-            if failure.timed_out:
-                return TimedOut(str(failure))
-            unparsed.extend(
-                Unparsed(path=path, reason=str(failure)) for path in readable
-            )
-            return CodeModel(unparsed=tuple(sorted(unparsed, key=lambda u: u.path)))
-        declared, found = regions_of(sources, declaration, vocabulary)
-        errors = syntax_errors(matches)
-        unparsed.extend(
-            Unparsed(path=path, reason=f"not TypeScript: syntax error at line {line}")
-            for path, line in sorted(errors.items())
+        read = read_through(
+            sources,
+            operation="model the TypeScript sources",
+            grammar=GRAMMAR,
+            scanner=self._scanner,
+            keep=is_code,
+            unreadable=_unreadable,
+            declaration=declaration,
+            vocabulary=vocabulary,
+            deadline=deadline,
         )
-        parsed = {p: data for p, data in readable.items() if p not in errors}
-        files, deep = file_models(parsed, matches, declaration, found, vocabulary)
-        unparsed.extend(deep)
-        parsed = {p: data for p, data in parsed.items() if p not in _paths(deep)}
+        if not isinstance(read, GrammarRead):
+            return read
+        texts = {p: data.decode("utf-8") for p, data in read.decoded.items()}
+        files, parsed = read.files, read.parsed
+        unparsed = list(read.unparsed)
+        regions = read.regions
         edges = [edge for f in files for edge in f.imports]
         resolved: Resolved = {}
         configured = (
@@ -639,6 +624,6 @@ class TypeScriptCodeModel:
         return merged(
             files,
             imports=_resolve(edges, resolved, parsed),
-            regions=declared + found,
-            unparsed=tuple(sorted(unparsed, key=lambda u: u.path)),
+            regions=regions,
+            unparsed=by_path(unparsed),
         )

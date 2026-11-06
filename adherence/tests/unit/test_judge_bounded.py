@@ -17,7 +17,7 @@ from adherence.adapters.fakes import (
     FakeRepository,
     FakeReviews,
 )
-from adherence.adapters.inline_worker import InlineWorker
+from adherence.adapters.inline_worker import FakeWorker
 from adherence.application.bounded import judge_bounded
 from adherence.application.judge import judge_change
 from adherence.domain.deadline import Deadline, TimedOut
@@ -102,7 +102,7 @@ def test_judge_bounded_ended_after_one_check_covers_the_rest() -> None:
     repository = _repository()
     store = FakeReportStore()
 
-    report = _bounded(InlineWorker(ends_after=1), repository, store)
+    report = _bounded(FakeWorker(ends_after=1), repository, store)
 
     assert report.verdict is Verdict.INCONCLUSIVE
     ended = {c.check for c in report.coverage if c.reason == ENDED}
@@ -115,7 +115,7 @@ def test_judge_bounded_ended_after_one_check_covers_the_rest() -> None:
 def test_judge_bounded_whose_job_finishes_is_judge_changes_report() -> None:
     """Given a worker that lets the job finish, When the hook judges the
     change, Then the report is the one judge_change gives, verdict and all."""
-    report = _bounded(InlineWorker(), _repository(), FakeReportStore())
+    report = _bounded(FakeWorker(), _repository(), FakeReportStore())
 
     assert report == judge_change(
         CHANGE,
@@ -138,7 +138,7 @@ def test_judge_bounded_whose_engine_fails_is_not_run() -> None:
     is not run with the failure as its reason -- never inconclusive, which
     is the deadline's -- and nothing reads as a pass."""
     report = _bounded(
-        InlineWorker(), _repository(), FakeReportStore(), _BrokenComplexity()
+        FakeWorker(), _repository(), FakeReportStore(), _BrokenComplexity()
     )
 
     assert report.verdict is Verdict.NOT_RUN, report.reasons
@@ -163,7 +163,7 @@ def test_judge_bounded_ended_keeps_a_file_it_could_not_read() -> None:
         history=LANDED,
     )
 
-    report = _bounded(InlineWorker(ends_after=1), repository, FakeReportStore())
+    report = _bounded(FakeWorker(ends_after=1), repository, FakeReportStore())
 
     assert report.verdict is Verdict.INCONCLUSIVE
     assert any(
@@ -196,7 +196,7 @@ def test_judge_bounded_ended_keeps_the_notices_reported_before_the_end() -> None
     analyzer = FakeCodeModel(when={STUBBED: stubbed(RULES, "rule", 1)})
 
     report = _bounded(
-        InlineWorker(ends_after=stub_index + 1),
+        FakeWorker(ends_after=stub_index + 1),
         repository,
         FakeReportStore(),
         analyzer=analyzer,

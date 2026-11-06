@@ -27,7 +27,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 
 from adherence.adapters.analyzer_process import capped
-from adherence.domain.deadline import Deadline
+from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration, layer_of, marker_regions
 from adherence.domain.model import (
     Access,
@@ -949,3 +949,88 @@ def scan(
         for line in done.stdout.decode("utf-8", "replace").splitlines()
         if line.strip()
     ]
+
+
+@dataclass(frozen=True, slots=True)
+class Scanner:
+    """How an analyzer runs ast-grep: the binary, the bound on one scan,
+    and the edge's clock."""
+
+    binary: Path
+    bound: float | None
+    clock: Callable[[], float]
+
+
+@dataclass(frozen=True, slots=True)
+class GrammarRead:
+    """Sources read through one grammar: every source that is UTF-8, the
+    file models of those that parsed, the parsed sources no walk gave up
+    on, the declared and marker regions, and every source not read, why."""
+
+    decoded: dict[str, bytes]
+    files: list[CodeModel]
+    parsed: dict[str, bytes]
+    regions: tuple[Region, ...]
+    unparsed: tuple[Unparsed, ...]
+
+
+def passed(deadline: Deadline | None, now: float) -> bool:
+    """Whether the deadline is at or before `now`."""
+    return deadline is not None and deadline.epoch_seconds <= now
+
+
+def by_path(unparsed: Sequence[Unparsed]) -> tuple[Unparsed, ...]:
+    return tuple(sorted(unparsed, key=lambda u: u.path))
+
+
+def read_through(
+    sources: Mapping[str, bytes],
+    *,
+    operation: str,
+    grammar: Grammar,
+    scanner: Scanner,
+    keep: Callable[[str], bool],
+    unreadable: Callable[[int], str],
+    declaration: Declaration,
+    vocabulary: Vocabulary,
+    deadline: Deadline | None,
+) -> GrammarRead | CodeModel | TimedOut:
+    """The sources `keep` admits scanned with the grammar and modelled per
+    file: TimedOut, naming `operation`, past the deadline or when the scan
+    is cut off; every kept source unparsed when the scan fails; a source
+    the grammar cannot read unparsed with `unreadable` of its line."""
+    if passed(deadline, scanner.clock()):
+        return TimedOut(operation)
+    decoded, unparsed = readable_sources(sources)
+    readable = {p: data for p, data in decoded.items() if keep(p)}
+    try:
+        matches = scan(
+            readable,
+            grammar,
+            binary=scanner.binary,
+            deadline=deadline,
+            clock=scanner.clock,
+            bound=scanner.bound,
+        )
+    except ScanFailed as failure:
+        if failure.timed_out:
+            return TimedOut(str(failure))
+        unparsed.extend(Unparsed(path=path, reason=str(failure)) for path in readable)
+        return CodeModel(unparsed=by_path(unparsed))
+    declared, found = regions_of(sources, declaration, vocabulary)
+    errors = syntax_errors(matches)
+    unparsed.extend(
+        Unparsed(path=path, reason=unreadable(line))
+        for path, line in sorted(errors.items())
+    )
+    parsed = {p: data for p, data in readable.items() if p not in errors}
+    files, deep = file_models(parsed, matches, declaration, found, vocabulary)
+    unparsed.extend(deep)
+    gave_up = {u.path for u in deep}
+    return GrammarRead(
+        decoded=decoded,
+        files=files,
+        parsed={p: data for p, data in parsed.items() if p not in gave_up},
+        regions=declared + found,
+        unparsed=tuple(unparsed),
+    )

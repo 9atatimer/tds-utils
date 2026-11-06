@@ -18,17 +18,15 @@ from pathlib import Path
 from adherence.adapters.astgrep import (
     BINARY,
     Grammar,
-    ScanFailed,
-    file_models,
+    GrammarRead,
+    Scanner,
+    by_path,
     merged,
-    readable_sources,
-    regions_of,
-    scan,
-    syntax_errors,
+    read_through,
 )
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import Declaration
-from adherence.domain.model import CodeModel, Unparsed
+from adherence.domain.model import CodeModel
 from adherence.domain.parameters import Vocabulary
 
 # --- Constants ---------------------------------------------------------------
@@ -47,8 +45,13 @@ UNREADABLE = "the Bash grammar cannot read it from line {line}"
 # --- Pure helpers ------------------------------------------------------------
 
 
-def _passed(deadline: Deadline | None, now: float) -> bool:
-    return deadline is not None and deadline.epoch_seconds <= now
+def _every_path(path: str) -> bool:
+    """The grammar claims every file handed over (GRAMMAR)."""
+    return True
+
+
+def _unreadable(line: int) -> str:
+    return UNREADABLE.format(line=line)
 
 
 # --- Adapter -----------------------------------------------------------------
@@ -65,9 +68,7 @@ class ShellCodeModel:
         bound: float | None = None,
         clock: Callable[[], float] = time.time,
     ) -> None:
-        self._ast_grep = ast_grep
-        self._bound = bound
-        self._clock = clock
+        self._scanner = Scanner(ast_grep, bound, clock)
 
     def model(
         self,
@@ -76,36 +77,17 @@ class ShellCodeModel:
         vocabulary: Vocabulary,
         deadline: Deadline | None,
     ) -> CodeModel | TimedOut:
-        if _passed(deadline, self._clock()):
-            return TimedOut("model the shell sources")
-        readable, unparsed = readable_sources(sources)
-        try:
-            matches = scan(
-                readable,
-                GRAMMAR,
-                binary=self._ast_grep,
-                deadline=deadline,
-                clock=self._clock,
-                bound=self._bound,
-            )
-        except ScanFailed as failure:
-            if failure.timed_out:
-                return TimedOut(str(failure))
-            unparsed.extend(
-                Unparsed(path=path, reason=str(failure)) for path in readable
-            )
-            return CodeModel(unparsed=tuple(sorted(unparsed, key=lambda u: u.path)))
-        declared, found = regions_of(sources, declaration, vocabulary)
-        errors = syntax_errors(matches)
-        unparsed.extend(
-            Unparsed(path=path, reason=UNREADABLE.format(line=line))
-            for path, line in sorted(errors.items())
+        read = read_through(
+            sources,
+            operation="model the shell sources",
+            grammar=GRAMMAR,
+            scanner=self._scanner,
+            keep=_every_path,
+            unreadable=_unreadable,
+            declaration=declaration,
+            vocabulary=vocabulary,
+            deadline=deadline,
         )
-        parsed = {p: data for p, data in readable.items() if p not in errors}
-        files, deep = file_models(parsed, matches, declaration, found, vocabulary)
-        unparsed.extend(deep)
-        return merged(
-            files,
-            regions=declared + found,
-            unparsed=tuple(sorted(unparsed, key=lambda u: u.path)),
-        )
+        if not isinstance(read, GrammarRead):
+            return read
+        return merged(read.files, regions=read.regions, unparsed=by_path(read.unparsed))

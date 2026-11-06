@@ -10,15 +10,8 @@ from __future__ import annotations
 
 from collections.abc import Collection
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 from adherence.domain.model import CodeLanguage, CodeModel, UnitKind, language_of
-
-if TYPE_CHECKING:
-    # Read for its annotation only: domain/questions makes Coverage of an
-    # unanswered question and is itself read by the declaration's
-    # Parameters, so a run-time import here would close a cycle.
-    from adherence.domain.declaration import Declaration
 
 # --- Constants ---------------------------------------------------------------
 
@@ -48,9 +41,11 @@ class Coverage:
 # --- Pure helpers ------------------------------------------------------------
 
 
-def unmodelled(model: CodeModel, declaration: Declaration) -> tuple[Coverage, ...]:
+def unmodelled(model: CodeModel, *, declared: bool) -> tuple[Coverage, ...]:
     """The sources the analyzer could not read, and, for a declared
-    repository, the files no declared layer or region covers."""
+    repository, the files no declared layer or region covers. Only whether
+    the repository is declared is read, so coverage, which the declaration's
+    questions make, never imports the declaration."""
     covered = {u.path for u in model.units if u.layer is not None}
     files = sorted({u.path for u in model.units if u.kind is UnitKind.FILE})
     return (
@@ -58,7 +53,7 @@ def unmodelled(model: CodeModel, declaration: Declaration) -> tuple[Coverage, ..
         *(
             Coverage(UNASSIGNED, path=path)
             for path in files
-            if declaration.declared and path not in covered
+            if declared and path not in covered
         ),
     )
 

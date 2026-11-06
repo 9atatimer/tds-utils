@@ -5,7 +5,7 @@ adapter's records go through decide's own validation and its answers
 through decide's own normalization; only the model behind the server is
 stood in for. It answers every question with an even spread, or each
 yes/no with a bare label (no probability), or with one HTTP status, as the
-test sets `mode`; it keeps every request body it was sent.
+test tells it with `answer_with`; it keeps every request body it was sent.
 """
 
 from __future__ import annotations
@@ -29,6 +29,10 @@ class StubServer:
     url: str = ""
     mode: str = EVEN
     received: list[dict[str, object]] = field(default_factory=list)
+
+    def answer_with(self, mode: str) -> None:
+        """Answer every later request in `mode`."""
+        self.mode = mode
 
 
 def _answer(question: dict[str, object], mode: str) -> object:

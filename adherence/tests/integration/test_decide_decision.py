@@ -59,7 +59,7 @@ class TestDecideDecision(DecisionContract):
         return _through(self.stub.url)
 
     def unreachable(self) -> DecisionPort:
-        self.stub.mode = "402"
+        self.stub.answer_with("402")
         return _through(self.stub.url)
 
 
@@ -84,7 +84,7 @@ def test_decide_label_only_answer_is_uncalibrated(stub: StubServer) -> None:
     """Given a server answering each yes/no with a bare label, When the
     adapter asks, Then those questions are marked uncalibrated, so no
     threshold is ever met on them."""
-    stub.mode = LABEL
+    stub.answer_with(LABEL)
 
     answer = _through(stub.url).decide(STATE, SCHEMA, None)
 

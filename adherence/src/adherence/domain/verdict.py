@@ -243,8 +243,14 @@ def _counted(
     )
 
 
-def _introduced(count: int) -> str:
-    return f"{count} finding{'' if count == 1 else 's'} introduced"
+def _reasons(marked: Sequence[Finding], causes: tuple[str, ...]) -> tuple[str, ...]:
+    """Why the verdict is what it is: the count of introduced findings,
+    which the report lists, when there are any, else what left the change
+    inconclusive."""
+    count = sum(1 for f in marked if f.provenance is Provenance.INTRODUCED)
+    if not count:
+        return causes
+    return (f"{count} finding{'' if count == 1 else 's'} introduced",)
 
 
 def _is_lost(
@@ -345,15 +351,12 @@ def compared(
     )
     seen = _seen(head, joins, stated)
     removed = tuple(f for f in removable if _is_removed(f, joins, head, seen))
-    introduced = sum(1 for f in marked if f.provenance is Provenance.INTRODUCED)
+    introduced = any(f.provenance is Provenance.INTRODUCED for f in marked)
     causes = _inconclusive(base, head, change)
-    verdict = _verdict(bool(introduced), bool(causes), bool(removed))
-    # The reasons are why the verdict is what it is: the introduced findings
-    # when lowered, which the report lists, else what left it inconclusive.
     return replace(
         head,
         findings=marked,
         removed=removed,
-        verdict=verdict,
-        reasons=(_introduced(introduced),) if introduced else causes,
+        verdict=_verdict(introduced, bool(causes), bool(removed)),
+        reasons=_reasons(marked, causes),
     )

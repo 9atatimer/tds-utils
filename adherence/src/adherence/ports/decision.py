@@ -21,6 +21,9 @@ from adherence.domain.questions import (
     Unavailable,
 )
 
+# What the port answers a decide call: the decision, or why there is none.
+Decided = Decision | Unavailable | Rejected | TimedOut
+
 
 class DecisionPort(Protocol):
     def availability(self) -> Availability:
@@ -30,6 +33,6 @@ class DecisionPort(Protocol):
 
     def decide(
         self, state: State, schema: Schema, deadline: Deadline | None
-    ) -> Decision | Unavailable | Rejected | TimedOut:
+    ) -> Decided:
         """A probability per allowed answer of every question in the schema."""
         ...

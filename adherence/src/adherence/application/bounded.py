@@ -15,9 +15,9 @@ and ends nothing itself: the worker does.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import replace
 
-from adherence.application.judge import judge_change_reporting
+from adherence.application.judge import JudgeJob
 from adherence.domain.deadline import Deadline
 from adherence.domain.model import CodeLanguage
 from adherence.domain.parameters import Parameters
@@ -32,41 +32,7 @@ from adherence.ports.records import RecordsPort
 from adherence.ports.report_store import ReportStore
 from adherence.ports.repository import RepositoryPort
 from adherence.ports.review import ReviewPort
-from adherence.ports.worker import Failed, FinishedSink, WorkerPort
-
-
-@dataclass(frozen=True, slots=True)
-class JudgeJob:
-    """judge_change over one change, as a job a worker runs: a plain value,
-    so a worker can hand it to a child process."""
-
-    change: Change
-    repository: RepositoryPort
-    reviews: ReviewPort
-    analyzers: Mapping[CodeLanguage, CodeModelPort]
-    complexity: ComplexityPort
-    duplication: DuplicationPort
-    records: RecordsPort
-    judge: DecisionPort
-    reports: ReportStore
-    parameters: Parameters
-    deadline: Deadline
-
-    def __call__(self, finished: FinishedSink) -> Report:
-        return judge_change_reporting(
-            self.change,
-            repository=self.repository,
-            reviews=self.reviews,
-            analyzers=self.analyzers,
-            complexity=self.complexity,
-            duplication=self.duplication,
-            records=self.records,
-            judge=self.judge,
-            reports=self.reports,
-            parameters=self.parameters,
-            deadline=self.deadline,
-            finished=finished,
-        )
+from adherence.ports.worker import Failed, WorkerPort
 
 
 def judge_bounded(

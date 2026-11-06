@@ -610,6 +610,12 @@ checks.
   never measured as undeclared.
 - **Recorded.** Whether a run's report was kept, and, when it was not, the
   notice shown beside the report.
+- **FinishedSink.** Where a run reports what it has done as it goes: the
+  run's own coverage and notices as each is known, and each check as it
+  finishes, so a run ended at its deadline still has them.
+- **Latch.** A run's record of the first TimedOut any of its ports
+  answered. Invariant: once it is set, the run asks no port anything more,
+  and each call left is answered TimedOut without reaching the port.
 
 ---
 
@@ -703,6 +709,7 @@ The owner's laptop as part of the LMDE contract, the adopting repositories' CI a
 | No score: sensors | Supersedes The bar, What a score comparison sees, Floors, and the ticket clause of The declaration's source. No number is derived from findings. A change is judged on findings by identity: an introduced finding lowers, a removed one raises, a deleted unit's findings do neither. Floors and drop tickets are removed; an owner's exemption landed in an earlier change is the one way to introduce a flaw through the gate | A fraction over files and design behaviors weighs incommensurable things, and a change that fixes one flaw and introduces another leaves it unchanged; the finding itself is the failure and already carries what a fix needs (G8). Rules moot, and removes from Open Questions, Q2 (whether a score compares across repositories) and Q8 (a score over mixed kinds of unit) | Todd, 2026-10-25, Issue#590 |
 | Wiring over the test layer | A unit in the test layer may construct a concrete adapter; the Wiring rule that no unit outside the composition-root layer constructs one exempts the test layer, as Fake already exempts a fake | A test that constructs a concrete adapter is that adapter's contract suite, which the testing skill requires; the self-measurement's 60 Wiring findings were each such a test | Todd, 2026-11-06, Issue#590 |
 | Language over the suite's own nouns | Deadline, Parameters, CodeLanguage, DeclarationUnreadable and Recorded join the Domain Language | They are nouns of the suite's own language in its use-case signatures that this record did not define; the self-measurement's 10 Language findings were Language working as designed over an incomplete record | Todd, 2026-11-06, Issue#590 |
+| FinishedSink and Latch | FinishedSink and Latch join the Domain Language under the ruling on the suite's own nouns | They are nouns of the suite's own language in its use-case signatures that this record did not define, the class that ruling covers; the self-measurement's 6 Language findings on them were Language working as designed | Todd, 2026-11-06, Issue#590 |
 
 ---
 

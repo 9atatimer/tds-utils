@@ -28,7 +28,7 @@ from adherence.adapters.fakes import (
     FakeReviews,
 )
 from adherence.adapters.github_reviews import GitHubReviews
-from adherence.adapters.inline_worker import InlineWorker
+from adherence.adapters.inline_worker import FakeWorker
 from adherence.adapters.no_judge import NoJudge
 from adherence.adapters.no_reviews import NoReviews
 from adherence.container import JSCPD, Stage, build
@@ -57,7 +57,7 @@ OVERRIDES: dict[type, tuple[str, object]] = {
     DuplicationPort: ("duplication", FakeDuplication()),
     RecordsPort: ("records", FakeRecords({})),
     ReportStore: ("reports", FakeReportStore()),
-    WorkerPort: ("worker", InlineWorker()),
+    WorkerPort: ("worker", FakeWorker()),
 }
 
 

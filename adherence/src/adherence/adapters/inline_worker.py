@@ -48,8 +48,8 @@ class _ScriptedSink:
             raise _EndedByScript
 
 
-class InlineWorker:
-    """WorkerPort that runs the job here, to the end unless scripted."""
+class FakeWorker:
+    """The fake WorkerPort: runs the job here, to the end unless scripted."""
 
     def __init__(self, *, ends_after: int | None = None) -> None:
         self._ends_after = ends_after

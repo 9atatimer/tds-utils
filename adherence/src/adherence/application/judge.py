@@ -320,26 +320,32 @@ def _not_run(change: Change, reason: str) -> Report:
     )
 
 
-def judge_change_reporting(
-    change: Change,
-    *,
-    repository: RepositoryPort,
-    reviews: ReviewPort,
-    analyzers: Mapping[CodeLanguage, CodeModelPort],
-    complexity: ComplexityPort,
-    duplication: DuplicationPort,
-    records: RecordsPort,
-    judge: DecisionPort,
-    reports: ReportStore,
-    parameters: Parameters,
-    deadline: Deadline | None,
-    finished: FinishedSink | None,
-) -> Report:
-    """judge_change, reporting each of the head's checks to `finished` as it
-    finishes, and each notice as soon as it is known: the job judge_bounded
-    runs.
+@dataclass(frozen=True, slots=True)
+class JudgeJob:
+    """judge_change over one change, as a job a worker runs: a plain value,
+    so a worker can hand it to a child process."""
 
-    The change's Report: the head's findings with their provenance, the
+    change: Change
+    repository: RepositoryPort
+    reviews: ReviewPort
+    analyzers: Mapping[CodeLanguage, CodeModelPort]
+    complexity: ComplexityPort
+    duplication: DuplicationPort
+    records: RecordsPort
+    judge: DecisionPort
+    reports: ReportStore
+    parameters: Parameters
+    deadline: Deadline | None
+
+    def __call__(self, finished: FinishedSink | None) -> Report:
+        """judge_change, reporting each of the head's checks to `finished`
+        as it finishes, and each notice as soon as it is known: the job
+        judge_bounded runs."""
+        return _judged(self, finished)
+
+
+def _judged(job: JudgeJob, finished: FinishedSink | None) -> Report:
+    """The change's Report: the head's findings with their provenance, the
     base findings removed, and the verdict.
 
     The declaration in force is the newest landed revision of
@@ -353,15 +359,16 @@ def judge_change_reporting(
     it kept one; else the base is measured again. Once any port answers
     TimedOut, no port is asked anything more: what is left is coverage.
     """
+    change, parameters, deadline = job.change, job.parameters, job.deadline
     latch = Latch()
-    repository = LatchedRepository(repository, latch)
-    reviews = LatchedReviews(reviews, latch)
-    analyzers = latched_analyzers(analyzers, latch)
-    complexity = LatchedComplexity(complexity, latch)
-    duplication = LatchedDuplication(duplication, latch)
-    records = LatchedRecords(records, latch)
-    judge = LatchedDecision(judge, latch)
-    reports = LatchedReports(reports, latch)
+    repository = LatchedRepository(job.repository, latch)
+    reviews = LatchedReviews(job.reviews, latch)
+    analyzers = latched_analyzers(latch, analyzers=job.analyzers)
+    complexity = LatchedComplexity(job.complexity, latch)
+    duplication = LatchedDuplication(job.duplication, latch)
+    records = LatchedRecords(job.records, latch)
+    judge = LatchedDecision(job.judge, latch)
+    reports = LatchedReports(job.reports, latch)
     paths = repository.changed(change.base, change.head, deadline)
     if isinstance(paths, TimedOut):
         # Cut off before anything was measured: every check is coverage.
@@ -459,18 +466,18 @@ def judge_change(
     deadline: Deadline | None,
 ) -> Report:
     """The change's Report: the head's findings with their provenance, the
-    base findings removed, and the verdict (judge_change_reporting)."""
-    return judge_change_reporting(
+    base findings removed, and the verdict (JudgeJob)."""
+    job = JudgeJob(
         change,
-        repository=repository,
-        reviews=reviews,
-        analyzers=analyzers,
-        complexity=complexity,
-        duplication=duplication,
-        records=records,
-        judge=judge,
-        reports=reports,
-        parameters=parameters,
-        deadline=deadline,
-        finished=None,
+        repository,
+        reviews,
+        analyzers,
+        complexity,
+        duplication,
+        records,
+        judge,
+        reports,
+        parameters,
+        deadline,
     )
+    return job(None)

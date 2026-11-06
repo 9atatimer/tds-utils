@@ -23,7 +23,7 @@ from adherence.adapters.fakes import (
     FakeReviews,
 )
 from adherence.adapters.git import HOOK_BASE
-from adherence.adapters.inline_worker import InlineWorker
+from adherence.adapters.inline_worker import FakeWorker
 from adherence.cli.main import main
 from adherence.container import Container, Stage, build
 from adherence.domain.declaration import DECLARATION_PATH
@@ -82,7 +82,7 @@ def faked(
         records=FakeRecords({}),
         judge=judge if judge is not None else passing_judge(),
         reports=FakeReportStore(),
-        worker=InlineWorker(),
+        worker=FakeWorker(),
         environment={},
     )
 

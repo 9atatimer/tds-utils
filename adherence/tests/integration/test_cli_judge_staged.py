@@ -24,12 +24,12 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from adherence.adapters.fakes import FakeComplexity, FakeDuplication, FakeReportStore
-from adherence.adapters.inline_worker import InlineWorker
+from adherence.adapters.inline_worker import FakeWorker
 from adherence.adapters.lizard import LizardComplexity
 from adherence.cli.main import main
 from adherence.container import SHIPPED_LIMITS, Container, build
 from adherence.domain.report import ENDED
-from tests.integration.test_git_repository import _git, make_repository
+from tests.git_kit import git, make_repository
 from tests.worker_jobs import OutlivesTheDeadline
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "judge"
@@ -46,10 +46,22 @@ def _staged(root: Path, *, committed: str, staged: str) -> None:
     another over it, as a commit about to be made does."""
     make_repository(root, base={}, staged={}, working={})
     shutil.copytree(FIXTURE / committed, root, dirs_exist_ok=True)
-    _git(root, "add", "-A")
-    _git(root, "commit", "-q", "-m", committed)
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", committed)
     shutil.copytree(FIXTURE / staged, root, dirs_exist_ok=True)
-    _git(root, "add", "-A")
+    git(root, "add", "-A")
+
+
+def _in_process() -> functools.partial[Container]:
+    """The composition root over real git and the real analyzers, the
+    metrics and the report store faked and the job run in this process."""
+    return functools.partial(
+        build,
+        complexity=FakeComplexity(),
+        duplication=FakeDuplication(),
+        reports=FakeReportStore(),
+        worker=FakeWorker(),
+    )
 
 
 def _judge_staged(root: Path, builder: functools.partial[Container]) -> tuple[int, str]:
@@ -65,15 +77,7 @@ def test_judge_staged_stub_is_lowered_and_stops_the_commit(tmp_path: Path) -> No
     lowered with the stub introduced and exits non-zero."""
     root = tmp_path / "repo"
     _staged(root, committed="base", staged="head")
-    builder = functools.partial(
-        build,
-        complexity=FakeComplexity(),
-        duplication=FakeDuplication(),
-        reports=FakeReportStore(),
-        worker=InlineWorker(),
-    )
-
-    code, output = _judge_staged(root, builder)
+    code, output = _judge_staged(root, _in_process())
 
     document = json.loads(output)
     assert document["verdict"] == "lowered", output
@@ -156,7 +160,7 @@ def test_judge_staged_whose_analyzer_outlives_the_deadline_is_ended_by_the_worke
     root = tmp_path / "repo"
     _staged(root, committed="head", staged="fixed")
     (root / LINK).symlink_to("rules.py")
-    _git(root, "add", "-A")
+    git(root, "add", "-A")
     pid_file = tmp_path / "analyzer.pid"
     builder = functools.partial(
         build,
@@ -195,18 +199,10 @@ def test_judge_staged_of_a_first_commit_is_judged(tmp_path: Path) -> None:
     is judged as created against git's empty tree: the verdict is not "not
     run" and the first commit is not blocked."""
     root = tmp_path / "repo"
-    _git(tmp_path, "init", "-q", "-b", "master", str(root))
+    git(tmp_path, "init", "-q", "-b", "master", str(root))
     (root / "a.py").write_text("def one() -> int:\n    return 1\n", encoding="utf-8")
-    _git(root, "add", "-A")
-    builder = functools.partial(
-        build,
-        complexity=FakeComplexity(),
-        duplication=FakeDuplication(),
-        reports=FakeReportStore(),
-        worker=InlineWorker(),
-    )
-
-    code, output = _judge_staged(root, builder)
+    git(root, "add", "-A")
+    code, output = _judge_staged(root, _in_process())
 
     document = json.loads(output)
     assert document["verdict"] != "not run", output
