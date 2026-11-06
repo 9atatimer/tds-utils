@@ -82,6 +82,7 @@ def _unit_data(unit: Unit) -> JSON:
         "start": unit.start,
         "end": unit.end,
         "layer": _optional(unit.layer),
+        "language": unit.language,
     }
 
 
@@ -193,6 +194,7 @@ def _unit(value: object) -> Unit:
         start=_number(data, "start"),
         end=_number(data, "end"),
         layer=_layer(_maybe_text(data, "layer")),
+        language=_maybe_text(data, "language"),
     )
 
 
