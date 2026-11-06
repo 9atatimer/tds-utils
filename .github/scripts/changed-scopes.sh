@@ -19,7 +19,8 @@
 #   - a gate file (this script, its test, dist-ci.yml) runs everything;
 #   - a file under dynomark/, chores/ or adherence/ runs that tree's
 #     jobs, whatever its extension (dynomark/contract/README.md is itself
-#     checked);
+#     checked); so does what the adherence suite judges this repository
+#     by: adherence.toml, the two Adherence records and the radar;
 #   - a shell file anywhere (by extension or shebang) runs smoketests,
 #     whose syntax sweep covers every tracked shell file;
 #   - Markdown elsewhere and docs/**/*.html run nothing;
@@ -84,6 +85,7 @@ scopes_for() {
         dynomark/*) out="dynomark-contract dynomark-daemon dynomark-extension dynomark-e2e" ;;
         chores/*) out="chores" ;;
         adherence/*) out="adherence" ;;
+        adherence.toml | docs/design/*ARCH-ADHERENCE.md | lmde/TECH_RADAR.md) out="adherence" ;;
         *) is_inert "${file}" || out="smoketests shellcheck" ;;
     esac
     if is_shell_file "${file}"; then
