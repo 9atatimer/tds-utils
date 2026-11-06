@@ -26,7 +26,8 @@ Progress (2026-11-06): the declaration, the self-declaration test, the
 `changed-scopes.sh` arm and the `adherence-judge` job landed first, ahead
 of tasks 063-067, as an advisory job outside `gate`'s `needs` (the engine
 measures nothing until a repository is declared, so the route's value
-began here). Still open: the `gate` join after one green run, and the
-throwaway-branch proof that a port import moved into `adherence/domain/`
-is lowered. The reusable workflow of task-067 replaces the inline job
-when it lands; the job is the caller's shape without the pin.
+began here). The reusable workflow of task-067 replaced the inline job,
+and `adherence-judge` joined `gate`'s `needs` after its first green run
+(run 42298026212, 2026-11-06, the declaration counted in force under the
+Q11 ruling), both in tds-utils PR#675. Still open: the throwaway-branch
+proof that a port import moved into `adherence/domain/` is lowered.

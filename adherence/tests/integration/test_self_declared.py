@@ -1,6 +1,7 @@
-"""This repository's own declaration, read through the real git adapter: the
-suite measures itself in its own gate (DESIGN.ARCH-ADHERENCE.md, Rollout;
-Issue#600)."""
+"""This repository's own declaration, read through the real git adapter at
+the committed HEAD revision the gate reads: the suite measures itself in
+its own gate (DESIGN.ARCH-ADHERENCE.md, Rollout; Issue#600). An
+uncommitted edit to adherence.toml cannot pass it."""
 
 from __future__ import annotations
 
@@ -16,12 +17,14 @@ REPOSITORY = Path(__file__).resolve().parents[3]
 
 
 def test_this_repository_declares_the_engine_by_layer() -> None:
-    """Given this repository's working tree, When its declaration is loaded,
-    Then it is declared, each engine package is in its layer, the two
+    """Given this repository's checkout, When its declaration is loaded at
+    HEAD, Then it is declared, each engine package is in its layer, the two
     Adherence records are its records, the LMDE radar is its radar and
     `adhere` is its runtime."""
     loaded = load_declaration(
-        Head.working_tree(), repository=GitRepository(str(REPOSITORY)), deadline=None
+        Head.at_revision("HEAD"),
+        repository=GitRepository(str(REPOSITORY)),
+        deadline=None,
     )
 
     assert isinstance(loaded, Declaration), loaded

@@ -1,0 +1,30 @@
+{
+  "url": "https://api.github.com/repos/example-org/example/pulls/52",
+  "id": 1052,
+  "number": 52,
+  "state": "closed",
+  "title": "Change 52",
+  "user": {
+    "login": "alice",
+    "id": 5052,
+    "type": "User"
+  },
+  "created_at": "2026-10-20T10:00:00Z",
+  "closed_at": "2026-10-22T09:00:00Z",
+  "merged_at": "2026-10-22T09:00:00Z",
+  "merge_commit_sha": "cccccccccccccccccccccccccccccccccccccccc",
+  "head": {
+    "ref": "topic-52",
+    "sha": "cccccccccccccccccccccccccccccccccccccccc"
+  },
+  "base": {
+    "ref": "master",
+    "sha": "0000000000000000000000000000000000000000"
+  },
+  "merged": true,
+  "merged_by": {
+    "login": "tedium-bot",
+    "id": 9052,
+    "type": "User"
+  }
+}

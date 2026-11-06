@@ -3,8 +3,9 @@
 The laptop's, the hook's and the cloud's store, and the file cache behind
 the warehouse in CI (ARCHITECTURE.ARCH-ADHERENCE.md, Module map and
 Persistence). Every report put is written for the scan, under
-`scan/<repository>/`, stamped with the time it was kept; a report of a
-revision named by its object id is also written under the lookup key
+`scan/<repository>/` (ci's `owner/repo` as two directories), stamped
+with the time it was kept; a report of a revision named by its object id
+is also written under the lookup key
 `by-rev/<repository>/<revision>/<identity>.json` that `get` reads. The
 cache is a per-user data directory, never under the checkout: a directory
 inside the repository it measures is refused. A key part that could
@@ -57,6 +58,16 @@ def is_key_part(text: str | None) -> bool:
         and KEY_PART.fullmatch(text) is not None
         and text not in {".", ".."}
     )
+
+
+def is_repository_key(text: str | None) -> bool:
+    """Whether text names a repository as keys hold it: `repo`, or ci's
+    `owner/repo` as two directories, each part one directory and nothing
+    else."""
+    if text is None:
+        return False
+    parts = text.split("/")
+    return len(parts) <= 2 and all(is_key_part(part) for part in parts)
 
 
 # --- Pure helpers ------------------------------------------------------------
@@ -125,7 +136,7 @@ def report_data(report: Report) -> JSON:
         "findings": [_finding_data(f) for f in report.findings],
         "notices": [n.message for n in report.notices],
         "coverage": [
-            {"reason": c.reason, "check": c.check, "path": c.path}
+            {"reason": c.reason, "check": c.check, "path": c.path, "subject": c.subject}
             for c in report.coverage
         ],
         "not_run": report.not_run_reason,
@@ -143,41 +154,41 @@ def report_data(report: Report) -> JSON:
     }
 
 
-class _Malformed(Exception):
+class MalformedReport(Exception):
     """A kept document that is not a report this suite wrote."""
 
 
 def _text(data: Mapping[str, object], key: str) -> str:
     value = data.get(key)
     if not isinstance(value, str):
-        raise _Malformed(f"{key} is not text")
+        raise MalformedReport(f"{key} is not text")
     return value
 
 
 def _maybe_text(data: Mapping[str, object], key: str) -> str | None:
     value = data.get(key)
     if value is not None and not isinstance(value, str):
-        raise _Malformed(f"{key} is not text")
+        raise MalformedReport(f"{key} is not text")
     return value
 
 
 def _number(data: Mapping[str, object], key: str) -> int:
     value = data.get(key)
     if not isinstance(value, int) or isinstance(value, bool):
-        raise _Malformed(f"{key} is not a number")
+        raise MalformedReport(f"{key} is not a number")
     return value
 
 
 def _table(value: object) -> Mapping[str, object]:
     if not isinstance(value, dict):
-        raise _Malformed("an entry is not a table")
+        raise MalformedReport("an entry is not a table")
     return value
 
 
 def _list(data: Mapping[str, object], key: str) -> list[object]:
     value = data.get(key)
     if not isinstance(value, list):
-        raise _Malformed(f"{key} is not a list")
+        raise MalformedReport(f"{key} is not a list")
     return value
 
 
@@ -203,7 +214,7 @@ def _finding(value: object) -> Finding:
     evidence = _table(data.get("evidence"))
     check = check_named(_text(data, "check"))
     if check is None:
-        raise _Malformed("a finding names no check of this suite")
+        raise MalformedReport("a finding names no check of this suite")
     provenance = _maybe_text(data, "provenance")
     return Finding(
         check=check,
@@ -229,7 +240,7 @@ def _identity(value: object) -> ReportIdentity | None:
     data = _table(value)
     analyzers = _list(data, "analyzers")
     if not all(isinstance(a, str) for a in analyzers):
-        raise _Malformed("analyzers is not a list of text")
+        raise MalformedReport("analyzers is not a list of text")
     return ReportIdentity(
         suite=_text(data, "suite"),
         parameters=_text(data, "parameters"),
@@ -242,7 +253,10 @@ def _identity(value: object) -> ReportIdentity | None:
 def _coverage(value: object) -> Coverage:
     data = _table(value)
     return Coverage(
-        _text(data, "reason"), _maybe_text(data, "check"), _maybe_text(data, "path")
+        _text(data, "reason"),
+        _maybe_text(data, "check"),
+        _maybe_text(data, "path"),
+        _maybe_text(data, "subject"),
     )
 
 
@@ -252,17 +266,17 @@ def _body(value: object) -> BodyDigest:
 
 
 def report_from_data(data: Mapping[str, object]) -> Report:
-    """The report a document holds; _Malformed when it holds none."""
+    """The report a document holds; MalformedReport when it holds none."""
     if data.get("format") != FORMAT:
-        raise _Malformed("not a report in this suite's format")
+        raise MalformedReport("not a report in this suite's format")
     verdict = _maybe_text(data, "verdict")
     names = _list(data, "ran")
     if not all(isinstance(n, str) and check_named(n) for n in names):
-        raise _Malformed("ran names a check that is not this suite's")
+        raise MalformedReport("ran names a check that is not this suite's")
     notices = _list(data, "notices")
     reasons = _list(data, "reasons")
     if not all(isinstance(t, str) for t in (*notices, *reasons)):
-        raise _Malformed("a notice or reason is not text")
+        raise MalformedReport("a notice or reason is not text")
     return Report(
         ran=tuple(catalog_check(str(n)) for n in names),
         findings=tuple(_finding(f) for f in _list(data, "findings")),
@@ -309,7 +323,9 @@ class FileReportStore:
         if self._inside:
             return StoreMiss(INSIDE_REFUSAL)
         if not (
-            is_key_part(repository) and is_object_id(revision) and is_key_part(identity)
+            is_repository_key(repository)
+            and is_object_id(revision)
+            and is_key_part(identity)
         ):
             return StoreMiss(f"no report is kept for {repository} at {revision}")
         path = self._lookup(repository, revision, identity)
@@ -317,7 +333,7 @@ class FileReportStore:
             return report_from_data(_table(json.loads(path.read_bytes())))
         except FileNotFoundError:
             return StoreMiss(f"no report kept at {path}")
-        except (OSError, ValueError, _Malformed) as error:
+        except (OSError, ValueError, MalformedReport) as error:
             return StoreMiss(f"{path} cannot be read: {error}")
 
     def _write(self, path: Path, document: JSON) -> None:
@@ -331,7 +347,7 @@ class FileReportStore:
     def put(self, report: Report) -> Recorded:
         if self._inside:
             return Recorded(False, Notice(f"report not kept: {INSIDE_REFUSAL}"))
-        if report.identity is None or not is_key_part(report.repository):
+        if report.identity is None or not is_repository_key(report.repository):
             return Recorded(
                 False,
                 Notice("report not kept: it names no repository or identity to key"),

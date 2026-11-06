@@ -19,14 +19,18 @@ from dataclasses import dataclass
 from adherence.domain.coverage import Coverage
 from adherence.domain.finding import Finding, Notice, normalised
 from adherence.domain.model import Unit
-from adherence.domain.qualities import Check, Quality
+from adherence.domain.qualities import CATALOG, Check, Quality
+from adherence.domain.questions import Abstention, Ask, Pass
 
 # --- Constants ---------------------------------------------------------------
 
-# The suite's version, as adherence/pyproject.toml states it.
-SUITE_VERSION = "0.1.0"
-# No judged check asks the judge in this suite version (task-064).
-JUDGE_UNASKED = "no judged question asked"
+# The suite's version, as adherence/pyproject.toml states it. It is part of
+# every report's identity, so a kept report from a suite whose Report shape
+# differs is a miss, never a base: bump it when a value a report carries
+# changes (0.2.0: Coverage gained its subject).
+SUITE_VERSION = "0.2.0"
+# Why a check a bounded run was ended before is coverage.
+ENDED = "did not finish before the deadline"
 
 # --- Values ------------------------------------------------------------------
 
@@ -67,6 +71,42 @@ class BodyDigest:
 
 
 @dataclass(frozen=True, slots=True)
+class FinishedCheck:
+    """One check a run finished: whether it ran, its findings and what it
+    could not cover, and for a judged check the questions it put to the
+    judge, its passes and its abstentions. A bounded run reports each as it
+    finishes -- a check with questions only once the judge has answered
+    them, so an unanswered one never reads as a pass."""
+
+    check: Check
+    findings: tuple[Finding, ...] = ()
+    coverage: tuple[Coverage, ...] = ()
+    ran: bool = True
+    questions: tuple[Ask, ...] = ()
+    passes: tuple[Pass, ...] = ()
+    abstentions: tuple[Abstention, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RunCoverage:
+    """What a run could not cover outside any one check -- a path it could
+    not read, a language no analyzer measures, an analyzer that timed out.
+    A bounded run reports it before its checks, so a run ended after it
+    still names it."""
+
+    coverage: tuple[Coverage, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RunNotices:
+    """What a run says beside its findings -- a refused exemption, an
+    applied one, an edit it is not judged under. A bounded run reports each
+    as soon as it is known, so a run ended after it still says it."""
+
+    notices: tuple[Notice, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class Recorded:
     """Whether a report was kept, and, when it was not, the notice the
     presenter shows beside the report."""
@@ -89,10 +129,12 @@ class Verdict(enum.Enum):
 @dataclass(frozen=True, slots=True)
 class Report:
     """One run's outcome: the checks that ran, every finding each produced,
-    the notices and the coverage, and the units the run read, each with the
-    layer it is in, and each definition's body digest. A run the suite
-    could not perform is not run and carries the reason; it holds nothing
-    else, so it never reads as a pass.
+    the notices and the coverage, the judged checks' passes, each with its
+    confidence, and their abstentions, which are neither a finding nor a
+    pass, and the units the run read, each with the layer it is in, and each
+    definition's body digest. A run the suite could not perform is not run
+    and carries the reason; it holds nothing else, so it never reads as a
+    pass.
 
     For a change, the report is the head's, with the verdict and why, each
     finding's provenance, and the base findings the change removed."""
@@ -110,6 +152,8 @@ class Report:
     identity: ReportIdentity | None = None
     repository: str | None = None
     revision: str | None = None
+    abstentions: tuple[Abstention, ...] = ()
+    passes: tuple[Pass, ...] = ()
 
     def ran_in(self, quality: Quality) -> tuple[Check, ...]:
         """The checks of one quality that ran, in catalog order."""
@@ -161,3 +205,41 @@ def fingerprint(value: object) -> str:
     """A digest of a value that is the same on every machine and run."""
     text = json.dumps(_canonical(value), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def unfinished_checks(finished: tuple[FinishedCheck, ...]) -> tuple[Check, ...]:
+    """The catalog's checks a run ended before: every one not finished, and
+    the change-level checks, which finish only once the change is compared."""
+    done = {f.check for f in finished}
+    return tuple(c for c in CATALOG if c.quality is Quality.DECLARED or c not in done)
+
+
+def assemble_partial(
+    finished: tuple[FinishedCheck, ...],
+    unfinished: tuple[Check, ...],
+    *,
+    coverage: tuple[Coverage, ...] = (),
+    notices: tuple[Notice, ...] = (),
+    reason: str = ENDED,
+) -> Report:
+    """The Report of a run ended at the deadline: the run's own coverage
+    and notices, the finished checks as they finished, with their passes
+    and abstentions, every unfinished one as coverage, and the verdict
+    inconclusive -- the change was never compared, so it is never held or
+    raised, and what did not finish never reads as a pass. `reason` is why
+    the unfinished checks did not finish."""
+    kept = tuple(f for f in finished if f.check not in unfinished)
+    return Report(
+        ran=tuple(f.check for f in kept if f.ran),
+        findings=tuple(finding for f in kept for finding in f.findings),
+        notices=tuple(dict.fromkeys(notices)),
+        coverage=(
+            *coverage,
+            *(c for f in kept for c in f.coverage),
+            *(Coverage(reason, check=c.name) for c in unfinished),
+        ),
+        verdict=Verdict.INCONCLUSIVE,
+        reasons=tuple(f"{c.name}: {reason}" for c in unfinished),
+        abstentions=tuple(a for f in kept for a in f.abstentions),
+        passes=tuple(p for f in kept for p in f.passes),
+    )

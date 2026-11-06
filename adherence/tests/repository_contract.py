@@ -11,10 +11,13 @@ from __future__ import annotations
 from collections.abc import Collection, Mapping
 from pathlib import Path
 
+from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.target import Base, ChangedPaths, Head, Rename
 from adherence.ports.repository import Absent, RepositoryPort
 
 Files = Mapping[str, bytes]
+# An instant every clock, real or faked, has long passed.
+PASSED = Deadline(epoch_seconds=1.0)
 
 
 class RepositoryContract:
@@ -138,3 +141,21 @@ class RepositoryContract:
 
         assert repository.history("adherence.toml", base, None) == (base.revision,)
         assert repository.history("nope.toml", base, None) == ()
+
+    def test_every_method_past_the_deadline_times_out(self, tmp_path: Path) -> None:
+        """Given a deadline already passed, When a file is read, a tree
+        listed, a change told or a history asked for, at every target, Then
+        each answer is TimedOut, never the bytes or the listing."""
+        repository, base = self.repository_with(
+            tmp_path,
+            base={"src/a.py": b"base\n"},
+            staged={"src/a.py": b"staged\n"},
+            working={"src/a.py": b"working\n"},
+        )
+
+        for at in (base, Head.staged_index(), Head.working_tree()):
+            assert isinstance(repository.read("src/a.py", at, PASSED), TimedOut), at
+            assert isinstance(repository.tree(at, PASSED), TimedOut), at
+        changed = repository.changed(base, Head.staged_index(), PASSED)
+        assert isinstance(changed, TimedOut)
+        assert isinstance(repository.history("src/a.py", base, PASSED), TimedOut)

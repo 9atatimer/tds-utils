@@ -24,6 +24,7 @@ from pathlib import Path
 
 from adherence.adapters.analyzer_process import (
     NotRan,
+    capped,
     remaining,
     run_analyzer,
     write_numbered,
@@ -95,9 +96,11 @@ class JscpdDuplication:
         *,
         command: Sequence[str],
         clock: Callable[[], float] = time.time,
+        bound: float | None = None,
     ) -> None:
         self._command = tuple(command)
         self._clock = clock
+        self._bound = bound
 
     def _command_line(self, root: Path, sources: Path) -> tuple[str, ...]:
         config = root / "jscpd.json"
@@ -142,7 +145,7 @@ class JscpdDuplication:
                 self._command_line(root, root / "src"),
                 cwd=work,
                 scratch=root,
-                timeout=remaining(deadline, self._clock()),
+                timeout=capped(deadline, self._clock(), self._bound),
             )
             if isinstance(ran, NotRan):
                 if ran.timed_out:

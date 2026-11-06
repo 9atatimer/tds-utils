@@ -3,8 +3,7 @@
 Trace, Purity's rule part, Wiring and Anatomy (DESIGN.ARCH-ADHERENCE.md,
 The Qualities table: Layered), each a pure function over the CodeModel
 and the design records. Purity's judged part, whether a callable a domain
-function takes does I/O, is a question for the judge and reads as
-coverage here.
+function takes does I/O, and Two jobs are questions for the judge.
 """
 
 from __future__ import annotations
@@ -37,6 +36,7 @@ from adherence.domain.model import (
 )
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
+from adherence.domain.questions import DOES_IO, TWO_JOBS, Ask, definition_text
 from adherence.domain.records import (
     Behavior,
     DesignRecords,
@@ -77,10 +77,18 @@ LITERAL = "Literal"
 # statement wrapped over lines is read as far as its first line goes.
 FROM_IMPORT = re.compile(r"\s*from\s+\S+\s+import\s+(?P<names>[^#]*)")
 ALIAS = re.compile(r"(?P<name>[A-Za-z_]\w*)\s+as\s+(?P<alias>[A-Za-z_]\w*)")
-DOES_IO_UNASKED = "the judged part (does_io) is not asked in this suite version"
+NOT_CALLED = "nowhere the analyzer resolved"
 WIRING = catalog_check("Wiring")
 NO_RUNTIME = "the per-runtime half needs a declared runtime; the declaration has none"
 ANATOMY = catalog_check("Anatomy")
+TWO_JOBS_CHECK = catalog_check("Two jobs")
+# The three jobs a unit may do, by the layer whose job each is; Two jobs
+# asks only about units declared to do one of them.
+JOBS: Mapping[Layer, str] = {
+    Layer.DOMAIN: "rules",
+    Layer.APPLICATION: "workflow",
+    Layer.COMPOSITION_ROOT: "wiring",
+}
 # The coding skill's file anatomy, as the layers of a file's regions:
 # predicates and pure helpers, then the effectful helpers, then the flow
 # functions, then the entry points.
@@ -320,16 +328,51 @@ def annotation_names(parameter: Parameter) -> frozenset[str]:
     return frozenset(names)
 
 
+def _call_sites(model: CodeModel) -> dict[tuple[str, str], list[Call]]:
+    """Every call that resolves to a repository definition, by its path and
+    symbol."""
+    sites: dict[tuple[str, str], list[Call]] = {}
+    for call in model.calls:
+        target = call.target
+        if target is not None and target.path is not None and target.symbol:
+            sites.setdefault((target.path, target.symbol), []).append(call)
+    return sites
+
+
+def _does_io_ask(rule: Definition, parameter: Parameter, sites: Sequence[Call]) -> Ask:
+    """The does_io question about one callable a domain function takes: the
+    function as the unit's text, the parameter and where the function is
+    called from as its data."""
+    unit = rule.unit
+    called = "; ".join(f"{c.path}:{c.line} in {c.within}" for c in sites)
+    return Ask(
+        check=PURITY,
+        question=DOES_IO,
+        unit=unit,
+        layer=unit.layer,
+        subject=f"{unit.symbol}: its callable {parameter.name} does I/O",
+        evidence=Evidence(
+            unit.path, unit.start, f"{parameter.name}: {parameter.annotation}"
+        ),
+        text=definition_text(rule),
+        context=(
+            f"the callable parameter: {parameter.name}: {parameter.annotation}\n"
+            f"{unit.symbol} is called from: {called or NOT_CALLED}"
+        ),
+    )
+
+
 def _taken(
     rule: Definition,
     parameter: Parameter,
     ports: frozenset[str],
     vocabulary: Vocabulary,
     aliases: Mapping[str, str],
-) -> Finding | Coverage | None:
+    sites: Mapping[tuple[str, str], Sequence[Call]],
+) -> Finding | Ask | None:
     """What one parameter of a domain function makes of it: a finding for a
-    port or a clock, coverage for a callable the judge would be asked about,
-    or nothing. An import alias is read as the name it stands for."""
+    port or a clock, the does_io question for a callable, or nothing. An
+    import alias is read as the name it stands for."""
     names = frozenset(aliases.get(n, n) for n in annotation_names(parameter))
     unit = rule.unit
     evidence = Evidence(
@@ -342,11 +385,8 @@ def _taken(
         subject = f"{parameter.name}: the clock {clock[0]}"
         return Finding(PURITY, unit, unit.layer, subject, evidence)
     if names & vocabulary.callables:
-        return Coverage(
-            f"{DOES_IO_UNASKED}: whether {unit.symbol}'s callable "
-            f"{parameter.name} does I/O",
-            check=PURITY.name,
-            path=unit.path,
+        return _does_io_ask(
+            rule, parameter, sites.get((unit.path, unit.symbol or ""), [])
         )
     return None
 
@@ -357,12 +397,13 @@ def purity(
     records: DesignRecords | RecordsUnavailable,
     parameters: Parameters,
 ) -> CheckOutcome:
-    """No domain unit takes a port or a clock; a callable it takes is left to
-    the judged part."""
+    """No domain unit takes a port or a clock; whether a callable it takes
+    does I/O is the judged part's question."""
     if not declaration.declared:
         return undeclared(PURITY.name)
     ports = _port_names(model)
     aliases = _aliases(model)
+    sites = _call_sites(model)
     taken = [
         _taken(
             rule,
@@ -370,6 +411,7 @@ def purity(
             ports,
             parameters.vocabulary,
             aliases.get(rule.unit.path, {}),
+            sites,
         )
         for rule in model.definitions
         if is_rule(rule) and rule.signature is not None
@@ -377,7 +419,7 @@ def purity(
     ]
     return CheckOutcome(
         tuple(t for t in taken if isinstance(t, Finding)),
-        tuple(t for t in taken if isinstance(t, Coverage)),
+        questions=tuple(t for t in taken if isinstance(t, Ask)),
     )
 
 
@@ -425,15 +467,37 @@ def _named(unit: Unit) -> str:
     return f"{unit.path}:{unit.symbol}" if unit.symbol else unit.path
 
 
+def _modules(model: CodeModel) -> dict[str, Unit]:
+    """Each file's own unit, by path."""
+    return {u.path: u for u in model.units if u.kind is UnitKind.FILE}
+
+
+def _root_unit(construction: _Construction, modules: Mapping[str, Unit]) -> Unit:
+    """The unit a construction counts toward as a root: in the
+    composition-root layer the module, so one file that constructs adapters
+    in several functions is one root (DESIGN.ARCH-ADHERENCE.md, Key
+    Decisions, Wiring's unit in the composition root); elsewhere the unit
+    making the call."""
+    unit = construction.unit
+    if construction.layer is not Layer.COMPOSITION_ROOT or unit.kind is UnitKind.FILE:
+        return unit
+    return modules.get(
+        unit.path, Unit(unit.path, UnitKind.FILE, None, 1, unit.end, unit.layer)
+    )
+
+
 def _roots(
-    runtime: Runtime, constructions: Sequence[_Construction]
+    runtime: Runtime,
+    constructions: Sequence[_Construction],
+    modules: Mapping[str, Unit],
 ) -> dict[Unit, list[_Construction]]:
-    """The runtime's units that construct concrete adapters, in order; a
-    test is no part of a runtime."""
+    """The runtime's units that construct concrete adapters, in order, a
+    composition-root file counted once as its module; a test is no part of
+    a runtime."""
     roots: dict[Unit, list[_Construction]] = {}
     for c in sorted(constructions, key=lambda c: (c.unit.path, c.unit.start)):
         if c.layer is not Layer.TEST and is_in_runtime(c.unit.path, runtime):
-            roots.setdefault(c.unit, []).append(c)
+            roots.setdefault(_root_unit(c, modules), []).append(c)
     return roots
 
 
@@ -474,9 +538,12 @@ def _rooted(
 
 
 def _below_root(construction: _Construction) -> Finding | None:
-    """A finding naming a unit outside the composition-root layer and the
-    concrete adapter it constructs; an uncovered unit is never checked."""
-    if construction.layer in (None, Layer.COMPOSITION_ROOT):
+    """A finding naming a unit outside the composition-root and test layers
+    and the concrete adapter it constructs; an uncovered unit is never
+    checked. A test that constructs a concrete adapter is that adapter's
+    contract suite, which the testing skill requires (DESIGN.ARCH-ADHERENCE.md,
+    Key Decisions, Wiring over the test layer)."""
+    if construction.layer in (None, Layer.COMPOSITION_ROOT, Layer.TEST):
         return None
     call = construction.call
     return Finding(
@@ -495,16 +562,20 @@ def wiring(
     records: DesignRecords | RecordsUnavailable,
     parameters: Parameters,
 ) -> CheckOutcome:
-    """Per declared runtime, exactly one unit constructs concrete adapters,
-    and no unit outside the composition-root layer constructs one."""
+    """Per declared runtime, exactly one unit constructs concrete adapters --
+    in the composition-root layer the unit is the module, however many of
+    its functions construct -- and no unit outside the composition-root and
+    test layers constructs one."""
     if not declaration.declared:
         return undeclared(WIRING.name)
     adapters = _concrete_adapters(model, parameters.vocabulary)
     constructions = _constructions(model, declaration, adapters)
+    modules = _modules(model)
     findings = [
         finding
         for runtime in declaration.runtimes
-        if (finding := _rooted(runtime, _roots(runtime, constructions))) is not None
+        if (finding := _rooted(runtime, _roots(runtime, constructions, modules)))
+        is not None
     ]
     findings.extend(
         finding
@@ -560,3 +631,48 @@ def anatomy(
             )
         )
     return CheckOutcome(tuple(findings))
+
+
+def _job(layer: Layer | None) -> str | None:
+    """The job a layer's units do, when it is one of the three."""
+    return JOBS.get(layer) if layer is not None else None
+
+
+def _two_jobs_ask(definition: Definition, job: str) -> Ask:
+    unit = definition.unit
+    layer = unit.layer
+    others = " and ".join(j for j in JOBS.values() if j != job)
+    return Ask(
+        check=TWO_JOBS_CHECK,
+        question=TWO_JOBS,
+        unit=unit,
+        layer=layer,
+        subject=(
+            f"{unit.symbol}: declared {layer.value if layer else 'unassigned'} "
+            f"({job}) and doing {others} as well"
+        ),
+        evidence=Evidence(unit.path, unit.start, unit.symbol or ""),
+        text=definition_text(definition),
+        context=f"declared layer: {layer.value if layer else ''}, whose job is {job}",
+    )
+
+
+def two_jobs(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """Asks the judge, of every function declared to do rules, workflow or
+    wiring, whether it does two of the three; it finds nothing by itself."""
+    if not declaration.declared:
+        return undeclared(TWO_JOBS_CHECK.name)
+    return CheckOutcome(
+        questions=tuple(
+            _two_jobs_ask(d, job)
+            for d in model.definitions
+            if d.unit.kind is UnitKind.FUNCTION
+            and not d.nested
+            and (job := _job(d.unit.layer)) is not None
+        )
+    )

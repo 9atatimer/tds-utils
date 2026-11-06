@@ -3,8 +3,8 @@ through the public surface.
 
 The rule checks of the Behavior-driven quality: Kept test, Public surface
 and Real assertion (DESIGN.ARCH-ADHERENCE.md, The Qualities table:
-Behavior-driven), each a pure function over the CodeModel. Then asserted
-is a judged question (task-064).
+Behavior-driven), each a pure function over the CodeModel, and Then
+asserted, which puts the then_asserted question to the judge.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ from adherence.domain.model import (
 )
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
+from adherence.domain.questions import THEN_ASSERTED, Ask, definition_text
 from adherence.domain.records import Behavior, DesignRecords, RecordsUnavailable
 
 # --- Constants ---------------------------------------------------------------
@@ -35,6 +36,7 @@ from adherence.domain.records import Behavior, DesignRecords, RecordsUnavailable
 REAL_ASSERTION = catalog_check("Real assertion")
 PUBLIC_SURFACE = catalog_check("Public surface")
 KEPT_TEST = catalog_check("Kept test")
+THEN_ASSERTED_CHECK = catalog_check("Then asserted")
 UNTOLD_HELPERS = "which application function is a use case cannot be told"
 
 # --- Predicates --------------------------------------------------------------
@@ -373,3 +375,75 @@ def kept_test(
         if behavior.name in functions and functions[behavior.name] not in kept
     ]
     return CheckOutcome(tuple(findings))
+
+
+def _then_asserted_ask(
+    behavior: Behavior,
+    case: TestCase,
+    unit: Unit,
+    definitions: Mapping[tuple[str, str], Definition],
+) -> Ask:
+    """The then_asserted question about one kept test of one behavior: the
+    test's body as the unit's text, the row as the data."""
+    test = definitions.get((case.path, case.symbol))
+    asked = test.unit if test is not None else unit
+    return Ask(
+        check=THEN_ASSERTED_CHECK,
+        question=THEN_ASSERTED,
+        unit=asked,
+        layer=asked.layer,
+        subject=f"{case.symbol}: does not assert the Then of {behavior.name}",
+        evidence=Evidence(case.path, case.line, case.symbol),
+        text=definition_text(test) if test is not None else "",
+        context=(
+            f"the design behavior {behavior.name} ({behavior.path}:"
+            f"{behavior.line}):\n{behavior.scenario}"
+        ),
+    )
+
+
+def then_asserted(
+    model: CodeModel,
+    declaration: Declaration,
+    records: DesignRecords | RecordsUnavailable,
+    parameters: Parameters,
+) -> CheckOutcome:
+    """Asks the judge, of every test that calls a design behavior's use case
+    (Kept test's reading), how fully it asserts the row's Then; it finds
+    nothing by itself."""
+    if not declaration.declared:
+        return undeclared(THEN_ASSERTED_CHECK.name)
+    if isinstance(records, RecordsUnavailable):
+        return CheckOutcome(
+            coverage=(Coverage(records.reason, check=THEN_ASSERTED_CHECK.name),),
+            ran=False,
+        )
+    calls = calls_by_scope(model)
+    definitions = _definitions(model)
+    unambiguous = _unambiguous(model)
+    functions = {
+        row.behavior: row.use_case
+        for row in records.surface
+        if row.use_case is not None
+    }
+    reaches = [
+        (
+            case,
+            unit,
+            {
+                name
+                for call in _reached(case, calls, definitions)
+                if (name := _kept_name(call, definitions, unambiguous)) is not None
+            },
+        )
+        for case, unit in _tests(model, declaration)
+    ]
+    return CheckOutcome(
+        questions=tuple(
+            _then_asserted_ask(behavior, case, unit, definitions)
+            for behavior in records.behaviors
+            if behavior.name in functions
+            for case, unit, names in reaches
+            if functions[behavior.name] in names
+        )
+    )

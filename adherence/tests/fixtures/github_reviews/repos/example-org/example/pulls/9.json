@@ -1,0 +1,25 @@
+{
+  "url": "https://api.github.com/repos/example-org/example/pulls/9",
+  "id": 109,
+  "number": 9,
+  "state": "closed",
+  "title": "Change 9",
+  "user": {
+    "login": "alice",
+    "id": 509,
+    "type": "User"
+  },
+  "created_at": "2026-10-20T10:00:00Z",
+  "closed_at": "2026-10-22T09:00:00Z",
+  "merged_at": "2026-10-22T09:00:00Z",
+  "merge_commit_sha": "5555555555555555555555555555555555555555",
+  "head": {
+    "ref": "topic-9",
+    "sha": "5555555555555555555555555555555555555555"
+  },
+  "base": {
+    "ref": "master",
+    "sha": "0000000000000000000000000000000000000000"
+  },
+  "merged": true
+}

@@ -11,7 +11,6 @@ from __future__ import annotations
 from collections.abc import Collection
 from dataclasses import dataclass
 
-from adherence.domain.declaration import Declaration
 from adherence.domain.model import CodeLanguage, CodeModel, UnitKind, language_of
 
 # --- Constants ---------------------------------------------------------------
@@ -23,19 +22,30 @@ UNASSIGNED = "in no declared layer, so no check reads it"
 
 @dataclass(frozen=True, slots=True)
 class Coverage:
-    """A check, a source, or a check on a source, that did not run, and why."""
+    """A check, a source, or a check on a source, that did not run, and why.
+    `subject` names the unit on the source the check was to read, as its
+    finding would name it, when the check was to read one unit there; the
+    reason then says only why, so coverage counts by reason."""
 
     reason: str
     check: str | None = None
     path: str | None = None
+    subject: str | None = None
+
+    @property
+    def why(self) -> str:
+        """The reason, after the unit it is on when it names one."""
+        return f"{self.subject}: {self.reason}" if self.subject else self.reason
 
 
 # --- Pure helpers ------------------------------------------------------------
 
 
-def unmodelled(model: CodeModel, declaration: Declaration) -> tuple[Coverage, ...]:
+def unmodelled(model: CodeModel, *, declared: bool) -> tuple[Coverage, ...]:
     """The sources the analyzer could not read, and, for a declared
-    repository, the files no declared layer or region covers."""
+    repository, the files no declared layer or region covers. Only whether
+    the repository is declared is read, so coverage, which the declaration's
+    questions make, never imports the declaration."""
     covered = {u.path for u in model.units if u.layer is not None}
     files = sorted({u.path for u in model.units if u.kind is UnitKind.FILE})
     return (
@@ -43,7 +53,7 @@ def unmodelled(model: CodeModel, declaration: Declaration) -> tuple[Coverage, ..
         *(
             Coverage(UNASSIGNED, path=path)
             for path in files
-            if declaration.declared and path not in covered
+            if declared and path not in covered
         ),
     )
 

@@ -6,11 +6,13 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from adherence.adapters.fakes import FakeReportStore
+from adherence.adapters.fakes import FakeDecision, FakeReportStore
+from adherence.adapters.no_judge import NoJudge
 from adherence.domain.deadline import TimedOut
 from adherence.domain.declaration import DECLARATION_PATH
 from adherence.domain.finding import Provenance
 from adherence.domain.model import Layer, Parameter, Signature, merged
+from adherence.domain.questions import TWO_JOBS, Unavailable
 from adherence.domain.records import (
     Behavior,
     DesignRecords,
@@ -29,6 +31,7 @@ from tests.judge_kit import (
     HEAD,
     REPOSITORY,
     RULES,
+    answering,
     judge_with,
     measured_at,
     stubbed,
@@ -620,3 +623,144 @@ def test_judge_change_deleting_a_behavior_row_removes_none_of_its_findings() -> 
 
     assert [f for f in report.removed if f.unit.symbol == homeless.name] == []
     assert report.verdict is Verdict.LOWERED
+
+
+# --- Issue#627: the report identity carries the judge's availability ----------
+
+TWO_JOBS_FOUND = {"yes": 0.95, "no": 0.05}
+
+
+def test_measure_report_identity_carries_the_judge_availability() -> None:
+    """Given one target measured with a judge bound and answering, with no
+    judge bound, and with a judge bound that cannot be reached, When each
+    report's identity is read, Then the first differs from the other two,
+    which are alike: a report measured without a judge is never comparable
+    with one measured with it."""
+    available = measured_at({RULES: FIXED}, when=WHEN)
+    unbound = measured_at({RULES: FIXED}, when=WHEN, judge=NoJudge())
+    unreachable = measured_at(
+        {RULES: FIXED},
+        when=WHEN,
+        judge=FakeDecision(Unavailable("the door refused the connection")),
+    )
+
+    assert available.identity is not None and unbound.identity is not None
+    assert available.identity.differences(unbound.identity) == ("judge",)
+    assert unreachable.identity == unbound.identity
+
+
+def test_judge_change_ignores_a_base_stored_without_the_judge() -> None:
+    """Given a base report kept by a run with no judge bound, and a judge
+    that finds a unit doing two jobs at the base and at the head, When a
+    change beside that unit is judged with the judge, Then the stored base
+    is not used, the base is measured again, the judged finding is existing
+    and the verdict is held, never lowered."""
+    store = FakeReportStore()
+    store.put(
+        replace(
+            measured_at({RULES: FIXED}, when=WHEN, judge=NoJudge()),
+            repository=REPOSITORY,
+        )
+    )
+
+    report = judge_with(
+        {RULES: FIXED},
+        {RULES: FIXED, USE: CLEAN},
+        when=WHEN,
+        store=store,
+        judge=answering(TWO_JOBS, TWO_JOBS_FOUND),
+    )
+
+    assert report.verdict is Verdict.HELD
+    found = [f for f in report.findings if f.check.name == "Two jobs"]
+    assert [f.provenance for f in found] == [Provenance.EXISTING]
+    assert store.hits == []
+
+
+# --- An abstention is inconclusive --------------------------------------------
+
+TWO_JOBS_IN_BAND = {"yes": 0.5, "no": 0.5}
+EDITED = FIXED + b"# edited\n"
+
+
+def test_judge_change_with_an_abstention_on_a_touched_unit_is_inconclusive() -> None:
+    """Given a change whose only unresolved item is a judged check that
+    abstained on a unit it touched, When it is judged, Then the verdict is
+    inconclusive, never lowered, and the reasons name the check and the
+    unit."""
+    report = judge_with(
+        {RULES: FIXED},
+        {RULES: EDITED},
+        when={**WHEN, EDITED: stubbed(RULES, "tidy", 2, stub=None)},
+        judge=answering(TWO_JOBS, TWO_JOBS_IN_BAND),
+    )
+
+    assert [a.unit.path for a in report.abstentions] == [RULES]
+    assert report.verdict is Verdict.INCONCLUSIVE
+    assert any("Two jobs" in r and RULES in r for r in report.reasons)
+
+
+def test_judge_change_with_an_abstention_on_an_untouched_unit_holds() -> None:
+    """Given a judged check that abstained on a unit the change did not
+    touch, When the change is judged, Then the abstention does not make it
+    inconclusive and the verdict is held."""
+    report = judge_with(
+        {RULES: FIXED, USE: CLEAN},
+        {RULES: FIXED, USE: CLEAN + b"\n# edited\n"},
+        when=WHEN,
+        judge=answering(TWO_JOBS, TWO_JOBS_IN_BAND),
+    )
+
+    assert [a.unit.path for a in report.abstentions] == [RULES]
+    assert report.verdict is Verdict.HELD
+
+
+def _kept_base(files: dict[str, bytes]) -> FakeReportStore:
+    """A store holding the base measured with a judge that finds a unit
+    doing two jobs, so the head's judge may answer otherwise."""
+    store = FakeReportStore()
+    store.put(
+        replace(
+            measured_at(files, when=WHEN, judge=answering(TWO_JOBS, TWO_JOBS_FOUND)),
+            repository=REPOSITORY,
+        )
+    )
+    return store
+
+
+def test_judge_change_abstaining_over_a_base_finding_untouched_holds() -> None:
+    """Given a base judged finding whose unit the change did not touch, and a
+    head judge that only abstains there, When the change is judged, Then the
+    finding is not removed and the verdict is held, never raised."""
+    files = {RULES: FIXED, USE: CLEAN}
+    report = judge_with(
+        files,
+        {RULES: FIXED, USE: CLEAN + b"\n# edited\n"},
+        when=WHEN,
+        store=_kept_base(files),
+        unlisted_at={BASE: Refused(".", "the base is not measured again")},
+        judge=answering(TWO_JOBS, TWO_JOBS_IN_BAND),
+    )
+
+    assert [a.unit.path for a in report.abstentions] == [RULES]
+    assert report.removed == ()
+    assert report.verdict is Verdict.HELD
+
+
+def test_judge_change_abstaining_over_a_base_finding_touched_is_inconclusive() -> None:
+    """Given a base judged finding on a unit the change touched, and a head
+    judge that only abstains there, When the change is judged, Then the
+    finding is not removed and the verdict is inconclusive, never raised."""
+    files = {RULES: FIXED}
+    report = judge_with(
+        files,
+        {RULES: EDITED},
+        when={**WHEN, EDITED: stubbed(RULES, "tidy", 2, stub=None)},
+        store=_kept_base(files),
+        unlisted_at={BASE: Refused(".", "the base is not measured again")},
+        judge=answering(TWO_JOBS, TWO_JOBS_IN_BAND),
+    )
+
+    assert [a.unit.path for a in report.abstentions] == [RULES]
+    assert report.removed == ()
+    assert report.verdict is Verdict.INCONCLUSIVE

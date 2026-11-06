@@ -8,6 +8,7 @@ Skipped, never faked, when either tool is not installed."""
 
 from __future__ import annotations
 
+import functools
 import importlib.util
 import json
 from pathlib import Path
@@ -16,6 +17,7 @@ import pytest
 from click.testing import CliRunner
 
 from adherence.cli.main import main
+from adherence.container import build
 from adherence.domain.qualities import Quality
 
 ENGINE = Path(__file__).resolve().parents[2]
@@ -33,7 +35,11 @@ pytestmark = pytest.mark.skipif(
 
 
 def _measure(root: Path) -> tuple[int, str]:
-    result = CliRunner().invoke(main, ["measure", "--root", str(root), "--json"])
+    # No judge, whatever the developer's environment configures.
+    builder = functools.partial(build, environment={})
+    result = CliRunner().invoke(
+        main, ["measure", "--root", str(root), "--json"], obj=builder
+    )
     return result.exit_code, result.output
 
 
