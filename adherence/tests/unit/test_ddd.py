@@ -427,17 +427,21 @@ def test_measure_with_typescript_signature_types_finds_no_foreign_noun() -> None
 
 def test_measure_with_a_typescript_constructor_only_type_asks_anemic() -> None:
     """Given a TypeScript domain type with fields and no method but its
-    `constructor`, When Anemic's rule part runs, Then it awaits the judge
-    as a Python type with only `__init__` does: a constructor only sets the
-    fields up."""
-    files = {RULES: b"x\n" * 9}
-    definitions = [type_(RULES, "Money", 1, end=4)]
+    `constructor`, read by a use case, When Anemic's rule part runs, Then it
+    awaits the judge as a Python type with only `__init__` does: a
+    constructor only sets the fields up."""
+    files = {RULES: b"x\n" * 9, USE: b"x\n" * 9}
+    definitions = [
+        type_(RULES, "Money", 1, end=4),
+        function(USE, "show", 1, (value("money", "Money"),), end=5),
+    ]
     members = (
         field(RULES, "Money", "cents", 2),
         method(RULES, "Money", "constructor", 3),
     )
+    reads = (Reference(USE, 2, "show", ReferenceKind.NAME, "money.cents"),)
 
-    report = measure_with(files, facts(definitions, members=members))
+    report = measure_with(files, facts(definitions, members=members, references=reads))
 
     asked = [c.reason.split(":")[0] for c in report.coverage if c.check == "Anemic"]
     assert asked == ["Money"]

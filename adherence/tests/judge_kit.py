@@ -150,7 +150,7 @@ def judge_with(
         records=FakeRecords(records or {}),
         judge=judge if judge is not None else passing_judge(),
         reports=store if store is not None else FakeReportStore(),
-        parameters=parameters(),
+        parameters=judged_parameters(),
         deadline=None,
     )
 
