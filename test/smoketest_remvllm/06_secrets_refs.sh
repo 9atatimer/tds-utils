@@ -43,7 +43,10 @@ main() {
     if err="$(secrets_preflight 2>&1)"; then
         echo "FAIL: preflight passed with empty references"; return 1
     fi
-    assert_eq "$(printf '%s\n' "${err}" | grep -c 'is not set')" "3" "each empty reference is named"
+    local var
+    for var in REMVLLM_SPHERON_OP_TOKEN REMVLLM_SPHERON_OP_SSH_KEY REMVLLM_SPHERON_OP_SSH_PUBKEY; do
+        [[ "${err}" == *"${var} is not set"* ]] || { echo "FAIL: ${var} not named as unset: ${err}"; return 1; }
+    done
     [[ "${err}" != *"op must not be consulted"* ]] || { echo "FAIL: op was consulted before the refs check"; return 1; }
 
     export REMVLLM_SPHERON_OP_TOKEN="sk-a-bare-secret" \
