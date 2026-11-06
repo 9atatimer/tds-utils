@@ -110,6 +110,13 @@ test_trees() {
     assert_eq "adherence/ Markdown runs adherence" "$(only adherence)" "$(classify "${d}" adherence/README.md)"
     assert_eq "a change outside adherence/ does not run adherence" "$(only chores)" \
         "$(classify "${d}" chores/src/x.py)"
+    printf 'What the suite judges this repository by also runs adherence (Issue#600)\n'
+    assert_eq "the declaration" "$(only adherence)" "$(classify "${d}" adherence.toml)"
+    assert_eq "an Adherence record" "$(only adherence)" \
+        "$(classify "${d}" docs/design/DESIGN.ARCH-ADHERENCE.md)"
+    assert_eq "the other Adherence record" "$(only adherence)" \
+        "$(classify "${d}" docs/design/ARCHITECTURE.ARCH-ADHERENCE.md)"
+    assert_eq "the radar" "$(only adherence)" "$(classify "${d}" lmde/TECH_RADAR.md)"
 }
 
 test_shebang() {

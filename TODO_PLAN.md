@@ -83,7 +83,7 @@ Architectural Adherence (`docs/design/DESIGN.ARCH-ADHERENCE.md` and
 after the designomatic and self-review passes of tds-utils PR#605; epic
 Issue#588): the suite that executes the coding skill's mechanical tests
 over a repository as sensors on nine qualities, and refuses a change that
-trips one that was not already tripped. No code yet; the route is tasks 056-072, each RED first, one
+trips one that was not already tripped. The route is tasks 056-072, each RED first, one
 behavior per commit. Order:
 
 - task-056 -- the engine skeleton, `bin/adhere`, `load_declaration`, the
@@ -98,6 +98,31 @@ behavior per commit. Order:
 - task-060, task-061 -- the remaining target-level rule checks.
 - task-062 -- `judge_change`: the gate exists only from here; task-063,
   task-064 and task-065 each wait on it.
+
+Tasks 056-062 landed (2026-11-06). The order from here puts the gate's
+value first: an undeclared repository measures nothing, so the
+declaration (task-068's first half) came before the remaining engine
+work, and the fleet's gates are the goal each step serves.
+
+- task-068, first half -- `adherence.toml`, the self-declaration test and
+  the advisory `adherence-judge` job (Issue#600). A declaration
+  takes effect from the next change (G9), so the first PR after it is
+  the first judged under layers.
+- the self-measurement's false positives, ruled under Issue#590 and
+  fixed: Wiring over every test that constructs a real adapter (60), and
+  Language over architecture nouns (`Deadline`, `Parameters`,
+  `CodeLanguage`) in use-case signatures (10). Arrow over `cli/` was the
+  declaration's to fix: the architecture places `cli/` in the
+  composition root.
+- task-068, second half -- `adherence-judge` joins `gate`'s `needs` after
+  one green run; the per-stage exit mapping (task-066's `ci` stage) so
+  only lowered fails.
+- task-063 -- the declaration in force through `github_reviews`, before
+  any other repository adopts.
+- task-066, task-067 -- the reusable workflow and SARIF; then Skills and
+  template-tools declare and adopt (Issue#601).
+- task-064 (judged checks), task-065 (the hook), task-071 (explanations),
+  task-072 (runbook and as-built) -- after the fleet's gates are live.
 
 The owner's rulings on the design's open questions (Q1, Q3-Q7, Q9-Q12)
 and the architecture's Q6-Q7

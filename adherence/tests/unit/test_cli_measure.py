@@ -9,10 +9,10 @@ from click.testing import CliRunner
 from adherence.cli.main import main
 
 
-def test_measure_without_json_says_json_is_the_one_format(tmp_path: Path) -> None:
+def test_measure_without_a_format_names_the_formats(tmp_path: Path) -> None:
     """Given no output format, When `adhere measure` runs, Then it exits
-    non-zero and says --json is the format available."""
+    non-zero and names the formats available."""
     result = CliRunner().invoke(main, ["measure", "--root", str(tmp_path)])
 
     assert result.exit_code == 2
-    assert "--json" in result.output
+    assert "--format" in result.output and "summary" in result.output

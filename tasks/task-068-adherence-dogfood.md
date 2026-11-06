@@ -4,7 +4,7 @@ kind: task
 title: "adherence: this repository measures the suite in its own gate"
 created: 2026-10-24
 issue: 600
-blocked_by: [task-067]
+blocked_by: []
 implements: docs/design/ARCHITECTURE.ARCH-ADHERENCE.md
 ---
 `adherence.toml` at this repository's root declaring `adherence/` by
@@ -21,3 +21,12 @@ alone selects the `adherence` scope, made GREEN by its arm in
 `changed-scopes.sh`. Done when the first run is green
 on its own base, and a throwaway branch that moves a port import into
 `adherence/domain/` is lowered by its own gate, then reverted.
+
+Progress (2026-11-06): the declaration, the self-declaration test, the
+`changed-scopes.sh` arm and the `adherence-judge` job landed first, ahead
+of tasks 063-067, as an advisory job outside `gate`'s `needs` (the engine
+measures nothing until a repository is declared, so the route's value
+began here). Still open: the `gate` join after one green run, and the
+throwaway-branch proof that a port import moved into `adherence/domain/`
+is lowered. The reusable workflow of task-067 replaces the inline job
+when it lands; the job is the caller's shape without the pin.

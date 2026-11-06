@@ -20,6 +20,7 @@ from adherence.application.load import load_declaration
 from adherence.application.measure import measure
 from adherence.application.record import record_report
 from adherence.cli.presenters.json_report import report_json
+from adherence.cli.presenters.summary import report_summary
 from adherence.container import Container, Stage, build
 from adherence.domain.declaration import (
     DECLARATION_PATH,
@@ -39,6 +40,19 @@ STRIPPED_CATEGORIES = frozenset({"Cc", "Cf"})
 # The verdicts `adhere judge` exits non-zero on until the per-stage mapping
 # lands (task-066): lowered fails a gate; not run never reads as a pass.
 FAILING = frozenset({Verdict.LOWERED, Verdict.NOT_RUN})
+# The output formats: the machine form, and the PR job summary's markdown.
+# The terminal and SARIF presenters are task-066's.
+FORMATS = {"json": report_json, "summary": report_summary}
+FORMAT_OPTION = click.option(
+    "--format",
+    "format_name",
+    type=click.Choice(sorted(FORMATS)),
+    default=None,
+    help="The output format. Required until the terminal presenter lands.",
+)
+JSON_OPTION = click.option(
+    "--json", "as_json", is_flag=True, help="Print the report as JSON (--format json)."
+)
 
 # --- Presenters --------------------------------------------------------------
 
@@ -71,6 +85,15 @@ def _declaration_lines(loaded: Declaration | DeclarationUnreadable) -> list[str]
             for key in loaded.vocabulary.refused
         ),
     ]
+
+
+def _presenter(format_name: str | None, as_json: bool) -> Callable[..., str]:
+    """The presenter the flags name; a usage error when they name none."""
+    if format_name is None and as_json:
+        format_name = "json"
+    if format_name is None:
+        raise click.UsageError("name an output format: --format json or summary")
+    return FORMATS[format_name]
 
 
 # --- Entry points ------------------------------------------------------------
@@ -114,16 +137,18 @@ def declaration_check(root: str) -> None:
     type=click.Path(exists=True, file_okay=False),
     help="The repository whose working tree is measured.",
 )
-@click.option("--json", "as_json", is_flag=True, help="Print the report as JSON.")
+@FORMAT_OPTION
+@JSON_OPTION
 @click.pass_context
-def measure_command(ctx: click.Context, root: str, as_json: bool) -> None:
+def measure_command(
+    ctx: click.Context, root: str, format_name: str | None, as_json: bool
+) -> None:
     """Measure the working tree and print the report.
 
     A test passes the composition root, bound with its fakes, as the
     context object.
     """
-    if not as_json:
-        raise click.UsageError("--json is the one output format so far")
+    present = _presenter(format_name, as_json)
     builder: Callable[..., Container] = ctx.obj if callable(ctx.obj) else build
     container = builder(Stage.LAPTOP, root=root)
     head = Head.working_tree()
@@ -139,7 +164,7 @@ def measure_command(ctx: click.Context, root: str, as_json: bool) -> None:
         parameters=container.parameters,
         deadline=None,
     )
-    click.echo(report_json(report))
+    click.echo(present(report).rstrip("\n"))
     if report.not_run_reason is not None:
         sys.exit(1)
 
@@ -154,10 +179,16 @@ def measure_command(ctx: click.Context, root: str, as_json: bool) -> None:
 )
 @click.option("--base", required=True, help="The revision judged against.")
 @click.option("--head", required=True, help="The revision judged.")
-@click.option("--json", "as_json", is_flag=True, help="Print the report as JSON.")
+@FORMAT_OPTION
+@JSON_OPTION
 @click.pass_context
 def judge_command(
-    ctx: click.Context, root: str, base: str, head: str, as_json: bool
+    ctx: click.Context,
+    root: str,
+    base: str,
+    head: str,
+    format_name: str | None,
+    as_json: bool,
 ) -> None:
     """Judge the head revision against the base and print the report.
 
@@ -165,8 +196,7 @@ def judge_command(
     never change the verdict. A test passes the composition root, bound
     with its fakes, as the context object.
     """
-    if not as_json:
-        raise click.UsageError("--json is the one output format so far")
+    present = _presenter(format_name, as_json)
     builder: Callable[..., Container] = ctx.obj if callable(ctx.obj) else build
     container = builder(Stage.LAPTOP, root=root)
     change = Change(
@@ -188,6 +218,6 @@ def judge_command(
         deadline=None,
     )
     recorded = record_report(report, reports=container.reports)
-    click.echo(report_json(report, recorded))
+    click.echo(present(report, recorded).rstrip("\n"))
     if report.verdict in FAILING:
         sys.exit(1)
