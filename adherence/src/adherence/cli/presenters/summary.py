@@ -4,12 +4,15 @@ The markdown the CI job writes to its step summary (ARCHITECTURE.
 ARCH-ADHERENCE.md, PR surface): the verdict and why, the introduced
 findings a reviewer must read as rows, the rest as counts. Evidence,
 symbols, paths and subjects are author-controlled text, so every cell is
-escaped for markdown and HTML and stripped of control and format
-characters (Security mitigations).
+escaped for markdown and HTML, stripped of control and format characters,
+and broken with a zero-width space after a URL scheme, after every at sign
+and into every www host, so no autolink or mention of the author's forms
+(Security mitigations).
 """
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Sequence
 
@@ -25,17 +28,34 @@ from adherence.domain.report import Recorded, Report
 HTML_ESCAPES = (("&", "&amp;"), ("<", "&lt;"), (">", "&gt;"))
 # What starts or ends inline markup, or a table cell, inside a cell.
 MARKDOWN_SPECIALS = "\\`*_[]|~"
+# Where GFM's autolinks and mentions are split: after a scheme it links
+# (before its colon), after an email's or a mention's at sign, and after a
+# www host's www. The zero-width space goes in as an entity, so the output
+# carries no format character; a location's line-number colon is untouched.
+# GFM links after `_`, `*`, `~` and `(` as after a space, and `_` is a word
+# character, so the scheme and www alternatives look back for a letter or
+# digit, not for a word boundary; a URL scheme is told by its `://`, so
+# a path whose last component is `ftp` keeps its line-number colon.
+LINK_FORMING = re.compile(
+    r"(?i)(?<![a-z0-9])(?:https?|ftp)(?=://)"
+    r"|(?<![a-z0-9])(?:mailto|xmpp)(?=:)"
+    r"|@"
+    r"|(?<![a-z0-9])www(?=\.)"
+)
+BREAK = "&#8203;"
 
 # --- Predicates and helpers --------------------------------------------------
 
 
 def _escaped(text: str) -> str:
     """Author-controlled text as one plain-text markdown cell: control and
-    format characters removed, HTML escaped, markdown specials escaped."""
+    format characters removed, HTML escaped, markdown specials escaped, and
+    no autolink or mention left to form."""
     plain = without_controls(text)
     for raw, escaped in HTML_ESCAPES:
         plain = plain.replace(raw, escaped)
-    return "".join(f"\\{ch}" if ch in MARKDOWN_SPECIALS else ch for ch in plain)
+    inert = "".join(f"\\{ch}" if ch in MARKDOWN_SPECIALS else ch for ch in plain)
+    return LINK_FORMING.sub(lambda match: match.group(0) + BREAK, inert)
 
 
 def _row(*cells: str) -> str:

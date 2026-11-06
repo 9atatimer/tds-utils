@@ -8,9 +8,14 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
-from adherence.adapters.fakes import FakeComplexity, FakeDuplication
+from adherence.adapters.fakes import FakeComplexity, FakeDuplication, FakeRepository
 from adherence.cli.main import main
 from adherence.container import build
+from adherence.ports.repository import Refused
+
+# What git says over a root that is no repository; the unit tier spawns no
+# git, so the fake repository says it instead.
+NOT_A_REPOSITORY = Refused(".", "fatal: not a git repository")
 
 
 def test_an_unknown_format_is_refused_naming_the_formats(tmp_path: Path) -> None:
@@ -36,10 +41,13 @@ def test_an_unknown_format_is_refused_naming_the_formats(tmp_path: Path) -> None
 
 
 def _run(args: list[str], root: Path) -> tuple[int, str]:
-    """The CLI over a root that is no git repository, so every use case ends
+    """The CLI over a repository that cannot be read, so every use case ends
     at `not run` before any analyzer is needed and the presenter still runs."""
     builder = functools.partial(
-        build, complexity=FakeComplexity(), duplication=FakeDuplication()
+        build,
+        repository=FakeRepository({}, unlisted=NOT_A_REPOSITORY),
+        complexity=FakeComplexity(),
+        duplication=FakeDuplication(),
     )
     result = CliRunner().invoke(main, [*args, "--root", str(root)], obj=builder)
     return result.exit_code, result.output

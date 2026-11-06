@@ -595,6 +595,27 @@ checks.
   a cloud session. The terminal is the laptop's and the agent's view of a
   report. Invariant: a finding has the same identity in every place.
 - **Owner.** The human who owns the repository under measurement.
+- **Deadline.** The instant a bounded run must end, or none for an
+  unbounded run. Invariant: only an adapter compares it to the clock; the
+  core reads no time.
+- **Parameters.** The Parameters table as one value a run is given: the
+  thresholds, the vocabulary and the limits, as the shipped defaults; the
+  run merges the declaration's overrides in itself.
+- **CodeLanguage.** A language the suite measures, told by a source's
+  file extension or, for a file with none, by its shebang, and named apart
+  from the Language check. A source in a language no analyzer measures is
+  coverage, never a pass.
+- **DeclarationUnreadable.** The outcome of a declaration that cannot be
+  read or parsed, with the reason. Invariant: a run given one is not run,
+  never measured as undeclared.
+- **Recorded.** Whether a run's report was kept, and, when it was not, the
+  notice shown beside the report.
+- **FinishedSink.** Where a run reports what it has done as it goes: the
+  run's own coverage and notices as each is known, and each check as it
+  finishes, so a run ended at its deadline still has them.
+- **Latch.** A run's record of the first TimedOut any of its ports
+  answered. Invariant: once it is set, the run asks no port anything more,
+  and each call left is answered TimedOut without reaching the port.
 
 ---
 
@@ -686,6 +707,13 @@ The owner's laptop as part of the LMDE contract, the adopting repositories' CI a
 | Floors | Bind once reached; an aim until then | A floor above today's score would make every change unlandable | self-review panel 2026-10-24 |
 | Dogfood | The suite measures itself in its own gate | A guardrail that does not hold its own author is not believed | this record |
 | No score: sensors | Supersedes The bar, What a score comparison sees, Floors, and the ticket clause of The declaration's source. No number is derived from findings. A change is judged on findings by identity: an introduced finding lowers, a removed one raises, a deleted unit's findings do neither. Floors and drop tickets are removed; an owner's exemption landed in an earlier change is the one way to introduce a flaw through the gate | A fraction over files and design behaviors weighs incommensurable things, and a change that fixes one flaw and introduces another leaves it unchanged; the finding itself is the failure and already carries what a fix needs (G8). Rules moot, and removes from Open Questions, Q2 (whether a score compares across repositories) and Q8 (a score over mixed kinds of unit) | Todd, 2026-10-25, Issue#590 |
+| Wiring over the test layer | A unit in the test layer may construct a concrete adapter; the Wiring rule that no unit outside the composition-root layer constructs one exempts the test layer, as Fake already exempts a fake | A test that constructs a concrete adapter is that adapter's contract suite, which the testing skill requires; the self-measurement's 60 Wiring findings were each such a test | Todd, 2026-11-06, Issue#590 |
+| Language over the suite's own nouns | Deadline, Parameters, CodeLanguage, DeclarationUnreadable and Recorded join the Domain Language | They are nouns of the suite's own language in its use-case signatures that this record did not define; the self-measurement's 10 Language findings were Language working as designed over an incomplete record | Todd, 2026-11-06, Issue#590 |
+| FinishedSink and Latch | FinishedSink and Latch join the Domain Language under the ruling on the suite's own nouns | They are nouns of the suite's own language in its use-case signatures that this record did not define, the class that ruling covers; the self-measurement's 6 Language findings on them were Language working as designed | Todd, 2026-11-06, Issue#590 |
+| Inconclusive at the gate | In the `ci` stage a change fails on lowered and on not run only; inconclusive never fails a gate in any stage, and the report names what was not covered. Rules, and removes from Open Questions, Q10: not run blocks a merge and inconclusive does not, which settles the clauses that defer to Q10: G6's, the Verdict section's, the Gate and Verdict invariants', and the two Security Considerations' | Inconclusive is coverage missing, not a flaw found: it already never yields lowered or raised (Inconclusive never fails and never raises), and a gate that failed on it would refuse clean changes whenever the judge is down, a budget runs out or an analyzer is missing. Not run measured nothing, so it still never reads as a pass | Todd, 2026-11-06, Issue#590 |
+| An owner who is the author | A landing counts as the owner's approval when a code owner approved it in a review, or when a code owner merged the pull request themselves, the owner who authored it included; the report names which counted. A landing attributable to no one but an author who is no code owner stays uncounted, and an author's own review still counts nothing. Amends Approval and the Security Consideration on a change's author; rules, and removes from Open Questions, Q11 | In a repository with one human the owner authors every declaration edit and the code host refuses self-approval, so without this no declaration could ever come into force there: the first live run skipped the landing at 49ba5438ad8c, authored and merged by the owner. Merging is an act of the owner's attributable to the owner, as a review is; a non-owner who merges their own edit is still the author alone | Todd, 2026-11-06, Issue#590 |
+| Wiring's unit in the composition root | In the composition-root layer the unit Wiring counts as a root is the module: one file that constructs concrete adapters in several functions is one root, and two composition-root files that construct them are still the finding, naming the files. Below the root the unit is still the one making the call | A composition root is a file of wiring, and splitting it into a function per stage is how it stays readable; counting its functions made one root read as several, as the self-measurement's Wiring finding on `container.py` was | Todd, 2026-11-06, Issue#590 |
+| One radar, carrying the fleet's packages | The Dependency check keeps reading the one radar the declaration names; a repository whose dependencies the fleet's radar already rings carries a row for each in its own radar, at the fleet's ring, naming the fleet as the source | A second radar read beside the named one would be a second, unreviewed source of rings; the self-measurement's 26 Dependency findings were pytest, hypothesis, Click, boto3 and botocore, each on the fleet's radar and absent from this repository's | Todd, 2026-11-06, Issue#590 |
 
 ---
 
@@ -720,18 +748,6 @@ The owner's laptop as part of the LMDE contract, the adopting repositories' CI a
   notice, and what it records; or whether the suite grants another path.
   Rows it changes: Tradeoffs; Exemptions; Judging a change; the Declared
   and exemption behaviors.
-- **Q10 Not run and inconclusive at the gate.** Whether a required check
-  whose verdict is not run, or inconclusive, blocks a merge. How a
-  repository recovers when its declaration in force cannot be read, since
-  the change that fixes it is judged under it. How the suite's own gate
-  (G19) recovers when the suite cannot run on its own fix. Rows it
-  changes: the Verdict table; Gate; Verdict; Security Considerations; the
-  not-run, inconclusive and unreadable-declaration behaviors; G19.
-- **Q11 An owner who is the author.** In a repository with one human, the
-  owner authors the changes that carry declaration edits. Whether the
-  owner's approval may then come from the same person, and what the
-  report shows when it does. Rows it changes: G9; Approval; Security
-  Considerations; the declaration behaviors.
 - **Q12 A judged rerun.** Reproducibility is promised only for rule
   checks, so a required check can flip between verdicts on a CI retry of
   the same head against the same base. Whether a rerun reuses each judged

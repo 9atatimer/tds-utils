@@ -6,7 +6,10 @@ measurement is untrusted (ARCHITECTURE.ARCH-ADHERENCE.md, Security
 mitigations): a symbolic link in any target, and any path that resolves
 outside the root, is Refused; nothing in the repository is run. Each call
 compares the Deadline to the clock and answers TimedOut rather than
-overrun it.
+overrun it. git runs with an allowlisted environment: PATH and LANG, and
+the variables git sets for its hooks (GIT_INDEX_FILE, GIT_DIR,
+GIT_WORK_TREE) when the process has them, so a hook under `git commit -a`
+or `git commit <paths>` reads the temporary index that will be committed.
 """
 
 from __future__ import annotations
@@ -34,6 +37,14 @@ SAFE_CONFIG = ("-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null")
 NAME_STATUS = ("diff", "--no-ext-diff", "--no-textconv", "--name-status", "-z")
 FIND_RENAMES = ("-M",)
 RENAMED = "R"
+# What git sets for a hook that names the repository and the index it will
+# commit; passed through to git when present, made absolute at the cwd the
+# adapter is built in -- the hook's -- since git reads them from there.
+HOOK_VARIABLES = ("GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE")
+# The hook judges what is staged against the commit it will follow.
+HOOK_BASE = "HEAD"
+# git's empty tree: the base of a first commit, whose HEAD is unborn.
+EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 
 class _Expired(Exception):
@@ -135,6 +146,21 @@ class GitRepository:
 
     def __init__(self, root: str) -> None:
         self._root = Path(root).resolve()
+        self._hook = {
+            name: os.path.abspath(os.environ[name])
+            for name in HOOK_VARIABLES
+            if os.environ.get(name)
+        }
+
+    def staged_base(self) -> str:
+        """The revision a staged change is judged against: HEAD, or git's
+        empty tree while HEAD is unborn, so a first commit's every staged
+        file is created."""
+        try:
+            self._git(["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], None)
+        except GitFailure:
+            return EMPTY_TREE
+        return HOOK_BASE
 
     def _git(self, args: list[str], deadline: Deadline | None) -> bytes:
         try:
@@ -150,7 +176,11 @@ class GitRepository:
                 check=True,
                 capture_output=True,
                 timeout=_remaining(deadline),
-                env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "LANG": "C"},
+                env={
+                    "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                    "LANG": "C",
+                    **self._hook,
+                },
             )
         except subprocess.TimeoutExpired as expired:
             raise _Expired from expired

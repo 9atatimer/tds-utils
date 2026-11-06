@@ -4,9 +4,12 @@ time (task-070), after the shared contract."""
 from __future__ import annotations
 
 import functools
+import sys
 from collections.abc import Mapping
+from pathlib import Path
 
 from adherence.adapters.shell_astgrep import ShellCodeModel
+from adherence.domain.deadline import TimedOut
 from adherence.domain.model import CodeModel, Definition, Layer, Region, UnitKind
 from adherence.domain.parameters import Vocabulary
 from adherence.ports.code_model import CodeModelPort
@@ -265,3 +268,32 @@ def test_a_script_with_no_extension_is_read_as_its_sh_copy_is() -> None:
     assert facts("bin/rollout")[0] == ["", "announce", "main"]
     broken = _model_of({"bin/broken": b"#!/bin/bash\nf() { echo x\n"})
     assert [u.path for u in broken.unparsed] == ["bin/broken"]
+
+
+SLEEPER = Path(__file__).resolve().parents[1] / "sleeper_analyzer.py"
+
+
+def sleeping_binary(directory: Path) -> Path:
+    """An executable that stands in for ast-grep and never answers in time."""
+    binary = directory / "ast-grep"
+    binary.write_text(f"#!/bin/sh\nexec {sys.executable} -I {SLEEPER}\n")
+    binary.chmod(0o755)
+    return binary
+
+
+def test_model_by_an_analyzer_past_its_bound_with_no_deadline_times_out(
+    tmp_path: Path,
+) -> None:
+    """Given an ast-grep that sleeps far past the analyzer bound and no
+    deadline (the laptop, CI), When the sources are modelled, Then it is
+    ended at its bound and the answer is TimedOut."""
+    port = ShellCodeModel(ast_grep=sleeping_binary(tmp_path), bound=0.5)
+
+    model = port.model(
+        shell_fixture.sources(),
+        shell_fixture.declaration(),
+        shell_fixture.VOCABULARY,
+        None,
+    )
+
+    assert isinstance(model, TimedOut), model

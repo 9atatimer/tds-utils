@@ -127,12 +127,21 @@ class Limits:
     may quote. complexity_ceiling is the per-function complexity above which
     Complexity finds; None, when no ceiling is supplied, leaves the check as
     coverage. duplication_ceiling is the clone size, in lines, above which
-    Duplication finds; None likewise leaves it as coverage.
+    Duplication finds; None likewise leaves it as coverage. judged_budget
+    is how many judged questions one run may ask; past it each question is
+    coverage, and with none supplied nothing is asked.
+    analyzer_bound is the most seconds any one analyzer subprocess may run,
+    cut to the time left before the Deadline; None leaves only the Deadline
+    to bound it. commit_time_bound is the most seconds a pre-commit run may
+    take in total, which the entry point turns into the hook's Deadline.
     """
 
     evidence_bound: int
     complexity_ceiling: int | None = None
     duplication_ceiling: int | None = None
+    judged_budget: int = 0
+    analyzer_bound: float | None = None
+    commit_time_bound: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

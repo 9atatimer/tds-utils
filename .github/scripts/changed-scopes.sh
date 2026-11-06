@@ -20,7 +20,9 @@
 #   - a file under dynomark/, chores/ or adherence/ runs that tree's
 #     jobs, whatever its extension (dynomark/contract/README.md is itself
 #     checked); so does what the adherence suite judges this repository
-#     by: adherence.toml, the two Adherence records and the radar;
+#     by: adherence.toml, the two Adherence records and the radar; the
+#     reusable workflow the adherence-judge job calls runs it too, beside
+#     the catch-all's smoketests and shellcheck;
 #   - a shell file anywhere (by extension or shebang) runs smoketests,
 #     whose syntax sweep covers every tracked shell file;
 #   - Markdown elsewhere and docs/**/*.html run nothing;
@@ -86,6 +88,7 @@ scopes_for() {
         chores/*) out="chores" ;;
         adherence/*) out="adherence" ;;
         adherence.toml | docs/design/*ARCH-ADHERENCE.md | lmde/TECH_RADAR.md) out="adherence" ;;
+        .github/workflows/adherence.yml) out="adherence smoketests shellcheck" ;;
         *) is_inert "${file}" || out="smoketests shellcheck" ;;
     esac
     if is_shell_file "${file}"; then

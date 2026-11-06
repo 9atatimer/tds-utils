@@ -1,16 +1,19 @@
 """`adhere judge --base --head --json` through the composition root over two
 revisions of the judge fixture: real git and the real Python analyzer, with
-complexity, duplication and the report store overridden by their fakes. The
-task-062 done check: the verdict is the design's table's (DESIGN.ARCH-
+complexity, duplication, the report store and the judge overridden by their
+fakes -- the judge passes every judged question, so the verdict is the rule
+checks'. The task-062 done check: the verdict is the design's table's (DESIGN.ARCH-
 ADHERENCE.md, Judging a change)."""
 
 from __future__ import annotations
 
 import functools
 import json
+import os
 import shutil
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from adherence.adapters.fakes import (
@@ -20,9 +23,11 @@ from adherence.adapters.fakes import (
     FakeReportStore,
 )
 from adherence.cli.main import main
-from adherence.container import build
+from adherence.container import Container, build
 from tests import shell_fixture
-from tests.integration.test_git_repository import _git, make_repository
+from tests.git_kit import git, make_repository
+from tests.json_schema import sarif_violations
+from tests.judge_kit import passing_judge
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "judge"
 TYPESCRIPT = Path(__file__).resolve().parents[1] / "fixtures" / "typescript"
@@ -35,10 +40,23 @@ def _revisions(root: Path) -> dict[str, str]:
     revisions: dict[str, str] = {}
     for tree in ("base", "head", "fixed"):
         shutil.copytree(FIXTURE / tree, root, dirs_exist_ok=True)
-        _git(root, "add", "-A")
-        _git(root, "commit", "-q", "-m", tree)
-        revisions[tree] = _git(root, "rev-parse", "HEAD")
+        git(root, "add", "-A")
+        git(root, "commit", "-q", "-m", tree)
+        revisions[tree] = git(root, "rev-parse", "HEAD")
     return revisions
+
+
+def _over_real_git() -> functools.partial[Container]:
+    """The composition root over real git and the real Python analyzer, the
+    metrics, the report store and the judge faked, and no environment."""
+    return functools.partial(
+        build,
+        complexity=FakeComplexity(),
+        duplication=FakeDuplication(),
+        reports=FakeReportStore(),
+        judge=passing_judge(),
+        environment={},
+    )
 
 
 def _judge(root: Path, base: str, head: str, store: FakeReportStore) -> tuple[int, str]:
@@ -47,6 +65,7 @@ def _judge(root: Path, base: str, head: str, store: FakeReportStore) -> tuple[in
         complexity=FakeComplexity(),
         duplication=FakeDuplication(),
         reports=store,
+        judge=passing_judge(),
     )
     result = CliRunner().invoke(
         main,
@@ -117,13 +136,13 @@ def _added(root: Path, fixture: Path, path: str) -> tuple[str, str]:
     shutil.copytree(fixture, root, dirs_exist_ok=True)
     held = (root / path).read_bytes()
     (root / path).unlink()
-    _git(root, "add", "-A")
-    _git(root, "commit", "-q", "-m", "base")
-    base = _git(root, "rev-parse", "HEAD")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "base")
+    base = git(root, "rev-parse", "HEAD")
     (root / path).write_bytes(held)
-    _git(root, "add", "-A")
-    _git(root, "commit", "-q", "-m", "head")
-    return base, _git(root, "rev-parse", "HEAD")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "head")
+    return base, git(root, "rev-parse", "HEAD")
 
 
 def _judged(root: Path, base: str, head: str) -> dict[str, object]:
@@ -191,3 +210,91 @@ def test_judge_of_a_head_that_adds_a_typescript_file_reads_it(
     found = _provenances(document)
     assert ("Stub", "lib/tool/run.ts", "closeOrder", "introduced") in found
     assert ("Stub", "lib/tool/rules.ts", "unfinished", "existing") in found
+
+
+def test_judge_sarif_of_the_fixture_conforms_to_sarif_2_1_0(tmp_path: Path) -> None:
+    """Given the judge fixture's base and the head that adds a stub, When
+    `adhere judge --base --head --format sarif` runs with real
+    git and the real Python analyzer, Then the log conforms to the official
+    SARIF 2.1.0 schema and its introduced Stub result is an error at the
+    stub's line (the task-066 done check)."""
+    root = tmp_path / "repo"
+    revisions = _revisions(root)
+    builder = _over_real_git()
+
+    result = CliRunner().invoke(
+        main,
+        [
+            *("judge", "--root", str(root)),
+            *("--base", revisions["base"], "--head", revisions["head"]),
+            *("--format", "sarif"),
+        ],
+        obj=builder,
+    )
+
+    document = json.loads(result.output)
+    assert sarif_violations(document) == []
+    (stub,) = [r for r in document["runs"][0]["results"] if r["ruleId"] == "stub"]
+    assert (stub["level"], stub["properties"]["provenance"]) == ("error", "introduced")
+    assert result.exit_code == 1
+
+
+# A committed path no UTF-8 decodes: byte 0xff, which the git adapter
+# carries through as a lone surrogate (surrogateescape).
+UNDECODABLE = os.fsdecode(b"src/tool/domain/rul\xffs.py")
+
+
+def _undecodable_revisions(root: Path) -> tuple[str, str]:
+    """A base of the fixture's base tree and a head that adds the fixture's
+    stubbed rule under UNDECODABLE, written into the index by object id so
+    a filesystem that refuses the name cannot refuse the commit."""
+    make_repository(root, base={}, staged={}, working={})
+    shutil.copytree(FIXTURE / "base", root, dirs_exist_ok=True)
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "base")
+    base = git(root, "rev-parse", "HEAD")
+    blob = git(
+        root,
+        "hash-object",
+        "-w",
+        str(FIXTURE / "head" / "src" / "tool" / "domain" / "rules.py"),
+    )
+    git(root, "update-index", "--add", "--cacheinfo", f"100644,{blob},{UNDECODABLE}")
+    git(root, "commit", "-q", "-m", "undecodable")
+    return base, git(root, "rev-parse", "HEAD")
+
+
+@pytest.mark.parametrize("output_format", ["terminal", "summary", "sarif"])
+def test_judge_of_a_path_no_utf8_decodes_keeps_its_verdict(
+    tmp_path: Path, output_format: str
+) -> None:
+    """Given a head that commits a stubbed rule under a path carrying byte
+    0xff, When `adhere judge --format <terminal|summary|sarif>` runs, Then
+    the report prints with the byte replaced for display, the SARIF uri
+    still percent-encodes the real byte and the log conforms to SARIF
+    2.1.0, and the exit status is the verdict's, not a traceback's."""
+    root = tmp_path / "repo"
+    base, head = _undecodable_revisions(root)
+    builder = _over_real_git()
+
+    result = CliRunner().invoke(
+        main,
+        [
+            *("judge", "--root", str(root), "--base", base, "--head", head),
+            *("--format", output_format),
+        ],
+        obj=builder,
+    )
+
+    assert isinstance(result.exception, SystemExit), result.exception
+    assert result.exit_code == 1
+    if output_format == "sarif":
+        document = json.loads(result.output)
+        assert sarif_violations(document) == []
+        assert "\\udcff" not in result.output
+        (stub,) = [r for r in document["runs"][0]["results"] if r["ruleId"] == "stub"]
+        uri = stub["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+        assert uri == "src/tool/domain/rul%FFs.py"
+    else:
+        assert "lowered" in result.output.splitlines()[0]
+        assert "rul�s" in result.output

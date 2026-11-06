@@ -1,0 +1,31 @@
+[
+  {
+    "url": "https://api.github.com/repos/example-org/example/pulls/51",
+    "id": 1051,
+    "number": 51,
+    "state": "open",
+    "title": "Change 51",
+    "user": {"login": "mallory", "id": 5051, "type": "User"},
+    "created_at": "2026-10-20T10:00:00Z",
+    "closed_at": null,
+    "merged_at": null,
+    "merge_commit_sha": null,
+    "head": {"ref": "topic-51", "sha": "cccccccccccccccccccccccccccccccccccccccc"},
+    "base": {"ref": "master", "sha": "0000000000000000000000000000000000000000"}
+  }
+,
+  {
+    "url": "https://api.github.com/repos/example-org/example/pulls/53",
+    "id": 1053,
+    "number": 53,
+    "state": "closed",
+    "title": "Change 53",
+    "user": {"login": "mallory", "id": 5053, "type": "User"},
+    "created_at": "2026-10-20T10:00:00Z",
+    "closed_at": "2026-10-22T09:00:00Z",
+    "merged_at": "2026-10-22T09:00:00Z",
+    "merge_commit_sha": "ffff000000000000000000000000000000000000",
+    "head": {"ref": "topic-53", "sha": "cccccccccccccccccccccccccccccccccccccccc"},
+    "base": {"ref": "release", "sha": "0000000000000000000000000000000000000000"}
+  }
+]

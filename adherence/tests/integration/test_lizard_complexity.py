@@ -5,10 +5,14 @@ tool is absent. Skipped, never faked, when lizard is not installed."""
 from __future__ import annotations
 
 import importlib.util
+import sys
+import time
+from pathlib import Path
 
 import pytest
 
 from adherence.adapters.lizard import LizardComplexity
+from adherence.domain.deadline import TimedOut
 from adherence.domain.model import Metrics, MetricsUnavailable
 from adherence.ports.complexity import ComplexityPort
 from tests.complexity_contract import RULES, SOURCES, ComplexityContract
@@ -81,3 +85,19 @@ def test_measure_of_a_path_holding_a_newline_still_measures_it() -> None:
         (odd, "odd"),
         (RULES, "plain"),
     }
+
+
+SLEEPER = Path(__file__).resolve().parents[1] / "sleeper_analyzer.py"
+
+
+def test_measure_by_an_analyzer_past_its_bound_is_ended_and_times_out() -> None:
+    """Given an analyzer that sleeps far past the analyzer bound and no
+    deadline, When complexity is measured, Then the analyzer is ended at the
+    bound and the answer is TimedOut, never a measurement."""
+    port = LizardComplexity(command=(sys.executable, "-I", str(SLEEPER)), bound=0.5)
+    started = time.monotonic()
+
+    answer = port.measure(SOURCES, None)
+
+    assert isinstance(answer, TimedOut), answer
+    assert time.monotonic() - started < 30

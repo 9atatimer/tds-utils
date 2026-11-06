@@ -334,59 +334,52 @@ jobs:
       - name: Tests (pytest)
         run: uv run pytest
 
-  # The suite judging this repository's change (Issue#600). Advisory until
-  # one run is green on its own base: the architecture's Rollout row says
-  # the job joins `gate`'s needs only then, so it is not in `needs` yet and
-  # cannot block a landing. The declaration is adherence.toml at the root.
+  # The suite judging this repository's change (Issue#600), through the
+  # reusable adherence workflow (task-067): this job is this repository's
+  # caller of it. Advisory until one run is green on its own base: the
+  # architecture's Rollout row says the job joins `gate`'s needs only then,
+  # so it is not in `needs` yet and cannot block a landing. The declaration
+  # is adherence.toml at the root.
   #
-  # The checkout is the PR's merge commit (or the staging or master commit
-  # on a push), so HEAD^1 is the base the change is judged against: what
-  # the base already has is known, what the change adds is introduced.
+  # What the called workflow does: fetches the engine at `tools_ref` outside
+  # the checkout, checks the head out with full history, installs the
+  # analyzers from their locks with setup actions that read nothing from the
+  # head, and runs one `bin/adhere --stage ci judge --time-left <what is
+  # left of timeout_minutes>`, printing the report to the log and writing
+  # the SARIF file and the job summary ($GITHUB_STEP_SUMMARY); the SARIF
+  # goes to code scanning from its own job (security-events: write), under
+  # an artifact name of this call's own. Lowered and not run fail the job
+  # and inconclusive passes it. The job is in gate's needs since its first
+  # green run (run 42298026212, 2026-11-06; the architecture's Rollout row),
+  # so a lowered change cannot land.
+  #
+  # The base: on a pull request, the merge-base of the head and the PR's
+  # base, so a change is judged on what it did; on a push to master, the tip
+  # the push replaced; on tedium's staging and try branches, which the bot
+  # force-pushes so the replaced tip is not fetched, the staging commit's
+  # first parent (the base it was built on), named here.
+  #
+  # `tools_ref` is the judged head itself, as `uses:` is this file's own
+  # copy of the workflow: the two pins move together, and a change to the
+  # engine is judged by the engine it carries. A pull request from a fork
+  # is skipped, so no fork's head is ever run as the engine. No secret is
+  # passed: the judge's token waits on design Q4 / architecture Q6, so the
+  # judged checks are coverage; the adherence-ledger warehouse's secrets
+  # wait on tds-internal Issue#276, so reports are kept in the runner's file
+  # cache and the report says so.
   adherence-judge:
     needs: changes
-    if: needs.changes.outputs.adherence == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    if: needs.changes.outputs.adherence == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    uses: ./.github/workflows/adherence.yml
     permissions:
       contents: read
-    env:
-      UV_PYTHON: '3.11'
-    steps:
-      # Depth 2: HEAD and its parents, the two revisions judged.
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
-
-      - name: Sync the runtime (no dev group)
-        run: uv sync --frozen --no-dev
-        working-directory: adherence
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      # jscpd and dependency-cruiser; --ignore-scripts: no install hook runs.
-      - name: Install the node analyzers (npm ci)
-        run: npm ci --ignore-scripts --prefix adherence/node
-
-      # One run: a second would measure both revisions again (the base is
-      # not kept on this stage). Resolved ids, never HEAD^1 by name: the
-      # store refuses a moving name, and the summary should name the
-      # commits. The summary is what a reviewer reads, on the run and in
-      # the log; the exit status is the verdict's: lowered or not run fails
-      # the job, which gate does not read yet. `shell: bash` is what makes
-      # that true: it runs with pipefail, where the default `bash -e` would
-      # return tee's status and never the judge's.
-      - name: Judge the change against its base
-        shell: bash
-        run: |
-          bin/adhere judge --base "$(git rev-parse HEAD^1)" --head "$(git rev-parse HEAD)" \
-            --format summary | tee -a "$GITHUB_STEP_SUMMARY"
+      pull-requests: read
+      security-events: write
+      actions: read
+    with:
+      tools_ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      base: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/tedium/')) && format('{0}^1', github.sha) || '' }}
+      timeout_minutes: 15
 
   dynomark-contract:
     needs: changes
@@ -543,6 +536,7 @@ jobs:
       - shellcheck
       - chores
       - adherence
+      - adherence-judge
       - dynomark-contract
       - dynomark-daemon
       - dynomark-extension

@@ -4,11 +4,14 @@ tool is absent. Skipped, never faked, when jscpd is not installed."""
 
 from __future__ import annotations
 
+import sys
+import time
 from pathlib import Path
 
 import pytest
 
 from adherence.adapters.jscpd import JscpdDuplication
+from adherence.domain.deadline import TimedOut
 from adherence.domain.model import Metrics, MetricsUnavailable
 from adherence.ports.duplication import DuplicationPort
 from tests.duplication_contract import FIRST, SECOND, SOURCES, DuplicationContract
@@ -74,3 +77,19 @@ def test_measure_of_a_large_repository_still_finds_its_clones() -> None:
 
     assert isinstance(answer, Metrics), answer
     assert [(c.first.path, c.second.path) for c in answer.clones] == [(FIRST, SECOND)]
+
+
+SLEEPER = Path(__file__).resolve().parents[1] / "sleeper_analyzer.py"
+
+
+def test_measure_by_an_analyzer_past_its_bound_is_ended_and_times_out() -> None:
+    """Given an analyzer that sleeps far past the analyzer bound and no
+    deadline, When clones are sought, Then the analyzer is ended at the
+    bound and the answer is TimedOut, never a result."""
+    port = JscpdDuplication(command=(sys.executable, "-I", str(SLEEPER)), bound=0.5)
+    started = time.monotonic()
+
+    answer = port.measure(SOURCES, None)
+
+    assert isinstance(answer, TimedOut), answer
+    assert time.monotonic() - started < 30

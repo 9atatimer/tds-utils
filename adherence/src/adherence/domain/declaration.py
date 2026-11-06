@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import fnmatch
+import itertools
 import re
 import tomllib
 from collections.abc import Collection, Mapping, Sequence
@@ -157,6 +158,11 @@ class DeclarationUnreadable:
     reason: str
 
 
+# A revision's adherence.toml: its bytes, None where the file is absent, or
+# why it cannot be read.
+DeclarationText = bytes | None | DeclarationUnreadable
+
+
 # --- Approvals (ReviewPort's answers, as values) -----------------------------
 
 
@@ -170,11 +176,17 @@ class Approval:
 
 @dataclass(frozen=True, slots=True)
 class Landing:
-    """The pull request that landed a commit: its author, and its approving
-    reviews."""
+    """The pull request that landed a commit: its author, its approving
+    reviews, adherence.toml at each commit they reviewed as the code host
+    gives it, so a PR head no checkout can fetch (a squash or rebase
+    landing) is still read (one it does not give is read from the
+    repository), and the account that merged it, None when the code host
+    names none."""
 
     author: str
     approvals: tuple[Approval, ...] = ()
+    reviewed: tuple[tuple[str, DeclarationText], ...] = ()
+    merged_by: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -677,4 +689,254 @@ def parse_declaration(text: bytes) -> Declaration | DeclarationUnreadable:
         records=records,
         radar=radar,
         runtimes=runtimes,
+    )
+
+
+# --- The declaration in force: approval counting -----------------------------
+#
+# Which landed revision of adherence.toml is in force (ARCHITECTURE.ARCH-
+# ADHERENCE.md, Use-case surface: An unapproved declaration is not in
+# force). The use case walks the landings newest first and passes each, as
+# values, with the base's CODEOWNERS; this sub-component does the counting.
+
+# Where GitHub looks for CODEOWNERS, in its order; the first found is read.
+CODEOWNERS_PATHS = (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS")
+
+# An approval by the PR's author is refused, whoever the author is; an owner
+# who authored the edit counts by merging it (design Key Decisions, An owner
+# who is the author).
+AUTHOR_REFUSAL = (
+    "the reviewer is the pull request's author, and an author cannot approve "
+    "their own declaration edit; a code owner who authored it counts by "
+    "merging it"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class CodeOwners:
+    """The base's CODEOWNERS entries in file order: each pattern and the
+    owners it names. The last entry matching a path names its owners."""
+
+    entries: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
+    def owners_of(self, path: str) -> tuple[str, ...]:
+        """The owners the last entry matching the path names; none when no
+        entry matches."""
+        return next(
+            (
+                owners
+                for pattern, owners in reversed(self.entries)
+                if codeowners_matches(pattern, path)
+            ),
+            (),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class LandedRevision:
+    """One landing of adherence.toml on the base's history, as values: the
+    commit, ReviewPort's answer for it, the declaration's text there, and
+    the text at each commit an approval reviewed (one missing was not
+    read)."""
+
+    commit: str
+    answer: Landing | NoLandingPR | Unknown | ReviewsUnavailable
+    text: DeclarationText = None
+    reviewed: tuple[tuple[str, DeclarationText], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class Counting:
+    """Whether a landing is in force, and the notices that say why not."""
+
+    in_force: bool
+    notices: tuple[Notice, ...] = ()
+
+
+def codeowners_matches(pattern: str, path: str) -> bool:
+    """Whether a CODEOWNERS pattern names a repository path, read as
+    gitignore reads it: a leading or inner slash anchors it at the root,
+    a pattern with neither matches at any depth, a trailing slash names a
+    directory, and a directory's pattern names everything under it."""
+    body = pattern.rstrip("/")
+    directory = pattern.endswith("/")
+    if not body:
+        return False
+    anchored = "/" in body
+    body = body.lstrip("/")
+    if not anchored:
+        body = f"**/{body}"
+    under = matches(f"{body}/**", path)
+    return under if directory else matches(body, path) or under
+
+
+def is_user_owner(owner: str) -> bool:
+    """Whether a CODEOWNERS owner names one user (`@login`), not a team
+    (`@org/team`) or an email address."""
+    return owner.startswith("@") and "/" not in owner and len(owner) > 1
+
+
+def is_same_login(one: str, other: str) -> bool:
+    """Whether two code-host logins name the same account; logins ignore
+    letter case."""
+    return one.casefold() == other.casefold()
+
+
+def parse_codeowners(text: bytes) -> CodeOwners:
+    """The CODEOWNERS entries the bytes state: a pattern and its owners per
+    line, comments and blank lines left out."""
+    entries: list[tuple[str, tuple[str, ...]]] = []
+    for line in text.decode("utf-8", "replace").splitlines():
+        words = line.split()
+        if not words or words[0].startswith("#"):
+            continue
+        owners = tuple(
+            itertools.takewhile(lambda word: not word.startswith("#"), words[1:])
+        )
+        entries.append((words[0], owners))
+    return CodeOwners(tuple(entries))
+
+
+def _short(commit: str) -> str:
+    return commit[:12]
+
+
+def _skipped(revision: LandedRevision, why: str) -> Notice:
+    return Notice(
+        f"{DECLARATION_PATH} landed at {_short(revision.commit)}: {why}; not in force"
+    )
+
+
+def _refusal(
+    approval: Approval,
+    *,
+    author: str,
+    owners: Collection[str],
+    revision: LandedRevision,
+) -> str | None:
+    """Why an approval does not count, or None when it does."""
+    if is_same_login(approval.reviewer, author):
+        return AUTHOR_REFUSAL
+    if not any(is_same_login(f"@{approval.reviewer}", o) for o in owners):
+        return f"not a code owner of {DECLARATION_PATH} by the base's CODEOWNERS"
+    landed = revision.text
+    text = dict(revision.reviewed).get(
+        approval.commit, DeclarationUnreadable("not read")
+    )
+    if isinstance(landed, DeclarationUnreadable):
+        return f"the landed {DECLARATION_PATH} cannot be read: {landed.reason}"
+    if isinstance(text, DeclarationUnreadable):
+        return (
+            f"the {DECLARATION_PATH} it reviewed at {_short(approval.commit)} "
+            f"cannot be read: {text.reason}"
+        )
+    if text != landed:
+        return (
+            f"it reviewed {_short(approval.commit)}, whose {DECLARATION_PATH} "
+            "differs from the landed one"
+        )
+    return None
+
+
+def _in_force(revision: LandedRevision, why: str) -> Counting:
+    return Counting(
+        True,
+        (
+            Notice(
+                f"{DECLARATION_PATH} landed at {_short(revision.commit)}: "
+                f"in force, {why}"
+            ),
+        ),
+    )
+
+
+def _merge_refusal(merger: str, owners: Collection[str]) -> Notice | None:
+    """Why a merge does not count, or None when it does: its merger is a
+    user code owner of adherence.toml by the base's CODEOWNERS."""
+    if any(is_same_login(f"@{merger}", o) for o in owners):
+        return None
+    return Notice(
+        f"merge by {merger} not counted: not a code owner of {DECLARATION_PATH} "
+        "by the base's CODEOWNERS"
+    )
+
+
+def owner_notices(codeowners: CodeOwners) -> tuple[Notice, ...]:
+    """A notice per owner CODEOWNERS names for adherence.toml that is a team
+    or an email: it counts as no owner, since only a user is one. It is
+    about the file, so a walk says it once, not once per landing."""
+    owners = codeowners.owners_of(DECLARATION_PATH)
+    return tuple(
+        Notice(
+            f"CODEOWNERS entry {owner} for {DECLARATION_PATH} counts as no owner: "
+            "only a user (@login) is an owner, never a team or an email"
+        )
+        for owner in owners
+        if not is_user_owner(owner)
+    )
+
+
+def counted_landing(revision: LandedRevision, codeowners: CodeOwners) -> Counting:
+    """Whether a landing of adherence.toml is in force: Unknown leaves the
+    landed declaration standing; a landing is in force when one approval
+    counts -- its reviewer not the PR's author, a user code owner of
+    adherence.toml by the base's CODEOWNERS, and the commit it reviewed
+    holding the landed bytes, so approve-then-push does not pass -- or,
+    with none, when a user code owner merged it, the author included (the
+    one-human repository); a notice names which counted. A landing
+    attributable to no one but an author who is no code owner is not.
+    Every other answer is skipped with a notice that says why. A team or
+    email CODEOWNERS entry counts as no owner; `owner_notices` says so."""
+    answer = revision.answer
+    if isinstance(answer, Unknown):
+        return Counting(True)
+    if isinstance(answer, NoLandingPR):
+        return Counting(
+            False,
+            (
+                _skipped(
+                    revision, "landed with no pull request (a direct push or a bypass)"
+                ),
+            ),
+        )
+    if isinstance(answer, ReviewsUnavailable):
+        return Counting(
+            False,
+            (
+                _skipped(
+                    revision, f"its landing's reviews cannot be read: {answer.reason}"
+                ),
+            ),
+        )
+    owners = codeowners.owners_of(DECLARATION_PATH)
+    users = tuple(o for o in owners if is_user_owner(o))
+    refusals = [
+        (
+            approval,
+            _refusal(approval, author=answer.author, owners=users, revision=revision),
+        )
+        for approval in answer.approvals
+    ]
+    counted = next((a for a, why in refusals if why is None), None)
+    if counted is not None:
+        return _in_force(revision, f"approved by {counted.reviewer}")
+    merge = (
+        None if answer.merged_by is None else _merge_refusal(answer.merged_by, users)
+    )
+    if answer.merged_by is not None and merge is None:
+        return _in_force(revision, f"merged by code owner {answer.merged_by}")
+    return Counting(
+        False,
+        (
+            *(
+                Notice(f"approval by {approval.reviewer} not counted: {why}")
+                for approval, why in refusals
+            ),
+            *(() if merge is None else (merge,)),
+            _skipped(
+                revision,
+                f"landed in a pull request by {answer.author} with no counted "
+                "approval and no code owner's merge",
+            ),
+        ),
     )

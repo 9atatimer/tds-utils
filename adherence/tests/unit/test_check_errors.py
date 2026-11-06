@@ -13,6 +13,7 @@ from adherence.domain.checks.outcome import CheckOutcome
 from adherence.domain.checks.run import TARGET_CHECKS, run_checks
 from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import Declaration
+from adherence.domain.finding import Evidence, Finding
 from adherence.domain.model import CodeModel, Layer, Unit, UnitKind
 from adherence.domain.parameters import Parameters
 from adherence.domain.qualities import catalog_check
@@ -103,3 +104,57 @@ def test_compared_with_a_check_lost_since_the_base_is_inconclusive() -> None:
 
     assert report.verdict is Verdict.INCONCLUSIVE
     assert [r for r in report.reasons if "Dependency" in r] == []
+
+
+def test_compared_with_many_coverage_items_counts_them_by_reason() -> None:
+    """Given a head where one check could not run on 500 touched files for
+    one reason and another on 300 for a second, When the reports are
+    compared, Then the verdict is inconclusive and the reasons are one line
+    per check and reason, each with its count, never one per file."""
+    paths = tuple(f"src/app/domain/m{n}.py" for n in range(800))
+    stub, arrow = catalog_check("Stub"), catalog_check("Arrow")
+    base = Report(ran=(stub, arrow), units=tuple(_file(p) for p in paths))
+    head = Report(
+        units=tuple(_file(p) for p in paths),
+        coverage=(
+            *(
+                Coverage("was not asked", check="Stub", path=p, subject=f"{p}: f")
+                for p in paths[:500]
+            ),
+            *(Coverage("the check failed", check="Arrow", path=p) for p in paths[500:]),
+        ),
+    )
+    change = Change(
+        "example", Base("b" * 40), Head.at_revision("c" * 40), ChangedPaths(paths)
+    )
+
+    report = compared(base=base, head=head, change=change)
+
+    assert report.verdict is Verdict.INCONCLUSIVE
+    assert len(report.reasons) == 2, report.reasons
+    assert any("Stub" in r and "500" in r for r in report.reasons)
+    assert any("Arrow" in r and "300" in r for r in report.reasons)
+
+
+def test_compared_with_an_introduced_finding_gives_their_count_as_the_reason() -> None:
+    """Given a head with two introduced findings and a check in coverage on
+    a touched unit, When the reports are compared, Then the verdict is
+    lowered and its one reason is the count of introduced findings: the
+    coverage is not why the change is lowered."""
+    stub = catalog_check("Stub")
+    unit = _file(BROKEN)
+    findings = tuple(
+        Finding(stub, unit, Layer.DOMAIN, f"flaw {n}", Evidence(BROKEN, n, f"x{n}"))
+        for n in (1, 2)
+    )
+    head = Report(
+        ran=(stub,),
+        units=(unit,),
+        findings=findings,
+        coverage=(Coverage("the check failed", check="Arrow", path=BROKEN),),
+    )
+
+    report = compared(base=Report(ran=(stub,), units=(unit,)), head=head, change=CHANGE)
+
+    assert report.verdict is Verdict.LOWERED
+    assert report.reasons == ("2 findings introduced",)

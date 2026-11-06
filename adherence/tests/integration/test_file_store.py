@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import replace
 from pathlib import Path
 
 from adherence.adapters.file_store import FileReportStore, default_store_dir
@@ -95,3 +96,28 @@ def test_a_report_put_is_kept_with_its_repository_change_and_time(
     kept = json.loads(scan.read_text())
     assert (kept["repository"], kept["revision"]) == ("example", REVISION)
     assert kept["kept_at"] == 1_700_000_000.5
+
+
+def test_an_owner_and_name_are_kept_under_two_directories(tmp_path: Path) -> None:
+    """Given a report of `someone/example` (ci names a repository by owner
+    and name), When it is put and got back, Then the cache keeps it under
+    the owner's directory and the name's beneath it, and reads it back."""
+    store = FileReportStore(tmp_path / "cache", root=tmp_path / "repo")
+    owned = replace(REPORT, repository="someone/example")
+
+    recorded = store.put(owned)
+
+    assert recorded.kept, recorded
+    assert list((tmp_path / "cache" / "scan" / "someone" / "example").glob("*.json"))
+    assert store.get("someone/example", REVISION, IDENTITY.digest, None) == owned
+
+
+def test_a_name_that_could_leave_its_directory_is_never_kept(tmp_path: Path) -> None:
+    """Given a report whose repository is more than an owner and a name, or
+    names `..`, When it is put, Then nothing is written."""
+    store = FileReportStore(tmp_path / "cache", root=tmp_path / "repo")
+
+    for name in ("a/b/c", "someone/..", "/example"):
+        assert not store.put(replace(REPORT, repository=name)).kept, name
+
+    assert not (tmp_path / "cache").exists()
