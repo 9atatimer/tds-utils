@@ -7,7 +7,7 @@ once per target.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from adherence.domain.checks import (
     behavior,
@@ -19,7 +19,11 @@ from adherence.domain.checks import (
     layered,
     radar,
 )
-from adherence.domain.checks.outcome import CheckFunction, RadarCheckFunction
+from adherence.domain.checks.outcome import (
+    CheckFunction,
+    CheckOutcome,
+    RadarCheckFunction,
+)
 from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import Declaration
 from adherence.domain.finding import Finding
@@ -28,6 +32,7 @@ from adherence.domain.model import (
     CodeModel,
     UnitKind,
     language_of,
+    within,
     without,
 )
 from adherence.domain.parameters import Parameters
@@ -127,6 +132,55 @@ def unread_by(check: Check, model: CodeModel) -> tuple[str, ...]:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _Inputs:
+    """What every target-level check is given."""
+
+    model: CodeModel
+    declaration: Declaration
+    records: DesignRecords | RecordsUnavailable
+    parameters: Parameters
+    radar: Radar | RecordsUnavailable
+    checks: Mapping[str, CheckFunction]
+
+    def over(self, model: CodeModel) -> _Inputs:
+        return replace(self, model=model)
+
+
+def _outcome(check: Check, given: _Inputs) -> CheckOutcome | None:
+    """The check's outcome, or None when the suite has no function for it."""
+    run = given.checks.get(check.name)
+    if run is not None:
+        return run(given.model, given.declaration, given.records, given.parameters)
+    on_radar = RADAR_CHECKS.get(check.name)
+    if on_radar is not None:
+        return on_radar(given.model, given.declaration, given.radar, given.parameters)
+    return None
+
+
+def _raises(check: Check, given: _Inputs) -> bool:
+    """Whether the check raises over the inputs."""
+    try:
+        _outcome(check, given)
+    except Exception:  # the check boundary: any error a check raises
+        return True
+    return False
+
+
+def _errored(check: Check, error: Exception, given: _Inputs) -> CheckOutcome:
+    """The coverage of a check that raised: naming each file it raises on
+    when run over that file alone, or the whole check when it raises on
+    none alone, with the error."""
+    reason = f"the check failed: {type(error).__name__}: {error}"
+    files = sorted({u.path for u in given.model.units if u.kind is UnitKind.FILE})
+    named = [p for p in files if _raises(check, given.over(within(given.model, {p})))]
+    return CheckOutcome(
+        coverage=tuple(Coverage(reason, check=check.name, path=p) for p in named)
+        or (Coverage(reason, check=check.name),),
+        ran=False,
+    )
+
+
 def run_checks(
     model: CodeModel,
     declaration: Declaration,
@@ -134,9 +188,12 @@ def run_checks(
     parameters: Parameters,
     *,
     radar: Radar | RecordsUnavailable = NO_RADAR,
+    checks: Mapping[str, CheckFunction] = TARGET_CHECKS,
 ) -> Checked:
     """Every implemented check over the model, in catalog order; every
-    other check is coverage. The Radar-true checks read the radar."""
+    other check is coverage. The Radar-true checks read the radar. A check
+    that raises is caught here, once, and is coverage naming the error."""
+    given = _Inputs(model, declaration, records, parameters, radar, checks)
     ran: list[Check] = []
     findings: list[Finding] = []
     coverage: list[Coverage] = []
@@ -148,14 +205,13 @@ def run_checks(
         if u.kind is UnitKind.FILE
     }
     for check in CATALOG:
-        run = TARGET_CHECKS.get(check.name)
-        on_radar = RADAR_CHECKS.get(check.name)
         unread = unread_by(check, model)
-        if run is not None:
-            outcome = run(without(model, unread), declaration, records, parameters)
-        elif on_radar is not None:
-            outcome = on_radar(without(model, unread), declaration, radar, parameters)
-        else:
+        scoped = given.over(without(model, unread))
+        try:
+            outcome = _outcome(check, scoped)
+        except Exception as error:  # the check boundary (Use-case surface)
+            outcome = _errored(check, error, scoped)
+        if outcome is None:
             coverage.append(_not_run(check))
             continue
         if outcome.ran:

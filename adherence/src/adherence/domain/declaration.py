@@ -12,11 +12,11 @@ import dataclasses
 import fnmatch
 import re
 import tomllib
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import ClassVar
 
-from adherence.domain.finding import Notice
+from adherence.domain.finding import Finding, Notice
 from adherence.domain.model import Layer, Region
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import Quality, check_named
@@ -91,11 +91,14 @@ class RefusedExemption:
 @dataclass(frozen=True, slots=True)
 class Layers:
     """The [layers] table: globs and literal paths per layer, line-range
-    regions, and the files whose regions come from their section markers."""
+    regions, and the files whose regions come from their section markers;
+    and the layer a change's widening gives each file it created, matched
+    by that path alone, never as a glob."""
 
     globs: tuple[tuple[Layer, str], ...] = ()
     regions: tuple[Region, ...] = ()
     marker_files: tuple[str, ...] = ()
+    widened: tuple[tuple[Layer, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,6 +153,49 @@ Declaration.none = Declaration(declared=False)
 @dataclass(frozen=True, slots=True)
 class DeclarationUnreadable:
     """The outcome of a declaration that cannot be read, with the reason."""
+
+    reason: str
+
+
+# --- Approvals (ReviewPort's answers, as values) -----------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Approval:
+    """One approving review: who gave it, and the commit it reviewed."""
+
+    reviewer: str
+    commit: str
+
+
+@dataclass(frozen=True, slots=True)
+class Landing:
+    """The pull request that landed a commit: its author, and its approving
+    reviews."""
+
+    author: str
+    approvals: tuple[Approval, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class NoLandingPR:
+    """No pull request landed the commit: a direct push or a bypass."""
+
+    commit: str
+
+
+@dataclass(frozen=True, slots=True)
+class Unknown:
+    """The place the run happens cannot know who approved a landing; the
+    landed declaration stands there."""
+
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewsUnavailable:
+    """The code host's reviews could not be read, with the reason; counted
+    as no approvals."""
 
     reason: str
 
@@ -230,12 +276,17 @@ def layer_of(
     """The one layer a file, or a line of it, is in; None when uncovered.
 
     A region (declared by lines, or found by marker and passed in) beats a
-    file; a literal path beats a glob; a longer glob beats a shorter one.
+    file; a widened path, which only a file nothing else covers has, is that
+    file's layer; a literal path beats a glob; a longer glob beats a shorter
+    one.
     """
     if line is not None:
         for region in (*declaration.layers.regions, *found):
             if region.holds(path, line):
                 return region.layer
+    for layer, created in declaration.layers.widened:
+        if created == path:
+            return layer
     hits = [
         (is_literal(pattern), len(pattern), layer)
         for layer, pattern in declaration.layers.globs
@@ -474,6 +525,85 @@ def _runtimes(value: object) -> tuple[Runtime, ...] | DeclarationUnreadable:
             )
         runtimes.append(Runtime(name, tuple(patterns)))
     return tuple(runtimes)
+
+
+def widened(
+    *,
+    in_force: Declaration,
+    proposed: Declaration | DeclarationUnreadable,
+    created: Collection[str],
+) -> Declaration:
+    """The declaration in force with the proposed one's widening merged in:
+    its layer assignments for the files the change created that the
+    declaration in force leaves uncovered, each matched by its path alone
+    -- a created path holding glob characters must never reach a file the
+    change did not create. Nothing else of the proposed declaration is
+    taken, so it can only add checks."""
+    if not in_force.declared or not isinstance(proposed, Declaration):
+        return in_force
+    uncovered = [p for p in sorted(created) if layer_of(p, None, in_force) is None]
+    paths = tuple(
+        (layer, path)
+        for path in uncovered
+        if (layer := layer_of(path, None, proposed)) is not None
+    )
+    regions = tuple(r for r in proposed.layers.regions if r.path in uncovered)
+    markers = tuple(p for p in proposed.layers.marker_files if p in uncovered)
+    layers = in_force.layers
+    return replace(
+        in_force,
+        layers=Layers(
+            layers.globs,
+            (*layers.regions, *regions),
+            (*layers.marker_files, *markers),
+            (*layers.widened, *paths),
+        ),
+    )
+
+
+def _silencing(finding: Finding, declaration: Declaration) -> Exemption | None:
+    """The first exemption that silences the finding: one dismissing it by
+    its identity, or one naming its check and a unit pattern its path
+    matches."""
+    return next(
+        (
+            e
+            for e in declaration.exemptions
+            if e.finding == finding.identity
+            or (
+                e.check == finding.check.name
+                and e.unit is not None
+                and matches(e.unit, finding.unit.path)
+            )
+        ),
+        None,
+    )
+
+
+def exempted(
+    findings: tuple[Finding, ...], declaration: Declaration
+) -> tuple[tuple[Finding, ...], tuple[Notice, ...]]:
+    """Each finding, marked with the reason of the exemption that silences
+    it; and a notice per exemption that silenced one, naming it and its
+    reason beside the check."""
+    marked: list[Finding] = []
+    applied: list[Exemption] = []
+    for finding in findings:
+        exemption = _silencing(finding, declaration)
+        if exemption is None:
+            marked.append(finding)
+            continue
+        marked.append(replace(finding, exempt=exemption.reason))
+        if exemption not in applied:
+            applied.append(exemption)
+    return tuple(marked), tuple(
+        Notice(f"exemption applied: {exemption_target(e)}: {e.reason}") for e in applied
+    )
+
+
+def exemption_target(exemption: Exemption) -> str:
+    """What an exemption silences, as a reviewer reads it."""
+    return exemption.finding or f"{exemption.check} on {exemption.unit}"
 
 
 def refusal_notices(declaration: Declaration) -> tuple[Notice, ...]:

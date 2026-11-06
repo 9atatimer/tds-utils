@@ -10,7 +10,7 @@ answered.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from adherence.domain.checks.run import run_checks
 from adherence.domain.coverage import (
@@ -24,6 +24,7 @@ from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.declaration import (
     Declaration,
     DeclarationUnreadable,
+    exempted,
     refusal_notices,
     with_overrides,
 )
@@ -40,8 +41,20 @@ from adherence.domain.model import (
     with_languages,
 )
 from adherence.domain.parameters import Parameters
-from adherence.domain.records import DesignRecords, Radar, RecordsUnavailable
-from adherence.domain.report import Report
+from adherence.domain.records import (
+    DesignRecords,
+    Radar,
+    RecordsUnavailable,
+)
+from adherence.domain.report import (
+    JUDGE_UNASKED,
+    SUITE_VERSION,
+    BodyDigest,
+    Report,
+    ReportIdentity,
+    body_digest,
+    fingerprint,
+)
 from adherence.domain.target import Base, Head
 from adherence.ports.code_model import CodeModelPort
 from adherence.ports.complexity import ComplexityPort
@@ -166,12 +179,29 @@ def measure(
     """The Report of every target-level check over the target."""
     if isinstance(declaration, DeclarationUnreadable):
         return Report.not_run(f"the declaration cannot be read: {declaration.reason}")
+    identity = ReportIdentity(
+        suite=SUITE_VERSION,
+        parameters=fingerprint(parameters),
+        declaration=fingerprint(declaration),
+        analyzers=tuple(sorted(language.value for language in analyzers)),
+        judge=JUDGE_UNASKED,
+    )
     parameters = with_overrides(parameters, declaration)
     paths = repository.tree(at, deadline)
     if isinstance(paths, TimedOut):
         return Report.not_run(f"the repository cannot be read: {paths.operation}")
     if isinstance(paths, Refused):
         return Report.not_run(f"the repository cannot be read: {paths.reason}")
+    measured = {language.value for language in analyzers}
+    if not any(language_of(path) in measured for path in paths):
+        # Not run, and still naming every source no analyzer measures.
+        return replace(
+            Report.not_run(
+                "no unit in a measured language "
+                f"({', '.join(sorted(measured)) or 'none bound'})"
+            ),
+            coverage=unmeasured(paths, analyzers.keys()),
+        )
     models: list[CodeModel] = []
     sources: dict[str, bytes] = {}
     coverage: list[Coverage] = list(unmeasured(paths, analyzers.keys()))
@@ -221,9 +251,21 @@ def measure(
             else read_radar
         )
     checked = run_checks(whole, declaration, design, parameters, radar=tech)
+    findings, applied = exempted(
+        quoted(checked.findings, sources, parameters.limits.evidence_bound),
+        declaration,
+    )
     return Report(
         ran=tuple(c for c in checked.ran if c.name not in unmeasured_checks),
-        findings=quoted(checked.findings, sources, parameters.limits.evidence_bound),
-        notices=refusal_notices(declaration),
+        findings=findings,
+        notices=(*refusal_notices(declaration), *applied),
         coverage=(*coverage, *unmodelled(whole, declaration), *checked.coverage),
+        units=whole.units,
+        bodies=tuple(
+            BodyDigest(d.unit.path, d.unit.symbol, body_digest(d.body.text))
+            for d in whole.definitions
+            if d.unit.symbol is not None
+        ),
+        identity=identity,
+        revision=at.revision,
     )

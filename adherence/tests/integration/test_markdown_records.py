@@ -17,7 +17,9 @@ from adherence.adapters.markdown_records import (
     parse_radar,
     parse_records,
 )
+from adherence.domain.checks.declared import record_kept
 from adherence.domain.checks.layered import is_traceable
+from adherence.domain.deadline import TimedOut
 from adherence.domain.declaration import Declaration, parse_declaration
 from adherence.domain.model import Parameter
 from adherence.domain.records import (
@@ -30,6 +32,9 @@ from adherence.domain.records import (
 from adherence.domain.target import Head
 from adherence.ports.records import RecordsPort
 from adherence.ports.repository import Refused
+from tests.judge_kit import BASE as JUDGED_BASE
+from tests.judge_kit import HEAD as JUDGED_HEAD
+from tests.judge_kit import judge_with
 from tests.records_contract import (
     ARCHITECTURE,
     BASE,
@@ -161,6 +166,36 @@ def test_records_read_each_behavior_with_its_scenario_and_line() -> None:
     assert (behavior.path, behavior.line) == (DESIGN, _line_of(DESIGN_TEXT, CLOSED))
 
 
+RECORD_CHECKS = ("Trace", "Language", "Change", "Kept test", "Record kept")
+
+
+def test_a_merged_record_with_a_leftover_draft_status_line_counts() -> None:
+    """Given a merged design record that still carries a leftover
+    `Status: DRAFT` line, When a change is judged over the records read
+    from it, Then the record counts: Trace runs over it, and none of Trace,
+    Language, Change, Kept test and Record kept reports it missing. A record
+    present at the revision measured is merged, and merged is the approval;
+    a status line is not lifecycle (design skill, Lifecycle is metadata)."""
+    port = MarkdownRecords(
+        FakeRepository(
+            {BASE: _files(DESIGN_TEXT.replace("APPROVED (the owner)", "DRAFT"))}
+        )
+    )
+    read = port.records(BASE, declaration(), None)
+    assert isinstance(read, DesignRecords), read
+    use = "src/app/application/use.py"
+    clean = b"def run():\n    return 1\n"
+
+    report = judge_with(
+        {use: clean}, {use: clean}, records={JUDGED_BASE: read, JUDGED_HEAD: read}
+    )
+
+    assert "Trace" in {c.name for c in report.ran}
+    reasons = {c.check: c.reason for c in report.coverage if c.check}
+    for check in RECORD_CHECKS:
+        assert DESIGN not in reasons.get(check, ""), (check, reasons.get(check))
+
+
 def test_records_read_each_domain_language_term() -> None:
     """Given a design record's Domain Language, When the records are read,
     Then each defined term is read by its spelling, with where it is defined."""
@@ -246,6 +281,37 @@ def test_records_the_repository_refuses_are_unavailable() -> None:
 
     assert isinstance(answer, RecordsUnavailable)
     assert DESIGN in answer.reason and "a symbolic link" in answer.reason
+
+
+def test_record_kept_over_a_record_refused_at_the_head_removes_nothing() -> None:
+    """Given approved records at the base and a design record the repository
+    refuses to hand over at the head, When Record kept compares them, Then
+    nothing is removed and the check is coverage naming why: a record that
+    could not be read is not a record left empty."""
+    files = {**_files(DESIGN_TEXT), DESIGN: Refused(DESIGN, "a symbolic link")}
+    head = MarkdownRecords(FakeRepository({BASE: files})).records(
+        BASE, declaration(), None
+    )
+    assert not isinstance(head, TimedOut)
+
+    outcome = record_kept(base=_records(), head=head, bound=200)
+
+    assert outcome.findings == ()
+    assert any("a symbolic link" in c.reason for c in outcome.coverage)
+
+
+def test_record_kept_over_a_record_absent_at_the_head_removes_it_all() -> None:
+    """Given approved records at the base and no design record at the head,
+    When Record kept compares them, Then every behavior and term the base
+    states is removed."""
+    head = MarkdownRecords(
+        FakeRepository({BASE: {ARCHITECTURE: ARCHITECTURE_TEXT.encode()}})
+    ).records(BASE, declaration(), None)
+    assert not isinstance(head, TimedOut)
+
+    outcome = record_kept(base=_records(), head=head, bound=200)
+
+    assert {f.subject for f in outcome.findings} == {CLOSED, "Order", "Store"}
 
 
 def test_radar_reads_each_entry_under_its_ring_heading() -> None:

@@ -15,10 +15,11 @@ import os
 import posixpath
 import subprocess
 import time
+from dataclasses import replace
 from pathlib import Path
 
 from adherence.domain.deadline import Deadline, TimedOut
-from adherence.domain.target import Base, Head, HeadKind
+from adherence.domain.target import Base, ChangedPaths, Head, HeadKind, Rename
 from adherence.ports.repository import Absent, Refused
 
 # --- Constants ---------------------------------------------------------------
@@ -29,6 +30,10 @@ LINK_REFUSAL = "a symbolic link"
 OUTSIDE_REFUSAL = "resolves outside the repository"
 # Repository configuration that could run a program is switched off.
 SAFE_CONFIG = ("-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null")
+# A diff names paths only: no external diff driver, no text conversion.
+NAME_STATUS = ("diff", "--no-ext-diff", "--no-textconv", "--name-status", "-z")
+FIND_RENAMES = ("-M",)
+RENAMED = "R"
 
 
 class _Expired(Exception):
@@ -87,6 +92,32 @@ def _index_entries(listing: bytes) -> list[tuple[str, str, str]]:
         (mode, object_id, _stage), path = _decode(record)
         found.append((mode, object_id, path))
     return found
+
+
+def _name_status(listing: bytes) -> ChangedPaths:
+    """The created, deleted, modified and renamed paths of `git diff -M
+    --name-status -z`: a status, then its path, or for a rename its old path
+    and its new one."""
+    fields = [f.decode("utf-8", "surrogateescape") for f in listing.split(b"\0")]
+    created: list[str] = []
+    deleted: list[str] = []
+    modified: list[str] = []
+    renamed: list[Rename] = []
+    index = 0
+    while index + 1 < len(fields) and fields[index]:
+        status, path = fields[index], fields[index + 1]
+        if status.startswith(RENAMED) and index + 2 < len(fields):
+            renamed.append(Rename(path, fields[index + 2]))
+            index += 3
+            continue
+        {"A": created, "D": deleted}.get(status[:1], modified).append(path)
+        index += 2
+    return ChangedPaths(
+        tuple(sorted(created)),
+        tuple(sorted(deleted)),
+        tuple(sorted(modified)),
+        tuple(sorted(renamed, key=lambda r: r.new)),
+    )
 
 
 def _revision(at: Base | Head) -> str:
@@ -199,6 +230,55 @@ class GitRepository:
         except GitFailure as failure:
             return Refused(path, str(failure))
         return answer
+
+    def _untracked(self, deadline: Deadline | None) -> tuple[str, ...]:
+        listing = self._git(
+            ["ls-files", "-z", "--others", "--exclude-standard"], deadline
+        )
+        return tuple(
+            p for p in listing.decode("utf-8", "surrogateescape").split("\0") if p
+        )
+
+    def _diff(self, base: Base, head: Head, deadline: Deadline | None) -> ChangedPaths:
+        if head.kind is HeadKind.REVISION:
+            against = [base.revision, _revision(head)]
+        elif head.kind is HeadKind.STAGED_INDEX:
+            against = ["--cached", base.revision]
+        else:
+            against = [base.revision]
+        found = _name_status(
+            self._git([*NAME_STATUS, *FIND_RENAMES, *against, "--"], deadline)
+        )
+        if head.kind is not HeadKind.WORKING_TREE:
+            return found
+        created = sorted({*found.created, *self._untracked(deadline)})
+        return replace(found, created=tuple(created))
+
+    def changed(
+        self, base: Base, head: Head, deadline: Deadline | None
+    ) -> ChangedPaths | Refused | TimedOut:
+        try:
+            return self._diff(base, head, deadline)
+        except _Expired:
+            return TimedOut("tell what the change did")
+        except GitFailure as failure:
+            return Refused(".", str(failure))
+
+    def history(
+        self, path: str, base: Base, deadline: Deadline | None
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        if not is_inside_root(path):
+            return Refused(path, OUTSIDE_REFUSAL)
+        try:
+            listing = self._git(
+                ["log", "--format=%H", base.revision, "--", posixpath.normpath(path)],
+                deadline,
+            )
+        except _Expired:
+            return TimedOut(f"list the history of {path}")
+        except GitFailure as failure:
+            return Refused(path, str(failure))
+        return tuple(listing.decode("ascii", "replace").split())
 
     def tree(
         self, at: Base | Head, deadline: Deadline | None

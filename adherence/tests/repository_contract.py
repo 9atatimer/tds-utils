@@ -1,16 +1,17 @@
 """RepositoryPort's contract, written once and run against every adapter.
 
 A subclass supplies `repository_with`: a repository whose base revision
-holds `base`, whose staged index adds `staged`, and whose working tree
-adds `working` on top of both. It returns the adapter and the Base.
+holds `base`, whose staged index adds `staged` and removes `deleted`, and
+whose working tree adds `working` on top of both. It returns the adapter
+and the Base.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from pathlib import Path
 
-from adherence.domain.target import Base, Head
+from adherence.domain.target import Base, ChangedPaths, Head, Rename
 from adherence.ports.repository import Absent, RepositoryPort
 
 Files = Mapping[str, bytes]
@@ -24,6 +25,7 @@ class RepositoryContract:
         base: Files,
         staged: Files,
         working: Files,
+        deleted: Collection[str] = (),
     ) -> tuple[RepositoryPort, Base]:
         raise NotImplementedError("a contract subclass supplies its adapter")
 
@@ -80,3 +82,59 @@ class RepositoryContract:
             "c.py",
             "pkg/b.py",
         )
+
+    def test_changed_names_created_deleted_and_modified_paths(
+        self, tmp_path: Path
+    ) -> None:
+        """Given a base, an index that edits one file, adds one and removes
+        one, and a working tree that adds another, When each head is told
+        against the base, Then each names exactly what it created, deleted
+        and modified."""
+        repository, base = self.repository_with(
+            tmp_path,
+            base={"a.py": b"a\n", "gone.py": b"g\n", "same.py": b"s\n"},
+            staged={"a.py": b"a2\n", "pkg/new.py": b"n\n"},
+            working={"loose.py": b"l\n"},
+            deleted=("gone.py",),
+        )
+
+        assert repository.changed(base, Head.staged_index(), None) == ChangedPaths(
+            created=("pkg/new.py",), deleted=("gone.py",), modified=("a.py",)
+        )
+        assert repository.changed(base, Head.working_tree(), None) == ChangedPaths(
+            created=("loose.py", "pkg/new.py"), deleted=("gone.py",), modified=("a.py",)
+        )
+        assert (
+            repository.changed(base, Head.at_revision(base.revision), None)
+            == ChangedPaths()
+        )
+
+    def test_changed_names_a_moved_file_as_renamed(self, tmp_path: Path) -> None:
+        """Given an index that moves a file unedited, When the staged index is
+        told against the base, Then the move is one rename, neither a
+        creation nor a deletion."""
+        moved = b"def tidy():\n    pass\n" * 4
+        repository, base = self.repository_with(
+            tmp_path,
+            base={"src/old.py": moved, "keep.py": b"k\n"},
+            staged={"src/new.py": moved},
+            working={},
+            deleted=("src/old.py",),
+        )
+
+        assert repository.changed(base, Head.staged_index(), None) == ChangedPaths(
+            renamed=(Rename("src/old.py", "src/new.py"),)
+        )
+
+    def test_history_lists_the_commits_that_changed_a_path(
+        self, tmp_path: Path
+    ) -> None:
+        """Given a base revision that adds a file, When the file's history at
+        the base is asked for, Then it is that revision; a path no commit
+        changed has none."""
+        repository, base = self.repository_with(
+            tmp_path, base={"adherence.toml": b"[layers]\n"}, staged={}, working={}
+        )
+
+        assert repository.history("adherence.toml", base, None) == (base.revision,)
+        assert repository.history("nope.toml", base, None) == ()
