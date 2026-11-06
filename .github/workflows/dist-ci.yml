@@ -285,6 +285,17 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+    # The interpreter is named here, never taken from the runner image: the
+    # image moving to CPython 3.14 turned master red with no commit
+    # (Issue#642, Issue#662). The floor is adherence/.python-version, the
+    # newest is the release a commit last named; a new CPython enters by
+    # editing this list.
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.14']
+    env:
+      UV_PYTHON: ${{ matrix.python }}
     defaults:
       run:
         working-directory: adherence
