@@ -346,9 +346,9 @@ jobs:
   # analyzers from their locks with setup actions that read nothing from the
   # head, and runs one `bin/adhere --stage ci judge --time-left <what is
   # left of timeout_minutes>`, printing the report to the log and writing
-  # the SARIF file and the job summary ($GITHUB_STEP_SUMMARY); the SARIF
-  # goes to code scanning from its own job (security-events: write), under
-  # an artifact name of this call's own. Lowered and not run fail the job
+  # the job summary ($GITHUB_STEP_SUMMARY) and the SARIF file, kept as a
+  # run artifact under a name of this call's own (no code scanning upload:
+  # the owner ruled the paid add-on out). Lowered and not run fail the job
   # and inconclusive passes it. The job is in gate's needs since its first
   # green run (run 42298026212, 2026-11-06; the architecture's Rollout row),
   # so a lowered change cannot land.
@@ -374,8 +374,6 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-      security-events: write
-      actions: read
     with:
       tools_ref: ${{ github.event.pull_request.head.sha || github.sha }}
       base: ${{ (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/tedium/')) && format('{0}^1', github.sha) || '' }}

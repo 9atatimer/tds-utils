@@ -1,13 +1,13 @@
 # adherence.yml -- reusable workflow: the architectural adherence gate.
 # Judges a change's head against its base with the adherence engine
-# (`bin/adhere --stage ci judge`), uploads the findings as SARIF to code
-# scanning, so they annotate the pull request at the line, and writes the
-# verdict, findings, notices and coverage to the job summary.
+# (`bin/adhere --stage ci judge`), writes the verdict, findings, notices and
+# coverage to the job summary, and keeps the findings as a SARIF run
+# artifact.
 # Design: docs/design/DESIGN.ARCH-ADHERENCE.md; architecture:
 # docs/design/ARCHITECTURE.ARCH-ADHERENCE.md (Where it runs, Persistence,
 # Security mitigations, Operability).
 #
-# Two jobs, so each holds only what it needs:
+# One job:
 #
 #   judge    contents: read and pull-requests: read. Fetches the engine at
 #            `tools_ref`, checks the repository out at the head with full
@@ -28,23 +28,17 @@
 #            configuration, and only the warehouse adapter the ledger's. The verdict sets the job's exit status last:
 #            lowered and not run fail, and inconclusive passes (the
 #            design's Key Decisions, Inconclusive at the gate); the SARIF
-#            is uploaded first either way.
-#   upload   contents: read, security-events: write, and actions: read
-#            (code scanning asks for it in a private repository). Runs
-#            nothing but the pinned upload-sarif action over the judge
-#            job's file. Skipped for a pull request from a fork, whose token
-#            cannot write code scanning. It never fails the call
-#            (continue-on-error): the verdict is the judge job's, and the
-#            upload only puts the findings on the diff as annotations, so
-#            a repository where code scanning refuses it (a private one
-#            without GitHub's Code Security add-on: "Code Security must be
-#            enabled for this repository to use code scanning",
-#            template-tools PR#1058, 2026-11-06) loses the annotations and
-#            nothing else; the job's own red mark in the run is the only
-#            record. Code scanning keeps one analysis
-#            per ref, sha and `category`, so two calls on one head (two
-#            callers' jobs, a matrix) must pass distinct `category` inputs,
-#            or the second upload replaces the first.
+#            is kept as a run artifact first either way (7 days), the
+#            machine-readable report of the run.
+#
+# There is no code scanning upload. The workflow once had a second job that
+# posted the SARIF to code scanning so findings annotated the diff; a
+# private repository without GitHub's paid Code Security add-on refuses
+# that upload ("Code Security must be enabled for this repository to use
+# code scanning", template-tools PR#1058, run 42310085996, 2026-11-06) and
+# the owner ruled the add-on out, so the annotations went with it. The
+# verdict, the log report, the job summary and the SARIF artifact need no
+# security-events permission and no add-on, on any repository.
 #
 # The bound: the ci stage has no deadline of its own. The judge step passes
 # the job's remaining time -- `timeout_minutes` less the time already spent
@@ -96,8 +90,6 @@
 #       permissions:
 #         contents: read
 #         pull-requests: read
-#         security-events: write
-#         actions: read
 #       with:
 #         tools_ref: <the same sha>
 #       secrets:
@@ -167,11 +159,6 @@ on:
         type: string
         required: false
         default: ''
-      category:
-        description: The code scanning category the SARIF is uploaded under; two calls on one head need distinct categories, or the second replaces the first.
-        type: string
-        required: false
-        default: adherence
     secrets:
       DECIDE_GATEWAY_TOKEN:
         description: The hosted judge's token (with the DECIDE_GATEWAY_URL variable); without it the judged checks are coverage.
@@ -213,14 +200,10 @@ jobs:
       pull-requests: read
     outputs:
       status: ${{ steps.judge.outputs.status }}
-      sarif: ${{ steps.judge.outputs.sarif }}
-      head: ${{ steps.revisions.outputs.head }}
-      ref: ${{ steps.revisions.outputs.ref }}
-      artifact: ${{ steps.clock.outputs.artifact }}
     steps:
       # The SARIF artifact's name is this call's own: a run that calls the
-      # workflow twice (two callers' jobs, a matrix) gets two names, so one
-      # upload neither collides with nor fetches the other's file.
+      # workflow twice (two callers' jobs, a matrix) gets two names, so the
+      # artifacts do not collide.
       - name: Start the clock
         id: clock
         run: |
@@ -381,7 +364,7 @@ jobs:
           echo "status=$status" >> "$GITHUB_OUTPUT"
           if [ -s "$sarif" ]; then echo "sarif=written" >> "$GITHUB_OUTPUT"; fi
 
-      - name: Keep the SARIF for the upload job
+      - name: Keep the SARIF as a run artifact
         if: always() && steps.judge.outputs.sarif == 'written'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -399,33 +382,3 @@ jobs:
             exit 1
           fi
           exit "$STATUS"
-
-  upload:
-    name: upload SARIF
-    needs: [judge]
-    if: always() && needs.judge.outputs.sarif == 'written' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-latest"') }}
-    timeout-minutes: 5
-    # The verdict is the judge job's; the annotations are a courtesy, and
-    # a repository where code scanning refuses them must not fail its gate.
-    continue-on-error: true
-    permissions:
-      contents: read
-      security-events: write
-      actions: read
-    steps:
-      - name: Fetch the SARIF
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: ${{ needs.judge.outputs.artifact }}
-          path: ${{ runner.temp }}/adherence
-
-      # Results land on the head that was judged, so the annotations sit on
-      # the lines of the pull request's own commits.
-      - name: Upload to code scanning
-        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
-        with:
-          sarif_file: ${{ runner.temp }}/adherence/adherence.sarif
-          category: ${{ inputs.category }}
-          ref: ${{ needs.judge.outputs.ref }}
-          sha: ${{ needs.judge.outputs.head }}
