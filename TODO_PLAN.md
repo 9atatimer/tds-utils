@@ -126,9 +126,12 @@ own stack with no introduced finding. The route from here:
   top-level modules have no layer), tds-utils Issue#709 (the gateway's
   500 at the OCR probe) and Issue#711 (ocr-review calls a Markdown-only PR
   "failed"). No task until the owner rules Issue#712 and Issue#713.
-- the hosted judge in CI (design Q4, architecture Q6) is being bound by
-  another agent; until it lands every judged check is coverage in every
-  consumer.
+- the hosted judge in CI is bound since 2026-11-07 (tds-utils PR#716,
+  tds-internal PR#321, Skills PR#181, template-tools PR#1068; Key
+  Decisions rows in both records under Issue#590). Open from it: the
+  owner's rulings Issue#719 (a same-repository PR author can read the
+  judge's token) and Issue#720 (Q4's consent and private-repository
+  clauses), and the recording Issue#721, for task-072's as-built.
 - task-071 (explanations) and task-072 (runbook and as-built), after the
   rollout; the as-built is where the component's lessons below graduate.
 - the drift the retrospective of 2026-11-06 cut, as `kind: bug` tasks:
@@ -144,13 +147,14 @@ own stack with no introduced finding. The route from here:
 
 The owner's rulings on the design's open questions (Q1, Q3-Q7, Q9, Q12)
 and the architecture's Q4 and Q6 land as Key Decisions appends under
-Issue#590 while the route runs. The design's Q4 and the architecture's
-Q6 (the hosted judge in CI, and its token on a PR head) are the largest
-gap the rollout surfaced: no caller passes a judge, so every judged check
-is coverage in every consumer, and each quality is measured by its
-mechanical half only. Measured with `bin/adhere measure` on template-tools
-64fce35, 2026-11-06: 435 of its 1090 unmeasured units were judged checks
-not asked.
+Issue#590 while the route runs. The hosted judge in CI was the largest
+gap the rollout surfaced: until 2026-11-07 no caller passed a judge, so
+every judged check was coverage in every consumer (measured with `bin/adhere
+measure` on template-tools 64fce35, 2026-11-06: 435 of its 1090
+unmeasured units were judged checks not asked). It is bound now; the
+design's Q4 (its cloud, consent and private-repository clauses) and the
+architecture's Q6 (the token on a PR head) stay open as Issue#720 and
+Issue#719.
 
 ## Blockers
 
@@ -194,7 +198,10 @@ lessons, the Given/When/Then lesson and the todo-plan lesson that sat here
 with a non-wip `about:`. Graduated 2026-11-07 (Skills PR#176): the
 architecture lesson from the adherence rollout, a platform feature the
 record leans on names the tier that gates it, checked against the
-repositories the design targets.
+repositories the design targets. Sent straight to their skills
+2026-11-07 (Skills PR#183), settled when found, never parked here: three
+lessons from binding the hosted judge (infra-credentials, style-bash,
+iac).
 
 ### Host-scoped design meets profile-scoped transport
 
