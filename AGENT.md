@@ -332,8 +332,9 @@ Three things worth knowing:
 `adherence.toml` declares `adherence/` by layer; `adherence-judge` in
 `dist-ci.yml` judges every change in its scope (`adherence/`,
 `adherence.toml` and any directory's `*/adherence.toml`, the two
-records, the radar and the gate files, per `changed-scopes.sh`), except a fork's PR, in the `ci` stage, and is in
-`gate`'s `needs`, so a `lowered` change cannot land
+records, the radar and the gate files, per `changed-scopes.sh`), except
+a fork's PR, in the `ci` stage, and is in `gate`'s `needs`, so a
+`lowered` change cannot land
 (`docs/design/DESIGN.ARCH-ADHERENCE.md`,
 `docs/design/ARCHITECTURE.ARCH-ADHERENCE.md`; the rulings log is
 Issue#590). Two things to know before you measure locally:
@@ -342,8 +343,8 @@ Issue#590). Two things to know before you measure locally:
   the reviews port answers Unknown, so the newest landed revision of each
   `adherence.toml` stands as that file's declaration in force, approved or
   not, and the files in force are read as one (the governing
-  declarations). To see what CI
-  sees -- the newest landing a code owner approved or merged, read from
+  declarations). To see what CI sees -- the newest landing a code owner
+  approved or merged, read from
   GitHub -- run `GITHUB_REPOSITORY=9atatimer/tds-utils
   GITHUB_BASE_REF=master GITHUB_TOKEN=... bin/adhere --stage ci judge
   --base <sha> --head <sha>`; in the `ci` stage without those, every

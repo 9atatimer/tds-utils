@@ -43,8 +43,8 @@ Findings leave as SARIF and as the fleet's ledger records.
  | adherence/  (uv project)                                             |
  |  cli/        entry point: parse, call the use cases, present         |
  |  container   the composition root: binds adapters per stage          |
- |  application load_declaration | measure | judge_change | explain     |
- |              | record_report                                         |
+ |  application load_declaration | check_declarations | measure           |
+ |              | judge_change | explain | record_report                 |
  |  domain      qualities, checks, questions, threshold, verdict        |
  |  ports       Repository | CodeModel | Complexity | Duplication       |
  |              | Records | Decision | Review | Explanation             |
@@ -121,7 +121,7 @@ or option is a migration of the threshold policy and the labelled set.
 | `domain/verdict.py` -- two `Report`s and a `Change` to a `Verdict` in the design's order; provenance with renames; removed findings (a base finding absent at the head whose units the head still covers and whose check ran there and passed); exempt findings on either side counted as neither | domain | all |
 | `domain/finding.py` -- `Finding`, its stable identity, `Evidence` bound; `Notice` | domain | all |
 | `domain/report.py` -- `Report`, `Report.not_run`, its identity (suite version, parameters digest, the digest of the merged declaration, analyzer set, judge availability) | domain | all |
-| `application/load.py` -- `load_declaration`: finds every `adherence.toml` at the revision, parses each relative to its directory, and returns the one merged `Declaration` (its `governed` directories with it) or the `DeclarationUnreadable` the merge refuses; the per-file in-force settlement is `judge_change`'s | application | all |
+| `application/load.py` -- `load_declaration`: finds every `adherence.toml` at the revision, parses each relative to its directory, and returns the one merged `Declaration` (its `governed` directories with it) or the `DeclarationUnreadable` the merge refuses; `check_declarations`: the same files each as it reads, and the merge, for `declaration check`; the per-file in-force settlement is `judge_change`'s | application | all |
 | `application/measure.py` -- `measure` | application | all |
 | `application/judge.py` -- `judge_change` | application | all |
 | `application/bounded.py` -- `judge_bounded`: runs `judge_change` through `WorkerPort` and, when the worker is ended at the deadline, builds the `Report` from the finished checks with every unfinished check as `Coverage` (`domain/report.assemble_partial`) | application | `hook` |
@@ -502,7 +502,7 @@ No values here. The as-built holds them.
 | An analyzer missing on the runner | coverage missing for that language; verdict inconclusive at best | the report's coverage reasons name the binary; the workflow's install step | `CodeModelPort` (the `analyzers` mapping) |
 | The judge unavailable | every judged check as coverage; verdict inconclusive at best | `decide probe` on the laptop; the job's `DECIDE_*` variables in CI | `DecisionPort` |
 | GitHub reviews unreadable (API error, rate limit, landing PR not resolved) | the walk skips that landing with a `Notice`; the previous approved revision of that file is in force, or that file governs nothing and its subtree is undeclared, the whole repository when no file is in force, and the verdict is inconclusive at best | the notice's error; the job's token permissions and the PR context of the run | `ReviewPort` |
-| A declaration that does not parse | verdict not run with the parse error | `adhere declaration check` | `Declaration`, read through `RepositoryPort` |
+| A declaration that does not parse | verdict not run with the parse error | `adhere declaration check` (`check_declarations`: one line per file, then the merge) | `Declaration`, read through `RepositoryPort` |
 | Base report missing from the store, or kept under another identity | a second measurement of the base; slower, and the only path to a verdict | the cache's path in the report; the identity mismatch noted | `ReportStore`, report identity |
 | The hook over its bound | the checks that did not run listed as coverage; the commit proceeds, since `cli/main.py` exits zero on inconclusive in the `hook` stage | the report names which checks and which analyzer hit `Limits.analyzer_bound` | `Deadline`, `Limits.commit_time_bound`, `Limits.analyzer_bound` |
 | A Trace that matches nothing because a signature changed shape | one finding per design row | the use-case surface in the architecture record, compared to the code's `Signature` | `CodeModelPort` (`Signature`), `RecordsPort` |
