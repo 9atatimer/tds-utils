@@ -22,7 +22,7 @@ tooling: the gate, the hooks and the agents all code against its verdict.
 ## Problem and approach
 
 **The problem.** The fleet's structural rules exist only as prose. The
-coding skill names nine mechanical tests and the testing skill asks that
+coding skill names its mechanical tests and the testing skill asks that
 each be written as a real test, but nothing in any repository executes
 them. A reviewer applies them when attentive and skips them when not. An
 agent that imports a vendor into the domain, stubs a use case, or writes a
@@ -189,7 +189,7 @@ judged part runs only on what the rule part could not decide.
 |---|---|---|
 | Layered | A unit depends only on its own layer or a layer below it | Arrow (R): every import stays in its own layer or crosses to a layer below it (application and adapters to ports and the domain, ports to the domain, the composition root to any), and no import cycle exists. Wiring (R): per declared runtime, exactly one unit constructs concrete adapters, that unit is in the composition-root layer, and no unit outside that layer constructs one; a fake is not a concrete adapter |
 | Hexagonal | The core depends on no mechanism | Grep (R): no domain or application unit names a vendor, an SDK, the environment, the filesystem, the network, or a model id. Swap (R): every port has at least one fake and the core imports only the port. Change (R): every seam the architecture record names exists as exactly one port, policy or parameter |
-| LAW | Every function is exactly one of logic, action and workflow | Kind (J): a function that does two of logic (computing a value from its inputs), action (changing something: a write, a call, a send, a mutation) and workflow (calling other functions in order). Purity (R/J): no domain unit takes a port or a clock; the judged part asks whether a callable it takes does I/O. Anatomy (R): a file's regions run in the coding skill's file-anatomy order |
+| LAW | Every function is exactly one of logic, action and workflow | Kind (J): a function that does two of logic (computing a value from its inputs and changing nothing), action (one effect of its own: a write, a send, a mutation, a call out to the world) and workflow (only calling other functions, actions included, in order; its calls are its sequencing, not actions of its own). Purity (R/J): no domain unit takes a port or a clock; the judged part asks whether a callable it takes does I/O. Anatomy (R): a file's regions run in the coding skill's file-anatomy order |
 | Domain-driven | Each concept is named once, in the problem's words, with one owner | Trace (R): every design behavior resolves to one application unit, by the use-case surface's signature. Language (R/J): every noun in a use-case signature is defined in the design's Domain Language under that spelling; the judged part asks whether two differently spelled nouns are one concept. Decision (J): a choice spread across conditionals on the same discriminant instead of one named policy. Boundary (R/J): a value type whose fields are written outside its owning unit; the judged part asks whether that write can break an invariant. Anemic (R/J): a type that is all fields and no behavior; the judged part asks whether its rules live in another unit |
 | Composable | A use case can be called by another with nothing in front | Values in and out (R): no use-case signature carries a wire format, an SDK type or an adapter handle. No nesting (R): no function defined inside another. Helpers take values (R): no pure helper takes a port or a callable |
 | Injectable | Dependencies arrive at the flow function and never below it | Ports as keywords (R): every port a use case takes is a named dependency after the values. No self-wiring (R): no use case constructs a concrete adapter. No reach (R): no use case or domain unit reads a global, a singleton, or the environment |
@@ -200,7 +200,7 @@ judged part runs only on what the rule part could not decide.
 
 Kept test and Then asserted together are the Trace test's other half: Trace
 says the behavior has a home in the code; these say it has a home in the
-suite. Declared is the suite's own quality: it makes the other eight
+suite. Declared is the suite's own quality: it makes the other nine
 unavoidable.
 
 ### Units and layers

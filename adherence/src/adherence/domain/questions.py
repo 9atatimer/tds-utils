@@ -84,9 +84,11 @@ KIND = _binary(
     "kind",
     "The state holds one function. Todd's LAW says a function is exactly "
     "one of three kinds: logic computes a value from its inputs and changes "
-    "nothing; action changes something (a write, a call, a send, a "
-    "mutation); workflow calls other functions in order and does nothing "
-    "else. Does this function do two or more of the three?",
+    "nothing; action performs one effect of its own (a write, a send, a "
+    "mutation, a call out to the world); workflow only calls other "
+    "functions, actions included, in order, and the calls it makes are its "
+    "sequencing, not actions of its own. Does this function do two or more "
+    "of the three?",
 )
 DOES_IO = _binary(
     "does_io",
