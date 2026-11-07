@@ -19,6 +19,7 @@ from click.testing import CliRunner
 from adherence.cli.main import main
 from adherence.container import build
 from adherence.domain.qualities import Quality
+from tests.fixture_tree import planted_repository
 
 ENGINE = Path(__file__).resolve().parents[2]
 FIXTURE = ENGINE / "tests" / "fixtures" / "behavior"
@@ -47,12 +48,14 @@ def _found(quality: dict[str, list[dict[str, str]]]) -> set[tuple[str, str]]:
     return {(f["check"], f["path"]) for f in quality["findings"]}
 
 
-def test_measure_json_over_the_fixture_prints_the_three_qualities() -> None:
+def test_measure_json_over_the_fixture_prints_the_three_qualities(
+    tmp_path: Path,
+) -> None:
     """Given the fixture, its records naming a behavior no test keeps, and its
     radar holding the domain's import, When `adhere measure --json` runs,
     Then every target-level quality runs, and the Behavior-driven, Complete
     and Radar-true checks each print the finding the fixture plants."""
-    code, output = _measure(FIXTURE)
+    code, output = _measure(planted_repository(FIXTURE, tmp_path / "repo"))
 
     assert code == 0, output
     document = json.loads(output)

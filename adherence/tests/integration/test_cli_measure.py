@@ -16,6 +16,7 @@ from adherence.adapters.fakes import FakeComplexity, FakeDuplication
 from adherence.cli.main import main
 from adherence.container import build
 from adherence.domain.qualities import CATALOG, Quality
+from tests.fixture_tree import planted_repository
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "python"
 RECORD = "docs/design/ARCHITECTURE.TOOL.md"
@@ -37,12 +38,14 @@ def _measure(root: Path) -> tuple[int, str]:
     return result.exit_code, result.output
 
 
-def test_measure_json_over_the_fixture_prints_the_hexagonal_findings() -> None:
+def test_measure_json_over_the_fixture_prints_the_hexagonal_findings(
+    tmp_path: Path,
+) -> None:
     """Given the fixture and its architecture record naming a seam it has and
     one it lacks, When `adhere measure --json` runs, Then it prints the Hexagonal checks
     that ran and their findings, and every check that did not run as
     coverage missing with a reason."""
-    code, output = _measure(FIXTURE)
+    code, output = _measure(planted_repository(FIXTURE, tmp_path / "repo"))
 
     assert code == 0, output
     document = json.loads(output)
@@ -73,14 +76,16 @@ def test_measure_of_a_root_git_cannot_list_says_not_run(tmp_path: Path) -> None:
     assert "not a git repository" in json.loads(output)["not_run"]
 
 
-def test_measure_json_over_the_fixture_prints_the_layered_findings() -> None:
+def test_measure_json_over_the_fixture_prints_the_layered_findings(
+    tmp_path: Path,
+) -> None:
     """Given the fixture, its design record with a behavior the code carries,
     one it does not and a row nothing could trace, and its declaration with
     a runtime no unit wires, When `adhere measure --json` runs, Then the
     Layered rule checks ran, Trace driven by the record, and their findings
     print -- with task-060's ledger post taking a port and its restock
     constructing an adapter, which are Layered flaws too."""
-    code, output = _measure(FIXTURE)
+    code, output = _measure(planted_repository(FIXTURE, tmp_path / "repo"))
 
     assert code == 0, output
     layered = next(
