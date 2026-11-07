@@ -351,6 +351,19 @@ Issue#590). Two things to know before you measure locally:
   `secrets:`; design Q4 is why), so those checks are coverage, and a
   change that touches a unit they read is `inconclusive` at best, which
   exits 0 (Q10). `lowered` and `not run` are what fail.
+- `Covered` lowers the verdict for every unit a change creates outside the
+  declaration in force, and a change's own widening of `adherence.toml`
+  counts only for PATHS it creates: a function added to a file that
+  existed at the base is "not judged under for this change; it takes
+  effect from the next change", so a PR cannot clear it alone. Declare
+  the file first, in its own PR (PR#698 is the shape), then merge master
+  into the PR that adds the function. Issue#699 asks whether the engine
+  should key the widening on units instead.
+- The judge fetches the engine (`bin/adhere`, `adherence/`) at the PR
+  head, not at master. A branch cut before an engine change on master
+  runs the old engine against the new workflow and dies on an unknown
+  option (`No such option '--stage'`, PR#676, 2026-11-06). Merge master
+  into the branch; nothing on the branch is wrong.
 
 ## Infrastructure
 
