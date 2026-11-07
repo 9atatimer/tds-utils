@@ -357,8 +357,10 @@ Issue#590). Two things to know before you measure locally:
   existed at the base is "not judged under for this change; it takes
   effect from the next change", so a PR cannot clear it alone. Declare
   the file first, in its own PR (PR#698 is the shape), then merge master
-  into the PR that adds the function. Issue#699 asks whether the engine
-  should key the widening on units instead.
+  into the PR that adds the function: the judge reads the declaration in
+  force from the history of the merge-base, so the branch has to contain
+  the declaring landing. Issue#699 asks whether the engine should key the
+  widening on units instead.
 - The judge fetches the engine (`bin/adhere`, `adherence/`) at the PR
   head, not at master. A branch cut before an engine change on master
   runs the old engine against the new workflow and dies on an unknown
