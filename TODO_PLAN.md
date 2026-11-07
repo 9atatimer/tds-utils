@@ -104,9 +104,15 @@ repository is gated: `adherence-judge` is in `gate`'s `needs`, the
 declaration is in force under the Q11 ruling, and the engine judges its
 own stack with no introduced finding. The route from here:
 
-- the rollout (Issue#601): template-tools and Skills declare, run green
-  once, and put the caller in their `gate`; each is one PR in that
-  repository, pinned to a tds-utils commit by both refs.
+- the rollout (Issue#601): Skills is gated (Skills PR#174, PR#175);
+  template-tools is declared and judged, advisory (template-tools PR#1058,
+  PR#1059) until the owner rules Issue#695 (Covered is tree-wide, so a
+  partially declared monorepo cannot gate without failing every change
+  that creates a unit outside its declared layers; the recommendation is
+  to scope Covered to `[runtimes]`). Both run the engine at c11477c
+  (PR#694: no code scanning upload). Next: GammaGo, tds-internal, the
+  consumers; each one PR in that repository, pinned by both refs, and each
+  monorepo meets Issue#695 the same way.
 - task-071 (explanations) and task-072 (runbook and as-built), after the
   rollout; the as-built is where the component's lessons below graduate.
 - the drift the retrospective of 2026-11-06 cut, as `kind: bug` tasks:
@@ -122,7 +128,10 @@ own stack with no introduced finding. The route from here:
 
 The owner's rulings on the design's open questions (Q1, Q3-Q7, Q9, Q12)
 and the architecture's Q4 and Q6 land as Key Decisions appends under
-Issue#590 while the route runs.
+Issue#590 while the route runs. Q4/Q6 (the hosted judge's token in CI)
+is the largest gap the rollout surfaced: every judged check is coverage
+in every consumer (435 of template-tools' 1090 unmeasured units), so each
+quality is measured by its mechanical half only.
 
 ## Blockers
 
@@ -164,6 +173,23 @@ Issue#590 while the route runs.
 Graduated 2026-10-13 to the Skills repo (Skills PR#123): the three design
 lessons, the Given/When/Then lesson and the todo-plan lesson that sat here
 with a non-wip `about:`.
+
+### A platform feature in a design is checked against the licence tier of the repositories it targets
+
+about: skill:design
+
+The adherence design gave the PR surface line annotations through code
+scanning (a SARIF upload), and the architecture and the reusable workflow
+built it. Code scanning is free on a public repository and a paid add-on
+(Code Security) on a private one; the fleet's monorepos are private and
+the owner will not buy it. The first private consumer's call failed over
+the upload while its judge passed (template-tools PR#1058, run
+42310085996), and the upload went (PR#694, Key Decisions). The design
+named the feature and never the tier; the panels that reviewed the
+design, the architecture and three CI changes did not ask either. Rule:
+a behavior that leans on a vendor feature names the feature's licence or
+plan tier, and the review checks it against every repository the design
+targets, public and private. Routed to the design skill (Skills).
 
 ### Host-scoped design meets profile-scoped transport
 
