@@ -28,8 +28,13 @@
 # what the human runs. It is idempotent, so the same command re-seeds after
 # a rotation.
 #
+# `status OWNER/REPO ...` reports only the repos named, without listing the
+# owner's repos; a named repo with no caller reads `CALLER no` and is not
+# ready. Repos are checked SEED_OCR_JOBS at a time (default 8); the rows
+# still print in order.
+#
 # Usage:
-#   seed-ocr-review [-o OWNER] [-n] status
+#   seed-ocr-review [-o OWNER] [-n] status [OWNER/REPO ...]
 #   seed-ocr-review [-o OWNER] -i OPITEM -r OPREF -u URL [-m MODEL] [-n] seed [OWNER/REPO ...]
 #
 #   -o OWNER   GitHub owner (default: 9atatimer)
@@ -67,6 +72,7 @@ TOOLS_REPO="9atatimer/tds-utils"
 PLACEHOLDER="0000000000000000000000000000000000000000"
 REPO_LIST_LIMIT=1000
 ABSENT=4
+DEFAULT_JOBS=8
 
 # --- Action functions ------------------------------------------------------
 
@@ -281,35 +287,85 @@ variable_value() {
 
 # --- Flow functions --------------------------------------------------------
 
-cmd_status() {
-    local owner="$1"
-    local kind is_org=0 repos repo body rc pin tools_ref state secret vars run errors=0 not_ready=0
-    kind=$(owner_type "${owner}") || { echo "seed-ocr-review: could not read owner ${owner}" >&2; return 2; }
-    [ "${kind}" = "Organization" ] && is_org=1
-    repos=$(discover_repos "${owner}") || {
-        echo "seed-ocr-review: could not discover repositories under ${owner}" >&2
+# One repo's status row on stdout. Returns 0 ready, 1 not ready, 2 a lookup
+# failed, or ABSENT when the repo has no caller and NAMED is 0 (discovery:
+# not a consumer, no row).
+status_row() {
+    local repo="$1" owner="$2" is_org="$3" named="$4"
+    local body rc pin tools_ref state secret vars run
+    rc=0; body=$(fetch_caller "${repo}") || rc=$?
+    if [ "${rc}" -eq "${ABSENT}" ]; then
+        [ "${named}" = 1 ] || return "${ABSENT}"
+        printf '%-40s %-7s %-8s %-11s %-21s %-5s %s\n' "${repo}" no - - - - -
+        return 1
+    fi
+    if [ "${rc}" -ne 0 ]; then
+        printf '%-40s %-7s %-8s %-11s %-21s %-5s %s\n' "${repo}" error - - - - -
         return 2
-    }
-    printf '%-40s %-7s %-8s %-11s %-21s %-5s %s\n' REPO CALLER PIN PIN-STATE SECRET VARS LAST-RUN
+    fi
+    pin=$(printf '%s\n' "${body}" | caller_pin)
+    tools_ref=$(printf '%s\n' "${body}" | caller_tools_ref)
+    state=$(pin_state "${pin}" "${tools_ref}")
+    secret=$(secret_state "${repo}" "${owner}" "${is_org}")
+    vars=$(variables_state "${repo}" "${owner}" "${is_org}")
+    run=$(last_run "${repo}")
+    printf '%-40s %-7s %-8s %-11s %-21s %-5s %s\n' "${repo}" yes "${pin:0:7}" "${state}" "${secret}" "${vars}" "${run}"
+    if [ "${secret}" = error ] || [ "${vars}" = error ]; then return 2; fi
+    case "${state}" in current|stale) ;; *) return 1 ;; esac
+    if [ "${secret}" = "-" ] || [ "${vars}" != "3/3" ]; then return 1; fi
+    return 0
+}
+
+# Runs status_row for each repo, JOBS at a time, into DIR/<n>.out and
+# DIR/<n>.rc, n being the repo's position, so the rows can be printed in
+# order. Batches end on a plain `wait`: bash 3.2 (macOS) has no `wait -n`.
+status_rows() {
+    local dir="$1" jobs="$2" owner="$3" is_org="$4" named="$5" repos="$6"
+    local repo n=0 running=0
     while IFS= read -r repo; do
         [ -n "${repo}" ] || continue
-        rc=0; body=$(fetch_caller "${repo}") || rc=$?
-        if [ "${rc}" -eq "${ABSENT}" ]; then continue; fi
-        if [ "${rc}" -ne 0 ]; then
-            printf '%-40s %-7s %-8s %-11s %-21s %-5s %s\n' "${repo}" error - - - - -
-            errors=$((errors + 1)); continue
-        fi
-        pin=$(printf '%s\n' "${body}" | caller_pin)
-        tools_ref=$(printf '%s\n' "${body}" | caller_tools_ref)
-        state=$(pin_state "${pin}" "${tools_ref}")
-        secret=$(secret_state "${repo}" "${owner}" "${is_org}")
-        vars=$(variables_state "${repo}" "${owner}" "${is_org}")
-        run=$(last_run "${repo}")
-        printf '%-40s %-7s %-8s %-11s %-21s %-5s %s\n' "${repo}" yes "${pin:0:7}" "${state}" "${secret}" "${vars}" "${run}"
-        if [ "${secret}" = error ] || [ "${vars}" = error ]; then errors=$((errors + 1)); continue; fi
-        case "${state}" in current|stale) ;; *) not_ready=$((not_ready + 1)); continue ;; esac
-        if [ "${secret}" = "-" ] || [ "${vars}" != "3/3" ]; then not_ready=$((not_ready + 1)); fi
+        n=$((n + 1))
+        (
+            rc=0; status_row "${repo}" "${owner}" "${is_org}" "${named}" > "${dir}/${n}.out" || rc=$?
+            echo "${rc}" > "${dir}/${n}.rc"
+        ) &
+        running=$((running + 1))
+        if [ "${running}" -ge "${jobs}" ]; then wait; running=0; fi
     done <<< "${repos}"
+    wait
+    echo "${n}"
+}
+
+cmd_status() {
+    local owner="$1"; shift
+    local kind is_org=0 named=0 repos jobs dir count n rc errors=0 not_ready=0
+    jobs="${SEED_OCR_JOBS:-${DEFAULT_JOBS}}"
+    case "${jobs}" in ''|*[!0-9]*|0) echo "seed-ocr-review: SEED_OCR_JOBS must be a positive integer" >&2; return 2 ;; esac
+    kind=$(owner_type "${owner}") || { echo "seed-ocr-review: could not read owner ${owner}" >&2; return 2; }
+    [ "${kind}" = "Organization" ] && is_org=1
+    if [ "$#" -gt 0 ]; then
+        named=1
+        repos=$(printf '%s\n' "$@")
+    else
+        repos=$(discover_repos "${owner}") || {
+            echo "seed-ocr-review: could not discover repositories under ${owner}" >&2
+            return 2
+        }
+    fi
+    dir=$(mktemp -d)
+    # shellcheck disable=SC2064
+    trap "rm -rf '${dir}'" EXIT INT TERM HUP
+    count=$(status_rows "${dir}" "${jobs}" "${owner}" "${is_org}" "${named}" "${repos}")
+    printf '%-40s %-7s %-8s %-11s %-21s %-5s %s\n' REPO CALLER PIN PIN-STATE SECRET VARS LAST-RUN
+    for n in $(seq 1 "${count}"); do
+        rc=$(cat "${dir}/${n}.rc")
+        cat "${dir}/${n}.out"
+        case "${rc}" in
+            0|"${ABSENT}") ;;
+            1) not_ready=$((not_ready + 1)) ;;
+            *) errors=$((errors + 1)) ;;
+        esac
+    done
     if [ "${errors}" -gt 0 ]; then
         echo "seed-ocr-review: ${errors} lookup(s) failed; readiness could not be determined" >&2
         return 2
@@ -508,7 +564,7 @@ main() {
     local cmd="${1:-}"
     [ -n "${cmd}" ] && shift
     case "${cmd}" in
-        status) cmd_status "${owner}" ;;
+        status) cmd_status "${owner}" "$@" ;;
         seed)   cmd_seed "${owner}" "${op_ref}" "${item}" "${url}" "${model}" "${dry_run}" "$@" ;;
         *)      usage >&2; exit 2 ;;
     esac

@@ -438,6 +438,37 @@ case_usage() {
     assert "-h -> 0 with usage" "[ \"\${RUN_RC}\" -eq 0 ] && printf '%s' \"\${RUN_OUT}\" | grep -qi usage"
 }
 
+case_status_named_repo() {
+    bold "status <repo>: only the named repos, no owner-wide discovery (issue #697)"; echo
+    local s; s=$(fixture named1)
+    run "${s}" status 9atatimer/alpha
+    assert "exits 0: alpha is ready" "[ \"\${RUN_RC}\" -eq 0 ]"
+    assert "alpha is listed" "line_of 9atatimer/alpha | grep -q current"
+    assert "no other repo is listed" "! printf '%s' \"\${RUN_OUT}\" | grep -q 'beta\\|gamma'"
+    assert "the owner's repos were never listed" "! grep -q '^repo list' '${s}/log'"
+    run "${s}" status 9atatimer/delta 9atatimer/alpha
+    assert "a named repo with no caller is listed as CALLER no" "line_of 9atatimer/delta | grep -q ' no '"
+    assert "and counts as not ready: exit 1" "[ \"\${RUN_RC}\" -eq 1 ]"
+    assert "rows keep the order named" "printf '%s\\n' \"\${RUN_OUT}\" | sed -n 2p | grep -q 9atatimer/delta"
+}
+
+# shellcheck disable=SC2034
+case_status_row_order() {
+    bold "status: rows print in discovery order however many repos are checked at once (issue #697)"; echo
+    local s i r; s=$(fixture order1)
+    for i in $(seq -w 1 20); do
+        r="${s}/repos/9atatimer/zz${i}"
+        mkdir -p "${r}"
+        caller_at "${PIN_NEW}" "${PIN_NEW}" > "${r}/caller"
+    done
+    RUN_RC=0
+    RUN_OUT=$(SEED_OCR_JOBS=6 FAKE_STATE="${s}" PATH="${WORKROOT}/bin:${PATH}" "${TOOL}" status 2> "${s}/stderr") || RUN_RC=$?
+    assert "every consumer is listed once" "[ \"\$(printf '%s\\n' \"\${RUN_OUT}\" | grep -c '^9atatimer/')\" -eq 23 ]"
+    assert "rows are in sorted discovery order" \
+        "printf '%s\\n' \"\${RUN_OUT}\" | grep '^9atatimer/' | awk '{print \$1}' | sort -c"
+    assert "exit 1: beta and gamma are not ready" "[ \"\${RUN_RC}\" -eq 1 ]"
+}
+
 # --- Main ------------------------------------------------------------------
 
 main() {
@@ -446,6 +477,8 @@ main() {
     case_status_user_owner
     case_status_stale_pin
     case_status_org_owner
+    case_status_named_repo
+    case_status_row_order
     case_seed_user_owner
     case_seed_org_owner
     case_org_selection_every_page
