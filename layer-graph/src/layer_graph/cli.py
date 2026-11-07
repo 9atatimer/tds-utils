@@ -1,7 +1,7 @@
 """layer-graph's command line, and its composition root.
 
     layer-graph [--root DIR] [--format json|summary] [--include-tests]
-                [--out FILE]
+                [--no-barrels] [--out FILE]
 
 Exit 0 with the graph; 1 when a declaration cannot be read; 2 when the
 repository has no adherence.toml.
@@ -50,6 +50,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="include the test layer's files as nodes",
     )
+    parser.add_argument(
+        "--no-barrels",
+        action="store_true",
+        help="do not see through re-export-only files (barrels)",
+    )
     parser.add_argument("--out", type=Path, help="write to FILE instead of stdout")
     return parser
 
@@ -59,7 +64,9 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         graph = extract(
-            source=DiskRepository(args.root), include_tests=args.include_tests
+            source=DiskRepository(args.root),
+            include_tests=args.include_tests,
+            barrels=not args.no_barrels,
         )
     except NoDeclaration as error:
         print(f"layer-graph: {error}; nothing declares layers here", file=sys.stderr)

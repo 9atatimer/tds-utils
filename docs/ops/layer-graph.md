@@ -42,7 +42,8 @@ uv --directory layer-graph run mypy
 ## Use
 
 ```
-layer-graph [--root DIR] [--format json|summary] [--include-tests] [--out FILE]
+layer-graph [--root DIR] [--format json|summary] [--include-tests]
+            [--no-barrels] [--out FILE]
 ```
 
 - `--root DIR` -- the repository root. Default: the working directory.
@@ -50,6 +51,8 @@ layer-graph [--root DIR] [--format json|summary] [--include-tests] [--out FILE]
 - `--format summary` -- a short human table of nodes, edges and findings.
 - `--include-tests` -- add the files of the `test` layer as nodes. By
   default the test layer is left out of the graph.
+- `--no-barrels` -- do not see through barrels (below): an import that
+  lands on a re-export-only file stays an edge to that file's node.
 - `--out FILE` -- write the output to FILE instead of stdout.
 
 Exit codes:
@@ -156,6 +159,31 @@ A node is (layer, context). Its id is `<layer>/<context>`, for example
   unassigned file, a test file without `--include-tests`) makes no edge
   and is not counted as unresolved.
 
+## Barrels
+
+A barrel is a `.ts`, `.tsx`, `.js` or `.mjs` file whose statements are only
+re-exports: `export * from`, `export * as ns from`, `export { ... } from`,
+`export type { ... } from` and `export type * from`. A package's
+`src/index.ts` that lists its contexts is the usual case. By default the
+tool sees through barrels; `--no-barrels` turns this off.
+
+- An import that lands on a barrel is redirected to the files the barrel
+  re-exports, through nested barrels, with cycles between barrels
+  followed once.
+- The redirected statement makes one edge count for each node it reaches.
+  It is not divided among them, and the tool does not match imported names
+  to exported names. So an import of one symbol from a package barrel
+  counts toward every node the barrel re-exports.
+- A barrel is never a unit. Its own re-exports are not counted in
+  `stats.imports`, and it is in no node's `files`. A node whose only file
+  was a barrel does not appear. A barrel that no layer claims is still
+  listed as unassigned.
+- `stats.viaBarrel` counts the import statements that were redirected.
+- Why: a declaration that puts a package's barrel in the composition root
+  would otherwise turn every `import ... from '@scope/core'` in an adapter
+  into an outward edge, although the adapter depends on the files behind
+  the barrel, not on the wiring.
+
 ## Edges and findings
 
 - An edge aggregates the import statements from the files of one node to
@@ -181,8 +209,9 @@ A node is (layer, context). Its id is `<layer>/<context>`, for example
 
 Top-level keys, always in this order:
 
-- `schema` -- the string `"layer-graph/1"`. A change to the shape below
-  gets a new version.
+- `schema` -- the string `"layer-graph/1"`. Removing or changing a field
+  below gets a new version; adding a field does not (`stats.viaBarrel` was
+  added under `layer-graph/1`).
 - `root` -- the absolute path of the repository root.
 - `repo` -- `owner/name` from the `origin` remote, or `null`. It is `null`
   when the root is not itself the top of a git work tree.
@@ -213,9 +242,14 @@ Top-level keys, always in this order:
   - `files` -- the number of unit files.
   - `imports` -- the number of import statements in unit files.
   - `unresolved` -- how many of them reached no file in the repository.
+  - `viaBarrel` -- how many of them were redirected through a barrel; `0`
+    with `--no-barrels`.
 
 ## Known limits
 
+- Barrel redirection is by file, not by symbol, so edges through a package
+  barrel over-count: each such import adds one to every node the barrel
+  reaches. Read the `imports` count of such an edge as an upper bound.
 - Files, not regions: `[layers] regions` (line ranges) and section markers
   are ignored, so a one-file tool declared by region is one unit with no
   layer of its own. All other declaration sections are ignored too.

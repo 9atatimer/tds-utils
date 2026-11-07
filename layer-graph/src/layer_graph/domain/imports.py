@@ -22,6 +22,11 @@ _SIDE_EFFECT = re.compile(_IDENT + r"import\s*(['\"])")
 _DYNAMIC = re.compile(_IDENT + r"import\s*\(\s*(['\"])")
 _REQUIRE = re.compile(_IDENT + r"require\s*\(\s*(['\"])")
 _STATEMENTS = (_FROM, _SIDE_EFFECT, _DYNAMIC, _REQUIRE)
+# export * from, export * as ns from, export { a } from, export type ... from.
+_REEXPORT = re.compile(
+    _IDENT
+    + r"export\s+(?:type\s+)?(?:\*(?:\s+as\s+[\w$]+)?|\{[^}]*\})\s*from\s*(['\"])"
+)
 _SCRIPT = re.compile(r"<script\b[^>]*>(.*?)</script>", re.DOTALL | re.IGNORECASE)
 
 
@@ -112,6 +117,24 @@ def ts_specifiers(text: str) -> list[str]:
                 continue
             found.setdefault(quote, text[quote + 1 : close])
     return [found[q] for q in sorted(found)]
+
+
+def reexport_specifiers(text: str) -> tuple[str, ...] | None:
+    """The specifiers a barrel re-exports, in order; None when the file is not
+    a barrel: it holds anything besides re-exports, or no re-export at all."""
+    masked, strings = _masked(text)
+    rest = list(masked)
+    found: list[str] = []
+    for match in _REEXPORT.finditer(masked):
+        quote = match.start(1)
+        close = strings.get(quote)
+        if close is None or close <= quote:
+            return None
+        found.append(text[quote + 1 : close])
+        rest[match.start() : close + 1] = " " * (close + 1 - match.start())
+    if not found or "".join(rest).replace(";", " ").strip():
+        return None
+    return tuple(found)
 
 
 def vue_scripts(text: str) -> str:

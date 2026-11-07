@@ -3,6 +3,7 @@
 from layer_graph.domain.imports import (
     PythonImport,
     python_imports,
+    reexport_specifiers,
     ts_specifiers,
     vue_scripts,
 )
@@ -86,3 +87,31 @@ def test_python_imports_unparseable_source_yields_nothing() -> None:
     """Given Python that does not parse, When scanned, Then no import is
     claimed."""
     assert python_imports("def broken(:\n") == []
+
+
+def test_reexport_specifiers_reads_a_barrel() -> None:
+    """Given a file of only re-exports in every form, When read, Then each
+    re-exported specifier is returned in order."""
+    text = (
+        "// The public surface.\n"
+        "export * from './a.ts';\n"
+        "export * as b from './b';\n"
+        "export { c, d as e } from './cd';\n"
+        "export type { F } from './f';\n"
+        "export type * from './g'\n"
+    )
+    assert reexport_specifiers(text) == ("./a.ts", "./b", "./cd", "./f", "./g")
+
+
+def test_reexport_specifiers_file_with_other_code_is_not_a_barrel() -> None:
+    """Given re-exports beside an import, a declaration or a local export,
+    When read, Then the file is not a barrel."""
+    assert reexport_specifiers("export * from './a';\nimport b from './b';\n") is None
+    assert reexport_specifiers("export * from './a';\nexport const x = 1;\n") is None
+    assert reexport_specifiers("export { a };\nexport * from './a';\n") is None
+
+
+def test_reexport_specifiers_empty_file_is_not_a_barrel() -> None:
+    """Given a file with only a comment, When read, Then it is not a barrel:
+    a barrel re-exports something."""
+    assert reexport_specifiers("// nothing here\n") is None

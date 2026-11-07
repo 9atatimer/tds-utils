@@ -58,12 +58,14 @@ class Edge:
 
 @dataclass(frozen=True, slots=True)
 class Stats:
-    """Unit files read, import statements in them, and how many of those
-    reached no file in the repository."""
+    """Unit files read, import statements in them, how many of those reached
+    no file in the repository, and how many were redirected through a
+    barrel."""
 
     files: int
     imports: int
     unresolved: int
+    via_barrel: int = 0
 
 
 @dataclass(frozen=True)
@@ -110,6 +112,7 @@ class LayerGraph:
                 "files": self.stats.files,
                 "imports": self.stats.imports,
                 "unresolved": self.stats.unresolved,
+                "viaBarrel": self.stats.via_barrel,
             },
         }
 
@@ -139,7 +142,7 @@ def render_summary(graph: LayerGraph) -> str:
         f"{SCHEMA}  {graph.repo or graph.root}  {graph.commit or '(no commit)'}",
         f"declarations: {', '.join(graph.declarations)}",
         f"files {graph.stats.files}  imports {graph.stats.imports}  "
-        f"unresolved {graph.stats.unresolved}",
+        f"unresolved {graph.stats.unresolved}  via barrel {graph.stats.via_barrel}",
         "",
         f"nodes ({len(graph.nodes)}):",
         *_table(

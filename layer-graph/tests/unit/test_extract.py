@@ -18,9 +18,15 @@ from layer_graph.domain.report import LayerGraph
 from tests.fixture_repo import copy_fixture
 
 
-def _graph(tmp_path: Path, name: str, *, include_tests: bool = False) -> LayerGraph:
+def _graph(
+    tmp_path: Path, name: str, *, include_tests: bool = False, barrels: bool = False
+) -> LayerGraph:
+    """The fixture's graph; barrels off unless asked, so the resolution tests
+    see the file each specifier names."""
     root = copy_fixture(name, tmp_path)
-    return extract(source=DiskRepository(root), include_tests=include_tests)
+    return extract(
+        source=DiskRepository(root), include_tests=include_tests, barrels=barrels
+    )
 
 
 def _edges(graph: LayerGraph) -> dict[tuple[str, str], tuple[int, str]]:
@@ -158,7 +164,7 @@ def test_extract_skips_build_and_dependency_directories(tmp_path: Path) -> None:
         directory = root / "packages/core/src/domain/kernel" / skipped
         directory.mkdir(parents=True)
         (directory / "index.ts").write_text("export const x = 1;\n")
-    graph = extract(source=DiskRepository(root), include_tests=False)
+    graph = extract(source=DiskRepository(root), include_tests=False, barrels=False)
     assert graph.stats.files == 14
 
 
@@ -232,4 +238,55 @@ def test_extract_unknown_layer_is_unreadable(tmp_path: Path) -> None:
     extracted, Then it is unreadable."""
     (tmp_path / "adherence.toml").write_text('[layers]\nservices = ["src/**"]\n')
     with pytest.raises(DeclarationUnreadable, match="services"):
-        extract(source=DiskRepository(tmp_path), include_tests=False)
+        extract(source=DiskRepository(tmp_path), include_tests=False, barrels=False)
+
+
+# --- Barrels ---------------------------------------------------------------
+
+
+def test_extract_barrels_redirect_imports_to_reexported_files(
+    tmp_path: Path,
+) -> None:
+    """Given re-export-only index files, When extracted with barrels on, Then
+    imports landing on them reach the files they re-export, one edge per
+    reached node, and the barrels are no longer nodes."""
+    graph = _graph(tmp_path, "ts_mono", barrels=True)
+    edges = _edges(graph)
+    assert "composition root/core:index" not in _node_ids(graph)
+    assert "composition root/index" in _node_ids(graph)
+    assert edges[("adapters/adapters-memory", "domain/timeline")] == (1, "inward")
+    assert edges[("adapters/adapters-memory", "application/table")] == (1, "inward")
+    assert edges[("adapters/adapters-memory", "domain/kernel")] == (1, "inward")
+    assert edges[("adapters/components", "domain/timeline")] == (1, "inward")
+    assert edges[("composition root/index", "application/table")] == (1, "inward")
+    assert edges[("ports/ports", "domain/kernel")] == (1, "inward")
+    kernel = next(n for n in graph.nodes if n.id == "domain/kernel")
+    assert kernel.files == ("packages/core/src/domain/kernel/ids.ts",)
+
+
+def test_extract_barrels_leave_only_real_outward_edges(tmp_path: Path) -> None:
+    """Given adapters that import the core through its barrel, When extracted
+    with barrels on, Then only the domain file importing the application is
+    outward."""
+    graph = _graph(tmp_path, "ts_mono", barrels=True)
+    assert {(e.source, e.target) for e in graph.outward} == {
+        ("domain/table", "application/table"),
+    }
+
+
+def test_extract_barrels_count_redirected_imports(tmp_path: Path) -> None:
+    """Given six import statements that land on a barrel, When extracted with
+    barrels on, Then stats count them as via a barrel, and the barrels' own
+    re-exports are not unit imports."""
+    stats = _graph(tmp_path, "ts_mono", barrels=True).stats
+    assert (stats.files, stats.imports, stats.unresolved, stats.via_barrel) == (
+        12,
+        17,
+        1,
+        6,
+    )
+
+
+def test_extract_without_barrels_counts_none_via_barrel(tmp_path: Path) -> None:
+    """Given barrels off, When extracted, Then no import is redirected."""
+    assert _graph(tmp_path, "ts_mono").stats.via_barrel == 0

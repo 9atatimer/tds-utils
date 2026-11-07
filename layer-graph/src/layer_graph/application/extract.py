@@ -10,6 +10,7 @@ from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from layer_graph.domain.barrels import through_barrels
 from layer_graph.domain.context import (
     Origin,
     context_for,
@@ -35,7 +36,12 @@ from layer_graph.domain.declaration import (
 from layer_graph.domain.errors import DeclarationUnreadable, NoDeclaration
 from layer_graph.domain.glob import static_prefix
 from layer_graph.domain.graph import cycles, direction
-from layer_graph.domain.imports import python_imports, ts_specifiers, vue_scripts
+from layer_graph.domain.imports import (
+    python_imports,
+    reexport_specifiers,
+    ts_specifiers,
+    vue_scripts,
+)
 from layer_graph.domain.report import Edge, LayerGraph, Node, Stats
 from layer_graph.domain.resolve import (
     PathScope,
@@ -54,6 +60,7 @@ __all__ = ["DeclarationUnreadable", "NoDeclaration", "extract"]
 # --- Constants ---------------------------------------------------------------
 
 SOURCE_EXTENSIONS = (".ts", ".tsx", ".js", ".mjs", ".vue", ".py")
+BARREL_EXTENSIONS = (".ts", ".tsx", ".js", ".mjs")
 PACKAGE_MANIFESTS = ("package.json", "pyproject.toml")
 TSCONFIG_NAME = "tsconfig.json"
 
@@ -172,8 +179,10 @@ def classify(
     declarations: Sequence[Declaration],
     *,
     include_tests: bool,
+    barrels: frozenset[str] = frozenset(),
 ) -> Classified:
-    """Each governed source file as a unit of its layer, or unassigned."""
+    """Each governed source file as a unit of its layer, or unassigned. A
+    barrel is never a unit: it is seen through."""
     package_dirs = [
         posixpath.dirname(f)
         for f in files
@@ -191,7 +200,7 @@ def classify(
         if glob is None:
             unassigned.append(path)
             continue
-        if glob.layer == TEST_LAYER and not include_tests:
+        if path in barrels or (glob.layer == TEST_LAYER and not include_tests):
             continue
         prefix = static_prefix(glob.pattern)
         origin = Origin(
@@ -202,6 +211,25 @@ def classify(
         )
         units.append(Unit(path, origin, runtimes_of(effective_runtimes(chain), path)))
     return Classified(tuple(units), tuple(unassigned))
+
+
+# --- Flow: barrels ---------------------------------------------------------------
+
+
+def read_barrels(
+    files: Sequence[str], *, source: RepoSource, workspace: Workspace
+) -> dict[str, tuple[str, ...]]:
+    """Every barrel in the repository and the files its re-exports resolve to."""
+    barrels: dict[str, tuple[str, ...]] = {}
+    for path in files:
+        if not path.endswith(BARREL_EXTENSIONS):
+            continue
+        specifiers = reexport_specifiers(source.read_text(path) or "")
+        if specifiers is None:
+            continue
+        resolved = (resolve_ts(path, s, workspace) for s in specifiers)
+        barrels[path] = tuple(dict.fromkeys(r for r in resolved if r))
+    return barrels
 
 
 # --- Flow: imports -----------------------------------------------------------------
@@ -223,9 +251,13 @@ def _targets(
 # --- Flow: the use case ------------------------------------------------------------
 
 
-def extract(*, source: RepoSource, include_tests: bool = False) -> LayerGraph:
+def extract(
+    *, source: RepoSource, include_tests: bool = False, barrels: bool = True
+) -> LayerGraph:
     """A repository's layer graph: its nodes, the edges between them, and the
-    findings (outward edges, cycles, unassigned files).
+    findings (outward edges, cycles, unassigned files). With `barrels`, an
+    import landing on a re-export-only file reaches the files it re-exports,
+    one edge per node reached, and the barrel itself is no node.
 
     Raises:
         NoDeclaration: the repository has no adherence.toml.
@@ -234,7 +266,15 @@ def extract(*, source: RepoSource, include_tests: bool = False) -> LayerGraph:
     files = source.files()
     declarations = read_declarations(files, source=source)
     workspace = read_workspace(files, source=source)
-    classified = classify(files, declarations, include_tests=include_tests)
+    barrel_map = (
+        read_barrels(files, source=source, workspace=workspace) if barrels else {}
+    )
+    classified = classify(
+        files,
+        declarations,
+        include_tests=include_tests,
+        barrels=frozenset(barrel_map),
+    )
     names = qualified_contexts(u.origin for u in classified.units)
     node_of = {u.path: f"{u.origin.layer}/{names[u.origin]}" for u in classified.units}
 
@@ -243,12 +283,14 @@ def extract(*, source: RepoSource, include_tests: bool = False) -> LayerGraph:
         members[node_of[unit.path]].append(unit)
 
     counts: Counter[tuple[str, str]] = Counter()
-    imports = unresolved = 0
+    imports = unresolved = via_barrel = 0
     for unit in classified.units:
-        for reached in _targets(unit.path, source=source, workspace=workspace):
+        for resolved in _targets(unit.path, source=source, workspace=workspace):
             imports += 1
-            if not reached:
+            if not resolved:
                 unresolved += 1
+            reached, crossed = through_barrels(resolved, barrel_map)
+            via_barrel += crossed
             targets = {node_of[t] for t in reached if t in node_of}
             for target in targets - {node_of[unit.path]}:
                 counts[(node_of[unit.path], target)] += 1
@@ -273,7 +315,7 @@ def extract(*, source: RepoSource, include_tests: bool = False) -> LayerGraph:
         edges=edges,
         cycles=tuple(tuple(c) for c in cycles(counts)),
         unassigned=classified.unassigned,
-        stats=Stats(len(classified.units), imports, unresolved),
+        stats=Stats(len(classified.units), imports, unresolved, via_barrel),
     )
 
 

@@ -29,7 +29,7 @@ def test_main_prints_versioned_json_with_the_contract_shape(
     """Given a declared repository, When run with --root, Then stdout is one
     JSON document in the layer-graph/1 shape and the exit is 0."""
     root = copy_fixture("ts_mono", tmp_path)
-    assert main(["--root", str(root)]) == 0
+    assert main(["--root", str(root), "--no-barrels"]) == 0
     document = json.loads(capsys.readouterr().out)
     assert list(document) == TOP_LEVEL
     assert document["schema"] == "layer-graph/1"
@@ -62,7 +62,12 @@ def test_main_prints_versioned_json_with_the_contract_shape(
     )
     assert document["findings"]["cycles"] == [["domain/table", "domain/timeline"]]
     assert document["findings"]["unassigned"] == ["scripts/tool.ts"]
-    assert document["stats"] == {"files": 14, "imports": 20, "unresolved": 1}
+    assert document["stats"] == {
+        "files": 14,
+        "imports": 20,
+        "unresolved": 1,
+        "viaBarrel": 0,
+    }
 
 
 def test_main_summary_names_nodes_edges_and_findings(
@@ -71,7 +76,7 @@ def test_main_summary_names_nodes_edges_and_findings(
     """Given --format summary, When run, Then the human table lists nodes,
     edges and findings."""
     root = copy_fixture("ts_mono", tmp_path)
-    assert main(["--root", str(root), "--format", "summary"]) == 0
+    assert main(["--root", str(root), "--format", "summary", "--no-barrels"]) == 0
     out = capsys.readouterr().out
     assert "domain/timeline" in out
     assert "domain/table -> application/table" in out
@@ -135,3 +140,17 @@ def test_main_defaults_root_to_working_directory(
     monkeypatch.chdir(root)
     assert main([]) == 0
     assert json.loads(capsys.readouterr().out)["root"] == str(root.resolve())
+
+
+def test_main_sees_through_barrels_by_default(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Given no --no-barrels, When run, Then imports through re-export-only
+    files are redirected and counted in stats.viaBarrel."""
+    root = copy_fixture("ts_mono", tmp_path)
+    assert main(["--root", str(root)]) == 0
+    document = json.loads(capsys.readouterr().out)
+    assert document["stats"]["viaBarrel"] == 6
+    assert document["findings"]["outward"] == [
+        {"from": "domain/table", "to": "application/table", "imports": 1}
+    ]
