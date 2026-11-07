@@ -179,6 +179,8 @@ jobs:
       # Hermetic: fake gh/op on PATH; nothing reaches GitHub or 1Password.
       - name: Smoketest bin/seed-ci-magic
         run: /bin/bash test/smoketest_seed_ci_magic.sh
+      - name: Smoketest clai.d/AGENT.global.md invariants
+        run: /bin/bash test/smoketest_agent_global.sh
 
       # Hermetic: the alias file sourced under bash with a fake ssh on PATH.
       - name: Smoketest macos/dot.alias
