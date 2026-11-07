@@ -1,0 +1,5 @@
+{
+  // Nuxt writes the real configuration under .nuxt/.
+  "files": [],
+  "references": [{ "path": "./.nuxt/tsconfig.app.json" }],
+}

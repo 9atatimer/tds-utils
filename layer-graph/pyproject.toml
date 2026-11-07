@@ -1,0 +1,50 @@
+[project]
+name = "layer-graph"
+version = "0.1.0"
+description = "Extract a repository's layer/domain graph from its adherence.toml (docs/ops/layer-graph.md)"
+requires-python = ">=3.11"
+# Runtime is pure stdlib: tomllib reads the declarations, ast reads Python
+# imports, and the TypeScript scan is a lexer over the source text.
+dependencies = []
+
+[project.scripts]
+layer-graph = "layer_graph.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-randomly>=3.15",
+    "hypothesis>=6.100",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[build-system]
+requires = ["uv_build>=0.8,<0.9"]
+build-backend = "uv_build"
+
+# tests/fixtures/ holds tiny repositories the tool reads: never collected,
+# linted or type-checked. Their declarations are named adherence.toml.in so
+# the adherence engine never discovers them as this repository's own.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --ignore=tests/fixtures"
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+mypy_path = "src"
+packages = ["layer_graph"]
+exclude = ["tests/fixtures/"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = ["tests/fixtures"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["layer_graph", "tests"]

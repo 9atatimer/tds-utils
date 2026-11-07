@@ -1,0 +1,5 @@
+[layers]
+adapters = ["src/**"]
+
+[runtimes]
+service = ["src/**"]

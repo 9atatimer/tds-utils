@@ -1,0 +1,9 @@
+[layers]
+domain = ["src/app/domain/**"]
+application = ["src/app/application/**"]
+adapters = ["src/app/adapters/**"]
+"composition root" = ["src/app/cli.py"]
+test = ["tests/**"]
+
+[runtimes]
+cli = ["src/app/**"]

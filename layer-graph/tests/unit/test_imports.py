@@ -1,0 +1,88 @@
+"""Import extraction from TypeScript, Vue and Python source text."""
+
+from layer_graph.domain.imports import (
+    PythonImport,
+    python_imports,
+    ts_specifiers,
+    vue_scripts,
+)
+
+
+def test_ts_specifiers_reads_every_static_form() -> None:
+    """Given import, export-from, side-effect, dynamic import and require, When
+    scanned, Then every specifier is found once, in source order."""
+    text = (
+        "import a from './a';\n"
+        'import type { B } from "./b";\n'
+        "import {\n  c,\n  d,\n} from './cd';\n"
+        "import './side';\n"
+        "export * from './star';\n"
+        "export { e } from './e';\n"
+        "const f = await import('./f');\n"
+        "const g = require('./g');\n"
+    )
+    assert ts_specifiers(text) == [
+        "./a",
+        "./b",
+        "./cd",
+        "./side",
+        "./star",
+        "./e",
+        "./f",
+        "./g",
+    ]
+
+
+def test_ts_specifiers_ignores_comments_and_strings() -> None:
+    """Given import-like text inside comments and string literals, When
+    scanned, Then none of it counts."""
+    text = (
+        "// import x from './line-comment';\n"
+        "/* import y from './block-comment'; */\n"
+        "const s = \"import z from './string'\";\n"
+        "const t = `${1} // import w from './template'`;\n"
+        "import real from './real';\n"
+    )
+    assert ts_specifiers(text) == ["./real"]
+
+
+def test_ts_specifiers_export_without_from_is_not_an_import() -> None:
+    """Given an export declaration followed later by an import, When scanned,
+    Then only the import's specifier is found."""
+    text = "export function f() { return 1 }\nimport g from './g'\n"
+    assert ts_specifiers(text) == ["./g"]
+
+
+def test_vue_scripts_returns_only_script_blocks() -> None:
+    """Given a single-file component, When its scripts are taken, Then template
+    text is left out and every script block is kept."""
+    text = (
+        "<template><p>import nope from 'nope'</p></template>\n"
+        "<script lang=\"ts\">import a from './a'</script>\n"
+        "<script setup lang=\"ts\">\nimport b from './b'\n</script>\n"
+    )
+    assert ts_specifiers(vue_scripts(text)) == ["./a", "./b"]
+
+
+def test_python_imports_reads_absolute_from_and_relative() -> None:
+    """Given import, from-import and relative from-import, When scanned, Then
+    each module is found with its level and names."""
+    text = (
+        "import os, app.domain.rules\n"
+        "from app.domain.model import Model, other\n"
+        "from . import sibling\n"
+        "from ..application.use import run\n"
+    )
+    assert python_imports(text) == [
+        PythonImport("os", (), 0),
+        PythonImport("app.domain.rules", (), 0),
+        PythonImport("app.domain.model", ("Model", "other"), 0),
+        PythonImport("", ("sibling",), 1),
+        PythonImport("application.use", ("run",), 2),
+    ]
+
+
+def test_python_imports_unparseable_source_yields_nothing() -> None:
+    """Given Python that does not parse, When scanned, Then no import is
+    claimed."""
+    assert python_imports("def broken(:\n") == []
