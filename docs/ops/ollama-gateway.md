@@ -24,6 +24,7 @@ a cloudflared tunnel and the LMDE proxy layer's deadline route. The edge
 | Piece | Runs as | Config it reads | Installed by |
 |---|---|---|---|
 | external ollama, `127.0.0.1:11435` | `com.tds.lmde.ollama-gateway.ollama`, under `sandbox-exec` | `~/.local/share/ollama-gateway/` (the gateway tree: launchers, probe, the rendered profile, the probe table, `gateway.env`) | `lmde install ollama-gateway` (`setup.sh`) |
+| keg watcher | `com.tds.lmde.ollama-gateway.keg-watch`, unconfined, run by launchd when the directory holding `ollama` or the one holding its kegs changes | `run/engine.keg` in the gateway tree (written by the launcher) | `lmde install ollama-gateway`; skipped, with a line saying so, when no `ollama` is on PATH |
 | connector (cloudflared) | `com.tds.lmde.ollama-gateway.connector`, unconfined | the run token in the login Keychain (`lmde.ollama-gateway.tunnel-token`) | the same, enabled once a human seeds the token |
 | deadline route, `127.0.0.1:11436` | `com.tds.lmde.proxy-layer` (HAProxy) | `~/.local/share/lmde-proxy/routes/ollama-gateway.*` | the gateway's `setup.sh` installs the route; `lmde install proxy-layer` the layer |
 | Caddy (host vhosts, unrelated to the road) | Homebrew `caddy` service | `/opt/homebrew/etc/Caddyfile`, admin API on `~/.local/share/lmde-networking/run/caddy-admin.sock` | `lmde install networking` |
@@ -68,6 +69,13 @@ HAProxy against fakes.
   trusting the gateway (below). The engine's keg path changes with every
   ollama version; the launcher derives it from `whence -p ollama`, so a
   new keg needs no edit, but new files the engine reads do.
+- A running engine keeps the keg it was started with, and the upgrade
+  deletes that keg, so its runner can no longer exec (Issue#709). The keg
+  watcher restarts the engine when the upgrade relinks `ollama` or cleans
+  up the old keg; the restart drops the road for a few seconds and re-runs
+  the probe. The launcher records the keg it granted in
+  `~/.local/share/ollama-gateway/run/engine.keg`; `--probe-only` leaves
+  it alone.
 
 ## The sandbox, and what proves it
 
@@ -132,6 +140,7 @@ environment, `edge`. Logs: `~/Library/Logs/ollama-gateway/{ollama,connector}.log
 |---|---|---|
 | `external-ollama: DEGRADED`, log says `refusing to start` | `ollama.log`, the `FAIL <row>` line above it | the probe refused: a canary missing (`run setup.sh` again), the keychain wanting a dialog (unlock it), or a profile that no longer denies what the row asserts. launchd retries every 30 s; the gateway stays down until the row passes. Never "fix" it by widening the profile without a trace |
 | launcher says `refusing to grant the engine <dir>` | `ollama.log` | `ollama` on PATH is a regular file in a shared bin dir, not a Homebrew keg; the launcher will not grant a whole prefix to the engine. Install ollama with Homebrew |
+| engine up, completion returns 500 with `fork/exec <keg>/.../llama-server: operation not permitted`; `external-ollama: DEGRADED (the engine's keg ... is gone` or `... runs keg <old>, ollama is now <new>` | `ollama.log` (`keg-watch:` lines); `launchctl print gui/$(id -u)/com.tds.lmde.ollama-gateway.keg-watch` | an upgrade replaced the keg and the engine was not restarted (the watcher missed it, or is not installed): `launchctl kickstart -k gui/$(id -u)/com.tds.lmde.ollama-gateway.ollama`, then find out why the watcher did not fire. Not a profile gap: do not widen the profile |
 | engine up, completion returns 500 with `operation not permitted` | `ollama.log` (the `srv` lines) | the engine or its runner needs a file or service the profile denies: run the tracer |
 | `deadline-proxy: DEGRADED` | `haproxy.log`; `launchctl print gui/$(id -u)/com.tds.lmde.proxy-layer` | the layer is down or another process took 11436 |
 | caller gets 507 for 6 minutes | `ollama.log` | a cold model load longer than the caller's retry budget; nothing to fix, re-run |
@@ -196,7 +205,7 @@ What a caller's status code means, outermost first:
 - Restart the engine (after an install, or to pick up a rendered profile):
   `launchctl kickstart -k gui/$(id -u)/com.tds.lmde.ollama-gateway.ollama`.
 - Remove everything but the run token: `lmde/components/ollama-gateway/setup.sh
-  uninstall` (agents, tree, canaries, route; restarts the layer; it prints
+  uninstall` (agents including the keg watcher, tree, canaries, route; restarts the layer; it prints
   the keychain command for the token). `lmde/components/proxy-layer/setup.sh
   uninstall` removes the layer; routes stay for their tenants.
 - Not undone by any of these: the run token in the Keychain, the edge

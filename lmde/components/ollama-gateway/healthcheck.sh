@@ -6,7 +6,11 @@
 # One line per check, "<check>: OK", "<check>: DEGRADED (<why>)" or
 # "<check>: SKIPPED (<why>)"; exits non-zero if any check is DEGRADED.
 #
-#   external-ollama  something answers GET /api/version on 127.0.0.1:<ollama-port>
+#   external-ollama  something answers GET /api/version on 127.0.0.1:<ollama-port>,
+#                    and the keg the engine was started from (run/engine.keg
+#                    in the gateway tree) still exists and is still the keg
+#                    `ollama` on PATH resolves to: an upgrade that replaced
+#                    it leaves every completion failing (Issue#709)
 #   deadline-proxy   GET /v1/models on 127.0.0.1:<proxy-port> answers 200 (or
 #                    the 507 deadline answer) with the route's
 #                    X-LMDE-Route: ollama-gateway header
@@ -39,6 +43,11 @@ readonly -a EDGE_VARS=(
     OLLAMA_GATEWAY_CLIENT_ID_HEADER OLLAMA_GATEWAY_CLIENT_ID
     OLLAMA_GATEWAY_CLIENT_SECRET_HEADER OLLAMA_GATEWAY_CLIENT_SECRET
 )
+
+readonly TREE="${${OLLAMA_GATEWAY_TREE:-${HOME}/.local/share/ollama-gateway}:A}"
+
+# shellcheck disable=SC1091
+source "${COMPONENT_DIR}/libexec/keg.zsh"
 
 integer DEGRADED=0
 
@@ -80,13 +89,31 @@ ${OLLAMA_GATEWAY_CLIENT_SECRET_HEADER}: ${OLLAMA_GATEWAY_CLIENT_SECRET}" \
 
 # --- Checks ---
 
+# keg_drift -- why the engine's keg is stale, or nothing when it is not (or
+# no engine keg is recorded). A keg that is gone is stale whatever PATH
+# says; one that exists is stale when `ollama` on PATH resolves elsewhere.
+keg_drift() {
+    local recorded current
+    recorded="$(recorded_engine_keg "${TREE}")" || return 0
+    if [[ ! -d "${recorded}" ]]; then
+        print -r -- "the engine's keg ${recorded} is gone"
+    elif current="$(ollama_keg)" && [[ "${current}" != "${recorded}" ]]; then
+        print -r -- "the engine runs keg ${recorded}, ollama is now ${current}"
+    fi
+}
+
 check_external_ollama() {
-    local headers
-    if headers="$(fetch_headers "http://127.0.0.1:${OLLAMA_GATEWAY_OLLAMA_PORT}/api/version")" \
-        && [[ "$(status_of "${headers}")" == 200 ]]; then
-        ok external-ollama "127.0.0.1:${OLLAMA_GATEWAY_OLLAMA_PORT}"
-    else
+    local headers drift restart="launchctl kickstart -k gui/$(id -u)/com.tds.lmde.ollama-gateway.ollama"
+    if ! headers="$(fetch_headers "http://127.0.0.1:${OLLAMA_GATEWAY_OLLAMA_PORT}/api/version")" \
+        || [[ "$(status_of "${headers}")" != 200 ]]; then
         degraded external-ollama "nothing answers on 127.0.0.1:${OLLAMA_GATEWAY_OLLAMA_PORT}; launchctl print gui/$(id -u)/com.tds.lmde.ollama-gateway.ollama, ~/Library/Logs/ollama-gateway/ollama.log"
+        return 0
+    fi
+    drift="$(keg_drift)"
+    if [[ -n "${drift}" ]]; then
+        degraded external-ollama "${drift}: completions fail until it restarts (did the keg watcher miss an upgrade?); ${restart}"
+    else
+        ok external-ollama "127.0.0.1:${OLLAMA_GATEWAY_OLLAMA_PORT}"
     fi
 }
 

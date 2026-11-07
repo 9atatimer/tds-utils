@@ -44,6 +44,12 @@ everyday ollama on 127.0.0.1:11434 -- untouched, denied to the sandbox
   unconfined. `--probe-only` runs the two probe passes with the same
   parameters, prints their rows and exits 0 or 78 without starting ollama
   (what the tds-internal G6 smoketest calls on a live laptop).
+- `libexec/keg.zsh` -- the one rule for which keg the engine runs from,
+  sourced by the launcher, the watcher and the healthcheck. The launcher
+  records the keg it grants in `run/engine.keg`.
+- `libexec/keg-watch.zsh` -- run by the keg-watch LaunchAgent when a
+  Homebrew upgrade relinks `ollama` or removes an old keg; restarts the
+  engine when its recorded keg is no longer current (Issue#709).
 - `libexec/launch-connector.zsh`, `connector/config.yml` -- cloudflared
   with the run token from the login Keychain.
 - `route/` -- the gateway's route for the LMDE proxy layer: the deadline

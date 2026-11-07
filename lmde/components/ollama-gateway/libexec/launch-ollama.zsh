@@ -40,6 +40,9 @@ readonly EVERYDAY_PORT="11434"
 readonly EX_CONFIG=78
 readonly CHILD_PATH="/usr/bin:/bin:/usr/sbin:/sbin"
 
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/keg.zsh"
+
 # --- Flags / config (read once by load_config) ---
 
 typeset USER_HOME="" TREE="" GATEWAY_HOME="" STORE="" PROFILE="" SPEC="" CANARY_FILE=""
@@ -116,11 +119,9 @@ load_config() {
     USER_TMPDIR="${USER_TMPDIR%/}"
     CANARY_FILE="${USER_HOME}/.local/state/ollama-gateway-probe/canary"
     PROBE_KEYCHAIN="${OLLAMA_GATEWAY_PROBE_KEYCHAIN:-}"
-    # The keg: the tree the resolved binary lives in (<keg>/bin/ollama, with
-    # the real binary and its runner under <keg>/libexec), the one tree the
-    # profile lets the engine exec from.
+    # The keg: the one tree the profile lets the engine exec from (keg.zsh).
     OLLAMA_BIN="$(whence -p ollama)" || die "ollama not found on PATH (${PATH})"
-    OLLAMA_KEG="${OLLAMA_BIN:A:h:h}"
+    OLLAMA_KEG="$(ollama_keg)"
     SANDBOX_ARGV=(
         "${SANDBOX_EXEC}" -f "${PROFILE}"
         -D "USER_HOME=${USER_HOME}"
@@ -176,6 +177,18 @@ run_probe() {
 
 # --- Flow: start ---
 
+# record_engine_keg -- the keg this start grants, for keg-watch.zsh and the
+# healthcheck: an upgrade that replaces it leaves the engine unable to exec
+# its runner until it is restarted (Issue#709). Written before the probe,
+# so a later watch event during the probe (an old keg's cleanup, another
+# formula's link) finds the new keg and does not kill this start.
+record_engine_keg() {
+    local record
+    record="$(engine_keg_record "${TREE}")"
+    mkdir -p "${record:h}"
+    print -r -- "${OLLAMA_KEG}" > "${record}"
+}
+
 start_ollama() {
     mkdir -p "${GATEWAY_HOME}/tmp"
     cd "${GATEWAY_HOME}"
@@ -206,6 +219,7 @@ main() {
     esac
     load_config
     preflight
+    (( PROBE_ONLY )) || record_engine_keg
     run_probe
     if (( PROBE_ONLY )); then
         log "probe-only: not starting ollama"
