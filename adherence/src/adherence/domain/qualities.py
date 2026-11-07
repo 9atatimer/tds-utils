@@ -14,10 +14,11 @@ from dataclasses import dataclass
 
 
 class Quality(enum.Enum):
-    """The nine structural properties. The set is closed by the design."""
+    """The ten structural properties. The set is closed by the design."""
 
     LAYERED = "Layered"
     HEXAGONAL = "Hexagonal"
+    LAW = "LAW"
     DOMAIN_DRIVEN = "Domain-driven"
     COMPOSABLE = "Composable"
     INJECTABLE = "Injectable"
@@ -50,15 +51,15 @@ class Check:
 _R, _J, _RJ = CheckKind.RULE, CheckKind.JUDGED, CheckKind.RULE_AND_JUDGED
 
 CATALOG: tuple[Check, ...] = (
-    Check("Trace", Quality.LAYERED, _R),
-    Check("Purity", Quality.LAYERED, _RJ),
+    Check("Arrow", Quality.LAYERED, _R),
     Check("Wiring", Quality.LAYERED, _R),
-    Check("Anatomy", Quality.LAYERED, _R),
-    Check("Two jobs", Quality.LAYERED, _J),
     Check("Grep", Quality.HEXAGONAL, _R),
-    Check("Arrow", Quality.HEXAGONAL, _R),
     Check("Swap", Quality.HEXAGONAL, _R),
     Check("Change", Quality.HEXAGONAL, _R),
+    Check("Kind", Quality.LAW, _J),
+    Check("Purity", Quality.LAW, _RJ),
+    Check("Anatomy", Quality.LAW, _R),
+    Check("Trace", Quality.DOMAIN_DRIVEN, _R),
     Check("Language", Quality.DOMAIN_DRIVEN, _RJ),
     Check("Decision", Quality.DOMAIN_DRIVEN, _J),
     Check("Boundary", Quality.DOMAIN_DRIVEN, _RJ),

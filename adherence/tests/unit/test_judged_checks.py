@@ -37,12 +37,12 @@ from adherence.domain.questions import (
     HAND_ROLLED_ID,
     IMPLEMENTED,
     INVARIANT_BROKEN,
+    KIND,
     NONE,
     RULES_ELSEWHERE,
     SAME_CONCEPT,
     SCATTERED_POLICY,
     THEN_ASSERTED,
-    TWO_JOBS,
     BandThreshold,
     ChoiceThreshold,
     Rejected,
@@ -113,34 +113,34 @@ def _stubbed(definition: Definition) -> Definition:
     )
 
 
-# --- A unit doing two jobs is found ------------------------------------------------
+# --- A function of two kinds is found ----------------------------------------------
 
 
 @pytest.mark.parametrize(("yes", "found"), [(0.8, True), (0.95, True), (0.79, False)])
-def test_measure_unit_doing_two_jobs_above_its_threshold_is_found(
+def test_measure_function_of_two_kinds_above_its_threshold_is_found(
     yes: float, found: bool
 ) -> None:
-    """Given a domain function the judge says does two jobs with yes at,
+    """Given a domain function the judge says is of two kinds with yes at,
     above or just below the threshold, and an application function it says
-    does one, When Two jobs runs, Then a judged finding names the unit and
-    the jobs, with its confidence, only at or above the threshold."""
+    is of one, When Kind runs, Then a judged finding names the function and
+    the kinds, with its confidence, only at or above the threshold."""
     definitions = [
         _bodied(function(RULES, "price", 1, end=5), "total = fetch()\nsave(total)"),
         function(USE, "close_order", 1, end=5),
     ]
     judge = FakeDecision(
-        {TWO_JOBS.id: _yes(0.1)}, per_symbol={"price": {TWO_JOBS.id: _yes(yes)}}
+        {KIND.id: _yes(0.1)}, per_symbol={"price": {KIND.id: _yes(yes)}}
     )
 
     report = measure_with(
         FILES,
         CodeModel(definitions=tuple(definitions)),
         judge=judge,
-        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+        thresholds=ThresholdPolicy({KIND.id: BAND}),
     )
 
-    assert "Two jobs" in [c.name for c in report.ran]
-    findings = _of(report, "Two jobs")
+    assert "Kind" in [c.name for c in report.ran]
+    findings = _of(report, "Kind")
     if not found:
         assert findings == []
         return
@@ -149,14 +149,14 @@ def test_measure_unit_doing_two_jobs_above_its_threshold_is_found(
     assert finding.kind is CheckKind.JUDGED
     assert finding.confidence == pytest.approx(yes)
     assert finding.layer is Layer.DOMAIN
-    assert "rules" in finding.subject and "workflow" in finding.subject
+    assert "logic" in finding.subject and "action" in finding.subject
 
 
-def test_measure_two_jobs_asks_about_rules_workflow_and_wiring_units_only() -> None:
+def test_measure_kind_asks_about_every_function_but_a_test() -> None:
     """Given functions in the domain, application, composition-root, adapters
-    and test layers, When Two jobs runs, Then the judge is asked about the
-    first three, each unit's text with its declared layer as the state, and
-    never about an adapter or a test."""
+    and test layers, When Kind runs, Then the judge is asked about the first
+    four, each function's text with its declared layer as the state, and
+    never about a test."""
     definitions = [
         _bodied(function(RULES, "price", 1, end=5), "return order.total"),
         function(USE, "close_order", 1, end=5),
@@ -164,21 +164,21 @@ def test_measure_two_jobs_asks_about_rules_workflow_and_wiring_units_only() -> N
         function(FS, "read", 1, end=5),
         function(TEST, "test_close", 1, end=5),
     ]
-    judge = FakeDecision({TWO_JOBS.id: _yes(0.1)})
+    judge = FakeDecision({KIND.id: _yes(0.1)})
 
     measure_with(
         FILES,
         CodeModel(definitions=tuple(definitions)),
         judge=judge,
-        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+        thresholds=ThresholdPolicy({KIND.id: BAND}),
     )
 
     asked = {
         state.unit.symbol: (state, schema)
         for state, schema in judge.asked
-        if any(q.id == TWO_JOBS.id for q in schema.questions.values())
+        if any(q.id == KIND.id for q in schema.questions.values())
     }
-    assert set(asked) == {"price", "close_order", "build"}
+    assert set(asked) == {"price", "close_order", "build", "read"}
     state, schema = asked["price"]
     assert "return order.total" in state.text
     assert any("domain" in context for context in state.context.values())
@@ -193,28 +193,28 @@ def test_measure_answer_inside_the_band_is_an_abstention_on_the_report() -> None
     unit, the question and its confidence -- not a finding and not a pass --
     and the JSON document prints it. judge_change reads an abstention on a
     touched unit as inconclusive, never lowered."""
-    judge = FakeDecision({TWO_JOBS.id: _yes(0.5)})
+    judge = FakeDecision({KIND.id: _yes(0.5)})
 
     report = measure_with(
         FILES,
         CodeModel(definitions=(function(RULES, "price", 1, end=5),)),
         judge=judge,
-        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+        thresholds=ThresholdPolicy({KIND.id: BAND}),
     )
 
-    assert _of(report, "Two jobs") == []
+    assert _of(report, "Kind") == []
     (abstention,) = report.abstentions
-    assert abstention.check.name == "Two jobs"
+    assert abstention.check.name == "Kind"
     assert abstention.unit.symbol == "price"
-    assert abstention.question == TWO_JOBS.id
+    assert abstention.question == KIND.id
     assert abstention.confidence == pytest.approx(0.5)
-    assert not any(c.check == "Two jobs" for c in report.coverage)
+    assert not any(c.check == "Kind" for c in report.coverage)
     printed = report_document(report)["abstentions"]
     assert printed == [
         {
-            "quality": "Layered",
-            "check": "Two jobs",
-            "question": TWO_JOBS.id,
+            "quality": "LAW",
+            "check": "Kind",
+            "question": KIND.id,
             "path": RULES,
             "symbol": "price",
             "subject": abstention.subject,
@@ -228,25 +228,25 @@ def test_measure_judged_pass_is_on_the_report_with_its_confidence() -> None:
     measured, Then the report carries a pass naming the check, the unit,
     the question and its confidence -- not a finding and not an
     abstention -- and the JSON document prints it."""
-    judge = FakeDecision({TWO_JOBS.id: _yes(0.1)})
+    judge = FakeDecision({KIND.id: _yes(0.1)})
 
     report = measure_with(
         FILES,
         CodeModel(definitions=(function(RULES, "price", 1, end=5),)),
         judge=judge,
-        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+        thresholds=ThresholdPolicy({KIND.id: BAND}),
     )
 
-    assert _of(report, "Two jobs") == [] and report.abstentions == ()
-    (passed,) = [p for p in report.passes if p.check.name == "Two jobs"]
+    assert _of(report, "Kind") == [] and report.abstentions == ()
+    (passed,) = [p for p in report.passes if p.check.name == "Kind"]
     assert passed.unit.symbol == "price"
-    assert passed.question == TWO_JOBS.id
+    assert passed.question == KIND.id
     assert passed.confidence == pytest.approx(0.9)
     printed = report_document(report)["passes"]
     assert {
-        "quality": "Layered",
-        "check": "Two jobs",
-        "question": TWO_JOBS.id,
+        "quality": "LAW",
+        "check": "Kind",
+        "question": KIND.id,
         "path": RULES,
         "symbol": "price",
         "confidence": pytest.approx(0.9),
@@ -257,19 +257,17 @@ def test_measure_judged_finding_prints_its_kind_and_confidence() -> None:
     """Given a judged finding, When the report is printed as JSON, Then the
     finding says it is judged and carries its confidence (G2), where a rule
     finding carries none."""
-    judge = FakeDecision({TWO_JOBS.id: _yes(0.9)})
+    judge = FakeDecision({KIND.id: _yes(0.9)})
 
     report = measure_with(
         FILES,
         CodeModel(definitions=(function(RULES, "price", 1, end=5),)),
         judge=judge,
-        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+        thresholds=ThresholdPolicy({KIND.id: BAND}),
     )
 
-    layered = next(
-        q for q in report_document(report)["qualities"] if q["quality"] == "Layered"
-    )
-    (printed,) = [f for f in layered["findings"] if f["check"] == "Two jobs"]
+    law = next(q for q in report_document(report)["qualities"] if q["quality"] == "LAW")
+    (printed,) = [f for f in law["findings"] if f["check"] == "Kind"]
     assert printed["kind"] == "judged"
     assert printed["confidence"] == pytest.approx(0.9)
 
@@ -305,16 +303,16 @@ def test_measure_with_no_judge_reachable_reports_every_question_as_coverage(
         FILES,
         CodeModel(definitions=definitions, imports=(leak,)),
         judge=judge,
-        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+        thresholds=ThresholdPolicy({KIND.id: BAND}),
     )
 
     covered = sorted(
-        (c.path or "", c.reason) for c in report.coverage if c.check == "Two jobs"
+        (c.path or "", c.reason) for c in report.coverage if c.check == "Kind"
     )
     assert [path for path, _ in covered] == sorted([RULES, USE])
-    assert all(reason in why and TWO_JOBS.id in why for _, why in covered)
-    assert _of(report, "Two jobs") == [] and report.abstentions == ()
-    assert "Two jobs" not in [c.name for c in report.ran]
+    assert all(reason in why and KIND.id in why for _, why in covered)
+    assert _of(report, "Kind") == [] and report.abstentions == ()
+    assert "Kind" not in [c.name for c in report.ran]
     assert len(judge.asked) == 1
     assert [f.unit.path for f in _of(report, "Grep")] == [RULES]
 
@@ -323,7 +321,7 @@ def test_measure_with_no_judge_reachable_reports_every_question_as_coverage(
 
 
 def test_measure_past_the_judged_budget_reports_the_questions_not_asked() -> None:
-    """Given three units with two questions each (Two jobs and Done) and a
+    """Given three units with two questions each (Kind and Done) and a
     judged-check budget of four, When measured, Then the judge is asked
     about the first two units only and coverage names each of the third
     unit's questions as not asked for the budget -- never a pass.
@@ -333,41 +331,41 @@ def test_measure_past_the_judged_budget_reports_the_questions_not_asked() -> Non
         function(RULES, "discount", 7, end=9),
         function(USE, "close_order", 1, end=5),
     )
-    judge = FakeDecision({TWO_JOBS.id: _yes(0.1), IMPLEMENTED.id: _yes(0.9)})
+    judge = FakeDecision({KIND.id: _yes(0.1), IMPLEMENTED.id: _yes(0.9)})
 
     report = measure_with(
         FILES,
         CodeModel(definitions=definitions),
         judge=judge,
-        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND, IMPLEMENTED.id: BAND}),
+        thresholds=ThresholdPolicy({KIND.id: BAND, IMPLEMENTED.id: BAND}),
         limits=Limits(evidence_bound=200, judged_budget=4),
     )
 
     assert [state.unit.symbol for state, _ in judge.asked] == ["price", "discount"]
     unasked = [c for c in report.coverage if "budget" in c.reason]
-    assert sorted(c.check or "" for c in unasked) == ["Done", "Two jobs"]
+    assert sorted(c.check or "" for c in unasked) == ["Done", "Kind"]
     assert all(c.path == USE and "close_order" in c.why for c in unasked)
-    assert {TWO_JOBS.id, IMPLEMENTED.id} == {
-        q for q in (TWO_JOBS.id, IMPLEMENTED.id) for c in unasked if q in c.reason
+    assert {KIND.id, IMPLEMENTED.id} == {
+        q for q in (KIND.id, IMPLEMENTED.id) for c in unasked if q in c.reason
     }
 
 
 def test_measure_with_no_judged_budget_asks_nothing() -> None:
     """Given a unit with a question and a budget of none, When measured, Then
     the judge is never called and the question is coverage."""
-    judge = FakeDecision({TWO_JOBS.id: _yes(0.95)})
+    judge = FakeDecision({KIND.id: _yes(0.95)})
 
     report = measure_with(
         FILES,
         CodeModel(definitions=(function(RULES, "price", 1, end=5),)),
         judge=judge,
-        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+        thresholds=ThresholdPolicy({KIND.id: BAND}),
         limits=Limits(evidence_bound=200, judged_budget=0),
     )
 
     assert judge.asked == []
-    assert _of(report, "Two jobs") == []
-    assert [c.path for c in report.coverage if c.check == "Two jobs"] == [RULES]
+    assert _of(report, "Kind") == []
+    assert [c.path for c in report.coverage if c.check == "Kind"] == [RULES]
 
 
 def test_measure_with_no_judge_and_no_budget_names_the_judge() -> None:
@@ -378,11 +376,11 @@ def test_measure_with_no_judge_and_no_budget_names_the_judge() -> None:
         FILES,
         CodeModel(definitions=(function(RULES, "price", 1, end=5),)),
         judge=NoJudge("the hook asks no judge"),
-        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+        thresholds=ThresholdPolicy({KIND.id: BAND}),
         limits=Limits(evidence_bound=200, judged_budget=0),
     )
 
-    reasons = [c.reason for c in report.coverage if c.check == "Two jobs"]
+    reasons = [c.reason for c in report.coverage if c.check == "Kind"]
     assert len(reasons) == 1
     assert "the hook asks no judge" in reasons[0]
     assert "budget" not in reasons[0]
@@ -407,13 +405,13 @@ def test_measure_domain_function_taking_a_callable_that_does_io_is_found(
     call = Call(
         USE, 3, "close_order", "total", Target("app.domain.total", RULES, "total")
     )
-    judge = FakeDecision({DOES_IO.id: _yes(yes), TWO_JOBS.id: _yes(0.1)})
+    judge = FakeDecision({DOES_IO.id: _yes(yes), KIND.id: _yes(0.1)})
 
     report = measure_with(
         FILES,
         CodeModel(definitions=definitions, calls=(call,)),
         judge=judge,
-        thresholds=ThresholdPolicy({DOES_IO.id: BAND, TWO_JOBS.id: BAND}),
+        thresholds=ThresholdPolicy({DOES_IO.id: BAND, KIND.id: BAND}),
     )
 
     findings = _of(report, "Purity")
@@ -461,14 +459,14 @@ def test_measure_two_spellings_of_one_concept_are_found(
         type_(RULES, "Invoice", 9),
         function(USE, "close", 1, (value("order", "OrderRecord"),), returns="Receipt"),
     )
-    judge = FakeDecision({SAME_CONCEPT.id: _yes(yes), TWO_JOBS.id: _yes(0.1)})
+    judge = FakeDecision({SAME_CONCEPT.id: _yes(yes), KIND.id: _yes(0.1)})
 
     report = measure_with(
         FILES,
         CodeModel(definitions=definitions),
         records=GLOSSARY,
         judge=judge,
-        thresholds=ThresholdPolicy({SAME_CONCEPT.id: BAND, TWO_JOBS.id: BAND}),
+        thresholds=ThresholdPolicy({SAME_CONCEPT.id: BAND, KIND.id: BAND}),
     )
 
     asked = [
@@ -516,13 +514,13 @@ def test_measure_choice_spread_across_conditionals_is_found(
         Conditional(USE, 4, "close_order", "x"),
         Conditional(TEST, 2, "test_close", "order.kind"),
     )
-    judge = FakeDecision({SCATTERED_POLICY.id: _yes(yes), TWO_JOBS.id: _yes(0.1)})
+    judge = FakeDecision({SCATTERED_POLICY.id: _yes(yes), KIND.id: _yes(0.1)})
 
     report = measure_with(
         FILES,
         CodeModel(definitions=definitions, conditionals=conditionals),
         judge=judge,
-        thresholds=ThresholdPolicy({SCATTERED_POLICY.id: BAND, TWO_JOBS.id: BAND}),
+        thresholds=ThresholdPolicy({SCATTERED_POLICY.id: BAND, KIND.id: BAND}),
     )
 
     assert "Decision" in [c.name for c in report.ran]
@@ -567,13 +565,13 @@ def test_measure_foreign_write_that_breaks_an_invariant_is_found(
     )
     members = (field(RULES, "Order", "status", 2), field(RULES, "Order", "total", 3))
     writes = (Write(USE, 2, "close", "order", "status"),)
-    judge = FakeDecision({INVARIANT_BROKEN.id: _yes(yes), TWO_JOBS.id: _yes(0.1)})
+    judge = FakeDecision({INVARIANT_BROKEN.id: _yes(yes), KIND.id: _yes(0.1)})
 
     report = measure_with(
         FILES,
         CodeModel(definitions=definitions, members=members, writes=writes),
         judge=judge,
-        thresholds=ThresholdPolicy({INVARIANT_BROKEN.id: BAND, TWO_JOBS.id: BAND}),
+        thresholds=ThresholdPolicy({INVARIANT_BROKEN.id: BAND, KIND.id: BAND}),
     )
 
     rule = [f for f in _of(report, "Boundary") if f.kind is CheckKind.RULE]
@@ -624,13 +622,13 @@ def test_measure_all_fields_type_whose_rules_live_elsewhere_is_found(
         field(RULES, "Money", "cents", 6),
     )
     uses = (Reference(USE, 2, "issue", ReferenceKind.NAME, "receipt.total"),)
-    judge = FakeDecision({RULES_ELSEWHERE.id: _yes(yes), TWO_JOBS.id: _yes(0.1)})
+    judge = FakeDecision({RULES_ELSEWHERE.id: _yes(yes), KIND.id: _yes(0.1)})
 
     report = measure_with(
         FILES,
         CodeModel(definitions=definitions, members=members, references=uses),
         judge=judge,
-        thresholds=ThresholdPolicy({RULES_ELSEWHERE.id: BAND, TWO_JOBS.id: BAND}),
+        thresholds=ThresholdPolicy({RULES_ELSEWHERE.id: BAND, KIND.id: BAND}),
     )
 
     ((state, key),) = [
@@ -700,16 +698,14 @@ def test_measure_kept_test_that_skips_the_then_is_found(
         ),
     )
     cases = (TestCase(TEST, "test_close", 1, ("close_order",), (Assertion("order"),)),)
-    judge = FakeDecision(
-        {THEN_ASSERTED.id: _not_asserted(mass), TWO_JOBS.id: _yes(0.1)}
-    )
+    judge = FakeDecision({THEN_ASSERTED.id: _not_asserted(mass), KIND.id: _yes(0.1)})
 
     report = measure_with(
         FILES,
         CodeModel(definitions=definitions, calls=calls, test_cases=cases),
         records=SURFACED,
         judge=judge,
-        thresholds=ThresholdPolicy({THEN_ASSERTED.id: BAND, TWO_JOBS.id: BAND}),
+        thresholds=ThresholdPolicy({THEN_ASSERTED.id: BAND, KIND.id: BAND}),
     )
 
     assert "Then asserted" in [c.name for c in report.ran]
@@ -758,7 +754,7 @@ def test_measure_unit_whose_body_does_not_do_what_it_claims_is_found(
         function(TEST, "test_close", 1, end=4),
     )
     judge = FakeDecision(
-        {IMPLEMENTED.id: _yes(0.95), TWO_JOBS.id: _yes(0.1)},
+        {IMPLEMENTED.id: _yes(0.95), KIND.id: _yes(0.1)},
         per_symbol={"price": {IMPLEMENTED.id: _yes(1.0 - no)}},
     )
 
@@ -766,7 +762,7 @@ def test_measure_unit_whose_body_does_not_do_what_it_claims_is_found(
         {**FILES, STORE: b"x\n" * 9},
         CodeModel(definitions=definitions),
         judge=judge,
-        thresholds=ThresholdPolicy({IMPLEMENTED.id: BAND, TWO_JOBS.id: BAND}),
+        thresholds=ThresholdPolicy({IMPLEMENTED.id: BAND, KIND.id: BAND}),
     )
 
     assert "Done" in [c.name for c in report.ran]
@@ -816,7 +812,7 @@ def test_measure_primitive_written_by_hand_where_the_radar_adopts_one_is_found(
     judge = FakeDecision(
         {
             HAND_ROLLED_ID: {"lib_1": p, "lib_2": 0.0, NONE: 1.0 - p},
-            TWO_JOBS.id: _yes(0.1),
+            KIND.id: _yes(0.1),
             IMPLEMENTED.id: _yes(0.9),
         }
     )
@@ -850,7 +846,7 @@ def test_measure_primitive_written_by_hand_where_the_radar_adopts_one_is_found(
 def test_measure_hand_rolled_without_a_radar_is_coverage() -> None:
     """Given no radar the declaration names, When Hand-rolled runs, Then it is
     coverage naming why, asks nothing, and is not among the checks that ran."""
-    judge = FakeDecision({TWO_JOBS.id: _yes(0.1), IMPLEMENTED.id: _yes(0.9)})
+    judge = FakeDecision({KIND.id: _yes(0.1), IMPLEMENTED.id: _yes(0.9)})
 
     report = measure_with(
         FILES,
@@ -885,10 +881,10 @@ def test_measure_call_the_judge_rejects_is_coverage_and_the_rest_are_asked() -> 
             )
         ),
         judge=judge,
-        thresholds=ThresholdPolicy({TWO_JOBS.id: BAND}),
+        thresholds=ThresholdPolicy({KIND.id: BAND}),
     )
 
     assert len(judge.asked) == 2
-    rejected = [c for c in report.coverage if c.check == "Two jobs"]
+    rejected = [c for c in report.coverage if c.check == "Kind"]
     assert sorted(c.path or "" for c in rejected) == sorted([RULES, USE])
     assert all("too large" in c.reason for c in rejected)

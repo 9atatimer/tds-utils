@@ -5,7 +5,7 @@ from __future__ import annotations
 from hypothesis import given
 from hypothesis import strategies as st
 
-from adherence.domain.checks.hexagonal import cycle_through, strongly_connected
+from adherence.domain.checks.layered import cycle_through, strongly_connected
 
 NODES = st.sampled_from([f"m{i}.py" for i in range(8)])
 GRAPHS = st.dictionaries(NODES, st.lists(NODES, unique=True).map(sorted))

@@ -16,6 +16,7 @@ from adherence.domain.checks import (
     ddd,
     hexagonal,
     injectable,
+    law,
     layered,
     radar,
 )
@@ -45,7 +46,7 @@ from adherence.domain.report import FinishedCheck
 
 TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Grep": hexagonal.grep,
-    "Arrow": hexagonal.arrow,
+    "Arrow": layered.arrow,
     "Swap": hexagonal.swap,
     "Change": hexagonal.change,
     "Stub": complete.stub,
@@ -66,11 +67,11 @@ TARGET_CHECKS: Mapping[str, CheckFunction] = {
     "Boundary": ddd.boundary,
     "Anemic": ddd.anemic,
     "Decision": ddd.decision,
-    "Trace": layered.trace,
-    "Purity": layered.purity,
+    "Trace": ddd.trace,
+    "Purity": law.purity,
     "Wiring": layered.wiring,
-    "Anatomy": layered.anatomy,
-    "Two jobs": layered.two_jobs,
+    "Anatomy": law.anatomy,
+    "Kind": law.kind,
 }
 RADAR_CHECKS: Mapping[str, RadarCheckFunction] = {
     "Dependency": radar.dependency,

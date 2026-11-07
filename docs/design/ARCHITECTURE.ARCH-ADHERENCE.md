@@ -107,9 +107,10 @@ or option is a migration of the threshold policy and the labelled set.
 | `domain/model.py` -- `CodeModel`: `Unit`, `Layer`, `Region`, `ImportEdge`, `Definition`, `Signature`, `Body` (text, stub markers, sleeps), `Reference` (symbol references and string literals), `Call` (function and constructor calls), `Access` (global and environment reads), `Write` (field writes with the owning unit), `Conditional` (with its discriminant), `Member` (fields and methods of a type), `TestCase` (calls and assertions), `Metrics` (per-function complexity, clones) | domain | all |
 | `domain/declaration.py` -- `Declaration` parse and validation of one file, its paths relative to its directory; the merge of the governing declarations into one (`governing_declarations`: union sections as a union, single-valued sections as the nearest file's, a nearer file's `[override.<section>]` replacing the whole section for its subtree; a conflict over a real path, a plain single-valued section already defined above, an override of nothing, or a path that escapes its directory refused as `DeclarationUnreadable` naming the files, the section and the path), exemptions, widening merge, the merge of its adjustments into `Parameters` (ceilings only lowered, vocabularies only extended), approval counting over the base's CODEOWNERS entries and the approvals passed in as values, the Declared-quality exemption refusal | domain | all |
 | `domain/records.py` -- `DesignRecords`: behaviors, domain language, use-case surface, seams; `Radar` | domain | all |
-| `domain/checks/hexagonal.py` -- Grep, Arrow, Swap, Change | domain | all |
-| `domain/checks/layered.py` -- Trace, Purity (rule part and the does_io question), Wiring, Anatomy; the Two-jobs question | domain | all |
-| `domain/checks/ddd.py` -- Language (rule part and question), Anemic (rule part and the rules_elsewhere question), Boundary (rule part and question); the Decision question | domain | all |
+| `domain/checks/layered.py` -- Arrow, Wiring | domain | all |
+| `domain/checks/hexagonal.py` -- Grep, Swap, Change | domain | all |
+| `domain/checks/law.py` -- Purity (rule part and the does_io question), Anatomy; the Kind question | domain | all |
+| `domain/checks/ddd.py` -- Trace, Language (rule part and question), Anemic (rule part and the rules_elsewhere question), Boundary (rule part and question); the Decision question | domain | all |
 | `domain/checks/composable.py` -- Values in and out, No nesting, Helpers take values | domain | all |
 | `domain/checks/injectable.py` -- Ports as keywords, No self-wiring, No reach | domain | all |
 | `domain/checks/behavior.py` -- Kept test, Public surface, Real assertion; the Then-asserted question | domain | all |
@@ -181,7 +182,8 @@ both invoke the same CLI.
 | A missing composition root is a disagreement | (`measure`; Wiring) | CodeModelPort |
 | An adapter constructed below the root is found | (`measure`; Wiring) | CodeModelPort |
 | A file out of order is found | (`measure`; Anatomy) | CodeModelPort |
-| A unit doing two jobs is found | (`measure`; Two-jobs question) | DecisionPort |
+| A function of two kinds is found | (`measure`; the Kind question) | DecisionPort |
+| A unit doing two jobs is found | (`measure`; the Kind question; superseded) | DecisionPort |
 | A judged check answers with a confidence | (`measure`; `domain/questions` applies `ThresholdPolicy` by question id and stamps `confidence` on finding, pass and abstention alike) | DecisionPort |
 | A port without a fake is found | (`measure`; Swap) | CodeModelPort |
 | A named seam is missing | (`measure`; Change) | CodeModelPort, RecordsPort |
@@ -362,7 +364,7 @@ first:
 
 | Question id | Kind | State | Asked by |
 |---|---|---|---|
-| `two_jobs` | binary | one unit's text with its declared layer | Layered |
+| `kind` | binary | one function's text with its declared layer | Kind |
 | `does_io` | binary | a callable a domain function takes, with its definition and call sites | Purity |
 | `same_concept` | binary | two nouns, their definitions and their use sites | Language |
 | `scattered_policy` | binary | the conditionals sharing a discriminant, with their units | Decision |

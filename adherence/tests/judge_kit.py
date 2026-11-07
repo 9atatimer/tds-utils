@@ -41,11 +41,11 @@ from adherence.domain.questions import (
     DOES_IO,
     IMPLEMENTED,
     INVARIANT_BROKEN,
+    KIND,
     RULES_ELSEWHERE,
     SAME_CONCEPT,
     SCATTERED_POLICY,
     THEN_ASSERTED,
-    TWO_JOBS,
     BandThreshold,
     Question,
     ThresholdPolicy,
@@ -66,7 +66,7 @@ Files = Mapping[str, bytes | Refused | TimedOut]
 
 # Every binary and score question; Hand-rolled is not asked with no radar.
 BANDED: tuple[Question, ...] = (
-    TWO_JOBS,
+    KIND,
     DOES_IO,
     SAME_CONCEPT,
     SCATTERED_POLICY,

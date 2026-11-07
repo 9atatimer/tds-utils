@@ -1,4 +1,4 @@
-"""The Hexagonal quality's checks -- Grep, Arrow, Swap, Change -- driven
+"""The Hexagonal checks -- Grep, Swap, Change -- and Layered's Arrow, driven
 through `measure` with a fake behind every port (DESIGN.ARCH-ADHERENCE.md,
 Behaviors; ARCHITECTURE.ARCH-ADHERENCE.md, Use-case surface)."""
 

@@ -1,5 +1,6 @@
-"""The Layered quality's rule checks -- Trace, Purity's rule part, Wiring,
-Anatomy -- driven through `measure` with a fake behind every port
+"""Rule checks driven through `measure` with a fake behind every port:
+Wiring (Layered), Trace (Domain-driven), Purity's rule part and Anatomy
+(LAW)
 (DESIGN.ARCH-ADHERENCE.md, Behaviors; ARCHITECTURE.ARCH-ADHERENCE.md,
 Use-case surface)."""
 
@@ -154,7 +155,7 @@ def test_measure_behavior_no_application_unit_carries_is_found() -> None:
         assert (finding.unit.path, finding.evidence.path) == (DESIGN, DESIGN)
         assert finding.unit.kind.value == "design behavior"
         assert finding.unit.symbol in finding.subject
-        assert finding.check.quality.value == "Layered"
+        assert finding.check.quality.value == "Domain-driven"
     lost = next(f for f in homeless if f.unit.symbol == "An order is lost")
     assert lost.evidence.line == 14
 

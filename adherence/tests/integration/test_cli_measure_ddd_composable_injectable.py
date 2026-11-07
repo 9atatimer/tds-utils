@@ -76,6 +76,7 @@ def test_measure_json_over_the_fixture_prints_the_ddd_findings(tmp_path: Path) -
     document = _document(tmp_path)
 
     assert _ran(document, Quality.DOMAIN_DRIVEN) == [
+        "Trace",
         "Language",
         "Decision",
         "Boundary",

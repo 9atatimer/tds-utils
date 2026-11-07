@@ -69,7 +69,7 @@ def test_an_introduced_finding_is_listed_and_an_existing_one_is_counted() -> Non
     assert "src/app/domain/rules.py:2" in text
     assert "tidy: complexity 17 over the ceiling 15" not in text
     assert "| Complete | 2 | 0 | 1 |" in text
-    assert "| Hexagonal | 1 | 1 | 0 |" in text
+    assert "| Layered | 1 | 1 | 0 |" in text
 
 
 def test_removed_findings_notices_and_coverage_are_counted() -> None:

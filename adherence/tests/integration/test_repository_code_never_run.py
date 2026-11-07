@@ -23,7 +23,7 @@ from adherence.adapters.python_ast import PythonCodeModel
 from adherence.container import SHIPPED_VOCABULARY
 from adherence.domain.declaration import Declaration
 from adherence.domain.model import Layer, Unit, UnitKind
-from adherence.domain.questions import TWO_JOBS, Schema, State
+from adherence.domain.questions import KIND, Schema, State
 from adherence.domain.target import Base, Head
 from tests.decide_stub import stub_server
 from tests.execution_contract import ExecutionContract
@@ -97,12 +97,12 @@ class TestDecideNeverRunsRepositoryCode(ExecutionContract):
         state = State(
             unit,
             files["src/pkg/rules.py"].decode(),
-            {"two_jobs.1": files["conftest.py"].decode()},
+            {"kind.1": files["conftest.py"].decode()},
         )
         with stub_server() as stub:
             judge = DecideDecision(
                 command=(str(DECIDE), "run", "--model", "clef", "--tool", "adherence"),
                 configuration={"DECIDE_BACKEND": "systemone", "DECIDE_URL": stub.url},
             )
-            judge.decide(state, Schema({"two_jobs.1": TWO_JOBS}), None)
+            judge.decide(state, Schema({"kind.1": KIND}), None)
             assert stub.received, "the record never reached the judge"

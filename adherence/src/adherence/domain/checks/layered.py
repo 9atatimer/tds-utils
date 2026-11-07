@@ -1,19 +1,20 @@
-"""domain/checks/layered.py -- rules, workflow and wiring are three jobs.
+"""domain/checks/layered.py -- a unit depends only on its layer or one below it.
 
-Trace, Purity's rule part, Wiring and Anatomy (DESIGN.ARCH-ADHERENCE.md,
-The Qualities table: Layered), each a pure function over the CodeModel
-and the design records. Purity's judged part, whether a callable a domain
-function takes does I/O, and Two jobs are questions for the judge.
+Arrow and Wiring (DESIGN.ARCH-ADHERENCE.md, The Qualities table: Layered),
+each a pure function over the CodeModel. The order, bottom to top: domain,
+ports, then application and adapters side by side, then the composition
+root; a test may reach any layer.
 """
 
 from __future__ import annotations
 
 import re
+from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from adherence.domain.checks.hexagonal import implements, is_fake, is_port
-from adherence.domain.checks.outcome import CheckOutcome, undeclared
+from adherence.domain.checks.outcome import NEEDS_DECLARATION, CheckOutcome, undeclared
 from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import (
     Declaration,
@@ -22,84 +23,42 @@ from adherence.domain.declaration import (
     layer_of,
     matches,
 )
-from adherence.domain.finding import Evidence, Finding, normalised
+from adherence.domain.finding import Evidence, Finding
 from adherence.domain.model import (
     Call,
     CodeModel,
     Definition,
+    ImportEdge,
     Layer,
-    Parameter,
-    Region,
-    Signature,
     Unit,
     UnitKind,
 )
 from adherence.domain.parameters import Parameters, Vocabulary
 from adherence.domain.qualities import catalog_check
-from adherence.domain.questions import DOES_IO, TWO_JOBS, Ask, definition_text
-from adherence.domain.records import (
-    Behavior,
-    DesignRecords,
-    RecordsUnavailable,
-    SurfaceRow,
-    UseCase,
-)
+from adherence.domain.records import DesignRecords, RecordsUnavailable
 
 # --- Constants ---------------------------------------------------------------
 
-TRACE = catalog_check("Trace")
-# A row's action is its When clause and its observation its Then clause;
-# each must hold a word for anything to trace to a function. The Then
-# that opens the observation is the first after a word of the action, so
-# a When clause may itself name the word (the check Then asserted). The
-# keywords are read whatever their case.
-WHEN = re.compile(r"\bwhen\b", re.IGNORECASE)
-THEN = re.compile(r"\bthen\b", re.IGNORECASE)
-WORD = re.compile(r"\w")
-UNTRACEABLE = "the row has no nameable action (When) or observation (Then)"
-NO_BEHAVIORS = (
-    "the design record states no behaviors (no Behaviors section with a "
-    "table row), so there is no contract to trace"
-)
-PURITY = catalog_check("Purity")
-NAME = re.compile(r"[A-Za-z_]\w*")
-# An annotation's text read as tokens: a string literal, a dotted name, or
-# a bracket. A string is a forward reference unless it sits inside the
-# brackets of a Literal, whose values are data.
-ANNOTATION_TOKEN = re.compile(
-    r"""(?P<string>'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")"""
-    r"|(?P<name>[A-Za-z_][\w.]*)|(?P<open>\[)|(?P<close>\])",
-    re.DOTALL,
-)
-LITERAL = "Literal"
+ARROW = catalog_check("Arrow")
+_EVERY_LAYER = frozenset(Layer)
+# The layers each layer may import: its own and the ones below it.
+# application -> ports -> domain and adapters -> ports -> domain; the
+# composition root and tests reach any.
+INWARD: dict[Layer, frozenset[Layer]] = {
+    Layer.DOMAIN: frozenset({Layer.DOMAIN}),
+    Layer.PORTS: frozenset({Layer.DOMAIN, Layer.PORTS}),
+    Layer.APPLICATION: frozenset({Layer.DOMAIN, Layer.PORTS, Layer.APPLICATION}),
+    Layer.ADAPTERS: frozenset({Layer.DOMAIN, Layer.PORTS, Layer.ADAPTERS}),
+    Layer.COMPOSITION_ROOT: _EVERY_LAYER,
+    Layer.TEST: _EVERY_LAYER,
+}
+WIRING = catalog_check("Wiring")
+NO_RUNTIME = "the per-runtime half needs a declared runtime; the declaration has none"
 # An import's line as written, `from m import A as B, C`: the names it
 # binds, read so a check compares the name an alias stands for. A
 # statement wrapped over lines is read as far as its first line goes.
 FROM_IMPORT = re.compile(r"\s*from\s+\S+\s+import\s+(?P<names>[^#]*)")
 ALIAS = re.compile(r"(?P<name>[A-Za-z_]\w*)\s+as\s+(?P<alias>[A-Za-z_]\w*)")
-NOT_CALLED = "nowhere the analyzer resolved"
-WIRING = catalog_check("Wiring")
-NO_RUNTIME = "the per-runtime half needs a declared runtime; the declaration has none"
-ANATOMY = catalog_check("Anatomy")
-TWO_JOBS_CHECK = catalog_check("Two jobs")
-# The three jobs a unit may do, by the layer whose job each is; Two jobs
-# asks only about units declared to do one of them.
-JOBS: Mapping[Layer, str] = {
-    Layer.DOMAIN: "rules",
-    Layer.APPLICATION: "workflow",
-    Layer.COMPOSITION_ROOT: "wiring",
-}
-# The coding skill's file anatomy, as the layers of a file's regions:
-# predicates and pure helpers, then the effectful helpers, then the flow
-# functions, then the entry points.
-ANATOMY_ORDER: tuple[Layer, ...] = (
-    Layer.DOMAIN,
-    Layer.PORTS,
-    Layer.ADAPTERS,
-    Layer.APPLICATION,
-    Layer.COMPOSITION_ROOT,
-    Layer.TEST,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,42 +72,12 @@ class _Construction:
     call: Call
 
 
-# A use case's home: its name and its parameter names, in order. The
-# keyword-only shape is not compared (architecture Q1 stays open).
-Home = tuple[str, tuple[str, ...]]
-
 # --- Predicates --------------------------------------------------------------
 
 
-def is_use_case_function(definition: Definition) -> bool:
-    """Whether a definition can carry a use case: a function at module level
-    in the application layer."""
-    return (
-        definition.unit.kind is UnitKind.FUNCTION
-        and definition.unit.layer is Layer.APPLICATION
-        and definition.signature is not None
-        and definition.parent is None
-        and not definition.nested
-    )
-
-
-def is_traceable(scenario: str) -> bool:
-    """Whether a behavior row names an action and an observation: a When
-    clause and a Then clause after it, each with a word in it. Each search
-    starts where the last ended, so the read is linear in the row."""
-    when = WHEN.search(scenario)
-    action = WORD.search(scenario, when.end()) if when else None
-    then = THEN.search(scenario, action.end()) if action else None
-    return then is not None and WORD.search(scenario, then.end()) is not None
-
-
-def is_rule(definition: Definition) -> bool:
-    """Whether a definition is a domain function or method."""
-    return (
-        definition.unit.kind is UnitKind.FUNCTION
-        and definition.unit.layer is Layer.DOMAIN
-        and definition.signature is not None
-    )
+def is_inward(importer: Layer, imported: Layer) -> bool:
+    """Whether an import from one layer into another crosses inward."""
+    return imported in INWARD[importer]
 
 
 def is_in_runtime(path: str, runtime: Runtime) -> bool:
@@ -163,11 +92,7 @@ def is_in_runtime(path: str, runtime: Runtime) -> bool:
 # --- Pure helpers ------------------------------------------------------------
 
 
-def parameter_names(signature: Signature) -> tuple[str, ...]:
-    return tuple(p.name for p in signature.parameters)
-
-
-def _aliases(model: CodeModel) -> dict[str, dict[str, str]]:
+def import_aliases(model: CodeModel) -> dict[str, dict[str, str]]:
     """Each file's import aliases: the alias, and the name it stands for."""
     aliases: dict[str, dict[str, str]] = {}
     for edge in model.imports:
@@ -178,102 +103,6 @@ def _aliases(model: CodeModel) -> dict[str, dict[str, str]]:
             if bound := ALIAS.fullmatch(part.strip(" ()")):
                 aliases.setdefault(edge.path, {})[bound["alias"]] = bound["name"]
     return aliases
-
-
-def _home_of(name: str, signature: Signature) -> Home:
-    return name, parameter_names(signature)
-
-
-def _shown(home: Home) -> str:
-    name, parameters = home
-    return f"{name}({', '.join(parameters)})"
-
-
-def _homes(model: CodeModel) -> dict[Home, list[Definition]]:
-    """Every application function that can carry a use case, by its home."""
-    homes: dict[Home, list[Definition]] = {}
-    for d in model.definitions:
-        if is_use_case_function(d) and d.signature is not None:
-            name = (d.unit.symbol or "").rpartition(".")[2]
-            homes.setdefault(_home_of(name, d.signature), []).append(d)
-    return homes
-
-
-def _homeless(
-    behavior: Behavior,
-    rows: Mapping[str, SurfaceRow],
-    use_cases: Mapping[str, UseCase],
-    homes: Mapping[Home, Sequence[Definition]],
-) -> str | None:
-    """Why a behavior has no home, or None when one application unit
-    carries it by the surface's signature. A row nothing could trace is a
-    finding against the record."""
-    if not is_traceable(behavior.scenario):
-        return UNTRACEABLE
-    row = rows.get(normalised(behavior.name))
-    if row is None:
-        return "the use-case surface has no row for it"
-    if row.use_case is None:
-        return "its use-case surface row names no use case"
-    use_case = use_cases.get(row.use_case)
-    if use_case is None:
-        return f"the use-case surface gives {row.use_case} no signature"
-    home = _home_of(use_case.name, use_case.signature)
-    found = homes.get(home, ())
-    if not found:
-        return f"no application unit is {_shown(home)}"
-    if len(found) > 1:
-        where = ", ".join(sorted(d.unit.path for d in found))
-        return f"{len(found)} application units are {_shown(home)}: {where}"
-    return None
-
-
-def _against(behavior: Behavior, why: str) -> Finding:
-    """A Trace finding naming the behavior and the record it came from."""
-    unit = Unit(
-        behavior.path,
-        UnitKind.BEHAVIOR,
-        behavior.name,
-        behavior.line,
-        behavior.line,
-        None,
-    )
-    return Finding(
-        TRACE,
-        unit,
-        None,
-        f"{behavior.name}: {why}",
-        Evidence(behavior.path, behavior.line, behavior.name),
-    )
-
-
-def trace(
-    model: CodeModel,
-    declaration: Declaration,
-    records: DesignRecords | RecordsUnavailable,
-    parameters: Parameters,
-) -> CheckOutcome:
-    """Every design behavior resolves to one application unit, by the
-    use-case surface's signature."""
-    if not declaration.declared:
-        return undeclared(TRACE.name)
-    if isinstance(records, RecordsUnavailable):
-        return CheckOutcome(
-            coverage=(Coverage(records.reason, check=TRACE.name),), ran=False
-        )
-    if not records.behaviors:
-        named = declaration.records.design if declaration.records else None
-        reason = f"{named}: {NO_BEHAVIORS}" if named else NO_BEHAVIORS
-        return CheckOutcome(coverage=(Coverage(reason, check=TRACE.name),), ran=False)
-    rows = {normalised(r.behavior): r for r in records.surface}
-    use_cases = {u.name: u for u in records.use_cases}
-    homes = _homes(model)
-    findings = [
-        _against(behavior, why)
-        for behavior in records.behaviors
-        if (why := _homeless(behavior, rows, use_cases, homes)) is not None
-    ]
-    return CheckOutcome(tuple(findings))
 
 
 def _methods(model: CodeModel) -> dict[tuple[str, str], list[Definition]]:
@@ -295,7 +124,7 @@ def _short(definition: Definition) -> str:
     return (definition.unit.symbol or "").rpartition(".")[2]
 
 
-def _port_names(model: CodeModel) -> frozenset[str]:
+def port_names(model: CodeModel) -> frozenset[str]:
     """The names of the ports the model defines."""
     methods = _methods(model)
     return frozenset(
@@ -305,126 +134,152 @@ def _port_names(model: CodeModel) -> frozenset[str]:
     )
 
 
-def _opens_literal(previous: str, inside: Sequence[bool]) -> bool:
-    """Whether a bracket after the token `previous` holds Literal values:
-    it subscripts Literal, or sits inside brackets that do."""
-    return previous.rpartition(".")[2] == LITERAL or bool(inside and inside[-1])
+def _outward(model: CodeModel, declaration: Declaration) -> list[Finding]:
+    """Every import between two covered units that crosses outward."""
+    findings: list[Finding] = []
+    for edge in model.imports:
+        if edge.imported_path is None:
+            continue
+        layer = layer_of(edge.path, edge.line, declaration, model.regions)
+        reached = layer_of(edge.imported_path, None, declaration)
+        unit = model.unit_at(edge.path, edge.line)
+        if layer is None or reached is None or unit is None:
+            continue
+        if not is_inward(layer, reached):
+            findings.append(
+                Finding(
+                    ARROW,
+                    unit,
+                    layer,
+                    edge.imported,
+                    Evidence(edge.path, edge.line, edge.text),
+                    reached=reached,
+                )
+            )
+    return findings
 
 
-def annotation_names(parameter: Parameter) -> frozenset[str]:
-    """Every name a parameter's annotation mentions, dotted parts apart: a
-    string forward reference by the names it holds, a Literal's values not
-    at all."""
-    names: set[str] = set()
-    inside: list[bool] = []
-    previous = ""
-    for token in ANNOTATION_TOKEN.finditer(parameter.annotation or ""):
-        kind, text = token.lastgroup, token.group()
-        if kind == "open":
-            inside.append(_opens_literal(previous, inside))
-        elif kind == "close" and inside:
-            inside.pop()
-        elif kind == "string" and not (inside and inside[-1]):
-            names.update(NAME.findall(text[1:-1]))
-        elif kind == "name":
-            names.update(NAME.findall(text))
-        previous = text if kind == "name" else ""
-    return frozenset(names)
+def strongly_connected(graph: Mapping[str, Sequence[str]]) -> list[list[str]]:
+    """The strongly connected components of a graph, each sorted, by
+    Tarjan's algorithm walked with an explicit stack (no recursion limit)."""
+    index: dict[str, int] = {}
+    low: dict[str, int] = {}
+    on_stack: set[str] = set()
+    stack: list[str] = []
+    components: list[list[str]] = []
+    for root in sorted(graph):
+        if root in index:
+            continue
+        work = [(root, 0)]
+        while work:
+            node, child = work.pop()
+            if child == 0:
+                index[node] = low[node] = len(index)
+                stack.append(node)
+                on_stack.add(node)
+            successors = graph.get(node, ())
+            if child < len(successors):
+                work.append((node, child + 1))
+                successor = successors[child]
+                if successor not in index:
+                    work.append((successor, 0))
+                elif successor in on_stack:
+                    low[node] = min(low[node], index[successor])
+                continue
+            if low[node] == index[node]:
+                component: list[str] = []
+                while not component or component[-1] != node:
+                    member = stack.pop()
+                    on_stack.discard(member)
+                    component.append(member)
+                components.append(sorted(component))
+            if work:
+                parent = work[-1][0]
+                low[parent] = min(low[parent], low[node])
+    return components
 
 
-def _call_sites(model: CodeModel) -> dict[tuple[str, str], list[Call]]:
-    """Every call that resolves to a repository definition, by its path and
-    symbol."""
-    sites: dict[tuple[str, str], list[Call]] = {}
-    for call in model.calls:
-        target = call.target
-        if target is not None and target.path is not None and target.symbol:
-            sites.setdefault((target.path, target.symbol), []).append(call)
-    return sites
+def cycle_through(
+    start: str, members: Sequence[str], graph: Mapping[str, Sequence[str]]
+) -> list[str]:
+    """The shortest path from start back to itself through another member of
+    one strongly connected component, start repeated at the end; a
+    self-import is not such a path."""
+    inside = set(members)
+    previous: dict[str, str] = {}
+    queue = deque([start])
+    while queue:
+        node = queue.popleft()
+        for successor in graph.get(node, ()):
+            if successor == start and node != start:
+                path = [node]
+                while path[-1] != start:
+                    path.append(previous[path[-1]])
+                return [*reversed(path), start]
+            if successor in inside and successor not in previous:
+                previous[successor] = node
+                queue.append(successor)
+    return [start]
 
 
-def _does_io_ask(rule: Definition, parameter: Parameter, sites: Sequence[Call]) -> Ask:
-    """The does_io question about one callable a domain function takes: the
-    function as the unit's text, the parameter and where the function is
-    called from as its data."""
-    unit = rule.unit
-    called = "; ".join(f"{c.path}:{c.line} in {c.within}" for c in sites)
-    return Ask(
-        check=PURITY,
-        question=DOES_IO,
-        unit=unit,
-        layer=unit.layer,
-        subject=f"{unit.symbol}: its callable {parameter.name} does I/O",
-        evidence=Evidence(
-            unit.path, unit.start, f"{parameter.name}: {parameter.annotation}"
-        ),
-        text=definition_text(rule),
-        context=(
-            f"the callable parameter: {parameter.name}: {parameter.annotation}\n"
-            f"{unit.symbol} is called from: {called or NOT_CALLED}"
-        ),
-    )
+def _import_graph(
+    model: CodeModel, declaration: Declaration
+) -> tuple[dict[str, list[str]], dict[tuple[str, str], ImportEdge]]:
+    """The file-to-file import graph over the units a check may read (every
+    file of an undeclared repository), and the first edge of each arc."""
+    covered = {
+        u.path for u in model.units if u.layer is not None or not declaration.declared
+    }
+    graph: dict[str, list[str]] = {}
+    first: dict[tuple[str, str], ImportEdge] = {}
+    for edge in model.imports:
+        target = edge.imported_path
+        if target is None or target == edge.path:
+            continue
+        if edge.path not in covered or target not in covered:
+            continue
+        if (edge.path, target) not in first:
+            first[(edge.path, target)] = edge
+            graph.setdefault(edge.path, []).append(target)
+    return {k: sorted(v) for k, v in graph.items()}, first
 
 
-def _taken(
-    rule: Definition,
-    parameter: Parameter,
-    ports: frozenset[str],
-    vocabulary: Vocabulary,
-    aliases: Mapping[str, str],
-    sites: Mapping[tuple[str, str], Sequence[Call]],
-) -> Finding | Ask | None:
-    """What one parameter of a domain function makes of it: a finding for a
-    port or a clock, the does_io question for a callable, or nothing. An
-    import alias is read as the name it stands for."""
-    names = frozenset(aliases.get(n, n) for n in annotation_names(parameter))
-    unit = rule.unit
-    evidence = Evidence(
-        unit.path, unit.start, f"{parameter.name}: {parameter.annotation}"
-    )
-    if port := sorted(names & ports):
-        subject = f"{parameter.name}: the port {port[0]}"
-        return Finding(PURITY, unit, unit.layer, subject, evidence, reached=Layer.PORTS)
-    if clock := sorted(names & vocabulary.clocks):
-        subject = f"{parameter.name}: the clock {clock[0]}"
-        return Finding(PURITY, unit, unit.layer, subject, evidence)
-    if names & vocabulary.callables:
-        return _does_io_ask(
-            rule, parameter, sites.get((unit.path, unit.symbol or ""), [])
+def _cycles(model: CodeModel, declaration: Declaration) -> list[Finding]:
+    """One finding per import cycle, on its first file, naming the cycle."""
+    graph, first = _import_graph(model, declaration)
+    findings: list[Finding] = []
+    for members in strongly_connected(graph):
+        if len(members) < 2:
+            continue
+        path = cycle_through(members[0], members, graph)
+        edge = first[(path[0], path[1])]
+        unit = model.unit_at(edge.path, edge.line)
+        if unit is None:
+            continue
+        findings.append(
+            Finding(
+                ARROW,
+                unit,
+                layer_of(edge.path, edge.line, declaration, model.regions),
+                " -> ".join(path),
+                Evidence(edge.path, edge.line, edge.text),
+            )
         )
-    return None
+    return findings
 
 
-def purity(
+def arrow(
     model: CodeModel,
     declaration: Declaration,
     records: DesignRecords | RecordsUnavailable,
     parameters: Parameters,
 ) -> CheckOutcome:
-    """No domain unit takes a port or a clock; whether a callable it takes
-    does I/O is the judged part's question."""
+    """Every import crosses inward and no import cycle exists. The cycle half
+    needs no declaration; the inward half compares declared layers."""
     if not declaration.declared:
-        return undeclared(PURITY.name)
-    ports = _port_names(model)
-    aliases = _aliases(model)
-    sites = _call_sites(model)
-    taken = [
-        _taken(
-            rule,
-            parameter,
-            ports,
-            parameters.vocabulary,
-            aliases.get(rule.unit.path, {}),
-            sites,
-        )
-        for rule in model.definitions
-        if is_rule(rule) and rule.signature is not None
-        for parameter in rule.signature.parameters
-    ]
-    return CheckOutcome(
-        tuple(t for t in taken if isinstance(t, Finding)),
-        questions=tuple(t for t in taken if isinstance(t, Ask)),
-    )
+        inward = Coverage(f"the inward half {NEEDS_DECLARATION}", check=ARROW.name)
+        return CheckOutcome(tuple(_cycles(model, declaration)), (inward,))
+    return CheckOutcome((*_outward(model, declaration), *_cycles(model, declaration)))
 
 
 def _concrete_adapters(model: CodeModel, vocabulary: Vocabulary) -> frozenset[str]:
@@ -449,7 +304,7 @@ def _constructions(
     the definition it sits in, or its file at module level. A bare callee
     that is an import alias is read as the name it stands for."""
     units = {(d.unit.path, d.unit.symbol): d.unit for d in model.definitions}
-    aliases = _aliases(model)
+    aliases = import_aliases(model)
     found: list[_Construction] = []
     for call in model.calls:
         adapter = call.callee.rpartition(".")[2]
@@ -590,93 +445,3 @@ def wiring(
         () if declaration.runtimes else (Coverage(NO_RUNTIME, check=WIRING.name),)
     )
     return CheckOutcome(tuple(findings), unchecked)
-
-
-def _out_of_place(regions: Sequence[Region]) -> tuple[Region, Region] | None:
-    """The first region, in line order, whose layer comes earlier in the
-    anatomy than a region above it, with that region; None when in order."""
-    furthest: Region | None = None
-    for region in sorted(regions, key=lambda r: (r.start, r.end)):
-        rank = ANATOMY_ORDER.index(region.layer)
-        if furthest is not None and rank < ANATOMY_ORDER.index(furthest.layer):
-            return region, furthest
-        if furthest is None or rank > ANATOMY_ORDER.index(furthest.layer):
-            furthest = region
-    return None
-
-
-def anatomy(
-    model: CodeModel,
-    declaration: Declaration,
-    records: DesignRecords | RecordsUnavailable,
-    parameters: Parameters,
-) -> CheckOutcome:
-    """A file's regions run in the coding skill's file-anatomy order."""
-    if not declaration.declared:
-        return undeclared(ANATOMY.name)
-    by_file: dict[str, set[Region]] = {}
-    for region in (*declaration.layers.regions, *model.regions):
-        by_file.setdefault(region.path, set()).add(region)
-    files = {u.path: u for u in model.units if u.kind is UnitKind.FILE}
-    findings: list[Finding] = []
-    for path in sorted(by_file.keys() & files.keys()):
-        disorder = _out_of_place(tuple(by_file[path]))
-        if disorder is None:
-            continue
-        region, above = disorder
-        findings.append(
-            Finding(
-                ANATOMY,
-                files[path],
-                region.layer,
-                f"the {region.layer.value} region at line {region.start} follows "
-                f"the {above.layer.value} region at line {above.start}",
-                Evidence(path, region.start, region.layer.value),
-            )
-        )
-    return CheckOutcome(tuple(findings))
-
-
-def _job(layer: Layer | None) -> str | None:
-    """The job a layer's units do, when it is one of the three."""
-    return JOBS.get(layer) if layer is not None else None
-
-
-def _two_jobs_ask(definition: Definition, job: str) -> Ask:
-    unit = definition.unit
-    layer = unit.layer
-    others = " and ".join(j for j in JOBS.values() if j != job)
-    return Ask(
-        check=TWO_JOBS_CHECK,
-        question=TWO_JOBS,
-        unit=unit,
-        layer=layer,
-        subject=(
-            f"{unit.symbol}: declared {layer.value if layer else 'unassigned'} "
-            f"({job}) and doing {others} as well"
-        ),
-        evidence=Evidence(unit.path, unit.start, unit.symbol or ""),
-        text=definition_text(definition),
-        context=f"declared layer: {layer.value if layer else ''}, whose job is {job}",
-    )
-
-
-def two_jobs(
-    model: CodeModel,
-    declaration: Declaration,
-    records: DesignRecords | RecordsUnavailable,
-    parameters: Parameters,
-) -> CheckOutcome:
-    """Asks the judge, of every function declared to do rules, workflow or
-    wiring, whether it does two of the three; it finds nothing by itself."""
-    if not declaration.declared:
-        return undeclared(TWO_JOBS_CHECK.name)
-    return CheckOutcome(
-        questions=tuple(
-            _two_jobs_ask(d, job)
-            for d in model.definitions
-            if d.unit.kind is UnitKind.FUNCTION
-            and not d.nested
-            and (job := _job(d.unit.layer)) is not None
-        )
-    )

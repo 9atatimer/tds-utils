@@ -32,7 +32,7 @@ def test_report_text_names_the_verdict_and_every_finding_with_what_fixes_it() ->
     assert "removed  Complete / Stub (rule)" in text
     assert "an exemption the change adds is inert" in text
     assert "Complexity: did not finish before the deadline" in text
-    assert "abstained  Layered / Two jobs (confidence 0.60)" in text
+    assert "abstained  LAW / Kind (confidence 0.60)" in text
     assert "the report was not kept: disk full" in text
 
 
