@@ -287,3 +287,16 @@ def test_no_declaration_file_is_declaration_none() -> None:
 
     assert merged == Declaration.none
     assert not Declaration.none.governs("anything.py")
+
+
+def test_vocabulary_cannot_be_overridden() -> None:
+    """Given a sub-project declaration with [override.vocabulary] under a
+    root that extends the vocabulary, When it is read, Then it cannot be
+    read: vocabulary is a union across the governing declarations."""
+    parsed = parse_file(
+        "pkg/adherence.toml", b'[override.vocabulary]\nstubs = ["todo"]\n'
+    )
+
+    assert isinstance(parsed, DeclarationUnreadable)
+    assert "pkg/adherence.toml" in parsed.reason
+    assert "vocabulary cannot be overridden" in parsed.reason

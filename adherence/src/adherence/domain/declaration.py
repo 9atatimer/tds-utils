@@ -34,6 +34,9 @@ OVERRIDE = "override"
 # file's. Every other section is a union across the governing files.
 SINGLE_VALUED = frozenset({"records", "radar", "limits"})
 ESCAPES = "escapes its directory"
+VOCABULARY_UNION = (
+    "vocabulary cannot be overridden; it is a union across the governing declarations"
+)
 
 TABLES = frozenset(
     {"layers", "runtimes", "records", "radar", "exemptions", "limits", "vocabulary"}
@@ -850,6 +853,8 @@ def _sections(
         return DeclarationUnreadable(
             f"{name}: unknown override section(s): {', '.join(unknown)}"
         )
+    if "vocabulary" in overriding:
+        return DeclarationUnreadable(f"{name}: {VOCABULARY_UNION}")
     both = sorted(set(overriding) & set(document))
     if both:
         return DeclarationUnreadable(
