@@ -60,6 +60,8 @@ changes the component.
 | Gateway route | The deadline hop, the 507 answer, the hold hop | `route/ollama-gateway.cfg`, `route/ollama-gateway.deadline.http`, `gateway.env` | served by `com.tds.lmde.proxy-layer` |
 | Token seeding | Copies the run token from 1Password into the Keychain; a human runs it | `seed-tunnel-token.zsh` | -- |
 | Install, health | `lmde install` / `lmde status` contract | `setup.sh`, `healthcheck.sh` | -- |
+| Keg rule | The one rule for which keg the engine runs from (`<keg>` = the resolved `ollama`, two levels up) and where the running engine's keg is recorded (`run/engine.keg`); sourced by the launcher, the watcher, the healthcheck and `setup.sh` (PR#710) | `libexec/keg.zsh` | -- |
+| Keg watcher | On a change to the directory holding `ollama` or the one holding its kegs, restarts a running engine whose recorded keg is no longer current; exits 0 always (PR#710) | `libexec/keg-watch.zsh` | `com.tds.lmde.ollama-gateway.keg-watch` (`WatchPaths`; installed only when `ollama` is on the installer's PATH) |
 
 The everyday ollama (`127.0.0.1:11434`, its LaunchAgent, its config) is
 not part of the component; nothing here touches it (G8, smoketest 12).
@@ -81,6 +83,7 @@ not part of the component; nothing here touches it (G8, smoketest 12).
 | Profile parameters | `USER_HOME`, `GATEWAY_TREE`, `GATEWAY_HOME`, `MODEL_STORE`, `MODEL_STORE_PARENT`, `OLLAMA_KEG` (`whence -p ollama`, resolved, two levels up) | `launch-ollama.zsh` | identical for the probe and for `ollama serve` |
 | Connector | `cloudflared tunnel --config <tree>/connector/config.yml --no-autoupdate --protocol http2 --loglevel info run --token-file /dev/fd/N`, `HOME=<tree>/connector` | `launch-connector.zsh` | QUIC over IPv6 fails on this network; never fall back to `~/.cloudflared` (another tunnel) |
 | LaunchAgents | `RunAtLoad`, `KeepAlive` on unsuccessful exit, `ThrottleInterval` 30 s | `launchd/*.plist.in` | G7; a refused start (78) retries every 30 s |
+| Keg watcher agent | `WatchPaths` on `<dir of ollama>` and `<keg>/..` (rendered at install), no `RunAtLoad`, no `KeepAlive`, no interval | `launchd/com.tds.lmde.ollama-gateway.keg-watch.plist.in` | launchd still runs it once at bootstrap, which catches an upgrade made while it was unloaded |
 | Refusal exit | 78 (`EX_CONFIG`) | both launchers | -- |
 | Healthcheck timeouts | 15 s local, 30 s through the edge | `healthcheck.sh` | -- |
 
@@ -141,7 +144,7 @@ not part of the component; nothing here touches it (G8, smoketest 12).
 | Hold the tunnel open | `launch-connector.zsh` `main` | `com.tds.lmde.ollama-gateway.connector` plist |
 | Answer before the deadline; hold the load | `route/ollama-gateway.cfg` | the proxy layer's `launch-proxy.zsh` |
 | Install / uninstall | `setup.sh` `do_install` / `do_uninstall` | `lmde install ollama-gateway` |
-| Health and origin-port drift | `healthcheck.sh`: `external-ollama`, `deadline-proxy`, `edge` | `lmde status`, `lmde doctor` |
+| Health and origin-port drift | `healthcheck.sh`: `external-ollama` (including keg drift: the engine's recorded keg gone or replaced), `deadline-proxy`, `edge` | `lmde status`, `lmde doctor` |
 | Derive the allow-list | `profile-trace.zsh --model <name>` | a human, after an ollama or macOS upgrade |
 | Seed the run token | `seed-tunnel-token.zsh` | a human at a terminal |
 
@@ -182,11 +185,22 @@ engine port is not 1-65535 or is 11434; when the keg is missing or not a
 private keg (one of `/`, `/usr`, `/usr/local`, `/opt`, `/opt/homebrew`,
 `/opt/local`, an ancestor of `$HOME`, or a `bin/` holding anything but
 `ollama*`); and, except under `--probe-only`, when 11435 is already
-bound. Then the probe runs unconfined, then confined (cwd the gateway
-home); then `exec sandbox-exec -f <profile> -D ... /usr/bin/env -i ...
-ollama serve`. Any failure exits 78 and launchd retries in 30 s; the
+bound. Unless under `--probe-only`, it records the keg in
+`run/engine.keg` (before the probe, so a watch event during the probe
+reads the new keg and does not restart the start again). Then the probe
+runs unconfined, then confined (cwd the gateway home); then `exec
+sandbox-exec -f <profile> -D ... /usr/bin/env -i ... ollama serve`. Any failure exits 78 and launchd retries in 30 s; the
 gateway is DEGRADED until the probe passes. Profile compilation adds a few
 seconds to every start.
+
+An ollama upgrade: Homebrew relinks `ollama` (the bin directory
+changes), then cleans up the old keg (the kegs directory changes); each
+change runs the keg watcher. Mid-upgrade `ollama` may be missing from
+PATH, and the watcher waits for the next change. Once the recorded keg
+differs from the current one and the engine's launchd state is
+`running`, it kickstarts the engine; a stopped engine (an operator's
+clean exit) stays down, and a crashed one is restarted by launchd through
+the launcher anyway.
 
 A start of the connector: read the token from the Keychain (service
 `lmde.ollama-gateway.tunnel-token`, account `ollama-gateway`); a missing
@@ -277,6 +291,10 @@ Recorded here as fact; recording is not approval.
   the one writable tree.
 - Engine parameters the design does not name: context length, flash
   attention, KV cache type, `OLLAMA_NO_CLOUD`.
+- Recovery from an ollama upgrade (PR#710): the keg watcher LaunchAgent,
+  `run/engine.keg`, and the healthcheck's keg-drift condition. G7 names
+  three daemons; this is a fourth agent and a new restart cause: drift,
+  Issue#724.
 
 ## Radar reality
 
@@ -316,6 +334,14 @@ Recorded here as fact; recording is not approval.
   `"stream": true`).
 - **`keep_alive` 2 m means a cold load per review.** Reviews minutes apart
   each pay one (the pilot's green run did).
+- **A sandbox grant bound at start goes stale when the package manager
+  replaces what it grants.** The profile's `OLLAMA_KEG` is derived once,
+  when the engine starts. A Homebrew upgrade deletes that keg under the
+  running engine, which then launches the new keg's runner and is denied:
+  every completion answered 500 for hours, and nothing reported it
+  (Issue#709). The fix is to restart on the upgrade's own events and to
+  record what was granted, so a later reader can compare; widening the
+  grant would keep the old binary running against the new runner.
 - **The external ollama cannot migrate the store.** It reads the store
   read-only, so after a Homebrew upgrade past a store-layout change it
   fails `GET /v1/models` until the everyday ollama has run the new version

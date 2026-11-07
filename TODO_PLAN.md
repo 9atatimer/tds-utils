@@ -121,11 +121,16 @@ own stack with no introduced finding. The route from here:
   requires the adherence check by name, every adopter requires `gate`);
   the recording Issue#714 (glob escaping, the bounded conflict scan, one
   merge per tree, the encoded contents path, the file notices; for
-  task-072's as-built); and the discovered template-tools Issue#1063 (no
-  hook runs the engine's `hook` stage) and Issue#1064 (designomatic's
-  top-level modules have no layer), tds-utils Issue#709 (the gateway's
-  500 at the OCR probe) and Issue#711 (ocr-review calls a Markdown-only PR
-  "failed"). No task until the owner rules Issue#712 and Issue#713.
+  task-072's as-built); and the discovered template-tools Issue#1063 (the
+  `hook` stage; done, template-tools PR#1069) and Issue#1064
+  (designomatic's top-level modules have no layer), tds-utils Issue#709
+  (the gateway's 500 at the OCR probe; fixed by PR#710, its drift
+  Issue#724 waits on a design amendment) and Issue#711 (ocr-review calls a
+  Markdown-only PR "failed"; blocked on the owner's ruling on the OCR
+  design's G4). OCR on Demand failed twice while this route ran, both
+  undiagnosed: Issue#725 (`engine-error`) and Issue#726 (a job timeout
+  reported as `unexpected`). No task until the owner rules Issue#712 and
+  Issue#713.
 - the hosted judge in CI is bound since 2026-11-07 (tds-utils PR#716,
   tds-internal PR#321, Skills PR#181, template-tools PR#1068; Key
   Decisions rows under Issue#590 (design) and Issue#721
