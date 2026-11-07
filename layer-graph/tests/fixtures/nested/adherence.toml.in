@@ -1,0 +1,6 @@
+[layers]
+domain = ["core/**"]
+test = ["fixtures/**"]
+
+[runtimes]
+lib = ["core/**"]

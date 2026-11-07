@@ -1,0 +1,4 @@
+# Symbol resolution through a package barrel (layer-graph fixture).
+[layers]
+domain = ["src/**"]
+adapters = ["app/**"]

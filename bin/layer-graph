@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# layer-graph -- extract a repository's layer/domain graph as JSON from its
+# adherence.toml declarations and its import statements.
+#
+# Thin launcher: resolves the sibling uv project and execs its `layer-graph`
+# console script, so a bare `layer-graph` on PATH (tiered through
+# ~/.tds/release or the dev checkout) reaches the package without a manual
+# install. Runbook: docs/ops/layer-graph.md
+
+set -euo pipefail
+
+# --- Helpers -----------------------------------------------------------------
+
+project_dir() {
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    printf '%s\n' "${script_dir}/../layer-graph"
+}
+
+require_uv() {
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "layer-graph: uv not found on PATH (brew install uv)" >&2
+        return 127
+    fi
+}
+
+# --- Main --------------------------------------------------------------------
+
+# --no-dev keeps the dev group (pytest, ruff, mypy) out of every runtime
+# sync; the unit suite is what wants it.
+main() {
+    export PATH="/usr/local/bin:/opt/homebrew/bin:${HOME}/.local/bin:${PATH}"
+    require_uv
+    exec uv run --quiet --no-dev --project "$(project_dir)" layer-graph "$@"
+}
+
+main "$@"

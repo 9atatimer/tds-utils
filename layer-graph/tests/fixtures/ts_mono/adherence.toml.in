@@ -1,0 +1,21 @@
+# A tiny TypeScript monorepo declared by layer (layer-graph fixture).
+[layers]
+domain = ["packages/core/src/domain/**"]
+application = ["packages/core/src/application/**"]
+ports = ["packages/core/src/ports/**"]
+adapters = [
+    "packages/adapters-memory/src/**",
+    "apps/web/app/**",
+]
+"composition root" = [
+    "packages/core/src/index.ts",
+    "apps/web/server/composition/**",
+    "apps/web/app/composition/**",
+    "workers/assistant/src/index.ts",
+]
+test = ["packages/*/test/**"]
+
+[runtimes]
+"app worker" = ["packages/**", "apps/web/server/**"]
+browser = ["apps/web/app/**"]
+"assistant worker" = ["workers/assistant/src/**"]
