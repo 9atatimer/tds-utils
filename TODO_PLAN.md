@@ -124,6 +124,14 @@ own stack with no introduced finding. The route from here:
   record's own parts in prose). Two tsconfig tests that lacked the
   `needs_cruiser` marker failed wherever dependency-cruiser is absent;
   fixed in the retrospective's PR.
+- the retrospective of 2026-11-07 (the calibration leg: tds-utils PR#734
+  and PR#738; the pins in template-tools PR#1075 and PR#1076 and Skills
+  PR#190) found no drift: the records fix each question's id, kind and
+  options, never its wording. Those PRs fixed Issue#728, Issue#729 and
+  Issue#733: all nine judged questions pass their eval floors against
+  the hosted judge, three runs in three. The lesson on wording a question
+  went to `adherence/evals/README.md`. The floor still runs in no CI job
+  (Issue#622), which is how five confidently wrong questions reached CI.
 - the retrospective of 2026-11-07 (the nested-declarations leg, tds-utils
   PR#708, Skills PR#178 and PR#179, template-tools PR#1062) filed: the
   decision-needed drift Issue#712 (a sub-project's declaration cannot

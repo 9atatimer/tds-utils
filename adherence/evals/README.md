@@ -35,9 +35,43 @@ the set grows: a binary finding needs 0.9, the score and the choice 0.85,
 with a wide abstention band below. The floor is that no example is
 answered confidently wrong. It runs wherever a judge is configured:
 `DECIDE_URL` on a laptop, or the hosted `DECIDE_GATEWAY_URL` and
-`DECIDE_GATEWAY_TOKEN`. It becomes the gate's once the hosted judge is
-bound in CI (task-067; DESIGN.ARCH-ADHERENCE.md Q4). Until then no CI
-job runs it, and the shipped thresholds are checked against the labelled
-set by running it by hand. Grow the set from real flaws found and real
-false findings before moving a threshold, and report each question and
-each class apart.
+`DECIDE_GATEWAY_TOKEN`. The hosted judge has been bound in CI since
+2026-11-07 (tds-utils PR#722), but no CI job runs the floor yet
+(Issue#622): a question's wording or a set's labels change, and nothing
+asks the judge until a person runs it by hand. Grow the set from real
+flaws found and real false findings before moving a threshold, and
+report each question and each class apart.
+
+## Wording a question
+
+The first run against the hosted judge (2026-11-07, Issue#728 and
+Issue#733) found five of nine questions answering labelled examples
+confidently wrong. Clef applied each question literally. It counted a
+workflow's calls into a store as the workflow's own effects, read a
+verbosity flag as a business decision, and passed a test that asserted
+only `is not None`. Saying what counts fixed all five (tds-utils PR#734
+and PR#738), but the first fix keyed each carve-out on names and shapes:
+"a configuration flag", a "...Record" suffix, "wherever it is written".
+That is a steering channel, because the author of the code under
+judgement chooses the names. It also contradicted labelled examples:
+strict mode is a configuration flag that decides validity, and
+`LedgerEntry` is a domain term.
+
+- **Judge by substance.** Say what the code decides, what the types
+  mean, or what a unit reads, never what a thing is called.
+- **Name the exclusions by what they do.** For example: only changes
+  how output is shown; only checks whether a call succeeded, to report
+  its failure.
+- **Check each new wording against every example of both labels, by
+  reading.** The floor only says nothing is confidently wrong.
+- **Run the floor three times against the hosted judge** before trusting
+  a change: the judge is probabilistic. The command is `uv run pytest
+  tests/integration/test_eval_floor.py` from `adherence/`, with
+  `DECIDE_GATEWAY_URL` and `DECIDE_GATEWAY_TOKEN` read from the judge's
+  item; add `-k <question id>` for one question.
+- **Know where the wording lives.** A question's wording is in
+  `adherence/src/adherence/domain/questions.py`, and its id, kind and
+  options must not change. If a new wording changes how an example
+  should be read, update that example's `note` in `<question>.jsonl`
+  in the same change. A changed label is a decision about the example,
+  not a fix to the wording.
