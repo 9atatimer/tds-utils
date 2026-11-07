@@ -265,3 +265,21 @@ def test_a_creation_under_no_declaration_names_its_own_directory() -> None:
         "created under no declaration: .",
         "created under no declaration: ops/b",
     ], _notices(report)
+
+
+def test_a_nested_files_landings_are_asked_for_with_its_own_path() -> None:
+    """Given a root declaration and a sub-project one, each with a landing,
+    When a change is judged, Then the reviews are asked about each landing
+    with that file's own path, so the reviewed text is read from it."""
+    reviews = FakeReviews()
+
+    judge_with(
+        {"pkg/adherence.toml": SUB, "pkg/src/domain/r.py": CLEAN},
+        {"pkg/adherence.toml": SUB, "pkg/src/domain/r.py": CLEAN},
+        histories={"pkg/adherence.toml": (EARLIER,)},
+        reviews=reviews,
+        landed={EARLIER: {"pkg/adherence.toml": SUB}},
+    )
+
+    assert (EARLIER, "pkg/adherence.toml") in reviews.asked_for, reviews.asked_for
+    assert (BASE.revision, "adherence.toml") in reviews.asked_for

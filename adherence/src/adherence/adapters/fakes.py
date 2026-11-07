@@ -426,8 +426,9 @@ class FakeDecision:
 class FakeReviews:
     """ReviewPort over a mapping of commit -> the answer the test scripts;
     a commit it does not hold is Unknown. `asked` keeps every commit it
-    was asked about, in order. Its clock is frozen at `now`, so a deadline
-    at or before it has passed."""
+    was asked about, in order, and `asked_for` each with the declaration
+    path it was asked for. Its clock is frozen at `now`, so a deadline at
+    or before it has passed."""
 
     def __init__(
         self,
@@ -441,11 +442,13 @@ class FakeReviews:
         self._answers = answers or {}
         self._now = now
         self.asked: list[str] = []
+        self.asked_for: list[tuple[str, str]] = []
 
     def approvals(
         self, commit: str, deadline: Deadline | None, *, path: str = DECLARATION_PATH
     ) -> Landing | NoLandingPR | Unknown | ReviewsUnavailable | TimedOut:
         self.asked.append(commit)
+        self.asked_for.append((commit, path))
         if deadline is not None and deadline.epoch_seconds <= self._now:
             return TimedOut("read the reviews of a landing")
         return self._answers.get(commit, Unknown(NO_REVIEWS))
