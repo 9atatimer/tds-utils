@@ -464,15 +464,14 @@ def _record_scopes(
     deadline: Deadline | None,
 ) -> tuple[RecordScope, ...]:
     """The model's files grouped by the design record and radar their
-    nearest governing declarations name, each group's read once; none when
-    every file names the same pair, so the run reads them as it always has."""
+    nearest governing declarations name, each group's read once, its
+    declaration naming that group's own pair -- a sub-project's, when that
+    is the one governing declaration naming them, never only the root's."""
     groups: dict[tuple[RecordPaths | None, str | None], set[str]] = {}
     for unit in model.units:
         if unit.kind is UnitKind.FILE:
             key = (declaration.records_for(unit.path), declaration.radar_for(unit.path))
             groups.setdefault(key, set()).add(unit.path)
-    if len(groups) < 2:
-        return ()
     scopes: list[RecordScope] = []
     for (paths, radar), files in groups.items():
         scoped = replace(
@@ -494,11 +493,12 @@ def _scoped_inputs(
     DesignRecords | RecordsUnavailable,
     Radar | RecordsUnavailable,
 ]:
-    """The records scopes, when the model's files name two or more, and the
-    records and radar the run's checks are given."""
+    """The records scopes, when the model's files name two or more pairs,
+    and the records and radar the run's checks are given: with one pair,
+    that pair's own, read once; with none (no file), the declaration's."""
     scopes = _record_scopes(model, declaration, records, at, deadline)
     if scopes:
-        return scopes, scopes[0].records, scopes[0].radar
+        return (scopes if len(scopes) > 1 else ()), scopes[0].records, scopes[0].radar
     design, tech = _design_inputs(records, at, declaration, deadline)
     return scopes, design, tech
 

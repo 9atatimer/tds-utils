@@ -36,6 +36,7 @@ from adherence.domain.questions import Unavailable
 from adherence.domain.records import (
     Behavior,
     DesignRecords,
+    Radar,
     SurfaceRow,
     UseCase,
 )
@@ -185,3 +186,73 @@ def test_a_behavior_is_traced_only_against_its_own_sub_projects_units() -> None:
     assert any(
         c.check == "Trace" and "b/DESIGN.md" in c.reason for c in report.coverage
     ), [c for c in report.coverage if c.check == "Trace"]
+
+
+SUB_ONLY = (
+    SUB.replace(b"DESIGN.md", b"docs/D.md").replace(b"ARCHITECTURE.md", b"docs/A.md")
+    + b'\n[radar]\npath = "docs/R.md"\n'
+)
+RECORD_AND_RADAR_CHECKS = (
+    "Trace",
+    "Change",
+    "Language",
+    "Kept test",
+    "Public surface",
+    "Dependency",
+    "Edge only",
+)
+
+
+def test_a_sub_project_only_declaration_has_its_records_and_radar_read() -> None:
+    """Given a repository whose only declaration is sub/adherence.toml,
+    naming its design record and its radar, When it is measured, Then that
+    record and that radar are read -- not the root's, which has none -- and
+    every check that reads them runs, as it does for a root declaration."""
+    files = {
+        "sub/adherence.toml": SUB_ONLY,
+        "sub/src/application/use.py": b"def close_order(order): ...\n",
+    }
+    facts = CodeModel(
+        definitions=(_function("sub/src/application/use.py", "close_order"),)
+    )
+    records = FakeRecords(
+        {},
+        by_record={"sub/docs/D.md": _carrying("sub/docs/D.md", "sub/docs/A.md")},
+        by_radar={"sub/docs/R.md": Radar()},
+    )
+
+    report = _measured(
+        files, _declaration({"sub/adherence.toml": SUB_ONLY}), facts, records
+    )
+
+    ran = {c.name for c in report.ran}
+    for check in RECORD_AND_RADAR_CHECKS:
+        assert check in ran, (check, sorted(ran))
+    assert ("records", HEAD, "sub/docs/D.md") in records.named
+    assert ("radar", HEAD, "sub/docs/R.md") in records.named
+
+
+def test_the_root_radar_and_an_override_each_hold_their_own_subtree() -> None:
+    """Given a root declaration naming a radar and a sub-project naming its
+    own under [override.radar], When the repository is measured, Then the
+    root's radar is read for the root's files and the sub-project's for its
+    own, each once."""
+    root = b'[layers]\ndomain = ["lib/**"]\n[radar]\npath = "RADAR.md"\n'
+    sub = b'[layers]\ndomain = ["src/**"]\n[override.radar]\npath = "R.md"\n'
+    files = {
+        "adherence.toml": root,
+        "sub/adherence.toml": sub,
+        "lib/a.py": b"x = 1\n",
+        "sub/src/b.py": b"x = 1\n",
+    }
+    records = FakeRecords({}, by_radar={"RADAR.md": Radar(), "sub/R.md": Radar()})
+
+    report = _measured(
+        files,
+        _declaration({"adherence.toml": root, "sub/adherence.toml": sub}),
+        records=records,
+    )
+
+    radars = sorted(p or "" for kind, _, p in records.named if kind == "radar")
+    assert radars == ["RADAR.md", "sub/R.md"], records.named
+    assert "Dependency" in {c.name for c in report.ran}

@@ -302,10 +302,12 @@ class FakeRecords:
     RecordsUnavailable or the TimedOut the test scripts for it, so base and
     head can hold different records. A target it does not hold has none.
     `radar` scripts the radar per target the same way. `by_record` scripts
-    the records by the design record the declaration names, whatever the
-    target, so two sub-projects can name two records. Its clock is frozen
-    at `now`, so a deadline at or before it has passed. `asked` lists every
-    call, by method and target, in order."""
+    the records by the design record the declaration names -- keyed by its
+    path, or by (target, path) to tell base from head -- so two
+    sub-projects can name two records; `by_radar` scripts the radar by the
+    radar path named. Its clock is frozen at `now`, so a deadline at or
+    before it has passed. `asked` lists every call, by method and target,
+    in order; `named` every call with the record or radar path it named."""
 
     def __init__(
         self,
@@ -313,15 +315,20 @@ class FakeRecords:
         *,
         radar: Mapping[Base | Head, Radar | RecordsUnavailable | TimedOut]
         | None = None,
-        by_record: Mapping[str, DesignRecords | RecordsUnavailable | TimedOut]
+        by_record: Mapping[
+            str | tuple[Base | Head, str], DesignRecords | RecordsUnavailable | TimedOut
+        ]
         | None = None,
+        by_radar: Mapping[str, Radar | RecordsUnavailable | TimedOut] | None = None,
         now: float = 1e9,
     ) -> None:
         self._by_target = by_target
         self._radar = radar or {}
         self._by_record = by_record or {}
+        self._by_radar = by_radar or {}
         self._now = now
         self.asked: list[tuple[str, Base | Head]] = []
+        self.named: list[tuple[str, Base | Head, str | None]] = []
 
     def records(
         self, at: Base | Head, declaration: Declaration, deadline: Deadline | None
@@ -330,8 +337,11 @@ class FakeRecords:
         if deadline is not None and deadline.epoch_seconds <= self._now:
             return TimedOut("read the design records")
         named = declaration.records
-        if named is not None and named.design in self._by_record:
-            return self._by_record[named.design]
+        self.named.append(("records", at, named.design if named else None))
+        if named is not None:
+            for key in ((at, named.design), named.design):
+                if key in self._by_record:
+                    return self._by_record[key]
         return self._by_target.get(
             at, RecordsUnavailable("no design record at this target")
         )
@@ -342,6 +352,9 @@ class FakeRecords:
         self.asked.append(("radar", at))
         if deadline is not None and deadline.epoch_seconds <= self._now:
             return TimedOut("read the radar")
+        self.named.append(("radar", at, declaration.radar))
+        if declaration.radar is not None and declaration.radar in self._by_radar:
+            return self._by_radar[declaration.radar]
         return self._radar.get(at, RecordsUnavailable("no radar at this target"))
 
 
