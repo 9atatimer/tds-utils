@@ -32,8 +32,8 @@ trap cleanup EXIT
 # has_non_ascii <file> -- succeeds when any byte is outside 7-bit ASCII.
 has_non_ascii() { LC_ALL=C grep -q '[^ -~	]' "$1"; }
 
-# has_numbered_item <file> -- succeeds on a "1." style list line.
-has_numbered_item() { grep -Eq '^[[:space:]]*[0-9]+\.[[:space:]]' "$1"; }
+# has_numbered_item <file> -- succeeds on a "1." or "1)" style list line.
+has_numbered_item() { grep -Eq '^[[:space:]]*[0-9]+[.)][[:space:]]' "$1"; }
 
 # has_glance_list <file> -- succeeds when the at-a-glance section exists and
 # holds at least one bullet before the next heading.
@@ -73,11 +73,13 @@ run_fixtures() {
     WORKROOT=$(mktemp -d)
     printf 'curly “quote” and an em—dash\n' > "${WORKROOT}/unicode.md"
     printf -- '- a\n1. first\n' > "${WORKROOT}/numbered.md"
+    printf -- '- a\n1) first\n' > "${WORKROOT}/numbered-paren.md"
     printf '## Other\n- a\n## The hard rules, at a glance\n\n## Next\n- b\n' > "${WORKROOT}/empty-glance.md"
     printf '# no header comment\n' > "${WORKROOT}/no-header.md"
     printf 'fixtures (each check must be able to fail):\n'
     check "flags non-ASCII" has_non_ascii "${WORKROOT}/unicode.md"
     check "flags a numbered item" has_numbered_item "${WORKROOT}/numbered.md"
+    check "flags a parenthesised numbered item" has_numbered_item "${WORKROOT}/numbered-paren.md"
     check "flags an empty at-a-glance section" fails has_glance_list "${WORKROOT}/empty-glance.md"
     check "flags a missing header comment" fails starts_with_header_comment "${WORKROOT}/no-header.md"
 }

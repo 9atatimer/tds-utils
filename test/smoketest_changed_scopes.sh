@@ -82,8 +82,7 @@ test_inert() {
 test_operating_rules() {
     local d="${WORKROOT}/empty"
     mkdir -p "${d}"
-    printf 'The global agent file is operating rules, not prose
-'
+    printf 'The global agent file is operating rules, not prose\n'
     assert_eq "clai.d/AGENT.global.md runs its smoketest" "$(only smoketests)" \
         "$(classify "${d}" clai.d/AGENT.global.md)"
 }
