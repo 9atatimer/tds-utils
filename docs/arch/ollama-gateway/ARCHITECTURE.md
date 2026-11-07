@@ -60,7 +60,7 @@ changes the component.
 | Gateway route | The deadline hop, the 507 answer, the hold hop | `route/ollama-gateway.cfg`, `route/ollama-gateway.deadline.http`, `gateway.env` | served by `com.tds.lmde.proxy-layer` |
 | Token seeding | Copies the run token from 1Password into the Keychain; a human runs it | `seed-tunnel-token.zsh` | -- |
 | Install, health | `lmde install` / `lmde status` contract | `setup.sh`, `healthcheck.sh` | -- |
-| Keg rule | The one rule for which keg the engine runs from (`<keg>` = the resolved `ollama`, two levels up) and where the running engine's keg is recorded (`run/engine.keg`); sourced by the launcher, the watcher and the healthcheck (PR#710) | `libexec/keg.zsh` | -- |
+| Keg rule | The one rule for which keg the engine runs from (`<keg>` = the resolved `ollama`, two levels up) and where the running engine's keg is recorded (`run/engine.keg`); sourced by the launcher, the watcher, the healthcheck and `setup.sh` (PR#710) | `libexec/keg.zsh` | -- |
 | Keg watcher | On a change to the directory holding `ollama` or the one holding its kegs, restarts a running engine whose recorded keg is no longer current; exits 0 always (PR#710) | `libexec/keg-watch.zsh` | `com.tds.lmde.ollama-gateway.keg-watch` (`WatchPaths`; installed only when `ollama` is on the installer's PATH) |
 
 The everyday ollama (`127.0.0.1:11434`, its LaunchAgent, its config) is
