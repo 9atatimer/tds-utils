@@ -53,7 +53,7 @@ run_fn() {
     while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do assigns+=("$1"); shift; done
     shift
     RUN_RC=0
-    RUN_OUT=$(env -i HOME="${HOME}" PATH="${WORKROOT}/bin:${PATH}" FAKE_LOG="${WORKROOT}/log" \
+    RUN_OUT=$(env -i HOME="${HOME:-${WORKROOT}}" PATH="${WORKROOT}/bin:${PATH}" FAKE_LOG="${WORKROOT}/log" \
         "${assigns[@]+"${assigns[@]}"}" bash -c 'source "$1"; shift; "$@"' _ "${ALIAS_FILE}" "$@" \
         2> "${WORKROOT}/stderr") || RUN_RC=$?
     RUN_ERR=$(cat "${WORKROOT}/stderr")

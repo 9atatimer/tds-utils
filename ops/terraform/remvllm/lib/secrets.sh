@@ -43,6 +43,9 @@ secrets_bucket_endpoint() { secrets_read "${REMVLLM_OP_BUCKET_ENDPOINT:-}"; }
 # and a failing substitution inside an argument does not trip `set -e`, so
 # without this check an unset reference reaches terraform as an empty value
 # (remvllm.conf ships them empty; remvllm.local.conf fills them in).
+# The messages name the VARIABLE only, never its value: a value that is
+# not an op:// path may be a pasted secret, and this runs in terminals
+# and CI logs. 06_secrets_refs.sh asserts the value stays out.
 secrets_require_refs() {
     local suffix var missing=0
     for suffix in OP_TOKEN OP_SSH_KEY OP_SSH_PUBKEY; do
