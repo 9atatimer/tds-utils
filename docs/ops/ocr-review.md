@@ -39,6 +39,7 @@ caller item's `op://<vault>/<item>` reference up in tds-internal
 
 ```
 bin/seed-ocr-review status                                   # 9atatimer
+bin/seed-ocr-review status 9atatimer/misvtt                  # named repos only
 bin/seed-ocr-review -o Nine-At-A-Time-Media status
 bin/seed-ocr-review -n -i '<caller item op:// reference>' -r '<SA token op:// reference>' -u '<gateway base URL>' seed   # dry run
 bin/seed-ocr-review -i '<caller item op:// reference>' -r '<SA token op:// reference>' -u '<gateway base URL>' seed
@@ -47,7 +48,10 @@ bin/seed-ocr-review -o Nine-At-A-Time-Media -i '<...>' -r '<...>' -u '<...>' see
 
 - `status` is read-only: per consumer, the pin and its state, the secret,
   the three variables and the last run. Exit 0 ready, 1 not ready, 2
-  could not tell. On Nine-At-A-Time-Media an org secret or variable counts
+  could not tell. Named repos skip the owner-wide listing; a named repo
+  with no caller reads `CALLER no` and is not ready. Repos are checked
+  `SEED_OCR_JOBS` at a time (default 8): a whole 9atatimer run takes
+  about a minute, one named repo a few seconds. On Nine-At-A-Time-Media an org secret or variable counts
   for a repo only when its visibility reaches it: `all` reaches every repo,
   `private` only private and internal repos (never a public one), and
   `selected` the repos it lists.
