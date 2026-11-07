@@ -221,8 +221,9 @@ both invoke the same CLI.
 | An undeclared subtree has no adherence | (`measure`; a tree path no governing declaration reaches is coverage, "undeclared subtree", built from `RepositoryPort.tree` before the analyzers run, so no `Unit` exists for it and Covered never sees one; `judge_change` adds one `Notice` per directory the change created there) | RepositoryPort |
 | A new declaration governs from the next change | (`judge_change`; a declaration path at the head with no landing on the base's history is a `Notice` and is left out of the merge; its subtree is undeclared for this change) | RepositoryPort, ReviewPort |
 | A declaration's paths stay in its subtree | (`load_declaration`; `domain/declaration` refuses a path that escapes the file's directory as `DeclarationUnreadable`) | RepositoryPort |
-| A deleted declaration ends with its approval | (`judge_change`; the history walk counts a deleting landing like any other: approved, nothing is in force for that path; unapproved, the last approved revision is read and the deletion is a `Notice`) | RepositoryPort, ReviewPort |
-| A sub-project's declaration governs its subtree | (`load_declaration`; `RepositoryPort.find(declaration name, at, deadline)` lists every `adherence.toml`; `domain/declaration` parses each with paths relative to its directory and assigns a unit by the declarations in the directories above it) | RepositoryPort |
+| A fixture is not a declaration | (`load_declaration` and `judge_change`'s in-force walk; a found `adherence.toml` whose path a governing declaration above it, read first, assigns to `Layer.TEST` is dropped from the candidates) | RepositoryPort |
+| A deleted declaration ends with its approval | (`judge_change`; `RepositoryPort.touched` names the deleted path, the history walk counts a deleting landing like any other: approved, nothing is in force for that path; unapproved, the last approved revision is read and the deletion is a `Notice`; `ReviewPort.approvals(commit, deadline, path=)` reads the reviewed text of that file) | RepositoryPort, ReviewPort |
+| A sub-project's declaration governs its subtree | (`load_declaration`; `RepositoryPort.find(declaration name, at, deadline)` lists every `adherence.toml` at the revision and `RepositoryPort.touched(pattern, base, deadline)` the paths a history ever held, so a deleted file is found too; `domain/declaration` parses each with paths relative to its directory and assigns a unit by the declarations in the directories above it) | RepositoryPort |
 | Governing declarations are read as one | (`load_declaration`; `domain/declaration` `governing_declarations`: union sections as a union, the nearest file's single-valued sections; the merged `Declaration` is what `measure` is given) | RepositoryPort |
 | An override replaces a parent's default | (`load_declaration`; `governing_declarations` voids, within the subtree, everything the files above say for the overridden section) | RepositoryPort |
 | A silent conflict is refused | (`load_declaration`; `governing_declarations` is given the tree at the revision and refuses two files placing one real path in two layers, or both defining a single-valued section, without `[override]`, as `DeclarationUnreadable` naming both files, the section and the path; `measure` returns `Report.not_run`) | RepositoryPort |
@@ -336,10 +337,14 @@ range; a region's file and a marker file are relative to the declaring
 file's directory like every other path, and a marker-declared region
 takes the merged vocabulary. A section under `[override]`
 (`[override.records]`, `[override.radar]`, `[override.limits]`,
-`[override.layers]`, `[override.runtimes]`, `[override.exemptions]`,
-`[override.vocabulary]`) replaces, for the file's subtree, the whole of
-what the files above it say for that section; a plain section defines,
-and a plain single-valued one is refused where a file above has it. In an adopting repository every `adherence.toml` is a CODEOWNERS
+`[override.layers]`, `[override.runtimes]`, `[override.exemptions]`)
+replaces, for the file's subtree, the whole of what the files above it
+say for that section; a plain section defines, a plain single-valued one
+is refused where a file above has it, and `[override.vocabulary]` is
+refused because the vocabulary is one per run. A layer conflict counts a
+line-range region as its file's assignment; a marker-declared region's
+layer is read from the file's text at measurement and cannot conflict at
+load. In an adopting repository every `adherence.toml` is a CODEOWNERS
 path naming users, so tedium lands no change to one without the owner's
 approval.
 

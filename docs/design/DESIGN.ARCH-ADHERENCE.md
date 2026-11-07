@@ -238,20 +238,25 @@ declaration in the directories from the root down to the path's own, root
 first. A path with none has no adherence: nothing is measured there and
 nothing is found there, and the coverage says so; a change that creates
 files there is noticed, never faulted. A declaration is never added to
-assets, art or the scripts that make them.
+assets, art or the scripts that make them. A file named `adherence.toml`
+that a governing declaration above it assigns to the test layer is test
+data, not a declaration: it is never discovered, never in force, never a
+notice.
 
 The governing declarations are read as one. The union sections, layers,
 runtimes, exemptions and vocabulary, are the union of what the governing
 declarations say; one finding two files exempt is one exemption carrying
-both reasons. The single-valued sections, the design record, the radar
+both reasons, and an exemption reaches only its own file's subtree.
+Vocabulary applies to the whole run and so has no override: a nearer file
+may only extend it. The single-valued sections, the design record, the radar
 and the limits, take the nearest governing declaration's value: the
 outermost to name one sets the default for its subtree, and a nearer one
 may set its own only by saying it overrides. The notation tells defining
 from overriding apart: a plain section (`[layers]`, `[records]`,
 `[radar]`, `[limits]`, `[exemptions]`, `[runtimes]`, `[vocabulary]`)
 defines, and the same section under `[override]` (`[override.layers]`,
-`[override.records]`, and so on) replaces the whole section for its own
-subtree: everything the declarations above say for that section is void
+`[override.records]`, and so on, never `[override.vocabulary]`) replaces
+the whole section for its own subtree: everything the declarations above say for that section is void
 there, and the overriding file's entries are the section. A plain
 single-valued section is legal only where no declaration above has that
 section, plain or overriding; an `[override]` is legal only where one
@@ -474,6 +479,7 @@ checks.
 | An undeclared subtree has no adherence | Given a repository with a declaration in one sub-project and a change that creates a unit in another sub-project with none, When the change is judged, Then no check reads the unit, Covered finds nothing, coverage names the unit's path as an undeclared subtree, and a notice names the directory the change created under no declaration |
 | A new declaration governs from the next change | Given a change that adds a sub-project with its own declaration, When the change is judged, Then the new declaration governs nothing for this change, its units are an undeclared subtree, and the new file is a notice |
 | A declaration's paths stay in its subtree | Given a declaration whose path or glob escapes its own directory, When a run is asked for, Then the verdict is not run and the report names the file and the path |
+| A fixture is not a declaration | Given a file named `adherence.toml` under a path a governing declaration above it assigns to the test layer, When a run is asked for, Then it is not read as a declaration, governs nothing, and is no notice |
 | A deleted declaration ends with its approval | Given a landing the owner approved that deletes a sub-project's declaration, When the next change is judged, Then nothing governs that subtree; Given a deletion the owner did not approve, Then the last approved revision is in force and the deletion is a notice |
 | A sub-project's declaration governs its subtree | Given a declaration in a sub-project whose layer paths are relative to that directory, When a run is asked for, Then every unit under that directory is assigned by it and no unit outside the directory is |
 | Governing declarations are read as one | Given a root declaration naming the radar and a sub-project declaration naming its layers and design record, When a run is asked for, Then a unit in the sub-project is checked under those layers, against that record and that radar |
