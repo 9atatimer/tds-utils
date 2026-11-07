@@ -104,9 +104,15 @@ repository is gated: `adherence-judge` is in `gate`'s `needs`, the
 declaration is in force under the Q11 ruling, and the engine judges its
 own stack with no introduced finding. The route from here:
 
-- the rollout (Issue#601): template-tools and Skills declare, run green
-  once, and put the caller in their `gate`; each is one PR in that
-  repository, pinned to a tds-utils commit by both refs.
+- the rollout (Issue#601): Skills is gated (Skills PR#174, PR#175);
+  template-tools is declared and judged, advisory (template-tools PR#1058,
+  PR#1059) until the owner rules Issue#695 (Covered is tree-wide, so a
+  partially declared monorepo cannot gate without failing every change
+  that creates a unit outside its declared layers; the recommendation is
+  to scope Covered to `[runtimes]`). Both run the engine at c11477c
+  (PR#694: no code scanning upload). Next: GammaGo, tds-internal, the
+  consumers; each one PR in that repository, pinned by both refs, and each
+  monorepo meets Issue#695 the same way.
 - task-071 (explanations) and task-072 (runbook and as-built), after the
   rollout; the as-built is where the component's lessons below graduate.
 - the drift the retrospective of 2026-11-06 cut, as `kind: bug` tasks:
@@ -122,7 +128,13 @@ own stack with no introduced finding. The route from here:
 
 The owner's rulings on the design's open questions (Q1, Q3-Q7, Q9, Q12)
 and the architecture's Q4 and Q6 land as Key Decisions appends under
-Issue#590 while the route runs.
+Issue#590 while the route runs. The design's Q4 and the architecture's
+Q6 (the hosted judge in CI, and its token on a PR head) are the largest
+gap the rollout surfaced: no caller passes a judge, so every judged check
+is coverage in every consumer, and each quality is measured by its
+mechanical half only. Measured with `bin/adhere measure` on template-tools
+64fce35, 2026-11-06: 435 of its 1090 unmeasured units were judged checks
+not asked.
 
 ## Blockers
 
@@ -164,6 +176,24 @@ Issue#590 while the route runs.
 Graduated 2026-10-13 to the Skills repo (Skills PR#123): the three design
 lessons, the Given/When/Then lesson and the todo-plan lesson that sat here
 with a non-wip `about:`.
+
+### A vendor feature in the architecture is checked against the plan tier of the repositories it targets
+
+about: skill:architecture
+
+The adherence architecture gave the PR surface line annotations through
+GitHub code scanning (a SARIF upload in the reusable workflow's own job);
+the design names no upload. Code scanning is free on a public repository
+and a paid add-on (Code Security) on a private one; the fleet's monorepos
+are private and the owner will not buy it. The first private consumer's
+call failed over the upload while its judge passed (template-tools
+PR#1058, run 42310085996), and the upload went (PR#694, Key Decisions).
+The architecture named the feature and never the tier; its seam-review
+panel and the reviews of three CI changes did not ask either. Rule: a
+vendor or platform feature the architecture leans on names its plan or
+licence tier, and the record checks it against every repository the
+design targets, public and private. Routed to the architecture skill in
+Skills PR#176; this entry goes when that lands.
 
 ### Host-scoped design meets profile-scoped transport
 
