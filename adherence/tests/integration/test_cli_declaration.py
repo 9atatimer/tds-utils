@@ -110,7 +110,8 @@ def test_declaration_check_fails_when_one_file_is_unreadable(tmp_path: Path) -> 
     assert code == 1, output
     assert "adherence.toml: readable, 0 exemptions" in output.splitlines()
     assert any(
-        line.startswith("pkg/adherence.toml: unreadable") for line in output.splitlines()
+        line.startswith("pkg/adherence.toml: unreadable")
+        for line in output.splitlines()
     ), output
 
 
