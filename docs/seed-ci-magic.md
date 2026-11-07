@@ -42,9 +42,13 @@ seed-ci-magic [-o OWNER] [-s SECRET] [-r OPREF] [-n] seed [OWNER/REPO ...]
   also the re-seed after a rotation. `-n` prints the plan and reads and
   sets nothing. `seed` refuses to act on an incomplete consumer set: if
   discovery or any lookup fails, nothing is seeded and it exits 2.
-- Defaults: owner `9atatimer`, secret `CI_MAGIC_OP_SA_TOKEN`, op reference
-  the CI-Magic service account recorded in tds-internal's credential
-  registry ("ci.magic reviewer"). `-o`, `-s`, `-r` override.
+- Defaults: owner `9atatimer`, secret `CI_MAGIC_OP_SA_TOKEN`. The op://
+  reference has no default: it names a vault and an item, which is private
+  data in this public repo, so it comes from `TDS_CI_MAGIC_OP_REF` (set in
+  the `~/.tds-local` overlay; the item is recorded in tds-internal's
+  credential registry as "ci.magic reviewer") or from `-r`. `seed` exits 2
+  without one, or with a value that is not an `op://` path; `-n` and
+  `status` need none. `-o`, `-s`, `-r` override.
 
 Needs `gh` authenticated as an account that can read the owner's
 repositories and their Actions secrets metadata, and, for `seed`, `op`

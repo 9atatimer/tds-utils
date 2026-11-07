@@ -129,10 +129,11 @@ REMOLLAMA_GPU_TYPE=h100           # Default GPU tier
 REMOLLAMA_REGION=any              # Provider region
 REMOLLAMA_STATE_DIR=""            # Override state dir (default: ops/terraform/remollama/state)
 
-# --- Per-provider 1Password paths (override in .local.conf) ---
-REMOLLAMA_SPHERON_OP_TOKEN="op://Private/Spheron/credential"
-REMOLLAMA_SPHERON_OP_SSH_KEY="op://Private/spheron-ssh/private_key"
-REMOLLAMA_SPHERON_OP_SSH_PUBKEY="op://Private/spheron-ssh/public_key"
+# --- Per-provider 1Password paths (set in .local.conf; a reference names a
+# vault and an item, so the checked-in file ships them empty) ---
+REMOLLAMA_SPHERON_OP_TOKEN="op://<vault>/<provider-item>/credential"
+REMOLLAMA_SPHERON_OP_SSH_KEY="op://<vault>/<ssh-item>/private_key"
+REMOLLAMA_SPHERON_OP_SSH_PUBKEY="op://<vault>/<ssh-item>/public_key"
 # Future providers follow the pattern:
 # REMOLLAMA_<PROVIDER>_OP_TOKEN="op://..."
 # REMOLLAMA_<PROVIDER>_OP_SSH_KEY="op://..."

@@ -38,8 +38,31 @@ secrets_bucket_endpoint() { secrets_read "${REMVLLM_OP_BUCKET_ENDPOINT:-}"; }
 
 # --- Flow functions ----------------------------------------------------------
 
-# Verify `op` is available and authenticated; actionable error if not.
+# The provider's three references must be set and be op:// paths before any
+# terraform call. orchestrate.sh passes them as `-var "x=$(secrets_...)"`,
+# and a failing substitution inside an argument does not trip `set -e`, so
+# without this check an unset reference reaches terraform as an empty value
+# (remvllm.conf ships them empty; remvllm.local.conf fills them in).
+# The messages name the VARIABLE only, never its value: a value that is
+# not an op:// path may be a pasted secret, and this runs in terminals
+# and CI logs. 06_secrets_refs.sh asserts the value stays out.
+secrets_require_refs() {
+    local suffix var missing=0
+    for suffix in OP_TOKEN OP_SSH_KEY OP_SSH_PUBKEY; do
+        var="REMVLLM_${REMVLLM_PROVIDER^^}_${suffix}"
+        case "${!var:-}" in
+            op://*) ;;
+            "") echo "error: ${var} is not set (an op:// reference; set it in remvllm.local.conf)" >&2; missing=1 ;;
+            *)  echo "error: ${var} must be an op:// reference, never a secret value" >&2; missing=1 ;;
+        esac
+    done
+    [[ "${missing}" -eq 0 ]]
+}
+
+# Verify every provider reference is set and `op` is available and
+# authenticated; actionable error if not.
 secrets_preflight() {
+    secrets_require_refs || return 1
     if ! command -v op >/dev/null 2>&1; then
         echo "error: 1Password CLI (op) not found. Install: brew install 1password-cli" >&2
         return 1

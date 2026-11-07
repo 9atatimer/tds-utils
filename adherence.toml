@@ -4,7 +4,8 @@
 # What is declared here is what the suite measures; the rest of the
 # repository is coverage it names and does not judge. The engine declares
 # itself first (Issue#600); the shell tools under bin/ and the other trees
-# are declared as each is brought under the suite.
+# are declared as each is brought under the suite -- a change that creates
+# a unit outside the declaration widens it for that unit (Covered).
 #
 # cli/ is in the composition root, as the architecture's module map places
 # it: an entry point that constructs no adapter and calls the use cases.
@@ -33,6 +34,10 @@ test = [
     "adherence/tests/unit/**",
     "adherence/tests/integration/**",
     "test/smoketest_seed_ci_magic.sh",
+    # Created by tds-utils PR#676, declared by it (Covered: a change widens
+    # the declaration for the units it creates).
+    "test/smoketest_dot_alias.sh",
+    "test/smoketest_remvllm/06_secrets_refs.sh",
 ]
 
 [records]

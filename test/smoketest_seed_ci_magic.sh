@@ -179,12 +179,12 @@ case_status_exits_zero_when_every_consumer_is_ready() {
 case_seed_seeds_real_consumers_only() {
     bold "seed: every repo with a real workflow gets the secret; comment-only matches do not"; echo
     local s; s=$(fixture seed1)
-    run "${s}" seed
+    TDS_CI_MAGIC_OP_REF=op://v/i/f run "${s}" seed
     assert "seed exits 0" "[ \"\${RUN_RC}\" -eq 0 ]"
     assert "jengris re-seeded (idempotent: already had one)" "grep -q 'secret set CI_MAGIC_OP_SA_TOKEN 9atatimer/jengris tok-for-' '${s}/log'"
     assert "sounddating seeded" "grep -q 'secret set CI_MAGIC_OP_SA_TOKEN 9atatimer/sounddating tok-for-' '${s}/log'"
     assert "Skills NOT seeded (no workflow)" "! grep -q '9atatimer/Skills' '${s}/log'"
-    assert "the value came from the default op:// reference" "grep -q 'op read op://Development/btnk55jxtturjjmkyat5emf2wu/credential' '${s}/log'"
+    assert "the value came from the op:// reference in TDS_CI_MAGIC_OP_REF" "grep -q 'op read op://v/i/f' '${s}/log'"
     assert "the token never appears in the tool's output" "! printf '%s%s' \"\${RUN_OUT}\" \"\${RUN_ERR}\" | grep -q 'tok-for'"
     assert "output names each seeded repo" "printf '%s' \"\${RUN_OUT}\" | grep -q 'jengris' && printf '%s' \"\${RUN_OUT}\" | grep -q 'sounddating'"
 }
@@ -192,7 +192,7 @@ case_seed_seeds_real_consumers_only() {
 case_seed_named_repo() {
     bold "seed <repo>: an explicitly named repo is seeded even without a workflow"; echo
     local s; s=$(fixture seed2)
-    run "${s}" seed 9atatimer/Skills
+    TDS_CI_MAGIC_OP_REF=op://v/i/f run "${s}" seed 9atatimer/Skills
     assert "seed exits 0" "[ \"\${RUN_RC}\" -eq 0 ]"
     assert "Skills seeded on request" "grep -q 'secret set CI_MAGIC_OP_SA_TOKEN 9atatimer/Skills' '${s}/log'"
     assert "nothing else touched" "[ \"\$(grep -c 'secret set' '${s}/log')\" -eq 1 ]"
@@ -218,6 +218,27 @@ case_flags_override_defaults() {
     assert "the other owner's repo was seeded under the given secret name" "grep -q 'secret set MY_SECRET other/app' '${s}/log'"
     assert "the value came from the given op:// reference" "grep -q 'op read op://v/i/f' '${s}/log'"
     assert "9atatimer repos were not touched" "! grep -q '9atatimer' '${s}/log'"
+}
+
+# The op:// reference names a vault and an item: private data in a public
+# repo, so the tool carries no default. Without one, `seed` refuses before
+# it reads or sets anything; `-n` still prints the plan.
+case_seed_refuses_without_op_ref() {
+    bold "seed without an op:// reference: exit 2, nothing read, nothing set"; echo
+    local s; s=$(fixture noref1)
+    run "${s}" seed
+    assert "no reference -> exit 2" "[ \"\${RUN_RC}\" -eq 2 ]"
+    assert "the error names TDS_CI_MAGIC_OP_REF and -r" "printf '%s' \"\${RUN_ERR}\" | grep -q 'TDS_CI_MAGIC_OP_REF' && printf '%s' \"\${RUN_ERR}\" | grep -q -- '-r'"
+    assert "no op read, no secret set" "! grep -q 'secret set\|op read' '${s}/log'"
+    TDS_CI_MAGIC_OP_REF=tok-not-a-path run "${s}" seed
+    assert "a bare token in place of a reference -> exit 2" "[ \"\${RUN_RC}\" -eq 2 ]"
+    assert "the token never reaches the log or the output" "! grep -q 'tok-not-a-path' '${s}/log' && ! printf '%s%s' \"\${RUN_OUT}\" \"\${RUN_ERR}\" | grep -q 'tok-not-a-path'"
+    run "${s}" -n seed
+    assert "-n needs no reference and exits 0" "[ \"\${RUN_RC}\" -eq 0 ]"
+    assert "the plan marks the reference unset" "printf '%s' \"\${RUN_OUT}\" | grep -q 'unset'"
+    TDS_CI_MAGIC_OP_REF=tok-not-a-path run "${s}" -n seed
+    assert "-n with a bare token -> exit 2 (the plan would print it)" "[ \"\${RUN_RC}\" -eq 2 ]"
+    assert "the token is not in the plan or the error" "! printf '%s%s' \"\${RUN_OUT}\" \"\${RUN_ERR}\" | grep -q 'tok-not-a-path'"
 }
 
 case_usage_on_bad_input() {
@@ -295,6 +316,7 @@ main() {
     case_seed_named_repo
     case_dry_run_touches_nothing
     case_flags_override_defaults
+    case_seed_refuses_without_op_ref
     case_usage_on_bad_input
     case_discovery_failure_is_not_success
     case_lookup_error_is_not_absence
