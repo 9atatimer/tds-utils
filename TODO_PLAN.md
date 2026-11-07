@@ -128,7 +128,8 @@ own stack with no introduced finding. The route from here:
   "failed"). No task until the owner rules Issue#712 and Issue#713.
 - the hosted judge in CI is bound since 2026-11-07 (tds-utils PR#716,
   tds-internal PR#321, Skills PR#181, template-tools PR#1068; Key
-  Decisions rows in both records under Issue#590). Open from it: the
+  Decisions rows under Issue#590 (design) and Issue#721
+  (architecture)). Open from it: the
   owner's rulings Issue#719 (a same-repository PR author can read the
   judge's token) and Issue#720 (Q4's consent and private-repository
   clauses), and the recording Issue#721, for task-072's as-built.
