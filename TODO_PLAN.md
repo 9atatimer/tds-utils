@@ -104,15 +104,31 @@ repository is gated: `adherence-judge` is in `gate`'s `needs`, the
 declaration is in force under the Q11 ruling, and the engine judges its
 own stack with no introduced finding. The route from here:
 
-- the rollout (Issue#601): Skills is gated (Skills PR#174, PR#175);
-  template-tools is declared and judged, advisory (template-tools PR#1058,
-  PR#1059); Issue#695 ruled 2026-11-07 (nested declarations: a
-  sub-project's `adherence.toml` governs its subtree, an undeclared
-  subtree has no adherence), so template-tools declares per package and
-  joins `gate.needs` once this lands. Both run the engine at c11477c
-  (PR#694: no code scanning upload). Next: GammaGo, tds-internal, the
-  consumers; each one PR in that repository, pinned by both refs, and each
-  monorepo meets Issue#695 the same way.
+- the rollout (Issue#601): Skills is gated (Skills PR#174, PR#175,
+  PR#178); template-tools is gated, declared per package (template-tools
+  PR#1058, PR#1059, PR#1062). Issue#695 ruled 2026-11-07 and closed:
+  nested declarations landed in tds-utils PR#708 (master ba5257c), and
+  both adopters pin it. The fleet skill for adopting and tending the gate
+  is Skills PR#179 (`adherence`). Next: GammaGo, tds-internal, the
+  consumers; each one PR in that repository, pinned by both refs, declared
+  package by package where it is a monorepo.
+- the retrospective of 2026-11-07 (the nested-declarations leg, tds-utils
+  PR#708, Skills PR#178 and PR#179, template-tools PR#1062) filed: the
+  decision-needed drift Issue#712 (a sub-project's declaration cannot
+  name a record outside its directory, and the fleet's records live at
+  the root, so the record-backed checks are coverage in every declared
+  package); the shape drift Issue#713 (the architecture's Rollout row
+  requires the adherence check by name, every adopter requires `gate`);
+  the recording Issue#714 (glob escaping, the bounded conflict scan, one
+  merge per tree, the encoded contents path, the file notices; for
+  task-072's as-built); and the discovered template-tools Issue#1063 (no
+  hook runs the engine's `hook` stage) and Issue#1064 (designomatic's
+  top-level modules have no layer), tds-utils Issue#709 (the gateway's
+  500 at the OCR probe) and Issue#711 (ocr-review calls a Markdown-only PR
+  "failed"). No task until the owner rules Issue#712 and Issue#713.
+- the hosted judge in CI (design Q4, architecture Q6) is being bound by
+  another agent; until it lands every judged check is coverage in every
+  consumer.
 - task-071 (explanations) and task-072 (runbook and as-built), after the
   rollout; the as-built is where the component's lessons below graduate.
 - the drift the retrospective of 2026-11-06 cut, as `kind: bug` tasks:
@@ -250,6 +266,18 @@ pull-request listing carries no `merged_by` (only the pull object does),
 and the laptop binds `no_reviews`, which answers Unknown, so a local
 `adhere judge` lets any landed declaration stand. Both were found by
 running the adapter against GitHub, not by any test. Second component; the proposal stands.
+
+Recurred 2026-11-07, the third time, in the same adapter's fake: tds-utils
+PR#708 gave `ReviewPort.approvals` a `path` parameter and `FakeReviews`
+accepted it and ignored it, so removing `path=path` from the judge's call
+left every test green (the self-review panel's mutation). The mechanism is
+the same each time: a fake that passes what the port contract carries
+without asserting it, and a contract suite that never names the new
+argument. Three components make the skill change the deliverable:
+proposed as Skills Issue#180 (the fake records every argument the
+contract names and the contract suite runs against fake and adapter
+alike; one smoke against the real dependency per adapter before its first
+merge). This entry graduates (about: skill:testing) when that lands.
 
 ### Two sessions fixed one issue in parallel
 
