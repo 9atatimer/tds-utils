@@ -85,6 +85,9 @@ UNMEASURABLE = (
     "the base cannot be measured under the head's suite, declaration, "
     "measured languages and judge availability"
 )
+DELETED_UNCOUNTED = (
+    "deleted with no counted landing; the declarations above govern its subtree"
+)
 UNDECLARED = (
     f"no landing of {DECLARATION_PATH} on the base's history carried a counted "
     "approval; the repository is judged undeclared"
@@ -349,11 +352,11 @@ class _Walk:
 
 def _landed_declarations(
     base: Base, repository: RepositoryPort, deadline: Deadline | None
-) -> list[str] | _InForce:
+) -> tuple[list[str], frozenset[str]] | _InForce:
     """Every declaration file at the base or ever landed on its history,
-    root first; the repository judged undeclared when they cannot be
-    listed."""
-    paths: set[str] = set()
+    root first, and those of them present at the base; the repository
+    judged undeclared when they cannot be listed."""
+    lists: list[tuple[str, ...]] = []
     for listed in (
         repository.find(DECLARATION_PATH, base, deadline),
         repository.touched(DECLARATION_PATH, base, deadline),
@@ -369,8 +372,9 @@ def _landed_declarations(
                 "the repository is judged undeclared",
                 DECLARATION_PATH,
             )
-        paths.update(listed)
-    return depth_first(paths)
+        lists.append(listed)
+    found, touched = lists
+    return depth_first({*found, *touched}), frozenset(found)
 
 
 def _declaration_in_force(
@@ -388,9 +392,10 @@ def _declaration_in_force(
     one over the base's tree. A TimedOut from any port ends the walk there,
     with no port call after it, and the repository is judged undeclared."""
     walk = _Walk(base, repository, reviews, deadline, [])
-    paths = _landed_declarations(base, repository, deadline)
-    if isinstance(paths, _InForce):
-        return paths
+    landed = _landed_declarations(base, repository, deadline)
+    if isinstance(landed, _InForce):
+        return landed
+    paths, present = landed
     files: list[tuple[str, Declaration]] = []
     coverage: list[Coverage] = []
     walked: set[str] = set()
@@ -405,6 +410,9 @@ def _declaration_in_force(
                 DECLARATION_PATH,
             )
         walked.add(path)
+        if commit is None and path not in present:
+            walk.notices.append(Notice(f"{path}: {DELETED_UNCOUNTED}"))
+            continue
         if commit is None:
             reason = _undeclared_reason(path)
             walk.notices.append(Notice(reason))
@@ -543,17 +551,16 @@ def _undeclared_creations(
     declaration: Declaration, created: Collection[str]
 ) -> tuple[Notice, ...]:
     """A notice per directory the change creates files in that no
-    declaration governs: the top of each new undeclared subtree."""
+    declaration governs: each created file's own directory, once."""
     if not declaration.declared:
         return ()
-    tops = sorted(
-        {
-            path.partition("/")[0] if "/" in path else "."
-            for path in created
-            if not declaration.governs(path)
-        }
+    directories = sorted(
+        {directory_of(path) or "." for path in created if not declaration.governs(path)}
     )
-    return tuple(Notice(f"created under no declaration: {top}") for top in tops)
+    return tuple(
+        Notice(f"created under no declaration: {directory}")
+        for directory in directories
+    )
 
 
 def _scope_dirs(*declarations: Declaration) -> list[str]:

@@ -220,3 +220,48 @@ def test_a_head_whose_declarations_cannot_be_listed_is_one_notice() -> None:
         "the change's own declaration cannot be read: . refused: the index is "
         "locked; it is judged under the declaration in force"
     ], _notices(report)
+
+
+def test_a_deleted_declaration_with_no_counted_landing_leaves_the_files_above() -> None:
+    """Given a root declaration in force and a sub-project declaration since
+    deleted, neither of whose two landings counted, When a change is
+    judged, Then the root governs the subtree: no "judged undeclared"
+    notice and no coverage line for the deleted file, and one notice says
+    it was deleted with no counted landing."""
+    report = judge_with(
+        {"pkg/src/r.py": CLEAN},
+        {"pkg/src/r.py": CLEAN, "src/app/domain/new.py": CLEAN},
+        histories={"pkg/adherence.toml": (DELETION, EARLIER)},
+        reviews=FakeReviews(
+            {DELETION: NoLandingPR(DELETION), EARLIER: NoLandingPR(EARLIER)}
+        ),
+        landed={EARLIER: {"pkg/adherence.toml": SUB}},
+    )
+
+    notices = _notices(report)
+    assert not any("judged undeclared" in n for n in notices), notices
+    assert not any(c.path == "pkg/adherence.toml" for c in report.coverage)
+    assert (
+        "pkg/adherence.toml: deleted with no counted landing; the declarations "
+        "above govern its subtree"
+    ) in notices
+
+
+def test_a_creation_under_no_declaration_names_its_own_directory() -> None:
+    """Given ops/a/adherence.toml declared and a change that creates
+    ops/b/tool.py, When the change is judged, Then the notice names ops/b,
+    not ops, which holds the governed ops/a."""
+    base = {"ops/a/adherence.toml": SUB, "ops/a/src/domain/r.py": CLEAN}
+
+    report = judge_with(
+        base,
+        {**base, "ops/b/tool.py": CLEAN, "top.py": CLEAN},
+        root=None,
+        histories={"ops/a/adherence.toml": (BASE.revision,)},
+    )
+
+    created = sorted(n for n in _notices(report) if n.startswith("created under"))
+    assert created == [
+        "created under no declaration: .",
+        "created under no declaration: ops/b",
+    ], _notices(report)
