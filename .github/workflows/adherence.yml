@@ -16,12 +16,12 @@
 #            runs one judgement that prints the report to the log and writes
 #            the SARIF file and the job summary. The ci stage reads the
 #            job's GITHUB_TOKEN for the reviews that settle which landed
-#            adherence.toml is in force, and the hosted judge's
-#            DECIDE_GATEWAY_URL and DECIDE_GATEWAY_TOKEN when the caller
-#            supplies them (without them the judged checks are coverage and
-#            the verdict is inconclusive at best), and the ledger's
-#            configuration and credentials when the caller supplies them
-#            (Reports, below). The engine hands every analyzer an
+#            adherence.toml is in force, and the hosted judge's gateway
+#            URL and token and the ledger's configuration
+#            and credentials, read from 1Password when the caller supplies
+#            the service account (Credentials, below; without the judge's
+#            token the judged checks are coverage and the verdict is
+#            inconclusive at best). The engine hands every analyzer an
 #            allowlisted environment (PATH, LANG, and HOME and TMPDIR set to
 #            a scratch directory), so no token or credential reaches one;
 #            only the decide client gets the judge's token, as its own
@@ -54,22 +54,48 @@
 # job fails and says so rather than judge an empty change. A caller may
 # name `base` and `head` instead (tedium's staging commit, say).
 #
+# Credentials: one secret, ADHERENCE_OP_SA_TOKEN, a read-only 1Password
+# service account scoped to the adherence vault; everything else is an
+# op:// item reference in a repository or owner VARIABLE, resolved at run
+# time by the one step that sees the token (one secret per workflow
+# family). Each value read is masked before anything is written, and
+# reaches only the judge step's environment.
+#
+#   DECIDE_GATEWAY_OP_ITEM     the judge's run token, field `password`,
+#                              and the gateway base, field `url` (it
+#                              names the account, so it is masked like
+#                              the token rather than kept in a variable)
+#   ADHERENCE_LEDGER_OP_ITEM   the warehouse's scan credential: fields
+#                              `username` (access key id), `password`
+#                              (secret), `endpoint` and `bucket`
+#   ADHERENCE_LEDGER_LOOKUP_OP_ITEM
+#                              the lookup-write credential, fields
+#                              `username` and `password` (Reports, below)
+#
+# A variable left unset turns its consumer off: no judge, or no warehouse.
+# A variable that is set but cannot be read fails the job, since a
+# configured judge that is silently not asked would pass every judged
+# check as coverage. A same-repository pull request runs this workflow as
+# it edits it, so anyone who can open one can read what the service
+# account reads (the architecture's Q6): the vault holds only the judge's
+# spend-capped token and the scan credential, never the lookup-write
+# credential.
+#
 # Reports: ci keeps each report in the runner's per-user file cache, and
-# reads no base back from it. When the caller passes the adherence-ledger
-# warehouse's four secrets (ADHERENCE_LEDGER_ENDPOINT, _BUCKET,
-# _ACCESS_KEY_ID and _SECRET_ACCESS_KEY, the data warehouse's credential
-# chain; `ledger_region` defaults to R2's `auto`), every run also writes
-# the report's scan key to the warehouse, and a base is read back from the
-# warehouse's lookup key, which only a default-branch run writes. That
-# run's lookup-write credential (ADHERENCE_LEDGER_LOOKUP_ACCESS_KEY_ID and
-# _SECRET_ACCESS_KEY) is a secret of the GitHub environment the caller
-# names in `ledger_environment`, restricted to the default branch: the
-# judge job enters that environment, and hands the engine those two, only
-# on a push to the default branch. Without the four, or until tds-internal
-# Issue#276 provisions the bucket, the report carries a notice that it was
-# kept in the file cache only, and the base is always measured again.
-# Endpoint and bucket are secrets, not variables, as the warehouse record
-# has them.
+# reads no base back from it. With the scan credential (`ledger_region`
+# defaults to R2's `auto`), every run also writes the report's scan key to
+# the warehouse, and a base is read back from the warehouse's lookup key,
+# which only a default-branch run writes. That run's lookup-write
+# credential is read through the GitHub environment the caller names in
+# `ledger_environment`, restricted to the default branch: the judge job
+# enters it only on a push to the default branch, and there the
+# environment's own ADHERENCE_OP_SA_TOKEN -- a second service account,
+# granted the adherence vault and the lookup vault -- takes the place of
+# the caller's (a reusable workflow's environment secret wins over a
+# passed secret of the same name). Without the scan credential, or until
+# tds-internal Issue#276 provisions the bucket, the report carries a
+# notice that it was kept in the file cache only, and the base is always
+# measured again.
 #
 # Hosted here because a public repository's reusable workflow can be called
 # from both owners (the review-settled.yml and ocr-review.yml precedent).
@@ -93,18 +119,14 @@
 #       with:
 #         tools_ref: <the same sha>
 #       secrets:
-#         DECIDE_GATEWAY_TOKEN: ${{ secrets.DECIDE_GATEWAY_TOKEN }}
-#         ADHERENCE_LEDGER_ENDPOINT: ${{ secrets.ADHERENCE_LEDGER_ENDPOINT }}
-#         ADHERENCE_LEDGER_BUCKET: ${{ secrets.ADHERENCE_LEDGER_BUCKET }}
-#         ADHERENCE_LEDGER_ACCESS_KEY_ID: ${{ secrets.ADHERENCE_LEDGER_ACCESS_KEY_ID }}
-#         ADHERENCE_LEDGER_SECRET_ACCESS_KEY: ${{ secrets.ADHERENCE_LEDGER_SECRET_ACCESS_KEY }}
+#         ADHERENCE_OP_SA_TOKEN: ${{ secrets.ADHERENCE_OP_SA_TOKEN }}
 #
-# (each optional), with `ledger_environment: <environment>` under `with:`
-# when the lookup-write credential is provisioned there -- a caller that
-# also runs on push to the default branch, so that run writes the base.
+# (optional), with `ledger_environment: <environment>` under `with:` when
+# the lookup-write credential is provisioned there -- a caller that also
+# runs on push to the default branch, so that run writes the base.
 #
-# and the caller owner's variables CI_RUNS_ON (optional runner pool) and
-# DECIDE_GATEWAY_URL (optional, with the secret: the hosted judge). Adoption
+# and the caller owner's variables CI_RUNS_ON (optional runner pool),
+# and the op:// item variables (Credentials, above). Adoption
 # also requires (architecture, Operability): an adherence.toml landed with
 # the owner's approval, CODEOWNERS entries naming users for adherence.toml,
 # the caller workflow and its pins, and branch protection that requires
@@ -160,26 +182,8 @@ on:
         required: false
         default: ''
     secrets:
-      DECIDE_GATEWAY_TOKEN:
-        description: The hosted judge's token (with the DECIDE_GATEWAY_URL variable); without it the judged checks are coverage.
-        required: false
-      ADHERENCE_LEDGER_ENDPOINT:
-        description: The adherence-ledger warehouse's S3 endpoint; with the bucket and the scan credential, reports are written to the warehouse.
-        required: false
-      ADHERENCE_LEDGER_BUCKET:
-        description: The adherence-ledger warehouse's bucket.
-        required: false
-      ADHERENCE_LEDGER_ACCESS_KEY_ID:
-        description: The scan credential's access key id, scoped to this repository's scan prefix (write) and lookup prefix (read).
-        required: false
-      ADHERENCE_LEDGER_SECRET_ACCESS_KEY:
-        description: The scan credential's secret.
-        required: false
-      ADHERENCE_LEDGER_LOOKUP_ACCESS_KEY_ID:
-        description: The lookup-write credential's access key id; read from the `ledger_environment` environment on a push to the default branch, never passed by a caller.
-        required: false
-      ADHERENCE_LEDGER_LOOKUP_SECRET_ACCESS_KEY:
-        description: The lookup-write credential's secret, as above.
+      ADHERENCE_OP_SA_TOKEN:
+        description: The read-only 1Password service account for the adherence vault, which resolves the op:// item variables (Credentials, in the header); without it nothing is read, the judged checks are coverage and reports stay in the file cache. On a push to the default branch, the `ledger_environment` environment's own secret of this name takes its place.
         required: false
 
 permissions:
@@ -320,6 +324,66 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "judging $head against $base"
 
+      # Before any credential: a runner with no 1Password CLI (a GitHub-hosted
+      # one) gets the pinned one, only when there is a token to use it with.
+      - name: Check for the 1Password CLI
+        id: opcheck
+        env:
+          HAS_TOKEN: ${{ secrets.ADHERENCE_OP_SA_TOKEN != '' }}
+        run: |
+          if [ "$HAS_TOKEN" = true ] && ! command -v op >/dev/null 2>&1; then
+            echo "install=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install the 1Password CLI
+        if: steps.opcheck.outputs.install == 'true'
+        uses: 1password/install-cli-action@1a3160d5e9de1ae0803eaa08a88746f5ae3daa50 # v4.1.0
+        with:
+          version: 2.40.0
+
+      # The one step that sees the service account. Every value it reads is
+      # masked before it is written; the values reach only the judge step.
+      # Item references are caller variables, so they come in through env:.
+      - name: Credentials
+        id: creds
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.ADHERENCE_OP_SA_TOKEN }}
+          DECIDE_GATEWAY_OP_ITEM: ${{ vars.DECIDE_GATEWAY_OP_ITEM }}
+          ADHERENCE_LEDGER_OP_ITEM: ${{ vars.ADHERENCE_LEDGER_OP_ITEM }}
+          ADHERENCE_LEDGER_LOOKUP_OP_ITEM: ${{ vars.ADHERENCE_LEDGER_LOOKUP_OP_ITEM }}
+          LOOKUP_RUN: ${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.ledger_environment != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${OP_SERVICE_ACCOUNT_TOKEN}" ]; then
+            echo "adherence: no ADHERENCE_OP_SA_TOKEN; the judged checks are coverage and reports stay in the file cache"
+            exit 0
+          fi
+          # put <output> <item> <field> -- one field, masked, into an output.
+          put() {
+            local value
+            value="$(op read "$2/$3")" || {
+              echo "adherence: cannot read field '$3' of $2 (the variable naming the item is set, so this is a misconfiguration)" >&2
+              exit 1
+            }
+            echo "::add-mask::${value}"
+            echo "$1=${value}" >> "$GITHUB_OUTPUT"
+          }
+          if [ -n "${DECIDE_GATEWAY_OP_ITEM}" ]; then
+            put decide_token "${DECIDE_GATEWAY_OP_ITEM}" password
+            put decide_url "${DECIDE_GATEWAY_OP_ITEM}" url
+          fi
+          if [ -n "${ADHERENCE_LEDGER_OP_ITEM}" ]; then
+            put ledger_endpoint "${ADHERENCE_LEDGER_OP_ITEM}" endpoint
+            put ledger_bucket "${ADHERENCE_LEDGER_OP_ITEM}" bucket
+            put ledger_key_id "${ADHERENCE_LEDGER_OP_ITEM}" username
+            put ledger_secret "${ADHERENCE_LEDGER_OP_ITEM}" password
+          fi
+          if [ "${LOOKUP_RUN}" = true ] && [ -n "${ADHERENCE_LEDGER_LOOKUP_OP_ITEM}" ]; then
+            put lookup_key_id "${ADHERENCE_LEDGER_LOOKUP_OP_ITEM}" username
+            put lookup_secret "${ADHERENCE_LEDGER_LOOKUP_OP_ITEM}" password
+          fi
+
       # The report is author-controlled text: the engine labels every log
       # line and strips control characters, and workflow commands are off
       # while it runs, so no line of it can act on the job.
@@ -327,16 +391,17 @@ jobs:
         id: judge
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          DECIDE_GATEWAY_URL: ${{ vars.DECIDE_GATEWAY_URL }}
-          DECIDE_GATEWAY_TOKEN: ${{ secrets.DECIDE_GATEWAY_TOKEN }}
-          ADHERENCE_LEDGER_ENDPOINT: ${{ secrets.ADHERENCE_LEDGER_ENDPOINT }}
-          ADHERENCE_LEDGER_BUCKET: ${{ secrets.ADHERENCE_LEDGER_BUCKET }}
+          DECIDE_GATEWAY_URL: ${{ steps.creds.outputs.decide_url }}
+          DECIDE_GATEWAY_TOKEN: ${{ steps.creds.outputs.decide_token }}
+          ADHERENCE_LEDGER_ENDPOINT: ${{ steps.creds.outputs.ledger_endpoint }}
+          ADHERENCE_LEDGER_BUCKET: ${{ steps.creds.outputs.ledger_bucket }}
           ADHERENCE_LEDGER_REGION: ${{ inputs.ledger_region }}
-          ADHERENCE_LEDGER_ACCESS_KEY_ID: ${{ secrets.ADHERENCE_LEDGER_ACCESS_KEY_ID }}
-          ADHERENCE_LEDGER_SECRET_ACCESS_KEY: ${{ secrets.ADHERENCE_LEDGER_SECRET_ACCESS_KEY }}
-          # The lookup-write pair, only in the default branch's environment.
-          ADHERENCE_LEDGER_LOOKUP_ACCESS_KEY_ID: ${{ (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.ledger_environment != '') && secrets.ADHERENCE_LEDGER_LOOKUP_ACCESS_KEY_ID || '' }}
-          ADHERENCE_LEDGER_LOOKUP_SECRET_ACCESS_KEY: ${{ (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.ledger_environment != '') && secrets.ADHERENCE_LEDGER_LOOKUP_SECRET_ACCESS_KEY || '' }}
+          ADHERENCE_LEDGER_ACCESS_KEY_ID: ${{ steps.creds.outputs.ledger_key_id }}
+          ADHERENCE_LEDGER_SECRET_ACCESS_KEY: ${{ steps.creds.outputs.ledger_secret }}
+          # The lookup-write pair: read only on a push to the default branch,
+          # through the environment's service account (Credentials).
+          ADHERENCE_LEDGER_LOOKUP_ACCESS_KEY_ID: ${{ steps.creds.outputs.lookup_key_id }}
+          ADHERENCE_LEDGER_LOOKUP_SECRET_ACCESS_KEY: ${{ steps.creds.outputs.lookup_secret }}
           UV_FROZEN: '1'
           BASE: ${{ steps.revisions.outputs.base }}
           HEAD: ${{ steps.revisions.outputs.head }}
