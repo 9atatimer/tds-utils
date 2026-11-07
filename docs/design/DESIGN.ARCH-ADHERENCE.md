@@ -10,11 +10,11 @@
 ## Overview
 
 Adherence is the suite that measures how well a repository's code keeps
-the structure the SDLC asks of it: layered, hexagonal, domain-driven,
-composable, injectable, behavior-driven, complete, on the tech radar, and
-declared. It turns the coding skill's review-time tests into checks that
-run, refuses a change that introduces a finding, and names every flaw
-well enough that an agent can fix it. It is product, not
+the structure the SDLC asks of it: layered, hexagonal, of the LAW,
+domain-driven, composable, injectable, behavior-driven, complete, on the
+tech radar, and declared. It turns the coding skill's review-time tests
+into checks that run, refuses a change that introduces a finding, and
+names every flaw well enough that an agent can fix it. It is product, not
 tooling: the gate, the hooks and the agents all code against its verdict.
 
 ---
@@ -187,9 +187,10 @@ judged part runs only on what the rule part could not decide.
 
 | Quality | Adherence means | Checks |
 |---|---|---|
-| Layered | Rules, workflow and wiring are three separate jobs | Trace (R): every design behavior resolves to one application unit, by the use-case surface's signature. Purity (R/J): no domain unit takes a port or a clock; the judged part asks whether a callable it takes does I/O. Wiring (R): per declared runtime, exactly one unit constructs concrete adapters, that unit is in the composition-root layer, and no unit outside that layer constructs one; a fake is not a concrete adapter. Anatomy (R): a file's regions run in the coding skill's file-anatomy order. Two jobs (J): a unit that does two of rules, workflow and wiring |
-| Hexagonal | The core depends on no mechanism | Grep (R): no domain or application unit names a vendor, an SDK, the environment, the filesystem, the network, or a model id. Arrow (R): every import crosses inward and no import cycle exists. Swap (R): every port has at least one fake and the core imports only the port. Change (R): every seam the architecture record names exists as exactly one port, policy or parameter |
-| Domain-driven | Each concept is named once, in the problem's words, with one owner | Language (R/J): every noun in a use-case signature is defined in the design's Domain Language under that spelling; the judged part asks whether two differently spelled nouns are one concept. Decision (J): a choice spread across conditionals on the same discriminant instead of one named policy. Boundary (R/J): a value type whose fields are written outside its owning unit; the judged part asks whether that write can break an invariant. Anemic (R/J): a type that is all fields and no behavior; the judged part asks whether its rules live in another unit |
+| Layered | A unit depends only on its own layer or a layer below it | Arrow (R): every import stays in its own layer or crosses to a layer below it (application and adapters to ports and the domain, ports to the domain, the composition root to any), and no import cycle exists. Wiring (R): per declared runtime, exactly one unit constructs concrete adapters, that unit is in the composition-root layer, and no unit outside that layer constructs one; a fake is not a concrete adapter |
+| Hexagonal | The core depends on no mechanism | Grep (R): no domain or application unit names a vendor, an SDK, the environment, the filesystem, the network, or a model id. Swap (R): every port has at least one fake and the core imports only the port. Change (R): every seam the architecture record names exists as exactly one port, policy or parameter |
+| LAW | Every function is exactly one of logic, action and workflow | Kind (J): a function that does two of logic (computing a value from its inputs), action (changing something: a write, a call, a send, a mutation) and workflow (calling other functions in order). Purity (R/J): no domain unit takes a port or a clock; the judged part asks whether a callable it takes does I/O. Anatomy (R): a file's regions run in the coding skill's file-anatomy order |
+| Domain-driven | Each concept is named once, in the problem's words, with one owner | Trace (R): every design behavior resolves to one application unit, by the use-case surface's signature. Language (R/J): every noun in a use-case signature is defined in the design's Domain Language under that spelling; the judged part asks whether two differently spelled nouns are one concept. Decision (J): a choice spread across conditionals on the same discriminant instead of one named policy. Boundary (R/J): a value type whose fields are written outside its owning unit; the judged part asks whether that write can break an invariant. Anemic (R/J): a type that is all fields and no behavior; the judged part asks whether its rules live in another unit |
 | Composable | A use case can be called by another with nothing in front | Values in and out (R): no use-case signature carries a wire format, an SDK type or an adapter handle. No nesting (R): no function defined inside another. Helpers take values (R): no pure helper takes a port or a callable |
 | Injectable | Dependencies arrive at the flow function and never below it | Ports as keywords (R): every port a use case takes is a named dependency after the values. No self-wiring (R): no use case constructs a concrete adapter. No reach (R): no use case or domain unit reads a global, a singleton, or the environment |
 | Behavior-driven | Every kept test asserts a design behavior through the public surface | Kept test (R): every design behavior has a test that calls its use case. Then asserted (J): that test asserts the row's Then, not merely that nothing raised. Public surface (R): no test reaches past a use case into a helper or an internal. Real assertion (R): no test without an assertion and no placeholder assertion |
@@ -430,7 +431,7 @@ checks.
 |---|---|
 | A repository is measured | Given a declared repository, When a run is asked for, Then the report holds, per quality, the checks that ran and every finding each produced, with what G8 requires to fix it |
 | A domain leak is found | Given a domain unit that names a vendor, the environment, the filesystem, the network or a model id, When Grep runs, Then a finding names the unit, the symbol and the layer it reached |
-| An inward arrow holds | Given a repository whose every import crosses inward, When Arrow runs, Then there is no Arrow finding |
+| An inward arrow holds | Given a repository whose every import stays in its layer or crosses to a layer below it, When Arrow runs, Then there is no Arrow finding |
 | A cycle is found | Given two units that import each other, When Arrow runs, Then one finding names the cycle |
 | A behavior with no home is found | Given a design behavior that no application unit carries by the surface's signature, When Trace runs, Then a finding names the behavior and the record it came from |
 | A behavior with a home passes | Given a design behavior carried by one application unit with the surface's signature, When Trace runs, Then there is no Trace finding for it |
@@ -439,7 +440,7 @@ checks.
 | A missing composition root is a disagreement | Given a declared runtime with no unit that constructs concrete adapters, When Wiring runs, Then a finding says the declaration and the code disagree, and names the runtime |
 | An adapter constructed below the root is found | Given a unit outside the composition-root layer that constructs a concrete adapter, When Wiring runs, Then a finding names the unit and the adapter |
 | A file out of order is found | Given a file whose regions are not in the anatomy order, When Anatomy runs, Then a finding names the file and the first region out of place |
-| A unit doing two jobs is found | Given a unit that does two of rules, workflow and wiring, When Two jobs runs and the judge's answer is above its threshold, Then a finding names the unit and the jobs it does, with its confidence |
+| A function of two kinds is found | Given a function that does two of logic, action and workflow, When Kind runs and the judge's answer is above its threshold, Then a finding names the function and the kinds, with its confidence |
 | A judged check answers with a confidence | Given a unit a judged check asks about, When that judged check runs, Then the finding, pass or abstention carries a confidence |
 | A port without a fake is found | Given a port with no fake behind it anywhere in the repository, When Swap runs, Then a finding names the port |
 | A named seam is missing | Given a seam the architecture record names with no port, policy or parameter in the code, When Change runs, Then a finding names the seam |
@@ -555,7 +556,7 @@ checks.
 
 ## Domain Language
 
-- **Quality.** One of the nine named structural properties in the
+- **Quality.** One of the ten named structural properties in the
   Qualities table. Invariant: the set is closed by this record.
 - **Check.** One named test of one quality over one kind of unit. Every
   check is a rule check or a judged check.
@@ -579,7 +580,13 @@ checks.
 - **Unit.** What a check is over: a file, a function, a type, a module, an
   import edge, a design behavior, or a test.
 - **Layer.** Domain, application, ports, adapters, composition root, or
-  test. Invariant: a covered unit is in exactly one.
+  test. Invariant: a covered unit is in exactly one. Order, bottom to
+  top: domain, ports, then application and adapters side by side, then
+  the composition root; a unit depends only on its own layer or one
+  below it.
+- **Kind.** What a function does: logic computes a value from its
+  inputs, action changes something, workflow calls other functions in
+  order. Invariant: every function is exactly one (Todd's LAW).
 - **Port.** A named interface the core owns at one axis of change; the
   architecture record's seam list names them.
 - **Adapter.** A unit that implements a port. A concrete adapter does so
@@ -804,6 +811,7 @@ The owner's laptop as part of the LMDE contract, the adopting repositories' CI a
 | Nested declarations | A repository is declared by one `adherence.toml` at its root, one in each sub-project, or both; each governs its subtree with paths relative to its directory that cannot leave it; the governing declarations of a path are read as one, the union sections as a union, the single-valued sections as the nearest file's, a nearer file replacing a whole section only under `[override]`; a path with no governing declaration has no adherence and is coverage, never a Covered finding; a conflict, an override of nothing, or a plain single-valued section where one is already defined above, is a declaration that cannot be read; the declaration in force is settled per file, a declaration new at the head governs from the next change | The Covered check is tree-wide by design, so one root declaration that names two of a monorepo's packages lowers every change that creates a unit anywhere else, and a sub-project's design record cannot be named by a declaration that names another's; template-tools (PR#1058) could be judged but never gated. A declaration that lands with its sub-project is code-owned with it and names its one record. Scoping Covered to `[runtimes]` was rejected: it keeps the one file and makes the runtime list carry a meaning it was not given | Todd, 2026-11-07, Issue#695 |
 | A record on main is approved | No record carries a status line or a status word: on main it is approved, off main it is not. Where this record says "absent or in draft" (the missing-record behavior, the coverage of Trace, Language, Change, Kept test and Record kept), read "absent or not on main"; `domain/records.py` counts every record at the target revision, which is that rule | A status word in a document is a second source of truth that drifts from the one that matters, the branch; the retrospective's drift walk found the wording and the code apart only in words | Todd, 2026-11-06, Issue#590 |
 | No code scanning upload | The reusable workflow posts no SARIF to code scanning; the judge job keeps the SARIF as a run artifact and the verdict, the log report and the job summary are the whole PR surface. This record names no upload; where the architecture record says the SARIF is uploaded to code scanning and rendered at the line (its workflow row, PR surface row, Credentials row, the `upload-sarif` radar row and the Findings as SARIF decision), read "the findings are in the job summary and the run artifact" | A private repository without GitHub's paid Code Security add-on refuses the upload, and the owner ruled the add-on out, so an upload that failed the call over a cosmetic step (template-tools PR#1058, run 42310085996) would have kept every private consumer out of its gate | Todd, 2026-11-06, PR#694 |
+| Layered and the LAW | Layered is the dependency rule: a unit depends only on its own layer or a layer below it (Arrow, Wiring). Todd's LAW -- every function is exactly one of logic, action and workflow -- is its own quality (Kind, Purity, Anatomy). Trace is Domain-driven. Ten qualities. Supersedes the reading of Layered as "rules, workflow and wiring are three separate jobs" and the Two jobs check, whose question asked about rules, workflow and wiring by the unit's layer; Kind asks every function outside the test layer | The coding skill filed the dependency rule under Hexagonal and gave the name Layered to a rule about what a function does, and this record copied it; the owner's definitions are the classic ones, and the engine must measure what the skill now says (Skills PR#182) | Todd, 2026-11-07 |
 
 ---
 

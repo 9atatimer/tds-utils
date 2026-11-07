@@ -12,7 +12,7 @@ from adherence.domain.deadline import TimedOut
 from adherence.domain.declaration import DECLARATION_PATH
 from adherence.domain.finding import Provenance
 from adherence.domain.model import Layer, Parameter, Signature, merged
-from adherence.domain.questions import TWO_JOBS, Unavailable
+from adherence.domain.questions import KIND, Unavailable
 from adherence.domain.records import (
     Behavior,
     DesignRecords,
@@ -627,7 +627,7 @@ def test_judge_change_deleting_a_behavior_row_removes_none_of_its_findings() -> 
 
 # --- Issue#627: the report identity carries the judge's availability ----------
 
-TWO_JOBS_FOUND = {"yes": 0.95, "no": 0.05}
+KIND_FOUND = {"yes": 0.95, "no": 0.05}
 
 
 def test_measure_report_identity_carries_the_judge_availability() -> None:
@@ -668,18 +668,18 @@ def test_judge_change_ignores_a_base_stored_without_the_judge() -> None:
         {RULES: FIXED, USE: CLEAN},
         when=WHEN,
         store=store,
-        judge=answering(TWO_JOBS, TWO_JOBS_FOUND),
+        judge=answering(KIND, KIND_FOUND),
     )
 
     assert report.verdict is Verdict.HELD
-    found = [f for f in report.findings if f.check.name == "Two jobs"]
+    found = [f for f in report.findings if f.check.name == "Kind"]
     assert [f.provenance for f in found] == [Provenance.EXISTING]
     assert store.hits == []
 
 
 # --- An abstention is inconclusive --------------------------------------------
 
-TWO_JOBS_IN_BAND = {"yes": 0.5, "no": 0.5}
+KIND_IN_BAND = {"yes": 0.5, "no": 0.5}
 EDITED = FIXED + b"# edited\n"
 
 
@@ -692,12 +692,12 @@ def test_judge_change_with_an_abstention_on_a_touched_unit_is_inconclusive() -> 
         {RULES: FIXED},
         {RULES: EDITED},
         when={**WHEN, EDITED: stubbed(RULES, "tidy", 2, stub=None)},
-        judge=answering(TWO_JOBS, TWO_JOBS_IN_BAND),
+        judge=answering(KIND, KIND_IN_BAND),
     )
 
     assert [a.unit.path for a in report.abstentions] == [RULES]
     assert report.verdict is Verdict.INCONCLUSIVE
-    assert any("Two jobs" in r and RULES in r for r in report.reasons)
+    assert any("Kind" in r and RULES in r for r in report.reasons)
 
 
 def test_judge_change_with_an_abstention_on_an_untouched_unit_holds() -> None:
@@ -708,7 +708,7 @@ def test_judge_change_with_an_abstention_on_an_untouched_unit_holds() -> None:
         {RULES: FIXED, USE: CLEAN},
         {RULES: FIXED, USE: CLEAN + b"\n# edited\n"},
         when=WHEN,
-        judge=answering(TWO_JOBS, TWO_JOBS_IN_BAND),
+        judge=answering(KIND, KIND_IN_BAND),
     )
 
     assert [a.unit.path for a in report.abstentions] == [RULES]
@@ -721,7 +721,7 @@ def _kept_base(files: dict[str, bytes]) -> FakeReportStore:
     store = FakeReportStore()
     store.put(
         replace(
-            measured_at(files, when=WHEN, judge=answering(TWO_JOBS, TWO_JOBS_FOUND)),
+            measured_at(files, when=WHEN, judge=answering(KIND, KIND_FOUND)),
             repository=REPOSITORY,
         )
     )
@@ -739,7 +739,7 @@ def test_judge_change_abstaining_over_a_base_finding_untouched_holds() -> None:
         when=WHEN,
         store=_kept_base(files),
         unlisted_at={BASE: Refused(".", "the base is not measured again")},
-        judge=answering(TWO_JOBS, TWO_JOBS_IN_BAND),
+        judge=answering(KIND, KIND_IN_BAND),
     )
 
     assert [a.unit.path for a in report.abstentions] == [RULES]
@@ -758,7 +758,7 @@ def test_judge_change_abstaining_over_a_base_finding_touched_is_inconclusive() -
         when={**WHEN, EDITED: stubbed(RULES, "tidy", 2, stub=None)},
         store=_kept_base(files),
         unlisted_at={BASE: Refused(".", "the base is not measured again")},
-        judge=answering(TWO_JOBS, TWO_JOBS_IN_BAND),
+        judge=answering(KIND, KIND_IN_BAND),
     )
 
     assert [a.unit.path for a in report.abstentions] == [RULES]

@@ -21,8 +21,8 @@ import pytest
 from adherence.domain.deadline import Deadline, TimedOut
 from adherence.domain.model import Layer, Unit, UnitKind
 from adherence.domain.questions import (
+    KIND,
     THEN_ASSERTED,
-    TWO_JOBS,
     Decision,
     Rejected,
     Schema,
@@ -36,12 +36,12 @@ UNIT = Unit("src/app/domain/rules.py", UnitKind.FUNCTION, "price", 1, 4, Layer.D
 STATE = State(
     UNIT,
     "def price(order):\n    return order.total * 1.2",
-    {"two_jobs.1": "declared layer: domain, whose job is rules"},
+    {"kind.1": "declared layer: domain"},
 )
 # One question of each kind.
 SCHEMA = Schema(
     {
-        "two_jobs.1": TWO_JOBS,
+        "kind.1": KIND,
         "hand_rolled.1": hand_rolled_question(2),
         "then_asserted.1": THEN_ASSERTED,
     }

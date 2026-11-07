@@ -80,12 +80,13 @@ def _binary(question_id: str, instructions: str, *, failing: str = YES) -> Quest
     )
 
 
-TWO_JOBS = _binary(
-    "two_jobs",
-    "The state holds one unit of code and the layer it is declared in. Does "
-    "the unit do two or more of these three jobs: rules (pure decisions "
-    "over values), workflow (sequencing calls to rules and to ports), "
-    "wiring (constructing concrete adapters and binding them)?",
+KIND = _binary(
+    "kind",
+    "The state holds one function. Todd's LAW says a function is exactly "
+    "one of three kinds: logic computes a value from its inputs and changes "
+    "nothing; action changes something (a write, a call, a send, a "
+    "mutation); workflow calls other functions in order and does nothing "
+    "else. Does this function do two or more of the three?",
 )
 DOES_IO = _binary(
     "does_io",
@@ -154,7 +155,7 @@ LIBRARY_KEY = "lib_{}"
 # Each question id's kind; renaming an id or an option is a migration of the
 # threshold policy and the labelled set (ARCHITECTURE.ARCH-ADHERENCE.md, Seams).
 QUESTION_KINDS: Mapping[str, QuestionKind] = {
-    TWO_JOBS.id: QuestionKind.BINARY,
+    KIND.id: QuestionKind.BINARY,
     DOES_IO.id: QuestionKind.BINARY,
     SAME_CONCEPT.id: QuestionKind.BINARY,
     SCATTERED_POLICY.id: QuestionKind.BINARY,

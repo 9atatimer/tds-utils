@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from adherence.adapters.decide import DecideDecision
-from adherence.domain.questions import TWO_JOBS, Decision, Schema
+from adherence.domain.questions import KIND, Decision, Schema
 from adherence.ports.decision import DecisionPort
 from tests.decide_stub import LABEL, StubServer, stub_server
 from tests.decision_contract import SCHEMA, STATE, DecisionContract
@@ -89,7 +89,7 @@ def test_decide_label_only_answer_is_uncalibrated(stub: StubServer) -> None:
     answer = _through(stub.url).decide(STATE, SCHEMA, None)
 
     assert isinstance(answer, Decision), answer
-    assert answer.uncalibrated == frozenset({"two_jobs.1"})
+    assert answer.uncalibrated == frozenset({"kind.1"})
 
 
 @needs_node
@@ -99,7 +99,7 @@ def test_decide_schema_past_the_record_limit_is_split_and_answered_whole(
     """Given a schema of seventy questions, past decide's sixty-four per
     record, When the adapter asks, Then it sends two records and every
     question is answered."""
-    schema = Schema({f"two_jobs.{n}": TWO_JOBS for n in range(1, 71)})
+    schema = Schema({f"kind.{n}": KIND for n in range(1, 71)})
 
     answer = _through(stub.url).decide(STATE, schema, None)
 

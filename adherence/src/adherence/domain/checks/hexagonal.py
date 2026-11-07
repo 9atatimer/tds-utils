@@ -1,16 +1,15 @@
 """domain/checks/hexagonal.py -- the core depends on no mechanism.
 
-Grep, Arrow, Swap and Change (DESIGN.ARCH-ADHERENCE.md, The Qualities
+Grep, Swap and Change (DESIGN.ARCH-ADHERENCE.md, The Qualities
 table: Hexagonal), each a pure function over the CodeModel.
 """
 
 from __future__ import annotations
 
-from collections import deque
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 
-from adherence.domain.checks.outcome import NEEDS_DECLARATION, CheckOutcome, undeclared
+from adherence.domain.checks.outcome import CheckOutcome, undeclared
 from adherence.domain.coverage import Coverage
 from adherence.domain.declaration import Declaration, layer_of
 from adherence.domain.finding import Evidence, Finding
@@ -18,7 +17,6 @@ from adherence.domain.model import (
     AccessKind,
     CodeModel,
     Definition,
-    ImportEdge,
     Layer,
     ReferenceKind,
     Unit,
@@ -32,7 +30,6 @@ from adherence.domain.source import source_lines
 # --- Constants ---------------------------------------------------------------
 
 GREP = catalog_check("Grep")
-ARROW = catalog_check("Arrow")
 SWAP = catalog_check("Swap")
 CHANGE = catalog_check("Change")
 # Where a seam's port, policy or parameter may live: anywhere but an
@@ -66,17 +63,6 @@ NON_INTERFACE_METHODS = frozenset(
         "__hash__",
     }
 )
-_EVERY_LAYER = frozenset(Layer)
-# The layers each layer may import: cli -> application -> domain and
-# adapters -> ports -> domain; the composition root and tests reach any.
-INWARD: dict[Layer, frozenset[Layer]] = {
-    Layer.DOMAIN: frozenset({Layer.DOMAIN}),
-    Layer.PORTS: frozenset({Layer.DOMAIN, Layer.PORTS}),
-    Layer.APPLICATION: frozenset({Layer.DOMAIN, Layer.PORTS, Layer.APPLICATION}),
-    Layer.ADAPTERS: frozenset({Layer.DOMAIN, Layer.PORTS, Layer.ADAPTERS}),
-    Layer.COMPOSITION_ROOT: _EVERY_LAYER,
-    Layer.TEST: _EVERY_LAYER,
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,11 +85,6 @@ def names_vendor(module: str, vocabulary: Vocabulary) -> bool:
     return any(
         ".".join(parts[:end]) in vocabulary.vendors for end in range(1, len(parts) + 1)
     )
-
-
-def is_inward(importer: Layer, imported: Layer) -> bool:
-    """Whether an import from one layer into another crosses inward."""
-    return imported in INWARD[importer]
 
 
 def is_model_id(text: str, vocabulary: Vocabulary) -> bool:
@@ -176,154 +157,6 @@ def grep(
                 )
             )
     return CheckOutcome(tuple(findings))
-
-
-def _outward(model: CodeModel, declaration: Declaration) -> list[Finding]:
-    """Every import between two covered units that crosses outward."""
-    findings: list[Finding] = []
-    for edge in model.imports:
-        if edge.imported_path is None:
-            continue
-        layer = layer_of(edge.path, edge.line, declaration, model.regions)
-        reached = layer_of(edge.imported_path, None, declaration)
-        unit = model.unit_at(edge.path, edge.line)
-        if layer is None or reached is None or unit is None:
-            continue
-        if not is_inward(layer, reached):
-            findings.append(
-                Finding(
-                    ARROW,
-                    unit,
-                    layer,
-                    edge.imported,
-                    Evidence(edge.path, edge.line, edge.text),
-                    reached=reached,
-                )
-            )
-    return findings
-
-
-def strongly_connected(graph: Mapping[str, Sequence[str]]) -> list[list[str]]:
-    """The strongly connected components of a graph, each sorted, by
-    Tarjan's algorithm walked with an explicit stack (no recursion limit)."""
-    index: dict[str, int] = {}
-    low: dict[str, int] = {}
-    on_stack: set[str] = set()
-    stack: list[str] = []
-    components: list[list[str]] = []
-    for root in sorted(graph):
-        if root in index:
-            continue
-        work = [(root, 0)]
-        while work:
-            node, child = work.pop()
-            if child == 0:
-                index[node] = low[node] = len(index)
-                stack.append(node)
-                on_stack.add(node)
-            successors = graph.get(node, ())
-            if child < len(successors):
-                work.append((node, child + 1))
-                successor = successors[child]
-                if successor not in index:
-                    work.append((successor, 0))
-                elif successor in on_stack:
-                    low[node] = min(low[node], index[successor])
-                continue
-            if low[node] == index[node]:
-                component: list[str] = []
-                while not component or component[-1] != node:
-                    member = stack.pop()
-                    on_stack.discard(member)
-                    component.append(member)
-                components.append(sorted(component))
-            if work:
-                parent = work[-1][0]
-                low[parent] = min(low[parent], low[node])
-    return components
-
-
-def cycle_through(
-    start: str, members: Sequence[str], graph: Mapping[str, Sequence[str]]
-) -> list[str]:
-    """The shortest path from start back to itself through another member of
-    one strongly connected component, start repeated at the end; a
-    self-import is not such a path."""
-    inside = set(members)
-    previous: dict[str, str] = {}
-    queue = deque([start])
-    while queue:
-        node = queue.popleft()
-        for successor in graph.get(node, ()):
-            if successor == start and node != start:
-                path = [node]
-                while path[-1] != start:
-                    path.append(previous[path[-1]])
-                return [*reversed(path), start]
-            if successor in inside and successor not in previous:
-                previous[successor] = node
-                queue.append(successor)
-    return [start]
-
-
-def _import_graph(
-    model: CodeModel, declaration: Declaration
-) -> tuple[dict[str, list[str]], dict[tuple[str, str], ImportEdge]]:
-    """The file-to-file import graph over the units a check may read (every
-    file of an undeclared repository), and the first edge of each arc."""
-    covered = {
-        u.path for u in model.units if u.layer is not None or not declaration.declared
-    }
-    graph: dict[str, list[str]] = {}
-    first: dict[tuple[str, str], ImportEdge] = {}
-    for edge in model.imports:
-        target = edge.imported_path
-        if target is None or target == edge.path:
-            continue
-        if edge.path not in covered or target not in covered:
-            continue
-        if (edge.path, target) not in first:
-            first[(edge.path, target)] = edge
-            graph.setdefault(edge.path, []).append(target)
-    return {k: sorted(v) for k, v in graph.items()}, first
-
-
-def _cycles(model: CodeModel, declaration: Declaration) -> list[Finding]:
-    """One finding per import cycle, on its first file, naming the cycle."""
-    graph, first = _import_graph(model, declaration)
-    findings: list[Finding] = []
-    for members in strongly_connected(graph):
-        if len(members) < 2:
-            continue
-        path = cycle_through(members[0], members, graph)
-        edge = first[(path[0], path[1])]
-        unit = model.unit_at(edge.path, edge.line)
-        if unit is None:
-            continue
-        findings.append(
-            Finding(
-                ARROW,
-                unit,
-                layer_of(edge.path, edge.line, declaration, model.regions),
-                " -> ".join(path),
-                Evidence(edge.path, edge.line, edge.text),
-            )
-        )
-    return findings
-
-
-def arrow(
-    model: CodeModel,
-    declaration: Declaration,
-    records: DesignRecords | RecordsUnavailable,
-    parameters: Parameters,
-) -> CheckOutcome:
-    """Every import crosses inward and no import cycle exists. The cycle half
-    needs no declaration; the inward half compares declared layers."""
-    if not declaration.declared:
-        inward = Coverage(f"the inward half {NEEDS_DECLARATION}", check=ARROW.name)
-        return CheckOutcome(tuple(_cycles(model, declaration)), (inward,))
-    return CheckOutcome((*_outward(model, declaration), *_cycles(model, declaration)))
 
 
 def _name(definition: Definition) -> str:

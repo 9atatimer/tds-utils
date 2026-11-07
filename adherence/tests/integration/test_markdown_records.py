@@ -17,8 +17,8 @@ from adherence.adapters.markdown_records import (
     parse_radar,
     parse_records,
 )
+from adherence.domain.checks.ddd import is_traceable
 from adherence.domain.checks.declared import record_kept
-from adherence.domain.checks.layered import is_traceable
 from adherence.domain.deadline import TimedOut
 from adherence.domain.declaration import Declaration, parse_declaration
 from adherence.domain.model import Parameter

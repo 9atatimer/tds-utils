@@ -42,11 +42,11 @@ from adherence.domain.questions import (
     HAND_ROLLED_ID,
     IMPLEMENTED,
     INVARIANT_BROKEN,
+    KIND,
     RULES_ELSEWHERE,
     SAME_CONCEPT,
     SCATTERED_POLICY,
     THEN_ASSERTED,
-    TWO_JOBS,
     BandThreshold,
     ChoiceThreshold,
     ThresholdPolicy,
@@ -530,7 +530,7 @@ SHIPPED_LIMITS = Limits(
 CONSERVATIVE_BINARY = BandThreshold(finding_at=0.9, pass_below=0.35)
 SHIPPED_THRESHOLDS = ThresholdPolicy(
     {
-        TWO_JOBS.id: CONSERVATIVE_BINARY,
+        KIND.id: CONSERVATIVE_BINARY,
         DOES_IO.id: CONSERVATIVE_BINARY,
         SAME_CONCEPT.id: CONSERVATIVE_BINARY,
         SCATTERED_POLICY.id: CONSERVATIVE_BINARY,

@@ -16,12 +16,12 @@ from adherence.domain.questions import (
     HAND_ROLLED_ID,
     IMPLEMENTED,
     INVARIANT_BROKEN,
+    KIND,
     NONE,
     RULES_ELSEWHERE,
     SAME_CONCEPT,
     SCATTERED_POLICY,
     THEN_ASSERTED,
-    TWO_JOBS,
     Ask,
     Question,
     QuestionKind,
@@ -34,7 +34,7 @@ EVALS = Path(__file__).resolve().parents[1] / "evals"
 QUESTIONS: Mapping[str, Question] = {
     q.id: q
     for q in (
-        TWO_JOBS,
+        KIND,
         DOES_IO,
         SAME_CONCEPT,
         SCATTERED_POLICY,
@@ -46,7 +46,7 @@ QUESTIONS: Mapping[str, Question] = {
 }
 # The check that asks each question.
 CHECKS: Mapping[str, str] = {
-    TWO_JOBS.id: "Two jobs",
+    KIND.id: "Kind",
     DOES_IO.id: "Purity",
     SAME_CONCEPT.id: "Language",
     SCATTERED_POLICY.id: "Decision",

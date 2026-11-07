@@ -22,9 +22,9 @@ from adherence.domain.qualities import CheckKind, catalog_check
 from adherence.domain.questions import (
     HAND_ROLLED_ID,
     IMPLEMENTED,
+    KIND,
     NONE,
     THEN_ASSERTED,
-    TWO_JOBS,
     Abstention,
     Ask,
     BandThreshold,
@@ -42,7 +42,7 @@ EVIDENCE = Evidence(UNIT.path, 3, "price")
 KEY = "q.1"
 POLICY = ThresholdPolicy(
     {
-        TWO_JOBS.id: BandThreshold(finding_at=0.8, pass_below=0.3),
+        KIND.id: BandThreshold(finding_at=0.8, pass_below=0.3),
         IMPLEMENTED.id: BandThreshold(finding_at=0.8, pass_below=0.3),
         HAND_ROLLED_ID: ChoiceThreshold(at=0.7),
         THEN_ASSERTED.id: BandThreshold(finding_at=0.6, pass_below=0.2),
@@ -52,7 +52,7 @@ LIBRARIES = hand_rolled_question(2)
 NAMED = {"lib_1": "markdown-it-py", "lib_2": "click"}
 
 
-def _ask(question: Question, check: str = "Two jobs") -> Ask:
+def _ask(question: Question, check: str = "Kind") -> Ask:
     return Ask(
         check=catalog_check(check),
         question=question,
@@ -82,7 +82,7 @@ def test_judged_binary_at_or_above_its_threshold_is_a_finding(yes: float) -> Non
     """Given a binary question whose yes is a finding and the judge's yes at
     or above the threshold, When it is judged, Then it is a judged finding
     carrying that probability as its confidence."""
-    outcome = _binary(TWO_JOBS, yes)
+    outcome = _binary(KIND, yes)
 
     assert isinstance(outcome, Finding), outcome
     assert outcome.kind is CheckKind.JUDGED
@@ -96,19 +96,19 @@ def test_judged_binary_inside_its_band_is_an_abstention(yes: float) -> None:
     """Given the judge's yes just below the threshold, in the middle, or at
     the band's lower edge, When it is judged, Then it is an abstention
     carrying the probability it read -- never a finding, never a pass."""
-    outcome = _binary(TWO_JOBS, yes)
+    outcome = _binary(KIND, yes)
 
     assert isinstance(outcome, Abstention), outcome
     assert outcome.confidence == pytest.approx(yes)
-    assert outcome.question == TWO_JOBS.id
-    assert outcome.check == catalog_check("Two jobs")
+    assert outcome.question == KIND.id
+    assert outcome.check == catalog_check("Kind")
 
 
 @pytest.mark.parametrize("yes", [0.29, 0.0])
 def test_judged_binary_below_its_band_is_a_pass(yes: float) -> None:
     """Given the judge's yes below the band, When it is judged, Then it is a
     pass whose confidence is the probability of the passing answer."""
-    outcome = _binary(TWO_JOBS, yes)
+    outcome = _binary(KIND, yes)
 
     assert isinstance(outcome, Pass), outcome
     assert outcome.confidence == pytest.approx(1 - yes)
@@ -227,20 +227,20 @@ def test_judged_uncalibrated_answer_never_meets_a_threshold() -> None:
     question, never a finding: a guess is not turned into certainty."""
     decision = Decision({KEY: {"yes": 1.0, "no": 0.0}}, uncalibrated=frozenset({KEY}))
 
-    outcome = judged(_ask(TWO_JOBS), KEY, decision, POLICY)
+    outcome = judged(_ask(KIND), KEY, decision, POLICY)
 
     assert isinstance(outcome, Coverage), outcome
-    assert outcome.check == "Two jobs" and outcome.path == UNIT.path
-    assert "two_jobs" in outcome.reason
+    assert outcome.check == "Kind" and outcome.path == UNIT.path
+    assert "kind" in outcome.reason
 
 
 def test_judged_question_with_no_threshold_or_no_answer_is_coverage() -> None:
     """Given a question the policy holds no entry for, and an answer that
     omits the question or one of its options, When each is judged, Then
     each is coverage: an unanswered question is never a pass."""
-    unpolicied = judged(_ask(TWO_JOBS), KEY, _decide({"yes": 0.9}), ThresholdPolicy())
-    missing = judged(_ask(TWO_JOBS), KEY, Decision({}), POLICY)
-    partial = judged(_ask(TWO_JOBS), KEY, _decide({"yes": 0.9}), POLICY)
+    unpolicied = judged(_ask(KIND), KEY, _decide({"yes": 0.9}), ThresholdPolicy())
+    missing = judged(_ask(KIND), KEY, Decision({}), POLICY)
+    partial = judged(_ask(KIND), KEY, _decide({"yes": 0.9}), POLICY)
 
     assert isinstance(unpolicied, Coverage), unpolicied
     assert isinstance(missing, Coverage), missing
@@ -252,8 +252,8 @@ def test_unanswered_question_names_its_unit_apart_from_its_reason() -> None:
     judged, Then each coverage names its unit in the subject, and the
     reason, which says only why, is the same for both."""
     other = Ask(
-        check=catalog_check("Two jobs"),
-        question=TWO_JOBS,
+        check=catalog_check("Kind"),
+        question=KIND,
         unit=Unit(
             "src/app/domain/tax.py", UnitKind.FUNCTION, "tax", 1, 4, Layer.DOMAIN
         ),
@@ -263,7 +263,7 @@ def test_unanswered_question_names_its_unit_apart_from_its_reason() -> None:
         text="def tax(): ...",
         context="",
     )
-    first = judged(_ask(TWO_JOBS), KEY, Decision({}), POLICY)
+    first = judged(_ask(KIND), KEY, Decision({}), POLICY)
     second = judged(other, KEY, Decision({}), POLICY)
 
     assert isinstance(first, Coverage) and isinstance(second, Coverage)
@@ -279,8 +279,8 @@ def test_threshold_policy_refuses_an_empty_band_or_a_mismatched_form() -> None:
     each entry's form follows its question's kind."""
     with pytest.raises(ValueError, match="band"):
         BandThreshold(finding_at=0.5, pass_below=0.5)
-    with pytest.raises(ValueError, match="two_jobs"):
-        ThresholdPolicy({TWO_JOBS.id: ChoiceThreshold(at=0.7)})
+    with pytest.raises(ValueError, match="kind"):
+        ThresholdPolicy({KIND.id: ChoiceThreshold(at=0.7)})
 
 
 @given(st.floats(0.0, 1.0))
@@ -289,7 +289,7 @@ def test_judged_binary_outcome_always_carries_a_confidence_in_range(
 ) -> None:
     """Given any probability of yes, When a binary question is judged, Then
     the finding, pass or abstention carries a confidence between 0 and 1."""
-    outcome = _binary(TWO_JOBS, yes)
+    outcome = _binary(KIND, yes)
 
     assert isinstance(outcome, Finding | Pass | Abstention), outcome
     assert outcome.confidence is not None

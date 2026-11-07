@@ -66,10 +66,10 @@ REMOVED = Finding(
     provenance=Provenance.EXISTING,
 )
 ABSTAINED = Abstention(
-    check=catalog_check("Two jobs"),
+    check=catalog_check("Kind"),
     unit=Unit(RULES, UnitKind.FILE, None, 1, 12, Layer.DOMAIN),
     layer=Layer.DOMAIN,
-    question="two_jobs",
+    question="kind",
     subject=RULES,
     confidence=0.6,
 )

@@ -121,10 +121,10 @@ def test_measure_of_an_undeclared_repository_runs_what_needs_no_declaration() ->
 
     report = measure_with(files, facts, Declaration.none)
 
-    assert {c.name for c in report.ran_in(Quality.HEXAGONAL)} == {"Arrow"}
+    assert {c.name for c in report.ran_in(Quality.LAYERED)} == {"Arrow"}
     assert [f.check.name for f in report.findings] == ["Arrow"]
     needed = {c.check for c in report.coverage if c.check and "declaration" in c.reason}
-    assert {"Grep", "Arrow", "Swap", "Change"} <= needed
+    assert {"Grep", "Arrow", "Swap", "Change", "Wiring"} <= needed
 
 
 def test_measure_reports_a_refused_exemption_of_a_declared_check() -> None:

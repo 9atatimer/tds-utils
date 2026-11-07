@@ -52,7 +52,7 @@ def test_measure_json_over_the_fixture_prints_the_hexagonal_findings(
     assert document["not_run"] is None
     qualities = {q["quality"]: q for q in document["qualities"]}
     hexagonal = qualities[Quality.HEXAGONAL.value]
-    assert hexagonal["ran"] == ["Grep", "Arrow", "Swap", "Change"]
+    assert hexagonal["ran"] == ["Grep", "Swap", "Change"]
     found = {(f["check"], f["path"], f["subject"]) for f in hexagonal["findings"]}
     assert ("Swap", "src/tool/ports/store.py", "Store") in found
     assert ("Change", RECORD, "Clock: no port") in found
@@ -82,17 +82,27 @@ def test_measure_json_over_the_fixture_prints_the_layered_findings(
     """Given the fixture, its design record with a behavior the code carries,
     one it does not and a row nothing could trace, and its declaration with
     a runtime no unit wires, When `adhere measure --json` runs, Then the
-    Layered rule checks ran, Trace driven by the record, and their findings
-    print -- with task-060's ledger post taking a port and its restock
-    constructing an adapter, which are Layered flaws too."""
+    Layered, LAW and Trace rule checks ran and their findings print under
+    their qualities -- with task-060's ledger post taking a port (Purity,
+    LAW) and its restock constructing an adapter (Wiring, Layered)."""
     code, output = _measure(planted_repository(FIXTURE, tmp_path / "repo"))
 
     assert code == 0, output
-    layered = next(
-        q for q in json.loads(output)["qualities"] if q["quality"] == "Layered"
+    qualities = {q["quality"]: q for q in json.loads(output)["qualities"]}
+    layered, law, ddd = (
+        qualities["Layered"],
+        qualities["LAW"],
+        qualities["Domain-driven"],
     )
-    assert layered["ran"] == ["Trace", "Purity", "Wiring", "Anatomy"]
-    found = {(f["check"], f["path"], f["symbol"]) for f in layered["findings"]}
+    assert layered["ran"] == ["Arrow", "Wiring"]
+    assert law["ran"] == ["Purity", "Anatomy"]
+    assert "Trace" in ddd["ran"]
+    found = {
+        (f["check"], f["path"], f["symbol"])
+        for q in (layered, law, ddd)
+        for f in q["findings"]
+        if f["check"] in ("Trace", "Wiring", "Purity")
+    }
     assert found == {
         ("Trace", DESIGN, "An order is reopened"),
         ("Trace", DESIGN, "Orders"),
@@ -100,6 +110,6 @@ def test_measure_json_over_the_fixture_prints_the_layered_findings(
         ("Purity", "src/tool/domain/ledger.py", "post"),
         ("Wiring", "src/tool/application/ship.py", "restock"),
     }
-    subjects = " ".join(f["subject"] for f in layered["findings"])
+    subjects = " ".join(f["subject"] for q in (layered, ddd) for f in q["findings"])
     assert "reopen_order(order, store)" in subjects
     assert "runtime onefile" in subjects
