@@ -399,9 +399,10 @@ every repo the fleet works in; the owner's approval is the review.
   print `9atatimer-bot`, stop and switch identity before acting on GitHub.
 - `op run` reads the token only once 1Password authorizes it, and an
   unanswered prompt fails the command with `authorization timeout` and
-  nothing done. A wrapped commit in a `run_in_background` job hit that
-  twice on 2026-11-06 (misvtt PR#16): run each wrapped command in the
-  foreground, and on a timeout ask the human to unlock 1Password.
+  nothing done. Two wrapped commits failed that way on 2026-11-06
+  (misvtt PR#16), one in a `run_in_background` job, where the prompt
+  goes unseen: run each wrapped command in the foreground, and on a
+  timeout ask the human to unlock 1Password.
 - `<(claude-as-bot --print-env)` is a pipe, read once. Stored in an
   array and run twice, the second run fails with `bad file descriptor`.
   Put the form in a function, so each call opens a fresh one:
