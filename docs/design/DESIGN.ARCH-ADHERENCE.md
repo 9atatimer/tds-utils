@@ -441,6 +441,7 @@ checks.
 | An adapter constructed below the root is found | Given a unit outside the composition-root layer that constructs a concrete adapter, When Wiring runs, Then a finding names the unit and the adapter |
 | A file out of order is found | Given a file whose regions are not in the anatomy order, When Anatomy runs, Then a finding names the file and the first region out of place |
 | A function of two kinds is found | Given a function that does two of logic, action and workflow, When Kind runs and the judge's answer is above its threshold, Then a finding names the function and the kinds, with its confidence |
+| A unit doing two jobs is found | Superseded by A function of two kinds is found (Key Decisions, Layered and the LAW): Given a unit that does two of rules, workflow and wiring, When Kind runs and the judge's answer is above its threshold, Then a finding names the unit, with its confidence. Kept because a behavior is never removed from an approved record (Record kept) |
 | A judged check answers with a confidence | Given a unit a judged check asks about, When that judged check runs, Then the finding, pass or abstention carries a confidence |
 | A port without a fake is found | Given a port with no fake behind it anywhere in the repository, When Swap runs, Then a finding names the port |
 | A named seam is missing | Given a seam the architecture record names with no port, policy or parameter in the code, When Change runs, Then a finding names the seam |

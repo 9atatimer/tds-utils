@@ -183,6 +183,7 @@ both invoke the same CLI.
 | An adapter constructed below the root is found | (`measure`; Wiring) | CodeModelPort |
 | A file out of order is found | (`measure`; Anatomy) | CodeModelPort |
 | A function of two kinds is found | (`measure`; the Kind question) | DecisionPort |
+| A unit doing two jobs is found | (`measure`; the Kind question; superseded) | DecisionPort |
 | A judged check answers with a confidence | (`measure`; `domain/questions` applies `ThresholdPolicy` by question id and stamps `confidence` on finding, pass and abstention alike) | DecisionPort |
 | A port without a fake is found | (`measure`; Swap) | CodeModelPort |
 | A named seam is missing | (`measure`; Change) | CodeModelPort, RecordsPort |
