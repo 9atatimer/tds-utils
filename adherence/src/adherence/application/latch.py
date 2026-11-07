@@ -103,6 +103,20 @@ class LatchedRepository:
             return self._latch.unasked(f"list the history of {path}")
         return self._latch.seen(self._inner.history(path, base, deadline))
 
+    def find(
+        self, name: str, at: Base | Head, deadline: Deadline | None
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        if self._latch.tripped:
+            return self._latch.unasked(f"find every {name}")
+        return self._latch.seen(self._inner.find(name, at, deadline))
+
+    def touched(
+        self, name: str, base: Base, deadline: Deadline | None
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        if self._latch.tripped:
+            return self._latch.unasked(f"list the history of every {name}")
+        return self._latch.seen(self._inner.touched(name, base, deadline))
+
 
 class LatchedReviews:
     """ReviewPort that asks nothing once the latch has tripped."""

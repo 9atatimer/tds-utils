@@ -142,6 +142,58 @@ class RepositoryContract:
         assert repository.history("adherence.toml", base, None) == (base.revision,)
         assert repository.history("nope.toml", base, None) == ()
 
+    def test_find_lists_every_path_with_the_name(self, tmp_path: Path) -> None:
+        """Given declaration files at the root and in sub-projects, one added
+        in the index and one in the working tree, When each target is asked
+        for every adherence.toml, Then it lists exactly that target's, sorted,
+        and never a path whose name only contains it."""
+        repository, base = self.repository_with(
+            tmp_path,
+            base={
+                "adherence.toml": b"[layers]\n",
+                "pkg/adherence.toml": b"[layers]\n",
+                "pkg/x.py": b"x\n",
+                "other/adherence.toml.bak": b"\n",
+            },
+            staged={"new/deep/adherence.toml": b"[layers]\n"},
+            working={"loose/adherence.toml": b"[layers]\n"},
+        )
+
+        assert repository.find("adherence.toml", base, None) == (
+            "adherence.toml",
+            "pkg/adherence.toml",
+        )
+        assert repository.find("adherence.toml", Head.staged_index(), None) == (
+            "adherence.toml",
+            "new/deep/adherence.toml",
+            "pkg/adherence.toml",
+        )
+        assert repository.find("adherence.toml", Head.working_tree(), None) == (
+            "adherence.toml",
+            "loose/adherence.toml",
+            "new/deep/adherence.toml",
+            "pkg/adherence.toml",
+        )
+
+    def test_touched_lists_every_path_with_the_name_the_history_changed(
+        self, tmp_path: Path
+    ) -> None:
+        """Given a base whose history adds declaration files, When the paths
+        with that name its history changed are asked for, Then each is
+        listed, sorted; a name no commit changed has none."""
+        repository, base = self.repository_with(
+            tmp_path,
+            base={"adherence.toml": b"[layers]\n", "pkg/adherence.toml": b"\n"},
+            staged={},
+            working={},
+        )
+
+        assert repository.touched("adherence.toml", base, None) == (
+            "adherence.toml",
+            "pkg/adherence.toml",
+        )
+        assert repository.touched("nope.toml", base, None) == ()
+
     def test_every_method_past_the_deadline_times_out(self, tmp_path: Path) -> None:
         """Given a deadline already passed, When a file is read, a tree
         listed, a change told or a history asked for, at every target, Then
@@ -159,3 +211,6 @@ class RepositoryContract:
         changed = repository.changed(base, Head.staged_index(), PASSED)
         assert isinstance(changed, TimedOut)
         assert isinstance(repository.history("src/a.py", base, PASSED), TimedOut)
+        for at in (base, Head.staged_index(), Head.working_tree()):
+            assert isinstance(repository.find("a.py", at, PASSED), TimedOut), at
+        assert isinstance(repository.touched("a.py", base, PASSED), TimedOut)

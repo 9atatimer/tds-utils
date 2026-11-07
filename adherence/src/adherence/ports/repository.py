@@ -56,3 +56,18 @@ class RepositoryPort(Protocol):
         """The commits on the base's history that changed the path, newest
         first, each by its object id."""
         ...
+
+    def find(
+        self, name: str, at: Base | Head, deadline: Deadline | None
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        """Every file path the target holds whose last segment is the name,
+        sorted: where the target's declarations are."""
+        ...
+
+    def touched(
+        self, name: str, base: Base, deadline: Deadline | None
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        """Every path whose last segment is the name that a commit on the
+        base's history changed, sorted, including one since deleted: where
+        a declaration was ever landed."""
+        ...

@@ -182,6 +182,35 @@ def test_history_lists_newest_first_and_stops_at_the_base(tmp_path: Path) -> Non
     assert history == (second, first.revision)
 
 
+def test_touched_names_a_declaration_since_deleted(tmp_path: Path) -> None:
+    """Given a history that adds a sub-project's adherence.toml and then
+    deletes it, When the declarations the base's history touched are asked
+    for, Then the deleted one is listed beside the one still present, and
+    a file whose name only ends the same way is not."""
+    root = tmp_path / "repo"
+    make_repository(
+        root,
+        base={
+            "adherence.toml": b"a\n",
+            "pkg/adherence.toml": b"b\n",
+            "x-adherence.toml": b"c\n",
+        },
+        staged={},
+        working={},
+    )
+    git(root, "rm", "-q", "pkg/adherence.toml")
+    git(root, "commit", "-q", "-m", "drop")
+    base = Base(git(root, "rev-parse", "HEAD"))
+
+    repository = GitRepository(str(root))
+
+    assert repository.touched("adherence.toml", base, None) == (
+        "adherence.toml",
+        "pkg/adherence.toml",
+    )
+    assert repository.find("adherence.toml", base, None) == ("adherence.toml",)
+
+
 def test_changed_staged_reads_the_index_git_names_for_its_hook(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

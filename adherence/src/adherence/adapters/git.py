@@ -22,6 +22,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from adherence.domain.deadline import Deadline, TimedOut
+from adherence.domain.declaration import GLOB_CHARACTERS
 from adherence.domain.target import Base, ChangedPaths, Head, HeadKind, Rename
 from adherence.ports.repository import Absent, Refused
 
@@ -162,12 +163,16 @@ class GitRepository:
             return EMPTY_TREE
         return HOOK_BASE
 
-    def _git(self, args: list[str], deadline: Deadline | None) -> bytes:
+    def _git(
+        self, args: list[str], deadline: Deadline | None, *, glob: bool = False
+    ) -> bytes:
+        """git's output; pathspecs literal unless `glob`, which only a
+        pattern this adapter builds itself may ask for."""
         try:
             done = subprocess.run(
                 [
                     "git",
-                    "--literal-pathspecs",
+                    "--glob-pathspecs" if glob else "--literal-pathspecs",
                     *SAFE_CONFIG,
                     "-C",
                     str(self._root),
@@ -330,3 +335,40 @@ class GitRepository:
             return TimedOut("list the tree")
         except GitFailure as failure:
             return Refused(".", str(failure))
+
+    def find(
+        self, name: str, at: Base | Head, deadline: Deadline | None
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        listed = self.tree(at, deadline)
+        if isinstance(listed, Refused | TimedOut):
+            return listed
+        return tuple(p for p in listed if posixpath.basename(p) == name)
+
+    def touched(
+        self, name: str, base: Base, deadline: Deadline | None
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        if "/" in name or GLOB_CHARACTERS & set(name):
+            return Refused(name, "not a file name")
+        try:
+            listing = self._git(
+                [
+                    "log",
+                    "--format=",
+                    "--name-only",
+                    "-z",
+                    "--no-renames",
+                    base.revision,
+                    "--",
+                    f"**/{name}",
+                ],
+                deadline,
+                glob=True,
+            )
+        except _Expired:
+            return TimedOut(f"list the history of every {name}")
+        except GitFailure as failure:
+            return Refused(".", str(failure))
+        paths = listing.decode("utf-8", "surrogateescape").replace("\n", "\0")
+        return tuple(
+            sorted({p for p in paths.split("\0") if posixpath.basename(p) == name})
+        )

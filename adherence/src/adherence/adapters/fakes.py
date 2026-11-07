@@ -112,6 +112,27 @@ class FakeRepository:
             return TimedOut(f"list the history of {path}")
         return self._history.get(path, ())
 
+    def find(
+        self, name: str, at: Base | Head, deadline: Deadline | None
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        """The target's files with the name, read from its files whatever
+        `unlisted` scripts for the tree listing."""
+        self.asked.append(("find", at))
+        if self._passed(deadline):
+            return TimedOut(f"find every {name}")
+        return tuple(
+            sorted(p for p in self._files.get(at, {}) if p.rpartition("/")[2] == name)
+        )
+
+    def touched(
+        self, name: str, base: Base, deadline: Deadline | None
+    ) -> tuple[str, ...] | Refused | TimedOut:
+        """The paths with the name that `history` scripts."""
+        self.asked.append(("touched", base))
+        if self._passed(deadline):
+            return TimedOut(f"list the history of every {name}")
+        return tuple(sorted(p for p in self._history if p.rpartition("/")[2] == name))
+
     def changed(
         self, base: Base, head: Head, deadline: Deadline | None
     ) -> ChangedPaths | Refused | TimedOut:
