@@ -25,3 +25,10 @@ tree listing and merge per judgement, the percent-encoded declaration
 path in the contents URL, and the notices for deleted, created and
 unlisted declaration files. The runbook's declaration example is a
 per-package file (template-tools PR#1062) beside the root one.
+
+It also records the `ci` stage's credentials as tds-utils PR#716 built
+them, listed in Issue#721: one service account, items found by tag, the
+ids and values masked, no variables, the lookup-write credential through
+the default branch's environment. The Operability diagnosis for "the
+judge unavailable" names the Credentials step's log line, not the
+`DECIDE_*` variables.
