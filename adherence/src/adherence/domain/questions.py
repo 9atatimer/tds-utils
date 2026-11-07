@@ -87,8 +87,13 @@ KIND = _binary(
     "nothing; action performs one effect of its own (a write, a send, a "
     "mutation, a call out to the world); workflow only calls other "
     "functions, actions included, in order, and the calls it makes are its "
-    "sequencing, not actions of its own. Does this function do two or more "
-    "of the three?",
+    "sequencing, not actions of its own. A call to another function, a "
+    "method of a port, a store or a client, or a method of a domain value "
+    "is that callee's work, never this function's: a body made only of "
+    "such calls in order, passing their results along, is workflow alone. "
+    "Count an effect as this function's own only when its body performs it "
+    "directly (writes a field, opens a file, sends on a socket) beside "
+    "calls or computation. Does this function do two or more of the three?",
 )
 DOES_IO = _binary(
     "does_io",
